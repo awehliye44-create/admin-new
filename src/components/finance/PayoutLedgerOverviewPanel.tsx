@@ -19,7 +19,6 @@ import {
   COMPANY_BALANCE_ERROR,
   COMPANY_BALANCE_LABELS,
   COMPANY_BALANCE_TOOLTIPS,
-  computeDriverPayoutFunding,
 } from '../../../shared/companyBalanceSSOT';
 import { PAYOUT_LEDGER_ERROR } from '../../../shared/payoutLedgerOverviewSSOT';
 import { Info, Loader2, RefreshCw } from 'lucide-react';
@@ -36,12 +35,14 @@ function MetricCard({
   source,
   unavailableReason,
   tooltip,
+  subtitle,
 }: {
   title: string;
   value: string;
   source: string;
   unavailableReason?: string | null;
   tooltip?: string | null;
+  subtitle?: string | null;
 }) {
   return (
     <Card>
@@ -69,6 +70,9 @@ function MetricCard({
         ) : (
           <div className="text-xl font-semibold tabular-nums">{value}</div>
         )}
+        {subtitle ? (
+          <div className="text-[11px] text-muted-foreground">{subtitle}</div>
+        ) : null}
         <div className="text-[11px] text-muted-foreground">Source: {source}</div>
       </CardContent>
     </Card>
@@ -216,9 +220,6 @@ export function PayoutLedgerOverviewPanel({
   const reservedSource =
     'driver_payout_reservations ACTIVE / Driver Wallet Ledger SSOT';
 
-  const payablesPence = snap?.approved_company_payables_pence
-    ?? overview.company_payables_pending_pence
-    ?? 0;
   const reserveConfigured = snap?.operational_reserve_pence != null
     && snap?.sections?.operational_reserve?.status === 'AVAILABLE';
   const reserveCard = moneyOrUnavailable(
@@ -240,22 +241,26 @@ export function PayoutLedgerOverviewPanel({
         ? 'OPERATIONAL_RESERVE_NOT_CONFIGURED'
         : companyReason),
   );
-  const funding = snap?.driver_payout_funding_status && snap.funding_gap_pence != null
-    ? { status: snap.driver_payout_funding_status, gap_pence: snap.funding_gap_pence }
-    : computeDriverPayoutFunding({
-      provider_available_balance_pence:
-        snap?.provider_available_balance_pence ?? snap?.provider_cash_balance_pence ?? null,
-      driver_liability_pence:
-        snap?.driver_liability_pence ?? overview.driver_wallet_total_pence ?? null,
-    });
-  const fundingGap = moneyOrUnavailable(
-    funding.gap_pence,
-    funding.status === 'UNAVAILABLE' ? 'FUNDING_STATUS_UNAVAILABLE' : null,
+  const netCommission = moneyOrUnavailable(
+    overview.onecab_net_commission_available_pence ?? null,
+    overview.onecab_net_commission_available_pence == null
+      ? 'PAYMENT_SESSIONS_NET_COMMISSION_UNAVAILABLE'
+      : null,
   );
+  const otherCompanyCash = moneyOrUnavailable(
+    overview.other_company_owned_cash_pence ?? null,
+    overview.other_company_owned_cash_pence == null
+      && overview.company_available_before_operational_reserve_pence == null
+      ? 'OTHER_COMPANY_CASH_UNAVAILABLE'
+      : overview.other_company_owned_cash_pence == null
+        ? 'OTHER_COMPANY_CASH_UNAVAILABLE'
+        : null,
+  );
+  const netCommissionSource = overview.sources?.payment_sessions_net_commission
+    ?? 'Payment Sessions SSOT';
 
   const driverSource = overview.sources?.driver_wallet ?? 'Driver Wallet Ledger SSOT';
   const payoutSource = overview.sources?.driver_payouts ?? 'payout_items';
-  const companyTxSource = overview.sources?.company_transfers ?? 'company_outgoing_transfers';
   const providerSource = snap?.source_account_label
     ? `Selected Revolut Business source account`
     : 'Selected Revolut Business source account';
@@ -347,6 +352,10 @@ export function PayoutLedgerOverviewPanel({
 
       <div>
         <h3 className="text-sm font-medium mb-2">Company funding</h3>
+        <p className="text-xs text-muted-foreground mb-2">
+          Consolidated net payout / liquidity only. Gross commission, provider fees, and revenue labels
+          live on Payment Sessions — not here.
+        </p>
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <MetricCard
             title={COMPANY_BALANCE_LABELS.REVOLUT_SOURCE_ACCOUNT_BALANCE}
@@ -368,9 +377,26 @@ export function PayoutLedgerOverviewPanel({
             unavailableReason={reserved.reason}
           />
           <MetricCard
-            title={COMPANY_BALANCE_LABELS.APPROVED_COMPANY_PAYABLES}
-            value={formatNullablePence(payablesPence)}
-            source={companyTxSource}
+            title={COMPANY_BALANCE_LABELS.ONECAB_NET_COMMISSION_AVAILABLE}
+            value={netCommission.value}
+            source={netCommissionSource}
+            unavailableReason={netCommission.reason}
+            tooltip={COMPANY_BALANCE_TOOLTIPS.ONECAB_NET_COMMISSION_AVAILABLE}
+          />
+          <MetricCard
+            title={COMPANY_BALANCE_LABELS.OTHER_COMPANY_OWNED_CASH}
+            value={otherCompanyCash.value}
+            source="Company funding classification SSOT"
+            unavailableReason={otherCompanyCash.reason}
+            tooltip={COMPANY_BALANCE_TOOLTIPS.OTHER_COMPANY_OWNED_CASH}
+          />
+          <MetricCard
+            title={COMPANY_BALANCE_LABELS.ONECAB_CASH_AVAILABLE_BEFORE_OPERATIONAL_RESERVE}
+            value={beforeReserve.value}
+            source="Company Balance SSOT"
+            unavailableReason={beforeReserve.reason}
+            tooltip={COMPANY_BALANCE_TOOLTIPS.ONECAB_AVAILABLE_BEFORE_OPERATIONAL_RESERVE}
+            subtitle="Company-owned liquidity before operational reserve. Not all of this amount is current-period commission."
           />
           <MetricCard
             title={COMPANY_BALANCE_LABELS.OPERATIONAL_REFUND_RESERVE}
@@ -380,50 +406,11 @@ export function PayoutLedgerOverviewPanel({
             tooltip="Configured operational/refund reserve. NOT_CONFIGURED until an admin setting exists — never invent £0."
           />
           <MetricCard
-            title="ONECAB Available Before Operational Reserve"
-            value={beforeReserve.value}
-            source="Company Balance SSOT"
-            unavailableReason={beforeReserve.reason}
-            tooltip="Provisional residual after liabilities and payables. Not final company-owned cash while reserve is NOT_CONFIGURED."
-          />
-          <MetricCard
             title={COMPANY_BALANCE_LABELS.ONECAB_AVAILABLE_COMPANY_FUNDS}
             value={onecabFunds.value}
             source="Company Balance SSOT"
             unavailableReason={onecabFunds.reason}
             tooltip={COMPANY_BALANCE_TOOLTIPS.ONECAB_AVAILABLE_COMPANY_FUNDS}
-          />
-          <MetricCard
-            title={COMPANY_BALANCE_LABELS.DRIVER_PAYOUT_FUNDING_STATUS}
-            value={funding.status === 'UNAVAILABLE' ? 'UNAVAILABLE' : funding.status}
-            source="Company Balance SSOT"
-            unavailableReason={funding.status === 'UNAVAILABLE' ? 'FUNDING_STATUS_UNAVAILABLE' : null}
-          />
-          <MetricCard
-            title={COMPANY_BALANCE_LABELS.FUNDING_GAP}
-            value={fundingGap.value}
-            source="Company Balance SSOT"
-            unavailableReason={fundingGap.reason}
-          />
-          <MetricCard
-            title="Company Transfers Processing"
-            value={formatNullablePence(overview.company_transfers_processing_pence)}
-            source={companyTxSource}
-          />
-          <MetricCard
-            title="Company Transfers Completed Today"
-            value={formatNullablePence(overview.company_transfers_paid_today_pence)}
-            source={companyTxSource}
-          />
-          <MetricCard
-            title="Company Transfers Failed"
-            value={String(overview.company_transfers_failed_count ?? '—')}
-            source={companyTxSource}
-          />
-          <MetricCard
-            title="Awaiting Approval"
-            value={String(overview.company_awaiting_approval_count ?? '—')}
-            source={companyTxSource}
           />
         </div>
       </div>

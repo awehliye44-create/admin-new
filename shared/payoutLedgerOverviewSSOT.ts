@@ -3,6 +3,7 @@
  */
 
 import type { CompanyBalanceSnapshot } from "./companyBalanceSSOT.ts";
+import type { CompanyFundingClassifiedSource } from "./payoutLedgerCompanyFundingSSOT.ts";
 
 export const PAYOUT_LEDGER_ERROR = {
   API_UNAVAILABLE: "PAYOUT_LEDGER_API_UNAVAILABLE",
@@ -41,6 +42,10 @@ export type PayoutLedgerOverviewDto = {
 
   company_balance_pence: number | null;
   company_available_for_transfer_pence: number | null;
+  /** Consumed from Payment Sessions SSOT — never gross−fees on this page. */
+  onecab_net_commission_available_pence: number | null;
+  /** before_reserve − classified canonical company-funding sources. */
+  other_company_owned_cash_pence: number | null;
   company_payables_pending_pence: number | null;
   company_transfers_processing_pence: number | null;
   company_transfers_paid_today_pence: number | null;
@@ -60,9 +65,12 @@ export type PayoutLedgerOverviewDto = {
     driver_payouts: string;
     company_balance: string;
     company_transfers: string;
+    payment_sessions_net_commission?: string;
   };
 
   company_balance?: CompanyBalanceSnapshot;
+  /** How company-owned cash was classified for Audit History. */
+  company_funding_audit?: CompanyFundingClassifiedSource[];
 };
 
 export function emptyPayoutLedgerOverviewDto(args?: {
@@ -92,6 +100,8 @@ export function emptyPayoutLedgerOverviewDto(args?: {
     payout_failed_count: null,
     company_balance_pence: null,
     company_available_for_transfer_pence: null,
+    onecab_net_commission_available_pence: null,
+    other_company_owned_cash_pence: null,
     company_payables_pending_pence: null,
     company_transfers_processing_pence: null,
     company_transfers_paid_today_pence: null,
@@ -108,7 +118,9 @@ export function emptyPayoutLedgerOverviewDto(args?: {
       driver_payouts: "payout_items / payout_batches",
       company_balance: "Company Balance SSOT",
       company_transfers: "company_outgoing_transfers",
+      payment_sessions_net_commission: "Payment Sessions SSOT",
     },
+    company_funding_audit: [],
   };
 }
 

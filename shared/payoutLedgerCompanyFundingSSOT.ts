@@ -14,7 +14,113 @@ export const SLICE8_FUNDING_PROOF = {
   EXPECTED_RESERVED_PENCE: 1001,
   EXPECTED_COMPLETED_MONTH_PENCE: 408,
   EXPECTED_AVAILABLE_PENCE: 525,
+  /** Payment Sessions SSOT canonical net commission (consume — never recalc gross/fees). */
+  EXPECTED_NET_COMMISSION_PENCE: 172,
+  /** before_reserve − net_commission when residue is unclassified. */
+  EXPECTED_OTHER_COMPANY_CASH_PENCE: 353,
 } as const;
+
+export const PAYMENT_SESSIONS_NET_COMMISSION_SOURCE =
+  "Payment Sessions SSOT · summary.net_onecab_commission_pence";
+
+export type CompanyFundingClassificationKind =
+  | "NET_COMMISSION"
+  | "OPENING_BALANCE"
+  | "COMPANY_FUNDING"
+  | "ADJUSTMENT"
+  | "UNATTRIBUTED_CASH";
+
+export type CompanyFundingClassifiedSource = {
+  kind: CompanyFundingClassificationKind;
+  amount_pence: number;
+  label: string;
+  source: string;
+};
+
+/** Sum classified canonical company-funding sources (excludes unattributed residue). */
+export function computeClassifiedCompanyFundingSumPence(
+  sources: ReadonlyArray<Pick<CompanyFundingClassifiedSource, "kind" | "amount_pence">>,
+): number {
+  let total = 0;
+  for (const row of sources) {
+    if (row.kind === "UNATTRIBUTED_CASH") continue;
+    total += Math.max(0, Math.round(Number(row.amount_pence ?? 0)));
+  }
+  return total;
+}
+
+/**
+ * Other company-owned cash = before_reserve − classified canonical sources.
+ * Unexplained residue is never labelled commission.
+ */
+export function computeOtherCompanyOwnedCashPence(args: {
+  company_available_before_operational_reserve_pence: number | null;
+  classified_sources: ReadonlyArray<CompanyFundingClassifiedSource>;
+}): number | null {
+  const before = args.company_available_before_operational_reserve_pence;
+  if (before == null) return null;
+  const classified = computeClassifiedCompanyFundingSumPence(args.classified_sources);
+  return Math.max(0, before - classified);
+}
+
+/** Audit rows for company-owned cash classification (display / audit tab only). */
+export function buildCompanyFundingAuditRows(args: {
+  company_available_before_operational_reserve_pence: number | null;
+  onecab_net_commission_available_pence: number | null;
+  opening_balance_pence?: number | null;
+  company_funding_pence?: number | null;
+  adjustments_pence?: number | null;
+}): CompanyFundingClassifiedSource[] {
+  const rows: CompanyFundingClassifiedSource[] = [];
+
+  if (args.onecab_net_commission_available_pence != null) {
+    rows.push({
+      kind: "NET_COMMISSION",
+      amount_pence: Math.max(0, Math.round(args.onecab_net_commission_available_pence)),
+      label: "ONECAB Net Commission Available",
+      source: PAYMENT_SESSIONS_NET_COMMISSION_SOURCE,
+    });
+  }
+  if (args.opening_balance_pence != null && args.opening_balance_pence > 0) {
+    rows.push({
+      kind: "OPENING_BALANCE",
+      amount_pence: Math.round(args.opening_balance_pence),
+      label: "Opening balance",
+      source: "Company funding ledger",
+    });
+  }
+  if (args.company_funding_pence != null && args.company_funding_pence > 0) {
+    rows.push({
+      kind: "COMPANY_FUNDING",
+      amount_pence: Math.round(args.company_funding_pence),
+      label: "Company funding",
+      source: "Company funding ledger",
+    });
+  }
+  if (args.adjustments_pence != null && args.adjustments_pence !== 0) {
+    rows.push({
+      kind: "ADJUSTMENT",
+      amount_pence: Math.round(args.adjustments_pence),
+      label: "Adjustments",
+      source: "Company funding ledger",
+    });
+  }
+
+  const other = computeOtherCompanyOwnedCashPence({
+    company_available_before_operational_reserve_pence:
+      args.company_available_before_operational_reserve_pence,
+    classified_sources: rows,
+  });
+  if (other != null && other > 0) {
+    rows.push({
+      kind: "UNATTRIBUTED_CASH",
+      amount_pence: other,
+      label: "Other company-owned cash",
+      source: "Derived residue — not recognised as commission",
+    });
+  }
+  return rows;
+}
 
 /** Protected driver liabilities = sum(max(0, live_driver_wallet_balance_pence)). */
 export function sumProtectedDriverLiabilitiesPence(

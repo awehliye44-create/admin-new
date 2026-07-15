@@ -294,6 +294,9 @@ export default function PayoutLedger() {
   const companyBatches = data?.company_batches ?? [];
   const companyAuditRows = data?.company_audit_rows ?? [];
   const overview = data?.overview_summary;
+  const companyFundingAudit = data?.company_funding_audit
+    ?? overview?.company_funding_audit
+    ?? [];
   const companyBalance = data?.company_balance ?? overview?.company_balance ?? null;
   const account = accountData?.accounts?.[0] ?? accounts.find((row) => row.driver_id === driverId) ?? null;
   const summary = data?.summary;
@@ -630,6 +633,45 @@ export default function PayoutLedger() {
           </TabsContent>
 
           <TabsContent value="audit_history" className="mt-4 space-y-3">
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium">Company-owned cash classification</h3>
+              <p className="text-xs text-muted-foreground">
+                How provisional company liquidity is attributed. Net commission is consumed from Payment Sessions SSOT only — unexplained residue is never labelled commission.
+              </p>
+              {companyFundingAudit.length === 0 ? (
+                <Alert>
+                  <AlertTitle>No company funding classification yet</AlertTitle>
+                  <AlertDescription>
+                    Classification appears when Revolut source balance and Payment Sessions net commission are available on the Overview tab.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <div className="overflow-x-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Classification</TableHead>
+                        <TableHead>Label</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Source</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {companyFundingAudit.map((row) => (
+                        <TableRow key={`${row.kind}-${row.label}`}>
+                          <TableCell className="text-xs font-mono">{row.kind}</TableCell>
+                          <TableCell className="text-xs">{row.label}</TableCell>
+                          <TableCell className="text-xs tabular-nums">{formatNullablePence(row.amount_pence)}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[280px] truncate" title={row.source}>
+                            {row.source}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
             {items.length > 0 && (
               <div className="space-y-2">
                 <h3 className="text-sm font-medium">Driver payout items (audit view)</h3>

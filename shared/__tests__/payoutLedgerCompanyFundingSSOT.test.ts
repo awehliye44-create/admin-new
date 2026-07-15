@@ -5,6 +5,8 @@ import {
 } from "../companyBalanceSSOT";
 import {
   SLICE8_FUNDING_PROOF,
+  buildCompanyFundingAuditRows,
+  computeOtherCompanyOwnedCashPence,
   sumActiveReservedDriverPayoutsPence,
   sumCompletedDriverPayoutsThisMonthPence,
   sumProtectedDriverLiabilitiesPence,
@@ -21,6 +23,8 @@ const {
   EXPECTED_RESERVED_PENCE,
   EXPECTED_COMPLETED_MONTH_PENCE,
   EXPECTED_AVAILABLE_PENCE,
+  EXPECTED_NET_COMMISSION_PENCE,
+  EXPECTED_OTHER_COMPANY_CASH_PENCE,
 } = SLICE8_FUNDING_PROOF;
 
 describe("post-Slice-8 payout ledger company funding SSOT", () => {
@@ -147,5 +151,20 @@ describe("post-Slice-8 payout ledger company funding SSOT", () => {
         operational_reserve_pence: 0,
       }),
     ).toBe(EXPECTED_AVAILABLE_PENCE);
+  });
+
+  it("derives other company-owned cash as before_reserve − net commission", () => {
+    const audit = buildCompanyFundingAuditRows({
+      company_available_before_operational_reserve_pence: EXPECTED_AVAILABLE_PENCE,
+      onecab_net_commission_available_pence: EXPECTED_NET_COMMISSION_PENCE,
+    });
+    expect(audit.find((r) => r.kind === "NET_COMMISSION")?.amount_pence)
+      .toBe(EXPECTED_NET_COMMISSION_PENCE);
+    expect(audit.find((r) => r.kind === "UNATTRIBUTED_CASH")?.amount_pence)
+      .toBe(EXPECTED_OTHER_COMPANY_CASH_PENCE);
+    expect(computeOtherCompanyOwnedCashPence({
+      company_available_before_operational_reserve_pence: EXPECTED_AVAILABLE_PENCE,
+      classified_sources: audit.filter((r) => r.kind !== "UNATTRIBUTED_CASH"),
+    })).toBe(EXPECTED_OTHER_COMPANY_CASH_PENCE);
   });
 });

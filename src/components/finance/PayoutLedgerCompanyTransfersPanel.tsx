@@ -295,11 +295,6 @@ export function PayoutLedgerCompanyTransfersPanel({
     return { kind: 'unavailable' as const, reason };
   };
 
-  const providerSection = sectionValue(
-    companyBalance?.provider_available_balance_pence,
-    companyBalance?.sections?.provider_balance,
-    companyUnavailableReason,
-  );
   const liabilitySection = sectionValue(
     companyBalance?.driver_liability_pence,
     companyBalance?.sections?.driver_liabilities,
@@ -446,23 +441,26 @@ export function PayoutLedgerCompanyTransfersPanel({
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm" title="Total available cash in the selected Revolut Business account. This includes protected driver and company liabilities.">
-              Revolut Source Account Balance
+            <CardTitle
+              className="text-sm"
+              title="Final ONECAB funds after liabilities, approved payables and a configured operational reserve. UNAVAILABLE while reserve is NOT_CONFIGURED."
+            >
+              ONECAB Available Company Funds
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
-            {providerSection.kind === 'unavailable' ? (
+            {availableSection.kind === 'unavailable' ? (
               <>
                 <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
-                <div className="text-xs font-mono text-muted-foreground">{providerSection.reason}</div>
+                <div className="text-xs font-mono text-muted-foreground">{availableSection.reason}</div>
               </>
             ) : (
               <div className="text-xl font-semibold tabular-nums">
-                {formatNullablePence(providerSection.pence)}
+                {formatNullablePence(availableSection.pence)}
               </div>
             )}
             <div className="text-[11px] text-muted-foreground">
-              Source: Selected Revolut Business source account
+              Spendable company balance — never the Revolut source total
             </div>
           </CardContent>
         </Card>
@@ -515,6 +513,31 @@ export function PayoutLedgerCompanyTransfersPanel({
           <CardHeader className="pb-2">
             <CardTitle
               className="text-sm"
+              title="Provisional residual after liabilities and payables only. Not spendable until operational reserve is configured."
+            >
+              ONECAB Cash Available Before Operational Reserve
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {beforeReserveSection.kind === 'unavailable' ? (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">{beforeReserveSection.reason}</div>
+              </>
+            ) : (
+              <div className="text-xl font-semibold tabular-nums">
+                {formatNullablePence(beforeReserveSection.pence)}
+              </div>
+            )}
+            <div className="text-[11px] text-muted-foreground">
+              Provisional — not a transfer funding source while reserve is NOT_CONFIGURED
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle
+              className="text-sm"
               title="Configured operational/refund reserve. Absence = OPERATIONAL_RESERVE_NOT_CONFIGURED — never invent £0."
             >
               Operational / Refund Reserve
@@ -533,54 +556,6 @@ export function PayoutLedgerCompanyTransfersPanel({
                 {formatNullablePence(reserveSection.pence)}
               </div>
             )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle
-              className="text-sm"
-              title="Provisional residual after liabilities and payables only. Not final company funds while reserve is NOT_CONFIGURED."
-            >
-              ONECAB Available Before Operational Reserve
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            {beforeReserveSection.kind === 'unavailable' ? (
-              <>
-                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
-                <div className="text-xs font-mono text-muted-foreground">{beforeReserveSection.reason}</div>
-              </>
-            ) : (
-              <div className="text-xl font-semibold tabular-nums">
-                {formatNullablePence(beforeReserveSection.pence)}
-              </div>
-            )}
-            <div className="text-[11px] text-muted-foreground">
-              Provisional — reserve not subtracted / not final company cash
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle
-              className="text-sm"
-              title="Final ONECAB funds after liabilities, approved payables and a configured operational reserve. UNAVAILABLE while reserve is NOT_CONFIGURED."
-            >
-              ONECAB Available Company Funds
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            {availableSection.kind === 'unavailable' ? (
-              <>
-                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
-                <div className="text-xs font-mono text-muted-foreground">{availableSection.reason}</div>
-              </>
-            ) : (
-              <div className="text-xl font-semibold tabular-nums">
-                {formatNullablePence(availableSection.pence)}
-              </div>
-            )}
-            <div className="text-[11px] text-muted-foreground">Source: Company Balance SSOT</div>
           </CardContent>
         </Card>
         <Card>

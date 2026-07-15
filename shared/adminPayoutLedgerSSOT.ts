@@ -7,6 +7,7 @@
 import type { CompanyBalanceSnapshot } from "./companyBalanceSSOT.ts";
 import type { PayoutLedgerOverviewDto } from "./payoutLedgerOverviewSSOT.ts";
 import type { PayoutScheduleDto } from "./payoutScheduleSSOT.ts";
+import type { CompanyFundingClassifiedSource } from "./payoutLedgerCompanyFundingSSOT.ts";
 
 export const ADMIN_PAYOUT_LEDGER_FN = "admin-payout-ledger";
 export const ADMIN_COMPANY_TRANSFER_FN = "admin-company-outgoing-transfer";
@@ -343,6 +344,8 @@ export type AdminPayoutLedgerListResponse = {
   company_transfers?: CompanyOutgoingTransferRow[];
   company_batches?: CompanyOutgoingBatchRow[];
   company_audit_rows?: CompanyOutgoingAuditRow[];
+  /** Company-owned cash classification for Audit History tab. */
+  company_funding_audit?: CompanyFundingClassifiedSource[];
   audit_rows?: AdminPayoutLedgerAuditRow[];
   summary: {
     total_items: number;
