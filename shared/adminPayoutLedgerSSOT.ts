@@ -221,6 +221,13 @@ export type CompanyOutgoingTransferRow = {
   notes: string | null;
   attachment_url: string | null;
   batch_id: string | null;
+  /** Slice 11 */
+  blocked_reason_codes?: string[] | null;
+  approval_funding_snapshot?: Record<string, unknown> | null;
+  pre_execution_funding_snapshot?: Record<string, unknown> | null;
+  blocked_at?: string | null;
+  ready_for_execution_at?: string | null;
+  payee_id?: string | null;
 };
 
 export type CompanyOutgoingBatchRow = {

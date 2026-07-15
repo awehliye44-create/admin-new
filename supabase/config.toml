@@ -67,6 +67,12 @@ verify_jwt = false
 [functions.admin-payout-ledger]
 verify_jwt = false
 
+[functions.admin-company-outgoing-transfer]
+verify_jwt = false
+
+[functions.admin-company-payees]
+verify_jwt = false
+
 [functions.admin-finance-settlement-summary]
 verify_jwt = false
 
