@@ -65,6 +65,8 @@ interface Document {
   rejection_reason: string | null;
   reviewed_at: string | null;
   created_at: string;
+  is_current: boolean;
+  superseded_by: string | null;
   driver?: {
     id: string;
     first_name: string;
@@ -72,6 +74,7 @@ interface Document {
     phone: string;
   } | null;
 }
+
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: 'Pending Review', color: 'bg-yellow-100 text-yellow-700', icon: Clock },
