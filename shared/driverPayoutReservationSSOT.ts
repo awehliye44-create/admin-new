@@ -243,21 +243,23 @@ export function assertSlice6MoneySafety(args: {
   }
 }
 
+function getDenoEnv(): { get(key: string): string | undefined } {
+  const g = globalThis as { Deno?: { env: { get(k: string): string | undefined } } };
+  return g.Deno?.env ?? { get: () => undefined };
+}
+
 export function isLivePayoutExecutionEnabled(
-  env: { get(key: string): string | undefined } = typeof Deno !== "undefined"
-    ? Deno.env
-    : { get: () => undefined },
+  env: { get(key: string): string | undefined } = getDenoEnv(),
 ): boolean {
   return (env.get("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "false").trim().toLowerCase() === "true";
 }
 
 export function isRevolutPaymentTransportEnabled(
-  env: { get(key: string): string | undefined } = typeof Deno !== "undefined"
-    ? Deno.env
-    : { get: () => undefined },
+  env: { get(key: string): string | undefined } = getDenoEnv(),
 ): boolean {
   return (env.get("REVOLUT_PAYMENT_TRANSPORT_ENABLED") ?? "false").trim().toLowerCase() === "true";
 }
+
 
 export function sumReservationAmounts(
   rows: Array<{ amount_pence: number; status?: string }>,
