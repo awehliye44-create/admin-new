@@ -210,8 +210,10 @@ export function DriverDetailsDialog({
         .order('display_order'),
       supabase
         .from('documents')
-        .select('id, document_type, document_name, status, expiry_date, file_url')
-        .eq('driver_id', driverId),
+        .select('id, document_type, document_name, status, expiry_date, file_url, is_current, superseded_by')
+        .eq('driver_id', driverId)
+        .eq('is_current', true),
+
       supabase
         .from('drivers')
         .select('service_area_id, service_areas(name)')
