@@ -231,7 +231,8 @@ describe("Slice 5 — weekly payout batch workflow", () => {
     });
     expect(unlinked.eligible).toBe(false);
     if (unlinked.eligible) return;
-    expect(unlinked.reasons).toContain("PROVIDER_LINKAGE_REQUIRED");
+    expect((unlinked as { reasons: string[] }).reasons).toContain("PROVIDER_LINKAGE_REQUIRED");
+
   });
 
   it("12–14. Execution stops at BLOCKED_EXECUTION_DISABLED; no relay/Revolut", () => {
