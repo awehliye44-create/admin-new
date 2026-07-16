@@ -12,6 +12,9 @@ import type { CompanyFundingClassifiedSource } from "./payoutLedgerCompanyFundin
 export const ADMIN_PAYOUT_LEDGER_FN = "admin-payout-ledger";
 export const ADMIN_COMPANY_TRANSFER_FN = "admin-company-outgoing-transfer";
 export const ADMIN_COMPANY_PAYEES_FN = "admin-company-payees";
+export const ADMIN_SUBMIT_COMPANY_TRANSFER_FN = "admin-submit-company-transfer-payment";
+export const ADMIN_FINALIZE_COMPANY_TRANSFER_FN = "admin-finalize-company-transfer-completion";
+export const ADMIN_SYNC_COMPANY_TRANSFER_STATUS_FN = "admin-sync-company-transfer-provider-status";
 
 /** Top-level Payout Ledger page tabs (no new route). */
 export type AdminPayoutLedgerTopTab =
@@ -228,6 +231,14 @@ export type CompanyOutgoingTransferRow = {
   blocked_at?: string | null;
   ready_for_execution_at?: string | null;
   payee_id?: string | null;
+  /** Slice 12 provider lifecycle */
+  provider_state?: string | null;
+  provider_transaction_id?: string | null;
+  provider_created_at?: string | null;
+  provider_completed_at?: string | null;
+  last_provider_sync_at?: string | null;
+  funding_hold_status?: string | null;
+  provider_payment_id_masked?: string | null;
 };
 
 export type CompanyOutgoingBatchRow = {

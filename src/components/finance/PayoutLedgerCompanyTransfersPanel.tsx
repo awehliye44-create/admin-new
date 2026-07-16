@@ -48,6 +48,12 @@ import {
   COMPANY_TRANSFER_RECIPIENT_TYPES,
 } from '../../../shared/companyOutgoingTransferSSOT';
 import { parseLiveCompanyTransferExecutionEnabled } from '../../../shared/companyTransferLifecycleSSOT';
+import { adminCompanyTransferSubmissionDisplay } from '../../../shared/companyTransferSubmissionSSOT';
+import {
+  ADMIN_FINALIZE_COMPANY_TRANSFER_FN,
+  ADMIN_SUBMIT_COMPANY_TRANSFER_FN,
+  ADMIN_SYNC_COMPANY_TRANSFER_STATUS_FN,
+} from '../../../shared/adminPayoutLedgerSSOT';
 
 /** Slice 11: live company transfer execution stays off (client mirror; edge enforces). */
 const LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED = parseLiveCompanyTransferExecutionEnabled(
@@ -238,6 +244,25 @@ export function PayoutLedgerCompanyTransfersPanel({
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const submitProviderMutation = useMutation({
+    mutationFn: async (transferId: string) => {
+      const { data, error } = await supabase.functions.invoke(ADMIN_SUBMIT_COMPANY_TRANSFER_FN, {
+        body: { transfer_id: transferId, confirm_submit: true },
+      });
+      if (error) throw error;
+      if (!data?.ok) {
+        const codes = (data?.blocked_reason_codes ?? [data?.error_code ?? data?.error]).filter(Boolean);
+        throw new Error(codes.join(', ') || 'Provider submission blocked');
+      }
+      return data;
+    },
+    onSuccess: () => {
+      toast.success('Provider submission recorded (no completion debit in Slice 12 proof)');
+      void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   const exportRows = useMemo(
     () =>
       transfers.map((t) => ({
@@ -394,7 +419,9 @@ export function PayoutLedgerCompanyTransfersPanel({
           Revolut source-account cash is provider cash and is not wholly ONECAB-owned.
           Driver Wallet and Payment Sessions are never consumed here.
           Saved payees store encrypted bank details; UI shows masked accounts only.
-          Live Revolut execution stays gated (execute_live) during validation.
+          Live Revolut execution stays gated (Slice 12: submit/finalize blocked while
+          LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false). Provider state and funding holds
+          are shown when present; no debit until provider COMPLETED.
         </AlertDescription>
       </Alert>
 
@@ -591,6 +618,26 @@ export function PayoutLedgerCompanyTransfersPanel({
                           ? 'Execute'
                           : 'Execute (disabled)'}
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          !LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED || submitProviderMutation.isPending
+                        }
+                        title={
+                          LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
+                            ? 'Submit to Revolut provider'
+                            : 'LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false'
+                        }
+                        onClick={() => {
+                          if (!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED) return;
+                          submitProviderMutation.mutate(t.id);
+                        }}
+                      >
+                        {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
+                          ? 'Submit to provider'
+                          : 'Submit (disabled)'}
+                      </Button>
                       <Button size="sm" variant="ghost" onClick={() => void viewEvidence(t.id)}>
                         Evidence
                       </Button>
@@ -613,6 +660,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                   <TableHead>Payee</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Blocked reasons</TableHead>
+                  <TableHead>Hold</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -624,6 +672,15 @@ export function PayoutLedgerCompanyTransfersPanel({
                     <TableCell className="text-xs tabular-nums">{formatNullablePence(t.amount_pence)}</TableCell>
                     <TableCell className="text-xs font-mono max-w-[280px]">
                       {(t.blocked_reason_codes ?? []).join(', ') || t.failure_reason || '—'}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {adminCompanyTransferSubmissionDisplay({
+                        transfer_status: t.status,
+                        hold_status: t.funding_hold_status,
+                        provider_state: t.provider_state,
+                        provider_payment_id: t.provider_transaction_id,
+                        blocked_reason_codes: t.blocked_reason_codes,
+                      }).hold_label}
                     </TableCell>
                     <TableCell className="space-x-1">
                       <Button
@@ -659,17 +716,33 @@ export function PayoutLedgerCompanyTransfersPanel({
                   <TableHead>Payee</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Provider</TableHead>
+                  <TableHead>Hold</TableHead>
+                  <TableHead>Payment ref</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {processingTransfers.map((t) => (
+                {processingTransfers.map((t) => {
+                  const display = adminCompanyTransferSubmissionDisplay({
+                    transfer_status: t.status,
+                    hold_status: t.funding_hold_status,
+                    provider_state: t.provider_state,
+                    provider_payment_id: t.provider_transaction_id,
+                  });
+                  return (
                   <TableRow key={t.id}>
                     <TableCell className="font-mono text-xs">{t.transfer_ref}</TableCell>
                     <TableCell className="text-xs">{t.recipient_name}</TableCell>
                     <TableCell className="text-xs tabular-nums">{formatNullablePence(t.amount_pence)}</TableCell>
                     <TableCell><Badge variant="outline">{t.status}</Badge></TableCell>
+                    <TableCell className="text-xs">{display.provider_submission_status}</TableCell>
+                    <TableCell className="text-xs">{display.hold_label}</TableCell>
+                    <TableCell className="text-xs font-mono">
+                      {display.provider_payment_id_masked ?? '—'}
+                    </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}
@@ -1376,6 +1449,26 @@ export function PayoutLedgerCompanyTransfersPanel({
                       {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
                         ? 'Execute'
                         : 'Execute (disabled)'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        !LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED || submitProviderMutation.isPending
+                      }
+                      title={
+                        LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
+                          ? 'Submit to Revolut provider'
+                          : 'LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false'
+                      }
+                      onClick={() => {
+                        if (!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED) return;
+                        submitProviderMutation.mutate(t.id);
+                      }}
+                    >
+                      {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
+                        ? 'Submit to provider'
+                        : 'Submit (disabled)'}
                     </Button>
                     {!['PAID', 'COMPLETED', 'CANCELLED', 'REVERTED'].includes(String(t.status)) && (
                       <Button
