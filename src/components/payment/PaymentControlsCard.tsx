@@ -117,7 +117,7 @@ const formatPence = (pence: number, currency?: string | null) => {
 
 const fmtTime = (iso: string | null) => (iso ? format(new Date(iso), 'dd MMM yyyy HH:mm') : '—');
 
-type Mode = 'capture' | 'refund' | 'partial_refund' | 'edit' | 'cancel' | 'extra_payment';
+type Mode = 'capture' | 'refund' | 'partial_refund' | 'cancel' | 'extra_payment';
 
 const ACTION_LABEL: Record<AuditEntry['action'] | 'extra_payment', string> = {
   capture: 'Capture',
