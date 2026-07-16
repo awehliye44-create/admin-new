@@ -147,7 +147,7 @@ export function DriverDetailsDialog({
   const [rejectVehicleId, setRejectVehicleId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
-  const [isSendingOnboardLink, setIsSendingOnboardLink] = useState(false);
+  
   const [showManageCategories, setShowManageCategories] = useState(false);
 
   // Commission management state
@@ -583,29 +583,9 @@ export function DriverDetailsDialog({
     return driverCategories.some(dc => dc.vehicle_type_id === vehicleTypeId && dc.is_enabled);
   };
 
-  const sendOnboardingLink = async () => {
-    if (!driver) return;
-    setIsSendingOnboardLink(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('stripe-onboard-driver', {
-        body: { driver_id: driver.id },
-      });
-      if (error) throw error;
-      if (data?.url) {
-        // Copy link to clipboard
-        await navigator.clipboard.writeText(data.url);
-        toast.success('Provider onboarding link copied to clipboard! Share it with the driver.');
-        if (data.stripe_account_id && !driver.stripe_account_id) {
-          onDriverUpdate({ ...driver, stripe_account_id: data.stripe_account_id });
-        }
-      }
-    } catch (err) {
-      console.error('Error generating onboarding link:', err);
-      toast.error('Failed to generate Provider onboarding link');
-    } finally {
-      setIsSendingOnboardLink(false);
-    }
-  };
+  // Provider onboarding link generation removed with Stripe retirement.
+  // Driver payout onboarding now happens via Payout Ledger / driver payout destinations.
+
 
   if (!driver) return null;
 
@@ -752,32 +732,6 @@ export function DriverDetailsDialog({
                   chargesEnabled={driver.charges_enabled}
                 />
 
-                {false && (!driver.onboarding_complete || !driver.stripe_account_id) && (
-                  <div className="p-4 border rounded-lg space-y-3">
-                    <p className="text-sm text-muted-foreground">
-                      Provider onboarding (Provider payout service areas only).
-                    </p>
-                    {isDriverStripeOnboardingComplete(driver) ? (
-                      <p className="text-sm text-muted-foreground">
-                        Payout account is fully set up. No onboarding link is needed.
-                      </p>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={sendOnboardingLink}
-                        disabled={isSendingOnboardLink}
-                      >
-                        {isSendingOnboardLink ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Send className="mr-2 h-4 w-4" />
-                        )}
-                        {driver.stripe_account_id ? 'Resend Onboarding Link' : 'Send Onboarding Link'}
-                      </Button>
-                    )}
-                  </div>
-                )}
 
                 <div className="flex gap-2 pt-4 border-t flex-wrap">
                   <Button 

@@ -117,7 +117,7 @@ const formatPence = (pence: number, currency?: string | null) => {
 
 const fmtTime = (iso: string | null) => (iso ? format(new Date(iso), 'dd MMM yyyy HH:mm') : '—');
 
-type Mode = 'capture' | 'refund' | 'partial_refund' | 'edit' | 'cancel' | 'extra_payment';
+type Mode = 'capture' | 'refund' | 'partial_refund' | 'cancel' | 'extra_payment';
 
 const ACTION_LABEL: Record<AuditEntry['action'] | 'extra_payment', string> = {
   capture: 'Capture',
@@ -271,23 +271,6 @@ export function PaymentControlsCard({
     queryClient.invalidateQueries({ queryKey: ['finance-reconciliation-summary'] });
   };
 
-  const syncStripeMutation = useMutation({
-    mutationFn: async () => {
-      const body: Record<string, string> = { trip_id: tripId };
-      if (stateQuery.data?.trip_code) body.trip_code = stateQuery.data.trip_code;
-      const { data, error } = await supabase.functions.invoke('admin-sync-trip-payment-from-stripe', { body });
-      if (error) throw new Error(data?.error || error.message);
-      if (data?.error) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: (data) => {
-      toast.success(data.message || 'Synced from Provider');
-      refresh();
-      onActionComplete?.();
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
-
   const repairCommissionsMutation = useMutation({
     mutationFn: async (driverId: string) => {
       const { data, error } = await supabase.functions.invoke('repair-commissions', {
@@ -306,16 +289,14 @@ export function PaymentControlsCard({
   });
 
   const actionMutation = useMutation({
-    mutationFn: async (input: { mode: Mode; amount_pence?: number; new_total_pence?: number; reason: string }) => {
+    mutationFn: async (input: { mode: Mode; amount_pence?: number; reason: string }) => {
       const fn =
         input.mode === 'capture' ? 'admin-capture-trip-payment'
         : input.mode === 'refund' || input.mode === 'partial_refund' ? 'admin-refund-trip-payment'
         : input.mode === 'cancel' ? 'admin-cancel-trip-payment'
-        : input.mode === 'extra_payment' ? 'admin-request-extra-payment'
-        : 'admin-edit-trip-fare';
+        : 'admin-request-extra-payment';
       const body: Record<string, unknown> = { trip_id: tripId, reason: input.reason };
-      if (input.mode === 'edit') body.new_total_pence = input.new_total_pence;
-      else if (input.mode === 'extra_payment') {
+      if (input.mode === 'extra_payment') {
         // Server computes charge from settlement − captured; never trust UI amount.
       } else if (input.mode !== 'cancel' && input.amount_pence !== undefined) {
         body.amount_pence = input.amount_pence;
@@ -397,17 +378,12 @@ export function PaymentControlsCard({
   const blockEditFareForOutstanding = extraDuePence > 0 && !isLegacyIncomplete;
 
   const openMode = (m: Mode) => {
-    if (m === 'edit' && blockEditFareForOutstanding) {
-      toast.error('Use Request extra payment on Financial Reconciliation — Edit Fare cannot charge outstanding balance.');
-      return;
-    }
     setMode(m);
     setReason('');
     if (!state) { setAmountInput(''); return; }
     if (m === 'capture') setAmountInput(((state.final_fare_pence || state.amount_capturable_pence || state.authorized_pence) / 100).toFixed(2));
     else if (m === 'refund') setAmountInput((refundable / 100).toFixed(2));
     else if (m === 'partial_refund') setAmountInput('');
-    else if (m === 'edit') setAmountInput((state.final_fare_pence / 100).toFixed(2));
     else setAmountInput('');
   };
 
@@ -416,22 +392,19 @@ export function PaymentControlsCard({
     setReason('');
     setAmountInput((extraDuePence / 100).toFixed(2));
   };
-  const openWaive = () => {
-    setMode('edit');
-    setReason('Waive extra amount — set fare to captured total. ');
-    setAmountInput((capturedPence / 100).toFixed(2));
-  };
-  const openInternalAdjustment = () => {
-    setMode('edit');
-    setReason('Internal adjustment — ');
-    setAmountInput((settlementTotalPence / 100).toFixed(2));
-  };
 
   useEffect(() => {
     if (!initialAction || !state || stateQuery.isLoading) return;
     if (initialAction === 'extra_payment') openExtraPayment();
-    else if (initialAction === 'waive') openWaive();
-    else if (initialAction === 'internal_adjustment') openInternalAdjustment();
+    else {
+      toast.message(
+        initialAction === 'waive' ? 'Waive extra amount' : 'Internal adjustment',
+        {
+          description:
+            'Edit-fare workflow retired. Use Request extra payment, Refund, or an admin driver/customer ledger adjustment.',
+        },
+      );
+    }
     onInitialActionConsumed?.();
   }, [initialAction, state, stateQuery.isLoading]);
 
@@ -456,10 +429,6 @@ export function PaymentControlsCard({
       actionMutation.mutate({ mode, reason: reason.trim() });
       return;
     }
-    if (mode === 'edit' && blockEditFareForOutstanding) {
-      toast.error('Use Request extra payment — Edit Fare cannot charge outstanding balance.');
-      return;
-    }
     const value = Number(amountInput);
     if (!Number.isFinite(value) || value <= 0) {
       toast.error('Enter a valid amount greater than 0');
@@ -474,17 +443,14 @@ export function PaymentControlsCard({
       toast.error(`Cannot capture more than authorized (${formatPence(state.amount_capturable_pence ?? state.authorized_pence, currency)})`);
       return;
     }
-    // 'extra_payment' and 'cancel' handled above; mode is narrowed to capture | edit | partial_refund | refund here.
 
-    if (mode === 'edit') actionMutation.mutate({ mode, new_total_pence: pence, reason: reason.trim() });
-    else if (mode) actionMutation.mutate({ mode, amount_pence: pence, reason: reason.trim() });
+    if (mode) actionMutation.mutate({ mode, amount_pence: pence, reason: reason.trim() });
   };
 
   const dialogTitle = {
     capture: 'Capture payment',
     refund: 'Full refund',
     partial_refund: 'Partial refund',
-    edit: 'Edit trip fare',
     cancel: 'Cancel hold (release authorization)',
     extra_payment: 'Request extra payment',
   }[mode ?? 'capture'];
@@ -538,8 +504,12 @@ export function PaymentControlsCard({
                 showActions={extraDuePence > 0 && !isLegacyIncomplete}
                 onAction={(action) => {
                   if (action === 'extra_payment') openExtraPayment();
-                  else if (action === 'waive') openWaive();
-                  else openInternalAdjustment();
+                  else {
+                    toast.message(
+                      action === 'waive' ? 'Waive extra amount' : 'Internal adjustment',
+                      { description: 'Edit-fare workflow retired. Use Refund or an admin ledger adjustment instead.' },
+                    );
+                  }
                 }}
                 actionsDisabled={actionMutation.isPending}
               />
@@ -779,15 +749,13 @@ export function PaymentControlsCard({
                   stripeSettlementVerified: state.stripe_settlement_verified,
                   actionsAllowed: state.actions_allowed,
                 }}
-                actionsDisabled={actionMutation.isPending || syncStripeMutation.isPending || repairCommissionsMutation.isPending}
-                isPending={actionMutation.isPending || syncStripeMutation.isPending || repairCommissionsMutation.isPending}
+                actionsDisabled={actionMutation.isPending || repairCommissionsMutation.isPending}
+                isPending={actionMutation.isPending || repairCommissionsMutation.isPending}
                 onCapture={() => openMode('capture')}
                 onRefundFull={() => openMode('refund')}
                 onRefundPartial={() => openMode('partial_refund')}
                 onCancelAuthorisation={() => openMode('cancel')}
-                onResyncStripe={() => syncStripeMutation.mutate()}
                 onRequestExtraPayment={() => openExtraPayment()}
-                onRepairSettlement={() => syncStripeMutation.mutate()}
                 onRecalculateSettlement={() => {
                   const driverId = state.driver_id;
                   if (!driverId) {
@@ -805,7 +773,6 @@ export function PaymentControlsCard({
                   repairCommissionsMutation.mutate(driverId);
                 }}
                 onViewAuditLog={() => setAuditOpen(true)}
-                onPlatformAdjustment={() => openInternalAdjustment()}
                 onDriverCredit={() => {
                   if (!state.driver_id) {
                     toast.error('No driver assigned');
@@ -857,19 +824,6 @@ export function PaymentControlsCard({
               <Badge variant="outline" className="text-xs">Fully refunded — refund actions disabled; history remains visible above.</Badge>
             )}
 
-            {/* Legacy quick actions retained for edit fare when no outstanding balance */}
-            {showTripActionsPanel && (isUncaptured || hasCharge) && !blockEditFareForOutstanding && (
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={() => openMode('edit')} disabled={actionMutation.isPending}>
-                  <Pencil className="h-4 w-4 mr-1" /> Edit Fare
-                </Button>
-              </div>
-            )}
-            {blockEditFareForOutstanding && (
-              <p className="text-xs text-amber-700 w-full">
-                Edit Fare is disabled while an outstanding balance exists — use Request extra payment (SSOT).
-              </p>
-            )}
 
             {/* Audit log */}
             <Collapsible open={auditOpen} onOpenChange={setAuditOpen}>
@@ -923,7 +877,7 @@ export function PaymentControlsCard({
           <div className="space-y-3">
             {mode !== 'cancel' && mode !== 'extra_payment' && (
               <div>
-                <Label>{mode === 'edit' ? 'New total' : 'Amount'} ({currency})</Label>
+                <Label>Amount ({currency})</Label>
                 <Input
                   type="number" step="0.01" min="0.01"
                   value={amountInput}

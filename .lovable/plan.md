@@ -1,71 +1,40 @@
-# P0 — Driver Document Expiry SSOT (Canonical Fix)
+## Context
 
-## Root-cause evidence (Ahmed Osman MK0001, 14 Jul 2026)
+Two admin UI paths still invoke edge functions that were permanently removed during the Stripe → Revolut migration. Because your project rule is "delete legacy code, never leave fallbacks", the fix is to remove these UI paths entirely rather than re-add Stripe backends.
 
-| Doc type | Row id | Status | Expiry | Days expired |
-|---|---|---|---|---|
-| phv_license | d01e6c60… | approved | 2026-07-11 | 3 |
-| phv_license | a3f19d68… | approved | 2026-07-03 | 11 (duplicate) |
-| dvla_driving_license | 99d9ea67… | approved | 2026-07-09 | 5 |
-| phd_badge | 77ec783c… | approved | 2026-07-03 | 11 |
+- `admin-edit-trip-fare` — deleted. Called by **Edit Fare**, **Waive extra amount**, **Internal adjustment** in `PaymentControlsCard`.
+- `stripe-onboard-driver` — deleted. Called by **Send onboarding link** in `DriverDetailsDialog`.
+- `admin-sync-trip-payment-from-stripe` — still exists as a file but is Stripe-only and the UI already hard-codes `canSyncStripe = false`. It is dead code in a Revolut-only world.
 
-**Why Admin shows Expired and Driver App doesn't visibly show it:**
-1. Driver App `DocumentUpload.tsx` renders the expired badge (orange) **but** the status icon stays green (`getStatusIcon(doc.status)` uses raw `status='approved'`), and `stats.approved` counts expired docs → screen reads as compliant.
-2. `useDocumentTypes` ignores `service_area_document_rules`; expiry is recomputed client-side with `new Date()` (no TZ/SSOT).
-3. `.find()` on duplicate rows per slug is non-deterministic (no `is_current` concept).
-4. Admin uses `src/lib/driverDocumentCompliance.ts` (Europe/London SSOT). Driver App has its own duplicated logic.
+## Changes
 
-## Fix — one backend SSOT, both apps consume it
+### 1. `src/components/payment/PaymentControlsCard.tsx`
+- Delete `syncStripeMutation` (Stripe-only, unreachable via `canSyncStripe = false`).
+- Delete `openWaive`, `openInternalAdjustment`, and the `'edit'` branch that maps to `admin-edit-trip-fare` in `actionMutation`.
+- Remove the "Edit Fare" button (line ~863) and the platform-adjustment / waive entry points wired through `FinanceTripActionsPanel` (`onPlatformAdjustment`, `onResyncStripe`, `onRepairSettlement`).
+- Remove the `FinanceRecoveryAction` values `'waive'` and `'internal_adjustment'` and the `initialAction` branches that call the removed handlers.
+- Keep capture / refund / cancel / extra_payment (they call live Revolut-aware functions).
 
-### 1. Database migration (this Supabase, shared by both apps)
+### 2. `src/components/finance/FinanceTripActionsPanel.tsx`
+- Drop the props `onResyncStripe`, `onRepairSettlement`, `onPlatformAdjustment` and any buttons that render them. Fare corrections now happen through the Payment Sessions recovery flow only.
 
-- Add columns to `public.documents`:
-  - `is_current boolean not null default true`
-  - `superseded_by uuid null references public.documents(id) on delete set null`
-- Trigger `trg_documents_mark_superseded`: on insert/update of a `(driver_id, document_type)` row, set older approved rows for the same pair to `is_current=false`, `superseded_by=new.id`.
-- Backfill: for every `(driver_id, document_type)` group, keep only latest `updated_at` as current.
-- SECURITY DEFINER view `public.driver_document_compliance_ssot` (`security_invoker=off`, `security_barrier=true`) joining `drivers` × `document_types` × `documents` and returning per required doc-type:
-  - `driver_id`, `document_type_id`, `document_type_key`, `display_name`
-  - `document_id`, `approval_status`, `expiry_date`
-  - `expiry_status` ∈ (`missing`, `pending`, `approved_valid`, `expiring_soon`, `expired`, `rejected`, `superseded`) — computed with Europe/London calendar (`(expiry_date AT TIME ZONE 'Europe/London')::date`)
-  - `days_until_expiry`, `is_required`, `is_current`, `is_superseded`, `blocks_online`, `replacement_document_id`, `last_updated_at`
-- RPC `public.get_driver_document_compliance(_driver_id uuid default null)` — returns SSOT rows for the caller's canonical driver (resolves via `drivers.user_id = auth.uid()`) or, for admin/staff, any driver.
-- Grants: `EXECUTE` to `authenticated`; `SELECT` on view to `authenticated` (RLS via wrapper).
+### 3. `src/components/drivers/DriverDetailsDialog.tsx`
+- Remove `sendOnboardingLink` and its button. Driver payout onboarding is Revolut-side; there is no equivalent admin-triggered onboarding link right now.
+- If a placeholder is needed, show a short note pointing admins to the Payout Ledger / driver payout destination flow.
 
-### 2. Admin UI (this repo)
+### 4. Delete unused edge function
+- `supabase/functions/admin-sync-trip-payment-from-stripe/` — remove the directory. It has no live caller after step 1.
 
-- `src/components/documents/*` and any driver-detail doc panel: split ambiguous "Status" into two columns:
-  - **Review status**: Approved / Pending / Rejected
-  - **Validity status**: Valid / Expiring soon (n days) / Expired (n days ago) / N/A
-- Consume the new RPC instead of ad-hoc queries where possible; keep `driverDocumentCompliance.ts` as a thin wrapper that now trusts server `expiry_status`.
+### 5. Search sweep
+- `rg "admin-edit-trip-fare|stripe-onboard-driver|admin-sync-trip-payment-from-stripe"` after the edits to confirm zero remaining references (source, tests, docs — docs may stay for history).
 
-### 3. Driver App patch (handed off, separate repo)
+## Verification
 
-Produce `docs/DRIVER_APP_DOCUMENT_SSOT_PATCH.md` with copy-pasteable diffs:
-- Replace `DocumentUpload.tsx` merge/filter logic with a call to `supabase.rpc('get_driver_document_compliance')`.
-- Delete client-side `isExpired` / `new Date()` comparisons.
-- Fix `getStatusIcon` to switch on server `expiry_status` (`expired` → red AlertCircle, `expiring_soon` → orange, etc.).
-- Fix `stats` to derive from `expiry_status` (`Approved` count excludes expired).
-- Add an "Expired" stat card and reorder list: Expired → Rejected → Missing → Expiring soon → Pending → Valid.
-- Update `useDriverApproval.ts` to consume the RPC (delete duplicate expiry math).
-- **User applies the patch** in the Driver App project (Lovable cross-project is read-only).
+- Typecheck passes.
+- Manual: open a trip's payment controls → Edit Fare / Waive / Internal Adjustment buttons are gone; capture / refund still work.
+- Manual: open a driver in Driver Details → no "Send onboarding link" button.
+- `rg` sweep returns 0 code references.
 
-### 4. Evidence & tests
+## Out of scope
 
-- SQL audit script under `scripts/sql/driver-document-ssot-audit.sql` (dupes, non-canonical driver_id, orphan document rows).
-- Vitest in this repo covering: approved+valid, approved+expiring, approved+expired, rejected, missing, pending replacement, expired+valid replacement, TZ boundary at 23:59 London.
-- `docs/DRIVER_DOCUMENT_SSOT_ROOTCAUSE_2026-07-14.md` — full root-cause + before/after evidence for MK0001.
-
-## Acceptance
-
-- Admin driver-detail doc list shows Ahmed's PHV / DVLA / PHD as Approved (review) + Expired (validity), with days-expired.
-- New RPC returns 3 `expired` rows for Ahmed; running the RPC as Ahmed (via Driver App) returns the same list.
-- After Driver App patch is applied there, expired docs show a red icon and "Expired X days ago", not a green check.
-- Duplicate `phv_license` row is marked `is_current=false`.
-- `can_go_online` (server-computed) is `false` for Ahmed until renewals are uploaded and approved.
-
-## Out of scope (explicit)
-
-- I cannot push commits into the ONECAB Driver repo; that patch is handed off as a document.
-- No change to auth/session behaviour — expired docs block GO Online only, they do not sign the driver out.
-- No hardcoding of the three flagged documents; the fix is data-driven across all required types.
+- Building a Revolut-native replacement for admin-side fare editing or driver payout onboarding link generation. Those are new features and should be scoped separately if needed.
