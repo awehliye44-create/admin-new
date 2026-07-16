@@ -50,7 +50,7 @@ import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { isActiveTripDbStatus } from '@/lib/activeTripStatuses';
 import { filterAdminActiveTrips } from '@/lib/adminActiveTripFilter';
-import { PaymentHoldsDashboardAlert } from '@/components/finance/PaymentHoldsDashboardAlert';
+
 
 interface Stats {
   totalDrivers: number;
