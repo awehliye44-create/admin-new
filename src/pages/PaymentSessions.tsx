@@ -55,7 +55,9 @@ import { PaymentSessionsKpiStrip, type PaymentSessionsKpiDrill } from '@/compone
 import { PaymentSessionsCompletedTripsTable } from '@/components/finance/PaymentSessionsCompletedTripsTable';
 import { PaymentSessionsMatchingTable } from '@/components/finance/PaymentSessionsMatchingTable';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 import type { PaymentTripMatchStatus } from '../../shared/paymentSessionsTripMatchSSOT';
+
 
 const TABS: Array<{ id: AdminPaymentSessionsTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
@@ -105,14 +107,18 @@ function SessionActions({
   onAction,
   onRefund,
   onInspect,
+  onRequestRecovery,
 }: {
+
   row: AdminPaymentSessionsListRow;
   actingId: string | null;
   inspectingId: string | null;
   onAction: (row: AdminPaymentSessionsListRow, action: 'release' | 'retry_release' | 'retry_recovery') => void;
   onRefund: (row: AdminPaymentSessionsListRow) => void;
   onInspect: (row: AdminPaymentSessionsListRow) => void;
+  onRequestRecovery: (row: AdminPaymentSessionsListRow) => void;
 }) {
+
   const key = row.provider_order_id || row.payment_session_id || row.id;
   const busy = actingId === key;
   const inspecting = inspectingId === key;
@@ -158,6 +164,18 @@ function SessionActions({
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Refund'}
         </Button>
       )}
+      {row.trip_id
+        && row.purpose !== 'PAYMENT_RECOVERY'
+        && (
+          row.release_failure_reason === 'PAYMENT_GATE_BREACH_NO_CAPTURE'
+          || row.hold_terminal_reason === 'PAYMENT_GATE_BREACH_NO_CAPTURE'
+          || row.evidence_status === 'CAPTURE_ZERO_INVALID'
+          || row.evidence_status === 'CAPTURE_AMOUNT_MISMATCH'
+        ) && (
+          <Button size="sm" variant="default" disabled={busy} onClick={() => onRequestRecovery(row)}>
+            Request customer payment
+          </Button>
+        )}
       {row.provider_order_id && (
         <Button size="sm" variant="ghost" disabled={inspecting} onClick={() => onInspect(row)}>
           {inspecting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Provider evidence'}
@@ -166,6 +184,7 @@ function SessionActions({
       {row.provider_verification_status === 'UNAVAILABLE' && (
         <Badge variant="destructive">Provider verification unavailable</Badge>
       )}
+
     </div>
   );
 }
@@ -452,7 +471,46 @@ export default function PaymentSessions() {
     [refundAction, refetch],
   );
 
+  const runRequestRecovery = useCallback(
+    async (row: AdminPaymentSessionsListRow) => {
+      if (!row.trip_id) {
+        toast.error('Trip id is required to open a recovery payment');
+        return;
+      }
+      const actionKey = row.provider_order_id || row.payment_session_id || row.id;
+      setActingId(actionKey);
+      try {
+        const { data, error } = await supabase.functions.invoke('create-payment-recovery', {
+          body: {
+            trip_id: row.trip_id,
+            parent_session_id: row.payment_session_id ?? null,
+          },
+        });
+        if (error) throw error;
+        const payload = (data ?? {}) as { checkout_url?: string; reused?: boolean };
+        if (payload.checkout_url) {
+          try { await navigator.clipboard.writeText(payload.checkout_url); } catch { /* ignore */ }
+          toast.success(
+            payload.reused
+              ? 'Existing recovery link copied to clipboard'
+              : 'Recovery checkout link created and copied to clipboard',
+          );
+          window.open(payload.checkout_url, '_blank', 'noopener');
+        } else {
+          toast.success('Recovery session created');
+        }
+        await refetch();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Recovery request failed');
+      } finally {
+        setActingId(null);
+      }
+    },
+    [refetch],
+  );
+
   const runInspect = useCallback(
+
     async (row: AdminPaymentSessionsListRow) => {
       if (!row.provider_order_id) {
         toast.error('Missing provider order id');
@@ -1072,6 +1130,8 @@ export default function PaymentSessions() {
                                   onAction={runAction}
                                   onRefund={runRefund}
                                   onInspect={runInspect}
+                                  onRequestRecovery={runRequestRecovery}
+
                                 />
                                 <Button
                                   size="sm"
