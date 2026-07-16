@@ -298,7 +298,14 @@ export default function PayoutLedger() {
     ?? overview?.company_funding_audit
     ?? [];
   const companyBalance = data?.company_balance ?? overview?.company_balance ?? null;
-  const account = accountData?.accounts?.[0] ?? accounts.find((row) => row.driver_id === driverId) ?? null;
+  // Driver ID SSOT: NEVER fall back to accounts[0]. The accounts_overview endpoint
+  // does not filter by driver_id server-side, so index 0 is always the first fleet row
+  // (previously caused clicking Bosteyo to open Ahmed). Match strictly by driver_id.
+  const account = driverId
+    ? (accountData?.accounts?.find((row) => row.driver_id === driverId)
+      ?? accounts.find((row) => row.driver_id === driverId)
+      ?? null)
+    : null;
   const summary = data?.summary;
   const fleet = data?.fleet_summary;
   const ledgerErrorCode = data?.error_code
