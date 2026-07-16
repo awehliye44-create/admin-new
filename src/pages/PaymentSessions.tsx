@@ -114,7 +114,9 @@ function SessionActions({
   onAction: (row: AdminPaymentSessionsListRow, action: 'release' | 'retry_release' | 'retry_recovery') => void;
   onRefund: (row: AdminPaymentSessionsListRow) => void;
   onInspect: (row: AdminPaymentSessionsListRow) => void;
+  onRequestRecovery: (row: AdminPaymentSessionsListRow) => void;
 }) {
+
   const key = row.provider_order_id || row.payment_session_id || row.id;
   const busy = actingId === key;
   const inspecting = inspectingId === key;
