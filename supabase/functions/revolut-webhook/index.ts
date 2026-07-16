@@ -248,6 +248,7 @@ Deno.serve(async (req) => {
       event: eventName,
       state: stateFromEvent ?? null,
       applied_status: nextStatus,
+      provider_fee_pence: feeMinor,
       data: event.data ?? null,
     },
   });
