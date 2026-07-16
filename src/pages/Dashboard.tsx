@@ -50,7 +50,7 @@ import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { isActiveTripDbStatus } from '@/lib/activeTripStatuses';
 import { filterAdminActiveTrips } from '@/lib/adminActiveTripFilter';
-import { PaymentHoldsDashboardAlert } from '@/components/finance/PaymentHoldsDashboardAlert';
+
 
 interface Stats {
   totalDrivers: number;
@@ -416,7 +416,7 @@ export default function Dashboard() {
 
   return (
     <AdminLayout title="Dashboard" description="Dashboard › Main Dashboard">
-      <PaymentHoldsDashboardAlert />
+      
       {/* Header with filters */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-4">

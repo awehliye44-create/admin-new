@@ -10,7 +10,7 @@ import {
   classifyFinanceMismatch,
   type FinanceAlertItem,
 } from '@/lib/financeAlertClassification';
-import { PaymentHoldsFinanceAlertSummary } from '@/components/finance/PaymentHoldsFinanceAlertSummary';
+
 
 type AlertListItem = {
   id: string;
@@ -117,7 +117,7 @@ export function FinancialReconciliationAlertsTab({
 
   return (
     <div className="space-y-4">
-      {!mismatchOnly ? <PaymentHoldsFinanceAlertSummary /> : null}
+      
 
       {uniqueAlerts.length === 0 ? (
         <Alert>

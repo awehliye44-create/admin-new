@@ -12,7 +12,7 @@ import {
   ServiceAreaGatewayStatusPanel,
   type ServiceAreaGatewayStatusRow,
 } from '@/components/finance/ServiceAreaGatewayStatusPanel';
-import { PaymentHoldsFinanceAlertSummary } from '@/components/finance/PaymentHoldsFinanceAlertSummary';
+
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import { useDriverWalletSsotAll } from '@/hooks/useDriverWalletSsot';
 import { aggregateFrDriverAuditOverview } from '@/lib/frDriverAuditOverviewSSOT';
@@ -119,7 +119,7 @@ export function FinancialReconciliationOverviewTab({
 
   return (
     <div className="space-y-4">
-      <PaymentHoldsFinanceAlertSummary />
+      
       <p className="text-xs text-muted-foreground">
         Audit totals only — customer capture from Payment Sessions, wallet from Driver Wallet Ledger, payouts from Payout Ledger.
         Bank transfer lifecycle:{' '}
