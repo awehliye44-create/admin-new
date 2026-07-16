@@ -65,6 +65,18 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // --- P0 PAYMENT GATE: block driver-assign on digital trips whose payment is not authoritative ---
+    try {
+      await assertPaymentGate(supabase, trip_id);
+    } catch (e) {
+      if (e instanceof PaymentGateError) {
+        console.log(`[accept-trip] PAYMENT_GATE_NOT_SATISFIED trip=${trip_id}: ${e.message}`);
+        return errorResponse('Payment authorisation required before this trip can be accepted', 409,
+          { detail: e.message }, 'PAYMENT_GATE_NOT_SATISFIED');
+      }
+      throw e;
+    }
+
     // --- OFFER TOGGLE + SCHEDULE ENFORCEMENT ---
     // Get the trip's service_area_id first
     const { data: tripForSA } = await supabase
