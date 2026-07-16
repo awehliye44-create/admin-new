@@ -34,12 +34,14 @@ export interface CreateOrderParams {
   tripId: string;
   description?: string;
   metadata?: Record<string, string>;
+  captureMode?: "manual" | "automatic";   // Defaults to "manual" (pre-auth flow).
+  merchantOrderExtRef?: string;           // Override default (trip id) — required for recovery attempts.
 }
 
 /**
- * Create a Revolut order with manual capture.
- * Response includes `token` (used by the Revolut checkout JS widget) and
- * `checkout_url` (hosted redirect fallback).
+ * Create a Revolut order. Defaults to manual capture (pre-auth flow used at
+ * booking time). Recovery attempts pass captureMode: "automatic" because the
+ * final fare is already known and there is no separate capture step.
  */
 export async function createRevolutOrder(p: CreateOrderParams): Promise<RevolutOrder> {
   return await revolutMerchantRequest<RevolutOrder>(
@@ -51,14 +53,15 @@ export async function createRevolutOrder(p: CreateOrderParams): Promise<RevolutO
       body: JSON.stringify({
         amount: p.amountMinor,
         currency: p.currency.toUpperCase(),
-        capture_mode: "manual",
-        merchant_order_ext_ref: p.tripId,
+        capture_mode: p.captureMode ?? "manual",
+        merchant_order_ext_ref: p.merchantOrderExtRef ?? p.tripId,
         description: p.description ?? "ONECAB trip payment",
         metadata: p.metadata ?? {},
       }),
     },
   );
 }
+
 
 export async function retrieveRevolutOrder(
   environment: ProviderEnvironment,
