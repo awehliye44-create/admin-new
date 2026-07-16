@@ -107,7 +107,9 @@ function SessionActions({
   onAction,
   onRefund,
   onInspect,
+  onRequestRecovery,
 }: {
+
   row: AdminPaymentSessionsListRow;
   actingId: string | null;
   inspectingId: string | null;
