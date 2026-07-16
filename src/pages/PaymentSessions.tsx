@@ -162,6 +162,18 @@ function SessionActions({
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Refund'}
         </Button>
       )}
+      {row.trip_id
+        && row.purpose !== 'PAYMENT_RECOVERY'
+        && (
+          row.release_failure_reason === 'PAYMENT_GATE_BREACH_NO_CAPTURE'
+          || row.hold_terminal_reason === 'PAYMENT_GATE_BREACH_NO_CAPTURE'
+          || row.evidence_status === 'CAPTURE_ZERO_INVALID'
+          || row.evidence_status === 'CAPTURE_AMOUNT_MISMATCH'
+        ) && (
+          <Button size="sm" variant="default" disabled={busy} onClick={() => onRequestRecovery(row)}>
+            Request customer payment
+          </Button>
+        )}
       {row.provider_order_id && (
         <Button size="sm" variant="ghost" disabled={inspecting} onClick={() => onInspect(row)}>
           {inspecting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Provider evidence'}
@@ -170,6 +182,7 @@ function SessionActions({
       {row.provider_verification_status === 'UNAVAILABLE' && (
         <Badge variant="destructive">Provider verification unavailable</Badge>
       )}
+
     </div>
   );
 }
