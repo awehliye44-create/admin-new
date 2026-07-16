@@ -405,6 +405,17 @@ export default function ManualTrip() {
       return;
     }
 
+    // P0 PAYMENT GATE: Admin manual trips cannot originate a customer-authorised
+    // digital payment. Digital methods must go through the customer app checkout
+    // + finalize_paid_booking_session RPC. Enforced server-side by the
+    // trg_enforce_digital_payment_gate trigger; this UI guard surfaces a clear
+    // message before the round-trip.
+    const digitalMethods = ['card', 'apple_pay', 'google_pay'];
+    if (digitalMethods.includes(String(paymentMethod).toLowerCase())) {
+      toast.error('Digital payments (Card / Apple Pay / Google Pay) must be captured by the customer in the app. For admin manual bookings, use wallet or corporate billing.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
