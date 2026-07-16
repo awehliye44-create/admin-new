@@ -271,23 +271,6 @@ export function PaymentControlsCard({
     queryClient.invalidateQueries({ queryKey: ['finance-reconciliation-summary'] });
   };
 
-  const syncStripeMutation = useMutation({
-    mutationFn: async () => {
-      const body: Record<string, string> = { trip_id: tripId };
-      if (stateQuery.data?.trip_code) body.trip_code = stateQuery.data.trip_code;
-      const { data, error } = await supabase.functions.invoke('admin-sync-trip-payment-from-stripe', { body });
-      if (error) throw new Error(data?.error || error.message);
-      if (data?.error) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: (data) => {
-      toast.success(data.message || 'Synced from Provider');
-      refresh();
-      onActionComplete?.();
-    },
-    onError: (err: Error) => toast.error(err.message),
-  });
-
   const repairCommissionsMutation = useMutation({
     mutationFn: async (driverId: string) => {
       const { data, error } = await supabase.functions.invoke('repair-commissions', {
