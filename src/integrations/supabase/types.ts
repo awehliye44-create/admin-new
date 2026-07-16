@@ -20593,6 +20593,7 @@ export type Database = {
         Args: { _trip_id: string }
         Returns: boolean
       }
+      assert_payment_gate: { Args: { p_trip_id: string }; Returns: undefined }
       assign_trip_number: {
         Args: { p_service_area_id: string; p_trip_id: string }
         Returns: Json
@@ -21111,6 +21112,10 @@ export type Database = {
           p_trip_id: string
         }
         Returns: Json
+      }
+      finalize_paid_booking_session: {
+        Args: { p_payment_session_id: string }
+        Returns: string
       }
       find_nearby_drivers: {
         Args: {
@@ -21824,6 +21829,7 @@ export type Database = {
           updated_at: string
         }[]
       }
+      payment_gate_historical_audit: { Args: never; Returns: Json }
       payment_session_action_policy: {
         Args: { p_provider_verification?: Json; p_session_id: string }
         Returns: Json
