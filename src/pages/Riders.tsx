@@ -401,6 +401,7 @@ export default function Riders() {
                   <TableHead>Customer ID</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Phone</TableHead>
+                  <TableHead>Email</TableHead>
                   <TableHead>Trips</TableHead>
                   <TableHead>Last Trip</TableHead>
                   <TableHead>Joined</TableHead>
