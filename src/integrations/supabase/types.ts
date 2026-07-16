@@ -22467,6 +22467,12 @@ export type Database = {
         | "PARTIAL_CAPTURE_ONLY"
         | "PAYMENT_RECOVERY_REQUIRED"
         | "CAPTURE_CONFIRMED"
+        | "RECOVERY_CHECKOUT_CREATED"
+        | "CUSTOMER_ACTION_REQUIRED"
+        | "RECOVERY_COMPLETED"
+        | "RECOVERY_DECLINED"
+        | "RECOVERY_CANCELLED"
+        | "RECOVERY_EXPIRED"
       staff_role:
         | "super_admin"
         | "admin"
@@ -22691,6 +22697,12 @@ export const Constants = {
         "PARTIAL_CAPTURE_ONLY",
         "PAYMENT_RECOVERY_REQUIRED",
         "CAPTURE_CONFIRMED",
+        "RECOVERY_CHECKOUT_CREATED",
+        "CUSTOMER_ACTION_REQUIRED",
+        "RECOVERY_COMPLETED",
+        "RECOVERY_DECLINED",
+        "RECOVERY_CANCELLED",
+        "RECOVERY_EXPIRED",
       ],
       staff_role: [
         "super_admin",
