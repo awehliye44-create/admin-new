@@ -378,17 +378,12 @@ export function PaymentControlsCard({
   const blockEditFareForOutstanding = extraDuePence > 0 && !isLegacyIncomplete;
 
   const openMode = (m: Mode) => {
-    if (m === 'edit' && blockEditFareForOutstanding) {
-      toast.error('Use Request extra payment on Financial Reconciliation — Edit Fare cannot charge outstanding balance.');
-      return;
-    }
     setMode(m);
     setReason('');
     if (!state) { setAmountInput(''); return; }
     if (m === 'capture') setAmountInput(((state.final_fare_pence || state.amount_capturable_pence || state.authorized_pence) / 100).toFixed(2));
     else if (m === 'refund') setAmountInput((refundable / 100).toFixed(2));
     else if (m === 'partial_refund') setAmountInput('');
-    else if (m === 'edit') setAmountInput((state.final_fare_pence / 100).toFixed(2));
     else setAmountInput('');
   };
 
@@ -397,22 +392,19 @@ export function PaymentControlsCard({
     setReason('');
     setAmountInput((extraDuePence / 100).toFixed(2));
   };
-  const openWaive = () => {
-    setMode('edit');
-    setReason('Waive extra amount — set fare to captured total. ');
-    setAmountInput((capturedPence / 100).toFixed(2));
-  };
-  const openInternalAdjustment = () => {
-    setMode('edit');
-    setReason('Internal adjustment — ');
-    setAmountInput((settlementTotalPence / 100).toFixed(2));
-  };
 
   useEffect(() => {
     if (!initialAction || !state || stateQuery.isLoading) return;
     if (initialAction === 'extra_payment') openExtraPayment();
-    else if (initialAction === 'waive') openWaive();
-    else if (initialAction === 'internal_adjustment') openInternalAdjustment();
+    else {
+      toast.message(
+        initialAction === 'waive' ? 'Waive extra amount' : 'Internal adjustment',
+        {
+          description:
+            'Edit-fare workflow retired. Use Request extra payment, Refund, or an admin driver/customer ledger adjustment.',
+        },
+      );
+    }
     onInitialActionConsumed?.();
   }, [initialAction, state, stateQuery.isLoading]);
 
@@ -437,10 +429,6 @@ export function PaymentControlsCard({
       actionMutation.mutate({ mode, reason: reason.trim() });
       return;
     }
-    if (mode === 'edit' && blockEditFareForOutstanding) {
-      toast.error('Use Request extra payment — Edit Fare cannot charge outstanding balance.');
-      return;
-    }
     const value = Number(amountInput);
     if (!Number.isFinite(value) || value <= 0) {
       toast.error('Enter a valid amount greater than 0');
@@ -455,17 +443,14 @@ export function PaymentControlsCard({
       toast.error(`Cannot capture more than authorized (${formatPence(state.amount_capturable_pence ?? state.authorized_pence, currency)})`);
       return;
     }
-    // 'extra_payment' and 'cancel' handled above; mode is narrowed to capture | edit | partial_refund | refund here.
 
-    if (mode === 'edit') actionMutation.mutate({ mode, new_total_pence: pence, reason: reason.trim() });
-    else if (mode) actionMutation.mutate({ mode, amount_pence: pence, reason: reason.trim() });
+    if (mode) actionMutation.mutate({ mode, amount_pence: pence, reason: reason.trim() });
   };
 
   const dialogTitle = {
     capture: 'Capture payment',
     refund: 'Full refund',
     partial_refund: 'Partial refund',
-    edit: 'Edit trip fare',
     cancel: 'Cancel hold (release authorization)',
     extra_payment: 'Request extra payment',
   }[mode ?? 'capture'];
