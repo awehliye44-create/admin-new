@@ -167,8 +167,6 @@ export function AdminSidebar() {
   const { signOut, user } = useAuth();
   const { canAccessPage, staffProfile } = useStaffProfile();
   const { counts } = useSidebarCounts();
-  const { data: holdsData } = usePaymentHoldsReconciliation(true);
-  const paymentHoldsRed = holdsData?.summary?.red ?? 0;
   const lpUnread = useLostPropertyUnreadCount();
   const chatUnread = useChatUnreadCount();
   const currentPath = location.pathname;
