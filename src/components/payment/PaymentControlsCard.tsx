@@ -762,15 +762,13 @@ export function PaymentControlsCard({
                   stripeSettlementVerified: state.stripe_settlement_verified,
                   actionsAllowed: state.actions_allowed,
                 }}
-                actionsDisabled={actionMutation.isPending || syncStripeMutation.isPending || repairCommissionsMutation.isPending}
-                isPending={actionMutation.isPending || syncStripeMutation.isPending || repairCommissionsMutation.isPending}
+                actionsDisabled={actionMutation.isPending || repairCommissionsMutation.isPending}
+                isPending={actionMutation.isPending || repairCommissionsMutation.isPending}
                 onCapture={() => openMode('capture')}
                 onRefundFull={() => openMode('refund')}
                 onRefundPartial={() => openMode('partial_refund')}
                 onCancelAuthorisation={() => openMode('cancel')}
-                onResyncStripe={() => syncStripeMutation.mutate()}
                 onRequestExtraPayment={() => openExtraPayment()}
-                onRepairSettlement={() => syncStripeMutation.mutate()}
                 onRecalculateSettlement={() => {
                   const driverId = state.driver_id;
                   if (!driverId) {
@@ -788,7 +786,6 @@ export function PaymentControlsCard({
                   repairCommissionsMutation.mutate(driverId);
                 }}
                 onViewAuditLog={() => setAuditOpen(true)}
-                onPlatformAdjustment={() => openInternalAdjustment()}
                 onDriverCredit={() => {
                   if (!state.driver_id) {
                     toast.error('No driver assigned');
