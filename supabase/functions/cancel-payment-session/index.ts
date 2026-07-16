@@ -106,7 +106,9 @@ serve(async (req) => {
       return errorResponse(updErr.message, 500);
     }
 
-    await logAuditEvent(supabase, "PAYMENT_SESSION_CUSTOMER_CANCELLED", {
+    // Breadcrumb: sheet closed BEFORE provider authorised (Apple Pay never confirmed,
+    // or user cancelled the sheet before ORDER_AUTHORISED). No money moved.
+    await logAuditEvent(supabase, "PAYMENT_SHEET_CLOSED_BEFORE_AUTHORISATION", {
       details: {
         payment_session_id: ps.id,
         reason,
