@@ -123,7 +123,7 @@ export function PayoutLedgerSubmitProviderButton({
   const handleSubmit = async () => {
     setSubmitting(true);
     const perf = startAdminPerformanceStep({
-      action_name: 'admin_submit_driver_payout_payment',
+      action_name: 'admin_pay_driver',
       metadata: { payout_item_id: payoutItemId },
     });
     try {
