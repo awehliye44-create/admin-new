@@ -94,6 +94,25 @@ Deno.serve(async (req) => {
       return errorResponse((e as Error).message, 400, undefined, "REGION_CURRENCY_UNRESOLVABLE");
     }
 
+    // payment_sessions SSOT requires the customer auth identity plus stable
+    // action/idempotency keys. For recovery the actor is still the rider being
+    // charged, not the admin pressing the button.
+    const { data: customer, error: customerErr } = await supabase
+      .from("customers")
+      .select("id, user_id")
+      .eq("id", trip.passenger_id)
+      .maybeSingle();
+    if (customerErr || !customer?.user_id) {
+      return errorResponse(
+        "Could not resolve customer identity for payment recovery",
+        409, undefined, "CUSTOMER_IDENTITY_UNRESOLVABLE",
+      );
+    }
+
+    const recoveryKeyScope = parent_session_id
+      ? `recover:${trip.id}:${parent_session_id}`
+      : `recover:${trip.id}`;
+
     // --- Short-circuit: if an open recovery already exists, return its URL ---
     const { data: existingOpen } = await supabase
       .from("payment_sessions")
@@ -132,16 +151,25 @@ Deno.serve(async (req) => {
     const { data: session, error: sessInsertErr } = await supabase
       .from("payment_sessions")
       .insert({
+        client_action_id: recoveryKeyScope,
+        idempotency_key: recoveryKeyScope,
+        user_id: customer.user_id,
         trip_id: trip.id,
         customer_id: trip.passenger_id,
         service_area_id: trip.service_area_id,
         payment_provider: "revolut",
         purpose: "PAYMENT_RECOVERY",
         status: "RECOVERY_CHECKOUT_CREATED",
-        authorised_amount_pence: chargePence,
+        estimated_total_pence: chargePence,
         currency: currency.toUpperCase(),
         parent_session_id: parent_session_id ?? null,
         recovery_reason: "PAYMENT_GATE_BREACH_NO_CAPTURE",
+        metadata: {
+          recovery_reason: "PAYMENT_GATE_BREACH_NO_CAPTURE",
+          recovery_idempotency_key: recoveryKeyScope,
+          requested_by_admin_user_id: user.id,
+          final_customer_charge_pence: chargePence,
+        },
       })
       .select("id")
       .single();
