@@ -112,7 +112,7 @@ export function PayoutLedgerSubmitProviderButton({
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const submitTimeout = useCriticalButtonTimeout({
-    action: 'admin_submit_driver_payout_payment',
+    action: 'admin_pay_driver',
     isPending: submitting,
     onTimeout: () => {
       setSubmitting(false);
