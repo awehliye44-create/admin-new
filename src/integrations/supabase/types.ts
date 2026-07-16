@@ -3147,6 +3147,39 @@ export type Database = {
         }
         Relationships: []
       }
+      customer_email_confirm_reconcile_audit: {
+        Row: {
+          created_at: string
+          email: string | null
+          email_confirmed_at_after: string | null
+          email_confirmed_at_before: string | null
+          id: string
+          run_id: string
+          selection_rule: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          email_confirmed_at_after?: string | null
+          email_confirmed_at_before?: string | null
+          id?: string
+          run_id: string
+          selection_rule: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          email_confirmed_at_after?: string | null
+          email_confirmed_at_before?: string | null
+          id?: string
+          run_id?: string
+          selection_rule?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       customer_live_locations: {
         Row: {
           accuracy: number | null
@@ -13827,6 +13860,108 @@ export type Database = {
         }
         Relationships: []
       }
+      scan_go_driver_holds: {
+        Row: {
+          client_action_id: string
+          created_at: string
+          customer_user_id: string
+          driver_id: string
+          expires_at: string
+          id: string
+          payment_session_id: string | null
+          qr_session_id: string | null
+          release_reason: string | null
+          status: string
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          client_action_id: string
+          created_at?: string
+          customer_user_id: string
+          driver_id: string
+          expires_at: string
+          id?: string
+          payment_session_id?: string | null
+          qr_session_id?: string | null
+          release_reason?: string | null
+          status?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          client_action_id?: string
+          created_at?: string
+          customer_user_id?: string
+          driver_id?: string
+          expires_at?: string
+          id?: string
+          payment_session_id?: string | null
+          qr_session_id?: string | null
+          release_reason?: string | null
+          status?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scheduled_offer_attempts: {
         Row: {
           broadcast_round: number
@@ -20384,6 +20519,17 @@ export type Database = {
       }
       ack_timeout_sweep: { Args: never; Returns: undefined }
       ack_timeout_sweep_has_work: { Args: never; Returns: boolean }
+      acquire_scan_go_driver_hold: {
+        Args: {
+          p_client_action_id: string
+          p_customer_user_id: string
+          p_driver_id: string
+          p_payment_session_id?: string
+          p_qr_session_id?: string
+          p_ttl_seconds?: number
+        }
+        Returns: Json
+      }
       adjust_merchant_credits: {
         Args: { _delta: number; _merchant_id: string; _notes?: string }
         Returns: Json
@@ -20830,6 +20976,10 @@ export type Database = {
         Args: { p_trip_id: string; p_voucher_id: string }
         Returns: boolean
       }
+      convert_scan_go_driver_hold: {
+        Args: { p_client_action_id: string; p_trip_id: string }
+        Returns: Json
+      }
       create_driver_vehicle: {
         Args: {
           p_color: string
@@ -21042,6 +21192,7 @@ export type Database = {
       expire_negotiation_offer: { Args: { p_offer_id: string }; Returns: Json }
       expire_offers_sweep: { Args: never; Returns: undefined }
       expire_offers_sweep_has_work: { Args: never; Returns: boolean }
+      expire_scan_go_driver_holds: { Args: never; Returns: number }
       expire_stale_drivers: {
         Args: { p_ttl_seconds?: number }
         Returns: number
@@ -22071,6 +22222,10 @@ export type Database = {
           p_release_reason?: string
           p_reservation_id?: string
         }
+        Returns: Json
+      }
+      release_scan_go_driver_hold: {
+        Args: { p_client_action_id: string; p_reason?: string }
         Returns: Json
       }
       release_sub_minimum_weekly_payout_reservations: {
