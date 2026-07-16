@@ -471,7 +471,46 @@ export default function PaymentSessions() {
     [refundAction, refetch],
   );
 
+  const runRequestRecovery = useCallback(
+    async (row: AdminPaymentSessionsListRow) => {
+      if (!row.trip_id) {
+        toast.error('Trip id is required to open a recovery payment');
+        return;
+      }
+      const actionKey = row.provider_order_id || row.payment_session_id || row.id;
+      setActingId(actionKey);
+      try {
+        const { data, error } = await supabase.functions.invoke('create-payment-recovery', {
+          body: {
+            trip_id: row.trip_id,
+            parent_session_id: row.payment_session_id ?? null,
+          },
+        });
+        if (error) throw error;
+        const payload = (data ?? {}) as { checkout_url?: string; reused?: boolean };
+        if (payload.checkout_url) {
+          try { await navigator.clipboard.writeText(payload.checkout_url); } catch { /* ignore */ }
+          toast.success(
+            payload.reused
+              ? 'Existing recovery link copied to clipboard'
+              : 'Recovery checkout link created and copied to clipboard',
+          );
+          window.open(payload.checkout_url, '_blank', 'noopener');
+        } else {
+          toast.success('Recovery session created');
+        }
+        await refetch();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Recovery request failed');
+      } finally {
+        setActingId(null);
+      }
+    },
+    [refetch],
+  );
+
   const runInspect = useCallback(
+
     async (row: AdminPaymentSessionsListRow) => {
       if (!row.provider_order_id) {
         toast.error('Missing provider order id');
