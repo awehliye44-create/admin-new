@@ -1,0 +1,2 @@
+REVOKE EXECUTE ON FUNCTION public.recover_authorised_paid_booking_sessions(integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.recover_authorised_paid_booking_sessions(integer) TO authenticated, service_role;

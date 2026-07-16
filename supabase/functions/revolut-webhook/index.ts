@@ -8,7 +8,11 @@
 // expected      = HMAC_SHA256(REVOLUT_WEBHOOK_SECRET, signed_payload) hex
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { mapRevolutStateToPaymentStatus } from "../_shared/revolutOrders.ts";
+import {
+  getRevolutMerchantConfig,
+  mapRevolutStateToPaymentStatus,
+  retrieveRevolutOrder,
+} from "../_shared/revolutOrders.ts";
 import { revolutMerchantRequest } from "../_shared/revolutApi.ts";
 
 /**
@@ -84,6 +88,39 @@ interface RevolutWebhookEvent {
   order_id?: string;
   merchant_order_ext_ref?: string;
   data?: Record<string, unknown> & { state?: string };
+}
+
+function numericMinor(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return Math.round(value);
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return Math.round(parsed);
+    }
+  }
+  return null;
+}
+
+async function resolveAuthorisedAmountMinor(
+  orderId: string,
+  eventData: Record<string, unknown> | undefined,
+): Promise<number | null> {
+  const direct = numericMinor(
+    eventData?.authorised_amount,
+    eventData?.authorized_amount,
+    eventData?.amount,
+  );
+  if (direct != null && direct > 0) return direct;
+
+  try {
+    const { secretKey, environment } = getRevolutMerchantConfig();
+    const order = await retrieveRevolutOrder(environment, secretKey, orderId);
+    const fromOrder = numericMinor(order.amount);
+    return fromOrder != null && fromOrder > 0 ? fromOrder : null;
+  } catch (error) {
+    console.error(`[revolut-webhook] authorised amount lookup failed for ${orderId}:`, (error as Error).message);
+    return null;
+  }
 }
 
 Deno.serve(async (req) => {
@@ -197,11 +234,11 @@ Deno.serve(async (req) => {
   const stateFromEvent =
     (event.data?.state as string | undefined) ??
     (eventName ? eventName.replace(/^ORDER_/, "").toUpperCase() : undefined);
+  const stateUpper = String(stateFromEvent ?? "").toUpperCase();
   const nextStatus = mapRevolutStateToPaymentStatus(stateFromEvent);
 
   // === Recovery lifecycle: never touch parent session or trip.provider_order_id ===
   if (recoverySession) {
-    const stateUpper = String(stateFromEvent ?? "").toUpperCase();
     const recoveryNextStatus =
       stateUpper === "COMPLETED" ? "RECOVERY_COMPLETED" :
       stateUpper === "FAILED" ? "RECOVERY_DECLINED" :
@@ -224,7 +261,89 @@ Deno.serve(async (req) => {
       }
       await supabase.from("payment_sessions").update(sessionUpdate).eq("id", recoverySession.id);
     }
-  } else if (tripId && nextStatus) {
+  } else {
+    let finaliseTripId: string | null = null;
+
+    if (orderId) {
+      const { data: session } = await supabase
+        .from("payment_sessions")
+        .select("id, trip_id, status, authorised_amount_pence, metadata")
+        .eq("provider_order_id", orderId)
+        .eq("purpose", "RIDE_BOOKING")
+        .maybeSingle();
+
+      if (session) {
+        if (!tripId && session.trip_id) tripId = session.trip_id;
+
+        const nowIso = new Date().toISOString();
+        const sessionUpdate: Record<string, unknown> = {
+          provider_state: stateUpper || null,
+          provider_state_verified_at: nowIso,
+          provider_state_verified_by: "webhook",
+          updated_at: nowIso,
+          metadata: {
+            ...((session.metadata && typeof session.metadata === "object") ? session.metadata : {}),
+            revolut_last_webhook_event: eventName,
+            revolut_last_webhook_state: stateUpper || null,
+            revolut_last_webhook_at: nowIso,
+          },
+        };
+
+        if (["AUTHORISED", "COMPLETED"].includes(stateUpper)) {
+          const authorisedAmount = await resolveAuthorisedAmountMinor(orderId, event.data);
+          if (authorisedAmount != null && authorisedAmount > 0) {
+            sessionUpdate.authorised_amount_pence = authorisedAmount;
+            sessionUpdate.total_authorised_amount_pence = authorisedAmount;
+          }
+          sessionUpdate.authorised_at = nowIso;
+          sessionUpdate.status = session.trip_id ? "trip_created" : "payment_authorised";
+        } else if (["CANCELLED", "FAILED"].includes(stateUpper)) {
+          sessionUpdate.status = stateUpper === "CANCELLED" ? "cancelled" : "failed";
+          sessionUpdate.failure_reason = `REVOLUT_${stateUpper}`;
+        }
+
+        const { error: sessionUpdateError } = await supabase
+          .from("payment_sessions")
+          .update(sessionUpdate)
+          .eq("id", session.id);
+        if (sessionUpdateError) {
+          console.error(`[revolut-webhook] payment_session update failed for ${session.id}:`, sessionUpdateError.message);
+        }
+
+        if (["AUTHORISED", "COMPLETED"].includes(stateUpper) && !session.trip_id) {
+          const { data: finaliseData, error: finaliseError } = await supabase.rpc(
+            "finalize_paid_booking_session",
+            { p_payment_session_id: session.id },
+          );
+          if (finaliseError) {
+            console.error(`[revolut-webhook] finalize failed for session ${session.id}:`, finaliseError.message);
+            await supabase
+              .from("payment_sessions")
+              .update({
+                recovery_attempt_count: 1,
+                last_recovery_attempt_at: nowIso,
+                metadata: {
+                  ...((session.metadata && typeof session.metadata === "object") ? session.metadata : {}),
+                  revolut_last_webhook_event: eventName,
+                  revolut_last_webhook_state: stateUpper || null,
+                  revolut_last_webhook_at: nowIso,
+                  last_auto_recovery_error: finaliseError.message,
+                  last_auto_recovery_error_at: nowIso,
+                },
+              })
+              .eq("id", session.id);
+          } else {
+            finaliseTripId = typeof finaliseData === "string" ? finaliseData : null;
+            if (finaliseTripId) tripId = finaliseTripId;
+            console.log(`[revolut-webhook] finalised authorised session=${session.id} trip=${finaliseTripId ?? "?"}`);
+          }
+        }
+      } else if (stateUpper === "AUTHORISED") {
+        console.warn(`[revolut-webhook] authorised order has no RIDE_BOOKING payment_session: ${orderId}`);
+      }
+    }
+
+    if (tripId && nextStatus) {
     const update: Record<string, unknown> = {
       payment_status: nextStatus,
       updated_at: new Date().toISOString(),
@@ -236,6 +355,7 @@ Deno.serve(async (req) => {
     const { error } = await supabase.from("trips").update(update).eq("id", tripId);
     if (error) {
       console.error(`[revolut-webhook] trip update failed for ${tripId}:`, error.message);
+    }
     }
   }
 
