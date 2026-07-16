@@ -877,7 +877,7 @@ export function PaymentControlsCard({
           <div className="space-y-3">
             {mode !== 'cancel' && mode !== 'extra_payment' && (
               <div>
-                <Label>{mode === 'edit' ? 'New total' : 'Amount'} ({currency})</Label>
+                <Label>Amount ({currency})</Label>
                 <Input
                   type="number" step="0.01" min="0.01"
                   value={amountInput}
