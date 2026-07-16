@@ -211,10 +211,9 @@ export function FinancialReconciliationOverviewTab({
           value={combinedOverviewStatus}
           subtitle="Per-driver wallet vs payable (no cross-driver netting)"
         />
-        <KpiCard label="Drivers Balanced" value={driverAudit.drivers_balanced_count} />
         <KpiCard label="Missing Captures" value={o?.missing_captures_count ?? '—'} />
         <KpiCard label="Missing Releases" value={o?.missing_releases_count ?? '—'} />
-        <KpiCard label="Wallet Mismatches" value={o?.wallet_mismatches_count ?? driverAudit.driver_wallet_mismatches_count} />
+        <KpiCard label="Wallet Mismatches" value={o?.wallet_mismatches_count ?? '—'} />
         <KpiCard label="Payout Mismatches" value={o?.payout_mismatches_count ?? '—'} />
         <KpiCard label="Balanced trips" value={o?.balanced_trips_count ?? '—'} />
         <KpiCard label="Unresolved mismatches" value={o?.unresolved_mismatches_count ?? '—'} />
