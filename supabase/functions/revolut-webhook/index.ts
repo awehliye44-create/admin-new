@@ -157,26 +157,74 @@ Deno.serve(async (req) => {
   const extRef = event.merchant_order_ext_ref ?? null;
   const eventName = event.event ?? null;
 
-  // Locate the trip. Prefer provider_order_id, fall back to the ext_ref (trip id)
-  // written by create-payment-intent.
-  let tripId: string | null = null;
+  // === Recovery-path detection ===
+  // Recovery orders use ext_ref = `recover:<trip_id>:<sessionUuid>` and are
+  // linked to a payment_sessions row of purpose=PAYMENT_RECOVERY. Never mutate
+  // trips.provider_order_id or the parent session for recovery events.
+  let recoverySession:
+    | { id: string; trip_id: string | null; status: string }
+    | null = null;
   if (orderId) {
-    const { data } = await supabase
-      .from("trips")
-      .select("id")
-      .eq("payment_provider", "revolut")
+    const { data: recSess } = await supabase
+      .from("payment_sessions")
+      .select("id, trip_id, status, purpose")
       .eq("provider_order_id", orderId)
+      .eq("purpose", "PAYMENT_RECOVERY")
       .maybeSingle();
-    tripId = data?.id ?? null;
+    if (recSess) {
+      recoverySession = { id: recSess.id, trip_id: recSess.trip_id, status: recSess.status };
+    }
   }
-  if (!tripId && extRef) tripId = extRef;
+
+  // Locate the trip. Prefer provider_order_id, fall back to the ext_ref (trip id)
+  // written by create-payment-intent. For recovery orders, use the linked session's trip.
+  let tripId: string | null = null;
+  if (recoverySession?.trip_id) {
+    tripId = recoverySession.trip_id;
+  } else {
+    if (orderId) {
+      const { data } = await supabase
+        .from("trips")
+        .select("id")
+        .eq("payment_provider", "revolut")
+        .eq("provider_order_id", orderId)
+        .maybeSingle();
+      tripId = data?.id ?? null;
+    }
+    if (!tripId && extRef && !extRef.startsWith("recover:")) tripId = extRef;
+  }
 
   const stateFromEvent =
     (event.data?.state as string | undefined) ??
     (eventName ? eventName.replace(/^ORDER_/, "").toUpperCase() : undefined);
   const nextStatus = mapRevolutStateToPaymentStatus(stateFromEvent);
 
-  if (tripId && nextStatus) {
+  // === Recovery lifecycle: never touch parent session or trip.provider_order_id ===
+  if (recoverySession) {
+    const stateUpper = String(stateFromEvent ?? "").toUpperCase();
+    const recoveryNextStatus =
+      stateUpper === "COMPLETED" ? "RECOVERY_COMPLETED" :
+      stateUpper === "FAILED" ? "RECOVERY_DECLINED" :
+      stateUpper === "CANCELLED" ? "RECOVERY_CANCELLED" :
+      stateUpper === "EXPIRED" ? "RECOVERY_EXPIRED" :
+      null;
+    if (recoveryNextStatus) {
+      const nowIso = new Date().toISOString();
+      const sessionUpdate: Record<string, unknown> = {
+        status: recoveryNextStatus,
+        updated_at: nowIso,
+      };
+      const capturedAmt = (event.data as { captured_amount?: unknown; amount?: unknown } | undefined);
+      if (recoveryNextStatus === "RECOVERY_COMPLETED") {
+        const amt =
+          typeof capturedAmt?.captured_amount === "number" ? capturedAmt.captured_amount :
+          typeof capturedAmt?.amount === "number" ? capturedAmt.amount :
+          null;
+        if (amt != null) sessionUpdate.captured_amount_pence = Math.round(amt);
+      }
+      await supabase.from("payment_sessions").update(sessionUpdate).eq("id", recoverySession.id);
+    }
+  } else if (tripId && nextStatus) {
     const update: Record<string, unknown> = {
       payment_status: nextStatus,
       updated_at: new Date().toISOString(),
@@ -190,6 +238,7 @@ Deno.serve(async (req) => {
       console.error(`[revolut-webhook] trip update failed for ${tripId}:`, error.message);
     }
   }
+
 
   // On capture: hydrate provider processing fee from Revolut order details.
   // Writes payment_sessions.provider_processing_fee_pence + trips.provider_fee_pence.
