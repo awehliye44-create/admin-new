@@ -742,7 +742,7 @@ export default function PayoutLedger() {
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Reserved Driver Payouts</CardTitle></CardHeader>
                   <CardContent className="space-y-1">
-                    <div className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_reserved_pence ?? null)}</div>
+                    <div className="text-xl font-semibold tabular-nums">{formatNullablePence((fleet as { total_reserved_pence?: number | null }).total_reserved_pence ?? null)}</div>
                     <div className="text-[11px] text-muted-foreground">Source: driver_payout_reservations ACTIVE / Driver Wallet Ledger SSOT</div>
                   </CardContent>
                 </Card>

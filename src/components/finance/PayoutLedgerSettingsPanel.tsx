@@ -264,7 +264,7 @@ export function PayoutLedgerSettingsPanel({
       actor_id: auth.user?.id ?? null,
       from_status: args.from_status,
       to_status: args.to_status,
-      payload: args.payload,
+      payload: args.payload as never,
       note: args.note ?? 'Config only — no money movement',
       money_moved: false,
     });
@@ -298,7 +298,7 @@ export function PayoutLedgerSettingsPanel({
         minimum_reserve_pence: minimum,
         currency,
       });
-      if (!validated.ok) throw new Error(validated.message);
+      if (!validated.ok) throw new Error((validated as { message: string }).message);
 
       const { data: auth } = await supabase.auth.getUser();
       const payload = {

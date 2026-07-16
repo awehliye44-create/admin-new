@@ -191,7 +191,7 @@ describe("Slice 10 operational reserve SSOT", () => {
     const base = {
       service_area_id: null,
       currency: "GBP",
-      reserve_mode: RESERVE_MODE.FIXED_AMOUNT as const,
+      reserve_mode: RESERVE_MODE.FIXED_AMOUNT,
       reserve_amount_pence: 1,
       reserve_percentage_bps: null,
       minimum_reserve_pence: 0,
