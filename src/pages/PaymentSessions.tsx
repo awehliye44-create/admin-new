@@ -580,10 +580,26 @@ export default function PaymentSessions() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setRefreshProviderState(true)}
+              onClick={async () => {
+                setRefreshProviderState(true);
+                try {
+                  const { data: r, error: e } = await supabase.functions.invoke(
+                    'admin-refresh-payment-sessions',
+                    { body: {} },
+                  );
+                  if (e) throw e;
+                  const refreshed = (r as { refreshed?: number } | null)?.refreshed ?? 0;
+                  toast.success(`Provider state refreshed for ${refreshed} session(s)`);
+                  await refetch();
+                } catch (err) {
+                  toast.error(`Refresh failed: ${(err as Error).message ?? String(err)}`);
+                } finally {
+                  setRefreshProviderState(false);
+                }
+              }}
               disabled={isFetching || refreshProviderState}
             >
-              {refreshProviderState && isFetching
+              {refreshProviderState
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : <RefreshCw className="h-4 w-4" />}
               <span className="ml-2">Force refresh provider</span>
