@@ -20439,6 +20439,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      admin_get_user_email: { Args: { _user_id: string }; Returns: string }
       admin_list_drivers: {
         Args: never
         Returns: {
