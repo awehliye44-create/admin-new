@@ -9,6 +9,40 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { mapRevolutStateToPaymentStatus } from "../_shared/revolutOrders.ts";
+import { revolutMerchantRequest } from "../_shared/revolutApi.ts";
+
+/**
+ * Extract provider processing fee (minor units) from a Revolut order payload.
+ * Order → payments[].fees[].amount (minor units). Sum all fees across payments.
+ * Returns null when the payload has no fee data (never fabricate 0).
+ */
+function extractRevolutFeeMinor(order: unknown): number | null {
+  if (!order || typeof order !== "object") return null;
+  const payments = (order as { payments?: unknown }).payments;
+  if (!Array.isArray(payments) || payments.length === 0) return null;
+  let total = 0;
+  let sawFee = false;
+  for (const p of payments) {
+    if (!p || typeof p !== "object") continue;
+    const fees = (p as { fees?: unknown }).fees;
+    if (Array.isArray(fees)) {
+      for (const f of fees) {
+        const amt = (f as { amount?: unknown })?.amount;
+        if (typeof amt === "number" && Number.isFinite(amt)) {
+          total += amt;
+          sawFee = true;
+        }
+      }
+      continue;
+    }
+    const flatFee = (p as { fee?: unknown }).fee;
+    if (typeof flatFee === "number" && Number.isFinite(flatFee)) {
+      total += flatFee;
+      sawFee = true;
+    }
+  }
+  return sawFee ? Math.round(total) : null;
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
