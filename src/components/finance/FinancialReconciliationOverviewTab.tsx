@@ -14,8 +14,6 @@ import {
 } from '@/components/finance/ServiceAreaGatewayStatusPanel';
 
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
-import { useDriverWalletSsotAll } from '@/hooks/useDriverWalletSsot';
-import { aggregateFrDriverAuditOverview } from '@/lib/frDriverAuditOverviewSSOT';
 
 function KpiCard({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
   return (
@@ -93,12 +91,9 @@ export function FinancialReconciliationOverviewTab({
   const kpisUnavailable = platformKpis == null;
   const o = auditOverviewKpis;
 
-  const { data: driverRows = [] } = useDriverWalletSsotAll(null);
-  const driverAudit = aggregateFrDriverAuditOverview(
-    driverRows.map((d) => ({ reconciliation_status: d.reconciliation_status })),
-    { settlementIdentityBalanced: o?.settlement_identity_balanced === true },
-  );
-
+  // Per-driver audit rollup is derived from platform KPIs only.
+  // Fetching every driver's wallet snapshot here caused a full-fleet fan-out
+  // that made the Overview tab slow/timeout on medium+ fleets — removed.
   const settlementLabel =
     o == null
       ? '—'
@@ -109,13 +104,13 @@ export function FinancialReconciliationOverviewTab({
       : `MISMATCH ${fmt(o.settlement_identity_variance_pence)}`;
 
   const combinedOverviewStatus =
-    o?.settlement_identity_balanced === true && driverAudit.overview_driver_audit_status === 'BALANCED'
+    o == null
+      ? 'PENDING'
+      : o.settlement_identity_balanced === true
       ? 'BALANCED'
-      : o?.settlement_identity_balanced === true && !driverAudit.driver_audit_complete
-      ? driverAudit.overview_driver_audit_status
-      : o?.settlement_identity_balanced !== true
-      ? ((o?.missing_releases_count ?? 0) > 0 ? 'MISSING_RELEASE' : 'PARTIAL')
-      : driverAudit.overview_driver_audit_status;
+      : (o.missing_releases_count ?? 0) > 0
+      ? 'MISSING_RELEASE'
+      : 'PARTIAL';
 
   return (
     <div className="space-y-4">
@@ -216,10 +211,9 @@ export function FinancialReconciliationOverviewTab({
           value={combinedOverviewStatus}
           subtitle="Per-driver wallet vs payable (no cross-driver netting)"
         />
-        <KpiCard label="Drivers Balanced" value={driverAudit.drivers_balanced_count} />
         <KpiCard label="Missing Captures" value={o?.missing_captures_count ?? '—'} />
         <KpiCard label="Missing Releases" value={o?.missing_releases_count ?? '—'} />
-        <KpiCard label="Wallet Mismatches" value={o?.wallet_mismatches_count ?? driverAudit.driver_wallet_mismatches_count} />
+        <KpiCard label="Wallet Mismatches" value={o?.wallet_mismatches_count ?? '—'} />
         <KpiCard label="Payout Mismatches" value={o?.payout_mismatches_count ?? '—'} />
         <KpiCard label="Balanced trips" value={o?.balanced_trips_count ?? '—'} />
         <KpiCard label="Unresolved mismatches" value={o?.unresolved_mismatches_count ?? '—'} />

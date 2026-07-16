@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -160,6 +160,7 @@ function FormShell({ children }: { children: React.ReactNode }) {
 
 export default function Auth() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, isAdmin, isAuthReady, signIn, signOut } = useAuth();
 
   const [email, setEmail] = useState('');
@@ -173,9 +174,11 @@ export default function Auth() {
 
   useEffect(() => {
     if (isAuthReady && user && isAdmin) {
-      navigate('/', { replace: true });
+      const fromState = (location.state as { from?: string } | null)?.from;
+      const target = fromState && fromState !== '/auth' ? fromState : '/';
+      navigate(target, { replace: true });
     }
-  }, [user, isAdmin, isAuthReady, navigate]);
+  }, [user, isAdmin, isAuthReady, navigate, location.state]);
 
   const validateForm = () => {
     try {

@@ -430,17 +430,17 @@ export default function ActiveTrips() {
         .channel('active-trips-changes')
         .on(
           'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'trips' },
+          { event: '*', schema: 'public', table: 'trips' },
           scheduleRefresh,
         )
         .on(
           'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'trip_stops' },
+          { event: '*', schema: 'public', table: 'trip_stops' },
           scheduleRefresh,
         )
         .on(
           'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'trip_change_requests' },
+          { event: '*', schema: 'public', table: 'trip_change_requests' },
           scheduleRefresh,
         )
         .subscribe();
