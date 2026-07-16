@@ -504,8 +504,12 @@ export function PaymentControlsCard({
                 showActions={extraDuePence > 0 && !isLegacyIncomplete}
                 onAction={(action) => {
                   if (action === 'extra_payment') openExtraPayment();
-                  else if (action === 'waive') openWaive();
-                  else openInternalAdjustment();
+                  else {
+                    toast.message(
+                      action === 'waive' ? 'Waive extra amount' : 'Internal adjustment',
+                      { description: 'Edit-fare workflow retired. Use Refund or an admin ledger adjustment instead.' },
+                    );
+                  }
                 }}
                 actionsDisabled={actionMutation.isPending}
               />
