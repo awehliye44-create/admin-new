@@ -11404,10 +11404,12 @@ export type Database = {
           last_recovery_attempt_at: string | null
           last_release_attempt_at: string | null
           metadata: Json
+          parent_session_id: string | null
           payment_method: string | null
           payment_provider: string
           platform_payment_method_id: string | null
           provider_capture_id: string | null
+          provider_checkout_url: string | null
           provider_fee_confirmed_at: string | null
           provider_fee_currency_snapshot: string | null
           provider_fee_percentage_snapshot_pence: number | null
@@ -11426,6 +11428,7 @@ export type Database = {
           provider_state_verified_by: string | null
           purpose: Database["public"]["Enums"]["payment_session_purpose"]
           recovery_attempt_count: number
+          recovery_reason: string | null
           refunded_amount_pence: number | null
           refunded_at: string | null
           release_attempt_count: number
@@ -11466,10 +11469,12 @@ export type Database = {
           last_recovery_attempt_at?: string | null
           last_release_attempt_at?: string | null
           metadata?: Json
+          parent_session_id?: string | null
           payment_method?: string | null
           payment_provider?: string
           platform_payment_method_id?: string | null
           provider_capture_id?: string | null
+          provider_checkout_url?: string | null
           provider_fee_confirmed_at?: string | null
           provider_fee_currency_snapshot?: string | null
           provider_fee_percentage_snapshot_pence?: number | null
@@ -11488,6 +11493,7 @@ export type Database = {
           provider_state_verified_by?: string | null
           purpose?: Database["public"]["Enums"]["payment_session_purpose"]
           recovery_attempt_count?: number
+          recovery_reason?: string | null
           refunded_amount_pence?: number | null
           refunded_at?: string | null
           release_attempt_count?: number
@@ -11528,10 +11534,12 @@ export type Database = {
           last_recovery_attempt_at?: string | null
           last_release_attempt_at?: string | null
           metadata?: Json
+          parent_session_id?: string | null
           payment_method?: string | null
           payment_provider?: string
           platform_payment_method_id?: string | null
           provider_capture_id?: string | null
+          provider_checkout_url?: string | null
           provider_fee_confirmed_at?: string | null
           provider_fee_currency_snapshot?: string | null
           provider_fee_percentage_snapshot_pence?: number | null
@@ -11550,6 +11558,7 @@ export type Database = {
           provider_state_verified_by?: string | null
           purpose?: Database["public"]["Enums"]["payment_session_purpose"]
           recovery_attempt_count?: number
+          recovery_reason?: string | null
           refunded_amount_pence?: number | null
           refunded_at?: string | null
           release_attempt_count?: number
@@ -11586,6 +11595,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_sessions_parent_session_id_fkey"
+            columns: ["parent_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
             referencedColumns: ["id"]
           },
           {
