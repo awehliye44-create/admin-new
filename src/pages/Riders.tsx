@@ -38,6 +38,7 @@ interface Rider {
   first_name: string | null;
   last_name: string | null;
   phone: string | null;
+  email: string | null;
   created_at: string;
   updated_at: string;
   trip_count?: number;
