@@ -139,7 +139,7 @@ Deno.serve(async (req) => {
         purpose: "PAYMENT_RECOVERY",
         status: "RECOVERY_CHECKOUT_CREATED",
         authorised_amount_pence: chargePence,
-        currency_code: currency.toUpperCase(),
+        currency: currency.toUpperCase(),
         parent_session_id: parent_session_id ?? null,
         recovery_reason: "PAYMENT_GATE_BREACH_NO_CAPTURE",
       })
