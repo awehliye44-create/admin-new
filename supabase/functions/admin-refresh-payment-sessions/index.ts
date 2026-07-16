@@ -27,7 +27,7 @@ serve(async (req) => {
     const query = gate.supabase
       .from("payment_sessions")
       .select("id, provider_order_id, status, provider_state, authorised_amount_pence, trip_id")
-      .eq("provider", "revolut")
+      .eq("payment_provider", "revolut")
       .not("provider_order_id", "is", null);
 
     const { data: sessions, error } = Array.isArray(body.session_ids) && body.session_ids.length > 0
