@@ -194,6 +194,9 @@ serve(async (req) => {
     });
 
     // === Persist provider fields onto the trip ===
+    // P0 GATE FIX: do NOT set payment_status='authorized' here. Order is PENDING
+    // until Revolut emits ORDER_AUTHORISED via revolut-webhook, which is the
+    // sole authoritative source for authorised_amount_pence and payment_status.
     await supabase
       .from("trips")
       .update({
@@ -203,8 +206,7 @@ serve(async (req) => {
         payment_method:
           payment_method_type === "apple_pay" ? "APPLE_PAY" :
           payment_method_type === "google_pay" ? "GOOGLE_PAY" : "CARD",
-        payment_status: "authorized",
-        authorised_amount_pence: hold_pence,
+        payment_status: "pending",
         preauth_buffer_pence: buffer_pence,
         updated_at: new Date().toISOString(),
       })
