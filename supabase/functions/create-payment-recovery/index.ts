@@ -135,7 +135,7 @@ Deno.serve(async (req) => {
         trip_id: trip.id,
         customer_id: trip.passenger_id,
         service_area_id: trip.service_area_id,
-        provider: "revolut",
+        payment_provider: "revolut",
         purpose: "PAYMENT_RECOVERY",
         status: "RECOVERY_CHECKOUT_CREATED",
         authorised_amount_pence: chargePence,
