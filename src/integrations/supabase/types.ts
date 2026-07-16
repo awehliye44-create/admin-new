@@ -18696,6 +18696,7 @@ export type Database = {
         Row: {
           created_at: string | null
           customer_code: string | null
+          email: string | null
           first_name: string | null
           id: string | null
           last_name: string | null
