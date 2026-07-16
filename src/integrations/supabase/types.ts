@@ -1265,6 +1265,124 @@ export type Database = {
         }
         Relationships: []
       }
+      company_operational_refund_reserves: {
+        Row: {
+          activated_at: string | null
+          approved_by: string | null
+          audit_note: string | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          disabled_at: string | null
+          effective_from: string | null
+          effective_to: string | null
+          id: string
+          metadata: Json
+          minimum_reserve_pence: number
+          reserve_amount_pence: number | null
+          reserve_mode: string
+          reserve_percentage_bps: number | null
+          service_area_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          activated_at?: string | null
+          approved_by?: string | null
+          audit_note?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          disabled_at?: string | null
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          metadata?: Json
+          minimum_reserve_pence?: number
+          reserve_amount_pence?: number | null
+          reserve_mode: string
+          reserve_percentage_bps?: number | null
+          service_area_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          activated_at?: string | null
+          approved_by?: string | null
+          audit_note?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          disabled_at?: string | null
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          metadata?: Json
+          minimum_reserve_pence?: number
+          reserve_amount_pence?: number | null
+          reserve_mode?: string
+          reserve_percentage_bps?: number | null
+          service_area_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_operational_refund_reserves_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_operational_reserve_audit: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          from_status: string | null
+          id: string
+          money_moved: boolean
+          note: string | null
+          payload: Json
+          reserve_id: string | null
+          to_status: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          from_status?: string | null
+          id?: string
+          money_moved?: boolean
+          note?: string | null
+          payload?: Json
+          reserve_id?: string | null
+          to_status?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          from_status?: string | null
+          id?: string
+          money_moved?: boolean
+          note?: string | null
+          payload?: Json
+          reserve_id?: string | null
+          to_status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_operational_reserve_audit_reserve_id_fkey"
+            columns: ["reserve_id"]
+            isOneToOne: false
+            referencedRelation: "company_operational_refund_reserves"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       company_outgoing_batches: {
         Row: {
           batch_ref: string
@@ -1417,11 +1535,14 @@ export type Database = {
         Row: {
           amount_pence: number
           approval_count: number
+          approval_funding_snapshot: Json | null
           approvals_required: number
           approved_amount_pence: number | null
           approved_by: string | null
           attachment_url: string | null
           batch_id: string | null
+          blocked_at: string | null
+          blocked_reason_codes: string[]
           category: string
           cost_centre: string | null
           created_at: string
@@ -1440,6 +1561,7 @@ export type Database = {
           notes: string | null
           payee_id: string | null
           payment_reference: string | null
+          pre_execution_funding_snapshot: Json | null
           provider: string | null
           provider_completed_at: string | null
           provider_created_at: string | null
@@ -1450,9 +1572,12 @@ export type Database = {
           provider_state: string | null
           provider_transaction_id: string | null
           purpose: string
+          ready_for_execution_at: string | null
           recipient_name: string
           recipient_type: string
+          rejected_at: string | null
           requested_by: string | null
+          reserve_policy_id: string | null
           retry_count: number
           revolut_counterparty_id: string | null
           revolut_recipient_account_id: string | null
@@ -1461,18 +1586,24 @@ export type Database = {
           scheduled_at: string | null
           service_area_id: string | null
           source_account: string | null
+          source_account_id: string | null
           status: string
+          submitted_for_approval_at: string | null
           transfer_ref: string
+          transfer_type: string
           updated_at: string
         }
         Insert: {
           amount_pence: number
           approval_count?: number
+          approval_funding_snapshot?: Json | null
           approvals_required?: number
           approved_amount_pence?: number | null
           approved_by?: string | null
           attachment_url?: string | null
           batch_id?: string | null
+          blocked_at?: string | null
+          blocked_reason_codes?: string[]
           category: string
           cost_centre?: string | null
           created_at?: string
@@ -1491,6 +1622,7 @@ export type Database = {
           notes?: string | null
           payee_id?: string | null
           payment_reference?: string | null
+          pre_execution_funding_snapshot?: Json | null
           provider?: string | null
           provider_completed_at?: string | null
           provider_created_at?: string | null
@@ -1501,9 +1633,12 @@ export type Database = {
           provider_state?: string | null
           provider_transaction_id?: string | null
           purpose: string
+          ready_for_execution_at?: string | null
           recipient_name: string
           recipient_type: string
+          rejected_at?: string | null
           requested_by?: string | null
+          reserve_policy_id?: string | null
           retry_count?: number
           revolut_counterparty_id?: string | null
           revolut_recipient_account_id?: string | null
@@ -1512,18 +1647,24 @@ export type Database = {
           scheduled_at?: string | null
           service_area_id?: string | null
           source_account?: string | null
+          source_account_id?: string | null
           status?: string
+          submitted_for_approval_at?: string | null
           transfer_ref: string
+          transfer_type?: string
           updated_at?: string
         }
         Update: {
           amount_pence?: number
           approval_count?: number
+          approval_funding_snapshot?: Json | null
           approvals_required?: number
           approved_amount_pence?: number | null
           approved_by?: string | null
           attachment_url?: string | null
           batch_id?: string | null
+          blocked_at?: string | null
+          blocked_reason_codes?: string[]
           category?: string
           cost_centre?: string | null
           created_at?: string
@@ -1542,6 +1683,7 @@ export type Database = {
           notes?: string | null
           payee_id?: string | null
           payment_reference?: string | null
+          pre_execution_funding_snapshot?: Json | null
           provider?: string | null
           provider_completed_at?: string | null
           provider_created_at?: string | null
@@ -1552,9 +1694,12 @@ export type Database = {
           provider_state?: string | null
           provider_transaction_id?: string | null
           purpose?: string
+          ready_for_execution_at?: string | null
           recipient_name?: string
           recipient_type?: string
+          rejected_at?: string | null
           requested_by?: string | null
+          reserve_policy_id?: string | null
           retry_count?: number
           revolut_counterparty_id?: string | null
           revolut_recipient_account_id?: string | null
@@ -1563,8 +1708,11 @@ export type Database = {
           scheduled_at?: string | null
           service_area_id?: string | null
           source_account?: string | null
+          source_account_id?: string | null
           status?: string
+          submitted_for_approval_at?: string | null
           transfer_ref?: string
+          transfer_type?: string
           updated_at?: string
         }
         Relationships: [
@@ -5913,10 +6061,13 @@ export type Database = {
           amount_pence: number
           claim_token: string | null
           claimed_at: string | null
+          completion_evidence_redacted: Json
           created_at: string
           currency: string
           driver_id: string
           execution_status: string
+          financial_application_ledger_entry_id: string | null
+          financially_applied_at: string | null
           id: string
           idempotency_key: string
           last_provider_sync_at: string | null
@@ -5942,10 +6093,13 @@ export type Database = {
           amount_pence: number
           claim_token?: string | null
           claimed_at?: string | null
+          completion_evidence_redacted?: Json
           created_at?: string
           currency?: string
           driver_id: string
           execution_status?: string
+          financial_application_ledger_entry_id?: string | null
+          financially_applied_at?: string | null
           id?: string
           idempotency_key: string
           last_provider_sync_at?: string | null
@@ -5971,10 +6125,13 @@ export type Database = {
           amount_pence?: number
           claim_token?: string | null
           claimed_at?: string | null
+          completion_evidence_redacted?: Json
           created_at?: string
           currency?: string
           driver_id?: string
           execution_status?: string
+          financial_application_ledger_entry_id?: string | null
+          financially_applied_at?: string | null
           id?: string
           idempotency_key?: string
           last_provider_sync_at?: string | null
@@ -6001,9 +6158,11 @@ export type Database = {
       driver_payout_reservations: {
         Row: {
           amount_pence: number
+          completion_idempotency_key: string | null
           consumed_at: string | null
           created_at: string
           currency: string
+          debit_ledger_entry_id: string | null
           driver_id: string
           failure_code: string | null
           hold_ledger_entry_id: string | null
@@ -6012,6 +6171,7 @@ export type Database = {
           metadata: Json
           payout_batch_id: string
           payout_item_id: string
+          provider_payment_id: string | null
           release_reason: string | null
           released_at: string | null
           reservation_fingerprint: string
@@ -6023,9 +6183,11 @@ export type Database = {
         }
         Insert: {
           amount_pence: number
+          completion_idempotency_key?: string | null
           consumed_at?: string | null
           created_at?: string
           currency?: string
+          debit_ledger_entry_id?: string | null
           driver_id: string
           failure_code?: string | null
           hold_ledger_entry_id?: string | null
@@ -6034,6 +6196,7 @@ export type Database = {
           metadata?: Json
           payout_batch_id: string
           payout_item_id: string
+          provider_payment_id?: string | null
           release_reason?: string | null
           released_at?: string | null
           reservation_fingerprint: string
@@ -6045,9 +6208,11 @@ export type Database = {
         }
         Update: {
           amount_pence?: number
+          completion_idempotency_key?: string | null
           consumed_at?: string | null
           created_at?: string
           currency?: string
+          debit_ledger_entry_id?: string | null
           driver_id?: string
           failure_code?: string | null
           hold_ledger_entry_id?: string | null
@@ -6056,6 +6221,7 @@ export type Database = {
           metadata?: Json
           payout_batch_id?: string
           payout_item_id?: string
+          provider_payment_id?: string | null
           release_reason?: string | null
           released_at?: string | null
           reservation_fingerprint?: string
@@ -10959,6 +11125,83 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "payment_session_refunds_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_session_release_evidence_backfill: {
+        Row: {
+          authorised_amount_pence: number | null
+          backfill_source: string
+          backfill_version: string
+          captured_amount_pence: number | null
+          comparison_auth_minus_capture_pence: number | null
+          created_at: string
+          id: string
+          idempotency_key: string
+          payment_session_id: string
+          provider_order_id: string
+          provider_payment_id: string | null
+          provider_retrieved_at: string
+          provider_snapshot: Json
+          provider_state: string | null
+          release_evidence_status: string
+          released_amount_pence: number | null
+          session_patch_applied: boolean
+          suggested_status_alias: string | null
+          trip_id: string | null
+          unresolved_reason: string | null
+        }
+        Insert: {
+          authorised_amount_pence?: number | null
+          backfill_source: string
+          backfill_version: string
+          captured_amount_pence?: number | null
+          comparison_auth_minus_capture_pence?: number | null
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          payment_session_id: string
+          provider_order_id: string
+          provider_payment_id?: string | null
+          provider_retrieved_at: string
+          provider_snapshot?: Json
+          provider_state?: string | null
+          release_evidence_status: string
+          released_amount_pence?: number | null
+          session_patch_applied?: boolean
+          suggested_status_alias?: string | null
+          trip_id?: string | null
+          unresolved_reason?: string | null
+        }
+        Update: {
+          authorised_amount_pence?: number | null
+          backfill_source?: string
+          backfill_version?: string
+          captured_amount_pence?: number | null
+          comparison_auth_minus_capture_pence?: number | null
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          payment_session_id?: string
+          provider_order_id?: string
+          provider_payment_id?: string | null
+          provider_retrieved_at?: string
+          provider_snapshot?: Json
+          provider_state?: string | null
+          release_evidence_status?: string
+          released_amount_pence?: number | null
+          session_patch_applied?: boolean
+          suggested_status_alias?: string | null
+          trip_id?: string | null
+          unresolved_reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_session_release_evidence_backfi_payment_session_id_fkey"
             columns: ["payment_session_id"]
             isOneToOne: false
             referencedRelation: "payment_sessions"
@@ -20616,6 +20859,16 @@ export type Database = {
         Args: { p_cashout_id: string }
         Returns: Json
       }
+      finalize_driver_payout_completion: {
+        Args: {
+          p_evidence_redacted?: Json
+          p_payout_item_id: string
+          p_provider_completed_at?: string
+          p_provider_payment_id: string
+          p_provider_state: string
+        }
+        Returns: Json
+      }
       finalize_driver_payout_submission: {
         Args: {
           p_claim_token: string
@@ -20990,6 +21243,29 @@ export type Database = {
       haversine_meters: {
         Args: { lat1: number; lat2: number; lon1: number; lon2: number }
         Returns: number
+      }
+      insert_payment_release_evidence_backfill: {
+        Args: {
+          p_authorised_amount_pence: number
+          p_backfill_source: string
+          p_backfill_version: string
+          p_captured_amount_pence: number
+          p_comparison_auth_minus_capture_pence: number
+          p_idempotency_key: string
+          p_payment_session_id: string
+          p_provider_order_id: string
+          p_provider_payment_id: string
+          p_provider_retrieved_at: string
+          p_provider_snapshot: Json
+          p_provider_state: string
+          p_release_evidence_status: string
+          p_released_amount_pence: number
+          p_session_patch_applied?: boolean
+          p_suggested_status_alias: string
+          p_trip_id: string
+          p_unresolved_reason: string
+        }
+        Returns: Json
       }
       insert_payout_ledger_debit_if_missing: {
         Args: {
@@ -21556,6 +21832,65 @@ export type Database = {
       reset_auth_user_email_unconfirmed: {
         Args: { _user_id: string }
         Returns: undefined
+      }
+      resolve_active_company_operational_reserve: {
+        Args: {
+          p_as_of?: string
+          p_currency?: string
+          p_service_area_id?: string
+        }
+        Returns: {
+          activated_at: string
+          approved_by: string
+          audit_note: string
+          created_at: string
+          created_by: string
+          currency: string
+          disabled_at: string
+          effective_from: string
+          effective_to: string
+          id: string
+          minimum_reserve_pence: number
+          reserve_amount_pence: number
+          reserve_mode: string
+          reserve_percentage_bps: number
+          service_area_id: string
+          status: string
+          updated_at: string
+        }[]
+      }
+      resolve_active_company_operational_reserve_prefer_sa: {
+        Args: {
+          p_as_of?: string
+          p_currency?: string
+          p_service_area_id?: string
+        }
+        Returns: {
+          activated_at: string | null
+          approved_by: string | null
+          audit_note: string | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          disabled_at: string | null
+          effective_from: string | null
+          effective_to: string | null
+          id: string
+          metadata: Json
+          minimum_reserve_pence: number
+          reserve_amount_pence: number | null
+          reserve_mode: string
+          reserve_percentage_bps: number | null
+          service_area_id: string | null
+          status: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "company_operational_refund_reserves"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       resolve_driver_alert: {
         Args: { p_alert_type: string; p_driver_id: string }
