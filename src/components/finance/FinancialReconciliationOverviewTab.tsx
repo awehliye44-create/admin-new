@@ -14,8 +14,6 @@ import {
 } from '@/components/finance/ServiceAreaGatewayStatusPanel';
 
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
-import { useDriverWalletSsotAll } from '@/hooks/useDriverWalletSsot';
-import { aggregateFrDriverAuditOverview } from '@/lib/frDriverAuditOverviewSSOT';
 
 function KpiCard({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
   return (
