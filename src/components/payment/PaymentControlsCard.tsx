@@ -837,19 +837,6 @@ export function PaymentControlsCard({
               <Badge variant="outline" className="text-xs">Fully refunded — refund actions disabled; history remains visible above.</Badge>
             )}
 
-            {/* Legacy quick actions retained for edit fare when no outstanding balance */}
-            {showTripActionsPanel && (isUncaptured || hasCharge) && !blockEditFareForOutstanding && (
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={() => openMode('edit')} disabled={actionMutation.isPending}>
-                  <Pencil className="h-4 w-4 mr-1" /> Edit Fare
-                </Button>
-              </div>
-            )}
-            {blockEditFareForOutstanding && (
-              <p className="text-xs text-amber-700 w-full">
-                Edit Fare is disabled while an outstanding balance exists — use Request extra payment (SSOT).
-              </p>
-            )}
 
             {/* Audit log */}
             <Collapsible open={auditOpen} onOpenChange={setAuditOpen}>
