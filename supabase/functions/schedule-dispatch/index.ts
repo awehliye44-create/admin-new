@@ -7,6 +7,7 @@ import {
   logAuditEvent,
 } from "../_shared/security.ts";
 import { assertServiceRole } from "../_shared/internalAuth.ts";
+import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
 
 
 /**
