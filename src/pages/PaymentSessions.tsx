@@ -1130,6 +1130,8 @@ export default function PaymentSessions() {
                                   onAction={runAction}
                                   onRefund={runRefund}
                                   onInspect={runInspect}
+                                  onRequestRecovery={runRequestRecovery}
+
                                 />
                                 <Button
                                   size="sm"
