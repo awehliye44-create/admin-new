@@ -1265,6 +1265,75 @@ export type Database = {
         }
         Relationships: []
       }
+      company_funding_holds: {
+        Row: {
+          amount_pence: number
+          consumed_at: string | null
+          created_at: string
+          currency: string
+          financial_application_audit_id: string | null
+          hold_idempotency_key: string
+          id: string
+          payment_intent_id: string | null
+          provider_payment_id: string | null
+          release_reason: string | null
+          released_at: string | null
+          service_area_id: string | null
+          status: string
+          transfer_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount_pence: number
+          consumed_at?: string | null
+          created_at?: string
+          currency?: string
+          financial_application_audit_id?: string | null
+          hold_idempotency_key: string
+          id?: string
+          payment_intent_id?: string | null
+          provider_payment_id?: string | null
+          release_reason?: string | null
+          released_at?: string | null
+          service_area_id?: string | null
+          status?: string
+          transfer_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount_pence?: number
+          consumed_at?: string | null
+          created_at?: string
+          currency?: string
+          financial_application_audit_id?: string | null
+          hold_idempotency_key?: string
+          id?: string
+          payment_intent_id?: string | null
+          provider_payment_id?: string | null
+          release_reason?: string | null
+          released_at?: string | null
+          service_area_id?: string | null
+          status?: string
+          transfer_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_funding_holds_payment_intent_id_fkey"
+            columns: ["payment_intent_id"]
+            isOneToOne: false
+            referencedRelation: "company_transfer_payment_intents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_funding_holds_transfer_id_fkey"
+            columns: ["transfer_id"]
+            isOneToOne: false
+            referencedRelation: "company_outgoing_transfers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       company_operational_refund_reserves: {
         Row: {
           activated_at: string | null
@@ -1944,6 +2013,107 @@ export type Database = {
             columns: ["service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_transfer_payment_intents: {
+        Row: {
+          amount_pence: number
+          claim_token: string | null
+          claimed_at: string | null
+          completion_evidence_redacted: Json
+          created_at: string
+          currency: string
+          execution_status: string
+          financial_application_audit_id: string | null
+          financially_applied_at: string | null
+          id: string
+          idempotency_key: string
+          last_provider_sync_at: string | null
+          payment_reference: string | null
+          provider: string
+          provider_completed_at: string | null
+          provider_counterparty_id: string | null
+          provider_created_at: string | null
+          provider_failure_code: string | null
+          provider_failure_reason_safe: string | null
+          provider_payment_id: string | null
+          provider_recipient_account_id: string | null
+          provider_request_id: string
+          provider_state: string | null
+          request_fingerprint: string
+          source_account_id: string
+          submission_evidence_redacted: Json
+          transfer_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount_pence: number
+          claim_token?: string | null
+          claimed_at?: string | null
+          completion_evidence_redacted?: Json
+          created_at?: string
+          currency?: string
+          execution_status?: string
+          financial_application_audit_id?: string | null
+          financially_applied_at?: string | null
+          id?: string
+          idempotency_key: string
+          last_provider_sync_at?: string | null
+          payment_reference?: string | null
+          provider?: string
+          provider_completed_at?: string | null
+          provider_counterparty_id?: string | null
+          provider_created_at?: string | null
+          provider_failure_code?: string | null
+          provider_failure_reason_safe?: string | null
+          provider_payment_id?: string | null
+          provider_recipient_account_id?: string | null
+          provider_request_id: string
+          provider_state?: string | null
+          request_fingerprint: string
+          source_account_id: string
+          submission_evidence_redacted?: Json
+          transfer_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount_pence?: number
+          claim_token?: string | null
+          claimed_at?: string | null
+          completion_evidence_redacted?: Json
+          created_at?: string
+          currency?: string
+          execution_status?: string
+          financial_application_audit_id?: string | null
+          financially_applied_at?: string | null
+          id?: string
+          idempotency_key?: string
+          last_provider_sync_at?: string | null
+          payment_reference?: string | null
+          provider?: string
+          provider_completed_at?: string | null
+          provider_counterparty_id?: string | null
+          provider_created_at?: string | null
+          provider_failure_code?: string | null
+          provider_failure_reason_safe?: string | null
+          provider_payment_id?: string | null
+          provider_recipient_account_id?: string | null
+          provider_request_id?: string
+          provider_state?: string | null
+          request_fingerprint?: string
+          source_account_id?: string
+          submission_evidence_redacted?: Json
+          transfer_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_transfer_payment_intents_transfer_id_fkey"
+            columns: ["transfer_id"]
+            isOneToOne: false
+            referencedRelation: "company_outgoing_transfers"
             referencedColumns: ["id"]
           },
         ]
@@ -20509,6 +20679,15 @@ export type Database = {
           previous_device_id: string
         }[]
       }
+      claim_company_transfer_submission: {
+        Args: {
+          p_claim_token?: string
+          p_place_hold?: boolean
+          p_source_account_id: string
+          p_transfer_id: string
+        }
+        Returns: Json
+      }
       claim_driver_payout_submission: {
         Args: {
           p_claim_token?: string
@@ -20821,6 +21000,10 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: number
       }
+      driver_wallet_summary_ssot: {
+        Args: { p_driver_id: string; p_service_area_id?: string }
+        Returns: Json
+      }
       enrich_ride_offer_presets: { Args: { p_trip_id: string }; Returns: Json }
       ensure_trip_stops_for_assignment: {
         Args: { p_trip_id: string }
@@ -20850,6 +21033,31 @@ export type Database = {
       expire_trip_when_search_exhausted: {
         Args: { p_trip_id: string }
         Returns: boolean
+      }
+      finalize_company_transfer_completion: {
+        Args: {
+          p_evidence_redacted?: Json
+          p_provider_completed_at?: string
+          p_provider_payment_id: string
+          p_provider_state: string
+          p_transfer_id: string
+        }
+        Returns: Json
+      }
+      finalize_company_transfer_submission: {
+        Args: {
+          p_claim_token: string
+          p_evidence_redacted?: Json
+          p_execution_status: string
+          p_provider_created_at?: string
+          p_provider_failure_code?: string
+          p_provider_failure_reason_safe?: string
+          p_provider_payment_id?: string
+          p_provider_state?: string
+          p_release_hold?: boolean
+          p_transfer_id: string
+        }
+        Returns: Json
       }
       finalize_customer_onboarding: {
         Args: { _user_id: string }
@@ -21809,12 +22017,20 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: undefined
       }
+      release_company_funding_hold: {
+        Args: { p_reason?: string; p_transfer_id: string }
+        Returns: Json
+      }
       release_driver_payout_reservation: {
         Args: {
           p_payout_item_id?: string
           p_release_reason?: string
           p_reservation_id?: string
         }
+        Returns: Json
+      }
+      release_sub_minimum_weekly_payout_reservations: {
+        Args: { p_driver_id?: string }
         Returns: Json
       }
       release_trip_negotiation_lock: {
@@ -22028,6 +22244,16 @@ export type Database = {
       }
       sweep_revolut_stale_holds: { Args: never; Returns: undefined }
       sweep_stale_searching_trips: { Args: never; Returns: Json }
+      sync_company_transfer_provider_status: {
+        Args: {
+          p_evidence_redacted?: Json
+          p_provider_completed_at?: string
+          p_provider_payment_id: string
+          p_provider_state: string
+          p_transfer_id: string
+        }
+        Returns: Json
+      }
       sync_customer_phone_verification: {
         Args: { _user_id: string }
         Returns: undefined
