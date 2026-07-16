@@ -38,6 +38,7 @@ interface Rider {
   first_name: string | null;
   last_name: string | null;
   phone: string | null;
+  email: string | null;
   created_at: string;
   updated_at: string;
   trip_count?: number;
@@ -72,7 +73,7 @@ export default function Riders() {
     queryFn: async () => {
       const { data: ridersData, error: ridersError } = await supabase
         .from('admin_riders_with_trip_stats')
-        .select('id, user_id, customer_code, first_name, last_name, phone, created_at, updated_at, rider_status, trip_count, last_trip_at')
+        .select('id, user_id, customer_code, first_name, last_name, phone, email, created_at, updated_at, rider_status, trip_count, last_trip_at')
         .order('created_at', { ascending: false });
 
       if (ridersError) throw ridersError;
@@ -400,6 +401,7 @@ export default function Riders() {
                   <TableHead>Customer ID</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Phone</TableHead>
+                  <TableHead>Email</TableHead>
                   <TableHead>Trips</TableHead>
                   <TableHead>Last Trip</TableHead>
                   <TableHead>Joined</TableHead>
@@ -429,6 +431,13 @@ export default function Riders() {
                           <Phone className="h-3 w-3 text-muted-foreground" />
                           <span>{rider.phone}</span>
                         </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {rider.email ? (
+                        <span className="text-sm">{rider.email}</span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
