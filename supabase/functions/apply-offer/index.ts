@@ -10,6 +10,7 @@
  *                       (used by complete-trip / capture-trip-payment)
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -195,6 +196,17 @@ Deno.serve(async (req) => {
 
     // --- Persist on apply mode ---
     if (mode === "apply") {
+      // P0 GATE: never persist a redemption against a digital trip whose payment gate is not satisfied.
+      if (trip_id) {
+        try {
+          await assertPaymentGate(supabase, trip_id);
+        } catch (e) {
+          if (e instanceof PaymentGateError) {
+            return json({ ok: false, reason: "PAYMENT_GATE_NOT_SATISFIED", detail: e.message }, 409);
+          }
+          throw e;
+        }
+      }
       const { error: insErr } = await supabase.from("offer_redemptions").insert({
         offer_id: offer.id,
         customer_id: customer_id ?? null,

@@ -7,6 +7,7 @@ import {
   logAuditEvent,
 } from "../_shared/security.ts";
 import { assertServiceRole } from "../_shared/internalAuth.ts";
+import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
 
 
 /**
@@ -137,6 +138,25 @@ serve(async (req) => {
         console.log(
           `[schedule-dispatch] Trip ${trip.id}: ${minutesUntilPickup.toFixed(1)}min to pickup — dispatching`
         );
+
+        // P0 PAYMENT GATE: independently re-verify a digital trip's payment
+        // authorisation before touching dispatch state. Non-digital trips no-op.
+        try {
+          await assertPaymentGate(supabase, trip.id);
+        } catch (e) {
+          if (e instanceof PaymentGateError) {
+            console.warn(`[schedule-dispatch] Trip ${trip.id}: PAYMENT_GATE_NOT_SATISFIED — ${e.message}`);
+            await supabase.from("trips").update({
+              scheduled_status: "payment_gate_blocked",
+              updated_at: now.toISOString(),
+            }).eq("id", trip.id);
+            skipped++;
+            results.push({ trip_id: trip.id, action: "payment_gate_blocked", detail: e.message });
+            continue;
+          }
+          throw e;
+        }
+
 
         // Mark as dispatching immediately (prevents re-processing next minute)
         await supabase
