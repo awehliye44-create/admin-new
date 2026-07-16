@@ -289,16 +289,14 @@ export function PaymentControlsCard({
   });
 
   const actionMutation = useMutation({
-    mutationFn: async (input: { mode: Mode; amount_pence?: number; new_total_pence?: number; reason: string }) => {
+    mutationFn: async (input: { mode: Mode; amount_pence?: number; reason: string }) => {
       const fn =
         input.mode === 'capture' ? 'admin-capture-trip-payment'
         : input.mode === 'refund' || input.mode === 'partial_refund' ? 'admin-refund-trip-payment'
         : input.mode === 'cancel' ? 'admin-cancel-trip-payment'
-        : input.mode === 'extra_payment' ? 'admin-request-extra-payment'
-        : 'admin-edit-trip-fare';
+        : 'admin-request-extra-payment';
       const body: Record<string, unknown> = { trip_id: tripId, reason: input.reason };
-      if (input.mode === 'edit') body.new_total_pence = input.new_total_pence;
-      else if (input.mode === 'extra_payment') {
+      if (input.mode === 'extra_payment') {
         // Server computes charge from settlement − captured; never trust UI amount.
       } else if (input.mode !== 'cancel' && input.amount_pence !== undefined) {
         body.amount_pence = input.amount_pence;
