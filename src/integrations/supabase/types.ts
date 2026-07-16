@@ -20565,6 +20565,16 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      alert_unresolved_authorised_paid_bookings: {
+        Args: never
+        Returns: {
+          age_minutes: number
+          last_error: string
+          payment_session_id: string
+          provider_order_id: string
+          recovery_attempt_count: number
+        }[]
+      }
       apply_approved_trip_change_from_request: {
         Args: {
           p_req: Database["public"]["Tables"]["trip_change_requests"]["Row"]
@@ -22034,6 +22044,16 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      recover_authorised_paid_booking_sessions: {
+        Args: { p_limit?: number }
+        Returns: {
+          error: string
+          payment_session_id: string
+          provider_order_id: string
+          result: string
+          trip_id: string
+        }[]
       }
       refresh_driver_wallet_reservation_cache: {
         Args: { p_driver_id: string }
