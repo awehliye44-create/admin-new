@@ -436,6 +436,13 @@ export default function Riders() {
                       )}
                     </TableCell>
                     <TableCell>
+                      {rider.email ? (
+                        <span className="text-sm">{rider.email}</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <Badge variant={rider.trip_count && rider.trip_count > 0 ? 'default' : 'secondary'}>
                         <Car className="h-3 w-3 mr-1" />
                         {rider.trip_count || 0}
