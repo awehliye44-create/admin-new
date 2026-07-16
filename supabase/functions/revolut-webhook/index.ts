@@ -191,6 +191,53 @@ Deno.serve(async (req) => {
     }
   }
 
+  // On capture: hydrate provider processing fee from Revolut order details.
+  // Writes payment_sessions.provider_processing_fee_pence + trips.provider_fee_pence.
+  let feeMinor: number | null = null;
+  if (nextStatus === "captured" && orderId) {
+    try {
+      const secretKey = Deno.env.get("REVOLUT_MERCHANT_SECRET_KEY")
+        ?? Deno.env.get("REVOLUT_SECRET_KEY");
+      if (secretKey) {
+        const order = await revolutMerchantRequest<unknown>(
+          "live",
+          secretKey,
+          `/orders/${encodeURIComponent(orderId)}`,
+          { method: "GET" },
+        );
+        feeMinor = extractRevolutFeeMinor(order);
+        if (feeMinor != null) {
+          const nowIso = new Date().toISOString();
+          const { error: sessErr } = await supabase
+            .from("payment_sessions")
+            .update({
+              provider_processing_fee_pence: feeMinor,
+              provider_fee_source: "revolut_order_capture",
+              provider_fee_confirmed_at: nowIso,
+              updated_at: nowIso,
+            })
+            .eq("provider_order_id", orderId);
+          if (sessErr) {
+            console.error(`[revolut-webhook] session fee update failed:`, sessErr.message);
+          }
+          if (tripId) {
+            const { error: tripFeeErr } = await supabase
+              .from("trips")
+              .update({ provider_fee_pence: feeMinor, updated_at: nowIso })
+              .eq("id", tripId);
+            if (tripFeeErr) {
+              console.error(`[revolut-webhook] trip fee update failed:`, tripFeeErr.message);
+            }
+          }
+        }
+      } else {
+        console.warn("[revolut-webhook] no merchant secret env; skipping fee hydration");
+      }
+    } catch (feeErr) {
+      console.error(`[revolut-webhook] fee hydration error:`, (feeErr as Error).message);
+    }
+  }
+
   // Idempotent audit log.
   const { error: auditError } = await supabase.from("admin_payment_audit").insert({
     action: "revolut_webhook",
