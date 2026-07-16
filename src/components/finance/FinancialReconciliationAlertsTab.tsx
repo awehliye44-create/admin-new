@@ -117,7 +117,7 @@ export function FinancialReconciliationAlertsTab({
 
   return (
     <div className="space-y-4">
-      {!mismatchOnly ? <PaymentHoldsFinanceAlertSummary /> : null}
+      
 
       {uniqueAlerts.length === 0 ? (
         <Alert>
