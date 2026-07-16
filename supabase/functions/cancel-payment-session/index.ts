@@ -63,6 +63,18 @@ serve(async (req) => {
 
     // Refuse to cancel an authoritative session — those must be released via revolut-cancel-order.
     if (authoritative) {
+      // Breadcrumb: customer closed sheet AFTER provider authorised. Distinguishes
+      // "Apple Pay confirmed then user abandoned" from "Apple Pay never confirmed".
+      await logAuditEvent(supabase, "PAYMENT_SHEET_CLOSED_AFTER_AUTHORISED", {
+        details: {
+          payment_session_id: ps.id,
+          provider_state: ps.provider_state,
+          authorised_amount_pence: ps.authorised_amount_pence,
+          reason,
+        },
+        ipAddress: clientIP,
+        userAgent: req.headers.get("user-agent") || "unknown",
+      });
       return errorResponse(
         "Cannot client-cancel an authoritative session; use provider cancel/void flow",
         409, { provider_state: ps.provider_state, status: ps.status },
