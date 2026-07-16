@@ -583,29 +583,9 @@ export function DriverDetailsDialog({
     return driverCategories.some(dc => dc.vehicle_type_id === vehicleTypeId && dc.is_enabled);
   };
 
-  const sendOnboardingLink = async () => {
-    if (!driver) return;
-    setIsSendingOnboardLink(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('stripe-onboard-driver', {
-        body: { driver_id: driver.id },
-      });
-      if (error) throw error;
-      if (data?.url) {
-        // Copy link to clipboard
-        await navigator.clipboard.writeText(data.url);
-        toast.success('Provider onboarding link copied to clipboard! Share it with the driver.');
-        if (data.stripe_account_id && !driver.stripe_account_id) {
-          onDriverUpdate({ ...driver, stripe_account_id: data.stripe_account_id });
-        }
-      }
-    } catch (err) {
-      console.error('Error generating onboarding link:', err);
-      toast.error('Failed to generate Provider onboarding link');
-    } finally {
-      setIsSendingOnboardLink(false);
-    }
-  };
+  // Provider onboarding link generation removed with Stripe retirement.
+  // Driver payout onboarding now happens via Payout Ledger / driver payout destinations.
+
 
   if (!driver) return null;
 
