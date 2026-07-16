@@ -298,7 +298,7 @@ export function PayoutLedgerSettingsPanel({
         minimum_reserve_pence: minimum,
         currency,
       });
-      if (!validated.ok) throw new Error(validated.message);
+      if (!validated.ok) throw new Error((validated as { message: string }).message);
 
       const { data: auth } = await supabase.auth.getUser();
       const payload = {
