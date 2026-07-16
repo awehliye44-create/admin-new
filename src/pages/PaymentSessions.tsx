@@ -55,7 +55,9 @@ import { PaymentSessionsKpiStrip, type PaymentSessionsKpiDrill } from '@/compone
 import { PaymentSessionsCompletedTripsTable } from '@/components/finance/PaymentSessionsCompletedTripsTable';
 import { PaymentSessionsMatchingTable } from '@/components/finance/PaymentSessionsMatchingTable';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 import type { PaymentTripMatchStatus } from '../../shared/paymentSessionsTripMatchSSOT';
+
 
 const TABS: Array<{ id: AdminPaymentSessionsTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
