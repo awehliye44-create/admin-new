@@ -10,6 +10,7 @@
  *                       (used by complete-trip / capture-trip-payment)
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
