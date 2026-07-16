@@ -73,7 +73,7 @@ export default function Riders() {
     queryFn: async () => {
       const { data: ridersData, error: ridersError } = await supabase
         .from('admin_riders_with_trip_stats')
-        .select('id, user_id, customer_code, first_name, last_name, phone, created_at, updated_at, rider_status, trip_count, last_trip_at')
+        .select('id, user_id, customer_code, first_name, last_name, phone, email, created_at, updated_at, rider_status, trip_count, last_trip_at')
         .order('created_at', { ascending: false });
 
       if (ridersError) throw ridersError;
