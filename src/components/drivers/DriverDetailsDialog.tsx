@@ -732,32 +732,6 @@ export function DriverDetailsDialog({
                   chargesEnabled={driver.charges_enabled}
                 />
 
-                {false && (!driver.onboarding_complete || !driver.stripe_account_id) && (
-                  <div className="p-4 border rounded-lg space-y-3">
-                    <p className="text-sm text-muted-foreground">
-                      Provider onboarding (Provider payout service areas only).
-                    </p>
-                    {isDriverStripeOnboardingComplete(driver) ? (
-                      <p className="text-sm text-muted-foreground">
-                        Payout account is fully set up. No onboarding link is needed.
-                      </p>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={sendOnboardingLink}
-                        disabled={isSendingOnboardLink}
-                      >
-                        {isSendingOnboardLink ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Send className="mr-2 h-4 w-4" />
-                        )}
-                        {driver.stripe_account_id ? 'Resend Onboarding Link' : 'Send Onboarding Link'}
-                      </Button>
-                    )}
-                  </div>
-                )}
 
                 <div className="flex gap-2 pt-4 border-t flex-wrap">
                   <Button 
