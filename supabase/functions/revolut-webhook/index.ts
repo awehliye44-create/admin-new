@@ -260,6 +260,47 @@ Deno.serve(async (req) => {
         if (amt != null) sessionUpdate.captured_amount_pence = Math.round(amt);
       }
       await supabase.from("payment_sessions").update(sessionUpdate).eq("id", recoverySession.id);
+
+      // Payment Authorisation Lifecycle SSOT: only release the parent hold
+      // after a recovery capture succeeds. Never on RECOVERY_DECLINED/CANCELLED/EXPIRED.
+      if (recoveryNextStatus === "RECOVERY_COMPLETED" && recoverySession.trip_id) {
+        const { data: parent } = await supabase
+          .from("payment_sessions")
+          .select("id, provider_order_id, provider_state, metadata")
+          .eq("trip_id", recoverySession.trip_id)
+          .eq("purpose", "RIDE_BOOKING")
+          .maybeSingle();
+        if (parent && (parent.provider_state ?? "").toUpperCase() === "AUTHORISED" && parent.provider_order_id) {
+          try {
+            const meta = (parent.metadata && typeof parent.metadata === "object") ? parent.metadata : {};
+            await supabase.from("payment_sessions").update({
+              metadata: {
+                ...meta,
+                release_trigger: "recovery_captured",
+                release_trigger_at: nowIso,
+                recovery_session_id: recoverySession.id,
+              },
+              updated_at: nowIso,
+            }).eq("id", parent.id);
+            const { secretKey, environment } = getRevolutMerchantConfig();
+            const { cancelRevolutOrder } = await import("../_shared/revolutOrders.ts");
+            await cancelRevolutOrder(environment, secretKey, parent.provider_order_id);
+            await supabase.from("payment_sessions").update({
+              provider_state: "CANCELLED",
+              status: "released_after_recovery",
+              provider_state_verified_at: nowIso,
+              provider_state_verified_by: "recovery_captured",
+              updated_at: nowIso,
+            }).eq("id", parent.id);
+            await supabase.from("trips").update({
+              payment_status: "captured",
+              updated_at: nowIso,
+            }).eq("id", recoverySession.trip_id);
+          } catch (releaseErr) {
+            console.error(`[revolut-webhook] parent hold release after recovery failed:`, (releaseErr as Error).message);
+          }
+        }
+      }
     }
   } else {
     let finaliseTripId: string | null = null;
