@@ -21515,6 +21515,14 @@ export type Database = {
         Returns: Json
       }
       get_driver_pending_ride_offers: { Args: never; Returns: Json }
+      get_driver_resume_delta: {
+        Args: {
+          p_known_active_trip_id?: string
+          p_known_offer_id?: string
+          p_since_server_ts?: string
+        }
+        Returns: Json
+      }
       get_driver_standards: {
         Args: { p_driver_id: string; p_period_days?: number }
         Returns: Json
