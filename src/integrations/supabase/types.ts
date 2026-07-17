@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       account_email_change_requests: {
@@ -1437,43 +1412,129 @@ export type Database = {
           },
         ]
       }
-      commission_wallet_rollout: {
+      commission_wallet_campaign_claims: {
         Row: {
+          amount_minor: number
+          campaign_id: string
+          claim_kind: string
           created_at: string
-          id: boolean
-          multi_sa_unlocked: boolean
-          pilot_service_area_id: string
-          reconciliation_passed_at: string | null
-          unlocked_at: string | null
-          unlocked_note: string | null
-          updated_at: string
+          driver_id: string
+          id: string
+          idempotency_key: string
+          ledger_entry_id: string | null
+          metadata: Json
+          service_area_id: string
+          topup_id: string | null
         }
         Insert: {
+          amount_minor: number
+          campaign_id: string
+          claim_kind: string
           created_at?: string
-          id?: boolean
-          multi_sa_unlocked?: boolean
-          pilot_service_area_id: string
-          reconciliation_passed_at?: string | null
-          unlocked_at?: string | null
-          unlocked_note?: string | null
-          updated_at?: string
+          driver_id: string
+          id?: string
+          idempotency_key: string
+          ledger_entry_id?: string | null
+          metadata?: Json
+          service_area_id: string
+          topup_id?: string | null
         }
         Update: {
+          amount_minor?: number
+          campaign_id?: string
+          claim_kind?: string
           created_at?: string
-          id?: boolean
-          multi_sa_unlocked?: boolean
-          pilot_service_area_id?: string
-          reconciliation_passed_at?: string | null
-          unlocked_at?: string | null
-          unlocked_note?: string | null
-          updated_at?: string
+          driver_id?: string
+          id?: string
+          idempotency_key?: string
+          ledger_entry_id?: string | null
+          metadata?: Json
+          service_area_id?: string
+          topup_id?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "commission_wallet_rollout_pilot_service_area_id_fkey"
-            columns: ["pilot_service_area_id"]
+            foreignKeyName: "commission_wallet_campaign_claims_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "commission_wallet_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "driver_commission_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_service_area_id_fkey"
+            columns: ["service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_topup_id_fkey"
+            columns: ["topup_id"]
+            isOneToOne: false
+            referencedRelation: "driver_commission_wallet_topups"
             referencedColumns: ["id"]
           },
         ]
@@ -1546,73 +1607,43 @@ export type Database = {
           },
         ]
       }
-      commission_wallet_campaign_claims: {
+      commission_wallet_rollout: {
         Row: {
-          amount_minor: number
-          campaign_id: string
-          claim_kind: string
           created_at: string
-          driver_id: string
-          id: string
-          idempotency_key: string
-          ledger_entry_id: string | null
-          metadata: Json
-          service_area_id: string
-          topup_id: string | null
+          id: boolean
+          multi_sa_unlocked: boolean
+          pilot_service_area_id: string
+          reconciliation_passed_at: string | null
+          unlocked_at: string | null
+          unlocked_note: string | null
+          updated_at: string
         }
         Insert: {
-          amount_minor: number
-          campaign_id: string
-          claim_kind: string
           created_at?: string
-          driver_id: string
-          id?: string
-          idempotency_key: string
-          ledger_entry_id?: string | null
-          metadata?: Json
-          service_area_id: string
-          topup_id?: string | null
+          id?: boolean
+          multi_sa_unlocked?: boolean
+          pilot_service_area_id: string
+          reconciliation_passed_at?: string | null
+          unlocked_at?: string | null
+          unlocked_note?: string | null
+          updated_at?: string
         }
         Update: {
-          amount_minor?: number
-          campaign_id?: string
-          claim_kind?: string
           created_at?: string
-          driver_id?: string
-          id?: string
-          idempotency_key?: string
-          ledger_entry_id?: string | null
-          metadata?: Json
-          service_area_id?: string
-          topup_id?: string | null
+          id?: boolean
+          multi_sa_unlocked?: boolean
+          pilot_service_area_id?: string
+          reconciliation_passed_at?: string | null
+          unlocked_at?: string | null
+          unlocked_note?: string | null
+          updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "commission_wallet_campaign_claims_campaign_id_fkey"
-            columns: ["campaign_id"]
-            isOneToOne: false
-            referencedRelation: "commission_wallet_campaigns"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "commission_wallet_campaign_claims_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "drivers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "commission_wallet_campaign_claims_service_area_id_fkey"
-            columns: ["service_area_id"]
+            foreignKeyName: "commission_wallet_rollout_pilot_service_area_id_fkey"
+            columns: ["pilot_service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "commission_wallet_campaign_claims_topup_id_fkey"
-            columns: ["topup_id"]
-            isOneToOne: false
-            referencedRelation: "driver_commission_wallet_topups"
             referencedColumns: ["id"]
           },
         ]
@@ -4239,6 +4270,164 @@ export type Database = {
         }
         Relationships: []
       }
+      dispatch_events: {
+        Row: {
+          created_at: string
+          id: string
+          idempotency_key: string
+          payload: Json
+          recipient_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          payload: Json
+          recipient_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          payload?: Json
+          recipient_id?: string
+        }
+        Relationships: []
+      }
+      dispatch_jobs: {
+        Row: {
+          attempts: number
+          created_at: string
+          driver_id: string | null
+          id: string
+          last_error: string | null
+          offer_id: string | null
+          payload: Json | null
+          run_at: string
+          status: string
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          driver_id?: string | null
+          id?: string
+          last_error?: string | null
+          offer_id?: string | null
+          payload?: Json | null
+          run_at?: string
+          status?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          driver_id?: string | null
+          id?: string
+          last_error?: string | null
+          offer_id?: string | null
+          payload?: Json | null
+          run_at?: string
+          status?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dispatch_jobs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_jobs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "dispatch_jobs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "dispatch_jobs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "dispatch_jobs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "dispatch_jobs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_jobs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_jobs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_jobs_offer_id_fkey"
+            columns: ["offer_id"]
+            isOneToOne: false
+            referencedRelation: "ride_offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_jobs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_jobs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_jobs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_jobs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       dispatch_round_advance_log: {
         Row: {
           created_at: string
@@ -5190,11 +5379,11 @@ export type Database = {
           amount_minor: number
           campaign_id: string | null
           created_at: string
+          credit_type: string | null
           currency: string
           direction: string
           driver_id: string
           entry_type: Database["public"]["Enums"]["commission_wallet_entry_type"]
-          credit_type: string | null
           id: string
           idempotency_key: string
           metadata: Json
@@ -5213,11 +5402,11 @@ export type Database = {
           amount_minor: number
           campaign_id?: string | null
           created_at?: string
+          credit_type?: string | null
           currency: string
           direction: string
           driver_id: string
           entry_type: Database["public"]["Enums"]["commission_wallet_entry_type"]
-          credit_type?: string | null
           id?: string
           idempotency_key: string
           metadata?: Json
@@ -5236,11 +5425,11 @@ export type Database = {
           amount_minor?: number
           campaign_id?: string | null
           created_at?: string
+          credit_type?: string | null
           currency?: string
           direction?: string
           driver_id?: string
           entry_type?: Database["public"]["Enums"]["commission_wallet_entry_type"]
-          credit_type?: string | null
           id?: string
           idempotency_key?: string
           metadata?: Json
@@ -14664,6 +14853,7 @@ export type Database = {
           negotiation_status: string | null
           offer_options: number[] | null
           offer_snapshot: Json | null
+          offer_version: number
           offered_at: string
           responded_at: string | null
           revoked_reason: string | null
@@ -14700,6 +14890,7 @@ export type Database = {
           negotiation_status?: string | null
           offer_options?: number[] | null
           offer_snapshot?: Json | null
+          offer_version?: number
           offered_at?: string
           responded_at?: string | null
           revoked_reason?: string | null
@@ -14736,6 +14927,7 @@ export type Database = {
           negotiation_status?: string | null
           offer_options?: number[] | null
           offer_snapshot?: Json | null
+          offer_version?: number
           offered_at?: string
           responded_at?: string | null
           revoked_reason?: string | null
@@ -18277,6 +18469,7 @@ export type Database = {
           trip_code: string | null
           trip_number: string | null
           trip_type: string | null
+          trip_version: number
           updated_at: string
           vehicle_type: string | null
           vehicle_type_id: string | null
@@ -18561,6 +18754,7 @@ export type Database = {
           trip_code?: string | null
           trip_number?: string | null
           trip_type?: string | null
+          trip_version?: number
           updated_at?: string
           vehicle_type?: string | null
           vehicle_type_id?: string | null
@@ -18845,6 +19039,7 @@ export type Database = {
           trip_code?: string | null
           trip_number?: string | null
           trip_type?: string | null
+          trip_version?: number
           updated_at?: string
           vehicle_type?: string | null
           vehicle_type_id?: string | null
@@ -22221,6 +22416,16 @@ export type Database = {
         }
         Returns: Json
       }
+      claim_dispatch_jobs: {
+        Args: { p_limit?: number }
+        Returns: {
+          driver_id: string
+          job_id: string
+          offer_id: string
+          payload: Json
+          trip_id: string
+        }[]
+      }
       claim_driver_payout_submission: {
         Args: {
           p_claim_token?: string
@@ -22246,6 +22451,15 @@ export type Database = {
       clear_phone_change_pending: {
         Args: { _app_type: string; _user_id: string }
         Returns: undefined
+      }
+      commit_dispatch_wave: {
+        Args: {
+          p_expected_version: number
+          p_expires_in_seconds?: number
+          p_offers: Json
+          p_trip_id: string
+        }
+        Returns: Json
       }
       commit_negotiation_fare: {
         Args: {
@@ -22334,6 +22548,16 @@ export type Database = {
         Args: { p_trip_id: string; p_voucher_id: string }
         Returns: boolean
       }
+      convert_driver_commission_wallet_on_trip_complete: {
+        Args: {
+          p_commission_minor?: number
+          p_commission_rate_bps?: number
+          p_commissionable_fare_minor?: number
+          p_driver_id: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
       convert_scan_go_driver_hold: {
         Args: { p_client_action_id: string; p_trip_id: string }
         Returns: Json
@@ -22376,6 +22600,7 @@ export type Database = {
         }
         Returns: number
       }
+      dispatch_jobs_sweep: { Args: never; Returns: undefined }
       dispatch_max_broadcast_rounds: {
         Args: {
           p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
@@ -22453,6 +22678,19 @@ export type Database = {
         Args: { p_driver_id: string; p_offer_id: string }
         Returns: Json
       }
+      driver_commission_wallet_balance_parts: {
+        Args: { p_driver_id: string; p_service_area_id: string }
+        Returns: {
+          promotional_balance_minor: number
+          purchased_balance_minor: number
+          reserved_balance_minor: number
+          usable_commission_balance_minor: number
+        }[]
+      }
+      driver_commission_wallet_usable_balance_minor: {
+        Args: { p_driver_id: string; p_service_area_id: string }
+        Returns: number
+      }
       driver_compliance_today_london: { Args: never; Returns: string }
       driver_effective_online_reason: {
         Args: {
@@ -22508,6 +22746,10 @@ export type Database = {
           p_online_since: string
         }
         Returns: number
+      }
+      driver_passes_commission_wallet_dispatch_gate: {
+        Args: { p_driver_id: string; p_trip_id: string }
+        Returns: boolean
       }
       driver_presence_last_signal_at: {
         Args: { p_driver_id: string }
@@ -23044,6 +23286,10 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: never; Returns: boolean }
+      is_commission_wallet_reserve_enabled: {
+        Args: { p_service_area_id: string }
+        Returns: boolean
+      }
       is_commission_wallet_workflow_enabled: {
         Args: { p_service_area_id: string }
         Returns: boolean
@@ -23586,6 +23832,10 @@ export type Database = {
         Args: { p_reason?: string; p_transfer_id: string }
         Returns: Json
       }
+      release_driver_commission_wallet: {
+        Args: { p_driver_id: string; p_reason?: string; p_trip_id: string }
+        Returns: Json
+      }
       release_driver_payout_reservation: {
         Args: {
           p_payout_item_id?: string
@@ -23608,6 +23858,17 @@ export type Database = {
       }
       repair_user_stale_auth_identities: {
         Args: { _user_id: string }
+        Returns: Json
+      }
+      required_commission_reserve_minor: {
+        Args: {
+          p_commission_rate_bps: number
+          p_estimated_final_fare_minor: number
+        }
+        Returns: number
+      }
+      reserve_driver_commission_wallet: {
+        Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
       reserve_driver_payout_item: {
@@ -23843,6 +24104,10 @@ export type Database = {
       timeout_scheduled_offer: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
+      }
+      trip_commission_reserve_fare_minor: {
+        Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: number
       }
       trip_negotiation_base_fare_pence: {
         Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
@@ -24216,9 +24481,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user", "driver", "customer"],
