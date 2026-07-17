@@ -2,17 +2,20 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-describe("ServiceAreaCommissionWalletConfig Phase 6 reserve", () => {
+describe("ServiceAreaCommissionWalletConfig — no pre-trip reserve", () => {
   const src = readFileSync(
     resolve(__dirname, "../../components/finance/ServiceAreaCommissionWalletConfig.tsx"),
     "utf8",
   );
 
-  it("persists commission_reserve_enabled and forces it off when wallet disabled", () => {
-    expect(src).toContain("commission_reserve_enabled");
-    expect(src).toMatch(/commission_reserve_enabled:\s*\n?\s*value\.commission_wallet_enabled && value\.commission_reserve_enabled/);
-    expect(src).toContain("Commission reserve (dispatch)");
-    expect(src).not.toContain("Dispatch reserve stays off until Phase 6");
-    expect(src).not.toContain("Does not enable dispatch gate yet");
+  it("forces commission_reserve_enabled off and exposes explicit top-up toggle", () => {
+    expect(src).toContain("commission_reserve_enabled: false");
+    expect(src).toContain("commission_wallet_topup_enabled");
+    expect(src).toContain("Driver Top Up");
+    expect(src).toContain("Pre-trip commission reservation is permanently disabled");
+    expect(src).not.toContain("Commission reserve (dispatch)");
+    expect(src).toContain(
+      "Enable a valid top-up provider before turning on driver Top Up",
+    );
   });
 });

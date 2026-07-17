@@ -33,6 +33,7 @@ export type ServiceAreaCommissionWalletFormState = {
   commission_reserve_enabled: boolean;
   commission_wallet_currency: string;
   commission_topup_provider: string;
+  commission_wallet_topup_enabled: boolean;
   commission_wallet_minimum_balance_minor: number;
   customer_payment_policy: string;
   cash_upfront_policy_notice: string;
@@ -48,6 +49,7 @@ function defaultForm(regionCurrency?: string): ServiceAreaCommissionWalletFormSt
     commission_reserve_enabled: false,
     commission_wallet_currency: (regionCurrency || '').toUpperCase(),
     commission_topup_provider: '',
+    commission_wallet_topup_enabled: false,
     commission_wallet_minimum_balance_minor: 0,
     customer_payment_policy: CUSTOMER_PAYMENT_POLICY.PLATFORM_PREPAID,
     cash_upfront_policy_notice: DEFAULT_CASH_UPFRONT_POLICY_NOTICE,
@@ -96,7 +98,7 @@ export function ServiceAreaCommissionWalletConfig({
         supabase
           .from('service_areas')
           .select(
-            'financial_model, commission_wallet_enabled, commission_reserve_enabled, commission_wallet_currency, commission_topup_provider, commission_wallet_minimum_balance_minor, customer_payment_policy, cash_upfront_policy_notice, welcome_credit_enabled, welcome_credit_amount_minor, welcome_credit_max_drivers',
+            'financial_model, commission_wallet_enabled, commission_reserve_enabled, commission_wallet_currency, commission_topup_provider, commission_wallet_topup_enabled, commission_wallet_minimum_balance_minor, customer_payment_policy, cash_upfront_policy_notice, welcome_credit_enabled, welcome_credit_amount_minor, welcome_credit_max_drivers',
           )
           .eq('id', serviceAreaId)
           .maybeSingle(),
@@ -123,11 +125,12 @@ export function ServiceAreaCommissionWalletConfig({
       setValue({
         financial_model: String(data?.financial_model || SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED),
         commission_wallet_enabled: Boolean(data?.commission_wallet_enabled),
-        commission_reserve_enabled: Boolean(data?.commission_reserve_enabled),
+        commission_reserve_enabled: false,
         commission_wallet_currency: String(
           data?.commission_wallet_currency || regionCurrency || '',
         ).toUpperCase(),
         commission_topup_provider: String(data?.commission_topup_provider || ''),
+        commission_wallet_topup_enabled: Boolean(data?.commission_wallet_topup_enabled),
         commission_wallet_minimum_balance_minor: Number(data?.commission_wallet_minimum_balance_minor || 0),
         customer_payment_policy: String(
           data?.customer_payment_policy || CUSTOMER_PAYMENT_POLICY.PLATFORM_PREPAID,
@@ -179,6 +182,10 @@ export function ServiceAreaCommissionWalletConfig({
       }
       if (!next.commission_wallet_enabled) {
         next.commission_reserve_enabled = false;
+        next.commission_wallet_topup_enabled = false;
+      }
+      if (next.commission_wallet_topup_enabled && !next.commission_wallet_enabled) {
+        next.commission_wallet_topup_enabled = false;
       }
       return next;
     });
@@ -209,15 +216,20 @@ export function ServiceAreaCommissionWalletConfig({
         toast.error('Only WaafiPay sandbox is supported for Commission Wallet top-ups right now.');
         return;
       }
+      if (value.commission_wallet_topup_enabled && !provider) {
+        toast.error('Enable a valid top-up provider before turning on driver Top Up.');
+        return;
+      }
       const payload = {
         financial_model: value.financial_model,
         commission_wallet_enabled: value.commission_wallet_enabled,
-        commission_reserve_enabled:
-          value.commission_wallet_enabled && value.commission_reserve_enabled,
+        commission_reserve_enabled: false,
         commission_wallet_currency: value.commission_wallet_enabled
           ? (value.commission_wallet_currency || regionCurrency || 'USD').toUpperCase()
           : value.commission_wallet_currency || null,
         commission_topup_provider: value.commission_wallet_enabled ? provider : null,
+        commission_wallet_topup_enabled:
+          value.commission_wallet_enabled && value.commission_wallet_topup_enabled && Boolean(provider),
         commission_wallet_minimum_balance_minor: Math.max(
           0,
           Math.round(value.commission_wallet_minimum_balance_minor || 0),
@@ -264,7 +276,7 @@ export function ServiceAreaCommissionWalletConfig({
         <CardDescription>
           Explicit Service Area assignment only — never inferred from country or currency.
           {serviceAreaName ? ` Config for ${serviceAreaName}.` : ''}
-          {' '}Enable Commission reserve to soft-gate dispatch and reserve on accept.
+          {' '}Driver Top Up requires an explicit toggle plus a configured provider. Pre-trip reservation is disabled.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -316,7 +328,7 @@ export function ServiceAreaCommissionWalletConfig({
           <div>
             <Label htmlFor="cw-enabled" className="font-medium">Enable Commission Wallet</Label>
             <p className="text-xs text-muted-foreground max-w-xl">
-              Requires DRIVER_COLLECTED model. Turn on Commission reserve separately for dispatch gate + accept reserve.
+              Requires DRIVER_COLLECTED model. Dispatch uses a read-only balance check — money is deducted only after trip completion.
             </p>
           </div>
           <Switch
@@ -423,17 +435,27 @@ export function ServiceAreaCommissionWalletConfig({
 
         <div className="flex items-center justify-between gap-4 p-3 border rounded-lg">
           <div>
-            <Label className="font-medium">Commission reserve (dispatch)</Label>
+            <Label className="font-medium">Driver Top Up</Label>
             <p className="text-xs text-muted-foreground">
-              When on, offers require usable commission balance ≥ estimated fare × commission rate,
-              and accept reserves that amount.
+              Shows the Top Up button when a valid provider is also configured.
+              Provider alone does not enable top-up.
             </p>
+            {value.commission_wallet_topup_enabled && !value.commission_topup_provider ? (
+              <p className="text-xs text-destructive mt-1">
+                Configuration error: select a top-up provider or turn this off.
+              </p>
+            ) : null}
           </div>
           <Switch
-            checked={value.commission_reserve_enabled}
-            onCheckedChange={(c) => patch({ commission_reserve_enabled: c })}
+            checked={value.commission_wallet_topup_enabled}
+            onCheckedChange={(c) => patch({ commission_wallet_topup_enabled: c })}
             disabled={isSaving || !enabled}
           />
+        </div>
+
+        <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+          Pre-trip commission reservation is permanently disabled. Accept performs a read-only
+          balance eligibility check only; balance changes on confirmed credit or completed-trip deduction.
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">

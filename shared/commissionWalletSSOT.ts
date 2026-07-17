@@ -54,16 +54,22 @@ export const REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION =
 export type ServiceAreaCommissionWalletConfig = {
   financial_model: ServiceAreaFinancialModel | string | null | undefined;
   commission_wallet_enabled: boolean | null | undefined;
+  /** @deprecated Pre-trip reservation removed — ignored for eligibility. */
   commission_reserve_enabled?: boolean | null;
   customer_payment_policy?: CustomerPaymentPolicy | string | null;
   commission_wallet_currency?: string | null;
   commission_topup_provider?: string | null;
+  /** Explicit Top Up CTA flag — provider alone must not enable top-up. */
+  commission_wallet_topup_enabled?: boolean | null;
   commission_wallet_minimum_balance_minor?: number | null;
   cash_upfront_policy_notice?: string | null;
   welcome_credit_enabled?: boolean | null;
   welcome_credit_amount_minor?: number | null;
   welcome_credit_max_drivers?: number | null;
 };
+
+/** Metadata.transaction_type for completed-trip commission deductions. */
+export const TRIP_COMMISSION_DEDUCTION = "TRIP_COMMISSION_DEDUCTION" as const;
 
 /**
  * Hard isolation gate — Service Area SSOT only.
@@ -94,19 +100,12 @@ export function isPlatformCollectedFinancialModel(
   );
 }
 
-/** Driver App Commission Wallet page visibility (Phase 3).
- * Requires BOTH:
- * 1) Service Area Africa workflow enabled
- * 2) Explicit internal test-driver flag (never country/GPS)
- */
+/** Driver App Commission Wallet visibility — Service Area SSOT only. */
 export function shouldShowDriverCommissionWalletPage(
   config: ServiceAreaCommissionWalletConfig | null | undefined,
-  opts?: { commissionWalletTestAccess?: boolean | null },
+  _opts?: { commissionWalletTestAccess?: boolean | null },
 ): boolean {
-  return (
-    isCommissionWalletWorkflowEnabled(config)
-    && opts?.commissionWalletTestAccess === true
-  );
+  return isCommissionWalletWorkflowEnabled(config);
 }
 
 export type DriverCommissionWalletPageAccessPlan =
@@ -137,14 +136,6 @@ export function planDriverCommissionWalletPageAccess(input: {
       error: "Driver has no service area assigned",
     };
   }
-  if (input.commissionWalletTestAccess !== true) {
-    return {
-      ok: false,
-      page_visible: false,
-      code: "NOT_TEST_DRIVER",
-      error: "Commission Wallet page is limited to internal test drivers",
-    };
-  }
   if (!isCommissionWalletWorkflowEnabled(input.config)) {
     return {
       ok: false,
@@ -156,14 +147,14 @@ export function planDriverCommissionWalletPageAccess(input: {
   return { ok: true, page_visible: true };
 }
 
-/** Dispatch eligibility gate — true when CW workflow + commission_reserve_enabled. */
+/**
+ * Dispatch eligibility gate — read-only when CW workflow is enabled.
+ * Does not reserve or lock balance. commission_reserve_enabled is ignored.
+ */
 export function shouldApplyCommissionWalletDispatchGate(
   config: ServiceAreaCommissionWalletConfig | null | undefined,
 ): boolean {
-  return (
-    isCommissionWalletWorkflowEnabled(config)
-    && config?.commission_reserve_enabled === true
-  );
+  return isCommissionWalletWorkflowEnabled(config);
 }
 
 /** Trip snapshot fields frozen at booking create (Phase 3+ writers). */
@@ -259,6 +250,11 @@ export type CommissionWalletDerivedBalances = {
   promotional_balance_minor: number;
   reserved_balance_minor: number;
   usable_commission_balance_minor: number;
+  /**
+   * Driver-facing SSOT balance for the main card.
+   * Credits − completed trip deductions. Does not subtract reserves.
+   */
+  commission_wallet_balance_minor: number;
   withdrawable_balance_minor: 0;
   payout_due_minor: 0;
 };
@@ -266,19 +262,36 @@ export type CommissionWalletDerivedBalances = {
 export function deriveCommissionWalletBalances(input: {
   purchasedBalanceMinor: number;
   promotionalBalanceMinor: number;
-  reservedBalanceMinor: number;
+  /** Ignored — historical reserves are excluded from live SSOT. */
+  reservedBalanceMinor?: number;
 }): CommissionWalletDerivedBalances {
-  const purchased = Math.max(0, Math.round(Number(input.purchasedBalanceMinor) || 0));
-  const promotional = Math.max(0, Math.round(Number(input.promotionalBalanceMinor) || 0));
-  const reserved = Math.max(0, Math.round(Number(input.reservedBalanceMinor) || 0));
+  const purchased = Math.round(Number(input.purchasedBalanceMinor) || 0);
+  const promotional = Math.round(Number(input.promotionalBalanceMinor) || 0);
+  // Live SSOT: credits − confirmed deductions only. May be negative after overdraft.
+  const commissionWalletBalance = purchased + promotional;
   return {
     purchased_balance_minor: purchased,
     promotional_balance_minor: promotional,
-    reserved_balance_minor: reserved,
-    usable_commission_balance_minor: Math.max(0, purchased + promotional - reserved),
+    reserved_balance_minor: 0,
+    // Alias of current balance for dispatch eligibility (non-locking).
+    usable_commission_balance_minor: commissionWalletBalance,
+    commission_wallet_balance_minor: commissionWalletBalance,
     withdrawable_balance_minor: 0,
     payout_due_minor: 0,
   };
+}
+
+/** Driver main-card balance — never expose purchased/promo/reserved breakdown. */
+export function commissionWalletDisplayBalanceMinor(
+  balances: Partial<CommissionWalletDerivedBalances> | null | undefined,
+): number {
+  if (balances == null) return 0;
+  if (typeof balances.commission_wallet_balance_minor === "number") {
+    return Math.round(balances.commission_wallet_balance_minor);
+  }
+  const purchased = Math.round(Number(balances.purchased_balance_minor) || 0);
+  const promotional = Math.round(Number(balances.promotional_balance_minor) || 0);
+  return purchased + promotional;
 }
 
 /** Forbidden actions on Commission Wallet — UI/API must never expose these. */
@@ -791,7 +804,6 @@ export function deriveBalancesFromCommissionLedgerEntries(
 ): CommissionWalletDerivedBalances {
   let purchased = 0;
   let promotional = 0;
-  let reserved = 0;
 
   for (const row of rows) {
     const amount = Math.max(0, Math.round(Number(row.amount_minor) || 0));
@@ -819,12 +831,11 @@ export function deriveBalancesFromCommissionLedgerEntries(
       promotional += amount * sign;
       continue;
     }
-    if (type === COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE) {
-      reserved += amount;
-      continue;
-    }
-    if (type === COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE_RELEASE) {
-      reserved -= amount;
+    if (
+      type === COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE
+      || type === COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE_RELEASE
+    ) {
+      // Historical audit only — excluded from live balance SSOT.
       continue;
     }
     if (type === COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_DEDUCTION) {
@@ -834,7 +845,6 @@ export function deriveBalancesFromCommissionLedgerEntries(
         promotional -= promoPart;
         purchased -= purchasedPart;
       } else {
-        // Fallback: consume promo first then purchased
         const split = splitCommissionConsumption({
           deductionMinor: amount,
           promotionalBalanceMinor: Math.max(0, promotional),
@@ -856,7 +866,7 @@ export function deriveBalancesFromCommissionLedgerEntries(
   return deriveCommissionWalletBalances({
     purchasedBalanceMinor: purchased,
     promotionalBalanceMinor: promotional,
-    reservedBalanceMinor: reserved,
+    reservedBalanceMinor: 0,
   });
 }
 
@@ -890,14 +900,14 @@ export function isCommissionTopupProviderConfigured(
   return (PHASE4_SUPPORTED_TOPUP_PROVIDERS as readonly string[]).includes(p);
 }
 
-/** Driver top-up CTA visibility — Phase 4. */
+/** Driver top-up CTA visibility — requires explicit SA top-up flag + provider. */
 export function shouldEnableDriverCommissionWalletTopup(input: {
   config: ServiceAreaCommissionWalletConfig | null | undefined;
-  commissionWalletTestAccess: boolean | null | undefined;
+  commissionWalletTestAccess?: boolean | null | undefined;
 }): boolean {
   return (
     isCommissionWalletWorkflowEnabled(input.config)
-    && input.commissionWalletTestAccess === true
+    && input.config?.commission_wallet_topup_enabled === true
     && isCommissionTopupProviderConfigured(input.config?.commission_topup_provider)
   );
 }
@@ -1054,7 +1064,10 @@ export type CommissionWalletTopupInitiatePlan =
 
 export function planCommissionWalletTopupInitiate(input: {
   walletEnabled: boolean;
-  commissionWalletTestAccess: boolean;
+  /** Explicit SA top-up toggle — required true. */
+  topupEnabled?: boolean;
+  /** @deprecated ignored — top-up gated by SA workflow + topup flag + provider only */
+  commissionWalletTestAccess?: boolean;
   provider: string | null | undefined;
   amountMinor: number;
   currency: string;
@@ -1067,11 +1080,11 @@ export function planCommissionWalletTopupInitiate(input: {
       code: "WALLET_DISABLED",
     };
   }
-  if (input.commissionWalletTestAccess !== true) {
+  if (input.topupEnabled === false) {
     return {
       ok: false,
-      error: "Top-up is limited to internal test drivers",
-      code: "NOT_TEST_DRIVER",
+      error: "Commission Wallet top-up is disabled for this service area",
+      code: "PROVIDER_NOT_CONFIGURED",
     };
   }
   const provider = String(input.provider ?? "").trim().toLowerCase();
@@ -1596,17 +1609,20 @@ export type CommissionWalletDispatchEligibilityPlan =
     error: string;
   };
 
-/** Soft dispatch gate — skip when reserve workflow not enabled for the SA. */
+/** Soft dispatch gate — read-only balance vs estimated commission. Never mutates wallet. */
 export function planCommissionWalletDispatchEligibility(input: {
   gateApplies: boolean;
   estimatedFinalFareMinor: number;
   commissionRateBps: number;
-  usableCommissionBalanceMinor: number;
+  /** Current commission_wallet_balance (may be negative). */
+  commissionWalletBalanceMinor?: number;
+  /** @deprecated alias of commissionWalletBalanceMinor */
+  usableCommissionBalanceMinor?: number;
   fixedPlatformChargeMinor?: number | null;
   includeFixedPlatformCharge?: boolean;
 }): CommissionWalletDispatchEligibilityPlan {
   if (!input.gateApplies) {
-    return { ok: false, code: "GATE_OFF", error: "Commission reserve dispatch gate is off" };
+    return { ok: false, code: "GATE_OFF", error: "Commission Wallet dispatch gate is off" };
   }
   const required = requiredCommissionReserveMinor({
     estimatedFinalFareMinor: input.estimatedFinalFareMinor,
@@ -1615,24 +1631,30 @@ export function planCommissionWalletDispatchEligibility(input: {
     includeFixedPlatformCharge: input.includeFixedPlatformCharge === true,
   });
   if (!Number.isFinite(required) || required < 0) {
-    return { ok: false, code: "INVALID_AMOUNT", error: "Invalid required reserve" };
+    return { ok: false, code: "INVALID_AMOUNT", error: "Invalid required commission" };
   }
-  const usable = Math.max(0, Math.round(Number(input.usableCommissionBalanceMinor) || 0));
-  if (usable < required) {
+  const balance = Math.round(
+    Number(
+      input.commissionWalletBalanceMinor
+        ?? input.usableCommissionBalanceMinor
+        ?? 0,
+    ) || 0,
+  );
+  if (balance < required) {
     return {
       ok: true,
       eligible: false,
       required_reserve_minor: required,
-      usable_commission_balance_minor: usable,
+      usable_commission_balance_minor: balance,
       code: "INSUFFICIENT_COMMISSION_WALLET_BALANCE",
-      error: `Usable balance ${usable} < required reserve ${required}`,
+      error: `Commission Wallet balance ${balance} < estimated commission ${required}`,
     };
   }
   return {
     ok: true,
     eligible: true,
     required_reserve_minor: required,
-    usable_commission_balance_minor: usable,
+    usable_commission_balance_minor: balance,
   };
 }
 
@@ -1662,72 +1684,15 @@ export function planCommissionWalletReserve(input: {
   driverId: string;
   tripId: string;
   alreadyHasActiveReserve?: boolean;
-  /** When active reserve exists, pass current reserved amount to allow adjust plans. */
   currentReserveAmountMinor?: number | null;
   fixedPlatformChargeMinor?: number | null;
   includeFixedPlatformCharge?: boolean;
 }): CommissionWalletReservePlan {
-  if (!input.gateApplies) {
-    return { ok: false, code: "GATE_OFF", error: "Commission reserve gate is off" };
-  }
-  const amount = requiredCommissionReserveMinor({
-    estimatedFinalFareMinor: input.estimatedFinalFareMinor,
-    commissionRateBps: input.commissionRateBps,
-    fixedPlatformChargeMinor: input.fixedPlatformChargeMinor,
-    includeFixedPlatformCharge: input.includeFixedPlatformCharge === true,
-  });
-  if (input.alreadyHasActiveReserve) {
-    // Legacy callers without current amount keep idempotent reject.
-    if (input.currentReserveAmountMinor == null) {
-      return { ok: false, code: "ALREADY_RESERVED", error: "Active reserve already exists" };
-    }
-    const current = Math.max(0, Math.round(Number(input.currentReserveAmountMinor) || 0));
-    if (current === amount && amount > 0) {
-      return { ok: false, code: "ALREADY_RESERVED", error: "Active reserve already exists" };
-    }
-    if (!Number.isFinite(amount) || amount < 0) {
-      return { ok: false, code: "INVALID_AMOUNT", error: "Reserve amount must be >= 0" };
-    }
-    const delta = amount - current;
-    const usable = Math.max(0, Math.round(Number(input.usableCommissionBalanceMinor) || 0));
-    if (delta > 0 && usable < delta) {
-      return {
-        ok: false,
-        code: "INSUFFICIENT_BALANCE",
-        error: `Usable balance ${usable} < additional reserve ${delta}`,
-      };
-    }
-    return {
-      ok: true,
-      amount_minor: amount,
-      entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE,
-      direction: "debit",
-      ledger_idempotency_key: buildCommissionWalletReserveIdempotencyKey(
-        input.driverId,
-        input.tripId,
-      ),
-    };
-  }
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return { ok: false, code: "INVALID_AMOUNT", error: "Reserve amount must be > 0" };
-  }
-  const usable = Math.max(0, Math.round(Number(input.usableCommissionBalanceMinor) || 0));
-  if (usable < amount) {
-    return {
-      ok: false,
-      code: "INSUFFICIENT_BALANCE",
-      error: `Usable balance ${usable} < required reserve ${amount}`,
-    };
-  }
+  void input;
   return {
-    ok: true,
-    amount_minor: amount,
-    entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE,
-    direction: "debit",
-    ledger_idempotency_key: buildCommissionWalletReserveIdempotencyKey(
-      input.driverId,
-      input.tripId,
-    ),
+    ok: false,
+    code: "GATE_OFF",
+    error: "Pre-trip Commission Wallet reservation is disabled",
   };
 }
 
@@ -1751,23 +1716,8 @@ export function planCommissionWalletReserveRelease(input: {
   tripId: string;
   alreadyReleased?: boolean;
 }): CommissionWalletReserveReleasePlan {
-  if (input.alreadyReleased) {
-    return { ok: false, code: "ALREADY_RELEASED", error: "Reserve already released" };
-  }
-  const amount = Math.round(Number(input.activeReserveAmountMinor) || 0);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return { ok: false, code: "NO_ACTIVE_RESERVE", error: "No active reserve to release" };
-  }
-  return {
-    ok: true,
-    amount_minor: amount,
-    entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE_RELEASE,
-    direction: "credit",
-    ledger_idempotency_key: buildCommissionWalletReserveReleaseIdempotencyKey(
-      input.driverId,
-      input.tripId,
-    ),
-  };
+  void input;
+  return { ok: false, code: "NO_ACTIVE_RESERVE", error: "Pre-trip reservation is disabled" };
 }
 
 // ── Phase 7 — Completed-trip commission deduction + Finance reporting ────────
@@ -1844,9 +1794,9 @@ export type CommissionWalletDeductionPlan =
   };
 
 /**
- * Plan completion deduction: promo-first consumption, one row per trip,
- * optional active-reserve convert (release ledger + converted_to_deduction status).
- * amount_minor = actually deducted (may be < earned when shortfall).
+ * Plan completion deduction: promo-first consumption, one row per trip.
+ * Always deducts full confirmed commission (balance may go negative).
+ * Pre-trip reserves are not converted.
  */
 export function planCommissionWalletDeduction(input: {
   gateApplies: boolean;
@@ -1856,8 +1806,9 @@ export function planCommissionWalletDeduction(input: {
   commissionEarnedMinor?: number | null;
   promotionalBalanceMinor: number;
   purchasedBalanceMinor: number;
-  /** Usable after releasing any active reserve for this trip (purchased+promo−remaining reserved). */
-  usableBalanceMinorAfterReserveRelease: number;
+  /** Current balance (may be negative). Alias kept for callers. */
+  usableBalanceMinorAfterReserveRelease?: number;
+  commissionWalletBalanceMinor?: number;
   tripId: string;
   alreadyDeducted?: boolean;
   hasActiveReserve?: boolean;
@@ -1882,27 +1833,30 @@ export function planCommissionWalletDeduction(input: {
     return { ok: true, skipped: true, code: "ZERO_COMMISSION" };
   }
 
-  const usable = Math.max(0, Math.round(Number(input.usableBalanceMinorAfterReserveRelease) || 0));
-  const amount = Math.min(earned, usable);
-  const shortfall = Math.max(0, earned - amount);
-  const split = splitCommissionConsumption({
-    deductionMinor: amount,
-    promotionalBalanceMinor: input.promotionalBalanceMinor,
-    purchasedBalanceMinor: input.purchasedBalanceMinor,
-  });
+  const promo = Math.round(Number(input.promotionalBalanceMinor) || 0);
+  const purchased = Math.round(Number(input.purchasedBalanceMinor) || 0);
+  const fromPromo = Math.min(earned, Math.max(0, promo));
+  const fromPurchased = earned - fromPromo;
+  const balanceBefore = Math.round(
+    Number(
+      input.commissionWalletBalanceMinor
+        ?? input.usableBalanceMinorAfterReserveRelease
+        ?? (promo + purchased),
+    ) || 0,
+  );
 
   return {
     ok: true,
     skipped: false,
     commission_earned_minor: earned,
-    amount_minor: amount,
-    shortfall_minor: shortfall,
-    promotional_portion_minor: split.promotional_portion_minor,
-    purchased_portion_minor: split.purchased_portion_minor,
+    amount_minor: earned,
+    shortfall_minor: Math.max(0, earned - Math.max(balanceBefore, 0)),
+    promotional_portion_minor: fromPromo,
+    purchased_portion_minor: fromPurchased,
     entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_DEDUCTION,
     direction: "debit",
     ledger_idempotency_key: buildCommissionWalletDeductionIdempotencyKey(input.tripId),
-    convert_active_reserve: input.hasActiveReserve === true,
+    convert_active_reserve: false,
     revenue_source: REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
   };
 }

@@ -10,6 +10,7 @@ import {
   commissionableFareMinor,
   deriveBalancesFromCommissionLedgerEntries,
   deriveCommissionWalletBalances,
+  commissionWalletDisplayBalanceMinor,
   isCommissionWalletWorkflowEnabled,
   isPlatformCollectedFinancialModel,
   onecabCommissionDeductionMinor,
@@ -60,7 +61,7 @@ import {
   commissionPercentToBps,
   estimatedFinalFareMinorFromTrip,
   REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
-} from "../../../shared/commissionWalletSSOT";
+} from "../commissionWalletSSOT";
 
 const mkPlatform = {
   financial_model: SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,
@@ -111,20 +112,21 @@ describe("commissionWalletSSOT isolation", () => {
       }),
     ).toBe(false);
     expect(isCommissionWalletWorkflowEnabled(mkAfrica)).toBe(true);
-    expect(shouldShowDriverCommissionWalletPage(mkAfrica)).toBe(false);
+    expect(shouldShowDriverCommissionWalletPage(mkAfrica)).toBe(true);
     expect(shouldShowDriverCommissionWalletPage(mkAfrica, {
-      commissionWalletTestAccess: true,
+      commissionWalletTestAccess: false,
     })).toBe(true);
   });
 
-  it("does not enable dispatch reserve gate without commission_reserve_enabled", () => {
+  it("dispatch eligibility applies whenever CW workflow is enabled (reserve flag ignored)", () => {
     expect(
       shouldApplyCommissionWalletDispatchGate({
         ...mkAfrica,
         commission_reserve_enabled: false,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(shouldApplyCommissionWalletDispatchGate(mkAfrica)).toBe(true);
+    expect(shouldApplyCommissionWalletDispatchGate(mkPlatform)).toBe(false);
   });
 
   it("builds trip snapshot only for enabled Africa SA", () => {
@@ -183,9 +185,12 @@ describe("commissionWalletSSOT isolation", () => {
       promotionalBalanceMinor: 100,
       reservedBalanceMinor: 50,
     });
-    expect(bal.usable_commission_balance_minor).toBe(550);
+    expect(bal.usable_commission_balance_minor).toBe(600);
+    expect(bal.commission_wallet_balance_minor).toBe(600);
+    expect(bal.reserved_balance_minor).toBe(0);
     expect(bal.withdrawable_balance_minor).toBe(0);
     expect(bal.payout_due_minor).toBe(0);
+    expect(commissionWalletDisplayBalanceMinor(bal)).toBe(600);
   });
 
   it("forbids withdraw/payout/transfer actions in SSOT list", () => {
@@ -194,15 +199,15 @@ describe("commissionWalletSSOT isolation", () => {
     expect(COMMISSION_WALLET_FORBIDDEN_ACTIONS).toContain("Transfer");
     expect(assertCommissionWalletDoesNotTouchDriverWalletLedger()).toBe(true);
   });
-  it("Phase 3 page requires test-driver flag even when SA enabled", () => {
+  it("shows Commission Wallet when SA workflow is enabled (no test-flag gate)", () => {
     expect(shouldShowDriverCommissionWalletPage(mkAfrica, {
       commissionWalletTestAccess: false,
-    })).toBe(false);
+    })).toBe(true);
     expect(planDriverCommissionWalletPageAccess({
       config: mkAfrica,
       commissionWalletTestAccess: false,
       hasServiceArea: true,
-    })).toMatchObject({ ok: false, code: "NOT_TEST_DRIVER" });
+    })).toMatchObject({ ok: true, page_visible: true });
     expect(planDriverCommissionWalletPageAccess({
       config: mkAfrica,
       commissionWalletTestAccess: true,
@@ -551,31 +556,35 @@ describe("Phase 4 provider sandbox top-up", () => {
   const mkAfricaTopup = {
     ...mkAfrica,
     commission_topup_provider: COMMISSION_TOPUP_PROVIDER.WAAFI_PAY,
+    commission_wallet_topup_enabled: true,
   };
 
-  it("enables top-up only when workflow + test access + provider", () => {
+  it("enables top-up only when workflow + topup flag + provider", () => {
     expect(shouldEnableDriverCommissionWalletTopup({
       config: mkAfricaTopup,
-      commissionWalletTestAccess: true,
     })).toBe(true);
     expect(shouldEnableDriverCommissionWalletTopup({
-      config: mkAfrica,
-      commissionWalletTestAccess: true,
+      config: {
+        ...mkAfrica,
+        commission_topup_provider: COMMISSION_TOPUP_PROVIDER.WAAFI_PAY,
+        commission_wallet_topup_enabled: false,
+      },
     })).toBe(false);
     expect(shouldEnableDriverCommissionWalletTopup({
-      config: mkAfricaTopup,
-      commissionWalletTestAccess: false,
+      config: {
+        ...mkAfrica,
+        commission_wallet_topup_enabled: true,
+      },
     })).toBe(false);
     expect(shouldEnableDriverCommissionWalletTopup({
       config: mkPlatform,
-      commissionWalletTestAccess: true,
     })).toBe(false);
   });
 
   it("plans initiate with currency and provider gates", () => {
     expect(planCommissionWalletTopupInitiate({
       walletEnabled: true,
-      commissionWalletTestAccess: true,
+      topupEnabled: true,
       provider: "waafi_pay",
       amountMinor: 1000,
       currency: "USD",
@@ -584,7 +593,7 @@ describe("Phase 4 provider sandbox top-up", () => {
 
     expect(planCommissionWalletTopupInitiate({
       walletEnabled: false,
-      commissionWalletTestAccess: true,
+      topupEnabled: true,
       provider: "waafi_pay",
       amountMinor: 1000,
       currency: "USD",
@@ -593,7 +602,7 @@ describe("Phase 4 provider sandbox top-up", () => {
 
     expect(planCommissionWalletTopupInitiate({
       walletEnabled: true,
-      commissionWalletTestAccess: true,
+      topupEnabled: true,
       provider: "paystack",
       amountMinor: 1000,
       currency: "USD",
@@ -602,16 +611,16 @@ describe("Phase 4 provider sandbox top-up", () => {
 
     expect(planCommissionWalletTopupInitiate({
       walletEnabled: true,
-      commissionWalletTestAccess: false,
+      topupEnabled: false,
       provider: "waafi_pay",
       amountMinor: 1000,
       currency: "USD",
       walletCurrency: "USD",
-    })).toMatchObject({ ok: false, code: "NOT_TEST_DRIVER" });
+    })).toMatchObject({ ok: false, code: "PROVIDER_NOT_CONFIGURED" });
 
     expect(planCommissionWalletTopupInitiate({
       walletEnabled: true,
-      commissionWalletTestAccess: true,
+      topupEnabled: true,
       provider: "waafi_pay",
       amountMinor: 1000,
       currency: "KES",
@@ -924,30 +933,7 @@ describe("commissionWalletSSOT Phase 6 dispatch reserve", () => {
     });
   });
 
-  it("reserve plan is debit COMMISSION_RESERVE with stable idempotency key", () => {
-    const plan = planCommissionWalletReserve({
-      gateApplies: true,
-      estimatedFinalFareMinor: 2000,
-      commissionRateBps: 1500,
-      usableCommissionBalanceMinor: 500,
-      driverId: "drv-a",
-      tripId: "trip-b",
-    });
-    expect(plan).toMatchObject({
-      ok: true,
-      amount_minor: 300,
-      entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE,
-      direction: "debit",
-      ledger_idempotency_key: buildCommissionWalletReserveIdempotencyKey("drv-a", "trip-b"),
-    });
-    expect(planCommissionWalletReserve({
-      gateApplies: true,
-      estimatedFinalFareMinor: 2000,
-      commissionRateBps: 1500,
-      usableCommissionBalanceMinor: 100,
-      driverId: "drv-a",
-      tripId: "trip-b",
-    })).toMatchObject({ ok: false, code: "INSUFFICIENT_BALANCE" });
+  it("pre-trip reserve/release plans are permanently disabled", () => {
     expect(planCommissionWalletReserve({
       gateApplies: true,
       estimatedFinalFareMinor: 2000,
@@ -955,11 +941,7 @@ describe("commissionWalletSSOT Phase 6 dispatch reserve", () => {
       usableCommissionBalanceMinor: 500,
       driverId: "drv-a",
       tripId: "trip-b",
-      alreadyHasActiveReserve: true,
-    })).toMatchObject({ ok: false, code: "ALREADY_RESERVED" });
-  });
-
-  it("reserve plan adjusts when active amount differs from new required", () => {
+    })).toMatchObject({ ok: false, code: "GATE_OFF" });
     expect(planCommissionWalletReserve({
       gateApplies: true,
       estimatedFinalFareMinor: 4000,
@@ -969,43 +951,12 @@ describe("commissionWalletSSOT Phase 6 dispatch reserve", () => {
       tripId: "trip-b",
       alreadyHasActiveReserve: true,
       currentReserveAmountMinor: 300,
-    })).toMatchObject({ ok: true, amount_minor: 600 });
-    expect(planCommissionWalletReserve({
-      gateApplies: true,
-      estimatedFinalFareMinor: 4000,
-      commissionRateBps: 1500,
-      usableCommissionBalanceMinor: 100,
-      driverId: "drv-a",
-      tripId: "trip-b",
-      alreadyHasActiveReserve: true,
-      currentReserveAmountMinor: 300,
-    })).toMatchObject({ ok: false, code: "INSUFFICIENT_BALANCE" });
-  });
-
-  it("release plan is credit COMMISSION_RESERVE_RELEASE; no-op when none active", () => {
-    const plan = planCommissionWalletReserveRelease({
-      activeReserveAmountMinor: 300,
-      driverId: "drv-a",
-      tripId: "trip-b",
-    });
-    expect(plan).toMatchObject({
-      ok: true,
-      amount_minor: 300,
-      entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE_RELEASE,
-      direction: "credit",
-      ledger_idempotency_key: buildCommissionWalletReserveReleaseIdempotencyKey("drv-a", "trip-b"),
-    });
+    })).toMatchObject({ ok: false, code: "GATE_OFF" });
     expect(planCommissionWalletReserveRelease({
-      activeReserveAmountMinor: 0,
+      activeReserveAmountMinor: 300,
       driverId: "drv-a",
       tripId: "trip-b",
     })).toMatchObject({ ok: false, code: "NO_ACTIVE_RESERVE" });
-    expect(planCommissionWalletReserveRelease({
-      activeReserveAmountMinor: 300,
-      driverId: "drv-a",
-      tripId: "trip-b",
-      alreadyReleased: true,
-    })).toMatchObject({ ok: false, code: "ALREADY_RELEASED" });
   });
 
   it("fare source prefers final then estimated; percent→bps", () => {
@@ -1019,13 +970,14 @@ describe("commissionWalletSSOT Phase 6 dispatch reserve", () => {
     })).toBe(1250);
   });
 
-  it("ledger reserve reduces usable; release restores", () => {
+  it("historical reserve ledger entries are ignored by live balance SSOT", () => {
     const afterReserve = deriveBalancesFromCommissionLedgerEntries([
       { entry_type: "TOP_UP_CREDIT", amount_minor: 1000, direction: "credit" },
       { entry_type: "COMMISSION_RESERVE", amount_minor: 300, direction: "debit" },
     ]);
-    expect(afterReserve.usable_commission_balance_minor).toBe(700);
-    expect(afterReserve.reserved_balance_minor).toBe(300);
+    expect(afterReserve.usable_commission_balance_minor).toBe(1000);
+    expect(afterReserve.commission_wallet_balance_minor).toBe(1000);
+    expect(afterReserve.reserved_balance_minor).toBe(0);
     const afterRelease = deriveBalancesFromCommissionLedgerEntries([
       { entry_type: "TOP_UP_CREDIT", amount_minor: 1000, direction: "credit" },
       { entry_type: "COMMISSION_RESERVE", amount_minor: 300, direction: "debit" },
@@ -1088,13 +1040,13 @@ describe("commissionWalletSSOT Phase 7 completion deduction + finance", () => {
       promotional_portion_minor: 100,
       purchased_portion_minor: 200,
       entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_DEDUCTION,
-      convert_active_reserve: true,
+      convert_active_reserve: false,
       revenue_source: REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
       ledger_idempotency_key: buildCommissionWalletDeductionIdempotencyKey("trip-deduct-1"),
     });
   });
 
-  it("shortfall when usable after release is below earned", () => {
+  it("deducts full confirmed commission even when balance is low (allows negative)", () => {
     expect(planCommissionWalletDeduction({
       gateApplies: true,
       commissionEarnedMinor: 500,
@@ -1107,10 +1059,11 @@ describe("commissionWalletSSOT Phase 7 completion deduction + finance", () => {
     })).toMatchObject({
       ok: true,
       skipped: false,
-      amount_minor: 100,
+      amount_minor: 500,
       shortfall_minor: 400,
       promotional_portion_minor: 50,
-      purchased_portion_minor: 50,
+      purchased_portion_minor: 450,
+      convert_active_reserve: false,
     });
   });
 
