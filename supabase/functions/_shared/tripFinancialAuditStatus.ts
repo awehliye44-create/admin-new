@@ -267,6 +267,9 @@ export function deriveProviderAuditStatus(input: TripAuditStatusInput): TripAudi
   }
 
   const ps = stripePaymentIntentStatus(input);
+  if (includesAny(ps, ["recovery_required"])) {
+    return { label: "Recovery required", tone: "orange" };
+  }
   if (includesAny(ps, ["failed", "canceled", "cancelled"])) {
     return { label: "Capture Failed", tone: "red" };
   }
