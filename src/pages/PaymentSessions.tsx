@@ -173,11 +173,17 @@ function SessionActions({
           || row.hold_terminal_reason === 'PAYMENT_GATE_BREACH_NO_CAPTURE'
           || row.evidence_status === 'CAPTURE_ZERO_INVALID'
           || row.evidence_status === 'CAPTURE_AMOUNT_MISMATCH'
+          || row.evidence_status === 'CAPTURE_SHORTFALL'
+          || row.evidence_status === 'CAPTURE_FAILED'
+          || /recovery_required|capture_failed|capture_cancelled/i.test(
+            `${row.session_status ?? ''} ${row.technical_status ?? ''}`,
+          )
         ) && (
           <Button size="sm" variant="default" disabled={busy} onClick={() => onRequestRecovery(row)}>
-            Request customer payment
+            Recapture
           </Button>
         )}
+
       {row.trip_id && row.purpose === 'PAYMENT_RECOVERY' && (
         <Button size="sm" variant="destructive" disabled={busy} onClick={() => onAbandonRecovery(row)}>
           Abandon recovery &amp; release hold
