@@ -155,7 +155,8 @@ Deno.serve(async (req) => {
       .eq("trip_id", trip.id)
       .eq("purpose", "PAYMENT_RECOVERY");
     const attemptNumber = (priorAttempts ?? 0) + 1;
-    const attemptScope = `${recoveryKeyScope}:attempt-${attemptNumber}-${Date.now()}`;
+    const attemptScope = `${recoveryKeyScope}:attempt-${attemptNumber}-${Date.now()}-${crypto.randomUUID()}`;
+
 
     // --- Insert placeholder session first (reserves the "open recovery" slot) ---
     const { data: session, error: sessInsertErr } = await supabase
