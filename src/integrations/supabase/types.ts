@@ -1286,6 +1286,200 @@ export type Database = {
         }
         Relationships: []
       }
+      commission_wallet_admin_audit: {
+        Row: {
+          action: string
+          admin_user_id: string
+          amount_minor: number | null
+          campaign_id: string | null
+          created_at: string
+          credit_type: string | null
+          currency: string | null
+          driver_id: string
+          id: string
+          ledger_entry_id: string | null
+          metadata: Json
+          reason: string | null
+          service_area_id: string
+        }
+        Insert: {
+          action: string
+          admin_user_id: string
+          amount_minor?: number | null
+          campaign_id?: string | null
+          created_at?: string
+          credit_type?: string | null
+          currency?: string | null
+          driver_id: string
+          id?: string
+          ledger_entry_id?: string | null
+          metadata?: Json
+          reason?: string | null
+          service_area_id: string
+        }
+        Update: {
+          action?: string
+          admin_user_id?: string
+          amount_minor?: number | null
+          campaign_id?: string | null
+          created_at?: string
+          credit_type?: string | null
+          currency?: string | null
+          driver_id?: string
+          id?: string
+          ledger_entry_id?: string | null
+          metadata?: Json
+          reason?: string | null
+          service_area_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commission_wallet_admin_audit_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "commission_wallet_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_admin_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_admin_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_admin_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_admin_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_admin_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_admin_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_admin_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_admin_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_admin_audit_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "driver_commission_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_admin_audit_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commission_wallet_campaigns: {
+        Row: {
+          active: boolean
+          bonus_percent: number | null
+          campaign_name: string
+          campaign_type: Database["public"]["Enums"]["commission_wallet_campaign_type"]
+          created_at: string
+          created_by: string | null
+          credit_amount_minor: number
+          currency: string
+          eligible_driver_status: string | null
+          end_at: string | null
+          id: string
+          maximum_bonus_amount_minor: number | null
+          maximum_claims: number | null
+          maximum_claims_per_driver: number
+          minimum_topup_amount_minor: number
+          service_area_id: string
+          start_at: string | null
+        }
+        Insert: {
+          active?: boolean
+          bonus_percent?: number | null
+          campaign_name: string
+          campaign_type: Database["public"]["Enums"]["commission_wallet_campaign_type"]
+          created_at?: string
+          created_by?: string | null
+          credit_amount_minor?: number
+          currency: string
+          eligible_driver_status?: string | null
+          end_at?: string | null
+          id?: string
+          maximum_bonus_amount_minor?: number | null
+          maximum_claims?: number | null
+          maximum_claims_per_driver?: number
+          minimum_topup_amount_minor?: number
+          service_area_id: string
+          start_at?: string | null
+        }
+        Update: {
+          active?: boolean
+          bonus_percent?: number | null
+          campaign_name?: string
+          campaign_type?: Database["public"]["Enums"]["commission_wallet_campaign_type"]
+          created_at?: string
+          created_by?: string | null
+          credit_amount_minor?: number
+          currency?: string
+          eligible_driver_status?: string | null
+          end_at?: string | null
+          id?: string
+          maximum_bonus_amount_minor?: number | null
+          maximum_claims?: number | null
+          maximum_claims_per_driver?: number
+          minimum_topup_amount_minor?: number
+          service_area_id?: string
+          start_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commission_wallet_campaigns_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       company_funding_holds: {
         Row: {
           amount_pence: number
@@ -4852,6 +5046,465 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      driver_commission_wallet_ledger: {
+        Row: {
+          admin_user_id: string | null
+          amount_minor: number
+          campaign_id: string | null
+          created_at: string
+          currency: string
+          direction: string
+          driver_id: string
+          entry_type: Database["public"]["Enums"]["commission_wallet_entry_type"]
+          id: string
+          idempotency_key: string
+          metadata: Json
+          promotional_portion_minor: number
+          provider: string | null
+          provider_transaction_id: string | null
+          purchased_portion_minor: number
+          reason: string | null
+          region_id: string | null
+          service_area_id: string
+          topup_id: string | null
+          trip_id: string | null
+        }
+        Insert: {
+          admin_user_id?: string | null
+          amount_minor: number
+          campaign_id?: string | null
+          created_at?: string
+          currency: string
+          direction: string
+          driver_id: string
+          entry_type: Database["public"]["Enums"]["commission_wallet_entry_type"]
+          id?: string
+          idempotency_key: string
+          metadata?: Json
+          promotional_portion_minor?: number
+          provider?: string | null
+          provider_transaction_id?: string | null
+          purchased_portion_minor?: number
+          reason?: string | null
+          region_id?: string | null
+          service_area_id: string
+          topup_id?: string | null
+          trip_id?: string | null
+        }
+        Update: {
+          admin_user_id?: string | null
+          amount_minor?: number
+          campaign_id?: string | null
+          created_at?: string
+          currency?: string
+          direction?: string
+          driver_id?: string
+          entry_type?: Database["public"]["Enums"]["commission_wallet_entry_type"]
+          id?: string
+          idempotency_key?: string
+          metadata?: Json
+          promotional_portion_minor?: number
+          provider?: string | null
+          provider_transaction_id?: string | null
+          purchased_portion_minor?: number
+          reason?: string | null
+          region_id?: string | null
+          service_area_id?: string
+          topup_id?: string | null
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_campaign_fk"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "commission_wallet_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_topup_fk"
+            columns: ["topup_id"]
+            isOneToOne: false
+            referencedRelation: "driver_commission_wallet_topups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      driver_commission_wallet_reserves: {
+        Row: {
+          created_at: string
+          currency: string
+          driver_id: string
+          id: string
+          release_ledger_entry_id: string | null
+          reserve_ledger_entry_id: string | null
+          reserved_amount_minor: number
+          service_area_id: string
+          status: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency: string
+          driver_id: string
+          id?: string
+          release_ledger_entry_id?: string | null
+          reserve_ledger_entry_id?: string | null
+          reserved_amount_minor: number
+          service_area_id: string
+          status?: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          driver_id?: string
+          id?: string
+          release_ledger_entry_id?: string | null
+          reserve_ledger_entry_id?: string | null
+          reserved_amount_minor?: number
+          service_area_id?: string
+          status?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_release_ledger_entry_id_fkey"
+            columns: ["release_ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "driver_commission_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_reserve_ledger_entry_id_fkey"
+            columns: ["reserve_ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "driver_commission_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_reserves_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      driver_commission_wallet_topups: {
+        Row: {
+          amount_minor: number
+          created_at: string
+          credited_ledger_entry_id: string | null
+          currency: string
+          driver_id: string
+          id: string
+          idempotency_key: string
+          metadata: Json
+          provider: string
+          provider_transaction_id: string | null
+          region_id: string | null
+          service_area_id: string
+          status: Database["public"]["Enums"]["commission_topup_status"]
+          updated_at: string
+        }
+        Insert: {
+          amount_minor: number
+          created_at?: string
+          credited_ledger_entry_id?: string | null
+          currency: string
+          driver_id: string
+          id?: string
+          idempotency_key: string
+          metadata?: Json
+          provider: string
+          provider_transaction_id?: string | null
+          region_id?: string | null
+          service_area_id: string
+          status?: Database["public"]["Enums"]["commission_topup_status"]
+          updated_at?: string
+        }
+        Update: {
+          amount_minor?: number
+          created_at?: string
+          credited_ledger_entry_id?: string | null
+          currency?: string
+          driver_id?: string
+          id?: string
+          idempotency_key?: string
+          metadata?: Json
+          provider?: string
+          provider_transaction_id?: string | null
+          region_id?: string | null
+          service_area_id?: string
+          status?: Database["public"]["Enums"]["commission_topup_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_commission_wallet_topups_credited_ledger_entry_id_fkey"
+            columns: ["credited_ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "driver_commission_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_topups_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_topups_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_topups_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_topups_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_topups_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_topups_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_topups_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_topups_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_topups_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_topups_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       driver_commitment_sessions: {
         Row: {
@@ -15068,17 +15721,25 @@ export type Database = {
       }
       service_areas: {
         Row: {
+          cash_upfront_policy_notice: string | null
           center_lat: number | null
           center_lng: number | null
           code: string | null
+          commission_reserve_enabled: boolean
+          commission_topup_provider: string | null
+          commission_wallet_currency: string | null
+          commission_wallet_enabled: boolean
+          commission_wallet_minimum_balance_minor: number
           country: string | null
           created_at: string
           currency_code: string | null
           customer_payment_gateway: string | null
+          customer_payment_policy: Database["public"]["Enums"]["customer_payment_policy"]
           distance_unit: string | null
           driver_id_prefix: string
           driver_payout_gateway: string | null
           early_cashout_enabled: boolean
+          financial_model: Database["public"]["Enums"]["service_area_financial_model"]
           geo_boundary: Json | null
           id: string
           is_active: boolean
@@ -15093,19 +15754,30 @@ export type Database = {
           tips_enabled: boolean
           trip_id_prefix: string
           updated_at: string
+          welcome_credit_amount_minor: number
+          welcome_credit_enabled: boolean
+          welcome_credit_max_drivers: number
         }
         Insert: {
+          cash_upfront_policy_notice?: string | null
           center_lat?: number | null
           center_lng?: number | null
           code?: string | null
+          commission_reserve_enabled?: boolean
+          commission_topup_provider?: string | null
+          commission_wallet_currency?: string | null
+          commission_wallet_enabled?: boolean
+          commission_wallet_minimum_balance_minor?: number
           country?: string | null
           created_at?: string
           currency_code?: string | null
           customer_payment_gateway?: string | null
+          customer_payment_policy?: Database["public"]["Enums"]["customer_payment_policy"]
           distance_unit?: string | null
           driver_id_prefix: string
           driver_payout_gateway?: string | null
           early_cashout_enabled?: boolean
+          financial_model?: Database["public"]["Enums"]["service_area_financial_model"]
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
@@ -15120,19 +15792,30 @@ export type Database = {
           tips_enabled?: boolean
           trip_id_prefix: string
           updated_at?: string
+          welcome_credit_amount_minor?: number
+          welcome_credit_enabled?: boolean
+          welcome_credit_max_drivers?: number
         }
         Update: {
+          cash_upfront_policy_notice?: string | null
           center_lat?: number | null
           center_lng?: number | null
           code?: string | null
+          commission_reserve_enabled?: boolean
+          commission_topup_provider?: string | null
+          commission_wallet_currency?: string | null
+          commission_wallet_enabled?: boolean
+          commission_wallet_minimum_balance_minor?: number
           country?: string | null
           created_at?: string
           currency_code?: string | null
           customer_payment_gateway?: string | null
+          customer_payment_policy?: Database["public"]["Enums"]["customer_payment_policy"]
           distance_unit?: string | null
           driver_id_prefix?: string
           driver_payout_gateway?: string | null
           early_cashout_enabled?: boolean
+          financial_model?: Database["public"]["Enums"]["service_area_financial_model"]
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
@@ -15147,6 +15830,9 @@ export type Database = {
           tips_enabled?: boolean
           trip_id_prefix?: string
           updated_at?: string
+          welcome_credit_amount_minor?: number
+          welcome_credit_enabled?: boolean
+          welcome_credit_max_drivers?: number
         }
         Relationships: [
           {
@@ -17212,6 +17898,7 @@ export type Database = {
           client_action_id: string | null
           commission_pct: number | null
           commission_pence: number | null
+          commission_wallet_enabled: boolean | null
           commissionable_fare_pence: number | null
           commitment_time: string | null
           completed_at: string | null
@@ -17282,6 +17969,9 @@ export type Database = {
           final_customer_fare_pence: number | null
           final_fare_pence: number | null
           final_payout_pence: number | null
+          financial_model:
+            | Database["public"]["Enums"]["service_area_financial_model"]
+            | null
           financial_outcome: string | null
           free_wait_expires_at: string | null
           grace_period_expired_at: string | null
@@ -17340,6 +18030,9 @@ export type Database = {
           passenger_id: string
           passenger_name: string | null
           passenger_phone: string | null
+          payment_collection_model:
+            | Database["public"]["Enums"]["customer_payment_policy"]
+            | null
           payment_coverage_status:
             | Database["public"]["Enums"]["payment_coverage_status"]
             | null
@@ -17402,6 +18095,8 @@ export type Database = {
           service_area_code: string | null
           service_area_id: string | null
           settlement_formula_version: string | null
+          snapshotted_commission_currency: string | null
+          snapshotted_commission_rate_bps: number | null
           special_instructions: string | null
           stack_position: number | null
           stacked_trip_id: string | null
@@ -17487,6 +18182,7 @@ export type Database = {
           client_action_id?: string | null
           commission_pct?: number | null
           commission_pence?: number | null
+          commission_wallet_enabled?: boolean | null
           commissionable_fare_pence?: number | null
           commitment_time?: string | null
           completed_at?: string | null
@@ -17557,6 +18253,9 @@ export type Database = {
           final_customer_fare_pence?: number | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
+          financial_model?:
+            | Database["public"]["Enums"]["service_area_financial_model"]
+            | null
           financial_outcome?: string | null
           free_wait_expires_at?: string | null
           grace_period_expired_at?: string | null
@@ -17615,6 +18314,9 @@ export type Database = {
           passenger_id: string
           passenger_name?: string | null
           passenger_phone?: string | null
+          payment_collection_model?:
+            | Database["public"]["Enums"]["customer_payment_policy"]
+            | null
           payment_coverage_status?:
             | Database["public"]["Enums"]["payment_coverage_status"]
             | null
@@ -17677,6 +18379,8 @@ export type Database = {
           service_area_code?: string | null
           service_area_id?: string | null
           settlement_formula_version?: string | null
+          snapshotted_commission_currency?: string | null
+          snapshotted_commission_rate_bps?: number | null
           special_instructions?: string | null
           stack_position?: number | null
           stacked_trip_id?: string | null
@@ -17762,6 +18466,7 @@ export type Database = {
           client_action_id?: string | null
           commission_pct?: number | null
           commission_pence?: number | null
+          commission_wallet_enabled?: boolean | null
           commissionable_fare_pence?: number | null
           commitment_time?: string | null
           completed_at?: string | null
@@ -17832,6 +18537,9 @@ export type Database = {
           final_customer_fare_pence?: number | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
+          financial_model?:
+            | Database["public"]["Enums"]["service_area_financial_model"]
+            | null
           financial_outcome?: string | null
           free_wait_expires_at?: string | null
           grace_period_expired_at?: string | null
@@ -17890,6 +18598,9 @@ export type Database = {
           passenger_id?: string
           passenger_name?: string | null
           passenger_phone?: string | null
+          payment_collection_model?:
+            | Database["public"]["Enums"]["customer_payment_policy"]
+            | null
           payment_coverage_status?:
             | Database["public"]["Enums"]["payment_coverage_status"]
             | null
@@ -17952,6 +18663,8 @@ export type Database = {
           service_area_code?: string | null
           service_area_id?: string | null
           settlement_formula_version?: string | null
+          snapshotted_commission_currency?: string | null
+          snapshotted_commission_rate_bps?: number | null
           special_instructions?: string | null
           stack_position?: number | null
           stacked_trip_id?: string | null
@@ -22187,6 +22900,10 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: never; Returns: boolean }
+      is_commission_wallet_workflow_enabled: {
+        Args: { p_service_area_id: string }
+        Returns: boolean
+      }
       is_customer: { Args: { _user_id: string }; Returns: boolean }
       is_driver: { Args: { _user_id: string }; Returns: boolean }
       is_driver_dispatchable: {
@@ -23107,8 +23824,32 @@ export type Database = {
       app_role: "admin" | "moderator" | "user" | "driver" | "customer"
       app_scope: "customer" | "driver" | "corporate" | "shared" | "legal"
       app_user_role: "admin" | "driver" | "customer" | "corporate"
+      commission_topup_status:
+        | "PENDING"
+        | "PROCESSING"
+        | "SUCCEEDED"
+        | "FAILED"
+        | "EXPIRED"
+        | "REVERSED"
+      commission_wallet_campaign_type:
+        | "WELCOME_CREDIT"
+        | "TOP_UP_PERCENT_BONUS"
+        | "FIXED_TOP_UP_BONUS"
+        | "MANUAL_PROMOTIONAL_CREDIT"
+      commission_wallet_entry_type:
+        | "TOP_UP_CREDIT"
+        | "WELCOME_CREDIT"
+        | "PROMOTIONAL_CREDIT"
+        | "ADMIN_CREDIT"
+        | "COMMISSION_RESERVE"
+        | "COMMISSION_RESERVE_RELEASE"
+        | "COMMISSION_DEDUCTION"
+        | "COMMISSION_DEDUCTION_REVERSAL"
+        | "TOP_UP_REVERSAL"
+        | "ADMIN_CORRECTION"
       communication_default_method: "voip" | "call_masking"
       content_status: "draft" | "published"
+      customer_payment_policy: "PLATFORM_PREPAID" | "DRIVER_COLLECTS_UPFRONT"
       driver_alert_severity: "warning" | "critical" | "recovered"
       driver_alert_status: "active" | "resolved"
       driver_status: "active" | "disabled" | "deleted"
@@ -23175,6 +23916,9 @@ export type Database = {
         | "RECOVERY_DECLINED"
         | "RECOVERY_CANCELLED"
         | "RECOVERY_EXPIRED"
+      service_area_financial_model:
+        | "PLATFORM_COLLECTED"
+        | "DRIVER_COLLECTED_COMMISSION_WALLET"
       staff_role:
         | "super_admin"
         | "admin"
@@ -23333,8 +24077,35 @@ export const Constants = {
       app_role: ["admin", "moderator", "user", "driver", "customer"],
       app_scope: ["customer", "driver", "corporate", "shared", "legal"],
       app_user_role: ["admin", "driver", "customer", "corporate"],
+      commission_topup_status: [
+        "PENDING",
+        "PROCESSING",
+        "SUCCEEDED",
+        "FAILED",
+        "EXPIRED",
+        "REVERSED",
+      ],
+      commission_wallet_campaign_type: [
+        "WELCOME_CREDIT",
+        "TOP_UP_PERCENT_BONUS",
+        "FIXED_TOP_UP_BONUS",
+        "MANUAL_PROMOTIONAL_CREDIT",
+      ],
+      commission_wallet_entry_type: [
+        "TOP_UP_CREDIT",
+        "WELCOME_CREDIT",
+        "PROMOTIONAL_CREDIT",
+        "ADMIN_CREDIT",
+        "COMMISSION_RESERVE",
+        "COMMISSION_RESERVE_RELEASE",
+        "COMMISSION_DEDUCTION",
+        "COMMISSION_DEDUCTION_REVERSAL",
+        "TOP_UP_REVERSAL",
+        "ADMIN_CORRECTION",
+      ],
       communication_default_method: ["voip", "call_masking"],
       content_status: ["draft", "published"],
+      customer_payment_policy: ["PLATFORM_PREPAID", "DRIVER_COLLECTS_UPFRONT"],
       driver_alert_severity: ["warning", "critical", "recovered"],
       driver_alert_status: ["active", "resolved"],
       driver_status: ["active", "disabled", "deleted"],
@@ -23405,6 +24176,10 @@ export const Constants = {
         "RECOVERY_DECLINED",
         "RECOVERY_CANCELLED",
         "RECOVERY_EXPIRED",
+      ],
+      service_area_financial_model: [
+        "PLATFORM_COLLECTED",
+        "DRIVER_COLLECTED_COMMISSION_WALLET",
       ],
       staff_role: [
         "super_admin",
