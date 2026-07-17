@@ -135,14 +135,14 @@ Deno.serve(async (req) => {
     // --- Also block if a prior recovery already completed for this trip ---
     const { data: existingCompleted } = await supabase
       .from("payment_sessions")
-      .select("id")
+      .select("id, status, provider_order_id")
       .eq("trip_id", trip.id)
       .eq("purpose", "PAYMENT_RECOVERY")
-      .eq("status", "RECOVERY_COMPLETED")
+      .in("status", ["RECOVERY_COMPLETED", "captured", "completed", "CAPTURED", "COMPLETED"])
       .maybeSingle();
     if (existingCompleted) {
       return errorResponse(
-        "This trip already has a completed recovery payment. Duplicate recovery blocked.",
+        `This trip already has a completed recovery payment (${existingCompleted.status}). Duplicate recovery blocked.`,
         409, undefined, "RECOVERY_ALREADY_COMPLETED",
       );
     }
@@ -154,40 +154,54 @@ Deno.serve(async (req) => {
       .select("id", { count: "exact", head: true })
       .eq("trip_id", trip.id)
       .eq("purpose", "PAYMENT_RECOVERY");
-    const attemptNumber = (priorAttempts ?? 0) + 1;
-    const attemptScope = `${recoveryKeyScope}:attempt-${attemptNumber}-${Date.now()}-${crypto.randomUUID()}`;
-
+    const firstAttemptNumber = (priorAttempts ?? 0) + 1;
+    let session: { id: string } | null = null;
+    let sessInsertErr: { code?: string; message?: string } | null = null;
 
     // --- Insert placeholder session first (reserves the "open recovery" slot) ---
-    const { data: session, error: sessInsertErr } = await supabase
-      .from("payment_sessions")
-      .insert({
-        client_action_id: attemptScope,
-        idempotency_key: attemptScope,
-        user_id: customer.user_id,
-        trip_id: trip.id,
-        customer_id: trip.passenger_id,
-        service_area_id: trip.service_area_id,
-        payment_provider: "revolut",
-        purpose: "PAYMENT_RECOVERY",
-        status: "RECOVERY_CHECKOUT_CREATED",
-        estimated_total_pence: chargePence,
-        currency: currency.toUpperCase(),
-        parent_session_id: parent_session_id ?? null,
-        recovery_reason: "PAYMENT_GATE_BREACH_NO_CAPTURE",
-        metadata: {
+    for (let offset = 0; offset < 5; offset += 1) {
+      const attemptNumber = firstAttemptNumber + offset;
+      const attemptScope = `${recoveryKeyScope}:attempt-${attemptNumber}:${crypto.randomUUID()}`;
+      const { data, error } = await supabase
+        .from("payment_sessions")
+        .insert({
+          client_action_id: attemptScope,
+          idempotency_key: attemptScope,
+          user_id: customer.user_id,
+          trip_id: trip.id,
+          customer_id: trip.passenger_id,
+          service_area_id: trip.service_area_id,
+          payment_provider: "revolut",
+          purpose: "PAYMENT_RECOVERY",
+          status: "RECOVERY_CHECKOUT_CREATED",
+          estimated_total_pence: chargePence,
+          currency: currency.toUpperCase(),
+          parent_session_id: parent_session_id ?? null,
           recovery_reason: "PAYMENT_GATE_BREACH_NO_CAPTURE",
-          recovery_idempotency_key: attemptScope,
-          recovery_attempt_number: attemptNumber,
-          requested_by_admin_user_id: user.id,
-          final_customer_charge_pence: chargePence,
-        },
-      })
-      .select("id")
-      .single();
+          metadata: {
+            recovery_reason: "PAYMENT_GATE_BREACH_NO_CAPTURE",
+            recovery_idempotency_key: attemptScope,
+            recovery_attempt_number: attemptNumber,
+            requested_by_admin_user_id: user.id,
+            final_customer_charge_pence: chargePence,
+          },
+        })
+        .select("id")
+        .single();
 
-    if (sessInsertErr || !session) {
-      // Unique-index violation is the expected concurrent-attempt guard.
+      if (data) {
+        session = data;
+        sessInsertErr = null;
+        break;
+      }
+
+      sessInsertErr = error;
+      const isClientActionCollision = error?.code === "23505"
+        && (error.message ?? "").includes("payment_sessions_client_action_id_unique");
+      if (!isClientActionCollision) break;
+    }
+
+    if (!session) {
       return errorResponse(
         `Could not open a recovery session: ${sessInsertErr?.message ?? "insert failed"}`,
         409, undefined, "RECOVERY_LOCK_FAILED",
