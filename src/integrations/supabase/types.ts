@@ -5373,6 +5373,110 @@ export type Database = {
         }
         Relationships: []
       }
+      driver_commission_wallet_accounts: {
+        Row: {
+          created_at: string
+          currency: string
+          driver_id: string
+          id: string
+          region_id: string
+          service_area_id: string
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency: string
+          driver_id: string
+          id?: string
+          region_id: string
+          service_area_id: string
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          driver_id?: string
+          id?: string
+          region_id?: string
+          service_area_id?: string
+          source?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_commission_wallet_accounts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_accounts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_accounts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_accounts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_accounts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_accounts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_accounts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_accounts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_accounts_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commission_wallet_accounts_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_commission_wallet_ledger: {
         Row: {
           admin_user_id: string | null
@@ -5564,6 +5668,7 @@ export type Database = {
           currency: string
           driver_id: string
           id: string
+          metadata: Json
           release_ledger_entry_id: string | null
           reserve_ledger_entry_id: string | null
           reserved_amount_minor: number
@@ -5577,6 +5682,7 @@ export type Database = {
           currency: string
           driver_id: string
           id?: string
+          metadata?: Json
           release_ledger_entry_id?: string | null
           reserve_ledger_entry_id?: string | null
           reserved_amount_minor: number
@@ -5590,6 +5696,7 @@ export type Database = {
           currency?: string
           driver_id?: string
           id?: string
+          metadata?: Json
           release_ledger_entry_id?: string | null
           reserve_ledger_entry_id?: string | null
           reserved_amount_minor?: number
@@ -16065,6 +16172,7 @@ export type Database = {
           commission_wallet_currency: string | null
           commission_wallet_enabled: boolean
           commission_wallet_minimum_balance_minor: number
+          commission_wallet_topup_enabled: boolean
           country: string | null
           created_at: string
           currency_code: string | null
@@ -16103,6 +16211,7 @@ export type Database = {
           commission_wallet_currency?: string | null
           commission_wallet_enabled?: boolean
           commission_wallet_minimum_balance_minor?: number
+          commission_wallet_topup_enabled?: boolean
           country?: string | null
           created_at?: string
           currency_code?: string | null
@@ -16141,6 +16250,7 @@ export type Database = {
           commission_wallet_currency?: string | null
           commission_wallet_enabled?: boolean
           commission_wallet_minimum_balance_minor?: number
+          commission_wallet_topup_enabled?: boolean
           country?: string | null
           created_at?: string
           currency_code?: string | null
@@ -22331,6 +22441,7 @@ export type Database = {
         Args: { p_session_id: string }
         Returns: Json
       }
+      backfill_driver_commission_wallet_accounts: { Args: never; Returns: Json }
       bearing_deg: {
         Args: { lat1: number; lat2: number; lng1: number; lng2: number }
         Returns: number
@@ -22786,6 +22897,14 @@ export type Database = {
         Returns: Json
       }
       enrich_ride_offer_presets: { Args: { p_trip_id: string }; Returns: Json }
+      ensure_driver_commission_wallet_account: {
+        Args: {
+          p_driver_id: string
+          p_service_area_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
       ensure_trip_stops_for_assignment: {
         Args: { p_trip_id: string }
         Returns: undefined
@@ -24117,6 +24236,10 @@ export type Database = {
       }
       trip_pickup_coordinates_valid: {
         Args: { p_lat: number; p_lng: number }
+        Returns: boolean
+      }
+      trip_row_is_commission_wallet_driver_collected: {
+        Args: { p_row: Database["public"]["Tables"]["trips"]["Row"] }
         Returns: boolean
       }
       update_driver_location: {
