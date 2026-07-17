@@ -132,19 +132,28 @@ Deno.serve(async (req) => {
       });
     }
 
-    // --- Also block if a prior recovery already completed for this trip ---
+    // --- Idempotent terminal success: if recovery already completed, never
+    // create another order and never surface as a runtime failure to the UI. ---
     const { data: existingCompleted } = await supabase
       .from("payment_sessions")
-      .select("id, status, provider_order_id")
+      .select("id, status, provider_order_id, captured_amount_pence, currency, captured_at")
       .eq("trip_id", trip.id)
       .eq("purpose", "PAYMENT_RECOVERY")
       .in("status", ["RECOVERY_COMPLETED", "captured"])
       .maybeSingle();
     if (existingCompleted) {
-      return errorResponse(
-        `This trip already has a completed recovery payment (${existingCompleted.status}). Duplicate recovery blocked.`,
-        409, undefined, "RECOVERY_ALREADY_COMPLETED",
-      );
+      return successResponse({
+        payment_session_id: existingCompleted.id,
+        provider_order_id: existingCompleted.provider_order_id,
+        checkout_url: null,
+        amount: existingCompleted.captured_amount_pence ?? chargePence,
+        currency: (existingCompleted.currency ?? currency).toString().toLowerCase(),
+        status: existingCompleted.status,
+        captured_at: existingCompleted.captured_at ?? null,
+        already_completed: true,
+        error_code: "RECOVERY_ALREADY_COMPLETED",
+        message: `This trip already has a completed recovery payment (${existingCompleted.status}). Duplicate recovery blocked.`,
+      });
     }
 
     // --- Compute a unique per-attempt scope so prior CANCELLED/FAILED/EXPIRED
