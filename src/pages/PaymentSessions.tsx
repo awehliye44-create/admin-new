@@ -108,6 +108,7 @@ function SessionActions({
   onRefund,
   onInspect,
   onRequestRecovery,
+  onAbandonRecovery,
 }: {
 
   row: AdminPaymentSessionsListRow;
@@ -117,6 +118,7 @@ function SessionActions({
   onRefund: (row: AdminPaymentSessionsListRow) => void;
   onInspect: (row: AdminPaymentSessionsListRow) => void;
   onRequestRecovery: (row: AdminPaymentSessionsListRow) => void;
+  onAbandonRecovery: (row: AdminPaymentSessionsListRow) => void;
 }) {
 
   const key = row.provider_order_id || row.payment_session_id || row.id;
@@ -176,6 +178,11 @@ function SessionActions({
             Request customer payment
           </Button>
         )}
+      {row.trip_id && row.purpose === 'PAYMENT_RECOVERY' && (
+        <Button size="sm" variant="destructive" disabled={busy} onClick={() => onAbandonRecovery(row)}>
+          Abandon recovery &amp; release hold
+        </Button>
+      )}
       {row.provider_order_id && (
         <Button size="sm" variant="ghost" disabled={inspecting} onClick={() => onInspect(row)}>
           {inspecting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Provider evidence'}
@@ -502,6 +509,40 @@ export default function PaymentSessions() {
         await refetch();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Recovery request failed');
+      } finally {
+        setActingId(null);
+      }
+    },
+    [refetch],
+  );
+
+  const runAbandonRecovery = useCallback(
+    async (row: AdminPaymentSessionsListRow) => {
+      if (!row.trip_id) {
+        toast.error('Trip id required');
+        return;
+      }
+      const reason = window.prompt(
+        'Abandon recovery and release the original hold?\nEnter reason (min 5 chars):',
+        '',
+      );
+      if (!reason || reason.trim().length < 5) return;
+      const actionKey = row.provider_order_id || row.payment_session_id || row.id;
+      setActingId(actionKey);
+      try {
+        const { data, error } = await supabase.functions.invoke('admin-cancel-trip-payment', {
+          body: { trip_id: row.trip_id, reason: reason.trim(), abandon_recovery: true },
+        });
+        if (error) throw error;
+        const payload = (data ?? {}) as { released_pence?: number };
+        toast.success(
+          `Recovery abandoned. Hold released${
+            typeof payload.released_pence === 'number' ? ` (${(payload.released_pence / 100).toFixed(2)})` : ''
+          }.`,
+        );
+        await refetch();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Abandon recovery failed');
       } finally {
         setActingId(null);
       }
@@ -1147,8 +1188,9 @@ export default function PaymentSessions() {
                                   onRefund={runRefund}
                                   onInspect={runInspect}
                                   onRequestRecovery={runRequestRecovery}
-
+                                  onAbandonRecovery={runAbandonRecovery}
                                 />
+
                                 <Button
                                   size="sm"
                                   variant="ghost"
