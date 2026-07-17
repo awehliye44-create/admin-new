@@ -20323,11 +20323,13 @@ export type Database = {
           created_at: string | null
           customer_code: string | null
           email: string | null
+          email_verified: boolean | null
           first_name: string | null
           id: string | null
           last_name: string | null
           last_trip_at: string | null
           phone: string | null
+          phone_verified: boolean | null
           rider_status: string | null
           trip_count: number | null
           updated_at: string | null
