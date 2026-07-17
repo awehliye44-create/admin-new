@@ -108,6 +108,7 @@ function SessionActions({
   onRefund,
   onInspect,
   onRequestRecovery,
+  onAbandonRecovery,
 }: {
 
   row: AdminPaymentSessionsListRow;
@@ -117,6 +118,7 @@ function SessionActions({
   onRefund: (row: AdminPaymentSessionsListRow) => void;
   onInspect: (row: AdminPaymentSessionsListRow) => void;
   onRequestRecovery: (row: AdminPaymentSessionsListRow) => void;
+  onAbandonRecovery: (row: AdminPaymentSessionsListRow) => void;
 }) {
 
   const key = row.provider_order_id || row.payment_session_id || row.id;
@@ -176,6 +178,11 @@ function SessionActions({
             Request customer payment
           </Button>
         )}
+      {row.trip_id && row.purpose === 'PAYMENT_RECOVERY' && (
+        <Button size="sm" variant="destructive" disabled={busy} onClick={() => onAbandonRecovery(row)}>
+          Abandon recovery &amp; release hold
+        </Button>
+      )}
       {row.provider_order_id && (
         <Button size="sm" variant="ghost" disabled={inspecting} onClick={() => onInspect(row)}>
           {inspecting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Provider evidence'}
