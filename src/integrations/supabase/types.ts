@@ -8188,6 +8188,7 @@ export type Database = {
           category_id: string | null
           charges_enabled: boolean | null
           city: string | null
+          commission_wallet_test_access: boolean
           country: string | null
           country_code: string | null
           created_at: string
@@ -8251,6 +8252,7 @@ export type Database = {
           category_id?: string | null
           charges_enabled?: boolean | null
           city?: string | null
+          commission_wallet_test_access?: boolean
           country?: string | null
           country_code?: string | null
           created_at?: string
@@ -8314,6 +8316,7 @@ export type Database = {
           category_id?: string | null
           charges_enabled?: boolean | null
           city?: string | null
+          commission_wallet_test_access?: boolean
           country?: string | null
           country_code?: string | null
           created_at?: string
@@ -21808,6 +21811,7 @@ export type Database = {
           category_id: string | null
           charges_enabled: boolean | null
           city: string | null
+          commission_wallet_test_access: boolean
           country: string | null
           country_code: string | null
           created_at: string

@@ -147,12 +147,22 @@ Deno.serve(async (req) => {
       );
     }
 
+    // --- Compute a unique per-attempt scope so prior CANCELLED/FAILED/EXPIRED
+    // recovery attempts do not collide on the payment_sessions unique index.
+    const { count: priorAttempts } = await supabase
+      .from("payment_sessions")
+      .select("id", { count: "exact", head: true })
+      .eq("trip_id", trip.id)
+      .eq("purpose", "PAYMENT_RECOVERY");
+    const attemptNumber = (priorAttempts ?? 0) + 1;
+    const attemptScope = `${recoveryKeyScope}:attempt-${attemptNumber}-${Date.now()}`;
+
     // --- Insert placeholder session first (reserves the "open recovery" slot) ---
     const { data: session, error: sessInsertErr } = await supabase
       .from("payment_sessions")
       .insert({
-        client_action_id: recoveryKeyScope,
-        idempotency_key: recoveryKeyScope,
+        client_action_id: attemptScope,
+        idempotency_key: attemptScope,
         user_id: customer.user_id,
         trip_id: trip.id,
         customer_id: trip.passenger_id,
@@ -166,13 +176,15 @@ Deno.serve(async (req) => {
         recovery_reason: "PAYMENT_GATE_BREACH_NO_CAPTURE",
         metadata: {
           recovery_reason: "PAYMENT_GATE_BREACH_NO_CAPTURE",
-          recovery_idempotency_key: recoveryKeyScope,
+          recovery_idempotency_key: attemptScope,
+          recovery_attempt_number: attemptNumber,
           requested_by_admin_user_id: user.id,
           final_customer_charge_pence: chargePence,
         },
       })
       .select("id")
       .single();
+
     if (sessInsertErr || !session) {
       // Unique-index violation is the expected concurrent-attempt guard.
       return errorResponse(
