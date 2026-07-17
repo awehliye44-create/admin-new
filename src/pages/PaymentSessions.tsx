@@ -516,6 +516,40 @@ export default function PaymentSessions() {
     [refetch],
   );
 
+  const runAbandonRecovery = useCallback(
+    async (row: AdminPaymentSessionsListRow) => {
+      if (!row.trip_id) {
+        toast.error('Trip id required');
+        return;
+      }
+      const reason = window.prompt(
+        'Abandon recovery and release the original hold?\nEnter reason (min 5 chars):',
+        '',
+      );
+      if (!reason || reason.trim().length < 5) return;
+      const actionKey = row.provider_order_id || row.payment_session_id || row.id;
+      setActingId(actionKey);
+      try {
+        const { data, error } = await supabase.functions.invoke('admin-cancel-trip-payment', {
+          body: { trip_id: row.trip_id, reason: reason.trim(), abandon_recovery: true },
+        });
+        if (error) throw error;
+        const payload = (data ?? {}) as { released_pence?: number };
+        toast.success(
+          `Recovery abandoned. Hold released${
+            typeof payload.released_pence === 'number' ? ` (${(payload.released_pence / 100).toFixed(2)})` : ''
+          }.`,
+        );
+        await refetch();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Abandon recovery failed');
+      } finally {
+        setActingId(null);
+      }
+    },
+    [refetch],
+  );
+
   const runInspect = useCallback(
 
     async (row: AdminPaymentSessionsListRow) => {
