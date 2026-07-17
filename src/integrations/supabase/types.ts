@@ -11645,10 +11645,12 @@ export type Database = {
       }
       payment_sessions: {
         Row: {
+          additional_authorised_pence: number | null
           authorised_amount_pence: number | null
           authorised_at: string | null
           booking_snapshot: Json
           buffer_pence: number | null
+          cancellation_fee_pence: number | null
           captured_amount_pence: number | null
           captured_at: string | null
           client_action_id: string
@@ -11661,6 +11663,7 @@ export type Database = {
           fee_status:
             | Database["public"]["Enums"]["payment_session_fee_status"]
             | null
+          final_charge_pence: number | null
           hold_release_state: string | null
           hold_terminal_reason: string | null
           id: string
@@ -11668,9 +11671,13 @@ export type Database = {
           last_recovery_attempt_at: string | null
           last_release_attempt_at: string | null
           metadata: Json
+          no_show_fee_pence: number | null
+          original_authorised_pence: number | null
           parent_session_id: string | null
           payment_method: string | null
           payment_provider: string
+          payment_resolution_status: string | null
+          payment_resolution_type: string | null
           platform_payment_method_id: string | null
           provider_capture_id: string | null
           provider_checkout_url: string | null
@@ -11693,6 +11700,7 @@ export type Database = {
           purpose: Database["public"]["Enums"]["payment_session_purpose"]
           recovery_attempt_count: number
           recovery_reason: string | null
+          recovery_required: boolean
           refunded_amount_pence: number | null
           refunded_at: string | null
           release_attempt_count: number
@@ -11703,6 +11711,7 @@ export type Database = {
           released_amount_pence: number | null
           released_at: string | null
           service_area_id: string
+          shortfall_pence: number | null
           status: Database["public"]["Enums"]["payment_session_status"]
           total_authorised_amount_pence: number | null
           trip_id: string | null
@@ -11710,10 +11719,12 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          additional_authorised_pence?: number | null
           authorised_amount_pence?: number | null
           authorised_at?: string | null
           booking_snapshot?: Json
           buffer_pence?: number | null
+          cancellation_fee_pence?: number | null
           captured_amount_pence?: number | null
           captured_at?: string | null
           client_action_id: string
@@ -11726,6 +11737,7 @@ export type Database = {
           fee_status?:
             | Database["public"]["Enums"]["payment_session_fee_status"]
             | null
+          final_charge_pence?: number | null
           hold_release_state?: string | null
           hold_terminal_reason?: string | null
           id?: string
@@ -11733,9 +11745,13 @@ export type Database = {
           last_recovery_attempt_at?: string | null
           last_release_attempt_at?: string | null
           metadata?: Json
+          no_show_fee_pence?: number | null
+          original_authorised_pence?: number | null
           parent_session_id?: string | null
           payment_method?: string | null
           payment_provider?: string
+          payment_resolution_status?: string | null
+          payment_resolution_type?: string | null
           platform_payment_method_id?: string | null
           provider_capture_id?: string | null
           provider_checkout_url?: string | null
@@ -11758,6 +11774,7 @@ export type Database = {
           purpose?: Database["public"]["Enums"]["payment_session_purpose"]
           recovery_attempt_count?: number
           recovery_reason?: string | null
+          recovery_required?: boolean
           refunded_amount_pence?: number | null
           refunded_at?: string | null
           release_attempt_count?: number
@@ -11768,6 +11785,7 @@ export type Database = {
           released_amount_pence?: number | null
           released_at?: string | null
           service_area_id: string
+          shortfall_pence?: number | null
           status?: Database["public"]["Enums"]["payment_session_status"]
           total_authorised_amount_pence?: number | null
           trip_id?: string | null
@@ -11775,10 +11793,12 @@ export type Database = {
           user_id: string
         }
         Update: {
+          additional_authorised_pence?: number | null
           authorised_amount_pence?: number | null
           authorised_at?: string | null
           booking_snapshot?: Json
           buffer_pence?: number | null
+          cancellation_fee_pence?: number | null
           captured_amount_pence?: number | null
           captured_at?: string | null
           client_action_id?: string
@@ -11791,6 +11811,7 @@ export type Database = {
           fee_status?:
             | Database["public"]["Enums"]["payment_session_fee_status"]
             | null
+          final_charge_pence?: number | null
           hold_release_state?: string | null
           hold_terminal_reason?: string | null
           id?: string
@@ -11798,9 +11819,13 @@ export type Database = {
           last_recovery_attempt_at?: string | null
           last_release_attempt_at?: string | null
           metadata?: Json
+          no_show_fee_pence?: number | null
+          original_authorised_pence?: number | null
           parent_session_id?: string | null
           payment_method?: string | null
           payment_provider?: string
+          payment_resolution_status?: string | null
+          payment_resolution_type?: string | null
           platform_payment_method_id?: string | null
           provider_capture_id?: string | null
           provider_checkout_url?: string | null
@@ -11823,6 +11848,7 @@ export type Database = {
           purpose?: Database["public"]["Enums"]["payment_session_purpose"]
           recovery_attempt_count?: number
           recovery_reason?: string | null
+          recovery_required?: boolean
           refunded_amount_pence?: number | null
           refunded_at?: string | null
           release_attempt_count?: number
@@ -11833,6 +11859,7 @@ export type Database = {
           released_amount_pence?: number | null
           released_at?: string | null
           service_area_id?: string
+          shortfall_pence?: number | null
           status?: Database["public"]["Enums"]["payment_session_status"]
           total_authorised_amount_pence?: number | null
           trip_id?: string | null
