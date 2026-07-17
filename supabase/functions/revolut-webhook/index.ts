@@ -344,12 +344,36 @@ Deno.serve(async (req) => {
     }
 
     if (tripId && nextStatus) {
+    let effectiveStatus = nextStatus;
+
+    // Payment-gate SSOT: if this trip is in additional-auth recovery
+    // (child re-hold cancelled/failed) but the ORIGINAL parent order is
+    // still AUTHORISED, do NOT flip the trip to `canceled`. Keep it in
+    // `recovery_required` so admins can run create-payment-recovery.
+    if (nextStatus === "canceled" || nextStatus === "failed") {
+      const { data: parentSession } = await supabase
+        .from("payment_sessions")
+        .select("provider_state, metadata")
+        .eq("trip_id", tripId)
+        .eq("purpose", "RIDE_BOOKING")
+        .maybeSingle();
+      const addl =
+        (parentSession?.metadata as { additional_auth_status?: string } | null)
+          ?.additional_auth_status ?? null;
+      if (
+        parentSession?.provider_state === "AUTHORISED"
+        && addl === "PAYMENT_RECOVERY_REQUIRED"
+      ) {
+        effectiveStatus = "recovery_required";
+      }
+    }
+
     const update: Record<string, unknown> = {
-      payment_status: nextStatus,
+      payment_status: effectiveStatus,
       updated_at: new Date().toISOString(),
     };
     // On terminal capture, keep provider_charge_id fresh from the webhook payload.
-    if (nextStatus === "captured" && orderId) {
+    if (effectiveStatus === "captured" && orderId) {
       update.provider_charge_id = orderId;
     }
     const { error } = await supabase.from("trips").update(update).eq("id", tripId);
