@@ -23,7 +23,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { COMMISSION_WALLET_CAMPAIGN_TYPE } from '../../shared/commissionWalletSSOT';
+import { COMMISSION_WALLET_CAMPAIGN_TYPE } from '@shared/commissionWalletSSOT';
 
 type CampaignRow = Record<string, unknown> & {
   id?: string;
