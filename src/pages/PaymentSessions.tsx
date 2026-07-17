@@ -500,7 +500,17 @@ export default function PaymentSessions() {
           },
         });
         if (error) throw error;
-        const payload = (data ?? {}) as { checkout_url?: string; reused?: boolean };
+        const payload = (data ?? {}) as {
+          checkout_url?: string | null;
+          reused?: boolean;
+          already_completed?: boolean;
+          message?: string;
+        };
+        if (payload.already_completed) {
+          toast.success(payload.message ?? 'Recovery payment is already completed; no duplicate charge was created');
+          await refetch();
+          return;
+        }
         if (payload.checkout_url) {
           try { await navigator.clipboard.writeText(payload.checkout_url); } catch { /* ignore */ }
           toast.success(
