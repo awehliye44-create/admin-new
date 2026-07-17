@@ -6,6 +6,7 @@ import {
   calculateTripSettlement,
   SETTLEMENT_FORMULA_VERSION,
 } from "../_shared/tripSettlement.ts";
+import { tripBlocksDriverWalletLedgerPosting } from "../_shared/commissionWalletDeduction.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -104,6 +105,11 @@ serve(async (req) => {
     for (const trip of trips) {
       const dId = trip.driver_id;
       const issues: string[] = [];
+
+      // Phase 7: never repair CW trips onto driver_wallet_ledger.
+      if (await tripBlocksDriverWalletLedgerPosting(supabase, trip.id)) {
+        continue;
+      }
 
       // === Resolve correct currency from Region ===
       let correctCurrency = trip.currency_code || '';

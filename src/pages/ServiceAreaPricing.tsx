@@ -32,6 +32,7 @@ import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymen
 import { ServiceAreaPaymentGatewayConfig } from '@/components/payment/ServiceAreaPaymentGatewayConfig';
 import { ServiceAreaMobileWalletMethodsConfig } from '@/components/payment/ServiceAreaMobileWalletMethodsConfig';
 import { ServiceAreaDriverWalletConfig } from '@/components/finance/ServiceAreaDriverWalletConfig';
+import { ServiceAreaCommissionWalletConfig } from '@/components/finance/ServiceAreaCommissionWalletConfig';
 import { PreauthBufferConfig } from '@/components/payment/PreauthBufferConfig';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { PresetOffersConfig } from '@/components/pricing/PresetOffersConfig';
@@ -427,6 +428,13 @@ export default function ServiceAreaPricing() {
               onChange={updateEarlyCashoutEnabled}
               serviceAreaName={selectedServiceArea?.name}
               disabled={isSaving}
+            />
+          )}
+          {selectedServiceAreaId && (
+            <ServiceAreaCommissionWalletConfig
+              serviceAreaId={selectedServiceAreaId}
+              serviceAreaName={selectedServiceArea?.name}
+              regionCurrency={regionCurrency}
             />
           )}
           {selectedServiceAreaId && (

@@ -5,6 +5,7 @@
  */
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { tripBlocksDriverWalletLedgerPosting } from "./commissionWalletDeduction.ts";
 
 export const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
 
@@ -256,6 +257,13 @@ export async function creditCapturedCardTripLedger(
     commissionPct?: number;
   },
 ): Promise<{ credited: boolean; recovery_pence: number }> {
+  if (await tripBlocksDriverWalletLedgerPosting(supabase, args.tripId)) {
+    console.log("[onecabFinanceLedger] skip DWL credit — commission wallet trip", {
+      trip_id: args.tripId,
+    });
+    return { credited: false, recovery_pence: 0 };
+  }
+
   const currency = args.currency ?? "GBP";
 
   const { data: existingNet } = await supabase

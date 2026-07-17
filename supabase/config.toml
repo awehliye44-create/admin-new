@@ -210,3 +210,15 @@ verify_jwt = false
 
 [functions.admin-service-area-digital-payment-methods]
 verify_jwt = false
+
+[functions.admin-commission-wallet-credit]
+verify_jwt = false
+
+[functions.admin-commission-wallet-overview]
+verify_jwt = false
+
+[functions.admin-commission-wallet-campaigns]
+verify_jwt = false
+
+[functions.admin-set-commission-wallet-test-access]
+verify_jwt = false

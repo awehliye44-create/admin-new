@@ -559,7 +559,7 @@ export default function RolesPermissions() {
     { label: 'Pricing', pages: ['promo-codes', 'custom-zones', 'zone-pricing', 'corporate-fares', 'fare-simulator'] },
     { label: 'Corporate', pages: ['corporate-accounts', 'account-requests', 'corporate-billing', 'corporate-reports', 'corporate-settings'] },
     { label: 'Riders & Support', pages: ['riders', 'pending-customer-signups', 'rider-feedback', 'suspensions', 'complaints', 'live-chat', 'tickets', 'categories'] },
-    { label: 'Finance', pages: ['payment-sessions', 'financial-reconciliation', 'driver-wallet-ledger', 'payout-ledger', 'disputes', 'dispute-settings', 'invoices', 'invoice-templates', 'statement-runs'] },
+    { label: 'Finance', pages: ['payment-sessions', 'financial-reconciliation', 'driver-wallet-ledger', 'commission-wallet', 'payout-ledger', 'disputes', 'dispute-settings', 'invoices', 'invoice-templates', 'statement-runs'] },
     { label: 'Documents', pages: ['onecab-documents', 'content'] },
     { label: 'Settings', pages: ['general-settings', 'integrations', 'webhooks', 'system', 'roles', 'user-directory', 'notifications', 'alert-sounds'] },
   ];

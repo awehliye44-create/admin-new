@@ -179,6 +179,16 @@ serve(async (req) => {
 
     if (rpcErr) {
       console.error('[accept-trip] accept_ride_offer RPC failed:', rpcErr);
+      const msg = String(rpcErr.message ?? '');
+      // Phase 6: accept-time CW reserve failure (trigger) — additive mapping only.
+      if (msg.includes('INSUFFICIENT_COMMISSION_WALLET_BALANCE')) {
+        return errorResponse(
+          'Insufficient commission wallet balance to reserve for this trip',
+          409,
+          undefined,
+          'INSUFFICIENT_COMMISSION_WALLET_BALANCE',
+        );
+      }
       return errorResponse(rpcErr.message, 500, undefined, 'ACCEPT_FAILED');
     }
 

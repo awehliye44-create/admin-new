@@ -19,6 +19,7 @@ import {
   resolveFinanceScopeProvider,
 } from "../_shared/providerPlatformBalanceSSOT.ts";
 import { tripProviderProcessingFeePence } from "../_shared/financialReconciliationSSOT.ts";
+import { excludeTripFromPlatformCollectedFinance } from "../../../shared/commissionWalletSSOT.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -36,6 +37,8 @@ interface CurrencyGroup {
   totals: {
     customer_revenue_pence: number;
     onecab_gross_commission_pence: number;
+    /** Separate Africa CW revenue — never mixed into PLATFORM_COMMISSION gross. */
+    commission_wallet_deduction_pence: number;
     stripe_fees_pence: number;
     onecab_net_commission_pence: number;
     driver_net_earnings_pence: number;
@@ -91,9 +94,10 @@ serve(async (req) => {
     if (payErr) throw new Error(`payments: ${payErr.message}`);
 
     // ── 2. Trips: stripe fees + commissionable fares (for tier-cap validation) ──
+    // Phase 8: exclude DRIVER_COLLECTED_COMMISSION_WALLET trips from UK commissionable gross.
     let tripsQuery = supabase
       .from('trips')
-      .select('stripe_processing_fee_pence, provider_fee_pence, commissionable_fare_pence, commission_pence, currency_code, region_id, status')
+      .select('stripe_processing_fee_pence, provider_fee_pence, commissionable_fare_pence, commission_pence, currency_code, region_id, status, financial_model, commission_wallet_enabled')
       .in('status', ['completed', 'no_show']);
     if (regionFilter) tripsQuery = tripsQuery.eq('region_id', regionFilter);
     const { data: tripRows, error: tripErr } = await tripsQuery;
@@ -161,6 +165,7 @@ serve(async (req) => {
           totals: {
             customer_revenue_pence: 0,
             onecab_gross_commission_pence: 0,
+            commission_wallet_deduction_pence: 0,
             stripe_fees_pence: 0,
             onecab_net_commission_pence: 0,
             driver_net_earnings_pence: 0,
@@ -181,6 +186,7 @@ serve(async (req) => {
       ensure(p.currency).totals.customer_revenue_pence += Number(p.captured_amount_pence || 0);
     }
     for (const t of tripRows || []) {
+      if (excludeTripFromPlatformCollectedFinance(t)) continue;
       const g = ensure(t.currency_code);
       g.totals.stripe_fees_pence += tripProviderProcessingFeePence(t);
       g.totals.commissionable_revenue_pence += Number(t.commissionable_fare_pence || 0);
@@ -199,6 +205,22 @@ serve(async (req) => {
         case 'ADJUSTMENT':
           if (amt > 0) g.totals.driver_net_earnings_pence += amt;
           break;
+      }
+    }
+
+    // Phase 7: COMMISSION_WALLET_DEDUCTION — separate revenue source (never mixed into PLATFORM_COMMISSION).
+    let cwLedgerQuery = supabase
+      .from('driver_commission_wallet_ledger')
+      .select('amount_minor, currency, entry_type, region_id')
+      .eq('entry_type', 'COMMISSION_DEDUCTION');
+    if (regionFilter) cwLedgerQuery = cwLedgerQuery.eq('region_id', regionFilter);
+    const { data: cwDeductionRows, error: cwErr } = await cwLedgerQuery;
+    if (cwErr) {
+      console.warn('[admin-finance-summary] CW deduction query failed (non-fatal):', cwErr.message);
+    } else {
+      for (const row of cwDeductionRows || []) {
+        const g = ensure(row.currency);
+        g.totals.commission_wallet_deduction_pence += Math.max(0, Number(row.amount_minor || 0));
       }
     }
     for (const s of summaryRows || []) {
@@ -238,6 +260,11 @@ serve(async (req) => {
     return json({
       max_tier_pct: maxTierPct,
       stripe_platform_balance: stripeBalance,
+      revenue_sources: {
+        PLATFORM_COMMISSION: 'driver_wallet_ledger PLATFORM_COMMISSION (UK/EU)',
+        COMMISSION_WALLET_DEDUCTION:
+          'driver_commission_wallet_ledger COMMISSION_DEDUCTION (Africa CW) — see totals.commission_wallet_deduction_pence',
+      },
       currencies: Array.from(buckets.values()).sort((a, b) =>
         a.currency_code.localeCompare(b.currency_code),
       ),

@@ -9,6 +9,12 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import {
+  convertCommissionWalletOnTripComplete,
+  ensureCommissionWalletDeductionForCompletedTrip,
+} from "../_shared/commissionWalletDeduction.ts";
+import { tripUsesCommissionWalletDeduction } from "../../../shared/commissionWalletSSOT.ts";
+import { calculateTripSettlement, tripSettlementDbColumns } from "../_shared/tripSettlement.ts";
 
 const ACTIVE_STATUSES = new Set([
   "pending",
@@ -82,8 +88,29 @@ Deno.serve(async (req) => {
 
     if (action === "force_complete") {
       if (String(trip.status).toLowerCase() === "completed") {
+        let cwDeductionRepaired = false;
+        if (trip.driver_id) {
+          const repair = await ensureCommissionWalletDeductionForCompletedTrip({
+            supabase: gate.supabase,
+            tripId,
+            driverId: String(trip.driver_id),
+          });
+          cwDeductionRepaired = repair.repaired === true;
+          if (cwDeductionRepaired) {
+            console.log("[admin-trip-action] COMMISSION_WALLET_DEDUCTION repaired on idempotent force_complete", {
+              trip_id: tripId,
+              result: repair.raw,
+            });
+          }
+        }
         const snap = await loadSnapshot(gate.supabase, tripId);
-        return json({ success: true, idempotent: true, action, ...snap });
+        return json({
+          success: true,
+          idempotent: true,
+          action,
+          cw_deduction_repaired: cwDeductionRepaired,
+          ...snap,
+        });
       }
 
       const fareMajor =
@@ -98,6 +125,17 @@ Deno.serve(async (req) => {
         typeof body.reason === "string" && body.reason.trim()
           ? body.reason.trim()
           : `Force ended by admin. Final fare: ${fareMajor}`;
+
+      const tierPct = Number(trip.driver_tier_commission_percent ?? 0);
+      const settlement = calculateTripSettlement({
+        final_fare_pence: farePence,
+        airport_charge_pence: Number(trip.airport_charge_pence ?? 0),
+        other_pass_through_charges_pence: Number(
+          trip.other_pass_through_charges_pence ?? 0,
+        ),
+        tips_pence: Number(trip.tip_amount_pence ?? trip.tip_pence ?? 0),
+        driver_tier_commission_percent: tierPct,
+      });
 
       await gate.supabase
         .from("trip_stops")
@@ -121,6 +159,9 @@ Deno.serve(async (req) => {
           completed_at: now,
           special_instructions: note,
           updated_at: now,
+          ...tripSettlementDbColumns(settlement),
+          tip_amount_pence: settlement.tips_pence,
+          tip_pence: settlement.tips_pence,
         })
         .eq("id", tripId);
       if (tripUpdateErr) {
@@ -133,10 +174,57 @@ Deno.serve(async (req) => {
           .update({ current_trip_id: null })
           .eq("id", trip.driver_id)
           .eq("current_trip_id", tripId);
+
+        // Phase 7: CW completion deduction (no driver_wallet_ledger / payout liability).
+        let usesCw = false;
+        if (trip.service_area_id) {
+          const { data: cwSa } = await gate.supabase
+            .from("service_areas")
+            .select("financial_model, commission_wallet_enabled")
+            .eq("id", trip.service_area_id)
+            .maybeSingle();
+          usesCw = tripUsesCommissionWalletDeduction({
+            tripFinancialModel: trip.financial_model,
+            tripCommissionWalletEnabled: trip.commission_wallet_enabled,
+            serviceAreaConfig: cwSa
+              ? {
+                financial_model: cwSa.financial_model,
+                commission_wallet_enabled: cwSa.commission_wallet_enabled,
+              }
+              : null,
+          });
+        }
+        if (usesCw) {
+          const cwDeduction = await convertCommissionWalletOnTripComplete({
+            supabase: gate.supabase,
+            driverId: String(trip.driver_id),
+            tripId,
+            commissionMinor: settlement.commission_pence,
+            commissionableFareMinor: settlement.commissionable_fare_pence,
+            commissionRateBps: Math.round(settlement.tier_percent_used * 100),
+          });
+          console.log("[admin-trip-action] COMMISSION_WALLET_DEDUCTION", {
+            trip_id: tripId,
+            result: cwDeduction.raw,
+          });
+          if (!cwDeduction.ok) {
+            console.error("[admin-trip-action] CW deduction failed after force_complete", cwDeduction);
+          }
+          const snap = await loadSnapshot(gate.supabase, tripId);
+          return json({
+            success: true,
+            action,
+            uses_commission_wallet: true,
+            cw_deduction_ok: cwDeduction.ok === true,
+            cw_deduction_code: cwDeduction.code ?? null,
+            financial_ok: cwDeduction.ok === true,
+            ...snap,
+          });
+        }
       }
 
       const snap = await loadSnapshot(gate.supabase, tripId);
-      return json({ success: true, action, ...snap });
+      return json({ success: true, action, financial_ok: true, ...snap });
     }
 
     if (action === "reassign") {
@@ -174,6 +262,26 @@ Deno.serve(async (req) => {
       const oldDriverId = trip.driver_id as string | null;
       const now = new Date().toISOString();
 
+      // Phase 6: soft-check CW reserve before hard trigger (UK / reserve-off returns true).
+      const { data: passesCwGate, error: cwGateErr } = await gate.supabase.rpc(
+        "driver_passes_commission_wallet_dispatch_gate",
+        { p_driver_id: newDriverId, p_trip_id: tripId },
+      );
+      if (cwGateErr) {
+        return json({
+          success: false,
+          error: cwGateErr.message,
+          code: "COMMISSION_WALLET_GATE_CHECK_FAILED",
+        }, 500);
+      }
+      if (passesCwGate === false) {
+        return json({
+          success: false,
+          error: "Driver has insufficient commission wallet balance for this trip",
+          code: "INSUFFICIENT_COMMISSION_WALLET_BALANCE",
+        }, 409);
+      }
+
       const { error: tripUpdateErr } = await gate.supabase
         .from("trips")
         .update({
@@ -185,6 +293,14 @@ Deno.serve(async (req) => {
         })
         .eq("id", tripId);
       if (tripUpdateErr) {
+        const msg = String(tripUpdateErr.message ?? "");
+        if (msg.includes("INSUFFICIENT_COMMISSION_WALLET_BALANCE")) {
+          return json({
+            success: false,
+            error: "Driver has insufficient commission wallet balance for this trip",
+            code: "INSUFFICIENT_COMMISSION_WALLET_BALANCE",
+          }, 409);
+        }
         return json({ success: false, error: tripUpdateErr.message }, 500);
       }
 

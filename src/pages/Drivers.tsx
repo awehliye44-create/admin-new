@@ -72,6 +72,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { tryGrantWelcomeCredit } from '@/lib/tryGrantWelcomeCredit';
 import { DriverDetailsDialog } from '@/components/drivers/DriverDetailsDialog';
 import { CountrySelectorField } from '@/components/CountrySelectorField';
 import { findCountryByName } from '@/lib/countryCodes';
@@ -304,6 +305,20 @@ export default function Drivers() {
       if (selectedDriver?.id === driverId) {
         setSelectedDriver(prev => prev ? { ...prev, approval_status: newStatus } : null);
       }
+
+      if (newStatus === 'approved') {
+        void tryGrantWelcomeCredit(driverId).then((attempts) => {
+          const granted = attempts.filter((a) => a.ok).length;
+          const hardFails = attempts.filter((a) => !a.ok && !a.skipped);
+          if (granted > 0) {
+            toast.message(`Welcome credit granted for ${granted} service area(s)`);
+          }
+          if (hardFails.length > 0) {
+            console.warn('[Drivers] welcome credit soft-fail', hardFails);
+            toast.message('Approval saved; welcome credit could not be applied (see console)');
+          }
+        });
+      }
     } catch (err) {
       console.error('Error updating driver status:', err);
       toast.error('Failed to update driver status');
@@ -496,6 +511,18 @@ export default function Drivers() {
       toast.success('Driver added successfully');
       setIsAddDialogOpen(false);
       resetNewDriverForm();
+
+      void tryGrantWelcomeCredit(data.id).then((attempts) => {
+        const granted = attempts.filter((a) => a.ok).length;
+        const hardFails = attempts.filter((a) => !a.ok && !a.skipped);
+        if (granted > 0) {
+          toast.message(`Welcome credit granted for ${granted} service area(s)`);
+        }
+        if (hardFails.length > 0) {
+          console.warn('[Drivers] welcome credit soft-fail on add', hardFails);
+          toast.message('Driver added; welcome credit could not be applied (see console)');
+        }
+      });
     } catch (err: any) {
       console.error('Error adding driver:', err);
       toast.error(err.message || 'Failed to add driver');
@@ -570,6 +597,11 @@ export default function Drivers() {
 
       if (error) throw error;
 
+      const previous = drivers.find((d) => d.id === editDriver.id);
+      const becameApproved =
+        editDriver.approval_status === 'approved'
+        && previous?.approval_status !== 'approved';
+
       const updatedDriver = { ...editDriver, ...addressUpdate };
       setDrivers(prev =>
         prev.map(d => d.id === editDriver.id ? { ...d, ...updatedDriver } : d)
@@ -583,6 +615,20 @@ export default function Drivers() {
       toast.success('Driver updated successfully');
       setIsEditDialogOpen(false);
       setEditDriver(null);
+
+      if (becameApproved) {
+        void tryGrantWelcomeCredit(editDriver.id).then((attempts) => {
+          const granted = attempts.filter((a) => a.ok).length;
+          const hardFails = attempts.filter((a) => !a.ok && !a.skipped);
+          if (granted > 0) {
+            toast.message(`Welcome credit granted for ${granted} service area(s)`);
+          }
+          if (hardFails.length > 0) {
+            console.warn('[Drivers] welcome credit soft-fail on edit', hardFails);
+            toast.message('Driver updated; welcome credit could not be applied (see console)');
+          }
+        });
+      }
     } catch (err: any) {
       console.error('Error updating driver:', err);
       toast.error(err.message || 'Failed to update driver');
@@ -693,6 +739,24 @@ export default function Drivers() {
 
       toast.success('Service areas updated successfully');
       setIsServiceAreasDialogOpen(false);
+
+      // Approve-before-assign: soft-grant welcome when an approved driver gains CW SAs.
+      if (
+        selectedDriver.approval_status === 'approved'
+        && toAdd.length > 0
+      ) {
+        void tryGrantWelcomeCredit(selectedDriver.id).then((attempts) => {
+          const granted = attempts.filter((a) => a.ok).length;
+          const hardFails = attempts.filter((a) => !a.ok && !a.skipped);
+          if (granted > 0) {
+            toast.message(`Welcome credit granted for ${granted} service area(s)`);
+          }
+          if (hardFails.length > 0) {
+            console.warn('[Drivers] welcome credit soft-fail on SA assign', hardFails);
+            toast.message('Service areas saved; welcome credit could not be applied (see console)');
+          }
+        });
+      }
     } catch (err: any) {
       console.error('Error saving service areas:', err);
       toast.error(err.message || 'Failed to update service areas');

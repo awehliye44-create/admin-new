@@ -121,7 +121,8 @@ serve(async (req) => {
         commission_pct,
         payment_status,
         completed_at,
-        service_area_id
+        service_area_id,
+        financial_model
       `)
       .gte("completed_at", periodFrom)
       .lte("completed_at", periodTo)

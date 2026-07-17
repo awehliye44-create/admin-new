@@ -27,6 +27,13 @@ import { getCurrencySymbol, getDistanceUnitShort, formatDistance } from '@/lib/r
 import { PlacesAutocomplete } from '@/components/places/PlacesAutocomplete';
 import { useGeoLocation } from '@/hooks/useGeoLocation';
 import { ALL_PAYMENT_METHODS, PaymentMethodType } from '@/hooks/useServiceAreaPaymentMethods';
+import {
+  buildTripFinancialModelSnapshot,
+  isCommissionWalletWorkflowEnabled,
+  shouldSkipPlatformPreauthForCommissionWallet,
+  tripCashUpfrontPaymentFields,
+  tripInsertFieldsFromFinancialModelSnapshot,
+} from '../../shared/commissionWalletSSOT';
 
 interface Driver {
   id: string;
@@ -137,6 +144,7 @@ export default function ManualTrip() {
   const [jobType, setJobType] = useState('ride');
   const [selectedCorporateAccountId, setSelectedCorporateAccountId] = useState('');
   const [isCorporateTrip, setIsCorporateTrip] = useState(false);
+  const [cwCashUpfront, setCwCashUpfront] = useState(false);
 
   // Fetch initial data
   useEffect(() => {
@@ -200,6 +208,7 @@ export default function ManualTrip() {
   useEffect(() => {
     if (!selectedServiceAreaId) {
       setPaymentConfig(null);
+      setCwCashUpfront(false);
       setCurrencyCode('');
       setDistanceUnit('mile');
       setServiceAreaCenter(null);
@@ -225,17 +234,41 @@ export default function ManualTrip() {
       setServiceAreaCountryCode(serviceArea.country || null);
     }
 
-    // Fetch payment methods for this service area
+    // Fetch payment methods + CW cash-upfront policy for this service area
     const fetchPaymentConfig = async () => {
       try {
-        const { data, error } = await supabase
-          .from('service_area_payment_methods')
-          .select('*')
-          .eq('service_area_id', selectedServiceAreaId)
-          .single();
+        const [{ data, error }, { data: cwSa }] = await Promise.all([
+          supabase
+            .from('service_area_payment_methods')
+            .select('*')
+            .eq('service_area_id', selectedServiceAreaId)
+            .single(),
+          supabase
+            .from('service_areas')
+            .select('financial_model, commission_wallet_enabled, customer_payment_policy')
+            .eq('id', selectedServiceAreaId)
+            .maybeSingle(),
+        ]);
+
+        const cashUpfront = shouldSkipPlatformPreauthForCommissionWallet({
+          financial_model: cwSa?.financial_model,
+          commission_wallet_enabled: cwSa?.commission_wallet_enabled === true,
+          customer_payment_policy: cwSa?.customer_payment_policy,
+        });
+        setCwCashUpfront(cashUpfront);
 
         if (error && error.code !== 'PGRST116') {
           throw error;
+        }
+
+        if (cashUpfront) {
+          setPaymentConfig({
+            card_enabled: false,
+            wallet_enabled: false,
+            apple_pay_enabled: false,
+            google_pay_enabled: false,
+          });
+          return;
         }
 
         if (data) {
@@ -502,7 +535,7 @@ export default function ManualTrip() {
 
 
       // 4. Create trip — trip_number assigned via DB trigger (assign_trip_number)
-      const tripData = {
+      const tripData: Record<string, unknown> = {
         passenger_id: passengerId,
         passenger_name: passengerName.trim(),
         passenger_phone: passengerPhone.trim() || null,
@@ -535,6 +568,52 @@ export default function ManualTrip() {
         corporate_account_id: isCorporateTrip && selectedCorporateAccountId ? selectedCorporateAccountId : null,
       };
 
+      // Phase 8: snapshot CW financial model so overview/deduction use trip flags.
+      if (resolvedServiceAreaId) {
+        const { data: cwSa } = await supabase
+          .from('service_areas')
+          .select(
+            'financial_model, commission_wallet_enabled, customer_payment_policy, commission_wallet_currency, region_id',
+          )
+          .eq('id', resolvedServiceAreaId)
+          .maybeSingle();
+        const cwConfig = cwSa
+          ? {
+              financial_model: cwSa.financial_model,
+              commission_wallet_enabled: cwSa.commission_wallet_enabled === true,
+              customer_payment_policy: cwSa.customer_payment_policy,
+              commission_wallet_currency: cwSa.commission_wallet_currency,
+            }
+          : null;
+        if (isCommissionWalletWorkflowEnabled(cwConfig)) {
+          let commissionRateBps = 0;
+          if (selectedVehicleTypeId) {
+            const { data: pricingRow } = await supabase
+              .from('service_area_vehicle_pricing')
+              .select('commission_percentage')
+              .eq('service_area_id', resolvedServiceAreaId)
+              .eq('vehicle_type_id', selectedVehicleTypeId)
+              .maybeSingle();
+            const pct = Number(pricingRow?.commission_percentage);
+            if (Number.isFinite(pct) && pct > 0) {
+              commissionRateBps = Math.max(0, Math.round(pct * 100));
+            }
+          }
+          const snap = buildTripFinancialModelSnapshot({
+            serviceAreaId: resolvedServiceAreaId,
+            regionId: cwSa?.region_id ?? null,
+            currency: String(cwSa?.commission_wallet_currency || currencyCode || 'USD').toUpperCase(),
+            commissionRateBps,
+            config: cwConfig!,
+          });
+          if (snap) Object.assign(tripData, tripInsertFieldsFromFinancialModelSnapshot(snap));
+          // Banadir: force cash-upfront payment semantics (digital UI methods are unreachable for CW).
+          if (shouldSkipPlatformPreauthForCommissionWallet(cwConfig)) {
+            Object.assign(tripData, tripCashUpfrontPaymentFields());
+          }
+        }
+      }
+
       const { error } = await supabase
         .from('trips')
         .insert([tripData]);
@@ -545,7 +624,13 @@ export default function ManualTrip() {
       toast.success('Trip created successfully!');
     } catch (err: any) {
       console.error('Error creating trip:', err);
-      toast.error(err.message || 'Failed to create trip');
+      const msg = String(err?.message ?? '');
+      // Phase 6: INSERT with driver_id triggers commission reserve; surface a clear ops message.
+      if (msg.includes('INSUFFICIENT_COMMISSION_WALLET_BALANCE')) {
+        toast.error('Selected driver has insufficient commission wallet balance for this trip');
+      } else {
+        toast.error(err.message || 'Failed to create trip');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -880,24 +965,32 @@ export default function ManualTrip() {
                 {/* Payment Method */}
                 <div>
                   <Label>Payment Method</Label>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
-                    {enabledPaymentMethods.map(method => (
-                      <Button
-                        key={method.id}
-                        type="button"
-                        variant={paymentMethod === method.id ? 'default' : 'outline'}
-                        className="justify-start gap-2"
-                        onClick={() => setPaymentMethod(method.id)}
-                      >
-                        {PAYMENT_ICONS[method.id]}
-                        {method.name}
-                      </Button>
-                    ))}
-                  </div>
-                  {enabledPaymentMethods.length === 0 && (
-                    <p className="text-sm text-muted-foreground mt-2">
-                      No payment methods configured for this service area
+                  {cwCashUpfront ? (
+                    <p className="text-sm text-muted-foreground mt-2 rounded-md border border-dashed p-3">
+                      Pay driver upfront (cash). Card/Stripe/Revolut are not used for Commission Wallet service areas.
                     </p>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+                        {enabledPaymentMethods.map(method => (
+                          <Button
+                            key={method.id}
+                            type="button"
+                            variant={paymentMethod === method.id ? 'default' : 'outline'}
+                            className="justify-start gap-2"
+                            onClick={() => setPaymentMethod(method.id)}
+                          >
+                            {PAYMENT_ICONS[method.id]}
+                            {method.name}
+                          </Button>
+                        ))}
+                      </div>
+                      {enabledPaymentMethods.length === 0 && (
+                        <p className="text-sm text-muted-foreground mt-2">
+                          No payment methods configured for this service area
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               </CardContent>
@@ -1088,8 +1181,14 @@ export default function ManualTrip() {
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Payment:</span>
                     <Badge variant="outline" className="flex items-center gap-1">
-                      {PAYMENT_ICONS[paymentMethod]}
-                      {ALL_PAYMENT_METHODS.find(m => m.id === paymentMethod)?.name || paymentMethod}
+                      {cwCashUpfront ? (
+                        <>Pay driver upfront (cash)</>
+                      ) : (
+                        <>
+                          {PAYMENT_ICONS[paymentMethod]}
+                          {ALL_PAYMENT_METHODS.find(m => m.id === paymentMethod)?.name || paymentMethod}
+                        </>
+                      )}
                     </Badge>
                   </div>
                 </CardContent>

@@ -89,6 +89,7 @@ const TRIP_AUDIT_SELECT = `
         created_at,
         service_area_id,
         region_id,
+        financial_model,
         driver:drivers!trips_driver_id_fkey(first_name, last_name)
       `;
 

@@ -18,6 +18,7 @@ import {
   type SSOTComputedMetrics,
   SSOT_VERSION,
 } from "./financialReconciliationSSOT.ts";
+import { excludeTripFromPlatformCollectedFinance } from "../../../shared/commissionWalletSSOT.ts";
 import {
   classifyPayoutReconciliation,
   classifyProviderVerificationStatus,
@@ -80,6 +81,8 @@ export type TripFinanceRow = {
   driver_tier_commission_percent: number | null;
   commission_pct: number | null;
   completed_at: string | null;
+  /** Phase 7: DRIVER_COLLECTED_COMMISSION_WALLET trips excluded from UK gross. */
+  financial_model?: string | null;
 };
 
 export type PayoutFailureRow = {
@@ -102,6 +105,9 @@ export function commissionableRevenuePence(row: TripFinanceRow): number {
 }
 
 export function customerRevenuePence(row: TripFinanceRow): number {
+  // Phase 7: CW trips — customer paid driver; ONECAB customer collection = 0.
+  if (excludeTripFromPlatformCollectedFinance(row)) return 0;
+
   const tip = Math.max(0, row.tip_pence ?? row.tip_amount_pence ?? 0);
   const method = String(row.payment_method ?? "").toLowerCase();
   const isCash = method === "cash" || method.includes("cash");
@@ -114,6 +120,8 @@ export function customerRevenuePence(row: TripFinanceRow): number {
 }
 
 export function tripGrossCommissionPence(row: TripFinanceRow): number {
+  // Phase 7: CW commission lives on COMMISSION_WALLET_DEDUCTION, not trips.commission_pence UK gross.
+  if (excludeTripFromPlatformCollectedFinance(row)) return 0;
   return Math.max(0, row.commission_pence ?? 0);
 }
 
@@ -1255,6 +1263,7 @@ export function sumCommissionableFromTrips(
 ): number {
   let total = 0;
   for (const row of rows) {
+    if (excludeTripFromPlatformCollectedFinance(row)) continue;
     const method = String(row.payment_method ?? "").toLowerCase();
     const isCash = method === "cash" || method.includes("cash");
     const captured = confirmedCapturePence(paymentByTrip?.get(row.id));

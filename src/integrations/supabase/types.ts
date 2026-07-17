@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       account_email_change_requests: {
@@ -1412,6 +1437,47 @@ export type Database = {
           },
         ]
       }
+      commission_wallet_rollout: {
+        Row: {
+          created_at: string
+          id: boolean
+          multi_sa_unlocked: boolean
+          pilot_service_area_id: string
+          reconciliation_passed_at: string | null
+          unlocked_at: string | null
+          unlocked_note: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: boolean
+          multi_sa_unlocked?: boolean
+          pilot_service_area_id: string
+          reconciliation_passed_at?: string | null
+          unlocked_at?: string | null
+          unlocked_note?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: boolean
+          multi_sa_unlocked?: boolean
+          pilot_service_area_id?: string
+          reconciliation_passed_at?: string | null
+          unlocked_at?: string | null
+          unlocked_note?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commission_wallet_rollout_pilot_service_area_id_fkey"
+            columns: ["pilot_service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commission_wallet_campaigns: {
         Row: {
           active: boolean
@@ -1476,6 +1542,77 @@ export type Database = {
             columns: ["service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commission_wallet_campaign_claims: {
+        Row: {
+          amount_minor: number
+          campaign_id: string
+          claim_kind: string
+          created_at: string
+          driver_id: string
+          id: string
+          idempotency_key: string
+          ledger_entry_id: string | null
+          metadata: Json
+          service_area_id: string
+          topup_id: string | null
+        }
+        Insert: {
+          amount_minor: number
+          campaign_id: string
+          claim_kind: string
+          created_at?: string
+          driver_id: string
+          id?: string
+          idempotency_key: string
+          ledger_entry_id?: string | null
+          metadata?: Json
+          service_area_id: string
+          topup_id?: string | null
+        }
+        Update: {
+          amount_minor?: number
+          campaign_id?: string
+          claim_kind?: string
+          created_at?: string
+          driver_id?: string
+          id?: string
+          idempotency_key?: string
+          ledger_entry_id?: string | null
+          metadata?: Json
+          service_area_id?: string
+          topup_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "commission_wallet_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_wallet_campaign_claims_topup_id_fkey"
+            columns: ["topup_id"]
+            isOneToOne: false
+            referencedRelation: "driver_commission_wallet_topups"
             referencedColumns: ["id"]
           },
         ]
@@ -5057,6 +5194,7 @@ export type Database = {
           direction: string
           driver_id: string
           entry_type: Database["public"]["Enums"]["commission_wallet_entry_type"]
+          credit_type: string | null
           id: string
           idempotency_key: string
           metadata: Json
@@ -5079,6 +5217,7 @@ export type Database = {
           direction: string
           driver_id: string
           entry_type: Database["public"]["Enums"]["commission_wallet_entry_type"]
+          credit_type?: string | null
           id?: string
           idempotency_key: string
           metadata?: Json
@@ -5101,6 +5240,7 @@ export type Database = {
           direction?: string
           driver_id?: string
           entry_type?: Database["public"]["Enums"]["commission_wallet_entry_type"]
+          credit_type?: string | null
           id?: string
           idempotency_key?: string
           metadata?: Json
@@ -24076,6 +24216,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user", "driver", "customer"],

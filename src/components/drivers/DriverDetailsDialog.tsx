@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { tryGrantWelcomeCredit } from '@/lib/tryGrantWelcomeCredit';
 import { Progress } from '@/components/ui/progress';
 import { 
   Car, Star, Phone, Mail, MapPin, CheckCircle, XCircle, 
@@ -383,6 +384,17 @@ export function DriverDetailsDialog({
             description: 'Identity and vehicle details approved. Documents are still pending review — the driver cannot go online until all required documents are approved on the Driver Documents page.',
           });
         }
+        void tryGrantWelcomeCredit(driver.id).then((attempts) => {
+          const granted = attempts.filter((a) => a.ok).length;
+          const hardFails = attempts.filter((a) => !a.ok && !a.skipped);
+          if (granted > 0) {
+            toast.message(`Welcome credit granted for ${granted} service area(s)`);
+          }
+          if (hardFails.length > 0) {
+            console.warn('[DriverDetailsDialog] welcome credit soft-fail', hardFails);
+            toast.message('Approval saved; welcome credit could not be applied (see console)');
+          }
+        });
       } else if (newStatus === 'rejected') {
         toast.success('Driver rejected', {
           description: 'Profile marked as rejected. The driver cannot go online.',

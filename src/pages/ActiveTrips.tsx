@@ -480,6 +480,9 @@ export default function ActiveTrips() {
       });
       if (error) throw error;
       if (data?.success !== true) {
+        if (data?.code === 'INSUFFICIENT_COMMISSION_WALLET_BALANCE') {
+          throw new Error('Selected driver has insufficient commission wallet balance for this trip');
+        }
         throw new Error(data?.error || 'Failed to reassign trip');
       }
 

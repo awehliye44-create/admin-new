@@ -43,6 +43,7 @@ import {
 } from '@/lib/serviceAreaCommunicationModel';
 import {
   COMMUNICATION_LOG_EVENTS,
+  isPlaceholderOutboundCallerId,
   normalizeOutboundCallerIdE164,
   suggestOutboundCallerId,
 } from '@/lib/communicationSsot';
@@ -337,6 +338,17 @@ export function ServiceAreaCommunicationConfig({
       console.info(COMMUNICATION_LOG_EVENTS.OUTBOUND_CALLER_ID_INVALID, {
         service_area_id: serviceAreaId,
         raw: outboundCallerId,
+      });
+      return;
+    }
+    if (settings.call_masking_enabled && isPlaceholderOutboundCallerId(normalizedOutbound)) {
+      toast.error(
+        'Replace the placeholder outbound caller ID with a real MSG91 E.164 (example: +441908831211).',
+      );
+      console.info(COMMUNICATION_LOG_EVENTS.OUTBOUND_CALLER_ID_INVALID, {
+        service_area_id: serviceAreaId,
+        raw: outboundCallerId,
+        reason: 'placeholder',
       });
       return;
     }

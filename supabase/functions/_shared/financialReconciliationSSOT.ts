@@ -11,6 +11,7 @@
  */
 
 import { computeLedgerWalletBalancePence } from "./onecabFinanceLedger.ts";
+import { excludeTripFromPlatformCollectedFinance } from "../../../shared/commissionWalletSSOT.ts";
 
 export const SSOT_VERSION = "financial_reconciliation_ssot_v5";
 
@@ -281,6 +282,8 @@ export type TripSSOTRow = {
   airport_charge_pence?: number | null;
   other_pass_through_charges_pence?: number | null;
   payment_method?: string | null;
+  /** Phase 7: DRIVER_COLLECTED_COMMISSION_WALLET excluded from UK FR gross. */
+  financial_model?: string | null;
 };
 
 export function isTripPaymentCaptureConfirmed(
@@ -475,6 +478,8 @@ export function sumOnecabGrossCommissionPence(
 ): number {
   const byTrip = paymentByTrip ?? new Map<string, number>();
   return trips.reduce((s, t) => {
+    // Phase 7: CW revenue is COMMISSION_WALLET_DEDUCTION — never UK FR gross.
+    if (excludeTripFromPlatformCollectedFinance(t)) return s;
     if (!isTripPaymentCaptureConfirmed(t, byTrip)) return s;
     const tripId = t.id ?? "";
     const refund = refundByTrip?.get(tripId)
@@ -524,6 +529,7 @@ export function sumDriverNetEarningsPence(
 ): number {
   const byTrip = paymentByTrip ?? new Map<string, number>();
   return trips.reduce((s, t) => {
+    if (excludeTripFromPlatformCollectedFinance(t)) return s;
     if (!isTripPaymentCaptureConfirmed(t, byTrip)) {
       return s;
     }
@@ -838,6 +844,7 @@ export function computePaymentMethodLedgerMetrics(args: {
   let onecabCardCommission = 0;
   let cardStripeFees = 0;
   for (const trip of reconciledTrips) {
+    if (excludeTripFromPlatformCollectedFinance(trip)) continue;
     const commission = Math.max(0, trip.commission_pence ?? 0);
 
     const tripId = trip.id ?? "";
@@ -867,6 +874,7 @@ export function computePaymentMethodLedgerMetrics(args: {
   let pendingCommission = 0;
   let pendingDriverNet = 0;
   for (const trip of pendingTrips) {
+    if (excludeTripFromPlatformCollectedFinance(trip)) continue;
     pendingRevenue += sumPendingStripeConfirmationRevenuePence({ pendingTrips: [trip] });
     pendingCommission += Math.max(0, trip.commission_pence ?? 0);
     pendingDriverNet += Math.max(0, trip.driver_net_pence ?? 0);

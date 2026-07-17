@@ -25,6 +25,10 @@ export function isPlaceholderOutboundCallerId(value: string | null | undefined):
   return normalized === '+441908000000' || normalized === '+441234567890';
 }
 
+/** Surfaced when no real MSG91 outbound E.164 is configured. */
+export const OUTBOUND_CALLER_ID_NOT_CONFIGURED_MESSAGE =
+  'Outbound caller ID is not configured for this service area. Set a real MSG91 E.164 in Admin → Communication (placeholders like +441908000000 are rejected).';
+
 export function suggestOutboundCallerId(
   ...candidates: Array<string | null | undefined>
 ): string {

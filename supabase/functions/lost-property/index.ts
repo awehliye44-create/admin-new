@@ -11,6 +11,64 @@ import {
   insertSystemMessage,
   verifyChatOpen,
 } from "../_shared/lostPropertyHelpers.ts";
+import {
+  buildTripFinancialModelSnapshot,
+  isCommissionWalletWorkflowEnabled,
+  shouldSkipPlatformPreauthForCommissionWallet,
+  tripCashUpfrontPaymentFields,
+  tripInsertFieldsFromFinancialModelSnapshot,
+} from "../../../shared/commissionWalletSSOT.ts";
+
+async function tripCwSnapshotFields(
+  sb: ReturnType<typeof getServiceClient>,
+  serviceAreaId: string | null | undefined,
+  vehicleTypeId?: string | null,
+): Promise<Record<string, unknown>> {
+  if (!serviceAreaId) return {};
+  const { data: cwSa } = await sb
+    .from("service_areas")
+    .select(
+      "financial_model, commission_wallet_enabled, customer_payment_policy, commission_wallet_currency, region_id",
+    )
+    .eq("id", serviceAreaId)
+    .maybeSingle();
+  const cwConfig = cwSa
+    ? {
+      financial_model: cwSa.financial_model,
+      commission_wallet_enabled: cwSa.commission_wallet_enabled === true,
+      customer_payment_policy: cwSa.customer_payment_policy,
+      commission_wallet_currency: cwSa.commission_wallet_currency,
+    }
+    : null;
+  if (!isCommissionWalletWorkflowEnabled(cwConfig)) return {};
+  let commissionRateBps = 0;
+  if (vehicleTypeId) {
+    const { data: pricingRow } = await sb
+      .from("service_area_vehicle_pricing")
+      .select("commission_percentage")
+      .eq("service_area_id", serviceAreaId)
+      .eq("vehicle_type_id", vehicleTypeId)
+      .maybeSingle();
+    const pct = Number(pricingRow?.commission_percentage);
+    if (Number.isFinite(pct) && pct > 0) {
+      commissionRateBps = Math.max(0, Math.round(pct * 100));
+    }
+  }
+  const snap = buildTripFinancialModelSnapshot({
+    serviceAreaId,
+    regionId: cwSa?.region_id ?? null,
+    currency: String(cwSa?.commission_wallet_currency || "USD").toUpperCase(),
+    commissionRateBps,
+    config: cwConfig!,
+  });
+  const fields: Record<string, unknown> = snap
+    ? tripInsertFieldsFromFinancialModelSnapshot(snap)
+    : {};
+  if (shouldSkipPlatformPreauthForCommissionWallet(cwConfig)) {
+    Object.assign(fields, tripCashUpfrontPaymentFields());
+  }
+  return fields;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: LP_CORS });
@@ -380,6 +438,16 @@ async function createReturnBooking(req: Request) {
   if (lpc.status !== "RETURN_RIDE_REQUESTED") return errorResp("Case is not in return ride requested state");
 
   // Create a special trip for the return
+  let vehicleTypeId: string | null = null;
+  if (lpc.trip_id) {
+    const { data: orig } = await sb
+      .from("trips")
+      .select("vehicle_type_id")
+      .eq("id", lpc.trip_id)
+      .maybeSingle();
+    vehicleTypeId = orig?.vehicle_type_id ?? null;
+  }
+  const cwFields = await tripCwSnapshotFields(sb, lpc.service_area_id, vehicleTypeId);
   const { data: returnTrip, error: tripError } = await sb
     .from("trips")
     .insert({
@@ -399,6 +467,7 @@ async function createReturnBooking(req: Request) {
         target_driver_id: lpc.driver_id,
         dispatch_scope: "DIRECT_DRIVER_ONLY",
       },
+      ...cwFields,
     })
     .select()
     .single();
@@ -437,10 +506,36 @@ async function driverAcceptReturn(req: Request) {
   if (lpc.status !== "RETURN_RIDE_REQUESTED") return errorResp("No return ride to accept");
 
   if (lpc.return_trip_id) {
-    await sb
+    // Phase 6: soft-check CW reserve before hard trigger; never mark case booked if assign fails.
+    const { data: passesCwGate, error: cwGateErr } = await sb.rpc(
+      "driver_passes_commission_wallet_dispatch_gate",
+      { p_driver_id: driverId, p_trip_id: lpc.return_trip_id },
+    );
+    if (cwGateErr) {
+      return errorResp(`Commission wallet check failed: ${cwGateErr.message}`, 500);
+    }
+    if (passesCwGate === false) {
+      return errorResp(
+        "Insufficient commission wallet balance to accept this return ride",
+        409,
+      );
+    }
+
+    const { error: tripAssignErr } = await sb
       .from("trips")
       .update({ status: "accepted", driver_id: driverId, confirmed_driver_id: driverId })
       .eq("id", lpc.return_trip_id);
+
+    if (tripAssignErr) {
+      const msg = String(tripAssignErr.message ?? "");
+      if (msg.includes("INSUFFICIENT_COMMISSION_WALLET_BALANCE")) {
+        return errorResp(
+          "Insufficient commission wallet balance to accept this return ride",
+          409,
+        );
+      }
+      return errorResp(tripAssignErr.message || "Failed to assign return trip", 500);
+    }
   }
 
   await sb
