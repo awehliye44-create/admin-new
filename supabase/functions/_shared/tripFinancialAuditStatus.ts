@@ -431,6 +431,7 @@ export function deriveTripCaptureStatusLabel(
   const capture = stripeCaptureStatus(input);
   if (capture === "captured") return "Captured";
   const ps = stripePaymentIntentStatus(input);
+  if (includesAny(ps, ["recovery_required"])) return "Recovery required";
   if (includesAny(ps, ["failed", "canceled", "cancelled"])) return "Capture failed";
   if (includesAny(ps, ["pending_capture", "requires_capture", "authorized", "processing"])) {
     return "Pending capture";
