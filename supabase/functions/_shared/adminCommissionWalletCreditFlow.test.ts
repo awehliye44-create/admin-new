@@ -50,7 +50,7 @@ Deno.test("driver assignment required", () => {
   });
   assertEquals(gate.ok, false);
   if (!gate.ok) {
-    assertEquals(gate.code, "DRIVER_NOT_IN_SERVICE_AREA");
+    assertEquals(gate.code, "DRIVER_NOT_ASSIGNED_TO_SERVICE_AREA");
   }
 });
 

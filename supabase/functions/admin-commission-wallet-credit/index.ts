@@ -13,7 +13,7 @@ import {
   isCommissionWalletWorkflowEnabled,
   planAdminCommissionWalletCredit,
   planWelcomeCreditAutoGrant,
-  validateDriverCommissionWalletServiceAreaAssignment,
+  validateAdminCommissionWalletCreditContext,
   validateAdminCommissionCreditReason,
   normalizeAdminCommissionCreditType,
   isWelcomeCommissionWalletLedgerEntry,
@@ -115,6 +115,32 @@ serve(async (req) => {
       return json({ success: false, error: "Service area not found" }, 404);
     }
 
+    const expectedCurrency = String(
+      sa.commission_wallet_currency || sa.currency_code || "",
+    ).toUpperCase();
+
+    const { data: driver, error: driverErr } = await gate.supabase
+      .from("drivers")
+      .select("id, service_area_id, region_id, approval_status, driver_status, deleted_at")
+      .eq("id", driverId)
+      .maybeSingle();
+    if (driverErr) {
+      return json({ success: false, error: driverErr.message }, 500);
+    }
+
+    const contextGate = validateAdminCommissionWalletCreditContext({
+      driverFound: Boolean(driver?.id) && !driver?.deleted_at,
+      driverServiceAreaId: driver?.service_area_id,
+      selectedServiceAreaId: serviceAreaId,
+      financialModel: sa.financial_model,
+      commissionWalletEnabled: sa.commission_wallet_enabled,
+      expectedCurrency,
+      requestedCurrency: currency,
+    });
+    if (!contextGate.ok) {
+      return json({ success: false, error: contextGate.error, code: contextGate.code }, 400);
+    }
+
     const walletEnabled = isCommissionWalletWorkflowEnabled({
       financial_model: sa.financial_model,
       commission_wallet_enabled: sa.commission_wallet_enabled,
@@ -128,7 +154,10 @@ serve(async (req) => {
     });
 
     if (!plan.ok) {
-      return json({ success: false, error: plan.error, code: plan.code }, 400);
+      const code = plan.code === "WALLET_DISABLED"
+        ? "COMMISSION_WALLET_DISABLED"
+        : plan.code;
+      return json({ success: false, error: plan.error, code }, 400);
     }
 
     const idempotencyKey = String(
@@ -144,49 +173,6 @@ serve(async (req) => {
             direction: plan.direction,
           })),
     );
-
-    const expectedCurrency = String(
-      sa.commission_wallet_currency || sa.currency_code || "",
-    ).toUpperCase();
-    if (!expectedCurrency) {
-      return json({
-        success: false,
-        error: "Service area has no commission wallet currency configured",
-        code: "CURRENCY_REQUIRED",
-      }, 400);
-    }
-    if (currency !== expectedCurrency) {
-      return json({
-        success: false,
-        error: `currency must match service area (${expectedCurrency})`,
-        code: "CURRENCY_MISMATCH",
-      }, 400);
-    }
-
-    const { data: driver, error: driverErr } = await gate.supabase
-      .from("drivers")
-      .select("id")
-      .eq("id", driverId)
-      .maybeSingle();
-    if (driverErr || !driver) {
-      return json({ success: false, error: "Driver not found" }, 404);
-    }
-
-    const { data: driverSa, error: driverSaErr } = await gate.supabase
-      .from("driver_service_areas")
-      .select("id")
-      .eq("driver_id", driverId)
-      .eq("service_area_id", serviceAreaId)
-      .maybeSingle();
-    if (driverSaErr) {
-      return json({ success: false, error: driverSaErr.message }, 500);
-    }
-    const assignmentGate = validateDriverCommissionWalletServiceAreaAssignment({
-      driverAssignedToServiceArea: Boolean(driverSa?.id),
-    });
-    if (!assignmentGate.ok) {
-      return json({ success: false, error: assignmentGate.error, code: assignmentGate.code }, 400);
-    }
 
     let resolvedCampaignId = campaignId;
     let campaignRow: {
@@ -423,7 +409,7 @@ serve(async (req) => {
       );
       const welcomeGate = planWelcomeCreditAutoGrant({
         walletEnabled,
-        driverAssignedToServiceArea: Boolean(driverSa?.id),
+        driverAssignedToServiceArea: true,
         welcomeCreditEnabled: Boolean(sa.welcome_credit_enabled),
         welcomeCreditAmountMinor: sa.welcome_credit_amount_minor,
         welcomeCreditMaxDrivers: sa.welcome_credit_max_drivers,

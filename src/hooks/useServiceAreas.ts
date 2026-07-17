@@ -26,7 +26,14 @@ export interface ServiceArea {
   region?: {
     currency_code: string;
     distance_unit: string;
+    name?: string;
   } | null;
+  financial_model?: string | null;
+  commission_wallet_enabled?: boolean | null;
+  commission_wallet_currency?: string | null;
+  welcome_credit_enabled?: boolean | null;
+  welcome_credit_amount_minor?: number | null;
+  welcome_credit_max_drivers?: number | null;
 }
 
 /**
@@ -43,7 +50,9 @@ export function useServiceAreas(options?: { activeOnly?: boolean }) {
     queryFn: async () => {
       let query = supabase
         .from("service_areas")
-        .select("*, region:regions(currency_code, distance_unit)")
+        .select(
+          "*, financial_model, commission_wallet_enabled, commission_wallet_currency, welcome_credit_enabled, welcome_credit_amount_minor, welcome_credit_max_drivers, region:regions(currency_code, distance_unit, name)",
+        )
         .order("name", { ascending: true });
 
       if (activeOnly) {

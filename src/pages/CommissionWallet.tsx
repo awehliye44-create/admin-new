@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
-  ServiceAreaFinanceFilter,
   type ServiceAreaFinanceSelection,
 } from '@/components/finance/ServiceAreaFinanceFilter';
+import { CommissionWalletCreditDriverPicker } from '@/components/finance/CommissionWalletCreditDriverPicker';
+import { useRegions } from '@/hooks/useRegions';
+import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,6 +41,7 @@ import {
   ADMIN_COMMISSION_CREDIT_REASON_MIN_LENGTH,
   adminCommissionCreditTypeLabel,
   validateAdminCommissionCreditReason,
+  isCommissionWalletWorkflowEnabled,
   COMMISSION_WALLET_FORBIDDEN_ACTIONS,
   COMMISSION_WALLET_DRIVER_PAGE_DISCLAIMER,
   COMMISSION_WALLET_CAMPAIGN_TYPE,
@@ -53,6 +57,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import type { CommissionWalletCreditDriver } from '@/hooks/useCommissionWalletCreditDrivers';
+import { commissionWalletCreditDriverLabel } from '@/hooks/useCommissionWalletCreditDrivers';
 
 type OverviewResponse = {
   success?: boolean;
@@ -80,11 +86,13 @@ function formatMinor(n: unknown, currency = 'USD'): string {
 
 export default function CommissionWallet() {
   const queryClient = useQueryClient();
+  const { data: regions = [] } = useRegions();
+  const { data: allServiceAreas = [] } = useServiceAreas({ activeOnly: true });
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(
     DEFAULT_SERVICE_AREA_SELECTION,
   );
   const [driverId, setDriverId] = useState('');
-  const [driverDisplayName, setDriverDisplayName] = useState<string | null>(null);
+  const [selectedDriver, setSelectedDriver] = useState<CommissionWalletCreditDriver | null>(null);
   const [creditKind, setCreditKind] = useState<string>(ADMIN_COMMISSION_CREDIT_KIND.OTHER);
   const [amountMajor, setAmountMajor] = useState('10');
   const [reason, setReason] = useState('');
@@ -100,6 +108,11 @@ export default function CommissionWallet() {
 
   const serviceAreaId = serviceFilter.serviceAreaId || null;
   const regionId = serviceFilter.regionId || null;
+
+  const regionServiceAreas = useMemo(() => {
+    if (!regionId) return [];
+    return allServiceAreas.filter((sa) => String(sa.region_id) === String(regionId));
+  }, [allServiceAreas, regionId]);
 
   const overviewQuery = useQuery({
     queryKey: ['admin-commission-wallet-overview', regionId, serviceAreaId, driverId || null],
@@ -117,22 +130,59 @@ export default function CommissionWallet() {
       if (!payload?.success) throw new Error(payload?.error ?? 'Overview failed');
       return payload;
     },
+    enabled: Boolean(regionId || serviceAreaId),
   });
 
   const selectedSa = useMemo(() => {
     if (!serviceAreaId) return null;
-    const areas = overviewQuery.data?.service_areas ?? [];
-    return areas.find((a) => String(a.id) === serviceAreaId) ?? null;
-  }, [overviewQuery.data?.service_areas, serviceAreaId]);
+    const fromOverview = (overviewQuery.data?.service_areas ?? []).find(
+      (a) => String(a.id) === serviceAreaId,
+    );
+    if (fromOverview) return fromOverview;
+    const fromList = allServiceAreas.find((a) => String(a.id) === serviceAreaId);
+    if (!fromList) return null;
+    const workflow_enabled = isCommissionWalletWorkflowEnabled({
+      financial_model: fromList.financial_model,
+      commission_wallet_enabled: fromList.commission_wallet_enabled,
+    });
+    return {
+      ...fromList,
+      workflow_enabled,
+      commission_wallet_currency: fromList.commission_wallet_currency,
+      welcome_credit_enabled: fromList.welcome_credit_enabled,
+      welcome_credit_amount_minor: fromList.welcome_credit_amount_minor,
+      welcome_credit_max_drivers: fromList.welcome_credit_max_drivers,
+    };
+  }, [overviewQuery.data?.service_areas, serviceAreaId, allServiceAreas]);
+
+  const selectedRegionName = useMemo(() => {
+    if (!regionId) return null;
+    return regions.find((r) => r.id === regionId)?.name ?? null;
+  }, [regions, regionId]);
 
   const currency = serviceAreaId
     ? String(
       selectedSa?.commission_wallet_currency
         || selectedSa?.currency_code
+        || (selectedSa as { region?: { currency_code?: string } } | null)?.region?.currency_code
         || serviceFilter.currencyCode
+        || regions.find((r) => r.id === regionId)?.currency_code
         || 'USD',
     ).toUpperCase()
     : '—';
+
+  const balancesByDriverId = useMemo(() => {
+    const map: Record<string, { usable_minor: number; currency: string }> = {};
+    for (const row of overviewQuery.data?.driver_balances ?? []) {
+      const id = String(row.driver_id ?? '');
+      if (!id) continue;
+      map[id] = {
+        usable_minor: Number(row.usable_commission_balance_minor) || 0,
+        currency: String(row.currency || currency),
+      };
+    }
+    return map;
+  }, [overviewQuery.data?.driver_balances, currency]);
 
   const welcomeConfiguredMinor = Number(selectedSa?.welcome_credit_amount_minor || 0);
   const welcomeEnabled = Boolean(selectedSa?.welcome_credit_enabled);
@@ -146,32 +196,6 @@ export default function CommissionWallet() {
       setAmountMajor(String(welcomeConfiguredMinor / 100));
     }
   }, [creditKind, welcomeConfiguredMinor, serviceAreaId]);
-
-  useEffect(() => {
-    const id = driverId.trim();
-    if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
-      setDriverDisplayName(null);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      const { data } = await supabase
-        .from('drivers')
-        .select('first_name, last_name')
-        .eq('id', id)
-        .maybeSingle();
-      if (cancelled) return;
-      if (data) {
-        const name = `${String(data.first_name ?? '').trim()} ${String(data.last_name ?? '').trim()}`.trim();
-        setDriverDisplayName(name || null);
-      } else {
-        setDriverDisplayName(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [driverId]);
 
   useEffect(() => {
     const id = driverId.trim();
@@ -199,6 +223,32 @@ export default function CommissionWallet() {
       cancelled = true;
     };
   }, [driverId, testAccessReloadNonce]);
+
+  const setCreditRegion = (nextRegionId: string) => {
+    const region = regions.find((r) => r.id === nextRegionId);
+    setServiceFilter({
+      serviceAreaId: null,
+      regionId: nextRegionId,
+      currencyCode: region?.currency_code ?? null,
+    });
+    setDriverId('');
+    setSelectedDriver(null);
+    setCampaignId('');
+  };
+
+  const setCreditServiceArea = (nextSaId: string) => {
+    const sa = allServiceAreas.find((a) => a.id === nextSaId);
+    if (!sa) return;
+    const cc = sa.region?.currency_code || sa.currency_code || null;
+    setServiceFilter({
+      serviceAreaId: sa.id,
+      regionId: sa.region_id,
+      currencyCode: cc,
+    });
+    setDriverId('');
+    setSelectedDriver(null);
+    setCampaignId('');
+  };
 
   const setDriverTestAccess = async (enabled: boolean) => {
     const id = driverId.trim();
@@ -245,11 +295,13 @@ export default function CommissionWallet() {
   const creditAmountValid = Number.isFinite(creditAmountMinor) && creditAmountMinor > 0;
   const creditReasonValid = validateAdminCommissionCreditReason(reason).ok;
   const creditFormReady = Boolean(
-    serviceAreaId
+    regionId
+    && serviceAreaId
     && selectedSa?.workflow_enabled
     && driverId.trim()
     && creditReasonValid
     && creditAmountValid
+    && currency !== '—'
     && !(creditKind === ADMIN_COMMISSION_CREDIT_KIND.WELCOME_CREDIT && !welcomeEnabled)
     && !(creditKind === ADMIN_COMMISSION_CREDIT_KIND.PROMOTIONAL_CREDIT && !campaignId.trim()),
   );
@@ -298,6 +350,7 @@ export default function CommissionWallet() {
       setInternalReference('');
       void queryClient.invalidateQueries({ queryKey: ['admin-commission-wallet-overview'] });
       void queryClient.invalidateQueries({ queryKey: ['admin-commission-wallet-campaigns'] });
+      void queryClient.invalidateQueries({ queryKey: ['cw-credit-drivers'] });
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -308,7 +361,7 @@ export default function CommissionWallet() {
       return;
     }
     if (!driverId.trim()) {
-      toast.error('Driver ID required');
+      toast.error('Select a driver assigned to this Service Area');
       return;
     }
     const reasonGate = validateAdminCommissionCreditReason(reason);
@@ -378,18 +431,13 @@ export default function CommissionWallet() {
         )}
 
         <div className="flex flex-wrap gap-4 items-end">
-          <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
-          <div className="space-y-1 min-w-[260px]">
-            <Label>Driver ID filter</Label>
-            <Input
-              value={driverId}
-              onChange={(e) => setDriverId(e.target.value)}
-              placeholder="uuid"
-            />
-          </div>
           <Button variant="outline" onClick={() => void overviewQuery.refetch()}>
-            Refresh
+            Refresh overview
           </Button>
+          <p className="text-xs text-muted-foreground max-w-xl">
+            Select Region → Service Area → Driver in Add Credit below.
+            Overview scopes to the selected Service Area.
+          </p>
         </div>
 
         {driverId.trim() && (
@@ -592,27 +640,126 @@ export default function CommissionWallet() {
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="space-y-1">
-              <Label>Driver (required)</Label>
-              <p className="text-sm text-muted-foreground">
-                {driverId.trim()
-                  ? (driverDisplayName
-                    ? `${driverDisplayName} (${driverId.trim().slice(0, 8)}…)`
-                    : driverId.trim())
-                  : 'Enter Driver ID in the filter above'}
-              </p>
+              <Label>Region (required)</Label>
+              <Select
+                value={regionId || '__none'}
+                onValueChange={(v) => {
+                  if (v === '__none') {
+                    setServiceFilter(DEFAULT_SERVICE_AREA_SELECTION);
+                    setDriverId('');
+                    setSelectedDriver(null);
+                    return;
+                  }
+                  setCreditRegion(v);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select region" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">Select region…</SelectItem>
+                  {regions.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name} ({r.currency_code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
-              <Label>Service area (required)</Label>
-              <p className="text-sm text-muted-foreground">
-                {serviceAreaId && selectedSa
-                  ? `${String(selectedSa.name)} — ${selectedSa.workflow_enabled ? 'ENABLED' : 'DISABLED'}`
-                  : 'Pick a service area in the filter above'}
-              </p>
+              <Label>Service Area (required)</Label>
+              <Select
+                value={serviceAreaId || '__none'}
+                disabled={!regionId}
+                onValueChange={(v) => {
+                  if (v === '__none') {
+                    setServiceFilter((prev) => ({
+                      ...prev,
+                      serviceAreaId: null,
+                      currencyCode: regions.find((r) => r.id === prev.regionId)?.currency_code ?? null,
+                    }));
+                    setDriverId('');
+                    setSelectedDriver(null);
+                    return;
+                  }
+                  setCreditServiceArea(v);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={regionId ? 'Select service area' : 'Select region first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">Select service area…</SelectItem>
+                  {regionServiceAreas.map((sa) => {
+                    const cwOn = isCommissionWalletWorkflowEnabled({
+                      financial_model: sa.financial_model,
+                      commission_wallet_enabled: sa.commission_wallet_enabled,
+                    });
+                    return (
+                      <SelectItem key={sa.id} value={sa.id}>
+                        {sa.name}{cwOn ? '' : ' (CW off)'}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              {serviceAreaId && !selectedSa?.workflow_enabled && (
+                <p className="text-xs text-destructive">
+                  Commission Wallet is disabled for this Service Area.
+                </p>
+              )}
             </div>
             <div className="space-y-1">
-              <Label>Currency (required)</Label>
-              <p className="text-sm text-muted-foreground">{currency}</p>
+              <Label>Currency</Label>
+              <p className="text-sm text-muted-foreground h-10 flex items-center">
+                {currency} (from Service Area / Region — not editable)
+              </p>
             </div>
+
+            {serviceAreaId && selectedSa?.workflow_enabled ? (
+              <CommissionWalletCreditDriverPicker
+                serviceAreaId={serviceAreaId}
+                serviceAreaName={selectedSa ? String(selectedSa.name) : null}
+                currency={currency === '—' ? 'USD' : currency}
+                balancesByDriverId={balancesByDriverId}
+                value={driverId || null}
+                onChange={(id, driver) => {
+                  setDriverId(id || '');
+                  setSelectedDriver(driver ?? null);
+                }}
+              />
+            ) : (
+              <div className="space-y-1 sm:col-span-2 lg:col-span-3">
+                <Label>Driver</Label>
+                <Input
+                  disabled
+                  placeholder={
+                    !regionId
+                      ? 'Select a Region first'
+                      : !serviceAreaId
+                        ? 'Select a Service Area first'
+                        : 'Commission Wallet disabled for this Service Area'
+                  }
+                />
+              </div>
+            )}
+
+            {!serviceAreaId && regionId && (
+              <p className="text-xs text-muted-foreground sm:col-span-2 lg:col-span-3">
+                Select a Service Area to load assigned drivers.
+              </p>
+            )}
+            {serviceAreaId && selectedSa?.workflow_enabled === false && (
+              <div className="sm:col-span-2 lg:col-span-3 space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  No eligible drivers can be credited until Commission Wallet is enabled for this Service Area.
+                </p>
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/service-area-pricing">Open Service Area Pricing</Link>
+                </Button>
+              </div>
+            )}
+
             <div className="space-y-1">
               <Label>Credit type</Label>
               <Select value={creditKind} onValueChange={(v) => {
@@ -751,14 +898,26 @@ export default function CommissionWallet() {
               >
                 Add Credit
               </Button>
-              {!serviceAreaId && (
+              {!regionId && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  Select a service area in the filter before crediting.
+                  Select a Region, then a Service Area, then a Driver.
+                </p>
+              )}
+              {regionId && !serviceAreaId && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Select a Service Area assigned to this Region.
                 </p>
               )}
               {serviceAreaId && !selectedSa?.workflow_enabled && (
                 <p className="text-xs text-muted-foreground mt-2">
                   Enable Commission Wallet on the Service Area (Pricing page) before crediting.
+                </p>
+              )}
+              {serviceAreaId && selectedSa?.workflow_enabled && !driverId.trim() && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Select a driver assigned to this Service Area.
+                  {' '}
+                  <Link className="underline" to="/drivers">Manage Driver Service Area Assignments</Link>
                 </p>
               )}
               {creditKind === ADMIN_COMMISSION_CREDIT_KIND.WELCOME_CREDIT && !welcomeEnabled && (
@@ -778,19 +937,36 @@ export default function CommissionWallet() {
                 <div className="space-y-3 text-sm text-foreground">
                   <div className="space-y-1">
                     <p>
-                      <span className="text-muted-foreground">Driver: </span>
-                      {driverDisplayName
-                        ? `${driverDisplayName} (${driverId.trim().slice(0, 8)}…)`
-                        : (driverId.trim() || '—')}
+                      <span className="text-muted-foreground">Region: </span>
+                      {selectedRegionName || '—'}
                     </p>
                     <p>
                       <span className="text-muted-foreground">Service Area: </span>
                       {selectedSa ? String(selectedSa.name) : '—'}
                     </p>
                     <p>
-                      <span className="text-muted-foreground">Currency: </span>
-                      {currency}
+                      <span className="text-muted-foreground">Driver: </span>
+                      {selectedDriver
+                        ? commissionWalletCreditDriverLabel(selectedDriver)
+                        : (driverId.trim() || '—')}
                     </p>
+                    {selectedDriver && (
+                      <>
+                        <p className="text-xs text-muted-foreground font-mono">
+                          Driver ID: {selectedDriver.driver_code || selectedDriver.id}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Phone: {selectedDriver.phone || '—'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Current balance:{' '}
+                          {formatMinor(
+                            selectedDriver.usable_balance_minor,
+                            selectedDriver.currency || currency,
+                          )}
+                        </p>
+                      </>
+                    )}
                     <p>
                       <span className="text-muted-foreground">Amount: </span>
                       {currency} {(Number(amountMajor) || 0).toFixed(2)}

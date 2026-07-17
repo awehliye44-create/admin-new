@@ -532,14 +532,24 @@ export type AdminCommissionCreditGateResult =
     ok: false;
     error: string;
     code:
+      | "DRIVER_NOT_FOUND"
+      | "DRIVER_NOT_ASSIGNED_TO_SERVICE_AREA"
+      /** @deprecated Prefer DRIVER_NOT_ASSIGNED_TO_SERVICE_AREA */
       | "DRIVER_NOT_IN_SERVICE_AREA"
+      | "COMMISSION_WALLET_DISABLED"
+      | "INVALID_FINANCIAL_MODEL"
+      | "CURRENCY_MISMATCH"
+      | "CURRENCY_REQUIRED"
       | "WELCOME_CREDIT_DISABLED"
       | "WELCOME_CREDIT_AMOUNT_MISMATCH"
       | "WELCOME_CREDIT_ALREADY_RECEIVED"
       | "WELCOME_CREDIT_MAX_DRIVERS_REACHED";
   };
 
-/** Driver must be assigned to the target service area before any admin credit. */
+/**
+ * Canonical Add Credit assignment gate.
+ * Uses drivers.service_area_id only — never trip/GPS/city/region-only inference.
+ */
 export function validateDriverCommissionWalletServiceAreaAssignment(input: {
   driverAssignedToServiceArea: boolean;
 }): AdminCommissionCreditGateResult {
@@ -547,10 +557,127 @@ export function validateDriverCommissionWalletServiceAreaAssignment(input: {
     return {
       ok: false,
       error: "Driver is not assigned to this service area",
-      code: "DRIVER_NOT_IN_SERVICE_AREA",
+      code: "DRIVER_NOT_ASSIGNED_TO_SERVICE_AREA",
     };
   }
   return { ok: true };
+}
+
+/**
+ * Full backend re-validation context before ADMIN_CREDIT.
+ * Never trust Admin UI alone.
+ */
+export function validateAdminCommissionWalletCreditContext(input: {
+  driverFound: boolean;
+  /** Canonical drivers.service_area_id */
+  driverServiceAreaId: string | null | undefined;
+  selectedServiceAreaId: string;
+  financialModel: string | null | undefined;
+  commissionWalletEnabled: boolean | null | undefined;
+  expectedCurrency: string | null | undefined;
+  requestedCurrency: string | null | undefined;
+}): AdminCommissionCreditGateResult {
+  if (!input.driverFound) {
+    return {
+      ok: false,
+      error: "Driver not found",
+      code: "DRIVER_NOT_FOUND",
+    };
+  }
+
+  const driverSa = String(input.driverServiceAreaId ?? "").trim();
+  const selectedSa = String(input.selectedServiceAreaId ?? "").trim();
+  if (!driverSa || !selectedSa || driverSa !== selectedSa) {
+    return {
+      ok: false,
+      error: "Driver is not assigned to this service area",
+      code: "DRIVER_NOT_ASSIGNED_TO_SERVICE_AREA",
+    };
+  }
+
+  const model = String(input.financialModel ?? "").toUpperCase();
+  if (model !== SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET) {
+    return {
+      ok: false,
+      error: "Service area financial model must be DRIVER_COLLECTED_COMMISSION_WALLET",
+      code: "INVALID_FINANCIAL_MODEL",
+    };
+  }
+
+  if (input.commissionWalletEnabled !== true) {
+    return {
+      ok: false,
+      error: "Commission Wallet is not enabled for this service area",
+      code: "COMMISSION_WALLET_DISABLED",
+    };
+  }
+
+  const expected = String(input.expectedCurrency ?? "").trim().toUpperCase();
+  if (!expected) {
+    return {
+      ok: false,
+      error: "Service area has no commission wallet currency configured",
+      code: "CURRENCY_REQUIRED",
+    };
+  }
+
+  const requested = String(input.requestedCurrency ?? "").trim().toUpperCase();
+  if (!requested || requested !== expected) {
+    return {
+      ok: false,
+      error: `currency must match service area (${expected})`,
+      code: "CURRENCY_MISMATCH",
+    };
+  }
+
+  return { ok: true };
+}
+
+/** True when a driver row is eligible for Admin Add Credit listing. */
+export function isDriverEligibleForAdminCommissionCredit(input: {
+  approvalStatus: string | null | undefined;
+  driverStatus: string | null | undefined;
+  deletedAt?: string | null;
+  /** Canonical drivers.service_area_id */
+  driverServiceAreaId: string | null | undefined;
+  selectedServiceAreaId: string;
+  includeInactive?: boolean;
+}): boolean {
+  if (input.deletedAt) return false;
+  if (String(input.approvalStatus ?? "").toLowerCase() !== "approved") return false;
+  const status = String(input.driverStatus ?? "").toLowerCase();
+  if (!input.includeInactive && status !== "active") return false;
+  if (input.includeInactive && (status === "deleted" || !status)) return false;
+  return String(input.driverServiceAreaId ?? "") === String(input.selectedServiceAreaId ?? "");
+}
+
+/** Client search for Add Credit driver picker. */
+export function matchesAdminCommissionCreditDriverSearch(
+  driver: {
+    id: string;
+    driver_code?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+    phone?: string | null;
+    license_plate?: string | null;
+  },
+  search: string,
+): boolean {
+  const q = String(search ?? "").trim().toLowerCase();
+  if (!q) return true;
+  const name = `${driver.first_name ?? ""} ${driver.last_name ?? ""}`.trim().toLowerCase();
+  const code = String(driver.driver_code ?? "").toLowerCase();
+  const phone = String(driver.phone ?? "").toLowerCase();
+  const plate = String(driver.license_plate ?? "").toLowerCase();
+  const id = String(driver.id ?? "").toLowerCase();
+  return (
+    name.includes(q)
+    || code.includes(q)
+    || phone.includes(q)
+    || plate.includes(q)
+    || id.startsWith(q)
+    || id.includes(q)
+  );
 }
 
 /** Welcome credit SA policy — amount, per-driver once, max drivers cap. */

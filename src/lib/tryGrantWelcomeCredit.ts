@@ -28,6 +28,10 @@ function softSkipCode(code: string | undefined): boolean {
     || c === 'WELCOME_CREDIT_MAX_DRIVERS_REACHED'
     || c === 'WELCOME_CREDIT_AMOUNT_MISMATCH'
     || c === 'DRIVER_NOT_IN_SERVICE_AREA'
+    || c === 'DRIVER_NOT_ASSIGNED_TO_SERVICE_AREA'
+    || c === 'COMMISSION_WALLET_DISABLED'
+    || c === 'INVALID_FINANCIAL_MODEL'
+    || c === 'CURRENCY_MISMATCH'
     || c === 'CURRENCY_REQUIRED'
     || c === 'SA_NOT_FOUND'
   );

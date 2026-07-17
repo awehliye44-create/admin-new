@@ -21,7 +21,10 @@ import {
   shouldShowDriverCommissionWalletPage,
   splitCommissionConsumption,
   validateAdminWelcomeCredit,
+  validateAdminCommissionWalletCreditContext,
   validateDriverCommissionWalletServiceAreaAssignment,
+  isDriverEligibleForAdminCommissionCredit,
+  matchesAdminCommissionCreditDriverSearch,
   aggregateCommissionWalletOverviewCards,
   buildAdminCommissionWalletCreditIdempotencyKey,
   planDriverCommissionWalletPageAccess,
@@ -387,7 +390,75 @@ describe("Phase 2 admin credit gates", () => {
   it("rejects credit when driver not assigned to service area", () => {
     expect(validateDriverCommissionWalletServiceAreaAssignment({
       driverAssignedToServiceArea: false,
-    })).toMatchObject({ ok: false, code: "DRIVER_NOT_IN_SERVICE_AREA" });
+    })).toMatchObject({ ok: false, code: "DRIVER_NOT_ASSIGNED_TO_SERVICE_AREA" });
+  });
+
+  it("re-validates canonical driver/service-area/CW context before ADMIN_CREDIT", () => {
+    expect(validateAdminCommissionWalletCreditContext({
+      driverFound: false,
+      driverServiceAreaId: null,
+      selectedServiceAreaId: "sa-1",
+      financialModel: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+      commissionWalletEnabled: true,
+      expectedCurrency: "USD",
+      requestedCurrency: "USD",
+    })).toMatchObject({ ok: false, code: "DRIVER_NOT_FOUND" });
+
+    expect(validateAdminCommissionWalletCreditContext({
+      driverFound: true,
+      driverServiceAreaId: "sa-nairobi",
+      selectedServiceAreaId: "sa-mogadishu",
+      financialModel: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+      commissionWalletEnabled: true,
+      expectedCurrency: "USD",
+      requestedCurrency: "USD",
+    })).toMatchObject({ ok: false, code: "DRIVER_NOT_ASSIGNED_TO_SERVICE_AREA" });
+
+    expect(validateAdminCommissionWalletCreditContext({
+      driverFound: true,
+      driverServiceAreaId: "sa-1",
+      selectedServiceAreaId: "sa-1",
+      financialModel: SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      commissionWalletEnabled: true,
+      expectedCurrency: "USD",
+      requestedCurrency: "USD",
+    })).toMatchObject({ ok: false, code: "INVALID_FINANCIAL_MODEL" });
+
+    expect(validateAdminCommissionWalletCreditContext({
+      driverFound: true,
+      driverServiceAreaId: "sa-1",
+      selectedServiceAreaId: "sa-1",
+      financialModel: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+      commissionWalletEnabled: false,
+      expectedCurrency: "USD",
+      requestedCurrency: "USD",
+    })).toMatchObject({ ok: false, code: "COMMISSION_WALLET_DISABLED" });
+
+    expect(validateAdminCommissionWalletCreditContext({
+      driverFound: true,
+      driverServiceAreaId: "sa-1",
+      selectedServiceAreaId: "sa-1",
+      financialModel: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+      commissionWalletEnabled: true,
+      expectedCurrency: "USD",
+      requestedCurrency: "GBP",
+    })).toMatchObject({ ok: false, code: "CURRENCY_MISMATCH" });
+
+    expect(isDriverEligibleForAdminCommissionCredit({
+      approvalStatus: "approved",
+      driverStatus: "active",
+      driverServiceAreaId: "sa-1",
+      selectedServiceAreaId: "sa-1",
+    })).toBe(true);
+
+    expect(matchesAdminCommissionCreditDriverSearch({
+      id: "uuid-1",
+      driver_code: "DRV-SO-0001",
+      first_name: "Ahmed",
+      last_name: "Driver",
+      phone: "+252611",
+      license_plate: "ABC123",
+    }, "ABC")).toBe(true);
   });
 
   it("enforces welcome credit SA policy", () => {

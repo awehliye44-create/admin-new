@@ -9,6 +9,8 @@ describe('isWelcomeGrantSoftSkipCode', () => {
     expect(isWelcomeGrantSoftSkipCode('WELCOME_CREDIT_MAX_DRIVERS_REACHED')).toBe(true);
     expect(isWelcomeGrantSoftSkipCode('WELCOME_CREDIT_AMOUNT_MISMATCH')).toBe(true);
     expect(isWelcomeGrantSoftSkipCode('DRIVER_NOT_IN_SERVICE_AREA')).toBe(true);
+    expect(isWelcomeGrantSoftSkipCode('DRIVER_NOT_ASSIGNED_TO_SERVICE_AREA')).toBe(true);
+    expect(isWelcomeGrantSoftSkipCode('COMMISSION_WALLET_DISABLED')).toBe(true);
   });
 
   it('does not soft-skip unexpected failures', () => {
