@@ -13,6 +13,8 @@ import {
   aggregateCommissionWalletFinanceReport,
   deriveBalancesFromCommissionLedgerEntries,
   isCommissionWalletWorkflowEnabled,
+  isWelcomeCommissionWalletLedgerEntry,
+  buildCommissionWalletDriverRosterRow,
   REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
 } from "../../../shared/commissionWalletSSOT.ts";
 
@@ -178,6 +180,146 @@ serve(async (req) => {
         below_minimum: bal.usable_commission_balance_minor < minRequired,
       };
     });
+
+    // SA-scoped roster: all canonically assigned drivers + account status (not ledger-only).
+    let driverRoster: Record<string, unknown>[] = [];
+    let setupErrors: Record<string, unknown>[] = [];
+    if (serviceAreaId) {
+      const sa = serviceAreas.find((s) => String(s.id) === serviceAreaId);
+      const saEnabled = Boolean(sa?.workflow_enabled);
+      if (saEnabled) {
+        const currency = String(
+          sa?.commission_wallet_currency
+            || sa?.currency_code
+            || (sa as { region?: { currency_code?: string } } | undefined)?.region?.currency_code
+            || "USD",
+        ).toUpperCase();
+        const minRequired = Number(sa?.commission_wallet_minimum_balance_minor ?? 0);
+        const regionIdForSa = sa?.region_id ? String(sa.region_id) : null;
+
+        let driversQ = gate.supabase
+          .from("drivers")
+          .select(
+            "id, driver_code, first_name, last_name, phone, driver_status, approval_status, service_area_id, region_id, commission_wallet_test_access, deleted_at",
+          )
+          .eq("service_area_id", serviceAreaId)
+          .is("deleted_at", null)
+          .limit(2000);
+        if (driverId) driversQ = driversQ.eq("id", driverId);
+        const { data: assignedDrivers, error: driversErr } = await driversQ;
+        if (driversErr) {
+          return json({ success: false, error: driversErr.message }, 500);
+        }
+
+        const driverIds = (assignedDrivers ?? []).map((d) => String(d.id));
+        const accountByDriver = new Map<string, {
+          id: string;
+          currency: string;
+          region_id: string;
+          source: string | null;
+        }>();
+        if (driverIds.length > 0) {
+          const { data: accounts } = await gate.supabase
+            .from("driver_commission_wallet_accounts")
+            .select("id, driver_id, service_area_id, region_id, currency, source")
+            .eq("service_area_id", serviceAreaId)
+            .in("driver_id", driverIds);
+          for (const a of accounts ?? []) {
+            accountByDriver.set(String(a.driver_id), {
+              id: String(a.id),
+              currency: String(a.currency),
+              region_id: String(a.region_id),
+              source: a.source != null ? String(a.source) : null,
+            });
+          }
+        }
+
+        const welcomeByDriver = new Set<string>();
+        if (driverIds.length > 0) {
+          const { data: welcomeRows } = await gate.supabase
+            .from("driver_commission_wallet_ledger")
+            .select("driver_id, entry_type, credit_type")
+            .eq("service_area_id", serviceAreaId)
+            .in("driver_id", driverIds)
+            .in("entry_type", ["WELCOME_CREDIT", "ADMIN_CREDIT"]);
+          for (const row of welcomeRows ?? []) {
+            if (isWelcomeCommissionWalletLedgerEntry(row)) {
+              welcomeByDriver.add(String(row.driver_id));
+            }
+          }
+        }
+
+        const balanceByDriver = new Map(
+          driverBalances
+            .filter((b) => String(b.service_area_id) === serviceAreaId)
+            .map((b) => [String(b.driver_id), b]),
+        );
+
+        driverRoster = (assignedDrivers ?? []).map((d) => {
+          const id = String(d.id);
+          const bal = balanceByDriver.get(id);
+          const row = buildCommissionWalletDriverRosterRow({
+            driverId: id,
+            driverCode: d.driver_code,
+            firstName: d.first_name,
+            lastName: d.last_name,
+            phone: d.phone,
+            driverStatus: d.driver_status,
+            approvalStatus: d.approval_status,
+            serviceAreaId,
+            regionId: regionIdForSa,
+            currency,
+            minimumBalanceMinor: minRequired,
+            account: accountByDriver.get(id) ?? null,
+            balances: bal ?? {
+              usable_commission_balance_minor: 0,
+              purchased_balance_minor: 0,
+              promotional_balance_minor: 0,
+              reserved_balance_minor: 0,
+            },
+            welcomeCreditGranted: welcomeByDriver.has(id),
+            testModeActive: d.commission_wallet_test_access === true,
+          });
+          return row;
+        });
+
+        setupErrors = driverRoster
+          .filter((r) => r.setup_error)
+          .map((r) => ({
+            driver_id: r.driver_id,
+            driver_code: r.driver_code,
+            driver_name: r.driver_name,
+            service_area_id: r.service_area_id,
+            code: r.setup_error,
+            reason: r.setup_error_reason,
+          }));
+
+        // Prefer roster for driver_balances when SA selected (includes zero-balance profiles).
+        driverBalances.length = 0;
+        for (const r of driverRoster) {
+          driverBalances.push({
+            driver_id: String(r.driver_id),
+            service_area_id: String(r.service_area_id),
+            currency: String(r.currency),
+            usable_commission_balance_minor: Number(r.usable_commission_balance_minor) || 0,
+            purchased_balance_minor: Number(r.purchased_balance_minor) || 0,
+            promotional_balance_minor: Number(r.promotional_balance_minor) || 0,
+            reserved_balance_minor: Number(r.reserved_balance_minor) || 0,
+            below_minimum: Boolean(r.below_minimum),
+            profile_status: r.profile_status,
+            offer_eligible: Boolean(r.offer_eligible),
+            welcome_credit_granted: Boolean(r.welcome_credit_granted),
+            test_mode_active: Boolean(r.test_mode_active),
+            driver_name: r.driver_name,
+            driver_code: r.driver_code,
+            phone: r.phone,
+            driver_status: r.driver_status,
+            account_id: r.account_id,
+            setup_error: r.setup_error,
+          } as typeof driverBalances[number]);
+        }
+      }
+    }
 
     const cardTotals = aggregateCommissionWalletOverviewCards(cardSliceRows);
 
@@ -369,6 +511,8 @@ serve(async (req) => {
       service_areas: serviceAreas,
       cards,
       driver_balances: driverBalances,
+      driver_roster: driverRoster,
+      setup_errors: setupErrors,
       recent_ledger: ledgerRows ?? [],
       recent_topups: topupRows,
       recent_admin_audit: audits,

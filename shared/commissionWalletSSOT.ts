@@ -2162,3 +2162,170 @@ export function planCommissionWalletServiceAreaEnablement(input: {
       + "may enable Commission Wallet until reconciliation unlocks multi-SA.",
   };
 }
+
+/** Non-financial CW account profile — balances stay ledger-derived. */
+export const COMMISSION_WALLET_ACCOUNT_SOURCE = {
+  BACKFILL: "backfill",
+  AUTO_ASSIGNMENT: "auto_assignment",
+  SA_MOVE: "sa_move",
+  ADMIN_REPAIR: "admin_repair",
+} as const;
+
+export type CommissionWalletAccountSource =
+  typeof COMMISSION_WALLET_ACCOUNT_SOURCE[keyof typeof COMMISSION_WALLET_ACCOUNT_SOURCE];
+
+export const COMMISSION_WALLET_SETUP_ERROR = {
+  MISSING_ACCOUNT: "MISSING_ACCOUNT",
+  CURRENCY_MISMATCH: "CURRENCY_MISMATCH",
+  REGION_MISMATCH: "REGION_MISMATCH",
+  DRIVER_NOT_ASSIGNED: "DRIVER_NOT_ASSIGNED",
+} as const;
+
+export type CommissionWalletSetupErrorCode =
+  typeof COMMISSION_WALLET_SETUP_ERROR[keyof typeof COMMISSION_WALLET_SETUP_ERROR];
+
+/**
+ * Zero-balance profile is never offer-eligible.
+ * Admin list uses minimum balance as the standing gate (trip reserve is per-offer).
+ */
+export function isCommissionWalletOfferEligibleFromBalances(input: {
+  usableCommissionBalanceMinor: number;
+  minimumBalanceMinor: number;
+}): boolean {
+  const usable = Math.max(0, Math.round(Number(input.usableCommissionBalanceMinor) || 0));
+  const min = Math.max(0, Math.round(Number(input.minimumBalanceMinor) || 0));
+  return usable >= min && usable > 0;
+}
+
+export function buildCommissionWalletDriverRosterRow(input: {
+  driverId: string;
+  driverCode?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  phone?: string | null;
+  driverStatus?: string | null;
+  approvalStatus?: string | null;
+  serviceAreaId: string;
+  regionId?: string | null;
+  currency: string;
+  minimumBalanceMinor: number;
+  account: {
+    id: string;
+    currency: string;
+    region_id: string;
+    source?: string | null;
+  } | null;
+  balances?: {
+    usable_commission_balance_minor?: number;
+    purchased_balance_minor?: number;
+    promotional_balance_minor?: number;
+    reserved_balance_minor?: number;
+  } | null;
+  welcomeCreditGranted?: boolean;
+  testModeActive?: boolean;
+}): {
+  driver_id: string;
+  driver_code: string | null;
+  driver_name: string;
+  phone: string | null;
+  driver_status: string | null;
+  approval_status: string | null;
+  service_area_id: string;
+  region_id: string | null;
+  currency: string;
+  profile_status: "present" | "missing";
+  account_id: string | null;
+  account_source: string | null;
+  usable_commission_balance_minor: number;
+  purchased_balance_minor: number;
+  promotional_balance_minor: number;
+  reserved_balance_minor: number;
+  below_minimum: boolean;
+  offer_eligible: boolean;
+  welcome_credit_granted: boolean;
+  test_mode_active: boolean;
+  setup_error: CommissionWalletSetupErrorCode | null;
+  setup_error_reason: string | null;
+} {
+  const bal = input.balances ?? {};
+  const usable = Math.max(0, Math.round(Number(bal.usable_commission_balance_minor) || 0));
+  const purchased = Math.max(0, Math.round(Number(bal.purchased_balance_minor) || 0));
+  const promotional = Math.max(0, Math.round(Number(bal.promotional_balance_minor) || 0));
+  const reserved = Math.max(0, Math.round(Number(bal.reserved_balance_minor) || 0));
+  const min = Math.max(0, Math.round(Number(input.minimumBalanceMinor) || 0));
+  const name = `${input.firstName ?? ""} ${input.lastName ?? ""}`.trim();
+
+  let setupError: CommissionWalletSetupErrorCode | null = null;
+  let setupReason: string | null = null;
+  if (!input.account) {
+    setupError = COMMISSION_WALLET_SETUP_ERROR.MISSING_ACCOUNT;
+    setupReason = "Commission Wallet profile missing after backfill/assignment";
+  } else if (
+    String(input.account.currency ?? "").toUpperCase()
+    !== String(input.currency ?? "").toUpperCase()
+  ) {
+    setupError = COMMISSION_WALLET_SETUP_ERROR.CURRENCY_MISMATCH;
+    setupReason = `Account currency ${input.account.currency} does not match SA ${input.currency}`;
+  } else if (
+    input.regionId
+    && String(input.account.region_id) !== String(input.regionId)
+  ) {
+    setupError = COMMISSION_WALLET_SETUP_ERROR.REGION_MISMATCH;
+    setupReason = "Account region_id does not match Service Area region";
+  }
+
+  return {
+    driver_id: input.driverId,
+    driver_code: input.driverCode ?? null,
+    driver_name: name || (input.driverCode ?? input.driverId.slice(0, 8)),
+    phone: input.phone ?? null,
+    driver_status: input.driverStatus ?? null,
+    approval_status: input.approvalStatus ?? null,
+    service_area_id: input.serviceAreaId,
+    region_id: input.regionId ?? null,
+    currency: String(input.currency ?? "").toUpperCase(),
+    profile_status: input.account ? "present" : "missing",
+    account_id: input.account?.id ?? null,
+    account_source: input.account?.source ?? null,
+    usable_commission_balance_minor: usable,
+    purchased_balance_minor: purchased,
+    promotional_balance_minor: promotional,
+    reserved_balance_minor: reserved,
+    below_minimum: usable < min,
+    offer_eligible: isCommissionWalletOfferEligibleFromBalances({
+      usableCommissionBalanceMinor: usable,
+      minimumBalanceMinor: min,
+    }),
+    welcome_credit_granted: input.welcomeCreditGranted === true,
+    test_mode_active: input.testModeActive === true,
+    setup_error: setupError,
+    setup_error_reason: setupReason,
+  };
+}
+
+/** SA move must never auto-transfer balances across currency. */
+export function planCommissionWalletServiceAreaMove(input: {
+  fromServiceAreaId: string;
+  toServiceAreaId: string;
+  fromCurrency: string;
+  toCurrency: string;
+}): {
+  preserveOldLedger: true;
+  createDestinationAccountIfMissing: true;
+  autoTransferBalance: false;
+  requiresAuditedMigration: boolean;
+  code?: "CROSS_CURRENCY_TRANSFER_PROHIBITED";
+} {
+  const fromCcy = String(input.fromCurrency ?? "").toUpperCase();
+  const toCcy = String(input.toCurrency ?? "").toUpperCase();
+  const crossCurrency = Boolean(fromCcy && toCcy && fromCcy !== toCcy);
+  return {
+    preserveOldLedger: true,
+    createDestinationAccountIfMissing: true,
+    autoTransferBalance: false,
+    requiresAuditedMigration: true,
+    ...(crossCurrency
+      ? { code: "CROSS_CURRENCY_TRANSFER_PROHIBITED" as const }
+      : {}),
+  };
+}

@@ -76,6 +76,8 @@ type OverviewResponse = {
   recent_admin_audit?: Array<Record<string, unknown>>;
   campaigns?: Array<Record<string, unknown>>;
   campaign_claim_total?: number;
+  driver_roster?: Array<Record<string, unknown>>;
+  setup_errors?: Array<Record<string, unknown>>;
 };
 
 function formatMinor(n: unknown, currency = 'USD'): string {
@@ -1034,21 +1036,52 @@ export default function CommissionWallet() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Driver</TableHead>
+                  <TableHead>Profile</TableHead>
                   <TableHead>Usable</TableHead>
                   <TableHead>Purchased</TableHead>
                   <TableHead>Promotional</TableHead>
                   <TableHead>Reserved</TableHead>
+                  <TableHead>Offer eligible</TableHead>
+                  <TableHead>Welcome</TableHead>
+                  <TableHead>Test mode</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(overviewQuery.data?.driver_balances ?? []).map((row) => (
                   <TableRow key={`${row.driver_id}-${row.service_area_id}`}>
-                    <TableCell className="font-mono text-xs">{String(row.driver_id).slice(0, 8)}…</TableCell>
+                    <TableCell className="text-xs">
+                      <div className="font-medium">
+                        {String(row.driver_name || row.driver_code || String(row.driver_id).slice(0, 8))}
+                      </div>
+                      <div className="font-mono text-muted-foreground">
+                        {String(row.driver_code || String(row.driver_id).slice(0, 8))}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {row.profile_status === 'missing'
+                        ? <Badge variant="destructive">Missing</Badge>
+                        : <Badge variant="secondary">Present</Badge>}
+                    </TableCell>
                     <TableCell>{formatMinor(row.usable_commission_balance_minor, String(row.currency))}</TableCell>
                     <TableCell>{formatMinor(row.purchased_balance_minor, String(row.currency))}</TableCell>
                     <TableCell>{formatMinor(row.promotional_balance_minor, String(row.currency))}</TableCell>
                     <TableCell>{formatMinor(row.reserved_balance_minor, String(row.currency))}</TableCell>
+                    <TableCell>
+                      {row.offer_eligible
+                        ? <Badge variant="secondary">Yes</Badge>
+                        : <Badge variant="outline">No</Badge>}
+                    </TableCell>
+                    <TableCell>
+                      {row.welcome_credit_granted
+                        ? <Badge variant="secondary">Granted</Badge>
+                        : <Badge variant="outline">No</Badge>}
+                    </TableCell>
+                    <TableCell>
+                      {row.test_mode_active
+                        ? <Badge variant="destructive">ON</Badge>
+                        : <Badge variant="outline">Off</Badge>}
+                    </TableCell>
                     <TableCell>
                       {row.below_minimum
                         ? <Badge variant="destructive">Below minimum</Badge>
@@ -1058,8 +1091,10 @@ export default function CommissionWallet() {
                 ))}
                 {(overviewQuery.data?.driver_balances ?? []).length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-muted-foreground text-sm">
-                      No commission wallet ledger activity yet.
+                    <TableCell colSpan={10} className="text-muted-foreground text-sm">
+                      {serviceAreaId
+                        ? 'No drivers assigned to this Service Area.'
+                        : 'Select a Service Area to list assigned drivers and wallet profiles.'}
                     </TableCell>
                   </TableRow>
                 )}
@@ -1067,6 +1102,43 @@ export default function CommissionWallet() {
             </Table>
           </CardContent>
         </Card>
+
+        {(overviewQuery.data?.setup_errors?.length ?? 0) > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Commission Wallet Setup Errors</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Driver</TableHead>
+                    <TableHead>Code</TableHead>
+                    <TableHead>Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(overviewQuery.data?.setup_errors ?? []).map((row) => (
+                    <TableRow key={`${row.driver_id}-${row.code}`}>
+                      <TableCell className="text-xs">
+                        <div className="font-medium">{String(row.driver_name || '—')}</div>
+                        <div className="font-mono text-muted-foreground">
+                          {String(row.driver_code || String(row.driver_id).slice(0, 8))}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="destructive">{String(row.code)}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {String(row.reason || '—')}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>

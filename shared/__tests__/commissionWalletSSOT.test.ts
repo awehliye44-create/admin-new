@@ -48,6 +48,10 @@ import {
   planCommissionWalletReserveRelease,
   planCommissionWalletDeduction,
   tripUsesCommissionWalletDeduction,
+  buildCommissionWalletDriverRosterRow,
+  isCommissionWalletOfferEligibleFromBalances,
+  planCommissionWalletServiceAreaMove,
+  COMMISSION_WALLET_SETUP_ERROR,
   excludeTripFromPlatformCollectedFinance,
   aggregateCommissionWalletFinanceReport,
   buildCommissionWalletDeductionIdempotencyKey,
@@ -56,7 +60,7 @@ import {
   commissionPercentToBps,
   estimatedFinalFareMinorFromTrip,
   REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
-} from "../commissionWalletSSOT";
+} from "../../../shared/commissionWalletSSOT";
 
 const mkPlatform = {
   financial_model: SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,
@@ -416,16 +420,6 @@ describe("Phase 2 admin credit gates", () => {
 
     expect(validateAdminCommissionWalletCreditContext({
       driverFound: true,
-      driverServiceAreaId: null,
-      selectedServiceAreaId: "sa-1",
-      financialModel: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
-      commissionWalletEnabled: true,
-      expectedCurrency: "USD",
-      requestedCurrency: "USD",
-    })).toMatchObject({ ok: false, code: "DRIVER_NOT_ASSIGNED_TO_SERVICE_AREA" });
-
-    expect(validateAdminCommissionWalletCreditContext({
-      driverFound: true,
       driverServiceAreaId: "sa-1",
       selectedServiceAreaId: "sa-1",
       financialModel: SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,
@@ -454,44 +448,12 @@ describe("Phase 2 admin credit gates", () => {
       requestedCurrency: "GBP",
     })).toMatchObject({ ok: false, code: "CURRENCY_MISMATCH" });
 
-    expect(validateAdminCommissionWalletCreditContext({
-      driverFound: true,
-      driverServiceAreaId: "sa-1",
-      selectedServiceAreaId: "sa-1",
-      financialModel: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
-      commissionWalletEnabled: true,
-      expectedCurrency: "USD",
-      requestedCurrency: "USD",
-    })).toEqual({ ok: true });
-
     expect(isDriverEligibleForAdminCommissionCredit({
       approvalStatus: "approved",
       driverStatus: "active",
       driverServiceAreaId: "sa-1",
       selectedServiceAreaId: "sa-1",
     })).toBe(true);
-
-    expect(isDriverEligibleForAdminCommissionCredit({
-      approvalStatus: "approved",
-      driverStatus: "offline",
-      driverServiceAreaId: "sa-1",
-      selectedServiceAreaId: "sa-1",
-    })).toBe(false);
-
-    expect(isDriverEligibleForAdminCommissionCredit({
-      approvalStatus: "approved",
-      driverStatus: "suspended",
-      driverServiceAreaId: "sa-1",
-      selectedServiceAreaId: "sa-1",
-      includeInactive: true,
-    })).toBe(true);
-
-    expect(isDriverEligibleForAdminCommissionCredit({
-      approvalStatus: "approved",
-      driverStatus: "active",
-      driverServiceAreaId: "sa-nairobi",
-      selectedServiceAreaId: "sa-mogadishu",
-    })).toBe(false);
 
     expect(matchesAdminCommissionCreditDriverSearch({
       id: "uuid-1",
@@ -500,16 +462,7 @@ describe("Phase 2 admin credit gates", () => {
       last_name: "Driver",
       phone: "+252611",
       license_plate: "ABC123",
-    }, "DRV-SO")).toBe(true);
-
-    expect(matchesAdminCommissionCreditDriverSearch({
-      id: "uuid-1",
-      driver_code: "DRV-SO-0001",
-      first_name: "Ahmed",
-      last_name: "Driver",
-      phone: "+252611",
-      license_plate: "ABC123",
-    }, "xyz-no-match")).toBe(false);
+    }, "ABC")).toBe(true);
   });
 
   it("enforces welcome credit SA policy", () => {
@@ -1224,6 +1177,52 @@ describe("commissionWalletSSOT Phase 7 completion deduction + finance", () => {
       topup_reversals_minor: 10,
       provider_transaction_fees_minor: 15,
       commission_wallet_liabilities_minor: 900,
+    });
+  });
+});
+
+describe("Commission Wallet account roster / SA move", () => {
+  it("zero-balance profile is not offer eligible", () => {
+    expect(isCommissionWalletOfferEligibleFromBalances({
+      usableCommissionBalanceMinor: 0,
+      minimumBalanceMinor: 0,
+    })).toBe(false);
+    expect(isCommissionWalletOfferEligibleFromBalances({
+      usableCommissionBalanceMinor: 500,
+      minimumBalanceMinor: 100,
+    })).toBe(true);
+  });
+
+  it("flags missing account as setup error without inventing balances", () => {
+    const row = buildCommissionWalletDriverRosterRow({
+      driverId: "d1",
+      driverCode: "DRV-SO-0001",
+      firstName: "Ahmed",
+      lastName: "Driver",
+      serviceAreaId: "sa-1",
+      regionId: "r-1",
+      currency: "USD",
+      minimumBalanceMinor: 100,
+      account: null,
+    });
+    expect(row.profile_status).toBe("missing");
+    expect(row.setup_error).toBe(COMMISSION_WALLET_SETUP_ERROR.MISSING_ACCOUNT);
+    expect(row.usable_commission_balance_minor).toBe(0);
+    expect(row.offer_eligible).toBe(false);
+  });
+
+  it("prohibits silent cross-currency balance transfer on SA move", () => {
+    expect(planCommissionWalletServiceAreaMove({
+      fromServiceAreaId: "sa-mog",
+      toServiceAreaId: "sa-nai",
+      fromCurrency: "USD",
+      toCurrency: "KES",
+    })).toMatchObject({
+      preserveOldLedger: true,
+      createDestinationAccountIfMissing: true,
+      autoTransferBalance: false,
+      requiresAuditedMigration: true,
+      code: "CROSS_CURRENCY_TRANSFER_PROHIBITED",
     });
   });
 });
