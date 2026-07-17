@@ -1,0 +1,1 @@
+UPDATE public.vehicle_types SET is_default = false WHERE name IN ('SUV', 'Pet-Friendly');
