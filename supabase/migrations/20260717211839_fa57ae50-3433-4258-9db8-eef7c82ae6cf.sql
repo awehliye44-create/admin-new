@@ -1,0 +1,1 @@
+GRANT EXECUTE ON FUNCTION public.apply_terminal_trip_cancellation(uuid, text, text) TO authenticated, service_role;
