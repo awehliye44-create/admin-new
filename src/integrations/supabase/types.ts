@@ -628,6 +628,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "booking_delivery_log_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+          {
             foreignKeyName: "booking_delivery_log_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
@@ -759,6 +766,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_call_logs_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
           {
             foreignKeyName: "call_masking_call_logs_session_id_fkey"
@@ -950,6 +964,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -2246,6 +2267,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "complaints_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       content_audit_log: {
@@ -3257,6 +3285,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "customer_live_locations_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       customer_personal_vouchers: {
@@ -3470,6 +3505,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "customer_wallet_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+          {
             foreignKeyName: "customer_wallet_ledger_wallet_id_fkey"
             columns: ["wallet_id"]
             isOneToOne: false
@@ -3634,6 +3676,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "customers_active_trip_id_fkey"
+            columns: ["active_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       dispatch_audit_log: {
@@ -3783,6 +3832,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_candidates_log_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -4258,6 +4314,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "dispatch_wave_snapshot_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       dispatch_wave_snapshots: {
@@ -4669,6 +4732,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "driver_alerts_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+          {
             foreignKeyName: "driver_alerts_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
@@ -4913,6 +4983,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "driver_commitment_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       driver_commitment_warnings: {
@@ -5027,6 +5104,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_commitment_warnings_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -5477,6 +5561,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "driver_earning_settlement_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
+          {
             foreignKeyName: "driver_earning_settlement_trip_id_fkey"
             columns: ["trip_id"]
             isOneToOne: false
@@ -5496,6 +5594,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -5843,6 +5948,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -7317,6 +7429,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "driver_wallet_ledger_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+          {
             foreignKeyName: "driver_wallet_ledger_service_area_id_fkey"
             columns: ["service_area_id"]
             isOneToOne: false
@@ -7629,6 +7748,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "drivers_current_trip_id_fkey"
+            columns: ["current_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+          {
             foreignKeyName: "drivers_region_id_fkey"
             columns: ["region_id"]
             isOneToOne: false
@@ -7732,6 +7858,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fare_audit_logs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -8091,6 +8224,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "financial_ssot_mismatches_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       financial_ssot_repairs: {
@@ -8142,6 +8282,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_ssot_repairs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -8253,6 +8400,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "geofence_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
           {
             foreignKeyName: "geofence_events_zone_id_fkey"
@@ -8631,6 +8785,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_email_outbox_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -9262,6 +9423,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "lost_property_cases_return_trip_id_fkey"
+            columns: ["return_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+          {
             foreignKeyName: "lost_property_cases_service_area_id_fkey"
             columns: ["service_area_id"]
             isOneToOne: false
@@ -9288,6 +9456,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lost_property_cases_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -11010,6 +11185,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "passenger_ratings_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       payment_authorization_ledger: {
@@ -11076,6 +11258,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_authorization_ledger_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -11280,6 +11469,20 @@ export type Database = {
             referencedRelation: "payment_sessions"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "payment_session_authorisations_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "payment_session_authorisations_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
         ]
       }
       payment_session_refunds: {
@@ -11332,6 +11535,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "payment_sessions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_session_refunds_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "payment_session_refunds_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
           },
         ]
       }
@@ -11409,6 +11626,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "payment_sessions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_session_release_evidence_backfi_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "payment_session_release_evidence_backfi_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
           },
         ]
       }
@@ -11638,6 +11869,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "payment_sessions_parent_session_id_fkey"
+            columns: ["parent_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "payment_sessions_parent_session_id_fkey"
+            columns: ["parent_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
+          {
             foreignKeyName: "payment_sessions_trip_id_fkey"
             columns: ["trip_id"]
             isOneToOne: false
@@ -11657,6 +11902,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -11849,6 +12101,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -12561,6 +12820,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "payout_items_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       pending_customer_signups: {
@@ -13022,6 +13288,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "provider_fee_adjustments_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "provider_fee_adjustments_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
+          {
             foreignKeyName: "provider_fee_adjustments_trip_id_fkey"
             columns: ["trip_id"]
             isOneToOne: false
@@ -13041,6 +13321,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_fee_adjustments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -13711,6 +13998,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "ride_offers_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       rider_feedback: {
@@ -13830,6 +14124,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rider_feedback_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -14073,6 +14374,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scheduled_offer_attempts_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -15862,6 +16170,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "support_conversations_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       support_messages: {
@@ -16027,6 +16342,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "trip_change_requests_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       trip_driver_exclusions: {
@@ -16135,6 +16457,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_driver_exclusions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -16294,6 +16623,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "trip_finance_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       trip_invoice_daily_sequences: {
@@ -16361,6 +16697,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "trip_invoice_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       trip_messages: {
@@ -16412,6 +16755,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_messages_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -16491,6 +16841,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_route_cache_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -16685,6 +17042,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "trip_stop_waiting_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       trip_stops: {
@@ -16772,6 +17136,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_stops_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -17932,6 +18303,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "trips_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "trips_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
+          {
             foreignKeyName: "trips_pickup_zone_id_fkey"
             columns: ["pickup_zone_id"]
             isOneToOne: false
@@ -18084,6 +18469,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_stacked_trip_id_fkey"
+            columns: ["stacked_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
           {
             foreignKeyName: "trips_vehicle_type_id_fkey"
@@ -18468,6 +18860,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "voip_call_logs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       zone_pricing_rules: {
@@ -18663,6 +19062,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "driver_alerts_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+          {
             foreignKeyName: "driver_alerts_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
@@ -18802,6 +19208,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drivers_current_trip_id_fkey"
+            columns: ["current_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -19548,6 +19961,13 @@ export type Database = {
             referencedRelation: "trips"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "drivers_current_trip_id_fkey"
+            columns: ["current_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
         ]
       }
       driver_assigned_vehicle_types: {
@@ -19617,6 +20037,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trips"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_masking_sessions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -20146,6 +20573,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "drivers_current_trip_id_fkey"
+            columns: ["current_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+          {
             foreignKeyName: "drivers_region_id_fkey"
             columns: ["region_id"]
             isOneToOne: false
@@ -20366,6 +20800,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "driver_wallet_ledger_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+          {
             foreignKeyName: "driver_wallet_ledger_service_area_id_fkey"
             columns: ["service_area_id"]
             isOneToOne: false
@@ -20467,6 +20908,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "driver_wallet_ledger_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+          {
             foreignKeyName: "driver_wallet_ledger_service_area_id_fkey"
             columns: ["service_area_id"]
             isOneToOne: false
@@ -20479,6 +20927,32 @@ export type Database = {
         Row: {
           era: string | null
           started_at: string | null
+        }
+        Relationships: []
+      }
+      v_payment_lifecycle_audit: {
+        Row: {
+          additional_auth_status: string | null
+          authorised_amount_pence: number | null
+          captured_amount_pence: number | null
+          parent_order_id: string | null
+          parent_provider_state: string | null
+          parent_session_id: string | null
+          parent_status:
+            | Database["public"]["Enums"]["payment_session_status"]
+            | null
+          recovery_captured_pence: number | null
+          recovery_created_at: string | null
+          recovery_order_id: string | null
+          recovery_session_id: string | null
+          recovery_status:
+            | Database["public"]["Enums"]["payment_session_status"]
+            | null
+          release_trigger: string | null
+          release_trigger_at: string | null
+          trip_code: string | null
+          trip_id: string | null
+          trip_payment_status: string | null
         }
         Relationships: []
       }
