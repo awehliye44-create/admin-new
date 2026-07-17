@@ -138,7 +138,7 @@ Deno.serve(async (req) => {
       .select("id, status, provider_order_id")
       .eq("trip_id", trip.id)
       .eq("purpose", "PAYMENT_RECOVERY")
-      .in("status", ["RECOVERY_COMPLETED", "captured", "completed", "CAPTURED", "COMPLETED"])
+      .in("status", ["RECOVERY_COMPLETED", "captured"])
       .maybeSingle();
     if (existingCompleted) {
       return errorResponse(
