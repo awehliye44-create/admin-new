@@ -384,13 +384,19 @@ export function classifyPaymentHoldAttention(args: ClassifyPaymentHoldAttentionA
     || providerActive
     || sessionCanonical === "orphan_authorisation"
   ) {
+    // Expected auto path: recover once, then release. Stay AMBER while that runs.
+    // RED only after recovery is exhausted and the hold is still open (human action).
     const attention_class: PaymentHoldAttentionClass =
-      !args.tripId && args.ageMinutes >= 0.5 && recoveryAttempts < 1
+      !args.tripId && recoveryAttempts < 1
         ? "RECOVERY_PENDING"
         : "ACTIVE_AUTHORISED_HOLD";
+    const needsHuman =
+      attention_class === "ACTIVE_AUTHORISED_HOLD"
+      && recoveryAttempts >= 1
+      && args.ageMinutes > 2;
     return {
       attention_class,
-      classification: args.ageMinutes > 2 ? "RED" : "AMBER",
+      classification: needsHuman ? "RED" : "AMBER",
       in_active_queue: true,
     };
   }
@@ -400,9 +406,12 @@ export function classifyPaymentHoldAttention(args: ClassifyPaymentHoldAttentionA
     && TERMINAL_TRIP.has(tripStatus)
     && (holdStatus === "authorised_hold" || isAuthorisedSession(args.sessionStatus) || providerActive)
   ) {
+    // Customer/driver cancel + terminal trips: automatic release is expected.
+    // Do NOT mark RED solely by age — that caused alert fatigue on testing cancels.
+    // RELEASE_FAILED (above) is the human-action RED path.
     return {
       attention_class: "ACTIVE_AUTHORISED_HOLD",
-      classification: args.ageMinutes > 2 ? "RED" : "AMBER",
+      classification: "AMBER",
       in_active_queue: true,
     };
   }
@@ -426,8 +435,24 @@ export function moneyAtRiskInclude(args: {
   attentionClass: PaymentHoldAttentionClass;
   providerState?: CanonicalProviderHoldState | null;
   amountPence: number | null;
+  /** Traffic light — At Risk KPI only counts unresolved RED exposure. */
+  classification?: PaymentHoldClassification | null;
 }): boolean {
+  if (args.amountPence == null || !Number.isFinite(args.amountPence) || args.amountPence <= 0) {
+    return false;
+  }
+  // Automatically recovering / pending release is live but not ops "At Risk".
+  if (
+    args.attentionClass === "RECOVERY_PENDING"
+    || args.attentionClass === "RELEASE_PENDING"
+  ) {
+    return false;
+  }
   if (!ACTIVE_ATTENTION_CLASSES.has(args.attentionClass)) return false;
+  // Prefer explicit RED when provided (dashboard SSOT).
+  if (args.classification != null && args.classification !== "RED") {
+    return false;
+  }
   if (args.attentionClass === "RELEASE_FAILED") {
     // Only if provider still confirms hold exists
     if (
@@ -440,10 +465,101 @@ export function moneyAtRiskInclude(args: {
       return false;
     }
   }
-  if (args.amountPence == null || !Number.isFinite(args.amountPence) || args.amountPence <= 0) {
+  return true;
+}
+
+/** Operational dashboard buckets — separate auto recovery from human RED. */
+export type PaymentHoldOperationalBucket =
+  | "ACTIVE_ACTION_REQUIRED"
+  | "AUTOMATICALLY_RECOVERING"
+  | "AUTOMATICALLY_RECOVERED"
+  | "CANCELLED_BY_CUSTOMER"
+  | "TEST_SANDBOX"
+  | "HISTORICAL_EVIDENCE";
+
+export function classifyPaymentHoldOperationalBucket(args: {
+  attentionClass: PaymentHoldAttentionClass;
+  classification: PaymentHoldClassification;
+  tripStatus?: string | null;
+  purposeLegacy?: boolean;
+  purposeSaveCard?: boolean;
+  metadataTest?: boolean;
+}): PaymentHoldOperationalBucket {
+  if (args.purposeLegacy || args.purposeSaveCard || args.metadataTest) {
+    return "TEST_SANDBOX";
+  }
+  if (
+    args.attentionClass === "LEGACY_EVIDENCE"
+    || args.attentionClass === "RESOLVED_COMPANION_SESSION"
+  ) {
+    return "HISTORICAL_EVIDENCE";
+  }
+  if (
+    args.attentionClass === "RESOLVED_PROVIDER_CANCELLED"
+    || args.attentionClass === "RESOLVED_PROVIDER_REVERTED"
+    || args.attentionClass === "REFUNDED"
+    || args.attentionClass === "CAPTURED"
+  ) {
+    const trip = String(args.tripStatus ?? "").toLowerCase();
+    if (trip === "customer_cancelled" || trip === "cancelled") {
+      return "CANCELLED_BY_CUSTOMER";
+    }
+    return "AUTOMATICALLY_RECOVERED";
+  }
+  if (
+    args.attentionClass === "RECOVERY_PENDING"
+    || args.attentionClass === "RELEASE_PENDING"
+    || (args.attentionClass === "ACTIVE_AUTHORISED_HOLD" && args.classification === "AMBER")
+  ) {
+    const trip = String(args.tripStatus ?? "").toLowerCase();
+    if (trip === "customer_cancelled" || trip === "cancelled") {
+      return "CANCELLED_BY_CUSTOMER";
+    }
+    return "AUTOMATICALLY_RECOVERING";
+  }
+  if (args.classification === "RED") {
+    return "ACTIVE_ACTION_REQUIRED";
+  }
+  if (args.classification === "AMBER") {
+    return "AUTOMATICALLY_RECOVERING";
+  }
+  return "HISTORICAL_EVIDENCE";
+}
+
+/** Email only when human intervention is required for live money exposure. */
+export function shouldEmailHoldReconciliationIncident(args: {
+  attentionClass: PaymentHoldAttentionClass;
+  classification: PaymentHoldClassification;
+  providerState?: CanonicalProviderHoldState | null;
+  recoveryAttemptCount?: number;
+  purposeLegacy?: boolean;
+  purposeSaveCard?: boolean;
+  metadataTest?: boolean;
+}): boolean {
+  if (args.purposeLegacy || args.purposeSaveCard || args.metadataTest) return false;
+  if (args.classification !== "RED") return false;
+  if (
+    args.attentionClass === "RECOVERY_PENDING"
+    || args.attentionClass === "RELEASE_PENDING"
+    || args.attentionClass === "OK_ACTIVE_TRIP"
+  ) {
     return false;
   }
-  return true;
+  if (args.attentionClass === "RELEASE_FAILED") {
+    return moneyAtRiskInclude({
+      attentionClass: args.attentionClass,
+      providerState: args.providerState,
+      amountPence: 1,
+      classification: "RED",
+    });
+  }
+  if (args.attentionClass === "ACTIVE_AUTHORISED_HOLD") {
+    return (args.recoveryAttemptCount ?? 0) >= 1;
+  }
+  if (args.attentionClass === "UNKNOWN_PROVIDER_STATE") {
+    return true;
+  }
+  return false;
 }
 
 export type MoneyAtRiskSummary = {
@@ -460,6 +576,7 @@ export function summariseMoneyAtRisk(
     provider_state?: CanonicalProviderHoldState | null;
     amount_pence: number | null;
     in_active_queue: boolean;
+    classification?: PaymentHoldClassification | null;
   }>,
 ): MoneyAtRiskSummary {
   let active_hold_count = 0;
@@ -473,6 +590,7 @@ export function summariseMoneyAtRisk(
       attentionClass: row.attention_class,
       providerState: row.provider_state,
       amountPence: row.amount_pence,
+      classification: row.classification ?? null,
     })) {
       active_hold_count += 1;
       active_hold_amount_pence += row.amount_pence ?? 0;

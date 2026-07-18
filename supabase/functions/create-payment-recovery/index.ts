@@ -32,6 +32,11 @@ import {
   getRevolutMerchantConfig,
 } from "../_shared/revolutOrders.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
+import {
+  computeOutstandingBalancePence,
+  resolveCanonicalCustomerPayablePence,
+  validateCollectOutstandingOrPaymentLinkAction,
+} from "../../../shared/paymentSessionsCaptureConfirmationSSOT.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -56,13 +61,13 @@ Deno.serve(async (req) => {
     if (!adminRole) return errorResponse("Admin access required", 403, undefined, "ADMIN_REQUIRED");
 
     const body = await req.json().catch(() => ({}));
-    const { trip_id, amount_pence, parent_session_id } = body ?? {};
+    const { trip_id, amount_pence, parent_session_id, action_mode } = body ?? {};
     if (!trip_id) return errorResponse("trip_id is required", 400, undefined, "VALIDATION_MISSING_FIELD");
 
     // --- Load trip ---
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
-      .select("id, trip_number, status, passenger_id, service_area_id, driver_id, final_customer_fare_pence, capture_amount_pence, currency_code, payment_status")
+      .select("id, trip_number, status, passenger_id, service_area_id, driver_id, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, capture_amount_pence, currency_code, payment_status")
       .eq("id", trip_id)
       .maybeSingle();
     if (tripErr || !trip) return errorResponse("Trip not found", 404, undefined, "TRIP_NOT_FOUND");
@@ -73,14 +78,105 @@ Deno.serve(async (req) => {
       );
     }
 
-    // --- Amount: prefer verified final customer fare, then capture amount, then explicit override ---
-    const inferredAmount = Number(
-      trip.final_customer_fare_pence ?? trip.capture_amount_pence ?? 0,
-    );
-    const chargePence = Math.round(Number(amount_pence ?? inferredAmount));
-    if (!Number.isFinite(chargePence) || chargePence < 50) {
+    // --- Provider refresh on parent order (when linked) before charging ---
+    if (parent_session_id) {
+      const { data: parentSess } = await supabase
+        .from("payment_sessions")
+        .select("id, provider_order_id, captured_amount_pence, provider_state, metadata")
+        .eq("id", parent_session_id)
+        .maybeSingle();
+      if (parentSess?.provider_order_id) {
+        try {
+          const { secretKey, environment } = getRevolutMerchantConfig();
+          const { retrieveRevolutOrder } = await import("../_shared/revolutOrders.ts");
+          const order = await retrieveRevolutOrder(environment, secretKey, parentSess.provider_order_id);
+          const orderState = String(order.state ?? "").toUpperCase();
+          const orderAmt = typeof order.amount === "number" ? Math.round(order.amount) : null;
+          const nowIso = new Date().toISOString();
+          const parentPatch: Record<string, unknown> = {
+            provider_state: orderState || parentSess.provider_state,
+            provider_state_verified_at: nowIso,
+            provider_state_verified_by: "create_payment_recovery_refresh",
+            updated_at: nowIso,
+          };
+          if (
+            (orderState === "COMPLETED" || orderState === "CAPTURED")
+            && orderAmt != null
+            && orderAmt > 0
+            && (parentSess.captured_amount_pence == null || Number(parentSess.captured_amount_pence) <= 0)
+          ) {
+            parentPatch.captured_amount_pence = orderAmt;
+            parentPatch.captured_at = nowIso;
+            parentPatch.status = "captured";
+          }
+          await supabase.from("payment_sessions").update(parentPatch).eq("id", parentSess.id);
+        } catch (refreshErr) {
+          console.warn("[create-payment-recovery] parent provider refresh failed", refreshErr);
+        }
+      }
+    }
+
+    // --- Canonical payable + confirmed captures (never re-charge full fare) ---
+    const payableResolved = resolveCanonicalCustomerPayablePence({
+      finalCustomerFarePence: trip.final_customer_fare_pence,
+      finalFarePence: trip.final_fare_pence,
+      noShowChargePence: trip.no_show_charge_pence,
+      cancellationFeePence: trip.cancellation_fee_pence,
+      outstandingBalancePence: trip.outstanding_balance_pence,
+      estimatedTotalPence: trip.estimated_total_pence,
+    });
+
+    // Re-read sessions after refresh so outstanding uses latest provider backfill.
+    const { data: captureSessions } = await supabase
+      .from("payment_sessions")
+      .select("id, purpose, captured_amount_pence, status, provider_state")
+      .eq("trip_id", trip.id)
+      .not("captured_amount_pence", "is", null);
+
+    let originalCaptured = 0;
+    let recoveryCaptured = 0;
+    for (const s of captureSessions ?? []) {
+      const amt = Math.round(Number(s.captured_amount_pence ?? 0));
+      if (!Number.isFinite(amt) || amt <= 0) continue;
+      if (String(s.purpose ?? "").toUpperCase() === "PAYMENT_RECOVERY") {
+        recoveryCaptured += amt;
+      } else {
+        originalCaptured += amt;
+      }
+    }
+    // Trip projection may hold confirmed capture when session rows are legacy-incomplete.
+    if (originalCaptured <= 0 && Number(trip.capture_amount_pence ?? 0) > 0) {
+      originalCaptured = Math.round(Number(trip.capture_amount_pence));
+    }
+
+    const outstanding = computeOutstandingBalancePence({
+      canonicalPayablePence: payableResolved.payable_pence,
+      confirmedCapturePence: originalCaptured,
+      confirmedRecoveryCapturePence: recoveryCaptured,
+    });
+
+    const safety = validateCollectOutstandingOrPaymentLinkAction({
+      outstandingPence: outstanding,
+      requestedAmountPence: amount_pence == null ? outstanding : amount_pence,
+      alreadyFullyCaptured: outstanding != null && outstanding <= 0,
+      zeroChargeCancellation: payableResolved.source === "zero_charge",
+      idempotencyKey: parent_session_id
+        ? `recover:${trip.id}:${parent_session_id}:${outstanding ?? 0}`
+        : `recover:${trip.id}:${outstanding ?? 0}`,
+    });
+    if (!safety.ok) {
+      return errorResponse(safety.message, 409, undefined, safety.error_code);
+    }
+    const chargePence = safety.charge_pence;
+    if (chargePence < 50) {
       return errorResponse(
-        "Recovery amount must be >= 50 minor units. Provide amount_pence or set final_customer_fare_pence on the trip.",
+        "Recovery amount must be >= 50 minor units (provider minimum).",
+        400, undefined, "VALIDATION_FAILED",
+      );
+    }
+    if (chargePence < 50) {
+      return errorResponse(
+        "Recovery amount must be >= 50 minor units (provider minimum).",
         400, undefined, "VALIDATION_FAILED",
       );
     }
@@ -186,13 +282,21 @@ Deno.serve(async (req) => {
           estimated_total_pence: chargePence,
           currency: currency.toUpperCase(),
           parent_session_id: parent_session_id ?? null,
-          recovery_reason: "PAYMENT_GATE_BREACH_NO_CAPTURE",
+          recovery_reason: "OUTSTANDING_BALANCE",
           metadata: {
-            recovery_reason: "PAYMENT_GATE_BREACH_NO_CAPTURE",
+            recovery_reason: "OUTSTANDING_BALANCE",
             recovery_idempotency_key: attemptScope,
             recovery_attempt_number: attemptNumber,
             requested_by_admin_user_id: user.id,
             final_customer_charge_pence: chargePence,
+            outstanding_pence: outstanding,
+            canonical_payable_pence: payableResolved.payable_pence,
+            payable_source: payableResolved.source,
+            original_captured_pence: originalCaptured,
+            recovery_captured_pence: recoveryCaptured,
+            action_mode: action_mode === "payment_link" ? "payment_link" : "collect_outstanding",
+            payment_link_state: action_mode === "payment_link" ? "CREATED" : null,
+            parent_provider_order_preserved: true,
           },
         })
         .select("id")
@@ -268,7 +372,10 @@ Deno.serve(async (req) => {
         provider: "revolut",
         provider_order_id: order.id,
         amount_pence: chargePence,
+        outstanding_pence: outstanding,
+        canonical_payable_pence: payableResolved.payable_pence,
         currency,
+        action_mode: action_mode === "payment_link" ? "payment_link" : "collect_outstanding",
       },
     });
 
@@ -278,8 +385,10 @@ Deno.serve(async (req) => {
       checkout_url: order.checkout_url,
       checkout_token: order.token,
       amount: chargePence,
+      outstanding_pence: outstanding,
       currency,
       status: "CUSTOMER_ACTION_REQUIRED",
+      payment_link_state: action_mode === "payment_link" ? "CREATED" : null,
     });
   } catch (e) {
     console.error("[create-payment-recovery] error:", e);

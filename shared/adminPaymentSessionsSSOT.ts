@@ -129,6 +129,16 @@ export type AdminPaymentSessionsListRow = {
   }>;
   age_minutes: number;
   reconciliation_status: string | null;
+  /** Capture confirmation taxonomy (CAPTURED_CONFIRMED, UNDERCAPTURED_…, etc.). */
+  capture_classification: string | null;
+  capture_classification_label: string | null;
+  difference_pence: number | null;
+  outstanding_pence: number | null;
+  /** Provider-truth action classification (AUTHORISED_ACTIVE, NO_ACTIVE_HOLD, …). */
+  action_classification?: string | null;
+  action_classification_label?: string | null;
+  releasable_pence?: number | null;
+  allowed_actions?: string[] | null;
   attention_class: PaymentHoldAttentionClass | null;
   classification: PaymentHoldClassification | null;
   in_active_queue: boolean;
@@ -218,10 +228,17 @@ export type AdminPaymentSessionsSummary = {
   /** captured_count / (captured_count + capture_failed_count) × 100, or null if no attempts. */
   capture_success_rate_pct: number | null;
   money_at_risk_pence: number | null;
+  /** Human-action RED only (never auto-recovering / cancelled / test). */
   red: number;
   amber: number;
   green: number;
   unknown_count: number;
+  active_action_required_count?: number;
+  automatically_recovering_count?: number;
+  automatically_recovered_count?: number;
+  cancelled_by_customer_count?: number;
+  test_sandbox_count?: number;
+  historical_evidence_count?: number;
   /** Provider vs completed-trip comparison widgets (backend-owned). */
   provider_captured_total_pence: number | null;
   completed_trip_fare_total_pence: number | null;

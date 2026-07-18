@@ -75,7 +75,7 @@ export function FinanceRecoveryMismatchSummary({
             disabled={actionsDisabled}
           >
             <PlusCircle className="h-3.5 w-3.5 mr-1 shrink-0" />
-            Request extra payment / Recapture difference
+            Collect Outstanding / Send Payment Link
           </Button>
           <Button
             size="sm"

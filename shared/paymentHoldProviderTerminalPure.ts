@@ -17,17 +17,31 @@ export function extractConfirmedReleaseAmountPence(
     if (Number.isFinite(n) && n > 0) return Math.round(n);
     return null;
   };
+  // Release only — never treat refunded_amount as residual release (Slice 3).
+  // Never invent from authorised − captured (comparison-only elsewhere).
   const candidates = [
     providerPayload.cancelled_amount,
     providerPayload.canceled_amount,
     providerPayload.released_amount,
     providerPayload.amount_released,
-    providerPayload.refunded_amount,
-    providerPayload.amount_refunded,
   ];
   for (const c of candidates) {
     const n = asPence(c);
     if (n != null) return n;
+  }
+  const payments = Array.isArray(providerPayload.payments) ? providerPayload.payments : [];
+  for (const p of payments) {
+    if (!p || typeof p !== "object") continue;
+    const payment = p as Record<string, unknown>;
+    for (const key of [
+      "cancelled_amount",
+      "canceled_amount",
+      "released_amount",
+      "amount_released",
+    ]) {
+      const n = asPence(payment[key]);
+      if (n != null) return n;
+    }
   }
   return null;
 }

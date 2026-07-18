@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateCommission } from "../_shared/commission.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 import { assertServiceRole } from "../_shared/internalAuth.ts";
+import { tripBlocksDriverWalletLedgerPosting } from "../_shared/commissionWalletDeduction.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -143,6 +144,26 @@ serve(async (req) => {
       .eq('id', trip_id);
 
     // === trip_finance DEPRECATED — all financial data in driver_wallet_ledger ===
+
+    // Phase 7: CW trips never create UK DWL earnings / PLATFORM_COMMISSION.
+    if (await tripBlocksDriverWalletLedgerPosting(supabase, trip_id)) {
+      console.log(`[record-financial-outcome] skip DWL — commission wallet trip ${trip_id}`);
+      await supabase
+        .from('drivers')
+        .update({ current_trip_id: null })
+        .eq('id', driver_id);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          trip_id,
+          outcome,
+          skipped_driver_wallet_ledger: true,
+          reason: 'COMMISSION_WALLET_TRIP',
+          fee_pence,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (driver_net_pence > 0) {
       await supabase

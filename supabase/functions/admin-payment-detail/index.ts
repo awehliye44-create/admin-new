@@ -7,6 +7,7 @@ import {
   getTripDriverNetPence,
   getTripSettlementFarePence,
 } from "../_shared/tripSettlementFinanceSSOT.ts";
+import { tripBlocksDriverWalletLedgerPosting } from "../_shared/commissionWalletDeduction.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -115,8 +116,14 @@ serve(async (req) => {
           });
         }
 
-        // If trip has fare data and a driver, create ledger entry if not already exists
-        if (trip.driver_id && trip.commission_pence && trip.commission_pence > 0) {
+        // If trip has fare data and a driver, create ledger entry if not already exists.
+        // Phase 7: never post DWL for Commission Wallet trips.
+        if (
+          trip.driver_id
+          && trip.commission_pence
+          && trip.commission_pence > 0
+          && !(await tripBlocksDriverWalletLedgerPosting(supabase, trip_id))
+        ) {
           const { data: existingEntry } = await supabase
             .from('driver_wallet_ledger')
             .select('id')

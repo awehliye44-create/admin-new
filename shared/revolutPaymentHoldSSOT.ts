@@ -60,10 +60,40 @@ export type RevolutCompletionCapturePlan =
       release_remainder_pence: number;
     }
   | {
-      kind: "rehold_required";
-      new_hold_amount_pence: number;
+      /** Keep original hold; authorise shortfall only — never cancel original first. */
+      kind: "additional_authorisation_required";
       shortfall_pence: number;
+      additional_authorisation_pence: number;
+      capture_from_original_pence: number;
+      /** @deprecated Prefer additional_authorisation_pence (shortfall-only). */
+      new_hold_amount_pence: number;
     };
+
+/** Completion: capture min(final_fare, hold); additional auth if final exceeds hold. */
+export function planRevolutCompletionCapture(
+  input: RevolutCompletionCaptureInput,
+): RevolutCompletionCapturePlan {
+  const finalFare = Math.max(0, Math.round(input.finalFarePence));
+  const hold = Math.max(0, Math.round(input.authorisedHoldPence));
+
+  if (finalFare <= hold) {
+    return {
+      kind: "capture_within_hold",
+      capture_amount_pence: finalFare,
+      release_remainder_pence: Math.max(0, hold - finalFare),
+    };
+  }
+
+  const shortfall = finalFare - hold;
+  return {
+    kind: "additional_authorisation_required",
+    shortfall_pence: shortfall,
+    additional_authorisation_pence: shortfall,
+    capture_from_original_pence: hold,
+    // Legacy field retained for callers that still size a replacement hold.
+    new_hold_amount_pence: finalFare + Math.max(0, Math.round(input.bufferPence)),
+  };
+}
 
 /** Shown on Revolut hosted checkout / wallet — never mention pre-auth or buffer. */
 export const REVOLUT_CUSTOMER_CHECKOUT_DESCRIPTION = "ONECAB ride";
@@ -83,29 +113,6 @@ export function computeRevolutHoldAmount(input: RevolutHoldAmountInput): Revolut
     estimated_total_pence: estimated,
     buffer_pence: buffer,
     hold_amount_pence: hold,
-  };
-}
-
-/** Completion: capture min(final_fare, hold); re-hold if final exceeds hold. */
-export function planRevolutCompletionCapture(
-  input: RevolutCompletionCaptureInput,
-): RevolutCompletionCapturePlan {
-  const finalFare = Math.max(0, Math.round(input.finalFarePence));
-  const hold = Math.max(0, Math.round(input.authorisedHoldPence));
-  const buffer = Math.max(0, Math.round(input.bufferPence));
-
-  if (finalFare <= hold) {
-    return {
-      kind: "capture_within_hold",
-      capture_amount_pence: finalFare,
-      release_remainder_pence: Math.max(0, hold - finalFare),
-    };
-  }
-
-  return {
-    kind: "rehold_required",
-    new_hold_amount_pence: finalFare + buffer,
-    shortfall_pence: finalFare - hold,
   };
 }
 

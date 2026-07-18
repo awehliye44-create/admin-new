@@ -47,6 +47,12 @@ import {
   formatReleasedAmountDisplay,
 } from '../../shared/paymentSessionsDisplaySSOT';
 import {
+  classifyCaptureConfirmation,
+  collectOutstandingActionLabel,
+  sendPaymentLinkActionLabel,
+} from '../../shared/paymentSessionsCaptureConfirmationSSOT';
+import { isValidConfirmedCapturePence } from '../../shared/paymentCaptureEvidenceSSOT';
+import {
   DEFAULT_SERVICE_AREA_SELECTION,
   ServiceAreaFinanceFilter,
   type ServiceAreaFinanceSelection,
@@ -65,7 +71,7 @@ const TABS: Array<{ id: AdminPaymentSessionsTab; label: string }> = [
   { id: 'completed_trips_paid', label: 'Completed Trips Paid' },
   { id: 'payment_matching', label: 'Payment Matching' },
   { id: 'active_holds', label: 'Active Holds' },
-  { id: 'captured', label: 'Captured' },
+  { id: 'captured', label: 'Captured — Provider Confirmed' },
   { id: 'released', label: 'Released' },
   { id: 'refunded', label: 'Refunds' },
   { id: 'failed_recovery', label: 'Recovery' },
@@ -117,7 +123,7 @@ function SessionActions({
   onAction: (row: AdminPaymentSessionsListRow, action: 'release' | 'retry_release' | 'retry_recovery') => void;
   onRefund: (row: AdminPaymentSessionsListRow) => void;
   onInspect: (row: AdminPaymentSessionsListRow) => void;
-  onRequestRecovery: (row: AdminPaymentSessionsListRow) => void;
+  onRequestRecovery: (row: AdminPaymentSessionsListRow, mode?: 'collect_outstanding' | 'payment_link') => void;
   onAbandonRecovery: (row: AdminPaymentSessionsListRow) => void;
 }) {
 
@@ -125,6 +131,39 @@ function SessionActions({
   const busy = actingId === key;
   const inspecting = inspectingId === key;
   const policy = row.action_policy;
+  // Provider-truth SSOT: financial buttons come only from backend allowed_actions.
+  // Empty array = no actions. Never fall back to local action_policy / stale columns.
+  const allowedDefined = Array.isArray(row.allowed_actions);
+  const allowedActions = new Set(row.allowed_actions ?? []);
+  const canRelease = allowedDefined && allowedActions.has('release_hold');
+  const canRetryRelease = allowedDefined && allowedActions.has('retry_release');
+  const canRetryRecovery = allowedDefined && allowedActions.has('retry_recovery');
+  const captureConfirmation = classifyCaptureConfirmation({
+    providerState: row.provider_state,
+    providerCapturedPence: row.captured_amount_pence,
+    localCapturedPence: row.captured_amount_pence,
+    canonicalPayablePence: row.customer_payable_pence,
+    authorisedPence: row.authorised_amount_pence,
+    purpose: row.purpose,
+  });
+  const offerCollectOutstanding = allowedDefined
+    ? allowedActions.has('collect_outstanding')
+    : false;
+  const offerSendPaymentLink = allowedDefined
+    ? allowedActions.has('send_payment_link')
+    : false;
+  const canRefund = allowedDefined && allowedActions.has('refund_difference');
+  const outstandingForAction = row.outstanding_pence
+    ?? captureConfirmation.outstanding_pence;
+  const captureFullyConfirmed =
+    (row.action_classification === 'CAPTURED_CONFIRMED'
+      || captureConfirmation.classification === 'CAPTURED_CONFIRMED')
+    && isValidConfirmedCapturePence(row.captured_amount_pence);
+  const noActionRequired =
+    row.action_classification === 'NO_ACTIVE_HOLD'
+    || row.action_classification === 'CAPTURED_CONFIRMED'
+    || row.action_classification === 'AUTHORISATION_EXPIRED'
+    || (captureFullyConfirmed && !offerCollectOutstanding && !canRefund);
   return (
     <div className="flex flex-wrap gap-1">
       {row.customer_id && (
@@ -146,41 +185,59 @@ function SessionActions({
           </Link>
         </Button>
       )}
-      {policy.can_release && (
+      {canRelease && (
         <Button size="sm" disabled={busy} onClick={() => onAction(row, 'release')}>
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Release hold'}
+          {busy
+            ? <Loader2 className="h-3 w-3 animate-spin" />
+            : (row.releasable_pence != null && row.releasable_pence > 0
+              ? `Release hold £${(row.releasable_pence / 100).toFixed(2)}`
+              : 'Release hold')}
         </Button>
       )}
-      {policy.can_retry_release && (
+      {canRetryRelease && (
         <Button size="sm" variant="secondary" disabled={busy} onClick={() => onAction(row, 'retry_release')}>
           Retry release
         </Button>
       )}
-      {policy.can_retry_recovery && (
+      {canRetryRecovery && !captureFullyConfirmed && (
         <Button size="sm" variant="secondary" disabled={busy} onClick={() => onAction(row, 'retry_recovery')}>
-          Retry recovery
+          Retry Recovery
         </Button>
       )}
-      {policy.can_refund && (
-        <Button size="sm" variant="destructive" disabled={busy || !row.provider_order_id} onClick={() => onRefund(row)}>
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Refund'}
+      {canRefund && (
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={busy || !row.provider_order_id}
+          onClick={() => onRefund(row)}
+        >
+          {busy
+            ? <Loader2 className="h-3 w-3 animate-spin" />
+            : captureConfirmation.classification === 'OVERCAPTURED_REFUND_REQUIRED'
+              && captureConfirmation.difference_pence != null
+              && captureConfirmation.difference_pence > 0
+              ? `Refund Difference £${(captureConfirmation.difference_pence / 100).toFixed(2)}`
+              : 'Refund'}
         </Button>
       )}
       {row.trip_id
         && row.purpose !== 'PAYMENT_RECOVERY'
+        && offerCollectOutstanding
+        && outstandingForAction != null
+        && outstandingForAction > 0
         && (
-          row.release_failure_reason === 'PAYMENT_GATE_BREACH_NO_CAPTURE'
-          || row.hold_terminal_reason === 'PAYMENT_GATE_BREACH_NO_CAPTURE'
-          || row.evidence_status === 'CAPTURE_ZERO_INVALID'
-          || row.evidence_status === 'CAPTURE_AMOUNT_MISMATCH'
-          || row.evidence_status === 'CAPTURE_SHORTFALL'
-          || row.evidence_status === 'CAPTURE_FAILED'
-          || /recovery_required|capture_failed|capture_cancelled/i.test(
-            `${row.session_status ?? ''} ${row.technical_status ?? ''}`,
-          )
-        ) && (
-          <Button size="sm" variant="default" disabled={busy} onClick={() => onRequestRecovery(row)}>
-            Recapture
+          <Button size="sm" variant="default" disabled={busy} onClick={() => onRequestRecovery(row, 'collect_outstanding')}>
+            {collectOutstandingActionLabel(outstandingForAction)}
+          </Button>
+        )}
+      {row.trip_id
+        && row.purpose !== 'PAYMENT_RECOVERY'
+        && offerSendPaymentLink
+        && outstandingForAction != null
+        && outstandingForAction > 0
+        && (
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => onRequestRecovery(row, 'payment_link')}>
+            {sendPaymentLinkActionLabel(outstandingForAction)}
           </Button>
         )}
 
@@ -196,6 +253,26 @@ function SessionActions({
       )}
       {row.provider_verification_status === 'UNAVAILABLE' && (
         <Badge variant="destructive">Provider verification unavailable</Badge>
+      )}
+      {noActionRequired && (
+        <Badge variant="outline">No action required</Badge>
+      )}
+      {row.action_classification === 'NO_ACTIVE_HOLD' && (
+        <Badge variant="outline">Provider verified ✅</Badge>
+      )}
+      {row.action_classification === 'PROVIDER_REFRESH_REQUIRED' && (
+        <Badge variant="secondary">Provider refresh required</Badge>
+      )}
+      {row.releasable_pence != null && row.releasable_pence > 0 && canRelease && (
+        <span className="text-[10px] text-muted-foreground self-center">
+          Releasable {formatNullablePence(row.releasable_pence)}
+        </span>
+      )}
+      {row.outstanding_pence != null && row.outstanding_pence > 0
+        && (canRetryRecovery || offerCollectOutstanding) && (
+        <span className="text-[10px] text-amber-700 self-center">
+          Outstanding {formatNullablePence(row.outstanding_pence)}
+        </span>
       )}
 
     </div>
@@ -348,6 +425,13 @@ export default function PaymentSessions() {
     setRefreshProviderState(false);
   }, [refreshProviderState, isFetching, isLoading]);
 
+  // Action tabs: refresh provider evidence so allowed_actions are not STALE-gated.
+  useEffect(() => {
+    if (tab === 'active_holds' || tab === 'failed_recovery') {
+      setRefreshProviderState(true);
+    }
+  }, [tab]);
+
   const setTab = (next: string) => {
     const params = new URLSearchParams(searchParams);
     params.set('tab', next);
@@ -485,9 +569,25 @@ export default function PaymentSessions() {
   );
 
   const runRequestRecovery = useCallback(
-    async (row: AdminPaymentSessionsListRow) => {
+    async (
+      row: AdminPaymentSessionsListRow,
+      mode: 'collect_outstanding' | 'payment_link' = 'collect_outstanding',
+    ) => {
       if (!row.trip_id) {
         toast.error('Trip id is required to open a recovery payment');
+        return;
+      }
+      const confirmation = classifyCaptureConfirmation({
+        providerState: row.provider_state,
+        providerCapturedPence: row.captured_amount_pence,
+        localCapturedPence: row.captured_amount_pence,
+        canonicalPayablePence: row.customer_payable_pence,
+        authorisedPence: row.authorised_amount_pence,
+        purpose: row.purpose,
+      });
+      const outstanding = confirmation.outstanding_pence;
+      if (outstanding == null || outstanding <= 0) {
+        toast.error('No outstanding balance to collect — full-fare recapture is blocked');
         return;
       }
       const actionKey = row.provider_order_id || row.payment_session_id || row.id;
@@ -497,6 +597,8 @@ export default function PaymentSessions() {
           body: {
             trip_id: row.trip_id,
             parent_session_id: row.payment_session_id ?? null,
+            amount_pence: outstanding,
+            action_mode: mode,
           },
         });
         if (error) throw error;
@@ -505,6 +607,8 @@ export default function PaymentSessions() {
           reused?: boolean;
           already_completed?: boolean;
           message?: string;
+          amount?: number;
+          outstanding_pence?: number;
         };
         if (payload.already_completed) {
           toast.success(payload.message ?? 'Recovery payment is already completed; no duplicate charge was created');
@@ -514,13 +618,17 @@ export default function PaymentSessions() {
         if (payload.checkout_url) {
           try { await navigator.clipboard.writeText(payload.checkout_url); } catch { /* ignore */ }
           toast.success(
-            payload.reused
-              ? 'Existing recovery link copied to clipboard'
-              : 'Recovery checkout link created and copied to clipboard',
+            mode === 'payment_link'
+              ? (payload.reused
+                ? 'Existing payment link copied — charges outstanding only'
+                : `Payment link for £${((payload.amount ?? outstanding) / 100).toFixed(2)} created and copied`)
+              : (payload.reused
+                ? 'Existing recovery link copied — outstanding only'
+                : `Collect Outstanding £${((payload.amount ?? outstanding) / 100).toFixed(2)} link created and copied`),
           );
           window.open(payload.checkout_url, '_blank', 'noopener');
         } else {
-          toast.success('Recovery session created');
+          toast.success('Recovery session created for outstanding balance only');
         }
         await refetch();
       } catch (err) {
@@ -624,8 +732,28 @@ export default function PaymentSessions() {
               </Badge>
               {summary && (
                 <>
+                  <Badge variant="destructive">
+                    Active Action Required: {summary.active_action_required_count ?? summary.red}
+                  </Badge>
+                  <Badge variant="secondary">
+                    Automatically Recovering: {summary.automatically_recovering_count ?? summary.amber}
+                  </Badge>
+                  <Badge variant="outline">
+                    Automatically Recovered: {summary.automatically_recovered_count ?? 0}
+                  </Badge>
+                  <Badge variant="outline">
+                    Cancelled by Customer: {summary.cancelled_by_customer_count ?? 0}
+                  </Badge>
+                  <Badge variant="outline">
+                    Test/Sandbox: {summary.test_sandbox_count ?? 0}
+                  </Badge>
+                  <Badge variant="outline">
+                    Historical Evidence: {summary.historical_evidence_count ?? 0}
+                  </Badge>
                   <Badge variant="outline">Active holds: {summary.active_hold_count}</Badge>
-                  <Badge variant="destructive">RED: {summary.red}</Badge>
+                  <Badge variant="destructive">
+                    RED: {summary.active_action_required_count ?? summary.red}
+                  </Badge>
                   <Badge variant="secondary">
                     At risk: {formatNullablePence(summary.money_at_risk_pence)}
                   </Badge>
@@ -887,7 +1015,8 @@ export default function PaymentSessions() {
               )}
               {t.id === 'captured' && (
                 <p className="text-sm text-muted-foreground">
-                  Confirmed captured payments only (amount present). Authorisations are excluded.
+                  Confirmed provider-captured payments only (amount present). Authorisations are excluded.
+                  Healthy captures show CAPTURED — CONFIRMED; manual review is for unresolved contradictions only.
                 </p>
               )}
               {t.id === 'active_holds' && (
@@ -979,6 +1108,8 @@ export default function PaymentSessions() {
                         <TableHead>Pre-auth Buffer</TableHead>
                         <TableHead>Authorised</TableHead>
                         <TableHead>Captured</TableHead>
+                        <TableHead>Difference</TableHead>
+                        <TableHead>Reconciliation</TableHead>
                         <TableHead>Released</TableHead>
                         <TableHead>Reason</TableHead>
                         <TableHead>Refunded</TableHead>
@@ -995,6 +1126,23 @@ export default function PaymentSessions() {
                     <TableBody>
                       {rows.map((row) => {
                         const key = row.id;
+                        const captureConfirmation = classifyCaptureConfirmation({
+                          providerState: row.provider_state,
+                          providerCapturedPence: row.captured_amount_pence,
+                          localCapturedPence: row.captured_amount_pence,
+                          canonicalPayablePence: row.customer_payable_pence,
+                          authorisedPence: row.authorised_amount_pence,
+                          purpose: row.purpose,
+                        });
+                        const captureConfirmed =
+                          captureConfirmation.classification === 'CAPTURED_CONFIRMED'
+                          && isValidConfirmedCapturePence(row.captured_amount_pence);
+                        const expectedResidualRelease =
+                          row.authorised_amount_pence != null
+                          && row.captured_amount_pence != null
+                          && Number(row.authorised_amount_pence) > Number(row.captured_amount_pence)
+                            ? Math.round(Number(row.authorised_amount_pence) - Number(row.captured_amount_pence))
+                            : null;
                         return (
                           <Fragment key={key}>
                             <TableRow>
@@ -1077,10 +1225,59 @@ export default function PaymentSessions() {
                                     {format(new Date(row.captured_at), 'dd MMM HH:mm')}
                                   </div>
                                 )}
+                                {captureConfirmed && (
+                                  <div className="mt-1 text-[10px] text-emerald-700">
+                                    CAPTURED — CONFIRMED ✓
+                                  </div>
+                                )}
+                                {!captureConfirmed && captureConfirmation.label && (
+                                  <div className="mt-1 text-[10px] text-amber-700">
+                                    {captureConfirmation.label}
+                                  </div>
+                                )}
                                 {(row.evidence_status === 'CAPTURE_ZERO_INVALID'
                                   || row.evidence_status === 'CAPTURE_AMOUNT_MISSING'
                                   || row.evidence_status === 'CAPTURE_AMOUNT_MISMATCH') && (
                                   <div className="mt-1 text-[10px] text-amber-700">{row.evidence_label ?? row.evidence_status}</div>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {captureConfirmation.difference_pence == null
+                                  ? '—'
+                                  : formatNullablePence(captureConfirmation.difference_pence)}
+                                {captureConfirmed && (
+                                  <div className="mt-1 text-[10px] text-muted-foreground">No action required</div>
+                                )}
+                                {captureConfirmation.classification === 'UNDERCAPTURED_RECOVERY_REQUIRED'
+                                  && captureConfirmation.outstanding_pence != null && (
+                                  <div className="mt-1 text-[10px] text-amber-700">
+                                    Outstanding {formatNullablePence(captureConfirmation.outstanding_pence)}
+                                  </div>
+                                )}
+                                {captureConfirmation.classification === 'OVERCAPTURED_REFUND_REQUIRED'
+                                  && captureConfirmation.difference_pence != null && (
+                                  <div className="mt-1 text-[10px] text-amber-700">
+                                    Overcharged {formatNullablePence(captureConfirmation.difference_pence)}
+                                  </div>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                <div className="font-medium">
+                                  {row.action_classification_label
+                                    ?? row.capture_classification_label
+                                    ?? captureConfirmation.label
+                                    ?? row.reconciliation_status
+                                    ?? '—'}
+                                </div>
+                                {captureConfirmation.manual_review_reason && (
+                                  <div className="mt-1 text-[10px] text-amber-700">
+                                    {captureConfirmation.manual_review_reason}
+                                  </div>
+                                )}
+                                {row.provider_state_verified_at && (
+                                  <div className="mt-1 text-[10px] text-muted-foreground">
+                                    Last verified {format(new Date(row.provider_state_verified_at), 'dd MMM HH:mm')}
+                                  </div>
                                 )}
                               </TableCell>
                               <TableCell className="text-xs">
@@ -1090,10 +1287,15 @@ export default function PaymentSessions() {
                                     released_at: row.released_at,
                                     release_evidence_status: row.release_evidence_status,
                                     currencyFormatter: (p) => formatNullablePence(p),
+                                    captureConfirmed,
+                                    providerState: row.provider_state,
+                                    capturedAmountPence: row.captured_amount_pence,
+                                    expectedReleasePence: expectedResidualRelease,
                                   });
+                                  const showManualReview = released.primary === 'MANUAL_REVIEW_REQUIRED';
                                   return (
                                     <>
-                                      <span className={released.secondary ? 'text-amber-800' : undefined}>
+                                      <span className={showManualReview ? 'text-amber-800' : undefined}>
                                         {released.primary}
                                       </span>
                                       {released.secondary && (
@@ -1109,9 +1311,19 @@ export default function PaymentSessions() {
                                     {format(new Date(row.released_at), 'dd MMM HH:mm')}
                                   </div>
                                 )}
-                                {row.provider_verification_status && (row.released_at || tab === 'released') && (
+                                {row.provider_verification_status
+                                  && (row.released_at || tab === 'released')
+                                  && !(captureConfirmed && row.provider_verification_status === 'STALE')
+                                  && (
                                   <div className="mt-1 text-[10px] text-muted-foreground">
-                                    Provider: {row.provider_verification_status}
+                                    {row.provider_verification_status === 'STALE'
+                                      ? 'Provider reconciliation pending'
+                                      : `Provider: ${row.provider_verification_status}`}
+                                  </div>
+                                )}
+                                {captureConfirmed && row.provider_state_verified_at && (
+                                  <div className="mt-1 text-[10px] text-muted-foreground">
+                                    Last verified {format(new Date(row.provider_state_verified_at), 'dd MMM HH:mm')}
                                   </div>
                                 )}
                               </TableCell>
@@ -1154,13 +1366,16 @@ export default function PaymentSessions() {
                                 <Badge
                                   variant={
                                     row.provider_verification_status === 'VERIFIED'
+                                      || (captureConfirmed && row.provider_verification_status === 'STALE')
                                       ? 'default'
                                       : row.provider_verification_status === 'UNAVAILABLE'
                                       ? 'destructive'
                                       : 'secondary'
                                   }
                                 >
-                                  {row.provider_verification_status ?? 'UNKNOWN'}
+                                  {captureConfirmed && row.provider_verification_status === 'STALE'
+                                    ? 'VERIFIED (cached)'
+                                    : (row.provider_verification_status ?? 'UNKNOWN')}
                                 </Badge>
                                 {row.provider_state_verified_at && (
                                   <div className="mt-1 text-[10px] text-muted-foreground">
@@ -1219,7 +1434,7 @@ export default function PaymentSessions() {
                             </TableRow>
                             {expandedId === key && (
                               <TableRow>
-                                <TableCell colSpan={24} className="bg-muted/40 text-xs">
+                                <TableCell colSpan={26} className="bg-muted/40 text-xs">
                                   <div className="space-y-3">
                                     <div>
                                       <div className="mb-1 font-medium">Session evidence</div>
@@ -1235,6 +1450,8 @@ export default function PaymentSessions() {
                                             provider_capture_id: row.provider_capture_id,
                                             authorised_amount_pence: row.authorised_amount_pence,
                                             captured_amount_pence: row.captured_amount_pence,
+                                            capture_confirmation: captureConfirmation,
+                                            difference_pence: captureConfirmation.difference_pence,
                                             released_amount_pence: row.released_amount_pence,
                                             release_evidence_status: row.release_evidence_status,
                                             release_evidence_source: row.release_evidence_source,
@@ -1243,6 +1460,10 @@ export default function PaymentSessions() {
                                               released_at: row.released_at,
                                               release_evidence_status: row.release_evidence_status,
                                               currencyFormatter: (p) => formatNullablePence(p),
+                                              captureConfirmed,
+                                              providerState: row.provider_state,
+                                              capturedAmountPence: row.captured_amount_pence,
+                                              expectedReleasePence: expectedResidualRelease,
                                             }),
                                             refunded_amount_pence: row.refunded_amount_pence,
                                             provider_processing_fee_pence: row.provider_processing_fee_pence,

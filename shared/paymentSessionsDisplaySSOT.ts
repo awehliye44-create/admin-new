@@ -3,6 +3,10 @@
  * Pure; no React money math. Amounts come from Phase 1A columns only.
  */
 
+import { paymentResolutionUiLabel, type PaymentResolutionStatus, type PaymentResolutionType } from "./finalFareAuthorisationSSOT";
+import { isValidConfirmedCapturePence } from "./paymentCaptureEvidenceSSOT";
+import { isHealthyPostCaptureResidualRelease } from "./paymentSessionsCaptureConfirmationSSOT";
+
 export type PaymentSessionsCanonicalStatus =
   | "AUTHORISED"
   | "CAPTURE_PENDING"
@@ -44,6 +48,9 @@ export type PaymentSessionsDisplayInput = {
   refunded_at?: string | null;
   hold_classification?: string | null;
   classification?: "GREEN" | "AMBER" | "RED" | null;
+  payment_resolution_type?: string | null;
+  payment_resolution_status?: string | null;
+  recovery_required?: boolean | null;
 };
 
 export type PaymentSessionsDisplayResult = {
@@ -107,11 +114,24 @@ export function mapCanonicalSessionStatus(input: PaymentSessionsDisplayInput): P
 
   if (raw === "completed_pending_capture") return "CAPTURE_PENDING";
 
-  // CANCELLED is distinct from RELEASED (spec status vocabulary).
+  // Intentional hold release (incl. DB alias status=cancelled) must show RELEASED — not Cancelled.
+  const intentionalRelease =
+    Boolean(input.released_at)
+    || (input.released_amount_pence != null && input.released_amount_pence >= 0
+      && (raw === "released" || raw === "cancelled" || providerReleased));
   if (
-    raw === "cancelled"
-    || upper(input.provider_state) === "CANCELLED"
-    || upper(input.provider_state) === "CANCELED"
+    intentionalRelease
+    && !providerCaptured
+    && !(input.captured_amount_pence != null && input.captured_amount_pence > 0)
+  ) {
+    return "RELEASED";
+  }
+
+  // CANCELLED only when provider payment was genuinely cancelled (no release evidence).
+  if (
+    (raw === "cancelled" || upper(input.provider_state) === "CANCELLED" || upper(input.provider_state) === "CANCELED")
+    && !input.released_at
+    && (input.released_amount_pence == null || input.released_amount_pence === 0)
   ) {
     return "CANCELLED";
   }
@@ -167,7 +187,17 @@ export function derivePaymentSessionsEvidenceStatus(
       label: "Captured amount not recorded",
     };
   }
-  if (input.released_at && input.released_amount_pence == null) {
+
+  // Healthy capture: residual release amount may be null (provider auto-void).
+  // Do not treat that as session-level AMOUNT_UNCONFIRMED / manual review.
+  const healthyCaptureResidual = isHealthyPostCaptureResidualRelease({
+    providerState: input.provider_state,
+    capturedAmountPence: input.captured_amount_pence,
+    releasedAt: input.released_at,
+    releasedAmountPence: input.released_amount_pence,
+  });
+
+  if (input.released_at && input.released_amount_pence == null && !healthyCaptureResidual) {
     return { status: "AMOUNT_UNCONFIRMED", label: "Released amount unconfirmed" };
   }
   if (input.refunded_at && input.refunded_amount_pence == null) {
@@ -183,7 +213,7 @@ export function derivePaymentSessionsEvidenceStatus(
   }
   if (
     (providerCaptured || input.captured_at)
-    && input.captured_amount_pence != null
+    && isValidConfirmedCapturePence(input.captured_amount_pence)
   ) {
     return { status: "COMPLETE", label: "COMPLETE" };
   }
@@ -193,7 +223,7 @@ export function derivePaymentSessionsEvidenceStatus(
   if (input.refunded_at && input.refunded_amount_pence != null) {
     return { status: "COMPLETE", label: "COMPLETE" };
   }
-  return { status: "INCOMPLETE", label: "INCOMPLETE" };
+  return { status: "INCOMPLETE", label: "DATA BACKFILL REQUIRED" };
 }
 
 export function deriveFeeDisplay(input: {
@@ -235,6 +265,22 @@ export function derivePaymentSessionsReconciliation(
       classification: "AMBER",
     };
   }
+
+  const providerCaptured = isProviderCapturedState(input.provider_state);
+  const captureConfirmed =
+    (canonical === "CAPTURED" || providerCaptured)
+    && isValidConfirmedCapturePence(input.captured_amount_pence);
+
+  // Confirmed provider capture is GREEN even when residual release amount is
+  // null (auto-void) or provider verification timestamp is older than 15m.
+  if (captureConfirmed && (evidence === "COMPLETE" || evidence === "PENDING_PROVIDER_FEE")) {
+    return {
+      reconciliation_status:
+        evidence === "PENDING_PROVIDER_FEE" ? "PENDING_PROVIDER_FEE" : "CAPTURED_CONFIRMED",
+      classification: evidence === "PENDING_PROVIDER_FEE" ? "AMBER" : "GREEN",
+    };
+  }
+
   if (evidence === "PENDING_PROVIDER_FEE") {
     return {
       reconciliation_status: "PENDING_PROVIDER_FEE",
@@ -247,14 +293,14 @@ export function derivePaymentSessionsReconciliation(
       classification: "AMBER",
     };
   }
-  if (input.provider_verification_status === "STALE") {
+  // STALE verification must not override a confirmed capture (handled above).
+  if (input.provider_verification_status === "STALE" && !captureConfirmed) {
     return {
       reconciliation_status: "PROVIDER_VERIFICATION_STALE",
       classification: "AMBER",
     };
   }
 
-  const providerCaptured = isProviderCapturedState(input.provider_state);
   const raw = String(input.raw_session_status ?? "").toLowerCase();
   if (
     providerCaptured
@@ -269,7 +315,7 @@ export function derivePaymentSessionsReconciliation(
 
   if (canonical === "CAPTURED" && evidence === "COMPLETE") {
     return {
-      reconciliation_status: "OK_CAPTURED",
+      reconciliation_status: "CAPTURED_CONFIRMED",
       classification: "GREEN",
     };
   }
@@ -317,14 +363,37 @@ export function buildPaymentSessionsDisplay(
   const evidence = derivePaymentSessionsEvidenceStatus(input);
   const recon = derivePaymentSessionsReconciliation(input, evidence.status, canonical);
   const fee = deriveFeeDisplay(input);
-  const verified = input.provider_verification_status === "VERIFIED" ? "VERIFIED" : (
+  const verifiedRaw = input.provider_verification_status === "VERIFIED" ? "VERIFIED" : (
     input.provider_verification_status ?? "UNKNOWN"
   );
   const providerState = upper(input.provider_state) || "UNKNOWN";
+  const captureConfirmed =
+    recon.reconciliation_status === "CAPTURED_CONFIRMED"
+    && isValidConfirmedCapturePence(input.captured_amount_pence);
+  // Never surface permanent STALE on a provider-confirmed capture.
+  const verified = captureConfirmed && verifiedRaw === "STALE"
+    ? "VERIFIED"
+    : verifiedRaw;
+
+  const resolutionType = String(input.payment_resolution_type ?? "").trim();
+  const resolutionLabel = resolutionType
+    ? paymentResolutionUiLabel(
+      resolutionType as PaymentResolutionType,
+      (input.payment_resolution_status as PaymentResolutionStatus | null) ?? null,
+    )
+    : null;
+  // Prefer final-fare resolution labels; never show Cancelled for intentional release.
+  let statusLabel = resolutionLabel
+    ?? (canonical === "CANCELLED" && (input.released_at || input.recovery_required)
+      ? "Payment recovery required"
+      : sessionStatusLabel(canonical));
+  if (!resolutionLabel && recon.reconciliation_status === "CAPTURED_CONFIRMED") {
+    statusLabel = "CAPTURED — CONFIRMED";
+  }
 
   return {
     session_status_display: canonical,
-    session_status_label: sessionStatusLabel(canonical),
+    session_status_label: statusLabel,
     evidence_status: evidence.status,
     evidence_label: evidence.label,
     reconciliation_status: recon.reconciliation_status,
@@ -458,23 +527,52 @@ export function formatCapturedAmountDisplay(args: {
 }
 
 /**
- * Slice 9 display bridge: DB enum remains AMOUNT_UNCONFIRMED (never invent amount).
- * Operator-facing primary label aligns to MANUAL_REVIEW_REQUIRED.
+ * Released column display.
+ * Healthy post-capture residual (provider COMPLETED, capture confirmed, amount null)
+ * must NOT show MANUAL_REVIEW_REQUIRED — that label is for real contradictions only.
  */
 export function formatReleasedAmountDisplay(args: {
   released_amount_pence: number | null | undefined;
   released_at?: string | null;
   release_evidence_status?: string | null;
   currencyFormatter: (pence: number | null) => string;
+  /** When true, residual null after capture is informational — not manual review. */
+  captureConfirmed?: boolean;
+  providerState?: string | null;
+  capturedAmountPence?: number | null;
+  expectedReleasePence?: number | null;
 }): { primary: string; secondary: string | null } {
   const evidence = String(args.release_evidence_status ?? "").toUpperCase();
   const amountUnconfirmed =
     evidence === "AMOUNT_UNCONFIRMED"
     || Boolean(args.released_at && args.released_amount_pence == null);
+
+  const healthyResidual =
+    (args.captureConfirmed === true && amountUnconfirmed)
+    || isHealthyPostCaptureResidualRelease({
+      providerState: args.providerState,
+      capturedAmountPence: args.capturedAmountPence,
+      releasedAt: args.released_at,
+      releasedAmountPence: args.released_amount_pence,
+      releaseEvidenceStatus: args.release_evidence_status,
+    });
+
+  if (amountUnconfirmed && healthyResidual) {
+    const expected = args.expectedReleasePence == null
+      ? null
+      : Math.round(Number(args.expectedReleasePence));
+    return {
+      primary: expected != null && expected > 0
+        ? args.currencyFormatter(expected)
+        : "Auto-voided",
+      secondary: "Local record reconciled — residual release amount not explicit from provider",
+    };
+  }
+
   if (amountUnconfirmed) {
     return {
       primary: "MANUAL_REVIEW_REQUIRED",
-      secondary: "DB: AMOUNT_UNCONFIRMED · amount NULL (fail-closed)",
+      secondary: "Unresolved release amount — provider evidence contradictory or missing",
     };
   }
   if (args.released_amount_pence == null) {
