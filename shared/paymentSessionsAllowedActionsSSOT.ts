@@ -7,17 +7,17 @@
 import {
   confirmedPositiveCapturePence,
   isValidConfirmedCapturePence,
-} from "./paymentCaptureEvidenceSSOT";
+} from "./paymentCaptureEvidenceSSOT.ts";
 import {
   mapRevolutProviderHoldState,
   type CanonicalProviderHoldState,
-} from "./paymentHoldClassificationSSOT";
+} from "./paymentHoldClassificationSSOT.ts";
 import {
   classifyCaptureConfirmation,
   computeOutstandingBalancePence,
   shouldOfferCollectOutstanding,
   shouldOfferSendPaymentLink,
-} from "./paymentSessionsCaptureConfirmationSSOT";
+} from "./paymentSessionsCaptureConfirmationSSOT.ts";
 
 export type PaymentSessionActionId =
   | "release_hold"

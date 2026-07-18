@@ -7,7 +7,7 @@
 import {
   confirmedPositiveCapturePence,
   isValidConfirmedCapturePence,
-} from "./paymentCaptureEvidenceSSOT";
+} from "./paymentCaptureEvidenceSSOT.ts";
 
 export const PAYMENT_SESSION_CAPTURE_CLASSIFICATION = {
   AUTHORISED_ACTIVE: "AUTHORISED_ACTIVE",

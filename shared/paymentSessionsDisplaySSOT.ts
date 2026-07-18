@@ -3,9 +3,9 @@
  * Pure; no React money math. Amounts come from Phase 1A columns only.
  */
 
-import { paymentResolutionUiLabel, type PaymentResolutionStatus, type PaymentResolutionType } from "./finalFareAuthorisationSSOT";
-import { isValidConfirmedCapturePence } from "./paymentCaptureEvidenceSSOT";
-import { isHealthyPostCaptureResidualRelease } from "./paymentSessionsCaptureConfirmationSSOT";
+import { paymentResolutionUiLabel, type PaymentResolutionStatus, type PaymentResolutionType } from "./finalFareAuthorisationSSOT.ts";
+import { isValidConfirmedCapturePence } from "./paymentCaptureEvidenceSSOT.ts";
+import { isHealthyPostCaptureResidualRelease } from "./paymentSessionsCaptureConfirmationSSOT.ts";
 
 export type PaymentSessionsCanonicalStatus =
   | "AUTHORISED"

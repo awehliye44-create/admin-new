@@ -10,8 +10,8 @@ import {
   PAYMENT_LINK_STATE,
   recoveryWalletCreditDecision,
   resolveCanonicalCustomerPayablePence,
-} from "./paymentSessionsCaptureConfirmationSSOT";
-import { confirmedPositiveCapturePence } from "./paymentCaptureEvidenceSSOT";
+} from "./paymentSessionsCaptureConfirmationSSOT.ts";
+import { confirmedPositiveCapturePence } from "./paymentCaptureEvidenceSSOT.ts";
 
 export type RecoveryCaptureCompletionPlan = {
   recovery_session_patch: Record<string, unknown>;
