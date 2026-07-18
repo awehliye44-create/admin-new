@@ -115,6 +115,7 @@ function SessionActions({
   onInspect,
   onRequestRecovery,
   onAbandonRecovery,
+  onRefreshProvider,
 }: {
 
   row: AdminPaymentSessionsListRow;
@@ -125,6 +126,7 @@ function SessionActions({
   onInspect: (row: AdminPaymentSessionsListRow) => void;
   onRequestRecovery: (row: AdminPaymentSessionsListRow, mode?: 'collect_outstanding' | 'payment_link') => void;
   onAbandonRecovery: (row: AdminPaymentSessionsListRow) => void;
+  onRefreshProvider?: (row: AdminPaymentSessionsListRow) => void;
 }) {
 
   const key = row.provider_order_id || row.payment_session_id || row.id;
@@ -138,6 +140,8 @@ function SessionActions({
   const canRelease = allowedDefined && allowedActions.has('release_hold');
   const canRetryRelease = allowedDefined && allowedActions.has('retry_release');
   const canRetryRecovery = allowedDefined && allowedActions.has('retry_recovery');
+  const canCaptureFinal = allowedDefined && allowedActions.has('capture_final_amount');
+  const canRefreshProvider = allowedDefined && allowedActions.has('refresh_provider_evidence');
   const captureConfirmation = classifyCaptureConfirmation({
     providerState: row.provider_state,
     providerCapturedPence: row.captured_amount_pence,
@@ -157,11 +161,16 @@ function SessionActions({
     ?? captureConfirmation.outstanding_pence;
   const captureFullyConfirmed =
     (row.action_classification === 'CAPTURED_CONFIRMED'
+      || row.action_classification === 'CAPTURE_CONFIRMED'
       || captureConfirmation.classification === 'CAPTURED_CONFIRMED')
     && isValidConfirmedCapturePence(row.captured_amount_pence);
   const noActionRequired =
     row.action_classification === 'NO_ACTIVE_HOLD'
     || row.action_classification === 'CAPTURED_CONFIRMED'
+    || row.action_classification === 'CAPTURE_CONFIRMED'
+    || row.action_classification === 'RELEASED_CONFIRMED'
+    || row.action_classification === 'RELEASE_CONFIRMED'
+    || row.action_classification === 'PROVIDER_ALREADY_RELEASED'
     || row.action_classification === 'AUTHORISATION_EXPIRED'
     || (captureFullyConfirmed && !offerCollectOutstanding && !canRefund);
   return (
@@ -194,6 +203,17 @@ function SessionActions({
               : 'Release hold')}
         </Button>
       )}
+      {canCaptureFinal && row.trip_id && (
+        <Button
+          size="sm"
+          disabled={busy}
+          onClick={() => onRequestRecovery(row, 'collect_outstanding')}
+        >
+          {outstandingForAction != null && outstandingForAction > 0
+            ? `Capture Final Amount £${(outstandingForAction / 100).toFixed(2)}`
+            : 'Capture Final Amount'}
+        </Button>
+      )}
       {canRetryRelease && (
         <Button size="sm" variant="secondary" disabled={busy} onClick={() => onAction(row, 'retry_release')}>
           Retry release
@@ -202,6 +222,11 @@ function SessionActions({
       {canRetryRecovery && !captureFullyConfirmed && (
         <Button size="sm" variant="secondary" disabled={busy} onClick={() => onAction(row, 'retry_recovery')}>
           Retry Recovery
+        </Button>
+      )}
+      {canRefreshProvider && onRefreshProvider && (
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => onRefreshProvider(row)}>
+          Refresh provider evidence
         </Button>
       )}
       {canRefund && (
@@ -258,6 +283,11 @@ function SessionActions({
         <Badge variant="outline">No action required</Badge>
       )}
       {row.action_classification === 'NO_ACTIVE_HOLD' && (
+        <Badge variant="outline">Provider verified ✅</Badge>
+      )}
+      {(row.action_classification === 'PROVIDER_ALREADY_RELEASED'
+        || row.action_classification === 'RELEASED_CONFIRMED'
+        || row.action_classification === 'RELEASE_CONFIRMED') && (
         <Badge variant="outline">Provider verified ✅</Badge>
       )}
       {row.action_classification === 'PROVIDER_REFRESH_REQUIRED' && (
@@ -539,7 +569,19 @@ export default function PaymentSessions() {
         }
         await refetch();
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Action failed');
+        const msg = err instanceof Error ? err.message : String(err);
+        if (
+          msg.includes('PAYMENT_ACTION_STALE_REFRESH_REQUIRED')
+          || msg.includes('NO_ACTIVE_HOLD')
+          || msg.includes('PROVIDER_REFRESH_REQUIRED')
+          || msg.includes('NOTHING_TO_RELEASE')
+        ) {
+          toast.error(`${msg} — refreshing row`);
+          setRefreshProviderState(true);
+          await refetch();
+        } else {
+          toast.error(msg || 'Action failed');
+        }
       } finally {
         setActingId(null);
       }
@@ -1420,6 +1462,10 @@ export default function PaymentSessions() {
                                   onInspect={runInspect}
                                   onRequestRecovery={runRequestRecovery}
                                   onAbandonRecovery={runAbandonRecovery}
+                                  onRefreshProvider={() => {
+                                    setRefreshProviderState(true);
+                                    void refetch();
+                                  }}
                                 />
 
                                 <Button

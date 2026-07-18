@@ -139,6 +139,9 @@ export type AdminPaymentSessionsListRow = {
   action_classification_label?: string | null;
   releasable_pence?: number | null;
   allowed_actions?: string[] | null;
+  hold_release_state?: string | null;
+  provider_release_reference?: string | null;
+  recovery_attempt_count?: number | null;
   attention_class: PaymentHoldAttentionClass | null;
   classification: PaymentHoldClassification | null;
   in_active_queue: boolean;

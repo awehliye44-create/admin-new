@@ -56,14 +56,15 @@ export function usePaymentSessionHoldAction() {
   return useMutation({
     mutationFn: async (body: AdminHoldActionRequest) => {
       const { data, error } = await supabase.functions.invoke(ADMIN_HOLD_ACTION_FN, { body });
-      if (error) throw error;
-      if (data && typeof data === 'object' && 'success' in data && data.success === false) {
+      // Prefer structured body error codes (PAYMENT_ACTION_STALE_REFRESH_REQUIRED, …).
+      if (data && typeof data === 'object' && 'success' in data && (data as { success?: boolean }).success === false) {
         throw new Error(
           typeof (data as { error?: unknown }).error === 'string'
             ? (data as { error: string }).error
             : 'Hold action failed',
         );
       }
+      if (error) throw error;
       return data;
     },
     onSuccess: () => {
