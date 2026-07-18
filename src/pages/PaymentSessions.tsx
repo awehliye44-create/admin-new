@@ -45,6 +45,7 @@ import { formatAgeMinutes, formatNullablePence } from '@/lib/formatNullablePence
 import {
   formatCapturedAmountDisplay,
   formatReleasedAmountDisplay,
+  formatPaymentSessionsEvidenceStatus,
 } from '../../shared/paymentSessionsDisplaySSOT';
 import {
   classifyCaptureConfirmation,
@@ -1426,7 +1427,15 @@ export default function PaymentSessions() {
                                 )}
                               </TableCell>
                               <TableCell className="text-xs">
-                                <div className="font-medium">{row.session_status_label ?? row.session_status ?? '—'}</div>
+                                <div className="font-medium">
+                                  {row.action_classification_label
+                                    ?? (row.session_status_label
+                                      && !/incomplete/i.test(row.session_status_label)
+                                      ? row.session_status_label
+                                      : null)
+                                    ?? row.session_status
+                                    ?? '—'}
+                                </div>
                                 {row.technical_status && row.technical_status !== row.session_status_display && (
                                   <div className="text-[10px] text-muted-foreground">tech: {row.technical_status}</div>
                                 )}
@@ -1441,13 +1450,20 @@ export default function PaymentSessions() {
                                       || row.session_status_display === 'CAPTURE_EVIDENCE_MISMATCH'
                                       ? 'destructive'
                                       : row.evidence_status === 'CAPTURE_AMOUNT_MISSING'
+                                      || row.evidence_status === 'INCOMPLETE'
+                                      || row.evidence_status === 'LOCAL_BACKFILL_REQUIRED'
                                       ? 'secondary'
                                       : 'outline'
                                   }
                                 >
-                                  {row.evidence_status ?? '—'}
+                                  {formatPaymentSessionsEvidenceStatus(
+                                    row.evidence_status,
+                                    row.evidence_label,
+                                  )}
                                 </Badge>
-                                {row.evidence_label && row.evidence_status !== 'COMPLETE' && (
+                                {row.evidence_label
+                                  && row.evidence_status !== 'COMPLETE'
+                                  && !/incomplete/i.test(row.evidence_label) && (
                                   <div className="mt-1 text-[10px] text-muted-foreground">{row.evidence_label}</div>
                                 )}
                               </TableCell>

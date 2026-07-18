@@ -25,6 +25,8 @@ export type PaymentSessionsEvidenceStatus =
   | "CAPTURE_AMOUNT_MISSING"
   | "AMOUNT_UNCONFIRMED"
   | "PENDING_PROVIDER_FEE"
+  | "LOCAL_BACKFILL_REQUIRED"
+  /** @deprecated Never emit — use LOCAL_BACKFILL_REQUIRED. Kept for type narrow of legacy rows. */
   | "INCOMPLETE";
 
 export type PaymentSessionsFeeDisplay = {
@@ -223,7 +225,14 @@ export function derivePaymentSessionsEvidenceStatus(
   if (input.refunded_at && input.refunded_amount_pence != null) {
     return { status: "COMPLETE", label: "COMPLETE" };
   }
-  return { status: "INCOMPLETE", label: "DATA BACKFILL REQUIRED" };
+  // Never surface vague INCOMPLETE — exact unresolved fact only.
+  if (isProviderAuthorisedState(input.provider_state) || upper(input.raw_session_status).includes("AUTHORIS")) {
+    return { status: "LOCAL_BACKFILL_REQUIRED", label: "ACTIVE AUTHORISATION — AMOUNTS PENDING BACKFILL" };
+  }
+  if (!input.provider_state) {
+    return { status: "LOCAL_BACKFILL_REQUIRED", label: "PROVIDER REFRESH REQUIRED" };
+  }
+  return { status: "LOCAL_BACKFILL_REQUIRED", label: "LOCAL BACKFILL REQUIRED" };
 }
 
 export function deriveFeeDisplay(input: {
@@ -290,6 +299,12 @@ export function derivePaymentSessionsReconciliation(
   if (evidence === "AMOUNT_UNCONFIRMED") {
     return {
       reconciliation_status: "AMOUNT_UNCONFIRMED",
+      classification: "AMBER",
+    };
+  }
+  if (evidence === "LOCAL_BACKFILL_REQUIRED" || evidence === "INCOMPLETE") {
+    return {
+      reconciliation_status: "LOCAL_BACKFILL_REQUIRED",
       classification: "AMBER",
     };
   }
@@ -393,15 +408,39 @@ export function buildPaymentSessionsDisplay(
 
   return {
     session_status_display: canonical,
-    session_status_label: statusLabel,
-    evidence_status: evidence.status,
-    evidence_label: evidence.label,
-    reconciliation_status: recon.reconciliation_status,
+    session_status_label: statusLabel === "INCOMPLETE" || /incomplete/i.test(statusLabel)
+      ? "LOCAL BACKFILL REQUIRED"
+      : statusLabel,
+    evidence_status: evidence.status === "INCOMPLETE"
+      ? "LOCAL_BACKFILL_REQUIRED"
+      : evidence.status,
+    evidence_label: /incomplete/i.test(evidence.label)
+      ? "LOCAL BACKFILL REQUIRED"
+      : evidence.label,
+    reconciliation_status: recon.reconciliation_status === "INCOMPLETE"
+      ? "LOCAL_BACKFILL_REQUIRED"
+      : recon.reconciliation_status,
     classification: recon.classification,
     fee_display: fee,
     provider_state_label: `${providerState} — ${verified}`,
     technical_status: input.raw_session_status,
   };
+}
+
+/** Operator-facing evidence badge — never show vague INCOMPLETE. */
+export function formatPaymentSessionsEvidenceStatus(
+  status: string | null | undefined,
+  label?: string | null,
+): string {
+  const s = String(status ?? "").toUpperCase();
+  if (!s || s === "—" ) return "—";
+  if (s === "INCOMPLETE" || s === "DATA_BACKFILL_REQUIRED") {
+    return "LOCAL_BACKFILL_REQUIRED";
+  }
+  if (label && !/incomplete/i.test(label) && s === "LOCAL_BACKFILL_REQUIRED") {
+    return label;
+  }
+  return s;
 }
 
 /** Tab membership — Captured = confirmed captures only (amount present). Stripe Payments style. */
