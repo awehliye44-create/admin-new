@@ -13458,6 +13458,7 @@ export type Database = {
       }
       payout_batches: {
         Row: {
+          blocker_code: string | null
           completed_at: string | null
           created_at: string
           created_by: string | null
@@ -13486,6 +13487,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          blocker_code?: string | null
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
@@ -13514,6 +13516,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          blocker_code?: string | null
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
@@ -20057,6 +20060,71 @@ export type Database = {
           },
         ]
       }
+      weekly_payout_occurrence_runs: {
+        Row: {
+          batch_id: string | null
+          blocker_code: string | null
+          claimed_at: string
+          created_at: string
+          dry_run: boolean
+          finished_at: string | null
+          funding_available_pence: number | null
+          funding_result: string | null
+          id: string
+          money_path_executed: boolean
+          required_batch_pence: number | null
+          result_json: Json
+          schedule_occurrence_key: string
+          started_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          batch_id?: string | null
+          blocker_code?: string | null
+          claimed_at?: string
+          created_at?: string
+          dry_run?: boolean
+          finished_at?: string | null
+          funding_available_pence?: number | null
+          funding_result?: string | null
+          id?: string
+          money_path_executed?: boolean
+          required_batch_pence?: number | null
+          result_json?: Json
+          schedule_occurrence_key: string
+          started_at?: string | null
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          batch_id?: string | null
+          blocker_code?: string | null
+          claimed_at?: string
+          created_at?: string
+          dry_run?: boolean
+          finished_at?: string | null
+          funding_available_pence?: number | null
+          funding_result?: string | null
+          id?: string
+          money_path_executed?: boolean
+          required_batch_pence?: number | null
+          result_json?: Json
+          schedule_occurrence_key?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "weekly_payout_occurrence_runs_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "payout_batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       zone_pricing_rules: {
         Row: {
           applies_to: string
@@ -22551,6 +22619,10 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      claim_weekly_payout_occurrence: {
+        Args: { p_dry_run?: boolean; p_schedule_occurrence_key: string }
+        Returns: Json
+      }
       cleanup_expired_pending_email_changes: { Args: never; Returns: Json }
       cleanup_expired_pending_phone_changes: { Args: never; Returns: Json }
       cleanup_stale_auth_identities: {
@@ -23047,6 +23119,20 @@ export type Database = {
       find_service_area_by_location: {
         Args: { p_lat: number; p_lng: number }
         Returns: string
+      }
+      finish_weekly_payout_occurrence: {
+        Args: {
+          p_batch_id?: string
+          p_blocker_code?: string
+          p_funding_available_pence?: number
+          p_funding_result?: string
+          p_money_path_executed?: boolean
+          p_required_batch_pence?: number
+          p_result_json?: Json
+          p_run_id: string
+          p_status: string
+        }
+        Returns: Json
       }
       force_driver_offline: {
         Args: { p_driver_id: string; p_reason?: string }
