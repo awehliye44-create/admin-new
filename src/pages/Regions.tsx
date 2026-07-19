@@ -47,7 +47,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { RegionBoundaryMap } from '@/components/maps/RegionBoundaryMap';
+import { AdminBoundaryWorkspace } from '@/components/maps/AdminBoundaryWorkspace';
 import { supabase } from '@/integrations/supabase/client';
+import { validateBoundaryGeometry } from '@/lib/adminBoundaryGeometry';
+import { normalizeLatLngRing } from '../../shared/adminBoundaryEditorSSOT';
 import { 
   Plus, MapPin, Loader2, MoreHorizontal, Pencil, Trash2, Globe, Users, Map,
   DollarSign, Clock, Ruler, CheckCircle2, XCircle, Eye, Settings, CreditCard
@@ -247,7 +250,12 @@ export default function Regions() {
     }
 
     if (!formData.geo_boundary || formData.geo_boundary.length < 3) {
-      toast.error('Please draw a region boundary with at least 3 points');
+      toast.error('Please select or draw a region boundary with at least 3 points');
+      return;
+    }
+    const geomIssues = validateBoundaryGeometry(normalizeLatLngRing(formData.geo_boundary));
+    if (geomIssues.some((i) => i.severity === "error")) {
+      toast.error(geomIssues.find((i) => i.severity === "error")!.message);
       return;
     }
 
@@ -290,6 +298,15 @@ export default function Regions() {
   const handleEdit = async () => {
     if (!selectedRegion || !formData.name.trim()) {
       toast.error('Please enter a region name');
+      return;
+    }
+    if (!formData.geo_boundary || formData.geo_boundary.length < 3) {
+      toast.error('Please select or draw a region boundary with at least 3 points');
+      return;
+    }
+    const geomIssues = validateBoundaryGeometry(normalizeLatLngRing(formData.geo_boundary));
+    if (geomIssues.some((i) => i.severity === "error")) {
+      toast.error(geomIssues.find((i) => i.severity === "error")!.message);
       return;
     }
 
@@ -549,29 +566,13 @@ export default function Regions() {
       </TabsContent>
 
       <TabsContent value="boundary" className="space-y-4 mt-4">
-        <div className="bg-muted/50 rounded-lg p-4 text-sm mb-4">
-          <p className="font-medium mb-2">🗺️ Drawing Instructions</p>
-          <ul className="space-y-1 text-muted-foreground">
-            <li>1. Click on the map to add boundary points</li>
-            <li>2. Add at least 3 points to create a polygon</li>
-            <li>3. Click "Finish Drawing" when done</li>
-            <li>4. Drag vertices to adjust the boundary</li>
-          </ul>
-        </div>
-
-        <RegionBoundaryMap
+        <AdminBoundaryWorkspace
+          entity="region"
+          entityName={formData.name}
           boundary={formData.geo_boundary}
           onBoundaryChange={(boundary) => setFormData(prev => ({ ...prev, geo_boundary: boundary }))}
-          isEditable={true}
-          height="350px"
+          height="380px"
         />
-
-        {formData.geo_boundary && formData.geo_boundary.length >= 3 && (
-          <div className="flex items-center gap-2 text-sm text-green-600">
-            <CheckCircle2 className="h-4 w-4" />
-            Boundary set with {formData.geo_boundary.length} points
-          </div>
-        )}
       </TabsContent>
     </Tabs>
   );
@@ -792,7 +793,7 @@ export default function Regions() {
 
       {/* Add Region Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MapPin className="h-5 w-5" />
@@ -828,7 +829,7 @@ export default function Regions() {
 
       {/* Edit Region Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pencil className="h-5 w-5" />

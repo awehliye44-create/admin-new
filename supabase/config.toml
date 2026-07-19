@@ -222,3 +222,6 @@ verify_jwt = false
 
 [functions.admin-set-commission-wallet-test-access]
 verify_jwt = false
+
+[functions.admin-official-boundaries]
+verify_jwt = false

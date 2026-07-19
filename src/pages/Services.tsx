@@ -48,8 +48,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ServiceAreaBoundaryMap } from '@/components/maps/ServiceAreaBoundaryMap';
+import { AdminBoundaryWorkspace } from '@/components/maps/AdminBoundaryWorkspace';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  isBoundaryInsideParent,
+  findServiceAreaOverlaps,
+  validateBoundaryGeometry,
+} from '@/lib/adminBoundaryGeometry';
+import { normalizeLatLngRing, type LatLng } from '../../shared/adminBoundaryEditorSSOT';
 import { 
   Plus, Navigation, Loader2, MoreHorizontal, Pencil, Trash2, MapPin, Search, Users, DollarSign,
   Ruler, Globe, CheckCircle2, XCircle, Eye, Settings, Car, Clock, Map, Gift
@@ -123,6 +129,58 @@ const TIMEZONES = [
   { value: 'Pacific/Auckland', label: 'Auckland (NZST/NZDT)' },
 ];
 
+function boundaryToLatLng(boundary: unknown): LatLng[] | null {
+  if (!boundary) return null;
+  if (Array.isArray(boundary) && boundary.length > 0 && (boundary[0] as LatLng)?.lat != null) {
+    return boundary as LatLng[];
+  }
+  const g = boundary as { type?: string; coordinates?: number[][][] | number[][][][] };
+  if (g.type === 'Polygon' && g.coordinates?.[0]) {
+    const ring = g.coordinates[0] as number[][];
+    const open =
+      ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]
+        ? ring.slice(0, -1)
+        : ring;
+    return open.map((c) => ({ lat: c[1], lng: c[0] }));
+  }
+  if (g.type === 'MultiPolygon' && Array.isArray(g.coordinates)) {
+    let best: number[][] | null = null;
+    let bestLen = 0;
+    for (const poly of g.coordinates as number[][][][]) {
+      const ring = poly?.[0];
+      if (ring && ring.length > bestLen) {
+        best = ring;
+        bestLen = ring.length;
+      }
+    }
+    if (!best) return null;
+    return boundaryToLatLng({ type: 'Polygon', coordinates: [best] });
+  }
+  return null;
+}
+
+function latLngToGeoJsonPolygon(points: LatLng[]) {
+  if (points.length < 3) return null;
+  const ring = points.map((p) => [p.lng, p.lat]);
+  ring.push(ring[0]);
+  return { type: 'Polygon', coordinates: [ring] };
+}
+
+function toDbBoundary(formBoundary: unknown, canonical: unknown): unknown {
+  if (canonical && typeof canonical === 'object' && !Array.isArray(canonical) && (canonical as { type?: string }).type === 'MultiPolygon') {
+    return canonical;
+  }
+  if (Array.isArray(canonical) && canonical.length >= 3) return canonical;
+  if (formBoundary && typeof formBoundary === 'object' && (formBoundary as { type?: string }).type === 'Polygon') {
+    const coords = (formBoundary as { coordinates: number[][][] }).coordinates?.[0];
+    if (coords) {
+      return coords.slice(0, -1).map((c: number[]) => ({ lat: c[1], lng: c[0] }));
+    }
+  }
+  if (Array.isArray(formBoundary)) return formBoundary;
+  return boundaryToLatLng(formBoundary);
+}
+
 export default function Services() {
   const navigate = useNavigate();
   const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
@@ -139,6 +197,8 @@ export default function Services() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [selectedArea, setSelectedArea] = useState<ServiceArea | null>(null);
+  const [overlapPolicy, setOverlapPolicy] = useState({ allow: false, reason: '' });
+  const [canonicalBoundary, setCanonicalBoundary] = useState<LatLng[] | GeoJSON.MultiPolygon | null>(null);
 
   // Form states
   const [formData, setFormData] = useState<{ 
@@ -309,12 +369,39 @@ export default function Services() {
       return;
     }
 
-    // Convert GeoJSON boundary to LatLng array for DB trigger validation
-    const boundaryForDb = formData.geo_boundary
-      ? formData.geo_boundary.type === 'Polygon' && formData.geo_boundary.coordinates?.[0]
-        ? formData.geo_boundary.coordinates[0].slice(0, -1).map((c: number[]) => ({ lat: c[1], lng: c[0] }))
-        : formData.geo_boundary
-      : null;
+    const latLngBoundary = boundaryToLatLng(formData.geo_boundary);
+    if (!latLngBoundary || latLngBoundary.length < 3) {
+      toast.error('Please select or draw a Service Area boundary');
+      return;
+    }
+    const geomIssues = validateBoundaryGeometry(normalizeLatLngRing(latLngBoundary));
+    if (geomIssues.some((i) => i.severity === 'error')) {
+      toast.error(geomIssues.find((i) => i.severity === 'error')!.message);
+      return;
+    }
+    const parentPts = boundaryToLatLng(getSelectedRegion()?.geo_boundary);
+    if (parentPts) {
+      const containment = isBoundaryInsideParent(latLngBoundary, parentPts);
+      if (!containment.inside) {
+        toast.error('Service Area must be inside the parent Region — clip or edit the boundary');
+        return;
+      }
+    }
+    const overlaps = findServiceAreaOverlaps(
+      latLngBoundary,
+      serviceAreas
+        .filter((a) => a.region_id === formData.region_id && a.is_active)
+        .map((a) => ({ id: a.id, name: a.name, geo_boundary: boundaryToLatLng(a.geo_boundary) })),
+    );
+    if (overlaps.length > 0 && !(overlapPolicy.allow && overlapPolicy.reason.trim().length >= 8)) {
+      toast.error(
+        `Overlap detected: ${overlaps[0].overlapPercent}% with ${overlaps[0].name}. Edit, or allow with a mandatory reason.`,
+      );
+      return;
+    }
+
+    // Convert GeoJSON boundary to LatLng array / MultiPolygon for DB
+    const boundaryForDb = toDbBoundary(formData.geo_boundary, canonicalBoundary);
 
     setIsSaving(true);
     try {
@@ -370,12 +457,40 @@ export default function Services() {
       return;
     }
 
-    // Convert GeoJSON boundary to LatLng array for DB trigger validation
-    const boundaryForDb = formData.geo_boundary
-      ? formData.geo_boundary.type === 'Polygon' && formData.geo_boundary.coordinates?.[0]
-        ? formData.geo_boundary.coordinates[0].slice(0, -1).map((c: number[]) => ({ lat: c[1], lng: c[0] }))
-        : formData.geo_boundary
-      : null;
+    const latLngBoundary = boundaryToLatLng(formData.geo_boundary);
+    if (!latLngBoundary || latLngBoundary.length < 3) {
+      toast.error('Please select or draw a Service Area boundary');
+      return;
+    }
+    const geomIssues = validateBoundaryGeometry(normalizeLatLngRing(latLngBoundary));
+    if (geomIssues.some((i) => i.severity === 'error')) {
+      toast.error(geomIssues.find((i) => i.severity === 'error')!.message);
+      return;
+    }
+    const parentPts = boundaryToLatLng(getSelectedRegion()?.geo_boundary);
+    if (parentPts) {
+      const containment = isBoundaryInsideParent(latLngBoundary, parentPts);
+      if (!containment.inside) {
+        toast.error('Service Area must be inside the parent Region — clip or edit the boundary');
+        return;
+      }
+    }
+    const overlaps = findServiceAreaOverlaps(
+      latLngBoundary,
+      serviceAreas
+        .filter((a) => a.region_id === formData.region_id && a.is_active)
+        .map((a) => ({ id: a.id, name: a.name, geo_boundary: boundaryToLatLng(a.geo_boundary) })),
+      selectedArea.id,
+    );
+    if (overlaps.length > 0 && !(overlapPolicy.allow && overlapPolicy.reason.trim().length >= 8)) {
+      toast.error(
+        `Overlap detected: ${overlaps[0].overlapPercent}% with ${overlaps[0].name}. Edit, or allow with a mandatory reason.`,
+      );
+      return;
+    }
+
+    // Convert GeoJSON boundary to LatLng array / MultiPolygon for DB
+    const boundaryForDb = toDbBoundary(formData.geo_boundary, canonicalBoundary);
 
     setIsSaving(true);
     try {
@@ -946,7 +1061,7 @@ export default function Services() {
 
       {/* Add Service Area Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Navigation className="h-5 w-5" />
@@ -1130,22 +1245,34 @@ export default function Services() {
             
             <TabsContent value="boundary" className="py-4">
               {getSelectedRegion() && (
-                <ServiceAreaBoundaryMap
-                  boundary={formData.geo_boundary}
-                  region={getSelectedRegion() ? { 
-                    id: getSelectedRegion()!.id, 
-                    name: getSelectedRegion()!.name, 
-                    geo_boundary: getSelectedRegion()!.geo_boundary 
-                  } : null}
-                  onBoundaryChange={(boundary) => setFormData(prev => ({ ...prev, geo_boundary: boundary }))}
-                  isEditable={true}
+                <AdminBoundaryWorkspace
+                  entity="service_area"
+                  entityName={formData.name}
+                  boundary={boundaryToLatLng(formData.geo_boundary)}
+                  parentRegionName={getSelectedRegion()!.name}
+                  parentRegionBoundary={boundaryToLatLng(getSelectedRegion()!.geo_boundary)}
+                  siblingServiceAreas={serviceAreas
+                    .filter((a) => a.region_id === formData.region_id && a.is_active)
+                    .map((a) => ({
+                      id: a.id,
+                      name: a.name,
+                      geo_boundary: boundaryToLatLng(a.geo_boundary),
+                    }))}
+                  onBoundaryChange={(pts) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      geo_boundary: latLngToGeoJsonPolygon(pts),
+                    }))
+                  }
+                  onCanonicalBoundaryChange={setCanonicalBoundary}
+                  onOverlapPolicyChange={setOverlapPolicy}
                   height="400px"
                 />
               )}
               {!getSelectedRegion() && (
                 <div className="text-center py-12 text-muted-foreground">
                   <Map className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>Please select a region first to draw the boundary</p>
+                  <p>Please select a region first to set the Service Area boundary</p>
                 </div>
               )}
             </TabsContent>
@@ -1174,7 +1301,7 @@ export default function Services() {
 
       {/* Edit Service Area Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pencil className="h-5 w-5" />
@@ -1339,11 +1466,28 @@ export default function Services() {
             
             <TabsContent value="boundary" className="py-4">
               {getSelectedRegion() && (
-                <ServiceAreaBoundaryMap
-                  boundary={formData.geo_boundary}
-                  region={{ id: getSelectedRegion()!.id, name: getSelectedRegion()!.name, geo_boundary: getSelectedRegion()!.geo_boundary }}
-                  onBoundaryChange={(boundary) => setFormData(prev => ({ ...prev, geo_boundary: boundary }))}
-                  isEditable={true}
+                <AdminBoundaryWorkspace
+                  entity="service_area"
+                  entityName={formData.name}
+                  editingServiceAreaId={selectedArea?.id ?? null}
+                  boundary={boundaryToLatLng(formData.geo_boundary)}
+                  parentRegionName={getSelectedRegion()!.name}
+                  parentRegionBoundary={boundaryToLatLng(getSelectedRegion()!.geo_boundary)}
+                  siblingServiceAreas={serviceAreas
+                    .filter((a) => a.region_id === formData.region_id && a.is_active)
+                    .map((a) => ({
+                      id: a.id,
+                      name: a.name,
+                      geo_boundary: boundaryToLatLng(a.geo_boundary),
+                    }))}
+                  onBoundaryChange={(pts) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      geo_boundary: latLngToGeoJsonPolygon(pts),
+                    }))
+                  }
+                  onCanonicalBoundaryChange={setCanonicalBoundary}
+                  onOverlapPolicyChange={setOverlapPolicy}
                   height="400px"
                 />
               )}
