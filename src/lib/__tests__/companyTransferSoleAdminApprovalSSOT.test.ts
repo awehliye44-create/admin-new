@@ -46,6 +46,8 @@ describe("companyTransferSoleAdminApprovalSSOT", () => {
     expect(result.ok).toBe(true);
     expect(result.audit?.sole_admin_override).toBe(true);
     expect(result.audit?.amount_pence).toBe(1);
+    expect(result.audit?.reason).toBe("COMPANY_TRANSFER_CERTIFICATION");
+    expect(result.audit?.role).toBe("super_admin");
     expect(result.audit?.approval_policy_version).toBe("SOLE_ADMIN_CT_APPROVAL_V1");
   });
 
@@ -58,7 +60,7 @@ describe("companyTransferSoleAdminApprovalSSOT", () => {
     expect(result.reason_codes).toContain(SOLE_ADMIN_CT_REASON.OTHER_APPROVER_EXISTS);
   });
 
-  it("blocks non-super_admin and amount over limit", () => {
+  it("blocks non-super_admin and non-1p certification", () => {
     expect(
       evaluateSoleAdminCompanyTransferSelfApproval({
         ...baseOk,
@@ -71,7 +73,7 @@ describe("companyTransferSoleAdminApprovalSSOT", () => {
         ...baseOk,
         amount_pence: 111,
       }).reason_codes,
-    ).toContain(SOLE_ADMIN_CT_REASON.AMOUNT_OVER_LIMIT);
+    ).toContain(SOLE_ADMIN_CT_REASON.AMOUNT_NOT_CERTIFICATION_1P);
   });
 
   it("blocks company_outgoing type and missing confirmation/reason", () => {
@@ -80,7 +82,12 @@ describe("companyTransferSoleAdminApprovalSSOT", () => {
         ...baseOk,
         transfer_type: "COMPANY_OUTGOING",
       }).reason_codes,
-    ).toContain(SOLE_ADMIN_CT_REASON.TRANSFER_TYPE_BLOCKED);
+    ).toEqual(
+      expect.arrayContaining([
+        SOLE_ADMIN_CT_REASON.AMOUNT_NOT_CERTIFICATION_1P,
+        SOLE_ADMIN_CT_REASON.TRANSFER_TYPE_BLOCKED,
+      ]),
+    );
 
     expect(
       evaluateSoleAdminCompanyTransferSelfApproval({

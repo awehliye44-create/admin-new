@@ -48,7 +48,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/useAuth';
-import { useStaffProfile } from '@/hooks/useStaffProfile';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { supabase } from '@/integrations/supabase/client';
@@ -263,7 +262,6 @@ export function PayoutLedgerCompanyTransfersPanel({
 }) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const { staffProfile } = useStaffProfile();
   const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
   const [showForm, setShowForm] = useState(false);
   const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
@@ -519,10 +517,10 @@ export function PayoutLedgerCompanyTransfersPanel({
 
   const requestApprove = (t: CompanyOutgoingTransferRow) => {
     const isSelf = Boolean(user?.id && t.requested_by && user.id === t.requested_by);
-    if (isSelf && staffProfile?.role === 'super_admin') {
-      setSoleAdminReason(
-        `Sole-admin approval for ${t.transfer_ref}: no second authorised company-transfer approver is configured.`,
-      );
+    // Self-approve always opens sole-admin confirmation when LIVE four-eyes applies.
+    // Server enforces CERTIFICATION + 1p + super_admin + no second approver.
+    if (isSelf) {
+      setSoleAdminReason('COMPANY_TRANSFER_CERTIFICATION');
       setSoleAdminTransfer(t);
       return;
     }
@@ -2702,9 +2700,8 @@ export function PayoutLedgerCompanyTransfersPanel({
           <DialogHeader>
             <DialogTitle>Sole-admin approval</DialogTitle>
             <DialogDescription>
-              No second authorised approver is currently configured.
-              Your approval will be recorded in the audit log.
-              This does not submit to Revolut.
+              You are the only authorised company-transfer approver. This £0.01 certification
+              approval will be recorded as a sole-admin override.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-sm">
@@ -2714,11 +2711,21 @@ export function PayoutLedgerCompanyTransfersPanel({
               <div>Amount: {formatNullablePence(soleAdminTransfer?.amount_pence ?? null)}</div>
               <div>Payee: {soleAdminTransfer?.recipient_name ?? '—'}</div>
             </div>
+            {String(soleAdminTransfer?.transfer_type ?? '').toUpperCase() !== 'CERTIFICATION'
+              || Number(soleAdminTransfer?.amount_pence) !== 1 ? (
+              <Alert>
+                <AlertTitle>Certification £0.01 only</AlertTitle>
+                <AlertDescription>
+                  Sole-admin self-approval is limited to transfer_type = CERTIFICATION and
+                  amount = 1p. Operational transfers still require a second approver.
+                </AlertDescription>
+              </Alert>
+            ) : null}
             <div>
-              <Label htmlFor="ct-sole-admin-reason">Audit reason (required)</Label>
+              <Label htmlFor="ct-sole-admin-reason">Audit reason</Label>
               <Textarea
                 id="ct-sole-admin-reason"
-                rows={3}
+                rows={2}
                 value={soleAdminReason}
                 onChange={(e) => setSoleAdminReason(e.target.value)}
                 disabled={actionMutation.isPending}
@@ -2734,7 +2741,12 @@ export function PayoutLedgerCompanyTransfersPanel({
               Cancel
             </Button>
             <Button
-              disabled={actionMutation.isPending || soleAdminReason.trim().length < 10}
+              disabled={
+                actionMutation.isPending
+                || soleAdminReason.trim().length < 10
+                || String(soleAdminTransfer?.transfer_type ?? '').toUpperCase() !== 'CERTIFICATION'
+                || Number(soleAdminTransfer?.amount_pence) !== 1
+              }
               onClick={() => {
                 if (!soleAdminTransfer) return;
                 actionMutation.mutate({

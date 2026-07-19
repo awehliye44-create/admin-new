@@ -26,6 +26,7 @@ export const SOLE_ADMIN_CT_REASON = {
   ROLE_NOT_SUPER_ADMIN: "SOLE_ADMIN_REQUIRES_SUPER_ADMIN",
   OTHER_APPROVER_EXISTS: "SOLE_ADMIN_SECOND_APPROVER_EXISTS",
   AMOUNT_OVER_LIMIT: "SOLE_ADMIN_AMOUNT_OVER_LIMIT",
+  AMOUNT_NOT_CERTIFICATION_1P: "SOLE_ADMIN_REQUIRES_CERTIFICATION_1P",
   LIMIT_NOT_CONFIGURED: "SOLE_ADMIN_LIMIT_NOT_CONFIGURED",
   TRANSFER_TYPE_BLOCKED: "SOLE_ADMIN_TRANSFER_TYPE_BLOCKED",
   PAYEE_NOT_VERIFIED: "SOLE_ADMIN_PAYEE_NOT_PROVIDER_VERIFIED",
@@ -47,6 +48,8 @@ export const SOLE_ADMIN_CT_REASON_LABEL: Record<SoleAdminCtReasonCode, string> =
   SOLE_ADMIN_SECOND_APPROVER_EXISTS:
     "A second authorised company-transfer approver exists — self-approval blocked",
   SOLE_ADMIN_AMOUNT_OVER_LIMIT: "Amount exceeds the sole-admin approval limit",
+  SOLE_ADMIN_REQUIRES_CERTIFICATION_1P:
+    "Sole-admin approval is limited to CERTIFICATION transfers of exactly £0.01 (1p)",
   SOLE_ADMIN_LIMIT_NOT_CONFIGURED: "Sole-admin approval limit is not configured",
   SOLE_ADMIN_TRANSFER_TYPE_BLOCKED:
     "Transfer type is not permitted for sole-admin approval",
@@ -69,11 +72,14 @@ export type SoleAdminCtApprovalAudit = {
   requester_user_id: string | null;
   approver_user_id: string;
   sole_admin_override: true;
+  role: "super_admin";
+  reason: "COMPANY_TRANSFER_CERTIFICATION";
   override_reason: string;
   approval_policy_version: typeof SOLE_ADMIN_CT_APPROVAL_POLICY_VERSION;
   approved_at: string;
   amount_pence: number;
   payee_id: string | null;
+  transfer_id?: string | null;
   transfer_reference: string | null;
   other_eligible_approver_count: number;
   limit_pence: number;
@@ -140,6 +146,7 @@ export function evaluateSoleAdminCompanyTransferSelfApproval(args: {
   confirm_sole_admin_approval: boolean;
   override_reason: string | null | undefined;
   payee_id?: string | null;
+  transfer_id?: string | null;
   transfer_reference?: string | null;
   approved_at?: string;
 }): {
@@ -170,13 +177,17 @@ export function evaluateSoleAdminCompanyTransferSelfApproval(args: {
   if (Math.max(0, Math.round(Number(args.other_eligible_approver_count) || 0)) > 0) {
     reasons.push(SOLE_ADMIN_CT_REASON.OTHER_APPROVER_EXISTS);
   }
-  if (args.limit_pence == null || !(args.limit_pence >= 0)) {
-    reasons.push(SOLE_ADMIN_CT_REASON.LIMIT_NOT_CONFIGURED);
-  } else if (!(amount > 0) || amount > args.limit_pence) {
-    reasons.push(SOLE_ADMIN_CT_REASON.AMOUNT_OVER_LIMIT);
+  // Controlled certification exception: CERTIFICATION + exactly 1p only.
+  if (transferType !== "CERTIFICATION" || amount !== 1) {
+    reasons.push(SOLE_ADMIN_CT_REASON.AMOUNT_NOT_CERTIFICATION_1P);
   }
   if (!transferType || !allowedTypes.includes(transferType)) {
     reasons.push(SOLE_ADMIN_CT_REASON.TRANSFER_TYPE_BLOCKED);
+  }
+  if (args.limit_pence == null || !(args.limit_pence >= 0)) {
+    reasons.push(SOLE_ADMIN_CT_REASON.LIMIT_NOT_CONFIGURED);
+  } else if (amount > args.limit_pence) {
+    reasons.push(SOLE_ADMIN_CT_REASON.AMOUNT_OVER_LIMIT);
   }
   if (!args.payee_provider_verified) {
     reasons.push(SOLE_ADMIN_CT_REASON.PAYEE_NOT_VERIFIED);
@@ -212,11 +223,14 @@ export function evaluateSoleAdminCompanyTransferSelfApproval(args: {
       requester_user_id: requester || null,
       approver_user_id: approver,
       sole_admin_override: true,
+      role: "super_admin",
+      reason: "COMPANY_TRANSFER_CERTIFICATION",
       override_reason: override,
       approval_policy_version: SOLE_ADMIN_CT_APPROVAL_POLICY_VERSION,
       approved_at: args.approved_at ?? new Date().toISOString(),
       amount_pence: amount,
       payee_id: args.payee_id ?? null,
+      transfer_id: args.transfer_id ?? null,
       transfer_reference: args.transfer_reference ?? null,
       other_eligible_approver_count: 0,
       limit_pence: args.limit_pence!,
