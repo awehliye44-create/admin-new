@@ -27,27 +27,64 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { supabase } from '@/integrations/supabase/client';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { ADMIN_COMPANY_PAYEES_FN } from '../../../shared/adminPayoutLedgerSSOT';
 import {
   COMPANY_PAYEE_TYPES,
   type CompanyPayeePublicDto,
 } from '../../../shared/companyPayeeSSOT';
+import {
+  companyPayeeLinkErrorLabel,
+  companyPayeeVerificationDisplayStatus,
+  isCompanyPayeeProviderVerified,
+} from '../../../shared/companyPayeeRevolutLinkSSOT';
 import { COMPANY_TRANSFER_CATEGORIES } from '../../../shared/companyOutgoingTransferSSOT';
 
-/** Extract a human-readable message from an edge function error payload. */
-function extractFnError(data: any, fallback: string): string {
-  const err = data?.error;
-  if (!err) return fallback;
-  if (typeof err === 'string') return err;
-  if (typeof err === 'object') {
-    const msg = err.message ?? err.error ?? err.description ?? err.code;
-    if (typeof msg === 'string') return data?.error_code ? `${data.error_code}: ${msg}` : msg;
-    try { return `${data?.error_code ?? 'Error'}: ${JSON.stringify(err)}`; } catch { /* noop */ }
+async function readFnErrorBody(
+  error: unknown,
+  data: Record<string, unknown> | null | undefined,
+): Promise<{ message: string; error_code: string | null }> {
+  if (data && typeof data === 'object') {
+    const code = typeof data.error_code === 'string'
+      ? data.error_code
+      : typeof data.error === 'string'
+      ? data.error
+      : null;
+    const message = companyPayeeLinkErrorLabel(
+      code,
+      typeof data.message === 'string' ? data.message : null,
+    );
+    if (code || data.message) return { message, error_code: code };
   }
-  return fallback;
+  if (error instanceof FunctionsHttpError) {
+    try {
+      const payload = await error.context.json() as Record<string, unknown>;
+      const code = typeof payload.error_code === 'string'
+        ? payload.error_code
+        : typeof payload.error === 'string'
+        ? payload.error
+        : null;
+      return {
+        message: companyPayeeLinkErrorLabel(
+          code,
+          typeof payload.message === 'string' ? payload.message : null,
+        ),
+        error_code: code,
+      };
+    } catch {
+      /* fall through */
+    }
+  }
+  const fallback = error instanceof Error ? error.message : 'Link Revolut failed';
+  if (/edge function|non-2xx|failed to send/i.test(fallback)) {
+    return {
+      message: 'Provider linking is temporarily unavailable.',
+      error_code: 'RELAY_UNAVAILABLE',
+    };
+  }
+  return { message: fallback, error_code: null };
 }
-
 
 /** Local labels — keep payee CRUD deployable without shared SSOT drift. */
 const PAYEE_TYPE_LABELS: Record<string, string> = {
@@ -115,6 +152,8 @@ export function CompanyTransfersPayeesSection({
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [payeeForm, setPayeeForm] = useState(emptyPayeeForm);
+  const [linkBusyPayeeId, setLinkBusyPayeeId] = useState<string | null>(null);
+  const [rowLinkErrors, setRowLinkErrors] = useState<Record<string, string>>({});
   const [scheduleForm, setScheduleForm] = useState({
     payee_id: '',
     frequency: 'WEEKLY',
@@ -140,7 +179,7 @@ export function CompanyTransfersPayeesSection({
         },
       });
       if (error) throw error;
-      if (!data?.success) throw new Error(extractFnError(data, 'List payees failed'));
+      if (!data?.success) throw new Error(data?.error ?? 'List payees failed');
       return (data.payees ?? []) as CompanyPayeePublicDto[];
     },
   });
@@ -152,13 +191,13 @@ export function CompanyTransfersPayeesSection({
         body: { action: 'list_schedules' },
       });
       if (error) throw error;
-      if (!data?.success) throw new Error(extractFnError(data, 'List schedules failed'));
+      if (!data?.success) throw new Error(data?.error ?? 'List schedules failed');
       return (data.schedules ?? []) as ScheduleRow[];
     },
   });
 
   const createPayee = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (opts?: { confirmDistinct?: boolean }) => {
       const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_PAYEES_FN, {
         body: {
           action: 'create_payee',
@@ -174,13 +213,38 @@ export function CompanyTransfersPayeesSection({
           country: payeeForm.country,
           default_reference: payeeForm.default_reference || null,
           service_area_id: serviceAreaId ?? null,
-          // Configuration only — never require LIVE / never move money on create.
           execute_live: false,
+          confirm_distinct_payee: opts?.confirmDistinct === true,
         },
       });
-      if (error) throw error;
-      if (!data?.success) throw new Error(extractFnError(data, 'Create payee failed'));
-      return data;
+      // Non-2xx still may include a JSON body (e.g. DUPLICATE_ACTIVE_PAYEE 409).
+      const body = (data ?? null) as Record<string, unknown> | null;
+      if (
+        body
+        && body.success === false
+        && (body.error_code === 'DUPLICATE_ACTIVE_PAYEE' || body.error === 'DUPLICATE_ACTIVE_PAYEE')
+        && opts?.confirmDistinct !== true
+      ) {
+        const existingName = (body.payee as { display_name?: string } | undefined)?.display_name;
+        const existing = existingName ? ` (“${existingName}”)` : '';
+        const ok = window.confirm(
+          `An active payee already exists for this service area, currency and bank account${existing}.\n\n`
+          + 'Create another distinct payee with the same bank details?',
+        );
+        if (!ok) {
+          throw new Error('Duplicate active payee — create cancelled');
+        }
+        return createPayee.mutateAsync({ confirmDistinct: true });
+      }
+      if (error && !body?.success) {
+        throw new Error(
+          String(body?.message ?? body?.error ?? error.message ?? 'Create payee failed'),
+        );
+      }
+      if (!body?.success) {
+        throw new Error(String(body?.message ?? body?.error ?? 'Create payee failed'));
+      }
+      return body;
     },
     onSuccess: (data) => {
       toast.success(
@@ -213,7 +277,7 @@ export function CompanyTransfersPayeesSection({
         },
       });
       if (error) throw error;
-      if (!data?.success) throw new Error(extractFnError(data, 'Update payee failed'));
+      if (!data?.success) throw new Error(data?.error ?? 'Update payee failed');
       return data;
     },
     onSuccess: () => {
@@ -248,7 +312,7 @@ export function CompanyTransfersPayeesSection({
         },
       });
       if (error) throw error;
-      if (!data?.success) throw new Error(extractFnError(data, 'Schedule save failed'));
+      if (!data?.success) throw new Error(data?.error ?? 'Schedule save failed');
       return data;
     },
     onSuccess: () => {
@@ -514,12 +578,33 @@ export function CompanyTransfersPayeesSection({
                         <TableCell className="font-mono text-xs">{p.masked_account}</TableCell>
                         <TableCell className="text-xs">{p.currency}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{p.account_verification_status}</Badge>
-                          {p.verified_at ? (
-                            <div className="text-[10px] text-muted-foreground mt-0.5">
-                              Verified {new Date(p.verified_at).toLocaleDateString()}
-                            </div>
-                          ) : null}
+                          {(() => {
+                            const display = companyPayeeVerificationDisplayStatus(
+                              p.provider_link_status ?? p.account_verification_status,
+                            );
+                            const label = display === 'PROVIDER_VERIFIED'
+                              ? 'PROVIDER_VERIFIED ✅'
+                              : display;
+                            return (
+                              <>
+                                <Badge
+                                  variant={display === 'PROVIDER_VERIFIED' ? 'default' : 'outline'}
+                                >
+                                  {label}
+                                </Badge>
+                                {p.verified_at && display === 'PROVIDER_VERIFIED' ? (
+                                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                                    Verified {new Date(p.verified_at).toLocaleDateString()}
+                                  </div>
+                                ) : null}
+                                {(rowLinkErrors[p.id] || p.link_error_message) && display !== 'PROVIDER_VERIFIED' ? (
+                                  <div className="text-[11px] text-destructive mt-1 max-w-[220px]">
+                                    {rowLinkErrors[p.id] || p.link_error_message}
+                                  </div>
+                                ) : null}
+                              </>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell className="text-xs font-mono">
                           {p.created_by ? `${p.created_by.slice(0, 8)}…` : '—'}
@@ -535,25 +620,64 @@ export function CompanyTransfersPayeesSection({
                           <Button size="sm" variant="ghost" onClick={() => openEditPayee(p)}>
                             Edit
                           </Button>
-                          {p.account_verification_status !== 'VERIFIED' || !p.revolut_counterparty_id ? (
+                          {!isCompanyPayeeProviderVerified(p.account_verification_status)
+                            || !p.revolut_counterparty_id ? (
                             <Button
                               size="sm"
                               variant="outline"
+                              disabled={linkBusyPayeeId === p.id}
                               onClick={async () => {
-                                const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_PAYEES_FN, {
-                                  body: { action: 'link_revolut_payee', payee_id: p.id },
+                                setLinkBusyPayeeId(p.id);
+                                setRowLinkErrors((prev) => {
+                                  const next = { ...prev };
+                                  delete next[p.id];
+                                  return next;
                                 });
-                                if (error || !data?.success) {
-                                  toast.error(error?.message ?? extractFnError(data, 'Link Revolut failed'));
-                                  return;
+                                try {
+                                  const { data, error } = await supabase.functions.invoke(
+                                    ADMIN_COMPANY_PAYEES_FN,
+                                    { body: { action: 'link_revolut_payee', payee_id: p.id } },
+                                  );
+                                  const body = (data ?? null) as Record<string, unknown> | null;
+                                  if (error || !body?.success) {
+                                    const parsed = await readFnErrorBody(error, body);
+                                    setRowLinkErrors((prev) => ({
+                                      ...prev,
+                                      [p.id]: parsed.message,
+                                    }));
+                                    toast.error(parsed.message);
+                                    void queryClient.invalidateQueries({
+                                      queryKey: ['admin-company-payees'],
+                                    });
+                                    return;
+                                  }
+                                  toast.success(
+                                    body.already_linked
+                                      ? 'Already linked'
+                                      : body.reused_existing_counterparty
+                                      ? 'Linked (existing Revolut counterparty)'
+                                      : 'Payee linked — PROVIDER_VERIFIED',
+                                  );
+                                  void queryClient.invalidateQueries({
+                                    queryKey: ['admin-company-payees'],
+                                  });
+                                } catch (err) {
+                                  const msg = companyPayeeLinkErrorLabel(
+                                    null,
+                                    err instanceof Error ? err.message : null,
+                                  );
+                                  setRowLinkErrors((prev) => ({ ...prev, [p.id]: msg }));
+                                  toast.error(msg);
+                                } finally {
+                                  setLinkBusyPayeeId(null);
                                 }
-                                toast.success(
-                                  data.already_linked ? 'Already linked' : 'Payee linked to Revolut',
-                                );
-                                void queryClient.invalidateQueries({ queryKey: ['admin-company-payees'] });
                               }}
                             >
-                              Link Revolut
+                              {linkBusyPayeeId === p.id
+                                ? 'Linking…'
+                                : (rowLinkErrors[p.id] || p.link_error_message)
+                                ? 'Retry Link'
+                                : 'Link Revolut'}
                             </Button>
                           ) : null}
                           <Button
@@ -564,7 +688,7 @@ export function CompanyTransfersPayeesSection({
                                 body: { action: 'pause_payee', payee_id: p.id, paused: !p.paused },
                               });
                               if (error || !data?.success) {
-                                toast.error(error?.message ?? extractFnError(data, 'Pause failed'));
+                                toast.error(error?.message ?? data?.error ?? 'Pause failed');
                                 return;
                               }
                               toast.success(p.paused ? 'Payee resumed' : 'Payee paused');
@@ -581,7 +705,7 @@ export function CompanyTransfersPayeesSection({
                                 body: { action: 'archive_payee', payee_id: p.id, archived: true },
                               });
                               if (error || !data?.success) {
-                                toast.error(error?.message ?? extractFnError(data, 'Archive failed'));
+                                toast.error(error?.message ?? data?.error ?? 'Archive failed');
                                 return;
                               }
                               toast.success('Payee archived');

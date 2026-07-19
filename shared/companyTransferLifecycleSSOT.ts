@@ -83,6 +83,40 @@ export const COMPANY_TRANSFER_GATE_REASON = {
 export type CompanyTransferGateReasonCode =
   (typeof COMPANY_TRANSFER_GATE_REASON)[keyof typeof COMPANY_TRANSFER_GATE_REASON];
 
+/** Finance-facing copy — never show raw implementation codes in admin UI. */
+export const COMPANY_TRANSFER_GATE_REASON_LABELS: Record<string, string> = {
+  OPERATIONAL_RESERVE_NOT_CONFIGURED: "Company reserve policy not configured",
+  FINAL_COMPANY_FUNDS_UNAVAILABLE: "Insufficient settled company funds",
+  UNCLASSIFIED_COMPANY_CASH_PRESENT: "Unclassified company cash requires reconciliation",
+  INSUFFICIENT_FINAL_AVAILABLE: "Insufficient settled company funds",
+  PAYEE_UNVERIFIED: "Recipient must be linked to Revolut before submission.",
+  PAYEE_INACTIVE: "Payee is inactive or archived",
+  AMOUNT_INVALID: "Transfer amount is invalid",
+  PURPOSE_REQUIRED: "Payment purpose is required",
+  CURRENCY_MISMATCH: "Currency does not match funding account",
+  SERVICE_AREA_MISMATCH: "Service area does not match funding policy",
+  DUPLICATE_ACTIVE_TRANSFER: "An active transfer already exists for this request",
+  REQUESTER_CANNOT_SELF_APPROVE: "Requester cannot approve their own transfer",
+  LIVE_COMPANY_TRANSFER_EXECUTION_DISABLED: "Company transfer execution is disabled",
+  FUNDING_SNAPSHOT_MISMATCH: "Funding snapshot no longer matches available funds",
+  CLASSIFIED_COMPANY_CASH_UNAVAILABLE: "Classified company cash is unavailable",
+};
+
+export function companyTransferGateReasonLabel(
+  code: string | null | undefined,
+): string {
+  const c = String(code ?? "").trim();
+  if (!c) return "Transfer validation failed";
+  return COMPANY_TRANSFER_GATE_REASON_LABELS[c] ?? c.replaceAll("_", " ").toLowerCase()
+    .replace(/^\w/, (ch) => ch.toUpperCase());
+}
+
+export function companyTransferGateReasonLabels(
+  codes: ReadonlyArray<string> | null | undefined,
+): string[] {
+  return [...new Set((codes ?? []).map((c) => companyTransferGateReasonLabel(c)).filter(Boolean))];
+}
+
 export const LIVE_COMPANY_TRANSFER_EXECUTION_ENV =
   "LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED" as const;
 
@@ -396,3 +430,61 @@ export const SLICE11_PROOF = {
   BOSTEYO_COMPLETED_PENCE: 408,
   SERVICE_AREA_ID_MK: "cb58f1bd-8b6f-45b9-ad31-b3140309892c",
 } as const;
+
+/** Certification / test artefacts — keep in History/Audit, hide from operational Transfers. */
+export const COMPANY_TRANSFER_TYPE_CERTIFICATION = "CERTIFICATION" as const;
+export const COMPANY_TRANSFER_ENV_TEST_PROOF = "TEST_PROOF" as const;
+export const COMPANY_TRANSFER_VISIBILITY_HISTORY_ONLY = "HISTORY_ONLY" as const;
+
+export function isCompanyTransferCertificationOrTestProof(row: {
+  transfer_type?: string | null;
+  metadata?: Record<string, unknown> | null;
+  recipient_name?: string | null;
+}): boolean {
+  const meta = (row.metadata && typeof row.metadata === "object")
+    ? row.metadata as Record<string, unknown>
+    : {};
+  if (String(row.transfer_type ?? "").toUpperCase() === COMPANY_TRANSFER_TYPE_CERTIFICATION) {
+    return true;
+  }
+  if (String(meta.operational_visibility ?? "").toUpperCase() === COMPANY_TRANSFER_VISIBILITY_HISTORY_ONLY) {
+    return true;
+  }
+  if (String(meta.environment_record ?? "").toUpperCase() === COMPANY_TRANSFER_ENV_TEST_PROOF) {
+    return true;
+  }
+  if (meta.slice11 === true) return true;
+  if (/^slice\s*11\b/i.test(String(row.recipient_name ?? ""))) return true;
+  return false;
+}
+
+/**
+ * Operational Transfers list: active workflow only.
+ * Excludes terminal statuses and HISTORY_ONLY / cancelled Slice11 proof artefacts.
+ * Active CERTIFICATION drafts remain visible so they can be reviewed/submitted later.
+ */
+export function isCompanyTransferOperationallyVisible(row: {
+  status?: string | null;
+  transfer_type?: string | null;
+  metadata?: Record<string, unknown> | null;
+  recipient_name?: string | null;
+}): boolean {
+  const status = String(row.status ?? "").toUpperCase();
+  const meta = (row.metadata && typeof row.metadata === "object")
+    ? row.metadata as Record<string, unknown>
+    : {};
+  const historyOnly = String(meta.operational_visibility ?? "").toUpperCase() === COMPANY_TRANSFER_VISIBILITY_HISTORY_ONLY;
+  const isCert = String(row.transfer_type ?? "").toUpperCase() === COMPANY_TRANSFER_TYPE_CERTIFICATION
+    || meta.certification === true
+    || meta.slice11 === true
+    || /^slice\s*11\b/i.test(String(row.recipient_name ?? ""));
+
+  if (historyOnly) return false;
+  if (isCert && (COMPANY_TRANSFER_HISTORY_STATUSES as readonly string[]).includes(status)) {
+    return false;
+  }
+  if ((COMPANY_TRANSFER_HISTORY_STATUSES as readonly string[]).includes(status)) {
+    return false;
+  }
+  return true;
+}

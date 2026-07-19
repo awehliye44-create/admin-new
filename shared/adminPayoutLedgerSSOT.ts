@@ -93,11 +93,18 @@ export type AdminPayoutLedgerItemRow = {
   bank_account_last4: string | null;
   connected_account_id: string | null;
   status: string;
-  /** Canonical display status (NOT_SUBMITTED / COMPLETED / …). */
+  /** Canonical display status (NOT_SUBMITTED / CARRIED_FORWARD / COMPLETED / …). */
   display_status?: string | null;
   display_status_label?: string | null;
+  /** e.g. "Included in Live Wallet" for carried-forward rows. */
+  display_supporting_text?: string | null;
+  /** Human reason when carried forward (e.g. below weekly minimum). */
+  display_reason_label?: string | null;
+  /** True when amount is a subset of Live Wallet, not additive unpaid liability. */
+  included_in_live_wallet?: boolean;
   execution_status?: string | null;
   reservation_status?: string | null;
+  release_reason?: string | null;
   processing_started_at: string | null;
   paid_at: string | null;
   failure_reason: string | null;
@@ -224,6 +231,8 @@ export type CompanyOutgoingTransferRow = {
   notes: string | null;
   attachment_url: string | null;
   batch_id: string | null;
+  transfer_type?: string | null;
+  metadata?: Record<string, unknown> | null;
   /** Slice 11 */
   blocked_reason_codes?: string[] | null;
   approval_funding_snapshot?: Record<string, unknown> | null;
@@ -295,6 +304,9 @@ export type AdminPayoutLedgerBatchRow = {
   failed_payouts: number | null;
   completed_at: string | null;
   failure_reason: string | null;
+  /** Orchestrator / batch exact blocker (e.g. LIVE_PAYOUT_ROLLOUT_DISABLED). */
+  blocker_code?: string | null;
+  failure_code?: string | null;
 };
 
 export type AdminPayoutLedgerAuditRow = {
@@ -336,8 +348,10 @@ export type AdminPayoutLedgerListResponse = {
   company_transfers_empty_copy?: string;
   /** Sanitised machine code when page_status is not LIVE. */
   error_code?: string | null;
-  /** Company Transfers remain display-only while LIVE_PAYOUT is disabled. */
+  /** @deprecated Prefer company_transfers_money_read_only — payee CRUD is enabled. */
   company_transfers_read_only?: boolean;
+  /** True while LIVE company /pay is off — payee CRUD still allowed. */
+  company_transfers_money_read_only?: boolean;
   live_payout_execution_enabled?: boolean;
   /** Root-level section statuses (Slice E). */
   sections?: NonNullable<CompanyBalanceSnapshot["sections"]>;
