@@ -306,13 +306,11 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
 
   const penceField = (key: keyof FarePricingSettings, label: string, helpText?: string) => {
     const val = (settings?.[key] as number) ?? 0;
-    const symLen = (symbol ?? '').length;
-    const padLeft = Math.max(28, 12 + symLen * 8); // px: 12px gap + ~8px per char
     return (
       <div className="space-y-1">
         <Label className="text-sm">{label}</Label>
-        <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm pointer-events-none">
+        <div className="flex items-stretch rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 overflow-hidden">
+          <span className="flex items-center px-3 text-muted-foreground text-sm bg-muted/40 border-r border-input whitespace-nowrap">
             {symbol}
           </span>
           <Input
@@ -321,13 +319,14 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             min="0"
             value={(val / 100).toFixed(2)}
             onChange={(e) => updateField(key, Math.round(parseFloat(e.target.value || '0') * 100) as never)}
-            style={{ paddingLeft: `${padLeft}px` }}
+            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none"
           />
         </div>
         {helpText && <p className="text-xs text-muted-foreground">{helpText}</p>}
       </div>
     );
   };
+
 
   const handleSave = async () => {
     if (!settings) return;
