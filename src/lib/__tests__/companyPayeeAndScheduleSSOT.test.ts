@@ -232,11 +232,12 @@ describe("company payee schedule SSOT", () => {
 });
 
 describe("approval + funding", () => {
-  it("requester cannot approve own transfer", () => {
+  it("requester cannot approve own transfer when self-approval disabled", () => {
     expect(canApproveCompanyTransfer({
       requester_id: "u1",
       approver_id: "u1",
       category: "DIRECTOR_DIVIDEND",
+      allow_self_approval: false,
     })).toEqual({ ok: false, reason: "REQUESTER_CANNOT_SELF_APPROVE" });
   });
 
