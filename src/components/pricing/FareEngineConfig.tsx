@@ -306,18 +306,22 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
 
   const penceField = (key: keyof FarePricingSettings, label: string, helpText?: string) => {
     const val = (settings?.[key] as number) ?? 0;
+    const symLen = (symbol ?? '').length;
+    const padLeft = Math.max(28, 12 + symLen * 8); // px: 12px gap + ~8px per char
     return (
       <div className="space-y-1">
         <Label className="text-sm">{label}</Label>
         <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{symbol}</span>
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm pointer-events-none">
+            {symbol}
+          </span>
           <Input
             type="number"
             step="0.01"
             min="0"
             value={(val / 100).toFixed(2)}
             onChange={(e) => updateField(key, Math.round(parseFloat(e.target.value || '0') * 100) as never)}
-            className="pl-7"
+            style={{ paddingLeft: `${padLeft}px` }}
           />
         </div>
         {helpText && <p className="text-xs text-muted-foreground">{helpText}</p>}
