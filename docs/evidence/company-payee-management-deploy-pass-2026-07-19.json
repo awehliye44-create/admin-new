@@ -1,0 +1,43 @@
+{
+  "verdict": "COMPANY PAYEE MANAGEMENT DEPLOY PASS",
+  "as_of": "2026-07-19T08:44:49.495797+00:00",
+  "commit": "6a22ab16d500a198d41087ef98219b7f681f9bd4",
+  "parent_fix_commit": "6bc4688fb0725977a9e8cf7e757ec73fde0a96c4",
+  "deploy": {
+    "environment": "admin-new production (GitHub Pages \u2192 adminonecab.net)",
+    "workflow_run": "https://github.com/awehliye44-create/admin-new/actions/runs/29680236751",
+    "bundle": "assets/index-Cj_-FxoS.js",
+    "index_html_script": "/assets/index-Cj_-FxoS.js"
+  },
+  "tests": {
+    "companyTransfersPayeeManagementGate.test.ts": "3/3 passed"
+  },
+  "bundle_proof": {
+    "Add payee (disabled)": false,
+    "Add Payee": true,
+    "Creating a payee never enables live payment execution": true,
+    "LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED still present for Submit/Execute gates": true
+  },
+  "create_payee_proof": {
+    "payee_id": "2818a743-01a4-4fd8-88eb-4b9943e0a64f",
+    "display_name": "Cert Payee Director",
+    "execute_live": false,
+    "live_counterparty_created": false,
+    "account_verification_status": "UNVERIFIED",
+    "company_live_setting": false,
+    "company_transfer_payment_intents_last_12h": 0
+  },
+  "scope": [
+    "src/components/finance/CompanyTransfersPayeesSection.tsx",
+    "src/lib/__tests__/companyTransfersPayeeManagementGate.test.ts"
+  ],
+  "no_payment_execution": true,
+  "ui_proof": {
+    "authenticated_screenshot": "blocked by login wall (see company-payee-add-button-deploy-2026-07-19.png)",
+    "deployed_bundle_minified_context": "t.jsxs(xe,{size:\"sm\",onClick:J,children:[t.jsx(xi,{className:\"h-4 w-4 mr-2\"}),\" Add Payee\"]})",
+    "disabled_string_absent": true,
+    "production_index_html": "https://adminonecab.net/index.html \u2192 /assets/index-Cj_-FxoS.js",
+    "production_url": "https://adminonecab.net/payout-ledger",
+    "lovable_note": "Lovable preview syncs from GitHub main; hard-refresh if old disabled button cached"
+  }
+}
