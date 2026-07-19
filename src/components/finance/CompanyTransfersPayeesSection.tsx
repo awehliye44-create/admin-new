@@ -31,10 +31,30 @@ import { formatNullablePence } from '@/lib/formatNullablePence';
 import { ADMIN_COMPANY_PAYEES_FN } from '../../../shared/adminPayoutLedgerSSOT';
 import {
   COMPANY_PAYEE_TYPES,
-  companyPayeeTypeLabel,
   type CompanyPayeePublicDto,
 } from '../../../shared/companyPayeeSSOT';
 import { COMPANY_TRANSFER_CATEGORIES } from '../../../shared/companyOutgoingTransferSSOT';
+
+/** Local labels — keep payee CRUD deployable without shared SSOT drift. */
+const PAYEE_TYPE_LABELS: Record<string, string> = {
+  STAFF: 'Staff',
+  DIRECTOR: 'Director',
+  CONTRACTOR: 'Contractor',
+  SUPPLIER: 'Supplier',
+  OFFICE_EXPENSE: 'Office expense',
+  SOFTWARE_SUBSCRIPTION: 'Software subscription',
+  HMRC_TAX: 'Government / HMRC / Tax',
+  INSURANCE: 'Insurance',
+  VEHICLE_SUPPLIER: 'Vehicle supplier',
+  REFUND_RECIPIENT: 'Refund recipient',
+  EXPENSE_CLAIMANT: 'Expense claimant',
+  OTHER: 'Other',
+};
+
+function companyPayeeTypeLabel(type: string | null | undefined): string {
+  const t = String(type ?? 'OTHER').toUpperCase();
+  return PAYEE_TYPE_LABELS[t] ?? (type || 'Other');
+}
 
 type ScheduleRow = {
   id: string;
