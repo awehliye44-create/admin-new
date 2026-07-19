@@ -72,6 +72,13 @@ import {
 import {
   previewCompanyTransferPaymentReference,
 } from '../../../shared/companyTransferPaymentReferenceSSOT';
+import {
+  buildLiveFundsShortfallDisplay,
+  evaluatePreDraftCompanyFundsGate,
+  isAmountValidationOnlyBlock,
+  shouldShowEditDraftAction,
+  shouldShowRetryValidation,
+} from '../../../shared/companyTransferDraftValidationSSOT';
 import { parseLiveCompanyTransferExecutionEnabled } from '../../../shared/companyTransferLifecycleSSOT';
 import { adminCompanyTransferSubmissionDisplay } from '../../../shared/companyTransferSubmissionSSOT';
 import {
@@ -190,6 +197,7 @@ export function PayoutLedgerCompanyTransfersPanel({
   const queryClient = useQueryClient();
   const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
   const [showForm, setShowForm] = useState(false);
+  const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
   const [form, setForm] = useState({
     payee_id: '',
     recipient_name: '',
@@ -266,6 +274,15 @@ export function PayoutLedgerCompanyTransfersPanel({
         throw new Error(first);
       }
       const amountPence = validation.amount_pence!;
+      const fundsGate = evaluatePreDraftCompanyFundsGate({
+        requested_pence: amountPence,
+        available_company_funds_pence: companyBalance?.final_company_available_pence
+          ?? companyBalance?.company_available_for_transfer_pence
+          ?? null,
+      });
+      if (!fundsGate.ok) {
+        throw new Error(fundsGate.message ?? 'Insufficient Available Company Funds');
+      }
       const approvedPence = form.approved_amount_pence.trim()
         ? Math.round(Number(form.approved_amount_pence))
         : amountPence;
@@ -285,6 +302,35 @@ export function PayoutLedgerCompanyTransfersPanel({
         throw new Error('Use Automatic Payments (Payees tab) for recurring schedules');
       }
       const isCertification = String(form.transfer_kind).toUpperCase() === 'CERTIFICATION';
+      if (editingTransferId) {
+        const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_TRANSFER_FN, {
+          body: {
+            action: 'edit_draft',
+            transfer_id: editingTransferId,
+            payee_id: form.payee_id || null,
+            category: form.category,
+            amount_pence: amountPence,
+            approved_amount_pence: approvedPence,
+            purpose: form.purpose,
+            statement_reference: form.statement_reference.trim() || null,
+            scheduled_at: createOpts.scheduled_at,
+            cost_centre: form.cost_centre || null,
+            attachment_url: form.attachment_url || null,
+            notes: form.notes || null,
+          },
+        });
+        if (error) throw error;
+        if (!data?.success) {
+          const protection = data?.funds_protection as { message?: string } | null | undefined;
+          throw new Error(
+            protection?.message
+              ?? data?.message
+              ?? data?.error
+              ?? 'Draft update failed',
+          );
+        }
+        return data;
+      }
       const idempotencyKey = `manual:${crypto.randomUUID()}`;
       const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_TRANSFER_FN, {
         body: {
@@ -317,17 +363,28 @@ export function PayoutLedgerCompanyTransfersPanel({
         },
       });
       if (error) throw error;
-      if (!data?.success) throw new Error(data?.error ?? 'Create failed');
+      if (!data?.success) {
+        const protection = data?.funds_protection as { message?: string } | null | undefined;
+        throw new Error(
+          protection?.message
+            ?? data?.message
+            ?? data?.error
+            ?? 'Create failed',
+        );
+      }
       return data;
     },
     onSuccess: (data) => {
       const paymentRef = data?.transfer?.payment_reference ?? data?.payment_reference ?? null;
-      const ref = paymentRef ?? data?.transfer?.transfer_ref ?? 'created';
+      const ref = paymentRef ?? data?.transfer?.transfer_ref ?? 'saved';
       const status = data?.transfer?.status ?? 'DRAFT';
       toast.success(
-        `${companyTransferStatusLabel(status)} created — ${ref} (company funding only)`,
+        editingTransferId
+          ? `Draft updated — ${ref}`
+          : `${companyTransferStatusLabel(status)} created — ${ref} (company funding only)`,
       );
       setShowForm(false);
+      setEditingTransferId(null);
       void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
     },
     onError: (err: Error) => toast.error(err.message),
@@ -490,8 +547,13 @@ export function PayoutLedgerCompanyTransfersPanel({
   );
 
   const draftTransfers = useMemo(
-    () => transfers.filter((t) =>
-      String(t.status) === 'DRAFT' && isCompanyTransferOperationallyVisible(t)),
+    () => transfers.filter((t) => {
+      if (!isCompanyTransferOperationallyVisible(t)) return false;
+      if (String(t.status) === 'DRAFT') return true;
+      // Amount-only insufficient blocks stay in Drafts for Edit Draft — not Blocked.
+      return ['BLOCKED', 'FUNDING_UNAVAILABLE'].includes(String(t.status))
+        && isAmountValidationOnlyBlock(t.blocked_reason_codes);
+    }),
     [transfers],
   );
   const awaitingApproval = useMemo(
@@ -508,7 +570,8 @@ export function PayoutLedgerCompanyTransfersPanel({
   const blockedTransfers = useMemo(
     () => transfers.filter((t) =>
       ['BLOCKED', 'FUNDING_UNAVAILABLE'].includes(String(t.status))
-      && isCompanyTransferOperationallyVisible(t)),
+      && isCompanyTransferOperationallyVisible(t)
+      && !isAmountValidationOnlyBlock(t.blocked_reason_codes)),
     [transfers],
   );
   const processingTransfers = useMemo(
@@ -585,6 +648,26 @@ export function PayoutLedgerCompanyTransfersPanel({
     ],
   );
 
+  const availableCompanyFundsPence = companyBalance?.final_company_available_pence
+    ?? companyBalance?.company_available_for_transfer_pence
+    ?? null;
+
+  const liveFundsShortfall = useMemo(
+    () => buildLiveFundsShortfallDisplay({
+      available_company_funds_pence: availableCompanyFundsPence,
+      requested_pence: draftValidation.amount_pence,
+    }),
+    [availableCompanyFundsPence, draftValidation.amount_pence],
+  );
+
+  const preDraftFundsGate = useMemo(
+    () => evaluatePreDraftCompanyFundsGate({
+      requested_pence: draftValidation.amount_pence ?? 0,
+      available_company_funds_pence: availableCompanyFundsPence,
+    }),
+    [draftValidation.amount_pence, availableCompanyFundsPence],
+  );
+
   const serviceAreaName = useMemo(() => {
     const id = form.service_area_id || serviceAreaId || '';
     return serviceAreas.find((sa) => sa.id === id)?.name ?? '';
@@ -654,6 +737,37 @@ export function PayoutLedgerCompanyTransfersPanel({
       recipient_type: certPayee?.payee_type ?? f.recipient_type,
       destination_account: certPayee?.masked_account ?? f.destination_account,
     }));
+  };
+
+  const beginEditDraft = (t: CompanyOutgoingTransferRow) => {
+    setEditingTransferId(t.id);
+    setForm((f) => ({
+      ...f,
+      payee_id: t.payee_id ?? '',
+      recipient_name: t.recipient_name,
+      recipient_type: t.recipient_type,
+      category: t.category,
+      money_source: 'COMPANY_BALANCE',
+      source_account: t.source_account ?? resolvedSourceAccount,
+      destination_account: t.destination_account ?? '',
+      amount_pence: String(t.amount_pence ?? ''),
+      approved_amount_pence: '',
+      currency: t.currency || 'GBP',
+      purpose: t.purpose || '',
+      payment_reference: t.payment_reference ?? '',
+      statement_reference: t.statement_reference ?? '',
+      scheduled_at: '',
+      transfer_kind: String(t.transfer_type ?? '').toUpperCase() === 'CERTIFICATION'
+        ? 'CERTIFICATION'
+        : 'ONE_OFF',
+      start_mode: 'DRAFT',
+      service_area_id: t.service_area_id || serviceAreaId || '',
+      cost_centre: t.cost_centre ?? '',
+      provider: t.provider || 'revolut_business',
+      notes: t.notes ?? '',
+      attachment_url: t.attachment_url ?? '',
+    }));
+    setShowForm(true);
   };
 
   const viewEvidence = async (transferId: string) => {
@@ -823,6 +937,18 @@ export function PayoutLedgerCompanyTransfersPanel({
                     <TableCell className="text-xs tabular-nums">{formatNullablePence(t.amount_pence)}</TableCell>
                     <TableCell className="text-xs max-w-[180px] truncate">{t.purpose}</TableCell>
                     <TableCell className="space-x-1">
+                      {shouldShowEditDraftAction({
+                        status: t.status,
+                        blocked_reason_codes: t.blocked_reason_codes,
+                      }) ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => beginEditDraft(t)}
+                        >
+                          Edit Draft
+                        </Button>
+                      ) : null}
                       <Button
                         size="sm"
                         variant="outline"
@@ -1040,17 +1166,34 @@ export function PayoutLedgerCompanyTransfersPanel({
                       }).hold_label}
                     </TableCell>
                     <TableCell className="space-x-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={actionMutation.isPending}
-                        onClick={() => actionMutation.mutate({
-                          action: 'submit_for_approval',
-                          transfer_id: t.id,
-                        })}
-                      >
-                        Retry Validation
-                      </Button>
+                      {shouldShowEditDraftAction({
+                        status: t.status,
+                        blocked_reason_codes: t.blocked_reason_codes,
+                      }) ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => beginEditDraft(t)}
+                        >
+                          Edit Draft
+                        </Button>
+                      ) : null}
+                      {shouldShowRetryValidation({
+                        status: t.status,
+                        blocked_reason_codes: t.blocked_reason_codes,
+                      }) ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={actionMutation.isPending}
+                          onClick={() => actionMutation.mutate({
+                            action: 'submit_for_approval',
+                            transfer_id: t.id,
+                          })}
+                        >
+                          Retry Validation
+                        </Button>
+                      ) : null}
                       <Button size="sm" variant="ghost" onClick={() => void viewEvidence(t.id)}>
                         Evidence
                       </Button>
@@ -1458,9 +1601,20 @@ export function PayoutLedgerCompanyTransfersPanel({
                 ? 'Add an active company payee before creating a draft'
                 : undefined
             }
-            onClick={() => setShowForm((v) => !v)}
+            onClick={() => {
+              setShowForm((v) => {
+                const next = !v;
+                if (!next) setEditingTransferId(null);
+                if (next && editingTransferId) setEditingTransferId(null);
+                return next;
+              });
+            }}
           >
-            <Plus className="h-4 w-4 mr-2" /> {showForm ? 'Hide form' : 'Create draft'}
+            <Plus className="h-4 w-4 mr-2" /> {
+              showForm
+                ? 'Hide form'
+                : (editingTransferId ? 'Edit draft' : 'Create draft')
+            }
           </Button>
         )}
         <Button
@@ -1479,7 +1633,9 @@ export function PayoutLedgerCompanyTransfersPanel({
       {showForm && !failedOnly && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Create company transfer draft</CardTitle>
+            <CardTitle className="text-base">
+              {editingTransferId ? 'Edit draft' : 'Create company transfer draft'}
+            </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1 sm:col-span-2 text-xs text-muted-foreground">
@@ -1673,6 +1829,12 @@ export function PayoutLedgerCompanyTransfersPanel({
             </div>
 
             <div className="space-y-1">
+              <div className="rounded-md border bg-muted/30 px-3 py-2 space-y-1">
+                <div className="text-[11px] text-muted-foreground">Available Company Funds</div>
+                <div className="text-lg font-semibold tabular-nums">
+                  {liveFundsShortfall.available_label}
+                </div>
+              </div>
               <Label htmlFor="ct-amount">
                 Requested amount (pence)
                 <RequiredAsterisk />
@@ -1684,14 +1846,36 @@ export function PayoutLedgerCompanyTransfersPanel({
                 onChange={(e) => setForm((f) => ({ ...f, amount_pence: e.target.value.replace(/[^\d]/g, '') }))}
                 placeholder="1"
                 aria-required="true"
-                aria-invalid={Boolean(draftValidation.byField.amount_pence)}
-                aria-describedby="help-amount amount-gbp"
+                aria-invalid={Boolean(
+                  draftValidation.byField.amount_pence
+                  || (draftValidation.amount_pence != null && !preDraftFundsGate.ok),
+                )}
+                aria-describedby="help-amount amount-gbp funds-shortfall"
               />
               <p id="amount-gbp" className="text-sm font-medium tabular-nums pt-0.5">
                 {draftValidation.gbp_display
                   ? `= ${draftValidation.gbp_display}`
                   : 'Enter pence to see GBP'}
               </p>
+              {draftValidation.amount_pence != null ? (
+                <div
+                  id="funds-shortfall"
+                  className={`rounded-md border px-3 py-2 text-xs space-y-1 ${
+                    liveFundsShortfall.valid
+                      ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                      : 'border-red-300 bg-red-50 text-red-900'
+                  }`}
+                >
+                  <div>Requested: {liveFundsShortfall.requested_label}</div>
+                  <div>Available: {liveFundsShortfall.available_label}</div>
+                  <div className="font-medium">
+                    Shortfall: {liveFundsShortfall.shortfall_label}
+                  </div>
+                  {!liveFundsShortfall.valid && preDraftFundsGate.message ? (
+                    <p className="whitespace-pre-line pt-1">{preDraftFundsGate.message}</p>
+                  ) : null}
+                </div>
+              ) : null}
               <FieldHelp id="help-amount">{COMPANY_TRANSFER_FORM_FIELD_HELP.amount_pence}</FieldHelp>
               <FieldError message={draftValidation.byField.amount_pence} />
               {draftValidation.large_amount_warning ? (
@@ -1728,7 +1912,9 @@ export function PayoutLedgerCompanyTransfersPanel({
               <div className="flex gap-2">
                 <Input
                   id="ct-reference"
-                  value={paymentReferencePreview}
+                  value={editingTransferId && form.payment_reference
+                    ? form.payment_reference
+                    : paymentReferencePreview}
                   readOnly
                   disabled
                   className="font-mono text-xs"
@@ -1739,10 +1925,15 @@ export function PayoutLedgerCompanyTransfersPanel({
                   variant="outline"
                   size="icon"
                   className="shrink-0"
-                  title="Copy preview format"
+                  title="Copy payment reference"
                   onClick={() => {
-                    void navigator.clipboard.writeText(paymentReferencePreview);
-                    toast.message('Preview format copied — final reference assigned on create');
+                    const value = editingTransferId && form.payment_reference
+                      ? form.payment_reference
+                      : paymentReferencePreview;
+                    void navigator.clipboard.writeText(value);
+                    toast.message(editingTransferId
+                      ? 'Payment reference copied'
+                      : 'Preview format copied — final reference assigned on create');
                   }}
                 >
                   <Copy className="h-4 w-4" />
@@ -1939,13 +2130,14 @@ export function PayoutLedgerCompanyTransfersPanel({
                 disabled={
                   createMutation.isPending
                   || !draftValidation.ok
+                  || !preDraftFundsGate.ok
                   || activePayees.length === 0
                   || form.transfer_kind === 'RECURRING'
                 }
                 onClick={() => {
-                  if (!draftValidation.ok) return;
+                  if (!draftValidation.ok || !preDraftFundsGate.ok) return;
                   if (!window.confirm(
-                    `Create draft?\n\n`
+                    `${editingTransferId ? 'Save draft changes' : 'Create draft'}?\n\n`
                     + `${draftSummary.lines.map((l) => `${l.label}: ${l.value}`).join('\n')}\n`
                     + `${draftSummary.execution_note}`,
                   )) return;
@@ -1953,7 +2145,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                 }}
               >
                 {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Create Draft
+                {editingTransferId ? 'Save Draft' : 'Create Draft'}
               </Button>
             </div>
           </CardContent>

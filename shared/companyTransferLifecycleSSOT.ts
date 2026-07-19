@@ -111,7 +111,7 @@ export function companyTransferGateReasonLabel(
 ): string {
   const c = String(code ?? "").trim();
   if (!c) return "Transfer validation failed";
-  return COMPANY_TRANSFER_GATE_REASON_LABELS[c] ?? c.replaceAll("_", " ").toLowerCase()
+  return COMPANY_TRANSFER_GATE_REASON_LABELS[c] ?? c.split("_").join(" ").toLowerCase()
     .replace(/^\w/, (ch) => ch.toUpperCase());
 }
 
@@ -221,7 +221,8 @@ export type CompanyFundsProtectionBlock = {
   company_balance_mutated: false;
 };
 
-function formatPenceGbp(pence: number): string {
+/** GBP display for funds protection / draft validation messages. */
+export function formatPenceGbp(pence: number): string {
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
     currency: "GBP",
