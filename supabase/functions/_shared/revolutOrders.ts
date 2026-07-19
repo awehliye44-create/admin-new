@@ -114,9 +114,13 @@ export async function refundRevolutOrder(
   orderId: string,
   amountMinor?: number,
   reason?: string,
+  currency: string = "GBP",
 ): Promise<{ id?: string; state?: string }> {
   const body: Record<string, unknown> = {};
-  if (amountMinor != null) body.amount = amountMinor;
+  if (amountMinor != null) {
+    body.amount = amountMinor;
+    body.currency = currency.toUpperCase();
+  }
   if (reason) body.reason = reason.slice(0, 200);
   return await revolutMerchantRequest(
     environment,

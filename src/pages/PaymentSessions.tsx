@@ -9,6 +9,15 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -157,7 +166,12 @@ function SessionActions({
   const offerSendPaymentLink = allowedDefined
     ? allowedActions.has('send_payment_link')
     : false;
-  const canRefund = allowedDefined && allowedActions.has('refund_difference');
+  const overcaptureRefundRequired =
+    captureConfirmation.classification === 'OVERCAPTURED_REFUND_REQUIRED'
+    && captureConfirmation.difference_pence != null
+    && captureConfirmation.difference_pence > 0;
+  /** Every linked trip gets a manual refund entry — not only overcapture SSOT. */
+  const canRefund = Boolean(row.trip_id);
   const outstandingForAction = row.outstanding_pence
     ?? captureConfirmation.outstanding_pence;
   const captureFullyConfirmed =
@@ -173,7 +187,7 @@ function SessionActions({
     || row.action_classification === 'RELEASE_CONFIRMED'
     || row.action_classification === 'PROVIDER_ALREADY_RELEASED'
     || row.action_classification === 'AUTHORISATION_EXPIRED'
-    || (captureFullyConfirmed && !offerCollectOutstanding && !canRefund);
+    || (captureFullyConfirmed && !offerCollectOutstanding && !overcaptureRefundRequired);
   return (
     <div className="flex flex-wrap gap-1">
       {row.customer_id && (
@@ -234,15 +248,13 @@ function SessionActions({
         <Button
           size="sm"
           variant="destructive"
-          disabled={busy || !row.provider_order_id}
+          disabled={busy}
           onClick={() => onRefund(row)}
         >
           {busy
             ? <Loader2 className="h-3 w-3 animate-spin" />
-            : captureConfirmation.classification === 'OVERCAPTURED_REFUND_REQUIRED'
-              && captureConfirmation.difference_pence != null
-              && captureConfirmation.difference_pence > 0
-              ? `Refund Difference £${(captureConfirmation.difference_pence / 100).toFixed(2)}`
+            : overcaptureRefundRequired
+              ? `Refund £${(captureConfirmation.difference_pence! / 100).toFixed(2)}`
               : 'Refund'}
         </Button>
       )}
@@ -350,6 +362,9 @@ export default function PaymentSessions() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [inspectSnapshots, setInspectSnapshots] = useState<Record<string, Record<string, unknown>>>({});
   const [inspectingId, setInspectingId] = useState<string | null>(null);
+  const [refundRow, setRefundRow] = useState<AdminPaymentSessionsListRow | null>(null);
+  const [refundAmountInput, setRefundAmountInput] = useState('');
+  const [refundReason, setRefundReason] = useState('');
 
   useEffect(() => {
     if (customerIdParam) setCustomerId(customerIdParam);
@@ -590,26 +605,84 @@ export default function PaymentSessions() {
     [holdAction, refetch],
   );
 
-  const runRefund = useCallback(
-    async (row: AdminPaymentSessionsListRow) => {
-      if (!row.provider_order_id) {
-        toast.error('Missing provider order id');
+  const openRefundSheet = useCallback((row: AdminPaymentSessionsListRow) => {
+    if (!row.trip_id) {
+      toast.error('Trip id is required to refund');
+      return;
+    }
+    const confirmation = classifyCaptureConfirmation({
+      providerState: row.provider_state,
+      providerCapturedPence: row.captured_amount_pence,
+      localCapturedPence: row.captured_amount_pence,
+      canonicalPayablePence: row.customer_payable_pence,
+      authorisedPence: row.authorised_amount_pence,
+      purpose: row.purpose,
+    });
+    const suggestedPence = confirmation.difference_pence != null
+      && confirmation.difference_pence > 0
+      && confirmation.classification === 'OVERCAPTURED_REFUND_REQUIRED'
+      ? confirmation.difference_pence
+      : null;
+    setRefundRow(row);
+    setRefundAmountInput(
+      suggestedPence != null ? (suggestedPence / 100).toFixed(2) : '',
+    );
+    setRefundReason(
+      suggestedPence != null
+        ? `Overcapture refund for ${row.trip_code ?? row.trip_id}`
+        : `Payment Sessions refund for ${row.trip_code ?? row.trip_id}`,
+    );
+  }, []);
+
+  const submitRefundSheet = useCallback(async () => {
+    if (!refundRow?.trip_id) {
+      toast.error('Trip id is required to refund');
+      return;
+    }
+    const pounds = Number(refundAmountInput);
+    if (!Number.isFinite(pounds) || pounds <= 0) {
+      toast.error('Enter a refund amount greater than £0');
+      return;
+    }
+    const amountPence = Math.round(pounds * 100);
+    if (amountPence < 1) {
+      toast.error('Enter a refund amount greater than £0');
+      return;
+    }
+    const captured = refundRow.captured_amount_pence;
+    const alreadyRefunded = refundRow.refunded_amount_pence ?? 0;
+    if (captured != null) {
+      const refundable = Math.max(0, captured - alreadyRefunded);
+      if (amountPence > refundable) {
+        toast.error(
+          `Cannot refund more than £${(refundable / 100).toFixed(2)} remaining`,
+        );
         return;
       }
-      const actionKey = row.provider_order_id || row.payment_session_id || row.id;
-      setActingId(actionKey);
-      try {
-        await refundAction.mutateAsync({ providerOrderId: row.provider_order_id });
-        toast.success('Refund requested');
-        await refetch();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Refund failed');
-      } finally {
-        setActingId(null);
-      }
-    },
-    [refundAction, refetch],
-  );
+    }
+    const actionKey = refundRow.provider_order_id
+      || refundRow.payment_session_id
+      || refundRow.id;
+    setActingId(actionKey);
+    try {
+      const data = await refundAction.mutateAsync({
+        tripId: refundRow.trip_id,
+        amountPence,
+        reason: refundReason.trim() || undefined,
+      });
+      toast.success(
+        data?.message ?? `Refunded £${(amountPence / 100).toFixed(2)}`,
+      );
+      setRefundRow(null);
+      setRefundAmountInput('');
+      setRefundReason('');
+      await refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Refund failed');
+    } finally {
+      setActingId(null);
+    }
+  }, [refundRow, refundAmountInput, refundReason, refundAction, refetch]);
 
   const runRequestRecovery = useCallback(
     async (
@@ -1474,7 +1547,7 @@ export default function PaymentSessions() {
                                   actingId={actingId}
                                   inspectingId={inspectingId}
                                   onAction={runAction}
-                                  onRefund={runRefund}
+                                  onRefund={openRefundSheet}
                                   onInspect={runInspect}
                                   onRequestRecovery={runRequestRecovery}
                                   onAbandonRecovery={runAbandonRecovery}
@@ -1626,6 +1699,99 @@ export default function PaymentSessions() {
           ))}
         </Tabs>
       </div>
+
+      <Dialog
+        open={refundRow != null}
+        onOpenChange={(open) => {
+          if (!open && actingId == null) {
+            setRefundRow(null);
+            setRefundAmountInput('');
+            setRefundReason('');
+          }
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Refund</DialogTitle>
+            <DialogDescription>
+              {refundRow?.trip_code
+                ? `Enter the amount to refund for ${refundRow.trip_code}.`
+                : 'Enter the amount to refund for this trip.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-xs text-muted-foreground space-y-0.5">
+              <div>
+                Captured:{' '}
+                {formatNullablePence(refundRow?.captured_amount_pence ?? null)}
+              </div>
+              <div>
+                Already refunded:{' '}
+                {formatNullablePence(refundRow?.refunded_amount_pence ?? null)}
+              </div>
+              {refundRow?.captured_amount_pence != null && (
+                <div>
+                  Remaining:{' '}
+                  {formatNullablePence(
+                    Math.max(
+                      0,
+                      refundRow.captured_amount_pence
+                        - (refundRow.refunded_amount_pence ?? 0),
+                    ),
+                  )}
+                </div>
+              )}
+            </div>
+            <div>
+              <Label htmlFor="ps-refund-amount">Amount (GBP)</Label>
+              <Input
+                id="ps-refund-amount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                inputMode="decimal"
+                placeholder="0.00"
+                value={refundAmountInput}
+                onChange={(e) => setRefundAmountInput(e.target.value)}
+                disabled={actingId != null}
+                autoFocus
+              />
+            </div>
+            <div>
+              <Label htmlFor="ps-refund-reason">Reason</Label>
+              <Textarea
+                id="ps-refund-reason"
+                rows={2}
+                value={refundReason}
+                onChange={(e) => setRefundReason(e.target.value)}
+                disabled={actingId != null}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={actingId != null}
+              onClick={() => {
+                setRefundRow(null);
+                setRefundAmountInput('');
+                setRefundReason('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={actingId != null}
+              onClick={() => void submitRefundSheet()}
+            >
+              {actingId != null
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : 'Confirm refund'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AdminLayout>
   );
 }

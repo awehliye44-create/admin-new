@@ -92,16 +92,48 @@ export function useInspectPaymentSessionProvider() {
 export function usePaymentSessionRefund() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (args: { providerOrderId: string }) => {
-      const { data, error } = await supabase.functions.invoke('admin-recover-revolut-orphan', {
+    mutationFn: async (args: {
+      tripId: string;
+      amountPence: number;
+      reason?: string;
+    }) => {
+      const { data, error } = await supabase.functions.invoke('admin-refund-trip-payment', {
         body: {
-          provider_order_id: args.providerOrderId,
-          action: 'refund',
+          trip_id: args.tripId,
+          amount_pence: args.amountPence,
+          reason: args.reason
+            ?? `Payment Sessions refund £${(args.amountPence / 100).toFixed(2)}`,
         },
       });
-      if (error) throw error;
-      if (data?.error) throw new Error(String(data.error));
-      return data;
+      // Prefer structured body (Lovable / FunctionsHttpError often wraps non-2xx).
+      if (data && typeof data === 'object' && (data as { success?: boolean }).success === false) {
+        throw new Error(
+          typeof (data as { error?: unknown }).error === 'string'
+            ? (data as { error: string }).error
+            : 'Refund failed',
+        );
+      }
+      if (data && typeof data === 'object' && (data as { error?: unknown }).error) {
+        throw new Error(String((data as { error: unknown }).error));
+      }
+      if (error) {
+        const ctx = (error as { context?: Response }).context;
+        if (ctx && typeof ctx.json === 'function') {
+          try {
+            const body = await ctx.json() as { error?: string; message?: string };
+            throw new Error(body.error || body.message || error.message);
+          } catch (inner) {
+            if (inner instanceof Error && inner.message !== error.message) throw inner;
+          }
+        }
+        throw error;
+      }
+      return data as {
+        success?: boolean;
+        refunded_pence?: number;
+        total_refunded_pence?: number;
+        message?: string;
+      };
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['admin-payment-sessions'] });

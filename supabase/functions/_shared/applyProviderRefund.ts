@@ -253,3 +253,42 @@ export async function applyStripeRefundToOnecab(
     ledger_reversal_inserted: ledgerReversalInserted,
   };
 }
+
+/** Provider-agnostic refund apply — Revolut admin refunds + legacy Stripe. */
+export async function applyProviderRefundToOnecab(
+  supabase: SupabaseClient,
+  args: {
+    tripId: string;
+    amountRefundedPence: number;
+    provider?: "revolut" | "stripe" | string | null;
+    providerRefundId?: string | null;
+    providerOrderId?: string | null;
+    source: "webhook" | "admin_sync" | "admin_refund";
+    refundReason?: string | null;
+  },
+): Promise<ApplyStripeRefundResult> {
+  const result = await applyStripeRefundToOnecab(supabase, {
+    tripId: args.tripId,
+    amountRefundedPence: args.amountRefundedPence,
+    stripeRefundId: args.providerRefundId ?? null,
+    stripePaymentIntentId: args.providerOrderId ?? null,
+    source: args.source,
+    refundReason: args.refundReason ?? null,
+  });
+
+  // Keep payment_sessions in sync for Payment Sessions overcapture UI.
+  const now = new Date().toISOString();
+  const { error: psErr } = await supabase
+    .from("payment_sessions")
+    .update({
+      refunded_amount_pence: args.amountRefundedPence,
+      updated_at: now,
+    })
+    .eq("trip_id", args.tripId)
+    .not("captured_amount_pence", "is", null);
+  if (psErr) {
+    console.warn("[applyProviderRefund] payment_sessions update skipped", psErr.message);
+  }
+
+  return result;
+}

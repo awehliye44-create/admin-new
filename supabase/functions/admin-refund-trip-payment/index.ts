@@ -31,7 +31,7 @@ serve(async (req) => {
 
     const { data: trip, error: tripErr } = await gate.supabase
       .from("trips")
-      .select("id, payment_provider, provider_order_id, stripe_payment_intent_id, stripe_charge_id, capture_amount_pence, refund_amount_pence, payment_status")
+      .select("id, payment_provider, provider_order_id, stripe_payment_intent_id, stripe_charge_id, capture_amount_pence, refund_amount_pence, payment_status, final_fare_pence, final_customer_fare_pence")
       .eq("id", trip_id)
       .single();
     if (tripErr || !trip) return jsonResponse({ error: "Trip not found" }, 404);
@@ -50,6 +50,14 @@ serve(async (req) => {
     const orderId = tripProviderOrderId(trip);
     if (!orderId) return jsonResponse({ error: "Trip has no Revolut order" }, 400);
 
+    const { data: sessionRow } = await gate.supabase
+      .from("payment_sessions")
+      .select("captured_amount_pence, refunded_amount_pence, authorised_amount_pence")
+      .eq("trip_id", trip_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     const { secretKey, environment } = getRevolutMerchantConfig();
     const orderBefore = await retrieveRevolutOrder(environment, secretKey, orderId);
     const state = (orderBefore.state ?? "").toUpperCase();
@@ -57,8 +65,18 @@ serve(async (req) => {
       return jsonResponse({ error: `Cannot refund — Revolut order state is "${state}" (must be COMPLETED)` }, 400);
     }
 
-    const captured = Math.max(0, trip.capture_amount_pence ?? Number(orderBefore.amount ?? 0));
-    const alreadyRefunded = Math.max(0, trip.refund_amount_pence ?? 0);
+    const captured = Math.max(
+      0,
+      trip.capture_amount_pence
+        ?? sessionRow?.captured_amount_pence
+        ?? Number(orderBefore.amount ?? 0),
+    );
+    const alreadyRefunded = Math.max(
+      0,
+      trip.refund_amount_pence
+        ?? sessionRow?.refunded_amount_pence
+        ?? 0,
+    );
     const refundable = Math.max(0, captured - alreadyRefunded);
     if (refundable <= 0) return jsonResponse({ error: "Nothing left to refund" }, 400);
 
@@ -69,6 +87,14 @@ serve(async (req) => {
     }
 
     const refund = await refundRevolutOrder(environment, secretKey, orderId, refundAmount, reason);
+
+    // Persist capture baseline when trip.capture_amount_pence was never written (common for Revolut).
+    if (trip.capture_amount_pence == null && captured > 0) {
+      await gate.supabase
+        .from("trips")
+        .update({ capture_amount_pence: captured, updated_at: new Date().toISOString() })
+        .eq("id", trip_id);
+    }
 
     await applyProviderRefundToOnecab(gate.supabase, {
       tripId: trip_id,
