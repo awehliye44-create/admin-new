@@ -2307,6 +2307,7 @@ export type Database = {
           account_verification_status: string
           active: boolean
           approved_by: string | null
+          archived_at: string | null
           bank_name: string | null
           country: string
           created_at: string
@@ -2329,6 +2330,7 @@ export type Database = {
           service_area_id: string | null
           sort_code_encrypted: string | null
           updated_at: string
+          verified_at: string | null
         }
         Insert: {
           account_fingerprint: string
@@ -2337,6 +2339,7 @@ export type Database = {
           account_verification_status?: string
           active?: boolean
           approved_by?: string | null
+          archived_at?: string | null
           bank_name?: string | null
           country?: string
           created_at?: string
@@ -2359,6 +2362,7 @@ export type Database = {
           service_area_id?: string | null
           sort_code_encrypted?: string | null
           updated_at?: string
+          verified_at?: string | null
         }
         Update: {
           account_fingerprint?: string
@@ -2367,6 +2371,7 @@ export type Database = {
           account_verification_status?: string
           active?: boolean
           approved_by?: string | null
+          archived_at?: string | null
           bank_name?: string | null
           country?: string
           created_at?: string
@@ -2389,6 +2394,7 @@ export type Database = {
           service_area_id?: string | null
           sort_code_encrypted?: string | null
           updated_at?: string
+          verified_at?: string | null
         }
         Relationships: [
           {
