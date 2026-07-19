@@ -45,7 +45,7 @@ export const COMPANY_TRANSFER_OPERATIONAL_BLOCK_REASONS = new Set([
 
 export type PreDraftFundsGateResult = {
   ok: boolean;
-  reason: "OK" | "INSUFFICIENT_COMPANY_FUNDS" | "AVAILABLE_FUNDS_UNKNOWN";
+  reason: "OK" | "INSUFFICIENT_COMPANY_FUNDS" | "AVAILABLE_FUNDS_UNKNOWN" | "AMOUNT_INVALID";
   available_company_funds_pence: number | null;
   requested_pence: number;
   shortfall_pence: number;
@@ -67,6 +67,38 @@ export function buildPreDraftInsufficientFundsMessage(args: {
     + `Shortfall:\n${formatPenceGbp(shortfall)}\n\n`
     + "This transfer cannot be drafted until sufficient company funds are available."
   );
+}
+
+/**
+ * Resolve ONECAB Available Company Funds from a Company Balance snapshot.
+ * Prefer the same field the Available Company Funds card uses
+ * (company_available_for_transfer_pence), then final / section / snapshot aliases.
+ * Never invent £0 when all are null.
+ */
+export function resolveAvailableCompanyFundsPenceFromBalance(
+  companyBalance: {
+    final_company_available_pence?: number | null;
+    company_available_for_transfer_pence?: number | null;
+    sections?: {
+      company_transfer_available?: { amount_pence?: number | null } | null;
+    } | null;
+  } | null | undefined,
+  fundingSnapshot?: {
+    final_company_available_pence?: number | null;
+  } | null,
+): number | null {
+  const candidates = [
+    // Card SSOT first — avoids false INSUFFICIENT when card shows £7.74.
+    companyBalance?.company_available_for_transfer_pence,
+    companyBalance?.final_company_available_pence,
+    companyBalance?.sections?.company_transfer_available?.amount_pence,
+    fundingSnapshot?.final_company_available_pence,
+  ];
+  for (const raw of candidates) {
+    if (raw == null || !Number.isFinite(Number(raw))) continue;
+    return Math.max(0, Math.round(Number(raw)));
+  }
+  return null;
 }
 
 export function evaluatePreDraftCompanyFundsGate(args: {
@@ -91,14 +123,15 @@ export function evaluatePreDraftCompanyFundsGate(args: {
   if (!(requested > 0)) {
     return {
       ok: false,
-      reason: "INSUFFICIENT_COMPANY_FUNDS",
+      reason: "AMOUNT_INVALID",
       available_company_funds_pence: available,
       requested_pence: requested,
       shortfall_pence: 0,
-      message: "Requested amount must be a positive number of pence.",
+      message: "Requested amount must be a positive number of pence (example: 1 = £0.01).",
       funds_protection: null,
     };
   }
+  // Hard rule: requested ≤ available ⇒ PASS (e.g. 1p vs £7.74 / 774p).
   if (requested > available) {
     const protection = buildCompanyFundsProtectionBlock({
       available_company_funds_pence: available,
@@ -216,6 +249,69 @@ export function canEditCompanyTransferAsDraft(args: {
   return false;
 }
 
+/**
+ * Safe admin actions (edit / return to draft / cancel / duplicate) while LIVE is off.
+ * Allowed when no provider payment exists and no money has moved — LIVE flag must not block these.
+ */
+export function canSafelyAdminMutateCompanyTransfer(args: {
+  status: string | null | undefined;
+  has_provider_payment_id?: boolean | null;
+  money_moved?: boolean | null;
+}): boolean {
+  if (args.has_provider_payment_id === true) return false;
+  if (args.money_moved === true) return false;
+  const status = String(args.status ?? "").toUpperCase();
+  return [
+    "DRAFT",
+    "BLOCKED",
+    "FUNDING_UNAVAILABLE",
+    "AWAITING_APPROVAL",
+    "APPROVED",
+    "READY_FOR_EXECUTION",
+    "SCHEDULED",
+  ].includes(status);
+}
+
+/** Edit from Approved/Ready → returns to DRAFT (re-approval required). */
+export function canEditApprovedOrReadyTransfer(args: {
+  status: string | null | undefined;
+  has_provider_payment_id?: boolean | null;
+  money_moved?: boolean | null;
+}): boolean {
+  const status = String(args.status ?? "").toUpperCase();
+  if (!["APPROVED", "READY_FOR_EXECUTION", "SCHEDULED"].includes(status)) {
+    return canEditCompanyTransferAsDraft(args);
+  }
+  return canSafelyAdminMutateCompanyTransfer(args);
+}
+
+/** Return to Draft without field changes. */
+export function canReturnCompanyTransferToDraft(args: {
+  status: string | null | undefined;
+  has_provider_payment_id?: boolean | null;
+  money_moved?: boolean | null;
+}): boolean {
+  const status = String(args.status ?? "").toUpperCase();
+  if (!["APPROVED", "READY_FOR_EXECUTION", "SCHEDULED", "AWAITING_APPROVAL"].includes(status)) {
+    return false;
+  }
+  return canSafelyAdminMutateCompanyTransfer(args);
+}
+
+export function canCancelCompanyTransferSafely(args: {
+  status: string | null | undefined;
+  has_provider_payment_id?: boolean | null;
+  money_moved?: boolean | null;
+}): boolean {
+  const status = String(args.status ?? "").toUpperCase();
+  if (["PAID", "COMPLETED", "CANCELLED", "REVERTED"].includes(status)) return false;
+  if (args.has_provider_payment_id === true || args.money_moved === true) {
+    // Provider-submitted: cancel must go through provider reversal path — not this safe cancel.
+    return false;
+  }
+  return true;
+}
+
 /** Retry Validation is for operational / balance / reserve / provider changes only. */
 export function shouldShowRetryValidation(args: {
   status: string | null | undefined;
@@ -229,6 +325,8 @@ export function shouldShowRetryValidation(args: {
 export function shouldShowEditDraftAction(args: {
   status: string | null | undefined;
   blocked_reason_codes?: ReadonlyArray<string> | null;
+  has_provider_payment_id?: boolean | null;
+  money_moved?: boolean | null;
 }): boolean {
-  return canEditCompanyTransferAsDraft(args);
+  return canEditApprovedOrReadyTransfer(args);
 }

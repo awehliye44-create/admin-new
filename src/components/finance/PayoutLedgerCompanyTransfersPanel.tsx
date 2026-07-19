@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Loader2, Plus, Printer, RefreshCw, Copy } from 'lucide-react';
 import { toast } from 'sonner';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { companyTransferStatusLabel } from '../../../shared/companyPayeeSSOT';
@@ -67,18 +68,23 @@ import {
   COMPANY_TRANSFER_FORM_FIELD_HELP,
   buildCompanyTransferDraftSummary,
   formatCompanyTransferPenceAsGbp,
-  validateCompanyTransferDraftForm,
 } from '../../../shared/companyTransferFormUxSSOT';
 import {
   previewCompanyTransferPaymentReference,
 } from '../../../shared/companyTransferPaymentReferenceSSOT';
 import {
   buildLiveFundsShortfallDisplay,
-  evaluatePreDraftCompanyFundsGate,
+  canCancelCompanyTransferSafely,
+  canReturnCompanyTransferToDraft,
+  canSafelyAdminMutateCompanyTransfer,
   isAmountValidationOnlyBlock,
   shouldShowEditDraftAction,
   shouldShowRetryValidation,
 } from '../../../shared/companyTransferDraftValidationSSOT';
+import {
+  evaluateCompanyTransferCreatePrecheck,
+  resolvePrecheckAvailableCompanyFundsPence,
+} from '../../../shared/companyTransferCreatePrecheckSSOT';
 import { parseLiveCompanyTransferExecutionEnabled } from '../../../shared/companyTransferLifecycleSSOT';
 import { adminCompanyTransferSubmissionDisplay } from '../../../shared/companyTransferSubmissionSSOT';
 import {
@@ -123,6 +129,55 @@ function FieldError({ message }: { message?: string }) {
       {message}
     </p>
   );
+}
+
+/** Prefer structured edge body over opaque "non-2xx" — keeps form editable (no blank screen). */
+async function companyTransferInvokeErrorMessage(
+  data: Record<string, unknown> | null | undefined,
+  error: unknown,
+  fallback = 'Request failed',
+): Promise<string> {
+  const fromPayload = (payload: Record<string, unknown> | null | undefined): string | null => {
+    if (!payload || typeof payload !== 'object') return null;
+    const protection = payload.funds_protection as { message?: string } | null | undefined;
+    return (
+      (typeof payload.first_visible_error === 'string' ? payload.first_visible_error : null)
+      ?? protection?.message
+      ?? (typeof payload.message === 'string' ? payload.message : null)
+      ?? (payload.error_code || payload.error
+        ? companyTransferGateReasonLabel(String(payload.error_code ?? payload.error ?? ''))
+        : null)
+      ?? (typeof payload.error === 'string' ? payload.error : null)
+    );
+  };
+
+  const fromData = fromPayload(data ?? undefined);
+  if (fromData) return fromData;
+
+  if (error instanceof FunctionsHttpError) {
+    try {
+      const ctx = error.context as Response & { json?: () => Promise<unknown>; clone?: () => Response };
+      let payload: Record<string, unknown> | null = null;
+      if (typeof ctx?.json === 'function') {
+        try {
+          payload = await (ctx.clone?.() ?? ctx).json() as Record<string, unknown>;
+        } catch {
+          payload = await ctx.json() as Record<string, unknown>;
+        }
+      }
+      const fromErr = fromPayload(payload);
+      if (fromErr) return fromErr;
+    } catch {
+      /* fall through */
+    }
+  }
+  if (error instanceof Error && error.message) {
+    if (/non-2xx|edge function/i.test(error.message)) {
+      return 'Transfer validation failed. If you created this transfer, another admin must approve it (self-approval is disabled when company LIVE is on).';
+    }
+    return error.message;
+  }
+  return fallback;
 }
 
 function AutoFilledTag() {
@@ -242,7 +297,7 @@ export function PayoutLedgerCompanyTransfersPanel({
         ? isCompanyPayeeProviderVerified(payee.account_verification_status)
           && Boolean(payee.revolut_counterparty_id)
         : false;
-      const validation = validateCompanyTransferDraftForm({
+      const precheck = evaluateCompanyTransferCreatePrecheck({
         form: {
           payee_id: form.payee_id,
           recipient_name: form.recipient_name,
@@ -268,21 +323,19 @@ export function PayoutLedgerCompanyTransfersPanel({
         payee_provider_verified: payeeVerified,
         payee_currency: payee?.currency ?? null,
         context_service_area_id: serviceAreaId,
+        company_balance: companyBalance,
+        live_company_transfer_execution_enabled: LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED,
       });
-      if (!validation.ok) {
-        const first = validation.errors[0]?.message ?? 'Fix required fields';
-        throw new Error(first);
+      // Field order: payee ("Select a saved payee.") before any funding message.
+      if (!precheck.form.ok) {
+        throw new Error(precheck.first_visible_error ?? precheck.form.errors[0]?.message ?? 'Fix required fields');
       }
-      const amountPence = validation.amount_pence!;
-      const fundsGate = evaluatePreDraftCompanyFundsGate({
-        requested_pence: amountPence,
-        available_company_funds_pence: companyBalance?.final_company_available_pence
-          ?? companyBalance?.company_available_for_transfer_pence
-          ?? null,
-      });
-      if (!fundsGate.ok) {
-        throw new Error(fundsGate.message ?? 'Insufficient Available Company Funds');
+      const amountPence = precheck.form.amount_pence!;
+      const fundsGate = precheck.funds_gate;
+      if (!fundsGate?.ok) {
+        throw new Error(fundsGate?.message ?? 'Insufficient Available Company Funds');
       }
+      const validation = precheck.form;
       const approvedPence = form.approved_amount_pence.trim()
         ? Math.round(Number(form.approved_amount_pence))
         : amountPence;
@@ -301,6 +354,9 @@ export function PayoutLedgerCompanyTransfersPanel({
       if (createOpts.use_recurring_schedule_ui) {
         throw new Error('Use Automatic Payments (Payees tab) for recurring schedules');
       }
+      // Create Draft button must ALWAYS create a DRAFT row.
+      // Approval / funding / LIVE gates run only on submit_for_approval / execute.
+      const createAsDraft = true;
       const isCertification = String(form.transfer_kind).toUpperCase() === 'CERTIFICATION';
       if (editingTransferId) {
         const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_TRANSFER_FN, {
@@ -319,60 +375,76 @@ export function PayoutLedgerCompanyTransfersPanel({
             notes: form.notes || null,
           },
         });
-        if (error) throw error;
-        if (!data?.success) {
-          const protection = data?.funds_protection as { message?: string } | null | undefined;
-          throw new Error(
-            protection?.message
-              ?? data?.message
-              ?? data?.error
-              ?? 'Draft update failed',
-          );
+        // Prefer structured validation body over opaque FunctionsHttpError.
+        if (data && data.success === false) {
+          throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Draft update failed'));
         }
-        return data;
+        if (data?.success) return data;
+        if (error) throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Draft update failed'));
+        throw new Error('Draft update failed');
       }
       const idempotencyKey = `manual:${crypto.randomUUID()}`;
-      const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_TRANSFER_FN, {
-        body: {
-          action: 'create',
-          as_draft: createOpts.as_draft,
-          payee_id: form.payee_id || null,
-          recipient_name: form.payee_id ? undefined : form.recipient_name,
-          recipient_type: form.payee_id ? undefined : form.recipient_type,
-          category: form.category,
-          money_source: 'COMPANY_BALANCE',
-          source_account: form.source_account
-            || companyBalance?.source_account_label
-            || companyBalance?.source_account_id
-            || null,
-          destination_account: form.destination_account || null,
-          amount_pence: amountPence,
-          approved_amount_pence: approvedPence,
-          currency: form.currency || 'GBP',
-          purpose: form.purpose,
-          statement_reference: form.statement_reference.trim() || null,
-          scheduled_at: createOpts.scheduled_at,
-          execution_mode: createOpts.execution_mode,
-          service_area_id: form.service_area_id || serviceAreaId || null,
-          cost_centre: form.cost_centre || null,
-          provider: form.provider || 'revolut_business',
-          notes: form.notes || null,
-          attachment_url: form.attachment_url || null,
-          idempotency_key: idempotencyKey,
-          transfer_type: isCertification ? 'CERTIFICATION' : 'COMPANY_OUTGOING',
-        },
+      const requestBody = {
+        action: 'create' as const,
+        as_draft: createAsDraft,
+        payee_id: form.payee_id || null,
+        recipient_name: form.payee_id ? undefined : form.recipient_name,
+        recipient_type: form.payee_id ? undefined : form.recipient_type,
+        category: form.category,
+        money_source: 'COMPANY_BALANCE',
+        source_account: form.source_account
+          || companyBalance?.source_account_label
+          || companyBalance?.source_account_id
+          || null,
+        destination_account: form.destination_account || null,
+        amount_pence: amountPence,
+        approved_amount_pence: approvedPence,
+        currency: form.currency || 'GBP',
+        purpose: form.purpose,
+        statement_reference: form.statement_reference.trim() || null,
+        scheduled_at: createOpts.scheduled_at,
+        execution_mode: 'DRAFT_FOR_APPROVAL' as const,
+        service_area_id: form.service_area_id || serviceAreaId || null,
+        cost_centre: form.cost_centre || null,
+        provider: form.provider || 'revolut_business',
+        notes: form.notes || null,
+        attachment_url: form.attachment_url || null,
+        idempotency_key: idempotencyKey,
+        transfer_type: isCertification ? 'CERTIFICATION' as const : 'COMPANY_OUTGOING' as const,
+      };
+      console.info('[CompanyTransfer] create draft request', {
+        action: requestBody.action,
+        as_draft: requestBody.as_draft,
+        amount_pence: requestBody.amount_pence,
+        approved_amount_pence: requestBody.approved_amount_pence,
+        payee_id: requestBody.payee_id,
+        service_area_id: requestBody.service_area_id,
+        currency: requestBody.currency,
+        available_company_funds_pence: precheck.available_company_funds_pence,
       });
-      if (error) throw error;
-      if (!data?.success) {
-        const protection = data?.funds_protection as { message?: string } | null | undefined;
-        throw new Error(
-          protection?.message
-            ?? data?.message
-            ?? data?.error
-            ?? 'Create failed',
-        );
+      const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_TRANSFER_FN, {
+        body: requestBody,
+      });
+      console.info('[CompanyTransfer] create draft response', {
+        success: data?.success,
+        error: data?.error,
+        error_code: data?.error_code,
+        message: data?.message,
+        first_visible_error: data?.first_visible_error,
+        available_company_funds_pence: data?.available_company_funds_pence,
+        requested_pence: data?.requested_pence,
+        status: data?.transfer?.status,
+        transfer_ref: data?.transfer?.transfer_ref,
+        http_error: error?.message,
+      });
+      if (data && data.success === false) {
+        throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Create failed'));
       }
-      return data;
+      if (data?.success) return data;
+      if (error) {
+        throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Create failed'));
+      }
+      throw new Error('Create failed');
     },
     onSuccess: (data) => {
       const paymentRef = data?.transfer?.payment_reference ?? data?.payment_reference ?? null;
@@ -393,36 +465,33 @@ export function PayoutLedgerCompanyTransfersPanel({
   const actionMutation = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
       const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_TRANSFER_FN, { body });
-      if (error) throw error;
-      if (!data?.success) throw new Error(data?.error ?? 'Action failed');
-      return data;
+      if (data && data.success === false) {
+        throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Action failed'));
+      }
+      if (data?.success) return data;
+      if (error) throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Action failed'));
+      throw new Error('Action failed');
     },
     onSuccess: (data) => {
       if (data?.blocked) {
+        // Legacy path — should not create BLOCKED from submit funding gate anymore.
         const protection = data.funds_protection as
           | { message?: string }
           | null
           | undefined;
-        if (protection?.message) {
-          toast.error(protection.message, { duration: 12_000 });
-        } else if (gateHasInsufficientCompanyFunds(data.blocked_reason_codes ?? [])) {
-          toast.error(
-            'Insufficient ONECAB Available Company Funds.\n\n'
-            + 'This transfer has been blocked to protect driver funds and reserved driver payouts.',
-            { duration: 12_000 },
-          );
-        } else {
-          const reasons = companyTransferGateReasonLabels(data.blocked_reason_codes ?? []);
-          toast.message('Transfer needs attention', {
-            description: reasons.join(' · ') || 'Validation failed',
-          });
-        }
+        const reasons = companyTransferGateReasonLabels(data.blocked_reason_codes ?? []);
+        toast.error(
+          protection?.message
+            ?? reasons[0]
+            ?? 'Transfer validation failed',
+          { duration: 12_000 },
+        );
       } else {
         toast.success('Transfer updated');
       }
       void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toast.error(err.message, { duration: 12_000 }),
   });
 
   const submitProviderMutation = useMutation({
@@ -430,8 +499,7 @@ export function PayoutLedgerCompanyTransfersPanel({
       const { data, error } = await supabase.functions.invoke(ADMIN_SUBMIT_COMPANY_TRANSFER_FN, {
         body: { transfer_id: transferId, confirm_submit: true },
       });
-      if (error) throw error;
-      if (!data?.ok) {
+      if (data && (data.ok === false || data.success === false)) {
         const protection = data?.funds_protection as { message?: string } | null | undefined;
         if (protection?.message) throw new Error(protection.message);
         const codes = (data?.blocked_reason_codes ?? [data?.error_code ?? data?.error]).filter(Boolean);
@@ -442,16 +510,23 @@ export function PayoutLedgerCompanyTransfersPanel({
               : 'Insufficient ONECAB Available Company Funds. This transfer has been blocked to protect driver funds and reserved driver payouts.',
           );
         }
-        const reasons = companyTransferGateReasonLabels(codes.map(String));
-        throw new Error(reasons.join(' · ') || 'Transfer submission blocked');
+        throw new Error(
+          await companyTransferInvokeErrorMessage(data, error, 'Transfer submission blocked'),
+        );
       }
-      return data;
+      if (data?.ok || data?.success) return data;
+      if (error) {
+        throw new Error(
+          await companyTransferInvokeErrorMessage(data, error, 'Transfer submission blocked'),
+        );
+      }
+      throw new Error('Transfer submission blocked');
     },
     onSuccess: () => {
       toast.success('Submitted to provider — awaiting confirmation');
       void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toast.error(err.message, { duration: 12_000 }),
   });
 
   const syncProviderMutation = useMutation({
@@ -459,31 +534,37 @@ export function PayoutLedgerCompanyTransfersPanel({
       const { data, error } = await supabase.functions.invoke(ADMIN_SYNC_COMPANY_TRANSFER_STATUS_FN, {
         body: { transfer_id: transferId },
       });
+      // Expected while LIVE is off / before submit — no provider payment yet.
+      const missingProviderCode = (payload: Record<string, unknown> | null | undefined) => {
+        const code = String(payload?.error_code ?? payload?.error ?? '');
+        return code === 'MISSING_PROVIDER_PAYMENT_ID';
+      };
+      if (data && missingProviderCode(data)) {
+        return { ok: true, no_provider_payment_id: true };
+      }
+      if (data && (data.ok === false || data.success === false)) {
+        throw new Error(
+          await companyTransferInvokeErrorMessage(data, error, 'Provider status sync failed'),
+        );
+      }
+      if (data?.ok || data?.success) return data;
       if (error) {
-        // supabase-js wraps non-2xx as FunctionsHttpError; try to read body for graceful handling.
         const ctx = (error as { context?: Response }).context;
         if (ctx && typeof ctx.json === 'function') {
           try {
-            const body = await ctx.clone().json();
-            const code = String(body?.error_code ?? body?.error ?? '');
-            if (code === 'MISSING_PROVIDER_PAYMENT_ID') {
+            const body = await ctx.clone().json() as Record<string, unknown>;
+            if (missingProviderCode(body)) {
               return { ok: true, no_provider_payment_id: true };
             }
-            if (code) throw new Error(code);
-          } catch (parseErr) {
-            if (parseErr instanceof Error && parseErr.message) throw parseErr;
+          } catch {
+            /* fall through */
           }
         }
-        throw error;
+        throw new Error(
+          await companyTransferInvokeErrorMessage(data, error, 'Provider status sync failed'),
+        );
       }
-      if (!data?.ok && !data?.success) {
-        const code = String(data?.error_code ?? data?.error ?? '');
-        if (code === 'MISSING_PROVIDER_PAYMENT_ID') {
-          return { ok: true, no_provider_payment_id: true };
-        }
-        throw new Error(code || 'Provider status sync failed');
-      }
-      return data;
+      throw new Error('Provider status sync failed');
     },
     onSuccess: (data) => {
       if ((data as { no_provider_payment_id?: boolean })?.no_provider_payment_id) {
@@ -495,7 +576,7 @@ export function PayoutLedgerCompanyTransfersPanel({
       );
       void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toast.error(err.message, { duration: 12_000 }),
   });
 
   const finalizeMutation = useMutation({
@@ -503,17 +584,20 @@ export function PayoutLedgerCompanyTransfersPanel({
       const { data, error } = await supabase.functions.invoke(ADMIN_FINALIZE_COMPANY_TRANSFER_FN, {
         body: { transfer_id: transferId, confirm_finalize: true },
       });
-      if (error) throw error;
-      if (!data?.ok && !data?.success) {
-        throw new Error(data?.error_code ?? data?.error ?? 'Finalize blocked');
+      if (data && (data.ok === false || data.success === false)) {
+        throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Finalize blocked'));
       }
-      return data;
+      if (data?.ok || data?.success) return data;
+      if (error) {
+        throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Finalize blocked'));
+      }
+      throw new Error('Finalize blocked');
     },
     onSuccess: () => {
       toast.success('Company transfer finalized — ledger + balance updated');
       void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toast.error(err.message, { duration: 12_000 }),
   });
 
   const inFlightTransfers = useMemo(
@@ -638,8 +722,8 @@ export function PayoutLedgerCompanyTransfersPanel({
       ? `Revolut …${companyBalance.source_account_id.slice(-8)}`
       : '');
 
-  const draftValidation = useMemo(
-    () => validateCompanyTransferDraftForm({
+  const createPrecheck = useMemo(
+    () => evaluateCompanyTransferCreatePrecheck({
       form: {
         payee_id: form.payee_id,
         recipient_name: form.recipient_name,
@@ -665,6 +749,8 @@ export function PayoutLedgerCompanyTransfersPanel({
       payee_provider_verified: selectedPayeeProviderVerified,
       payee_currency: selectedPayee?.currency ?? null,
       context_service_area_id: serviceAreaId,
+      company_balance: companyBalance,
+      live_company_transfer_execution_enabled: LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED,
     }),
     [
       form,
@@ -672,12 +758,14 @@ export function PayoutLedgerCompanyTransfersPanel({
       selectedPayeeProviderVerified,
       selectedPayee?.currency,
       serviceAreaId,
+      companyBalance,
     ],
   );
 
-  const availableCompanyFundsPence = companyBalance?.final_company_available_pence
-    ?? companyBalance?.company_available_for_transfer_pence
-    ?? null;
+  const draftValidation = createPrecheck.form;
+
+  const availableCompanyFundsPence = createPrecheck.available_company_funds_pence
+    ?? resolvePrecheckAvailableCompanyFundsPence(companyBalance);
 
   const liveFundsShortfall = useMemo(
     () => buildLiveFundsShortfallDisplay({
@@ -687,13 +775,15 @@ export function PayoutLedgerCompanyTransfersPanel({
     [availableCompanyFundsPence, draftValidation.amount_pence],
   );
 
-  const preDraftFundsGate = useMemo(
-    () => evaluatePreDraftCompanyFundsGate({
-      requested_pence: draftValidation.amount_pence ?? 0,
-      available_company_funds_pence: availableCompanyFundsPence,
-    }),
-    [draftValidation.amount_pence, availableCompanyFundsPence],
-  );
+  const preDraftFundsGate = createPrecheck.funds_gate ?? {
+    ok: false,
+    reason: 'AMOUNT_INVALID' as const,
+    available_company_funds_pence: availableCompanyFundsPence,
+    requested_pence: 0,
+    shortfall_pence: 0,
+    message: null,
+    funds_protection: null,
+  };
 
   const serviceAreaName = useMemo(() => {
     const id = form.service_area_id || serviceAreaId || '';
@@ -797,6 +887,41 @@ export function PayoutLedgerCompanyTransfersPanel({
     setShowForm(true);
   };
 
+  const beginDuplicateTransfer = (t: CompanyOutgoingTransferRow) => {
+    setEditingTransferId(null);
+    setForm((f) => ({
+      ...f,
+      payee_id: t.payee_id ?? '',
+      recipient_name: t.recipient_name,
+      recipient_type: t.recipient_type,
+      category: t.category,
+      money_source: 'COMPANY_BALANCE',
+      source_account: t.source_account ?? resolvedSourceAccount,
+      destination_account: t.destination_account ?? '',
+      amount_pence: String(t.amount_pence ?? ''),
+      approved_amount_pence: '',
+      currency: t.currency || 'GBP',
+      purpose: t.purpose || '',
+      payment_reference: '',
+      statement_reference: t.statement_reference ?? '',
+      scheduled_at: '',
+      transfer_kind: String(t.transfer_type ?? '').toUpperCase() === 'CERTIFICATION'
+        ? 'CERTIFICATION'
+        : 'ONE_OFF',
+      start_mode: 'DRAFT',
+      service_area_id: t.service_area_id || serviceAreaId || '',
+      cost_centre: t.cost_centre ?? '',
+      provider: t.provider || 'revolut_business',
+      notes: t.notes ?? '',
+      attachment_url: t.attachment_url ?? '',
+    }));
+    setShowForm(true);
+    toast.message('Duplicate ready — review fields and Create Draft (new payment reference).');
+  };
+
+  const transferHasProviderPayment = (t: CompanyOutgoingTransferRow) =>
+    Boolean(t.provider_transaction_id || t.provider_reference);
+
   const viewEvidence = async (transferId: string) => {
     const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_TRANSFER_FN, {
       body: { action: 'view_evidence', transfer_id: transferId },
@@ -895,8 +1020,9 @@ export function PayoutLedgerCompanyTransfersPanel({
           Driver Wallet and Payment Sessions are never consumed here.
           Saved payees store encrypted bank details; UI shows masked accounts only.
           Live Revolut execution stays gated (Slice 12: submit/finalize blocked while
-          LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false). Provider state and funding holds
-          are shown when present; no debit until provider COMPLETED.
+          LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false). While LIVE is off you can still
+          edit, return to draft, cancel, duplicate, and review evidence — only money movement
+          stays blocked.
         </AlertDescription>
       </Alert>
 
@@ -1012,8 +1138,10 @@ export function PayoutLedgerCompanyTransfersPanel({
 
         <TabsContent value="approvals" className="space-y-4">
           <p className="text-xs text-muted-foreground">
-            High-risk categories always require approval. Requester cannot approve their own transfer
-            (self-approval disabled by default). Funding gate runs on approve — no money moved.
+            High-risk categories always require approval. While company LIVE execution is off,
+            the requester may approve their own transfer for workflow certification (no money moved).
+            When LIVE is on, self-approval stays disabled unless explicitly enabled in settings.
+            Funding gate runs on approve — no money moved.
           </p>
           {awaitingApproval.length === 0 ? (
             <p className="text-sm text-muted-foreground">No transfers awaiting approval.</p>
@@ -1068,6 +1196,15 @@ export function PayoutLedgerCompanyTransfersPanel({
         </TabsContent>
 
         <TabsContent value="approved" className="space-y-4">
+          {!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED ? (
+            <Alert>
+              <AlertTitle>Live company transfer execution is disabled</AlertTitle>
+              <AlertDescription>
+                You can edit, cancel or return transfers to draft.
+                Submit and Execute will become available only after company LIVE is enabled.
+              </AlertDescription>
+            </Alert>
+          ) : null}
           {approvedTransfers.length === 0 ? (
             <p className="text-sm text-muted-foreground">No approved / ready transfers.</p>
           ) : (
@@ -1082,13 +1219,36 @@ export function PayoutLedgerCompanyTransfersPanel({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {approvedTransfers.map((t) => (
+                {approvedTransfers.map((t) => {
+                  const hasProvider = transferHasProviderPayment(t);
+                  const safe = canSafelyAdminMutateCompanyTransfer({
+                    status: t.status,
+                    has_provider_payment_id: hasProvider,
+                    money_moved: false,
+                  });
+                  const canReturn = canReturnCompanyTransferToDraft({
+                    status: t.status,
+                    has_provider_payment_id: hasProvider,
+                    money_moved: false,
+                  });
+                  const canCancel = canCancelCompanyTransferSafely({
+                    status: t.status,
+                    has_provider_payment_id: hasProvider,
+                    money_moved: false,
+                  });
+                  const canEdit = shouldShowEditDraftAction({
+                    status: t.status,
+                    blocked_reason_codes: t.blocked_reason_codes,
+                    has_provider_payment_id: hasProvider,
+                    money_moved: false,
+                  });
+                  return (
                   <TableRow key={t.id}>
                     <TableCell className="font-mono text-xs">{t.transfer_ref}</TableCell>
                     <TableCell className="text-xs">{t.recipient_name}</TableCell>
                     <TableCell className="text-xs tabular-nums">{formatNullablePence(t.amount_pence)}</TableCell>
                     <TableCell><Badge variant="outline">{companyTransferStatusLabel(t.status)}</Badge></TableCell>
-                    <TableCell className="space-x-1">
+                    <TableCell className="space-x-1 flex flex-wrap gap-1">
                       {t.status === 'APPROVED' && (
                         <Button
                           size="sm"
@@ -1102,6 +1262,57 @@ export function PayoutLedgerCompanyTransfersPanel({
                           Mark ready
                         </Button>
                       )}
+                      {canEdit ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={actionMutation.isPending}
+                          onClick={() => beginEditDraft(t)}
+                        >
+                          Edit
+                        </Button>
+                      ) : null}
+                      {canReturn ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={actionMutation.isPending}
+                          onClick={() => actionMutation.mutate({
+                            action: 'return_to_draft',
+                            transfer_id: t.id,
+                            reason: 'Returned to draft for re-approval (LIVE off)',
+                          })}
+                        >
+                          Return to Draft
+                        </Button>
+                      ) : null}
+                      {canCancel ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={actionMutation.isPending}
+                          onClick={() => {
+                            const reason = window.prompt('Cancel reason?') ?? '';
+                            if (!reason.trim()) return;
+                            actionMutation.mutate({
+                              action: 'cancel',
+                              transfer_id: t.id,
+                              reason: reason.trim(),
+                            });
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      ) : null}
+                      {safe ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => beginDuplicateTransfer(t)}
+                        >
+                          Duplicate
+                        </Button>
+                      ) : null}
                       <Button
                         size="sm"
                         variant="outline"
@@ -1111,7 +1322,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                         title={
                           LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
                             ? 'Execute company transfer'
-                            : 'LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false'
+                            : 'LIVE disabled — money movement blocked'
                         }
                         onClick={() => {
                           if (!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED) return;
@@ -1124,7 +1335,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                       >
                         {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
                           ? 'Execute'
-                          : 'Execute (disabled)'}
+                          : 'Execute — LIVE disabled'}
                       </Button>
                       <Button
                         size="sm"
@@ -1135,7 +1346,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                         title={
                           LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
                             ? 'Submit to Revolut provider'
-                            : 'LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false'
+                            : 'LIVE disabled — money movement blocked'
                         }
                         onClick={() => {
                           if (!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED) return;
@@ -1144,14 +1355,15 @@ export function PayoutLedgerCompanyTransfersPanel({
                       >
                         {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
                           ? 'Submit Transfer'
-                          : 'Submit (disabled)'}
+                          : 'Submit — LIVE disabled'}
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => void viewEvidence(t.id)}>
                         Evidence
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}
@@ -1598,12 +1810,23 @@ export function PayoutLedgerCompanyTransfersPanel({
 
       {companyUnavailable && !failedOnly ? (
         <Alert>
-          <AlertTitle>Insufficient settled company funds</AlertTitle>
+          <AlertTitle>
+            {companyUnavailableReason
+              ? companyTransferGateReasonLabel(companyUnavailableReason)
+              : 'Company funds unavailable'}
+          </AlertTitle>
           <AlertDescription>
             Transfers cannot proceed until company reserve policy is configured and settled company
             funds are available. Reason:{' '}
             {companyTransferGateReasonLabel(companyUnavailableReason)}. Driver wallet and customer
             funds are never used.
+            {availableSection.kind === 'amount' ? (
+              <span className="block mt-1 text-foreground">
+                Displayed Available Company Funds ({formatNullablePence(availableSection.pence)}) is
+                not the same as a failed amount check — do not treat this banner as “requested
+                exceeds available”.
+              </span>
+            ) : null}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -1898,6 +2121,11 @@ export function PayoutLedgerCompanyTransfersPanel({
                   <div className="font-medium">
                     Shortfall: {liveFundsShortfall.shortfall_label}
                   </div>
+                  {liveFundsShortfall.valid ? (
+                    <p className="pt-1 text-emerald-800">
+                      Company funds check PASS — requested ≤ Available Company Funds.
+                    </p>
+                  ) : null}
                   {!liveFundsShortfall.valid && preDraftFundsGate.message ? (
                     <p className="whitespace-pre-line pt-1">{preDraftFundsGate.message}</p>
                   ) : null}
@@ -2146,6 +2374,28 @@ export function PayoutLedgerCompanyTransfersPanel({
                   Submit / Execute stay disabled while company LIVE is off. Draft creation remains available.
                 </p>
               ) : null}
+              {createPrecheck.first_visible_error ? (
+                <p role="alert" className="text-sm text-destructive font-medium">
+                  {createPrecheck.first_visible_error}
+                </p>
+              ) : null}
+              <div className="rounded-md border px-3 py-2 space-y-1">
+                <div className="text-[11px] font-medium text-muted-foreground">Precheck validators</div>
+                <ul className="text-[11px] space-y-0.5">
+                  {createPrecheck.validators.map((v) => (
+                    <li
+                      key={v.id}
+                      className={v.ok ? 'text-emerald-800' : 'text-destructive'}
+                    >
+                      {v.ok ? 'PASS' : 'FAIL'} — {v.label}
+                      {v.message ? `: ${v.message}` : ''}
+                      {v.id === 'requested_amount' && v.ok && createPrecheck.requested_pence != null
+                        ? ` (${createPrecheck.requested_pence}p ≤ ${createPrecheck.available_company_funds_pence ?? '—'}p)`
+                        : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
               {draftValidation.errors.length > 0 ? (
                 <ul className="text-[11px] text-destructive list-disc pl-4 space-y-0.5">
                   {draftValidation.errors.map((e) => (
@@ -2157,12 +2407,19 @@ export function PayoutLedgerCompanyTransfersPanel({
                 disabled={
                   createMutation.isPending
                   || !draftValidation.ok
-                  || !preDraftFundsGate.ok
+                  || !(preDraftFundsGate.ok)
                   || activePayees.length === 0
                   || form.transfer_kind === 'RECURRING'
                 }
                 onClick={() => {
-                  if (!draftValidation.ok || !preDraftFundsGate.ok) return;
+                  if (!draftValidation.ok) {
+                    toast.error(createPrecheck.first_visible_error ?? 'Select a saved payee.');
+                    return;
+                  }
+                  if (!preDraftFundsGate.ok) {
+                    toast.error(preDraftFundsGate.message ?? 'Insufficient Available Company Funds');
+                    return;
+                  }
                   if (!window.confirm(
                     `${editingTransferId ? 'Save draft changes' : 'Create draft'}?\n\n`
                     + `${draftSummary.lines.map((l) => `${l.label}: ${l.value}`).join('\n')}\n`

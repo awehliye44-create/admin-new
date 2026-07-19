@@ -92,15 +92,9 @@ export function mayFinaliseCompanyTransferFromProviderState(
 export function evaluateSlice12CompletionFlagGate(env: {
   get(key: string): string | undefined;
 }): { ok: true } | { ok: false; code: CompanyTransferCompletionErrorCode; message: string } {
-  const livePayout =
-    (env.get("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "false").trim().toLowerCase() === "true";
-  if (livePayout) {
-    return {
-      ok: false,
-      code: COMPLETION_ERROR.LIVE_PAYOUT_AUTOMATIC_FORBIDDEN,
-      message: "LIVE_PAYOUT_EXECUTION_ENABLED must stay false for Slice 12 finalisation",
-    };
-  }
+  // Company completion is independent of driver LIVE_PAYOUT. Transport/LIVE company
+  // gates are enforced by the submit path and finalize eligibility.
+  void env;
   return { ok: true };
 }
 

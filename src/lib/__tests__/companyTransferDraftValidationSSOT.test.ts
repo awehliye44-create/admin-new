@@ -5,6 +5,7 @@ import {
   evaluatePreDraftCompanyFundsGate,
   isAmountValidationOnlyBlock,
   isOperationalCompanyTransferBlock,
+  resolveAvailableCompanyFundsPenceFromBalance,
   shouldShowEditDraftAction,
   shouldShowRetryValidation,
 } from "../../../shared/companyTransferDraftValidationSSOT";
@@ -74,6 +75,23 @@ describe("companyTransferDraftValidationSSOT", () => {
     });
     expect(good.valid).toBe(true);
     expect(good.shortfall_pence).toBe(0);
+  });
+
+  it("resolves available funds from company balance snapshot fields", () => {
+    expect(resolveAvailableCompanyFundsPenceFromBalance({
+      final_company_available_pence: null,
+      company_available_for_transfer_pence: 774,
+    })).toBe(774);
+    expect(resolveAvailableCompanyFundsPenceFromBalance({
+      final_company_available_pence: null,
+      company_available_for_transfer_pence: null,
+      sections: { company_transfer_available: { amount_pence: 100 } },
+    })).toBe(100);
+    expect(resolveAvailableCompanyFundsPenceFromBalance({
+      final_company_available_pence: null,
+      company_available_for_transfer_pence: null,
+      sections: { company_transfer_available: { amount_pence: null } },
+    })).toBeNull();
   });
 
   it("formats pre-draft message without claiming a blocked ledger row", () => {

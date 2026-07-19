@@ -110,34 +110,24 @@ export function canonicalCompanyTransferIdempotencyKey(transferId: string): stri
 export function maySubmitCompanyTransferViaTransport(env: {
   get(key: string): string | undefined;
 }): boolean {
-  const livePayout =
-    (env.get("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "false").trim().toLowerCase() === "true";
   const transport =
     (env.get("REVOLUT_PAYMENT_TRANSPORT_ENABLED") ?? "false").trim().toLowerCase() === "true";
   const liveCompany =
     (env.get(LIVE_COMPANY_TRANSFER_EXECUTION_ENV) ?? "false").trim().toLowerCase() === "true";
-  return transport && !livePayout && liveCompany;
+  // Independent of driver LIVE_PAYOUT — company and driver money paths are isolated.
+  return transport && liveCompany;
 }
 
 export function evaluateSlice12SubmissionFlagGate(env: {
   get(key: string): string | undefined;
 }): { ok: true } | { ok: false; code: CompanyTransferSubmissionErrorCode; message: string } {
-  const livePayout =
-    (env.get("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "false").trim().toLowerCase() === "true";
   const transport =
     (env.get("REVOLUT_PAYMENT_TRANSPORT_ENABLED") ?? "false").trim().toLowerCase() === "true";
-  if (livePayout) {
-    return {
-      ok: false,
-      code: SUBMISSION_ERROR.LIVE_PAYOUT_AUTOMATIC_FORBIDDEN,
-      message: "LIVE_PAYOUT_EXECUTION_ENABLED must stay false for Slice 12",
-    };
-  }
   if (!transport) {
     return {
       ok: false,
       code: SUBMISSION_ERROR.PAYMENT_TRANSPORT_DISABLED,
-      message: "REVOLUT_PAYMENT_TRANSPORT_ENABLED must be true for Slice 12 transport",
+      message: "REVOLUT_PAYMENT_TRANSPORT_ENABLED must be true for company transfer transport",
     };
   }
   return { ok: true };
@@ -373,7 +363,7 @@ export function adminCompanyTransferSubmissionDisplay(args: {
 } {
   const status = String(args.transfer_status ?? "").toUpperCase();
   const holdActive = String(args.hold_status ?? "").toUpperCase() === "ACTIVE";
-  let providerStatus: string = ADMIN_SLICE12_LABELS.READY;
+  let providerStatus = ADMIN_SLICE12_LABELS.READY;
   if (status === "PROCESSING" || status === "SUBMITTED") {
     providerStatus = String(args.provider_state ?? "").toLowerCase() === "pending"
       ? ADMIN_SLICE12_LABELS.PROVIDER_PENDING
