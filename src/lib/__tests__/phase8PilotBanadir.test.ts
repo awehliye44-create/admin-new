@@ -30,7 +30,7 @@ describe("Phase 8 Banadir pilot lock", () => {
       rollout: locked,
     });
     expect(plan.ok).toBe(false);
-    if (!plan.ok) expect(plan.code).toBe("PILOT_LOCK");
+    if (!plan.ok) expect((plan as { ok: false; code: string }).code).toBe("PILOT_LOCK");
   });
 
   it("allows any SA after multi_sa_unlocked", () => {

@@ -616,7 +616,7 @@ export default function ManualTrip() {
 
       const { error } = await supabase
         .from('trips')
-        .insert([tripData]);
+        .insert([tripData as never]);
 
       if (error) throw error;
 

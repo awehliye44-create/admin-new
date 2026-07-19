@@ -55,7 +55,7 @@ import {
   findServiceAreaOverlaps,
   validateBoundaryGeometry,
 } from '@/lib/adminBoundaryGeometry';
-import { normalizeLatLngRing, type LatLng } from '../../shared/adminBoundaryEditorSSOT';
+import { normalizeLatLngRing } from '../../shared/adminBoundaryEditorSSOT';
 import { 
   Plus, Navigation, Loader2, MoreHorizontal, Pencil, Trash2, MapPin, Search, Users, DollarSign,
   Ruler, Globe, CheckCircle2, XCircle, Eye, Settings, Car, Clock, Map, Gift

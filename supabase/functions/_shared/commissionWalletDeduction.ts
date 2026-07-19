@@ -2,6 +2,7 @@
  * Phase 7 — call convert_driver_commission_wallet_on_trip_complete.
  * No-ops when CW gate off. Never writes driver_wallet_ledger.
  */
+// @ts-ignore Deno remote import
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { tripUsesCommissionWalletDeduction } from "../../../shared/commissionWalletSSOT.ts";
 import { calculateTripSettlement } from "./tripSettlement.ts";
