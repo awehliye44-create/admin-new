@@ -896,6 +896,7 @@ export default function ManualTrip() {
                     serviceAreaCenter={serviceAreaCenter}
                     serviceAreaCountryCode={serviceAreaCountryCode}
                     radiusBiasMeters={30000}
+                    serviceAreaId={selectedServiceAreaId}
                   />
                 </div>
                 <div>
@@ -910,6 +911,7 @@ export default function ManualTrip() {
                     serviceAreaCenter={serviceAreaCenter}
                     serviceAreaCountryCode={serviceAreaCountryCode}
                     radiusBiasMeters={50000}
+                    serviceAreaId={selectedServiceAreaId}
                   />
                 </div>
 

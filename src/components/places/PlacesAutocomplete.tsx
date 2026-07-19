@@ -3,6 +3,11 @@ import { Input } from '@/components/ui/input';
 import { MapPin, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MAPBOX_TOKEN } from '@/lib/mapbox';
+import {
+  isAdminLocationSearchSsotEnabled,
+  searchOnecabLocationsForAdmin,
+} from '@/lib/searchOnecabLocationsClient';
+import { LOCATION_SEARCH_MIN_QUERY_LENGTH } from '../../../shared/onecabLocationSearchSSOT';
 
 interface PlaceResult {
   address: string;
@@ -34,6 +39,8 @@ interface PlacesAutocompleteProps {
   serviceAreaCountryCode?: string | null;
   /** Bias radius in metres (used as Mapbox proximity hint). */
   radiusBiasMeters?: number;
+  /** When set and SSOT rollout is enabled for this SA, uses search-onecab-locations. */
+  serviceAreaId?: string | null;
 }
 
 export function PlacesAutocomplete({
@@ -49,6 +56,7 @@ export function PlacesAutocomplete({
   serviceAreaCenter,
   serviceAreaCountryCode,
   radiusBiasMeters: _radiusBiasMeters = 30000,
+  serviceAreaId = null,
 }: PlacesAutocompleteProps) {
   const [suggestions, setSuggestions] = useState<MapboxSuggestion[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -72,19 +80,49 @@ export function PlacesAutocomplete({
   }, []);
 
   const fetchSuggestions = useCallback(async (input: string) => {
-    if (!input.trim() || !MAPBOX_TOKEN) {
+    if (!input.trim()) {
       setSuggestions([]);
       setIsOpen(false);
       return;
     }
 
-    // Cancel previous in-flight request
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
-
     setIsLoading(true);
+
     try {
+      if (serviceAreaId && input.trim().length >= LOCATION_SEARCH_MIN_QUERY_LENGTH) {
+        const ssotOn = await isAdminLocationSearchSsotEnabled(serviceAreaId);
+        if (ssotOn) {
+          const proximity = userLocation || serviceAreaCenter;
+          const rows = await searchOnecabLocationsForAdmin({
+            query: input,
+            service_area_id: serviceAreaId,
+            user_latitude: proximity?.lat ?? null,
+            user_longitude: proximity?.lng ?? null,
+          });
+          if (ac.signal.aborted) return;
+          const features: MapboxSuggestion[] = rows.map((r) => ({
+            id: r.provider_place_id ?? r.id,
+            place_name: r.address_text || r.display_name,
+            text: r.short_name || r.display_name,
+            center: [r.longitude, r.latitude] as [number, number],
+            place_type: r.category ? [r.category] : ['poi'],
+          }));
+          setSuggestions(features);
+          setIsOpen(features.length > 0);
+          setHighlightedIndex(-1);
+          return;
+        }
+      }
+
+      if (!MAPBOX_TOKEN) {
+        setSuggestions([]);
+        setIsOpen(false);
+        return;
+      }
+
       const proximity = userLocation || serviceAreaCenter;
       const params = new URLSearchParams({
         access_token: MAPBOX_TOKEN,
@@ -107,13 +145,13 @@ export function PlacesAutocomplete({
       setHighlightedIndex(-1);
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
-        console.error('Mapbox geocoding error:', err);
+        console.error('Places autocomplete error:', err);
         setSuggestions([]);
       }
     } finally {
       setIsLoading(false);
     }
-  }, [userLocation, serviceAreaCenter, serviceAreaCountryCode]);
+  }, [userLocation, serviceAreaCenter, serviceAreaCountryCode, serviceAreaId]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
