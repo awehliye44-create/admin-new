@@ -92,7 +92,7 @@ describe("companyTransferCreatePrecheckSSOT", () => {
     const precheck = evaluateCompanyTransferCreatePrecheck({
       form: baseForm,
       payee_provider_verified: false,
-      company_balance: companyBalance774,
+      company_balance: companyBalance774 as any,
       live_company_transfer_execution_enabled: false,
     });
 
@@ -112,7 +112,7 @@ describe("companyTransferCreatePrecheckSSOT", () => {
     const precheck = evaluateCompanyTransferCreatePrecheck({
       form: { ...baseForm, payee_id: "payee-1" },
       payee_provider_verified: true,
-      company_balance: companyBalance774,
+      company_balance: companyBalance774 as any,
       live_company_transfer_execution_enabled: false,
     });
 
@@ -143,7 +143,7 @@ describe("companyTransferCreatePrecheckSSOT", () => {
     const precheck = evaluateCompanyTransferCreatePrecheck({
       form: { ...baseForm, payee_id: "payee-1", amount_pence: "1" },
       payee_provider_verified: true,
-      company_balance: {
+      company_balance: ({
         ...companyBalance774,
         final_company_available_pence: 0,
         company_available_for_transfer_pence: 774,
