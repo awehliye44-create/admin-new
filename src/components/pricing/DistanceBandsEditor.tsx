@@ -96,11 +96,11 @@ export function DistanceBandsEditor({
                   update(idx, { to: v === '' ? null : parseFloat(v) || 0 });
                 }}
               />
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{currencySymbol}</span>
+              <div className="flex items-stretch rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 overflow-hidden">
+                <span className="flex items-center px-2 text-muted-foreground text-sm bg-muted/40 border-r border-input whitespace-nowrap">{currencySymbol}</span>
                 <Input
                   type="number" min={0} step="0.01"
-                  className="pl-7"
+                  className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none px-2"
                   value={(b.rate_pence / 100).toFixed(2)}
                   onChange={(e) => update(idx, { rate_pence: Math.round((parseFloat(e.target.value) || 0) * 100) })}
                 />
