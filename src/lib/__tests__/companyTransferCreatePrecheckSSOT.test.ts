@@ -143,11 +143,11 @@ describe("companyTransferCreatePrecheckSSOT", () => {
     const precheck = evaluateCompanyTransferCreatePrecheck({
       form: { ...baseForm, payee_id: "payee-1", amount_pence: "1" },
       payee_provider_verified: true,
-      company_balance: ({
+      company_balance: {
         ...companyBalance774,
         final_company_available_pence: 0,
         company_available_for_transfer_pence: 774,
-      },
+      } as any,
       live_company_transfer_execution_enabled: false,
     });
     expect(precheck.available_company_funds_pence).toBe(774);
