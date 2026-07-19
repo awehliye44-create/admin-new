@@ -319,8 +319,9 @@ export function buildCompanyTransferFundingSnapshot(args: {
     classified_company_cash_pence: classified,
   });
   const finalPence = args.final_company_available_pence ?? null;
+  const reserveStatusNorm = String(args.operational_reserve_status ?? "").toUpperCase();
   const reserveConfigured = args.operational_reserve_pence != null
-    && String(args.operational_reserve_status ?? "").toUpperCase() === "ACTIVE";
+    && (reserveStatusNorm === "ACTIVE" || reserveStatusNorm === "AVAILABLE");
 
   return {
     captured_at: args.captured_at ?? new Date().toISOString(),
