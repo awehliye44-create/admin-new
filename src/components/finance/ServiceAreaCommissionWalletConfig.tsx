@@ -202,7 +202,7 @@ export function ServiceAreaCommissionWalletConfig({
         rollout,
       });
       if (!gate.ok) {
-        toast.error(gate.error);
+        toast.error((gate as { ok: false; error: string }).error);
         return;
       }
       const providerRaw = String(value.commission_topup_provider || '').trim().toLowerCase();
@@ -242,7 +242,7 @@ export function ServiceAreaCommissionWalletConfig({
       };
       const { error } = await supabase
         .from('service_areas')
-        .update(payload)
+        .update(payload as never)
         .eq('id', serviceAreaId);
       if (error) throw error;
       toast.success('Commission Wallet settings saved');
@@ -342,7 +342,7 @@ export function ServiceAreaCommissionWalletConfig({
                   rollout,
                 });
                 if (!gate.ok) {
-                  toast.error(gate.error);
+                  toast.error((gate as { ok: false; error: string }).error);
                   return;
                 }
               }

@@ -246,9 +246,10 @@ export function CompanyTransfersPayeesSection({
       }
       return body;
     },
-    onSuccess: (data) => {
+    onSuccess: (data: unknown) => {
+      const d = (data ?? {}) as { duplicate?: boolean };
       toast.success(
-        data.duplicate
+        d.duplicate
           ? 'Matched existing payee (no duplicate)'
           : 'Payee saved — link Revolut when ready',
       );

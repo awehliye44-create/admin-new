@@ -1431,7 +1431,8 @@ export function planWelcomeCreditAutoGrant(input: {
     welcomeCreditMaxDrivers: input.welcomeCreditMaxDrivers,
   });
   if (!welcomeGate.ok) {
-    return { ok: false, error: welcomeGate.error, code: welcomeGate.code };
+    const fail = welcomeGate as { ok: false; error: string; code: string };
+    return { ok: false, error: fail.error, code: fail.code };
   }
 
   return {

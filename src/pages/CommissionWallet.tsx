@@ -215,7 +215,7 @@ export default function CommissionWallet() {
       setTestAccessLoading(false);
       if (!result.ok) {
         setTestAccess(null);
-        setTestAccessError(result.message);
+        setTestAccessError((result as { ok: false; message: string }).message);
         return;
       }
       setTestAccess(result.commission_wallet_test_access);
@@ -267,7 +267,7 @@ export default function CommissionWallet() {
     }
     setTestAccessLoading(false);
     if (!result.ok) {
-      toast.error(result.message);
+      toast.error((result as { ok: false; message: string }).message);
       return;
     }
     setTestAccess(result.commission_wallet_test_access);
@@ -313,7 +313,7 @@ export default function CommissionWallet() {
       if (!serviceAreaId || !selectedSa?.id) throw new Error('Select a service area from the filter');
       if (!driverId.trim()) throw new Error('Driver ID required');
       const reasonGate = validateAdminCommissionCreditReason(reason);
-      if (!reasonGate.ok) throw new Error(reasonGate.error);
+      if (!reasonGate.ok) throw new Error((reasonGate as { ok: false; error: string }).error);
       const amountMinor = Math.round(Number(amountMajor) * 100);
       if (!Number.isFinite(amountMinor) || amountMinor <= 0) {
         throw new Error('Amount must be > 0');
@@ -368,7 +368,7 @@ export default function CommissionWallet() {
     }
     const reasonGate = validateAdminCommissionCreditReason(reason);
     if (!reasonGate.ok) {
-      toast.error(reasonGate.error);
+      toast.error((reasonGate as { ok: false; error: string }).error);
       return;
     }
     if (!creditAmountValid) {
