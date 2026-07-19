@@ -66,6 +66,15 @@ import type {
   AdminPayoutLedgerTopTab,
   DriverPayoutAccountRow,
 } from '../../shared/adminPayoutLedgerSSOT';
+import {
+  buildLiveWalletCompositionDisplay,
+  sumCarriedForwardPayoutItemsPence,
+} from '../../shared/driverPayoutBatchDisplaySSOT';
+import {
+  formatOrchestratorScheduleSummary,
+  evaluateBatchFundingGate,
+  orchestratorBlockerLabel,
+} from '../../shared/weeklyPayoutOrchestratorSSOT';
 
 const TOP_TABS: Array<{ id: AdminPayoutLedgerTopTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
@@ -122,22 +131,30 @@ function shortDate(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? '—' : format(date, 'dd MMM HH:mm');
 }
 
-/** Admin display for Slice 5–8 — never show Paid for reserved/submitted-not-debited. */
+/** Admin display for Slice 5–8 / orchestrator — never show Paid for reserved/submitted-not-debited. */
 function batchStatusDisplay(b: {
   status: string;
   status_label?: string | null;
+  blocker_code?: string | null;
+  failure_code?: string | null;
 }): string {
   if (b.status_label?.trim()) return b.status_label.trim();
+  const blocker = b.blocker_code ?? b.failure_code;
+  if (blocker) {
+    const label = orchestratorBlockerLabel(blocker);
+    if (label && label !== String(blocker)) return label;
+  }
   const s = String(b.status).toUpperCase();
   if (s === 'PARTIALLY_COMPLETED') return 'Partially completed';
+  if (s === 'PROCESSING') return 'Processing weekly payout';
   if (s === 'FUNDS_RESERVED_EXECUTION_DISABLED') {
     return 'Funds reserved — execution disabled';
   }
   if (s === 'PROVIDER_SUBMISSION_PARTIAL' || s === 'PROVIDER_SUBMISSION_IN_PROGRESS') {
     return 'Provider submission in progress';
   }
-  if (s === 'BLOCKED_EXECUTION_DISABLED') {
-    return 'Execution disabled';
+  if (s === 'BLOCKED' || s === 'BLOCKED_EXECUTION_DISABLED') {
+    return orchestratorBlockerLabel(blocker ?? 'LIVE_PAYOUT_ROLLOUT_DISABLED');
   }
   return b.status;
 }
@@ -149,6 +166,7 @@ function itemStatusDisplay(row: {
 }): string {
   if (row.display_status_label?.trim()) return row.display_status_label.trim();
   const display = String(row.display_status ?? row.status).toUpperCase();
+  if (display === 'CARRIED_FORWARD') return 'Carried forward';
   if (display === 'NOT_SUBMITTED') return 'Not submitted';
   if (display === 'RESERVED' || display === 'RESERVING') return 'Reserved / not submitted';
   if (display === 'SUBMITTING') return 'Submitting to provider';
@@ -156,8 +174,17 @@ function itemStatusDisplay(row: {
   if (display === 'COMPLETED' || display === 'PAID') return 'Completed';
   if (display === 'UNKNOWN') return 'Provider state unknown';
   if (display === 'DECLINED') return 'Provider declined';
-  if (display === 'BLOCKED_EXECUTION_DISABLED') return 'Execution disabled';
+  if (display === 'BLOCKED_EXECUTION_DISABLED' || display === 'BLOCKED') {
+    return 'Live payout rollout disabled';
+  }
+  if (display === 'INELIGIBLE') return 'Carried forward';
   return row.status;
+}
+
+function itemIsCarriedForward(row: AdminPayoutLedgerItemRow): boolean {
+  if (row.included_in_live_wallet === true) return true;
+  return String(row.display_status ?? '').toUpperCase() === 'CARRIED_FORWARD'
+    || String(row.status ?? '').toUpperCase() === 'INELIGIBLE';
 }
 
 function maskProviderRef(id: string | null | undefined): string {
@@ -309,6 +336,25 @@ export default function PayoutLedger() {
     : null;
   const summary = data?.summary;
   const fleet = data?.fleet_summary;
+  const liveWalletComposition = useMemo(() => {
+    if (!account || account.live_balance_pence == null) return null;
+    const carried = sumCarriedForwardPayoutItemsPence(
+      items.map((row) => ({
+        amount_pence: row.net_bank_transfer_pence,
+        net_bank_transfer_pence: row.net_bank_transfer_pence,
+        display_status: row.display_status,
+        status: row.status,
+        execution_status: row.execution_status,
+        reservation_status: row.reservation_status,
+        paid_at: row.paid_at,
+        wallet_ledger_entry_id: row.wallet_ledger_entry_id,
+      })),
+    );
+    return buildLiveWalletCompositionDisplay({
+      live_balance_pence: account.live_balance_pence,
+      carried_forward_pence: carried,
+    });
+  }, [account, items]);
   const ledgerErrorCode = data?.error_code
     ?? (error instanceof Error && /permission|403|401/i.test(error.message)
       ? 'PAYOUT_LEDGER_PERMISSION_DENIED'
@@ -756,6 +802,62 @@ export default function PayoutLedger() {
         {!driverId && (
           <div className="space-y-4">
             {fleet && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Next automatic weekly payout</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-1 text-sm">
+                  {(() => {
+                    const scheduleLabel =
+                      accounts.find((a) => a.next_scheduled_local)?.next_scheduled_local
+                      ?? accounts.find((a) => a.schedule_label)?.schedule_label
+                      ?? 'Tuesday 12:00';
+                    const required = fleet.next_batch_amount_pence ?? 0;
+                    const payoutSourceAvailable =
+                      (companyBalance as { provider_available_balance_pence?: number | null } | null)
+                        ?.provider_available_balance_pence
+                      ?? (companyBalance as { final_company_available_pence?: number | null } | null)
+                        ?.final_company_available_pence
+                      ?? null;
+                    const fundingGate = evaluateBatchFundingGate({
+                      required_batch_pence: required,
+                      available_pence: payoutSourceAvailable,
+                    });
+                    const summary = formatOrchestratorScheduleSummary({
+                      scheduled_local_label: scheduleLabel,
+                      eligible_driver_count: fleet.eligible_driver_count ?? fleet.next_batch_driver_count ?? 0,
+                      required_batch_pence: required,
+                      funding_result: fundingGate.result,
+                    });
+                    return (
+                      <>
+                        <div className="font-medium">{summary.headline}</div>
+                        <div>{summary.expected_drivers_label}</div>
+                        <div>
+                          Expected amount:{' '}
+                          <span className="tabular-nums font-semibold">
+                            {formatNullablePence(summary.expected_amount_pence)}
+                          </span>
+                        </div>
+                        <div>{summary.funding_label}</div>
+                        {payoutSourceAvailable != null && (
+                          <div className="text-xs text-muted-foreground">
+                            Revolut payout source available:{' '}
+                            <span className="tabular-nums">{formatNullablePence(payoutSourceAvailable)}</span>
+                          </div>
+                        )}
+                        <p className="text-xs text-muted-foreground pt-1">
+                          Cron runs the full orchestrator. While live rollout is disabled, the run
+                          stops after planning with blocker “Live payout rollout disabled” — not an
+                          opaque execution-disabled state.
+                        </p>
+                      </>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            )}
+            {fleet && (
               <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Live Driver Wallet</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_live_wallet_pence ?? null)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Available for Payout</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_available_pence)}</CardContent></Card>
@@ -982,6 +1084,26 @@ export default function PayoutLedger() {
                     <div>Payout Status: {account?.payout_status ?? '—'}</div>
                     <div>Eligible Entries: {account?.eligible_entry_count ?? 0}</div>
                     <div>Live Wallet: {formatNullablePence(account?.live_balance_pence ?? null)}</div>
+                    {liveWalletComposition && liveWalletComposition.carried_forward_pence > 0 ? (
+                      <>
+                        <div>
+                          Carried forward from previous batch:{' '}
+                          {formatNullablePence(liveWalletComposition.carried_forward_pence)}
+                        </div>
+                        <div>
+                          New earnings since then:{' '}
+                          {formatNullablePence(liveWalletComposition.new_earnings_pence)}
+                        </div>
+                        <div className="text-xs text-muted-foreground sm:col-span-2">
+                          {formatNullablePence(liveWalletComposition.carried_forward_pence)}
+                          {' + '}
+                          {formatNullablePence(liveWalletComposition.new_earnings_pence)}
+                          {' = '}
+                          {formatNullablePence(liveWalletComposition.live_balance_pence)}
+                          {' · carried forward is inside Live Wallet, not an extra balance'}
+                        </div>
+                      </>
+                    ) : null}
                     <div>Wallet Available: {formatNullablePence(account?.available_balance_pence ?? null)}</div>
                     <div>Wallet Pending/Held: {formatNullablePence(account?.pending_balance_pence ?? null)}</div>
                     <div>Outstanding Debt: {formatNullablePence(account?.debt_pence ?? null)}</div>
@@ -1205,8 +1327,19 @@ function PayoutItemsTable({
         <TableBody>
           {items.map((row) => {
             const status = String(row.status ?? '').toUpperCase();
-            const reserved = ['RESERVED', 'RESERVING', 'SUBMITTING', 'SUBMITTED', 'UNKNOWN'].includes(status);
+            const carriedForward = itemIsCarriedForward(row);
+            const reserved = !carriedForward
+              && ['RESERVED', 'RESERVING', 'SUBMITTING', 'SUBMITTED', 'UNKNOWN'].includes(status);
             const paid = Boolean(row.paid_at) || status === 'PAID' || status === 'COMPLETED';
+            const statusLabel = itemStatusDisplay(row);
+            const supporting = row.display_supporting_text
+              ?? (carriedForward ? 'Included in Live Wallet' : null);
+            const reason = row.display_reason_label
+              ?? (carriedForward
+                ? (row.release_reason === 'BELOW_WEEKLY_MINIMUM_THRESHOLD'
+                  ? 'Below weekly minimum threshold'
+                  : row.failure_reason)
+                : null);
             return (
             <TableRow key={row.id}>
               <TableCell className="text-xs font-mono">{row.batch_id?.slice(0, 8) ?? '—'}</TableCell>
@@ -1215,13 +1348,33 @@ function PayoutItemsTable({
               <TableCell className="text-xs">{row.verification_status ?? '—'}</TableCell>
               <TableCell className="text-xs">{row.bank_account_last4 ? `•••• ${row.bank_account_last4}` : '—'}</TableCell>
               <TableCell className="text-xs">{formatNullablePence(row.net_bank_transfer_pence, row.currency)}</TableCell>
-              <TableCell className="text-xs">{reserved ? 'Reserved' : '—'}</TableCell>
-              <TableCell className="text-xs">{itemStatusDisplay(row)}</TableCell>
+              <TableCell className="text-xs">{reserved ? 'Reserved' : carriedForward ? 'Released' : '—'}</TableCell>
+              <TableCell className="text-xs">
+                <div className="space-y-0.5">
+                  <div>{statusLabel}</div>
+                  {supporting ? (
+                    <div className="text-[11px] text-muted-foreground">{supporting}</div>
+                  ) : null}
+                </div>
+              </TableCell>
               <TableCell className="text-xs font-mono">{maskProviderRef(row.provider_payout_id)}</TableCell>
-              <TableCell className="text-xs">{paid ? 'Paid' : 'Not paid'}</TableCell>
-              <TableCell className="text-xs">{paid ? 'Applied' : 'Not applied'}</TableCell>
-              <TableCell className="text-xs"><Badge variant="outline">{itemStatusDisplay(row)}</Badge></TableCell>
-              <TableCell className="text-xs max-w-[160px] truncate">{row.failure_reason ?? '—'}</TableCell>
+              <TableCell className="text-xs">
+                {paid ? 'Paid' : carriedForward ? 'Included in Live Wallet' : 'Not paid'}
+              </TableCell>
+              <TableCell className="text-xs">
+                {paid ? 'Applied' : carriedForward ? 'Still in Live Wallet' : 'Not applied'}
+              </TableCell>
+              <TableCell className="text-xs">
+                <div className="space-y-0.5">
+                  <Badge variant="outline">{statusLabel}</Badge>
+                  {supporting ? (
+                    <div className="text-[11px] text-muted-foreground">{supporting}</div>
+                  ) : null}
+                </div>
+              </TableCell>
+              <TableCell className="text-xs max-w-[160px] truncate">
+                {reason ?? row.failure_reason ?? '—'}
+              </TableCell>
               <TableCell>
                 <div className="flex flex-wrap gap-1">
                   <Button asChild size="sm" variant="outline">
@@ -1236,6 +1389,7 @@ function PayoutItemsTable({
                     />
                   )}
                   {!row.paid_at
+                    && !carriedForward
                     && ['PENDING', 'SCHEDULED', 'PROCESSING', 'ON_HOLD', 'QUEUED'].includes(row.status)
                     && (
                       <PayoutLedgerMarkPaidButton

@@ -175,6 +175,7 @@ export default function Drivers() {
     email: '',
     phone: '',
     region_id: '',
+    service_area_id: '',
   });
 
   // Edit driver state
@@ -480,12 +481,20 @@ export default function Drivers() {
       email: '',
       phone: '',
       region_id: '',
+      service_area_id: '',
     });
   };
 
   const handleAddDriver = async () => {
-    if (!newDriver.first_name || !newDriver.last_name || !newDriver.email || !newDriver.phone || !newDriver.region_id) {
-      toast.error('Please fill in all fields');
+    if (
+      !newDriver.first_name
+      || !newDriver.last_name
+      || !newDriver.email
+      || !newDriver.phone
+      || !newDriver.region_id
+      || !newDriver.service_area_id
+    ) {
+      toast.error('Please fill in all fields including service area (required for Driver ID)');
       return;
     }
 
@@ -499,6 +508,7 @@ export default function Drivers() {
           email: newDriver.email,
           phone: newDriver.phone,
           region_id: newDriver.region_id,
+          service_area_id: newDriver.service_area_id,
           user_id: crypto.randomUUID(),
           approval_status: 'approved',
         })
@@ -508,7 +518,11 @@ export default function Drivers() {
       if (error) throw error;
 
       setDrivers(prev => [data, ...prev]);
-      toast.success('Driver added successfully');
+      toast.success(
+        data?.driver_code
+          ? `Driver added — Driver ID ${data.driver_code}`
+          : 'Driver added successfully',
+      );
       setIsAddDialogOpen(false);
       resetNewDriverForm();
 
@@ -1492,7 +1506,11 @@ export default function Drivers() {
               <Label htmlFor="region">Region</Label>
               <Select
                 value={newDriver.region_id}
-                onValueChange={(value) => setNewDriver(prev => ({ ...prev, region_id: value }))}
+                onValueChange={(value) => setNewDriver(prev => ({
+                  ...prev,
+                  region_id: value,
+                  service_area_id: '',
+                }))}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a region" />
@@ -1505,6 +1523,34 @@ export default function Drivers() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="service_area">Service area *</Label>
+              <Select
+                value={newDriver.service_area_id}
+                onValueChange={(value) => setNewDriver(prev => ({ ...prev, service_area_id: value }))}
+                disabled={!newDriver.region_id}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select service area for Driver ID" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeServiceAreas
+                    .filter((sa) => sa.region_id === newDriver.region_id)
+                    .map((sa) => (
+                      <SelectItem key={sa.id} value={sa.id}>
+                        {sa.name}
+                        {(sa as { driver_id_prefix?: string }).driver_id_prefix
+                          ? ` (${(sa as { driver_id_prefix?: string }).driver_id_prefix})`
+                          : ''}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Required. Backend allocates Driver ID from this service area&apos;s driver_id_prefix (e.g. KAM0001).
+              </p>
             </div>
           </div>
 

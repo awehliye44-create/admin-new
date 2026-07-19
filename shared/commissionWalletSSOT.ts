@@ -2011,30 +2011,46 @@ export function shouldSkipPlatformPreauthForCommissionWallet(
 }
 
 /**
- * Phase 8 — trip payment columns for DRIVER_COLLECTS_UPFRONT (cash to driver).
+ * Canonical trip payment token for DRIVER_COLLECTED_COMMISSION_WALLET.
+ * Not legacy platform `cash` — customer pays driver locally (cash/MM/etc.).
+ */
+export const DRIVER_COLLECTED_UPFRONT_PAYMENT_METHOD = "driver_collects_upfront" as const;
+
+/**
+ * Phase 8 — trip payment columns for DRIVER_COLLECTS_UPFRONT.
  * Omit payment_reauth_status (CHECK allows only pending|success|failed).
+ * Never encode this as legacy payment_method = cash.
  */
 export function tripCashUpfrontPaymentFields(): {
-  payment_method: "cash";
-  payment_type: "cash";
+  payment_method: typeof DRIVER_COLLECTED_UPFRONT_PAYMENT_METHOD;
+  payment_type: typeof DRIVER_COLLECTED_UPFRONT_PAYMENT_METHOD;
   payment_status: "driver_collects_upfront";
   payment_coverage_status: "not_required";
   payment_state: "booking_created";
   payment_deferred: false;
   deferred_payment_method_id: null;
-  original_payment_method: "cash";
+  original_payment_method: typeof DRIVER_COLLECTED_UPFRONT_PAYMENT_METHOD;
+  payment_provider: null;
+  payment_intent_id: null;
+  payment_session_id: null;
 } {
   return {
-    payment_method: "cash",
-    payment_type: "cash",
+    payment_method: DRIVER_COLLECTED_UPFRONT_PAYMENT_METHOD,
+    payment_type: DRIVER_COLLECTED_UPFRONT_PAYMENT_METHOD,
     payment_status: "driver_collects_upfront",
     payment_coverage_status: "not_required",
     payment_state: "booking_created",
     payment_deferred: false,
     deferred_payment_method_id: null,
-    original_payment_method: "cash",
+    original_payment_method: DRIVER_COLLECTED_UPFRONT_PAYMENT_METHOD,
+    payment_provider: null,
+    payment_intent_id: null,
+    payment_session_id: null,
   };
 }
+
+/** @deprecated Alias — use tripCashUpfrontPaymentFields (driver_collects_upfront, not cash). */
+export const tripDriverCollectedUpfrontPaymentFields = tripCashUpfrontPaymentFields;
 
 /** Fields to persist on trips at booking create (Phase 8 writers). */
 export function tripInsertFieldsFromFinancialModelSnapshot(
@@ -2056,8 +2072,8 @@ export function tripInsertFieldsFromFinancialModelSnapshot(
 }
 
 /**
- * Phase 8 — single African pilot Service Area until reconciliation unlocks multi-SA.
- * Isolation remains SA-flag based; this constant documents the live pilot identity only.
+ * @deprecated Historical Phase 8 Banadir identity for fixtures/tests only.
+ * Not an enablement lock — every Service Area is gated by its own config.
  */
 export const COMMISSION_WALLET_PHASE8_PILOT = {
   service_area_id: "29259edf-80eb-4c08-9089-352b8a305b81",
@@ -2067,6 +2083,7 @@ export const COMMISSION_WALLET_PHASE8_PILOT = {
   topup_provider: "waafi_pay",
 } as const;
 
+/** @deprecated Rollout row retained for audit history; not used for enablement. */
 export type CommissionWalletRolloutState = {
   pilot_service_area_id: string | null | undefined;
   multi_sa_unlocked: boolean | null | undefined;
@@ -2076,44 +2093,34 @@ export type CommissionWalletSaEnablementPlan =
   | { ok: true }
   | {
     ok: false;
-    code: "PILOT_LOCK" | "ROLLOUT_MISSING";
+    code: "FINANCIAL_MODEL_REQUIRED";
     error: string;
   };
 
 /**
- * Admin enable gate for Phase 8. Disabling is always allowed.
- * When multi_sa_unlocked is false, only the pilot SA may turn commission_wallet_enabled on.
+ * Admin enable gate — Service Area configuration only.
+ * Commission Wallet may be enabled only when financial_model is
+ * DRIVER_COLLECTED_COMMISSION_WALLET. Disabling is always allowed.
+ * Never gates on service area name, slug, country, currency, or region.
  */
 export function planCommissionWalletServiceAreaEnablement(input: {
-  serviceAreaId: string;
   enabling: boolean;
-  rollout: CommissionWalletRolloutState | null | undefined;
+  financialModel: string | null | undefined;
+  /** @deprecated Ignored — Banadir pilot lock removed. */
+  serviceAreaId?: string;
+  /** @deprecated Ignored — Banadir pilot lock removed. */
+  rollout?: CommissionWalletRolloutState | null | undefined;
 }): CommissionWalletSaEnablementPlan {
   if (!input.enabling) return { ok: true };
-  if (!input.rollout) {
-    return {
-      ok: false,
-      code: "ROLLOUT_MISSING",
-      error:
-        "Commission Wallet rollout lock is missing. Refuse enable until Phase 8 rollout row exists.",
-    };
+  const model = String(input.financialModel ?? "").toUpperCase();
+  if (model === SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET) {
+    return { ok: true };
   }
-  if (input.rollout.multi_sa_unlocked === true) return { ok: true };
-  const pilotId = String(input.rollout.pilot_service_area_id ?? "").trim();
-  if (!pilotId) {
-    return {
-      ok: false,
-      code: "ROLLOUT_MISSING",
-      error: "Commission Wallet pilot service area is not configured.",
-    };
-  }
-  if (String(input.serviceAreaId) === pilotId) return { ok: true };
   return {
     ok: false,
-    code: "PILOT_LOCK",
+    code: "FINANCIAL_MODEL_REQUIRED",
     error:
-      `Phase 8 pilot lock: only ${COMMISSION_WALLET_PHASE8_PILOT.service_area_name} `
-      + "may enable Commission Wallet until reconciliation unlocks multi-SA.",
+      "Commission Wallet may be enabled only when financial model is DRIVER_COLLECTED_COMMISSION_WALLET.",
   };
 }
 

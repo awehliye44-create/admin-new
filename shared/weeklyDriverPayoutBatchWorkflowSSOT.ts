@@ -82,15 +82,16 @@ export type Slice5ItemStatus =
 export const SLICE5_ALLOWED_BATCH_STATUSES = new Set<string>(Object.values(SLICE5_BATCH_STATUS));
 export const SLICE5_ALLOWED_ITEM_STATUSES = new Set<string>(Object.values(SLICE5_ITEM_STATUS));
 
-/** Items that would conflict with creating a new pay path for the same driver. */
+/**
+ * Items that conflict with creating a new pay path for the same driver.
+ * Money-in-flight / reserved only — do NOT include CREATED, VALIDATED, or
+ * BLOCKED_EXECUTION_DISABLED (planning/blocked rows must not skip drivers forever).
+ */
 export const CONFLICTING_ACTIVE_ITEM_STATUSES = new Set([
   "pending",
   "processing",
-  "CREATED",
-  "VALIDATED",
   "RESERVING",
   "RESERVED",
-  "BLOCKED_EXECUTION_DISABLED",
   "READY",
   "SCHEDULED",
   "PROCESSING",
@@ -98,6 +99,8 @@ export const CONFLICTING_ACTIVE_ITEM_STATUSES = new Set([
   "SUBMITTING",
   "SUBMITTED",
   "SENT",
+  // Timeout / ambiguous provider accept — never open a second pay path.
+  "UNKNOWN",
 ]);
 
 export const ADMIN_EXECUTION_DISABLED_LABEL = "Execution disabled";
@@ -568,7 +571,6 @@ export function isRevolutPaymentTransportEnabled(
 ): boolean {
   return (env.get("REVOLUT_PAYMENT_TRANSPORT_ENABLED") ?? "false").trim().toLowerCase() === "true";
 }
-
 
 /** Slice 5 stops here when either gate is off. */
 export function shouldBlockExecutionDisabled(env?: {

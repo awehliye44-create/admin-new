@@ -131,7 +131,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       .select("id, trip_id, settlement_status, settlement_lifecycle_status, settled_at, allocated_to_payout, allocated_amount_pence, paid_in_payout_item_id, paid_in_batch_id, driver_wallet_ledger!inner(amount_pence)")
       .eq("driver_id", args.driverId),
     supabase.from("payout_items")
-      .select("id, batch_id, status, settlement_status, net_driver_payout_pence, amount_pence, stripe_transfer_id, stripe_payout_id, failure_reason, created_at, updated_at")
+      .select("id, batch_id, status, execution_status, settlement_status, net_driver_payout_pence, amount_pence, stripe_transfer_id, stripe_payout_id, failure_reason, ledger_entry_id, created_at, updated_at, completed_at")
       .eq("driver_id", args.driverId)
       .order("created_at", { ascending: false })
       .limit(50),
@@ -220,7 +220,35 @@ export async function fetchDriverWalletPayoutSnapshot(
   // Canonical pending = live − available (same as Payout Ledger). Never cleared−batch.
   const canonicalPending = Math.max(0, payoutEligibility.pending_balance_pence);
 
-  const payoutItems = payoutItemsRes.data ?? [];
+  const payoutItemsRaw = payoutItemsRes.data ?? [];
+  const payoutItemIds = payoutItemsRaw.map((p) => String(p.id)).filter(Boolean);
+  const reservationByItem = new Map<string, {
+    status: string;
+    release_reason: string | null;
+  }>();
+  if (payoutItemIds.length > 0) {
+    const { data: resRows } = await supabase
+      .from("driver_payout_reservations")
+      .select("payout_item_id, status, release_reason")
+      .in("payout_item_id", payoutItemIds);
+    for (const r of resRows ?? []) {
+      const id = String(r.payout_item_id ?? "");
+      if (!id || reservationByItem.has(id)) continue;
+      reservationByItem.set(id, {
+        status: String(r.status ?? ""),
+        release_reason: r.release_reason == null ? null : String(r.release_reason),
+      });
+    }
+  }
+  const payoutItems = payoutItemsRaw.map((p) => {
+    const id = String(p.id);
+    const reservation = reservationByItem.get(id);
+    return {
+      ...p,
+      reservation_status: reservation?.status ?? null,
+      release_reason: reservation?.release_reason ?? null,
+    };
+  });
   const includedBatch = sumIncludedInPayoutBatchPence(payoutItems);
 
   const stripePayouts = stripePayoutsRes.data ?? [];

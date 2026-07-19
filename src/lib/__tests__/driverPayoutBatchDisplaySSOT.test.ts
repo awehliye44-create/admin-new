@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   COMPANY_TRANSFERS_EMPTY_COPY,
+  CARRIED_FORWARD_SUPPORTING_TEXT,
   aggregateDriverPayoutBatchStatus,
+  buildLiveWalletCompositionDisplay,
+  resolveDriverPayoutItemDisplayPresentation,
   resolveDriverPayoutItemDisplayStatus,
 } from "../../../shared/driverPayoutBatchDisplaySSOT";
 import { SLICE8_FUNDING_PROOF } from "../../../shared/payoutLedgerCompanyFundingSSOT";
@@ -9,7 +12,7 @@ import { SLICE8_FUNDING_PROOF } from "../../../shared/payoutLedgerCompanyFunding
 const { AHMED_LIVE_PENCE, BOSTEYO_COMPLETED_PENCE } = SLICE8_FUNDING_PROOF;
 
 describe("driver payout batch display SSOT", () => {
-  it("item-level: Bosteyo COMPLETED, Ahmed NOT_SUBMITTED", () => {
+  it("item-level: Bosteyo COMPLETED, Ahmed ACTIVE reserved → NOT_SUBMITTED", () => {
     expect(resolveDriverPayoutItemDisplayStatus({
       status: "COMPLETED",
       execution_status: "COMPLETED",
@@ -21,6 +24,29 @@ describe("driver payout batch display SSOT", () => {
       completed_at: null,
       reservation_status: "ACTIVE",
     })).toBe("NOT_SUBMITTED");
+  });
+
+  it("Ahmed released INELIGIBLE → CARRIED_FORWARD", () => {
+    const presentation = resolveDriverPayoutItemDisplayPresentation({
+      status: "INELIGIBLE",
+      execution_status: "INELIGIBLE",
+      reservation_status: "RELEASED",
+      release_reason: "BELOW_WEEKLY_MINIMUM_THRESHOLD",
+    });
+    expect(presentation.display_status).toBe("CARRIED_FORWARD");
+    expect(presentation.supporting_text).toBe(CARRIED_FORWARD_SUPPORTING_TEXT);
+    expect(presentation.reason_label).toBe("Below weekly minimum threshold");
+  });
+
+  it("composition: 1001 + 2148 = 3149", () => {
+    expect(buildLiveWalletCompositionDisplay({
+      live_balance_pence: 3149,
+      carried_forward_pence: 1001,
+    })).toEqual({
+      live_balance_pence: 3149,
+      carried_forward_pence: 1001,
+      new_earnings_pence: 2148,
+    });
   });
 
   it("batch aggregate: completed child + reserved child → PARTIALLY_COMPLETED", () => {

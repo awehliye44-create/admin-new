@@ -3,57 +3,77 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   COMMISSION_WALLET_PHASE8_PILOT,
+  SERVICE_AREA_FINANCIAL_MODEL,
   planCommissionWalletServiceAreaEnablement,
 } from "../../../shared/commissionWalletSSOT";
 
-describe("Phase 8 Banadir pilot lock", () => {
-  const pilotId = COMMISSION_WALLET_PHASE8_PILOT.service_area_id;
-  const locked = {
-    pilot_service_area_id: pilotId,
-    multi_sa_unlocked: false,
-  };
-
-  it("allows Banadir enable while locked", () => {
+describe("Commission Wallet multi-SA enablement (no Banadir pilot lock)", () => {
+  it("allows any SA when financial model is DRIVER_COLLECTED", () => {
     expect(
       planCommissionWalletServiceAreaEnablement({
-        serviceAreaId: pilotId,
         enabling: true,
-        rollout: locked,
+        financialModel: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+        serviceAreaId: "cb58f1bd-8b6f-45b9-ad31-b3140309892c",
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      planCommissionWalletServiceAreaEnablement({
+        enabling: true,
+        financialModel: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+        serviceAreaId: COMMISSION_WALLET_PHASE8_PILOT.service_area_id,
       }),
     ).toEqual({ ok: true });
   });
 
-  it("blocks non-pilot enable while locked", () => {
+  it("blocks enable under PLATFORM_COLLECTED", () => {
     const plan = planCommissionWalletServiceAreaEnablement({
-      serviceAreaId: "cb58f1bd-8b6f-45b9-ad31-b3140309892c",
       enabling: true,
-      rollout: locked,
+      financialModel: SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      serviceAreaId: COMMISSION_WALLET_PHASE8_PILOT.service_area_id,
     });
     expect(plan.ok).toBe(false);
-    if (!plan.ok) expect(plan.code).toBe("PILOT_LOCK");
-  });
-
-  it("allows any SA after multi_sa_unlocked", () => {
-    expect(
-      planCommissionWalletServiceAreaEnablement({
-        serviceAreaId: "cb58f1bd-8b6f-45b9-ad31-b3140309892c",
-        enabling: true,
-        rollout: { ...locked, multi_sa_unlocked: true },
-      }),
-    ).toEqual({ ok: true });
+    if (!plan.ok) expect(plan.code).toBe("FINANCIAL_MODEL_REQUIRED");
   });
 
   it("always allows disable", () => {
     expect(
       planCommissionWalletServiceAreaEnablement({
-        serviceAreaId: "cb58f1bd-8b6f-45b9-ad31-b3140309892c",
         enabling: false,
-        rollout: locked,
+        financialModel: SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,
       }),
     ).toEqual({ ok: true });
   });
 
-  it("migration pins Banadir and creates pilot lock", () => {
+  it("ignores deprecated rollout/pilot args (no SA name lock)", () => {
+    expect(
+      planCommissionWalletServiceAreaEnablement({
+        enabling: true,
+        financialModel: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+        serviceAreaId: "any-sa-id",
+        rollout: {
+          pilot_service_area_id: COMMISSION_WALLET_PHASE8_PILOT.service_area_id,
+          multi_sa_unlocked: false,
+        },
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it("unlock migration removes pilot lock trigger", () => {
+    const sql = readFileSync(
+      resolve(
+        __dirname,
+        "../../../supabase/migrations/20260832130000_commission_wallet_multi_sa_unlock.sql",
+      ),
+      "utf8",
+    );
+    expect(sql).toContain("multi_sa_unlocked = true");
+    expect(sql).toContain("trg_enforce_commission_wallet_pilot_lock");
+    expect(sql).toContain("enforce_commission_wallet_financial_model");
+    expect(sql).toContain("DROP FUNCTION IF EXISTS public.enforce_commission_wallet_pilot_lock()");
+    expect(sql).not.toContain("Banadir may enable");
+  });
+
+  it("historical Phase 8 migrations remain as audit artifacts", () => {
     const sql = readFileSync(
       resolve(
         __dirname,
@@ -61,36 +81,22 @@ describe("Phase 8 Banadir pilot lock", () => {
       ),
       "utf8",
     );
-    expect(sql).toContain(pilotId);
-    expect(sql).toContain("Banadir");
-    expect(sql).toContain("commission_wallet_rollout");
+    expect(sql).toContain(COMMISSION_WALLET_PHASE8_PILOT.service_area_id);
     expect(sql).toContain("enforce_commission_wallet_pilot_lock");
-    expect(sql).toContain("multi_sa_unlocked");
-    expect(sql).toContain("commission_reserve_enabled = true");
   });
 
-  it("gap-close migration locks financial_model to pilot", () => {
-    const sql = readFileSync(
-      resolve(
-        __dirname,
-        "../../../supabase/migrations/20260831910000_commission_wallet_phase8_gap_close.sql",
-      ),
-      "utf8",
-    );
-    expect(sql).toContain("v_adopting_africa_model");
-    expect(sql).toContain("DRIVER_COLLECTED_COMMISSION_WALLET");
-    expect(sql).toContain("commission_wallet_test_access_admin");
-  });
-
-  it("admin config loads rollout and gates enable", () => {
+  it("admin config uses financial_model gate only (no pilot UI)", () => {
     const src = readFileSync(
       resolve(__dirname, "../../components/finance/ServiceAreaCommissionWalletConfig.tsx"),
       "utf8",
     );
     expect(src).toContain("planCommissionWalletServiceAreaEnablement");
-    expect(src).toContain("commission_wallet_rollout");
-    expect(src).toContain("COMMISSION_WALLET_PHASE8_PILOT");
     expect(src).toContain("PHASE4_SUPPORTED_TOPUP_PROVIDERS");
+    expect(src).toContain("DRIVER_COLLECTED_COMMISSION_WALLET");
+    expect(src).not.toContain("COMMISSION_WALLET_PHASE8_PILOT");
+    expect(src).not.toContain("commission_wallet_rollout");
+    expect(src).not.toContain("pilot lock");
+    expect(src).not.toContain("Banadir");
     expect(src).not.toContain("sifalo_pay");
   });
 
@@ -129,7 +135,7 @@ describe("Phase 8 Banadir pilot lock", () => {
     expect(src).toContain("shouldSkipPlatformPreauthForCommissionWallet");
   });
 
-  it("pass4 auto-grants pilot test_access and clears Banadir digital gateway", () => {
+  it("pass4 historical auto-grant remains as audit artifact", () => {
     const sql = readFileSync(
       resolve(
         __dirname,

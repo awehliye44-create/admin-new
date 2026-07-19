@@ -17,14 +17,12 @@ import { Wallet, Info, Loader2, Save } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import {
-  COMMISSION_WALLET_PHASE8_PILOT,
   CUSTOMER_PAYMENT_POLICY,
   DEFAULT_CASH_UPFRONT_POLICY_NOTICE,
   PHASE4_SUPPORTED_TOPUP_PROVIDERS,
   SERVICE_AREA_FINANCIAL_MODEL,
   isCommissionWalletWorkflowEnabled,
   planCommissionWalletServiceAreaEnablement,
-  type CommissionWalletRolloutState,
 } from '../../../shared/commissionWalletSSOT';
 
 export type ServiceAreaCommissionWalletFormState = {
@@ -76,52 +74,24 @@ export function ServiceAreaCommissionWalletConfig({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
-  const [rollout, setRollout] = useState<CommissionWalletRolloutState | null>(null);
 
   const enabled = isCommissionWalletWorkflowEnabled({
     financial_model: value.financial_model,
     commission_wallet_enabled: value.commission_wallet_enabled,
   });
 
-  const enablePlan = planCommissionWalletServiceAreaEnablement({
-    serviceAreaId,
-    enabling: true,
-    rollout,
-  });
-  const pilotLockBlocksEnable = enablePlan.ok === false;
-
   const load = useCallback(async () => {
     setIsLoading(true);
     setHasChanges(false);
     try {
-      const [{ data, error }, { data: rolloutRow, error: rolloutError }] = await Promise.all([
-        supabase
-          .from('service_areas')
-          .select(
-            'financial_model, commission_wallet_enabled, commission_reserve_enabled, commission_wallet_currency, commission_topup_provider, commission_wallet_topup_enabled, commission_wallet_minimum_balance_minor, customer_payment_policy, cash_upfront_policy_notice, welcome_credit_enabled, welcome_credit_amount_minor, welcome_credit_max_drivers',
-          )
-          .eq('id', serviceAreaId)
-          .maybeSingle(),
-        supabase
-          .from('commission_wallet_rollout')
-          .select('pilot_service_area_id, multi_sa_unlocked')
-          .eq('id', true)
-          .maybeSingle(),
-      ]);
+      const { data, error } = await supabase
+        .from('service_areas')
+        .select(
+          'financial_model, commission_wallet_enabled, commission_reserve_enabled, commission_wallet_currency, commission_topup_provider, commission_wallet_topup_enabled, commission_wallet_minimum_balance_minor, customer_payment_policy, cash_upfront_policy_notice, welcome_credit_enabled, welcome_credit_amount_minor, welcome_credit_max_drivers',
+        )
+        .eq('id', serviceAreaId)
+        .maybeSingle();
       if (error) throw error;
-      if (rolloutError) {
-        console.warn('[ServiceAreaCommissionWalletConfig] rollout', rolloutError);
-        setRollout(null);
-      } else {
-        setRollout(
-          rolloutRow
-            ? {
-                pilot_service_area_id: String(rolloutRow.pilot_service_area_id ?? ''),
-                multi_sa_unlocked: Boolean(rolloutRow.multi_sa_unlocked),
-              }
-            : null,
-        );
-      }
       setValue({
         financial_model: String(data?.financial_model || SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED),
         commission_wallet_enabled: Boolean(data?.commission_wallet_enabled),
@@ -197,9 +167,8 @@ export function ServiceAreaCommissionWalletConfig({
     try {
       const enabling = value.commission_wallet_enabled === true;
       const gate = planCommissionWalletServiceAreaEnablement({
-        serviceAreaId,
         enabling,
-        rollout,
+        financialModel: value.financial_model,
       });
       if (!gate.ok) {
         toast.error(gate.error);
@@ -284,31 +253,17 @@ export function ServiceAreaCommissionWalletConfig({
           <Info className="h-4 w-4" />
           <AlertDescription>
             Workflow active only when financial model is DRIVER_COLLECTED_COMMISSION_WALLET
-            and Commission Wallet is enabled. UK/EU PLATFORM_COLLECTED areas must keep this off.
-            {rollout && rollout.multi_sa_unlocked !== true ? (
-              <>
-                {' '}Phase 8 pilot lock: only{' '}
-                <strong>{COMMISSION_WALLET_PHASE8_PILOT.service_area_name}</strong>
-                {' '}({COMMISSION_WALLET_PHASE8_PILOT.region_name}) may enable until reconciliation.
-              </>
-            ) : null}
+            and Commission Wallet is enabled. UK/EU PLATFORM_COLLECTED areas must keep this off
+            unless an Admin explicitly changes the financial model.
           </AlertDescription>
         </Alert>
-
-        {pilotLockBlocksEnable && !value.commission_wallet_enabled ? (
-          <Alert variant="destructive">
-            <AlertDescription>
-              {enablePlan.ok === false ? enablePlan.error : 'Pilot lock blocks enablement.'}
-            </AlertDescription>
-          </Alert>
-        ) : null}
 
         <div className="space-y-2">
           <Label>Financial model</Label>
           <Select
             value={value.financial_model}
             onValueChange={(v) => patch({ financial_model: v })}
-            disabled={isSaving || (pilotLockBlocksEnable && !value.commission_wallet_enabled)}
+            disabled={isSaving}
           >
             <SelectTrigger>
               <SelectValue />
@@ -335,17 +290,6 @@ export function ServiceAreaCommissionWalletConfig({
             id="cw-enabled"
             checked={value.commission_wallet_enabled}
             onCheckedChange={(checked) => {
-              if (checked) {
-                const gate = planCommissionWalletServiceAreaEnablement({
-                  serviceAreaId,
-                  enabling: true,
-                  rollout,
-                });
-                if (!gate.ok) {
-                  toast.error(gate.error);
-                  return;
-                }
-              }
               if (checked && value.financial_model !== SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET) {
                 patch({
                   financial_model: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
@@ -356,10 +300,7 @@ export function ServiceAreaCommissionWalletConfig({
               }
               patch({ commission_wallet_enabled: checked });
             }}
-            disabled={
-              isSaving
-              || (pilotLockBlocksEnable && !value.commission_wallet_enabled)
-            }
+            disabled={isSaving}
           />
         </div>
 

@@ -105,7 +105,7 @@ export function DriverWalletOverviewCards({
         <Metric
           label="Live Wallet Balance"
           value={fmt(driver.wallet_balance_pence)}
-          hint="Ledger SSOT only — never calculated from trips"
+          hint="Ledger SSOT only — never calculated from trips. Unpaid batch rows without a wallet debit stay inside this balance."
         />
         <Metric
           label="Available Balance"

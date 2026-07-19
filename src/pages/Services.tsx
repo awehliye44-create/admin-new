@@ -206,6 +206,8 @@ export default function Services() {
     code: string;
     trip_id_prefix: string;
     driver_id_prefix: string;
+    trip_id_prefix_locked: boolean;
+    driver_id_prefix_locked: boolean;
     country: string;
     timezone: string;
     region_id: string; 
@@ -216,6 +218,8 @@ export default function Services() {
     code: '',
     trip_id_prefix: '',
     driver_id_prefix: '',
+    trip_id_prefix_locked: false,
+    driver_id_prefix_locked: false,
     country: '',
     timezone: 'Europe/London',
     region_id: '', 
@@ -253,6 +257,8 @@ export default function Services() {
       code: '',
       trip_id_prefix: '',
       driver_id_prefix: '',
+      trip_id_prefix_locked: false,
+      driver_id_prefix_locked: false,
       country: '',
       timezone: 'Europe/London',
       region_id: regions[0]?.id || '',
@@ -699,6 +705,8 @@ export default function Services() {
       code: area.code || '',
       trip_id_prefix: (anyArea.trip_id_prefix || area.code || '').toUpperCase(),
       driver_id_prefix: (anyArea.driver_id_prefix || area.code || '').toUpperCase(),
+      trip_id_prefix_locked: Boolean(anyArea.trip_id_prefix_locked),
+      driver_id_prefix_locked: Boolean(anyArea.driver_id_prefix_locked),
       country: area.country || '',
       timezone: area.timezone || 'Europe/London',
       region_id: area.region_id, 
@@ -1143,7 +1151,7 @@ export default function Services() {
                       className="uppercase"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Used by the backend to generate immutable driver references, for example MK001.
+                      Used by the backend to generate immutable driver references, for example KAM0001.
                     </p>
                   </div>
                 </div>
@@ -1158,12 +1166,13 @@ export default function Services() {
                   <div>
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Driver ID preview</p>
                     <p className="font-mono text-sm mt-1">
-                      {(formData.driver_id_prefix || 'XX')}001
+                      {(formData.driver_id_prefix || 'XX')}0001
                     </p>
                   </div>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   Allowed format: 2–8 characters, uppercase letters and digits only. Must be unique across service areas.
+                  Preview only — the backend allocator assigns the real ID. Prefixes lock after first issuance.
                 </p>
               </div>
 
@@ -1349,7 +1358,7 @@ export default function Services() {
                 <div>
                   <h4 className="text-sm font-semibold">Identifier Settings — SSOT</h4>
                   <p className="text-xs text-muted-foreground">
-                    Separate prefixes control Trip ID and Driver ID generation. Changing these affects only future IDs.
+                    Trip and Driver prefixes are locked after the first identifier is issued. Existing identifiers never change.
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -1361,9 +1370,13 @@ export default function Services() {
                       onChange={(e) => setFormData(prev => ({ ...prev, trip_id_prefix: sanitizePrefix(e.target.value) }))}
                       maxLength={8}
                       className="uppercase"
+                      disabled={formData.trip_id_prefix_locked}
+                      readOnly={formData.trip_id_prefix_locked}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Used by the backend to generate immutable trip references, for example MK-260712-001.
+                      {formData.trip_id_prefix_locked
+                        ? 'Locked — at least one Trip ID has been issued for this service area.'
+                        : 'Used by the backend to generate immutable trip references, for example KAM-260719-001.'}
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -1374,9 +1387,13 @@ export default function Services() {
                       onChange={(e) => setFormData(prev => ({ ...prev, driver_id_prefix: sanitizePrefix(e.target.value) }))}
                       maxLength={8}
                       className="uppercase"
+                      disabled={formData.driver_id_prefix_locked}
+                      readOnly={formData.driver_id_prefix_locked}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Used by the backend to generate immutable driver references, for example MK001.
+                      {formData.driver_id_prefix_locked
+                        ? 'Locked — at least one Driver ID has been issued for this service area.'
+                        : 'Used by the backend to generate immutable driver references, for example KAM0001.'}
                     </p>
                   </div>
                 </div>
@@ -1391,12 +1408,13 @@ export default function Services() {
                   <div>
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Driver ID preview</p>
                     <p className="font-mono text-sm mt-1">
-                      {(formData.driver_id_prefix || 'XX')}001
+                      {(formData.driver_id_prefix || 'XX')}0001
                     </p>
                   </div>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   Allowed format: 2–8 characters, uppercase letters and digits only. Must be unique across service areas.
+                  Preview only — the backend allocator assigns the real ID.
                 </p>
               </div>
 

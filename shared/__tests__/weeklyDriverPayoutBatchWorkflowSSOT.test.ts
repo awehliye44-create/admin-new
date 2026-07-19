@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ADMIN_EXECUTION_DISABLED_LABEL,
+  CONFLICTING_ACTIVE_ITEM_STATUSES,
   LEGACY_WEEKLY_MONDAY_KIND,
   LEGACY_MONDAY_BATCH_UI_LABEL,
   payoutBatchKindUiLabel,
@@ -258,6 +259,15 @@ describe("Slice 5 — weekly payout batch workflow", () => {
 
     expect(() => assertSlice5MoneySafety({ revolut_pay_called: true })).toThrow(/Revolut/);
     expect(() => assertSlice5MoneySafety({ relay_payment_called: true })).toThrow(/relay/);
+  });
+
+  it("blocked/created planning statuses do not conflict next occurrence", () => {
+    expect(CONFLICTING_ACTIVE_ITEM_STATUSES.has("UNKNOWN")).toBe(true);
+    expect(CONFLICTING_ACTIVE_ITEM_STATUSES.has("BLOCKED_EXECUTION_DISABLED")).toBe(false);
+    expect(CONFLICTING_ACTIVE_ITEM_STATUSES.has("CREATED")).toBe(false);
+    expect(CONFLICTING_ACTIVE_ITEM_STATUSES.has("VALIDATED")).toBe(false);
+    expect(CONFLICTING_ACTIVE_ITEM_STATUSES.has("RESERVED")).toBe(true);
+    expect(CONFLICTING_ACTIVE_ITEM_STATUSES.has("SUBMITTED")).toBe(true);
   });
 
   it("15–18. No wallet reserve/debit/paid claims; balances unchanged invariants", () => {

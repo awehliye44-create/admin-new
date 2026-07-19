@@ -57,14 +57,71 @@ describe("company payee SSOT", () => {
       account_fingerprint: "abc",
       active: true,
       paused: false,
+      archived_at: null,
+      verified_at: "2026-07-18T00:00:00Z",
       currency: "GBP",
       country: "GB",
       created_at: "2026-07-12T00:00:00Z",
       updated_at: "2026-07-12T00:00:00Z",
     });
     expect(dto.masked_account).toBe("•••• 5678");
+    expect(dto.verified_at).toBe("2026-07-18T00:00:00Z");
     expect((dto as Record<string, unknown>).sort_code_encrypted).toBeUndefined();
     expect((dto as Record<string, unknown>).account_fingerprint).toBeUndefined();
+  });
+
+  it("maps transfer kinds to create options without driver wallet", async () => {
+    const { resolveCompanyTransferCreateOptions } = await import(
+      "../../../shared/companyOutgoingTransferSSOT"
+    );
+    const draft = resolveCompanyTransferCreateOptions({
+      kind: "ONE_OFF",
+      start_mode: "DRAFT",
+    });
+    expect(draft.ok).toBe(true);
+    if (draft.ok) {
+      expect(draft.as_draft).toBe(true);
+      expect(draft.execution_mode).toBe("DRAFT_FOR_APPROVAL");
+    }
+    const immediate = resolveCompanyTransferCreateOptions({
+      kind: "ONE_OFF",
+      start_mode: "IMMEDIATE",
+    });
+    expect(immediate.ok).toBe(true);
+    if (immediate.ok) expect(immediate.execution_mode).toBe("DIRECT_TRANSFER");
+    const recurring = resolveCompanyTransferCreateOptions({
+      kind: "RECURRING",
+      start_mode: "DRAFT",
+    });
+    expect(recurring.ok).toBe(true);
+    if (recurring.ok) expect(recurring.use_recurring_schedule_ui).toBe(true);
+    const scheduledBad = resolveCompanyTransferCreateOptions({
+      kind: "SCHEDULED",
+      start_mode: "APPROVAL_REQUIRED",
+    });
+    expect(scheduledBad.ok).toBe(false);
+  });
+
+  it("supports P0 payee categories including HMRC and insurance", async () => {
+    const { COMPANY_PAYEE_TYPES, companyPayeeTypeLabel, assertCompanyPayeeIsolatedFromDriverWallet } =
+      await import("../../../shared/companyPayeeSSOT");
+    expect(COMPANY_PAYEE_TYPES).toContain("HMRC_TAX");
+    expect(COMPANY_PAYEE_TYPES).toContain("INSURANCE");
+    expect(COMPANY_PAYEE_TYPES).toContain("VEHICLE_SUPPLIER");
+    expect(companyPayeeTypeLabel("STAFF")).toBe("Staff payroll");
+    expect(() => assertCompanyPayeeIsolatedFromDriverWallet({ driver_wallet: true })).toThrow(
+      /DRIVER_WALLET/,
+    );
+  });
+
+  it("archived payee cannot be paid", () => {
+    expect(assertPayeePayable({
+      active: true,
+      paused: false,
+      account_verification_status: "VERIFIED",
+      revolut_counterparty_id: "cp_1",
+      archived_at: "2026-07-18T00:00:00Z",
+    })).toEqual({ ok: false, status: "PAYEE_ARCHIVED" });
   });
 
   it("unverified payee cannot be paid", () => {
