@@ -48,6 +48,9 @@ const SETTING_KEYS = [
   'stripe_instant_payouts_enabled',
   'company_transfer_approval_single_max_pence',
   'company_transfer_approval_dual_max_pence',
+  'allow_sole_admin_company_transfer_approval',
+  'sole_admin_company_transfer_limit_pence',
+  'sole_admin_company_transfer_allowed_types',
   'company_transfer_default_account',
   'company_transfer_retry_max',
   'company_transfer_batch_size',
@@ -808,6 +811,35 @@ export function PayoutLedgerSettingsPanel({
               onChange={(e) => set('company_transfer_approval_dual_max_pence', e.target.value)}
             />
             <p className="text-[10px] text-muted-foreground">Above this requires owner approval. Default £2,500 = 250000.</p>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-md border p-3 sm:col-span-2">
+            <div>
+              <Label>Allow sole-admin self-approval</Label>
+              <p className="text-xs text-muted-foreground">
+                Only when no second company-transfer approver exists. Super admin only.
+                Does not disable four-eyes globally.
+              </p>
+            </div>
+            <Switch
+              checked={get('allow_sole_admin_company_transfer_approval', 'false') === 'true'}
+              onCheckedChange={(v) => set('allow_sole_admin_company_transfer_approval', v ? 'true' : 'false')}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Sole-admin limit (pence)</Label>
+            <Input
+              value={get('sole_admin_company_transfer_limit_pence', '1')}
+              onChange={(e) => set('sole_admin_company_transfer_limit_pence', e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">Certification default = 1 (£0.01).</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Sole-admin allowed transfer types</Label>
+            <Input
+              value={get('sole_admin_company_transfer_allowed_types', 'CERTIFICATION')}
+              onChange={(e) => set('sole_admin_company_transfer_allowed_types', e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">Comma-separated. Fail-closed default: CERTIFICATION.</p>
           </div>
           <div className="space-y-1.5">
             <Label>Default company account</Label>

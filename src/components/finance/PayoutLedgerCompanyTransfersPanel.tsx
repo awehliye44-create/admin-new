@@ -17,6 +17,7 @@ import {
   isCompanyTransferCertificationOrTestProof,
   isCompanyTransferOperationallyVisible,
 } from '../../../shared/companyTransferLifecycleSSOT';
+import { soleAdminCtReasonLabel } from '../../../shared/companyTransferSoleAdminApprovalSSOT';
 import { isCompanyPayeeProviderVerified } from '../../../shared/companyPayeeRevolutLinkSSOT';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,6 +32,14 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Table,
   TableBody,
   TableCell,
@@ -38,6 +47,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { useAuth } from '@/hooks/useAuth';
+import { useStaffProfile } from '@/hooks/useStaffProfile';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { supabase } from '@/integrations/supabase/client';
@@ -145,7 +156,8 @@ async function companyTransferInvokeErrorMessage(
       ?? protection?.message
       ?? (typeof payload.message === 'string' ? payload.message : null)
       ?? (payload.error_code || payload.error
-        ? companyTransferGateReasonLabel(String(payload.error_code ?? payload.error ?? ''))
+        ? (soleAdminCtReasonLabel(String(payload.error_code ?? payload.error ?? ''))
+          || companyTransferGateReasonLabel(String(payload.error_code ?? payload.error ?? '')))
         : null)
       ?? (typeof payload.error === 'string' ? payload.error : null)
     );
@@ -250,9 +262,15 @@ export function PayoutLedgerCompanyTransfersPanel({
   emptyCopy?: string | null;
 }) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const { staffProfile } = useStaffProfile();
   const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
   const [showForm, setShowForm] = useState(false);
   const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
+  const [soleAdminTransfer, setSoleAdminTransfer] = useState<CompanyOutgoingTransferRow | null>(null);
+  const [soleAdminReason, setSoleAdminReason] = useState(
+    'Sole-admin approval: no second authorised company-transfer approver is configured.',
+  );
   const [form, setForm] = useState({
     payee_id: '',
     recipient_name: '',
@@ -487,12 +505,29 @@ export function PayoutLedgerCompanyTransfersPanel({
           { duration: 12_000 },
         );
       } else {
-        toast.success('Transfer updated');
+        toast.success(
+          data?.sole_admin_override
+            ? 'Sole-admin approval recorded — READY FOR EXECUTION (not submitted)'
+            : 'Transfer updated',
+        );
       }
+      setSoleAdminTransfer(null);
       void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
     },
     onError: (err: Error) => toast.error(err.message, { duration: 12_000 }),
   });
+
+  const requestApprove = (t: CompanyOutgoingTransferRow) => {
+    const isSelf = Boolean(user?.id && t.requested_by && user.id === t.requested_by);
+    if (isSelf && staffProfile?.role === 'super_admin') {
+      setSoleAdminReason(
+        `Sole-admin approval for ${t.transfer_ref}: no second authorised company-transfer approver is configured.`,
+      );
+      setSoleAdminTransfer(t);
+      return;
+    }
+    actionMutation.mutate({ action: 'approve', transfer_id: t.id });
+  };
 
   const submitProviderMutation = useMutation({
     mutationFn: async (transferId: string) => {
@@ -1138,10 +1173,10 @@ export function PayoutLedgerCompanyTransfersPanel({
 
         <TabsContent value="approvals" className="space-y-4">
           <p className="text-xs text-muted-foreground">
-            High-risk categories always require approval. While company LIVE execution is off,
-            the requester may approve their own transfer for workflow certification (no money moved).
-            When LIVE is on, self-approval stays disabled unless explicitly enabled in settings.
-            Funding gate runs on approve — no money moved.
+            High-risk categories always require approval. Four-eyes stays on when company LIVE is
+            enabled. If you are the only super admin and sole-admin policy is enabled, you may
+            approve your own transfer within the configured limit after explicit confirmation —
+            approval does not submit to Revolut.
           </p>
           {awaitingApproval.length === 0 ? (
             <p className="text-sm text-muted-foreground">No transfers awaiting approval.</p>
@@ -1168,7 +1203,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                         size="sm"
                         variant="outline"
                         disabled={actionMutation.isPending}
-                        onClick={() => actionMutation.mutate({ action: 'approve', transfer_id: t.id })}
+                        onClick={() => requestApprove(t)}
                       >
                         Approve
                       </Button>
@@ -2544,7 +2579,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                           size="sm"
                           variant="outline"
                           disabled={actionMutation.isPending}
-                          onClick={() => actionMutation.mutate({ action: 'approve', transfer_id: t.id })}
+                          onClick={() => requestApprove(t)}
                         >
                           Approve
                         </Button>
@@ -2656,6 +2691,68 @@ export function PayoutLedgerCompanyTransfersPanel({
       )}
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={soleAdminTransfer != null}
+        onOpenChange={(open) => {
+          if (!open && !actionMutation.isPending) setSoleAdminTransfer(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Sole-admin approval</DialogTitle>
+            <DialogDescription>
+              No second authorised approver is currently configured.
+              Your approval will be recorded in the audit log.
+              This does not submit to Revolut.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div className="rounded-md border bg-muted/40 p-3 space-y-1 text-xs">
+              <div>Transfer: {soleAdminTransfer?.transfer_ref ?? '—'}</div>
+              <div>Type: {soleAdminTransfer?.transfer_type ?? '—'}</div>
+              <div>Amount: {formatNullablePence(soleAdminTransfer?.amount_pence ?? null)}</div>
+              <div>Payee: {soleAdminTransfer?.recipient_name ?? '—'}</div>
+            </div>
+            <div>
+              <Label htmlFor="ct-sole-admin-reason">Audit reason (required)</Label>
+              <Textarea
+                id="ct-sole-admin-reason"
+                rows={3}
+                value={soleAdminReason}
+                onChange={(e) => setSoleAdminReason(e.target.value)}
+                disabled={actionMutation.isPending}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={actionMutation.isPending}
+              onClick={() => setSoleAdminTransfer(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={actionMutation.isPending || soleAdminReason.trim().length < 10}
+              onClick={() => {
+                if (!soleAdminTransfer) return;
+                actionMutation.mutate({
+                  action: 'approve',
+                  transfer_id: soleAdminTransfer.id,
+                  confirm_sole_admin_approval: true,
+                  override_reason: soleAdminReason.trim(),
+                  reason: soleAdminReason.trim(),
+                });
+              }}
+            >
+              {actionMutation.isPending
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : 'Approve as sole administrator'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
