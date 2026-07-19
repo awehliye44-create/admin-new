@@ -1,0 +1,1 @@
+UPDATE public.preset_offer_configs SET is_enabled = true, updated_at = now() WHERE service_area_id = 'cb58f1bd-8b6f-45b9-ad31-b3140309892c';
