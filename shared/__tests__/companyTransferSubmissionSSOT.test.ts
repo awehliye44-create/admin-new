@@ -19,7 +19,7 @@ describe("companyTransferSubmissionSSOT", () => {
     expect(canonicalCompanyTransferIdempotencyKey(SLICE12_PROOF.PROOF_TRANSFER_ID)).toBe(id);
   });
 
-  it("evaluateSlice12SubmissionFlagGate requires transport and forbids live payout", () => {
+  it("evaluateSlice12SubmissionFlagGate requires transport; independent of driver LIVE_PAYOUT", () => {
     expect(evaluateSlice12SubmissionFlagGate({
       get: (k) => ({
         REVOLUT_PAYMENT_TRANSPORT_ENABLED: "true",
@@ -32,12 +32,13 @@ describe("companyTransferSubmissionSSOT", () => {
         LIVE_PAYOUT_EXECUTION_ENABLED: "false",
       }[k]),
     }).ok).toBe(false);
+    // Driver LIVE payout may stay enabled — company path is isolated.
     expect(evaluateSlice12SubmissionFlagGate({
       get: (k) => ({
         REVOLUT_PAYMENT_TRANSPORT_ENABLED: "true",
         LIVE_PAYOUT_EXECUTION_ENABLED: "true",
       }[k]),
-    }).ok).toBe(false);
+    }).ok).toBe(true);
   });
 
   it("pre-submit gate blocks proof transfer funding snapshot when live disabled", () => {

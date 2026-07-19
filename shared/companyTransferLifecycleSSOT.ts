@@ -101,6 +101,8 @@ export const COMPANY_TRANSFER_GATE_REASON_LABELS: Record<string, string> = {
   SERVICE_AREA_MISMATCH: "Service area does not match funding policy",
   DUPLICATE_ACTIVE_TRANSFER: "An active transfer already exists for this request",
   REQUESTER_CANNOT_SELF_APPROVE: "Requester cannot approve their own transfer",
+  APPROVER_REQUIRED: "Sign in as an admin to approve this transfer",
+  OWNER_APPROVAL_REQUIRED: "Owner approval is required for this transfer",
   LIVE_COMPANY_TRANSFER_EXECUTION_DISABLED: "Company transfer execution is disabled",
   FUNDING_SNAPSHOT_MISMATCH: "Funding snapshot no longer matches available funds",
   CLASSIFIED_COMPANY_CASH_UNAVAILABLE: "Classified company cash is unavailable",
@@ -321,7 +323,9 @@ export function buildCompanyTransferFundingSnapshot(args: {
   const finalPence = args.final_company_available_pence ?? null;
   const reserveStatusNorm = String(args.operational_reserve_status ?? "").toUpperCase();
   const reserveConfigured = args.operational_reserve_pence != null
-    && (reserveStatusNorm === "ACTIVE" || reserveStatusNorm === "AVAILABLE");
+    && (reserveStatusNorm === "ACTIVE" || reserveStatusNorm === "AVAILABLE")
+    && String(args.operational_reserve_reason_code ?? "").toUpperCase()
+      !== "OPERATIONAL_RESERVE_NOT_CONFIGURED";
 
   return {
     captured_at: args.captured_at ?? new Date().toISOString(),
@@ -340,7 +344,9 @@ export function buildCompanyTransferFundingSnapshot(args: {
     eligible_company_cash_pence: eligible,
     transferable_base_pence: args.transferable_base_pence ?? null,
     operational_reserve_pence: args.operational_reserve_pence ?? null,
-    operational_reserve_status: args.operational_reserve_status ?? null,
+    operational_reserve_status: reserveConfigured
+      ? "ACTIVE"
+      : (args.operational_reserve_status ?? null),
     operational_reserve_reason_code: args.operational_reserve_reason_code ?? null,
     reserve_policy_id: args.reserve_policy_id ?? null,
     final_company_available_pence: finalPence,
@@ -373,9 +379,11 @@ export function evaluateCompanyTransferFundingGate(args: {
   }
 
   const reserveReason = String(snap.operational_reserve_reason_code ?? "").toUpperCase();
+  const reserveStatus = String(snap.operational_reserve_status ?? "").toUpperCase();
   const reserveActive = snap.operational_reserve_pence != null
-    && String(snap.operational_reserve_status ?? "").toUpperCase() === "ACTIVE";
-  if (!reserveActive || reserveReason === "OPERATIONAL_RESERVE_NOT_CONFIGURED") {
+    && (reserveStatus === "ACTIVE" || reserveStatus === "AVAILABLE")
+    && reserveReason !== "OPERATIONAL_RESERVE_NOT_CONFIGURED";
+  if (!reserveActive) {
     reasons.push(COMPANY_TRANSFER_GATE_REASON.OPERATIONAL_RESERVE_NOT_CONFIGURED);
   }
 
@@ -453,14 +461,14 @@ export function canTransitionCompanyTransferStatus(args: {
   const to = String(args.to ?? "").toUpperCase();
   const allowed: Record<string, ReadonlyArray<string>> = {
     DRAFT: ["AWAITING_APPROVAL", "BLOCKED", "CANCELLED"],
-    AWAITING_APPROVAL: ["APPROVED", "REJECTED", "BLOCKED", "CANCELLED"],
-    APPROVED: ["READY_FOR_EXECUTION", "BLOCKED", "CANCELLED", "PROCESSING"],
-    BLOCKED: ["AWAITING_APPROVAL", "CANCELLED", "APPROVED"],
-    READY_FOR_EXECUTION: ["PROCESSING", "BLOCKED", "CANCELLED"],
-    SCHEDULED: ["READY_FOR_EXECUTION", "PROCESSING", "BLOCKED", "CANCELLED"],
+    AWAITING_APPROVAL: ["APPROVED", "REJECTED", "BLOCKED", "CANCELLED", "DRAFT"],
+    APPROVED: ["READY_FOR_EXECUTION", "BLOCKED", "CANCELLED", "PROCESSING", "DRAFT"],
+    BLOCKED: ["AWAITING_APPROVAL", "CANCELLED", "APPROVED", "DRAFT"],
+    READY_FOR_EXECUTION: ["PROCESSING", "BLOCKED", "CANCELLED", "DRAFT"],
+    SCHEDULED: ["READY_FOR_EXECUTION", "PROCESSING", "BLOCKED", "CANCELLED", "DRAFT"],
     PROCESSING: ["PAID", "COMPLETED", "FAILED", "BLOCKED"],
     FAILED: ["APPROVED", "CANCELLED"],
-    FUNDING_UNAVAILABLE: ["AWAITING_APPROVAL", "CANCELLED", "BLOCKED"],
+    FUNDING_UNAVAILABLE: ["AWAITING_APPROVAL", "CANCELLED", "BLOCKED", "DRAFT"],
   };
   return (allowed[from] ?? []).includes(to);
 }

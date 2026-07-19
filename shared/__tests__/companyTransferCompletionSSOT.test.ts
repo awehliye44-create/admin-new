@@ -15,13 +15,13 @@ describe("companyTransferCompletionSSOT", () => {
     expect(mayFinaliseCompanyTransferFromProviderState("completed").ok).toBe(true);
   });
 
-  it("evaluateSlice12CompletionFlagGate forbids live payout automatic", () => {
+  it("evaluateSlice12CompletionFlagGate is independent of driver LIVE_PAYOUT", () => {
     expect(evaluateSlice12CompletionFlagGate({
       get: (k) => ({ LIVE_PAYOUT_EXECUTION_ENABLED: "false" }[k]),
     }).ok).toBe(true);
     expect(evaluateSlice12CompletionFlagGate({
       get: (k) => ({ LIVE_PAYOUT_EXECUTION_ENABLED: "true" }[k]),
-    }).ok).toBe(false);
+    }).ok).toBe(true);
   });
 
   it("completion eligibility requires submitted intent and active hold", () => {
