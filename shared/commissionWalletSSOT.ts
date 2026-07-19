@@ -1408,7 +1408,8 @@ export function planWelcomeCreditAutoGrant(input: {
     driverAssignedToServiceArea: input.driverAssignedToServiceArea,
   });
   if (!assignment.ok) {
-    return { ok: false, error: assignment.error, code: assignment.code };
+    const fail = assignment as { ok: false; error: string; code: string };
+    return { ok: false, error: fail.error, code: fail.code };
   }
 
   const amount = Math.round(Number(input.welcomeCreditAmountMinor) || 0);
@@ -1430,7 +1431,8 @@ export function planWelcomeCreditAutoGrant(input: {
     welcomeCreditMaxDrivers: input.welcomeCreditMaxDrivers,
   });
   if (!welcomeGate.ok) {
-    return { ok: false, error: welcomeGate.error, code: welcomeGate.code };
+    const fail = welcomeGate as { ok: false; error: string; code: string };
+    return { ok: false, error: fail.error, code: fail.code };
   }
 
   return {

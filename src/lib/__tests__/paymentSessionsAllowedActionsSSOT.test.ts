@@ -124,7 +124,7 @@ describe("paymentSessionsAllowedActionsSSOT — tab/action correction", () => {
       expect([
         PAYMENT_ACTION_STALE_REFRESH_REQUIRED,
         "NO_ACTIVE_HOLD",
-      ]).toContain(check.error_code);
+      ]).toContain((check as { ok: false; error_code: string }).error_code);
     }
   });
 

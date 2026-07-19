@@ -625,10 +625,10 @@ export function AdminBoundaryWorkspace({
         ? parseSimpleKmlPolygon(text)
         : parseImportedGeoJson(text);
     if (!parsed.ok) {
-      setImportError(parsed.message);
+      setImportError((parsed as { ok: false; message: string }).message);
       return;
     }
-    applyOfficialGeoJson(parsed.geometry);
+    applyOfficialGeoJson((parsed as { ok: true; geometry: GeoJSON.MultiPolygon | GeoJSON.Polygon }).geometry);
   };
 
   const undo = () => {

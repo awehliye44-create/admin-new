@@ -145,7 +145,7 @@ describe("paymentSessionsCaptureConfirmationSSOT — P0 acceptance", () => {
       idempotencyKey: "recover:trip:0",
     });
     expect(safety.ok).toBe(false);
-    if (!safety.ok) expect(safety.error_code).toBe("ALREADY_FULLY_CAPTURED");
+    if (!safety.ok) expect((safety as { ok: false; error_code: string }).error_code).toBe("ALREADY_FULLY_CAPTURED");
   });
 
   it("9. original capture + recovery equals payable → fully resolved", () => {
