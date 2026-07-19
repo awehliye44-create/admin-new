@@ -40,12 +40,24 @@ export function resolveCompanyTransferApprovalsRequired(
 export function canApproveCompanyTransfer(args: {
   requester_id: string | null | undefined;
   approver_id: string | null | undefined;
+  /**
+   * Whether self-approval is permitted. Defaults to true for single-admin
+   * deployments; set env COMPANY_TRANSFER_BLOCK_SELF_APPROVAL=true to enforce
+   * strict segregation of duties in multi-admin orgs.
+   */
+  allow_self_approval?: boolean;
 }): { ok: boolean; reason: string | null } {
   const requester = String(args.requester_id ?? "").trim();
   const approver = String(args.approver_id ?? "").trim();
   if (!approver) return { ok: false, reason: "APPROVER_REQUIRED" };
-  if (requester && requester === approver) {
+  const envBlock =
+    typeof Deno !== "undefined" &&
+    (Deno.env.get("COMPANY_TRANSFER_BLOCK_SELF_APPROVAL") ?? "").toLowerCase() === "true";
+  const allowSelf = args.allow_self_approval ?? !envBlock;
+  if (!allowSelf && requester && requester === approver) {
     return { ok: false, reason: "REQUESTER_CANNOT_SELF_APPROVE" };
   }
   return { ok: true, reason: null };
 }
+
+declare const Deno: { env: { get(key: string): string | undefined } } | undefined;

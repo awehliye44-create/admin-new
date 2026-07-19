@@ -6723,6 +6723,90 @@ export type Database = {
           },
         ]
       }
+      driver_id_allocation_exceptions: {
+        Row: {
+          created_at: string
+          details: Json
+          driver_id: string
+          id: string
+          reason: string
+          resolved_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          details?: Json
+          driver_id: string
+          id?: string
+          reason: string
+          resolved_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          details?: Json
+          driver_id?: string
+          id?: string
+          reason?: string
+          resolved_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_id_allocation_exceptions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_id_allocation_exceptions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_id_allocation_exceptions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_id_allocation_exceptions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_id_allocation_exceptions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_id_allocation_exceptions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_id_allocation_exceptions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_id_allocation_exceptions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_inbox_messages: {
         Row: {
           body: string
@@ -16385,6 +16469,7 @@ export type Database = {
           display_order: number
           distance_unit: string | null
           driver_id_prefix: string
+          driver_id_prefix_locked: boolean
           driver_payout_gateway: string | null
           driver_signup_enabled: boolean
           early_cashout_enabled: boolean
@@ -16402,6 +16487,7 @@ export type Database = {
           timezone: string | null
           tips_enabled: boolean
           trip_id_prefix: string
+          trip_id_prefix_locked: boolean
           updated_at: string
           welcome_credit_amount_minor: number
           welcome_credit_enabled: boolean
@@ -16426,6 +16512,7 @@ export type Database = {
           display_order?: number
           distance_unit?: string | null
           driver_id_prefix: string
+          driver_id_prefix_locked?: boolean
           driver_payout_gateway?: string | null
           driver_signup_enabled?: boolean
           early_cashout_enabled?: boolean
@@ -16443,6 +16530,7 @@ export type Database = {
           timezone?: string | null
           tips_enabled?: boolean
           trip_id_prefix: string
+          trip_id_prefix_locked?: boolean
           updated_at?: string
           welcome_credit_amount_minor?: number
           welcome_credit_enabled?: boolean
@@ -16467,6 +16555,7 @@ export type Database = {
           display_order?: number
           distance_unit?: string | null
           driver_id_prefix?: string
+          driver_id_prefix_locked?: boolean
           driver_payout_gateway?: string | null
           driver_signup_enabled?: boolean
           early_cashout_enabled?: boolean
@@ -16484,6 +16573,7 @@ export type Database = {
           timezone?: string | null
           tips_enabled?: boolean
           trip_id_prefix?: string
+          trip_id_prefix_locked?: boolean
           updated_at?: string
           welcome_credit_amount_minor?: number
           welcome_credit_enabled?: boolean
@@ -22665,6 +22755,14 @@ export type Database = {
       }
       allocate_company_transfer_payment_reference: {
         Args: { p_at?: string; p_kind?: string }
+        Returns: string
+      }
+      allocate_driver_reference: {
+        Args: { p_service_area_id: string }
+        Returns: string
+      }
+      allocate_trip_reference: {
+        Args: { p_created_at?: string; p_service_area_id: string }
         Returns: string
       }
       apply_approved_trip_change_from_request: {

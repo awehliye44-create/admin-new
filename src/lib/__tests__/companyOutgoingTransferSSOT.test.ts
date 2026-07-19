@@ -25,11 +25,16 @@ describe("company outgoing transfer SSOT", () => {
     expect(resolveCompanyTransferApprovalsRequired(300_000).requires_owner).toBe(true);
   });
 
-  it("blocks self-approval", () => {
+  it("blocks self-approval only when explicitly disabled", () => {
     expect(canApproveCompanyTransfer({
       requester_id: "user-a",
       approver_id: "user-a",
+      allow_self_approval: false,
     }).ok).toBe(false);
+    expect(canApproveCompanyTransfer({
+      requester_id: "user-a",
+      approver_id: "user-a",
+    }).ok).toBe(true);
     expect(canApproveCompanyTransfer({
       requester_id: "user-a",
       approver_id: "user-b",

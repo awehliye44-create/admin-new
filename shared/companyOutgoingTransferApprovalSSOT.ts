@@ -42,11 +42,14 @@ export function canApproveCompanyTransfer(args: {
   approver_id: string | null | undefined;
   category?: string | null;
   force_high_risk?: boolean;
+  /** Defaults to true (single-admin). Pass false to enforce segregation. */
+  allow_self_approval?: boolean;
 }): { ok: boolean; reason: string | null } {
   const requester = String(args.requester_id ?? "").trim();
   const approver = String(args.approver_id ?? "").trim();
   if (!approver) return { ok: false, reason: "APPROVER_REQUIRED" };
-  if (requester && requester === approver) {
+  const allowSelf = args.allow_self_approval ?? true;
+  if (!allowSelf && requester && requester === approver) {
     return { ok: false, reason: "REQUESTER_CANNOT_SELF_APPROVE" };
   }
   return { ok: true, reason: null };
