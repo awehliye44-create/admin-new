@@ -30,6 +30,8 @@ const baseForm = {
 };
 
 const companyBalance774 = {
+  driver_payout_funding_status: "OK" as const,
+  funding_gap_pence: 0,
   status: "LIVE" as const,
   status_code: "AVAILABLE" as const,
   currency: "GBP",
