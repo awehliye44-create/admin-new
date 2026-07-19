@@ -30,6 +30,8 @@ const baseForm = {
 };
 
 const companyBalance774 = {
+  driver_payout_funding_status: "OK" as const,
+  funding_gap_pence: 0,
   status: "LIVE" as const,
   status_code: "AVAILABLE" as const,
   currency: "GBP",
@@ -90,7 +92,7 @@ describe("companyTransferCreatePrecheckSSOT", () => {
     const precheck = evaluateCompanyTransferCreatePrecheck({
       form: baseForm,
       payee_provider_verified: false,
-      company_balance: companyBalance774,
+      company_balance: companyBalance774 as any,
       live_company_transfer_execution_enabled: false,
     });
 
@@ -110,7 +112,7 @@ describe("companyTransferCreatePrecheckSSOT", () => {
     const precheck = evaluateCompanyTransferCreatePrecheck({
       form: { ...baseForm, payee_id: "payee-1" },
       payee_provider_verified: true,
-      company_balance: companyBalance774,
+      company_balance: companyBalance774 as any,
       live_company_transfer_execution_enabled: false,
     });
 
@@ -145,7 +147,7 @@ describe("companyTransferCreatePrecheckSSOT", () => {
         ...companyBalance774,
         final_company_available_pence: 0,
         company_available_for_transfer_pence: 774,
-      },
+      } as any,
       live_company_transfer_execution_enabled: false,
     });
     expect(precheck.available_company_funds_pence).toBe(774);
