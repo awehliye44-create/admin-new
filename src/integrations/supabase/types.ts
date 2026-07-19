@@ -15246,7 +15246,7 @@ export type Database = {
           last_push_requested_at: string | null
           negotiation_expires_at: string | null
           negotiation_status: string | null
-          offer_options: number[] | null
+          offer_options: Json | null
           offer_snapshot: Json | null
           offer_version: number
           offered_at: string
@@ -15283,7 +15283,7 @@ export type Database = {
           last_push_requested_at?: string | null
           negotiation_expires_at?: string | null
           negotiation_status?: string | null
-          offer_options?: number[] | null
+          offer_options?: Json | null
           offer_snapshot?: Json | null
           offer_version?: number
           offered_at?: string
@@ -15320,7 +15320,7 @@ export type Database = {
           last_push_requested_at?: string | null
           negotiation_expires_at?: string | null
           negotiation_status?: string | null
-          offer_options?: number[] | null
+          offer_options?: Json | null
           offer_snapshot?: Json | null
           offer_version?: number
           offered_at?: string
