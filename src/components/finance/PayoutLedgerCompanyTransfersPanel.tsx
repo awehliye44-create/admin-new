@@ -12,6 +12,7 @@ import { companyTransferStatusLabel } from '../../../shared/companyPayeeSSOT';
 import {
   companyTransferGateReasonLabel,
   companyTransferGateReasonLabels,
+  gateHasInsufficientCompanyFunds,
   isCompanyTransferCertificationOrTestProof,
   isCompanyTransferOperationallyVisible,
 } from '../../../shared/companyTransferLifecycleSSOT';
@@ -331,10 +332,24 @@ export function PayoutLedgerCompanyTransfersPanel({
     },
     onSuccess: (data) => {
       if (data?.blocked) {
-        const reasons = companyTransferGateReasonLabels(data.blocked_reason_codes ?? []);
-        toast.message('Transfer needs attention', {
-          description: reasons.join(' · ') || 'Validation failed',
-        });
+        const protection = data.funds_protection as
+          | { message?: string }
+          | null
+          | undefined;
+        if (protection?.message) {
+          toast.error(protection.message, { duration: 12_000 });
+        } else if (gateHasInsufficientCompanyFunds(data.blocked_reason_codes ?? [])) {
+          toast.error(
+            'Insufficient ONECAB Available Company Funds.\n\n'
+            + 'This transfer has been blocked to protect driver funds and reserved driver payouts.',
+            { duration: 12_000 },
+          );
+        } else {
+          const reasons = companyTransferGateReasonLabels(data.blocked_reason_codes ?? []);
+          toast.message('Transfer needs attention', {
+            description: reasons.join(' · ') || 'Validation failed',
+          });
+        }
       } else {
         toast.success('Transfer updated');
       }
@@ -350,7 +365,16 @@ export function PayoutLedgerCompanyTransfersPanel({
       });
       if (error) throw error;
       if (!data?.ok) {
+        const protection = data?.funds_protection as { message?: string } | null | undefined;
+        if (protection?.message) throw new Error(protection.message);
         const codes = (data?.blocked_reason_codes ?? [data?.error_code ?? data?.error]).filter(Boolean);
+        if (gateHasInsufficientCompanyFunds(codes.map(String))) {
+          throw new Error(
+            typeof data?.message === 'string' && data.message.includes('Available Company Funds')
+              ? data.message
+              : 'Insufficient ONECAB Available Company Funds. This transfer has been blocked to protect driver funds and reserved driver payouts.',
+          );
+        }
         const reasons = companyTransferGateReasonLabels(codes.map(String));
         throw new Error(reasons.join(' · ') || 'Transfer submission blocked');
       }
@@ -1084,7 +1108,7 @@ export function PayoutLedgerCompanyTransfersPanel({
               className="text-sm"
               title="Final ONECAB funds after liabilities, approved payables and a configured operational reserve. UNAVAILABLE while reserve is NOT_CONFIGURED."
             >
-              ONECAB Available Company Funds
+              Available Company Funds
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
@@ -1099,7 +1123,7 @@ export function PayoutLedgerCompanyTransfersPanel({
               </div>
             )}
             <div className="text-[11px] text-muted-foreground">
-              Spendable company balance — never the Revolut source total
+              ONECAB Available Company Funds — the only permitted Company Transfer source
             </div>
           </CardContent>
         </Card>
@@ -1116,6 +1140,9 @@ export function PayoutLedgerCompanyTransfersPanel({
                 {formatNullablePence(liabilitySection.pence)}
               </div>
             )}
+            <div className="text-[11px] text-muted-foreground">
+              Protected — never used for company transfers
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -1131,6 +1158,34 @@ export function PayoutLedgerCompanyTransfersPanel({
                 {formatNullablePence(reservedSection.pence)}
               </div>
             )}
+            <div className="text-[11px] text-muted-foreground">
+              Reserved for drivers — never consumed by company transfers
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle
+              className="text-sm"
+              title="Same as Available Company Funds. Company Transfers may proceed only when requested amount ≤ this budget."
+            >
+              Available Company Transfer Budget
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {availableSection.kind === 'unavailable' ? (
+              <>
+                <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+                <div className="text-xs font-mono text-muted-foreground">{availableSection.reason}</div>
+              </>
+            ) : (
+              <div className="text-xl font-semibold tabular-nums">
+                {formatNullablePence(availableSection.pence)}
+              </div>
+            )}
+            <div className="text-[11px] text-muted-foreground">
+              Max transferable now — requested must be ≤ this amount
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -1316,10 +1371,16 @@ export function PayoutLedgerCompanyTransfersPanel({
             ? 'Company transfer execution enabled'
             : 'Company transfer execution disabled'}
         </AlertTitle>
-        <AlertDescription>
-          {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
-            ? 'Ready transfers may be submitted to the configured company funding account. Company money only — never driver wallet or customer funds.'
-            : 'Drafts, approvals and evidence are allowed. Provider submission stays off until company transfer execution is enabled.'}
+        <AlertDescription className="space-y-1">
+          <p>
+            {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
+              ? 'Ready transfers may be submitted to the configured company funding account. Company money only — never driver wallet or customer funds.'
+              : 'Drafts, approvals and evidence are allowed. Provider submission stays off until company transfer execution is enabled.'}
+          </p>
+          <p className="font-medium text-foreground">
+            Hard rule: Company Transfers may use only Available Company Funds. Protected Driver
+            Liabilities and Reserved Driver Payouts are never consumed.
+          </p>
         </AlertDescription>
       </Alert>
 

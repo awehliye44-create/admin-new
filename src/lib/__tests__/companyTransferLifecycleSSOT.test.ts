@@ -3,6 +3,7 @@ import {
   buildCompanyTransferFundingSnapshot,
   canTransitionCompanyTransferStatus,
   COMPANY_TRANSFER_GATE_REASON,
+  companyTransferGateReasonLabel,
   evaluateCompanyTransferExecutionGate,
   evaluateCompanyTransferFundingGate,
   parseAdminSettingEnabled,
@@ -41,6 +42,17 @@ describe("companyTransferLifecycleSSOT Slice 11", () => {
     expect(parseLiveCompanyTransferExecutionEnabled((k) =>
       k === "LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED" ? "true" : undefined
     )).toBe(true);
+  });
+
+  it("maps gate reason codes to finance-facing labels", () => {
+    expect(companyTransferGateReasonLabel("OPERATIONAL_RESERVE_NOT_CONFIGURED"))
+      .toBe("Company reserve policy not configured");
+    expect(companyTransferGateReasonLabel("FINAL_COMPANY_FUNDS_UNAVAILABLE"))
+      .toBe("Insufficient settled company funds");
+    expect(companyTransferGateReasonLabel("INSUFFICIENT_COMPANY_FUNDS"))
+      .toBe("Insufficient ONECAB Available Company Funds");
+    expect(companyTransferGateReasonLabel(COMPANY_TRANSFER_GATE_REASON.PAYEE_UNVERIFIED))
+      .toBe("Recipient must be linked to Revolut before submission.");
   });
 
   it("fail-closed live flag requires BOTH env and admin_settings", () => {
@@ -121,8 +133,18 @@ describe("companyTransferLifecycleSSOT Slice 11", () => {
     });
     expect(tooBig.allowed).toBe(false);
     expect(tooBig.reason_codes).toContain(
-      COMPANY_TRANSFER_GATE_REASON.INSUFFICIENT_FINAL_AVAILABLE,
+      COMPANY_TRANSFER_GATE_REASON.INSUFFICIENT_COMPANY_FUNDS,
     );
+    expect(tooBig.funds_protection?.reason).toBe("INSUFFICIENT_COMPANY_FUNDS");
+    expect(tooBig.funds_protection?.available_company_funds_pence).toBe(4500);
+    expect(tooBig.funds_protection?.requested_pence).toBe(5000);
+    expect(tooBig.funds_protection?.shortfall_pence).toBe(500);
+    expect(tooBig.funds_protection?.message).toMatch(/Available Company Funds: £45\.00/);
+    expect(tooBig.funds_protection?.message).toMatch(/Requested Transfer: £50\.00/);
+    expect(tooBig.funds_protection?.message).toMatch(/Shortfall: £5\.00/);
+    expect(tooBig.funds_protection?.money_moved).toBe(false);
+    expect(tooBig.funds_protection?.revolut_pay_called).toBe(false);
+    expect(tooBig.funds_protection?.driver_wallet_mutated).toBe(false);
   });
 
   it("execution gate always includes live-disabled when flag false", () => {

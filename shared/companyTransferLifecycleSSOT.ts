@@ -66,7 +66,10 @@ export const COMPANY_TRANSFER_GATE_REASON = {
   OPERATIONAL_RESERVE_NOT_CONFIGURED: "OPERATIONAL_RESERVE_NOT_CONFIGURED",
   FINAL_COMPANY_FUNDS_UNAVAILABLE: "FINAL_COMPANY_FUNDS_UNAVAILABLE",
   UNCLASSIFIED_COMPANY_CASH_PRESENT: "UNCLASSIFIED_COMPANY_CASH_PRESENT",
+  /** @deprecated Prefer INSUFFICIENT_COMPANY_FUNDS — kept for audit/history parity. */
   INSUFFICIENT_FINAL_AVAILABLE: "INSUFFICIENT_FINAL_AVAILABLE",
+  /** Canonical: requested > ONECAB Available Company Funds. */
+  INSUFFICIENT_COMPANY_FUNDS: "INSUFFICIENT_COMPANY_FUNDS",
   PAYEE_UNVERIFIED: "PAYEE_UNVERIFIED",
   PAYEE_INACTIVE: "PAYEE_INACTIVE",
   AMOUNT_INVALID: "AMOUNT_INVALID",
@@ -88,7 +91,8 @@ export const COMPANY_TRANSFER_GATE_REASON_LABELS: Record<string, string> = {
   OPERATIONAL_RESERVE_NOT_CONFIGURED: "Company reserve policy not configured",
   FINAL_COMPANY_FUNDS_UNAVAILABLE: "Insufficient settled company funds",
   UNCLASSIFIED_COMPANY_CASH_PRESENT: "Unclassified company cash requires reconciliation",
-  INSUFFICIENT_FINAL_AVAILABLE: "Insufficient settled company funds",
+  INSUFFICIENT_FINAL_AVAILABLE: "Insufficient ONECAB Available Company Funds",
+  INSUFFICIENT_COMPANY_FUNDS: "Insufficient ONECAB Available Company Funds",
   PAYEE_UNVERIFIED: "Recipient must be linked to Revolut before submission.",
   PAYEE_INACTIVE: "Payee is inactive or archived",
   AMOUNT_INVALID: "Transfer amount is invalid",
@@ -200,7 +204,81 @@ export type CompanyTransferGateResult = {
   allowed: boolean;
   reason_codes: CompanyTransferGateReasonCode[];
   funding_snapshot: CompanyTransferFundingSnapshot;
+  /** Present when blocked for insufficient ONECAB Available Company Funds. */
+  funds_protection?: CompanyFundsProtectionBlock | null;
 };
+
+/** Hard rule evidence — company transfers may only use ONECAB Available Company Funds. */
+export type CompanyFundsProtectionBlock = {
+  reason: "INSUFFICIENT_COMPANY_FUNDS";
+  available_company_funds_pence: number;
+  requested_pence: number;
+  shortfall_pence: number;
+  message: string;
+  money_moved: false;
+  revolut_pay_called: false;
+  driver_wallet_mutated: false;
+  company_balance_mutated: false;
+};
+
+function formatPenceGbp(pence: number): string {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Math.round(pence) / 100);
+}
+
+/**
+ * User-facing block copy when requested > ONECAB Available Company Funds.
+ * Never mentions driver wallet internals as a funding source.
+ */
+export function buildInsufficientCompanyFundsMessage(args: {
+  available_company_funds_pence: number;
+  requested_pence: number;
+}): string {
+  const available = Math.max(0, Math.round(args.available_company_funds_pence));
+  const requested = Math.max(0, Math.round(args.requested_pence));
+  const shortfall = Math.max(0, requested - available);
+  return (
+    "Insufficient ONECAB Available Company Funds.\n\n"
+    + "This transfer has been blocked to protect driver funds and reserved driver payouts.\n\n"
+    + `Available Company Funds: ${formatPenceGbp(available)}\n`
+    + `Requested Transfer: ${formatPenceGbp(requested)}\n`
+    + `Shortfall: ${formatPenceGbp(shortfall)}`
+  );
+}
+
+export function buildCompanyFundsProtectionBlock(args: {
+  available_company_funds_pence: number;
+  requested_pence: number;
+}): CompanyFundsProtectionBlock {
+  const available = Math.max(0, Math.round(args.available_company_funds_pence));
+  const requested = Math.max(0, Math.round(args.requested_pence));
+  return {
+    reason: "INSUFFICIENT_COMPANY_FUNDS",
+    available_company_funds_pence: available,
+    requested_pence: requested,
+    shortfall_pence: Math.max(0, requested - available),
+    message: buildInsufficientCompanyFundsMessage({
+      available_company_funds_pence: available,
+      requested_pence: requested,
+    }),
+    money_moved: false,
+    revolut_pay_called: false,
+    driver_wallet_mutated: false,
+    company_balance_mutated: false,
+  };
+}
+
+/** True when gate codes indicate insufficient available company funds. */
+export function gateHasInsufficientCompanyFunds(
+  codes: ReadonlyArray<string> | null | undefined,
+): boolean {
+  const set = new Set((codes ?? []).map((c) => String(c).toUpperCase()));
+  return set.has("INSUFFICIENT_COMPANY_FUNDS") || set.has("INSUFFICIENT_FINAL_AVAILABLE");
+}
 
 export function computeUnclassifiedCompanyCashPence(args: {
   eligible_company_cash_pence: number | null;
@@ -305,10 +383,16 @@ export function evaluateCompanyTransferFundingGate(args: {
 
   const finalUnavailable = !snap.final_available_authoritative
     || snap.final_company_available_pence == null;
+  let funds_protection: CompanyFundsProtectionBlock | null = null;
   if (finalUnavailable) {
     reasons.push(COMPANY_TRANSFER_GATE_REASON.FINAL_COMPANY_FUNDS_UNAVAILABLE);
   } else if (amount > snap.final_company_available_pence!) {
-    reasons.push(COMPANY_TRANSFER_GATE_REASON.INSUFFICIENT_FINAL_AVAILABLE);
+    // Canonical protection code — driver liabilities / reserved payouts stay untouched.
+    reasons.push(COMPANY_TRANSFER_GATE_REASON.INSUFFICIENT_COMPANY_FUNDS);
+    funds_protection = buildCompanyFundsProtectionBlock({
+      available_company_funds_pence: snap.final_company_available_pence!,
+      requested_pence: amount,
+    });
   }
 
   const unclassifiedPresent = (snap.unclassified_company_cash_pence ?? 0) > 0
@@ -331,6 +415,7 @@ export function evaluateCompanyTransferFundingGate(args: {
     allowed: unique.length === 0,
     reason_codes: unique,
     funding_snapshot: snap,
+    funds_protection,
   };
 }
 
@@ -352,6 +437,7 @@ export function evaluateCompanyTransferExecutionGate(args: {
         COMPANY_TRANSFER_GATE_REASON.LIVE_EXECUTION_DISABLED,
       ].filter((v, i, a) => a.indexOf(v) === i),
       funding_snapshot: args.funding_snapshot,
+      funds_protection: base.funds_protection ?? null,
     };
   }
   return base;
@@ -460,8 +546,7 @@ export function isCompanyTransferCertificationOrTestProof(row: {
 
 /**
  * Operational Transfers list: active workflow only.
- * Excludes terminal statuses and HISTORY_ONLY / cancelled Slice11 proof artefacts.
- * Active CERTIFICATION drafts remain visible so they can be reviewed/submitted later.
+ * Excludes terminal statuses and certification/test proof artefacts.
  */
 export function isCompanyTransferOperationallyVisible(row: {
   status?: string | null;
