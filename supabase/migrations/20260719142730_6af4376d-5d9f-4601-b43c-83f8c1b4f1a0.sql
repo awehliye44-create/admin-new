@@ -1,0 +1,1 @@
+ALTER FUNCTION public.driver_signup_country_label(text) SET search_path = public;
