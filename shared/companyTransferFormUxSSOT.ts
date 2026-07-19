@@ -41,7 +41,9 @@ export const COMPANY_TRANSFER_FORM_FIELD_HELP = {
   approved_amount:
     "Leave blank to use the requested amount. Complete only when an approver changes the amount.",
   payment_reference:
-    "This reference will appear in Revolut and the recipient’s bank statement. Example: ONECAB CERT 001",
+    "Assigned automatically when the draft is created (ONECAB-CT-YYMMDD-###### or ONECAB-CERT-…). Read-only — never type a reference.",
+  statement_reference:
+    "Optional. Custom label for internal ops only. Does not replace the immutable Payment Reference sent to Revolut.",
   scheduled_at:
     "Optional. Leave blank for an immediate transfer after approval.",
   scheduled_at_required:
@@ -73,7 +75,6 @@ export const COMPANY_TRANSFER_CERTIFICATION_DEFAULTS = {
   start_mode: "DRAFT",
   category: "DIRECTOR_SALARY",
   amount_pence: "1",
-  payment_reference: "ONECAB CERT 001",
   currency: "GBP",
   provider: "revolut_business",
   purpose: "£0.01 company transfer certification.",
@@ -89,7 +90,10 @@ export type CompanyTransferDraftFormValues = {
   destination_account: string;
   amount_pence: string;
   approved_amount_pence: string;
+  /** Backend-generated — form may hold preview only; never required for create. */
   payment_reference: string;
+  /** Optional custom statement label — never replaces SSOT payment_reference. */
+  statement_reference: string;
   scheduled_at: string;
   currency: string;
   service_area_id: string;
@@ -161,12 +165,7 @@ export function validateCompanyTransferDraftForm(args: {
     }
   }
 
-  if (!String(f.payment_reference ?? "").trim()) {
-    errors.push({
-      field: "payment_reference",
-      message: "Payment reference is required (example: ONECAB CERT 001).",
-    });
-  }
+  // payment_reference is backend-allocated at create — never required from admin.
 
   const currency = String(f.currency ?? "").trim().toUpperCase();
   if (!currency) {
@@ -228,6 +227,7 @@ export function buildCompanyTransferDraftSummary(args: {
   category: string;
   amount_pence: number | null;
   payment_reference: string;
+  statement_reference?: string | null;
   money_source: string;
   provider: string;
   service_area_name: string;
@@ -240,21 +240,35 @@ export function buildCompanyTransferDraftSummary(args: {
     ? formatCompanyTransferPenceAsGbp(args.amount_pence) ?? `${args.amount_pence} pence`
     : "—";
   const recipient = [args.recipient_name, args.masked_account].filter(Boolean).join(" ");
+  const lines: Array<{ label: string; value: string }> = [
+    { label: "Recipient", value: recipient || "—" },
+    {
+      label: "Category",
+      value: args.is_certification
+        ? `${args.category || "—"} (certification)`
+        : (args.category || "—"),
+    },
+    { label: "Amount", value: amount },
+    {
+      label: "Payment reference",
+      value: args.payment_reference?.trim()
+        ? args.payment_reference.trim()
+        : "Assigned automatically on create",
+    },
+  ];
+  if (String(args.statement_reference ?? "").trim()) {
+    lines.push({
+      label: "Statement reference",
+      value: String(args.statement_reference).trim(),
+    });
+  }
+  lines.push(
+    { label: "Source", value: "Company Balance" },
+    { label: "Provider", value: /revolut/i.test(args.provider) ? "Revolut Business" : (args.provider || "—") },
+    { label: "Service area", value: args.service_area_name || "—" },
+  );
   return {
-    lines: [
-      { label: "Recipient", value: recipient || "—" },
-      {
-        label: "Category",
-        value: args.is_certification
-          ? `${args.category || "—"} (certification)`
-          : (args.category || "—"),
-      },
-      { label: "Amount", value: amount },
-      { label: "Reference", value: args.payment_reference || "—" },
-      { label: "Source", value: "Company Balance" },
-      { label: "Provider", value: /revolut/i.test(args.provider) ? "Revolut Business" : (args.provider || "—") },
-      { label: "Service area", value: args.service_area_name || "—" },
-    ],
+    lines,
     execution_note: "Draft only — no money moves yet",
   };
 }

@@ -4,7 +4,7 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Loader2, Plus, Printer, RefreshCw } from 'lucide-react';
+import { Download, Loader2, Plus, Printer, RefreshCw, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -69,6 +69,9 @@ import {
   formatCompanyTransferPenceAsGbp,
   validateCompanyTransferDraftForm,
 } from '../../../shared/companyTransferFormUxSSOT';
+import {
+  previewCompanyTransferPaymentReference,
+} from '../../../shared/companyTransferPaymentReferenceSSOT';
 import { parseLiveCompanyTransferExecutionEnabled } from '../../../shared/companyTransferLifecycleSSOT';
 import { adminCompanyTransferSubmissionDisplay } from '../../../shared/companyTransferSubmissionSSOT';
 import {
@@ -134,6 +137,8 @@ function openTransferReceipt(row: CompanyOutgoingTransferRow) {
     title: receiptTitleFor(row),
     fields: [
       { label: 'Transfer ID', value: row.transfer_ref },
+      { label: 'Payment reference', value: row.payment_reference },
+      { label: 'Statement reference', value: row.statement_reference },
       { label: 'Recipient', value: row.recipient_name },
       { label: 'Recipient type', value: row.recipient_type },
       { label: 'Category', value: row.category },
@@ -198,6 +203,7 @@ export function PayoutLedgerCompanyTransfersPanel({
     currency: 'GBP',
     purpose: '',
     payment_reference: '',
+    statement_reference: '',
     scheduled_at: '',
     transfer_kind: 'ONE_OFF',
     start_mode: 'DRAFT',
@@ -238,7 +244,8 @@ export function PayoutLedgerCompanyTransfersPanel({
           destination_account: form.destination_account,
           amount_pence: form.amount_pence,
           approved_amount_pence: form.approved_amount_pence,
-          payment_reference: form.payment_reference,
+          payment_reference: '',
+          statement_reference: form.statement_reference,
           scheduled_at: form.scheduled_at,
           currency: form.currency,
           service_area_id: form.service_area_id || serviceAreaId || '',
@@ -297,7 +304,7 @@ export function PayoutLedgerCompanyTransfersPanel({
           approved_amount_pence: approvedPence,
           currency: form.currency || 'GBP',
           purpose: form.purpose,
-          payment_reference: form.payment_reference.trim(),
+          statement_reference: form.statement_reference.trim() || null,
           scheduled_at: createOpts.scheduled_at,
           execution_mode: createOpts.execution_mode,
           service_area_id: form.service_area_id || serviceAreaId || null,
@@ -314,9 +321,12 @@ export function PayoutLedgerCompanyTransfersPanel({
       return data;
     },
     onSuccess: (data) => {
-      const ref = data?.transfer?.transfer_ref ?? 'created';
+      const paymentRef = data?.transfer?.payment_reference ?? data?.payment_reference ?? null;
+      const ref = paymentRef ?? data?.transfer?.transfer_ref ?? 'created';
       const status = data?.transfer?.status ?? 'DRAFT';
-      toast.success(`${companyTransferStatusLabel(status)} ${ref} created (company funding only)`);
+      toast.success(
+        `${companyTransferStatusLabel(status)} created — ${ref} (company funding only)`,
+      );
       setShowForm(false);
       void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
     },
@@ -550,6 +560,7 @@ export function PayoutLedgerCompanyTransfersPanel({
         amount_pence: form.amount_pence,
         approved_amount_pence: form.approved_amount_pence,
         payment_reference: form.payment_reference,
+        statement_reference: form.statement_reference,
         scheduled_at: form.scheduled_at,
         currency: form.currency,
         service_area_id: form.service_area_id || serviceAreaId || '',
@@ -579,13 +590,21 @@ export function PayoutLedgerCompanyTransfersPanel({
     return serviceAreas.find((sa) => sa.id === id)?.name ?? '';
   }, [form.service_area_id, serviceAreaId, serviceAreas]);
 
+  const paymentReferencePreview = useMemo(
+    () => previewCompanyTransferPaymentReference({
+      transfer_type_or_kind: form.transfer_kind,
+    }),
+    [form.transfer_kind],
+  );
+
   const draftSummary = useMemo(
     () => buildCompanyTransferDraftSummary({
       recipient_name: selectedPayee?.display_name || form.recipient_name,
       masked_account: selectedPayee?.masked_account || form.destination_account,
       category: form.category,
       amount_pence: draftValidation.amount_pence,
-      payment_reference: form.payment_reference,
+      payment_reference: paymentReferencePreview,
+      statement_reference: form.statement_reference,
       money_source: 'COMPANY_BALANCE',
       provider: form.provider,
       service_area_name: serviceAreaName,
@@ -597,9 +616,11 @@ export function PayoutLedgerCompanyTransfersPanel({
       form.destination_account,
       form.category,
       form.payment_reference,
+      form.statement_reference,
       form.provider,
       form.transfer_kind,
       draftValidation.amount_pence,
+      paymentReferencePreview,
       serviceAreaName,
     ],
   );
@@ -621,11 +642,11 @@ export function PayoutLedgerCompanyTransfersPanel({
       start_mode: COMPANY_TRANSFER_CERTIFICATION_DEFAULTS.start_mode,
       category: COMPANY_TRANSFER_CERTIFICATION_DEFAULTS.category,
       amount_pence: COMPANY_TRANSFER_CERTIFICATION_DEFAULTS.amount_pence,
-      payment_reference: COMPANY_TRANSFER_CERTIFICATION_DEFAULTS.payment_reference,
       currency: COMPANY_TRANSFER_CERTIFICATION_DEFAULTS.currency,
       provider: COMPANY_TRANSFER_CERTIFICATION_DEFAULTS.provider,
       purpose: COMPANY_TRANSFER_CERTIFICATION_DEFAULTS.purpose,
       money_source: COMPANY_TRANSFER_CERTIFICATION_DEFAULTS.money_source,
+      payment_reference: '',
       service_area_id: f.service_area_id || serviceAreaId || '',
       source_account: resolvedSourceAccount || f.source_account,
       payee_id: certPayee?.id ?? f.payee_id,
@@ -767,6 +788,7 @@ export function PayoutLedgerCompanyTransfersPanel({
               <TableHeader>
                 <TableRow>
                   <TableHead>Ref</TableHead>
+                  <TableHead>Payment reference</TableHead>
                   <TableHead>Payee</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Purpose</TableHead>
@@ -777,6 +799,26 @@ export function PayoutLedgerCompanyTransfersPanel({
                 {draftTransfers.map((t) => (
                   <TableRow key={t.id}>
                     <TableCell className="font-mono text-xs">{t.transfer_ref}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      <div className="flex items-center gap-1">
+                        <span>{t.payment_reference ?? '—'}</span>
+                        {t.payment_reference ? (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            title="Copy payment reference"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(String(t.payment_reference));
+                              toast.message('Payment reference copied');
+                            }}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        ) : null}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-xs">{t.recipient_name}</TableCell>
                     <TableCell className="text-xs tabular-nums">{formatNullablePence(t.amount_pence)}</TableCell>
                     <TableCell className="text-xs max-w-[180px] truncate">{t.purpose}</TableCell>
@@ -1525,7 +1567,6 @@ export function PayoutLedgerCompanyTransfersPanel({
                     recipient_type: payee?.payee_type ?? f.recipient_type,
                     destination_account: payee?.masked_account ?? f.destination_account,
                     currency: payee?.currency ?? f.currency,
-                    payment_reference: f.payment_reference || payee?.default_reference || '',
                   }));
                 }}
               >
@@ -1680,19 +1721,49 @@ export function PayoutLedgerCompanyTransfersPanel({
             <div className="space-y-1">
               <Label htmlFor="ct-reference">
                 Payment reference
-                <RequiredAsterisk />
+                <Badge variant="secondary" className="ml-1 align-middle text-[10px] font-normal">
+                  Auto
+                </Badge>
               </Label>
-              <Input
-                id="ct-reference"
-                value={form.payment_reference}
-                onChange={(e) => setForm((f) => ({ ...f, payment_reference: e.target.value }))}
-                placeholder="ONECAB CERT 001"
-                aria-required="true"
-                aria-invalid={Boolean(draftValidation.byField.payment_reference)}
-                aria-describedby="help-reference"
-              />
+              <div className="flex gap-2">
+                <Input
+                  id="ct-reference"
+                  value={paymentReferencePreview}
+                  readOnly
+                  disabled
+                  className="font-mono text-xs"
+                  aria-describedby="help-reference"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  title="Copy preview format"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(paymentReferencePreview);
+                    toast.message('Preview format copied — final reference assigned on create');
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
               <FieldHelp id="help-reference">{COMPANY_TRANSFER_FORM_FIELD_HELP.payment_reference}</FieldHelp>
-              <FieldError message={draftValidation.byField.payment_reference} />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="ct-statement-ref">Statement reference (optional)</Label>
+              <Input
+                id="ct-statement-ref"
+                value={form.statement_reference}
+                onChange={(e) => setForm((f) => ({ ...f, statement_reference: e.target.value }))}
+                placeholder="Optional custom label"
+                maxLength={100}
+                aria-describedby="help-statement-ref"
+              />
+              <FieldHelp id="help-statement-ref">
+                {COMPANY_TRANSFER_FORM_FIELD_HELP.statement_reference}
+              </FieldHelp>
             </div>
 
             <div className="space-y-1">

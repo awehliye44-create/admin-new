@@ -231,6 +231,10 @@ export type CompanyOutgoingTransferRow = {
   notes: string | null;
   attachment_url: string | null;
   batch_id: string | null;
+  /** Immutable SSOT payment reference (ONECAB-CT|CERT-YYMMDD-######). */
+  payment_reference?: string | null;
+  /** Optional custom statement label — never replaces payment_reference. */
+  statement_reference?: string | null;
   transfer_type?: string | null;
   metadata?: Record<string, unknown> | null;
   /** Slice 11 */

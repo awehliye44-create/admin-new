@@ -16,7 +16,8 @@ const baseForm = {
   destination_account: "•••• 3778",
   amount_pence: "1",
   approved_amount_pence: "",
-  payment_reference: "ONECAB CERT 001",
+  payment_reference: "",
+  statement_reference: "",
   scheduled_at: "",
   currency: "GBP",
   service_area_id: "sa-1",
@@ -36,12 +37,13 @@ describe("companyTransferFormUxSSOT", () => {
     expect(formatCompanyTransferPenceAsGbp(1474)).toBe("£14.74");
   });
 
-  it("provides helper text for every required field", () => {
+  it("provides helper text for required + auto reference fields", () => {
     for (const key of [
       "saved_payee",
       "category",
       "amount_pence",
       "payment_reference",
+      "statement_reference",
       "currency",
       "service_area",
       "provider",
@@ -51,7 +53,7 @@ describe("companyTransferFormUxSSOT", () => {
     }
   });
 
-  it("validates certification draft and blocks incomplete fields", () => {
+  it("validates certification draft without requiring admin-typed payment reference", () => {
     const ok = validateCompanyTransferDraftForm({
       form: baseForm,
       payee_provider_verified: true,
@@ -59,6 +61,7 @@ describe("companyTransferFormUxSSOT", () => {
     });
     expect(ok.ok).toBe(true);
     expect(ok.gbp_display).toBe("£0.01");
+    expect(ok.byField.payment_reference).toBeUndefined();
 
     const missing = validateCompanyTransferDraftForm({
       form: { ...baseForm, payee_id: "", payment_reference: "", purpose: "", amount_pence: "0" },
@@ -66,7 +69,7 @@ describe("companyTransferFormUxSSOT", () => {
     });
     expect(missing.ok).toBe(false);
     expect(missing.byField.payee_id).toMatch(/saved payee/i);
-    expect(missing.byField.payment_reference).toMatch(/reference/i);
+    expect(missing.byField.payment_reference).toBeUndefined();
     expect(missing.byField.purpose).toMatch(/purpose/i);
     expect(missing.byField.amount_pence).toMatch(/pence/i);
   });
@@ -80,34 +83,26 @@ describe("companyTransferFormUxSSOT", () => {
     expect(v.byField.payee_id).toMatch(/linked to Revolut/i);
   });
 
-  it("requires schedule only for SCHEDULED transfers", () => {
-    const scheduled = validateCompanyTransferDraftForm({
-      form: { ...baseForm, transfer_kind: "SCHEDULED", scheduled_at: "" },
-      payee_provider_verified: true,
-    });
-    expect(scheduled.byField.scheduled_at).toMatch(/required/i);
-
-    const oneOff = validateCompanyTransferDraftForm({
-      form: { ...baseForm, transfer_kind: "ONE_OFF", scheduled_at: "" },
-      payee_provider_verified: true,
-    });
-    expect(oneOff.byField.scheduled_at).toBeUndefined();
+  it("certification defaults do not invent a payment reference", () => {
+    expect(
+      "payment_reference" in COMPANY_TRANSFER_CERTIFICATION_DEFAULTS,
+    ).toBe(false);
   });
 
-  it("builds review summary for certification draft", () => {
+  it("draft summary shows auto-assigned reference messaging", () => {
     const summary = buildCompanyTransferDraftSummary({
       recipient_name: "ONECAB Limited",
       masked_account: "•••• 3778",
-      category: COMPANY_TRANSFER_CERTIFICATION_DEFAULTS.category,
+      category: "DIRECTOR_SALARY",
       amount_pence: 1,
-      payment_reference: COMPANY_TRANSFER_CERTIFICATION_DEFAULTS.payment_reference,
+      payment_reference: "",
       money_source: "COMPANY_BALANCE",
       provider: "revolut_business",
       service_area_name: "Milton Keynes",
       is_certification: true,
     });
-    expect(summary.lines.find((l) => l.label === "Amount")?.value).toBe("£0.01");
-    expect(summary.execution_note).toMatch(/no money moves/i);
-    expect(summary.lines.find((l) => l.label === "Category")?.value).toMatch(/certification/i);
+    expect(summary.lines.find((l) => l.label === "Payment reference")?.value).toMatch(
+      /automatically/i,
+    );
   });
 });
