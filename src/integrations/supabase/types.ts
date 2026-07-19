@@ -2039,6 +2039,7 @@ export type Database = {
           service_area_id: string | null
           source_account: string | null
           source_account_id: string | null
+          statement_reference: string | null
           status: string
           submitted_for_approval_at: string | null
           transfer_ref: string
@@ -2100,6 +2101,7 @@ export type Database = {
           service_area_id?: string | null
           source_account?: string | null
           source_account_id?: string | null
+          statement_reference?: string | null
           status?: string
           submitted_for_approval_at?: string | null
           transfer_ref: string
@@ -2161,6 +2163,7 @@ export type Database = {
           service_area_id?: string | null
           source_account?: string | null
           source_account_id?: string | null
+          statement_reference?: string | null
           status?: string
           submitted_for_approval_at?: string | null
           transfer_ref?: string
@@ -2506,6 +2509,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      company_transfer_payment_reference_counters: {
+        Row: {
+          kind: string
+          last_seq: number
+          ref_day: string
+          updated_at: string
+        }
+        Insert: {
+          kind: string
+          last_seq?: number
+          ref_day: string
+          updated_at?: string
+        }
+        Update: {
+          kind?: string
+          last_seq?: number
+          ref_day?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       complaint_sequences: {
         Row: {
@@ -10329,6 +10353,39 @@ export type Database = {
           },
         ]
       }
+      location_search_rollout: {
+        Row: {
+          debounce_ms: number
+          enabled_service_area_ids: string[]
+          global_enabled: boolean
+          google_places_enabled: boolean
+          id: boolean
+          max_results: number
+          min_query_length: number
+          updated_at: string
+        }
+        Insert: {
+          debounce_ms?: number
+          enabled_service_area_ids?: string[]
+          global_enabled?: boolean
+          google_places_enabled?: boolean
+          id?: boolean
+          max_results?: number
+          min_query_length?: number
+          updated_at?: string
+        }
+        Update: {
+          debounce_ms?: number
+          enabled_service_area_ids?: string[]
+          global_enabled?: boolean
+          google_places_enabled?: boolean
+          id?: boolean
+          max_results?: number
+          min_query_length?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       lost_property_cases: {
         Row: {
           admin_joined_at: string | null
@@ -11574,6 +11631,81 @@ export type Database = {
           },
           {
             foreignKeyName: "onecab_expenses_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      onecab_location_landmarks: {
+        Row: {
+          address_description: string | null
+          alternative_names: string[]
+          canonical_name: string
+          category: string | null
+          country_code: string
+          created_at: string
+          created_by_admin_user_id: string | null
+          enabled: boolean
+          entrance_instructions: string | null
+          id: string
+          is_verified: boolean
+          latitude: number
+          longitude: number
+          region_id: string | null
+          search_priority: number
+          service_area_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          address_description?: string | null
+          alternative_names?: string[]
+          canonical_name: string
+          category?: string | null
+          country_code: string
+          created_at?: string
+          created_by_admin_user_id?: string | null
+          enabled?: boolean
+          entrance_instructions?: string | null
+          id?: string
+          is_verified?: boolean
+          latitude: number
+          longitude: number
+          region_id?: string | null
+          search_priority?: number
+          service_area_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address_description?: string | null
+          alternative_names?: string[]
+          canonical_name?: string
+          category?: string | null
+          country_code?: string
+          created_at?: string
+          created_by_admin_user_id?: string | null
+          enabled?: boolean
+          entrance_instructions?: string | null
+          id?: string
+          is_verified?: boolean
+          latitude?: number
+          longitude?: number
+          region_id?: string | null
+          search_priority?: number
+          service_area_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "onecab_location_landmarks_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "onecab_location_landmarks_service_area_id_fkey"
             columns: ["service_area_id"]
             isOneToOne: false
             referencedRelation: "service_areas"
@@ -14795,34 +14927,46 @@ export type Database = {
       }
       regions: {
         Row: {
+          country_code: string | null
           created_at: string
           currency_code: string
+          display_name: string | null
+          display_order: number
           distance_unit: string
           geo_boundary: Json | null
           id: string
           name: string
+          signup_enabled: boolean
           status: string
           timezone: string
           updated_at: string
         }
         Insert: {
+          country_code?: string | null
           created_at?: string
           currency_code?: string
+          display_name?: string | null
+          display_order?: number
           distance_unit?: string
           geo_boundary?: Json | null
           id?: string
           name: string
+          signup_enabled?: boolean
           status?: string
           timezone?: string
           updated_at?: string
         }
         Update: {
+          country_code?: string | null
           created_at?: string
           currency_code?: string
+          display_name?: string | null
+          display_order?: number
           distance_unit?: string
           geo_boundary?: Json | null
           id?: string
           name?: string
+          signup_enabled?: boolean
           status?: string
           timezone?: string
           updated_at?: string
@@ -16187,9 +16331,11 @@ export type Database = {
           currency_code: string | null
           customer_payment_gateway: string | null
           customer_payment_policy: Database["public"]["Enums"]["customer_payment_policy"]
+          display_order: number
           distance_unit: string | null
           driver_id_prefix: string
           driver_payout_gateway: string | null
+          driver_signup_enabled: boolean
           early_cashout_enabled: boolean
           financial_model: Database["public"]["Enums"]["service_area_financial_model"]
           geo_boundary: Json | null
@@ -16226,9 +16372,11 @@ export type Database = {
           currency_code?: string | null
           customer_payment_gateway?: string | null
           customer_payment_policy?: Database["public"]["Enums"]["customer_payment_policy"]
+          display_order?: number
           distance_unit?: string | null
           driver_id_prefix: string
           driver_payout_gateway?: string | null
+          driver_signup_enabled?: boolean
           early_cashout_enabled?: boolean
           financial_model?: Database["public"]["Enums"]["service_area_financial_model"]
           geo_boundary?: Json | null
@@ -16265,9 +16413,11 @@ export type Database = {
           currency_code?: string | null
           customer_payment_gateway?: string | null
           customer_payment_policy?: Database["public"]["Enums"]["customer_payment_policy"]
+          display_order?: number
           distance_unit?: string | null
           driver_id_prefix?: string
           driver_payout_gateway?: string | null
+          driver_signup_enabled?: boolean
           early_cashout_enabled?: boolean
           financial_model?: Database["public"]["Enums"]["service_area_financial_model"]
           geo_boundary?: Json | null
@@ -22462,6 +22612,10 @@ export type Database = {
           recovery_attempt_count: number
         }[]
       }
+      allocate_company_transfer_payment_reference: {
+        Args: { p_at?: string; p_kind?: string }
+        Returns: string
+      }
       apply_approved_trip_change_from_request: {
         Args: {
           p_req: Database["public"]["Tables"]["trip_change_requests"]["Row"]
@@ -22954,6 +23108,7 @@ export type Database = {
         }
         Returns: Json
       }
+      driver_signup_country_label: { Args: { p_code: string }; Returns: string }
       driver_wallet_active_reservation_pence: {
         Args: { p_driver_id: string }
         Returns: number
@@ -23336,6 +23491,18 @@ export type Database = {
         }
         Returns: Json
       }
+      get_driver_signup_location_options: {
+        Args: {
+          p_country_code?: string
+          p_latitude?: number
+          p_longitude?: number
+        }
+        Returns: Json
+      }
+      get_driver_signup_service_areas: {
+        Args: { p_region_id: string }
+        Returns: Json
+      }
       get_driver_standards: {
         Args: { p_driver_id: string; p_period_days?: number }
         Returns: Json
@@ -23538,6 +23705,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_location_search_ssot_enabled: {
+        Args: { p_service_area_id: string }
+        Returns: boolean
+      }
       is_phone_pending_active: {
         Args: {
           p_expires_at: string
@@ -23581,6 +23752,7 @@ export type Database = {
         Args: { p_user_id: string; p_user_type: string }
         Returns: boolean
       }
+      list_driver_signup_countries: { Args: never; Returns: Json }
       list_driver_trip_history: { Args: { p_limit?: number }; Returns: Json }
       lock_driver_vehicle: { Args: { p_driver_id: string }; Returns: undefined }
       log_audit_event: {
@@ -24228,6 +24400,16 @@ export type Database = {
         Args: { p_status: string }
         Returns: number
       }
+      search_onecab_location_landmarks: {
+        Args: {
+          p_country_code?: string
+          p_limit?: number
+          p_query: string
+          p_region_id?: string
+          p_service_area_id?: string
+        }
+        Returns: Json
+      }
       search_places: {
         Args: { p_limit?: number; p_service_area_id?: string; q: string }
         Returns: {
@@ -24436,6 +24618,10 @@ export type Database = {
       }
       validate_driver_offer: {
         Args: { p_driver_id: string; p_offer_id: string }
+        Returns: Json
+      }
+      validate_driver_signup_region_service_areas: {
+        Args: { p_region_id: string; p_service_area_ids: string[] }
         Returns: Json
       }
       verify_active_device: {
