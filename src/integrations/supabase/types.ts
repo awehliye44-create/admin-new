@@ -11441,6 +11441,57 @@ export type Database = {
         }
         Relationships: []
       }
+      official_admin_boundaries: {
+        Row: {
+          admin_level: string
+          bbox: Json | null
+          country_code: string
+          country_name: string
+          created_at: string
+          display_name: string
+          geojson: Json
+          id: string
+          is_active: boolean
+          name: string
+          osm_id: number | null
+          osm_type: string | null
+          point_count: number | null
+          updated_at: string
+        }
+        Insert: {
+          admin_level: string
+          bbox?: Json | null
+          country_code: string
+          country_name: string
+          created_at?: string
+          display_name: string
+          geojson: Json
+          id?: string
+          is_active?: boolean
+          name: string
+          osm_id?: number | null
+          osm_type?: string | null
+          point_count?: number | null
+          updated_at?: string
+        }
+        Update: {
+          admin_level?: string
+          bbox?: Json | null
+          country_code?: string
+          country_name?: string
+          created_at?: string
+          display_name?: string
+          geojson?: Json
+          id?: string
+          is_active?: boolean
+          name?: string
+          osm_id?: number | null
+          osm_type?: string | null
+          point_count?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       onboarding_login_audit_log: {
         Row: {
           app_type: string
