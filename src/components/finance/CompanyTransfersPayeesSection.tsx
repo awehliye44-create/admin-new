@@ -35,6 +35,20 @@ import {
 } from '../../../shared/companyPayeeSSOT';
 import { COMPANY_TRANSFER_CATEGORIES } from '../../../shared/companyOutgoingTransferSSOT';
 
+/** Extract a human-readable message from an edge function error payload. */
+function extractFnError(data: any, fallback: string): string {
+  const err = data?.error;
+  if (!err) return fallback;
+  if (typeof err === 'string') return err;
+  if (typeof err === 'object') {
+    const msg = err.message ?? err.error ?? err.description ?? err.code;
+    if (typeof msg === 'string') return data?.error_code ? `${data.error_code}: ${msg}` : msg;
+    try { return `${data?.error_code ?? 'Error'}: ${JSON.stringify(err)}`; } catch { /* noop */ }
+  }
+  return fallback;
+}
+
+
 /** Local labels — keep payee CRUD deployable without shared SSOT drift. */
 const PAYEE_TYPE_LABELS: Record<string, string> = {
   STAFF: 'Staff',
