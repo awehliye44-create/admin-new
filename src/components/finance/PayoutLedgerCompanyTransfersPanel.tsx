@@ -459,13 +459,37 @@ export function PayoutLedgerCompanyTransfersPanel({
       const { data, error } = await supabase.functions.invoke(ADMIN_SYNC_COMPANY_TRANSFER_STATUS_FN, {
         body: { transfer_id: transferId },
       });
-      if (error) throw error;
+      if (error) {
+        // supabase-js wraps non-2xx as FunctionsHttpError; try to read body for graceful handling.
+        const ctx = (error as { context?: Response }).context;
+        if (ctx && typeof ctx.json === 'function') {
+          try {
+            const body = await ctx.clone().json();
+            const code = String(body?.error_code ?? body?.error ?? '');
+            if (code === 'MISSING_PROVIDER_PAYMENT_ID') {
+              return { ok: true, no_provider_payment_id: true };
+            }
+            if (code) throw new Error(code);
+          } catch (parseErr) {
+            if (parseErr instanceof Error && parseErr.message) throw parseErr;
+          }
+        }
+        throw error;
+      }
       if (!data?.ok && !data?.success) {
-        throw new Error(data?.error_code ?? data?.error ?? 'Provider status sync failed');
+        const code = String(data?.error_code ?? data?.error ?? '');
+        if (code === 'MISSING_PROVIDER_PAYMENT_ID') {
+          return { ok: true, no_provider_payment_id: true };
+        }
+        throw new Error(code || 'Provider status sync failed');
       }
       return data;
     },
     onSuccess: (data) => {
+      if ((data as { no_provider_payment_id?: boolean })?.no_provider_payment_id) {
+        toast.info('Not yet sent to provider — nothing to sync');
+        return;
+      }
       toast.success(
         `Provider status: ${companyTransferStatusLabel(data?.provider_state ?? data?.status ?? 'synced')}`,
       );
