@@ -517,7 +517,10 @@ export function PayoutLedgerCompanyTransfersPanel({
   });
 
   const inFlightTransfers = useMemo(
-    () => transfers.filter((t) => COMPANY_TRANSFER_RECONCILE_STATUSES.has(String(t.status).toUpperCase())),
+    () => transfers.filter((t) =>
+      COMPANY_TRANSFER_RECONCILE_STATUSES.has(String(t.status).toUpperCase())
+      && Boolean(t.provider_payment_id_masked),
+    ),
     [transfers],
   );
 
