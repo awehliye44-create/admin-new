@@ -140,7 +140,7 @@ export function CompanyTransfersPayeesSection({
         },
       });
       if (error) throw error;
-      if (!data?.success) throw new Error(data?.error ?? 'List payees failed');
+      if (!data?.success) throw new Error(extractFnError(data, 'List payees failed'));
       return (data.payees ?? []) as CompanyPayeePublicDto[];
     },
   });
@@ -152,7 +152,7 @@ export function CompanyTransfersPayeesSection({
         body: { action: 'list_schedules' },
       });
       if (error) throw error;
-      if (!data?.success) throw new Error(data?.error ?? 'List schedules failed');
+      if (!data?.success) throw new Error(extractFnError(data, 'List schedules failed'));
       return (data.schedules ?? []) as ScheduleRow[];
     },
   });
@@ -179,7 +179,7 @@ export function CompanyTransfersPayeesSection({
         },
       });
       if (error) throw error;
-      if (!data?.success) throw new Error(data?.error ?? 'Create payee failed');
+      if (!data?.success) throw new Error(extractFnError(data, 'Create payee failed'));
       return data;
     },
     onSuccess: (data) => {
@@ -213,7 +213,7 @@ export function CompanyTransfersPayeesSection({
         },
       });
       if (error) throw error;
-      if (!data?.success) throw new Error(data?.error ?? 'Update payee failed');
+      if (!data?.success) throw new Error(extractFnError(data, 'Update payee failed'));
       return data;
     },
     onSuccess: () => {
@@ -248,7 +248,7 @@ export function CompanyTransfersPayeesSection({
         },
       });
       if (error) throw error;
-      if (!data?.success) throw new Error(data?.error ?? 'Schedule save failed');
+      if (!data?.success) throw new Error(extractFnError(data, 'Schedule save failed'));
       return data;
     },
     onSuccess: () => {
@@ -544,7 +544,7 @@ export function CompanyTransfersPayeesSection({
                                   body: { action: 'link_revolut_payee', payee_id: p.id },
                                 });
                                 if (error || !data?.success) {
-                                  toast.error(error?.message ?? data?.error ?? 'Link Revolut failed');
+                                  toast.error(error?.message ?? extractFnError(data, 'Link Revolut failed'));
                                   return;
                                 }
                                 toast.success(
@@ -564,7 +564,7 @@ export function CompanyTransfersPayeesSection({
                                 body: { action: 'pause_payee', payee_id: p.id, paused: !p.paused },
                               });
                               if (error || !data?.success) {
-                                toast.error(error?.message ?? data?.error ?? 'Pause failed');
+                                toast.error(error?.message ?? extractFnError(data, 'Pause failed'));
                                 return;
                               }
                               toast.success(p.paused ? 'Payee resumed' : 'Payee paused');
@@ -581,7 +581,7 @@ export function CompanyTransfersPayeesSection({
                                 body: { action: 'archive_payee', payee_id: p.id, archived: true },
                               });
                               if (error || !data?.success) {
-                                toast.error(error?.message ?? data?.error ?? 'Archive failed');
+                                toast.error(error?.message ?? extractFnError(data, 'Archive failed'));
                                 return;
                               }
                               toast.success('Payee archived');
