@@ -52,6 +52,7 @@ import {
 import { PayoutLedgerSettingsPanel } from '@/components/finance/PayoutLedgerSettingsPanel';
 import { PayoutLedgerCompanyTransfersPanel } from '@/components/finance/PayoutLedgerCompanyTransfersPanel';
 import { PayoutLedgerOverviewPanel } from '@/components/finance/PayoutLedgerOverviewPanel';
+import { FinancePanelErrorBoundary } from '@/components/finance/FinancePanelErrorBoundary';
 import { useAdminPayoutLedger } from '@/hooks/useAdminPayoutLedger';
 import { supabase } from '@/integrations/supabase/client';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
@@ -464,11 +465,17 @@ export default function PayoutLedger() {
             <AlertDescription>{error instanceof Error ? error.message : String(error)}</AlertDescription>
           </Alert>
         )}
-        {!error && data?.page_status === 'PARTIAL' && data?.error_code && topTab !== 'settings' && (
+        {(data?.page_status === 'PARTIAL' || data?.page_status === 'DEGRADED')
+          && data?.error_code
+          && topTab !== 'settings' && (
           <Alert>
-            <AlertTitle>Payout Ledger partial</AlertTitle>
+            <AlertTitle>
+              {data.page_status === 'DEGRADED' ? 'Payout Ledger degraded' : 'Payout Ledger partial'}
+            </AlertTitle>
             <AlertDescription>
-              Some sections are unavailable ({data.error_code}). Other tabs remain readable.
+              {data.error
+                ? `${data.error} (${data.error_code}). Other tabs remain readable.`
+                : `Some sections are unavailable (${data.error_code}). Other tabs remain readable.`}
             </AlertDescription>
           </Alert>
         )}
@@ -481,39 +488,45 @@ export default function PayoutLedger() {
           </TabsList>
 
           <TabsContent value="overview" className="mt-4 space-y-4">
-            <PayoutLedgerOverviewPanel
-              overview={overview}
-              companyBalance={companyBalance}
-              isLoading={isLoading}
-              isError={isError && !overview}
-              errorCode={ledgerErrorCode}
-              errorMessage={error instanceof Error ? error.message : error ? String(error) : null}
-              onRetry={() => void refetch()}
-              isFetching={isFetching}
-            />
+            <FinancePanelErrorBoundary panelName="Payout Ledger Overview">
+              <PayoutLedgerOverviewPanel
+                overview={overview}
+                companyBalance={companyBalance}
+                isLoading={isLoading}
+                isError={isError && !overview}
+                errorCode={ledgerErrorCode}
+                errorMessage={error instanceof Error ? error.message : error ? String(error) : null}
+                onRetry={() => void refetch()}
+                isFetching={isFetching}
+              />
+            </FinancePanelErrorBoundary>
           </TabsContent>
 
           <TabsContent value="company_transfers" className="mt-4">
-            <PayoutLedgerCompanyTransfersPanel
-              transfers={companyTransfers}
-              isLoading={isLoading}
-              serviceAreaId={serviceFilter.serviceAreaId}
-              companyBalance={companyBalance}
-              kpis={data?.company_transfer_kpis ?? null}
-              emptyCopy={data?.company_transfers_empty_copy ?? null}
-            />
+            <FinancePanelErrorBoundary panelName="Company Transfers">
+              <PayoutLedgerCompanyTransfersPanel
+                transfers={companyTransfers}
+                isLoading={isLoading}
+                serviceAreaId={serviceFilter.serviceAreaId}
+                companyBalance={companyBalance}
+                kpis={data?.company_transfer_kpis ?? null}
+                emptyCopy={data?.company_transfers_empty_copy ?? null}
+              />
+            </FinancePanelErrorBoundary>
           </TabsContent>
 
           <TabsContent value="failed_transfers" className="mt-4 space-y-4">
-            <PayoutLedgerCompanyTransfersPanel
-              transfers={companyTransfers}
-              isLoading={isLoading}
-              failedOnly
-              serviceAreaId={serviceFilter.serviceAreaId}
-              companyBalance={companyBalance}
-              kpis={data?.company_transfer_kpis ?? null}
-              emptyCopy={data?.company_transfers_empty_copy ?? null}
-            />
+            <FinancePanelErrorBoundary panelName="Failed Transfers">
+              <PayoutLedgerCompanyTransfersPanel
+                transfers={companyTransfers}
+                isLoading={isLoading}
+                failedOnly
+                serviceAreaId={serviceFilter.serviceAreaId}
+                companyBalance={companyBalance}
+                kpis={data?.company_transfer_kpis ?? null}
+                emptyCopy={data?.company_transfers_empty_copy ?? null}
+              />
+            </FinancePanelErrorBoundary>
             {items.length > 0 && (
               <div className="space-y-2">
                 <h3 className="text-sm font-medium">Failed driver payouts</h3>
