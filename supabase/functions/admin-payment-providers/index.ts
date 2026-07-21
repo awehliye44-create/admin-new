@@ -4,7 +4,6 @@ import {
   detectModeMismatch,
   getPaymentProviderAdapter,
   maskSecretValue,
-  STRIPE_MONITORED_EVENTS,
   SUPPORTED_PAYMENT_PROVIDER_IDS,
   PROVIDER_SECRET_FIELDS,
   type PaymentProviderId,
