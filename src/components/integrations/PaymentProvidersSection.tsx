@@ -55,7 +55,6 @@ import { PROVIDER_SECRET_FIELD_LABELS, PROVIDER_SECRET_FIELDS } from "@/lib/paym
 import { PROVIDER_NOT_IMPLEMENTED_CODE } from "@/lib/customerPaymentWorkflow";
 
 const PROVIDER_ICONS: Record<PaymentProviderId, string> = {
-  stripe: "💳",
   checkout_com: "🛒",
   adyen: "🏦",
   worldpay: "🌐",
@@ -239,7 +238,9 @@ function ProviderCard({
   onEditSecrets: () => void;
   isTesting: boolean;
 }) {
-  const isStripe = provider.provider === "stripe";
+  const isStripe = false;
+
+
 
   return (
     <Card className={provider.is_primary ? "border-primary/50 shadow-sm" : undefined}>
@@ -522,8 +523,8 @@ export function PaymentProvidersCardsGrid() {
   }
 
   const providers = data?.providers ?? [];
-  const activeProviders = providers.filter((p) => p.provider !== "stripe");
-  const archivedProviders = providers.filter((p) => p.provider === "stripe");
+  const activeProviders = providers;
+  const archivedProviders: typeof providers = [];
 
   return (
     <div className="space-y-4">

@@ -24275,25 +24275,16 @@ export type Database = {
         }
         Returns: undefined
       }
-      record_cash_trip_completion:
-        | {
-            Args: {
-              p_currency?: string
-              p_driver_id: string
-              p_trip_id: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_commission_pence: number
-              p_currency_code: string
-              p_driver_id: string
-              p_gross_fare_pence: number
-              p_trip_id: string
-            }
-            Returns: string
-          }
+      record_cash_trip_completion: {
+        Args: {
+          p_commission_pence: number
+          p_currency_code: string
+          p_driver_id: string
+          p_gross_fare_pence: number
+          p_trip_id: string
+        }
+        Returns: string
+      }
       record_dispatch_wave_snapshot: {
         Args: {
           p_dispatch_round: number

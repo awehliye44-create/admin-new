@@ -2,8 +2,6 @@ import type { PaymentProviderId } from "@/hooks/usePaymentProviders";
 
 /** Keep in sync with supabase/functions/_shared/paymentProviders/types.ts */
 export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
-  "stripe",
-  "sifalo_pay",
   "waafi_pay",
   "sahal_pay",
   "intasend",
@@ -24,7 +22,6 @@ export type ProviderSecretName =
   | "business_access_token";
 
 export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, ProviderSecretName[]> = {
-  stripe: ["publishable_key", "secret_key", "webhook_secret"],
   checkout_com: ["publishable_key", "secret_key", "webhook_secret"],
   adyen: ["publishable_key", "secret_key", "webhook_secret"],
   worldpay: ["publishable_key", "secret_key", "webhook_secret"],
@@ -45,11 +42,6 @@ export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, ProviderSecretNam
 export type ProviderSecretFieldLabels = Partial<Record<ProviderSecretName, string>>;
 
 export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSecretFieldLabels> = {
-  stripe: {
-    publishable_key: "Publishable key",
-    secret_key: "Secret key",
-    webhook_secret: "Webhook secret",
-  },
   checkout_com: {
     publishable_key: "Public key",
     secret_key: "Secret key",

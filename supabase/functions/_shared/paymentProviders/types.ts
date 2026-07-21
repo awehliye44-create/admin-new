@@ -1,5 +1,4 @@
 export type PaymentProviderId =
-  | "stripe"
   | "checkout_com"
   | "adyen"
   | "worldpay"
@@ -105,26 +104,10 @@ export interface PaymentProviderAdapter {
   testConnection(): Promise<ConnectionTestResult>;
 }
 
-export const STRIPE_MONITORED_EVENTS = [
-  "payment_intent.succeeded",
-  "payment_intent.amount_capturable_updated",
-  "charge.succeeded",
-  "charge.refunded",
-  "balance.available",
-  "payout.paid",
-  "payout.failed",
-  "account.updated",
-] as const;
-
 export const PROVIDER_ENV_SECRET_MAP: Record<
   PaymentProviderId,
   Partial<Record<keyof ProviderSecrets, string>>
 > = {
-  stripe: {
-    publishable_key: "STRIPE_PUBLISHABLE_KEY",
-    secret_key: "STRIPE_SECRET_KEY",
-    webhook_secret: "STRIPE_WEBHOOK_SECRET",
-  },
   checkout_com: {
     publishable_key: "CHECKOUT_COM_PUBLIC_KEY",
     secret_key: "CHECKOUT_COM_SECRET_KEY",
@@ -220,7 +203,6 @@ export const PROVIDER_ENV_SECRET_FALLBACKS: Partial<
 
 /** Fields shown in admin secrets dialog per provider. */
 export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, (keyof ProviderSecrets)[]> = {
-  stripe: ["publishable_key", "secret_key", "webhook_secret"],
   checkout_com: ["publishable_key", "secret_key", "webhook_secret"],
   adyen: ["publishable_key", "secret_key", "webhook_secret"],
   worldpay: ["publishable_key", "secret_key", "webhook_secret"],
@@ -240,7 +222,6 @@ export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, (keyof ProviderSe
 
 /** P0 supported providers — Integrations → Payment Providers UI. */
 export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
-  "stripe",
   "sifalo_pay",
   "waafi_pay",
   "sahal_pay",
@@ -257,11 +238,6 @@ export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
 export type ProviderSecretFieldLabels = Partial<Record<keyof ProviderSecrets, string>>;
 
 export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSecretFieldLabels> = {
-  stripe: {
-    publishable_key: "Publishable key",
-    secret_key: "Secret key",
-    webhook_secret: "Webhook secret",
-  },
   checkout_com: {
     publishable_key: "Public key",
     secret_key: "Secret key",

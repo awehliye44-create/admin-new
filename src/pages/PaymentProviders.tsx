@@ -26,9 +26,7 @@ export default function PaymentProviders() {
   const { data, isLoading } = usePaymentProviders();
   const [searchParams, setSearchParams] = useSearchParams();
   const globalWarnings = data?.global_warnings ?? [];
-  const activeProvider = data?.active_provider === 'stripe'
-    ? 'unavailable'
-    : (data?.active_provider ?? 'revolut');
+  const activeProvider = data?.active_provider ?? 'revolut';
 
   useEffect(() => {
     const flag = searchParams.get("revolut_business");
