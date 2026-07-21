@@ -238,6 +238,8 @@ function ProviderCard({
   onEditSecrets: () => void;
   isTesting: boolean;
 }) {
+  const isStripe = false;
+
 
 
   return (
