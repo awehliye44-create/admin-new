@@ -55,7 +55,6 @@ import { PROVIDER_SECRET_FIELD_LABELS, PROVIDER_SECRET_FIELDS } from "@/lib/paym
 import { PROVIDER_NOT_IMPLEMENTED_CODE } from "@/lib/customerPaymentWorkflow";
 
 const PROVIDER_ICONS: Record<PaymentProviderId, string> = {
-  stripe: "💳",
   checkout_com: "🛒",
   adyen: "🏦",
   worldpay: "🌐",
