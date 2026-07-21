@@ -42,11 +42,6 @@ export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, ProviderSecretNam
 export type ProviderSecretFieldLabels = Partial<Record<ProviderSecretName, string>>;
 
 export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSecretFieldLabels> = {
-  stripe: {
-    publishable_key: "Publishable key",
-    secret_key: "Secret key",
-    webhook_secret: "Webhook secret",
-  },
   checkout_com: {
     publishable_key: "Public key",
     secret_key: "Secret key",
