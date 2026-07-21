@@ -238,7 +238,7 @@ function ProviderCard({
   onEditSecrets: () => void;
   isTesting: boolean;
 }) {
-  const isStripe = provider.provider === "stripe";
+
 
   return (
     <Card className={provider.is_primary ? "border-primary/50 shadow-sm" : undefined}>
