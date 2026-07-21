@@ -106,8 +106,6 @@ async function buildProviderCard(
   let derivedStatus = config.status as string;
   if (!credentialsReady) {
     derivedStatus = "not_configured";
-  } else if (config.last_connection_test_status === "error" && provider === "stripe") {
-    derivedStatus = "error";
   } else if (!adapterLive) {
     derivedStatus = "connected";
   } else if (secrets.secret_key?.includes("_test_")) {
@@ -118,40 +116,14 @@ async function buildProviderCard(
     derivedStatus = "connected";
   }
 
-  let webhookStatus: "healthy" | "failing" | "not_configured" = "not_configured";
-  let webhookHealth = null;
-  let connectEnabled = config.connect_enabled as boolean | null;
-  let applePayEnabled = config.apple_pay_enabled as boolean | null;
-  let googlePayEnabled = config.google_pay_enabled as boolean | null;
-
-  if (provider === "stripe") {
-    webhookHealth = await buildStripeWebhookHealth(supabase);
-    webhookStatus = webhookHealth.status;
-
-    const [{ count: connectCount }, { data: payMethods }] = await Promise.all([
-      supabase
-        .from("drivers")
-        .select("id", { count: "exact", head: true })
-        .not("stripe_account_id", "is", null),
-      supabase.from("service_area_payment_methods").select("apple_pay_enabled, google_pay_enabled"),
-    ]);
-
-    if (connectEnabled === null) connectEnabled = (connectCount ?? 0) > 0 || !!secrets.secret_key;
-    if (applePayEnabled === null) {
-      applePayEnabled = (payMethods ?? []).some((m) => m.apple_pay_enabled);
-    }
-    if (googlePayEnabled === null) {
-      googlePayEnabled = (payMethods ?? []).some((m) => m.google_pay_enabled);
-    }
-  }
+  const webhookStatus: "healthy" | "failing" | "not_configured" = "not_configured";
+  const webhookHealth = null;
+  const connectEnabled = config.connect_enabled as boolean | null;
+  const applePayEnabled = config.apple_pay_enabled as boolean | null;
+  const googlePayEnabled = config.google_pay_enabled as boolean | null;
 
   const warnings: string[] = [];
   if (modeMismatch) warnings.push(modeMismatch);
-  if (webhookStatus === "failing") {
-    warnings.push(
-      "Payment provider webhook failing — finance and payout statuses may be delayed.",
-    );
-  }
   if (!adapterLive && credentialsReady) {
     warnings.push(
       "Credentials stored. Booking adapter PROVIDER_NOT_IMPLEMENTED — provider is not live for customer bookings until adapter, webhook processing, sandbox test, and production approval.",
@@ -159,11 +131,10 @@ async function buildProviderCard(
   }
   if (!credentialsReady) {
     warnings.push("Add API keys when vendor credentials are available.");
-  } else if (adapterLive && statuses.webhook === "missing" && provider === "stripe") {
-    warnings.push("Stripe customer payments require a webhook secret.");
   } else if (!adapterLive && statuses.webhook === "missing") {
     warnings.push("Webhook secret not stored yet (optional until webhook processor is built).");
   }
+
 
   const bookingAdapterStatus = credentialReadiness.booking_adapter_status;
   const payoutAdapterStatus = credentialReadiness.payout_adapter_status;
