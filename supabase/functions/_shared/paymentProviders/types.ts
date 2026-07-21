@@ -203,7 +203,6 @@ export const PROVIDER_ENV_SECRET_FALLBACKS: Partial<
 
 /** Fields shown in admin secrets dialog per provider. */
 export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, (keyof ProviderSecrets)[]> = {
-  stripe: ["publishable_key", "secret_key", "webhook_secret"],
   checkout_com: ["publishable_key", "secret_key", "webhook_secret"],
   adyen: ["publishable_key", "secret_key", "webhook_secret"],
   worldpay: ["publishable_key", "secret_key", "webhook_secret"],
@@ -223,7 +222,6 @@ export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, (keyof ProviderSe
 
 /** P0 supported providers — Integrations → Payment Providers UI. */
 export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
-  "stripe",
   "sifalo_pay",
   "waafi_pay",
   "sahal_pay",
