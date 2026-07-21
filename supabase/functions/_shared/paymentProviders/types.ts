@@ -238,11 +238,6 @@ export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
 export type ProviderSecretFieldLabels = Partial<Record<keyof ProviderSecrets, string>>;
 
 export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSecretFieldLabels> = {
-  stripe: {
-    publishable_key: "Publishable key",
-    secret_key: "Secret key",
-    webhook_secret: "Webhook secret",
-  },
   checkout_com: {
     publishable_key: "Public key",
     secret_key: "Secret key",
