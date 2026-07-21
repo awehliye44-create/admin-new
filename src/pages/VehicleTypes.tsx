@@ -296,7 +296,7 @@ export default function VehicleTypes() {
     }
   };
 
-  const FormContent = () => (
+  const formContent = (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
