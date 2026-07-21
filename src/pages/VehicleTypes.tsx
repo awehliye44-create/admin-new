@@ -649,7 +649,7 @@ export default function VehicleTypes() {
               Create a new vehicle category for your fleet
             </DialogDescription>
           </DialogHeader>
-          <FormContent />
+          {formContent}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
               Cancel
@@ -674,7 +674,7 @@ export default function VehicleTypes() {
               Update vehicle type settings
             </DialogDescription>
           </DialogHeader>
-          <FormContent />
+          {formContent}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
               Cancel
