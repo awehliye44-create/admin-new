@@ -2,8 +2,6 @@ import type { PaymentProviderId } from "@/hooks/usePaymentProviders";
 
 /** Keep in sync with supabase/functions/_shared/paymentProviders/types.ts */
 export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
-  "stripe",
-  "sifalo_pay",
   "waafi_pay",
   "sahal_pay",
   "intasend",
