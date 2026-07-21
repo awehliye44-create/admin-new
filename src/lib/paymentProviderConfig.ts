@@ -22,7 +22,6 @@ export type ProviderSecretName =
   | "business_access_token";
 
 export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, ProviderSecretName[]> = {
-  stripe: ["publishable_key", "secret_key", "webhook_secret"],
   checkout_com: ["publishable_key", "secret_key", "webhook_secret"],
   adyen: ["publishable_key", "secret_key", "webhook_secret"],
   worldpay: ["publishable_key", "secret_key", "webhook_secret"],
