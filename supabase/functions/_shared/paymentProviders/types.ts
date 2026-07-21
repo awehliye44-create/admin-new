@@ -1,5 +1,4 @@
 export type PaymentProviderId =
-  | "stripe"
   | "checkout_com"
   | "adyen"
   | "worldpay"
