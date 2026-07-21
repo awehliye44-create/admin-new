@@ -296,7 +296,7 @@ export default function VehicleTypes() {
     }
   };
 
-  const FormContent = () => (
+  const formContent = (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
@@ -649,7 +649,7 @@ export default function VehicleTypes() {
               Create a new vehicle category for your fleet
             </DialogDescription>
           </DialogHeader>
-          <FormContent />
+          {formContent}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
               Cancel
@@ -674,7 +674,7 @@ export default function VehicleTypes() {
               Update vehicle type settings
             </DialogDescription>
           </DialogHeader>
-          <FormContent />
+          {formContent}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
               Cancel
