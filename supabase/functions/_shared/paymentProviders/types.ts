@@ -104,26 +104,10 @@ export interface PaymentProviderAdapter {
   testConnection(): Promise<ConnectionTestResult>;
 }
 
-export const STRIPE_MONITORED_EVENTS = [
-  "payment_intent.succeeded",
-  "payment_intent.amount_capturable_updated",
-  "charge.succeeded",
-  "charge.refunded",
-  "balance.available",
-  "payout.paid",
-  "payout.failed",
-  "account.updated",
-] as const;
-
 export const PROVIDER_ENV_SECRET_MAP: Record<
   PaymentProviderId,
   Partial<Record<keyof ProviderSecrets, string>>
 > = {
-  stripe: {
-    publishable_key: "STRIPE_PUBLISHABLE_KEY",
-    secret_key: "STRIPE_SECRET_KEY",
-    webhook_secret: "STRIPE_WEBHOOK_SECRET",
-  },
   checkout_com: {
     publishable_key: "CHECKOUT_COM_PUBLIC_KEY",
     secret_key: "CHECKOUT_COM_SECRET_KEY",
