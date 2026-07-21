@@ -248,7 +248,7 @@ serve(async (req) => {
           .map((c) => buildProviderCard(supabase, c)),
       );
 
-      const active = providers.find((p) => p.is_primary && p.is_enabled && p.provider !== "stripe")
+      const active = providers.find((p) => p.is_primary && p.is_enabled)
         ?? providers.find((p) => p.is_enabled && p.provider === "revolut")
         ?? null;
 
