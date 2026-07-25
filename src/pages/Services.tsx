@@ -259,6 +259,10 @@ export default function Services() {
       is_active: true,
       geo_boundary: null,
     });
+    // Clear map-editor state so a previously edited area's shape/policy
+    // cannot silently overwrite the next area's boundary.
+    setCanonicalBoundary(null);
+    setOverlapPolicy({ allow: false, reason: '' });
   };
 
 
