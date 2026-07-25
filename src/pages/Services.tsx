@@ -259,6 +259,10 @@ export default function Services() {
       is_active: true,
       geo_boundary: null,
     });
+    // Clear map-editor state so a previously edited area's shape/policy
+    // cannot silently overwrite the next area's boundary.
+    setCanonicalBoundary(null);
+    setOverlapPolicy({ allow: false, reason: '' });
   };
 
 
@@ -520,6 +524,8 @@ export default function Services() {
       setIsEditDialogOpen(false);
       setSelectedArea(null);
       setActiveTab('details');
+      setCanonicalBoundary(null);
+      setOverlapPolicy({ allow: false, reason: '' });
     } catch (err: any) {
       console.error('Error updating service area:', err);
       toast.error(err.message || 'Failed to update service area');
@@ -705,6 +711,10 @@ export default function Services() {
       is_active: area.is_active, 
       geo_boundary: area.geo_boundary || null 
     });
+    // Reset editor state so we don't reuse the previous area's canonical
+    // boundary or overlap override for this new edit session.
+    setCanonicalBoundary(null);
+    setOverlapPolicy({ allow: false, reason: '' });
     setActiveTab('details');
     setIsEditDialogOpen(true);
   };

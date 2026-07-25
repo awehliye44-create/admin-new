@@ -16142,6 +16142,7 @@ export type Database = {
         Row: {
           apple_pay_enabled: boolean
           card_enabled: boolean
+          cash_enabled: boolean
           created_at: string
           google_pay_enabled: boolean
           id: string
@@ -16156,6 +16157,7 @@ export type Database = {
         Insert: {
           apple_pay_enabled?: boolean
           card_enabled?: boolean
+          cash_enabled?: boolean
           created_at?: string
           google_pay_enabled?: boolean
           id?: string
@@ -16170,6 +16172,7 @@ export type Database = {
         Update: {
           apple_pay_enabled?: boolean
           card_enabled?: boolean
+          cash_enabled?: boolean
           created_at?: string
           google_pay_enabled?: boolean
           id?: string
@@ -18637,6 +18640,7 @@ export type Database = {
           cancelled_by_role: string | null
           cancelled_driver_ids: string[]
           capture_amount_pence: number | null
+          cash_authorized_at: string | null
           cash_collected_at: string | null
           cash_collected_by_driver_id: string | null
           check_in_reminder_sent_at: string | null
@@ -18922,6 +18926,7 @@ export type Database = {
           cancelled_by_role?: string | null
           cancelled_driver_ids?: string[]
           capture_amount_pence?: number | null
+          cash_authorized_at?: string | null
           cash_collected_at?: string | null
           cash_collected_by_driver_id?: string | null
           check_in_reminder_sent_at?: string | null
@@ -19207,6 +19212,7 @@ export type Database = {
           cancelled_by_role?: string | null
           cancelled_driver_ids?: string[]
           capture_amount_pence?: number | null
+          cash_authorized_at?: string | null
           cash_collected_at?: string | null
           cash_collected_by_driver_id?: string | null
           check_in_reminder_sent_at?: string | null
@@ -23454,6 +23460,10 @@ export type Database = {
         Returns: string
       }
       get_active_stop_waiting: { Args: { p_driver_id: string }; Returns: Json }
+      get_booking_quote_inputs: {
+        Args: { p_pickup_lat: number; p_pickup_lng: number }
+        Returns: Json
+      }
       get_corporate_allowed_payment_methods: {
         Args: { p_account_id: string }
         Returns: string[]
@@ -24828,6 +24838,7 @@ export type Database = {
         | "captured"
         | "under_captured"
         | "capture_failed"
+        | "deferred"
       payment_session_fee_status:
         | "ACTUAL"
         | "ESTIMATED"
@@ -25085,6 +25096,7 @@ export const Constants = {
         "captured",
         "under_captured",
         "capture_failed",
+        "deferred",
       ],
       payment_session_fee_status: [
         "ACTUAL",
