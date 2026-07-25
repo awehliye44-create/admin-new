@@ -524,6 +524,8 @@ export default function Services() {
       setIsEditDialogOpen(false);
       setSelectedArea(null);
       setActiveTab('details');
+      setCanonicalBoundary(null);
+      setOverlapPolicy({ allow: false, reason: '' });
     } catch (err: any) {
       console.error('Error updating service area:', err);
       toast.error(err.message || 'Failed to update service area');
