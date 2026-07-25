@@ -709,6 +709,10 @@ export default function Services() {
       is_active: area.is_active, 
       geo_boundary: area.geo_boundary || null 
     });
+    // Reset editor state so we don't reuse the previous area's canonical
+    // boundary or overlap override for this new edit session.
+    setCanonicalBoundary(null);
+    setOverlapPolicy({ allow: false, reason: '' });
     setActiveTab('details');
     setIsEditDialogOpen(true);
   };
