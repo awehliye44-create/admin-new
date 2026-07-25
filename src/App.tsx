@@ -82,7 +82,7 @@ import OnecabDocuments from "./pages/OnecabDocuments";
 import AlertSounds from "./pages/AlertSounds";
 import UserDirectory from "./pages/UserDirectory";
 import QrBookingControl from "./pages/QrBookingControl";
-import OpsIntelligence from "./pages/OpsIntelligence";
+
 import DispatchMetrics from "./pages/DispatchMetrics";
 import DriverDemandZones from "./pages/DriverDemandZones";
 import StaffWorkPatterns from "./pages/StaffWorkPatterns";
@@ -213,7 +213,7 @@ const App = () => (
               <Route path="notifications" element={<Notifications />} />
               <Route path="alert-sounds" element={<AlertSounds />} />
               <Route path="user-directory" element={<UserDirectory />} />
-              <Route path="ops-intelligence" element={<OpsIntelligence />} />
+              
               <Route path="profile" element={<AdminProfile />} />
             </Route>
             
