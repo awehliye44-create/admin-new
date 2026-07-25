@@ -701,7 +701,10 @@ export default function PaymentSessions() {
         authorisedPence: row.authorised_amount_pence,
         purpose: row.purpose,
       });
-      const outstanding = confirmation.outstanding_pence;
+      // Backend `row.outstanding_pence` is the SSOT (set for active-auth capture
+      // flows too); the local classifier only covers post-capture rows and
+      // returns null for AUTHORISED_ACTIVE, so we must not gate on it alone.
+      const outstanding = row.outstanding_pence ?? confirmation.outstanding_pence;
       if (outstanding == null || outstanding <= 0) {
         toast.error('No outstanding balance to collect — full-fare recapture is blocked');
         return;
