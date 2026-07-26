@@ -83,6 +83,13 @@ interface DispatchSettings {
 
 
 
+  // Towards Destination (driver preference — soft dispatch priority)
+  towardsDestinationEnabled: boolean;
+  towardsDestinationDailyLimit: number;
+  towardsDestinationDurationMinutes: number;
+  towardsDestinationMatchingToleranceMeters: number;
+  towardsDestinationPriorityWeight: number;
+
   // System Settings (operational flags, not dispatch execution)
   enableLogging: boolean;
   simulateMode: boolean;
@@ -129,6 +136,11 @@ const defaultSettings: DispatchSettings = {
   lockedDriverResponseMinutes: 3,
   scheduledUrgentCardLabel: 'Scheduled • Urgent',
   enableScheduledToUrgentConversion: true,
+  towardsDestinationEnabled: true,
+  towardsDestinationDailyLimit: 3,
+  towardsDestinationDurationMinutes: 60,
+  towardsDestinationMatchingToleranceMeters: 3000,
+  towardsDestinationPriorityWeight: 12,
   enableLogging: false,
   simulateMode: false,
   blockMultipleActiveRides: false,
@@ -176,6 +188,11 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   lockedDriverResponseMinutes: (data.locked_driver_response_minutes as number) ?? defaultSettings.lockedDriverResponseMinutes,
   scheduledUrgentCardLabel: (data.scheduled_urgent_card_label as string) ?? defaultSettings.scheduledUrgentCardLabel,
   enableScheduledToUrgentConversion: (data.enable_scheduled_to_urgent_conversion as boolean) ?? defaultSettings.enableScheduledToUrgentConversion,
+  towardsDestinationEnabled: (data.towards_destination_enabled as boolean) ?? defaultSettings.towardsDestinationEnabled,
+  towardsDestinationDailyLimit: Number(data.towards_destination_daily_limit ?? defaultSettings.towardsDestinationDailyLimit),
+  towardsDestinationDurationMinutes: Number(data.towards_destination_duration_minutes ?? defaultSettings.towardsDestinationDurationMinutes),
+  towardsDestinationMatchingToleranceMeters: Number(data.towards_destination_matching_tolerance_meters ?? defaultSettings.towardsDestinationMatchingToleranceMeters),
+  towardsDestinationPriorityWeight: Number(data.towards_destination_priority_weight ?? defaultSettings.towardsDestinationPriorityWeight),
   enableLogging: (data.enable_logging as boolean) ?? defaultSettings.enableLogging,
   simulateMode: (data.simulate_mode as boolean) ?? defaultSettings.simulateMode,
   blockMultipleActiveRides: (data.block_multiple_active_rides as boolean) ?? defaultSettings.blockMultipleActiveRides,
@@ -223,6 +240,11 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   locked_driver_response_minutes: settings.lockedDriverResponseMinutes,
   scheduled_urgent_card_label: settings.scheduledUrgentCardLabel,
   enable_scheduled_to_urgent_conversion: settings.enableScheduledToUrgentConversion,
+  towards_destination_enabled: settings.towardsDestinationEnabled,
+  towards_destination_daily_limit: settings.towardsDestinationDailyLimit,
+  towards_destination_duration_minutes: settings.towardsDestinationDurationMinutes,
+  towards_destination_matching_tolerance_meters: settings.towardsDestinationMatchingToleranceMeters,
+  towards_destination_priority_weight: settings.towardsDestinationPriorityWeight,
   enable_logging: settings.enableLogging,
   simulate_mode: settings.simulateMode,
   block_multiple_active_rides: settings.blockMultipleActiveRides,
@@ -316,6 +338,11 @@ export default function AutoDispatchRules() {
           search_radius_start_km: settings.searchRadiusStartKm,
           search_radius_expand_km: settings.searchRadiusExpandKm,
           search_radius_max_km: settings.searchRadiusMaxKm,
+          towards_destination_enabled: settings.towardsDestinationEnabled,
+          towards_destination_daily_limit: settings.towardsDestinationDailyLimit,
+          towards_destination_duration_minutes: settings.towardsDestinationDurationMinutes,
+          towards_destination_matching_tolerance_meters: settings.towardsDestinationMatchingToleranceMeters,
+          towards_destination_priority_weight: settings.towardsDestinationPriorityWeight,
           updated_at: new Date().toISOString(),
         })
         .not('id', 'is', null);
@@ -927,6 +954,73 @@ export default function AutoDispatchRules() {
                 </div>
               </TabsContent>
             </Tabs>
+          </CardContent>
+        </Card>
+
+        {/* Towards Destination */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Towards Destination</CardTitle>
+            <CardDescription>
+              Driver destination preference — soft dispatch priority only. Does not change fares,
+              commissions, or hard-exclude unrelated trips.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Enabled</p>
+                <p className="text-sm text-muted-foreground">Allow drivers to activate a towards-destination preference</p>
+              </div>
+              <Switch
+                checked={settings.towardsDestinationEnabled}
+                onCheckedChange={(v) => updateSetting('towardsDestinationEnabled', v)}
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Daily activation limit</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={50}
+                  value={settings.towardsDestinationDailyLimit}
+                  onChange={(e) => updateSetting('towardsDestinationDailyLimit', Number(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">Consumed on each activation/replacement (not restored on clear)</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Active duration (minutes)</Label>
+                <Input
+                  type="number"
+                  min={5}
+                  max={1440}
+                  value={settings.towardsDestinationDurationMinutes}
+                  onChange={(e) => updateSetting('towardsDestinationDurationMinutes', Number(e.target.value))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Dropoff match tolerance (metres)</Label>
+                <Input
+                  type="number"
+                  min={100}
+                  max={50000}
+                  value={settings.towardsDestinationMatchingToleranceMeters}
+                  onChange={(e) => updateSetting('towardsDestinationMatchingToleranceMeters', Number(e.target.value))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Priority weight (score bonus)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={settings.towardsDestinationPriorityWeight}
+                  onChange={(e) => updateSetting('towardsDestinationPriorityWeight', Number(e.target.value))}
+                />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
