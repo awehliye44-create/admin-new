@@ -225,3 +225,6 @@ verify_jwt = false
 
 [functions.admin-official-boundaries]
 verify_jwt = false
+
+[functions.alert-sound-wav-migration]
+verify_jwt = false

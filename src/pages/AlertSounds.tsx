@@ -207,10 +207,9 @@ export default function AlertSounds() {
     const file = e.target.files?.[0];
     if (!file) return;
     const ext = (file.name.split('.').pop() || '').toLowerCase();
-    const allowedTypes = ['audio/mpeg', 'audio/wav', 'audio/wave', 'audio/x-wav'];
-    const allowedExts = ['mp3', 'wav'];
-    if (!allowedTypes.includes(file.type) && !allowedExts.includes(ext)) {
-      alert('Only MP3 or WAV files are accepted.');
+    const allowedTypes = ['audio/wav', 'audio/wave', 'audio/x-wav'];
+    if (!allowedTypes.includes(file.type) && ext !== 'wav') {
+      alert('Only WAV files are accepted.');
       e.target.value = '';
       return;
     }
@@ -360,7 +359,7 @@ export default function AlertSounds() {
                 </TableHeader>
                 <TableBody>
                   {sounds.length === 0 ? (
-                    <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No sounds uploaded yet. Upload your first MP3 or WAV.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No sounds uploaded yet. Upload your first WAV.</TableCell></TableRow>
                   ) : sounds.map(s => (
                     <TableRow key={s.id}>
                       <TableCell><AudioPlayer url={getPublicUrl(s.storage_path)} /></TableCell>
@@ -478,8 +477,8 @@ export default function AlertSounds() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Audio File (MP3 or WAV)</Label>
-                <Input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,.mp3,.wav" onChange={handleFileChange} />
+                <Label>Audio File (WAV)</Label>
+                <Input type="file" accept="audio/wav,audio/x-wav,.wav" onChange={handleFileChange} />
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => { setInlineUpload(false); setUploadForm({ name: '', targetApp: 'global', file: null }); }}>
@@ -513,7 +512,7 @@ export default function AlertSounds() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Upload Alert Sound</DialogTitle>
-            <DialogDescription>Upload an MP3 or WAV file to the alert sound library.</DialogDescription>
+            <DialogDescription>Upload a WAV file to the alert sound library.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -536,8 +535,8 @@ export default function AlertSounds() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Audio File (MP3 or WAV)</Label>
-              <Input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,.mp3,.wav" onChange={handleFileChange} />
+              <Label>Audio File (WAV)</Label>
+              <Input type="file" accept="audio/wav,audio/x-wav,.wav" onChange={handleFileChange} />
             </div>
           </div>
           <DialogFooter>
