@@ -514,15 +514,22 @@ export default function ActiveTrips() {
     try {
       const tripId = selectedTrip.id;
       const reason = cancelReason || 'cancelled_by_admin';
-      const { data: cancelResult, error } = await supabase.rpc('apply_terminal_trip_cancellation', {
-        p_trip_id: tripId,
-        p_cancelled_by: 'admin',
-        p_reason: reason,
+      // Route through cancel-trip so cancellationOutcome / matrix SSOT applies.
+      // apply_terminal_trip_cancellation remains the Edge mutator behind that path.
+      const { data: cancelData, error } = await supabase.functions.invoke('cancel-trip', {
+        body: {
+          trip_id: tripId,
+          cancelled_by: 'admin',
+          reason,
+        },
       });
 
       if (error) throw error;
-      if (cancelResult && typeof cancelResult === 'object' && (cancelResult as { success?: boolean }).success === false) {
-        throw new Error((cancelResult as { error?: string }).error || 'Failed to cancel trip');
+      if (cancelData && typeof cancelData === 'object') {
+        const payload = cancelData as { success?: boolean; error?: string; message?: string };
+        if (payload.success === false) {
+          throw new Error(payload.error || payload.message || 'Failed to cancel trip');
+        }
       }
 
       // P0 (MK-260704-001): force customer + driver trip_updated so both apps leave

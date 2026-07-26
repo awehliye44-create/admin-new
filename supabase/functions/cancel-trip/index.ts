@@ -10,6 +10,8 @@ import {
   logAuditEvent,
 } from "../_shared/security.ts";
 import { requireUser } from "../_shared/internalAuth.ts";
+import { resolveCancellationOutcome } from "../_shared/cancellationOutcome.ts";
+import { logTripStateViolationFromEdge } from "../_shared/logTripStateViolation.ts";
 
 
 /**
@@ -74,7 +76,7 @@ serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, confirmed_driver_id, passenger_id, customer_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at"
+        "id, status, driver_id, confirmed_driver_id, passenger_id, customer_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, started_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at"
       )
       .eq("id", trip_id)
       .single();
@@ -120,31 +122,94 @@ serve(async (req) => {
       return errorResponse("Forbidden: caller not authorised to cancel this trip", 403);
     }
 
+    const cancellationOutcome = resolveCancellationOutcome({
+      actor: cancelled_by as "driver" | "admin" | "rider",
+      status: String(trip.status ?? ""),
+      startedAt: trip.started_at ?? null,
+      arrivedAt: trip.arrived_at ?? null,
+      dispatchStatus: null,
+      isNoShow: Boolean(is_no_show),
+      driverId: trip.driver_id ?? null,
+      confirmedDriverId: trip.confirmed_driver_id ?? null,
+    });
+
+    if (!cancellationOutcome.allowed && !cancellationOutcome.idempotent) {
+      await logTripStateViolationFromEdge(supabase, {
+        tripId: trip_id,
+        oldStatus: String(trip.status ?? ""),
+        newStatus: String(trip.status ?? ""),
+        driverId: trip.driver_id != null ? String(trip.driver_id) : null,
+        confirmedDriverId:
+          trip.confirmed_driver_id != null ? String(trip.confirmed_driver_id) : null,
+        violationType: cancellationOutcome.error_code ?? "INVALID_TRIP_STATE",
+        requestPath: "cancel-trip",
+      });
+      return errorResponse(
+        cancellationOutcome.reason ?? "Cancellation not allowed in current trip state",
+        409,
+        { lifecycle_action: cancellationOutcome.lifecycle_action },
+        cancellationOutcome.error_code ?? "INVALID_TRIP_STATE",
+      );
+    }
+
+    // Pre-start driver cancel → rematch via stop-workflow (not terminal cancel-trip).
+    if (
+      cancelled_by === "driver" &&
+      !is_no_show &&
+      cancellationOutcome.rematch_eligible
+    ) {
+      return errorResponse(
+        "Pre-pickup driver cancel must use stop-workflow action driver_cancel (rematch, not terminal cancel)",
+        400,
+        { lifecycle_action: cancellationOutcome.lifecycle_action },
+        "USE_STOP_WORKFLOW_DRIVER_CANCEL",
+      );
+    }
+
     const terminalStatuses = ["completed", "cancelled", "no_show"];
     if (terminalStatuses.includes(trip.status)) {
+      if (cancellationOutcome.idempotent && cancellationOutcome.allowed) {
+        return successResponse({
+          trip_id,
+          status: trip.status,
+          fee_type: "none",
+          fee_pence: 0,
+          financial_outcome: trip.status === "no_show" ? "NO_SHOW" : "CANCELLED_NO_FEE",
+          cancelled_by,
+          reason: reason || trip.status,
+          rider_message: "Trip already cancelled",
+          driver_message: "Trip already in terminal state",
+          idempotent: true,
+        });
+      }
       return errorResponse(`Trip already in terminal status: ${trip.status}`, 400);
     }
 
     // Fetch fare pricing settings — Admin Panel is the single source of truth.
-    // No fallback defaults: if config is missing, reject the request.
-    if (!trip.service_area_id) {
+    // Admin terminal cancel may proceed with zero fees when config is missing
+    // (parity with apply_terminal_trip_cancellation). Rider/driver/no-show require config.
+    if (!trip.service_area_id && cancelled_by !== "admin") {
       return errorResponse("Trip has no service_area_id — cannot resolve lifecycle rules", 400);
     }
 
-    const fpsQuery = supabase
-      .from("fare_pricing_settings")
-      .select(
-        "cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence"
-      )
-      .eq("service_area_id", trip.service_area_id);
+    const fpsQuery = trip.service_area_id
+      ? supabase
+          .from("fare_pricing_settings")
+          .select(
+            "cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence"
+          )
+          .eq("service_area_id", trip.service_area_id)
+      : null;
 
-    if (trip.vehicle_type_id) {
+    if (fpsQuery && trip.vehicle_type_id) {
       fpsQuery.eq("vehicle_type_id", trip.vehicle_type_id);
     }
 
-    const { data: fps, error: fpsErr } = await fpsQuery.maybeSingle();
+    const { data: fps, error: fpsErr } = fpsQuery
+      ? await fpsQuery.maybeSingle()
+      : { data: null, error: null };
 
-    if (fpsErr || !fps) {
+    if ((fpsErr || !fps) && cancelled_by !== "admin") {
       console.error(
         `[cancel-trip] No fare_pricing_settings found for service_area=${trip.service_area_id}, vehicle_type=${trip.vehicle_type_id}. Admin must configure lifecycle rules first.`
       );
@@ -154,23 +219,24 @@ serve(async (req) => {
       );
     }
 
-    const cancellationFeePence = fps.cancellation_fee_pence;
-    const cancellationGracePeriodMinutes = fps.cancellation_grace_period_minutes;
-    const cancellationApplyAfterArrivalOnly = fps.cancellation_apply_after_arrival_only;
-    const noShowFeePence = fps.no_show_fee_pence;
-    const noShowWaitTimeMinutes = fps.no_show_wait_time_minutes;
-    const noShowApplyAfterArrivalOnly = fps.no_show_apply_after_arrival_only;
-    const waitingPerMinutePence = fps.waiting_per_minute_pence;
-    const lateCancelEnabled = fps.late_cancel_enabled;
-    const lateCancelThresholdMinutes = fps.late_cancel_threshold_minutes;
-    const lateCancelFeePence = fps.late_cancel_fee_pence;
+    const cancellationFeePence = fps?.cancellation_fee_pence ?? 0;
+    const cancellationGracePeriodMinutes = fps?.cancellation_grace_period_minutes ?? 0;
+    const cancellationApplyAfterArrivalOnly = fps?.cancellation_apply_after_arrival_only ?? false;
+    const noShowFeePence = fps?.no_show_fee_pence ?? 0;
+    const noShowWaitTimeMinutes = fps?.no_show_wait_time_minutes ?? 0;
+    const noShowApplyAfterArrivalOnly = fps?.no_show_apply_after_arrival_only ?? true;
+    const waitingPerMinutePence = fps?.waiting_per_minute_pence ?? 0;
+    const lateCancelEnabled = fps?.late_cancel_enabled ?? false;
+    const lateCancelThresholdMinutes = fps?.late_cancel_threshold_minutes ?? 0;
+    const lateCancelFeePence = fps?.late_cancel_fee_pence ?? 0;
 
     const now = new Date();
     let appliedFee = 0;
     let feeType = "none";
     let cancellationReasonFinal = reason || "cancelled";
     let financialOutcome = "CANCELLED_NO_FEE";
-    let tripStatus = "cancelled";
+    let tripStatus = cancellationOutcome.resulting_status ?? "cancelled";
+    let dispatchStatus = cancellationOutcome.resulting_dispatch_status ?? "cancelled";
 
     // ══════════════════════════════════════════
     // NO-SHOW PATH (driver-initiated)
@@ -197,7 +263,8 @@ serve(async (req) => {
       feeType = "no_show";
       cancellationReasonFinal = "no_show";
       financialOutcome = "NO_SHOW";
-      tripStatus = "no_show";
+      tripStatus = cancellationOutcome.resulting_status ?? "no_show";
+      dispatchStatus = cancellationOutcome.resulting_dispatch_status ?? "no_show";
 
       // Calculate any accumulated waiting charge
       const waitingCharge = trip.waiting_charge_pence || 0;
@@ -332,7 +399,7 @@ serve(async (req) => {
       negotiation_locked_until: null,
       current_offer_expires_at: null,
       searching_expires_at: null,
-      dispatch_status: "cancelled",
+      dispatch_status: dispatchStatus,
       updated_at: now.toISOString(),
     };
 

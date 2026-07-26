@@ -15,6 +15,8 @@ import {
 } from "../_shared/commissionWalletDeduction.ts";
 import { tripUsesCommissionWalletDeduction } from "../../../shared/commissionWalletSSOT.ts";
 import { calculateTripSettlement, tripSettlementDbColumns } from "../_shared/tripSettlement.ts";
+import { resolveLifecycleTransition } from "../_shared/tripLifecycleTransitionMatrix.ts";
+import { logTripStateViolationFromEdge } from "../_shared/logTripStateViolation.ts";
 
 const ACTIVE_STATUSES = new Set([
   "pending",
@@ -111,6 +113,45 @@ Deno.serve(async (req) => {
           cw_deduction_repaired: cwDeductionRepaired,
           ...snap,
         });
+      }
+
+      const matrix = resolveLifecycleTransition(
+        "complete_trip",
+        "admin",
+        {
+          status: trip.status,
+          started_at: trip.started_at ?? null,
+          arrived_at: trip.arrived_at ?? null,
+          completed_at: trip.completed_at ?? null,
+          dispatch_status: trip.dispatch_status ?? null,
+          assignment: {
+            driver_id: trip.driver_id ?? null,
+            confirmed_driver_id: trip.confirmed_driver_id ?? null,
+            is_driver_active_trip: true,
+          },
+          payment: { payment_status: trip.payment_status ?? null },
+        },
+      );
+      if (!matrix.allowed && !matrix.idempotent) {
+        await logTripStateViolationFromEdge(gate.supabase, {
+          tripId,
+          oldStatus: String(trip.status ?? ""),
+          newStatus: String(trip.status ?? ""),
+          dispatchStatus:
+            trip.dispatch_status != null ? String(trip.dispatch_status) : null,
+          driverId: trip.driver_id != null ? String(trip.driver_id) : null,
+          confirmedDriverId:
+            trip.confirmed_driver_id != null
+              ? String(trip.confirmed_driver_id)
+              : null,
+          violationType: matrix.error_code ?? "INVALID_TRIP_STATE",
+          requestPath: "admin-trip-action/force_complete",
+        });
+        return json({
+          success: false,
+          error: matrix.reason ?? "Force complete not allowed for current trip state",
+          code: matrix.error_code ?? "INVALID_TRIP_STATE",
+        }, 409);
       }
 
       const fareMajor =
