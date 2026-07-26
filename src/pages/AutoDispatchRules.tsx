@@ -24,7 +24,8 @@ import {
   Percent,
   Timer,
   Loader2,
-  CheckCircle2
+  CheckCircle2,
+  Navigation,
 } from 'lucide-react';
 import { StackedRidesHelpPanel } from '@/components/dispatch/StackedRidesHelpPanel';
 import { toast } from 'sonner';
@@ -88,6 +89,13 @@ interface DispatchSettings {
   simulateMode: boolean;
   blockMultipleActiveRides: boolean;
   cancelProtection: boolean;
+
+  // Towards Destination (driver preference — soft dispatch priority)
+  towardsDestinationEnabled: boolean;
+  towardsDestinationDailyLimit: number;
+  towardsDestinationDurationMinutes: number;
+  towardsDestinationMatchingToleranceMeters: number;
+  towardsDestinationPriorityWeight: number;
 }
 
 const defaultSettings: DispatchSettings = {
@@ -134,6 +142,11 @@ const defaultSettings: DispatchSettings = {
   blockMultipleActiveRides: false,
   cancelProtection: false,
 
+  towardsDestinationEnabled: true,
+  towardsDestinationDailyLimit: 3,
+  towardsDestinationDurationMinutes: 60,
+  towardsDestinationMatchingToleranceMeters: 3000,
+  towardsDestinationPriorityWeight: 12,
 };
 
 // DB stores all distances in METERS. UI keeps km-named state for display conversion.
@@ -180,6 +193,12 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   simulateMode: (data.simulate_mode as boolean) ?? defaultSettings.simulateMode,
   blockMultipleActiveRides: (data.block_multiple_active_rides as boolean) ?? defaultSettings.blockMultipleActiveRides,
   cancelProtection: (data.cancel_protection as boolean) ?? defaultSettings.cancelProtection,
+
+  towardsDestinationEnabled: (data.towards_destination_enabled as boolean) ?? defaultSettings.towardsDestinationEnabled,
+  towardsDestinationDailyLimit: Number(data.towards_destination_daily_limit ?? defaultSettings.towardsDestinationDailyLimit),
+  towardsDestinationDurationMinutes: Number(data.towards_destination_duration_minutes ?? defaultSettings.towardsDestinationDurationMinutes),
+  towardsDestinationMatchingToleranceMeters: Number(data.towards_destination_matching_tolerance_meters ?? defaultSettings.towardsDestinationMatchingToleranceMeters),
+  towardsDestinationPriorityWeight: Number(data.towards_destination_priority_weight ?? defaultSettings.towardsDestinationPriorityWeight),
 });
 
 const mapSettingsToDb = (settings: DispatchSettings) => ({
@@ -227,6 +246,12 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   simulate_mode: settings.simulateMode,
   block_multiple_active_rides: settings.blockMultipleActiveRides,
   cancel_protection: settings.cancelProtection,
+
+  towards_destination_enabled: settings.towardsDestinationEnabled,
+  towards_destination_daily_limit: settings.towardsDestinationDailyLimit,
+  towards_destination_duration_minutes: settings.towardsDestinationDurationMinutes,
+  towards_destination_matching_tolerance_meters: settings.towardsDestinationMatchingToleranceMeters,
+  towards_destination_priority_weight: settings.towardsDestinationPriorityWeight,
 });
 
 export default function AutoDispatchRules() {
@@ -316,6 +341,11 @@ export default function AutoDispatchRules() {
           search_radius_start_km: settings.searchRadiusStartKm,
           search_radius_expand_km: settings.searchRadiusExpandKm,
           search_radius_max_km: settings.searchRadiusMaxKm,
+          towards_destination_enabled: settings.towardsDestinationEnabled,
+          towards_destination_daily_limit: settings.towardsDestinationDailyLimit,
+          towards_destination_duration_minutes: settings.towardsDestinationDurationMinutes,
+          towards_destination_matching_tolerance_meters: settings.towardsDestinationMatchingToleranceMeters,
+          towards_destination_priority_weight: settings.towardsDestinationPriorityWeight,
           updated_at: new Date().toISOString(),
         })
         .not('id', 'is', null);
@@ -643,6 +673,112 @@ export default function AutoDispatchRules() {
           </CardContent>
         </Card>
 
+
+        {/* Towards Destination — soft matching priority */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Navigation className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <CardTitle>Towards Destination</CardTitle>
+                <CardDescription>
+                  Driver destination preference — soft dispatch priority only (never hard-excludes nearby eligible drivers)
+                </CardDescription>
+              </div>
+              <Badge variant="outline" className="ml-auto">Policy</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div>
+                <p className="font-medium">Enable Towards Destination</p>
+                <p className="text-sm text-muted-foreground">
+                  When off, Drivers cannot activate a preference and matching bonuses stay at zero
+                </p>
+              </div>
+              <Switch
+                checked={settings.towardsDestinationEnabled}
+                onCheckedChange={(checked) => updateSetting('towardsDestinationEnabled', checked)}
+                disabled={isLoading}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label>Daily activation limit</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="50"
+                  value={settings.towardsDestinationDailyLimit}
+                  onChange={(e) =>
+                    updateSetting(
+                      'towardsDestinationDailyLimit',
+                      Math.max(0, Math.min(50, parseInt(e.target.value) || 0)),
+                    )
+                  }
+                  disabled={isLoading || !settings.towardsDestinationEnabled}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Uses consumed on activation/replacement (service-area business date). Clear does not restore.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Active duration (minutes)</Label>
+                <Input
+                  type="number"
+                  min="5"
+                  max="240"
+                  value={settings.towardsDestinationDurationMinutes}
+                  onChange={(e) =>
+                    updateSetting(
+                      'towardsDestinationDurationMinutes',
+                      Math.max(5, Math.min(240, parseInt(e.target.value) || 60)),
+                    )
+                  }
+                  disabled={isLoading || !settings.towardsDestinationEnabled}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Matching tolerance (meters)</Label>
+                <Input
+                  type="number"
+                  min="500"
+                  max="15000"
+                  step="100"
+                  value={settings.towardsDestinationMatchingToleranceMeters}
+                  onChange={(e) =>
+                    updateSetting(
+                      'towardsDestinationMatchingToleranceMeters',
+                      Math.max(500, Math.min(15000, parseInt(e.target.value) || 3000)),
+                    )
+                  }
+                  disabled={isLoading || !settings.towardsDestinationEnabled}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Trip dropoff within this distance of the Driver destination receives a priority bonus
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Priority weight (score bonus)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={settings.towardsDestinationPriorityWeight}
+                  onChange={(e) =>
+                    updateSetting(
+                      'towardsDestinationPriorityWeight',
+                      Math.max(0, Math.min(100, parseInt(e.target.value) || 0)),
+                    )
+                  }
+                  disabled={isLoading || !settings.towardsDestinationEnabled}
+                />
+                <p className="text-xs text-muted-foreground">Bounded soft bonus added to dispatch score when compatible</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Stacked Rides Configuration */}
         <Card>

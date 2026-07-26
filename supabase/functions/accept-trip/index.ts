@@ -18,6 +18,8 @@ import {
 import { checkOfferSchedule } from "../_shared/offerSchedule.ts";
 import { authenticateDriver } from "../_shared/driverAuth.ts";
 import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
+import { resolveLifecycleTransition } from "../_shared/tripLifecycleTransitionMatrix.ts";
+import { logTripStateViolationFromEdge } from "../_shared/logTripStateViolation.ts";
 
 // Rate limit: 30 requests per minute per IP for trip acceptance
 const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60 * 1000 };
@@ -170,6 +172,77 @@ serve(async (req) => {
       return errorResponse('Offer not found', 404, { message: 'This ride offer is no longer available' });
     }
 
+    // Matrix gate (defense-in-depth) — accept_ride_offer remains the mutator.
+    const { data: tripRow } = await supabase
+      .from('trips')
+      .select('id, status, dispatch_status, started_at, confirmed_driver_id, driver_id, stack_position')
+      .eq('id', trip_id)
+      .maybeSingle();
+    if (tripRow) {
+      const status = String(tripRow.status ?? '').toLowerCase();
+      // Stacked when this driver already has a different active trip.
+      const { data: driverRow } = await supabase
+        .from('drivers')
+        .select('current_trip_id')
+        .eq('id', driver_id)
+        .maybeSingle();
+      const activeTripId =
+        typeof driverRow?.current_trip_id === 'string' ? driverRow.current_trip_id : null;
+      const isStackedAccept =
+        Boolean(activeTripId && activeTripId !== trip_id) ||
+        status === 'queued' ||
+        tripRow.stack_position != null;
+      const acceptAction = isStackedAccept
+        ? 'accept_stacked'
+        : status.includes('schedul')
+          ? 'accept_scheduled'
+          : 'accept_offer';
+      const matrix = resolveLifecycleTransition(
+        acceptAction,
+        'driver',
+        {
+          status: tripRow.status,
+          dispatch_status: tripRow.dispatch_status,
+          started_at: tripRow.started_at,
+          acting_driver_id: driver_id,
+          assignment: {
+            confirmed_driver_id: tripRow.confirmed_driver_id,
+            driver_id: tripRow.driver_id,
+          },
+          queue: isStackedAccept ? { is_queued: status === 'queued' } : undefined,
+        },
+      );
+      if (!matrix.allowed && !matrix.idempotent) {
+        console.log('[accept-trip] MATRIX_TRANSITION_BLOCKED', {
+          trip_id,
+          driver_id,
+          action: acceptAction,
+          error_code: matrix.error_code,
+          reason: matrix.reason,
+        });
+        await logTripStateViolationFromEdge(supabase, {
+          tripId: trip_id,
+          oldStatus: String(tripRow.status ?? ''),
+          newStatus: String(tripRow.status ?? ''),
+          dispatchStatus: tripRow.dispatch_status != null
+            ? String(tripRow.dispatch_status)
+            : null,
+          driverId: driver_id,
+          confirmedDriverId: tripRow.confirmed_driver_id != null
+            ? String(tripRow.confirmed_driver_id)
+            : null,
+          violationType: matrix.error_code ?? 'INVALID_TRIP_STATE',
+          requestPath: 'accept-trip',
+        });
+        return errorResponse(
+          matrix.reason ?? 'Trip cannot be accepted in its current state',
+          409,
+          { error_code: matrix.error_code },
+          matrix.error_code ?? 'INVALID_TRIP_STATE',
+        );
+      }
+    }
+
     // Delegate to the production RPC — handles stacked-rides, atomic claim,
     // withdraw-other-offers, fare snapshot, and trip lifecycle.
     const { data: rpcResult, error: rpcErr } = await supabase.rpc('accept_ride_offer', {
@@ -229,6 +302,23 @@ serve(async (req) => {
       .select(`
         id,
         trip_code,
+        trip_number,
+        status,
+        dispatch_status,
+        trip_version,
+        pricing_version,
+        fare_revision_number,
+        driver_id,
+        confirmed_driver_id,
+        stack_position,
+        arrived_at,
+        pickup_arrived_at,
+        started_at,
+        completed_at,
+        current_stop_index,
+        pickup_waiting_started_at,
+        pickup_paid_waiting_started_at,
+        free_wait_expires_at,
         pickup_address,
         pickup_latitude,
         pickup_longitude,
@@ -241,8 +331,13 @@ serve(async (req) => {
         estimated_distance_km,
         estimated_duration_minutes,
         payment_method,
+        payment_status,
         special_instructions,
-        currency
+        currency,
+        driver_net_pence,
+        driver_net_before_tip_pence,
+        accepted_driver_offer_fare_pence,
+        final_fare_pence
       `)
       .eq('id', trip_id)
       .single();
@@ -253,6 +348,7 @@ serve(async (req) => {
       trip: tripDetails,
       final_fare_pence: r.final_fare_pence,
       fare_source: r.fare_source,
+      server_now: new Date().toISOString(),
     });
 
   } catch (error) {

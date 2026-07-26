@@ -47,32 +47,51 @@ export function buildDemandZoneCircleRing(
   return coords;
 }
 
+/** Skip null-island / invalid radius so Admin map never paints the ocean. */
+export function isValidAdminDemandZoneGeometry(zone: AdminDemandZone): boolean {
+  if (!Number.isFinite(zone.center_lat) || !Number.isFinite(zone.center_lng)) {
+    return false;
+  }
+  if (Math.abs(zone.center_lat) > 90 || Math.abs(zone.center_lng) > 180) {
+    return false;
+  }
+  if (zone.center_lat === 0 && zone.center_lng === 0) {
+    return false;
+  }
+  if (!Number.isFinite(zone.radius_meters) || zone.radius_meters <= 0) {
+    return false;
+  }
+  return true;
+}
+
 export function buildAdminDemandZonesGeoJson(
   zones: AdminDemandZone[],
 ): GeoJSON.FeatureCollection {
-  const features: GeoJSON.Feature[] = zones.map((zone) => {
-    const level = normalizeLevel(zone.demand_level);
-    const colors = DEMAND_ZONE_COLORS[level];
-    const ring = buildDemandZoneCircleRing(zone.center_lat, zone.center_lng, zone.radius_meters);
+  const features: GeoJSON.Feature[] = zones
+    .filter((zone) => zone.active && isValidAdminDemandZoneGeometry(zone))
+    .map((zone) => {
+      const level = normalizeLevel(zone.demand_level);
+      const colors = DEMAND_ZONE_COLORS[level];
+      const ring = buildDemandZoneCircleRing(zone.center_lat, zone.center_lng, zone.radius_meters);
 
-    return {
-      type: 'Feature',
-      id: zone.id,
-      properties: {
+      return {
+        type: 'Feature',
         id: zone.id,
-        name: zone.name,
-        demand_level: level,
-        fillColor: colors.fill,
-        strokeColor: colors.stroke,
-        fillOpacity: colors.fillOpacity,
-        strokeOpacity: colors.strokeOpacity,
-      },
-      geometry: {
-        type: 'Polygon',
-        coordinates: [ring],
-      },
-    };
-  });
+        properties: {
+          id: zone.id,
+          name: zone.name,
+          demand_level: level,
+          fillColor: colors.fill,
+          strokeColor: colors.stroke,
+          fillOpacity: colors.fillOpacity,
+          strokeOpacity: colors.strokeOpacity,
+        },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [ring],
+        },
+      };
+    });
 
   return { type: 'FeatureCollection', features };
 }

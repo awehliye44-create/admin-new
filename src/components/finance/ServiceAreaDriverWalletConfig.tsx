@@ -29,7 +29,7 @@ export function ServiceAreaDriverWalletConfig({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Wallet className="h-5 w-5 text-primary" />
-          Driver wallet — Early Cash Out
+          Driver wallet — Withdrawals
         </CardTitle>
         <CardDescription>
           Payment / wallet settings for drivers in {serviceAreaName || 'this service area'}.
@@ -53,11 +53,11 @@ export function ServiceAreaDriverWalletConfig({
             </div>
             <div className="space-y-1">
               <Label htmlFor="early-cashout-toggle" className="font-medium">
-                Enable Early Cash Out
+                Enable withdrawals
               </Label>
               <p className="text-xs text-muted-foreground max-w-xl">
-                Controls whether drivers in this service area can use Instant Cash Out.
-                Weekly payouts are not affected.
+                Controls whether drivers in this service area can request withdrawals
+                (internal Early Cash Out workflow). Weekly payouts are not affected.
               </p>
             </div>
           </div>

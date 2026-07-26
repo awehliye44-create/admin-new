@@ -1,5 +1,5 @@
 /**
- * Payout Ledger settings — schedule, eligibility, instant cash-out, per-driver override.
+ * Payout Ledger settings — schedule, eligibility, withdrawals (Early Cash Out), per-driver override.
  * Persists to admin_settings + service_areas + drivers.payouts_enabled. No earnings math.
  */
 import { useEffect, useState } from 'react';
@@ -474,7 +474,7 @@ export function PayoutLedgerSettingsPanel({
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success('Instant cash-out updated for service area');
+      toast.success('Withdrawal settings updated for service area');
       void queryClient.invalidateQueries({ queryKey: ['payout-ledger-sa-cashout'] });
     },
     onError: (err: Error) => toast.error(err.message),
@@ -638,7 +638,7 @@ export function PayoutLedgerSettingsPanel({
           )}
           <p className="text-xs text-muted-foreground">
             Per-driver override writes drivers.payouts_enabled only. Platform pause/resume remains above.
-            Service-area instant cash-out is a separate override below.
+            Service-area withdrawals (Early Cash Out) are a separate override below.
           </p>
         </CardContent>
       </Card>
@@ -746,7 +746,7 @@ export function PayoutLedgerSettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Instant cash-out</CardTitle>
+          <CardTitle className="text-base">Withdrawals</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="flex items-center justify-between gap-3 rounded-md border p-3 sm:col-span-2 lg:col-span-3">
@@ -754,6 +754,7 @@ export function PayoutLedgerSettingsPanel({
               <Label>Enable for selected service area</Label>
               <p className="text-xs text-muted-foreground">
                 {areaRow?.name ?? 'Select a service area'} · {tz}
+                {' · '}Driver-facing label: Withdraw
               </p>
             </div>
             <Switch

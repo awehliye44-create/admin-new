@@ -90,9 +90,9 @@ export function getEntryTypeDisplay(entryType: string): { label: string; color: 
     case 'MANUAL_PAYOUT':
       return { label: 'Payout', color: 'text-blue-500' };
     case 'EARLY_CASHOUT':
-      return { label: 'Early Cashout', color: 'text-blue-500' };
+      return { label: 'Withdrawal', color: 'text-blue-500' };
     case 'CASHOUT_FEE':
-      return { label: 'Cashout Fee', color: 'text-orange-500' };
+      return { label: 'Withdrawal fee', color: 'text-orange-500' };
     case 'ADJUSTMENT':
       return { label: 'Manual Adjustment', color: 'text-purple-500' };
     case 'BONUS':
