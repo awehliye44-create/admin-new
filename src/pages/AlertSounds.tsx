@@ -207,10 +207,9 @@ export default function AlertSounds() {
     const file = e.target.files?.[0];
     if (!file) return;
     const ext = (file.name.split('.').pop() || '').toLowerCase();
-    const allowedTypes = ['audio/mpeg', 'audio/wav', 'audio/wave', 'audio/x-wav'];
-    const allowedExts = ['mp3', 'wav'];
-    if (!allowedTypes.includes(file.type) && !allowedExts.includes(ext)) {
-      alert('Only MP3 or WAV files are accepted.');
+    const allowedTypes = ['audio/wav', 'audio/wave', 'audio/x-wav'];
+    if (!allowedTypes.includes(file.type) && ext !== 'wav') {
+      alert('Only WAV files are accepted.');
       e.target.value = '';
       return;
     }
