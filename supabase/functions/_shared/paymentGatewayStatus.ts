@@ -4,20 +4,12 @@
  */
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import {
-  type AdapterReadinessStatus,
-  loadPaymentProviderCredentialReadiness,
-  resolveProviderBookingWorkflow,
-  type ProviderBookingWorkflow,
-  verifyLiveProviderApiAuthentication,
-} from "./paymentProviderReadinessSSOT.ts";
-import type { PaymentProviderId, ProviderEnvironment } from "./paymentProviders/types.ts";
 
 /** Defined here to avoid circular imports with paymentGatewayGuard / customerPaymentWorkflow. */
 export type GatewayRole = "customer" | "driver";
 
 /** Live adapters only — credentials alone do not make a provider production-ready. */
-const LIVE_PAYMENT_ADAPTERS = new Set<string>(["revolut"]);
+const LIVE_PAYMENT_ADAPTERS = new Set<string>(["stripe"]);
 
 function isLivePaymentAdapter(provider: string | null | undefined): boolean {
   return Boolean(provider && LIVE_PAYMENT_ADAPTERS.has(provider));
@@ -74,13 +66,6 @@ export type GatewayStatusSnapshot = {
   provider_health: ProviderHealthTier;
   /** Customer booking gate — only "down" blocks bookings. */
   booking_payment_health: BookingPaymentHealth;
-  /** SSOT adapter readiness — same object Settings → Payment Providers uses. */
-  booking_adapter_status: AdapterReadinessStatus;
-  payout_adapter_status: AdapterReadinessStatus;
-  booking_workflow: ProviderBookingWorkflow;
-  credentials_ready: boolean;
-  api_key_status: "added" | "missing";
-  webhook_secret_status: "added" | "missing";
   health: {
     api_keys_configured: boolean;
     webhook_configured: boolean | null;
@@ -164,16 +149,40 @@ async function loadProviderConfig(
   return data as ProviderRow | null;
 }
 
-async function loadProviderCredentials(
+async function hasSecretKeyConfigured(
   supabase: SupabaseClient,
   provider: string,
   environment: string,
-) {
-  return loadPaymentProviderCredentialReadiness(
-    supabase,
-    provider as PaymentProviderId,
-    (environment === "test" ? "test" : "live") as ProviderEnvironment,
-  );
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("payment_provider_secret_metadata")
+    .select("is_configured")
+    .eq("provider", provider)
+    .eq("environment", environment)
+    .eq("secret_name", "secret_key")
+    .maybeSingle();
+
+  if (data?.is_configured === true) return true;
+  if (provider === "stripe" && Deno.env.get("STRIPE_SECRET_KEY")) return true;
+  return false;
+}
+
+async function hasWebhookSecretConfigured(
+  supabase: SupabaseClient,
+  provider: string,
+  environment: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("payment_provider_secret_metadata")
+    .select("is_configured")
+    .eq("provider", provider)
+    .eq("environment", environment)
+    .eq("secret_name", "webhook_secret")
+    .maybeSingle();
+
+  if (data?.is_configured === true) return true;
+  if (provider === "stripe" && Deno.env.get("STRIPE_WEBHOOK_SECRET")) return true;
+  return false;
 }
 
 /** Internal handler bugs (schema, missing columns) are not Stripe outages. */
@@ -312,7 +321,6 @@ function buildSnapshot(
     status: PaymentGatewayStatusCode;
     message: string;
     configurationError: string | null;
-    credentialReadiness?: Awaited<ReturnType<typeof loadPaymentProviderCredentialReadiness>>;
   },
 ): GatewayStatusSnapshot {
   const badge = gatewayStatusBadge(args.status);
@@ -331,22 +339,6 @@ function buildSnapshot(
         ? "degraded"
         : "healthy");
 
-  const credentialReadiness = args.credentialReadiness;
-  const collectionAdapterLive =
-    Boolean(providerId && isLivePaymentAdapter(providerId))
-    && bookingPaymentHealth !== "down"
-    && (credentialReadiness?.booking_adapter_status === "live"
-      || (credentialReadiness?.credentials_ready && args.apiKeysConfigured));
-  const payoutAdapterLive =
-    credentialReadiness?.payout_adapter_status === "live";
-  const readyForProduction = role === "customer"
-    ? collectionAdapterLive
-    : Boolean(
-      providerId
-        && bookingPaymentHealth !== "down"
-        && payoutAdapterLive,
-    );
-
   return {
     status: args.status,
     badge_label: badge.label,
@@ -357,19 +349,13 @@ function buildSnapshot(
     environment,
     configured: args.apiKeysConfigured,
     // Booking depends on payment API readiness, not webhook processing warnings.
-    ready_for_production: readyForProduction,
+    ready_for_production:
+      bookingPaymentHealth !== "down" &&
+      Boolean(providerId && isLivePaymentAdapter(providerId)),
     message: args.message,
     configuration_error: args.configurationError,
     provider_health: providerHealth,
     booking_payment_health: bookingPaymentHealth,
-    booking_adapter_status: credentialReadiness?.booking_adapter_status
-      ?? (collectionAdapterLive ? "live" : "not_configured"),
-    payout_adapter_status: credentialReadiness?.payout_adapter_status ?? "not_configured",
-    booking_workflow: resolveProviderBookingWorkflow(providerId, readyForProduction),
-    credentials_ready: credentialReadiness?.credentials_ready ?? args.apiKeysConfigured,
-    api_key_status: credentialReadiness?.api_key_status
-      ?? (args.apiKeysConfigured ? "added" : "missing"),
-    webhook_secret_status: credentialReadiness?.webhook_secret_status ?? "missing",
     health: {
       api_keys_configured: args.apiKeysConfigured,
       webhook_configured: args.webhookConfigured,
@@ -445,9 +431,7 @@ export async function resolveProviderGatewayStatus(
   }
 
   const environment = config.environment === "test" ? "test" : "live";
-  const credentialReadiness = await loadProviderCredentials(supabase, providerId, environment);
-  const apiKeysConfigured = credentialReadiness.credentials_ready;
-  const webhookStored = credentialReadiness.webhook_secret_status === "added";
+  const apiKeysConfigured = await hasSecretKeyConfigured(supabase, providerId, environment);
 
   let webhookConfigured: boolean | null = null;
   let webhookHealthy: boolean | null = null;
@@ -458,7 +442,7 @@ export async function resolveProviderGatewayStatus(
   let webhookInternalError = false;
 
   if (providerId === "stripe") {
-    webhookConfigured = webhookStored;
+    webhookConfigured = await hasWebhookSecretConfigured(supabase, providerId, environment);
     const webhookHealth = await loadStripeWebhookHealth(supabase);
     lastWebhookAt = webhookHealth.last_webhook_at;
     webhookHealthy = webhookHealth.healthy;
@@ -468,13 +452,8 @@ export async function resolveProviderGatewayStatus(
     webhookInternalError = webhookHealth.internal_processing_error;
   }
 
-  const withCredentials = (extra: Parameters<typeof buildSnapshot>[3]) => ({
-    ...extra,
-    credentialReadiness,
-  });
-
   if (!apiKeysConfigured) {
-    return buildSnapshot(role, providerId, config, withCredentials({
+    return buildSnapshot(role, providerId, config, {
       apiKeysConfigured: false,
       webhookConfigured,
       webhookHealthy,
@@ -488,14 +467,15 @@ export async function resolveProviderGatewayStatus(
       status: "NOT_CONFIGURED",
       message: `Provider ${config.display_name} API keys are not configured`,
       configurationError: "Missing API secret key",
-    }));
+    });
   }
 
   if (!isLivePaymentAdapter(providerId)) {
+    const webhookStored = await hasWebhookSecretConfigured(supabase, providerId, environment);
     const notImplementedMessage = role === "driver"
       ? `${config.display_name} payout setup is not available yet.`
       : `${config.display_name} credentials stored. Live booking adapter not implemented (PROVIDER_NOT_IMPLEMENTED).`;
-    return buildSnapshot(role, providerId, config, withCredentials({
+    return buildSnapshot(role, providerId, config, {
       apiKeysConfigured: true,
       webhookConfigured: webhookStored,
       webhookHealthy: null,
@@ -506,36 +486,11 @@ export async function resolveProviderGatewayStatus(
       status: "TEST_MODE",
       message: notImplementedMessage,
       configurationError: null,
-    }));
-  }
-
-  const liveAuth = await verifyLiveProviderApiAuthentication(
-    supabase,
-    providerId as PaymentProviderId,
-    environment,
-    config,
-  );
-  if (!liveAuth.ok) {
-    const authMessage = liveAuth.message ?? "Live provider API authentication failed";
-    return buildSnapshot(role, providerId, config, withCredentials({
-      apiKeysConfigured: true,
-      webhookConfigured: providerId === "stripe" ? webhookConfigured : webhookStored,
-      webhookHealthy,
-      lastWebhookAt,
-      lastWebhookError,
-      stripeApiHealth: "down",
-      webhookDeliveryHealth,
-      webhookProcessingHealth,
-      bookingPaymentHealth: "down",
-      providerHealth: "down",
-      status: "CONNECTION_FAILED",
-      message: authMessage,
-      configurationError: authMessage,
-    }));
+    });
   }
 
   if (providerId === "stripe" && role === "customer" && webhookConfigured === false) {
-    return buildSnapshot(role, providerId, config, withCredentials({
+    return buildSnapshot(role, providerId, config, {
       apiKeysConfigured: true,
       webhookConfigured: false,
       webhookHealthy,
@@ -551,15 +506,12 @@ export async function resolveProviderGatewayStatus(
       status: "CONNECTED",
       message: `Provider ${config.display_name} is live; webhook secret is not configured (admin warning)`,
       configurationError: "Webhook secret missing",
-    }));
+    });
   }
 
-  // Legacy row-level error flag — live auth probe above is SSOT for Revolut.
-  if (
-    providerId === "stripe"
-    && (config.last_connection_test_status === "error" || config.status === "error")
-  ) {
-    return buildSnapshot(role, providerId, config, withCredentials({
+  // Real Stripe API / connection failure — block bookings.
+  if (config.last_connection_test_status === "error" || config.status === "error") {
+    return buildSnapshot(role, providerId, config, {
       apiKeysConfigured: true,
       webhookConfigured,
       webhookHealthy,
@@ -574,7 +526,7 @@ export async function resolveProviderGatewayStatus(
       message: config.last_error_message
         ?? `Provider ${config.display_name} connection test failed`,
       configurationError: config.last_error_message ?? "Connection test failed",
-    }));
+    });
   }
 
   const stripeApiHealth: BookingPaymentHealth = "healthy";
@@ -585,7 +537,7 @@ export async function resolveProviderGatewayStatus(
     || config.status === "test";
 
   if (testMode) {
-    return buildSnapshot(role, providerId, config, withCredentials({
+    return buildSnapshot(role, providerId, config, {
       apiKeysConfigured: true,
       webhookConfigured,
       webhookHealthy,
@@ -605,7 +557,7 @@ export async function resolveProviderGatewayStatus(
           ? "Webhook processing warning (internal)"
           : "Webhook processing warning")
         : null,
-    }));
+    });
   }
 
   // Webhook processing errors (including internal schema bugs) are admin-only
@@ -614,7 +566,7 @@ export async function resolveProviderGatewayStatus(
     const internalNote = webhookInternalError
       ? "internal webhook processing error"
       : "webhook processing warning";
-    return buildSnapshot(role, providerId, config, withCredentials({
+    return buildSnapshot(role, providerId, config, {
       apiKeysConfigured: true,
       webhookConfigured,
       webhookHealthy: false,
@@ -630,10 +582,10 @@ export async function resolveProviderGatewayStatus(
       configurationError: webhookInternalError
         ? "Webhook processing warning (internal)"
         : "Webhook processing warning",
-    }));
+    });
   }
 
-  return buildSnapshot(role, providerId, config, withCredentials({
+  return buildSnapshot(role, providerId, config, {
     apiKeysConfigured: true,
     webhookConfigured,
     webhookHealthy,
@@ -645,15 +597,9 @@ export async function resolveProviderGatewayStatus(
     bookingPaymentHealth: "healthy",
     providerHealth: "healthy",
     status: "CONNECTED",
-    message: role === "driver" && providerId === "revolut" && credentialReadiness?.payout_adapter_status !== "live"
-      ? `${config.display_name} customer collection connected; manual payout ready — automated payout not configured (add Source Business account ID).`
-      : role === "driver" && credentialReadiness?.payout_adapter_status !== "live"
-      ? `${config.display_name} connected; manual payout ready — automated payout not configured.`
-      : `${config.display_name} is connected and ready`,
-    configurationError: role === "driver" && credentialReadiness?.payout_adapter_status !== "live"
-      ? "Automated payout not configured"
-      : null,
-  }));
+    message: `${config.display_name} is connected and ready`,
+    configurationError: null,
+  });
 }
 
 /** Admin-selected primary provider — sole SSOT for collection + payout. */
@@ -831,12 +777,6 @@ export function gatewayStatusToPaymentGatewayPayload(
     environment: snapshot.environment,
     configured: snapshot.configured,
     ready_for_production: snapshot.ready_for_production,
-    booking_adapter_status: snapshot.booking_adapter_status,
-    payout_adapter_status: snapshot.payout_adapter_status,
-    booking_workflow: snapshot.booking_workflow,
-    credentials_ready: snapshot.credentials_ready,
-    api_key_status: snapshot.api_key_status,
-    webhook_secret_status: snapshot.webhook_secret_status,
     /** Customer booking gate — only "down" blocks bookings. */
     booking_payment_health: snapshot.booking_payment_health,
     /** Admin overall health (may be degraded while booking still allowed). */

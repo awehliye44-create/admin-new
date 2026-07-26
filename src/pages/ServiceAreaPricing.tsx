@@ -5,6 +5,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 import {
   Select,
@@ -64,6 +66,7 @@ interface ServiceArea {
   is_active: boolean;
   tips_enabled: boolean;
   early_cashout_enabled: boolean;
+  customer_location_stale_after_seconds?: number;
   region?: { 
     name: string;
     currency_code: string;
@@ -114,7 +117,7 @@ export default function ServiceAreaPricing() {
       const [areasRes, vtRes] = await Promise.all([
         supabase
           .from('service_areas')
-          .select('id, name, region_id, is_active, tips_enabled, early_cashout_enabled, region:regions(name, currency_code, distance_unit)')
+          .select('id, name, region_id, is_active, tips_enabled, early_cashout_enabled, customer_location_stale_after_seconds, region:regions(name, currency_code, distance_unit)')
           .order('name'),
         supabase
           .from('vehicle_types')
@@ -193,6 +196,20 @@ export default function ServiceAreaPricing() {
     setHasChanges(true);
   };
 
+  const updateCustomerLocationStaleSeconds = (raw: string) => {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    const clamped = Math.min(600, Math.max(15, Math.round(n)));
+    setServiceAreas((prev) =>
+      prev.map((sa) =>
+        sa.id === selectedServiceAreaId
+          ? { ...sa, customer_location_stale_after_seconds: clamped }
+          : sa,
+      ),
+    );
+    setHasChanges(true);
+  };
+
   const handleSave = async () => {
     if (!selectedServiceAreaId) return;
 
@@ -205,6 +222,8 @@ export default function ServiceAreaPricing() {
           .update({
             tips_enabled: selectedServiceArea.tips_enabled,
             early_cashout_enabled: selectedServiceArea.early_cashout_enabled ?? false,
+            customer_location_stale_after_seconds:
+              selectedServiceArea.customer_location_stale_after_seconds ?? 90,
           })
           .eq('id', selectedServiceAreaId);
       }
@@ -412,6 +431,31 @@ export default function ServiceAreaPricing() {
                   checked={selectedServiceArea?.tips_enabled ?? false}
                   onCheckedChange={updateTipsEnabled}
                 />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6 space-y-3">
+              <div>
+                <h3 className="text-lg font-semibold">Customer live-location freshness</h3>
+                <p className="text-sm text-muted-foreground">
+                  How long a customer location update remains visible to the assigned driver.
+                </p>
+              </div>
+              <div className="flex items-end gap-3 max-w-xs">
+                <div className="flex-1 space-y-1.5">
+                  <Label htmlFor="customer-live-stale-seconds">Seconds</Label>
+                  <Input
+                    id="customer-live-stale-seconds"
+                    type="number"
+                    min={15}
+                    max={600}
+                    step={1}
+                    value={selectedServiceArea?.customer_location_stale_after_seconds ?? 90}
+                    onChange={(e) => updateCustomerLocationStaleSeconds(e.target.value)}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground pb-2">15–600</p>
               </div>
             </CardContent>
           </Card>

@@ -57,6 +57,7 @@ export interface TripSummary {
 }
 
 const LP_STATUS_LABELS: Record<string, string> = {
+  OPEN: 'Open',
   NEW: 'New',
   SENT_TO_DRIVER: 'Sent to Driver',
   DRIVER_CONFIRMED_FOUND: 'Driver Confirmed',
@@ -67,10 +68,12 @@ const LP_STATUS_LABELS: Record<string, string> = {
   RETURN_RIDE_REQUESTED: 'Return Ride Requested',
   RETURN_RIDE_BOOKED: 'Return Ride Booked',
   ESCALATED: 'Escalated',
+  CANCELLED: 'Cancelled',
   CLOSED: 'Closed',
 };
 
 const LP_STATUS_COLORS: Record<string, string> = {
+  OPEN: 'bg-green-500',
   NEW: 'bg-blue-500',
   SENT_TO_DRIVER: 'bg-yellow-500',
   DRIVER_CONFIRMED_FOUND: 'bg-green-500',
@@ -81,6 +84,7 @@ const LP_STATUS_COLORS: Record<string, string> = {
   RETURN_RIDE_REQUESTED: 'bg-cyan-500',
   RETURN_RIDE_BOOKED: 'bg-teal-500',
   ESCALATED: 'bg-red-600',
+  CANCELLED: 'bg-red-500',
   CLOSED: 'bg-gray-500',
 };
 

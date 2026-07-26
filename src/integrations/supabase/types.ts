@@ -4554,6 +4554,11 @@ export type Database = {
           stop_waiting_max_minutes: number | null
           stop_waiting_rate_pence_per_minute: number
           suppress_recent_offers_seconds: number
+          towards_destination_daily_limit: number | null
+          towards_destination_duration_minutes: number | null
+          towards_destination_enabled: boolean | null
+          towards_destination_matching_tolerance_meters: number | null
+          towards_destination_priority_weight: number | null
           updated_at: string
           waiting_bonus_per_minute: number
           waiting_time_grace_period_minutes: number
@@ -4638,6 +4643,11 @@ export type Database = {
           stop_waiting_max_minutes?: number | null
           stop_waiting_rate_pence_per_minute?: number
           suppress_recent_offers_seconds?: number
+          towards_destination_daily_limit?: number | null
+          towards_destination_duration_minutes?: number | null
+          towards_destination_enabled?: boolean | null
+          towards_destination_matching_tolerance_meters?: number | null
+          towards_destination_priority_weight?: number | null
           updated_at?: string
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
@@ -4722,6 +4732,11 @@ export type Database = {
           stop_waiting_max_minutes?: number | null
           stop_waiting_rate_pence_per_minute?: number
           suppress_recent_offers_seconds?: number
+          towards_destination_daily_limit?: number | null
+          towards_destination_duration_minutes?: number | null
+          towards_destination_enabled?: boolean | null
+          towards_destination_matching_tolerance_meters?: number | null
+          towards_destination_priority_weight?: number | null
           updated_at?: string
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
@@ -8072,7 +8087,9 @@ export type Database = {
           sound_alerts: boolean
           theme: string
           towards_destination_active: boolean
+          towards_destination_activated_at: string | null
           towards_destination_address: string | null
+          towards_destination_expires_at: string | null
           towards_destination_last_reset: string | null
           towards_destination_lat: number | null
           towards_destination_lng: number | null
@@ -8093,7 +8110,9 @@ export type Database = {
           sound_alerts?: boolean
           theme?: string
           towards_destination_active?: boolean
+          towards_destination_activated_at?: string | null
           towards_destination_address?: string | null
+          towards_destination_expires_at?: string | null
           towards_destination_last_reset?: string | null
           towards_destination_lat?: number | null
           towards_destination_lng?: number | null
@@ -8114,7 +8133,9 @@ export type Database = {
           sound_alerts?: boolean
           theme?: string
           towards_destination_active?: boolean
+          towards_destination_activated_at?: string | null
           towards_destination_address?: string | null
+          towards_destination_expires_at?: string | null
           towards_destination_last_reset?: string | null
           towards_destination_lat?: number | null
           towards_destination_lng?: number | null
@@ -9668,6 +9689,11 @@ export type Database = {
           stacked_same_direction_only: boolean
           stacked_search_radius_meters: number
           start_radius_meters: number
+          towards_destination_daily_limit: number
+          towards_destination_duration_minutes: number
+          towards_destination_enabled: boolean
+          towards_destination_matching_tolerance_meters: number
+          towards_destination_priority_weight: number
           updated_at: string
           urgent_dispatch_trigger_minutes_before_pickup: number
           waiting_bonus_per_minute: number
@@ -9723,6 +9749,11 @@ export type Database = {
           stacked_same_direction_only?: boolean
           stacked_search_radius_meters?: number
           start_radius_meters?: number
+          towards_destination_daily_limit?: number
+          towards_destination_duration_minutes?: number
+          towards_destination_enabled?: boolean
+          towards_destination_matching_tolerance_meters?: number
+          towards_destination_priority_weight?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
           waiting_bonus_per_minute?: number
@@ -9778,6 +9809,11 @@ export type Database = {
           stacked_same_direction_only?: boolean
           stacked_search_radius_meters?: number
           start_radius_meters?: number
+          towards_destination_daily_limit?: number
+          towards_destination_duration_minutes?: number
+          towards_destination_enabled?: boolean
+          towards_destination_matching_tolerance_meters?: number
+          towards_destination_priority_weight?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
           waiting_bonus_per_minute?: number

@@ -1,12 +1,33 @@
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { calculateTripSettlement } from "./tripSettlement.ts";
 
 /**
- * Commission resolution — service_area_driver_tiers is SSOT for tier % per service area.
- * driver_categories remains the driver's tier identity (Bronze → Diamond).
+ * Driver tier resolution. Settlement math owned by tripSettlement SSOT.
+ * Commission % comes from service_area_driver_tiers (service area + driver tier name).
  */
 
+export interface CommissionResult {
+  commissionPct: number;
+  driverStripeAccountId: string | null;
+}
+
+export interface CommissionSplit {
+  grossFarePence: number;
+  commissionPct: number;
+  commissionPence: number;
+  driverNetPence: number;
+  driverTotalEarningsPence: number;
+  commissionableFarePence: number;
+}
+
+export type CommissionSplitOptions = {
+  airport_charge_pence?: number;
+  other_pass_through_charges_pence?: number;
+  tips_pence?: number;
+};
+
 async function resolveTierName(
-  supabase: SupabaseClient,
+  supabase: any,
   driverId: string,
 ): Promise<string> {
   const { data: driver } = await supabase
@@ -20,7 +41,7 @@ async function resolveTierName(
 }
 
 async function loadServiceAreaTierCommission(
-  supabase: SupabaseClient,
+  supabase: any,
   serviceAreaId: string,
   tierName: string,
 ): Promise<number | null> {
@@ -54,14 +75,22 @@ async function loadServiceAreaTierCommission(
   return null;
 }
 
-export async function getDriverCommissionPct(
-  supabase: SupabaseClient,
+export async function getDriverCommission(
+  supabase: any,
   driverId: string,
   serviceAreaId: string | null | undefined,
-): Promise<number> {
+): Promise<CommissionResult> {
+  const { data: driver } = await supabase
+    .from("drivers")
+    .select("stripe_account_id")
+    .eq("id", driverId)
+    .single();
+
+  const driverStripeAccountId = driver?.stripe_account_id || null;
+
   if (!serviceAreaId) {
     throw new Error(
-      `service_area_id required for tier commission resolution (driver ${driverId})`,
+      `[commission] service_area_id required for tier commission resolution (driver ${driverId})`,
     );
   }
 
@@ -74,29 +103,48 @@ export async function getDriverCommissionPct(
     );
   }
 
-  return commissionPct;
+  console.log(
+    `[commission] Resolved: ${commissionPct}% for driver ${driverId} tier ${tierName} in SA ${serviceAreaId}`,
+  );
+  return { commissionPct, driverStripeAccountId };
 }
 
-export interface CommissionResult {
-  commission_pct: number;
-  commission_pence: number;
-  driver_net_pence: number;
+/** Settlement split via calculateTripSettlement SSOT. */
+export function calculateCommissionSplit(
+  finalFarePence: number,
+  commissionPct: number,
+  options?: CommissionSplitOptions,
+): CommissionSplit {
+  const settlement = calculateTripSettlement({
+    final_fare_pence: finalFarePence,
+    airport_charge_pence: options?.airport_charge_pence ?? 0,
+    other_pass_through_charges_pence: options?.other_pass_through_charges_pence ?? 0,
+    tips_pence: options?.tips_pence ?? 0,
+    driver_tier_commission_percent: commissionPct,
+  });
+
+  return {
+    grossFarePence: finalFarePence,
+    commissionPct: settlement.tier_percent_used,
+    commissionPence: settlement.commission_pence,
+    driverNetPence: settlement.driver_net_pence,
+    driverTotalEarningsPence: settlement.driver_total_earnings_pence,
+    commissionableFarePence: settlement.commissionable_fare_pence,
+  };
 }
 
-/**
- * @deprecated Slice 4 — prefer calculateTripSettlement / calculateCanonicalSettlement.
- * Gross-only helper kept for legacy call sites; does not strip airport.
- * Callers that know airport must use tripSettlement SSOT instead.
- */
-export async function calculateCommission(
-  supabase: SupabaseClient,
+export async function getDriverCommissionSplit(
+  supabase: ReturnType<typeof createClient>,
   driverId: string,
-  grossFarePence: number,
   serviceAreaId: string | null | undefined,
-): Promise<CommissionResult> {
-  const commission_pct = await getDriverCommissionPct(supabase, driverId, serviceAreaId);
-  const commission_pence = Math.round(grossFarePence * commission_pct / 100);
-  const driver_net_pence = grossFarePence - commission_pence;
-
-  return { commission_pct, commission_pence, driver_net_pence };
+  finalFarePence: number,
+  options?: CommissionSplitOptions,
+): Promise<CommissionSplit & { driverStripeAccountId: string | null }> {
+  const { commissionPct, driverStripeAccountId } = await getDriverCommission(
+    supabase,
+    driverId,
+    serviceAreaId,
+  );
+  const split = calculateCommissionSplit(finalFarePence, commissionPct, options);
+  return { ...split, driverStripeAccountId };
 }
