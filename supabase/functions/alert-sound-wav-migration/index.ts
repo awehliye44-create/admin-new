@@ -18,7 +18,22 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { path } = await req.json();
+  const body = await req.json();
+  const { path } = body;
+
+  if (body.op === "purge_mp3") {
+    const purge = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const { data: files } = await purge.storage.from("alert-sounds").list("", { limit: 1000 });
+    const mp3s = (files ?? []).filter((f) => f.name.toLowerCase().endsWith(".mp3")).map((f) => f.name);
+    const removed = mp3s.length ? await purge.storage.from("alert-sounds").remove(mp3s) : { error: null };
+    return new Response(JSON.stringify({ removed: mp3s, error: removed.error?.message ?? null }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   if (typeof path !== "string" || !path.endsWith(".wav")) {
     return new Response(JSON.stringify({ error: "INVALID_PATH" }), {
       status: 400,
