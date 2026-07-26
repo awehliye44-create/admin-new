@@ -4554,6 +4554,11 @@ export type Database = {
           stop_waiting_max_minutes: number | null
           stop_waiting_rate_pence_per_minute: number
           suppress_recent_offers_seconds: number
+          towards_destination_daily_limit: number
+          towards_destination_duration_minutes: number
+          towards_destination_enabled: boolean
+          towards_destination_matching_tolerance_meters: number
+          towards_destination_priority_weight: number
           updated_at: string
           waiting_bonus_per_minute: number
           waiting_time_grace_period_minutes: number
@@ -4638,6 +4643,11 @@ export type Database = {
           stop_waiting_max_minutes?: number | null
           stop_waiting_rate_pence_per_minute?: number
           suppress_recent_offers_seconds?: number
+          towards_destination_daily_limit?: number
+          towards_destination_duration_minutes?: number
+          towards_destination_enabled?: boolean
+          towards_destination_matching_tolerance_meters?: number
+          towards_destination_priority_weight?: number
           updated_at?: string
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
@@ -4722,6 +4732,11 @@ export type Database = {
           stop_waiting_max_minutes?: number | null
           stop_waiting_rate_pence_per_minute?: number
           suppress_recent_offers_seconds?: number
+          towards_destination_daily_limit?: number
+          towards_destination_duration_minutes?: number
+          towards_destination_enabled?: boolean
+          towards_destination_matching_tolerance_meters?: number
+          towards_destination_priority_weight?: number
           updated_at?: string
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
@@ -4996,6 +5011,7 @@ export type Database = {
           reviewed_at: string | null
           reviewed_by: string | null
           status: string
+          submission_idempotency_key: string | null
           superseded_by: string | null
           updated_at: string
         }
@@ -5016,6 +5032,7 @@ export type Database = {
           reviewed_at?: string | null
           reviewed_by?: string | null
           status?: string
+          submission_idempotency_key?: string | null
           superseded_by?: string | null
           updated_at?: string
         }
@@ -5036,6 +5053,7 @@ export type Database = {
           reviewed_at?: string | null
           reviewed_by?: string | null
           status?: string
+          submission_idempotency_key?: string | null
           superseded_by?: string | null
           updated_at?: string
         }
@@ -8071,8 +8089,10 @@ export type Database = {
           saved_destinations: Json | null
           sound_alerts: boolean
           theme: string
+          towards_destination_activated_at: string | null
           towards_destination_active: boolean
           towards_destination_address: string | null
+          towards_destination_expires_at: string | null
           towards_destination_last_reset: string | null
           towards_destination_lat: number | null
           towards_destination_lng: number | null
@@ -8092,8 +8112,10 @@ export type Database = {
           saved_destinations?: Json | null
           sound_alerts?: boolean
           theme?: string
+          towards_destination_activated_at?: string | null
           towards_destination_active?: boolean
           towards_destination_address?: string | null
+          towards_destination_expires_at?: string | null
           towards_destination_last_reset?: string | null
           towards_destination_lat?: number | null
           towards_destination_lng?: number | null
@@ -8113,8 +8135,10 @@ export type Database = {
           saved_destinations?: Json | null
           sound_alerts?: boolean
           theme?: string
+          towards_destination_activated_at?: string | null
           towards_destination_active?: boolean
           towards_destination_address?: string | null
+          towards_destination_expires_at?: string | null
           towards_destination_last_reset?: string | null
           towards_destination_lat?: number | null
           towards_destination_lng?: number | null
@@ -9668,6 +9692,11 @@ export type Database = {
           stacked_same_direction_only: boolean
           stacked_search_radius_meters: number
           start_radius_meters: number
+          towards_destination_daily_limit: number
+          towards_destination_duration_minutes: number
+          towards_destination_enabled: boolean
+          towards_destination_matching_tolerance_meters: number
+          towards_destination_priority_weight: number
           updated_at: string
           urgent_dispatch_trigger_minutes_before_pickup: number
           waiting_bonus_per_minute: number
@@ -9723,6 +9752,11 @@ export type Database = {
           stacked_same_direction_only?: boolean
           stacked_search_radius_meters?: number
           start_radius_meters?: number
+          towards_destination_daily_limit?: number
+          towards_destination_duration_minutes?: number
+          towards_destination_enabled?: boolean
+          towards_destination_matching_tolerance_meters?: number
+          towards_destination_priority_weight?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
           waiting_bonus_per_minute?: number
@@ -9778,6 +9812,11 @@ export type Database = {
           stacked_same_direction_only?: boolean
           stacked_search_radius_meters?: number
           start_radius_meters?: number
+          towards_destination_daily_limit?: number
+          towards_destination_duration_minutes?: number
+          towards_destination_enabled?: boolean
+          towards_destination_matching_tolerance_meters?: number
+          towards_destination_priority_weight?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
           waiting_bonus_per_minute?: number
@@ -22537,7 +22576,7 @@ export type Database = {
         Returns: Json
       }
       accept_scheduled_ride: {
-        Args: { p_driver_id: string; p_trip_id: string }
+        Args: { p_driver_id?: string; p_trip_id: string }
         Returns: Json
       }
       accept_stacked_ride: {
@@ -22948,6 +22987,7 @@ export type Database = {
         Args: { _older_than?: string }
         Returns: Json
       }
+      clear_driver_own_towards_destination: { Args: never; Returns: Json }
       clear_phone_change_pending: {
         Args: { _app_type: string; _user_id: string }
         Returns: undefined
@@ -23088,7 +23128,7 @@ export type Database = {
             Returns: Json
           }
       decline_scheduled_ride: {
-        Args: { p_driver_id: string; p_trip_id: string }
+        Args: { p_driver_id?: string; p_trip_id: string }
         Returns: Json
       }
       detect_driver_commitment_monitoring: { Args: never; Returns: undefined }
@@ -23192,6 +23232,10 @@ export type Database = {
         Returns: number
       }
       driver_compliance_today_london: { Args: never; Returns: string }
+      driver_demand_zone_geometry_is_valid: {
+        Args: { p_lat: number; p_lng: number; p_radius_meters: number }
+        Returns: boolean
+      }
       driver_effective_online_reason: {
         Args: {
           p_driver_id: string
@@ -23577,6 +23621,11 @@ export type Database = {
           stop_waiting_max_minutes: number | null
           stop_waiting_rate_pence_per_minute: number
           suppress_recent_offers_seconds: number
+          towards_destination_daily_limit: number
+          towards_destination_duration_minutes: number
+          towards_destination_enabled: boolean
+          towards_destination_matching_tolerance_meters: number
+          towards_destination_priority_weight: number
           updated_at: string
           waiting_bonus_per_minute: number
           waiting_time_grace_period_minutes: number
@@ -23639,6 +23688,11 @@ export type Database = {
       }
       get_driver_own_profile_contact: {
         Args: { p_driver_id?: string }
+        Returns: Json
+      }
+      get_driver_own_towards_destination: { Args: never; Returns: Json }
+      get_driver_own_wallet_summary: {
+        Args: { p_service_area_id?: string }
         Returns: Json
       }
       get_driver_pending_ride_offers: { Args: never; Returns: Json }
@@ -23910,6 +23964,20 @@ export type Database = {
       is_user_suspended: {
         Args: { p_user_id: string; p_user_type: string }
         Returns: boolean
+      }
+      list_driver_own_demand_zones: { Args: never; Returns: Json }
+      list_driver_own_scheduled_jobs: {
+        Args: { p_tab?: string }
+        Returns: Json
+      }
+      list_driver_own_trip_history: {
+        Args: {
+          p_before?: string
+          p_limit?: number
+          p_tab?: string
+          p_trip_id?: string
+        }
+        Returns: Json
       }
       list_driver_signup_countries: { Args: never; Returns: Json }
       list_driver_trip_history: { Args: { p_limit?: number }; Returns: Json }
@@ -24577,6 +24645,10 @@ export type Database = {
           tags: string[]
         }[]
       }
+      set_driver_own_towards_destination: {
+        Args: { p_address: string; p_lat: number; p_lng: number }
+        Returns: Json
+      }
       snapshot_driver_tier_commission_on_trip: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: number
@@ -24609,6 +24681,18 @@ export type Database = {
         Returns: undefined
       }
       stop_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
+      submit_driver_document: {
+        Args: {
+          p_document_type_id: string
+          p_expiry_date?: string
+          p_file_size_bytes?: number
+          p_idempotency_key?: string
+          p_mime_type?: string
+          p_original_filename?: string
+          p_storage_path: string
+        }
+        Returns: Json
+      }
       suspend_corporate_account: {
         Args: { p_account_id: string }
         Returns: undefined
@@ -24648,6 +24732,28 @@ export type Database = {
       tick_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
       timeout_scheduled_offer: {
         Args: { p_driver_id: string; p_trip_id: string }
+        Returns: Json
+      }
+      towards_destination_business_date: {
+        Args: { p_driver_id: string }
+        Returns: string
+      }
+      towards_destination_priority_bonus: {
+        Args: {
+          p_active: boolean
+          p_dest_lat: number
+          p_dest_lng: number
+          p_dropoff_lat: number
+          p_dropoff_lng: number
+          p_enabled: boolean
+          p_expires_at: string
+          p_priority_weight: number
+          p_tolerance_meters: number
+        }
+        Returns: number
+      }
+      towards_destination_resolve_config: {
+        Args: { p_service_area_id?: string }
         Returns: Json
       }
       trip_commission_reserve_fare_minor: {
