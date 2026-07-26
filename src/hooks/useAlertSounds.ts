@@ -79,9 +79,10 @@ export function useAlertSounds() {
   const uploadSound = useMutation({
     mutationFn: async ({ file, name, targetApp }: { file: File; name: string; targetApp: string }) => {
       const ext = (file.name.split('.').pop() || '').toLowerCase();
-      const path = `${crypto.randomUUID()}.${ext}`;
       const isWav = ext === 'wav' || file.type === 'audio/wav' || file.type === 'audio/wave' || file.type === 'audio/x-wav';
-      const mime = isWav ? 'audio/wav' : 'audio/mpeg';
+      if (!isWav) throw new Error('Only WAV files are accepted.');
+      const path = `${crypto.randomUUID()}.wav`;
+      const mime = 'audio/wav';
 
       const { error: uploadError } = await supabase.storage
         .from('alert-sounds')
