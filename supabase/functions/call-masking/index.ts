@@ -32,6 +32,9 @@ import {
   DEFAULT_MAX_CALL_DURATION_SECONDS,
   loadTripCommunicationRuntimeContext,
 } from "../_shared/serviceAreaCommunicationLookup.ts";
+import { findActiveCallForTrip } from "../_shared/tripCallSession.ts";
+import { assertTripCallStartAllowed } from "../_shared/tripCallRateLimit.ts";
+import { TRIP_COMMUNICATION_ERROR } from "../../../shared/tripCommunicationSsot.ts";
 
 const MSG91_API_URL = "https://control.msg91.com/api/v5/voice/call/ctc";
 const MSG91_HANGUP_URLS = [
@@ -138,7 +141,8 @@ function canInitiateCall(trip: TripRow, session: SessionRow | null): boolean {
 
 /**
  * MSG91 v5 CTC: ring caller first, bridge destinationB after answer.
- * max_call_duration requests a 4-minute cap (honoured when supported by MSG91 account).
+ * max_call_duration requests the authoritative 240-second cap (honoured when supported by MSG91).
+ * Backend hang-up + timeout sweep enforce the same limit when the provider does not.
  */
 function buildMsg91Payload(
   cleanCallerId: string,
@@ -251,7 +255,7 @@ function scheduleCallDurationLimit(
       duration_seconds: maxCallDurationSec,
       disconnect_reason: DISCONNECT_REASON.CALL_DURATION_LIMIT_REACHED,
       msg91_uuid: uuid,
-      status: "disconnected",
+      status: "timed_out",
     });
   };
 
@@ -274,6 +278,20 @@ async function ensureInboundCallLog(
   maxCallDurationSec: number,
   msg91Uuid?: string | null,
 ): Promise<string | null> {
+  // Cross-provider uniqueness: do not start masking while VoIP is active on the trip.
+  const { data: activeVoip } = await serviceClient
+    .from("voip_call_logs")
+    .select("id")
+    .eq("trip_id", tripId)
+    .is("ended_at", null)
+    .in("status", ["requested", "ringing", "connecting", "active"])
+    .limit(1)
+    .maybeSingle();
+  if (activeVoip?.id) {
+    console.warn("[call-masking] inbound skipped — voip call already active");
+    return null;
+  }
+
   const { data: existing } = await serviceClient
     .from("call_masking_call_logs")
     .select("id, msg91_uuid, msg91_request_id, status")
@@ -310,7 +328,14 @@ async function ensureInboundCallLog(
       .eq("id", callLog.id);
   }
 
-  scheduleCallDurationLimit(serviceClient, authKey, callLog.id, msg91Uuid ?? null, maxCallDurationSec);
+  // Always enforce the 240s SSOT for scheduling, regardless of caller-supplied value.
+  scheduleCallDurationLimit(
+    serviceClient,
+    authKey,
+    callLog.id,
+    msg91Uuid ?? null,
+    DEFAULT_MAX_CALL_DURATION_SECONDS,
+  );
   return callLog.id;
 }
 
@@ -1056,6 +1081,20 @@ Deno.serve(async (req) => {
         return errorResponse("INVALID_STATE", "Cannot call — trip is no longer active", 400);
       }
 
+      const activeCall = await findActiveCallForTrip(serviceClient, tripId);
+      if (activeCall?.method === "voip") {
+        return errorResponse(
+          TRIP_COMMUNICATION_ERROR.CALL_ALREADY_ACTIVE,
+          "A call is already active for this trip",
+          409,
+        );
+      }
+
+      const rate = await assertTripCallStartAllowed(serviceClient, tripId);
+      if (!rate.ok) {
+        return errorResponse(rate.errorCode, rate.message, 429);
+      }
+
       if (trip.status === "completed") {
         const { data: graceSession } = await serviceClient
           .from("call_masking_sessions")
@@ -1153,6 +1192,15 @@ Deno.serve(async (req) => {
     }
 
     if (action === "initiate-call") {
+      const activeCall = await findActiveCallForTrip(serviceClient, tripId);
+      if (activeCall?.method === "voip") {
+        return errorResponse(
+          TRIP_COMMUNICATION_ERROR.CALL_ALREADY_ACTIVE,
+          "A call is already active for this trip",
+          409,
+        );
+      }
+
       const { data: session } = await serviceClient
         .from("call_masking_sessions")
         .select("id, status, expires_at, msg91_request_id")

@@ -31,12 +31,23 @@ export interface LiveKitVoipTokenResponse {
   call_log_id?: string | null;
 }
 
+/**
+ * Authoritative maximum call duration for VoIP and call masking.
+ * Do not scatter literal 240 elsewhere — import this constant.
+ * Admin DB rows may differ; runtime enforcement always uses this value.
+ */
+export const TRIP_COMMUNICATION_MAX_DURATION_SECONDS = 240;
+
 export const TRIP_COMMUNICATION_SSOT = {
   configFunction: 'trip-communication-config' as const,
   voipTokenFunction: 'livekit-voip-token' as const,
   voipCallEventFunction: 'voip-call-event' as const,
+  voipWebhookFunction: 'livekit-webhook' as const,
+  timeoutSweepFunction: 'trip-communication-timeout-sweep' as const,
   voipProvider: 'livekit' as const,
   callMaskingProvider: 'msg91' as const,
+  maxDurationSeconds: TRIP_COMMUNICATION_MAX_DURATION_SECONDS,
+  maxDurationLabel: '4 minutes' as const,
   disabledMessage: 'Calling is disabled for this service area.',
   unavailableMessage: 'Calling is not available for this trip.',
   notAuthorisedMessage: 'You are not authorised to communicate on this trip.',
@@ -51,6 +62,13 @@ export const TRIP_COMMUNICATION_SSOT = {
     customer: 'RideTracking.contactSheet',
   } as const,
 } as const;
+
+/** Normalise any settings/admin value to the fixed 240s runtime SSOT. */
+export function resolveEffectiveMaxCallDurationSeconds(
+  _settingsValue?: number | null,
+): number {
+  return TRIP_COMMUNICATION_MAX_DURATION_SECONDS;
+}
 
 /** Placeholder catalog caller IDs — not valid for production masking. */
 const PLACEHOLDER_CALLER_IDS = new Set(['+441908000000', '+441234567890']);
@@ -125,8 +143,44 @@ export const TRIP_COMMUNICATION_ERROR = {
   COMMUNICATION_NOT_ALLOWED: 'COMMUNICATION_NOT_ALLOWED',
   VOIP_DISABLED: 'VOIP_DISABLED',
   VOIP_NOT_CONFIGURED: 'VOIP_NOT_CONFIGURED',
+  CALL_ALREADY_ACTIVE: 'CALL_ALREADY_ACTIVE',
+  CALL_NOT_FOUND: 'CALL_NOT_FOUND',
+  CALL_EXPIRED: 'CALL_EXPIRED',
+  CALL_NOT_JOINABLE: 'CALL_NOT_JOINABLE',
+  RATE_LIMITED: 'RATE_LIMITED',
+  PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
+  PROVIDER_TERMINATION_FAILED: 'PROVIDER_TERMINATION_FAILED',
   VALIDATION_FAILED: 'VALIDATION_FAILED',
 } as const;
+
+/** Provider-neutral call session statuses exposed to authorised clients. */
+export type TripCommunicationCallStatus =
+  | 'requested'
+  | 'ringing'
+  | 'connecting'
+  | 'active'
+  | 'completed'
+  | 'declined'
+  | 'missed'
+  | 'cancelled'
+  | 'failed'
+  | 'timed_out';
+
+export const TRIP_COMMUNICATION_ACTIVE_STATUSES: ReadonlySet<TripCommunicationCallStatus> =
+  new Set(['requested', 'ringing', 'connecting', 'active']);
+
+export type TripCommunicationActiveCallProjection = {
+  call_id: string;
+  method: TripCommunicationMethodType;
+  provider: 'livekit' | 'msg91';
+  status: TripCommunicationCallStatus;
+  started_at: string | null;
+  connected_at: string | null;
+  expires_at: string | null;
+  remaining_seconds: number | null;
+  join_allowed: boolean;
+  end_allowed: boolean;
+};
 
 export type TripCommunicationErrorCode =
   (typeof TRIP_COMMUNICATION_ERROR)[keyof typeof TRIP_COMMUNICATION_ERROR];
@@ -254,8 +308,6 @@ export type ResolveTripCommunicationSsotInput = {
   providerReadiness: TripCommunicationProviderReadinessInput;
 };
 
-const DEFAULT_MAX_DURATION_SECONDS = 600;
-
 function resolveMaskingCallerId(
   maskingConfig: ServiceAreaCallMaskingConfigInput | null,
   envCallerId: string | null | undefined,
@@ -277,9 +329,8 @@ function resolveMaskingCallerId(
 export function resolveTripCommunicationSsot(
   input: ResolveTripCommunicationSsotInput,
 ): TripCommunicationSsotResult {
-  const maximumDurationSeconds = Math.max(
-    60,
-    input.settings?.maximum_call_duration_seconds ?? DEFAULT_MAX_DURATION_SECONDS,
+  const maximumDurationSeconds = resolveEffectiveMaxCallDurationSeconds(
+    input.settings?.maximum_call_duration_seconds,
   );
 
   const base: TripCommunicationSsotResult = {
@@ -481,9 +532,24 @@ export function resolveVoipTokenGate(ssot: TripCommunicationSsotResult):
   return { ok: true };
 }
 
+/**
+ * Whether a new call may be started given SSOT + optional active session.
+ * Active/non-expired sessions block a second concurrent call on the same trip.
+ */
+export function resolveCanStartNewCall(input: {
+  allowed: boolean;
+  activeCall: TripCommunicationActiveCallProjection | null;
+  methodAvailable: boolean;
+}): boolean {
+  if (!input.allowed || !input.methodAvailable) return false;
+  if (!input.activeCall) return true;
+  return !TRIP_COMMUNICATION_ACTIVE_STATUSES.has(input.activeCall.status);
+}
+
 /** Privacy-safe API projection (snake_case) for Edge Function responses. */
 export function toTripCommunicationConfigApiPayload(
   result: TripCommunicationSsotResult,
+  activeCall: TripCommunicationActiveCallProjection | null = null,
 ): {
   trip_id: string;
   public_trip_reference: string | null;
@@ -500,15 +566,17 @@ export function toTripCommunicationConfigApiPayload(
       ready: boolean;
       available: boolean;
       unavailable_reason: string | null;
+      can_start: boolean;
     };
     call_masking: {
       enabled: boolean;
       ready: boolean;
       available: boolean;
       unavailable_reason: string | null;
+      can_start: boolean;
     };
   };
-  active_call: null;
+  active_call: TripCommunicationActiveCallProjection | null;
   /** @deprecated Prefer options.*; kept for existing callers. */
   methods: TripCommunicationMethod[];
   calling_available: boolean;
@@ -520,6 +588,17 @@ export function toTripCommunicationConfigApiPayload(
     voip_enabled: result.options.voip.enabled,
     call_masking_enabled: result.options.callMasking.enabled,
     default_method: result.defaultMethod ?? 'voip',
+  });
+
+  const voipCanStart = resolveCanStartNewCall({
+    allowed: result.allowed,
+    activeCall,
+    methodAvailable: result.options.voip.available,
+  });
+  const maskingCanStart = resolveCanStartNewCall({
+    allowed: result.allowed,
+    activeCall,
+    methodAvailable: result.options.callMasking.available,
   });
 
   return {
@@ -538,15 +617,17 @@ export function toTripCommunicationConfigApiPayload(
         ready: result.options.voip.ready,
         available: result.options.voip.available,
         unavailable_reason: result.options.voip.unavailableReason ?? null,
+        can_start: voipCanStart,
       },
       call_masking: {
         enabled: result.options.callMasking.enabled,
         ready: result.options.callMasking.ready,
         available: result.options.callMasking.available,
         unavailable_reason: result.options.callMasking.unavailableReason ?? null,
+        can_start: maskingCanStart,
       },
     },
-    active_call: null,
+    active_call: activeCall,
     methods: orderedLabels,
     calling_available: result.allowed,
     disabled_message: result.allowed

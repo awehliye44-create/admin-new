@@ -1,7 +1,12 @@
-/** Fallback when service-area SSOT is unavailable (aligned with DB default). */
-export const DEFAULT_MAX_CALL_DURATION_SEC = 600;
+/**
+ * Runtime max duration SSOT is always 240 seconds.
+ * Do not trust service-area DB values for enforcement.
+ */
+import { TRIP_COMMUNICATION_MAX_DURATION_SECONDS } from "../../../shared/tripCommunicationSsot.ts";
 
-/** @deprecated Prefer service-area `maximum_call_duration_seconds` from SSOT. */
+export const DEFAULT_MAX_CALL_DURATION_SEC = TRIP_COMMUNICATION_MAX_DURATION_SECONDS;
+
+/** @deprecated Prefer DEFAULT_MAX_CALL_DURATION_SEC / TRIP_COMMUNICATION_MAX_DURATION_SECONDS. */
 export const MAX_CALL_DURATION_SEC = DEFAULT_MAX_CALL_DURATION_SEC;
 
 /** Grace period after trip completion before masking session expires. */

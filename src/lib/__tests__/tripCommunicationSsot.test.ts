@@ -78,6 +78,7 @@ describe('tripCommunicationSsot (recovered + capability projection)', () => {
 
     expect(result.allowed).toBe(true);
     expect(result.communicationEnabled).toBe(true);
+    expect(result.maximumDurationSeconds).toBe(240);
     expect(result.defaultMethod).toBe('voip');
     expect(result.options.voip.available).toBe(true);
     expect(result.options.callMasking.available).toBe(true);
@@ -85,10 +86,12 @@ describe('tripCommunicationSsot (recovered + capability projection)', () => {
 
     const api = toTripCommunicationConfigApiPayload(result);
     expect(api.trip_id).toBe(result.tripId);
+    expect(api.maximum_call_duration_seconds).toBe(240);
     expect(api.options.voip.available).toBe(true);
+    expect(api.options.voip.can_start).toBe(true);
     expect(api.options.call_masking.available).toBe(true);
     expect(api.active_call).toBeNull();
-    expect(JSON.stringify(api)).not.toMatch(/LIVEKIT_API_SECRET|MSG91_AUTH_KEY|\+447700/);
+    expect(JSON.stringify(api)).not.toMatch(/LIVEKIT_API_SECRET|MSG91_AUTH_KEY|\+447700|room_name/);
   });
 
   it('blocks when participant is not authorised even if settings exist', () => {

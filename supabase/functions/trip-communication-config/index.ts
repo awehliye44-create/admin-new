@@ -8,6 +8,10 @@ import {
 } from "../_shared/security.ts";
 import { isCallableTripStatus } from "../_shared/callMaskingConfig.ts";
 import {
+  findActiveCallForTrip,
+  toActiveCallProjection,
+} from "../_shared/tripCallSession.ts";
+import {
   readCommunicationProviderReadinessFromEnv,
   resolveTripCommunicationParticipant,
   resolveTripCommunicationSsot,
@@ -188,7 +192,12 @@ Deno.serve(async (req) => {
       providerReadiness,
     });
 
-    return successResponse(toTripCommunicationConfigApiPayload(ssot));
+    const activeSession = await findActiveCallForTrip(serviceClient, tripId);
+    const activeCall = activeSession
+      ? toActiveCallProjection(activeSession)
+      : null;
+
+    return successResponse(toTripCommunicationConfigApiPayload(ssot, activeCall));
   } catch (error) {
     console.error("[trip-communication-config] unexpected error", error);
     return errorResponse("INTERNAL_ERROR", "Internal server error", 500);

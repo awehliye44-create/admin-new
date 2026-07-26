@@ -47,6 +47,7 @@ import {
   normalizeOutboundCallerIdE164,
   suggestOutboundCallerId,
 } from '@/lib/communicationSsot';
+import { TRIP_COMMUNICATION_MAX_DURATION_SECONDS } from '../../../shared/tripCommunicationSsot';
 
 interface Props {
   serviceAreaId: string;
@@ -62,7 +63,7 @@ function defaultSettings(serviceAreaId: string, currency: string): ServiceAreaCo
     voip_enabled: false,
     call_masking_enabled: false,
     default_method: 'voip',
-    maximum_call_duration_seconds: 600,
+    maximum_call_duration_seconds: TRIP_COMMUNICATION_MAX_DURATION_SECONDS,
     voip_rate_per_minute_minor: 0,
     masked_call_rate_per_minute_minor: 0,
     currency,
@@ -358,6 +359,8 @@ export function ServiceAreaCommunicationConfig({
       const payload = {
         ...settings,
         service_area_id: serviceAreaId,
+        // Product SSOT: fixed 4-minute maximum for both methods.
+        maximum_call_duration_seconds: TRIP_COMMUNICATION_MAX_DURATION_SECONDS,
         outbound_caller_id: normalizedOutbound,
         default_method: resolveDefaultMethod(
           settings.voip_enabled,
@@ -530,22 +533,16 @@ export function ServiceAreaCommunicationConfig({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="max-duration">Maximum call duration (minutes)</Label>
+              <Label htmlFor="max-duration">Maximum call duration</Label>
               <Input
                 id="max-duration"
-                type="number"
-                min={1}
-                step={1}
-                value={maxDurationMinutes}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    maximum_call_duration_seconds: minutesToSeconds(Number(event.target.value) || 1),
-                  }))
-                }
+                type="text"
+                value="4 minutes"
+                readOnly
+                disabled
               />
               <p className="text-xs text-muted-foreground">
-                Stored as {settings.maximum_call_duration_seconds} seconds.
+                Fixed at 4 minutes (240 seconds) for VoIP and Call. Enforced by the backend.
               </p>
             </div>
 

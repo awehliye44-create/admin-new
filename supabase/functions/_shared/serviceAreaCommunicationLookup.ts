@@ -1,10 +1,14 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
+  resolveEffectiveMaxCallDurationSeconds,
+  TRIP_COMMUNICATION_MAX_DURATION_SECONDS,
+} from "../../../shared/tripCommunicationSsot.ts";
+import {
   resolveTripCommunicationConfig,
   type ServiceAreaCommunicationRow,
 } from "./tripCommunicationMethods.ts";
 
-export const DEFAULT_MAX_CALL_DURATION_SECONDS = 600;
+export const DEFAULT_MAX_CALL_DURATION_SECONDS = TRIP_COMMUNICATION_MAX_DURATION_SECONDS;
 
 export type ServiceAreaMaskingConfigRow = {
   outbound_caller_id: string;
@@ -55,9 +59,8 @@ export async function loadTripCommunicationRuntimeContext(
     maskingConfig = maskingRow;
   }
 
-  const maxCallDurationSeconds = Math.max(
-    60,
-    settings?.maximum_call_duration_seconds ?? DEFAULT_MAX_CALL_DURATION_SECONDS,
+  const maxCallDurationSeconds = resolveEffectiveMaxCallDurationSeconds(
+    settings?.maximum_call_duration_seconds,
   );
 
   const resolved = resolveTripCommunicationConfig(trip.status, settings);

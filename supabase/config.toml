@@ -225,3 +225,12 @@ verify_jwt = false
 
 [functions.admin-official-boundaries]
 verify_jwt = false
+
+[functions.livekit-webhook]
+verify_jwt = false
+
+[functions.trip-communication-timeout-sweep]
+verify_jwt = false
+
+[functions.trip-communication-staging-verify]
+verify_jwt = false

@@ -1,5 +1,6 @@
 import {
   buildCommunicationMethods,
+  resolveEffectiveMaxCallDurationSeconds,
   TRIP_COMMUNICATION_SSOT,
   type TripCommunicationConfigResponse,
 } from "../../../shared/tripCommunicationSsot.ts";
@@ -17,10 +18,14 @@ export function resolveTripCommunicationConfig(
   tripStatus: string,
   settings: ServiceAreaCommunicationRow | null,
 ): TripCommunicationConfigResponse {
+  const maximumCallDurationSeconds = resolveEffectiveMaxCallDurationSeconds(
+    settings?.maximum_call_duration_seconds,
+  );
+
   if (!isCallableTripStatus(tripStatus)) {
     return {
       methods: [],
-      maximum_call_duration_seconds: settings?.maximum_call_duration_seconds ?? 600,
+      maximum_call_duration_seconds: maximumCallDurationSeconds,
       calling_available: false,
       disabled_message: TRIP_COMMUNICATION_SSOT.disabledMessage,
     };
@@ -29,7 +34,7 @@ export function resolveTripCommunicationConfig(
   if (!settings) {
     return {
       methods: [],
-      maximum_call_duration_seconds: 600,
+      maximum_call_duration_seconds: maximumCallDurationSeconds,
       calling_available: false,
       disabled_message: TRIP_COMMUNICATION_SSOT.disabledMessage,
     };
@@ -44,7 +49,7 @@ export function resolveTripCommunicationConfig(
 
   return {
     methods,
-    maximum_call_duration_seconds: settings.maximum_call_duration_seconds,
+    maximum_call_duration_seconds: maximumCallDurationSeconds,
     calling_available: methods.length > 0,
     disabled_message: methods.length > 0 ? null : TRIP_COMMUNICATION_SSOT.disabledMessage,
   };

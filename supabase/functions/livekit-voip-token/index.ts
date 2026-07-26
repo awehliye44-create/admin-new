@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { AccessToken } from "npm:livekit-server-sdk@2.9.1";
+import { AccessToken, TrackSource } from "npm:livekit-server-sdk@2.9.1";
 import {
   handleCORSPreflight,
   successResponse,
@@ -9,24 +9,38 @@ import {
 } from "../_shared/security.ts";
 import { isCallableTripStatus } from "../_shared/callMaskingConfig.ts";
 import {
+  createOrReuseVoipSession,
+  markVoipIncomingPushSent,
   scheduleVoipMaxDurationEnforcement,
-  startVoipCallLog,
+  VOIP_END_REASON,
 } from "../_shared/voipCallLogs.ts";
+import { sendIncomingCallPush } from "../_shared/incomingCallPush.ts";
+import {
+  findActiveCallForTrip,
+  voipJoinTokenTtlSeconds,
+  voipParticipantIdentity,
+} from "../_shared/tripCallSession.ts";
+import { isTerminalCallStatus } from "../_shared/tripCallStatus.ts";
 import {
   readCommunicationProviderReadinessFromEnv,
   resolveTripCommunicationParticipant,
   resolveTripCommunicationSsot,
   resolveVoipTokenGate,
   TRIP_COMMUNICATION_ERROR,
+  TRIP_COMMUNICATION_MAX_DURATION_SECONDS,
 } from "../../../shared/tripCommunicationSsot.ts";
 
 interface TokenRequest {
   trip_id?: string;
+  idempotency_key?: string;
+  /** start = create/reuse + push; join = token for existing active session */
+  action?: "start" | "join";
+  call_id?: string;
 }
 
 /**
- * Issue a LiveKit participant token for an authorised trip participant.
- * Uses production `_shared/security.ts` response conventions.
+ * Issue a short-lived audio-only LiveKit token for an authorised trip participant.
+ * Session create is idempotent; room names and identities are server-derived.
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -68,6 +82,14 @@ Deno.serve(async (req) => {
     const tripId = body.trip_id?.trim();
     if (!tripId || !isValidUUID(tripId)) {
       return validationErrorResponse({ trip_id: "Valid trip_id is required" });
+    }
+
+    const action = body.action === "join" ? "join" : "start";
+    const idempotencyKey = body.idempotency_key?.trim() ?? "";
+    if (action === "start" && (!idempotencyKey || idempotencyKey.length > 128)) {
+      return validationErrorResponse({
+        idempotency_key: "idempotency_key is required for start (max 128 chars)",
+      });
     }
 
     const livekitApiKey = Deno.env.get("LIVEKIT_API_KEY");
@@ -155,6 +177,9 @@ Deno.serve(async (req) => {
     }
 
     const providerReadiness = readCommunicationProviderReadinessFromEnv(Deno.env);
+    const livekitReady = Boolean(
+      providerReadiness.livekitConfigured && livekitApiKey && livekitApiSecret && livekitUrl,
+    );
     const ssot = resolveTripCommunicationSsot({
       tripId,
       serviceAreaId: trip.service_area_id,
@@ -165,12 +190,7 @@ Deno.serve(async (req) => {
       maskingConfig,
       providerReadiness: {
         ...providerReadiness,
-        livekitConfigured: Boolean(
-          providerReadiness.livekitConfigured &&
-            livekitApiKey &&
-            livekitApiSecret &&
-            livekitUrl,
-        ),
+        livekitConfigured: livekitReady,
       },
     });
 
@@ -179,43 +199,161 @@ Deno.serve(async (req) => {
       return errorResponse(gate.errorCode, gate.message, gate.status);
     }
 
-    const participantIdentity = participant.role === "driver"
-      ? `driver:${driverRow!.id}`
-      : `customer:${authData.user.id}`;
-    const participantName = participant.role === "driver" ? "Driver" : "Customer";
-
-    const roomName = `trip-${tripId}`;
-    const ttlSeconds = Math.max(60, ssot.maximumDurationSeconds);
     const assignedDriverId = participant.assignedDriverId;
+    let session = null as Awaited<ReturnType<typeof createOrReuseVoipSession>> extends
+      { ok: true; session: infer S } ? S : never;
+    let roomName = "";
+    let created = false;
 
-    const callLogId = await startVoipCallLog(serviceClient, {
-      trip_id: tripId,
-      service_area_id: trip.service_area_id,
-      driver_id: assignedDriverId,
-      customer_id: trip.passenger_id,
-    });
-
-    if (callLogId) {
-      scheduleVoipMaxDurationEnforcement(serviceClient, {
-        logId: callLogId,
-        roomName,
-        maxSeconds: ttlSeconds,
-        livekitUrl: livekitUrl!,
-        livekitApiKey: livekitApiKey!,
-        livekitApiSecret: livekitApiSecret!,
+    if (action === "start") {
+      const createdSession = await createOrReuseVoipSession(serviceClient, {
+        tripId,
+        serviceAreaId: trip.service_area_id,
+        driverId: assignedDriverId,
+        customerId: trip.passenger_id,
+        initiatorUserId: authData.user.id,
+        initiatorRole: participant.role,
+        idempotencyKey,
       });
+      if (!createdSession.ok) {
+        return errorResponse(createdSession.errorCode, createdSession.message, 409);
+      }
+      session = createdSession.session;
+      roomName = createdSession.roomName;
+      created = createdSession.created;
+
+      if (created) {
+        const pushMarked = await markVoipIncomingPushSent(serviceClient, session.callId);
+        if (pushMarked) {
+          const recipientDriverId = participant.role === "customer" ? assignedDriverId : null;
+          let recipientUserId: string | null = null;
+          if (participant.role === "driver") {
+            // Resolve trip passenger to auth user_id for customer_push_tokens.
+            const passengerRef = String(trip.passenger_id ?? "").trim();
+            if (passengerRef) {
+              if (customerRow?.id === passengerRef || customerRow?.user_id === passengerRef) {
+                recipientUserId = customerRow.user_id ?? authData.user.id;
+              } else {
+                const { data: passengerCustomer } = await serviceClient
+                  .from("customers")
+                  .select("user_id, id")
+                  .or(`id.eq.${passengerRef},user_id.eq.${passengerRef}`)
+                  .limit(1)
+                  .maybeSingle();
+                recipientUserId = passengerCustomer?.user_id ?? passengerRef;
+              }
+            }
+          }
+          // Fire-and-forget; do not block token issuance on push
+          // @ts-ignore
+          const pushTask = sendIncomingCallPush(serviceClient, {
+            tripId,
+            callId: session.callId,
+            method: "voip",
+            initiatorRole: participant.role,
+            expiresAt: session.expiresAt,
+            recipientDriverId,
+            recipientUserId,
+          });
+          // @ts-ignore
+          if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+            // @ts-ignore
+            EdgeRuntime.waitUntil(pushTask);
+          } else {
+            pushTask.catch(() => {});
+          }
+        }
+
+        scheduleVoipMaxDurationEnforcement(serviceClient, {
+          logId: session.callId,
+          roomName,
+          maxSeconds: TRIP_COMMUNICATION_MAX_DURATION_SECONDS,
+          livekitUrl: livekitUrl!,
+          livekitApiKey: livekitApiKey!,
+          livekitApiSecret: livekitApiSecret!,
+        });
+      }
+    } else {
+      const active = body.call_id && isValidUUID(body.call_id)
+        ? await findActiveCallForTrip(serviceClient, tripId).then((s) =>
+          s && s.callId === body.call_id ? s : null
+        )
+        : await findActiveCallForTrip(serviceClient, tripId);
+
+      if (!active || active.method !== "voip") {
+        return errorResponse(
+          TRIP_COMMUNICATION_ERROR.CALL_NOT_FOUND,
+          "No joinable VoIP call for this trip",
+          404,
+        );
+      }
+      if (isTerminalCallStatus(active.status)) {
+        return errorResponse(
+          TRIP_COMMUNICATION_ERROR.CALL_NOT_JOINABLE,
+          "Call is no longer joinable",
+          409,
+        );
+      }
+      const remaining = voipJoinTokenTtlSeconds({ expiresAt: active.expiresAt });
+      if (remaining <= 0) {
+        return errorResponse(
+          TRIP_COMMUNICATION_ERROR.CALL_EXPIRED,
+          "Call session has expired",
+          409,
+        );
+      }
+      session = active;
+      roomName = active.roomName ?? "";
+      if (!roomName) {
+        return errorResponse(
+          TRIP_COMMUNICATION_ERROR.CALL_NOT_JOINABLE,
+          "Call session is missing room context",
+          409,
+        );
+      }
     }
+
+    if (!session || isTerminalCallStatus(session.status)) {
+      return errorResponse(
+        TRIP_COMMUNICATION_ERROR.CALL_NOT_JOINABLE,
+        "Call session is not joinable",
+        409,
+      );
+    }
+
+    const ttlSeconds = voipJoinTokenTtlSeconds({ expiresAt: session.expiresAt });
+    if (ttlSeconds <= 0) {
+      return errorResponse(
+        TRIP_COMMUNICATION_ERROR.CALL_EXPIRED,
+        "Call session has expired",
+        409,
+      );
+    }
+
+    const participantIdentity = await voipParticipantIdentity(
+      session.callId,
+      participant.role,
+    );
+    const participantName = participant.role === "driver" ? "Driver" : "Customer";
 
     const token = new AccessToken(livekitApiKey!, livekitApiSecret!, {
       identity: participantIdentity,
       name: participantName,
       ttl: ttlSeconds,
     });
+
+    // Audio-only: restrict publish sources to microphone when SDK supports it.
+    // Mobile clients must also disable camera/screenshare publish.
     token.addGrant({
       roomJoin: true,
       room: roomName,
+      roomCreate: false,
+      roomAdmin: false,
       canPublish: true,
       canSubscribe: true,
+      canPublishData: false,
+      canPublishSources: [TrackSource.MICROPHONE],
+      canUpdateOwnMetadata: false,
     });
 
     const jwt = await token.toJwt();
@@ -223,10 +361,18 @@ Deno.serve(async (req) => {
     return successResponse({
       token: jwt,
       livekit_url: livekitUrl,
+      // Room name returned only on authorised join/start — never via push.
       room_name: roomName,
-      maximum_call_duration_seconds: ssot.maximumDurationSeconds,
+      maximum_call_duration_seconds: TRIP_COMMUNICATION_MAX_DURATION_SECONDS,
       participant_identity: participantIdentity,
-      call_log_id: callLogId,
+      call_log_id: session.callId,
+      call_id: session.callId,
+      action,
+      created,
+      expires_at: session.expiresAt,
+      status: session.status,
+      token_ttl_seconds: ttlSeconds,
+      end_reason_hint: VOIP_END_REASON.MAX_DURATION,
     });
   } catch (error) {
     console.error("[livekit-voip-token] unexpected error", error);

@@ -312,10 +312,39 @@ Deno.test("20-21: API payload contains no secrets or phone numbers", () => {
   assertEquals(raw.includes("MSG91_AUTH_KEY"), false);
   assertEquals(raw.includes("+447700"), false);
   assertEquals(raw.includes("voip_rate"), false);
+  assertEquals(raw.includes("room_name"), false);
   assertEquals(api.options.voip.available, true);
+  assertEquals(api.options.voip.can_start, true);
+  assertEquals(api.options.call_masking.can_start, true);
   assertExists(api.methods);
   assertEquals(api.calling_available, true);
   assertEquals(api.active_call, null);
+  assertEquals(api.maximum_call_duration_seconds, 240);
+  assertEquals(api.maximum_duration_seconds, 240);
+});
+
+Deno.test("runtime duration SSOT is always 240 regardless of settings row", () => {
+  const result = ssotFor({
+    settings: { ...kampalaOn, maximum_call_duration_seconds: 600 },
+  });
+  assertEquals(result.maximumDurationSeconds, 240);
+  const api = toTripCommunicationConfigApiPayload(result, {
+    call_id: "call-1",
+    method: "voip",
+    provider: "livekit",
+    status: "ringing",
+    started_at: new Date().toISOString(),
+    connected_at: null,
+    expires_at: new Date(Date.now() + 240_000).toISOString(),
+    remaining_seconds: 200,
+    join_allowed: true,
+    end_allowed: true,
+  });
+  assertEquals(api.active_call?.call_id, "call-1");
+  assertEquals(api.active_call?.method, "voip");
+  assertEquals(api.options.voip.can_start, false);
+  assertEquals(api.options.call_masking.can_start, false);
+  assertEquals(JSON.stringify(api).includes("room_name"), false);
 });
 
 Deno.test("labels and default ordering preserved from recovered SSOT", () => {
