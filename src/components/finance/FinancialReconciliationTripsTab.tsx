@@ -380,6 +380,11 @@ export function FinancialReconciliationTripsTab({
                           {row.variance_reason}
                         </p>
                       ) : null}
+                      {row.outstanding_pence != null && row.outstanding_pence > 0 ? (
+                        <p className="text-[10px] text-amber-700 mt-0.5 font-medium">
+                          Outstanding {formatNullablePence(row.outstanding_pence, ccy)}
+                        </p>
+                      ) : null}
                       {row.capture_classification ? (
                         <p className="text-[10px] text-muted-foreground">{row.capture_classification}</p>
                       ) : null}
@@ -417,6 +422,16 @@ export function FinancialReconciliationTripsTab({
                             Payment Sessions
                           </Link>
                         </Button>
+                        {(row.outstanding_pence ?? 0) > 0 && (
+                          <Button variant="default" size="sm" className="h-7 px-2 text-xs" asChild>
+                            <Link to={paymentSessionsUrl({
+                              paymentSessionId: row.payment_session_id,
+                              tripId: row.trip_id,
+                            })}>
+                              {`Recover Outstanding £${((row.outstanding_pence ?? 0) / 100).toFixed(2)}`}
+                            </Link>
+                          </Button>
+                        )}
                         {row.driver_id ? (
                           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" asChild>
                             <Link to={driverWalletLedgerUrl(row.driver_id)}>Wallet</Link>

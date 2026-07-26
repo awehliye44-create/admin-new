@@ -32,6 +32,16 @@ describe("company transfer safe admin actions (LIVE off)", () => {
     expect(shouldShowEditDraftAction(args)).toBe(false);
   });
 
+  it("allows return to draft from BLOCKED when no money moved", () => {
+    const args = {
+      status: "BLOCKED",
+      has_provider_payment_id: false,
+      money_moved: false,
+    };
+    expect(canReturnCompanyTransferToDraft(args)).toBe(true);
+    expect(canCancelCompanyTransferSafely(args)).toBe(true);
+  });
+
   it("allows READY → DRAFT and READY → CANCELLED transitions", () => {
     expect(canTransitionCompanyTransferStatus({
       from: "READY_FOR_EXECUTION",

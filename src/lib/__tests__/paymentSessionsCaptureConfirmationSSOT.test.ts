@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTripPaymentProjectionAfterCapture,
+  buildTripPaymentRecoveryIdempotencyKey,
   classifyCaptureConfirmation,
   collectOutstandingActionLabel,
   computeOutstandingBalancePence,
+  deriveTripPaymentRecoveryStatus,
   earlyCashOutRequiresSettledNotMerelyCaptured,
   isHealthyPostCaptureResidualRelease,
   recoveryWalletCreditDecision,
@@ -90,8 +92,60 @@ describe("paymentSessionsCaptureConfirmationSSOT — P0 acceptance", () => {
       classification: result.classification,
       outstandingPence: result.outstanding_pence,
     })).toBe(true);
-    expect(collectOutstandingActionLabel(218)).toBe("Collect Outstanding £2.18");
+    expect(collectOutstandingActionLabel(218)).toBe("Recover Outstanding £2.18");
     expect(sendPaymentLinkActionLabel(218)).toBe("Send Payment Link £2.18");
+  });
+
+  it("MK-260719-007 double-refund shortfall → Recover Outstanding £3.00", () => {
+    // Canonical 816; capture 1116; two buffer refunds totalling 600 → net 516 → outstanding 300.
+    const payable = resolveCanonicalCustomerPayablePence({
+      finalCustomerFarePence: 816,
+    });
+    expect(payable.payable_pence).toBe(816);
+    expect(computeOutstandingBalancePence({
+      canonicalPayablePence: 816,
+      confirmedCapturePence: 1116,
+      confirmedRefundedPence: 600,
+    })).toBe(300);
+    const result = classifyCaptureConfirmation({
+      providerState: "COMPLETED",
+      providerCapturedPence: 1116,
+      canonicalPayablePence: 816,
+      refundedAmountPence: 600,
+    });
+    expect(result.classification).toBe("UNDERCAPTURED_RECOVERY_REQUIRED");
+    expect(result.outstanding_pence).toBe(300);
+    expect(collectOutstandingActionLabel(300)).toBe("Recover Outstanding £3.00");
+    expect(shouldOfferCollectOutstanding({
+      classification: result.classification,
+      outstandingPence: result.outstanding_pence,
+    })).toBe(true);
+  });
+
+  it("MK-260719-006 waiting-inclusive payable net-settled → no recovery", () => {
+    // Canonical 527 = 480 fare + 47 waiting; capture 780; refund 253 → net 527.
+    const payable = resolveCanonicalCustomerPayablePence({
+      finalCustomerFarePence: 480,
+      waitingChargePence: 47,
+    });
+    expect(payable.payable_pence).toBe(527);
+    expect(computeOutstandingBalancePence({
+      canonicalPayablePence: 527,
+      confirmedCapturePence: 780,
+      confirmedRefundedPence: 253,
+    })).toBe(0);
+    const result = classifyCaptureConfirmation({
+      providerState: "COMPLETED",
+      providerCapturedPence: 780,
+      canonicalPayablePence: 527,
+      refundedAmountPence: 253,
+    });
+    expect(result.classification).toBe("CAPTURED_CONFIRMED");
+    expect(result.outstanding_pence).toBe(0);
+    expect(shouldOfferCollectOutstanding({
+      classification: result.classification,
+      outstandingPence: result.outstanding_pence,
+    })).toBe(false);
   });
 
   it("4/5/8. recovery + payment-link capture updates trip projection; wallet not double-credited", () => {
@@ -162,7 +216,7 @@ describe("paymentSessionsCaptureConfirmationSSOT — P0 acceptance", () => {
     expect(result.classification).toBe("CAPTURED_CONFIRMED");
   });
 
-  it("10. fully captured → no Collect Outstanding or Send Payment Link", () => {
+  it("10. fully captured → no Recover Outstanding or Send Payment Link", () => {
     const result = classifyCaptureConfirmation({
       providerState: "COMPLETED",
       providerCapturedPence: 480,
@@ -256,6 +310,31 @@ describe("paymentSessionsCaptureConfirmationSSOT — P0 acceptance", () => {
     expect(released.secondary).not.toMatch(/DB: AMOUNT_UNCONFIRMED/);
   });
 
+  it("idempotency key is deterministic per trip/version/outstanding", () => {
+    expect(buildTripPaymentRecoveryIdempotencyKey({
+      tripId: "trip-007",
+      financialVersion: 3,
+      outstandingPence: 300,
+    })).toBe("trip-payment-recovery:trip-007:3:300");
+  });
+
+  it("recovery status model covers available / link sent / completed / written off", () => {
+    expect(deriveTripPaymentRecoveryStatus({ outstandingPence: 300 }))
+      .toBe("RECOVERY_AVAILABLE");
+    expect(deriveTripPaymentRecoveryStatus({
+      outstandingPence: 300,
+      paymentLinkState: "SENT",
+    })).toBe("PAYMENT_LINK_SENT");
+    expect(deriveTripPaymentRecoveryStatus({
+      outstandingPence: 0,
+      recoverySessionStatus: "RECOVERY_COMPLETED",
+    })).toBe("RECOVERY_COMPLETED");
+    expect(deriveTripPaymentRecoveryStatus({
+      outstandingPence: 0,
+      writtenOff: true,
+    })).toBe("WRITTEN_OFF");
+  });
+
   it("classifies RELEASED / REFUNDED / PAYMENT_LINK_PENDING / PARTIAL", () => {
     expect(classifyCaptureConfirmation({
       releasedAmountPence: 780,
@@ -268,6 +347,13 @@ describe("paymentSessionsCaptureConfirmationSSOT — P0 acceptance", () => {
       providerCapturedPence: 480,
       refundedAmountPence: 100,
       canonicalPayablePence: 480,
+    }).classification).toBe("UNDERCAPTURED_RECOVERY_REQUIRED");
+
+    expect(classifyCaptureConfirmation({
+      providerState: "COMPLETED",
+      providerCapturedPence: 100,
+      refundedAmountPence: 100,
+      canonicalPayablePence: 0,
     }).classification).toBe("REFUNDED_CONFIRMED");
 
     expect(classifyCaptureConfirmation({

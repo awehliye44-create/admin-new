@@ -23,6 +23,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { formatMoneyMinor } from '@/lib/formatMoneyMinor';
 import { FinanceRecoveryMismatchSummary } from '@/components/payment/FinanceRecoveryMismatchSummary';
 import { FinanceTripActionsPanel } from '@/components/finance/FinanceTripActionsPanel';
+import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
 import {
   captureStatusColorClass,
   getCapturedTotalPence,
@@ -502,6 +503,7 @@ export function PaymentControlsCard({
                 outstandingPence={extraDuePence}
                 currency={currency}
                 showActions={extraDuePence > 0 && !isLegacyIncomplete}
+                paymentSessionsHref={paymentSessionsUrl({ tripId })}
                 onAction={(action) => {
                   if (action === 'extra_payment') openExtraPayment();
                   else {

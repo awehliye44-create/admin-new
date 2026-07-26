@@ -102,6 +102,13 @@ import {
   ADMIN_SUBMIT_COMPANY_TRANSFER_FN,
   ADMIN_SYNC_COMPANY_TRANSFER_STATUS_FN,
 } from '../../../shared/adminPayoutLedgerSSOT';
+import {
+  COMPANY_TRANSFER_STATUS_TIMELINE,
+  RETURN_TO_DRAFT_CONFIRM_MESSAGE,
+  buildCompanyTransferActionFeedback,
+  canShowSubmitForApprovalAction,
+  companyTransferTimelineIndex,
+} from '../../../shared/companyTransferActionFeedbackSSOT';
 
 /** Slice 11: live company transfer execution stays off (client mirror; edge enforces). */
 const LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED = parseLiveCompanyTransferExecutionEnabled(
@@ -138,6 +145,43 @@ function FieldError({ message }: { message?: string }) {
     <p role="alert" className="text-[11px] text-destructive leading-snug pt-0.5">
       {message}
     </p>
+  );
+}
+
+function CompanyTransferStatusTimeline({ status }: { status: string | null | undefined }) {
+  const current = String(status ?? '').toUpperCase();
+  const idx = companyTransferTimelineIndex(current);
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1 text-[10px] leading-tight"
+      aria-label={`Transfer status timeline, current ${current || 'unknown'}`}
+    >
+      {COMPANY_TRANSFER_STATUS_TIMELINE.map((step, i) => {
+        const active = i === idx;
+        const passed = idx >= 0 && i < idx;
+        return (
+          <span key={step} className="flex items-center gap-1">
+            {i > 0 ? <span className="text-muted-foreground/60">→</span> : null}
+            <span
+              className={
+                active
+                  ? 'rounded bg-foreground px-1.5 py-0.5 font-semibold text-background'
+                  : passed
+                    ? 'rounded bg-muted px-1.5 py-0.5 font-medium text-foreground'
+                    : 'rounded px-1.5 py-0.5 text-muted-foreground'
+              }
+            >
+              {step.replaceAll('_', ' ')}
+            </span>
+          </span>
+        );
+      })}
+      {idx < 0 && current ? (
+        <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-semibold text-amber-800 dark:text-amber-200">
+          {current.replaceAll('_', ' ')}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -269,6 +313,7 @@ export function PayoutLedgerCompanyTransfersPanel({
   const [soleAdminReason, setSoleAdminReason] = useState(
     'Sole-admin approval: no second authorised company-transfer approver is configured.',
   );
+  const [returnToDraftTransfer, setReturnToDraftTransfer] = useState<CompanyOutgoingTransferRow | null>(null);
   const [form, setForm] = useState({
     payee_id: '',
     recipient_name: '',
@@ -480,15 +525,22 @@ export function PayoutLedgerCompanyTransfersPanel({
 
   const actionMutation = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
-      const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_TRANSFER_FN, { body });
+      const {
+        previous_status: _previousStatus,
+        transfer_ref: _transferRef,
+        ...edgeBody
+      } = body;
+      const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_TRANSFER_FN, {
+        body: edgeBody,
+      });
       if (data && data.success === false) {
         throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Action failed'));
       }
-      if (data?.success) return data;
+      if (data?.success) return data as Record<string, unknown>;
       if (error) throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Action failed'));
       throw new Error('Action failed');
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       if (data?.blocked) {
         // Legacy path — should not create BLOCKED from submit funding gate anymore.
         const protection = data.funds_protection as
@@ -503,17 +555,44 @@ export function PayoutLedgerCompanyTransfersPanel({
           { duration: 12_000 },
         );
       } else {
-        toast.success(
-          data?.sole_admin_override
-            ? 'Sole-admin approval recorded — READY FOR EXECUTION (not submitted)'
-            : 'Transfer updated',
-        );
+        const action = String(variables.action ?? '');
+        const transfer = (data?.transfer ?? null) as CompanyOutgoingTransferRow | null;
+        const feedback = buildCompanyTransferActionFeedback({
+          action,
+          previous_status: typeof variables.previous_status === 'string'
+            ? variables.previous_status
+            : null,
+          new_status: transfer?.status ?? (typeof data?.status === 'string' ? data.status : null),
+          transfer_ref: transfer?.transfer_ref
+            ?? (typeof variables.transfer_ref === 'string' ? variables.transfer_ref : null),
+          acting_admin: user?.email ?? user?.id ?? 'admin',
+          action_at: new Date().toISOString(),
+          sole_admin_override: Boolean(data?.sole_admin_override),
+          blocked: Boolean(data?.blocked),
+        });
+        if (feedback.variant === 'warning') {
+          toast.warning(feedback.title, { description: feedback.description, duration: 12_000 });
+        } else {
+          toast.success(feedback.title, { description: feedback.description, duration: 8_000 });
+        }
       }
       setSoleAdminTransfer(null);
+      setReturnToDraftTransfer(null);
       void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
     },
     onError: (err: Error) => toast.error(err.message, { duration: 12_000 }),
   });
+
+  const runTransferAction = (
+    t: CompanyOutgoingTransferRow,
+    body: Record<string, unknown>,
+  ) => {
+    actionMutation.mutate({
+      ...body,
+      previous_status: t.status,
+      transfer_ref: t.transfer_ref,
+    });
+  };
 
   const requestApprove = (t: CompanyOutgoingTransferRow) => {
     const isSelf = Boolean(user?.id && t.requested_by && user.id === t.requested_by);
@@ -524,7 +603,11 @@ export function PayoutLedgerCompanyTransfersPanel({
       setSoleAdminTransfer(t);
       return;
     }
-    actionMutation.mutate({ action: 'approve', transfer_id: t.id });
+    runTransferAction(t, { action: 'approve', transfer_id: t.id });
+  };
+
+  const requestReturnToDraft = (t: CompanyOutgoingTransferRow) => {
+    setReturnToDraftTransfer(t);
   };
 
   const submitProviderMutation = useMutation({
@@ -1135,17 +1218,19 @@ export function PayoutLedgerCompanyTransfersPanel({
                           Edit Draft
                         </Button>
                       ) : null}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={actionMutation.isPending}
-                        onClick={() => actionMutation.mutate({
-                          action: 'submit_for_approval',
-                          transfer_id: t.id,
-                        })}
-                      >
-                        Submit for approval
-                      </Button>
+                      {canShowSubmitForApprovalAction(t.status) ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={actionMutation.isPending}
+                          onClick={() => runTransferAction(t, {
+                            action: 'submit_for_approval',
+                            transfer_id: t.id,
+                          })}
+                        >
+                          Submit for approval
+                        </Button>
+                      ) : null}
                       <Button
                         size="sm"
                         variant="ghost"
@@ -1153,7 +1238,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                         onClick={() => {
                           const reason = window.prompt('Cancel reason?');
                           if (!reason) return;
-                          actionMutation.mutate({ action: 'cancel', transfer_id: t.id, reason });
+                          runTransferAction(t, { action: 'cancel', transfer_id: t.id, reason });
                         }}
                       >
                         Cancel
@@ -1195,7 +1280,12 @@ export function PayoutLedgerCompanyTransfersPanel({
                     <TableCell className="text-xs">{t.recipient_name}</TableCell>
                     <TableCell className="text-xs">{t.category}</TableCell>
                     <TableCell className="text-xs tabular-nums">{formatNullablePence(t.amount_pence)}</TableCell>
-                    <TableCell><Badge variant="outline">{companyTransferStatusLabel(t.status)}</Badge></TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <Badge variant="outline">{companyTransferStatusLabel(t.status)}</Badge>
+                        <CompanyTransferStatusTimeline status={t.status} />
+                      </div>
+                    </TableCell>
                     <TableCell className="space-x-1">
                       <Button
                         size="sm"
@@ -1212,7 +1302,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                         onClick={() => {
                           const reason = window.prompt('Reject reason?');
                           if (!reason) return;
-                          actionMutation.mutate({ action: 'reject', transfer_id: t.id, reason });
+                          runTransferAction(t, { action: 'reject', transfer_id: t.id, reason });
                         }}
                       >
                         Reject
@@ -1280,14 +1370,19 @@ export function PayoutLedgerCompanyTransfersPanel({
                     <TableCell className="font-mono text-xs">{t.transfer_ref}</TableCell>
                     <TableCell className="text-xs">{t.recipient_name}</TableCell>
                     <TableCell className="text-xs tabular-nums">{formatNullablePence(t.amount_pence)}</TableCell>
-                    <TableCell><Badge variant="outline">{companyTransferStatusLabel(t.status)}</Badge></TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <Badge variant="outline">{companyTransferStatusLabel(t.status)}</Badge>
+                        <CompanyTransferStatusTimeline status={t.status} />
+                      </div>
+                    </TableCell>
                     <TableCell className="space-x-1 flex flex-wrap gap-1">
                       {t.status === 'APPROVED' && (
                         <Button
                           size="sm"
                           variant="outline"
                           disabled={actionMutation.isPending}
-                          onClick={() => actionMutation.mutate({
+                          onClick={() => runTransferAction(t, {
                             action: 'mark_ready_for_execution',
                             transfer_id: t.id,
                           })}
@@ -1310,11 +1405,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                           size="sm"
                           variant="outline"
                           disabled={actionMutation.isPending}
-                          onClick={() => actionMutation.mutate({
-                            action: 'return_to_draft',
-                            transfer_id: t.id,
-                            reason: 'Returned to draft for re-approval (LIVE off)',
-                          })}
+                          onClick={() => requestReturnToDraft(t)}
                         >
                           Return to Draft
                         </Button>
@@ -1327,7 +1418,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                           onClick={() => {
                             const reason = window.prompt('Cancel reason?') ?? '';
                             if (!reason.trim()) return;
-                            actionMutation.mutate({
+                            runTransferAction(t, {
                               action: 'cancel',
                               transfer_id: t.id,
                               reason: reason.trim(),
@@ -1359,7 +1450,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                         }
                         onClick={() => {
                           if (!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED) return;
-                          actionMutation.mutate({
+                          runTransferAction(t, {
                             action: 'execute',
                             transfer_id: t.id,
                             execute_live: true,
@@ -1453,12 +1544,12 @@ export function PayoutLedgerCompanyTransfersPanel({
                       {shouldShowRetryValidation({
                         status: t.status,
                         blocked_reason_codes: t.blocked_reason_codes,
-                      }) ? (
+                      }) && canShowSubmitForApprovalAction(t.status) ? (
                         <Button
                           size="sm"
                           variant="outline"
                           disabled={actionMutation.isPending}
-                          onClick={() => actionMutation.mutate({
+                          onClick={() => runTransferAction(t, {
                             action: 'submit_for_approval',
                             transfer_id: t.id,
                           })}
@@ -2551,19 +2642,24 @@ export function PayoutLedgerCompanyTransfersPanel({
                   <TableCell className="text-xs">{t.category}</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline">{t.money_source}</Badge></TableCell>
                   <TableCell className="text-xs tabular-nums">{formatNullablePence(t.amount_pence)}</TableCell>
-                  <TableCell className="text-xs"><Badge variant="secondary">{companyTransferStatusLabel(t.status)}</Badge></TableCell>
+                  <TableCell className="text-xs">
+                    <div className="space-y-1">
+                      <Badge variant="secondary">{companyTransferStatusLabel(t.status)}</Badge>
+                      <CompanyTransferStatusTimeline status={t.status} />
+                    </div>
+                  </TableCell>
                   <TableCell className="text-xs font-mono">
                     <div>{t.requested_by?.slice(0, 8) ?? '—'}</div>
                     <div className="text-muted-foreground">{t.approved_by?.slice(0, 8) ?? '—'}</div>
                   </TableCell>
                   <TableCell className="text-xs font-mono">{t.provider_reference ?? '—'}</TableCell>
                   <TableCell className="text-xs space-x-1">
-                    {t.status === 'DRAFT' && (
+                    {canShowSubmitForApprovalAction(t.status) && (
                       <Button
                         size="sm"
                         variant="outline"
                         disabled={actionMutation.isPending}
-                        onClick={() => actionMutation.mutate({
+                        onClick={() => runTransferAction(t, {
                           action: 'submit_for_approval',
                           transfer_id: t.id,
                         })}
@@ -2588,7 +2684,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                           onClick={() => {
                             const reason = window.prompt('Reject reason?');
                             if (!reason) return;
-                            actionMutation.mutate({ action: 'reject', transfer_id: t.id, reason });
+                            runTransferAction(t, { action: 'reject', transfer_id: t.id, reason });
                           }}
                         >
                           Reject
@@ -2608,7 +2704,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                       }
                       onClick={() => {
                         if (!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED) return;
-                        actionMutation.mutate({
+                        runTransferAction(t, {
                           action: 'execute',
                           transfer_id: t.id,
                           execute_live: true,
@@ -2668,7 +2764,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                         onClick={() => {
                           const reason = window.prompt('Cancel reason?');
                           if (!reason) return;
-                          actionMutation.mutate({ action: 'cancel', transfer_id: t.id, reason });
+                          runTransferAction(t, { action: 'cancel', transfer_id: t.id, reason });
                         }}
                       >
                         Cancel
@@ -2707,9 +2803,13 @@ export function PayoutLedgerCompanyTransfersPanel({
           <div className="space-y-3 text-sm">
             <div className="rounded-md border bg-muted/40 p-3 space-y-1 text-xs">
               <div>Transfer: {soleAdminTransfer?.transfer_ref ?? '—'}</div>
+              <div>Status: {soleAdminTransfer?.status ?? '—'}</div>
               <div>Type: {soleAdminTransfer?.transfer_type ?? '—'}</div>
               <div>Amount: {formatNullablePence(soleAdminTransfer?.amount_pence ?? null)}</div>
               <div>Payee: {soleAdminTransfer?.recipient_name ?? '—'}</div>
+              {soleAdminTransfer ? (
+                <CompanyTransferStatusTimeline status={soleAdminTransfer.status} />
+              ) : null}
             </div>
             {String(soleAdminTransfer?.transfer_type ?? '').toUpperCase() !== 'CERTIFICATION'
               || Number(soleAdminTransfer?.amount_pence) !== 1 ? (
@@ -2749,7 +2849,7 @@ export function PayoutLedgerCompanyTransfersPanel({
               }
               onClick={() => {
                 if (!soleAdminTransfer) return;
-                actionMutation.mutate({
+                runTransferAction(soleAdminTransfer, {
                   action: 'approve',
                   transfer_id: soleAdminTransfer.id,
                   confirm_sole_admin_approval: true,
@@ -2761,6 +2861,54 @@ export function PayoutLedgerCompanyTransfersPanel({
               {actionMutation.isPending
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : 'Approve as sole administrator'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={returnToDraftTransfer != null}
+        onOpenChange={(open) => {
+          if (!open && !actionMutation.isPending) setReturnToDraftTransfer(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Return transfer to draft?</DialogTitle>
+            <DialogDescription>
+              {RETURN_TO_DRAFT_CONFIRM_MESSAGE}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border bg-muted/40 p-3 space-y-1 text-xs">
+            <div>Transfer: {returnToDraftTransfer?.transfer_ref ?? '—'}</div>
+            <div>Current status: {returnToDraftTransfer?.status ?? '—'}</div>
+            {returnToDraftTransfer ? (
+              <CompanyTransferStatusTimeline status={returnToDraftTransfer.status} />
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={actionMutation.isPending}
+              onClick={() => setReturnToDraftTransfer(null)}
+            >
+              Keep current status
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={actionMutation.isPending || !returnToDraftTransfer}
+              onClick={() => {
+                if (!returnToDraftTransfer) return;
+                runTransferAction(returnToDraftTransfer, {
+                  action: 'return_to_draft',
+                  transfer_id: returnToDraftTransfer.id,
+                  reason: RETURN_TO_DRAFT_CONFIRM_MESSAGE,
+                });
+              }}
+            >
+              {actionMutation.isPending
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : 'Return to draft'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -395,25 +395,37 @@ export function gateHoldReleaseForUnresolvedPayment(
     };
   }
 
-  const finalFare = pence(input.finalFarePence);
   const noShowFee = pence(input.noShowFeePence);
   const cancelFee = pence(input.cancellationFeePence);
-  const owed = Math.max(finalFare, noShowFee, cancelFee, pence(input.captureAmountPence));
+  const isCancelLike = tripStatus.includes("cancel");
+  const isNoShow = tripStatus === "no_show";
+  const isCompleted = tripStatus === "completed";
+
+  // Cancel / no-show: owed is fee only — never booking/final trip fare.
+  // Completed: owed is canonical final fare (or capture amount if already computed).
+  let owed = 0;
+  if (isNoShow) {
+    owed = noShowFee;
+  } else if (isCancelLike) {
+    owed = cancelFee;
+  } else if (isCompleted) {
+    owed = Math.max(pence(input.finalFarePence), pence(input.captureAmountPence));
+  }
+
   const captured = Math.max(
     pence(input.capturedAmountPence),
     paymentStatus === "captured" || holdStatus === "captured" ? owed : 0,
   );
 
-  const completedLike =
-    tripStatus === "completed"
-    || tripStatus === "no_show"
-    || tripStatus.includes("cancel");
-
-  if (completedLike && owed > 0 && captured < owed) {
+  if ((isCompleted || isNoShow || isCancelLike) && owed > 0 && captured < owed) {
     return {
       allow: false,
       code: HOLD_RELEASE_BLOCKED_PAYMENT_UNRESOLVED,
-      reason: "completed_trip_unresolved_capture",
+      reason: isCompleted
+        ? "completed_trip_unresolved_capture"
+        : isNoShow
+        ? "no_show_fee_unresolved"
+        : "cancellation_fee_unresolved",
     };
   }
 

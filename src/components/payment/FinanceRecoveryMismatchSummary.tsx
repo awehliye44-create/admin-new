@@ -2,6 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatPence } from '@/hooks/useDriverWallet';
 import { FileEdit, MinusCircle, PlusCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import type { FinanceRecoveryAction } from '@/components/payment/PaymentControlsCard';
 
 export type FinanceRecoveryMismatchMetrics = {
@@ -17,6 +18,8 @@ type FinanceRecoveryMismatchSummaryProps = FinanceRecoveryMismatchMetrics & {
   showActions?: boolean;
   onAction?: (action: FinanceRecoveryAction) => void;
   actionsDisabled?: boolean;
+  /** Preferred recovery surface — Payment Sessions SSOT row for this trip. */
+  paymentSessionsHref?: string | null;
 };
 
 export function FinanceRecoveryMismatchSummary({
@@ -29,6 +32,7 @@ export function FinanceRecoveryMismatchSummary({
   showActions = false,
   onAction,
   actionsDisabled = false,
+  paymentSessionsHref = null,
 }: FinanceRecoveryMismatchSummaryProps) {
   const canRecover = outstandingPence > 0;
 
@@ -66,37 +70,55 @@ export function FinanceRecoveryMismatchSummary({
         />
       </div>
 
-      {showActions && canRecover && onAction && (
+      {showActions && canRecover && (
         <div className="flex flex-col gap-1.5 pt-1">
-          <Button
-            size="sm"
-            className={compact ? 'h-7 text-[11px] justify-start' : ''}
-            onClick={() => onAction('extra_payment')}
-            disabled={actionsDisabled}
-          >
-            <PlusCircle className="h-3.5 w-3.5 mr-1 shrink-0" />
-            Collect Outstanding / Send Payment Link
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className={compact ? 'h-7 text-[11px] justify-start' : ''}
-            onClick={() => onAction('waive')}
-            disabled={actionsDisabled}
-          >
-            <MinusCircle className="h-3.5 w-3.5 mr-1 shrink-0" />
-            Waive difference
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className={compact ? 'h-7 text-[11px] justify-start' : ''}
-            onClick={() => onAction('internal_adjustment')}
-            disabled={actionsDisabled}
-          >
-            <FileEdit className="h-3.5 w-3.5 mr-1 shrink-0" />
-            Mark internal adjustment
-          </Button>
+          {paymentSessionsHref ? (
+            <Button
+              size="sm"
+              className={compact ? 'h-7 text-[11px] justify-start' : ''}
+              asChild
+              disabled={actionsDisabled}
+            >
+              <Link to={paymentSessionsHref}>
+                <PlusCircle className="h-3.5 w-3.5 mr-1 shrink-0" />
+                {`Recover Outstanding £${(outstandingPence / 100).toFixed(2)}`}
+              </Link>
+            </Button>
+          ) : onAction ? (
+            <Button
+              size="sm"
+              className={compact ? 'h-7 text-[11px] justify-start' : ''}
+              onClick={() => onAction('extra_payment')}
+              disabled={actionsDisabled}
+            >
+              <PlusCircle className="h-3.5 w-3.5 mr-1 shrink-0" />
+              {`Recover Outstanding £${(outstandingPence / 100).toFixed(2)}`}
+            </Button>
+          ) : null}
+          {onAction && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                className={compact ? 'h-7 text-[11px] justify-start' : ''}
+                onClick={() => onAction('waive')}
+                disabled={actionsDisabled}
+              >
+                <MinusCircle className="h-3.5 w-3.5 mr-1 shrink-0" />
+                Write Off / Absorb as ONECAB Loss
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className={compact ? 'h-7 text-[11px] justify-start' : ''}
+                onClick={() => onAction('internal_adjustment')}
+                disabled={actionsDisabled}
+              >
+                <FileEdit className="h-3.5 w-3.5 mr-1 shrink-0" />
+                Mark internal adjustment
+              </Button>
+            </>
+          )}
         </div>
       )}
     </div>

@@ -182,6 +182,94 @@ describe("paymentSessionsAllowedActionsSSOT — tab/action correction", () => {
     expect(r.allowed_actions).toContain("retry_recovery");
   });
 
+  it("MK-260719-007 double-refund → Recover Outstanding £3.00 allowed", () => {
+    const r = derivePaymentSessionAllowedActions({
+      providerOrderId: "ord-007",
+      providerState: "COMPLETED",
+      providerRetrieved: true,
+      providerVerificationStatus: "VERIFIED",
+      authorisedPence: 1116,
+      capturedPence: 1116,
+      canonicalPayablePence: 816,
+      refundedAmountPence: 600,
+      recoveryCurrentlyPendingOrCaptured: false,
+    });
+    expect(r.outstanding_pence).toBe(300);
+    expect(r.allowed_actions).toContain("collect_outstanding");
+    expect(r.allowed_actions).toContain("send_payment_link");
+  });
+
+  it("MK-260719-006 fully net-settled after correct refund → no recovery actions", () => {
+    const r = derivePaymentSessionAllowedActions({
+      providerOrderId: "ord-006",
+      providerState: "COMPLETED",
+      providerRetrieved: true,
+      providerVerificationStatus: "VERIFIED",
+      authorisedPence: 780,
+      capturedPence: 780,
+      canonicalPayablePence: 527,
+      refundedAmountPence: 253,
+      recoveryCurrentlyPendingOrCaptured: false,
+    });
+    expect(r.outstanding_pence).toBe(0);
+    expect(r.allowed_actions).not.toContain("collect_outstanding");
+    expect(r.allowed_actions).not.toContain("send_payment_link");
+    expect(r.allowed_actions).not.toContain("write_off");
+  });
+
+  it("4. Open recovery pending → no duplicate Collect Outstanding; Retry when failed", () => {
+    const pending = derivePaymentSessionAllowedActions({
+      providerOrderId: "ord-007",
+      providerState: "COMPLETED",
+      providerRetrieved: true,
+      providerVerificationStatus: "VERIFIED",
+      authorisedPence: 1116,
+      capturedPence: 1116,
+      canonicalPayablePence: 816,
+      refundedAmountPence: 600,
+      recoveryCurrentlyPendingOrCaptured: true,
+      recoveryAttemptCount: 1,
+      recoveryAttemptRetryableFailed: false,
+    });
+    expect(pending.classification).toBe("RECOVERY_IN_PROGRESS");
+    expect(pending.outstanding_pence).toBe(300);
+    expect(pending.allowed_actions).not.toContain("collect_outstanding");
+    expect(pending.allowed_actions).not.toContain("send_payment_link");
+
+    const retry = derivePaymentSessionAllowedActions({
+      providerOrderId: "ord-007",
+      providerState: "COMPLETED",
+      providerRetrieved: true,
+      providerVerificationStatus: "VERIFIED",
+      authorisedPence: 1116,
+      capturedPence: 1116,
+      canonicalPayablePence: 816,
+      refundedAmountPence: 600,
+      recoveryCurrentlyPendingOrCaptured: true,
+      recoveryAttemptCount: 2,
+      recoveryAttemptRetryableFailed: true,
+    });
+    expect(retry.allowed_actions).toContain("retry_recovery");
+    expect(retry.allowed_actions).not.toContain("collect_outstanding");
+  });
+
+  it("outstanding shortfall → write_off allowed with collect/send link", () => {
+    const r = derivePaymentSessionAllowedActions({
+      providerOrderId: "ord-007",
+      providerState: "COMPLETED",
+      providerRetrieved: true,
+      providerVerificationStatus: "VERIFIED",
+      authorisedPence: 1116,
+      capturedPence: 1116,
+      canonicalPayablePence: 816,
+      refundedAmountPence: 600,
+      recoveryCurrentlyPendingOrCaptured: false,
+    });
+    expect(r.allowed_actions).toContain("collect_outstanding");
+    expect(r.allowed_actions).toContain("send_payment_link");
+    expect(r.allowed_actions).toContain("write_off");
+  });
+
   it("releasable_pence = auth - captured - released", () => {
     expect(computeReleasablePence({
       authorisedPence: 780,

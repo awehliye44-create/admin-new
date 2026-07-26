@@ -292,7 +292,17 @@ export function canReturnCompanyTransferToDraft(args: {
   money_moved?: boolean | null;
 }): boolean {
   const status = String(args.status ?? "").toUpperCase();
-  if (!["APPROVED", "READY_FOR_EXECUTION", "SCHEDULED", "AWAITING_APPROVAL"].includes(status)) {
+  // BLOCKED / FUNDING_UNAVAILABLE: recover to DRAFT when no provider payment / money moved.
+  if (
+    ![
+      "APPROVED",
+      "READY_FOR_EXECUTION",
+      "SCHEDULED",
+      "AWAITING_APPROVAL",
+      "BLOCKED",
+      "FUNDING_UNAVAILABLE",
+    ].includes(status)
+  ) {
     return false;
   }
   return canSafelyAdminMutateCompanyTransfer(args);

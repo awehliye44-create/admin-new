@@ -25,6 +25,7 @@ export type PaymentSessionActionId =
   | "retry_recovery"
   | "collect_outstanding"
   | "send_payment_link"
+  | "write_off"
   | "refund_difference"
   | "capture_final_amount"
   | "refresh_provider_evidence";
@@ -74,6 +75,7 @@ export type PaymentSessionAllowedActionsResult = {
   can_refund: boolean;
   can_collect_outstanding: boolean;
   can_send_payment_link: boolean;
+  can_write_off: boolean;
   can_capture_final: boolean;
   local_state_corrected?: "LOCAL_STATE_CORRECTED_FROM_PROVIDER" | null;
   reject_reason_if_stale_action?: string | null;
@@ -141,8 +143,20 @@ function withFlags(
     can_refund: actions.includes("refund_difference"),
     can_collect_outstanding: actions.includes("collect_outstanding"),
     can_send_payment_link: actions.includes("send_payment_link"),
+    can_write_off: actions.includes("write_off"),
     can_capture_final: actions.includes("capture_final_amount"),
   };
+}
+
+/** Open recovery checkout — blocks duplicate Recover Outstanding on the parent trip row. */
+export function isOpenTripPaymentRecoverySession(args: {
+  purpose?: string | null;
+  sessionStatus?: string | null;
+  technicalStatus?: string | null;
+}): boolean {
+  if (String(args.purpose ?? "").trim().toUpperCase() !== "PAYMENT_RECOVERY") return false;
+  const status = String(args.sessionStatus ?? args.technicalStatus ?? "").trim().toUpperCase();
+  return status === "RECOVERY_CHECKOUT_CREATED" || status === "CUSTOMER_ACTION_REQUIRED";
 }
 
 /**
@@ -249,6 +263,7 @@ export function derivePaymentSessionAllowedActions(args: {
   capturedAt?: string | null;
   canonicalPayablePence?: number | null;
   recoveryCapturedPence?: number | null;
+  refundedAmountPence?: number | null;
   /** True only when a release request was submitted to Revolut with a request id. */
   providerReleaseRequestSubmitted?: boolean | null;
   providerReleaseRequestId?: string | null;
@@ -296,6 +311,7 @@ export function derivePaymentSessionAllowedActions(args: {
     can_refund: false,
     can_collect_outstanding: false,
     can_send_payment_link: false,
+    can_write_off: false,
     can_capture_final: false,
     local_state_corrected: null,
     reject_reason_if_stale_action: PAYMENT_ACTION_STALE_REFRESH_REQUIRED,
@@ -354,6 +370,7 @@ export function derivePaymentSessionAllowedActions(args: {
   const outstanding = computeOutstandingBalancePence({
     canonicalPayablePence: args.canonicalPayablePence,
     confirmedCapturePence: captured,
+    confirmedRefundedPence: args.refundedAmountPence,
     confirmedRecoveryCapturePence: args.recoveryCapturedPence,
   }) ?? 0;
 
@@ -364,6 +381,7 @@ export function derivePaymentSessionAllowedActions(args: {
     canonicalPayablePence: args.canonicalPayablePence,
     authorisedPence: auth,
     releasedAmountPence: released,
+    refundedAmountPence: args.refundedAmountPence,
     purpose: args.purpose,
   });
 
@@ -445,6 +463,31 @@ export function derivePaymentSessionAllowedActions(args: {
     }
 
     if (captureClass.classification === "UNDERCAPTURED_RECOVERY_REQUIRED" && outstanding > 0) {
+      // Parent trip row: open recovery child session → no duplicate charge/link.
+      if (args.recoveryCurrentlyPendingOrCaptured === true) {
+        const retryAllowed = args.recoveryAttemptRetryableFailed === true
+          && (args.recoveryAttemptCount ?? 0) >= 1;
+        const pendingActions: PaymentSessionActionId[] = retryAllowed ? ["retry_recovery"] : [];
+        return withFlags({
+          classification: "RECOVERY_IN_PROGRESS",
+          classification_label: retryAllowed
+            ? "RECOVERY FAILED — RETRY"
+            : "RECOVERY IN PROGRESS",
+          provider_verified: true,
+          provider_verified_at: verifiedAt,
+          provider_canonical: canonical,
+          authorised_pence: auth,
+          captured_pence: captured,
+          released_pence: released,
+          outstanding_pence: outstanding,
+          releasable_pence: 0,
+          allowed_actions: pendingActions,
+          local_state_corrected: null,
+          projection_repairs: projectionRepairs,
+          reject_reason_if_stale_action: "RECOVERY_ALREADY_PENDING",
+        });
+      }
+
       const actions: PaymentSessionActionId[] = [];
       if (shouldOfferCollectOutstanding({
         classification: captureClass.classification,
@@ -458,6 +501,7 @@ export function derivePaymentSessionAllowedActions(args: {
       })) {
         actions.push("send_payment_link");
       }
+      actions.push("write_off");
       // Retry only when a prior attempt exists AND is retryably failed — never from local RECOVERY_PENDING alone.
       const retryAllowed = outstanding > 0
         && args.recoveryAttemptRetryableFailed === true
@@ -477,13 +521,6 @@ export function derivePaymentSessionAllowedActions(args: {
         outstanding_pence: outstanding,
         releasable_pence: 0,
         allowed_actions: actions,
-        can_release: false,
-        can_retry_release: false,
-        can_retry_recovery: false,
-        can_refund: false,
-        can_collect_outstanding: false,
-        can_send_payment_link: false,
-        can_capture_final: false,
         local_state_corrected: null,
         projection_repairs: projectionRepairs,
         reject_reason_if_stale_action: "PAYMENT_ALREADY_CAPTURED",

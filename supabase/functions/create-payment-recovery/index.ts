@@ -33,6 +33,7 @@ import {
 } from "../_shared/revolutOrders.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 import {
+  buildTripPaymentRecoveryIdempotencyKey,
   computeOutstandingBalancePence,
   resolveCanonicalCustomerPayablePence,
   validateCollectOutstandingOrPaymentLinkAction,
@@ -57,17 +58,19 @@ Deno.serve(async (req) => {
     if (authErr || !user) return errorResponse("Unauthorized", 401, undefined, "AUTH_INVALID");
     const { data: adminRole } = await supabase
       .from("user_roles").select("role")
-      .eq("user_id", user.id).eq("role", "admin").maybeSingle();
+      .eq("user_id", user.id)
+      .in("role", ["admin", "super_admin"])
+      .maybeSingle();
     if (!adminRole) return errorResponse("Admin access required", 403, undefined, "ADMIN_REQUIRED");
 
     const body = await req.json().catch(() => ({}));
-    const { trip_id, amount_pence, parent_session_id, action_mode } = body ?? {};
+    const { trip_id, amount_pence, parent_session_id, action_mode, reason } = body ?? {};
     if (!trip_id) return errorResponse("trip_id is required", 400, undefined, "VALIDATION_MISSING_FIELD");
 
     // --- Load trip ---
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
-      .select("id, trip_number, status, passenger_id, service_area_id, driver_id, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, capture_amount_pence, currency_code, payment_status")
+      .select("id, trip_number, trip_code, status, passenger_id, service_area_id, driver_id, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, capture_amount_pence, refund_amount_pence, waiting_charge_pence, total_waiting_charge_pence, tip_pence, tip_amount_pence, fare_revision_number, updated_at, provider_order_id, currency_code, payment_status")
       .eq("id", trip_id)
       .maybeSingle();
     if (tripErr || !trip) return errorResponse("Trip not found", 404, undefined, "TRIP_NOT_FOUND");
@@ -120,6 +123,8 @@ Deno.serve(async (req) => {
     const payableResolved = resolveCanonicalCustomerPayablePence({
       finalCustomerFarePence: trip.final_customer_fare_pence,
       finalFarePence: trip.final_fare_pence,
+      waitingChargePence: trip.waiting_charge_pence ?? trip.total_waiting_charge_pence,
+      tipPence: trip.tip_pence ?? trip.tip_amount_pence,
       noShowChargePence: trip.no_show_charge_pence,
       cancellationFeePence: trip.cancellation_fee_pence,
       outstandingBalancePence: trip.outstanding_balance_pence,
@@ -129,14 +134,22 @@ Deno.serve(async (req) => {
     // Re-read sessions after refresh so outstanding uses latest provider backfill.
     const { data: captureSessions } = await supabase
       .from("payment_sessions")
-      .select("id, purpose, captured_amount_pence, status, provider_state")
-      .eq("trip_id", trip.id)
-      .not("captured_amount_pence", "is", null);
+      .select("id, purpose, captured_amount_pence, refunded_amount_pence, status, provider_state, metadata")
+      .eq("trip_id", trip.id);
 
     let originalCaptured = 0;
     let recoveryCaptured = 0;
+    let refundedTotal = 0;
+    let writeOffTotal = 0;
     for (const s of captureSessions ?? []) {
       const amt = Math.round(Number(s.captured_amount_pence ?? 0));
+      const ref = Math.round(Number(s.refunded_amount_pence ?? 0));
+      if (Number.isFinite(ref) && ref > 0) refundedTotal += ref;
+      const meta = (s.metadata && typeof s.metadata === "object")
+        ? s.metadata as Record<string, unknown>
+        : {};
+      const wo = Math.round(Number(meta.write_off_pence ?? 0));
+      if (Number.isFinite(wo) && wo > 0) writeOffTotal += wo;
       if (!Number.isFinite(amt) || amt <= 0) continue;
       if (String(s.purpose ?? "").toUpperCase() === "PAYMENT_RECOVERY") {
         recoveryCaptured += amt;
@@ -148,11 +161,82 @@ Deno.serve(async (req) => {
     if (originalCaptured <= 0 && Number(trip.capture_amount_pence ?? 0) > 0) {
       originalCaptured = Math.round(Number(trip.capture_amount_pence));
     }
+    if (refundedTotal <= 0 && Number(trip.refund_amount_pence ?? 0) > 0) {
+      refundedTotal = Math.round(Number(trip.refund_amount_pence));
+    }
 
     const outstanding = computeOutstandingBalancePence({
       canonicalPayablePence: payableResolved.payable_pence,
       confirmedCapturePence: originalCaptured,
+      confirmedRefundedPence: refundedTotal,
       confirmedRecoveryCapturePence: recoveryCaptured,
+      approvedWriteOffPence: writeOffTotal,
+    });
+
+    if (action_mode === "write_off") {
+      if (outstanding == null || outstanding <= 0) {
+        return errorResponse("No outstanding balance to write off", 409, undefined, "NO_OUTSTANDING_BALANCE");
+      }
+      const writeOffReason = String(reason ?? "").trim();
+      if (writeOffReason.length < 5) {
+        return errorResponse("Write-off reason required (min 5 chars)", 400, undefined, "WRITE_OFF_REASON_REQUIRED");
+      }
+      const writeOffAmount = amount_pence == null ? outstanding : Math.round(Number(amount_pence));
+      if (!Number.isFinite(writeOffAmount) || writeOffAmount <= 0 || writeOffAmount > outstanding) {
+        return errorResponse("Write-off amount must be > 0 and ≤ outstanding", 400, undefined, "AMOUNT_EXCEEDS_OUTSTANDING");
+      }
+      const nowIso = new Date().toISOString();
+      await supabase.from("trips").update({
+        outstanding_balance_pence: Math.max(0, outstanding - writeOffAmount),
+        updated_at: nowIso,
+      }).eq("id", trip.id);
+      if (parent_session_id) {
+        const { data: parent } = await supabase.from("payment_sessions")
+          .select("metadata")
+          .eq("id", parent_session_id)
+          .maybeSingle();
+        const meta = (parent?.metadata && typeof parent.metadata === "object")
+          ? { ...(parent.metadata as Record<string, unknown>) }
+          : {};
+        meta.write_off_pence = Math.round(Number(meta.write_off_pence ?? 0)) + writeOffAmount;
+        meta.write_off_reason = writeOffReason;
+        meta.write_off_at = nowIso;
+        meta.write_off_by = user.id;
+        meta.outstanding_closed = outstanding - writeOffAmount <= 0;
+        await supabase.from("payment_sessions").update({
+          metadata: meta,
+          updated_at: nowIso,
+        }).eq("id", parent_session_id);
+      }
+      await supabase.from("admin_payment_audit").insert({
+        action: "trip_payment_write_off",
+        trip_id: trip.id,
+        provider: "revolut",
+        provider_payment_id: trip.provider_order_id ?? null,
+        reason: writeOffReason,
+        metadata: {
+          write_off_pence: writeOffAmount,
+          outstanding_before: outstanding,
+          outstanding_after: Math.max(0, outstanding - writeOffAmount),
+          money_moved: false,
+          customer_charged: false,
+        },
+      });
+      return successResponse({
+        success: true,
+        action_mode: "write_off",
+        amount: writeOffAmount,
+        outstanding_pence: Math.max(0, outstanding - writeOffAmount),
+        money_moved: false,
+        customer_charged: false,
+        message: `Wrote off £${(writeOffAmount / 100).toFixed(2)} as ONECAB loss`,
+      });
+    }
+
+    const recoveryIdempotency = buildTripPaymentRecoveryIdempotencyKey({
+      tripId: trip.id,
+      financialVersion: trip.fare_revision_number ?? trip.updated_at ?? "v1",
+      outstandingPence: outstanding ?? 0,
     });
 
     const safety = validateCollectOutstandingOrPaymentLinkAction({
@@ -160,20 +244,12 @@ Deno.serve(async (req) => {
       requestedAmountPence: amount_pence == null ? outstanding : amount_pence,
       alreadyFullyCaptured: outstanding != null && outstanding <= 0,
       zeroChargeCancellation: payableResolved.source === "zero_charge",
-      idempotencyKey: parent_session_id
-        ? `recover:${trip.id}:${parent_session_id}:${outstanding ?? 0}`
-        : `recover:${trip.id}:${outstanding ?? 0}`,
+      idempotencyKey: recoveryIdempotency,
     });
     if (!safety.ok) {
       return errorResponse(safety.message, 409, undefined, safety.error_code);
     }
     const chargePence = safety.charge_pence;
-    if (chargePence < 50) {
-      return errorResponse(
-        "Recovery amount must be >= 50 minor units (provider minimum).",
-        400, undefined, "VALIDATION_FAILED",
-      );
-    }
     if (chargePence < 50) {
       return errorResponse(
         "Recovery amount must be >= 50 minor units (provider minimum).",
@@ -286,17 +362,22 @@ Deno.serve(async (req) => {
           metadata: {
             recovery_reason: "OUTSTANDING_BALANCE",
             recovery_idempotency_key: attemptScope,
+            trip_payment_recovery_idempotency_key: recoveryIdempotency,
             recovery_attempt_number: attemptNumber,
             requested_by_admin_user_id: user.id,
+            recovery_reason_detail: String(reason ?? "").trim() || null,
             final_customer_charge_pence: chargePence,
             outstanding_pence: outstanding,
             canonical_payable_pence: payableResolved.payable_pence,
             payable_source: payableResolved.source,
             original_captured_pence: originalCaptured,
+            original_refunded_pence: refundedTotal,
             recovery_captured_pence: recoveryCaptured,
+            write_off_pence_applied: writeOffTotal,
             action_mode: action_mode === "payment_link" ? "payment_link" : "collect_outstanding",
             payment_link_state: action_mode === "payment_link" ? "CREATED" : null,
             parent_provider_order_preserved: true,
+            driver_wallet_mutation: false,
           },
         })
         .select("id")

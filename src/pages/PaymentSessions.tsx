@@ -60,6 +60,7 @@ import {
   classifyCaptureConfirmation,
   collectOutstandingActionLabel,
   sendPaymentLinkActionLabel,
+  writeOffOutstandingActionLabel,
 } from '../../shared/paymentSessionsCaptureConfirmationSSOT';
 import { isValidConfirmedCapturePence } from '../../shared/paymentCaptureEvidenceSSOT';
 import {
@@ -134,7 +135,10 @@ function SessionActions({
   onAction: (row: AdminPaymentSessionsListRow, action: 'release' | 'retry_release' | 'retry_recovery') => void;
   onRefund: (row: AdminPaymentSessionsListRow) => void;
   onInspect: (row: AdminPaymentSessionsListRow) => void;
-  onRequestRecovery: (row: AdminPaymentSessionsListRow, mode?: 'collect_outstanding' | 'payment_link') => void;
+  onRequestRecovery: (
+    row: AdminPaymentSessionsListRow,
+    mode?: 'collect_outstanding' | 'payment_link' | 'write_off',
+  ) => void;
   onAbandonRecovery: (row: AdminPaymentSessionsListRow) => void;
   onRefreshProvider?: (row: AdminPaymentSessionsListRow) => void;
 }) {
@@ -158,6 +162,7 @@ function SessionActions({
     localCapturedPence: row.captured_amount_pence,
     canonicalPayablePence: row.customer_payable_pence,
     authorisedPence: row.authorised_amount_pence,
+    refundedAmountPence: row.refunded_amount_pence,
     purpose: row.purpose,
   });
   const offerCollectOutstanding = allowedDefined
@@ -165,6 +170,9 @@ function SessionActions({
     : false;
   const offerSendPaymentLink = allowedDefined
     ? allowedActions.has('send_payment_link')
+    : false;
+  const offerWriteOff = allowedDefined
+    ? allowedActions.has('write_off')
     : false;
   const overcaptureRefundRequired =
     captureConfirmation.classification === 'OVERCAPTURED_REFUND_REQUIRED'
@@ -278,6 +286,16 @@ function SessionActions({
             {sendPaymentLinkActionLabel(outstandingForAction)}
           </Button>
         )}
+      {row.trip_id
+        && row.purpose !== 'PAYMENT_RECOVERY'
+        && offerWriteOff
+        && outstandingForAction != null
+        && outstandingForAction > 0
+        && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onRequestRecovery(row, 'write_off')}>
+            {writeOffOutstandingActionLabel(outstandingForAction)}
+          </Button>
+        )}
 
       {row.trip_id && row.purpose === 'PAYMENT_RECOVERY' && (
         <Button size="sm" variant="destructive" disabled={busy} onClick={() => onAbandonRecovery(row)}>
@@ -305,6 +323,9 @@ function SessionActions({
       )}
       {row.action_classification === 'PROVIDER_REFRESH_REQUIRED' && (
         <Badge variant="secondary">Provider refresh required</Badge>
+      )}
+      {row.action_classification === 'RECOVERY_IN_PROGRESS' && (
+        <Badge variant="secondary">Recovery in progress</Badge>
       )}
       {row.releasable_pence != null && row.releasable_pence > 0 && canRelease && (
         <span className="text-[10px] text-muted-foreground self-center">
@@ -365,6 +386,11 @@ export default function PaymentSessions() {
   const [refundRow, setRefundRow] = useState<AdminPaymentSessionsListRow | null>(null);
   const [refundAmountInput, setRefundAmountInput] = useState('');
   const [refundReason, setRefundReason] = useState('');
+  const [recoveryRow, setRecoveryRow] = useState<AdminPaymentSessionsListRow | null>(null);
+  const [recoveryMode, setRecoveryMode] = useState<'collect_outstanding' | 'payment_link' | 'write_off'>('collect_outstanding');
+  const [recoveryAmountInput, setRecoveryAmountInput] = useState('');
+  const [recoveryReason, setRecoveryReason] = useState('Duplicate buffer refund');
+  const [recoveryConfirmBusy, setRecoveryConfirmBusy] = useState(false);
 
   useEffect(() => {
     if (customerIdParam) setCustomerId(customerIdParam);
@@ -684,37 +710,88 @@ export default function PaymentSessions() {
     }
   }, [refundRow, refundAmountInput, refundReason, refundAction, refetch]);
 
-  const runRequestRecovery = useCallback(
-    async (
+  const openRecoverySheet = useCallback(
+    (
       row: AdminPaymentSessionsListRow,
-      mode: 'collect_outstanding' | 'payment_link' = 'collect_outstanding',
+      mode: 'collect_outstanding' | 'payment_link' | 'write_off' = 'collect_outstanding',
     ) => {
-      if (!row.trip_id) {
-        toast.error('Trip id is required to open a recovery payment');
-        return;
-      }
       const confirmation = classifyCaptureConfirmation({
         providerState: row.provider_state,
         providerCapturedPence: row.captured_amount_pence,
         localCapturedPence: row.captured_amount_pence,
         canonicalPayablePence: row.customer_payable_pence,
         authorisedPence: row.authorised_amount_pence,
+        refundedAmountPence: row.refunded_amount_pence,
         purpose: row.purpose,
       });
-      const outstanding = confirmation.outstanding_pence;
-      if (outstanding == null || outstanding <= 0) {
+      const outstanding = row.outstanding_pence ?? confirmation.outstanding_pence ?? 0;
+      if (outstanding <= 0) {
+        toast.error('No outstanding balance — recovery is not required');
+        return;
+      }
+      setRecoveryMode(mode);
+      setRecoveryRow(row);
+      setRecoveryAmountInput((outstanding / 100).toFixed(2));
+      setRecoveryReason(
+        mode === 'write_off'
+          ? 'Absorb as ONECAB loss'
+          : 'Duplicate buffer refund',
+      );
+    },
+    [],
+  );
+
+  const runRequestRecovery = useCallback(
+    async () => {
+      if (!recoveryRow?.trip_id) {
+        toast.error('Trip id is required to open a recovery payment');
+        return;
+      }
+      const confirmation = classifyCaptureConfirmation({
+        providerState: recoveryRow.provider_state,
+        providerCapturedPence: recoveryRow.captured_amount_pence,
+        localCapturedPence: recoveryRow.captured_amount_pence,
+        canonicalPayablePence: recoveryRow.customer_payable_pence,
+        authorisedPence: recoveryRow.authorised_amount_pence,
+        refundedAmountPence: recoveryRow.refunded_amount_pence,
+        purpose: recoveryRow.purpose,
+      });
+      const maxOutstanding = recoveryRow.outstanding_pence
+        ?? confirmation.outstanding_pence
+        ?? 0;
+      if (maxOutstanding <= 0) {
         toast.error('No outstanding balance to collect — full-fare recapture is blocked');
         return;
       }
-      const actionKey = row.provider_order_id || row.payment_session_id || row.id;
+      const requestedMajor = Number(recoveryAmountInput);
+      if (!Number.isFinite(requestedMajor) || requestedMajor <= 0) {
+        toast.error('Enter a valid recovery amount');
+        return;
+      }
+      const requestedPence = Math.round(requestedMajor * 100);
+      if (requestedPence > maxOutstanding) {
+        toast.error('Recovery amount cannot exceed outstanding balance');
+        return;
+      }
+      if (recoveryMode === 'write_off' && recoveryReason.trim().length < 5) {
+        toast.error('Write-off reason required (min 5 chars)');
+        return;
+      }
+      if (requestedPence < maxOutstanding && recoveryReason.trim().length < 5) {
+        toast.error('Partial recovery requires a reason');
+        return;
+      }
+      const actionKey = recoveryRow.provider_order_id || recoveryRow.payment_session_id || recoveryRow.id;
       setActingId(actionKey);
+      setRecoveryConfirmBusy(true);
       try {
         const { data, error } = await supabase.functions.invoke('create-payment-recovery', {
           body: {
-            trip_id: row.trip_id,
-            parent_session_id: row.payment_session_id ?? null,
-            amount_pence: outstanding,
-            action_mode: mode,
+            trip_id: recoveryRow.trip_id,
+            parent_session_id: recoveryRow.payment_session_id ?? null,
+            amount_pence: requestedPence,
+            action_mode: recoveryMode,
+            reason: recoveryReason.trim(),
           },
         });
         if (error) throw error;
@@ -725,35 +802,46 @@ export default function PaymentSessions() {
           message?: string;
           amount?: number;
           outstanding_pence?: number;
+          customer_charged?: boolean;
+          action_mode?: string;
         };
         if (payload.already_completed) {
           toast.success(payload.message ?? 'Recovery payment is already completed; no duplicate charge was created');
+          setRecoveryRow(null);
+          await refetch();
+          return;
+        }
+        if (recoveryMode === 'write_off') {
+          toast.success(payload.message ?? `Wrote off £${(requestedPence / 100).toFixed(2)}`);
+          setRecoveryRow(null);
           await refetch();
           return;
         }
         if (payload.checkout_url) {
           try { await navigator.clipboard.writeText(payload.checkout_url); } catch { /* ignore */ }
           toast.success(
-            mode === 'payment_link'
+            recoveryMode === 'payment_link'
               ? (payload.reused
                 ? 'Existing payment link copied — charges outstanding only'
-                : `Payment link for £${((payload.amount ?? outstanding) / 100).toFixed(2)} created and copied`)
+                : `Payment link for £${((payload.amount ?? requestedPence) / 100).toFixed(2)} created and copied`)
               : (payload.reused
                 ? 'Existing recovery link copied — outstanding only'
-                : `Collect Outstanding £${((payload.amount ?? outstanding) / 100).toFixed(2)} link created and copied`),
+                : `Recover Outstanding £${((payload.amount ?? requestedPence) / 100).toFixed(2)} link created and copied`),
           );
           window.open(payload.checkout_url, '_blank', 'noopener');
         } else {
           toast.success('Recovery session created for outstanding balance only');
         }
+        setRecoveryRow(null);
         await refetch();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Recovery request failed');
       } finally {
         setActingId(null);
+        setRecoveryConfirmBusy(false);
       }
     },
-    [refetch],
+    [recoveryRow, recoveryAmountInput, recoveryReason, recoveryMode, refetch],
   );
 
   const runAbandonRecovery = useCallback(
@@ -1549,7 +1637,7 @@ export default function PaymentSessions() {
                                   onAction={runAction}
                                   onRefund={openRefundSheet}
                                   onInspect={runInspect}
-                                  onRequestRecovery={runRequestRecovery}
+                                  onRequestRecovery={openRecoverySheet}
                                   onAbandonRecovery={runAbandonRecovery}
                                   onRefreshProvider={() => {
                                     setRefreshProviderState(true);
@@ -1788,6 +1876,134 @@ export default function PaymentSessions() {
               {actingId != null
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : 'Confirm refund'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={recoveryRow != null}
+        onOpenChange={(open) => {
+          if (!open && !recoveryConfirmBusy && actingId == null) {
+            setRecoveryRow(null);
+            setRecoveryAmountInput('');
+            setRecoveryReason('Duplicate buffer refund');
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {recoveryMode === 'write_off'
+                ? 'Write off outstanding'
+                : recoveryMode === 'payment_link'
+                  ? 'Send payment link'
+                  : 'Recover outstanding'}
+            </DialogTitle>
+            <DialogDescription>
+              Review the exact amount before confirming. Recovery never charges the full fare again.
+            </DialogDescription>
+          </DialogHeader>
+          {(() => {
+            const confirmation = recoveryRow
+              ? classifyCaptureConfirmation({
+                providerState: recoveryRow.provider_state,
+                providerCapturedPence: recoveryRow.captured_amount_pence,
+                localCapturedPence: recoveryRow.captured_amount_pence,
+                canonicalPayablePence: recoveryRow.customer_payable_pence,
+                authorisedPence: recoveryRow.authorised_amount_pence,
+                refundedAmountPence: recoveryRow.refunded_amount_pence,
+                purpose: recoveryRow.purpose,
+              })
+              : null;
+            const outstanding = recoveryRow?.outstanding_pence
+              ?? confirmation?.outstanding_pence
+              ?? 0;
+            const alreadyPaid = Math.max(
+              0,
+              (recoveryRow?.customer_payable_pence ?? 0) - outstanding,
+            );
+            const requestedMajor = Number(recoveryAmountInput);
+            const requestedPence = Number.isFinite(requestedMajor)
+              ? Math.round(requestedMajor * 100)
+              : outstanding;
+            const remainingAfter = Math.max(0, outstanding - requestedPence);
+            return (
+              <div className="space-y-3 text-sm">
+                <div className="rounded-md border bg-muted/30 p-3 space-y-1 text-xs">
+                  <div>Trip: {recoveryRow?.trip_code ?? recoveryRow?.trip_id ?? '—'}</div>
+                  <div>
+                    Canonical payable:{' '}
+                    {formatNullablePence(recoveryRow?.customer_payable_pence ?? null)}
+                  </div>
+                  <div>Already paid: {formatNullablePence(alreadyPaid)}</div>
+                  <div className="font-medium text-amber-800">
+                    Outstanding: {formatNullablePence(outstanding)}
+                  </div>
+                  <div>
+                    Action:{' '}
+                    {recoveryMode === 'write_off'
+                      ? `Absorb £${(requestedPence / 100).toFixed(2)} as ONECAB loss`
+                      : `Charge customer £${(requestedPence / 100).toFixed(2)}`}
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="ps-recovery-amount">
+                    {recoveryMode === 'write_off' ? 'Write-off amount (GBP)' : 'Recovery amount (GBP)'}
+                  </Label>
+                  <Input
+                    id="ps-recovery-amount"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={(outstanding / 100).toFixed(2)}
+                    inputMode="decimal"
+                    value={recoveryAmountInput}
+                    onChange={(e) => setRecoveryAmountInput(e.target.value)}
+                    disabled={recoveryConfirmBusy || actingId != null}
+                  />
+                  {remainingAfter > 0 && requestedPence < outstanding && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Remaining outstanding after this action: {formatNullablePence(remainingAfter)}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <Label htmlFor="ps-recovery-reason">Reason</Label>
+                  <Textarea
+                    id="ps-recovery-reason"
+                    rows={2}
+                    value={recoveryReason}
+                    onChange={(e) => setRecoveryReason(e.target.value)}
+                    disabled={recoveryConfirmBusy || actingId != null}
+                  />
+                </div>
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={recoveryConfirmBusy || actingId != null}
+              onClick={() => {
+                setRecoveryRow(null);
+                setRecoveryAmountInput('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={recoveryMode === 'write_off' ? 'secondary' : 'default'}
+              disabled={recoveryConfirmBusy || actingId != null}
+              onClick={() => void runRequestRecovery()}
+            >
+              {recoveryConfirmBusy || actingId != null
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : recoveryMode === 'write_off'
+                  ? `Confirm Write Off £${(Number(recoveryAmountInput) || 0).toFixed(2)}`
+                  : recoveryMode === 'payment_link'
+                    ? `Confirm Payment Link £${(Number(recoveryAmountInput) || 0).toFixed(2)}`
+                    : `Confirm £${(Number(recoveryAmountInput) || 0).toFixed(2)} Recovery`}
             </Button>
           </DialogFooter>
         </DialogContent>
