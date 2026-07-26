@@ -10514,7 +10514,9 @@ export type Database = {
           admin_joined_at: string | null
           admin_last_read_message_at: string | null
           admin_viewed_at: string | null
+          cancelled_at: string | null
           case_number: string
+          case_origin: string
           chat_enabled: boolean
           chat_expires_at: string
           chat_lock_reason: string | null
@@ -10529,10 +10531,14 @@ export type Database = {
           driver_photos: string[] | null
           driver_responded_at: string | null
           found_item_photos: string[] | null
+          found_location: string | null
           id: string
+          item_brand: string | null
           item_category: string
+          item_colour: string | null
           item_description: string
           item_found_at: string | null
+          item_name: string | null
           photos: string[] | null
           photos_delete_at: string | null
           photos_hidden_at: string | null
@@ -10549,7 +10555,9 @@ export type Database = {
           admin_joined_at?: string | null
           admin_last_read_message_at?: string | null
           admin_viewed_at?: string | null
+          cancelled_at?: string | null
           case_number: string
+          case_origin?: string
           chat_enabled?: boolean
           chat_expires_at?: string
           chat_lock_reason?: string | null
@@ -10564,10 +10572,14 @@ export type Database = {
           driver_photos?: string[] | null
           driver_responded_at?: string | null
           found_item_photos?: string[] | null
+          found_location?: string | null
           id?: string
+          item_brand?: string | null
           item_category: string
+          item_colour?: string | null
           item_description: string
           item_found_at?: string | null
+          item_name?: string | null
           photos?: string[] | null
           photos_delete_at?: string | null
           photos_hidden_at?: string | null
@@ -10584,7 +10596,9 @@ export type Database = {
           admin_joined_at?: string | null
           admin_last_read_message_at?: string | null
           admin_viewed_at?: string | null
+          cancelled_at?: string | null
           case_number?: string
+          case_origin?: string
           chat_enabled?: boolean
           chat_expires_at?: string
           chat_lock_reason?: string | null
@@ -10599,10 +10613,14 @@ export type Database = {
           driver_photos?: string[] | null
           driver_responded_at?: string | null
           found_item_photos?: string[] | null
+          found_location?: string | null
           id?: string
+          item_brand?: string | null
           item_category?: string
+          item_colour?: string | null
           item_description?: string
           item_found_at?: string | null
+          item_name?: string | null
           photos?: string[] | null
           photos_delete_at?: string | null
           photos_hidden_at?: string | null
@@ -16506,6 +16524,7 @@ export type Database = {
           country: string | null
           created_at: string
           currency_code: string | null
+          customer_location_stale_after_seconds: number
           customer_payment_gateway: string | null
           customer_payment_policy: Database["public"]["Enums"]["customer_payment_policy"]
           display_order: number
@@ -16549,6 +16568,7 @@ export type Database = {
           country?: string | null
           created_at?: string
           currency_code?: string | null
+          customer_location_stale_after_seconds?: number
           customer_payment_gateway?: string | null
           customer_payment_policy?: Database["public"]["Enums"]["customer_payment_policy"]
           display_order?: number
@@ -16592,6 +16612,7 @@ export type Database = {
           country?: string | null
           created_at?: string
           currency_code?: string | null
+          customer_location_stale_after_seconds?: number
           customer_payment_gateway?: string | null
           customer_payment_policy?: Database["public"]["Enums"]["customer_payment_policy"]
           display_order?: number
@@ -22897,6 +22918,10 @@ export type Database = {
         Args: { p_corporate_account_id: string; p_user_id: string }
         Returns: boolean
       }
+      cancel_driver_own_lost_property_report: {
+        Args: { p_report_id: string }
+        Returns: Json
+      }
       canonical_trip_terminal_stop_reason: {
         Args: {
           p_cancel_reason: string
@@ -23291,6 +23316,14 @@ export type Database = {
         }
         Returns: number
       }
+      driver_lost_property_display_status: {
+        Args: { p_collected_at: string; p_status: string }
+        Returns: string
+      }
+      driver_lost_property_public_trip_ref: {
+        Args: { p_trip_id: string }
+        Returns: string
+      }
       driver_passes_commission_wallet_dispatch_gate: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: boolean
@@ -23520,10 +23553,13 @@ export type Database = {
         Args: { p_driver_lat: number; p_driver_lng: number; p_trip_id: string }
         Returns: {
           accuracy: number
+          expires_at: string
           heading: number
+          is_fresh: boolean
           latitude: number
           longitude: number
           speed: number
+          stale_after_seconds: number
           updated_at: string
         }[]
       }
@@ -23643,6 +23679,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      get_driver_active_trip_snapshot: { Args: never; Returns: Json }
       get_driver_document_compliance: {
         Args: { _driver_id?: string }
         Returns: {
@@ -23686,6 +23723,14 @@ export type Database = {
           total_pence: number
         }[]
       }
+      get_driver_own_lost_property_report: {
+        Args: { p_report_id: string }
+        Returns: Json
+      }
+      get_driver_own_lost_property_summary_counts: {
+        Args: never
+        Returns: Json
+      }
       get_driver_own_profile_contact: {
         Args: { p_driver_id?: string }
         Returns: Json
@@ -23696,6 +23741,7 @@ export type Database = {
         Returns: Json
       }
       get_driver_pending_ride_offers: { Args: never; Returns: Json }
+      get_driver_queued_trips: { Args: never; Returns: Json }
       get_driver_resume_delta: {
         Args: {
           p_known_active_trip_id?: string
@@ -23966,6 +24012,14 @@ export type Database = {
         Returns: boolean
       }
       list_driver_own_demand_zones: { Args: never; Returns: Json }
+      list_driver_own_lost_property_eligible_trips: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      list_driver_own_lost_property_reports: {
+        Args: { p_before?: string; p_limit?: number }
+        Returns: Json
+      }
       list_driver_own_scheduled_jobs: {
         Args: { p_tab?: string }
         Returns: Json
