@@ -31,9 +31,14 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  await supabase.storage.updateBucket("alert-sounds", {
+    public: true,
+    allowedMimeTypes: ["audio/wav", "audio/x-wav", "audio/wave"],
+  });
+
   const { data, error } = await supabase.storage
     .from("alert-sounds")
-    .createSignedUploadUrl(path);
+    .createSignedUploadUrl(path, { upsert: true });
 
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), {
