@@ -1,0 +1,1 @@
+DELETE FROM public.alert_sound_mappings WHERE target_app = 'driver' AND event_type = 'stacked_ride_offer';
