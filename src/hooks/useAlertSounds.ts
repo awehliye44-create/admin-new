@@ -41,7 +41,7 @@ export const CUSTOMER_EVENT_TYPES = [
   { value: 'trip_completed', label: 'Trip Completed' },
   { value: 'trip_cancelled', label: 'Trip Cancelled' },
   { value: 'message_received', label: 'Message Received' },
-  { value: 'payment_status', label: 'Payment Status' },
+  
   { value: 'general_notification', label: 'General Notification' },
 ] as const;
 
