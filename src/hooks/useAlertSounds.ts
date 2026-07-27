@@ -31,9 +31,7 @@ export interface AlertSoundMapping {
 export const DRIVER_EVENT_TYPES = [
   { value: 'new_ride_offer', label: 'New Ride Offer' },
   { value: 'trip_cancelled', label: 'Trip Cancelled' },
-  { value: 'payment_received', label: 'Payment Received' },
   { value: 'message_received', label: 'Message Received' },
-  { value: 'warning', label: 'Warning' },
 ] as const;
 
 export const CUSTOMER_EVENT_TYPES = [
@@ -43,7 +41,7 @@ export const CUSTOMER_EVENT_TYPES = [
   { value: 'trip_completed', label: 'Trip Completed' },
   { value: 'trip_cancelled', label: 'Trip Cancelled' },
   { value: 'message_received', label: 'Message Received' },
-  { value: 'payment_status', label: 'Payment Status' },
+  
   { value: 'general_notification', label: 'General Notification' },
 ] as const;
 
