@@ -705,45 +705,57 @@ export type Database = {
           call_end: string | null
           call_start: string
           caller_e164: string
+          connected_at: string | null
           created_at: string
           destination_e164: string
           disconnect_reason: string | null
           duration_seconds: number | null
+          expires_at: string | null
           id: string
+          idempotency_key: string | null
           msg91_request_id: string | null
           msg91_uuid: string | null
           session_id: string
           status: string
+          termination_attempted_at: string | null
         }
         Insert: {
           booking_id: string
           call_end?: string | null
           call_start?: string
           caller_e164: string
+          connected_at?: string | null
           created_at?: string
           destination_e164: string
           disconnect_reason?: string | null
           duration_seconds?: number | null
+          expires_at?: string | null
           id?: string
+          idempotency_key?: string | null
           msg91_request_id?: string | null
           msg91_uuid?: string | null
           session_id: string
           status?: string
+          termination_attempted_at?: string | null
         }
         Update: {
           booking_id?: string
           call_end?: string | null
           call_start?: string
           caller_e164?: string
+          connected_at?: string | null
           created_at?: string
           destination_e164?: string
           disconnect_reason?: string | null
           duration_seconds?: number | null
+          expires_at?: string | null
           id?: string
+          idempotency_key?: string | null
           msg91_request_id?: string | null
           msg91_uuid?: string | null
           session_id?: string
           status?: string
+          termination_attempted_at?: string | null
         }
         Relationships: [
           {
@@ -10476,6 +10488,44 @@ export type Database = {
           },
         ]
       }
+      livekit_webhook_events: {
+        Row: {
+          call_log_id: string | null
+          created_at: string
+          event_id: string
+          event_type: string
+          id: string
+          processed_at: string
+          room_name: string | null
+        }
+        Insert: {
+          call_log_id?: string | null
+          created_at?: string
+          event_id: string
+          event_type: string
+          id?: string
+          processed_at?: string
+          room_name?: string | null
+        }
+        Update: {
+          call_log_id?: string | null
+          created_at?: string
+          event_id?: string
+          event_type?: string
+          id?: string
+          processed_at?: string
+          room_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "livekit_webhook_events_call_log_id_fkey"
+            columns: ["call_log_id"]
+            isOneToOne: false
+            referencedRelation: "voip_call_logs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       location_search_rollout: {
         Row: {
           debounce_ms: number
@@ -15734,6 +15784,7 @@ export type Database = {
         Row: {
           broadcast_round: number
           created_at: string
+          decline_reason: string | null
           driver_id: string
           id: string
           responded_at: string | null
@@ -15745,6 +15796,7 @@ export type Database = {
         Insert: {
           broadcast_round?: number
           created_at?: string
+          decline_reason?: string | null
           driver_id: string
           id?: string
           responded_at?: string | null
@@ -15756,6 +15808,7 @@ export type Database = {
         Update: {
           broadcast_round?: number
           created_at?: string
+          decline_reason?: string | null
           driver_id?: string
           id?: string
           responded_at?: string | null
@@ -20344,45 +20397,75 @@ export type Database = {
       }
       voip_call_logs: {
         Row: {
+          connected_at: string | null
           created_at: string
           customer_id: string | null
           driver_id: string | null
           duration_seconds: number | null
           end_reason: string | null
           ended_at: string | null
+          expires_at: string | null
           id: string
+          idempotency_key: string | null
+          incoming_push_sent_at: string | null
+          initiator_role: string | null
+          initiator_user_id: string | null
+          participants_joined: number
           provider: string
+          provider_room_sid: string | null
+          room_name: string | null
           service_area_id: string | null
           started_at: string
           status: string
+          termination_attempted_at: string | null
           trip_id: string | null
         }
         Insert: {
+          connected_at?: string | null
           created_at?: string
           customer_id?: string | null
           driver_id?: string | null
           duration_seconds?: number | null
           end_reason?: string | null
           ended_at?: string | null
+          expires_at?: string | null
           id?: string
+          idempotency_key?: string | null
+          incoming_push_sent_at?: string | null
+          initiator_role?: string | null
+          initiator_user_id?: string | null
+          participants_joined?: number
           provider?: string
+          provider_room_sid?: string | null
+          room_name?: string | null
           service_area_id?: string | null
           started_at?: string
           status?: string
+          termination_attempted_at?: string | null
           trip_id?: string | null
         }
         Update: {
+          connected_at?: string | null
           created_at?: string
           customer_id?: string | null
           driver_id?: string | null
           duration_seconds?: number | null
           end_reason?: string | null
           ended_at?: string | null
+          expires_at?: string | null
           id?: string
+          idempotency_key?: string | null
+          incoming_push_sent_at?: string | null
+          initiator_role?: string | null
+          initiator_user_id?: string | null
+          participants_joined?: number
           provider?: string
+          provider_room_sid?: string | null
+          room_name?: string | null
           service_area_id?: string | null
           started_at?: string
           status?: string
+          termination_attempted_at?: string | null
           trip_id?: string | null
         }
         Relationships: [
@@ -23153,7 +23236,7 @@ export type Database = {
             Returns: Json
           }
       decline_scheduled_ride: {
-        Args: { p_driver_id?: string; p_trip_id: string }
+        Args: { p_driver_id?: string; p_reason?: string; p_trip_id: string }
         Returns: Json
       }
       detect_driver_commitment_monitoring: { Args: never; Returns: undefined }
@@ -23918,6 +24001,10 @@ export type Database = {
           p_stripe_transfer_id: string
         }
         Returns: string
+      }
+      invoke_trip_communication_timeout_sweep: {
+        Args: never
+        Returns: undefined
       }
       invoke_weekly_payout_scheduler: { Args: never; Returns: undefined }
       is_active_driver_cancel_rematch_row: {
