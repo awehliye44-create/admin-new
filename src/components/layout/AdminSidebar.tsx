@@ -45,7 +45,6 @@ import {
   FileEdit,
   Palette,
   Plug,
-  Webhook,
   Server,
   Shield,
   Bell,
