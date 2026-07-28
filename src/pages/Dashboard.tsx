@@ -43,7 +43,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
-import { preloadMarkerImage } from '@/lib/mapMarkers';
+import { preloadMarkerImage, createCarMarkerElement, type DriverMarkerStatus } from '@/lib/mapMarkers';
+import { isValidUkCoord } from '@/lib/mapBounds';
+
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
