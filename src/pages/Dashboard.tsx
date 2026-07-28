@@ -277,9 +277,13 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
       detachResize?.();
+      fleetMarkersRef.current.forEach((m) => m.remove());
+      fleetMarkersRef.current.clear();
+      hasFittedFleetRef.current = false;
       mapboxMapRef.current?.remove();
       mapboxMapRef.current = null;
       setIsMapLoaded(false);
+
     };
   }, [mapboxReady]);
 
