@@ -226,6 +226,9 @@ export default function Dashboard() {
   const mapInitError = mapboxError ?? mapError;
   const mapRef = useRef<HTMLDivElement>(null);
   const mapboxMapRef = useRef<mapboxgl.Map | null>(null);
+  const fleetMarkersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
+  const hasFittedFleetRef = useRef(false);
+
 
   // Preload marker image
   useEffect(() => {
