@@ -97,6 +97,19 @@ interface Driver {
   current_trip_id: string | null;
 }
 
+interface LiveFleetDriver {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  is_online: boolean;
+  current_lat: number | null;
+  current_lng: number | null;
+  heading: number | null;
+  current_trip_id: string | null;
+  last_location_updated_at: string | null;
+}
+
+
 interface BookingDataPoint {
   label: string;
   completed: number;
