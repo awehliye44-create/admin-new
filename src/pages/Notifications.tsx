@@ -136,7 +136,7 @@ const TARGET_AUDIENCES = [
 ];
 
 export default function Notifications() {
-  const [activeTab, setActiveTab] = useState('notifications');
+  const [activeTab, setActiveTab] = useState('templates');
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [templates, setTemplates] = useState<NotificationTemplate[]>([]);
   const [settings, setSettings] = useState<NotificationSetting[]>([]);
