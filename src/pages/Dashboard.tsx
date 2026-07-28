@@ -384,11 +384,90 @@ export default function Dashboard() {
     refetchIntervalInBackground: false,
   });
 
+  // ─── LIVE FLEET MAP — online drivers with GPS (short poll, map only) ───
+  const { data: liveDrivers = [] } = useQuery({
+    queryKey: ['dashboard-live-drivers'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('drivers')
+        .select('id, first_name, last_name, is_online, current_lat, current_lng, heading, current_trip_id, last_location_updated_at')
+        .eq('is_online', true)
+        .not('current_lat', 'is', null)
+        .not('current_lng', 'is', null);
+      if (error) throw error;
+      return (data || []) as LiveFleetDriver[];
+    },
+    staleTime: 15_000,
+    refetchInterval: () => (isAdminPageLiveActive() ? 20_000 : false),
+    refetchIntervalInBackground: false,
+  });
+
+  // Render / update driver markers on the live fleet map
+  useEffect(() => {
+    const map = mapboxMapRef.current;
+    if (!map || !isMapLoaded) return;
+
+    const seen = new Set<string>();
+    const bounds = new mapboxgl.LngLatBounds();
+    let hasPoint = false;
+
+    for (const driver of liveDrivers) {
+      const lat = driver.current_lat;
+      const lng = driver.current_lng;
+      if (lat == null || lng == null || !isValidUkCoord(lng, lat)) continue;
+
+      seen.add(driver.id);
+      hasPoint = true;
+      bounds.extend([lng, lat]);
+
+      const staleMs = driver.last_location_updated_at
+        ? Date.now() - new Date(driver.last_location_updated_at).getTime()
+        : 0;
+      const status: DriverMarkerStatus = driver.current_trip_id
+        ? 'on_trip'
+        : staleMs > 120_000
+          ? 'stale'
+          : 'live';
+
+      const existing = fleetMarkersRef.current.get(driver.id);
+      if (existing) {
+        existing.setLngLat([lng, lat]);
+        existing.setRotation(driver.heading || 0);
+        continue;
+      }
+
+      const el = createCarMarkerElement(32, status);
+      el.title = `${driver.first_name ?? ''} ${driver.last_name ?? ''}`.trim();
+      const marker = new mapboxgl.Marker({
+        element: el,
+        rotation: driver.heading || 0,
+        rotationAlignment: 'map',
+      })
+        .setLngLat([lng, lat])
+        .addTo(map);
+      fleetMarkersRef.current.set(driver.id, marker);
+    }
+
+    // Remove markers for drivers no longer live
+    fleetMarkersRef.current.forEach((marker, id) => {
+      if (!seen.has(id)) {
+        marker.remove();
+        fleetMarkersRef.current.delete(id);
+      }
+    });
+
+    if (hasPoint && !hasFittedFleetRef.current) {
+      hasFittedFleetRef.current = true;
+      map.fitBounds(bounds, { padding: 64, maxZoom: 14, duration: 600 });
+    }
+  }, [liveDrivers, isMapLoaded]);
 
   const stats = dashData?.stats || { totalDrivers: 0, onlineDrivers: 0, offlineDrivers: 0, pendingDrivers: 0, inactiveDrivers: 0, totalRiders: 0, totalTrips: 0, activeTrips: 0, inProgressTrips: 0, completedTrips: 0, cancelledTrips: 0 };
   const drivers = dashData?.drivers || [];
   const recentTrips = dashData?.recentTrips || [];
   const bookingChartData = dashData?.bookingChartData || [];
+
+
 
   const driverChartData = [
     { name: 'Total Drivers', value: stats.totalDrivers, color: '#3B82F6' },
