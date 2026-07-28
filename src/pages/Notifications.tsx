@@ -641,11 +641,8 @@ export default function Notifications() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4">
-          <TabsTrigger value="notifications" className="flex items-center gap-2">
-            <Bell className="h-4 w-4" />
-            Notifications
-          </TabsTrigger>
           <TabsTrigger value="templates" className="flex items-center gap-2">
+
             <FileText className="h-4 w-4" />
             Templates
           </TabsTrigger>
