@@ -23054,6 +23054,10 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      admin_save_driver_special_offer: {
+        Args: { p_offer: Json; p_service_area_ids?: string[] }
+        Returns: string
+      }
       admin_user_directory: {
         Args: never
         Returns: {
