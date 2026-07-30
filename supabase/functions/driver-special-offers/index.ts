@@ -20,7 +20,10 @@ const json = (body: unknown, status = 200) =>
 
 /**
  * Driver Special Offers feed (banner + list) for the Driver Expo app.
- * Eligibility is applied on the backend — the app never downloads ineligible offers.
+ *
+ * Geographic scoping is resolved on the BACKEND from the canonical SSOT:
+ *   drivers.service_area_id -> service_areas.is_active / service_areas.region_id
+ * The app never downloads ineligible offers and never filters by city name.
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -46,6 +49,20 @@ Deno.serve(async (req) => {
     if (driverErr) throw driverErr;
     if (!driver) return json({ error: "DRIVER_PROFILE_REQUIRED" }, 403);
 
+    // Canonical service-area resolution. No GPS, no city text, no app-side cache.
+    let areaActive = false;
+    let driverRegionId: string | null = null;
+    if (driver.service_area_id) {
+      const { data: area, error: areaErr } = await admin
+        .from("service_areas")
+        .select("id, is_active, region_id")
+        .eq("id", driver.service_area_id)
+        .maybeSingle();
+      if (areaErr) throw areaErr;
+      areaActive = area?.is_active === true;
+      driverRegionId = areaActive ? (area?.region_id ?? null) : null;
+    }
+
     let tierName: string | null = null;
     if (driver.category_id) {
       const { data: cat } = await admin
@@ -65,19 +82,24 @@ Deno.serve(async (req) => {
 
     const offerIds = (offers ?? []).map((o: { id: string }) => o.id);
     const areaMap: OfferAreaMap = {};
-    if (offerIds.length) {
+    if (offerIds.length && driver.service_area_id && areaActive) {
+      // Only ACTIVE service-area assignments count.
       const { data: links, error: linkErr } = await admin
         .from("driver_special_offer_service_areas")
-        .select("offer_id, service_area_id")
-        .in("offer_id", offerIds);
+        .select("offer_id, service_area_id, service_areas!inner(is_active)")
+        .in("offer_id", offerIds)
+        .eq("service_area_id", driver.service_area_id)
+        .eq("service_areas.is_active", true);
       if (linkErr) throw linkErr;
-      for (const l of links ?? []) {
+      for (const l of (links ?? []) as Array<{ offer_id: string; service_area_id: string }>) {
         (areaMap[l.offer_id] ??= []).push(l.service_area_id);
       }
     }
 
     const context: DriverEligibilityContext = {
       service_area_id: driver.service_area_id ?? null,
+      service_area_active: areaActive,
+      region_id: driverRegionId,
       total_trips: driver.total_trips ?? 0,
       tier_name: tierName,
       created_at: driver.created_at ?? null,
@@ -115,6 +137,7 @@ Deno.serve(async (req) => {
       offers: sanitised,
       empty: sanitised.length === 0,
       empty_copy: payload.empty_copy,
+      resolved_service_area_id: areaActive ? driver.service_area_id : null,
     });
   } catch (e) {
     return json({ error: (e as Error).message }, 500);
