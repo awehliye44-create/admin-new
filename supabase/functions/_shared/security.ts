@@ -22,6 +22,9 @@ export const nativeAppCorsHeaders: Record<string, string> = {
   "Access-Control-Allow-Headers": NATIVE_APP_CORS_ALLOW_HEADERS,
 };
 
+/** @deprecated Prefer nativeAppCorsHeaders — kept so older Edge imports do not boot-crash. */
+export const corsHeaders = nativeAppCorsHeaders;
+
 export const securityHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': NATIVE_APP_CORS_ALLOW_HEADERS,

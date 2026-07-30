@@ -179,6 +179,9 @@ verify_jwt = false
 [functions.get-preset-offers]
 verify_jwt = false
 
+[functions.get-active-offer]
+verify_jwt = false
+
 [functions.admin-delete-account]
 verify_jwt = false
 
@@ -234,3 +237,22 @@ verify_jwt = false
 
 [functions.trip-communication-staging-verify]
 verify_jwt = false
+
+# Customer JWT — Google Pay token submit (native sheet → Revolut pay-for-order).
+# verify_jwt must stay true; never treat submit as authorised_hold.
+[functions.submit-revolut-google-pay]
+verify_jwt = true
+
+# Customer JWT — Revolut publishable pk_ for native SDK configure (never sk_).
+# Manual JWT inside function (same pattern as create-preauth-payment-intent).
+[functions.get-revolut-checkout-client-config]
+verify_jwt = false
+
+[functions.list-revolut-saved-cards]
+verify_jwt = true
+
+[functions.setup-revolut-card]
+verify_jwt = true
+
+[functions.delete-revolut-saved-card]
+verify_jwt = true

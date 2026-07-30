@@ -1,7 +1,8 @@
 // Revolut Merchant Orders API wrapper used by customer-checkout edge functions.
 // All amounts are integer minor units (e.g. pence) — Revolut's Orders API
 // (versions 2024-09-01+) accepts and returns amounts as integer minor units.
-import { revolutMerchantRequest } from "./revolutApi.ts";
+import { revolutMerchantRequest, validateRevolutMerchantSecret } from "./revolutApi.ts";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 
 export type RevolutOrderState =
@@ -93,6 +94,49 @@ export async function captureRevolutOrder(
   );
 }
 
+export type GooglePayBillingAddress = {
+  street_line_1?: string;
+  street_line_2?: string;
+  region?: string;
+  city?: string;
+  country_code?: string;
+  postcode?: string;
+};
+
+/**
+ * Pay an existing Revolut order with a Google Pay encrypted token.
+ * Server-side only — never call from the mobile app with a secret key.
+ */
+export async function payRevolutOrderWithGooglePay(args: {
+  environment: ProviderEnvironment;
+  secretKey: string;
+  orderId: string;
+  googlePayToken: string;
+  cardholderName?: string | null;
+  billingAddress?: GooglePayBillingAddress | null;
+}): Promise<RevolutOrder> {
+  const paymentMethod: Record<string, unknown> = {
+    type: "google_pay",
+    token: args.googlePayToken,
+  };
+  if (args.cardholderName) {
+    paymentMethod.cardholder_name = args.cardholderName;
+  }
+  if (args.billingAddress) {
+    paymentMethod.billing_address = args.billingAddress;
+  }
+
+  return await revolutMerchantRequest<RevolutOrder>(
+    args.environment,
+    args.secretKey,
+    `/orders/${args.orderId}/payments`,
+    {
+      method: "POST",
+      body: JSON.stringify({ payment_method: paymentMethod }),
+    },
+  );
+}
+
 /** Cancel an authorised-but-uncaptured order (releases customer hold). */
 export async function cancelRevolutOrder(
   environment: ProviderEnvironment,
@@ -141,6 +185,29 @@ export function getRevolutMerchantConfig(): {
   if (!key) throw new Error("Revolut merchant secret key is not configured (REVOLUT_MERCHANT_SECRET_KEY)");
   const environment: ProviderEnvironment = key.startsWith("sk_sandbox") ? "sandbox" : "live";
   return { secretKey: key, environment };
+}
+
+/**
+ * Prefer LIVE vault secret_key (sk_) — matches pk_ from get-revolut-checkout-client-config.
+ * Falls back to REVOLUT_MERCHANT_SECRET_KEY env when vault is empty.
+ */
+export async function getRevolutMerchantConfigFromVault(
+  supabase: SupabaseClient,
+): Promise<{ secretKey: string; environment: ProviderEnvironment }> {
+  const { data } = await supabase
+    .from("payment_provider_vault")
+    .select("secret_value")
+    .eq("provider", "revolut")
+    .eq("environment", "live")
+    .eq("secret_name", "secret_key")
+    .maybeSingle();
+
+  const validation = validateRevolutMerchantSecret(data?.secret_value as string | undefined);
+  if (validation.ok) {
+    return { secretKey: validation.normalized, environment: "live" };
+  }
+
+  return getRevolutMerchantConfig();
 }
 
 /** Map a Revolut order state to our internal trips.payment_status vocabulary. */

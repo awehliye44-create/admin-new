@@ -21,6 +21,25 @@ interface Props {
   offer?: OfferWithAreas | null;
 }
 
+/** Matches auto-generated Home banner titles so % edits keep the customer copy in sync. */
+const AUTO_PERCENT_BANNER_TITLE = /^Get\s+\d+(\.\d+)?%\s+off(\s+today)?\.?$/i;
+
+function percentBannerTitle(pct: number): string {
+  return `Get ${pct}% off today`;
+}
+
+function syncBannerTitleForPercent(
+  currentTitle: string,
+  pct: number,
+  forceEmpty = false,
+): string {
+  const trimmed = currentTitle.trim();
+  if (forceEmpty || !trimmed || AUTO_PERCENT_BANNER_TITLE.test(trimmed)) {
+    return percentBannerTitle(pct);
+  }
+  return currentTitle;
+}
+
 const EMPTY = {
   name: "",
   code: "",
@@ -95,6 +114,10 @@ export function OfferFormDialog({ open, onOpenChange, offer }: Props) {
       if (!form.name.trim() || !form.code.trim() || !form.banner_title.trim()) {
         throw new Error("Name, code, and banner title are required");
       }
+      const bannerTitle =
+        form.offer_type === "percent_discount"
+          ? syncBannerTitleForPercent(form.banner_title, form.discount_value)
+          : form.banner_title.trim();
       const payload = {
         name: form.name.trim(),
         code: form.code.trim().toUpperCase(),
@@ -114,7 +137,7 @@ export function OfferFormDialog({ open, onOpenChange, offer }: Props) {
         total_usage_limit: form.total_usage_limit,
         priority: form.priority,
         terms: form.terms.trim() || null,
-        banner_title: form.banner_title.trim(),
+        banner_title: bannerTitle,
         banner_subtitle: form.banner_subtitle.trim() || null,
         cta_text: form.cta_text.trim() || "View offer",
         badge_text: form.badge_text.trim() || null,
@@ -255,9 +278,19 @@ export function OfferFormDialog({ open, onOpenChange, offer }: Props) {
                 <Label>Type</Label>
                 <Select
                   value={form.offer_type}
-                  onValueChange={(v: any) =>
-                    setForm({ ...form, offer_type: v, discount_value: v === "percent_discount" ? 10 : 2 })
-                  }
+                  onValueChange={(v: any) => {
+                    const nextType = v as "percent_discount" | "fixed_amount_discount";
+                    const nextValue = nextType === "percent_discount" ? 10 : 2;
+                    setForm({
+                      ...form,
+                      offer_type: nextType,
+                      discount_value: nextValue,
+                      banner_title:
+                        nextType === "percent_discount"
+                          ? syncBannerTitleForPercent(form.banner_title, nextValue)
+                          : form.banner_title,
+                    });
+                  }}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -288,7 +321,12 @@ export function OfferFormDialog({ open, onOpenChange, offer }: Props) {
                         }
                         const n = parseFloat(raw);
                         if (Number.isNaN(n)) return;
-                        setForm({ ...form, discount_value: Math.min(100, Math.max(0, n)) });
+                        const next = Math.min(100, Math.max(0, n));
+                        setForm({
+                          ...form,
+                          discount_value: next,
+                          banner_title: syncBannerTitleForPercent(form.banner_title, next || 1),
+                        });
                       }}
                       className="pr-8"
                     />
@@ -296,6 +334,9 @@ export function OfferFormDialog({ open, onOpenChange, offer }: Props) {
                       %
                     </span>
                   </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Home banner title auto-updates when it matches “Get N% off today”.
+                  </p>
                   {form.discount_value > 0 && (form.discount_value < 1 || form.discount_value > 100) && (
                     <p className="mt-1 text-xs text-destructive">Percent must be between 1 and 100.</p>
                   )}
@@ -407,6 +448,10 @@ export function OfferFormDialog({ open, onOpenChange, offer }: Props) {
           </TabsContent>
 
           <TabsContent value="display" className="space-y-3 pt-3">
+            <p className="text-sm text-muted-foreground">
+              This copy is what customers see on the Home “SAVE” banner. Toggle Enabled and the
+              start/end window control whether it appears.
+            </p>
             <div>
               <Label>Banner title</Label>
               <Input value={form.banner_title} onChange={(e) => setForm({ ...form, banner_title: e.target.value })} />

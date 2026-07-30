@@ -89,6 +89,46 @@ function resolveReplyTo(explicit?: string): string | undefined {
   return candidate;
 }
 
+export function buildResendRequestBody(args: {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+  from?: string;
+  replyTo?: string;
+  attachments?: ResendAttachment[];
+  tag?: string;
+}): Record<string, unknown> {
+  const fromAddress = (() => {
+    const requested = args.from ?? getDefaultFrom();
+    const parsed = parseEmailAddress(requested);
+    if (!parsed || !isVerifiedSendDomain(parsed.email)) {
+      return getVerifiedFromAddress(parsed?.name);
+    }
+    return requested;
+  })();
+
+  // Hard rule: exactly one end-user To. Never CC/BCC personal mail.
+  const body: Record<string, unknown> = {
+    from: fromAddress,
+    to: [args.to],
+    subject: args.subject,
+    html: args.html,
+    tags: [{ name: "category", value: args.tag ?? "driver_monthly_invoice" }],
+  };
+  if (args.text) body.text = args.text;
+  const replyTo = resolveReplyTo(args.replyTo);
+  if (replyTo) body.reply_to = replyTo;
+  if (args.attachments?.length) {
+    body.attachments = args.attachments.map((attachment) => ({
+      filename: attachment.filename,
+      content: attachment.content,
+      ...(attachment.contentType ? { content_type: attachment.contentType } : {}),
+    }));
+  }
+  return body;
+}
+
 export async function sendResendEmail(args: {
   to: string;
   subject: string;
@@ -109,37 +149,13 @@ export async function sendResendEmail(args: {
     return { ok: false, message: "RESEND_API_KEY is misconfigured" };
   }
 
-  const fromAddress = (() => {
-    const requested = args.from ?? getDefaultFrom();
-    const parsed = parseEmailAddress(requested);
-    if (!parsed || !isVerifiedSendDomain(parsed.email)) {
-      return getVerifiedFromAddress(parsed?.name);
-    }
-    return requested;
-  })();
-
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      from: fromAddress,
-      to: [args.to],
-      subject: args.subject,
-      html: args.html,
-      ...(args.text ? { text: args.text } : {}),
-      ...(resolveReplyTo(args.replyTo) ? { reply_to: resolveReplyTo(args.replyTo) } : {}),
-      ...(args.attachments?.length ? {
-        attachments: args.attachments.map((attachment) => ({
-          filename: attachment.filename,
-          content: attachment.content,
-          ...(attachment.contentType ? { content_type: attachment.contentType } : {}),
-        })),
-      } : {}),
-      tags: [{ name: "category", value: args.tag ?? "driver_monthly_invoice" }],
-    }),
+    body: JSON.stringify(buildResendRequestBody(args)),
   });
 
   let payload: Record<string, unknown> = {};

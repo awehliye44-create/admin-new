@@ -1,9 +1,14 @@
 // Admin update driver contact — sync drivers row + linked auth.users email/phone.
-// Body: { driver_id, first_name, last_name, email, phone, region_id }
+// Body: { driver_id, first_name, last_name, email, phone, region_id,
+//         force_confirm_email?: boolean, force_confirm_reason?: string }
 //
 // Auth: caller must be an authenticated admin (verified via user_roles).
+// Personal ONECAB-owned domains are rejected.
+// Normal edits do NOT force-confirm Auth email. Emergency force-confirm requires
+// super_admin + reason + audit log.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+import { assertPersonalEndUserEmail } from '../_shared/personalEmailPolicy.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -19,6 +24,8 @@ interface UpdateBody {
   email: string;
   phone: string;
   region_id: string;
+  force_confirm_email?: boolean;
+  force_confirm_reason?: string;
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -96,12 +103,50 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Invalid JSON body' }, 400);
   }
 
-  const { driver_id, first_name, last_name, email, phone, region_id } = body || {};
+  const {
+    driver_id,
+    first_name,
+    last_name,
+    email,
+    phone,
+    region_id,
+    force_confirm_email,
+    force_confirm_reason,
+  } = body || {};
   if (!driver_id || !first_name || !last_name || !email || !phone || !region_id) {
-    return jsonResponse({ error: 'driver_id, first_name, last_name, email, phone, region_id are required' }, 400);
+    return jsonResponse({
+      error: 'driver_id, first_name, last_name, email, phone, region_id are required',
+    }, 400);
   }
 
   const emailNorm = normalizeEmail(email);
+  const personal = assertPersonalEndUserEmail(emailNorm, 'driver_confirmed');
+  if (!personal.ok) {
+    return jsonResponse({ error: personal.message, code: personal.code }, 400);
+  }
+
+  if (force_confirm_email) {
+    const reason = String(force_confirm_reason ?? '').trim();
+    if (reason.length < 8) {
+      return jsonResponse({
+        error: 'force_confirm_email requires force_confirm_reason (min 8 chars).',
+        code: 'FORCE_CONFIRM_REASON_REQUIRED',
+      }, 400);
+    }
+    const { data: priv } = await admin
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', caller.id)
+      .eq('role', 'super_admin')
+      .maybeSingle();
+    if (!priv) {
+      return jsonResponse({
+        error: 'Forbidden: force-confirm requires super_admin.',
+        code: 'FORCE_CONFIRM_FORBIDDEN',
+      }, 403);
+    }
+  }
+
   const phoneNorm = phone.trim();
   const phoneAuth = normalizePhoneForAuth(phoneNorm);
 
@@ -118,6 +163,8 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Driver not found' }, 404);
   }
 
+  const emailChanged = normalizeEmail(existing.email ?? '') !== emailNorm;
+
   const { error: updateErr } = await admin
     .from('drivers')
     .update({
@@ -126,6 +173,9 @@ Deno.serve(async (req) => {
       email: emailNorm,
       phone: phoneNorm,
       region_id,
+      ...(emailChanged && !force_confirm_email
+        ? { pending_email_change: emailNorm }
+        : { pending_email_change: null }),
     })
     .eq('id', driver_id);
 
@@ -152,9 +202,11 @@ Deno.serve(async (req) => {
         phone_confirm?: boolean;
       } = {};
 
-      if (normalizeEmail(existing.email ?? '') !== emailNorm) {
+      if (emailChanged && force_confirm_email) {
         authUpdate.email = emailNorm;
         authUpdate.email_confirm = true;
+      } else if (emailChanged) {
+        auth_sync_skipped_reason = 'email_change_requires_verification';
       }
 
       const existingPhoneAuth = normalizePhoneForAuth(existing.phone ?? '');
@@ -176,7 +228,7 @@ Deno.serve(async (req) => {
           );
         }
         auth_synced = true;
-      } else {
+      } else if (!auth_sync_skipped_reason) {
         auth_sync_skipped_reason = 'no_auth_changes';
       }
 
@@ -188,7 +240,9 @@ Deno.serve(async (req) => {
   }
 
   await admin.from('audit_logs').insert({
-    event_type: 'driver_contact_updated',
+    event_type: force_confirm_email
+      ? 'driver_contact_force_confirm_email'
+      : 'driver_contact_updated',
     user_id: userId,
     details: {
       driver_id,
@@ -196,14 +250,18 @@ Deno.serve(async (req) => {
       phone: phoneNorm,
       auth_synced,
       auth_sync_skipped_reason,
+      email_changed: emailChanged,
+      force_confirm_email: Boolean(force_confirm_email),
+      force_confirm_reason: force_confirm_email ? force_confirm_reason : null,
       updated_by: caller.id,
     },
   });
 
   return jsonResponse({
-    success: true,
-    driver_id,
+    ok: true,
+    driver_updated: true,
     auth_synced,
     auth_sync_skipped_reason,
+    email_verification_required: emailChanged && !force_confirm_email,
   });
 });

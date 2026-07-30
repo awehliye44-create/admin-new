@@ -1,7 +1,12 @@
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-export type InvoiceAction = 'download' | 'view' | 'resend_email' | 'regenerate';
+export type InvoiceAction =
+  | 'download'
+  | 'view'
+  | 'resend_email'
+  | 'regenerate'
+  | 'preview_resend_recipient';
 
 export interface InvoiceActionResult {
   success?: boolean;
@@ -21,6 +26,8 @@ export interface InvoiceActionResult {
   invoice_email_status?: string;
   invoiceEmailSentAt?: string;
   invoice_email_sent_at?: string;
+  masked_recipient_email?: string;
+  recipient_validation?: string;
   stage?: string;
 }
 

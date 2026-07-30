@@ -147,15 +147,22 @@ ${securityCopy()}
 ${footerText()}`;
 }
 
+/**
+ * Greeting isolation SSOT: prefer the acting profile's first_name.
+ * Auth user_metadata must never override another person's name when a profile
+ * first_name is available (fixes cross-profile "Hello Mohamud" on Ahmed's request).
+ */
 export function resolveVerificationFirstName(
   metadata: Record<string, unknown> | null | undefined,
   profileFirstName?: string | null,
 ): string {
-  const fromMeta = String(metadata?.first_name ?? "").trim();
-  if (fromMeta) return fromMeta;
-
   const fromProfile = String(profileFirstName ?? "").trim();
   if (fromProfile) return fromProfile;
+
+  const fromMeta = String(
+    metadata?.first_name ?? metadata?.firstName ?? "",
+  ).trim();
+  if (fromMeta) return fromMeta;
 
   return "there";
 }

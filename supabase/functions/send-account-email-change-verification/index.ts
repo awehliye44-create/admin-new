@@ -96,7 +96,19 @@ Deno.serve(async (req) => {
       user.id,
       accountType,
       user.user_metadata,
+      guard.accountId,
     );
+
+    // Invalidate older pending/cancelled duplicates for this user+account type.
+    await service
+      .from("account_email_change_requests")
+      .update({
+        status: "cancelled",
+        cancelled_at: new Date().toISOString(),
+      })
+      .eq("user_id", user.id)
+      .eq("account_type", accountType)
+      .eq("status", "pending");
 
     // SSOT: generate token FIRST, send email SECOND, persist DB row THIRD.
     // This ensures the 60s resend cooldown and stage row are never written for emails
@@ -141,6 +153,7 @@ Deno.serve(async (req) => {
       createdIp: clientIp,
       userAgent,
       preGenerated: tokenPrep,
+      providerMessageId: sent.resendId ?? null,
     });
 
     if (!requestRow.ok) {

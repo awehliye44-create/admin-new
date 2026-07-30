@@ -100,3 +100,25 @@ export async function calculateCommission(
 
   return { commission_pct, commission_pence, driver_net_pence };
 }
+
+/**
+ * Compatibility alias for stop-workflow / production Edge contract.
+ * Prefer getDriverCommissionPct for new call sites.
+ */
+export async function getDriverCommission(
+  supabase: SupabaseClient,
+  driverId: string,
+  serviceAreaId: string | null | undefined,
+): Promise<{ commissionPct: number; driverStripeAccountId: string | null }> {
+  const { data: driver } = await supabase
+    .from("drivers")
+    .select("stripe_account_id")
+    .eq("id", driverId)
+    .maybeSingle();
+  const commissionPct = await getDriverCommissionPct(supabase, driverId, serviceAreaId);
+  return {
+    commissionPct,
+    driverStripeAccountId: (driver?.stripe_account_id as string | null) ?? null,
+  };
+}
+

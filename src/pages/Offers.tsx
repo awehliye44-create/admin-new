@@ -21,6 +21,23 @@ import { toast } from "sonner";
 import { Plus, Search, Pencil, Trash2, Sparkles, Percent, PoundSterling, TrendingUp, Globe } from "lucide-react";
 import { format } from "date-fns";
 
+function isOfferExpired(o: { ends_at: string | null }): boolean {
+  return Boolean(o.ends_at && new Date(o.ends_at).getTime() <= Date.now());
+}
+
+function isOfferLiveNow(o: {
+  is_enabled: boolean;
+  status: string;
+  starts_at: string;
+  ends_at: string | null;
+}): boolean {
+  if (!o.is_enabled || o.status !== "active") return false;
+  const now = Date.now();
+  if (new Date(o.starts_at).getTime() > now) return false;
+  if (isOfferExpired(o)) return false;
+  return true;
+}
+
 export default function Offers() {
   const qc = useQueryClient();
   const { data: offers = [], isLoading } = useAdminOffers();
@@ -40,7 +57,7 @@ export default function Offers() {
 
   const stats = useMemo(() => ({
     total: offers.length,
-    active: offers.filter((o) => o.is_enabled && o.status === "active").length,
+    active: offers.filter(isOfferLiveNow).length,
     redemptions: offers.reduce((s, o) => s + o.redemption_count, 0),
   }), [offers]);
 
@@ -128,6 +145,11 @@ export default function Offers() {
                       <TableCell>
                         <div className="font-medium">{o.name}</div>
                         <div className="text-xs text-muted-foreground line-clamp-1">{o.banner_title}</div>
+                        {isOfferExpired(o) ? (
+                          <Badge variant="outline" className="mt-1 text-[10px]">Expired</Badge>
+                        ) : isOfferLiveNow(o) ? (
+                          <Badge className="mt-1 text-[10px]">Live on Home</Badge>
+                        ) : null}
                       </TableCell>
                       <TableCell><Badge variant="outline">{o.code}</Badge></TableCell>
                       <TableCell>

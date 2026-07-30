@@ -4,6 +4,7 @@ import {
   EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS,
   hashVerificationToken,
 } from "./emailVerificationPolicy.ts";
+import { assertPersonalEndUserEmail } from "./personalEmailPolicy.ts";
 
 export type EmailChangeAccountType = "customer" | "driver";
 
@@ -15,6 +16,7 @@ export const EMAIL_CHANGE_BLOCK = {
   EMAIL_NOT_VERIFIED: "EMAIL_NOT_VERIFIED",
   NO_PROFILE: "NO_PROFILE",
   RATE_LIMITED: "RATE_LIMITED",
+  RECIPIENT_POLICY_VIOLATION: "RECIPIENT_POLICY_VIOLATION",
 } as const;
 
 export type EmailChangeBlockCode =
@@ -47,6 +49,18 @@ export async function assertEmailChangeAllowed(
       ok: false,
       code: EMAIL_CHANGE_BLOCK.INVALID_EMAIL,
       message: "Invalid email address.",
+      httpStatus: 400,
+    };
+  }
+
+  const personalPolicy = assertPersonalEndUserEmail(normalizedEmail, "email_change");
+  if (!personalPolicy.ok) {
+    return {
+      ok: false,
+      code: personalPolicy.code === "RECIPIENT_POLICY_VIOLATION"
+        ? EMAIL_CHANGE_BLOCK.RECIPIENT_POLICY_VIOLATION
+        : EMAIL_CHANGE_BLOCK.INVALID_EMAIL,
+      message: personalPolicy.message,
       httpStatus: 400,
     };
   }

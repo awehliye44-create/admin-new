@@ -15571,108 +15571,6 @@ export type Database = {
         }
         Relationships: []
       }
-      scan_go_driver_holds: {
-        Row: {
-          client_action_id: string
-          created_at: string
-          customer_user_id: string
-          driver_id: string
-          expires_at: string
-          id: string
-          payment_session_id: string | null
-          qr_session_id: string | null
-          release_reason: string | null
-          status: string
-          trip_id: string | null
-          updated_at: string
-        }
-        Insert: {
-          client_action_id: string
-          created_at?: string
-          customer_user_id: string
-          driver_id: string
-          expires_at: string
-          id?: string
-          payment_session_id?: string | null
-          qr_session_id?: string | null
-          release_reason?: string | null
-          status?: string
-          trip_id?: string | null
-          updated_at?: string
-        }
-        Update: {
-          client_action_id?: string
-          created_at?: string
-          customer_user_id?: string
-          driver_id?: string
-          expires_at?: string
-          id?: string
-          payment_session_id?: string | null
-          qr_session_id?: string | null
-          release_reason?: string | null
-          status?: string
-          trip_id?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "admin_driver_online_snapshot"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "dispatchable_drivers"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_document_compliance_ssot"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_document_status"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_financial_summary"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_passenger_profile"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "drivers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "scan_go_driver_holds_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "drivers_public_safe"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       scheduled_offer_attempts: {
         Row: {
           broadcast_round: number
@@ -17809,6 +17707,120 @@ export type Database = {
           },
         ]
       }
+      driver_cancel_rematch_idempotency: {
+        Row: {
+          idempotency_key: string
+          trip_id: string
+          driver_id: string
+          result: Json
+          created_at: string
+        }
+        Insert: {
+          idempotency_key: string
+          trip_id: string
+          driver_id: string
+          result: Json
+          created_at?: string
+        }
+        Update: {
+          idempotency_key?: string
+          trip_id?: string
+          driver_id?: string
+          result?: Json
+          created_at?: string
+        }
+        Relationships: []
+      }
+      dispatch_intent_outbox: {
+        Row: {
+          id: string
+          trip_id: string
+          intent: string
+          trigger_reason: string
+          idempotency_key: string
+          status: string
+          attempts: number
+          last_error: string | null
+          payload: Json
+          created_at: string
+          processed_at: string | null
+        }
+        Insert: {
+          id?: string
+          trip_id: string
+          intent?: string
+          trigger_reason: string
+          idempotency_key: string
+          status?: string
+          attempts?: number
+          last_error?: string | null
+          payload?: Json
+          created_at?: string
+          processed_at?: string | null
+        }
+        Update: {
+          id?: string
+          trip_id?: string
+          intent?: string
+          trigger_reason?: string
+          idempotency_key?: string
+          status?: string
+          attempts?: number
+          last_error?: string | null
+          payload?: Json
+          created_at?: string
+          processed_at?: string | null
+        }
+        Relationships: []
+      }
+      driver_cancel_rematch_audit: {
+        Row: {
+          id: string
+          trip_id: string
+          driver_id: string
+          previous_status: string | null
+          resulting_status: string
+          reason: string | null
+          actor: string
+          actor_mode: string
+          idempotency_key: string | null
+          request_metadata: Json
+          broadcast_round_before: number | null
+          broadcast_round_after: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          trip_id: string
+          driver_id: string
+          previous_status?: string | null
+          resulting_status: string
+          reason?: string | null
+          actor: string
+          actor_mode: string
+          idempotency_key?: string | null
+          request_metadata?: Json
+          broadcast_round_before?: number | null
+          broadcast_round_after?: number | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          trip_id?: string
+          driver_id?: string
+          previous_status?: string | null
+          resulting_status?: string
+          reason?: string | null
+          actor?: string
+          actor_mode?: string
+          idempotency_key?: string | null
+          request_metadata?: Json
+          broadcast_round_before?: number | null
+          broadcast_round_after?: number | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       trip_driver_exclusions: {
         Row: {
           created_at: string
@@ -17816,6 +17828,9 @@ export type Database = {
           offer_id: string | null
           reason: string
           trip_id: string
+          source: string | null
+          audit_event_id: string | null
+          metadata: Json
         }
         Insert: {
           created_at?: string
@@ -17823,6 +17838,9 @@ export type Database = {
           offer_id?: string | null
           reason: string
           trip_id: string
+          source?: string | null
+          audit_event_id?: string | null
+          metadata?: Json
         }
         Update: {
           created_at?: string
@@ -17830,6 +17848,9 @@ export type Database = {
           offer_id?: string | null
           reason?: string
           trip_id?: string
+          source?: string | null
+          audit_event_id?: string | null
+          metadata?: Json
         }
         Relationships: [
           {
@@ -18741,7 +18762,6 @@ export type Database = {
           last_eta_minutes: number | null
           late_cancel_fee_pence: number | null
           locked_base_fare_pence: number | null
-          locked_driver_id: string | null
           locked_offer_type: string | null
           max_broadcast_rounds: number | null
           modification_confirmed_at: string | null
@@ -18821,13 +18841,11 @@ export type Database = {
           provider_status: string | null
           provider_transfer_id: string | null
           provider_webhook_event_id: string | null
-          qr_session_id: string | null
           quoted_fare_pence: number | null
           refund_amount_pence: number | null
           refund_reason: string | null
           refunded_at: string | null
           region_id: string | null
-          scan_go: boolean
           scheduled_accepted_at: string | null
           scheduled_at: string | null
           scheduled_broadcast_at: string | null
@@ -19026,7 +19044,6 @@ export type Database = {
           last_eta_minutes?: number | null
           late_cancel_fee_pence?: number | null
           locked_base_fare_pence?: number | null
-          locked_driver_id?: string | null
           locked_offer_type?: string | null
           max_broadcast_rounds?: number | null
           modification_confirmed_at?: string | null
@@ -19106,13 +19123,11 @@ export type Database = {
           provider_status?: string | null
           provider_transfer_id?: string | null
           provider_webhook_event_id?: string | null
-          qr_session_id?: string | null
           quoted_fare_pence?: number | null
           refund_amount_pence?: number | null
           refund_reason?: string | null
           refunded_at?: string | null
           region_id?: string | null
-          scan_go?: boolean
           scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
@@ -19311,7 +19326,6 @@ export type Database = {
           last_eta_minutes?: number | null
           late_cancel_fee_pence?: number | null
           locked_base_fare_pence?: number | null
-          locked_driver_id?: string | null
           locked_offer_type?: string | null
           max_broadcast_rounds?: number | null
           modification_confirmed_at?: string | null
@@ -19391,13 +19405,11 @@ export type Database = {
           provider_status?: string | null
           provider_transfer_id?: string | null
           provider_webhook_event_id?: string | null
-          qr_session_id?: string | null
           quoted_fare_pence?: number | null
           refund_amount_pence?: number | null
           refund_reason?: string | null
           refunded_at?: string | null
           region_id?: string | null
-          scan_go?: boolean
           scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
@@ -19725,62 +19737,6 @@ export type Database = {
             columns: ["fare_engine_config_id"]
             isOneToOne: false
             referencedRelation: "fare_pricing_settings"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "trips_locked_driver_id_fkey"
-            columns: ["locked_driver_id"]
-            isOneToOne: false
-            referencedRelation: "admin_driver_online_snapshot"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "trips_locked_driver_id_fkey"
-            columns: ["locked_driver_id"]
-            isOneToOne: false
-            referencedRelation: "dispatchable_drivers"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "trips_locked_driver_id_fkey"
-            columns: ["locked_driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_document_compliance_ssot"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "trips_locked_driver_id_fkey"
-            columns: ["locked_driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_document_status"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "trips_locked_driver_id_fkey"
-            columns: ["locked_driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_financial_summary"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "trips_locked_driver_id_fkey"
-            columns: ["locked_driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_passenger_profile"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "trips_locked_driver_id_fkey"
-            columns: ["locked_driver_id"]
-            isOneToOne: false
-            referencedRelation: "drivers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "trips_locked_driver_id_fkey"
-            columns: ["locked_driver_id"]
-            isOneToOne: false
-            referencedRelation: "drivers_public_safe"
             referencedColumns: ["id"]
           },
           {
@@ -21055,7 +21011,6 @@ export type Database = {
           pickup_longitude: number | null
           pickup_zone_id: string | null
           pre_assigned_driver_id: string | null
-          qr_session_id: string | null
           scheduled_accepted_at: string | null
           scheduled_at: string | null
           scheduled_broadcast_at: string | null
@@ -21127,7 +21082,6 @@ export type Database = {
           pickup_longitude?: number | null
           pickup_zone_id?: string | null
           pre_assigned_driver_id?: string | null
-          qr_session_id?: string | null
           scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
@@ -21199,7 +21153,6 @@ export type Database = {
           pickup_longitude?: number | null
           pickup_zone_id?: string | null
           pre_assigned_driver_id?: string | null
-          qr_session_id?: string | null
           scheduled_accepted_at?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
@@ -22530,6 +22483,23 @@ export type Database = {
         }
         Returns: Json
       }
+      driver_cancel_before_start_rematch: {
+        Args: {
+          p_trip_id: string
+          p_driver_id: string
+          p_reason?: string | null
+          p_idempotency_key?: string | null
+          p_request_metadata?: Json
+        }
+        Returns: Json
+      }
+      driver_is_excluded_from_trip: {
+        Args: {
+          p_trip_id: string
+          p_driver_id: string
+        }
+        Returns: boolean
+      }
       accept_scheduled_ride: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
@@ -22548,15 +22518,6 @@ export type Database = {
       }
       ack_timeout_sweep: { Args: never; Returns: undefined }
       ack_timeout_sweep_has_work: { Args: never; Returns: boolean }
-      acquire_scan_go_driver_hold: {
-        Args: {
-          p_client_action_id: string
-          p_customer_user_id: string
-          p_driver_id: string
-          p_payment_session_id?: string
-          p_qr_session_id?: string
-          p_ttl_seconds?: number
-        }
         Returns: Json
       }
       adjust_merchant_credits: {
@@ -23052,8 +23013,6 @@ export type Database = {
         }
         Returns: Json
       }
-      convert_scan_go_driver_hold: {
-        Args: { p_client_action_id: string; p_trip_id: string }
         Returns: Json
       }
       create_driver_vehicle: {
@@ -23295,7 +23254,6 @@ export type Database = {
       expire_negotiation_offer: { Args: { p_offer_id: string }; Returns: Json }
       expire_offers_sweep: { Args: never; Returns: undefined }
       expire_offers_sweep_has_work: { Args: never; Returns: boolean }
-      expire_scan_go_driver_holds: { Args: never; Returns: number }
       expire_stale_drivers: {
         Args: { p_ttl_seconds?: number }
         Returns: number
@@ -23741,8 +23699,6 @@ export type Database = {
         }[]
       }
       get_region_code: { Args: { p_region_id: string }; Returns: string }
-      get_scan_go_driver_public_lookup: {
-        Args: { p_driver_id: string; p_service_area_id?: string }
         Returns: Json
       }
       get_service_area_code: {
@@ -24378,8 +24334,6 @@ export type Database = {
         }
         Returns: Json
       }
-      release_scan_go_driver_hold: {
-        Args: { p_client_action_id: string; p_reason?: string }
         Returns: Json
       }
       release_sub_minimum_weekly_payout_reservations: {
@@ -24537,16 +24491,10 @@ export type Database = {
       }
       ride_offer_retry_unacked_push_deliveries: { Args: never; Returns: number }
       run_digital_finance_migration: { Args: never; Returns: Json }
-      scan_go_vehicle_is_blocked: {
-        Args: { p_status: string }
         Returns: boolean
       }
-      scan_go_vehicle_is_bookable: {
-        Args: { p_status: string }
         Returns: boolean
       }
-      scan_go_vehicle_status_rank: {
-        Args: { p_status: string }
         Returns: number
       }
       search_onecab_location_landmarks: {

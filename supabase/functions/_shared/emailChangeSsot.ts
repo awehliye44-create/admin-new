@@ -60,6 +60,7 @@ export async function createEmailChangeRequest(
     newEmail: string;
     createdIp?: string | null;
     userAgent?: string | null;
+    providerMessageId?: string | null;
     /** Pre-generated token from prepareEmailChangeToken(). If provided, skips token generation. */
     preGenerated?: { rawToken: string; expiresAt: string };
   },
@@ -79,6 +80,7 @@ export async function createEmailChangeRequest(
     expires_at: expiresAt,
     created_ip: args.createdIp ?? null,
     user_agent: args.userAgent ?? null,
+    provider_message_id: args.providerMessageId ?? null,
   });
 
   if (error) {
@@ -211,14 +213,19 @@ export async function resolveEmailChangeFirstName(
   userId: string,
   appType: EmailChangeAccountType,
   metadata: Record<string, unknown> | null | undefined,
+  expectedProfileId?: string | null,
 ): Promise<string> {
   const table = appType === "driver" ? "drivers" : "customers";
-  const { data } = await service
+  let query = service
     .from(table)
-    .select("first_name")
+    .select("first_name, id")
     .eq("user_id", userId)
-    .is("deleted_at", null)
-    .maybeSingle();
+    .is("deleted_at", null);
+  if (expectedProfileId) {
+    query = query.eq("id", expectedProfileId);
+  }
+  const { data } = await query.maybeSingle();
 
+  // Profile name wins over Auth metadata (greeting isolation).
   return resolveVerificationFirstName(metadata, data?.first_name ?? null);
 }
