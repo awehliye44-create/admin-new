@@ -17,9 +17,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Loader2, Pencil, Plus, Star, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
+import { useRegions } from '@/hooks/useRegions';
 import {
   useDeleteSpecialOffer,
   useDriverSpecialOffersAdmin,
@@ -29,7 +31,15 @@ import {
   useSpecialOfferCategories,
   type SpecialOfferWithAreas,
 } from '@/hooks/useDriverSpecialOffersAdmin';
-import { normaliseUkPhone, validateSpecialOfferDraft } from '../../shared/driverSpecialOffersSSOT';
+import {
+  describeOfferScope,
+  validateOfferScope,
+  validateSpecialOfferDraft,
+  GLOBAL_SCOPE_CONFIRMATION,
+  type OfferScopeType,
+} from '../../shared/driverSpecialOffersSSOT';
+
+const ALL = '__all__';
 
 interface OfferDraft {
   id?: string;
@@ -57,6 +67,8 @@ interface OfferDraft {
   new_drivers_only: boolean;
   eligible_driver_tiers: string[];
   display_order: number;
+  scope_type: OfferScopeType;
+  region_id: string | null;
   serviceAreaIds: string[];
 }
 
@@ -85,6 +97,8 @@ const emptyOffer: OfferDraft = {
   new_drivers_only: false,
   eligible_driver_tiers: [],
   display_order: 0,
+  scope_type: 'selected_service_areas',
+  region_id: null,
   serviceAreaIds: [],
 };
 
@@ -93,26 +107,68 @@ const toIso = (v: string) => (v ? new Date(v).toISOString() : null);
 
 function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => void }) {
   const [form, setForm] = useState<OfferDraft>(draft);
+  const [areaSearch, setAreaSearch] = useState('');
+  const [globalConfirmed, setGlobalConfirmed] = useState(draft.scope_type === 'global');
   const save = useSaveSpecialOffer();
   const { data: categories = [] } = useSpecialOfferCategories();
   const { data: tiers = [] } = useDriverTierNames();
   const { data: areas = [] } = useServiceAreas({ activeOnly: true });
+  const { data: regions = [] } = useRegions();
+
+  const regionName = (id: string | null) => regions.find((r) => r.id === id)?.name ?? null;
+
+  const activeAreaMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    areas.forEach((a) => {
+      m[a.id] = a.region_id;
+    });
+    return m;
+  }, [areas]);
+
+  const visibleAreas = useMemo(() => {
+    const q = areaSearch.trim().toLowerCase();
+    return areas
+      .filter((a) => (form.region_id ? a.region_id === form.region_id : true))
+      .filter((a) => (q ? a.name.toLowerCase().includes(q) : true));
+  }, [areas, form.region_id, areaSearch]);
 
   const set = <K extends keyof OfferDraft>(key: K, value: OfferDraft[K]) => setForm((f) => ({ ...f, [key]: value }));
 
+  const setScope = (scope: OfferScopeType) => {
+    setForm((f) => ({
+      ...f,
+      scope_type: scope,
+      region_id: scope === 'global' ? null : f.region_id,
+      serviceAreaIds: scope === 'selected_service_areas' ? f.serviceAreaIds : [],
+    }));
+    if (scope !== 'global') setGlobalConfirmed(false);
+  };
+
   const submit = () => {
-    const errors = validateSpecialOfferDraft({
-      title: form.title,
-      short_description: form.short_description,
-      website_url: form.website_url || null,
-      phone_number: form.phone_number || null,
-      email_address: form.email_address || null,
-      promo_code: form.promo_code || null,
-      internal_route: form.internal_route || null,
-      starts_at: toIso(form.starts_at),
-      ends_at: toIso(form.ends_at),
-      requires_action: true,
-    });
+    const errors = [
+      ...validateSpecialOfferDraft({
+        title: form.title,
+        short_description: form.short_description,
+        website_url: form.website_url || null,
+        phone_number: form.phone_number || null,
+        email_address: form.email_address || null,
+        promo_code: form.promo_code || null,
+        internal_route: form.internal_route || null,
+        starts_at: toIso(form.starts_at),
+        ends_at: toIso(form.ends_at),
+        requires_action: true,
+      }),
+      ...validateOfferScope({
+        scope_type: form.scope_type,
+        region_id: form.region_id,
+        serviceAreaIds: form.serviceAreaIds,
+        status: form.status,
+        activeServiceAreas: activeAreaMap,
+      }),
+    ];
+    if (form.scope_type === 'global' && !globalConfirmed) {
+      errors.push('Confirm the global availability warning before saving.');
+    }
     if (errors.length) {
       toast.error(errors[0]);
       return;
@@ -127,7 +183,7 @@ function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => voi
         full_details: form.full_details.trim() || null,
         badge_label: form.badge_label.trim() || null,
         website_url: form.website_url.trim() || null,
-        phone_number: form.phone_number ? normaliseUkPhone(form.phone_number) : null,
+        phone_number: form.phone_number.trim() || null,
         email_address: form.email_address.trim() || null,
         promo_code: form.promo_code.trim() || null,
         internal_route: form.internal_route.trim() || null,
@@ -144,6 +200,8 @@ function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => voi
         new_drivers_only: form.new_drivers_only,
         eligible_driver_tiers: form.eligible_driver_tiers.length ? form.eligible_driver_tiers : null,
         display_order: form.display_order,
+        scope_type: form.scope_type,
+        region_id: form.scope_type === 'global' ? null : form.region_id,
         serviceAreaIds: form.serviceAreaIds,
       },
       { onSuccess: onClose },
@@ -182,6 +240,111 @@ function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => voi
               onChange={(e) => set('full_details', e.target.value)}
               className="min-h-[120px]"
             />
+          </div>
+
+          {/* ---------------- Availability area ---------------- */}
+          <div className="space-y-3 rounded-md border p-3">
+            <div>
+              <Label className="text-sm font-medium">Availability area</Label>
+              <p className="text-xs text-muted-foreground">
+                Offers are scoped by Region → Service Area. Drivers only see offers for their assigned service area.
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Scope type</Label>
+                <Select value={form.scope_type} onValueChange={(v) => setScope(v as OfferScopeType)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="selected_service_areas">Selected service areas</SelectItem>
+                    <SelectItem value="entire_region">Entire region</SelectItem>
+                    <SelectItem value="global">Global</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {form.scope_type !== 'global' && (
+                <div className="space-y-1">
+                  <Label className="text-xs">
+                    Region {form.scope_type === 'entire_region' ? '(required)' : '(optional filter)'}
+                  </Label>
+                  <Select
+                    value={form.region_id ?? ALL}
+                    onValueChange={(v) => setForm((f) => ({
+                      ...f,
+                      region_id: v === ALL ? null : v,
+                      serviceAreaIds:
+                        v === ALL
+                          ? f.serviceAreaIds
+                          : f.serviceAreaIds.filter((id) => activeAreaMap[id] === v),
+                    }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL}>All regions</SelectItem>
+                      {regions.map((r) => (
+                        <SelectItem key={r.id} value={r.id}>
+                          {r.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+
+            {form.scope_type === 'entire_region' && (
+              <p className="text-xs text-muted-foreground">
+                Entire region includes current <strong>and future</strong> active service areas in that Region until
+                the offer expires or is changed.
+              </p>
+            )}
+
+            {form.scope_type === 'selected_service_areas' && (
+              <div className="space-y-2">
+                <Label className="text-xs">Service areas (at least one required)</Label>
+                <Input
+                  placeholder="Search service areas…"
+                  value={areaSearch}
+                  onChange={(e) => setAreaSearch(e.target.value)}
+                />
+                <div className="max-h-48 overflow-y-auto rounded border p-2 space-y-1">
+                  {visibleAreas.length === 0 && (
+                    <p className="text-xs text-muted-foreground">No active service areas match.</p>
+                  )}
+                  {visibleAreas.map((a) => (
+                    <label key={a.id} className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={form.serviceAreaIds.includes(a.id)}
+                        onCheckedChange={(v) =>
+                          set(
+                            'serviceAreaIds',
+                            v ? [...form.serviceAreaIds, a.id] : form.serviceAreaIds.filter((x) => x !== a.id),
+                          )
+                        }
+                      />
+                      <span>{a.name}</span>
+                      <span className="text-xs text-muted-foreground">{regionName(a.region_id) ?? '—'}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Only the selected service areas receive this offer. Future service areas do not inherit it.
+                </p>
+              </div>
+            )}
+
+            {form.scope_type === 'global' && (
+              <label className="flex items-start gap-2 rounded border border-destructive/40 p-2 text-sm">
+                <Checkbox checked={globalConfirmed} onCheckedChange={(v) => setGlobalConfirmed(Boolean(v))} />
+                <span>{GLOBAL_SCOPE_CONFIRMATION}</span>
+              </label>
+            )}
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
@@ -224,7 +387,7 @@ function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => voi
               <Input value={form.website_url} onChange={(e) => set('website_url', e.target.value)} />
             </div>
             <div className="space-y-1">
-              <Label>Phone number (UK)</Label>
+              <Label>Phone number (local to the service area)</Label>
               <Input value={form.phone_number} onChange={(e) => set('phone_number', e.target.value)} />
             </div>
             <div className="space-y-1">
@@ -264,7 +427,7 @@ function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => voi
           </div>
 
           <div className="space-y-2 rounded-md border p-3">
-            <Label className="text-sm font-medium">Eligibility</Label>
+            <Label className="text-sm font-medium">Driver eligibility</Label>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1">
                 <Label className="text-xs">Minimum completed trips</Label>
@@ -296,25 +459,6 @@ function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => voi
                       }
                     />
                     {t}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Service areas (none selected = all areas)</Label>
-              <div className="flex flex-wrap gap-3">
-                {areas.map((a) => (
-                  <label key={a.id} className="flex items-center gap-1.5 text-sm">
-                    <Checkbox
-                      checked={form.serviceAreaIds.includes(a.id)}
-                      onCheckedChange={(v) =>
-                        set(
-                          'serviceAreaIds',
-                          v ? [...form.serviceAreaIds, a.id] : form.serviceAreaIds.filter((x) => x !== a.id),
-                        )
-                      }
-                    />
-                    {a.name}
                   </label>
                 ))}
               </div>
@@ -372,15 +516,94 @@ function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => voi
 export default function DriverSpecialOffers() {
   const { data: offers = [], isLoading } = useDriverSpecialOffersAdmin();
   const { data: categories = [] } = useSpecialOfferCategories();
+  const { data: areas = [] } = useServiceAreas();
+  const { data: regions = [] } = useRegions();
   const saveCategory = useSaveSpecialOfferCategory();
   const deleteOffer = useDeleteSpecialOffer();
   const [dialog, setDialog] = useState<OfferDraft | null>(null);
   const [newCategory, setNewCategory] = useState('');
+  const [areasDialog, setAreasDialog] = useState<SpecialOfferWithAreas | null>(null);
 
-  const categoryName = useMemo(
-    () => (id: string | null) => categories.find((c) => c.id === id)?.name ?? 'Uncategorised',
-    [categories],
+  const [regionFilter, setRegionFilter] = useState<string>(ALL);
+  const [areaFilter, setAreaFilter] = useState<string>(ALL);
+  const [categoryFilter, setCategoryFilter] = useState<string>(ALL);
+  const [statusFilter, setStatusFilter] = useState<string>(ALL);
+  const [activeDate, setActiveDate] = useState<string>('');
+  const [search, setSearch] = useState('');
+
+  const areaById = useMemo(() => new Map(areas.map((a) => [a.id, a])), [areas]);
+  const regionById = useMemo(() => new Map(regions.map((r) => [r.id, r])), [regions]);
+
+  const filterAreas = useMemo(
+    () => areas.filter((a) => (regionFilter === ALL ? true : a.region_id === regionFilter)),
+    [areas, regionFilter],
   );
+
+  const offerAreaNames = (o: SpecialOfferWithAreas) =>
+    o.service_area_ids.map((id) => areaById.get(id)?.name ?? 'Unknown area');
+
+  const scopeCoversArea = (o: SpecialOfferWithAreas, serviceAreaId: string) => {
+    if (o.scope_type === 'global') return true;
+    if (o.scope_type === 'entire_region') return areaById.get(serviceAreaId)?.region_id === o.region_id;
+    return o.service_area_ids.includes(serviceAreaId);
+  };
+
+  const scopeCoversRegion = (o: SpecialOfferWithAreas, regionId: string) => {
+    if (o.scope_type === 'global') return true;
+    if (o.scope_type === 'entire_region') return o.region_id === regionId;
+    return o.service_area_ids.some((id) => areaById.get(id)?.region_id === regionId);
+  };
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const dateTs = activeDate ? new Date(activeDate).getTime() : null;
+    return offers.filter((o) => {
+      if (regionFilter !== ALL && !scopeCoversRegion(o, regionFilter)) return false;
+      if (areaFilter !== ALL && !scopeCoversArea(o, areaFilter)) return false;
+      if (categoryFilter !== ALL && o.category_id !== categoryFilter) return false;
+      if (statusFilter !== ALL && o.status !== statusFilter) return false;
+      if (dateTs !== null) {
+        if (o.starts_at && new Date(o.starts_at).getTime() > dateTs) return false;
+        if (o.ends_at && new Date(o.ends_at).getTime() <= dateTs) return false;
+      }
+      if (q) {
+        const hay = `${o.title} ${o.partner_name ?? ''} ${o.short_description}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [offers, regionFilter, areaFilter, categoryFilter, statusFilter, activeDate, search, areaById]);
+
+  const summary = useMemo(() => {
+    const active = offers.filter((o) => o.status === 'published' && o.is_active);
+    const regionSet = new Set<string>();
+    const areaSet = new Set<string>();
+    let global = 0;
+    offers.forEach((o) => {
+      if (o.scope_type === 'global') global += 1;
+      if (o.scope_type === 'entire_region' && o.region_id) {
+        regionSet.add(o.region_id);
+        areas.filter((a) => a.region_id === o.region_id).forEach((a) => areaSet.add(a.id));
+      }
+      o.service_area_ids.forEach((id) => {
+        areaSet.add(id);
+        const r = areaById.get(id)?.region_id;
+        if (r) regionSet.add(r);
+      });
+    });
+    const soon = Date.now() + 14 * 86_400_000;
+    const expiring = active.filter((o) => o.ends_at && new Date(o.ends_at).getTime() <= soon).length;
+    return {
+      total: offers.length,
+      active: active.length,
+      regions: regionSet.size,
+      areas: areaSet.size,
+      expiring,
+      global,
+    };
+  }, [offers, areas, areaById]);
+
+  const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? 'Uncategorised';
 
   const toDraft = (o: SpecialOfferWithAreas): OfferDraft => ({
     id: o.id,
@@ -408,15 +631,38 @@ export default function DriverSpecialOffers() {
     new_drivers_only: o.new_drivers_only,
     eligible_driver_tiers: o.eligible_driver_tiers ?? [],
     display_order: o.display_order,
+    scope_type: o.scope_type ?? 'selected_service_areas',
+    region_id: o.region_id ?? null,
     serviceAreaIds: o.service_area_ids,
   });
+
+  const summaryCards = [
+    { label: 'Total offers', value: summary.total },
+    { label: 'Active offers', value: summary.active },
+    { label: 'Regions covered', value: summary.regions },
+    { label: 'Service areas covered', value: summary.areas },
+    { label: 'Expiring soon', value: summary.expiring },
+  ];
 
   return (
     <AdminLayout
       title="Driver Special Offers"
-      description="Partner deals and perks shown in the Driver App only. Eligibility is enforced by the backend."
+      description="Manage Driver partner offers by Region and Service Area"
     >
       <div className="space-y-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {summaryCards.map((c) => (
+            <Card key={c.label}>
+              <CardHeader className="pb-2">
+                <CardDescription className="text-xs">{c.label}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-semibold">{c.value}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Offer categories</CardTitle>
@@ -433,18 +679,17 @@ export default function DriverSpecialOffers() {
                 value={newCategory}
                 onChange={(e) => setNewCategory(e.target.value)}
                 placeholder="New category name"
-                className="w-[220px]"
+                className="w-56"
               />
               <Button
-                size="sm"
                 variant="outline"
-                disabled={!newCategory.trim() || saveCategory.isPending}
-                onClick={() =>
+                onClick={() => {
+                  if (!newCategory.trim()) return;
                   saveCategory.mutate(
                     { name: newCategory.trim(), display_order: categories.length, is_active: true },
                     { onSuccess: () => setNewCategory('') },
-                  )
-                }
+                  );
+                }}
               >
                 <Plus className="h-4 w-4" /> Add
               </Button>
@@ -455,59 +700,209 @@ export default function DriverSpecialOffers() {
         <Card>
           <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
             <div>
-              <CardTitle className="text-base">Special offers</CardTitle>
+              <CardTitle className="text-base">Offers</CardTitle>
               <CardDescription className="text-xs">
-                Only published, active and in-date offers are delivered to eligible drivers.
+                Drivers only see offers scoped to their assigned service area.
               </CardDescription>
             </div>
-            <Button size="sm" onClick={() => setDialog({ ...emptyOffer })}>
+            <Button onClick={() => setDialog({ ...emptyOffer })}>
               <Plus className="h-4 w-4" /> New offer
             </Button>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-6">
+              <Select
+                value={regionFilter}
+                onValueChange={(v) => {
+                  setRegionFilter(v);
+                  setAreaFilter(ALL);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Region" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>All regions</SelectItem>
+                  {regions.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={areaFilter} onValueChange={setAreaFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Service area" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>All service areas</SelectItem>
+                  {filterAreas.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name}
+                      {!a.is_active ? ' (inactive)' : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>All categories</SelectItem>
+                  {categories.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>All statuses</SelectItem>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="published">Published</SelectItem>
+                  <SelectItem value="archived">Archived</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Input type="date" value={activeDate} onChange={(e) => setActiveDate(e.target.value)} />
+
+              <Input
+                placeholder="Search offers…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+
             {isLoading ? (
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            ) : offers.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">No special offers yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {offers.map((o) => (
-                  <div key={o.id} className="flex items-start justify-between rounded-md border p-3 gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {o.is_featured && <Star className="h-3.5 w-3.5 text-primary fill-primary" />}
-                        <span className="font-medium text-sm">{o.title}</span>
-                        <Badge variant={o.status === 'published' ? 'default' : 'secondary'}>{o.status}</Badge>
-                        {!o.is_active && <Badge variant="outline">Inactive</Badge>}
-                        {o.show_in_home_banner && <Badge variant="outline">Banner</Badge>}
-                        <Badge variant="outline" className="font-normal">
-                          {categoryName(o.category_id)}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{o.short_description}</p>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setDialog(toDraft(o))}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 text-destructive"
-                        onClick={() => deleteOffer.mutate(o.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+              <div className="flex justify-center py-10">
+                <Loader2 className="h-5 w-5 animate-spin" />
               </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Offer</TableHead>
+                    <TableHead>Partner</TableHead>
+                    <TableHead>Region / Scope</TableHead>
+                    <TableHead>Service areas</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Start / End</TableHead>
+                    <TableHead>Banner</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center text-sm text-muted-foreground py-8">
+                        No offers match the selected filters.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {filtered.map((o) => {
+                    const names = offerAreaNames(o);
+                    return (
+                      <TableRow key={o.id}>
+                        <TableCell className="font-medium">
+                          <span className="flex items-center gap-1">
+                            {o.is_featured && <Star className="h-3.5 w-3.5 text-primary" />}
+                            {o.title}
+                          </span>
+                        </TableCell>
+                        <TableCell>{o.partner_name ?? '—'}</TableCell>
+                        <TableCell className="text-sm">
+                          {o.scope_type === 'global'
+                            ? 'Global'
+                            : o.scope_type === 'entire_region'
+                              ? `All service areas in ${regionById.get(o.region_id ?? '')?.name ?? '—'}`
+                              : o.region_id
+                                ? regionById.get(o.region_id)?.name ?? 'Selected areas'
+                                : 'Selected areas'}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {o.scope_type === 'selected_service_areas' ? (
+                            <button
+                              type="button"
+                              className="underline underline-offset-2"
+                              onClick={() => setAreasDialog(o)}
+                            >
+                              {describeOfferScope(o, names)}
+                            </button>
+                          ) : (
+                            describeOfferScope(o, names, regionById.get(o.region_id ?? '')?.name)
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm">{categoryName(o.category_id)}</TableCell>
+                        <TableCell className="text-xs">
+                          {o.starts_at ? new Date(o.starts_at).toLocaleDateString() : '—'} →{' '}
+                          {o.ends_at ? new Date(o.ends_at).toLocaleDateString() : 'No end'}
+                        </TableCell>
+                        <TableCell>{o.show_in_home_banner ? <Badge variant="outline">Banner</Badge> : '—'}</TableCell>
+                        <TableCell>
+                          <Badge variant={o.status === 'published' && o.is_active ? 'default' : 'secondary'}>
+                            {o.status === 'published' && !o.is_active ? 'paused' : o.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button size="icon" variant="ghost" onClick={() => setDialog(toDraft(o))}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => {
+                              if (confirm(`Delete “${o.title}”?`)) deleteOffer.mutate(o.id);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {dialog && <OfferDialog key={dialog.id ?? 'new'} draft={dialog} onClose={() => setDialog(null)} />}
+      {dialog && <OfferDialog draft={dialog} onClose={() => setDialog(null)} />}
+
+      {areasDialog && (
+        <Dialog open onOpenChange={(o) => !o && setAreasDialog(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Service areas — {areasDialog.title}</DialogTitle>
+              <DialogDescription>Complete availability assignment for this offer.</DialogDescription>
+            </DialogHeader>
+            <ul className="space-y-1 text-sm">
+              {areasDialog.service_area_ids.length === 0 && <li>No service areas assigned.</li>}
+              {areasDialog.service_area_ids.map((id) => {
+                const a = areaById.get(id);
+                return (
+                  <li key={id} className="flex items-center justify-between">
+                    <span>{a?.name ?? 'Unknown area'}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {regionById.get(a?.region_id ?? '')?.name ?? '—'}
+                      {a && !a.is_active ? ' · inactive' : ''}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </DialogContent>
+        </Dialog>
+      )}
     </AdminLayout>
   );
 }

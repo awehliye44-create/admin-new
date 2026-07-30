@@ -8396,6 +8396,8 @@ export type Database = {
           phone_button_label: string | null
           phone_number: string | null
           promo_code: string | null
+          region_id: string | null
+          scope_type: string
           short_description: string
           show_in_home_banner: boolean
           show_in_offer_list: boolean
@@ -8431,6 +8433,8 @@ export type Database = {
           phone_button_label?: string | null
           phone_number?: string | null
           promo_code?: string | null
+          region_id?: string | null
+          scope_type?: string
           short_description: string
           show_in_home_banner?: boolean
           show_in_offer_list?: boolean
@@ -8466,6 +8470,8 @@ export type Database = {
           phone_button_label?: string | null
           phone_number?: string | null
           promo_code?: string | null
+          region_id?: string | null
+          scope_type?: string
           short_description?: string
           show_in_home_banner?: boolean
           show_in_offer_list?: boolean
@@ -8483,6 +8489,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "driver_special_offer_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_special_offers_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
             referencedColumns: ["id"]
           },
         ]
@@ -23040,6 +23053,10 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      admin_save_driver_special_offer: {
+        Args: { p_offer: Json; p_service_area_ids?: string[] }
+        Returns: string
       }
       admin_user_directory: {
         Args: never

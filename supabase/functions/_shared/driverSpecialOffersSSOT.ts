@@ -1,8 +1,21 @@
 /**
- * Driver Special Offers SSOT — pure eligibility / visibility rules.
- * Used by Admin panel, the read Edge Function and tests.
- * The Driver app never decides eligibility on-device: the Edge Function applies these rules.
+ * Driver Special Offers SSOT — pure scope / eligibility / visibility rules.
+ * Used by the Admin panel, the read Edge Function and tests.
+ *
+ * Geographic hierarchy (canonical production tables):
+ *   regions.id  ->  service_areas.region_id  ->  drivers.service_area_id
+ *
+ * The Driver app never decides eligibility on-device and never filters by city name:
+ * the Edge Function resolves the driver's canonical service area and applies these rules.
  */
+
+export type OfferScopeType = 'selected_service_areas' | 'entire_region' | 'global';
+
+export const OFFER_SCOPE_TYPES: OfferScopeType[] = [
+  'selected_service_areas',
+  'entire_region',
+  'global',
+];
 
 export interface DriverSpecialOfferRow {
   id: string;
@@ -34,11 +47,20 @@ export interface DriverSpecialOfferRow {
   new_drivers_only: boolean;
   eligible_driver_tiers: string[] | null;
   display_order: number;
+  /** Availability area scope. Never inferred — always explicit. */
+  scope_type: OfferScopeType;
+  /** regions.id — required for entire_region, must be null for global. */
+  region_id: string | null;
+  created_at?: string | null;
 }
 
 export interface DriverEligibilityContext {
-  /** drivers.service_area_id */
+  /** drivers.service_area_id (canonical operating service area) */
   service_area_id: string | null;
+  /** service_areas.is_active for the resolved service area */
+  service_area_active: boolean;
+  /** service_areas.region_id for the resolved service area */
+  region_id: string | null;
   /** drivers.total_trips (completed-trip counter SSOT) */
   total_trips: number;
   /** driver_categories.name via drivers.category_id */
@@ -48,8 +70,11 @@ export interface DriverEligibilityContext {
 }
 
 export const NEW_DRIVER_WINDOW_DAYS = 30;
-export const SPECIAL_OFFERS_EMPTY_COPY = 'No special offers are available right now.';
+export const SPECIAL_OFFERS_EMPTY_COPY =
+  'No special offers are available in your area right now.';
 export const DEFAULT_BANNER_BUTTON_LABEL = 'View offers';
+export const GLOBAL_SCOPE_CONFIRMATION =
+  'This offer will be visible across all active service areas.';
 
 export function isOfferLive(offer: DriverSpecialOfferRow, now: Date = new Date()): boolean {
   if (offer.status !== 'published') return false;
@@ -60,16 +85,35 @@ export function isOfferLive(offer: DriverSpecialOfferRow, now: Date = new Date()
   return true;
 }
 
+/**
+ * Geographic scope match.
+ * `assignedAreaIds` must already be restricted to ACTIVE service areas.
+ */
+export function matchesOfferScope(
+  offer: DriverSpecialOfferRow,
+  driver: DriverEligibilityContext,
+  assignedAreaIds: string[],
+): boolean {
+  if (offer.scope_type === 'global') return true;
+
+  // Non-global offers require a resolved, active service area.
+  if (!driver.service_area_id || !driver.service_area_active) return false;
+
+  if (offer.scope_type === 'entire_region') {
+    if (!offer.region_id) return false;
+    return driver.region_id === offer.region_id;
+  }
+
+  return assignedAreaIds.includes(driver.service_area_id);
+}
+
 export function isDriverEligible(
   offer: DriverSpecialOfferRow,
   driver: DriverEligibilityContext,
-  serviceAreaIds: string[],
+  assignedAreaIds: string[],
   now: Date = new Date(),
 ): boolean {
-  // Service area scoping: no rows = global.
-  if (serviceAreaIds.length > 0) {
-    if (!driver.service_area_id || !serviceAreaIds.includes(driver.service_area_id)) return false;
-  }
+  if (!matchesOfferScope(offer, driver, assignedAreaIds)) return false;
   if (offer.minimum_completed_trips != null && driver.total_trips < offer.minimum_completed_trips) return false;
   if (offer.new_drivers_only) {
     if (!driver.created_at) return false;
@@ -84,11 +128,23 @@ export function isDriverEligible(
   return true;
 }
 
-export function sortOffers<T extends { is_featured: boolean; display_order: number; title: string }>(rows: T[]): T[] {
+/**
+ * Deterministic order: display_order -> featured -> newest -> stable id tie-breaker.
+ * Never random between renders.
+ */
+export function sortOffers<T extends {
+  id: string;
+  is_featured: boolean;
+  display_order: number;
+  created_at?: string | null;
+}>(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
-    if (a.is_featured !== b.is_featured) return a.is_featured ? -1 : 1;
     if (a.display_order !== b.display_order) return a.display_order - b.display_order;
-    return a.title.localeCompare(b.title);
+    if (a.is_featured !== b.is_featured) return a.is_featured ? -1 : 1;
+    const at = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
+    if (at !== bt) return bt - at;
+    return a.id.localeCompare(b.id);
   });
 }
 
@@ -115,7 +171,7 @@ export interface DriverOffersBanner {
   offer_id: string;
 }
 
-/** Banner is only returned when a banner-eligible live offer exists. */
+/** Banner is only returned when a banner-eligible live offer exists — otherwise hide it entirely. */
 export function buildDriverOffersBanner(eligible: DriverSpecialOfferRow[]): DriverOffersBanner | null {
   const banner = eligible.find((o) => o.show_in_home_banner);
   if (!banner) return null;
@@ -142,6 +198,67 @@ export function buildDriverOffersPayload(
   };
 }
 
+/** Availability-area validation SSOT (mirrors the database triggers). */
+export function validateOfferScope(input: {
+  scope_type: OfferScopeType;
+  region_id?: string | null;
+  serviceAreaIds: string[];
+  status: 'draft' | 'published' | 'archived';
+  /** Active service areas keyed by id -> region_id. Optional; when supplied, membership is checked. */
+  activeServiceAreas?: Record<string, string>;
+}): string[] {
+  const errors: string[] = [];
+  const areas = input.serviceAreaIds ?? [];
+
+  if (input.scope_type === 'global') {
+    if (input.region_id) errors.push('A global offer cannot be tied to a Region.');
+    if (areas.length) errors.push('A global offer cannot have service areas assigned.');
+    return errors;
+  }
+
+  if (input.scope_type === 'entire_region') {
+    if (!input.region_id) errors.push('Select a Region for an entire-region offer.');
+    return errors;
+  }
+
+  // selected_service_areas
+  if (areas.length === 0) {
+    errors.push('Select at least one service area for this offer.');
+  }
+  if (input.activeServiceAreas) {
+    for (const id of areas) {
+      const regionId = input.activeServiceAreas[id];
+      if (!regionId) {
+        errors.push('One or more selected service areas are inactive or no longer exist.');
+        break;
+      }
+    }
+    if (input.region_id) {
+      const mismatch = areas.some(
+        (id) => input.activeServiceAreas![id] && input.activeServiceAreas![id] !== input.region_id,
+      );
+      if (mismatch) errors.push('Selected service areas must belong to the selected Region.');
+    }
+  }
+  return errors;
+}
+
+/** Human-readable scope label for the Admin table. */
+export function describeOfferScope(
+  offer: Pick<DriverSpecialOfferRow, 'scope_type' | 'region_id'>,
+  serviceAreaNames: string[],
+  regionName?: string | null,
+): string {
+  if (offer.scope_type === 'global') return 'Global';
+  if (offer.scope_type === 'entire_region') {
+    return `All service areas in ${regionName ?? 'selected Region'}`;
+  }
+  if (serviceAreaNames.length === 0) return 'No service areas';
+  if (serviceAreaNames.length === 1) return serviceAreaNames[0];
+  if (serviceAreaNames.length === 2) return serviceAreaNames.join(', ');
+  return `${serviceAreaNames.slice(0, 2).join(', ')} +${serviceAreaNames.length - 2} more`;
+}
+
 /** Admin validation SSOT. Returns a list of human-readable errors. */
 export function validateSpecialOfferDraft(input: {
   title: string;
@@ -164,9 +281,6 @@ export function validateSpecialOfferDraft(input: {
   if (input.email_address && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.email_address.trim())) {
     errors.push('Email address is not valid.');
   }
-  if (input.phone_number && normaliseUkPhone(input.phone_number) === null) {
-    errors.push('Phone number is not a valid UK number.');
-  }
   if (input.starts_at && input.ends_at && new Date(input.ends_at) < new Date(input.starts_at)) {
     errors.push('End date cannot be before start date.');
   }
@@ -179,7 +293,10 @@ export function validateSpecialOfferDraft(input: {
   return errors;
 }
 
-/** Normalise UK numbers to E.164 (+44…). Returns null when invalid. */
+/**
+ * Normalise UK numbers to E.164 (+44…). Returns null when invalid.
+ * Offers in non-UK service areas keep their locally entered contact number as-is.
+ */
 export function normaliseUkPhone(input: string): string | null {
   const digits = input.replace(/[^\d+]/g, '');
   let national: string | null = null;
