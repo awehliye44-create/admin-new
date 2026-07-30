@@ -117,35 +117,14 @@ export function useSaveSpecialOffer() {
       serviceAreaIds,
       ...input
     }: Partial<DriverSpecialOfferRow> & { id?: string; serviceAreaIds: string[] }) => {
-      const { data: auth } = await supabase.auth.getUser();
-      const payload = { ...input, updated_by: auth.user?.id ?? null };
-      let offerId = input.id;
-
-      if (offerId) {
-        const { error } = await db.from('driver_special_offers').update(payload).eq('id', offerId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await db
-          .from('driver_special_offers')
-          .insert({ ...payload, created_by: auth.user?.id ?? null })
-          .select('id')
-          .single();
-        if (error) throw error;
-        offerId = data.id;
-      }
-
-      const { error: delErr } = await db
-        .from('driver_special_offer_service_areas')
-        .delete()
-        .eq('offer_id', offerId);
-      if (delErr) throw delErr;
-
-      if (serviceAreaIds.length) {
-        const { error: insErr } = await db
-          .from('driver_special_offer_service_areas')
-          .insert(serviceAreaIds.map((service_area_id) => ({ offer_id: offerId, service_area_id })));
-        if (insErr) throw insErr;
-      }
+      // Single transactional backend save: offer + service-area assignments are
+      // validated together by the availability-area triggers.
+      const { data, error } = await db.rpc('admin_save_driver_special_offer', {
+        p_offer: input,
+        p_service_area_ids: input.scope_type === 'selected_service_areas' ? serviceAreaIds : [],
+      });
+      if (error) throw error;
+      return data as string;
     },
     onSuccess: () => {
       toast.success('Offer saved');
