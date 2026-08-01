@@ -667,11 +667,8 @@ export default function AutoDispatchRules() {
               <Switch checked={settings.stackedRidesEnabled} onCheckedChange={(checked) => updateSetting('stackedRidesEnabled', checked)} disabled={isLoading} />
             </div>
 
-            <p className="text-sm text-muted-foreground rounded-lg border bg-muted/40 px-4 py-3">
-              Stacked dispatch is <span className="font-medium text-foreground">radius-only</span>: the new ride&apos;s pickup must be within{' '}
-              <span className="font-medium text-foreground">Stacked Search Radius</span> of the driver&apos;s current position{' '}
-              <span className="font-medium text-foreground">or</span> the active trip&apos;s dropoff. Direction and bearing are not used for eligibility.
-            </p>
+
+
 
             <Tabs value={stackedTab} onValueChange={setStackedTab}>
               <TabsList className="grid w-full grid-cols-2">
