@@ -682,6 +682,35 @@ export default function AutoDispatchRules() {
               <TabsContent value="general" className="space-y-6 pt-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
+                    <Label>Max Stacked Rides</Label>
+                    <Input type="number" min="1" max="3" value={settings.maxStackedRides}
+                      onChange={(e) => updateSetting('maxStackedRides', Math.min(3, Math.max(1, parseInt(e.target.value) || 1)))}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                    <p className="text-xs text-muted-foreground">Maximum queued rides per driver (1-3)</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Stacked Search Radius (meters)</Label>
+                    <Input type="number" min="500" max="10000" step="100" value={settings.stackedSearchRadiusMeters}
+                      onChange={(e) => updateSetting('stackedSearchRadiusMeters', parseInt(e.target.value) || 2000)}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                    <p className="text-xs text-muted-foreground">
+                      New pickup must be within this radius of the driver or the active trip dropoff ({fromKm(settings.stackedSearchRadiusMeters / 1000).toFixed(2)} {unitShort}). Primary stacked matching gate.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Offer Window (minutes)</Label>
+                    <Input type="number" min="1" max="60" value={settings.stackedOfferWindowMinutes}
+                      onChange={(e) => updateSetting('stackedOfferWindowMinutes', parseInt(e.target.value) || 5)}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                    <p className="text-xs text-muted-foreground">Only stack when active trip&apos;s remaining time is within this window</p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Additional matching rules run after the radius gate. Trips outside the search radius are never offered.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                  <div className="space-y-2">
                     <Label>Minimum Trip Distance ({unitShort})</Label>
                     <Input type="number" step="0.5" min="0" value={fromKm(settings.stackedMinTripDistanceKm)}
                       onChange={(e) => updateSetting('stackedMinTripDistanceKm', toKm(parseFloat(e.target.value) || 0))}
