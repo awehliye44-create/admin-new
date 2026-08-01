@@ -674,13 +674,70 @@ export default function AutoDispatchRules() {
             </p>
 
             <Tabs value={stackedTab} onValueChange={setStackedTab}>
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="general">General</TabsTrigger>
-                <TabsTrigger value="matching">Matching Rules</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="general">Configuration</TabsTrigger>
                 <TabsTrigger value="help">Help &amp; Rules</TabsTrigger>
               </TabsList>
 
               <TabsContent value="general" className="space-y-6 pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label>Minimum Trip Distance ({unitShort})</Label>
+                    <Input type="number" step="0.5" min="0" value={fromKm(settings.stackedMinTripDistanceKm)}
+                      onChange={(e) => updateSetting('stackedMinTripDistanceKm', toKm(parseFloat(e.target.value) || 0))}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                    <p className="text-xs text-muted-foreground">New trip must be at least this long to qualify for stacking</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Max Detour Time (minutes)</Label>
+                    <Input type="number" min="1" max="30" value={settings.stackedMaxDetourMinutes}
+                      onChange={(e) => updateSetting('stackedMaxDetourMinutes', parseInt(e.target.value) || 10)}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                    <p className="text-xs text-muted-foreground">Maximum detour (active drop → new pickup) at the active trip&apos;s speed</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium">Allow Airport Stacking</p>
+                      <p className="text-xs text-muted-foreground">Permit stacked offers on airport trips (default off)</p>
+                    </div>
+                    <Switch checked={settings.allowAirportStacking}
+                      onCheckedChange={(checked) => updateSetting('allowAirportStacking', checked)}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                  </div>
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium">Allow Scheduled Stacking</p>
+                      <p className="text-xs text-muted-foreground">Permit stacked offers on prebook/scheduled trips (default off)</p>
+                    </div>
+                    <Switch checked={settings.allowScheduledStacking}
+                      onCheckedChange={(checked) => updateSetting('allowScheduledStacking', checked)}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                  </div>
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium">Stack During Pickup Waiting</p>
+                      <p className="text-xs text-muted-foreground">Offer stacked rides while driver waits at pickup (default off)</p>
+                    </div>
+                    <Switch checked={settings.allowStackingDuringPickupWaiting}
+                      onCheckedChange={(checked) => updateSetting('allowStackingDuringPickupWaiting', checked)}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                  </div>
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium">Stack During Stop Waiting</p>
+                      <p className="text-xs text-muted-foreground">Offer stacked rides during multi-stop paid waiting (default off)</p>
+                    </div>
+                    <Switch checked={settings.allowStackingDuringStopWaiting}
+                      onCheckedChange={(checked) => updateSetting('allowStackingDuringStopWaiting', checked)}
+                      disabled={isLoading || !settings.stackedRidesEnabled} />
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="__unified_top" className="space-y-6 pt-4">
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label>Max Stacked Rides</Label>
