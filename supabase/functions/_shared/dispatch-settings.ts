@@ -3,7 +3,12 @@
  * and progressive radius / wave / scoring logic shared with SQL functions.
  *
  * Radius keys in dispatch_settings are stored in kilometres; runtime uses metres.
- */ /** Mirrors Postgres NOT NULL DEFAULT values on public.dispatch_settings (20260601100000). */ export const DISPATCH_SETTINGS_SCHEMA_DEFAULTS = {
+ */
+
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+
+/** Mirrors Postgres NOT NULL DEFAULT values on public.dispatch_settings (20260601100000). */
+export const DISPATCH_SETTINGS_SCHEMA_DEFAULTS: Record<string, unknown> = {
   max_driver_find_time_minutes: 3,
   global_timeout_minutes: 15,
   search_radius_meters: 3000,
@@ -39,13 +44,15 @@
   stacked_offer_window_minutes: 5,
   minimum_rating: 0,
   manual_emergency_dispatch_only: false,
-  towards_destination_enabled: true,
-  towards_destination_daily_limit: 3,
-  towards_destination_duration_minutes: 60,
-  towards_destination_matching_tolerance_meters: 3000,
-  towards_destination_priority_weight: 12
 };
-export function coercePositiveInt(raw) {
+
+export type DispatchSettingsSource = "service_area" | "global" | "schema_defaults";
+
+export type ResolvedDispatchSettings = Record<string, unknown> & {
+  _source: DispatchSettingsSource;
+};
+
+export function coercePositiveInt(raw: unknown): number | null {
   if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) return Math.floor(raw);
   if (typeof raw === "string") {
     const t = raw.trim();
@@ -55,7 +62,8 @@ export function coercePositiveInt(raw) {
   }
   return null;
 }
-export function coerceNonNegativeNumber(raw, fallback) {
+
+export function coerceNonNegativeNumber(raw: unknown, fallback: number): number {
   if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) return raw;
   if (typeof raw === "string") {
     const n = Number(raw.trim());
@@ -63,32 +71,48 @@ export function coerceNonNegativeNumber(raw, fallback) {
   }
   return fallback;
 }
-export function mergeDispatchRow(row, defaults = DISPATCH_SETTINGS_SCHEMA_DEFAULTS) {
-  const out = {
-    ...defaults
-  };
+
+export function mergeDispatchRow(
+  row: Record<string, unknown> | null,
+  defaults: Record<string, unknown> = DISPATCH_SETTINGS_SCHEMA_DEFAULTS,
+): ResolvedDispatchSettings {
+  const out: Record<string, unknown> = { ...defaults };
   if (row) {
-    for (const [k, v] of Object.entries(row)){
+    for (const [k, v] of Object.entries(row)) {
       if (v !== null && v !== undefined) out[k] = v;
     }
   }
-  return out;
+  return out as ResolvedDispatchSettings;
 }
-export function kmToMeters(km, fallbackKm) {
+
+export function kmToMeters(km: unknown, fallbackKm: number): number {
   const n = coerceNonNegativeNumber(km, fallbackKm);
   return Math.round(n * 1000);
 }
-/** Progressive radius: min(start + (round-1)*expand, max). Round is 1-based. */ export function effectiveRadiusMeters(settings, round) {
-  const startKm = coerceNonNegativeNumber(settings.search_radius_start_km, coerceNonNegativeNumber(settings.search_radius_meters, 3000) / 1000);
+
+/** Progressive radius: min(start + (round-1)*expand, max). Round is 1-based. */
+export function effectiveRadiusMeters(
+  settings: Record<string, unknown>,
+  round: number,
+): number {
+  const startKm = coerceNonNegativeNumber(
+    settings.search_radius_start_km,
+    coerceNonNegativeNumber(settings.search_radius_meters, 3000) / 1000,
+  );
   const expandKm = coerceNonNegativeNumber(settings.search_radius_expand_km, 5);
-  const maxKm = coerceNonNegativeNumber(settings.search_radius_max_km, Math.max(startKm, startKm + expandKm));
+  const maxKm = coerceNonNegativeNumber(
+    settings.search_radius_max_km,
+    Math.max(startKm, startKm + expandKm),
+  );
   const startM = Math.round(startKm * 1000);
   const expandM = Math.round(expandKm * 1000);
   const maxM = Math.round(maxKm * 1000);
   const r = Math.max(1, Math.floor(round));
   return Math.min(startM + (r - 1) * expandM, maxM);
 }
-/** Rounds needed to reach max radius, at least 1. */ export function roundsNeededForMaxRadius(settings) {
+
+/** Rounds needed to reach max radius, at least 1. */
+export function roundsNeededForMaxRadius(settings: Record<string, unknown>): number {
   const startM = effectiveRadiusMeters(settings, 1);
   const maxM = effectiveRadiusMeters(settings, 9999);
   const expandKm = coerceNonNegativeNumber(settings.search_radius_expand_km, 5);
@@ -96,68 +120,102 @@ export function kmToMeters(km, fallbackKm) {
   if (expandM <= 0 || maxM <= startM) return 1;
   return Math.ceil((maxM - startM) / expandM) + 1;
 }
-export function maxBroadcastRounds(settings, tripMaxRounds) {
+
+export function maxBroadcastRounds(
+  settings: Record<string, unknown>,
+  tripMaxRounds?: number | null,
+): number {
   const configured = coercePositiveInt(tripMaxRounds) ?? 3;
   return Math.max(configured, roundsNeededForMaxRadius(settings));
 }
-export function waveDriverCapForRound(settings, round) {
+
+export function waveDriverCapForRound(settings: Record<string, unknown>, round: number): number {
   const key = round === 1 ? "wave1_size" : round === 2 ? "wave2_size" : "wave3_size";
-  return coercePositiveInt(settings[key]) ?? coercePositiveInt(settings.max_offers_per_request) ?? 3;
+  return (
+    coercePositiveInt(settings[key]) ??
+    coercePositiveInt(settings.max_offers_per_request) ??
+    3
+  );
 }
-/** Driver accept-button countdown (dispatch_settings.accept_timeout_seconds). */ export function acceptOfferTimeoutSeconds(settings) {
+
+/** Driver accept-button countdown (dispatch_settings.accept_timeout_seconds). */
+export function acceptOfferTimeoutSeconds(settings: Record<string, unknown>): number {
   return coercePositiveInt(settings.accept_timeout_seconds) ?? 12;
 }
-/** Towards-destination dropoff match tolerance (metres). */ export function destinationMatchRadiusMeters(settings) {
-  const configured = coercePositiveInt(settings.towards_destination_matching_tolerance_meters);
-  if (configured != null) return configured;
+
+/** Towards-destination dropoff match radius — reuses progressive start radius (km→m SSOT). */
+export function destinationMatchRadiusMeters(settings: Record<string, unknown>): number {
   return effectiveRadiusMeters(settings, 1);
 }
-/**
- * Bounded score bonus when trip dropoff is near the driver's towards destination.
- * Returns 0 when inactive/expired/disabled/out of tolerance — never hard-excludes.
- */ export function towardsDestinationPriorityBonus(settings, dropoffLat, dropoffLng, preference, distanceMetersFn, nowMs = Date.now()) {
-  if (settings.towards_destination_enabled === false) return 0;
-  if (!preference) return 0;
-  if (preference.active === false) return 0;
-  if (preference.expires_at != null && Number.isFinite(Date.parse(preference.expires_at)) && Date.parse(preference.expires_at) <= nowMs) {
-    return 0;
-  }
-  const lat = preference.lat;
-  const lng = preference.lng;
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return 0;
-  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return 0;
-  if (lat === 0 && lng === 0) return 0;
-  if (!Number.isFinite(dropoffLat) || !Number.isFinite(dropoffLng)) return 0;
-  const tolerance = destinationMatchRadiusMeters(settings);
-  const dist = distanceMetersFn(dropoffLat, dropoffLng, lat, lng);
-  if (!Number.isFinite(dist) || dist > tolerance) return 0;
-  return Math.min(Math.max(coerceNonNegativeNumber(settings.towards_destination_priority_weight, 12), 0), 100);
-}
-/** Fields embedded on ride_offers.offer_snapshot for driver countdown SSOT. */ export function dispatchOfferSnapshotFields(settings, round = 1) {
+
+/** Fields embedded on ride_offers.offer_snapshot for driver countdown SSOT. */
+export function dispatchOfferSnapshotFields(
+  settings: Record<string, unknown>,
+  round = 1,
+): Record<string, unknown> {
   const acceptSec = acceptOfferTimeoutSeconds(settings);
   const waveSec = waveOfferExpirySeconds(settings, round);
   return {
     acceptTimeoutSeconds: acceptSec,
     waveOfferExpirySeconds: waveSec,
-    broadcastRound: round
+    broadcastRound: round,
   };
 }
-export function waveOfferExpirySeconds(settings, round) {
-  const wkey = round === 1 ? "wave1_offer_expiry_seconds" : round === 2 ? "wave2_offer_expiry_seconds" : "wave3_offer_expiry_seconds";
-  return coercePositiveInt(settings[wkey]) ?? coercePositiveInt(settings.offer_expiry_seconds) ?? 20;
+
+export function waveOfferExpirySeconds(settings: Record<string, unknown>, round: number): number {
+  const wkey = round === 1
+    ? "wave1_offer_expiry_seconds"
+    : round === 2
+    ? "wave2_offer_expiry_seconds"
+    : "wave3_offer_expiry_seconds";
+  return (
+    coercePositiveInt(settings[wkey]) ??
+    coercePositiveInt(settings.offer_expiry_seconds) ??
+    20
+  );
 }
-export function customerSearchWindowMs(settings) {
-  const minutes = coercePositiveInt(settings.max_driver_find_time_minutes) ?? coercePositiveInt(settings.global_timeout_minutes) ?? 3;
+
+export function customerSearchWindowMs(settings: Record<string, unknown>): number {
+  const minutes =
+    coercePositiveInt(settings.max_driver_find_time_minutes) ??
+    coercePositiveInt(settings.global_timeout_minutes) ??
+    3;
   return minutes * 60 * 1000;
 }
-/** @deprecated Use customerSearchWindowMs(loadDispatchSettings(...)) — rematch uses admin max search time. */ export const DRIVER_CANCEL_REMATCH_SEARCH_WINDOW_MS = customerSearchWindowMs(DISPATCH_SETTINGS_SCHEMA_DEFAULTS);
-/** Driver-cancel rematch search window — same SSOT as initial booking (max_driver_find_time_minutes). */ export function driverCancelRematchSearchExpiresAtIso(settings, fromMs = Date.now()) {
+
+/** @deprecated Use customerSearchWindowMs(loadDispatchSettings(...)) — rematch uses admin max search time. */
+export const DRIVER_CANCEL_REMATCH_SEARCH_WINDOW_MS =
+  customerSearchWindowMs(DISPATCH_SETTINGS_SCHEMA_DEFAULTS);
+
+/** Driver-cancel rematch search window — same SSOT as initial booking (max_driver_find_time_minutes). */
+export function driverCancelRematchSearchExpiresAtIso(
+  settings: Record<string, unknown>,
+  fromMs: number = Date.now(),
+): string {
   return customerSearchExpiresAtIso(settings, fromMs);
 }
-export function customerSearchExpiresAtIso(settings, fromMs = Date.now()) {
+
+export function customerSearchExpiresAtIso(
+  settings: Record<string, unknown>,
+  fromMs: number = Date.now(),
+): string {
   return new Date(fromMs + customerSearchWindowMs(settings)).toISOString();
 }
-/** Resolve distance penalty km factor from dispatch_settings or global overlay (per_meter → per_km). */ export function resolveDistancePenaltyPerKm(settings) {
+
+export type DispatchScoreDriver = {
+  /** From service_area_driver_tiers.category_priority for trip.service_area_id + driver tier. */
+  category_priority?: number | null;
+  dispatch_quality?: "healthy" | "degraded" | string | null;
+  display_rating?: number | null;
+  rating?: number | null;
+  acceptance_rate?: number | null;
+  last_trip_end_at?: string | null;
+  online_since?: string | null;
+  last_seen_at?: string | null;
+};
+
+/** Resolve distance penalty km factor from dispatch_settings or global overlay (per_meter → per_km). */
+export function resolveDistancePenaltyPerKm(settings: Record<string, unknown>): number {
   const perKm = settings.distance_penalty_per_km;
   if (perKm !== null && perKm !== undefined) {
     return coerceNonNegativeNumber(perKm, 2);
@@ -168,49 +226,84 @@ export function customerSearchExpiresAtIso(settings, fromMs = Date.now()) {
   }
   return 2;
 }
-export function extractDriverTierName(driver) {
+
+export function extractDriverTierName(driver: {
+  driver_categories?: { name?: string } | { name?: string }[] | null;
+}): string {
   const cat = driver.driver_categories;
   if (Array.isArray(cat)) return cat[0]?.name ?? "Bronze";
   return cat?.name ?? "Bronze";
 }
-/** Load tier_name → category_priority for a service area (SSOT: service_area_driver_tiers). */ export async function loadServiceAreaTierPriorityMap(supabase, serviceAreaId) {
-  const map = new Map();
+
+/** Load tier_name → category_priority for a service area (SSOT: service_area_driver_tiers). */
+export async function loadServiceAreaTierPriorityMap(
+  supabase: SupabaseClient,
+  serviceAreaId: string | null | undefined,
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
   if (!serviceAreaId) return map;
-  const { data, error } = await supabase.from("service_area_driver_tiers").select("tier_name, category_priority").eq("service_area_id", serviceAreaId).eq("is_active", true);
+
+  const { data, error } = await supabase
+    .from("service_area_driver_tiers")
+    .select("tier_name, category_priority")
+    .eq("service_area_id", serviceAreaId)
+    .eq("is_active", true);
+
   if (error) {
     console.warn("[dispatch-settings] loadServiceAreaTierPriorityMap failed:", error.message);
     return map;
   }
-  for (const row of data ?? []){
+
+  for (const row of data ?? []) {
     if (row?.tier_name) {
-      map.set(String(row.tier_name).toLowerCase(), coerceNonNegativeNumber(row.category_priority, 0));
+      map.set(
+        String(row.tier_name).toLowerCase(),
+        coerceNonNegativeNumber(row.category_priority, 0),
+      );
     }
   }
   return map;
 }
-export function resolveDriverTierCategoryPriorityFromMap(tierPriorityMap, tierName) {
+
+export function resolveDriverTierCategoryPriorityFromMap(
+  tierPriorityMap: Map<string, number>,
+  tierName: string,
+): number {
   const key = tierName.toLowerCase();
-  if (tierPriorityMap.has(key)) return tierPriorityMap.get(key);
+  if (tierPriorityMap.has(key)) return tierPriorityMap.get(key)!;
   if (tierPriorityMap.has("bronze")) {
-    console.warn(`[dispatch-settings] tier "${tierName}" missing in service area map; using Bronze fallback`);
-    return tierPriorityMap.get("bronze");
+    console.warn(
+      `[dispatch-settings] tier "${tierName}" missing in service area map; using Bronze fallback`,
+    );
+    return tierPriorityMap.get("bronze")!;
   }
   return 0;
 }
-export function attachDriverCategoryPriority(driver, tierPriorityMap) {
-  const tierName = extractDriverTierName(driver);
+
+export function attachDriverCategoryPriority<T extends Record<string, unknown>>(
+  driver: T,
+  tierPriorityMap: Map<string, number>,
+): T & { category_priority: number } {
+  const tierName = extractDriverTierName(
+    driver as Parameters<typeof extractDriverTierName>[0],
+  );
   return {
     ...driver,
-    category_priority: resolveDriverTierCategoryPriorityFromMap(tierPriorityMap, tierName)
+    category_priority: resolveDriverTierCategoryPriorityFromMap(tierPriorityMap, tierName),
   };
 }
-export function driverIdleMinutes(driver, nowMs) {
-  const anchor = driver.last_trip_end_at ?? driver.online_since ?? driver.last_seen_at;
+
+export function driverIdleMinutes(driver: DispatchScoreDriver, nowMs: number): number {
+  const anchor =
+    driver.last_trip_end_at ??
+    driver.online_since ??
+    driver.last_seen_at;
   if (!anchor) return 0;
   const t = new Date(anchor).getTime();
   if (!Number.isFinite(t)) return 0;
   return Math.max(0, (nowMs - t) / 60000);
 }
+
 /**
  * Higher score = better candidate. Mirrors public.compute_dispatch_score SQL.
  *
@@ -218,26 +311,50 @@ export function driverIdleMinutes(driver, nowMs) {
  *         - distance_penalty - degraded_driver_penalty
  *
  * category_priority comes from service_area_driver_tiers (trip SA + driver tier).
- */ export function computeDispatchScore(settings, driver, distanceMeters, nowMs = Date.now()) {
+ */
+export function computeDispatchScore(
+  settings: Record<string, unknown>,
+  driver: DispatchScoreDriver,
+  distanceMeters: number,
+  nowMs: number = Date.now(),
+): number {
   const distanceKm = Math.max(0, distanceMeters) / 1000;
   const distancePenalty = distanceKm * resolveDistancePenaltyPerKm(settings);
   const idleMinutes = driverIdleMinutes(driver, nowMs);
   const maxWaitingBonus = coerceNonNegativeNumber(settings.max_waiting_bonus_minutes, 20);
-  const waitingBonus = Math.min(idleMinutes, maxWaitingBonus) * coerceNonNegativeNumber(settings.waiting_bonus_per_minute, 0.5);
+  const waitingBonus =
+    Math.min(idleMinutes, maxWaitingBonus) *
+    coerceNonNegativeNumber(settings.waiting_bonus_per_minute, 0.5);
   const fairnessIdle = coerceNonNegativeNumber(settings.fairness_idle_minutes, 20);
-  const fairnessBoost = idleMinutes >= fairnessIdle ? coerceNonNegativeNumber(settings.fairness_boost_score, 10) : 0;
+  const fairnessBoost =
+    idleMinutes >= fairnessIdle
+      ? coerceNonNegativeNumber(settings.fairness_boost_score, 10)
+      : 0;
+
   const categoryPriority = coerceNonNegativeNumber(driver.category_priority, 0);
-  const degradedPenalty = driver.dispatch_quality === "degraded" ? coerceNonNegativeNumber(settings.degraded_driver_penalty, 100) : 0;
-  const towardsBonus = coerceNonNegativeNumber(driver.towards_bonus, 0);
-  return categoryPriority + waitingBonus + fairnessBoost + towardsBonus - distancePenalty - degradedPenalty;
+  const degradedPenalty =
+    driver.dispatch_quality === "degraded"
+      ? coerceNonNegativeNumber(settings.degraded_driver_penalty, 100)
+      : 0;
+
+  return categoryPriority + waitingBonus + fairnessBoost - distancePenalty - degradedPenalty;
 }
-export function compareDispatchCandidates(settings, a, b, nowMs = Date.now()) {
+
+export function compareDispatchCandidates(
+  settings: Record<string, unknown>,
+  a: DispatchScoreDriver & { distance_meters?: number; dispatch_quality?: string },
+  b: DispatchScoreDriver & { distance_meters?: number; dispatch_quality?: string },
+  nowMs: number = Date.now(),
+): number {
   const scoreA = computeDispatchScore(settings, a, a.distance_meters ?? 0, nowMs);
   const scoreB = computeDispatchScore(settings, b, b.distance_meters ?? 0, nowMs);
   if (scoreA !== scoreB) return scoreB - scoreA;
+
   return (a.distance_meters ?? 0) - (b.distance_meters ?? 0);
 }
-/** Admin Auto-Dispatch Rules (`global_dispatch_settings`) overlays per-service-area rows. */ const GLOBAL_DISPATCH_DIRECT_OVERLAY_FIELDS = [
+
+/** Admin Auto-Dispatch Rules (`global_dispatch_settings`) overlays per-service-area rows. */
+const GLOBAL_DISPATCH_DIRECT_OVERLAY_FIELDS = [
   "max_driver_find_time_minutes",
   "wave1_offer_expiry_seconds",
   "wave2_offer_expiry_seconds",
@@ -257,13 +374,13 @@ export function compareDispatchCandidates(settings, a, b, nowMs = Date.now()) {
   "max_stacked_rides",
   "stacked_search_radius_meters",
   "driver_fare_display",
-  "towards_destination_enabled",
-  "towards_destination_daily_limit",
-  "towards_destination_duration_minutes",
-  "towards_destination_matching_tolerance_meters",
-  "towards_destination_priority_weight"
-];
-/** Map global_dispatch_settings radius columns → dispatch_settings km/m SSOT keys. */ function overlayGlobalRadiusFields(merged, globalRow) {
+] as const;
+
+/** Map global_dispatch_settings radius columns → dispatch_settings km/m SSOT keys. */
+function overlayGlobalRadiusFields(
+  merged: ResolvedDispatchSettings,
+  globalRow: Record<string, unknown>,
+): void {
   const startM = coercePositiveInt(globalRow.start_radius_meters);
   if (startM != null) {
     merged.search_radius_meters = startM;
@@ -278,9 +395,13 @@ export function compareDispatchCandidates(settings, a, b, nowMs = Date.now()) {
     merged.search_radius_max_km = maxM / 1000;
   }
 }
-export function overlayGlobalDispatchSettings(merged, globalRow) {
+
+export function overlayGlobalDispatchSettings(
+  merged: ResolvedDispatchSettings,
+  globalRow: Record<string, unknown> | null,
+): ResolvedDispatchSettings {
   if (!globalRow) return merged;
-  for (const key of GLOBAL_DISPATCH_DIRECT_OVERLAY_FIELDS){
+  for (const key of GLOBAL_DISPATCH_DIRECT_OVERLAY_FIELDS) {
     const value = globalRow[key];
     if (value !== null && value !== undefined) {
       merged[key] = value;
@@ -289,32 +410,56 @@ export function overlayGlobalDispatchSettings(merged, globalRow) {
   overlayGlobalRadiusFields(merged, globalRow);
   return merged;
 }
-async function loadGlobalDispatchSettingsRow(supabase) {
-  const { data } = await supabase.from("global_dispatch_settings").select("*").eq("singleton", true).maybeSingle();
-  return data ? data : null;
+
+async function loadGlobalDispatchSettingsRow(
+  supabase: SupabaseClient,
+): Promise<Record<string, unknown> | null> {
+  const { data } = await supabase
+    .from("global_dispatch_settings")
+    .select("*")
+    .eq("singleton", true)
+    .maybeSingle();
+  return data ? (data as Record<string, unknown>) : null;
 }
-export async function loadDispatchSettings(supabase, serviceAreaId) {
-  let settingsRow = null;
-  let source = "schema_defaults";
+
+export async function loadDispatchSettings(
+  supabase: SupabaseClient,
+  serviceAreaId: string | null | undefined,
+): Promise<ResolvedDispatchSettings> {
+  let settingsRow: Record<string, unknown> | null = null;
+  let source: DispatchSettingsSource = "schema_defaults";
+
   if (serviceAreaId) {
-    const { data } = await supabase.from("dispatch_settings").select("*").eq("service_area_id", serviceAreaId).maybeSingle();
+    const { data } = await supabase
+      .from("dispatch_settings")
+      .select("*")
+      .eq("service_area_id", serviceAreaId)
+      .maybeSingle();
     if (data) {
-      settingsRow = data;
+      settingsRow = data as Record<string, unknown>;
       source = "service_area";
     }
   }
+
   if (!settingsRow) {
-    const { data } = await supabase.from("dispatch_settings").select("*").is("service_area_id", null).maybeSingle();
+    const { data } = await supabase
+      .from("dispatch_settings")
+      .select("*")
+      .is("service_area_id", null)
+      .maybeSingle();
     if (data) {
-      settingsRow = data;
+      settingsRow = data as Record<string, unknown>;
       source = "global";
     }
   }
+
   const globalRow = await loadGlobalDispatchSettingsRow(supabase);
   const merged = overlayGlobalDispatchSettings(mergeDispatchRow(settingsRow), globalRow);
   merged._source = source;
   return merged;
 }
-/** Home-map supply dots: use admin max search radius (metres). */ export function homeMapSupplyRadiusMeters(settings) {
+
+/** Home-map supply dots: use admin max search radius (metres). */
+export function homeMapSupplyRadiusMeters(settings: Record<string, unknown>): number {
   return effectiveRadiusMeters(settings, 9999);
 }

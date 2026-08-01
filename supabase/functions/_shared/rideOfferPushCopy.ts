@@ -3,9 +3,11 @@
  * for Edge Functions that send ride-offer pushes outside the INSERT trigger path.
  */ import { getCurrencySymbol } from "./currency.ts";
 import { resolveTripDisplayFare } from "./tripDisplayFareSSOT.ts";
+import { DRIVER_NEW_RIDE_OFFER_IOS_SOUND } from "./alertSoundOsPush.ts";
 /**
- * iOS APNs `aps.sound` — must match mono `ride_offer_alert.caf` in Copy Bundle Resources.
- */ export const RIDE_OFFER_IOS_ALERT_SOUND = "ride_offer_alert.caf";
+ * iOS APNs `aps.sound` — must match bundled `onecab_new_ride_offer.wav`
+ * (Driver native registry). CAF is not bundled and must not be emitted.
+ */ export const RIDE_OFFER_IOS_ALERT_SOUND = DRIVER_NEW_RIDE_OFFER_IOS_SOUND;
 function num(v) {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "string" && v.trim() !== "") {

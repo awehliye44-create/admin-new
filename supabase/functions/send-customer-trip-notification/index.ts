@@ -1,9 +1,10 @@
 /**
  * send-customer-trip-notification — FCM delivery for Customer lifecycle alerts.
  *
- * Producers must pass `type` matching Admin Customer alert keys
+ * Producers must pass `type` matching Admin/native Customer alert keys
  * (driver_assigned, driver_arrived, trip_started, trip_completed,
- * trip_cancelled, …). channel_id / sound default to SSOT install names.
+ * trip_cancelled, message_received, general_notification, …).
+ * channel_id / sound / category are forced from the allowlisted native registry.
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -11,7 +12,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import {
   buildFcmOsAlertBlocks,
-  customerLifecycleOsPushSound,
+  buildStableAlertIdentity,
+  enforceAllowlistedOsSoundFields,
+  resolveCustomerOsPush,
 } from "../_shared/alertSoundOsPush.ts";
 
 const corsHeaders = {
@@ -107,18 +110,79 @@ serve(async (req) => {
     }
 
     const payload = (await req.json()) as SendBody;
-    const eventKey = (payload.type || payload.data?.type || "general_notification") as string;
-    const ssot = customerLifecycleOsPushSound(String(eventKey));
-    const channelId = payload.channel_id || ssot.channelId;
-    const sound = payload.sound || ssot.sound;
+    const eventKeyRaw = String(
+      payload.type || payload.data?.type || payload.data?.event_type || "",
+    ).trim();
+    if (!eventKeyRaw) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "UNKNOWN_EVENT", eventKey: "" }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const resolved = resolveCustomerOsPush(eventKeyRaw);
+    if (!resolved.ok) {
+      console.error("[send-customer-trip-notification] contract error", resolved);
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: resolved.code,
+          eventKey: resolved.eventKey,
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const enforced = enforceAllowlistedOsSoundFields(resolved.contract, {
+      channelId: payload.channel_id || null,
+      sound: payload.sound || null,
+    });
+    if (enforced.rejectedRequestedSound || enforced.rejectedRequestedChannel) {
+      console.warn("[send-customer-trip-notification] rejected unsafe override", {
+        rejectedSound: enforced.rejectedRequestedSound,
+        rejectedChannel: enforced.rejectedRequestedChannel,
+      });
+    }
+
+    const channelId = enforced.channelId;
+    const sound = enforced.sound;
+    const category = resolved.contract.category;
     const title = payload.title?.trim() || "ONECAB";
     const body = payload.body?.trim() || "";
+
+    const dataIn = asStringMap(payload.data);
+    const tripId = payload.tripId || dataIn.tripId || dataIn.trip_id || null;
+    const identity = buildStableAlertIdentity({
+      appRole: "customer",
+      adminEventKey: resolved.contract.adminEventKey,
+      eventId: dataIn.event_id || dataIn.eventId || null,
+      tripId,
+      messageId: dataIn.message_id || dataIn.messageId || null,
+      notificationId: dataIn.notificationId || dataIn.notification_id || null,
+      stateVersion:
+        dataIn.modification_version ||
+        dataIn.state_version ||
+        dataIn.version ||
+        null,
+    });
+
     const data = asStringMap({
       ...payload.data,
-      type: eventKey,
-      ...(payload.tripId ? { tripId: payload.tripId } : {}),
+      type: resolved.contract.adminEventKey,
+      event_type: identity.event_type,
+      event_id: identity.event_id,
+      dedupe_key: identity.dedupe_key,
+      ...(tripId ? { tripId: String(tripId), trip_id: String(tripId) } : {}),
       channel_id: channelId,
       sound,
+      category,
+      path: dataIn.path || resolved.contract.deepLink,
     });
 
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -138,6 +202,7 @@ serve(async (req) => {
       });
     }
 
+    // Customer-app tokens only — do not query driver push_tokens / broaden roles.
     const { data: row } = await supabase
       .from("customer_push_tokens")
       .select("token, platform")
@@ -171,7 +236,9 @@ serve(async (req) => {
       channelId,
       sound,
       threadId: data.tripId ? `trip-${data.tripId}` : "onecab-customer",
+      category,
       priority: "HIGH",
+      interruptionLevel: resolved.contract.interruptionLevel,
     });
 
     const message: Record<string, unknown> = {
@@ -205,7 +272,16 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ ok: true, channel_id: channelId, sound, platform }),
+      JSON.stringify({
+        ok: true,
+        channel_id: channelId,
+        sound,
+        category,
+        event_id: identity.event_id,
+        dedupe_key: identity.dedupe_key,
+        event_type: identity.event_type,
+        platform,
+      }),
       {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

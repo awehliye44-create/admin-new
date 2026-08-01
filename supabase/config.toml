@@ -256,3 +256,27 @@ verify_jwt = true
 
 [functions.delete-revolut-saved-card]
 verify_jwt = true
+
+# Driver identity re-verification (local authoring — do not deploy without approval)
+[functions.start-driver-identity-verification]
+verify_jwt = true
+
+[functions.get-driver-identity-verification-status]
+verify_jwt = true
+
+[functions.driver-identity-provider-webhook]
+verify_jwt = false
+
+[functions.admin-request-driver-identity-verification]
+verify_jwt = true
+
+# Cron / service-role sweep — JWT verified inside function (same as live deploy).
+# Local authoring restored from `supabase functions download expire-offers`
+# (was missing from admin-new; scan_go SELECT removed for post-20260903121500 schema).
+# Do NOT deploy without explicit approval.
+# Local authoring from download; scan_go SELECT removed. Do NOT deploy without approval.
+[functions.expire-trip]
+verify_jwt = false
+
+[functions.expire-offers]
+verify_jwt = false

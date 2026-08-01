@@ -9,6 +9,12 @@ import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 export const MAX_SAVED_REVOLUT_CARDS = 2;
 export const REVOLUT_SAVE_CARD_VERIFICATION_MINOR = 100;
 
+/**
+ * Fixed £1 verification hold for STANDALONE Add Card / wallet vault only.
+ * Booking card entry must NOT use this — use create-preauth with real fare and
+ * Revolut savePaymentMethodFor on that order instead.
+ */
+
 export type RevolutCustomerPaymentMethod = {
   id: string;
   type: string;

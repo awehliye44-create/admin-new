@@ -1,8 +1,8 @@
 // Revolut Merchant Orders API wrapper used by customer-checkout edge functions.
 // All amounts are integer minor units (e.g. pence) — Revolut's Orders API
 // (versions 2024-09-01+) accepts and returns amounts as integer minor units.
-import { revolutMerchantRequest, validateRevolutMerchantSecret } from "./revolutApi.ts";
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { revolutMerchantRequest } from "./revolutApi.ts";
+import type { RevolutCustomerRef } from "./revolutCustomers.ts";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 
 export type RevolutOrderState =
@@ -27,6 +27,35 @@ export interface RevolutOrder {
   metadata?: Record<string, string>;
 }
 
+export type RevolutOrderPayment = {
+  id: string;
+  order_id?: string;
+  token?: string;
+  state?: string;
+  amount?: number;
+  currency?: string;
+  authentication_challenge?: {
+    type?: string;
+    acs_url?: string;
+  };
+  payment_method?: {
+    type?: string;
+    id?: string;
+    card_brand?: string;
+    card_last_four?: string;
+    last_four?: string;
+    saved_payment_method?: {
+      id?: string;
+      type?: string;
+    };
+  };
+  saved_payment_method?: {
+    id?: string;
+    type?: string;
+  };
+  decline_reason?: string;
+};
+
 export interface CreateOrderParams {
   environment: ProviderEnvironment;
   secretKey: string;
@@ -35,16 +64,26 @@ export interface CreateOrderParams {
   tripId: string;
   description?: string;
   metadata?: Record<string, string>;
-  captureMode?: "manual" | "automatic";   // Defaults to "manual" (pre-auth flow).
-  merchantOrderExtRef?: string;           // Override default (trip id) — required for recovery attempts.
+  /** Required for savePaymentMethodFor / saved card reuse in Revolut Checkout. */
+  customer?: RevolutCustomerRef;
 }
 
 /**
- * Create a Revolut order. Defaults to manual capture (pre-auth flow used at
- * booking time). Recovery attempts pass captureMode: "automatic" because the
- * final fare is already known and there is no separate capture step.
+ * Create a Revolut order with manual capture.
+ * Response includes `token` (used by the Revolut checkout JS widget) and
+ * `checkout_url` (hosted redirect fallback).
  */
 export async function createRevolutOrder(p: CreateOrderParams): Promise<RevolutOrder> {
+  const customerPayload =
+    p.customer?.id
+      ? { id: p.customer.id }
+      : p.customer?.email
+      ? {
+        email: p.customer.email,
+        ...(p.customer.full_name ? { full_name: p.customer.full_name } : {}),
+      }
+      : undefined;
+
   return await revolutMerchantRequest<RevolutOrder>(
     p.environment,
     p.secretKey,
@@ -54,15 +93,15 @@ export async function createRevolutOrder(p: CreateOrderParams): Promise<RevolutO
       body: JSON.stringify({
         amount: p.amountMinor,
         currency: p.currency.toUpperCase(),
-        capture_mode: p.captureMode ?? "manual",
-        merchant_order_ext_ref: p.merchantOrderExtRef ?? p.tripId,
+        capture_mode: "manual",
+        merchant_order_ext_ref: p.tripId,
         description: p.description ?? "ONECAB trip payment",
         metadata: p.metadata ?? {},
+        ...(customerPayload ? { customer: customerPayload } : {}),
       }),
     },
   );
 }
-
 
 export async function retrieveRevolutOrder(
   environment: ProviderEnvironment,
@@ -74,6 +113,111 @@ export async function retrieveRevolutOrder(
     secretKey,
     `/orders/${orderId}`,
   );
+}
+
+export async function listRevolutOrderPayments(
+  environment: ProviderEnvironment,
+  secretKey: string,
+  orderId: string,
+): Promise<RevolutOrderPayment[]> {
+  const data = await revolutMerchantRequest<RevolutOrderPayment[] | { payments?: RevolutOrderPayment[] }>(
+    environment,
+    secretKey,
+    `/orders/${orderId}/payments`,
+    { method: "GET" },
+  );
+  if (Array.isArray(data)) return data;
+  return data.payments ?? [];
+}
+
+export async function payRevolutOrderWithSavedCard(
+  environment: ProviderEnvironment,
+  secretKey: string,
+  orderId: string,
+  savedPaymentMethodId: string,
+): Promise<RevolutOrderPayment> {
+  return await revolutMerchantRequest<RevolutOrderPayment>(
+    environment,
+    secretKey,
+    `/orders/${orderId}/payments`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        saved_payment_method: {
+          type: "card",
+          id: savedPaymentMethodId,
+          initiator: "customer",
+          environment: {
+            type: "browser",
+            time_zone_utc_offset: 0,
+            color_depth: 24,
+            screen_width: 390,
+            screen_height: 844,
+            java_enabled: false,
+            challenge_window_width: 390,
+            browser_url: "https://onecab.app",
+          },
+        },
+      }),
+    },
+  );
+}
+
+export async function retrieveRevolutOrderPayment(
+  environment: ProviderEnvironment,
+  secretKey: string,
+  paymentId: string,
+): Promise<RevolutOrderPayment> {
+  return await revolutMerchantRequest<RevolutOrderPayment>(
+    environment,
+    secretKey,
+    `/payments/${paymentId}`,
+    { method: "GET" },
+    "2026-04-20",
+  );
+}
+
+export function extractRevolutSavedCardPaymentMethodId(
+  payment: RevolutOrderPayment | null | undefined,
+): string | null {
+  if (!payment) return null;
+
+  const nestedSaved = payment.payment_method?.saved_payment_method?.id
+    ?? payment.saved_payment_method?.id;
+  if (typeof nestedSaved === "string" && nestedSaved.trim()) {
+    return nestedSaved.trim();
+  }
+
+  // Never use payment_method.id — that is a one-time payment reference, not reusable.
+  return null;
+}
+
+const REVOLUT_PAYMENT_AUTHORISED = new Set([
+  "AUTHORISED",
+  "AUTHORIZED",
+  "CAPTURED",
+  "COMPLETED",
+]);
+
+const REVOLUT_PAYMENT_FAILED = new Set([
+  "DECLINED",
+  "FAILED",
+  "CANCELLED",
+  "CANCELED",
+]);
+
+export function isRevolutPaymentAuthorisedState(state: string | null | undefined): boolean {
+  return REVOLUT_PAYMENT_AUTHORISED.has(String(state ?? "").toUpperCase());
+}
+
+export function isRevolutPaymentFailedState(state: string | null | undefined): boolean {
+  return REVOLUT_PAYMENT_FAILED.has(String(state ?? "").toUpperCase());
+}
+
+export function isRevolutPaymentAuthenticationChallenge(
+  payment: RevolutOrderPayment | null | undefined,
+): boolean {
+  return String(payment?.state ?? "").toLowerCase() === "authentication_challenge";
 }
 
 /** Manual capture of an authorised order. Amount defaults to full authorised. */
@@ -90,49 +234,6 @@ export async function captureRevolutOrder(
     {
       method: "POST",
       body: JSON.stringify(amountMinor != null ? { amount: amountMinor } : {}),
-    },
-  );
-}
-
-export type GooglePayBillingAddress = {
-  street_line_1?: string;
-  street_line_2?: string;
-  region?: string;
-  city?: string;
-  country_code?: string;
-  postcode?: string;
-};
-
-/**
- * Pay an existing Revolut order with a Google Pay encrypted token.
- * Server-side only — never call from the mobile app with a secret key.
- */
-export async function payRevolutOrderWithGooglePay(args: {
-  environment: ProviderEnvironment;
-  secretKey: string;
-  orderId: string;
-  googlePayToken: string;
-  cardholderName?: string | null;
-  billingAddress?: GooglePayBillingAddress | null;
-}): Promise<RevolutOrder> {
-  const paymentMethod: Record<string, unknown> = {
-    type: "google_pay",
-    token: args.googlePayToken,
-  };
-  if (args.cardholderName) {
-    paymentMethod.cardholder_name = args.cardholderName;
-  }
-  if (args.billingAddress) {
-    paymentMethod.billing_address = args.billingAddress;
-  }
-
-  return await revolutMerchantRequest<RevolutOrder>(
-    args.environment,
-    args.secretKey,
-    `/orders/${args.orderId}/payments`,
-    {
-      method: "POST",
-      body: JSON.stringify({ payment_method: paymentMethod }),
     },
   );
 }
@@ -158,13 +259,9 @@ export async function refundRevolutOrder(
   orderId: string,
   amountMinor?: number,
   reason?: string,
-  currency: string = "GBP",
 ): Promise<{ id?: string; state?: string }> {
   const body: Record<string, unknown> = {};
-  if (amountMinor != null) {
-    body.amount = amountMinor;
-    body.currency = currency.toUpperCase();
-  }
+  if (amountMinor != null) body.amount = amountMinor;
   if (reason) body.reason = reason.slice(0, 200);
   return await revolutMerchantRequest(
     environment,
@@ -185,29 +282,6 @@ export function getRevolutMerchantConfig(): {
   if (!key) throw new Error("Revolut merchant secret key is not configured (REVOLUT_MERCHANT_SECRET_KEY)");
   const environment: ProviderEnvironment = key.startsWith("sk_sandbox") ? "sandbox" : "live";
   return { secretKey: key, environment };
-}
-
-/**
- * Prefer LIVE vault secret_key (sk_) — matches pk_ from get-revolut-checkout-client-config.
- * Falls back to REVOLUT_MERCHANT_SECRET_KEY env when vault is empty.
- */
-export async function getRevolutMerchantConfigFromVault(
-  supabase: SupabaseClient,
-): Promise<{ secretKey: string; environment: ProviderEnvironment }> {
-  const { data } = await supabase
-    .from("payment_provider_vault")
-    .select("secret_value")
-    .eq("provider", "revolut")
-    .eq("environment", "live")
-    .eq("secret_name", "secret_key")
-    .maybeSingle();
-
-  const validation = validateRevolutMerchantSecret(data?.secret_value as string | undefined);
-  if (validation.ok) {
-    return { secretKey: validation.normalized, environment: "live" };
-  }
-
-  return getRevolutMerchantConfig();
 }
 
 /** Map a Revolut order state to our internal trips.payment_status vocabulary. */

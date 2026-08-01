@@ -52,6 +52,13 @@ import {
   getDocumentExpiryDisplayStatus,
   isDocumentExpiringSoon,
 } from '@/lib/driverDocumentCompliance';
+import {
+  attachmentVersionLabel,
+  documentNeedsBothSides,
+  dualSideApproveBlockReason,
+  sideDisplayLabel,
+  type AdminDocumentAttachment,
+} from '@/lib/driverDocumentAttachmentsSides';
 
 interface Document {
   id: string;
@@ -73,6 +80,59 @@ interface Document {
     last_name: string;
     phone: string;
   } | null;
+}
+
+type DocumentAttachment = AdminDocumentAttachment;
+
+async function fetchDocumentAttachments(
+  documentId: string,
+  opts?: { includeHistory?: boolean },
+): Promise<DocumentAttachment[]> {
+  const includeHistory = opts?.includeHistory === true;
+  const view = await supabase
+    .from('driver_document_attachments_ssot' as any)
+    .select(
+      'attachment_id,document_id,side,file_url,storage_path,original_filename,mime_type,created_at,updated_at',
+    )
+    .eq('document_id', documentId);
+  if (!view.error && view.data && !includeHistory) {
+    return (view.data as DocumentAttachment[]).map((row) => ({
+      ...row,
+      is_current: true,
+    }));
+  }
+  let tableQuery = supabase
+    .from('document_attachments' as any)
+    .select(
+      'id,document_id,side,file_url,storage_path,original_filename,mime_type,is_current,superseded_by,created_at,updated_at',
+    )
+    .eq('document_id', documentId);
+  if (!includeHistory) {
+    tableQuery = tableQuery.eq('is_current', true);
+  }
+  const table = await tableQuery;
+  if (table.error || !table.data) {
+    if (!view.error && view.data) {
+      return (view.data as DocumentAttachment[]).map((row) => ({
+        ...row,
+        is_current: true,
+      }));
+    }
+    return [];
+  }
+  return (table.data as any[]).map((row) => ({
+    attachment_id: String(row.id),
+    document_id: String(row.document_id),
+    side: String(row.side),
+    file_url: row.file_url ?? row.storage_path ?? null,
+    storage_path: row.storage_path ?? null,
+    original_filename: row.original_filename ?? null,
+    mime_type: row.mime_type ?? null,
+    is_current: row.is_current ?? true,
+    superseded_by: row.superseded_by ?? null,
+    created_at: row.created_at ?? null,
+    updated_at: row.updated_at ?? null,
+  })) as DocumentAttachment[];
 }
 
 
@@ -144,6 +204,19 @@ export default function Documents() {
     if (reviewStatus === 'rejected' && !rejectionReason.trim()) {
       toast.error('Please provide a rejection reason');
       return;
+    }
+
+    if (reviewStatus === 'approved' && documentNeedsBothSides(selectedDocument)) {
+      const attachments = await fetchDocumentAttachments(selectedDocument.id);
+      // When attachment rows are unavailable (migration not applied), do not block —
+      // preferred rule only when sides SSOT is present.
+      if (attachments.length > 0) {
+        const block = dualSideApproveBlockReason(attachments);
+        if (block) {
+          toast.error(block);
+          return;
+        }
+      }
     }
 
     setIsSaving(true);
@@ -556,10 +629,29 @@ function DocumentViewDialog({
   getDocumentTypeLabel: (type: string) => string;
 }) {
   const { signedUrl, isLoading: isLoadingUrl, error: urlError } = useSignedUrl(doc?.file_url);
+  const { data: attachments = [] } = useQuery({
+    queryKey: ['document-attachments', doc?.id],
+    enabled: Boolean(doc?.id),
+    queryFn: async () => {
+      if (!doc?.id) return [] as DocumentAttachment[];
+      return fetchDocumentAttachments(doc.id, { includeHistory: true });
+    },
+    staleTime: 30_000,
+  });
 
   if (!doc) return null;
 
   const isImage = doc.file_url && /\.(jpg|jpeg|png|gif|webp)$/i.test(doc.file_url);
+  const currentAttachments = attachments.filter((a) => a.is_current !== false);
+  const sortedAttachments = currentAttachments.slice().sort((a, b) => {
+    const order: Record<string, number> = { front: 0, full: 1, back: 2, other: 3 };
+    return (order[a.side] ?? 9) - (order[b.side] ?? 9);
+  });
+  const needsBoth = documentNeedsBothSides(doc);
+  const approveBlock =
+    needsBoth && currentAttachments.length > 0
+      ? dualSideApproveBlockReason(currentAttachments)
+      : null;
 
   return (
     <DialogContent className="max-w-lg">
@@ -568,8 +660,8 @@ function DocumentViewDialog({
         <DialogDescription>{doc.document_name}</DialogDescription>
       </DialogHeader>
       <div className="space-y-4">
-        {/* Document Preview */}
-        {doc.file_url && (
+        {/* Legacy primary preview when no attachment rows yet */}
+        {doc.file_url && sortedAttachments.length === 0 && (
           <div className="border rounded-lg overflow-hidden bg-muted/30">
             {isLoadingUrl ? (
               <div className="flex items-center justify-center py-12">
@@ -602,7 +694,34 @@ function DocumentViewDialog({
           </div>
         )}
 
-        {!doc.file_url && (
+        {sortedAttachments.length > 0 && (
+          <div className="space-y-3">
+            <Label className="text-muted-foreground">Sides on file</Label>
+            {approveBlock ? (
+              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                {approveBlock}
+              </p>
+            ) : needsBoth ? (
+              <p className="text-sm text-muted-foreground">
+                Preferred rule: Front and Back must both be on file before approval.
+              </p>
+            ) : null}
+            {sortedAttachments.map((attachment) => (
+              <AttachmentSidePreview
+                key={attachment.attachment_id}
+                label={sideDisplayLabel(attachment.side)}
+                fileUrl={attachment.file_url || attachment.storage_path || null}
+                uploadedAt={attachment.created_at ?? attachment.updated_at ?? null}
+                versionLabel={attachmentVersionLabel({
+                  current: attachment,
+                  history: attachments,
+                })}
+              />
+            ))}
+          </div>
+        )}
+
+        {!doc.file_url && sortedAttachments.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 gap-2 border rounded-lg bg-muted/30">
             <ImageOff className="h-8 w-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">No file attached to this document</p>
@@ -629,6 +748,21 @@ function DocumentViewDialog({
             <Label className="text-muted-foreground">Document Type</Label>
             <p className="font-medium">{getDocumentTypeLabel(doc.document_type)}</p>
           </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label className="text-muted-foreground">Version</Label>
+            <p className="text-sm font-medium">
+              {doc.is_current ? 'Current' : 'Superseded'}
+            </p>
+          </div>
+          {doc.superseded_by ? (
+            <div>
+              <Label className="text-muted-foreground">Superseded by</Label>
+              <p className="text-xs font-mono break-all">{doc.superseded_by}</p>
+            </div>
+          ) : null}
         </div>
 
         <div>
@@ -675,7 +809,7 @@ function DocumentViewDialog({
         </div>
       </div>
       <DialogFooter>
-        {signedUrl && (
+        {signedUrl && sortedAttachments.length === 0 && (
           <Button variant="outline" onClick={() => window.open(signedUrl, '_blank')}>
             <ExternalLink className="h-4 w-4 mr-2" />
             Open File
@@ -684,5 +818,73 @@ function DocumentViewDialog({
         <Button onClick={onClose}>Close</Button>
       </DialogFooter>
     </DialogContent>
+  );
+}
+
+function AttachmentSidePreview({
+  label,
+  fileUrl,
+  uploadedAt,
+  versionLabel,
+}: {
+  label: string;
+  fileUrl: string | null;
+  uploadedAt?: string | null;
+  versionLabel?: string | null;
+}) {
+  const { signedUrl, isLoading, error } = useSignedUrl(fileUrl);
+  const isImage = fileUrl && /\.(jpg|jpeg|png|gif|webp)$/i.test(fileUrl);
+  const uploadedLabel = uploadedAt
+    ? (() => {
+        try {
+          return format(new Date(uploadedAt), 'PPP p');
+        } catch {
+          return uploadedAt;
+        }
+      })()
+    : null;
+
+  return (
+    <div className="border rounded-lg overflow-hidden bg-muted/30">
+      <div className="px-3 py-2 border-b bg-muted/40 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <span className="text-sm font-medium">{label}</span>
+          {versionLabel ? (
+            <p className="text-xs text-muted-foreground">{versionLabel}</p>
+          ) : null}
+        </div>
+        {uploadedLabel ? (
+          <span className="text-xs text-muted-foreground whitespace-nowrap">{uploadedLabel}</span>
+        ) : null}
+      </div>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center py-6 gap-1">
+          <ImageOff className="h-6 w-6 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">{error}</p>
+        </div>
+      ) : isImage && signedUrl ? (
+        <img
+          src={signedUrl}
+          alt={label}
+          className="w-full max-h-[220px] object-contain"
+        />
+      ) : signedUrl ? (
+        <div className="flex items-center justify-between px-3 py-4">
+          <FileText className="h-8 w-8 text-muted-foreground" />
+          <Button variant="outline" size="sm" onClick={() => window.open(signedUrl, '_blank')}>
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Open
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-center py-6">
+          <p className="text-xs text-muted-foreground">No file</p>
+        </div>
+      )}
+    </div>
   );
 }

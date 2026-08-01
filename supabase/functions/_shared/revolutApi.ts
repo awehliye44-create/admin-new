@@ -1,4 +1,3 @@
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 
 export type RevolutApiError = {
@@ -263,76 +262,16 @@ export async function testRevolutMerchantConnection(
   } satisfies RevolutApiError;
 }
 
-export function normalizeRevolutBusinessAccessToken(raw: string): string {
-  let token = raw.trim();
-  if (/^bearer\s+/i.test(token)) {
-    token = token.replace(/^bearer\s+/i, "").trim();
-  }
-  return token;
-}
-
-export function explainRevolutBusinessAuthFailure(
-  message: string,
-  tokenUsed: string,
-): string {
-  const normalized = message.toLowerCase();
-  if (/^sk_/i.test(tokenUsed) || normalized.includes("invalid api key")) {
-    return "Driver payouts use the Revolut Business API (access token oa_prod_…), not the Merchant secret key (sk_…). In admin → Revolut → Edit secrets, add your Business API access token.";
-  }
-  return message;
-}
-
-/** Business API token for counterparties and /pay — separate from Merchant sk_ key. */
-export async function resolveRevolutBusinessAccessToken(
-  supabase: SupabaseClient,
-  environment: ProviderEnvironment,
-): Promise<string | null> {
-  const { data } = await supabase
-    .from("payment_provider_vault")
-    .select("secret_value")
-    .eq("provider", "revolut")
-    .eq("environment", environment)
-    .eq("secret_name", "business_access_token")
-    .maybeSingle();
-
-  const fromVault = (data?.secret_value as string | null)?.trim();
-  if (fromVault && !fromVault.includes("•")) {
-    return normalizeRevolutBusinessAccessToken(fromVault);
-  }
-
-  const envToken = Deno.env.get("REVOLUT_BUSINESS_ACCESS_TOKEN")?.trim();
-  if (envToken) return normalizeRevolutBusinessAccessToken(envToken);
-
-  return null;
-}
-
-export async function testRevolutBusinessConnection(
-  environment: ProviderEnvironment,
-  accessToken: string,
-): Promise<{ endpoint_tested: string }> {
-  const normalized = normalizeRevolutBusinessAccessToken(accessToken);
-  if (/^sk_/i.test(normalized)) {
-    throw {
-      message: "Business API probe received a Merchant secret key (sk_…). Use a Business access token (oa_prod_…).",
-      status: 0,
-      body: { code: "merchant_key_in_business_slot" },
-    } satisfies RevolutApiError;
-  }
-  await revolutBusinessRequest<unknown>(environment, normalized, "/accounts");
-  return { endpoint_tested: "GET /api/1.0/accounts" };
-}
-
 export async function revolutBusinessRequest<T = Record<string, unknown>>(
   environment: ProviderEnvironment,
   accessToken: string,
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const normalizedToken = normalizeRevolutBusinessAccessToken(accessToken);
   const res = await fetch(`${revolutBusinessBaseUrl(environment)}${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${normalizedToken}`,
+      Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
       Accept: "application/json",
       ...(init?.headers ?? {}),
@@ -340,12 +279,9 @@ export async function revolutBusinessRequest<T = Record<string, unknown>>(
   });
   const body = await parseJsonSafe(res);
   if (!res.ok) {
-    const parsed = parseRevolutErrorBody(body);
-    const rawMessage = parsed.revolut_message
-      ?? (typeof body === "object" && body && "message" in body
-        ? String((body as { message?: string }).message)
-        : `Revolut Business API error (${res.status})`);
-    const message = explainRevolutBusinessAuthFailure(rawMessage, normalizedToken);
+    const message = typeof body === "object" && body && "message" in body
+      ? String((body as { message?: string }).message)
+      : `Revolut Business API error (${res.status})`;
     throw { message, status: res.status, body } satisfies RevolutApiError;
   }
   return body as T;

@@ -17,6 +17,8 @@ export const EMAIL_CHANGE_BLOCK = {
   NO_PROFILE: "NO_PROFILE",
   RATE_LIMITED: "RATE_LIMITED",
   RECIPIENT_POLICY_VIOLATION: "RECIPIENT_POLICY_VIOLATION",
+  /** Customers are phone-OTP only — email-change verification is driver-only. */
+  CUSTOMER_EMAIL_CHANGE_DISABLED: "CUSTOMER_EMAIL_CHANGE_DISABLED",
 } as const;
 
 export type EmailChangeBlockCode =
@@ -43,6 +45,17 @@ export async function assertEmailChangeAllowed(
   accountType: EmailChangeAccountType,
   newEmailRaw: string,
 ): Promise<EmailChangeGuardResult> {
+  // Product SSOT: customer accounts do not use email verification / email-change.
+  // Only drivers may request Resend email-change verification.
+  if (accountType === "customer") {
+    return {
+      ok: false,
+      code: EMAIL_CHANGE_BLOCK.CUSTOMER_EMAIL_CHANGE_DISABLED,
+      message: "Email change is not available for customer accounts. Contact support if you need help.",
+      httpStatus: 403,
+    };
+  }
+
   const normalizedEmail = normalizeAccountEmail(newEmailRaw);
   if (!isValidAccountEmail(normalizedEmail)) {
     return {

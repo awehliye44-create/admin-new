@@ -168,10 +168,12 @@ Deno.serve(async (req) => {
         .maybeSingle();
       customerId = cust?.id ?? null;
       if (customerId) {
+        // trips.passenger_id is the rider FK (customers.id). trips.customer_id
+        // does not exist — filtering on it 42703s and under-counts trips.
         const { count } = await admin
           .from("trips")
           .select("id", { count: "exact", head: true })
-          .eq("customer_id", customerId)
+          .eq("passenger_id", customerId)
           .in("status", ["COMPLETED", "completed"]);
         totalCompletedTrips = count ?? 0;
       }

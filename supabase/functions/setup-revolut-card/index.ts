@@ -1,6 +1,13 @@
 /**
  * setup-revolut-card
  *
+ * STANDALONE WALLET / "Add Card" ONLY.
+ * Creates a fixed £1 (REVOLUT_SAVE_CARD_VERIFICATION_MINOR) verification order.
+ *
+ * Booking Pay / card entry during Choose Ride MUST NEVER call this function.
+ * Booking must use create-preauth-payment-intent with the real backend fare, and
+ * save the card via Revolut savePaymentMethodFor on that real-fare order.
+ *
  * action=start  → verification order token for native card form (save for customer)
  * action=complete → persist saved card after SDK success + release verification hold
  *
@@ -127,6 +134,30 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     action = typeof body.action === "string" ? body.action.trim().toLowerCase() : "start";
+
+    // Hard gate: booking payloads must never create a £1 verification order.
+    if (
+      body.booking_snapshot != null ||
+      body.fare_snapshot != null ||
+      body.estimated_fare != null ||
+      body.purpose === "ride" ||
+      body.purpose === "booking" ||
+      body.purpose === "trip_preauth"
+    ) {
+      edgeStatus = 400;
+      safeLog({
+        edgeStatus,
+        authenticated,
+        customerResolved: false,
+        providerEnvironment: null,
+        orderCreated: false,
+        checkoutTokenReturned: false,
+        revolutStatusCode: null,
+        code: "BOOKING_MUST_USE_CREATE_PREAUTH",
+        action,
+      });
+      return errorJson("BOOKING_MUST_USE_CREATE_PREAUTH", 400);
+    }
 
     let secretKey: string;
     let environment: ProviderEnvironment;

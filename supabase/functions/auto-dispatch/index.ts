@@ -49,9 +49,14 @@ import {
 import { reconcileTripServiceAreaFromPickup } from "../_shared/resolveTripServiceArea.ts";
 import {
   pickupSummaryForRideOfferPush,
-  RIDE_OFFER_IOS_ALERT_SOUND,
   tripReferenceForRideOfferPush,
 } from "../_shared/rideOfferPushCopy.ts";
+import {
+  buildStableAlertIdentity,
+  DRIVER_NEW_RIDE_OFFER_ANDROID_CHANNEL_ID,
+  DRIVER_NEW_RIDE_OFFER_IOS_CATEGORY,
+  DRIVER_NEW_RIDE_OFFER_IOS_SOUND,
+} from "../_shared/alertSoundOsPush.ts";
 import {
   driverNetPenceFromOfferContext,
   rideOfferPushBodyDriverNet,
@@ -1205,6 +1210,16 @@ Deno.serve(async (req) => {
         logEligibility(d.id, false, "documents_not_approved");
         continue;
       }
+      {
+        const { getIdentityDispatchRejectReason } = await import(
+          "../_shared/driverIdentity/dispatchGate.ts"
+        );
+        const identityReject = await getIdentityDispatchRejectReason(supabase, d.id);
+        if (identityReject) {
+          logEligibility(d.id, false, identityReject, { identity_gate: true });
+          continue;
+        }
+      }
       const docCompliance = await evaluateDriverDocumentState(supabase, d.id);
       if (!docCompliance.allowed) {
         const docReject = docCompliance.document_state === "documents_expired"
@@ -1413,6 +1428,19 @@ Deno.serve(async (req) => {
           if (driver.documents_approved !== true) {
             logEligibility(driver.id, false, "documents_not_approved", { stacked_gate: true });
             continue;
+          }
+          {
+            const { getIdentityDispatchRejectReason } = await import(
+              "../_shared/driverIdentity/dispatchGate.ts"
+            );
+            const identityReject = await getIdentityDispatchRejectReason(supabase, driver.id);
+            if (identityReject) {
+              logEligibility(driver.id, false, identityReject, {
+                stacked_gate: true,
+                identity_gate: true,
+              });
+              continue;
+            }
           }
           const stackedDocCompliance = await evaluateDriverDocumentState(supabase, driver.id);
           if (!stackedDocCompliance.allowed) {
@@ -2921,12 +2949,23 @@ Deno.serve(async (req) => {
         );
 
         const semanticType = isStacked ? "stacked_ride_offer" : "new_ride_offer";
+        const alertIdentity = buildStableAlertIdentity({
+          appRole: "driver",
+          adminEventKey: semanticType,
+          offerId: offer.id,
+          tripId: trip_id,
+        });
         const offerData: Record<string, string> = {
           offer_notification_type: 'new_ride_offer',
           notificationType: 'driver_new_ride_offer',
           booking_id: String(trip_id),
-          sound: RIDE_OFFER_IOS_ALERT_SOUND,
+          sound: DRIVER_NEW_RIDE_OFFER_IOS_SOUND,
+          channel_id: DRIVER_NEW_RIDE_OFFER_ANDROID_CHANNEL_ID,
+          category: DRIVER_NEW_RIDE_OFFER_IOS_CATEGORY,
           type: semanticType,
+          event_type: alertIdentity.event_type,
+          event_id: alertIdentity.event_id,
+          dedupe_key: alertIdentity.dedupe_key,
           offer_id: offer.id,
           trip_id: trip_id,
           expires_at: expiresAt,
@@ -2958,7 +2997,8 @@ Deno.serve(async (req) => {
           trip_reference: tripReferenceForRideOfferPush(tripRec),
           currencyCode: trip.currency_code ?? 'GBP',
         };
-
+        // offerData retained for delivery-audit / reminder contract alignment;
+        // primary FCM is sent by ride_offer INSERT trigger → send-driver-notification.
         const pushSentAt = new Date().toISOString();
         const driverPlatforms = driver.registered_push_platforms ?? [];
         pushSentCount++;
@@ -2977,6 +3017,12 @@ Deno.serve(async (req) => {
               success: true,
               scheduled_at: pushSentAt,
               broadcast_round: currentRound,
+              sound: offerData.sound,
+              channel_id: offerData.channel_id,
+              category: offerData.category,
+              event_id: offerData.event_id,
+              dedupe_key: offerData.dedupe_key,
+              event_type: offerData.event_type,
             },
           })).then(({ error }: { error: unknown }) => {
             if (error) console.warn("[auto-dispatch] record_booking_delivery failed:", error);

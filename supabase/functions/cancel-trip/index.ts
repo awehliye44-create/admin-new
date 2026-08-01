@@ -72,16 +72,21 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch trip
+    // Fetch trip — SSOT rider key is trips.passenger_id (customers.id).
+    // trips.customer_id was never a live column; selecting it 42703s and
+    // surfaces as generic "Trip not found" / non-2xx to the Customer app.
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, confirmed_driver_id, passenger_id, customer_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, started_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at"
+        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, started_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at"
       )
       .eq("id", trip_id)
       .single();
 
     if (tripErr || !trip) {
+      if (tripErr) {
+        console.error("[cancel-trip] trip fetch failed:", tripErr.message, tripErr.code);
+      }
       return errorResponse("Trip not found", 404);
     }
 
@@ -97,13 +102,13 @@ serve(async (req) => {
     if (adminRole) {
       cancelled_by_id = callerUserId;
     } else {
-      // Try as rider (customers.user_id)
+      // Try as rider (customers.user_id → customers.id == trips.passenger_id)
       const { data: customer } = await supabase
         .from("customers")
         .select("id")
         .eq("user_id", callerUserId)
         .maybeSingle();
-      if (customer && trip.customer_id === customer.id) {
+      if (customer && trip.passenger_id === customer.id) {
         cancelled_by_id = customer.id;
       } else {
         // Try as driver (drivers.user_id)

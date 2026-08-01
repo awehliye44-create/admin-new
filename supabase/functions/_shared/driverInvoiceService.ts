@@ -13,6 +13,7 @@ import {
 import { buildDriverInvoicePdf, isBrandedDriverInvoicePdf } from "./driverInvoicePdf.ts";
 import { prepareDriverInvoiceHtmlForPdf } from "./driverInvoiceHtml.ts";
 import { formatResendFromAddress, sendResendEmail } from "./resendMail.ts";
+import { assertPersonalEndUserEmail } from "./personalEmailPolicy.ts";
 
 const BUCKET = "driver-invoices";
 const LEGACY_BUCKET = "driver-statement-pdfs";
@@ -270,16 +271,24 @@ async function resolveDriverRecipientEmail(
   driver: Record<string, unknown>,
   invoice?: Record<string, unknown>,
 ): Promise<string | null> {
-  const direct = safeText(driver.email as string | undefined, "");
-  if (direct) return direct;
-
-  const snapshot = safeText(invoice?.driver_display_email as string | undefined, "");
-  if (snapshot) return snapshot;
+  const candidates = [
+    safeText(driver.email as string | undefined, ""),
+    safeText(invoice?.driver_display_email as string | undefined, ""),
+  ];
 
   const userId = driver.user_id as string | undefined;
   if (userId) {
     const { data, error } = await supabase.auth.admin.getUserById(userId);
-    if (!error && data?.user?.email) return data.user.email;
+    if (!error && data?.user?.email) {
+      candidates.push(data.user.email);
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const policy = assertPersonalEndUserEmail(candidate, "driver_confirmed");
+    if (policy.ok) return policy.normalizedEmail;
+    console.warn("[DRIVER_INVOICE] recipient_policy_violation", { code: policy.code });
   }
 
   return null;

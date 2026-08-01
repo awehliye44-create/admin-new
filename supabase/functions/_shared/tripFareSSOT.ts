@@ -26,11 +26,10 @@ import { resolveTripDisplayFare } from "./tripDisplayFareSSOT.ts";
 
 export type TripFareRow = {
   final_fare_pence?: number | null;
-  /** Customer payable ride fare locked at accept (promo net) — never subtract discount again. */
   final_customer_fare_pence?: number | null;
+  gross_fare_pence?: number | null;
   fare_locked?: boolean | null;
   locked_base_fare_pence?: number | null;
-  gross_fare_pence?: number | null;
   pickup_waiting_charge_pence?: number | null;
   stop_waiting_charge_pence?: number | null;
   stop_charge_total_pence?: number | null;
@@ -82,19 +81,39 @@ function nonNegInt(value: unknown): number {
   return Math.round(n);
 }
 
-/** Booking payable base — final_customer / display SSOT, never gross alone. */
+/**
+ * Ride base before waiting/airport/pass-through — never includes those add-ons.
+ * Prefer locked_base / snapshot over final_customer_fare_pence when modification
+ * charges exist (final_customer already includes approved mods — MK-260704-002).
+ */
 export function resolveLockedBaseFarePence(trip: TripFareRow): number {
+  const modification = resolveCustomerModificationChargePence(trip);
   const finalCustomer = nonNegInt(trip.final_customer_fare_pence);
+  // When mod charge is present, final_customer_fare_pence is payable including mod —
+  // derive pre-mod base so computeFinalFarePence does not double-count.
+  if (finalCustomer > 0 && modification > 0 && finalCustomer >= modification) {
+    const explicit = nonNegInt(trip.locked_base_fare_pence);
+    if (explicit > 0 && explicit < finalCustomer) return explicit;
+    const snap = trip.fare_snapshot_json as Record<string, unknown> | null | undefined;
+    const snapBase =
+      nonNegInt(snap?.final_customer_fare_pence) ||
+      nonNegInt(snap?.canonical_payable_fare_pence) ||
+      nonNegInt(snap?.final_payable_fare_pence) ||
+      nonNegInt(snap?.committed_fare_pence);
+    if (snapBase > 0 && snapBase < finalCustomer) return snapBase;
+    return Math.max(0, finalCustomer - modification);
+  }
+
   if (finalCustomer > 0) return finalCustomer;
 
   const finalPence = nonNegInt(trip.final_fare_pence);
-  if (finalPence > 0) return finalPence;
-
-  const display = resolveTripDisplayFare(trip);
-  if (display.payable_pence > 0) return display.payable_pence;
+  if (finalPence > 0 && modification <= 0) return finalPence;
 
   const explicit = nonNegInt(trip.locked_base_fare_pence);
   if (explicit > 0) return explicit;
+
+  const display = resolveTripDisplayFare(trip);
+  if (display.payable_pence > 0) return display.payable_pence;
 
   const estimated = nonNegInt(trip.estimated_total_pence);
   if (estimated > 0) return estimated;
@@ -207,79 +226,51 @@ export function resolveTipsPence(trip: TripFareRow, overridePence?: number): num
   return nonNegInt(trip.tip_pence) || nonNegInt(trip.tip_amount_pence);
 }
 
-/**
- * Ride fare base for settlement — excludes waiting/tolls/tips.
- * When fare_locked + final_customer_fare_pence, promo is already in that net (do not subtract discount again).
- */
-export function resolveRideFareBasePence(trip: TripFareRow): number {
-  const ssot = resolveTripDisplayFare(trip);
-  if (ssot.payable_pence > 0) return ssot.payable_pence;
-
-  const finalCustomer = nonNegInt(trip.final_customer_fare_pence);
-  const lockedBase = nonNegInt(trip.locked_base_fare_pence);
-  const discount = resolveDiscountPence(trip);
-  const gross = nonNegInt(trip.gross_fare_pence);
-
-  if (trip.fare_locked && finalCustomer > 0) {
-    return finalCustomer;
-  }
-
-  if (lockedBase > 0) {
-    if (finalCustomer > 0 && lockedBase === finalCustomer) {
-      return lockedBase;
-    }
-    if (discount > 0 && gross > 0 && lockedBase + discount === gross) {
-      return lockedBase;
-    }
-    if (discount > 0 && gross > 0 && lockedBase === gross) {
-      return lockedBase;
-    }
-    return lockedBase;
-  }
-
-  return resolveLockedBaseFarePence(trip);
-}
-
-/** True when discount_pence is already reflected in the locked ride base / final_customer fare. */
-export function isDiscountAlreadyInLockedRideBase(trip: TripFareRow): boolean {
-  if (trip.fare_locked && nonNegInt(trip.final_customer_fare_pence) > 0) {
-    return true;
-  }
-  const lockedBase = nonNegInt(trip.locked_base_fare_pence);
-  const finalCustomer = nonNegInt(trip.final_customer_fare_pence);
-  const discount = resolveDiscountPence(trip);
-  const gross = nonNegInt(trip.gross_fare_pence);
-  if (lockedBase > 0 && finalCustomer > 0 && lockedBase === finalCustomer && discount > 0) {
-    return true;
-  }
-  if (lockedBase > 0 && discount > 0 && gross > 0 && lockedBase + discount === gross) {
-    return true;
-  }
-  return false;
-}
-
 export function computeFinalFarePence(trip: TripFareRow): number {
-  const rideBase = resolveRideFareBasePence(trip);
+  const finalCustomer = nonNegInt(trip.final_customer_fare_pence);
   const arrivalWaiting = resolveArrivalWaitingChargePence(trip);
   const stopWaiting = resolveStopWaitingChargePence(trip);
   const modification = resolveCustomerModificationChargePence(trip);
   const airport = resolveAirportChargePence(trip);
   const passThrough = resolvePassThroughChargePence(trip);
+  const waiting = arrivalWaiting + stopWaiting;
+
+  // final_customer_fare_pence already includes approved modifications (mod apply SSOT).
+  // Add only waiting / airport / pass-through not baked into that field.
+  if (finalCustomer > 0 && modification > 0) {
+    return Math.max(0, finalCustomer + waiting + airport + passThrough);
+  }
+
+  const bookingBase = resolveLockedBaseFarePence(trip);
+  const gross = nonNegInt(trip.gross_fare_pence);
   const discount = resolveDiscountPence(trip);
 
-  const subtotal =
-    rideBase +
+  const extras =
     arrivalWaiting +
     stopWaiting +
     modification +
     airport +
     passThrough;
 
-  if (isDiscountAlreadyInLockedRideBase(trip)) {
-    return Math.max(0, subtotal);
-  }
+  // Discount already baked into final_fare_pence at booking — subtract only legacy gross rows.
+  const applyBookingDiscount =
+    discount > 0 &&
+    gross > 0 &&
+    bookingBase === gross &&
+    nonNegInt(trip.final_fare_pence) <= 0;
 
-  return Math.max(0, subtotal - Math.min(discount, subtotal));
+  const subtotal = bookingBase + extras;
+  const discountToApply = applyBookingDiscount ? Math.min(discount, subtotal) : 0;
+  return Math.max(0, subtotal - discountToApply);
+}
+
+/** Expected customer payable (ride + mod + waiting + tips) — not Stripe captured. */
+export function resolveExpectedPayablePence(
+  trip: TripFareRow,
+  tipsOverridePence?: number,
+): number {
+  const fare = resolveTripFare(trip, tipsOverridePence);
+  return fare.final_fare_pence + fare.tips_pence;
 }
 
 export function resolveTripFare(

@@ -57,6 +57,7 @@ export const KNOWN_DISPATCH_STATUSES = [
   "searching",
   "broadcasting",
   "offered",
+  "locked_driver_offered",
   "assigned",
   "searching_new_driver",
   "stacked_rebroadcasting",
@@ -215,8 +216,11 @@ export function assertTripLifecycleInvariants(
   if (status === "completed" && (dispatch === "assigned" || dispatch === "broadcasting")) {
     violations.push("completed_with_active_dispatch");
   }
-  // Align with violation probe: any assigned driver on a cancelled trip is illegal.
-  if ((status === "cancelled" || status.includes("cancelled")) && driver) {
+  if (
+    (status === "cancelled" || status.includes("cancelled")) &&
+    dispatch === "assigned" &&
+    driver
+  ) {
     violations.push("cancelled_with_assigned_driver");
   }
   if (status === "no_show" && driver) {
@@ -241,16 +245,10 @@ export function assertTripLifecycleInvariants(
   if (status === "completed" && hasPendingIntermediateStops(stops)) {
     violations.push("completed_with_pending_intermediate_stops");
   }
-  // "Active driver pointing to a different trip" requires an explicit
-  // driver_current_trip_id on the context — do not conflate with NOT_ASSIGNED_DRIVER
-  // (acting_driver_id !== assigned), which is an authorisation error.
-  const driverCurrentTripId = (ctx.assignment as { driver_current_trip_id?: string | null } | undefined)
-    ?.driver_current_trip_id;
-  const tripId = (ctx as { trip_id?: string | null }).trip_id;
   if (
-    driverCurrentTripId &&
-    tripId &&
-    driverCurrentTripId !== tripId &&
+    ctx.acting_driver_id &&
+    driver &&
+    ctx.acting_driver_id !== driver &&
     ctx.assignment?.is_driver_active_trip === true
   ) {
     violations.push("active_driver_points_to_different_trip_assignment");
@@ -337,30 +335,6 @@ export function resolveLifecycleTransition(
     invariants_ok: invariants.ok,
     invariant_violations: invariants.violations,
   };
-
-  // Corrective / terminal outcomes may still run against a corrupted row so ops
-  // can heal. Progression and accept must not continue from invariant failures.
-  const correctiveActions: MatrixLifecycleAction[] = [
-    "passenger_no_show",
-    "driver_cancel_before_start",
-    "driver_cancel_after_start",
-    "customer_cancel",
-    "admin_cancel",
-    "rematch",
-    "cancel_queued_trip",
-    "promote_queued_trip",
-    "settlement_complete",
-    // Idempotent terminal repeats despite leftover assignment/dispatch dirt.
-    "complete_trip",
-    "payment_capture",
-  ];
-  if (!invariants.ok && !correctiveActions.includes(action)) {
-    return {
-      ...base,
-      error_code: "INVARIANT_VIOLATION",
-      reason: `Trip state invariants violated: ${invariants.violations.join(", ")}`,
-    };
-  }
 
   // Version guard for modifications
   if (
@@ -518,42 +492,6 @@ export function resolveLifecycleTransition(
 
   // ── Complete ───────────────────────────────────────────────────
   if (action === "complete_trip") {
-    // Admin / service_role may force-complete outside driver physical preconditions.
-    if (actor === "admin" || actor === "service_role") {
-      if (isTerminalTripLifecycleStatus(ctx.status) && status === "completed") {
-        return {
-          ...base,
-          allowed: true,
-          idempotent: true,
-          error_code: "ACTION_ALREADY_COMPLETED",
-          resulting_status: "completed",
-          resulting_dispatch_status: "completed",
-        };
-      }
-      if (isTerminalTripLifecycleStatus(ctx.status) && status !== "completed") {
-        return {
-          ...base,
-          error_code: "INVALID_TRIP_STATE",
-          reason: "Cannot force-complete a terminal non-completed trip.",
-        };
-      }
-      const effects = defaultSideEffects();
-      effects.assignment = "clear";
-      effects.queue = "promote_to_active";
-      effects.waiting = "clear";
-      effects.customer_live_location = "clear";
-      effects.modification_allowed = false;
-      effects.payment = "capture_pending";
-      effects.notify = ["customer", "driver", "admin"];
-      return {
-        ...base,
-        allowed: true,
-        resulting_status: "completed",
-        resulting_dispatch_status: "completed",
-        side_effects: effects,
-      };
-    }
-
     const assignErr = requireAssignedDriver(ctx, actor);
     if (assignErr) {
       return { ...base, error_code: assignErr, reason: "Driver is not assigned to this trip." };
@@ -1096,92 +1034,4 @@ export const LIFECYCLE_MATRIX_DOC_ROWS: ReadonlyArray<{
     to_dispatch: "assigned",
     notes: "Exactly one promotion after A completes",
   },
-  {
-    action: "accept_scheduled",
-    actor: "driver",
-    from_status: "scheduled/offered",
-    to_status: "accepted",
-    to_dispatch: "assigned",
-    notes: "Same assignment entry as accept_offer",
-  },
-  {
-    action: "begin_pickup_waiting",
-    actor: "driver",
-    from_status: "accepted/en_route",
-    to_status: "arrived_at_pickup",
-    to_dispatch: "assigned",
-    notes: "Alias of arrive_pickup; waiting timestamps owned by Edge",
-  },
-  {
-    action: "arrive_stop",
-    actor: "driver",
-    from_status: "in_progress (en route to stop)",
-    to_status: "in_progress",
-    to_dispatch: "assigned",
-    notes: "Intermediate stop arrival",
-  },
-  {
-    action: "drive_to_next",
-    actor: "driver",
-    from_status: "in_progress (at stop)",
-    to_status: "in_progress",
-    to_dispatch: "assigned",
-    notes: "Leave/complete intermediate stop",
-  },
-  {
-    action: "rematch",
-    actor: "system",
-    from_status: "accepted…arrived (assignment cleared)",
-    to_status: "searching_new_driver",
-    to_dispatch: "searching_new_driver",
-    notes: "System rematch after pre-start driver cancel",
-  },
-  {
-    action: "pre_trip_modification",
-    actor: "customer",
-    from_status: "accepted…arrived",
-    to_status: "(unchanged physical)",
-    to_dispatch: "assigned",
-    notes: "Requires matching trip_version",
-  },
-  {
-    action: "in_trip_modification",
-    actor: "customer",
-    from_status: "in_progress",
-    to_status: "(unchanged physical)",
-    to_dispatch: "assigned",
-    notes: "Must not overwrite completed stops",
-  },
-  {
-    action: "payment_capture",
-    actor: "system",
-    from_status: "completed",
-    to_status: "completed",
-    to_dispatch: "completed",
-    notes: "Idempotent when already captured",
-  },
-  {
-    action: "settlement_complete",
-    actor: "system",
-    from_status: "completed",
-    to_status: "completed",
-    to_dispatch: "completed",
-    notes: "Settlement after capture",
-  },
-];
-
-/** Expected status ↔ dispatch pairings for success-path assertions. */
-export const EXPECTED_STATUS_DISPATCH_PAIRINGS: ReadonlyArray<{
-  status: string;
-  dispatch: string;
-}> = [
-  { status: "accepted", dispatch: "assigned" },
-  { status: "arrived_at_pickup", dispatch: "assigned" },
-  { status: "pickup_waiting", dispatch: "assigned" },
-  { status: "in_progress", dispatch: "assigned" },
-  { status: "queued", dispatch: "assigned" },
-  { status: "completed", dispatch: "completed" },
-  { status: "cancelled", dispatch: "cancelled" },
-  { status: "no_show", dispatch: "no_show" },
-  { status: "searching_new_driver", dispatch: "searching_new_driver" },
 ];

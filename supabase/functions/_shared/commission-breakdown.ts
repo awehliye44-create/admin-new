@@ -1,7 +1,8 @@
 /**
  * Driver commission breakdown — delegates to tripSettlement SSOT.
  *
- * Airport charge, other pass-through charges, and tips are never commissionable.
+ * Non-commissionable ONLY: airport charges + driver tips.
+ * Waiting and other trip extras inside the customer fare are commissionable.
  */
 
 import {
@@ -65,7 +66,8 @@ export function computeDriverCommissionBreakdown(
   const settlement = calculateTripSettlement({
     final_fare_pence: finalFarePence,
     airport_charge_pence: input.airportChargePence,
-    other_pass_through_charges_pence: input.otherPassThroughChargesPence,
+    // v2: pass-through is commissionable when inside customer fare — do not strip.
+    other_pass_through_charges_pence: 0,
     tips_pence: tipsPence,
     driver_tier_commission_percent: input.commissionPercent,
     stripe_fee_pence: 0,
@@ -74,12 +76,13 @@ export function computeDriverCommissionBreakdown(
   return {
     total_customer_fare_pence: totalCustomerFarePence,
     airport_charge_pence: settlement.airport_charge_pence,
-    other_pass_through_charges_pence: settlement.other_pass_through_charges_pence,
+    other_pass_through_charges_pence: Math.max(0, Math.round(input.otherPassThroughChargesPence)),
     tips_pence: settlement.tips_pence,
     commissionable_fare_pence: settlement.commissionable_fare_pence,
     commission_percent: settlement.tier_percent_used,
     commission_pence: settlement.commission_pence,
     driver_net_pence: settlement.driver_net_pence,
+    // Pass-through already inside commissionable/driver_net when part of total fare.
     driver_total_earnings_pence: settlement.driver_total_earnings_pence,
   };
 }

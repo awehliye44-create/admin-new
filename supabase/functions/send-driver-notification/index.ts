@@ -2,8 +2,8 @@
  * send-driver-notification — FCM delivery for Driver ride-offer / ops pushes.
  *
  * Invoked by SQL ride_offer_dispatch_push_delivery with body from
- * ride_offer_build_send_notification_body. Honours SSOT channel_id + sound
- * so killed-state Android/iOS play the Admin-synced WAV.
+ * ride_offer_build_send_notification_body. Honours allowlisted native SSOT
+ * channel_id + sound so killed-state Android/iOS play bundled WAVs.
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -11,8 +11,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import {
   buildFcmOsAlertBlocks,
+  buildStableAlertIdentity,
   DRIVER_NEW_RIDE_OFFER_ANDROID_CHANNEL_ID,
+  DRIVER_NEW_RIDE_OFFER_IOS_CATEGORY,
   DRIVER_NEW_RIDE_OFFER_IOS_SOUND,
+  enforceAllowlistedOsSoundFields,
+  resolveDriverRideOfferOsPush,
 } from "../_shared/alertSoundOsPush.ts";
 
 const corsHeaders = {
@@ -39,6 +43,24 @@ function asStringMap(data: Record<string, unknown> | undefined): Record<string, 
     out[k] = typeof v === "string" ? v : String(v);
   }
   return out;
+}
+
+function looksLikeRideOfferPush(payload: SendBody, data: Record<string, string>): boolean {
+  const notifType = (payload.type || data.type || "").toLowerCase();
+  const channel = (
+    payload.channel_id ||
+    payload.android_channel_id ||
+    data.channel_id ||
+    ""
+  ).toLowerCase();
+  return (
+    notifType.includes("ride_offer") ||
+    notifType.includes("new_ride") ||
+    data.offer_id != null ||
+    data.offerId != null ||
+    channel.includes("ride") ||
+    channel === DRIVER_NEW_RIDE_OFFER_ANDROID_CHANNEL_ID.toLowerCase()
+  );
 }
 
 async function getAccessToken(serviceAccountJson: string): Promise<string> {
@@ -126,20 +148,97 @@ serve(async (req) => {
     const title = payload.title?.trim() || "ONECAB";
     const body = payload.body?.trim() || "";
     const data = asStringMap(payload.data);
-    const channelId =
-      payload.channel_id ||
-      payload.android_channel_id ||
-      data.channel_id ||
-      DRIVER_NEW_RIDE_OFFER_ANDROID_CHANNEL_ID;
-    const sound =
-      payload.sound ||
-      data.sound ||
-      DRIVER_NEW_RIDE_OFFER_IOS_SOUND;
 
     const supabase = createClient(supabaseUrl, serviceKey);
+
+    // Defence in depth: suppress new ride-offer pushes when identity blocks dispatch.
+    // Primary eligibility must already exclude the driver in find-drivers/auto-dispatch.
+    if (looksLikeRideOfferPush(payload, data)) {
+      const { data: gate } = await supabase.rpc(
+        "get_driver_identity_verification_gate",
+        { p_driver_id: driverId },
+      );
+      if (gate && (gate.dispatch_blocked === true || gate.blocking === true)) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            suppressed: true,
+            code: gate.code || "IDENTITY_VERIFICATION_REQUIRED",
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+    }
+
+    // This producer is allowlisted for Driver ride-offer OS contracts only.
+    // Prefer stacked/new from explicit flags; payload.type "RIDE_OFFER" / offer_id
+    // still resolve even when data.type is an ops alias (e.g. ride_auto_accepted).
+    const isRideOffer = looksLikeRideOfferPush(payload, data);
+    const typeHint = isRideOffer
+      ? data.is_stacked === "true" ||
+          data.type === "stacked_ride_offer" ||
+          data.type === "STACKED_RIDE_OFFER"
+        ? "stacked_ride_offer"
+        : "new_ride_offer"
+      : data.type || data.event_type || payload.type || "";
+    const resolved = resolveDriverRideOfferOsPush(typeHint);
+    if (!resolved.ok) {
+      console.error("[send-driver-notification] UNKNOWN_EVENT", typeHint);
+      return new Response(
+        JSON.stringify({ ok: false, error: "UNKNOWN_EVENT", eventKey: typeHint }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const enforced = enforceAllowlistedOsSoundFields(resolved.contract, {
+      channelId:
+        payload.channel_id ||
+        payload.android_channel_id ||
+        data.channel_id ||
+        null,
+      sound: payload.sound || data.sound || null,
+    });
+    if (enforced.rejectedRequestedSound || enforced.rejectedRequestedChannel) {
+      console.warn("[send-driver-notification] rejected unsafe channel/sound override", {
+        rejectedSound: enforced.rejectedRequestedSound,
+        rejectedChannel: enforced.rejectedRequestedChannel,
+      });
+    }
+
+    const channelId = enforced.channelId;
+    const sound = enforced.sound;
+    const category = resolved.contract.category || DRIVER_NEW_RIDE_OFFER_IOS_CATEGORY;
+
+    const identity = buildStableAlertIdentity({
+      appRole: "driver",
+      adminEventKey: resolved.contract.adminEventKey,
+      eventId: data.event_id || data.eventId || null,
+      offerId: data.offer_id || data.offerId || null,
+      tripId: data.trip_id || data.tripId || data.booking_id || null,
+      stateVersion: data.notificationVersion || data.state_version || null,
+    });
+
+    data.event_id = identity.event_id;
+    data.dedupe_key = identity.dedupe_key;
+    data.event_type = identity.event_type;
+    data.type = data.type || identity.event_type;
+    data.channel_id = channelId;
+    data.sound = sound;
+    data.category = category;
+    if (!data.path && resolved.contract.deepLink) {
+      data.path = resolved.contract.deepLink;
+    }
+
     let pushToken: string | null = null;
     let platform = "android";
 
+    // Driver-app tokens only — do not broaden to customer / shared auth tokens.
     const { data: presence } = await supabase
       .from("driver_presence")
       .select("push_token")
@@ -189,8 +288,9 @@ serve(async (req) => {
       channelId,
       sound,
       threadId: "onecab-ride-offers",
-      category: "ONECAB_NEW_RIDE_OFFER",
+      category,
       priority: "HIGH",
+      interruptionLevel: resolved.contract.interruptionLevel,
     });
 
     const message: Record<string, unknown> = {
@@ -229,7 +329,13 @@ serve(async (req) => {
         ok: true,
         channel_id: channelId,
         sound,
+        category,
+        event_id: identity.event_id,
+        dedupe_key: identity.dedupe_key,
+        event_type: identity.event_type,
         platform,
+        // Sanity: never claim CAF
+        ios_sound_contract: DRIVER_NEW_RIDE_OFFER_IOS_SOUND,
       }),
       {
         status: 200,

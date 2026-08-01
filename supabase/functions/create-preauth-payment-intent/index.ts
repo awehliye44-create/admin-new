@@ -36,6 +36,7 @@ import {
   humanizeStripePreauthCustomerError,
 } from "../_shared/stripePreauthCustomerError.ts";
 import { createRevolutPreauthResponse } from "../_shared/revolutPreauth.ts";
+import { assertBookingPreauthAmount } from "../_shared/bookingPreauthAmountGuardSSOT.ts";
 import {
   validateCanonicalBookingSnapshot,
 } from "../../../shared/bookingSnapshotSSOT.ts";
@@ -456,6 +457,29 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       source_config: bufferSource.config_table,
       enable_preauth_buffer: bufferSource.enable_preauth_buffer,
     });
+
+    // Fail closed before Revolut: never create a £1 vault verification as a booking hold.
+    {
+      const amountGuard = assertBookingPreauthAmount({
+        estimatedTotalPence,
+        authorisedAmountPence,
+      });
+      if (!amountGuard.ok) {
+        logStep("BOOKING_PREAUTH_AMOUNT_REJECTED", {
+          code: amountGuard.code,
+          estimatedTotalPence,
+          authorisedAmountPence,
+        });
+        return new Response(JSON.stringify({
+          error: amountGuard.message,
+          error_code: amountGuard.code,
+          charge_state: "no_charge",
+        }), {
+          status: 422,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     const regionCurrency = await resolveRegionCurrency(
       supabaseClient,

@@ -32,8 +32,6 @@ export interface ProviderSecrets {
   secret_key?: string;
   webhook_secret?: string;
   merchant_id?: string;
-  /** Revolut Business API OAuth access token (oa_prod_…) for driver payouts / counterparties. */
-  business_access_token?: string;
 }
 
 export interface PaymentIntentResult {
@@ -204,8 +202,7 @@ export const PROVIDER_ENV_SECRET_MAP: Record<
     publishable_key: "REVOLUT_PUBLIC_KEY",
     secret_key: "REVOLUT_MERCHANT_SECRET_KEY",
     webhook_secret: "REVOLUT_WEBHOOK_SECRET",
-    merchant_id: "REVOLUT_MERCHANT_ID",
-    business_access_token: "REVOLUT_BUSINESS_ACCESS_TOKEN",
+    merchant_id: "REVOLUT_SOURCE_BUSINESS_ACCOUNT_ID",
   },
 };
 
@@ -235,7 +232,7 @@ export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, (keyof ProviderSe
   hubtel: ["publishable_key", "secret_key", "webhook_secret"],
   dpo_pay: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
   noda: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
-  revolut: ["publishable_key", "secret_key", "webhook_secret", "merchant_id", "business_access_token"],
+  revolut: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
 };
 
 /** P0 supported providers — Integrations → Payment Providers UI. */
@@ -338,10 +335,9 @@ export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSec
     merchant_id: "Merchant / account ID",
   },
   revolut: {
-    publishable_key: "Production API Public key",
-    secret_key: "Production API Secret key (sk_…)",
+    publishable_key: "Production API Public key (customer collection)",
+    secret_key: "Production API Secret key — Merchant API (sk_…)",
     webhook_secret: "Webhook signing secret",
-    merchant_id: "Source Business account ID (payouts)",
-    business_access_token: "Business API access token (oa_prod_…)",
+    merchant_id: "Source Business account ID — driver automated payouts only",
   },
 };

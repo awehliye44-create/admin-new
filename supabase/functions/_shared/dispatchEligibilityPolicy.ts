@@ -45,7 +45,12 @@
   "existing_offer_for_trip",
   "max_concurrent_offers",
   "no_cash_preference",
-  "beyond_wave_cap"
+  "beyond_wave_cap",
+  "identity_verification_required",
+  "identity_verification_processing",
+  "identity_verification_under_review",
+  "identity_verification_blocked",
+  "identity_reference_unavailable",
 ]);
 /** Map internal gate codes to canonical policy reason strings. */ export function canonicalizeDispatchRejectReason(raw, ctx) {
   switch(raw){

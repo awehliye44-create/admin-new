@@ -38,6 +38,15 @@ Deno.serve(async (req) => {
     const token = String(body.token ?? url.searchParams.get("token") ?? "").trim();
     const appType = resolveVerificationAppType(body.account_type ?? url.searchParams.get("app"));
 
+    // Product SSOT: only Driver uses email-change verification.
+    if (appType !== "driver") {
+      return jsonResponse({
+        ok: false,
+        code: "CUSTOMER_EMAIL_CHANGE_DISABLED",
+        error: "Email change is not available for customer accounts.",
+      }, 403);
+    }
+
     if (!token) {
       return jsonResponse({
         ok: false,
@@ -46,7 +55,7 @@ Deno.serve(async (req) => {
       }, 400);
     }
 
-    const row = await findPendingEmailChangeRequest(service, token, appType === "driver" ? "driver" : "customer");
+    const row = await findPendingEmailChangeRequest(service, token, "driver");
     if (!row) {
       return jsonResponse({
         ok: false,

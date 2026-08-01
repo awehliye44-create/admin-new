@@ -52,14 +52,17 @@ serve(async (req) => {
       return errorJson("AUTH_INVALID", 401, "Please sign in again to continue.");
     }
 
+    // Booking confirm/capture writes tokenization_status=verified (+ revolut_verified).
+    // Standalone setup-revolut-card writes tokenization_status=active.
+    // Both are listable; failed tokenisation must stay hidden.
     const { data, error } = await supabase
       .from("customer_saved_payment_method_tokens")
       .select(
-        "platform_payment_method_id, brand, last4, exp_month, exp_year, provider_payment_method_id, created_at",
+        "platform_payment_method_id, brand, last4, exp_month, exp_year, provider_payment_method_id, created_at, tokenization_status, revolut_verified",
       )
       .eq("user_id", user.id)
       .eq("payment_provider", "revolut")
-      .eq("tokenization_status", "active")
+      .neq("tokenization_status", "tokenization_failed")
       .order("created_at", { ascending: true });
 
     if (error) {
@@ -67,13 +70,21 @@ serve(async (req) => {
       return errorJson("DB_ERROR", 500, "Unable to load saved cards. Please try again.");
     }
 
-    const cards = (data ?? []).map((row) => ({
-      platform_payment_method_id: row.platform_payment_method_id,
-      brand: row.brand,
-      last4: row.last4,
-      exp_month: row.exp_month,
-      exp_year: row.exp_year,
-    }));
+    const cards = (data ?? [])
+      .filter((row) => {
+        const status = String(row.tokenization_status ?? "");
+        const hasRef = Boolean(String(row.provider_payment_method_id ?? "").trim());
+        if (!hasRef) return false;
+        if (status === "active" || status === "verified") return true;
+        return row.revolut_verified === true;
+      })
+      .map((row) => ({
+        platform_payment_method_id: row.platform_payment_method_id,
+        brand: row.brand,
+        last4: row.last4,
+        exp_month: row.exp_month,
+        exp_year: row.exp_year,
+      }));
 
     console.log(JSON.stringify({
       fn: "list-revolut-saved-cards",

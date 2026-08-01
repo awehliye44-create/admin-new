@@ -63,7 +63,7 @@ export function buildSearchCycleId(
   return `${tripId}:${broadcastRound ?? 0}:${searchingExpiresAt ?? "none"}`;
 }
 
-/** Stored trip round after rematch — auto-dispatch owns the next-wave increment. */
+/** Next wave round after rematch — must not collide with revoked ride_offers rows (unique trip+driver+round). */
 export function resolveNextRematchBroadcastRound(
   maxExistingBroadcastRound: number | null | undefined,
 ): number {
@@ -71,9 +71,7 @@ export function resolveNextRematchBroadcastRound(
     typeof maxExistingBroadcastRound === "number" && Number.isFinite(maxExistingBroadcastRound)
       ? Math.max(0, Math.floor(maxExistingBroadcastRound))
       : 0;
-  // Rematch leaves trips.current_broadcast_round unchanged so deployed
-  // auto-dispatch (storedRound+1) advances exactly once.
-  return maxRound;
+  return maxRound + 1;
 }
 
 /**
@@ -82,7 +80,9 @@ export function resolveNextRematchBroadcastRound(
  */
 export const TRIP_ASSIGNED_DRIVER_COLUMN = "confirmed_driver_id" as const;
 
-/** Safe trip columns for driver-cancel/rematch (no trips.driver_id). */
+/** Safe trip columns for driver-cancel/rematch (no trips.driver_id).
+ * Scan & Go columns (scan_go, locked_driver_id) dropped 20260903121500 — do not SELECT.
+ */
 export const TRIP_CANCEL_REMATCH_SELECT =
   "id, status, stacked_trip_id, cancelled_driver_ids, excluded_driver_ids, passenger_id, confirmed_driver_id, service_area_id, cancel_reason, cancelled_by, searching_expires_at, current_broadcast_round";
 

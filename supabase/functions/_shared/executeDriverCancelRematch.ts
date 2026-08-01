@@ -1,22 +1,26 @@
 /**
  * Driver cancel before start → rematch (customer trip survives).
- * Critical mutation is atomic via driver_cancel_before_start_rematch RPC.
- * auto-dispatch is invoked after commit; failures leave trip in searching_new_driver.
+ * Shared by driver-cancel-before-pickup Edge and stop-workflow driver_cancel.
  */
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import {
+  customerSearchExpiresAtIso,
   customerSearchWindowMs,
-  DISPATCH_SETTINGS_SCHEMA_DEFAULTS,
+  loadDispatchSettings,
 } from "./dispatch-settings.ts";
 import { rebroadcastTripViaAutoDispatch } from "./dispatchOrchestrator.ts";
 import { handleQueuedTripAfterCurrentTripFailure } from "./stackedRideLifecycle.ts";
 import {
+  buildClearTripAssignmentPatch,
+  buildDriverCancelRematchBroadcastPatch,
   buildSearchCycleId,
   isDriverAssignedToTrip,
   isPrePickupDriverRematchEligibleDbStatus,
   logTripAssignedDriverFieldResolved,
   PRE_PICKUP_DRIVER_REMATCH_DB_STATUSES,
+  resolveNextRematchBroadcastRound,
+  TRIP_ASSIGNED_DRIVER_COLUMN,
   TRIP_CANCEL_REMATCH_SELECT,
 } from "./driverCancelRematch.ts";
 import { resolveCancellationOutcome } from "./cancellationOutcome.ts";
@@ -29,98 +33,10 @@ export type DriverCancelRematchResult =
     }
   | { ok: false; code: string; message: string; status: number };
 
-export type DriverCancelRematchRpcResult = {
-  ok?: boolean;
-  outcome?: string;
-  trip_id?: string;
-  previous_status?: string;
-  status?: string;
-  dispatch_status?: string;
-  driver_cleared?: boolean;
-  driver_excluded?: boolean;
-  payment_action?: string;
-  idempotent_replay?: boolean;
-  current_broadcast_round?: number | null;
-  searching_expires_at?: string | null;
-  audit_event_id?: string | null;
-  dispatch_outbox_key?: string | null;
-  finance_unchanged?: boolean;
-  customer_active_trip_preserved?: boolean;
-  error?: string;
-  message?: string;
-};
-
-function mapRpcErrorStatus(code: string | undefined): number {
-  switch ((code ?? "").toUpperCase()) {
-    case "NOT_FOUND":
-      return 404;
-    case "FORBIDDEN":
-    case "UNAUTHORIZED":
-      return 403;
-    case "NO_SHOW_NOT_ALLOWED":
-    case "VALIDATION":
-    case "INVALID_STATE":
-    case "USE_TERMINAL_CANCEL":
-      return 400;
-    case "CONFLICT":
-      return 409;
-    default:
-      return 500;
-  }
-}
-
-async function markDispatchOutbox(
-  supabase: SupabaseClient,
-  outboxKey: string | null | undefined,
-  patch: { status: "done" | "failed" | "processing"; last_error?: string | null },
-  ensure?: { tripId: string; triggerReason?: string },
-): Promise<void> {
-  if (!outboxKey) return;
-  const payload: Record<string, unknown> = {
-    status: patch.status,
-    processed_at: patch.status === "done" ? new Date().toISOString() : null,
-  };
-  if (patch.status === "failed") {
-    payload.last_error = patch.last_error ?? "auto-dispatch invoke failed";
-  }
-  if (patch.status === "processing" || patch.status === "failed") {
-    // attempts incremented via RPC-less read-modify would race; best-effort bump
-    const { data } = await supabase
-      .from("dispatch_intent_outbox")
-      .select("attempts")
-      .eq("idempotency_key", outboxKey)
-      .maybeSingle();
-    const attempts =
-      typeof (data as { attempts?: number } | null)?.attempts === "number"
-        ? ((data as { attempts: number }).attempts + 1)
-        : 1;
-    payload.attempts = attempts;
-
-    // Soft replay can hit a missing outbox row; create a retryable record first.
-    if (!data && ensure?.tripId) {
-      await supabase.from("dispatch_intent_outbox").upsert(
-        {
-          trip_id: ensure.tripId,
-          intent: "auto_dispatch_rebroadcast",
-          trigger_reason: ensure.triggerReason ?? "driver_cancel_before_pickup",
-          idempotency_key: outboxKey,
-          status: "pending",
-          attempts: 0,
-          payload: { force_rebroadcast: true, edge_ensured: true },
-        },
-        { onConflict: "idempotency_key" },
-      );
-    }
-  }
-  await supabase
-    .from("dispatch_intent_outbox")
-    .update(payload)
-    .eq("idempotency_key", outboxKey);
-}
-
 /**
  * Apply pre-start driver cancel → searching_new_driver rematch.
- * Atomic DB mutation via RPC; rebroadcast via already-deployed auto-dispatch.
+ * Excludes cancelling driver; rebroadcasts via auto-dispatch.
+ * Scan & Go branch removed after trips.scan_go drop (20260903121500).
  */
 export async function executeDriverCancelBeforePickupRematch(
   supabase: SupabaseClient,
@@ -130,9 +46,6 @@ export async function executeDriverCancelBeforePickupRematch(
     /** Optional preloaded trip row (must include rematch select fields). */
     trip?: Record<string, unknown> | null;
     source?: string;
-    reason?: string | null;
-    idempotencyKey?: string | null;
-    requestMetadata?: Record<string, unknown>;
   },
 ): Promise<DriverCancelRematchResult> {
   const { tripId, driverId } = input;
@@ -219,140 +132,125 @@ export async function executeDriverCancelBeforePickupRematch(
     };
   }
 
-  const incomingMeta = input.requestMetadata ?? {};
-  if (
-    incomingMeta.is_no_show === true ||
-    ["no_show", "passenger_no_show", "noshow"].includes(
-      String(incomingMeta.action_type ?? "").toLowerCase(),
-    ) ||
-    ["no_show", "passenger_no_show"].includes(
-      String(incomingMeta.cancellation_type ?? "").toLowerCase(),
+  const prevCancelled = Array.isArray(trip.cancelled_driver_ids)
+    ? (trip.cancelled_driver_ids as unknown[]).filter(
+      (x): x is string => typeof x === "string",
     )
-  ) {
+    : [];
+  const nextCancelled = prevCancelled.includes(driverId)
+    ? prevCancelled
+    : [...prevCancelled, driverId];
+
+  const nowIso = new Date().toISOString();
+
+  const { error: revokeOffersError } = await supabase
+    .from("ride_offers")
+    .update({
+      status: "revoked",
+      revoked_reason: "driver_cancelled_before_pickup",
+      updated_at: nowIso,
+    })
+    .eq("trip_id", tripId)
+    .in("status", ["pending", "accepted"]);
+
+  if (revokeOffersError) {
     return {
       ok: false,
-      code: "NO_SHOW_NOT_ALLOWED",
-      message: "No-show must use cancel-trip with is_no_show=true; rematch RPC rejects no-show",
-      status: 400,
+      code: "INTERNAL_ERROR",
+      message: revokeOffersError.message,
+      status: 500,
     };
   }
 
-  const broadcastRound =
-    typeof trip.current_broadcast_round === "number" &&
-      Number.isFinite(trip.current_broadcast_round)
-      ? Math.max(0, Math.floor(trip.current_broadcast_round))
-      : 0;
+  const serviceAreaId =
+    typeof trip.service_area_id === "string" ? trip.service_area_id : null;
+  const dispatchSettings = await loadDispatchSettings(supabase, serviceAreaId);
+  const { data: maxRoundRow } = await supabase
+    .from("ride_offers")
+    .select("broadcast_round")
+    .eq("trip_id", tripId)
+    .order("broadcast_round", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  // Include broadcast round so a later reassignment cancel is not poisoned by a prior rematch key.
-  const idempotencyKey =
-    input.idempotencyKey ??
-    `driver_cancel_before_pickup:${tripId}:${driverId}:r${broadcastRound}`;
-
-  const requestMetadata: Record<string, unknown> = {
-    ...incomingMeta,
-    actor_mode: "service_role",
-    actor: "edge",
-    source,
-    is_no_show: false,
-  };
-
-  const { data: rpcData, error: rpcError } = await supabase.rpc(
-    "driver_cancel_before_start_rematch",
-    {
-      p_trip_id: tripId,
-      p_driver_id: driverId,
-      p_reason: input.reason ?? "driver_cancelled",
-      p_idempotency_key: idempotencyKey,
-      p_request_metadata: requestMetadata,
-    },
+  const rematchBroadcastRound = resolveNextRematchBroadcastRound(
+    (maxRoundRow as { broadcast_round?: number } | null)?.broadcast_round ??
+      (typeof trip.current_broadcast_round === "number"
+        ? trip.current_broadcast_round
+        : 0),
   );
 
-  if (rpcError) {
-    const msg = rpcError.message ?? "Rematch RPC failed";
-    const conflict = /CONFLICT|assignment changed/i.test(msg);
+  const prevExcluded = Array.isArray(trip.excluded_driver_ids)
+    ? (trip.excluded_driver_ids as unknown[]).filter(
+      (x): x is string => typeof x === "string",
+    )
+    : [];
+  const nextExcluded = [...new Set([...prevExcluded, ...nextCancelled])];
+
+  const searchingExpiresAt = customerSearchExpiresAtIso(dispatchSettings);
+  const searchWindowMs = customerSearchWindowMs(dispatchSettings);
+  const searchCycleId = buildSearchCycleId(
+    tripId,
+    rematchBroadcastRound,
+    searchingExpiresAt,
+  );
+
+  // Production rematch: status=searching_new_driver, dispatch_status=broadcasting
+  const { data: updatedTrip, error: tripUpdateError } = await supabase
+    .from("trips")
+    .update({
+      status: "searching_new_driver",
+      dispatch_status: "broadcasting",
+      ...buildClearTripAssignmentPatch(),
+      ...buildDriverCancelRematchBroadcastPatch(),
+      cancelled_driver_ids: nextCancelled,
+      excluded_driver_ids: nextExcluded,
+      scheduled_accepted_at: null,
+      cancelled_by: "driver",
+      cancel_reason: "driver_cancelled",
+      current_broadcast_round: rematchBroadcastRound,
+      searching_expires_at: searchingExpiresAt,
+      updated_at: nowIso,
+    })
+    .eq("id", tripId)
+    .eq(TRIP_ASSIGNED_DRIVER_COLUMN, driverId)
+    .select("id, status, searching_expires_at, current_broadcast_round, dispatch_status")
+    .maybeSingle();
+
+  if (tripUpdateError || !updatedTrip) {
     return {
       ok: false,
-      code: conflict ? "CONFLICT" : "INTERNAL_ERROR",
-      message: msg,
-      status: conflict ? 409 : 500,
+      code: "CONFLICT",
+      message:
+        tripUpdateError?.message ??
+        "Trip assignment changed — refresh and try again",
+      status: 409,
     };
   }
 
-  const rpc = (rpcData ?? {}) as DriverCancelRematchRpcResult;
-  if (!rpc.ok) {
-    return {
-      ok: false,
-      code: String(rpc.error ?? "INVALID_STATE"),
-      message: String(rpc.message ?? "Rematch rejected"),
-      status: mapRpcErrorStatus(rpc.error),
-    };
+  await supabase
+    .from("drivers")
+    .update({ current_trip_id: null })
+    .eq("id", driverId)
+    .eq("current_trip_id", tripId);
+
+  if (typeof trip.passenger_id === "string" && trip.passenger_id) {
+    await supabase
+      .from("customers")
+      .update({ active_trip_id: tripId })
+      .eq("id", trip.passenger_id);
   }
 
-  const outboxKey =
-    typeof rpc.dispatch_outbox_key === "string" ? rpc.dispatch_outbox_key : idempotencyKey;
-
-  const isIdempotentReplay = rpc.idempotent_replay === true;
-  let dispatchResult: { ok: boolean; error?: string } = { ok: true };
-  let dispatchSkipped = false;
-
-  if (isIdempotentReplay) {
-    // Soft/hard replay: retry when outbox is missing, pending, or failed.
-    // Never roll back rematch; never cancel the customer trip.
-    const { data: outboxRow } = await supabase
-      .from("dispatch_intent_outbox")
-      .select("status")
-      .eq("idempotency_key", outboxKey)
-      .maybeSingle();
-    const outboxStatus = (outboxRow as { status?: string } | null)?.status ?? null;
-    const shouldRetryDispatch =
-      outboxStatus == null ||
-      outboxStatus === "pending" ||
-      outboxStatus === "failed";
-
-    if (shouldRetryDispatch) {
-      await markDispatchOutbox(supabase, outboxKey, { status: "processing" }, {
-        tripId,
-        triggerReason: "driver_cancel_before_pickup",
-      });
-      dispatchResult = await rebroadcastTripViaAutoDispatch(
-        supabase,
-        tripId,
-        "driver_cancel_before_pickup",
-      );
-      if (!dispatchResult.ok) {
-        console.error(`[${source}] auto-dispatch retry:`, dispatchResult.error);
-        await markDispatchOutbox(supabase, outboxKey, {
-          status: "failed",
-          last_error: dispatchResult.error ?? "auto-dispatch invoke failed",
-        }, { tripId });
-      } else {
-        await markDispatchOutbox(supabase, outboxKey, { status: "done" });
-      }
-    } else {
-      dispatchSkipped = true;
-    }
-  } else {
-    await markDispatchOutbox(supabase, outboxKey, { status: "processing" }, {
-      tripId,
-      triggerReason: "driver_cancel_before_pickup",
-    });
-
-    dispatchResult = await rebroadcastTripViaAutoDispatch(
-      supabase,
-      tripId,
-      "driver_cancel_before_pickup",
+  const dispatchResult = await rebroadcastTripViaAutoDispatch(
+    supabase,
+    tripId,
+    "driver_cancel_before_pickup",
+  );
+  if (!dispatchResult.ok) {
+    console.error(
+      `[${source}] auto-dispatch:`,
+      dispatchResult.error,
     );
-
-    if (!dispatchResult.ok) {
-      console.error(`[${source}] auto-dispatch:`, dispatchResult.error);
-      await markDispatchOutbox(supabase, outboxKey, {
-        status: "failed",
-        last_error: dispatchResult.error ?? "auto-dispatch invoke failed",
-      }, { tripId });
-      // Keep trip in searching_new_driver — retryable via outbox / orchestrator.
-    } else {
-      await markDispatchOutbox(supabase, outboxKey, { status: "done" });
-    }
   }
 
   if (typeof trip.stacked_trip_id === "string" && trip.stacked_trip_id) {
@@ -363,50 +261,19 @@ export async function executeDriverCancelBeforePickupRematch(
     });
   }
 
-  // Search window metadata is informational; RPC already set searching_expires_at.
-  const searchWindowMs = customerSearchWindowMs(DISPATCH_SETTINGS_SCHEMA_DEFAULTS);
-  const searchingExpiresAt =
-    typeof rpc.searching_expires_at === "string"
-      ? rpc.searching_expires_at
-      : null;
-  const rematchBroadcastRound =
-    typeof rpc.current_broadcast_round === "number"
-      ? rpc.current_broadcast_round
-      : null;
-  const searchCycleId = buildSearchCycleId(
-    tripId,
-    rematchBroadcastRound,
-    searchingExpiresAt,
-  );
-
   return {
     ok: true,
     action: "driver_cancel_rematch",
     detail: {
       tripId,
-      status: rpc.status ?? "searching_new_driver",
-      dispatch_status: rpc.dispatch_status ?? "broadcasting",
+      status: "searching_new_driver",
       searching_expires_at: searchingExpiresAt,
       search_window_ms: searchWindowMs,
       search_cycle_id: searchCycleId,
       current_broadcast_round: rematchBroadcastRound,
-      outcome: rpc.outcome ?? "rematch",
-      payment_action: rpc.payment_action ?? "unchanged",
-      driver_cleared: rpc.driver_cleared ?? true,
-      driver_excluded: rpc.driver_excluded ?? true,
-      idempotent_replay: isIdempotentReplay,
-      finance_unchanged: rpc.finance_unchanged ?? true,
-      customer_active_trip_preserved: rpc.customer_active_trip_preserved ?? true,
-      audit_event_id: rpc.audit_event_id ?? null,
-      dispatch_outbox_key: outboxKey,
-      dispatch_invoked: dispatchSkipped ? false : dispatchResult.ok,
-      dispatch_skipped_idempotent_replay: dispatchSkipped,
-      dispatch_error: dispatchSkipped
-        ? null
-        : (dispatchResult.ok ? null : (dispatchResult.error ?? "invoke_failed")),
+      cancelled_driver_ids: nextCancelled,
       allowed_pre_pickup_statuses: PRE_PICKUP_DRIVER_REMATCH_DB_STATUSES,
       lifecycle_outcome: outcome.kind,
-      atomic_rpc: "driver_cancel_before_start_rematch",
     },
   };
 }
