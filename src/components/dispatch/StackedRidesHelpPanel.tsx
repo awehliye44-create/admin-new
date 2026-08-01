@@ -23,8 +23,8 @@ const REJECTION_REASONS: { code: string; meaning: string }[] = [
   { code: 'stacked_heading_to_pickup_blocked', meaning: 'Current trip is still accepted (heading to pickup) — not yet in progress.' },
   { code: 'stacked_pickup_waiting_blocked', meaning: 'Driver is waiting at pickup and Stack During Pickup Waiting is off.' },
   { code: 'stacked_stop_waiting_blocked', meaning: 'Driver is in paid stop waiting and Stack During Stop Waiting is off.' },
-  { code: 'stacked_airport_blocked', meaning: 'New trip is an airport job and Allow Airport Stacking is off.' },
-  { code: 'stacked_scheduled_blocked', meaning: 'New trip is scheduled/prebook and Allow Scheduled Stacking is off.' },
+  { code: 'stacked_airport_blocked', meaning: 'New trip is an airport job and Allow Airport Stacking is off. When on, airport stacking still must not bypass scheduled commitment protection.' },
+  { code: 'stacked_scheduled_blocked', meaning: 'New trip is scheduled/prebook and “Allow compatible stacking before scheduled commitments” is off. When on, stacking is allowed only if full-queue feasibility proves no scheduled pickup is delayed.' },
   { code: 'stacked_service_area_mismatch', meaning: 'Driver is not mapped to the new trip service area.' },
   { code: 'stacked_region_mismatch', meaning: 'Driver region does not match the new trip region.' },
 ];
