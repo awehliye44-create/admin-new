@@ -26,12 +26,24 @@ import {
   Loader2,
   CheckCircle2
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { StackedRidesHelpPanel } from '@/components/dispatch/StackedRidesHelpPanel';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 // useServiceAreas removed — dispatch config is global
 import { useRegions } from '@/hooks/useRegions';
 import { convertDistance, convertToKm, getDistanceUnitShort } from '@/lib/regionSettings';
+import {
+  SCHEDULED_COMMITMENT_POLICY_DEFAULTS,
+  SCHEDULED_REMINDER_POLICY_LINKS,
+  STACKING_SCHEDULED_COMMITMENT_HELP,
+  STACKING_SCHEDULED_COMMITMENT_LABEL,
+  mapCommitmentPolicyFromDb,
+  mapCommitmentPolicyToDb,
+  validateScheduledBookingPolicy,
+  validateScheduledCommitmentPolicy,
+  type ScheduledCommitmentPolicy,
+} from '../../shared/scheduledRidesPolicySSOT';
 
 interface DispatchSettings {
   // PostGIS Dispatch Scoring (single source of truth for all dispatch execution)
@@ -76,12 +88,28 @@ interface DispatchSettings {
   maxAdvanceDays: number;
   scheduledRideIncentivesEnabled: boolean;
   scheduledResponseWindowMinutes: number;
+  /** Fallback only — no pre-confirmed driver. */
   urgentDispatchTriggerMinutesBeforePickup: number;
   lockedDriverResponseMinutes: number;
   scheduledUrgentCardLabel: string;
   enableScheduledToUrgentConversion: boolean;
 
-
+  // Confirmed-driver dynamic commitment policy knobs (Admin stores only)
+  checkInMinLeadMinutes: number;
+  checkInGraceMinutes: number;
+  earlyArrivalBufferMinutes: number;
+  safetyBufferMinutes: number;
+  startJourneyGraceMinutes: number;
+  driverLocationFreshnessSeconds: number;
+  notMovingDetectionMinutes: number;
+  rescueSearchLeadMinutes: number;
+  adminEscalationLeadMinutes: number;
+  scheduledTurnaroundBufferMinutes: number;
+  minGapBetweenScheduledMinutes: number;
+  expectedPickupWaitingMinutes: number;
+  expectedStopWaitingMinutes: number;
+  etaRiskToleranceMinutes: number;
+  pickupAccessAllowanceMinutes: number;
 
   // System Settings (operational flags, not dispatch execution)
   enableLogging: boolean;
@@ -126,9 +154,24 @@ const defaultSettings: DispatchSettings = {
   scheduledRideIncentivesEnabled: false,
   scheduledResponseWindowMinutes: 10,
   urgentDispatchTriggerMinutesBeforePickup: 5,
-  lockedDriverResponseMinutes: 3,
+  lockedDriverResponseMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.driver_response_timeout_minutes,
   scheduledUrgentCardLabel: 'Scheduled • Urgent',
   enableScheduledToUrgentConversion: true,
+  checkInMinLeadMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.check_in_min_lead_minutes,
+  checkInGraceMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.check_in_grace_minutes,
+  earlyArrivalBufferMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.early_arrival_buffer_minutes,
+  safetyBufferMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.safety_buffer_minutes,
+  startJourneyGraceMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.start_journey_grace_minutes,
+  driverLocationFreshnessSeconds: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.driver_location_freshness_seconds,
+  notMovingDetectionMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.not_moving_detection_minutes,
+  rescueSearchLeadMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.rescue_search_lead_minutes,
+  adminEscalationLeadMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.admin_escalation_lead_minutes,
+  scheduledTurnaroundBufferMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.scheduled_turnaround_buffer_minutes,
+  minGapBetweenScheduledMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.min_gap_between_scheduled_minutes,
+  expectedPickupWaitingMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.expected_pickup_waiting_minutes,
+  expectedStopWaitingMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.expected_stop_waiting_minutes,
+  etaRiskToleranceMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.eta_risk_tolerance_minutes,
+  pickupAccessAllowanceMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.pickup_access_allowance_minutes,
   enableLogging: false,
   simulateMode: false,
   blockMultipleActiveRides: false,
@@ -137,7 +180,9 @@ const defaultSettings: DispatchSettings = {
 };
 
 // DB stores all distances in METERS. UI keeps km-named state for display conversion.
-const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
+const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => {
+  const commitment = mapCommitmentPolicyFromDb(data);
+  return {
   searchRadiusStartKm: Number(data.start_radius_meters ?? 4000) / 1000,
   searchRadiusExpandKm: Number(data.expand_radius_meters ?? 8000) / 1000,
   searchRadiusMaxKm: Number(data.max_radius_meters ?? 13000) / 1000,
@@ -173,13 +218,48 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => ({
   scheduledRideIncentivesEnabled: (data.scheduled_ride_incentives_enabled as boolean) ?? defaultSettings.scheduledRideIncentivesEnabled,
   scheduledResponseWindowMinutes: (data.scheduled_response_window_minutes as number) ?? defaultSettings.scheduledResponseWindowMinutes,
   urgentDispatchTriggerMinutesBeforePickup: (data.urgent_dispatch_trigger_minutes_before_pickup as number) ?? defaultSettings.urgentDispatchTriggerMinutesBeforePickup,
-  lockedDriverResponseMinutes: (data.locked_driver_response_minutes as number) ?? defaultSettings.lockedDriverResponseMinutes,
+  lockedDriverResponseMinutes: commitment.driver_response_timeout_minutes,
   scheduledUrgentCardLabel: (data.scheduled_urgent_card_label as string) ?? defaultSettings.scheduledUrgentCardLabel,
   enableScheduledToUrgentConversion: (data.enable_scheduled_to_urgent_conversion as boolean) ?? defaultSettings.enableScheduledToUrgentConversion,
+  checkInMinLeadMinutes: commitment.check_in_min_lead_minutes,
+  checkInGraceMinutes: commitment.check_in_grace_minutes,
+  earlyArrivalBufferMinutes: commitment.early_arrival_buffer_minutes,
+  safetyBufferMinutes: commitment.safety_buffer_minutes,
+  startJourneyGraceMinutes: commitment.start_journey_grace_minutes,
+  driverLocationFreshnessSeconds: commitment.driver_location_freshness_seconds,
+  notMovingDetectionMinutes: commitment.not_moving_detection_minutes,
+  rescueSearchLeadMinutes: commitment.rescue_search_lead_minutes,
+  adminEscalationLeadMinutes: commitment.admin_escalation_lead_minutes,
+  scheduledTurnaroundBufferMinutes: commitment.scheduled_turnaround_buffer_minutes,
+  minGapBetweenScheduledMinutes: commitment.min_gap_between_scheduled_minutes,
+  expectedPickupWaitingMinutes: commitment.expected_pickup_waiting_minutes,
+  expectedStopWaitingMinutes: commitment.expected_stop_waiting_minutes,
+  etaRiskToleranceMinutes: commitment.eta_risk_tolerance_minutes,
+  pickupAccessAllowanceMinutes: commitment.pickup_access_allowance_minutes,
   enableLogging: (data.enable_logging as boolean) ?? defaultSettings.enableLogging,
   simulateMode: (data.simulate_mode as boolean) ?? defaultSettings.simulateMode,
   blockMultipleActiveRides: (data.block_multiple_active_rides as boolean) ?? defaultSettings.blockMultipleActiveRides,
   cancelProtection: (data.cancel_protection as boolean) ?? defaultSettings.cancelProtection,
+  };
+};
+
+const settingsToCommitmentPolicy = (settings: DispatchSettings): ScheduledCommitmentPolicy => ({
+  check_in_min_lead_minutes: settings.checkInMinLeadMinutes,
+  check_in_grace_minutes: settings.checkInGraceMinutes,
+  early_arrival_buffer_minutes: settings.earlyArrivalBufferMinutes,
+  safety_buffer_minutes: settings.safetyBufferMinutes,
+  start_journey_grace_minutes: settings.startJourneyGraceMinutes,
+  driver_location_freshness_seconds: settings.driverLocationFreshnessSeconds,
+  driver_response_timeout_minutes: settings.lockedDriverResponseMinutes,
+  not_moving_detection_minutes: settings.notMovingDetectionMinutes,
+  rescue_search_lead_minutes: settings.rescueSearchLeadMinutes,
+  admin_escalation_lead_minutes: settings.adminEscalationLeadMinutes,
+  scheduled_turnaround_buffer_minutes: settings.scheduledTurnaroundBufferMinutes,
+  min_gap_between_scheduled_minutes: settings.minGapBetweenScheduledMinutes,
+  expected_pickup_waiting_minutes: settings.expectedPickupWaitingMinutes,
+  expected_stop_waiting_minutes: settings.expectedStopWaitingMinutes,
+  eta_risk_tolerance_minutes: settings.etaRiskToleranceMinutes,
+  pickup_access_allowance_minutes: settings.pickupAccessAllowanceMinutes,
 });
 
 const mapSettingsToDb = (settings: DispatchSettings) => ({
@@ -223,6 +303,7 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   locked_driver_response_minutes: settings.lockedDriverResponseMinutes,
   scheduled_urgent_card_label: settings.scheduledUrgentCardLabel,
   enable_scheduled_to_urgent_conversion: settings.enableScheduledToUrgentConversion,
+  ...mapCommitmentPolicyToDb(settingsToCommitmentPolicy(settings)),
   enable_logging: settings.enableLogging,
   simulate_mode: settings.simulateMode,
   block_multiple_active_rides: settings.blockMultipleActiveRides,
@@ -292,6 +373,21 @@ export default function AutoDispatchRules() {
   };
 
   const handleSave = async () => {
+    const bookingIssues = validateScheduledBookingPolicy({
+      min_advance_time_minutes: settings.minAdvanceTimeMinutes,
+      max_advance_days: settings.maxAdvanceDays,
+      urgent_dispatch_trigger_minutes_before_pickup:
+        settings.urgentDispatchTriggerMinutesBeforePickup,
+    });
+    const commitmentIssues = validateScheduledCommitmentPolicy(
+      settingsToCommitmentPolicy(settings),
+    );
+    const issues = [...bookingIssues, ...commitmentIssues];
+    if (issues.length > 0) {
+      toast.error(issues[0]?.message ?? 'Invalid scheduled rides policy');
+      return;
+    }
+
     setIsSaving(true);
     try {
       const dbData = mapSettingsToDb(settings);
@@ -726,7 +822,7 @@ export default function AutoDispatchRules() {
                   <div className="flex items-center justify-between p-3 border rounded-lg">
                     <div>
                       <p className="text-sm font-medium">Allow Airport Stacking</p>
-                      <p className="text-xs text-muted-foreground">Permit stacked offers on airport trips (default off)</p>
+                      <p className="text-xs text-muted-foreground">Permit stacked offers on airport trips — never bypasses scheduled commitment protection (default off)</p>
                     </div>
                     <Switch checked={settings.allowAirportStacking}
                       onCheckedChange={(checked) => updateSetting('allowAirportStacking', checked)}
@@ -734,8 +830,8 @@ export default function AutoDispatchRules() {
                   </div>
                   <div className="flex items-center justify-between p-3 border rounded-lg">
                     <div>
-                      <p className="text-sm font-medium">Allow Scheduled Stacking</p>
-                      <p className="text-xs text-muted-foreground">Permit stacked offers on prebook/scheduled trips (default off)</p>
+                      <p className="text-sm font-medium">{STACKING_SCHEDULED_COMMITMENT_LABEL}</p>
+                      <p className="text-xs text-muted-foreground">{STACKING_SCHEDULED_COMMITMENT_HELP}</p>
                     </div>
                     <Switch checked={settings.allowScheduledStacking}
                       onCheckedChange={(checked) => updateSetting('allowScheduledStacking', checked)}
@@ -744,7 +840,7 @@ export default function AutoDispatchRules() {
                   <div className="flex items-center justify-between p-3 border rounded-lg">
                     <div>
                       <p className="text-sm font-medium">Stack During Pickup Waiting</p>
-                      <p className="text-xs text-muted-foreground">Offer stacked rides while driver waits at pickup (default off)</p>
+                      <p className="text-xs text-muted-foreground">Offer stacked rides while driver waits at pickup — never bypasses scheduled commitment protection (default off)</p>
                     </div>
                     <Switch checked={settings.allowStackingDuringPickupWaiting}
                       onCheckedChange={(checked) => updateSetting('allowStackingDuringPickupWaiting', checked)}
@@ -753,7 +849,7 @@ export default function AutoDispatchRules() {
                   <div className="flex items-center justify-between p-3 border rounded-lg">
                     <div>
                       <p className="text-sm font-medium">Stack During Stop Waiting</p>
-                      <p className="text-xs text-muted-foreground">Offer stacked rides during multi-stop paid waiting (default off)</p>
+                      <p className="text-xs text-muted-foreground">Offer stacked rides during multi-stop paid waiting — never bypasses scheduled commitment protection (default off)</p>
                     </div>
                     <Switch checked={settings.allowStackingDuringStopWaiting}
                       onCheckedChange={(checked) => updateSetting('allowStackingDuringStopWaiting', checked)}
@@ -802,9 +898,10 @@ export default function AutoDispatchRules() {
             </div>
 
             <Tabs value={scheduledTab} onValueChange={setScheduledTab}>
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="booking">Booking Window</TabsTrigger>
                 <TabsTrigger value="dispatch">Dispatch</TabsTrigger>
+                <TabsTrigger value="commitment">Commitment Policy</TabsTrigger>
                 <TabsTrigger value="reminders">Reminders</TabsTrigger>
               </TabsList>
               
@@ -812,14 +909,14 @@ export default function AutoDispatchRules() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label>Minimum Advance Time (minutes)</Label>
-                    <Input type="number" min="5" max="120" value={settings.minAdvanceTimeMinutes}
+                    <Input type="number" min="0" max="1440" value={settings.minAdvanceTimeMinutes}
                       onChange={(e) => updateSetting('minAdvanceTimeMinutes', parseInt(e.target.value) || 15)}
                       disabled={isLoading || !settings.scheduledRidesEnabled} />
                     <p className="text-xs text-muted-foreground">Minimum time before a ride can be scheduled</p>
                   </div>
                   <div className="space-y-2">
                     <Label>Maximum Advance Days</Label>
-                    <Input type="number" min="1" max="90" value={settings.maxAdvanceDays}
+                    <Input type="number" min="1" max="365" value={settings.maxAdvanceDays}
                       onChange={(e) => updateSetting('maxAdvanceDays', parseInt(e.target.value) || 30)}
                       disabled={isLoading || !settings.scheduledRidesEnabled} />
                     <p className="text-xs text-muted-foreground">How far in advance rides can be booked</p>
@@ -828,7 +925,7 @@ export default function AutoDispatchRules() {
                 <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                   <Info className="h-4 w-4 text-blue-600 mt-0.5" />
                   <p className="text-sm text-blue-700 dark:text-blue-400">
-                    Pickup free waiting is configured under Service Area Pricing → Trip Lifecycle → Free Pickup Waiting Time.
+                    System-wide defaults apply to all service areas. Optional SA overrides use <code className="text-xs">dispatch_settings.scheduled_commitment_policy</code>; location access time can be set on Custom Zones. Disabling scheduled rides does not delete stored configuration.
                   </p>
                 </div>
                 <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -843,17 +940,19 @@ export default function AutoDispatchRules() {
               </TabsContent>
 
               <TabsContent value="dispatch" className="space-y-6 pt-4">
-                <div className="p-4 bg-muted/50 rounded-lg">
+                <div className="p-4 bg-muted/50 rounded-lg space-y-2">
                   <p className="text-sm text-muted-foreground">
                     Scheduled rides use the same <span className="font-medium text-foreground">Dispatch Scoring & Execution</span> settings above for driver ranking, radius expansion, and wave dispatch.
-                    The settings below control when a scheduled ride converts to urgent and begins per-wave broadcasting.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Confirmed drivers use <span className="font-medium text-foreground">Commitment Policy</span> knobs for dynamic check-in / leave-by / Start journey / risk / rescue timing (runtime calculates from live location, traffic ETA, workload). The urgent trigger below is a fallback only.
                   </p>
                 </div>
 
                 <div className="flex items-center justify-between p-4 border rounded-lg">
                   <div>
                     <p className="font-medium">Enable Scheduled → Urgent Auto Conversion</p>
-                    <p className="text-sm text-muted-foreground">Automatically convert unaccepted scheduled rides to urgent dispatch</p>
+                    <p className="text-sm text-muted-foreground">Fallback path for bookings with no pre-confirmed driver</p>
                   </div>
                   <Switch
                     checked={settings.enableScheduledToUrgentConversion}
@@ -871,27 +970,29 @@ export default function AutoDispatchRules() {
                       onChange={(e) => updateSetting('scheduledResponseWindowMinutes', Math.max(1, Math.min(60, parseInt(e.target.value) || 10)))}
                       disabled={isLoading || !settings.scheduledRidesEnabled || !settings.enableScheduledToUrgentConversion}
                     />
-                    <p className="text-xs text-muted-foreground">Unaccepted rides: convert to urgent if no driver accepts within this window after broadcast. Default: 10</p>
+                    <p className="text-xs text-muted-foreground">No-preconfirmed only: convert to urgent if no driver accepts within this window after broadcast. Default: 10</p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Urgent Trigger Before Pickup (minutes)</Label>
+                    <Label>No-preconfirmed urgent fallback (minutes before pickup)</Label>
                     <Input
-                      type="number" min="1" max="30"
+                      type="number" min="0" max="180"
                       value={settings.urgentDispatchTriggerMinutesBeforePickup}
-                      onChange={(e) => updateSetting('urgentDispatchTriggerMinutesBeforePickup', Math.max(1, Math.min(30, parseInt(e.target.value) || 5)))}
+                      onChange={(e) => updateSetting('urgentDispatchTriggerMinutesBeforePickup', Math.max(0, Math.min(180, parseInt(e.target.value) || 5)))}
                       disabled={isLoading || !settings.scheduledRidesEnabled || !settings.enableScheduledToUrgentConversion}
                     />
-                    <p className="text-xs text-muted-foreground">Accepted rides: send activation card at pickup minus this value. Unaccepted rides: convert to urgent at the same cutoff. Default: 5</p>
+                    <p className="text-xs text-muted-foreground">
+                      Does <span className="font-medium">not</span> activate confirmed drivers. Used only when <code className="text-xs">confirmed_driver_id</code> is empty — fixed pickup-minus fallback to start urgent search. Default: 5
+                    </p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Confirmed Driver Response Time (minutes)</Label>
+                    <Label>Driver response timeout (minutes)</Label>
                     <Input
-                      type="number" min="1" max="15"
+                      type="number" min="0" max="30"
                       value={settings.lockedDriverResponseMinutes}
-                      onChange={(e) => updateSetting('lockedDriverResponseMinutes', Math.max(1, Math.min(15, parseInt(e.target.value) || 3)))}
+                      onChange={(e) => updateSetting('lockedDriverResponseMinutes', Math.max(0, Math.min(30, parseInt(e.target.value) || 3)))}
                       disabled={isLoading || !settings.scheduledRidesEnabled}
                     />
-                    <p className="text-xs text-muted-foreground">After activation, the confirmed driver must accept the urgent card within this time before fallback dispatch. Default: 3</p>
+                    <p className="text-xs text-muted-foreground">Policy knob for how long a confirmed driver has to respond after activation / urgent card. Runtime owns enforcement. Default: 3</p>
                   </div>
                   <div className="space-y-2">
                     <Label>Scheduled Urgent Card Label</Label>
@@ -901,24 +1002,82 @@ export default function AutoDispatchRules() {
                       onChange={(e) => updateSetting('scheduledUrgentCardLabel', e.target.value || 'Scheduled • Urgent')}
                       disabled={isLoading || !settings.scheduledRidesEnabled || !settings.enableScheduledToUrgentConversion}
                     />
-                    <p className="text-xs text-muted-foreground">Label shown on the ride offer card after conversion. Default: Scheduled • Urgent</p>
+                    <p className="text-xs text-muted-foreground">Label on the no-preconfirmed urgent offer card. Default: Scheduled • Urgent</p>
                   </div>
                 </div>
 
                 <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
                   <Info className="h-4 w-4 text-amber-600 mt-0.5" />
                   <div className="text-sm text-amber-700 dark:text-amber-400 space-y-1">
-                    <p className="font-medium">Scheduled → Urgent Workflow</p>
-                    <p>Before acceptance: job stays in the Scheduled Jobs banner. After a driver accepts (confirmed_driver_id set), activation fires at pickup minus trigger minutes — single urgent card to that driver only, no broadcast. If they miss the response window, fallback dispatch starts. Unaccepted rides convert to urgent when the response window expires OR pickup minus trigger minutes is reached (whichever first).</p>
+                    <p className="font-medium">Two paths</p>
+                    <p><span className="font-medium">No pre-confirmed driver:</span> urgent fallback trigger + response window start wave dispatch.</p>
+                    <p><span className="font-medium">Confirmed driver:</span> dynamic commitment policy (check-in, leave-by, Start journey, risk, rescue) — not the fixed urgent trigger.</p>
                   </div>
                 </div>
               </TabsContent>
 
-              <TabsContent value="reminders" className="pt-4">
+              <TabsContent value="commitment" className="space-y-6 pt-4">
+                <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Policy knobs only. Runtime consumers calculate check-in, leave-by, Start journey, risk, and rescue times from scheduled pickup, driver live location, traffic-aware ETA, access allowance, early-arrival buffer, full active+stacked workload, waiting/stop allowances, safety margin, and later confirmed commitments.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Location overrides may add access time (Custom Zones → Access allowance) without creating separate workflows. Prefer SA defaults + optional zone overrides + these system fallbacks.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {([
+                    ['checkInMinLeadMinutes', 'Check-in minimum lead time (minutes)', 'Earliest check-in may open relative to pickup (policy floor).'],
+                    ['checkInGraceMinutes', 'Check-in grace period (minutes)', 'Grace after check-in due before missed handling.'],
+                    ['earlyArrivalBufferMinutes', 'Required early-arrival buffer (minutes)', 'Buffer requiring arrival before scheduled pickup.'],
+                    ['safetyBufferMinutes', 'General safety buffer (minutes)', 'Extra margin applied in commitment timing.'],
+                    ['startJourneyGraceMinutes', 'Start journey grace period (minutes)', 'Grace after Start journey due before missed handling.'],
+                    ['driverLocationFreshnessSeconds', 'Driver location freshness limit (seconds)', 'Max age of driver presence for commitment calculations.'],
+                    ['notMovingDetectionMinutes', 'Not-moving detection period (minutes)', 'How long without movement before risk signals.'],
+                    ['rescueSearchLeadMinutes', 'Rescue search lead time (minutes)', 'When rescue search may start before expected failure.'],
+                    ['adminEscalationLeadMinutes', 'Admin escalation lead time (minutes)', 'Must be ≥ rescue lead — alert Admin early enough.'],
+                    ['scheduledTurnaroundBufferMinutes', 'Scheduled turnaround buffer (minutes)', 'Turnaround between consecutive scheduled jobs.'],
+                    ['minGapBetweenScheduledMinutes', 'Minimum gap between scheduled jobs (minutes)', 'Must be ≥ turnaround buffer.'],
+                    ['expectedPickupWaitingMinutes', 'Expected pickup-waiting allowance (minutes)', 'Expected wait at pickup in feasibility math.'],
+                    ['expectedStopWaitingMinutes', 'Expected stop-waiting allowance (minutes)', 'Expected wait at intermediate stops.'],
+                    ['etaRiskToleranceMinutes', 'ETA risk tolerance (minutes)', 'How much ETA slip before at-risk signalling.'],
+                    ['pickupAccessAllowanceMinutes', 'Pickup access allowance default (minutes)', 'System default for airports/stations/venues/restricted; zones may override.'],
+                  ] as const).map(([key, label, help]) => (
+                    <div key={key} className="space-y-2">
+                      <Label>{label}</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={settings[key]}
+                        onChange={(e) => updateSetting(key, Math.max(0, parseInt(e.target.value) || 0))}
+                        disabled={isLoading || !settings.scheduledRidesEnabled}
+                      />
+                      <p className="text-xs text-muted-foreground">{help}</p>
+                    </div>
+                  ))}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="reminders" className="pt-4 space-y-4">
                 <div className="p-4 bg-muted/50 rounded-lg">
                   <p className="text-sm text-muted-foreground">
-                    Reminder notifications are configured in the Notifications & Alerts settings page.
+                    Notification sound and content stay in{' '}
+                    <Link to="/notifications" className="text-primary underline font-medium">Notifications &amp; Alerts</Link>
+                    {' '}(SSOT). This tab links the effective scheduled-ride reminder policies — it does not duplicate templates.
                   </p>
+                </div>
+                <div className="space-y-2">
+                  {SCHEDULED_REMINDER_POLICY_LINKS.map((item) => (
+                    <div key={item.key} className="flex items-start justify-between gap-4 p-3 border rounded-lg">
+                      <div>
+                        <p className="text-sm font-medium">{item.label}</p>
+                        <p className="text-xs text-muted-foreground">{item.description}</p>
+                      </div>
+                      <Button variant="outline" size="sm" asChild>
+                        <Link to={item.href}>Open</Link>
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               </TabsContent>
             </Tabs>

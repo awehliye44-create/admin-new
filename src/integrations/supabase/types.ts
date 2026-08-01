@@ -3485,6 +3485,7 @@ export type Database = {
           geo_boundary: Json | null
           id: string
           is_active: boolean
+          access_allowance_minutes: number | null
           metadata: Json | null
           name: string
           priority: number | null
@@ -3505,6 +3506,7 @@ export type Database = {
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
+          access_allowance_minutes?: number | null
           metadata?: Json | null
           name: string
           priority?: number | null
@@ -3525,6 +3527,7 @@ export type Database = {
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
+          access_allowance_minutes?: number | null
           metadata?: Json | null
           name?: string
           priority?: number | null
@@ -4622,6 +4625,7 @@ export type Database = {
           service_area_id: string | null
           shortlist_limit: number
           simulate_mode: boolean
+          scheduled_commitment_policy: Json | null
           stacked_allow_rider_opt_out: boolean
           stacked_driver_incentive: number
           stacked_max_detour_minutes: number
@@ -4711,6 +4715,7 @@ export type Database = {
           service_area_id?: string | null
           shortlist_limit?: number
           simulate_mode?: boolean
+          scheduled_commitment_policy?: Json | null
           stacked_allow_rider_opt_out?: boolean
           stacked_driver_incentive?: number
           stacked_max_detour_minutes?: number
@@ -4800,6 +4805,7 @@ export type Database = {
           service_area_id?: string | null
           shortlist_limit?: number
           simulate_mode?: boolean
+          scheduled_commitment_policy?: Json | null
           stacked_allow_rider_opt_out?: boolean
           stacked_driver_incentive?: number
           stacked_max_detour_minutes?: number
@@ -10606,12 +10612,20 @@ export type Database = {
           block_multiple_active_rides: boolean
           cancel_protection: boolean
           created_at: string
+          check_in_grace_minutes: number
+          check_in_min_lead_minutes: number
           degraded_driver_penalty: number
           distance_penalty_per_meter: number
           driver_fare_display: string
+          driver_location_freshness_seconds: number
+          driver_response_timeout_minutes: number
+          early_arrival_buffer_minutes: number
           enable_logging: boolean
           enable_scheduled_to_urgent_conversion: boolean
+          eta_risk_tolerance_minutes: number
           expand_radius_meters: number
+          expected_pickup_waiting_minutes: number
+          expected_stop_waiting_minutes: number
           fairness_boost_score: number
           fairness_idle_minutes: number
           id: string
@@ -10626,10 +10640,17 @@ export type Database = {
           max_stacked_rides: number
           max_waiting_bonus_minutes: number
           min_advance_time_minutes: number
+          min_gap_between_scheduled_minutes: number
+          not_moving_detection_minutes: number
+          pickup_access_allowance_minutes: number
           presence_max_age_seconds: number
+          rescue_search_lead_minutes: number
+          admin_escalation_lead_minutes: number
+          safety_buffer_minutes: number
           scheduled_response_window_minutes: number
           scheduled_ride_incentives_enabled: boolean
           scheduled_rides_enabled: boolean
+          scheduled_turnaround_buffer_minutes: number
           scheduled_urgent_card_label: string
           simulate_mode: boolean
           singleton: boolean
@@ -10639,6 +10660,7 @@ export type Database = {
           stacked_rides_enabled: boolean
           stacked_same_direction_only: boolean
           stacked_search_radius_meters: number
+          start_journey_grace_minutes: number
           start_radius_meters: number
           towards_destination_daily_limit: number
           towards_destination_duration_minutes: number
@@ -10666,12 +10688,20 @@ export type Database = {
           block_multiple_active_rides?: boolean
           cancel_protection?: boolean
           created_at?: string
+          check_in_grace_minutes?: number
+          check_in_min_lead_minutes?: number
           degraded_driver_penalty?: number
           distance_penalty_per_meter?: number
           driver_fare_display?: string
+          driver_location_freshness_seconds?: number
+          driver_response_timeout_minutes?: number
+          early_arrival_buffer_minutes?: number
           enable_logging?: boolean
           enable_scheduled_to_urgent_conversion?: boolean
+          eta_risk_tolerance_minutes?: number
           expand_radius_meters?: number
+          expected_pickup_waiting_minutes?: number
+          expected_stop_waiting_minutes?: number
           fairness_boost_score?: number
           fairness_idle_minutes?: number
           id?: string
@@ -10686,10 +10716,17 @@ export type Database = {
           max_stacked_rides?: number
           max_waiting_bonus_minutes?: number
           min_advance_time_minutes?: number
+          min_gap_between_scheduled_minutes?: number
+          not_moving_detection_minutes?: number
+          pickup_access_allowance_minutes?: number
           presence_max_age_seconds?: number
+          rescue_search_lead_minutes?: number
+          admin_escalation_lead_minutes?: number
+          safety_buffer_minutes?: number
           scheduled_response_window_minutes?: number
           scheduled_ride_incentives_enabled?: boolean
           scheduled_rides_enabled?: boolean
+          scheduled_turnaround_buffer_minutes?: number
           scheduled_urgent_card_label?: string
           simulate_mode?: boolean
           singleton?: boolean
@@ -10699,6 +10736,7 @@ export type Database = {
           stacked_rides_enabled?: boolean
           stacked_same_direction_only?: boolean
           stacked_search_radius_meters?: number
+          start_journey_grace_minutes?: number
           start_radius_meters?: number
           towards_destination_daily_limit?: number
           towards_destination_duration_minutes?: number
@@ -10726,12 +10764,20 @@ export type Database = {
           block_multiple_active_rides?: boolean
           cancel_protection?: boolean
           created_at?: string
+          check_in_grace_minutes?: number
+          check_in_min_lead_minutes?: number
           degraded_driver_penalty?: number
           distance_penalty_per_meter?: number
           driver_fare_display?: string
+          driver_location_freshness_seconds?: number
+          driver_response_timeout_minutes?: number
+          early_arrival_buffer_minutes?: number
           enable_logging?: boolean
           enable_scheduled_to_urgent_conversion?: boolean
+          eta_risk_tolerance_minutes?: number
           expand_radius_meters?: number
+          expected_pickup_waiting_minutes?: number
+          expected_stop_waiting_minutes?: number
           fairness_boost_score?: number
           fairness_idle_minutes?: number
           id?: string
@@ -10746,10 +10792,17 @@ export type Database = {
           max_stacked_rides?: number
           max_waiting_bonus_minutes?: number
           min_advance_time_minutes?: number
+          min_gap_between_scheduled_minutes?: number
+          not_moving_detection_minutes?: number
+          pickup_access_allowance_minutes?: number
           presence_max_age_seconds?: number
+          rescue_search_lead_minutes?: number
+          admin_escalation_lead_minutes?: number
+          safety_buffer_minutes?: number
           scheduled_response_window_minutes?: number
           scheduled_ride_incentives_enabled?: boolean
           scheduled_rides_enabled?: boolean
+          scheduled_turnaround_buffer_minutes?: number
           scheduled_urgent_card_label?: string
           simulate_mode?: boolean
           singleton?: boolean
@@ -10759,6 +10812,7 @@ export type Database = {
           stacked_rides_enabled?: boolean
           stacked_same_direction_only?: boolean
           stacked_search_radius_meters?: number
+          start_journey_grace_minutes?: number
           start_radius_meters?: number
           towards_destination_daily_limit?: number
           towards_destination_duration_minutes?: number

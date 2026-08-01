@@ -45,6 +45,8 @@ interface CustomZone {
   is_active: boolean;
   color: string | null;
   priority: number | null;
+  /** Optional access time for scheduled commitment policy (any zone type). */
+  access_allowance_minutes: number | null;
   metadata: ZoneMetadata;
   created_at: string;
   updated_at: string;
@@ -96,6 +98,7 @@ export default function CustomZones() {
     center_lat: null as number | null,
     center_lng: null as number | null,
     radius_meters: 500 as number | null,
+    access_allowance_minutes: null as number | null,
     metadata: {} as ZoneMetadata,
   });
 
@@ -163,6 +166,7 @@ export default function CustomZones() {
         center_lat: data.shape_type === 'circle' ? data.center_lat : null,
         center_lng: data.shape_type === 'circle' ? data.center_lng : null,
         radius_meters: data.shape_type === 'circle' ? data.radius_meters : null,
+        access_allowance_minutes: data.access_allowance_minutes,
         metadata: data.metadata as any,
       });
       if (error) throw error;
@@ -193,6 +197,7 @@ export default function CustomZones() {
         center_lat: data.shape_type === 'circle' ? data.center_lat : null,
         center_lng: data.shape_type === 'circle' ? data.center_lng : null,
         radius_meters: data.shape_type === 'circle' ? data.radius_meters : null,
+        access_allowance_minutes: data.access_allowance_minutes,
         metadata: data.metadata as any,
       }).eq('id', id);
       if (error) throw error;
@@ -253,7 +258,8 @@ export default function CustomZones() {
     setFormData({
       name: "", description: "", shape_type: "polygon", region_id: "", service_area_id: "",
       color: "#3B82F6", priority: 0, is_active: true, geo_boundary: null,
-      center_lat: null, center_lng: null, radius_meters: 500, metadata: {},
+      center_lat: null, center_lng: null, radius_meters: 500,
+      access_allowance_minutes: null, metadata: {},
     });
     setEditingZone(null);
     setIsDialogOpen(false);
@@ -267,6 +273,7 @@ export default function CustomZones() {
       color: zone.color || "#3B82F6", priority: zone.priority || 0, is_active: zone.is_active,
       geo_boundary: zone.geo_boundary, center_lat: zone.center_lat,
       center_lng: zone.center_lng, radius_meters: zone.radius_meters || 500,
+      access_allowance_minutes: zone.access_allowance_minutes ?? null,
       metadata: zone.metadata || {},
     });
     setIsDialogOpen(true);
@@ -606,6 +613,25 @@ export default function CustomZones() {
                 {/* Pricing Rules */}
                 <div className="space-y-4">
                   <Label className="text-base font-medium">Pricing Rules</Label>
+
+                  <div className="grid gap-2">
+                    <Label>Scheduled access allowance (minutes)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={formData.access_allowance_minutes ?? ""}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        access_allowance_minutes: e.target.value === ""
+                          ? null
+                          : Math.max(0, parseInt(e.target.value) || 0),
+                      })}
+                      placeholder="Inherit SA / system default"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Optional location override for scheduled commitment timing (airports, stations, venues, restricted). Does not create a separate workflow — adds access time only. Empty inherits service-area / system default.
+                    </p>
+                  </div>
 
                   <div className="grid gap-2">
                     <Label>Airport Charge (£)</Label>

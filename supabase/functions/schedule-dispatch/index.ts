@@ -8,6 +8,7 @@ import {
 } from "../_shared/security.ts";
 import { assertServiceRole } from "../_shared/internalAuth.ts";
 import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
+import { shouldUseUrgentFallbackTrigger } from "../_shared/scheduledRidesPolicy.ts";
 
 
 /**
@@ -17,9 +18,11 @@ import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
  * approaching their pickup time and dispatches them.
  *
  * For each eligible trip it:
- *  1. Reads `urgent_dispatch_trigger_minutes_before_pickup` from `dispatch_settings`
- *     (Admin Panel is the single source of truth).
- *  2. If a driver is already locked (`confirmed_driver_id`), sends a direct offer.
+ *  1. Reads `urgent_dispatch_trigger_minutes_before_pickup` from global settings
+ *     — FALLBACK ONLY when there is no pre-confirmed driver.
+ *  2. Confirmed-driver trips are skipped here; dynamic commitment policy
+ *     (check-in / leave-by / start journey / risk / rescue) is owned by the
+ *     dedicated runtime consumer (separate wiring).
  *  3. Otherwise, invokes `dispatch_trip_offers` RPC for the full wave-cascade.
  *  4. Updates `scheduled_status` so the trip is not re-processed.
  */
@@ -73,7 +76,9 @@ serve(async (req) => {
     // ══════════════════════════════════════════
     const { data: globalCfg } = await supabase
       .from("global_dispatch_settings")
-      .select("urgent_dispatch_trigger_minutes_before_pickup, scheduled_rides_enabled")
+      .select(
+        "urgent_dispatch_trigger_minutes_before_pickup, scheduled_rides_enabled, enable_scheduled_to_urgent_conversion",
+      )
       .eq("singleton", true)
       .maybeSingle();
 
@@ -86,6 +91,7 @@ serve(async (req) => {
 
     const triggerMinutes = Number(globalCfg.urgent_dispatch_trigger_minutes_before_pickup);
     const scheduledEnabled = Boolean(globalCfg.scheduled_rides_enabled);
+    const urgentConversionEnabled = globalCfg.enable_scheduled_to_urgent_conversion !== false;
 
     // ══════════════════════════════════════════
     // 3. Process each trip
@@ -108,9 +114,26 @@ serve(async (req) => {
           continue;
         }
 
+        // Confirmed drivers must NOT use the fixed pickup-minus urgent trigger.
+        // Dynamic commitment policy is consumed by a dedicated runtime path.
+        if (
+          !shouldUseUrgentFallbackTrigger({
+            confirmedDriverId: trip.confirmed_driver_id,
+            enableScheduledToUrgentConversion: urgentConversionEnabled,
+          })
+        ) {
+          const detail = trip.confirmed_driver_id
+            ? "confirmed_driver_dynamic_policy"
+            : "urgent_conversion_disabled";
+          console.log(`[schedule-dispatch] Trip ${trip.id}: skipped (${detail})`);
+          skipped++;
+          results.push({ trip_id: trip.id, action: "skipped", detail });
+          continue;
+        }
 
 
-        // Skip if pickup is still too far away
+
+        // Skip if pickup is still too far away (no-preconfirmed urgent fallback only)
         if (minutesUntilPickup > triggerMinutes) {
           console.log(
             `[schedule-dispatch] Trip ${trip.id}: ${minutesUntilPickup.toFixed(1)}min away, trigger at ${triggerMinutes}min — skipping`
