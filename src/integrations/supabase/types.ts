@@ -26,6 +26,7 @@ export type Database = {
           expires_at: string
           id: string
           new_email: string
+          provider_message_id: string | null
           requested_at: string
           status: string
           token_hash: string
@@ -44,6 +45,7 @@ export type Database = {
           expires_at: string
           id?: string
           new_email: string
+          provider_message_id?: string | null
           requested_at?: string
           status?: string
           token_hash: string
@@ -62,6 +64,7 @@ export type Database = {
           expires_at?: string
           id?: string
           new_email?: string
+          provider_message_id?: string | null
           requested_at?: string
           status?: string
           token_hash?: string
@@ -4336,6 +4339,77 @@ export type Database = {
         }
         Relationships: []
       }
+      dispatch_intent_outbox: {
+        Row: {
+          attempts: number
+          created_at: string
+          id: string
+          idempotency_key: string
+          intent: string
+          last_error: string | null
+          payload: Json
+          processed_at: string | null
+          status: string
+          trigger_reason: string
+          trip_id: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          intent?: string
+          last_error?: string | null
+          payload?: Json
+          processed_at?: string | null
+          status?: string
+          trigger_reason: string
+          trip_id: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          intent?: string
+          last_error?: string | null
+          payload?: Json
+          processed_at?: string | null
+          status?: string
+          trigger_reason?: string
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dispatch_intent_outbox_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_intent_outbox_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_intent_outbox_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dispatch_intent_outbox_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       dispatch_jobs: {
         Row: {
           attempts: number
@@ -4960,6 +5034,162 @@ export type Database = {
         }
         Relationships: []
       }
+      document_attachments: {
+        Row: {
+          created_at: string
+          document_id: string
+          document_type: string
+          document_type_id: string | null
+          driver_id: string
+          file_size_bytes: number | null
+          file_url: string | null
+          id: string
+          is_current: boolean
+          mime_type: string | null
+          original_filename: string | null
+          side: string
+          storage_path: string
+          submission_idempotency_key: string | null
+          superseded_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          document_id: string
+          document_type: string
+          document_type_id?: string | null
+          driver_id: string
+          file_size_bytes?: number | null
+          file_url?: string | null
+          id?: string
+          is_current?: boolean
+          mime_type?: string | null
+          original_filename?: string | null
+          side: string
+          storage_path: string
+          submission_idempotency_key?: string | null
+          superseded_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          document_id?: string
+          document_type?: string
+          document_type_id?: string | null
+          driver_id?: string
+          file_size_bytes?: number | null
+          file_url?: string | null
+          id?: string
+          is_current?: boolean
+          mime_type?: string | null
+          original_filename?: string | null
+          side?: string
+          storage_path?: string
+          submission_idempotency_key?: string | null
+          superseded_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_attachments_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["document_id"]
+          },
+          {
+            foreignKeyName: "document_attachments_document_type_id_fkey"
+            columns: ["document_type_id"]
+            isOneToOne: false
+            referencedRelation: "document_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_document_type_id_fkey"
+            columns: ["document_type_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["document_type_id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "document_attachments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "driver_document_attachments_ssot"
+            referencedColumns: ["attachment_id"]
+          },
+        ]
+      }
       document_types: {
         Row: {
           created_at: string
@@ -5475,6 +5705,136 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "drivers_public_safe"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_cancel_rematch_audit: {
+        Row: {
+          actor: string
+          actor_mode: string
+          broadcast_round_after: number | null
+          broadcast_round_before: number | null
+          created_at: string
+          driver_id: string
+          id: string
+          idempotency_key: string | null
+          previous_status: string | null
+          reason: string | null
+          request_metadata: Json
+          resulting_status: string
+          trip_id: string
+        }
+        Insert: {
+          actor: string
+          actor_mode: string
+          broadcast_round_after?: number | null
+          broadcast_round_before?: number | null
+          created_at?: string
+          driver_id: string
+          id?: string
+          idempotency_key?: string | null
+          previous_status?: string | null
+          reason?: string | null
+          request_metadata?: Json
+          resulting_status: string
+          trip_id: string
+        }
+        Update: {
+          actor?: string
+          actor_mode?: string
+          broadcast_round_after?: number | null
+          broadcast_round_before?: number | null
+          created_at?: string
+          driver_id?: string
+          id?: string
+          idempotency_key?: string | null
+          previous_status?: string | null
+          reason?: string | null
+          request_metadata?: Json
+          resulting_status?: string
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_cancel_rematch_audit_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_cancel_rematch_audit_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_cancel_rematch_audit_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_cancel_rematch_audit_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      driver_cancel_rematch_idempotency: {
+        Row: {
+          created_at: string
+          driver_id: string
+          idempotency_key: string
+          result: Json
+          trip_id: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id: string
+          idempotency_key: string
+          result: Json
+          trip_id: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string
+          idempotency_key?: string
+          result?: Json
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_cancel_rematch_idempotency_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_cancel_rematch_idempotency_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_cancel_rematch_idempotency_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_cancel_rematch_idempotency_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -6935,6 +7295,298 @@ export type Database = {
             columns: ["driver_id"]
             isOneToOne: false
             referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_identity_provider_webhook_events: {
+        Row: {
+          event_kind: string
+          id: string
+          metadata: Json
+          payload_hash: string | null
+          processed_at: string
+          provider: string
+          provider_event_id: string
+          provider_session_id: string | null
+          verification_id: string | null
+        }
+        Insert: {
+          event_kind: string
+          id?: string
+          metadata?: Json
+          payload_hash?: string | null
+          processed_at?: string
+          provider: string
+          provider_event_id: string
+          provider_session_id?: string | null
+          verification_id?: string | null
+        }
+        Update: {
+          event_kind?: string
+          id?: string
+          metadata?: Json
+          payload_hash?: string | null
+          processed_at?: string
+          provider?: string
+          provider_event_id?: string
+          provider_session_id?: string | null
+          verification_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_identity_provider_webhook_events_verification_id_fkey"
+            columns: ["verification_id"]
+            isOneToOne: false
+            referencedRelation: "driver_identity_verifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_identity_verification_events: {
+        Row: {
+          actor_role: string
+          actor_user_id: string | null
+          created_at: string
+          driver_id: string
+          event_type: string
+          from_status: string | null
+          id: string
+          metadata: Json
+          reason: string | null
+          to_status: string | null
+          verification_id: string | null
+        }
+        Insert: {
+          actor_role?: string
+          actor_user_id?: string | null
+          created_at?: string
+          driver_id: string
+          event_type: string
+          from_status?: string | null
+          id?: string
+          metadata?: Json
+          reason?: string | null
+          to_status?: string | null
+          verification_id?: string | null
+        }
+        Update: {
+          actor_role?: string
+          actor_user_id?: string | null
+          created_at?: string
+          driver_id?: string
+          event_type?: string
+          from_status?: string | null
+          id?: string
+          metadata?: Json
+          reason?: string | null
+          to_status?: string | null
+          verification_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_identity_verification_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verification_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verification_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verification_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verification_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verification_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verification_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verification_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verification_events_verification_id_fkey"
+            columns: ["verification_id"]
+            isOneToOne: false
+            referencedRelation: "driver_identity_verifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_identity_verifications: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          decided_at: string | null
+          device_id: string | null
+          driver_id: string
+          expires_at: string | null
+          face_match_result: string | null
+          failure_code: string | null
+          id: string
+          image_quality_result: string | null
+          liveness_result: string | null
+          max_attempts: number | null
+          metadata: Json
+          provider: string
+          provider_reference: string | null
+          provider_session_id: string | null
+          reason: string
+          requested_at: string
+          service_area_id: string | null
+          started_at: string | null
+          status: string
+          submitted_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          decided_at?: string | null
+          device_id?: string | null
+          driver_id: string
+          expires_at?: string | null
+          face_match_result?: string | null
+          failure_code?: string | null
+          id?: string
+          image_quality_result?: string | null
+          liveness_result?: string | null
+          max_attempts?: number | null
+          metadata?: Json
+          provider: string
+          provider_reference?: string | null
+          provider_session_id?: string | null
+          reason: string
+          requested_at?: string
+          service_area_id?: string | null
+          started_at?: string | null
+          status: string
+          submitted_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          decided_at?: string | null
+          device_id?: string | null
+          driver_id?: string
+          expires_at?: string | null
+          face_match_result?: string | null
+          failure_code?: string | null
+          id?: string
+          image_quality_result?: string | null
+          liveness_result?: string | null
+          max_attempts?: number | null
+          metadata?: Json
+          provider?: string
+          provider_reference?: string | null
+          provider_session_id?: string | null
+          reason?: string
+          requested_at?: string
+          service_area_id?: string | null
+          started_at?: string | null
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_identity_verifications_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verifications_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verifications_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verifications_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verifications_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verifications_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verifications_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verifications_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_identity_verifications_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
             referencedColumns: ["id"]
           },
         ]
@@ -10328,6 +10980,102 @@ export type Database = {
         }
         Relationships: []
       }
+      invoice_delivery_attempts: {
+        Row: {
+          attempt_number: number
+          correlation_id: string | null
+          created_at: string
+          created_by: string | null
+          delivered_at: string | null
+          error_code: string | null
+          error_message: string | null
+          id: string
+          metadata: Json
+          outbox_id: string | null
+          provider_message_id: string | null
+          recipient_email_snapshot: string
+          recipient_source: string | null
+          recipient_user_id: string | null
+          sent_at: string | null
+          status: string
+          trip_id: string
+        }
+        Insert: {
+          attempt_number?: number
+          correlation_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          delivered_at?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          id?: string
+          metadata?: Json
+          outbox_id?: string | null
+          provider_message_id?: string | null
+          recipient_email_snapshot: string
+          recipient_source?: string | null
+          recipient_user_id?: string | null
+          sent_at?: string | null
+          status?: string
+          trip_id: string
+        }
+        Update: {
+          attempt_number?: number
+          correlation_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          delivered_at?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          id?: string
+          metadata?: Json
+          outbox_id?: string | null
+          provider_message_id?: string | null
+          recipient_email_snapshot?: string
+          recipient_source?: string | null
+          recipient_user_id?: string | null
+          sent_at?: string | null
+          status?: string
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_delivery_attempts_outbox_id_fkey"
+            columns: ["outbox_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_email_outbox"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_delivery_attempts_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_delivery_attempts_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_delivery_attempts_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_delivery_attempts_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       invoice_delivery_logs: {
         Row: {
           delivery_status: string
@@ -10368,11 +11116,14 @@ export type Database = {
       }
       invoice_email_outbox: {
         Row: {
+          claimed_at: string | null
+          claimed_by: string | null
           created_at: string
           email_type: string
           error_message: string | null
           id: string
           metadata: Json | null
+          next_attempt_at: string | null
           pdf_storage_path: string | null
           provider_message_id: string | null
           recipient_email: string
@@ -10384,11 +11135,14 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          claimed_at?: string | null
+          claimed_by?: string | null
           created_at?: string
           email_type?: string
           error_message?: string | null
           id?: string
           metadata?: Json | null
+          next_attempt_at?: string | null
           pdf_storage_path?: string | null
           provider_message_id?: string | null
           recipient_email: string
@@ -10400,11 +11154,14 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          claimed_at?: string | null
+          claimed_by?: string | null
           created_at?: string
           email_type?: string
           error_message?: string | null
           id?: string
           metadata?: Json | null
+          next_attempt_at?: string | null
           pdf_storage_path?: string | null
           provider_message_id?: string | null
           recipient_email?: string
@@ -16458,6 +17215,83 @@ export type Database = {
           },
         ]
       }
+      service_area_identity_verification_settings: {
+        Row: {
+          active_work_deferral_enabled: boolean
+          block_online_while_required: boolean
+          created_at: string
+          declined_maps_to: string
+          enabled: boolean
+          manual_review_enabled: boolean
+          maximum_attempts: number
+          metadata: Json
+          new_device_check_enabled: boolean
+          periodic_check_days: number | null
+          provider: string
+          provider_workflow_id: string | null
+          random_check_percentage: number
+          reminder_interval_hours: number | null
+          service_area_id: string
+          session_expiry_minutes: number
+          suspicious_login_check_enabled: boolean
+          unusual_location_check_enabled: boolean
+          updated_at: string
+          verification_validity_days: number | null
+        }
+        Insert: {
+          active_work_deferral_enabled?: boolean
+          block_online_while_required?: boolean
+          created_at?: string
+          declined_maps_to?: string
+          enabled?: boolean
+          manual_review_enabled?: boolean
+          maximum_attempts?: number
+          metadata?: Json
+          new_device_check_enabled?: boolean
+          periodic_check_days?: number | null
+          provider?: string
+          provider_workflow_id?: string | null
+          random_check_percentage?: number
+          reminder_interval_hours?: number | null
+          service_area_id: string
+          session_expiry_minutes?: number
+          suspicious_login_check_enabled?: boolean
+          unusual_location_check_enabled?: boolean
+          updated_at?: string
+          verification_validity_days?: number | null
+        }
+        Update: {
+          active_work_deferral_enabled?: boolean
+          block_online_while_required?: boolean
+          created_at?: string
+          declined_maps_to?: string
+          enabled?: boolean
+          manual_review_enabled?: boolean
+          maximum_attempts?: number
+          metadata?: Json
+          new_device_check_enabled?: boolean
+          periodic_check_days?: number | null
+          provider?: string
+          provider_workflow_id?: string | null
+          random_check_percentage?: number
+          reminder_interval_hours?: number | null
+          service_area_id?: string
+          session_expiry_minutes?: number
+          suspicious_login_check_enabled?: boolean
+          unusual_location_check_enabled?: boolean
+          updated_at?: string
+          verification_validity_days?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_identity_verification_setting_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_area_marketplace_settings: {
         Row: {
           created_at: string
@@ -18219,24 +19053,33 @@ export type Database = {
       }
       trip_driver_exclusions: {
         Row: {
+          audit_event_id: string | null
           created_at: string
           driver_id: string
+          metadata: Json
           offer_id: string | null
           reason: string
+          source: string | null
           trip_id: string
         }
         Insert: {
+          audit_event_id?: string | null
           created_at?: string
           driver_id: string
+          metadata?: Json
           offer_id?: string | null
           reason: string
+          source?: string | null
           trip_id: string
         }
         Update: {
+          audit_event_id?: string | null
           created_at?: string
           driver_id?: string
+          metadata?: Json
           offer_id?: string | null
           reason?: string
+          source?: string | null
           trip_id?: string
         }
         Relationships: [
@@ -19132,6 +19975,7 @@ export type Database = {
           gross_fare_pence: number | null
           id: string
           idempotency_key: string | null
+          invoice_delivery_status: string | null
           invoice_email_error: string | null
           invoice_email_sent: boolean
           invoice_email_sent_at: string | null
@@ -19141,6 +19985,9 @@ export type Database = {
           invoice_pdf_error: string | null
           invoice_pdf_path: string | null
           invoice_pdf_url: string | null
+          invoice_provider_message_id: string | null
+          invoice_recipient_email_snapshot: string | null
+          invoice_recipient_user_id: string | null
           invoice_regenerated_at: string | null
           invoice_total_paid_pence: number | null
           is_scheduled: boolean | null
@@ -19415,6 +20262,7 @@ export type Database = {
           gross_fare_pence?: number | null
           id?: string
           idempotency_key?: string | null
+          invoice_delivery_status?: string | null
           invoice_email_error?: string | null
           invoice_email_sent?: boolean
           invoice_email_sent_at?: string | null
@@ -19424,6 +20272,9 @@ export type Database = {
           invoice_pdf_error?: string | null
           invoice_pdf_path?: string | null
           invoice_pdf_url?: string | null
+          invoice_provider_message_id?: string | null
+          invoice_recipient_email_snapshot?: string | null
+          invoice_recipient_user_id?: string | null
           invoice_regenerated_at?: string | null
           invoice_total_paid_pence?: number | null
           is_scheduled?: boolean | null
@@ -19698,6 +20549,7 @@ export type Database = {
           gross_fare_pence?: number | null
           id?: string
           idempotency_key?: string | null
+          invoice_delivery_status?: string | null
           invoice_email_error?: string | null
           invoice_email_sent?: boolean
           invoice_email_sent_at?: string | null
@@ -19707,6 +20559,9 @@ export type Database = {
           invoice_pdf_error?: string | null
           invoice_pdf_path?: string | null
           invoice_pdf_url?: string | null
+          invoice_provider_message_id?: string | null
+          invoice_recipient_email_snapshot?: string | null
+          invoice_recipient_user_id?: string | null
           invoice_regenerated_at?: string | null
           invoice_total_paid_pence?: number | null
           is_scheduled?: boolean | null
@@ -21975,6 +22830,159 @@ export type Database = {
           },
         ]
       }
+      driver_document_attachments_ssot: {
+        Row: {
+          attachment_id: string | null
+          created_at: string | null
+          document_id: string | null
+          document_type: string | null
+          document_type_id: string | null
+          driver_id: string | null
+          file_size_bytes: number | null
+          file_url: string | null
+          is_current: boolean | null
+          mime_type: string | null
+          original_filename: string | null
+          side: string | null
+          storage_path: string | null
+          superseded_by: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          attachment_id?: string | null
+          created_at?: string | null
+          document_id?: string | null
+          document_type?: string | null
+          document_type_id?: string | null
+          driver_id?: string | null
+          file_size_bytes?: number | null
+          file_url?: never
+          is_current?: boolean | null
+          mime_type?: string | null
+          original_filename?: string | null
+          side?: string | null
+          storage_path?: string | null
+          superseded_by?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          attachment_id?: string | null
+          created_at?: string | null
+          document_id?: string | null
+          document_type?: string | null
+          document_type_id?: string | null
+          driver_id?: string | null
+          file_size_bytes?: number | null
+          file_url?: never
+          is_current?: boolean | null
+          mime_type?: string | null
+          original_filename?: string | null
+          side?: string | null
+          storage_path?: string | null
+          superseded_by?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_attachments_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["document_id"]
+          },
+          {
+            foreignKeyName: "document_attachments_document_type_id_fkey"
+            columns: ["document_type_id"]
+            isOneToOne: false
+            referencedRelation: "document_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_document_type_id_fkey"
+            columns: ["document_type_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["document_type_id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "document_attachments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_attachments_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "driver_document_attachments_ssot"
+            referencedColumns: ["attachment_id"]
+          },
+        ]
+      }
       driver_document_compliance_ssot: {
         Row: {
           approval_status: string | null
@@ -23540,6 +24548,16 @@ export type Database = {
         Args: { _trip_id: string }
         Returns: boolean
       }
+      driver_cancel_before_start_rematch: {
+        Args: {
+          p_driver_id: string
+          p_idempotency_key?: string
+          p_reason?: string
+          p_request_metadata?: Json
+          p_trip_id: string
+        }
+        Returns: Json
+      }
       driver_cancel_negotiation: {
         Args: { p_driver_id: string; p_offer_id: string }
         Returns: Json
@@ -23561,6 +24579,14 @@ export type Database = {
       driver_demand_zone_geometry_is_valid: {
         Args: { p_lat: number; p_lng: number; p_radius_meters: number }
         Returns: boolean
+      }
+      driver_document_primary_attachment_locator: {
+        Args: { p_document_id: string }
+        Returns: string
+      }
+      driver_document_storage_path_from_locator: {
+        Args: { p_locator: string }
+        Returns: string
       }
       driver_effective_online_reason: {
         Args: {
@@ -23608,6 +24634,10 @@ export type Database = {
         }
         Returns: string
       }
+      driver_has_accepted_active_or_stacked_work: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
       driver_idle_minutes: {
         Args: {
           p_last_seen_at: string
@@ -23616,6 +24646,10 @@ export type Database = {
           p_online_since: string
         }
         Returns: number
+      }
+      driver_is_excluded_from_trip: {
+        Args: { p_driver_id: string; p_trip_id: string }
+        Returns: boolean
       }
       driver_lost_property_display_status: {
         Args: { p_collected_at: string; p_status: string }
@@ -24030,6 +25064,10 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: Json
       }
+      get_driver_identity_verification_gate: {
+        Args: { p_driver_id: string }
+        Returns: Json
+      }
       get_driver_ledger_aggregates: {
         Args: { p_driver_id: string }
         Returns: {
@@ -24249,6 +25287,14 @@ export type Database = {
       }
       is_customer: { Args: { _user_id: string }; Returns: boolean }
       is_driver: { Args: { _user_id: string }; Returns: boolean }
+      is_driver_cancel_rematch_eligible_status: {
+        Args: { p_status: string }
+        Returns: boolean
+      }
+      is_driver_cancel_rematch_rejected_status: {
+        Args: { p_status: string }
+        Returns: boolean
+      }
       is_driver_dispatchable: {
         Args: {
           p_driver_id: string
@@ -25056,6 +26102,7 @@ export type Database = {
           p_idempotency_key?: string
           p_mime_type?: string
           p_original_filename?: string
+          p_side?: string
           p_storage_path: string
         }
         Returns: Json
@@ -25082,6 +26129,10 @@ export type Database = {
       }
       sync_customer_phone_verification: {
         Args: { _user_id: string }
+        Returns: undefined
+      }
+      sync_document_primary_file_url: {
+        Args: { p_document_id: string }
         Returns: undefined
       }
       sync_driver_phone_verification: {

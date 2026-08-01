@@ -674,9 +674,8 @@ export default function AutoDispatchRules() {
             </p>
 
             <Tabs value={stackedTab} onValueChange={setStackedTab}>
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="general">General</TabsTrigger>
-                <TabsTrigger value="matching">Matching Rules</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="general">Configuration</TabsTrigger>
                 <TabsTrigger value="help">Help &amp; Rules</TabsTrigger>
               </TabsList>
 
@@ -706,13 +705,11 @@ export default function AutoDispatchRules() {
                     <p className="text-xs text-muted-foreground">Only stack when active trip&apos;s remaining time is within this window</p>
                   </div>
                 </div>
-              </TabsContent>
-
-              <TabsContent value="matching" className="space-y-6 pt-4">
                 <p className="text-sm text-muted-foreground">
                   Additional matching rules run after the radius gate. Trips outside the search radius are never offered.
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
                   <div className="space-y-2">
                     <Label>Minimum Trip Distance ({unitShort})</Label>
                     <Input type="number" step="0.5" min="0" value={fromKm(settings.stackedMinTripDistanceKm)}
@@ -725,7 +722,7 @@ export default function AutoDispatchRules() {
                     <Input type="number" min="1" max="30" value={settings.stackedMaxDetourMinutes}
                       onChange={(e) => updateSetting('stackedMaxDetourMinutes', parseInt(e.target.value) || 10)}
                       disabled={isLoading || !settings.stackedRidesEnabled} />
-                    <p className="text-xs text-muted-foreground">Maximum detour (active drop → new pickup) at the active trip's speed</p>
+                    <p className="text-xs text-muted-foreground">Maximum detour (active drop → new pickup) at the active trip&apos;s speed</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -767,6 +764,7 @@ export default function AutoDispatchRules() {
                   </div>
                 </div>
               </TabsContent>
+
 
               <TabsContent value="help" className="pt-4">
                 <StackedRidesHelpPanel
