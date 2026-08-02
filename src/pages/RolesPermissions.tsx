@@ -248,6 +248,19 @@ export default function RolesPermissions() {
     setPermissionMatrix(matrix);
   }, []);
 
+  const fetchActionMatrix = useCallback(async () => {
+    const { data } = await supabase
+      .from('role_action_permissions')
+      .select('role, action_key, is_allowed');
+
+    const matrix: Record<string, Record<string, boolean>> = {};
+    (data || []).forEach((p: any) => {
+      if (!matrix[p.action_key]) matrix[p.action_key] = {};
+      matrix[p.action_key][p.role] = p.is_allowed;
+    });
+    setActionMatrix(matrix);
+  }, []);
+
   const fetchAuditLogs = useCallback(async () => {
     setIsAuditLoading(true);
     try {
