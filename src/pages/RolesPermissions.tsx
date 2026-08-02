@@ -134,7 +134,18 @@ const ROLE_CONFIG: Record<StaffRole, { label: string; icon: typeof Crown; color:
 
 export default function RolesPermissions() {
   const { user } = useAuth();
-  const { canManageRoles } = useStaffProfile();
+  const { actor, isReadOnly, activeSuperAdminCount, has: hasCapability, refetch: refetchCapabilities } = useRoleCapabilities();
+  const canManageRoles = hasCapability('roles_permissions.manage_permissions');
+  const canCreate = hasCapability('roles_permissions.create_role');
+  const canEdit = hasCapability('roles_permissions.edit_role');
+  const canDelete = hasCapability('roles_permissions.delete_role');
+  const canAssign = hasCapability('roles_permissions.assign_role');
+  const canAssignAreas = hasCapability('roles_permissions.assign_service_areas');
+  const correlationId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now()));
+  const [actionMatrix, setActionMatrix] = useState<Record<string, Record<string, boolean>>>({});
+  const [pendingDelegation, setPendingDelegation] = useState<{ role: StaffRole; actionKey: RoleActionKey } | null>(null);
+  const [confirmSuperAdmin, setConfirmSuperAdmin] = useState<null | (() => void)>(null);
+  const [togglingAction, setTogglingAction] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('staff');
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
   const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
