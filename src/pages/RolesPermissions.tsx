@@ -47,6 +47,28 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useStaffProfile, StaffRole, ROLE_LABELS, ROLE_PREFIXES } from '@/hooks/useStaffProfile';
+import { useRoleCapabilities } from '@/hooks/useRoleCapabilities';
+import { Switch } from '@/components/ui/switch';
+import { HelpTip, PermissionsHelpButton, DelegationConfirmDialog } from '@/components/roles/RolesHelp';
+import {
+  ROLE_ACTION_KEYS,
+  ACTION_LABELS,
+  ACTION_HELP,
+  ROLE_TOOLTIPS,
+  TAB_HELP,
+  DENIED_COPY,
+  STAFF_FORM_HELP,
+  pageHelpText,
+  isSensitiveActionKey,
+  canTogglePagePermission,
+  canToggleActionPermission,
+  canAssignRole,
+  canRemoveStaff,
+  canSetStaffActive,
+  canEditStaff,
+  canCreateStaff,
+  type RoleActionKey,
+} from '../../shared/rolesPermissionsSSOT';
 import { format } from 'date-fns';
 
 type AuditEventType =
