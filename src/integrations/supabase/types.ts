@@ -3476,6 +3476,7 @@ export type Database = {
       }
       custom_zones: {
         Row: {
+          access_allowance_minutes: number | null
           airport_fee: number
           center_lat: number | null
           center_lng: number | null
@@ -3485,7 +3486,6 @@ export type Database = {
           geo_boundary: Json | null
           id: string
           is_active: boolean
-          access_allowance_minutes: number | null
           metadata: Json | null
           name: string
           priority: number | null
@@ -3497,6 +3497,7 @@ export type Database = {
           zone_type: string
         }
         Insert: {
+          access_allowance_minutes?: number | null
           airport_fee?: number
           center_lat?: number | null
           center_lng?: number | null
@@ -3506,7 +3507,6 @@ export type Database = {
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
-          access_allowance_minutes?: number | null
           metadata?: Json | null
           name: string
           priority?: number | null
@@ -3518,6 +3518,7 @@ export type Database = {
           zone_type?: string
         }
         Update: {
+          access_allowance_minutes?: number | null
           airport_fee?: number
           center_lat?: number | null
           center_lng?: number | null
@@ -3527,7 +3528,6 @@ export type Database = {
           geo_boundary?: Json | null
           id?: string
           is_active?: boolean
-          access_allowance_minutes?: number | null
           metadata?: Json | null
           name?: string
           priority?: number | null
@@ -4616,6 +4616,7 @@ export type Database = {
           pickup_waiting_grace_period_seconds: number
           pickup_waiting_max_minutes: number | null
           priority_order: string
+          scheduled_commitment_policy: Json | null
           scheduled_ride_incentives_enabled: boolean
           scheduled_rides_enabled: boolean
           search_radius_expand_km: number
@@ -4625,7 +4626,6 @@ export type Database = {
           service_area_id: string | null
           shortlist_limit: number
           simulate_mode: boolean
-          scheduled_commitment_policy: Json | null
           stacked_allow_rider_opt_out: boolean
           stacked_driver_incentive: number
           stacked_max_detour_minutes: number
@@ -4644,10 +4644,13 @@ export type Database = {
           stop_waiting_max_minutes: number | null
           stop_waiting_rate_pence_per_minute: number
           suppress_recent_offers_seconds: number
+          towards_destination_arrival_radius_meters: number
           towards_destination_daily_limit: number
           towards_destination_duration_minutes: number
           towards_destination_enabled: boolean
           towards_destination_matching_tolerance_meters: number
+          towards_destination_max_pickup_detour_meters: number
+          towards_destination_min_progress_meters: number
           towards_destination_priority_weight: number
           updated_at: string
           waiting_bonus_per_minute: number
@@ -4706,6 +4709,7 @@ export type Database = {
           pickup_waiting_grace_period_seconds?: number
           pickup_waiting_max_minutes?: number | null
           priority_order?: string
+          scheduled_commitment_policy?: Json | null
           scheduled_ride_incentives_enabled?: boolean
           scheduled_rides_enabled?: boolean
           search_radius_expand_km?: number
@@ -4715,7 +4719,6 @@ export type Database = {
           service_area_id?: string | null
           shortlist_limit?: number
           simulate_mode?: boolean
-          scheduled_commitment_policy?: Json | null
           stacked_allow_rider_opt_out?: boolean
           stacked_driver_incentive?: number
           stacked_max_detour_minutes?: number
@@ -4734,10 +4737,13 @@ export type Database = {
           stop_waiting_max_minutes?: number | null
           stop_waiting_rate_pence_per_minute?: number
           suppress_recent_offers_seconds?: number
+          towards_destination_arrival_radius_meters?: number
           towards_destination_daily_limit?: number
           towards_destination_duration_minutes?: number
           towards_destination_enabled?: boolean
           towards_destination_matching_tolerance_meters?: number
+          towards_destination_max_pickup_detour_meters?: number
+          towards_destination_min_progress_meters?: number
           towards_destination_priority_weight?: number
           updated_at?: string
           waiting_bonus_per_minute?: number
@@ -4796,6 +4802,7 @@ export type Database = {
           pickup_waiting_grace_period_seconds?: number
           pickup_waiting_max_minutes?: number | null
           priority_order?: string
+          scheduled_commitment_policy?: Json | null
           scheduled_ride_incentives_enabled?: boolean
           scheduled_rides_enabled?: boolean
           search_radius_expand_km?: number
@@ -4805,7 +4812,6 @@ export type Database = {
           service_area_id?: string | null
           shortlist_limit?: number
           simulate_mode?: boolean
-          scheduled_commitment_policy?: Json | null
           stacked_allow_rider_opt_out?: boolean
           stacked_driver_incentive?: number
           stacked_max_detour_minutes?: number
@@ -4824,10 +4830,13 @@ export type Database = {
           stop_waiting_max_minutes?: number | null
           stop_waiting_rate_pence_per_minute?: number
           suppress_recent_offers_seconds?: number
+          towards_destination_arrival_radius_meters?: number
           towards_destination_daily_limit?: number
           towards_destination_duration_minutes?: number
           towards_destination_enabled?: boolean
           towards_destination_matching_tolerance_meters?: number
+          towards_destination_max_pickup_detour_meters?: number
+          towards_destination_min_progress_meters?: number
           towards_destination_priority_weight?: number
           updated_at?: string
           waiting_bonus_per_minute?: number
@@ -8868,6 +8877,9 @@ export type Database = {
           towards_destination_last_reset: string | null
           towards_destination_lat: number | null
           towards_destination_lng: number | null
+          towards_destination_place_id: string | null
+          towards_destination_postcode: string | null
+          towards_destination_session_id: string | null
           towards_destination_uses_today: number
           updated_at: string
         }
@@ -8891,6 +8903,9 @@ export type Database = {
           towards_destination_last_reset?: string | null
           towards_destination_lat?: number | null
           towards_destination_lng?: number | null
+          towards_destination_place_id?: string | null
+          towards_destination_postcode?: string | null
+          towards_destination_session_id?: string | null
           towards_destination_uses_today?: number
           updated_at?: string
         }
@@ -8914,6 +8929,9 @@ export type Database = {
           towards_destination_last_reset?: string | null
           towards_destination_lat?: number | null
           towards_destination_lng?: number | null
+          towards_destination_place_id?: string | null
+          towards_destination_postcode?: string | null
+          towards_destination_session_id?: string | null
           towards_destination_uses_today?: number
           updated_at?: string
         }
@@ -10603,6 +10621,7 @@ export type Database = {
       }
       global_dispatch_settings: {
         Row: {
+          admin_escalation_lead_minutes: number
           allow_airport_stacking: boolean
           allow_new_ride_while_driver_active: boolean
           allow_same_direction_only: boolean
@@ -10611,9 +10630,9 @@ export type Database = {
           allow_stacking_during_stop_waiting: boolean
           block_multiple_active_rides: boolean
           cancel_protection: boolean
-          created_at: string
           check_in_grace_minutes: number
           check_in_min_lead_minutes: number
+          created_at: string
           degraded_driver_penalty: number
           distance_penalty_per_meter: number
           driver_fare_display: string
@@ -10645,7 +10664,6 @@ export type Database = {
           pickup_access_allowance_minutes: number
           presence_max_age_seconds: number
           rescue_search_lead_minutes: number
-          admin_escalation_lead_minutes: number
           safety_buffer_minutes: number
           scheduled_response_window_minutes: number
           scheduled_ride_incentives_enabled: boolean
@@ -10662,10 +10680,13 @@ export type Database = {
           stacked_search_radius_meters: number
           start_journey_grace_minutes: number
           start_radius_meters: number
+          towards_destination_arrival_radius_meters: number
           towards_destination_daily_limit: number
           towards_destination_duration_minutes: number
           towards_destination_enabled: boolean
           towards_destination_matching_tolerance_meters: number
+          towards_destination_max_pickup_detour_meters: number
+          towards_destination_min_progress_meters: number
           towards_destination_priority_weight: number
           updated_at: string
           urgent_dispatch_trigger_minutes_before_pickup: number
@@ -10679,6 +10700,7 @@ export type Database = {
           wave3_size: number
         }
         Insert: {
+          admin_escalation_lead_minutes?: number
           allow_airport_stacking?: boolean
           allow_new_ride_while_driver_active?: boolean
           allow_same_direction_only?: boolean
@@ -10687,9 +10709,9 @@ export type Database = {
           allow_stacking_during_stop_waiting?: boolean
           block_multiple_active_rides?: boolean
           cancel_protection?: boolean
-          created_at?: string
           check_in_grace_minutes?: number
           check_in_min_lead_minutes?: number
+          created_at?: string
           degraded_driver_penalty?: number
           distance_penalty_per_meter?: number
           driver_fare_display?: string
@@ -10721,7 +10743,6 @@ export type Database = {
           pickup_access_allowance_minutes?: number
           presence_max_age_seconds?: number
           rescue_search_lead_minutes?: number
-          admin_escalation_lead_minutes?: number
           safety_buffer_minutes?: number
           scheduled_response_window_minutes?: number
           scheduled_ride_incentives_enabled?: boolean
@@ -10738,10 +10759,13 @@ export type Database = {
           stacked_search_radius_meters?: number
           start_journey_grace_minutes?: number
           start_radius_meters?: number
+          towards_destination_arrival_radius_meters?: number
           towards_destination_daily_limit?: number
           towards_destination_duration_minutes?: number
           towards_destination_enabled?: boolean
           towards_destination_matching_tolerance_meters?: number
+          towards_destination_max_pickup_detour_meters?: number
+          towards_destination_min_progress_meters?: number
           towards_destination_priority_weight?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
@@ -10755,6 +10779,7 @@ export type Database = {
           wave3_size?: number
         }
         Update: {
+          admin_escalation_lead_minutes?: number
           allow_airport_stacking?: boolean
           allow_new_ride_while_driver_active?: boolean
           allow_same_direction_only?: boolean
@@ -10763,9 +10788,9 @@ export type Database = {
           allow_stacking_during_stop_waiting?: boolean
           block_multiple_active_rides?: boolean
           cancel_protection?: boolean
-          created_at?: string
           check_in_grace_minutes?: number
           check_in_min_lead_minutes?: number
+          created_at?: string
           degraded_driver_penalty?: number
           distance_penalty_per_meter?: number
           driver_fare_display?: string
@@ -10797,7 +10822,6 @@ export type Database = {
           pickup_access_allowance_minutes?: number
           presence_max_age_seconds?: number
           rescue_search_lead_minutes?: number
-          admin_escalation_lead_minutes?: number
           safety_buffer_minutes?: number
           scheduled_response_window_minutes?: number
           scheduled_ride_incentives_enabled?: boolean
@@ -10814,10 +10838,13 @@ export type Database = {
           stacked_search_radius_meters?: number
           start_journey_grace_minutes?: number
           start_radius_meters?: number
+          towards_destination_arrival_radius_meters?: number
           towards_destination_daily_limit?: number
           towards_destination_duration_minutes?: number
           towards_destination_enabled?: boolean
           towards_destination_matching_tolerance_meters?: number
+          towards_destination_max_pickup_detour_meters?: number
+          towards_destination_min_progress_meters?: number
           towards_destination_priority_weight?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
@@ -18992,6 +19019,120 @@ export type Database = {
           },
         ]
       }
+      towards_destination_sessions: {
+        Row: {
+          activated_at: string
+          address: string
+          cancelled_at: string | null
+          completed_at: string | null
+          completion_reason: string | null
+          created_at: string
+          dest_lat: number
+          dest_lng: number
+          driver_id: string
+          expires_at: string | null
+          id: string
+          place_id: string | null
+          postcode: string | null
+          status: string
+          updated_at: string
+          usage_consumed: boolean
+        }
+        Insert: {
+          activated_at?: string
+          address: string
+          cancelled_at?: string | null
+          completed_at?: string | null
+          completion_reason?: string | null
+          created_at?: string
+          dest_lat: number
+          dest_lng: number
+          driver_id: string
+          expires_at?: string | null
+          id?: string
+          place_id?: string | null
+          postcode?: string | null
+          status?: string
+          updated_at?: string
+          usage_consumed?: boolean
+        }
+        Update: {
+          activated_at?: string
+          address?: string
+          cancelled_at?: string | null
+          completed_at?: string | null
+          completion_reason?: string | null
+          created_at?: string
+          dest_lat?: number
+          dest_lng?: number
+          driver_id?: string
+          expires_at?: string | null
+          id?: string
+          place_id?: string | null
+          postcode?: string | null
+          status?: string
+          updated_at?: string
+          usage_consumed?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "towards_destination_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "towards_destination_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "towards_destination_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "towards_destination_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "towards_destination_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "towards_destination_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "towards_destination_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "towards_destination_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trip_change_requests: {
         Row: {
           after_route_snapshot: Json
@@ -25032,6 +25173,7 @@ export type Database = {
           pickup_waiting_grace_period_seconds: number
           pickup_waiting_max_minutes: number | null
           priority_order: string
+          scheduled_commitment_policy: Json | null
           scheduled_ride_incentives_enabled: boolean
           scheduled_rides_enabled: boolean
           search_radius_expand_km: number
@@ -25059,10 +25201,13 @@ export type Database = {
           stop_waiting_max_minutes: number | null
           stop_waiting_rate_pence_per_minute: number
           suppress_recent_offers_seconds: number
+          towards_destination_arrival_radius_meters: number
           towards_destination_daily_limit: number
           towards_destination_duration_minutes: number
           towards_destination_enabled: boolean
           towards_destination_matching_tolerance_meters: number
+          towards_destination_max_pickup_detour_meters: number
+          towards_destination_min_progress_meters: number
           towards_destination_priority_weight: number
           updated_at: string
           waiting_bonus_per_minute: number
@@ -26113,7 +26258,13 @@ export type Database = {
         }[]
       }
       set_driver_own_towards_destination: {
-        Args: { p_address: string; p_lat: number; p_lng: number }
+        Args: {
+          p_address: string
+          p_lat: number
+          p_lng: number
+          p_place_id?: string
+          p_postcode?: string
+        }
         Returns: Json
       }
       snapshot_driver_tier_commission_on_trip: {
@@ -26210,6 +26361,18 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: string
       }
+      towards_destination_clear_filter: {
+        Args: { p_driver_id: string }
+        Returns: undefined
+      }
+      towards_destination_complete_session: {
+        Args: { p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      towards_destination_maybe_complete_on_location: {
+        Args: { p_driver_id: string; p_lat: number; p_lng: number }
+        Returns: Json
+      }
       towards_destination_priority_bonus: {
         Args: {
           p_active: boolean
@@ -26226,6 +26389,26 @@ export type Database = {
       }
       towards_destination_resolve_config: {
         Args: { p_service_area_id?: string }
+        Returns: Json
+      }
+      towards_destination_trip_qualifies: {
+        Args: {
+          p_dest_lat: number
+          p_dest_lng: number
+          p_driver_lat: number
+          p_driver_lng: number
+          p_dropoff_lat: number
+          p_dropoff_lng: number
+          p_max_pickup_detour_meters?: number
+          p_min_progress_meters?: number
+          p_pickup_lat: number
+          p_pickup_lng: number
+          p_tolerance_meters?: number
+        }
+        Returns: Json
+      }
+      towards_destination_usage_snapshot: {
+        Args: { p_driver_id: string; p_limit?: number }
         Returns: Json
       }
       trip_commission_reserve_fare_minor: {
