@@ -608,45 +608,84 @@ export default function RolesPermissions() {
   const [togglingPerm, setTogglingPerm] = useState<string | null>(null);
 
   const handleTogglePermission = async (pageSlug: string, role: StaffRole) => {
-    if (!canManageRoles) return;
-    const key = `${pageSlug}-${role}`;
-    setTogglingPerm(key);
     const currentAccess = permissionMatrix[pageSlug]?.[role] ?? false;
     const newAccess = !currentAccess;
 
+    const guard = canTogglePagePermission(actor, role, pageSlug, newAccess);
+    if (!guard.allowed) {
+      setError(guard.reason ?? DENIED_COPY.actionDenied);
+      return;
+    }
+
+    const key = `${pageSlug}-${role}`;
+    setTogglingPerm(key);
+    setError(null);
+
     try {
-      // Upsert the permission
-      const { error: upsertError } = await supabase
-        .from('role_page_permissions')
-        .upsert(
-          { role: role as any, page_slug: pageSlug, can_access: newAccess },
-          { onConflict: 'role,page_slug' }
-        );
+      // Backend RPC re-checks capability, protection rules and writes the audit row
+      const { error: rpcError } = await supabase.rpc('admin_set_role_page_permission', {
+        _role: role as any,
+        _page_slug: pageSlug,
+        _can_access: newAccess,
+        _correlation_id: correlationId(),
+      });
+      if (rpcError) throw rpcError;
 
-      if (upsertError) throw upsertError;
-
-      // Update local state
       setPermissionMatrix(prev => ({
         ...prev,
-        [pageSlug]: {
-          ...prev[pageSlug],
-          [role]: newAccess,
-        },
+        [pageSlug]: { ...prev[pageSlug], [role]: newAccess },
       }));
-
-      await writeAudit(user?.id, 'roles.permission.toggle', {
-        page_slug: pageSlug,
-        role,
-        previous_access: currentAccess,
-        new_access: newAccess,
-      });
       fetchAuditLogs();
     } catch (err: any) {
       console.error('Failed to toggle permission:', err);
-      setError(`Failed to update permission: ${err.message}`);
+      setError(err.message || 'Failed to update permission');
     } finally {
       setTogglingPerm(null);
     }
+  };
+
+  const applyActionPermission = async (role: StaffRole, actionKey: RoleActionKey, nextValue: boolean) => {
+    const guard = canToggleActionPermission(actor, role, actionKey, nextValue);
+    if (!guard.allowed) {
+      setError(guard.reason ?? DENIED_COPY.actionDenied);
+      return;
+    }
+
+    const key = `${actionKey}-${role}`;
+    setTogglingAction(key);
+    setError(null);
+
+    try {
+      const { error: rpcError } = await supabase.rpc('admin_set_role_action_permission', {
+        _role: role as any,
+        _action_key: actionKey,
+        _is_allowed: nextValue,
+        _correlation_id: correlationId(),
+      });
+      if (rpcError) throw rpcError;
+
+      setActionMatrix(prev => ({
+        ...prev,
+        [actionKey]: { ...prev[actionKey], [role]: nextValue },
+      }));
+      await Promise.all([fetchAuditLogs(), refetchCapabilities()]);
+    } catch (err: any) {
+      console.error('Failed to toggle action permission:', err);
+      setError(err.message || 'Failed to update permission');
+    } finally {
+      setTogglingAction(null);
+    }
+  };
+
+  const handleToggleActionPermission = (role: StaffRole, actionKey: RoleActionKey) => {
+    const current = actionMatrix[actionKey]?.[role] ?? false;
+    const nextValue = !current;
+    // Explicit delegation confirmation before granting a sensitive capability
+    if (nextValue && isSensitiveActionKey(actionKey)) {
+      setPendingDelegation({ role, actionKey });
+      return;
+    }
+    void applyActionPermission(role, actionKey, nextValue);
   };
 
   return (
