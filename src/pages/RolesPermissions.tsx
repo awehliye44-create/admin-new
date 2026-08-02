@@ -293,8 +293,9 @@ export default function RolesPermissions() {
     fetchStaffMembers();
     fetchServiceAreas();
     fetchPermissionMatrix();
+    fetchActionMatrix();
     fetchAuditLogs();
-  }, [fetchStaffMembers, fetchServiceAreas, fetchPermissionMatrix, fetchAuditLogs]);
+  }, [fetchStaffMembers, fetchServiceAreas, fetchPermissionMatrix, fetchActionMatrix, fetchAuditLogs]);
 
   const filteredStaff = staffMembers.filter(s => {
     if (filterRole !== 'all' && s.role !== filterRole) return false;
