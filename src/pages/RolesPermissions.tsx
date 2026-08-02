@@ -693,6 +693,19 @@ export default function RolesPermissions() {
       title="Roles & Permissions"
       description="Manage staff roles, permissions, and service area assignments"
     >
+      <div className="flex items-center justify-end -mt-4 mb-4">
+        <PermissionsHelpButton />
+      </div>
+
+      {isReadOnly && (
+        <Alert className="mb-4 bg-amber-500/10 border-amber-500/30">
+          <ShieldAlert className="h-4 w-4 text-amber-500" />
+          <AlertDescription className="text-amber-600 dark:text-amber-400">
+            {DENIED_COPY.readOnlyBanner}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {error && (
         <Alert variant="destructive" className="mb-4">
           <AlertCircle className="h-4 w-4" />
