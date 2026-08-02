@@ -16883,6 +16883,33 @@ export type Database = {
           },
         ]
       }
+      role_action_permissions: {
+        Row: {
+          action_key: string
+          created_at: string
+          id: string
+          is_allowed: boolean
+          role: Database["public"]["Enums"]["staff_role"]
+          updated_at: string
+        }
+        Insert: {
+          action_key: string
+          created_at?: string
+          id?: string
+          is_allowed?: boolean
+          role: Database["public"]["Enums"]["staff_role"]
+          updated_at?: string
+        }
+        Update: {
+          action_key?: string
+          created_at?: string
+          id?: string
+          is_allowed?: boolean
+          role?: Database["public"]["Enums"]["staff_role"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       role_page_permissions: {
         Row: {
           can_access: boolean
@@ -24128,13 +24155,33 @@ export type Database = {
       }
       ack_timeout_sweep: { Args: never; Returns: undefined }
       ack_timeout_sweep_has_work: { Args: never; Returns: boolean }
+      active_super_admin_count: { Args: never; Returns: number }
       adjust_merchant_credits: {
         Args: { _delta: number; _merchant_id: string; _notes?: string }
         Returns: Json
       }
+      admin_assign_staff_role: {
+        Args: {
+          _correlation_id?: string
+          _new_role: Database["public"]["Enums"]["staff_role"]
+          _staff_id: string
+        }
+        Returns: undefined
+      }
       admin_cancel_trip_negotiation: {
         Args: { p_reason?: string; p_trip_id: string }
         Returns: Json
+      }
+      admin_create_staff_member: {
+        Args: {
+          _correlation_id?: string
+          _full_name: string
+          _role: Database["public"]["Enums"]["staff_role"]
+          _service_area_ids?: string[]
+          _user_id: string
+          _username: string
+        }
+        Returns: string
       }
       admin_driver_financial_summaries: {
         Args: { p_driver_id?: string; p_region_id?: string }
@@ -24257,9 +24304,49 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      admin_remove_staff_member: {
+        Args: { _correlation_id?: string; _staff_id: string }
+        Returns: string
+      }
       admin_save_driver_special_offer: {
         Args: { p_offer: Json; p_service_area_ids?: string[] }
         Returns: string
+      }
+      admin_set_role_action_permission: {
+        Args: {
+          _action_key: string
+          _correlation_id?: string
+          _is_allowed: boolean
+          _role: Database["public"]["Enums"]["staff_role"]
+        }
+        Returns: undefined
+      }
+      admin_set_role_page_permission: {
+        Args: {
+          _can_access: boolean
+          _correlation_id?: string
+          _page_slug: string
+          _role: Database["public"]["Enums"]["staff_role"]
+        }
+        Returns: undefined
+      }
+      admin_set_staff_active: {
+        Args: {
+          _correlation_id?: string
+          _is_active: boolean
+          _staff_id: string
+        }
+        Returns: undefined
+      }
+      admin_update_staff_member: {
+        Args: {
+          _correlation_id?: string
+          _full_name: string
+          _service_area_ids?: string[]
+          _staff_id: string
+          _username: string
+        }
+        Returns: undefined
       }
       admin_user_directory: {
         Args: never
@@ -25554,6 +25641,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_super_admin: { Args: { _user_id: string }; Returns: boolean }
       is_trip_active_dispatch_status: {
         Args: { p_dispatch: string }
         Returns: boolean
@@ -25651,6 +25739,10 @@ export type Database = {
           p_to_intent?: boolean
           p_to_is_online?: boolean
         }
+        Returns: undefined
+      }
+      log_roles_audit: {
+        Args: { _details: Json; _event_type: string }
         Returns: undefined
       }
       lost_property_admin_unread_count: { Args: never; Returns: number }
@@ -26058,6 +26150,10 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: undefined
       }
+      reject_roles_action: {
+        Args: { _details: Json; _event_type: string; _reason: string }
+        Returns: undefined
+      }
       release_company_funding_hold: {
         Args: { p_reason?: string; p_transfer_id: string }
         Returns: Json
@@ -26270,6 +26366,14 @@ export type Database = {
       snapshot_driver_tier_commission_on_trip: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: number
+      }
+      staff_has_action: {
+        Args: { _action_key: string; _user_id: string }
+        Returns: boolean
+      }
+      staff_role_of: {
+        Args: { _user_id: string }
+        Returns: Database["public"]["Enums"]["staff_role"]
       }
       stage_email_change: {
         Args: { _app_type: string; _new_email: string; _user_id: string }
