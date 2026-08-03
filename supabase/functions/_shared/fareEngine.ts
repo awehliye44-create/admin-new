@@ -28,8 +28,13 @@ export interface FarePricingSettings {
   recalculate_on_waiting: boolean;
   recalculate_on_stop_added: boolean;
   recalculate_on_dropoff_changed: boolean;
-  enable_surge: boolean;
-  surge_multiplier_default: number;
+  /**
+   * Zone-based automatic surge multiplier resolved server-side from the PICKUP
+   * demand zone (see public.resolve_zone_surge). Always 1.00 when the pickup is
+   * outside a computed zone or when surge is disabled for the service area.
+   * There is no service-area-wide surge.
+   */
+  zone_surge_multiplier: number;
   peak_hour_multiplier: number;
   zone_multiplier: number;
   traffic_multiplier: number;
