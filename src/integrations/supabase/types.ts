@@ -4095,6 +4095,56 @@ export type Database = {
           },
         ]
       }
+      demand_zone_audit_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          actor_role: string | null
+          created_at: string
+          field_key: string | null
+          id: string
+          new_value: Json | null
+          old_value: Json | null
+          reason: string | null
+          service_area_id: string | null
+          zone_id: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          field_key?: string | null
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          reason?: string | null
+          service_area_id?: string | null
+          zone_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          field_key?: string | null
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          reason?: string | null
+          service_area_id?: string | null
+          zone_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "demand_zone_audit_log_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dispatch_audit_log: {
         Row: {
           created_at: string
@@ -6745,10 +6795,16 @@ export type Database = {
           active: boolean
           center_lat: number
           center_lng: number
+          confirmed_demand_level: string | null
+          consecutive_match_count: number
           created_at: string
           demand_level: string
           id: string
+          last_evaluated_at: string | null
+          last_open_trip_count: number
+          level_changed_at: string | null
           name: string
+          proposed_demand_level: string | null
           radius_meters: number
           region_id: string | null
           service_area_id: string | null
@@ -6759,10 +6815,16 @@ export type Database = {
           active?: boolean
           center_lat: number
           center_lng: number
+          confirmed_demand_level?: string | null
+          consecutive_match_count?: number
           created_at?: string
           demand_level?: string
           id?: string
+          last_evaluated_at?: string | null
+          last_open_trip_count?: number
+          level_changed_at?: string | null
           name: string
+          proposed_demand_level?: string | null
           radius_meters?: number
           region_id?: string | null
           service_area_id?: string | null
@@ -6773,10 +6835,16 @@ export type Database = {
           active?: boolean
           center_lat?: number
           center_lng?: number
+          confirmed_demand_level?: string | null
+          consecutive_match_count?: number
           created_at?: string
           demand_level?: string
           id?: string
+          last_evaluated_at?: string | null
+          last_open_trip_count?: number
+          level_changed_at?: string | null
           name?: string
+          proposed_demand_level?: string | null
           radius_meters?: number
           region_id?: string | null
           service_area_id?: string | null
@@ -17212,6 +17280,95 @@ export type Database = {
           },
         ]
       }
+      service_area_demand_zone_settings: {
+        Row: {
+          colour_high: string
+          colour_low: string
+          colour_medium: string
+          consecutive_checks_required: number
+          created_at: string
+          heat_map_enabled: boolean
+          high_min_trips: number
+          id: string
+          low_max_trips: number
+          low_min_trips: number
+          manual_zones_enabled: boolean
+          max_multiplier: number
+          medium_max_trips: number
+          medium_min_trips: number
+          multiplier_high: number | null
+          multiplier_low: number
+          multiplier_medium: number | null
+          open_trip_max_lifetime_minutes: number
+          recompute_interval_minutes: number
+          service_area_id: string
+          surge_enabled: boolean
+          updated_at: string
+          updated_by: string | null
+          zone_radius_meters: number
+        }
+        Insert: {
+          colour_high?: string
+          colour_low?: string
+          colour_medium?: string
+          consecutive_checks_required?: number
+          created_at?: string
+          heat_map_enabled?: boolean
+          high_min_trips?: number
+          id?: string
+          low_max_trips?: number
+          low_min_trips?: number
+          manual_zones_enabled?: boolean
+          max_multiplier?: number
+          medium_max_trips?: number
+          medium_min_trips?: number
+          multiplier_high?: number | null
+          multiplier_low?: number
+          multiplier_medium?: number | null
+          open_trip_max_lifetime_minutes?: number
+          recompute_interval_minutes?: number
+          service_area_id: string
+          surge_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          zone_radius_meters?: number
+        }
+        Update: {
+          colour_high?: string
+          colour_low?: string
+          colour_medium?: string
+          consecutive_checks_required?: number
+          created_at?: string
+          heat_map_enabled?: boolean
+          high_min_trips?: number
+          id?: string
+          low_max_trips?: number
+          low_min_trips?: number
+          manual_zones_enabled?: boolean
+          max_multiplier?: number
+          medium_max_trips?: number
+          medium_min_trips?: number
+          multiplier_high?: number | null
+          multiplier_low?: number
+          multiplier_medium?: number | null
+          open_trip_max_lifetime_minutes?: number
+          recompute_interval_minutes?: number
+          service_area_id?: string
+          surge_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          zone_radius_meters?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_demand_zone_settings_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_area_document_rules: {
         Row: {
           created_at: string
@@ -24308,6 +24465,10 @@ export type Database = {
         Args: { _correlation_id?: string; _staff_id: string }
         Returns: string
       }
+      admin_save_demand_zone_settings: {
+        Args: { _service_area_id: string; _settings: Json }
+        Returns: Json
+      }
       admin_save_driver_special_offer: {
         Args: { p_offer: Json; p_service_area_ids?: string[] }
         Returns: string
@@ -24746,6 +24907,10 @@ export type Database = {
       decline_scheduled_ride: {
         Args: { p_driver_id?: string; p_reason?: string; p_trip_id: string }
         Returns: Json
+      }
+      demand_zone_distance_meters: {
+        Args: { _lat1: number; _lat2: number; _lng1: number; _lng2: number }
+        Returns: number
       }
       detect_driver_commitment_monitoring: { Args: never; Returns: undefined }
       detect_driver_problems: { Args: never; Returns: undefined }
@@ -25707,6 +25872,17 @@ export type Database = {
         }
         Returns: string
       }
+      log_demand_zone_event: {
+        Args: {
+          _action: string
+          _new_value?: Json
+          _old_value?: Json
+          _reason?: string
+          _service_area_id: string
+          _zone_id: string
+        }
+        Returns: undefined
+      }
       log_dispatch_eligibility: {
         Args: {
           p_context?: Json
@@ -26307,6 +26483,14 @@ export type Database = {
           zone_name: string
           zone_type: string
         }[]
+      }
+      resolve_zone_surge: {
+        Args: {
+          _pickup_lat: number
+          _pickup_lng: number
+          _service_area_id: string
+        }
+        Returns: Json
       }
       return_failed_payout_to_wallet: {
         Args: { p_payout_item_id: string }

@@ -28,8 +28,13 @@ export interface FarePricingSettings {
   recalculate_on_waiting: boolean;
   recalculate_on_stop_added: boolean;
   recalculate_on_dropoff_changed: boolean;
-  enable_surge: boolean;
-  surge_multiplier_default: number;
+  /**
+   * Zone-based automatic surge multiplier resolved server-side from the PICKUP
+   * demand zone (see public.resolve_zone_surge). Always 1.00 when the pickup is
+   * outside a computed zone or when surge is disabled for the service area.
+   * There is no service-area-wide surge.
+   */
+  zone_surge_multiplier: number;
   peak_hour_multiplier: number;
   zone_multiplier: number;
   traffic_multiplier: number;
@@ -206,7 +211,8 @@ export class DynamicPricingStrategy {
     const time = Math.round(req.estimated_duration_min * this.settings.per_min_rate_pence);
     const booking = this.settings.booking_fee_pence;
 
-    const surgeMultiplier = this.settings.enable_surge ? this.settings.surge_multiplier_default : 1;
+    // Zone-based automatic surge. Resolved from the pickup zone only.
+    const surgeMultiplier = Math.max(1, this.settings.zone_surge_multiplier ?? 1);
     const zoneMultiplier = this.settings.zone_multiplier;
     const trafficMultiplier = this.settings.traffic_multiplier;
 
