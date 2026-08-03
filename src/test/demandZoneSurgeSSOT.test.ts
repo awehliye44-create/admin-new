@@ -20,7 +20,7 @@ import {
   validateThresholds,
   type DemandZoneSettings,
   type SurgeZone,
-} from '../demandZoneSurgeSSOT';
+} from '../../shared/demandZoneSurgeSSOT';
 
 const SA_MK = 'sa-milton-keynes';
 const SA_LU = 'sa-luton';
