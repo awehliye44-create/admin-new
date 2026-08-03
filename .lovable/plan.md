@@ -1,94 +1,70 @@
-# Payment Authorisation Lifecycle SSOT
+# Driver Demand Zones — Per-Service-Area Heat Map + Zone-Based Automatic Surge
 
-Goal: the original AUTHORISED hold on the parent Revolut order is protected end-to-end. Recovery = "additional customer action required", not cancellation. Nothing in the platform may auto-cancel/release a valid AUTHORISED hold except: successful capture, successful recovery capture, admin abandon, or natural provider expiry.
+## Part 1 — Audit of what exists today
 
-## What's already true (keep)
-- Webhook now writes `payment_status = 'recovery_required'` (not `canceled`) when the parent session is still `AUTHORISED` and `additional_auth_status = PAYMENT_RECOVERY_REQUIRED` (patched last turn).
-- `create-payment-recovery` creates a NEW Revolut order and never touches the parent session's `provider_order_id` or state.
+### 1. Current architecture
+- Admin page `src/pages/DriverDemandZones.tsx` reads `driver_demand_zones` directly from the browser (no RPC), with Region / Service area / Source / Status filters, search, map + list tabs, manual add/edit/delete, and a "Recompute from trips" button.
+- Map: `src/components/maps/DriverDemandZonesMap.tsx` (Mapbox) + `src/lib/demandZoneGeojson.ts` (circle rings from `center_lat/lng/radius_meters`) + `src/lib/demandZoneMapStyle.ts` (hard-coded LOW/MEDIUM/HIGH colours, shared by contract with the driver app).
+- Help copy: `src/components/dispatch/DriverDemandZonesHelpPanel.tsx` (hard-codes "45 minutes", "every 2 minutes", "4+ / 2-3 / 1 open trips").
 
-## What's still wrong / risky
-1. `admin-cancel-trip-payment` and `revolut-cancel-order` will happily cancel any AUTHORISED order — no guard against cancelling a hold that has an open recovery in flight.
-2. The completion path that hit "Re-hold not authorised: PENDING" wrote `capture_failed` on `trips` and did not set `payment_sessions.status = 'PAYMENT_RECOVERY_REQUIRED'` — so admin UI has no canonical "recovery in progress" pill.
-3. No DB trigger prevents rogue writes that flip a still-AUTHORISED parent to `cancelled`/`released` while a recovery is open.
-4. Admin UI for a recovery-required trip doesn't yet show: original hold state, hold expiry, shortfall, recovery order status, release trigger.
-5. Customer app copy still shows "cancelled"/"capture failed" for `recovery_required`.
+### 2. Tables / functions / jobs in use
+- Table `driver_demand_zones`: `id, name, center_lat, center_lng, radius_meters (default 500), demand_level (text, default MEDIUM), active, region_id, service_area_id, source ('manual'|'computed'), created_at, updated_at`.
+- DB functions: `compute_driver_demand_zones_sweep()`, `compute_driver_demand_zones_sweep_has_work()`, `driver_demand_zone_geometry_is_valid()`, `driver_demand_zones_enforce_valid_geometry()` trigger, `list_driver_own_demand_zones()` (driver app read, scoped by driver service areas / region).
+- Cron: `compute-driver-demand-zones-every-2m` (`*/2 * * * *`, active) → `net.http_post` → edge function `compute-driver-demand-zones`.
+- **Gap found:** the edge function `compute-driver-demand-zones` is NOT present in this repo (`supabase/functions/`), although it is deployed and invoked by both cron and the admin button. Its logic must be re-created locally before it can be safely changed.
 
-## Changes
+### 3. Zone ↔ service area relationship
+- `service_area_id` and `region_id` are both nullable. `NULL` service area = "global" zone, visible to drivers in any/matching region. Filtering is client-side only; there is no per-service-area configuration of any kind.
 
-### 1. Backend — protect the hold
+### 4. Recompute interval / lookback
+- Interval: hard-coded cron `*/2`. Lookback: documented as 45 minutes of open unassigned trips, and thresholds 1 / 2-3 / 4+ are hard-coded inside the edge function. Nothing is admin-configurable, nothing is per service area.
 
-**`supabase/functions/_shared/paymentHoldGuard.ts` (new)**
-Small helper `assertHoldReleaseAllowed(supabase, tripId, { reason })` returning `{ allowed, reason_code }`. Blocks release if:
-- parent session `provider_state = 'AUTHORISED'` AND
-- any open recovery session exists (`purpose=PAYMENT_RECOVERY`, status in RECOVERY_CHECKOUT_CREATED / CUSTOMER_ACTION_REQUIRED) OR `additional_auth_status = PAYMENT_RECOVERY_REQUIRED` AND
-- caller is not `admin_abandon_recovery` or `provider_expiry`.
+### 5. Manual zone contract
+- Manual zones (`source='manual'`) are admin CRUD, never touched by recompute, purely advisory in the driver app. **No pricing contract exists today** — no fare code reads `driver_demand_zones`. So manual zones stay advisory-only in this phase.
 
-**`admin-cancel-trip-payment`, `revolut-cancel-order`**
-Call `assertHoldReleaseAllowed` first. Return 409 `HOLD_PROTECTED_BY_RECOVERY` with the recovery session id when blocked. Add explicit `reason: 'admin_abandon_recovery'` path that requires `abandon_recovery: true` in the request body — this is the only way to force-release a hold while recovery is pending.
+### 6. Fare estimate / quote workflow
+- `supabase/functions/estimate-fare` resolves service area → `fare_pricing_settings` + `service_area_vehicle_pricing` → `_shared/fareEngine.ts`.
+- `fareEngine` already has `enable_surge` + `surge_multiplier_default` + `zone_multiplier` applied service-area-wide (`rawSubtotal * surge * zone * traffic`). This is exactly the "whole service area surge" the task forbids for the new feature.
+- **Gap:** no quote ID, no quote expiry, no locked multiplier, no zone attribution on the estimate response; nothing stored on the trip at confirmation.
 
-**`revolut-webhook`**
-On parent-order `CANCELLED`/`FAILED` event, still update `payment_sessions.provider_state`, but do NOT write `trips.payment_status` if an open recovery exists. Add branch: when recovery `RECOVERY_COMPLETED` arrives, THEN call `cancelRevolutOrder` on the parent to release the old hold, set parent session `status='released'`, write `trips.payment_status='captured'`, and log `HOLD_RELEASED_AFTER_RECOVERY`.
+### 7. Gaps summary
+No per-SA heat-map config, no admin colours, no proposed/confirmed level or hysteresis, no zone-level surge, no quote lock, no demand-zone audit trail, no granular permissions (page is guarded only by the generic admin page gate), and the compute edge function is missing from the repo.
 
-### 2. Backend — completion path canonicalisation
+---
 
-**Wherever `recordCardCaptureFailure` is invoked with a PENDING/failed re-hold** (currently reached via driver-app audit event `CARD_CAPTURE_FAILED` — trace and patch the true caller if it lives in stop-workflow / mobile RPC):
-- Do not set `trips.payment_status='capture_failed'` when the parent hold is still AUTHORISED.
-- Set `trips.payment_status='recovery_required'`.
-- Upsert on the parent `payment_sessions` row: `status='PAYMENT_RECOVERY_REQUIRED'`, `metadata.additional_auth_status='PAYMENT_RECOVERY_REQUIRED'`, `metadata.shortfall_pence=<final-authorised>`.
-- Log audit `PAYMENT_RECOVERY_REQUIRED` (never `CARD_CAPTURE_FAILED` in this branch).
+## Part 2 — Implementation plan (nothing deployed; each step approved separately)
 
-### 3. Database guard
+### Migration A — configuration
+`service_area_demand_zone_settings` (one row per service area, PK `service_area_id`):
+heat-map enabled, recompute interval minutes (default 2), open-trip max lifetime minutes (default 6), low/medium/high min+max thresholds, consecutive checks required (default 2), zone radius metres, manual zones enabled, `colour_low/medium/high` (`#RRGGBB`, CHECK-validated), surge enabled (default false), `multiplier_low` (default 1.00) / `multiplier_medium` / `multiplier_high` (nullable), `max_multiplier`.
+Threshold and multiplier ordering enforced by a validation trigger (not CHECK). GRANTs + RLS: read for authenticated admins, writes only through RPCs.
 
-New migration:
-- Trigger `trg_protect_authorised_hold` on `payment_sessions BEFORE UPDATE`: reject transitions of a `RIDE_BOOKING` session from `provider_state='AUTHORISED'` to `status IN ('cancelled','released','failed')` when an open recovery exists — unless `metadata.release_trigger` is one of `capture_success`, `recovery_captured`, `admin_abandon_recovery`, `provider_expired`.
-- Trigger on `trips BEFORE UPDATE`: reject flipping `payment_status` from `recovery_required` to `canceled`/`cancelled` unless the same `metadata.release_trigger` set is present.
+### Migration B — zone state + audit
+- `driver_demand_zones` gains: `proposed_demand_level`, `confirmed_demand_level`, `consecutive_match_count`, `open_trip_count`, `last_evaluated_at`, `current_multiplier`.
+- `driver_demand_zone_settings_audit` (immutable: service area, actor id, actor role, previous/new jsonb, correlation id, created_at) and `driver_demand_zone_evaluations` (previous/new confirmed level, proposed level, counts, multipliers, evaluated_at).
 
-### 4. Admin UI
+### Migration C — RPCs + permissions
+- `admin_save_demand_zone_settings(...)` — SECURITY DEFINER, validates all ranges/colours/multipliers, writes audit, enforces action keys via existing `staff_has_action` / `is_super_admin`.
+- `resolve_zone_surge(p_lat, p_lng, p_service_area_id)` — returns zone id, confirmed level, multiplier (1.00 when no zone / surge disabled). Single SSOT for pricing.
+- New action keys in `shared/rolesPermissionsSSOT.ts` + seeded rows in `role_action_permissions`: `demand_zones.view`, `.recompute`, `.configure_heatmap`, `.configure_colours`, `.configure_surge`, `.view_audit`.
 
-**`src/pages/PaymentSessions.tsx` (recovery row expander) and trip detail**
-Show a "Payment authorisation lifecycle" block:
-```text
-Original hold      AUTHORISED    £10.89    expires 2026-07-23 21:32 UTC
-Shortfall          £2.99
-Recovery order     rev_xxx       CUSTOMER_ACTION_REQUIRED
-Release trigger    (none — protected)
-```
-Buttons:
-- "Request customer payment" (existing, calls `create-payment-recovery`).
-- "Abandon recovery & release hold" (new) — confirmation dialog, calls `admin-cancel-trip-payment` with `abandon_recovery: true` and `reason` required.
-Remove any "Capture failed" / "Cancelled" pills for `recovery_required` trips; use `Recovery required` (orange) — already added to `tripFinancialAuditStatus.ts`.
+### Backend functions
+- Recreate `supabase/functions/compute-driver-demand-zones` locally from the deployed contract, then rewrite it to: read per-SA settings, count distinct open unassigned trips within the configured lifetime, derive proposed level from configured thresholds, apply consecutive-check hysteresis to set confirmed level, write evaluation history. Same function serves cron and the manual button (a `service_area_id` argument scopes the manual run).
+- `estimate-fare`: call `resolve_zone_surge` on the pickup coordinate and return `base_fare_before_surge`, `applied_multiplier`, `surge_amount`, `final_fare`, `service_area_id`, `zone_id`, `confirmed_level`, `quote_id`, `quote_expires_at`. Client-sent multipliers are ignored.
+- Booking confirmation path stores the locked multiplier/amount/zone/level on the trip; a pickup change invalidates the quote.
 
-### 5. Customer app copy
-Not this repo. Emit a checklist in `docs/PAYMENT_RECOVERY_CUSTOMER_APP.md` describing the strings the mobile team must map for `payment_status='recovery_required'`: "Payment authorisation needed to complete your last ride" + deep link to the recovery checkout URL exposed on the recovery `payment_sessions` row.
+### Admin UI (existing page only)
+- "Heat Map & Surge Settings" button next to "Recompute from trips", opening a sheet with the three sections (heat map, colours with picker + hex + live preview + reset, surge).
+- "All service areas" mode: view-only with the required message.
+- Map/legend read colours from the selected service area's settings; zone popups show confirmed level, open trip count, current multiplier, last recomputed at; surge-enabled state shown separately from colour.
+- Help panel copy switched from hard-coded numbers to the loaded settings.
 
-### 6. Audit endpoint
+### Tests
+Vitest suites for a new pure module `shared/demandZoneSurgeSSOT.ts` covering: per-SA isolation of thresholds/colours/multipliers, threshold and multiplier validation, hex validation/normalisation, hysteresis (first reading does not confirm, second does, return to Low needs the configured count), zone-based multiplier resolution (inside High zone, outside any zone = 1.00, other zone unaffected), surge disabled = 1.00, colour changes never affect price, client multiplier ignored, quote lock retained, all-areas mode read-only, and permission guard outcomes.
 
-New `supabase/functions/admin-payment-lifecycle-audit/index.ts` — GET `?trip_id=`. Returns:
-```json
-{
-  "original_hold": { "session_id", "provider_order_id", "provider_state", "authorised_amount_pence", "expires_at" },
-  "shortfall_pence": 299,
-  "recovery": { "session_id", "provider_order_id", "status", "checkout_url", "captured_amount_pence" },
-  "release_trigger": null,
-  "capture_trigger": null,
-  "invariant_check": { "auto_cancelled_authorised_holds": [] }
-}
-```
-Invariant check runs a query over recent trips: any `trips.payment_status IN ('canceled','cancelled')` whose parent session still has `provider_state='AUTHORISED'` and no `release_trigger` — must return empty. Wired into the Ops detection cron.
+### Deployment / rollback (not executed now)
+Order: Migration A → B → C → edge functions → admin release. Rollback: settings rows default to heat map on / surge disabled, so dropping the new columns/tables restores current behaviour; `estimate-fare` falls back to multiplier 1.00 whenever `resolve_zone_surge` is unavailable.
 
-### 7. Backfill
-One-off SQL migration: for trips where `payment_status='canceled'` AND parent session `provider_state='AUTHORISED'` AND no `release_trigger` — set `payment_status='recovery_required'` and stamp `payment_sessions.status='PAYMENT_RECOVERY_REQUIRED'`. Same repair MK-260716-016 got manually.
-
-## Non-goals
-- No changes to fare engine, dispatch, driver settlement, or ledger. Driver already paid net via wallet ledger; recovery only closes the customer-side capture.
-- No changes to `finalize_paid_booking_session` — booking gate is a separate SSOT.
-
-## Files touched
-- New: `supabase/functions/_shared/paymentHoldGuard.ts`, `supabase/functions/admin-payment-lifecycle-audit/index.ts`, `docs/PAYMENT_RECOVERY_CUSTOMER_APP.md`, one migration.
-- Edit: `admin-cancel-trip-payment`, `revolut-cancel-order`, `revolut-webhook`, `_shared/onecabFinanceLedger.ts` (recordCardCaptureFailure branch), `src/pages/PaymentSessions.tsx`, trip detail component that renders the lifecycle block.
-
-## Proof
-- Vitest: extend `paymentSessionAdditionalAuthSSOT.test.ts` with 4 cases — capture within hold, additional-auth AUTHORISED, additional-auth PENDING (must yield recovery_required not canceled), recovery captured (must trigger parent release).
-- SQL invariant check returns empty in staging + prod backfill run.
-
-Ship in one turn after approval; no schema-breaking changes.
+### Remaining risks
+- The deployed `compute-driver-demand-zones` source is not in the repo — its exact grid/cell logic must be reconstructed and confirmed before the rewrite.
+- Existing `fare_pricing_settings.enable_surge` / `surge_multiplier_default` remain a service-area-wide multiplier; per your cleanup policy these should be retired in the same phase to avoid two surge systems — confirm and I will remove them.
