@@ -211,7 +211,8 @@ export class DynamicPricingStrategy {
     const time = Math.round(req.estimated_duration_min * this.settings.per_min_rate_pence);
     const booking = this.settings.booking_fee_pence;
 
-    const surgeMultiplier = this.settings.enable_surge ? this.settings.surge_multiplier_default : 1;
+    // Zone-based automatic surge. Resolved from the pickup zone only.
+    const surgeMultiplier = Math.max(1, this.settings.zone_surge_multiplier ?? 1);
     const zoneMultiplier = this.settings.zone_multiplier;
     const trafficMultiplier = this.settings.traffic_multiplier;
 
