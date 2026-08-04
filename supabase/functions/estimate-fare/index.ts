@@ -9,6 +9,12 @@ import {
   resolveZoneRoutePricing,
   applyZoneRoutePricing,
 } from "../_shared/zoneRoutePricing.ts";
+import {
+  buildSurgeQuote,
+  type SurgeResolution,
+  type DemandLevel,
+} from "../../../shared/demandZoneSurgeSSOT.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -194,6 +200,47 @@ Deno.serve(async (req) => {
     const isAirportTrip =
       (pickupZone?.is_airport === true) || (dropoffZone?.is_airport === true);
 
+    // ─── Zone-based automatic surge (pickup zone only, server resolved) ───
+    let surgeResolution: SurgeResolution = {
+      zone_id: null,
+      confirmed_demand_level: null,
+      applied_multiplier: 1,
+      surge_enabled: false,
+      reason: "NO_SETTINGS",
+    };
+
+    if (pickup_lat != null && pickup_lng != null) {
+      const { data: surgeData, error: surgeErr } = await supabase.rpc(
+        "resolve_zone_surge",
+        {
+          _service_area_id: service_area_id,
+          _pickup_lat: pickup_lat,
+          _pickup_lng: pickup_lng,
+        },
+      );
+      if (surgeErr) {
+        console.error("[estimate-fare] resolve_zone_surge failed:", surgeErr);
+        return new Response(
+          JSON.stringify({
+            error: "SURGE_RESOLUTION_FAILED",
+            error_code: "SURGE_RESOLUTION_FAILED",
+          }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      if (surgeData) {
+        surgeResolution = {
+          zone_id: surgeData.zone_id ?? null,
+          confirmed_demand_level: (surgeData.confirmed_demand_level ?? null) as DemandLevel | null,
+          applied_multiplier: Number(surgeData.applied_multiplier ?? 1),
+          surge_enabled: surgeData.surge_enabled === true,
+          reason: surgeData.reason ?? "NO_ZONE",
+        };
+      }
+    }
+
+    const surgeIssuedAtMs = Date.now();
+
     // ─── Quote helper: returns the full pricing envelope for one vehicle ───
     async function quoteForVehicle(
       vtId: string,
@@ -224,7 +271,12 @@ Deno.serve(async (req) => {
         airportChargePence = isAirportTrip ? q.airport_charge_pence : 0;
         pricingMode = "ROUTE_PRICING";
       } else {
-        const engine = new FareEngine({ ...engineSettings, distance_unit: regionDistanceUnit } as FarePricingSettings);
+        // Surge is applied once, below, from the resolved pickup zone — never inside the engine.
+        const engine = new FareEngine({
+          ...engineSettings,
+          zone_surge_multiplier: 1,
+          distance_unit: regionDistanceUnit,
+        } as FarePricingSettings);
         meterBreakdown = engine.estimateFare({
           estimated_distance_km,
           estimated_duration_min,
@@ -236,6 +288,29 @@ Deno.serve(async (req) => {
         pricingMode = "NORMAL_DISTANCE_TIME";
       }
 
+      // Zone surge applies to the metered fare only. Fixed admin route prices
+      // and airport charges are never surged.
+      const surgeApplies = pricingMode === "NORMAL_DISTANCE_TIME" &&
+        surgeResolution.surge_enabled &&
+        surgeResolution.applied_multiplier > 1;
+
+      const surgeQuote = buildSurgeQuote({
+        quoteId: crypto.randomUUID(),
+        serviceAreaId: service_area_id,
+        baseFarePence,
+        resolution: surgeApplies
+          ? surgeResolution
+          : { ...surgeResolution, applied_multiplier: 1 },
+        pickupLat: pickup_lat ?? 0,
+        pickupLng: pickup_lng ?? 0,
+        issuedAtMs: surgeIssuedAtMs,
+      });
+
+      const baseFareBeforeSurgePence = baseFarePence;
+      const surgeAmountPence = surgeQuote.surge_amount_pence;
+      baseFarePence = surgeQuote.final_fare_pence;
+
+
       const totalFarePence = baseFarePence + airportChargePence;
       const commissionPct = Number(savRow.commission_percentage ?? 0);
       const { driverKeepPence, commissionPence } = computeDriverKeep(
@@ -243,6 +318,13 @@ Deno.serve(async (req) => {
       );
       const chips = computeChipsPence(totalFarePence, savRow.offer_settings);
       const fareDetails = buildFareDetails(baseFarePence, airportChargePence, regionCurrency);
+      if (surgeAmountPence > 0) {
+        fareDetails.splice(1, 0, {
+          label: `Demand surge (x${surgeQuote.applied_multiplier})`,
+          amountPence: surgeAmountPence,
+        });
+        fareDetails[0] = { label: "Fare", amountPence: baseFareBeforeSurgePence };
+      }
 
       return {
         pricingMode,
@@ -255,14 +337,22 @@ Deno.serve(async (req) => {
         chips,
         fareDetails,
         meterBreakdown,
+        surgeQuote,
+        baseFareBeforeSurgePence,
+        surgeAmountPence,
+        appliedSurgeMultiplier: surgeQuote.applied_multiplier,
+        demandLevel: surgeQuote.confirmed_demand_level,
         zoneDebug: {
           pickup_zone: pickupZone,
           dropoff_zone: dropoffZone,
           is_airport_trip: isAirportTrip,
           route_pricing_row_id: zoneResolution.pricing_row_id,
           route_pricing_source: zoneResolution.source,
+          demand_zone_id: surgeQuote.zone_id,
+          demand_surge_reason: surgeResolution.reason,
         },
       };
+
     }
 
     // ─── BATCH MODE ───
@@ -337,16 +427,25 @@ Deno.serve(async (req) => {
           fareEngineConfigId: engineSettings.id,
           fareLocked: q.pricingMode === "ROUTE_PRICING" || engineSettings.pricing_mode === "fixed",
           zoneDebug: q.zoneDebug,
+          surgeQuote: q.surgeQuote,
+          appliedSurgeMultiplier: q.appliedSurgeMultiplier,
+          surgeAmountPence: q.surgeAmountPence,
+          demandLevel: q.demandLevel,
           fareSnapshotJson: {
             config_id: engineSettings.id,
             pricing_mode: q.pricingMode,
             base_fare_pence: q.baseFarePence,
+            base_fare_before_surge_pence: q.baseFareBeforeSurgePence,
+            surge_amount_pence: q.surgeAmountPence,
+            surge_multiplier: q.appliedSurgeMultiplier,
+            surge_quote: q.surgeQuote,
             airport_charge_pence: q.airportChargePence,
             total_fare_pence: q.totalFarePence,
             commission_pct: q.driverTierCommissionPercent,
             currency_code: regionCurrency,
             snapshot_at: new Date().toISOString(),
           },
+
           freeWaitingMinutes: engineSettings.free_waiting_minutes,
           waitingPerMinutePence: engineSettings.waiting_per_minute_pence,
           extraStopFlatFeePence: engineSettings.extra_stop_flat_fee_pence,
@@ -428,16 +527,25 @@ Deno.serve(async (req) => {
         fareEngineConfigId: engineSettings.id,
         fareLocked: q.pricingMode === "ROUTE_PRICING" || engineSettings.pricing_mode === "fixed",
         zoneDebug: q.zoneDebug,
+        surgeQuote: q.surgeQuote,
+        appliedSurgeMultiplier: q.appliedSurgeMultiplier,
+        surgeAmountPence: q.surgeAmountPence,
+        demandLevel: q.demandLevel,
         fareSnapshotJson: {
           config_id: engineSettings.id,
           pricing_mode: q.pricingMode,
           base_fare_pence: q.baseFarePence,
+          base_fare_before_surge_pence: q.baseFareBeforeSurgePence,
+          surge_amount_pence: q.surgeAmountPence,
+          surge_multiplier: q.appliedSurgeMultiplier,
+          surge_quote: q.surgeQuote,
           airport_charge_pence: q.airportChargePence,
           total_fare_pence: q.totalFarePence,
           commission_pct: q.driverTierCommissionPercent,
           currency_code: regionCurrency,
           snapshot_at: new Date().toISOString(),
         },
+
         freeWaitingMinutes: engineSettings.free_waiting_minutes,
         waitingPerMinutePence: engineSettings.waiting_per_minute_pence,
         extraStopFlatFeePence: engineSettings.extra_stop_flat_fee_pence,
