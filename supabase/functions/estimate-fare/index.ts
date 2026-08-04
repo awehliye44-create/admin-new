@@ -318,6 +318,13 @@ Deno.serve(async (req) => {
       );
       const chips = computeChipsPence(totalFarePence, savRow.offer_settings);
       const fareDetails = buildFareDetails(baseFarePence, airportChargePence, regionCurrency);
+      if (surgeAmountPence > 0) {
+        fareDetails.splice(1, 0, {
+          label: `Demand surge (x${surgeQuote.applied_multiplier})`,
+          amountPence: surgeAmountPence,
+        });
+        fareDetails[0] = { label: "Fare", amountPence: baseFareBeforeSurgePence };
+      }
 
       return {
         pricingMode,
@@ -330,14 +337,22 @@ Deno.serve(async (req) => {
         chips,
         fareDetails,
         meterBreakdown,
+        surgeQuote,
+        baseFareBeforeSurgePence,
+        surgeAmountPence,
+        appliedSurgeMultiplier: surgeQuote.applied_multiplier,
+        demandLevel: surgeQuote.confirmed_demand_level,
         zoneDebug: {
           pickup_zone: pickupZone,
           dropoff_zone: dropoffZone,
           is_airport_trip: isAirportTrip,
           route_pricing_row_id: zoneResolution.pricing_row_id,
           route_pricing_source: zoneResolution.source,
+          demand_zone_id: surgeQuote.zone_id,
+          demand_surge_reason: surgeResolution.reason,
         },
       };
+
     }
 
     // ─── BATCH MODE ───
