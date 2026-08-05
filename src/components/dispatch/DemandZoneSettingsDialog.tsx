@@ -100,7 +100,7 @@ export function DemandZoneSettingsDialog({
       if (!validation.valid) throw new Error(validation.errors.join(' · '));
       const { error } = await supabase.rpc('admin_save_demand_zone_settings', {
         _service_area_id: serviceAreaId,
-        _settings: form as unknown as Record<string, unknown>,
+        _settings: JSON.parse(JSON.stringify(form)),
       });
       if (error) throw error;
     },
