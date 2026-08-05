@@ -223,12 +223,19 @@ serve(async (req) => {
       userAgent,
     });
 
-    // Fetch trip details for response payload
+    // Fetch trip details for response payload (additive — RPC remains mutation SSOT)
     const { data: tripDetails } = await supabase
       .from('trips')
       .select(`
         id,
         trip_code,
+        status,
+        dispatch_status,
+        driver_id,
+        confirmed_driver_id,
+        assigned_at,
+        accepted_ride_offer_id,
+        updated_at,
         pickup_address,
         pickup_latitude,
         pickup_longitude,
@@ -251,6 +258,14 @@ serve(async (req) => {
       accepted: true,
       message: 'Ride accepted successfully!',
       trip: tripDetails,
+      trip_id,
+      status: tripDetails?.status ?? 'driver_assigned',
+      dispatch_status: tripDetails?.dispatch_status ?? null,
+      driver_id: tripDetails?.driver_id ?? null,
+      confirmed_driver_id: tripDetails?.confirmed_driver_id ?? null,
+      assigned_at: tripDetails?.assigned_at ?? null,
+      accepted_ride_offer_id: tripDetails?.accepted_ride_offer_id ?? offer.id,
+      updated_at: tripDetails?.updated_at ?? null,
       final_fare_pence: r.final_fare_pence,
       fare_source: r.fare_source,
     });

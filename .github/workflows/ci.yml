@@ -28,8 +28,11 @@ jobs:
       - name: Finance payout SSOT parity guard
         run: bash scripts/check-finance-payout-ssot-parity.sh
 
+      - name: Frozen-location P0 SSOT guard
+        run: bash scripts/check-frozen-location-ssot.sh
+
       - name: SSOT unit tests
-        run: npx vitest run src/lib/__tests__/digitalFinanceSSOT.test.ts src/lib/__tests__/tripCaptureStatus.test.ts
+        run: npx vitest run src/lib/__tests__/digitalFinanceSSOT.test.ts src/lib/__tests__/tripCaptureStatus.test.ts shared/driverLocationStateSSOT.test.ts
 
       - name: Build
         run: npm run build

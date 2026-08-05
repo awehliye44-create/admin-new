@@ -33,6 +33,9 @@ import {
   summarizeTripPayments,
   type TripCaptureFields,
 } from '@/lib/tripCaptureStatus';
+import {
+  paymentCoverageBadgeLabel,
+} from '../../shared/tripHistoryShortfallRecaptureSSOT';
 
 interface PaymentState {
   trip_id: string;
@@ -326,7 +329,9 @@ export function PaymentControlsCard({
   const state = stateQuery.data;
   const captureContext = captureContextQuery.data;
   const captureStatus = captureContext ? getTripCaptureStatus(captureContext) : null;
-  const currency = state?.stripe_currency ?? '';
+  const currency = state?.stripe_currency
+    || (captureContext as { currency_code?: string | null } | undefined)?.currency_code
+    || 'GBP';
   const isUncaptured = state?.actions_allowed?.can_capture
     ?? (state?.payment_provider === 'revolut'
       ? String(state?.provider_status ?? state?.stripe_status ?? '').toLowerCase() === 'authorised'
@@ -353,6 +358,7 @@ export function PaymentControlsCard({
   const ctx = captureContext as (TripCaptureFields & {
     authorised_amount_pence?: number | null;
     estimated_fare?: number | null;
+    currency_code?: string | null;
   }) | undefined;
   const authorisedPence = Math.max(0, state?.authorized_pence ?? ctx?.authorised_amount_pence ?? 0);
   const capturedPence = Math.max(0, state?.captured_pence ?? ctx?.capture_amount_pence ?? getCapturedTotalPence(ctx ?? {}) ?? 0);
@@ -360,11 +366,21 @@ export function PaymentControlsCard({
   const settlementBreakdown = ctx ? getTripSettlementBreakdown(ctx) : null;
   const driverNetPence = state?.driver_net_pence ?? null;
   const quotedEstimatePence = Math.max(0, Math.round((ctx?.estimated_fare ?? 0) * 100));
-  const extraDuePence = state ? Math.max(0, state.outstanding_pence ?? 0) : 0;
+  // Never coalesce null outstanding → 0 for "fully paid" (that caused canceled/£0 capture to look paid).
+  const outstandingKnown = state?.outstanding_pence != null
+    && Number.isFinite(Number(state.outstanding_pence));
+  const extraDuePence = outstandingKnown
+    ? Math.max(0, Math.round(Number(state!.outstanding_pence)))
+    : Math.max(0, settlementTotalPence - capturedPence);
   const releasedBufferPence = Math.max(0, authorisedPence - capturedPence);
-  const paymentFullyPaid = state
-    ? extraDuePence <= 0 && settlementTotalPence > 0
-    : capturedPence >= settlementTotalPence && settlementTotalPence > 0;
+  const coverageBadge = paymentCoverageBadgeLabel({
+    customerPayablePence: settlementTotalPence > 0 ? settlementTotalPence : null,
+    verifiedCapturedTotalPence: capturedPence > 0 ? capturedPence : (state?.captured_pence ?? null),
+    netRefundedTotalPence: state?.refunded_pence ?? 0,
+    providerSettlementVerified: !!state?.stripe_settlement_verified,
+    paymentStatus: state?.payment_status ?? state?.stripe_status,
+    providerStatus: state?.provider_status ?? state?.stripe_status,
+  });
   const isLegacyTrip = !!ctx
     && (ctx.final_fare_pence == null || ctx.final_fare_pence === 0)
     && capturedPence > 0;
@@ -609,25 +625,25 @@ export function PaymentControlsCard({
             {/* Extra-payment status (legacy / historical context) */}
             <div
               className={`rounded-md border p-3 text-xs space-y-2 ${
-                paymentFullyPaid
+                coverageBadge.tone === 'fully_paid'
                   ? 'border-green-500/40 bg-green-500/5'
-                  : extraDuePence > 0
+                  : coverageBadge.tone === 'partial' || coverageBadge.tone === 'canceled'
                     ? 'border-amber-400 bg-amber-500/10'
                     : 'bg-muted/30'
               }`}
             >
               <div className="flex items-center justify-between">
                 <span className="font-medium">Payment coverage</span>
-                {paymentFullyPaid ? (
+                {coverageBadge.tone === 'fully_paid' ? (
                   <Badge variant="outline" className="bg-green-500/10 text-green-700 border-green-500/30">
-                    Fully paid / Captured
+                    {coverageBadge.label}
                   </Badge>
-                ) : extraDuePence > 0 ? (
+                ) : coverageBadge.tone === 'partial' || coverageBadge.tone === 'canceled' ? (
                   <Badge variant="outline" className="bg-amber-500/10 text-amber-700 border-amber-500/40">
-                    Partially paid
+                    {coverageBadge.label}
                   </Badge>
                 ) : (
-                  <Badge variant="outline">No fare recorded</Badge>
+                  <Badge variant="outline">{coverageBadge.label}</Badge>
                 )}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1">

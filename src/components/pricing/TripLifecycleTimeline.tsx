@@ -46,6 +46,7 @@ interface TripLifecycleTimelineProps {
   stopWaitingGracePeriodMinutes: number;
   stopWaitingRatePencePerMinute: number;
   stopWaitingMaxMinutes: number | null;
+  enableStopWaitingCharge: boolean;
   onStopWaitingUpdate: (key: string, value: number | boolean | null) => void;
 }
 
@@ -74,6 +75,7 @@ export function TripLifecycleTimeline({
   stopWaitingChargeIntervalSeconds,
   stopWaitingGracePeriodMinutes,
   stopWaitingRatePencePerMinute,
+  enableStopWaitingCharge,
   onStopWaitingUpdate,
 }: TripLifecycleTimelineProps) {
   const penceToDisplay = (pence: number) => (pence > 0 ? (pence / 100).toFixed(2) : '');
@@ -203,10 +205,11 @@ export function TripLifecycleTimeline({
           </div>
 
           <ToggleRow
-            checked={recalculateOnWaiting}
-            field="recalculate_on_waiting"
+            checked={enableStopWaitingCharge}
+            field="enableStopWaitingCharge"
             label="Enable Stop Waiting Charge"
             description="Apply per-minute charge after free stop waiting time expires"
+            onFieldUpdate={onStopWaitingUpdate}
           />
 
           <div className="flex flex-wrap items-end gap-3">

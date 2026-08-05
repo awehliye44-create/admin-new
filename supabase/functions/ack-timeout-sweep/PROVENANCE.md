@@ -14,3 +14,16 @@ Restored **before any local edits** from the live Supabase project.
 | Local `index.ts` SHA-256 | `919dc4bfc79dbe053c170d3d9e81c0dfc25b89e8673e762ddd0ff5df163c1c0b` |
 
 Do not approximate this function from memory. Diff subsequent fixes against this restore.
+
+## Post-restore local edits (not yet deployed)
+
+Committed restore: `162b020` (`chore(ack-timeout-sweep): restore production v124 source verbatim`).
+
+Local working-tree changes after that commit add:
+- `assertCronOrServiceRoleAuth` (cron / service-role)
+- sole redispatch ownership (SQL no longer HTTP-invokes `auto-dispatch`)
+- skip timeout notify when driver has a newer pending offer
+- `invalidates_offer_id` on timeout push payload
+- richer redispatch observability
+
+Compare with: `git diff 162b020 -- supabase/functions/ack-timeout-sweep/index.ts`

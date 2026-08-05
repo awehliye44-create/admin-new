@@ -15,6 +15,7 @@ import {
   FindDriversRequest 
 } from "../_shared/validation.ts";
 import { getDistanceMatrix } from "../_shared/mapbox.ts";
+import { computeDriverLocationState } from "../_shared/driverLocationState.ts";
 
 // Rate limit: 60 requests per minute per IP
 const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60 * 1000 };
@@ -201,9 +202,9 @@ serve(async (req) => {
     }
 
     // Step 4: Get online drivers from the eligible list
-    const { data: drivers, error: driverError } = await supabase
+    const { data: rawDrivers, error: driverError } = await supabase
       .from('drivers')
-      .select('id, first_name, last_name, driver_code, is_online, current_lat, current_lng, rating, region_id, documents_approved')
+      .select('id, first_name, last_name, driver_code, is_online, driver_online_intent, current_lat, current_lng, rating, region_id, documents_approved')
       .eq('is_online', true)
       .eq('approval_status', 'approved')
       .eq('driver_status', 'active')
@@ -217,9 +218,45 @@ serve(async (req) => {
       throw driverError;
     }
 
-    console.log('Online drivers found:', drivers?.length || 0);
+    console.log('Online drivers found:', rawDrivers?.length || 0);
 
-    if (!drivers || drivers.length === 0) {
+    if (!rawDrivers || rawDrivers.length === 0) {
+      return successResponse({
+        drivers: [],
+        message: 'No drivers available right now.',
+        subtext: 'Please try again in a few minutes or adjust your pickup location.'
+      });
+    }
+
+    // ── HARD: exclude frozen drivers (P0 fix, migration 20260910120000) ──────
+    // Heartbeat fresh but no genuine GPS sample within the freshness window —
+    // a frozen driver must disappear from the customer map instead of showing
+    // a fake live position. Same derivation as public.find_nearby_drivers()
+    // / public.driver_location_is_frozen() in SQL. Never forces offline.
+    const { data: presenceRows } = await supabase
+      .from('driver_presence')
+      .select('driver_id, last_heartbeat_at, last_gps_sample_at, speed')
+      .in('driver_id', rawDrivers.map((d) => d.id));
+    const presenceByDriverId = new Map((presenceRows || []).map((p) => [p.driver_id, p]));
+
+    const drivers = rawDrivers.filter((d) => {
+      const presence = presenceByDriverId.get(d.id);
+      const locationState = computeDriverLocationState({
+        driverOnlineIntent: d.driver_online_intent ?? d.is_online,
+        lastHeartbeatAt: presence?.last_heartbeat_at ?? null,
+        lastGpsSampleAt: presence?.last_gps_sample_at ?? null,
+        speed: presence?.speed ?? null,
+      });
+      if (locationState === 'location_frozen') {
+        console.log(`[find-drivers] excluding frozen driver ${d.id} from customer map`);
+        return false;
+      }
+      return true;
+    });
+
+    console.log('Drivers after frozen-location exclusion:', drivers.length);
+
+    if (drivers.length === 0) {
       return successResponse({
         drivers: [],
         message: 'No drivers available right now.',

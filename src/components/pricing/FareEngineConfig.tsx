@@ -152,6 +152,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
     stopWaitingGracePeriodMinutes: 1,
     stopWaitingRatePencePerMinute: 30,
     stopWaitingMaxMinutes: null as number | null,
+    enableStopWaitingCharge: true,
   });
   const [stopWaitingHasChanges, setStopWaitingHasChanges] = useState(false);
 
@@ -275,6 +276,18 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
       .eq('service_area_id', serviceAreaId)
       .maybeSingle();
 
+    const { data: dispatchRow } = await supabase
+      .from('dispatch_settings')
+      .select('enable_stop_waiting_charge')
+      .eq('service_area_id', serviceAreaId)
+      .maybeSingle();
+
+    const enableStopWaitingCharge =
+      typeof (dispatchRow as { enable_stop_waiting_charge?: boolean } | null)
+        ?.enable_stop_waiting_charge === 'boolean'
+        ? (dispatchRow as { enable_stop_waiting_charge: boolean }).enable_stop_waiting_charge
+        : true;
+
     if (data) {
       setStopWaiting({
         stopRadiusEnabled: (data as any).stop_radius_enabled ?? false,
@@ -286,7 +299,10 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             : 1,
         stopWaitingRatePencePerMinute: (data as any).stop_waiting_rate_pence_per_minute ?? 30,
         stopWaitingMaxMinutes: (data as any).stop_waiting_max_minutes ?? null,
+        enableStopWaitingCharge,
       });
+    } else {
+      setStopWaiting((prev) => ({ ...prev, enableStopWaitingCharge }));
     }
     setStopWaitingHasChanges(false);
   };
@@ -442,6 +458,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
           stop_waiting_grace_period_seconds: Math.round(stopWaiting.stopWaitingGracePeriodMinutes * 60),
           stop_waiting_rate_pence_per_minute: stopWaiting.stopWaitingRatePencePerMinute,
           stop_waiting_max_minutes: stopWaiting.stopWaitingMaxMinutes,
+          enable_stop_waiting_charge: stopWaiting.enableStopWaitingCharge,
           updated_at: new Date().toISOString(),
         };
         const { data: dispatchExisting } = await supabase
@@ -705,6 +722,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             stopWaitingGracePeriodMinutes={stopWaiting.stopWaitingGracePeriodMinutes}
             stopWaitingRatePencePerMinute={stopWaiting.stopWaitingRatePencePerMinute}
             stopWaitingMaxMinutes={stopWaiting.stopWaitingMaxMinutes}
+            enableStopWaitingCharge={stopWaiting.enableStopWaitingCharge}
             onStopWaitingUpdate={updateStopWaitingField}
           />
 

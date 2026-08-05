@@ -4648,6 +4648,9 @@ export type Database = {
           towards_destination_duration_minutes: number
           towards_destination_enabled: boolean
           towards_destination_matching_tolerance_meters: number
+          towards_destination_arrival_radius_meters: number
+          towards_destination_max_pickup_detour_meters: number
+          towards_destination_min_progress_meters: number
           towards_destination_priority_weight: number
           updated_at: string
           waiting_bonus_per_minute: number
@@ -4738,6 +4741,9 @@ export type Database = {
           towards_destination_duration_minutes?: number
           towards_destination_enabled?: boolean
           towards_destination_matching_tolerance_meters?: number
+          towards_destination_arrival_radius_meters?: number
+          towards_destination_max_pickup_detour_meters?: number
+          towards_destination_min_progress_meters?: number
           towards_destination_priority_weight?: number
           updated_at?: string
           waiting_bonus_per_minute?: number
@@ -4828,6 +4834,9 @@ export type Database = {
           towards_destination_duration_minutes?: number
           towards_destination_enabled?: boolean
           towards_destination_matching_tolerance_meters?: number
+          towards_destination_arrival_radius_meters?: number
+          towards_destination_max_pickup_detour_meters?: number
+          towards_destination_min_progress_meters?: number
           towards_destination_priority_weight?: number
           updated_at?: string
           waiting_bonus_per_minute?: number
@@ -8620,6 +8629,8 @@ export type Database = {
           created_at: string
           driver_id: string
           heading: number | null
+          last_coordinate_change_at: string | null
+          last_gps_sample_at: string | null
           last_heartbeat_at: string
           last_location_at: string | null
           last_offline_at: string | null
@@ -8630,6 +8641,7 @@ export type Database = {
           last_socket_pong_at: string | null
           lat: number | null
           lng: number | null
+          location_source: string | null
           low_accuracy: boolean
           low_accuracy_since: string | null
           network_type: string | null
@@ -8650,6 +8662,8 @@ export type Database = {
           created_at?: string
           driver_id: string
           heading?: number | null
+          last_coordinate_change_at?: string | null
+          last_gps_sample_at?: string | null
           last_heartbeat_at?: string
           last_location_at?: string | null
           last_offline_at?: string | null
@@ -8660,6 +8674,7 @@ export type Database = {
           last_socket_pong_at?: string | null
           lat?: number | null
           lng?: number | null
+          location_source?: string | null
           low_accuracy?: boolean
           low_accuracy_since?: string | null
           network_type?: string | null
@@ -8680,6 +8695,8 @@ export type Database = {
           created_at?: string
           driver_id?: string
           heading?: number | null
+          last_coordinate_change_at?: string | null
+          last_gps_sample_at?: string | null
           last_heartbeat_at?: string
           last_location_at?: string | null
           last_offline_at?: string | null
@@ -8690,6 +8707,7 @@ export type Database = {
           last_socket_pong_at?: string | null
           lat?: number | null
           lng?: number | null
+          location_source?: string | null
           low_accuracy?: boolean
           low_accuracy_since?: string | null
           network_type?: string | null
@@ -8868,6 +8886,9 @@ export type Database = {
           towards_destination_last_reset: string | null
           towards_destination_lat: number | null
           towards_destination_lng: number | null
+          towards_destination_place_id: string | null
+          towards_destination_postcode: string | null
+          towards_destination_session_id: string | null
           towards_destination_uses_today: number
           updated_at: string
         }
@@ -8891,6 +8912,9 @@ export type Database = {
           towards_destination_last_reset?: string | null
           towards_destination_lat?: number | null
           towards_destination_lng?: number | null
+          towards_destination_place_id?: string | null
+          towards_destination_postcode?: string | null
+          towards_destination_session_id?: string | null
           towards_destination_uses_today?: number
           updated_at?: string
         }
@@ -8914,6 +8938,9 @@ export type Database = {
           towards_destination_last_reset?: string | null
           towards_destination_lat?: number | null
           towards_destination_lng?: number | null
+          towards_destination_place_id?: string | null
+          towards_destination_postcode?: string | null
+          towards_destination_session_id?: string | null
           towards_destination_uses_today?: number
           updated_at?: string
         }
@@ -9737,11 +9764,14 @@ export type Database = {
           id: string
           is_online: boolean
           is_pet_friendly: boolean
+          last_coordinate_change_at: string | null
+          last_gps_sample_at: string | null
           last_location_updated_at: string | null
           last_name: string
           last_offer_at: string | null
           last_seen_at: string | null
           last_trip_end_at: string | null
+          location_source: string | null
           onboarding_complete: boolean | null
           online_since: string | null
           payouts_enabled: boolean | null
@@ -9801,11 +9831,14 @@ export type Database = {
           id?: string
           is_online?: boolean
           is_pet_friendly?: boolean
+          last_coordinate_change_at?: string | null
+          last_gps_sample_at?: string | null
           last_location_updated_at?: string | null
           last_name: string
           last_offer_at?: string | null
           last_seen_at?: string | null
           last_trip_end_at?: string | null
+          location_source?: string | null
           onboarding_complete?: boolean | null
           online_since?: string | null
           payouts_enabled?: boolean | null
@@ -9865,11 +9898,14 @@ export type Database = {
           id?: string
           is_online?: boolean
           is_pet_friendly?: boolean
+          last_coordinate_change_at?: string | null
+          last_gps_sample_at?: string | null
           last_location_updated_at?: string | null
           last_name?: string
           last_offer_at?: string | null
           last_seen_at?: string | null
           last_trip_end_at?: string | null
+          location_source?: string | null
           onboarding_complete?: boolean | null
           online_since?: string | null
           payouts_enabled?: boolean | null
@@ -10666,6 +10702,9 @@ export type Database = {
           towards_destination_duration_minutes: number
           towards_destination_enabled: boolean
           towards_destination_matching_tolerance_meters: number
+          towards_destination_arrival_radius_meters: number
+          towards_destination_max_pickup_detour_meters: number
+          towards_destination_min_progress_meters: number
           towards_destination_priority_weight: number
           updated_at: string
           urgent_dispatch_trigger_minutes_before_pickup: number
@@ -10742,6 +10781,9 @@ export type Database = {
           towards_destination_duration_minutes?: number
           towards_destination_enabled?: boolean
           towards_destination_matching_tolerance_meters?: number
+          towards_destination_arrival_radius_meters?: number
+          towards_destination_max_pickup_detour_meters?: number
+          towards_destination_min_progress_meters?: number
           towards_destination_priority_weight?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
@@ -10818,6 +10860,9 @@ export type Database = {
           towards_destination_duration_minutes?: number
           towards_destination_enabled?: boolean
           towards_destination_matching_tolerance_meters?: number
+          towards_destination_arrival_radius_meters?: number
+          towards_destination_max_pickup_detour_meters?: number
+          towards_destination_min_progress_meters?: number
           towards_destination_priority_weight?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
@@ -25063,6 +25108,9 @@ export type Database = {
           towards_destination_duration_minutes: number
           towards_destination_enabled: boolean
           towards_destination_matching_tolerance_meters: number
+          towards_destination_arrival_radius_meters: number
+          towards_destination_max_pickup_detour_meters: number
+          towards_destination_min_progress_meters: number
           towards_destination_priority_weight: number
           updated_at: string
           waiting_bonus_per_minute: number
@@ -26113,7 +26161,13 @@ export type Database = {
         }[]
       }
       set_driver_own_towards_destination: {
-        Args: { p_address: string; p_lat: number; p_lng: number }
+        Args: {
+          p_address: string
+          p_lat: number
+          p_lng: number
+          p_postcode?: string
+          p_place_id?: string
+        }
         Returns: Json
       }
       snapshot_driver_tier_commission_on_trip: {

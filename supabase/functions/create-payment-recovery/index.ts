@@ -20,7 +20,6 @@
 //   - Does NOT create a trip, dispatch, or ledger entry. Reconciliation runs
 //     on the webhook side once Revolut confirms COMPLETED.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   corsHeaders,
   errorResponse,
@@ -37,6 +36,8 @@ import {
   resolveCanonicalCustomerPayablePence,
   validateCollectOutstandingOrPaymentLinkAction,
 } from "../../../shared/paymentSessionsCaptureConfirmationSSOT.ts";
+import { isDriverCollectedFinancialModel, sumVerifiedCapturedFromSessions } from "../../../shared/tripHistoryShortfallRecaptureSSOT.ts";
+import { requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -45,20 +46,10 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // --- Admin auth ---
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return errorResponse("Missing authorization", 401, undefined, "AUTH_MISSING");
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-    if (authErr || !user) return errorResponse("Unauthorized", 401, undefined, "AUTH_INVALID");
-    const { data: adminRole } = await supabase
-      .from("user_roles").select("role")
-      .eq("user_id", user.id).eq("role", "admin").maybeSingle();
-    if (!adminRole) return errorResponse("Admin access required", 403, undefined, "ADMIN_REQUIRED");
+    const gate = await requireAdminOrStaff(req);
+    if (!gate.ok) return gate.response;
+    const supabase = gate.supabase;
+    const user = { id: gate.userId };
 
     const body = await req.json().catch(() => ({}));
     const { trip_id, amount_pence, parent_session_id, action_mode } = body ?? {};
@@ -67,7 +58,7 @@ Deno.serve(async (req) => {
     // --- Load trip ---
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
-      .select("id, trip_number, status, passenger_id, service_area_id, driver_id, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, capture_amount_pence, currency_code, payment_status")
+      .select("id, trip_number, status, passenger_id, service_area_id, driver_id, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, capture_amount_pence, currency_code, payment_status, financial_model")
       .eq("id", trip_id)
       .maybeSingle();
     if (tripErr || !trip) return errorResponse("Trip not found", 404, undefined, "TRIP_NOT_FOUND");
@@ -75,6 +66,24 @@ Deno.serve(async (req) => {
       return errorResponse(
         `Recovery is only allowed for completed trips (status=${trip.status})`,
         409, undefined, "TRIP_NOT_COMPLETED",
+      );
+    }
+
+    let financialModel = trip.financial_model ?? null;
+    if (!financialModel && trip.service_area_id) {
+      const { data: sa } = await supabase
+        .from("service_areas")
+        .select("financial_model")
+        .eq("id", trip.service_area_id)
+        .maybeSingle();
+      financialModel = sa?.financial_model ?? null;
+    }
+    if (isDriverCollectedFinancialModel(financialModel)) {
+      return errorResponse(
+        "DRIVER_COLLECTED trips cannot use platform shortfall recovery",
+        409,
+        undefined,
+        "DRIVER_COLLECTED_NOT_ALLOWED",
       );
     }
 
@@ -130,23 +139,17 @@ Deno.serve(async (req) => {
     const { data: captureSessions } = await supabase
       .from("payment_sessions")
       .select("id, purpose, captured_amount_pence, status, provider_state")
-      .eq("trip_id", trip.id)
-      .not("captured_amount_pence", "is", null);
+      .eq("trip_id", trip.id);
 
-    let originalCaptured = 0;
-    let recoveryCaptured = 0;
-    for (const s of captureSessions ?? []) {
-      const amt = Math.round(Number(s.captured_amount_pence ?? 0));
-      if (!Number.isFinite(amt) || amt <= 0) continue;
-      if (String(s.purpose ?? "").toUpperCase() === "PAYMENT_RECOVERY") {
-        recoveryCaptured += amt;
-      } else {
-        originalCaptured += amt;
-      }
-    }
+    const verified = sumVerifiedCapturedFromSessions(captureSessions ?? []);
+    let originalCaptured = verified.original_captured_pence;
+    const recoveryCaptured = verified.recaptured_pence;
     // Trip projection may hold confirmed capture when session rows are legacy-incomplete.
     if (originalCaptured <= 0 && Number(trip.capture_amount_pence ?? 0) > 0) {
-      originalCaptured = Math.round(Number(trip.capture_amount_pence));
+      const ps = String(trip.payment_status ?? "").toLowerCase();
+      if (!ps.includes("cancel") && !ps.includes("fail") && !ps.includes("void")) {
+        originalCaptured = Math.round(Number(trip.capture_amount_pence));
+      }
     }
 
     const outstanding = computeOutstandingBalancePence({
@@ -157,7 +160,8 @@ Deno.serve(async (req) => {
 
     const safety = validateCollectOutstandingOrPaymentLinkAction({
       outstandingPence: outstanding,
-      requestedAmountPence: amount_pence == null ? outstanding : amount_pence,
+      // Never trust client amount — always charge exact server outstanding.
+      requestedAmountPence: outstanding,
       alreadyFullyCaptured: outstanding != null && outstanding <= 0,
       zeroChargeCancellation: payableResolved.source === "zero_charge",
       idempotencyKey: parent_session_id
@@ -166,6 +170,12 @@ Deno.serve(async (req) => {
     });
     if (!safety.ok) {
       return errorResponse(safety.message, 409, undefined, safety.error_code);
+    }
+    if (amount_pence != null && Number(amount_pence) !== safety.charge_pence) {
+      console.warn(
+        "[create-payment-recovery] ignoring client amount_pence; using server outstanding",
+        { client: amount_pence, server: safety.charge_pence, trip_id },
+      );
     }
     const chargePence = safety.charge_pence;
     if (chargePence < 50) {

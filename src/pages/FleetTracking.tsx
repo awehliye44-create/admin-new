@@ -32,8 +32,10 @@ import {
   recenterMap,
 } from '@/lib/mapBounds';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
-
-const STALE_LOCATION_MS = 5 * 60 * 1000;
+import {
+  resolveDriverFleetDisplayStatus,
+  type DriverFleetDisplayStatus,
+} from '../../shared/driverLocationStateSSOT';
 
 interface Driver {
   id: string;
@@ -42,6 +44,7 @@ interface Driver {
   phone: string;
   email: string;
   is_online: boolean;
+  driver_online_intent: boolean | null;
   rating: number;
   total_trips: number;
   approval_status: string;
@@ -51,6 +54,12 @@ interface Driver {
   heading: number | null;
   speed: number | null;
   last_location_updated_at: string | null;
+  /** driver_presence.last_heartbeat_at — liveness only, never location freshness. */
+  last_heartbeat_at: string | null;
+  /** Server receipt time of the last ACCEPTED genuine GPS sample (P0 fix). */
+  last_gps_sample_at: string | null;
+  last_coordinate_change_at: string | null;
+  location_source: string | null;
   region?: { name: string };
   current_trip?: {
     id: string;
@@ -280,11 +289,11 @@ export default function FleetTracking() {
       if (!isBackground) setIsLoading(true);
       
       // Fetch all data in parallel instead of sequentially
-      const [driversRes, regionsRes, serviceAreasRes, tripsRes] = await Promise.all([
+      const [driversRes, regionsRes, serviceAreasRes, tripsRes, presenceRes] = await Promise.all([
         supabase
           .from('drivers')
           .select(
-            'id, first_name, last_name, driver_code, is_online, approval_status, documents_approved, current_lat, current_lng, heading, region_id, service_area_id, profile_photo_url, rating, total_trips, driver_status, region:regions(name)',
+            'id, first_name, last_name, driver_code, is_online, driver_online_intent, approval_status, documents_approved, current_lat, current_lng, heading, speed, last_location_updated_at, last_gps_sample_at, last_coordinate_change_at, location_source, region_id, service_area_id, profile_photo_url, rating, total_trips, driver_status, region:regions(name)',
           )
           .eq('approval_status', 'approved')
           .eq('documents_approved', true)
@@ -302,6 +311,11 @@ export default function FleetTracking() {
           .from('trips')
           .select('id, driver_id, status, pickup_address, dropoff_address')
           .in('status', [...ACTIVE_TRIP_DB_STATUSES]),
+        // driver_presence is the SSOT for last_heartbeat_at (liveness) — drivers
+        // table never carries it. See migration 20260910120000.
+        supabase
+          .from('driver_presence')
+          .select('driver_id, last_heartbeat_at'),
       ]);
 
       if (driversRes.error) throw driversRes.error;
@@ -313,11 +327,18 @@ export default function FleetTracking() {
         region_id: sa.region_id as string
       }));
 
-      // Map active trips to drivers
+      // Map active trips + presence heartbeat to drivers
       const activeTrips = tripsRes.data || [];
+      const heartbeatByDriverId = new Map(
+        (presenceRes.data || []).map((p: any) => [p.driver_id, p.last_heartbeat_at as string | null]),
+      );
       const driversWithTrips = (driversRes.data || []).map(driver => {
         const currentTrip = activeTrips.find(t => t.driver_id === driver.id);
-        return { ...driver, current_trip: currentTrip || null };
+        return {
+          ...driver,
+          current_trip: currentTrip || null,
+          last_heartbeat_at: heartbeatByDriverId.get(driver.id) ?? null,
+        };
       });
 
       // Fetch driver service area assignments
@@ -410,7 +431,11 @@ export default function FleetTracking() {
                 heading: updatedDriver.heading,
                 speed: updatedDriver.speed,
                 is_online: updatedDriver.is_online,
+                driver_online_intent: updatedDriver.driver_online_intent,
                 last_location_updated_at: updatedDriver.last_location_updated_at,
+                last_gps_sample_at: updatedDriver.last_gps_sample_at,
+                last_coordinate_change_at: updatedDriver.last_coordinate_change_at,
+                location_source: updatedDriver.location_source,
               };
             }
             return driver;
@@ -485,13 +510,24 @@ export default function FleetTracking() {
     hasAutoFitRef.current = false;
   }, [searchQuery, regionFilter, serviceAreaFilter, statusFilter]);
 
+  // Single authoritative status derivation (P0 fix, migration 20260910120000)
+  // — same driver_location_state() precedence used by SQL dispatch protection
+  // and the admin_driver_fleet_status view. Never fakes movement.
+  const resolveDriverFleetStatus = (driver: Driver): DriverFleetDisplayStatus =>
+    resolveDriverFleetDisplayStatus({
+      isOnline: driver.is_online,
+      driverOnlineIntent: driver.driver_online_intent ?? driver.is_online,
+      lastHeartbeatAt: driver.last_heartbeat_at,
+      lastGpsSampleAt: driver.last_gps_sample_at,
+      speed: driver.speed,
+    });
+
   const resolveDriverMarkerStatus = (driver: Driver): DriverMarkerStatus => {
     if (!driver.is_online) return 'offline';
     if (driver.current_trip) return 'on_trip';
-    if (driver.last_location_updated_at) {
-      const ageMs = Date.now() - new Date(driver.last_location_updated_at).getTime();
-      if (ageMs > STALE_LOCATION_MS) return 'stale';
-    }
+    const fleetStatus = resolveDriverFleetStatus(driver);
+    if (fleetStatus === 'Frozen') return 'frozen';
+    if (fleetStatus === 'Delayed') return 'stale';
     return 'live';
   };
 
@@ -625,6 +661,7 @@ export default function FleetTracking() {
   const onlineCount = drivers.filter(d => d.is_online).length;
   const offlineCount = drivers.filter(d => !d.is_online).length;
   const onTripCount = drivers.filter(d => d.current_trip).length;
+  const frozenCount = drivers.filter(d => resolveDriverFleetStatus(d) === 'Frozen').length;
 
   return (
     <AdminLayout 
@@ -632,7 +669,7 @@ export default function FleetTracking() {
       description="Monitor your fleet in real-time"
     >
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
@@ -674,6 +711,17 @@ export default function FleetTracking() {
                 <p className="text-2xl font-bold text-gray-600">{offlineCount}</p>
               </div>
               <WifiOff className="h-8 w-8 text-gray-400" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Frozen</p>
+                <p className="text-2xl font-bold text-red-600">{frozenCount}</p>
+              </div>
+              <MapPin className="h-8 w-8 text-red-500" />
             </div>
           </CardContent>
         </Card>
@@ -721,7 +769,10 @@ export default function FleetTracking() {
                   <Navigation className="h-3 w-3 text-amber-500" /> On Trip
                 </span>
                 <span className="flex items-center gap-1">
-                  <Navigation className="h-3 w-3 text-gray-500" /> Stale Location
+                  <Navigation className="h-3 w-3 text-red-500" /> Frozen (GPS stalled)
+                </span>
+                <span className="flex items-center gap-1">
+                  <Navigation className="h-3 w-3 text-gray-500" /> Delayed
                 </span>
                 <span className="flex items-center gap-1">
                   <Circle className="h-3 w-3 fill-gray-400 text-gray-400" /> Offline
@@ -821,7 +872,20 @@ export default function FleetTracking() {
                     No drivers found
                   </div>
                 ) : (
-                  filteredDrivers.map(driver => (
+                  filteredDrivers.map(driver => {
+                  const fleetStatus = resolveDriverFleetStatus(driver);
+                  const badgeLabel = driver.current_trip && driver.is_online ? 'On Trip' : fleetStatus;
+                  const badgeClassName =
+                    !driver.is_online
+                      ? 'bg-gray-100 text-gray-600 border-gray-200'
+                      : driver.current_trip
+                        ? 'bg-amber-100 text-amber-700 border-amber-200'
+                        : fleetStatus === 'Frozen'
+                          ? 'bg-red-100 text-red-700 border-red-200'
+                          : fleetStatus === 'Delayed'
+                            ? 'bg-gray-100 text-gray-600 border-gray-200'
+                            : 'bg-green-100 text-green-700 border-green-200';
+                  return (
                     <div
                       key={driver.id}
                       className={`p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -837,17 +901,8 @@ export default function FleetTracking() {
                             <span className="font-medium truncate">
                               {driver.first_name} {driver.last_name}
                             </span>
-                            <Badge 
-                              variant="outline" 
-                              className={
-                                !driver.is_online 
-                                  ? 'bg-gray-100 text-gray-600 border-gray-200'
-                                  : driver.current_trip 
-                                    ? 'bg-amber-100 text-amber-700 border-amber-200'
-                                    : 'bg-green-100 text-green-700 border-green-200'
-                              }
-                            >
-                              {!driver.is_online ? 'Offline' : driver.current_trip ? 'On Trip' : 'Available'}
+                            <Badge variant="outline" className={badgeClassName}>
+                              {badgeLabel}
                             </Badge>
                           </div>
                           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
@@ -871,7 +926,8 @@ export default function FleetTracking() {
                         </div>
                       </div>
                     </div>
-                  ))
+                  );
+                })
                 )}
               </div>
             </CardContent>
@@ -932,6 +988,74 @@ export default function FleetTracking() {
                 )}
               </div>
             </div>
+
+            {/* Location state audit panel (P0 frozen-location fix) */}
+            {selectedDriver.is_online && (() => {
+              const fleetStatus = resolveDriverFleetStatus(selectedDriver);
+              return (
+                <div
+                  className={`mt-4 p-4 border rounded-lg ${
+                    fleetStatus === 'Frozen'
+                      ? 'bg-red-50 border-red-200'
+                      : fleetStatus === 'Delayed'
+                        ? 'bg-gray-50 border-gray-200'
+                        : 'bg-green-50 border-green-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <p
+                      className={`font-medium ${
+                        fleetStatus === 'Frozen'
+                          ? 'text-red-800'
+                          : fleetStatus === 'Delayed'
+                            ? 'text-gray-700'
+                            : 'text-green-800'
+                      }`}
+                    >
+                      Location status: {fleetStatus}
+                    </p>
+                  </div>
+                  {fleetStatus === 'Frozen' && (
+                    <p className="text-sm text-red-700 mb-2">
+                      Heartbeat is still arriving but GPS coordinates have not genuinely
+                      updated — this driver may be excluded from dispatch until fresh GPS
+                      resumes.
+                    </p>
+                  )}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <p className="text-muted-foreground">Last heartbeat</p>
+                      <p className="font-medium">
+                        {selectedDriver.last_heartbeat_at
+                          ? new Date(selectedDriver.last_heartbeat_at).toLocaleTimeString()
+                          : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Last GPS sample</p>
+                      <p className="font-medium">
+                        {selectedDriver.last_gps_sample_at
+                          ? new Date(selectedDriver.last_gps_sample_at).toLocaleTimeString()
+                          : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Last coordinate change</p>
+                      <p className="font-medium">
+                        {selectedDriver.last_coordinate_change_at
+                          ? new Date(selectedDriver.last_coordinate_change_at).toLocaleTimeString()
+                          : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Location source</p>
+                      <p className="font-medium">{selectedDriver.location_source || '—'}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {selectedDriver.current_trip && (
               <div className="mt-4 p-4 border rounded-lg bg-amber-50 border-amber-200">
                 <p className="font-medium text-amber-800 mb-2">Current Trip</p>

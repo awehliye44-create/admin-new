@@ -20,6 +20,7 @@ export interface RevolutOrder {
   checkout_url?: string;
   state?: RevolutOrderState | string;
   amount?: number;
+  completed_amount?: number;
   currency?: string;
   capture_mode?: string;
   merchant_order_ext_ref?: string;

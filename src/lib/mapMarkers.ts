@@ -9,12 +9,15 @@ const MARKER_SIZES = {
   selected: 64,
 } as const;
 
-export type DriverMarkerStatus = 'live' | 'on_trip' | 'stale' | 'offline';
+export type DriverMarkerStatus = 'live' | 'on_trip' | 'stale' | 'frozen' | 'offline';
 
 const STATUS_DOT_COLORS: Record<DriverMarkerStatus, string> = {
   live: '#22c55e',
   on_trip: '#f59e0b',
   stale: '#6b7280',
+  // Frozen (P0 fix): heartbeat fresh but GPS stalled — distinct red so ops
+  // never mistakes it for a normal "stale" (heartbeat also lost) driver.
+  frozen: '#ef4444',
   offline: '#9ca3af',
 };
 
@@ -46,7 +49,7 @@ export function createCarMarkerElement(
   img.height = actualSize;
   img.style.width = '100%';
   img.style.height = '100%';
-  img.style.filter = status === 'stale'
+  img.style.filter = status === 'stale' || status === 'frozen'
     ? 'grayscale(1) drop-shadow(0 3px 6px rgba(0, 0, 0, 0.35))'
     : 'drop-shadow(0 3px 6px rgba(0, 0, 0, 0.35))';
   img.style.display = 'block';

@@ -7,6 +7,7 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 120, windowMs: 60000, keyPrefix: "ack-timeout-sweep" };
 
@@ -39,6 +40,8 @@ async function sendRideNoLongerAvailable(
           tripId: row.trip_id,
           offer_id: row.offer_id,
           offerId: row.offer_id,
+          // Clients must match offerId before tearing down a newer active offer.
+          invalidates_offer_id: row.offer_id,
         },
       }),
     });
@@ -52,15 +55,20 @@ async function sendRideNoLongerAvailable(
 }
 
 /**
- * Runs every ~5s via pg_cron: expire pending offers missing booking_received ACK (10s
- * from first dispatch bookkeeping), notify affected drivers, then rebroadcast trips
- * notify affected drivers (ride_no_longer_available), then rebroadcast trips with
- * zero pending offers.
+ * Cron (~10s): process_ride_offer_ack_timeouts expires pending offers only after
+ * their authoritative expires_at (Admin wave SSOT). This Edge function is the
+ * sole redispatch owner → auto-dispatch force_rebroadcast (idempotent).
+ *
+ * Cron frequency is NOT the offer duration.
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return handleCORSPreflight();
   }
+
+  // Accept CRON_SECRET / service-role (pg_cron uses cron_edge_auth_token).
+  const auth = await assertCronOrServiceRoleAuth(req);
+  if (!auth.ok) return auth.response;
 
   const clientIP = getClientIP(req);
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
@@ -91,11 +99,32 @@ Deno.serve(async (req) => {
       console.log(
         `[delivery] ack_timeout_sweep edge_row booking_id=${row.trip_id} offer_id=${row.offer_id} driver_id=${row.driver_id} timeout_at=${iso} reassigned_at=${iso}`,
       );
+
+      // Do not notify if this driver already has a newer pending offer (replacement).
+      const { count: newerPending } = await supabase
+        .from("ride_offers")
+        .select("id", { count: "exact", head: true })
+        .eq("driver_id", row.driver_id)
+        .eq("status", "pending")
+        .neq("id", row.offer_id);
+
+      if ((newerPending ?? 0) > 0) {
+        console.log(
+          `[ack-timeout-sweep] skip notify — driver has newer pending offer driver=${row.driver_id} expired_offer=${row.offer_id}`,
+        );
+        continue;
+      }
+
       await sendRideNoLongerAvailable(supabaseUrl, supabaseKey, row);
     }
 
     const uniqueTripIds = [...new Set(rows.map((r) => r.trip_id).filter(Boolean))];
-    const rebroadcastResults: { trip_id: string; success: boolean; error?: string }[] = [];
+    const rebroadcastResults: {
+      trip_id: string;
+      success: boolean;
+      error?: string;
+      dispatch_round?: number | null;
+    }[] = [];
 
     for (const tripId of uniqueTripIds) {
       try {
@@ -121,9 +150,30 @@ Deno.serve(async (req) => {
           continue;
         }
 
+        const { data: tripRow } = await supabase
+          .from("trips")
+          .select("id, service_area_id, current_broadcast_round, max_broadcast_rounds, status, dispatch_status")
+          .eq("id", tripId)
+          .maybeSingle();
+
+        console.log("[ack-timeout-sweep] redispatch_attempt", {
+          trip_id: tripId,
+          service_area_id: tripRow?.service_area_id ?? null,
+          current_broadcast_round: tripRow?.current_broadcast_round ?? null,
+          max_broadcast_rounds: tripRow?.max_broadcast_rounds ?? null,
+          status: tripRow?.status ?? null,
+          source: "ack_timeout_reassign",
+        });
+
         const { data: dispatchResult, error: dispatchError } = await supabase.functions.invoke(
           "auto-dispatch",
-          { body: { trip_id: tripId, force_rebroadcast: true } },
+          {
+            body: {
+              trip_id: tripId,
+              force_rebroadcast: true,
+              source: "ack_timeout_reassign",
+            },
+          },
         );
 
         if (dispatchError) {
@@ -138,12 +188,22 @@ Deno.serve(async (req) => {
           const { error: bdlErr } = await supabase.rpc("record_booking_delivery", {
             p_booking_id: tripId,
             p_phase: "reassigned_auto_dispatch",
-            p_detail: { force_rebroadcast: true, reassigned_at: iso },
+            p_detail: {
+              force_rebroadcast: true,
+              reassigned_at: iso,
+              source: "ack_timeout_reassign",
+              prior_round: tripRow?.current_broadcast_round ?? null,
+              result: dispatchResult ?? null,
+            },
           });
           if (bdlErr) {
             console.warn("[ack-timeout-sweep] record_booking_delivery failed:", bdlErr);
           }
-          rebroadcastResults.push({ trip_id: tripId, success: true });
+          rebroadcastResults.push({
+            trip_id: tripId,
+            success: true,
+            dispatch_round: tripRow?.current_broadcast_round ?? null,
+          });
         }
       } catch (err) {
         console.error("[ack-timeout-sweep] auto-dispatch exception", tripId, err);

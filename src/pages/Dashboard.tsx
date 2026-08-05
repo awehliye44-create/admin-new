@@ -45,6 +45,7 @@ import {
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
 import { preloadMarkerImage, createCarMarkerElement, type DriverMarkerStatus } from '@/lib/mapMarkers';
 import { isValidUkCoord } from '@/lib/mapBounds';
+import { resolveDriverFleetDisplayStatus } from '../../shared/driverLocationStateSSOT';
 
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
@@ -102,11 +103,17 @@ interface LiveFleetDriver {
   first_name: string | null;
   last_name: string | null;
   is_online: boolean;
+  driver_online_intent: boolean | null;
   current_lat: number | null;
   current_lng: number | null;
   heading: number | null;
+  speed: number | null;
   current_trip_id: string | null;
   last_location_updated_at: string | null;
+  /** Server receipt time of the last ACCEPTED genuine GPS sample (P0 fix). */
+  last_gps_sample_at: string | null;
+  /** driver_presence.last_heartbeat_at — liveness only, joined in separately. */
+  last_heartbeat_at: string | null;
 }
 
 
@@ -227,6 +234,7 @@ export default function Dashboard() {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapboxMapRef = useRef<mapboxgl.Map | null>(null);
   const fleetMarkersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
+  const fleetMarkerStatusRef = useRef<globalThis.Map<string, DriverMarkerStatus>>(new globalThis.Map());
   const hasFittedFleetRef = useRef(false);
 
 
@@ -407,17 +415,32 @@ export default function Dashboard() {
   });
 
   // ─── LIVE FLEET MAP — online drivers with GPS (short poll, map only) ───
+  // Status derivation uses the same authoritative driver_location_state()
+  // precedence as FleetTracking.tsx / admin_driver_fleet_status (P0 fix,
+  // migration 20260910120000) — never infers "live" purely from a
+  // heartbeat-refreshed timestamp, which is exactly the frozen-driver bug.
   const { data: liveDrivers = [] } = useQuery({
     queryKey: ['dashboard-live-drivers'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('drivers')
-        .select('id, first_name, last_name, is_online, current_lat, current_lng, heading, current_trip_id, last_location_updated_at')
-        .eq('is_online', true)
-        .not('current_lat', 'is', null)
-        .not('current_lng', 'is', null);
-      if (error) throw error;
-      return (data || []) as LiveFleetDriver[];
+      const [driversRes, presenceRes] = await Promise.all([
+        supabase
+          .from('drivers')
+          .select(
+            'id, first_name, last_name, is_online, driver_online_intent, current_lat, current_lng, heading, speed, current_trip_id, last_location_updated_at, last_gps_sample_at',
+          )
+          .eq('is_online', true)
+          .not('current_lat', 'is', null)
+          .not('current_lng', 'is', null),
+        supabase.from('driver_presence').select('driver_id, last_heartbeat_at'),
+      ]);
+      if (driversRes.error) throw driversRes.error;
+      const heartbeatByDriverId = new globalThis.Map<string, string | null>(
+        (presenceRes.data || []).map((p: any) => [p.driver_id, p.last_heartbeat_at as string | null]),
+      );
+      return (driversRes.data || []).map((driver) => ({
+        ...driver,
+        last_heartbeat_at: heartbeatByDriverId.get(driver.id) ?? null,
+      })) as LiveFleetDriver[];
     },
     staleTime: 15_000,
     refetchInterval: () => (isAdminPageLiveActive() ? 20_000 : false),
@@ -442,20 +465,39 @@ export default function Dashboard() {
       hasPoint = true;
       bounds.extend([lng, lat]);
 
-      const staleMs = driver.last_location_updated_at
-        ? Date.now() - new Date(driver.last_location_updated_at).getTime()
-        : 0;
+      // Never fake movement: derive status from the same location-state
+      // precedence as Fleet Tracking, not just a "the timestamp is recent"
+      // check — a frozen driver's last_location_updated_at also refreshes
+      // on every heartbeat (that was the P0 bug), so a naive age check would
+      // still show them as "live".
+      const fleetStatus = resolveDriverFleetDisplayStatus({
+        isOnline: driver.is_online,
+        driverOnlineIntent: driver.driver_online_intent ?? driver.is_online,
+        lastHeartbeatAt: driver.last_heartbeat_at,
+        lastGpsSampleAt: driver.last_gps_sample_at,
+        speed: driver.speed,
+      });
       const status: DriverMarkerStatus = driver.current_trip_id
         ? 'on_trip'
-        : staleMs > 120_000
-          ? 'stale'
-          : 'live';
+        : fleetStatus === 'Frozen'
+          ? 'frozen'
+          : fleetStatus === 'Delayed'
+            ? 'stale'
+            : 'live';
 
       const existing = fleetMarkersRef.current.get(driver.id);
-      if (existing) {
+      const previousStatus = fleetMarkerStatusRef.current.get(driver.id);
+      if (existing && previousStatus === status) {
         existing.setLngLat([lng, lat]);
         existing.setRotation(driver.heading || 0);
         continue;
+      }
+
+      // Status changed (e.g. live → frozen) — recreate so the marker never
+      // keeps showing a stale "live" dot colour (no fake movement).
+      if (existing) {
+        existing.remove();
+        fleetMarkersRef.current.delete(driver.id);
       }
 
       const el = createCarMarkerElement(32, status);
@@ -468,6 +510,7 @@ export default function Dashboard() {
         .setLngLat([lng, lat])
         .addTo(map);
       fleetMarkersRef.current.set(driver.id, marker);
+      fleetMarkerStatusRef.current.set(driver.id, status);
     }
 
     // Remove markers for drivers no longer live
@@ -475,6 +518,7 @@ export default function Dashboard() {
       if (!seen.has(id)) {
         marker.remove();
         fleetMarkersRef.current.delete(id);
+        fleetMarkerStatusRef.current.delete(id);
       }
     });
 

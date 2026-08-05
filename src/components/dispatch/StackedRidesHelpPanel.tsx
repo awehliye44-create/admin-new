@@ -95,7 +95,9 @@ export function StackedRidesHelpPanel({
           </li>
           <li>
             <span className="font-medium text-foreground">Trip type gates</span> — airport / scheduled stacking only if
-            the matching toggles on the Matching Rules tab are on (default off).
+            the matching toggles on the Matching Rules tab are on (default off). Airport stacking, pickup-waiting
+            stacking, stop-waiting stacking, and stacked ride queueing must never bypass scheduled commitment
+            protection — runtime full-queue feasibility remains authoritative.
           </li>
           <li>
             <span className="font-medium text-foreground">No existing queued trip</span> — driver cannot stack more than{' '}
