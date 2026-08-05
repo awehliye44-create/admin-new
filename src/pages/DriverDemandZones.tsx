@@ -616,6 +616,15 @@ export default function DriverDemandZones() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DemandZoneSettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        serviceAreaId={serviceAreaFilter}
+        serviceAreaName={
+          filterServiceAreas.find((sa) => sa.id === serviceAreaFilter)?.name ?? 'All service areas'
+        }
+      />
     </AdminLayout>
   );
 }
