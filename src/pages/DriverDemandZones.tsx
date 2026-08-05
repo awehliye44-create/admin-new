@@ -31,9 +31,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Plus, Pencil, Trash2, RefreshCw, Flame, Map, List } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, RefreshCw, Flame, Map, List, Settings2 } from 'lucide-react';
 import { DriverDemandZonesMap } from '@/components/maps/DriverDemandZonesMap';
 import { DriverDemandZonesHelpPanel } from '@/components/dispatch/DriverDemandZonesHelpPanel';
+import { DemandZoneSettingsDialog } from '@/components/dispatch/DemandZoneSettingsDialog';
 import type { AdminDemandZone } from '@/lib/demandZoneGeojson';
 
 type DemandLevel = 'LOW' | 'MEDIUM' | 'HIGH';
