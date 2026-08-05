@@ -31,9 +31,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Plus, Pencil, Trash2, RefreshCw, Flame, Map, List } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, RefreshCw, Flame, Map, List, Settings2 } from 'lucide-react';
 import { DriverDemandZonesMap } from '@/components/maps/DriverDemandZonesMap';
 import { DriverDemandZonesHelpPanel } from '@/components/dispatch/DriverDemandZonesHelpPanel';
+import { DemandZoneSettingsDialog } from '@/components/dispatch/DemandZoneSettingsDialog';
 import type { AdminDemandZone } from '@/lib/demandZoneGeojson';
 
 type DemandLevel = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -96,6 +97,8 @@ export default function DriverDemandZones() {
   const [sourceFilter, setSourceFilter] = useState<'all' | DemandSource>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [search, setSearch] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
 
   const { data: zones = [], isLoading, refetch, isFetching } = useQuery({
     queryKey: ['driver-demand-zones'],
@@ -447,6 +450,10 @@ export default function DriverDemandZones() {
                 : <Flame className="mr-2 h-4 w-4" />}
               Recompute from trips
             </Button>
+            <Button variant="outline" onClick={() => setSettingsOpen(true)}>
+              <Settings2 className="mr-2 h-4 w-4" />
+              Heat map &amp; surge settings
+            </Button>
             <Button onClick={openCreate}>
               <Plus className="mr-2 h-4 w-4" />
               Add manual zone
@@ -609,6 +616,15 @@ export default function DriverDemandZones() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DemandZoneSettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        serviceAreaId={serviceAreaFilter}
+        serviceAreaName={
+          filterServiceAreas.find((sa) => sa.id === serviceAreaFilter)?.name ?? 'All service areas'
+        }
+      />
     </AdminLayout>
   );
 }
