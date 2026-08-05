@@ -97,6 +97,8 @@ export default function DriverDemandZones() {
   const [sourceFilter, setSourceFilter] = useState<'all' | DemandSource>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [search, setSearch] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
 
   const { data: zones = [], isLoading, refetch, isFetching } = useQuery({
     queryKey: ['driver-demand-zones'],
