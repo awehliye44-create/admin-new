@@ -35,7 +35,7 @@ import {
 } from '@/lib/tripCaptureStatus';
 import {
   paymentCoverageBadgeLabel,
-} from '../../shared/tripHistoryShortfallRecaptureSSOT';
+} from '../../../shared/tripHistoryShortfallRecaptureSSOT';
 
 interface PaymentState {
   trip_id: string;
