@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { enrichTripsWithPassengerNames } from '@/lib/passengerDisplayName';
 
 /** Terminal trips — aligned with Financial Reconciliation COUNTABLE_FINANCIAL_OUTCOMES. */
 export const TRIP_HISTORY_FINANCIAL_OUTCOMES = [
@@ -107,7 +108,8 @@ export async function fetchTripHistoryRows(args: {
 
     const { data, error } = await query;
     if (!error) {
-      return (data ?? []) as unknown as TripHistoryRow[];
+      const rows = (data ?? []) as unknown as TripHistoryRow[];
+      return (await enrichTripsWithPassengerNames(rows)) as TripHistoryRow[];
     }
     lastError = error;
     if (!isRecoverableTripHistoryQueryError(error)) {

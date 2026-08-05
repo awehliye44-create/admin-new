@@ -47,6 +47,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
+import { enrichTripsWithPassengerNames } from '@/lib/passengerDisplayName';
 import {
   isAdminDocumentVisible,
   isAdminTabLiveActive,
@@ -258,7 +259,9 @@ export default function ActiveTrips() {
       if (driversRes.error) throw driversRes.error;
 
       const baseTrips = filterAdminActiveTrips(
-        (tripsRes.data ?? []).filter(Boolean) as Trip[],
+        await enrichTripsWithPassengerNames(
+          (tripsRes.data ?? []).filter(Boolean) as Trip[],
+        ),
       ) as Trip[];
       const tripIds = baseTrips.map((t) => t.id);
 

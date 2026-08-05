@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { enrichTripsWithPassengerNames } from '@/lib/passengerDisplayName';
 import { 
   XCircle, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
   Eye, AlertTriangle, Ban, UserX, TrendingDown,
@@ -140,7 +141,7 @@ export default function MissedCancelled() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return (data || []) as CancelledTrip[];
+      return await enrichTripsWithPassengerNames((data || []) as CancelledTrip[]);
     },
     staleTime: 30_000,
   });
