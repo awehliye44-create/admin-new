@@ -725,8 +725,19 @@ export default function TripHistory() {
     return resolveTripDisplayFare(trip).payable_pence;
   };
 
-  /** Provider actual captured amount only — never count canceled/failed/voided as paid. */
+  /**
+   * Provider actual captured amount only.
+   * Prefer positive capture evidence (payments / trip.capture_amount_pence) over a
+   * stale canceled booking status — recovery capture can succeed after the
+   * original order was canceled.
+   */
   const getTripStripeCapturedPence = (trip: CompletedTrip): number => {
+    if (trip.payment_captured_pence != null && trip.payment_captured_pence > 0) {
+      return trip.payment_captured_pence;
+    }
+    if (trip.capture_amount_pence != null && trip.capture_amount_pence > 0) {
+      return trip.capture_amount_pence;
+    }
     const statusBlob = String(trip.payment_status ?? '').toLowerCase();
     if (
       statusBlob.includes('cancel')
@@ -735,12 +746,6 @@ export default function TripHistory() {
       || statusBlob.includes('expired')
     ) {
       return 0;
-    }
-    if (trip.payment_captured_pence != null && trip.payment_captured_pence > 0) {
-      return trip.payment_captured_pence;
-    }
-    if (trip.capture_amount_pence != null && trip.capture_amount_pence > 0) {
-      return trip.capture_amount_pence;
     }
     return 0;
   };
