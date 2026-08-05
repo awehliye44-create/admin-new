@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, jsonResponse, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
 import {
   buildTripFinancialAuditContext,
   mapTripToFinancialAuditRow,
@@ -76,7 +76,7 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
-    const gate = await requireAdmin(req);
+    const gate = await requireAdminOrStaff(req);
     if (!gate.ok) return gate.response;
 
     let body: unknown;
@@ -303,6 +303,18 @@ serve(async (req) => {
       can_add_note: true,
     };
 
+    const { data: openRecovery } = await gate.supabase
+      .from("payment_sessions")
+      .select(
+        "id, status, provider_checkout_url, provider_order_id, estimated_total_pence, captured_amount_pence, purpose",
+      )
+      .eq("trip_id", trip_id)
+      .eq("purpose", "PAYMENT_RECOVERY")
+      .in("status", ["RECOVERY_CHECKOUT_CREATED", "CUSTOMER_ACTION_REQUIRED"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     return jsonResponse({
       trip_id,
       trip_code: trip.trip_code ?? null,
@@ -310,6 +322,16 @@ serve(async (req) => {
       passenger_id: trip.passenger_id ?? null,
       payment_provider: paymentProvider,
       provider_order_id: providerOrderId,
+      open_recovery_session: openRecovery
+        ? {
+          id: openRecovery.id,
+          status: openRecovery.status,
+          provider_checkout_url: openRecovery.provider_checkout_url ?? null,
+          provider_order_id: openRecovery.provider_order_id ?? null,
+          estimated_total_pence: openRecovery.estimated_total_pence ?? null,
+          captured_amount_pence: openRecovery.captured_amount_pence ?? null,
+        }
+        : null,
       legacy_stripe_trip: paymentProvider === 'stripe',
       ssot_source: 'trip_financial_audit',
       payment_intent_id: legacyStripePi ?? providerOrderId,

@@ -2,9 +2,12 @@
  * Trip History — shortfall recapture action.
  * Calls admin-recapture-trip-shortfall (wraps existing Payment Sessions recovery).
  * Client submits trip_id only — never an arbitrary amount.
+ *
+ * When a recovery checkout exists: show Copy/Open link + Mark paid
+ * (Mark paid verifies against Revolut via admin-refresh-payment-sessions).
  */
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Loader2, CreditCard } from 'lucide-react';
+import { Loader2, CreditCard, Copy, ExternalLink, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   evaluateTripHistoryShortfallRecaptureEligibility,
@@ -31,6 +34,15 @@ import {
   shortfallRecaptureUserMessage,
 } from '@/lib/tripHistoryShortfallRecaptureInvoke';
 import { useStaffProfile } from '@/hooks/useStaffProfile';
+
+type OpenRecoverySession = {
+  id: string;
+  status: string;
+  provider_checkout_url: string | null;
+  provider_order_id: string | null;
+  estimated_total_pence: number | null;
+  captured_amount_pence: number | null;
+};
 
 type Props = {
   tripId: string;
@@ -60,16 +72,38 @@ export function TripHistoryShortfallRecaptureAction({
   onComplete,
 }: Props) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [markPaidOpen, setMarkPaidOpen] = useState(false);
   const [attemptState, setAttemptState] = useState<TripShortfallRecaptureUiState | null>(null);
   const [attemptRef, setAttemptRef] = useState<string | null>(null);
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [lastErrorCode, setLastErrorCode] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const { canAccessPage, staffProfile } = useStaffProfile();
-  // Dedicated permission only (super_admin may have it by default / role matrix).
-  // Do not fall back to blanket trip-history or financial-reconciliation access.
   const adminPermitted =
     staffProfile?.role === 'super_admin'
     || canAccessPage('payments-trip-shortfall-recapture');
+
+  const recoveryQuery = useQuery({
+    queryKey: ['admin-payment-state', tripId],
+    enabled: Boolean(tripId) && adminPermitted,
+    staleTime: 15_000,
+    queryFn: async (): Promise<{ open_recovery_session: OpenRecoverySession | null }> => {
+      const { data, error } = await supabase.functions.invoke('admin-get-trip-payment-state', {
+        body: { trip_id: tripId },
+      });
+      if (error) throw new Error((data as { error?: string } | null)?.error || error.message);
+      return {
+        open_recovery_session:
+          ((data as { open_recovery_session?: OpenRecoverySession | null } | null)
+            ?.open_recovery_session) ?? null,
+      };
+    },
+  });
+
+  const openRecovery = recoveryQuery.data?.open_recovery_session ?? null;
+  const liveCheckoutUrl = checkoutUrl ?? openRecovery?.provider_checkout_url ?? null;
+  const liveSessionId = attemptRef ?? openRecovery?.id ?? null;
+  const hasLiveOpenRecovery = Boolean(openRecovery) || Boolean(checkoutUrl);
 
   const gate = evaluateTripHistoryShortfallRecaptureEligibility({
     tripStatus,
@@ -82,6 +116,7 @@ export function TripHistoryShortfallRecaptureAction({
       ? verifiedCapturedPence - netRefundedPence >= customerPayablePence
       : false,
     hasOpenRecoveryAttempt: hasOpenRecoveryAttempt
+      || hasLiveOpenRecovery
       || attemptState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING
       || attemptState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED,
     adminPermitted,
@@ -89,6 +124,20 @@ export function TripHistoryShortfallRecaptureAction({
 
   const outstanding = gate.outstanding_shortfall_pence ?? 0;
   const label = recaptureActionLabel(outstanding, currencySymbol);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['admin-payment-state', tripId] });
+    queryClient.invalidateQueries({ queryKey: ['admin-payment-capture-context', tripId] });
+  };
+
+  const copyCheckoutUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.message('Payment link copied');
+    } catch {
+      toast.error('Could not copy payment link');
+    }
+  };
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -116,12 +165,13 @@ export function TripHistoryShortfallRecaptureAction({
       };
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['admin-payment-state', tripId] });
-      queryClient.invalidateQueries({ queryKey: ['admin-payment-capture-context', tripId] });
+      invalidate();
       setLastErrorCode(null);
       setAttemptRef(data.payment_session_id ?? data.provider_order_id ?? null);
+      if (data.checkout_url) setCheckoutUrl(data.checkout_url);
       if (data.already_completed) {
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID);
+        setCheckoutUrl(null);
         toast.success('Shortfall already collected', {
           description: data.message ?? 'Recovery payment already completed for this trip.',
         });
@@ -129,13 +179,10 @@ export function TripHistoryShortfallRecaptureAction({
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED);
         toast.message('Customer action required', {
           description: data.checkout_url
-            ? 'Checkout link created — send to the customer to complete payment. Do not mark as captured yet.'
+            ? 'Payment link ready — send to the customer. Use Mark paid only after Revolut shows completed.'
             : (data.message ?? 'Customer must complete authentication / checkout.'),
         });
-        if (data.checkout_url && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-          void navigator.clipboard.writeText(data.checkout_url);
-          toast.message('Checkout URL copied');
-        }
+        if (data.checkout_url) void copyCheckoutUrl(data.checkout_url);
       } else if (data.reused) {
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
         toast.message('Recapture already processing', {
@@ -163,8 +210,6 @@ export function TripHistoryShortfallRecaptureAction({
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.PAYMENT_METHOD_UNAVAILABLE);
       } else if (parsed?.code === 'CUSTOMER_ACTION_REQUIRED' || parsed?.code === 'customer_action_required') {
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED);
-      } else if (parsed && parsed.retryable === false) {
-        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED);
       } else {
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED);
       }
@@ -178,9 +223,73 @@ export function TripHistoryShortfallRecaptureAction({
     },
   });
 
+  const markPaidMutation = useMutation({
+    mutationFn: async () => {
+      const sessionId = liveSessionId ?? openRecovery?.id;
+      if (!sessionId) {
+        throw new Error('No open recovery payment session to mark paid.');
+      }
+      const { data, error } = await supabase.functions.invoke('admin-refresh-payment-sessions', {
+        body: { session_ids: [sessionId] },
+      });
+      const payload = (data ?? null) as {
+        ok?: boolean;
+        error?: string;
+        results?: Array<{
+          session_id?: string;
+          new_state?: string;
+          new_status?: string;
+          error?: string | null;
+          skipped?: boolean;
+          captured_amount_pence?: number;
+        }>;
+      } | null;
+      if (error) throw new Error(error.message || 'Mark paid failed');
+      if (payload?.error) throw new Error(payload.error);
+      const result = payload?.results?.[0];
+      if (result?.error) throw new Error(result.error);
+      const state = String(result?.new_state ?? '').toUpperCase();
+      const status = String(result?.new_status ?? '').toUpperCase();
+      const completed =
+        state === 'COMPLETED'
+        || status === 'RECOVERY_COMPLETED'
+        || status === 'CAPTURED';
+      if (!completed) {
+        throw new Error(
+          state
+            ? `Revolut still shows ${state}. Customer must finish the payment link before marking paid.`
+            : 'Provider did not confirm payment as completed.',
+        );
+      }
+      return result;
+    },
+    onSuccess: (result) => {
+      invalidate();
+      setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID);
+      setCheckoutUrl(null);
+      toast.success('Marked paid', {
+        description: result?.captured_amount_pence
+          ? `Verified capture ${currencySymbol}${(result.captured_amount_pence / 100).toFixed(2)} from Revolut.`
+          : 'Recovery confirmed COMPLETED with Revolut — Trip History will refresh.',
+      });
+      onComplete?.();
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Could not mark paid');
+    },
+  });
+
+  const showCustomerActionUi =
+    attemptState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED
+    || (hasLiveOpenRecovery && attemptState !== TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID
+      && attemptState !== TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED);
+
   const effectiveUi =
-    attemptState
-    ?? gate.ui_state;
+    attemptState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID
+      ? attemptState
+      : showCustomerActionUi
+        ? TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED
+        : (attemptState ?? gate.ui_state);
 
   if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID) {
     return (
@@ -199,9 +308,9 @@ export function TripHistoryShortfallRecaptureAction({
         <Badge variant="outline" className="bg-amber-500/10 text-amber-800 border-amber-500/40">
           Recapture processing
         </Badge>
-        {attemptRef && (
+        {liveSessionId && (
           <div className="text-[10px] text-muted-foreground font-mono">
-            Ref: {attemptRef.slice(0, 12)}…
+            Ref: {liveSessionId.slice(0, 12)}…
           </div>
         )}
       </div>
@@ -209,19 +318,97 @@ export function TripHistoryShortfallRecaptureAction({
   }
 
   if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED) {
+    const amountPence = openRecovery?.estimated_total_pence ?? outstanding;
     return (
-      <div className="space-y-1">
+      <div className="rounded-md border border-amber-400/60 bg-amber-500/5 p-3 space-y-2 text-sm">
         <Badge variant="outline" className="bg-amber-500/10 text-amber-800 border-amber-500/40">
           Customer action required
         </Badge>
         <div className="text-xs text-muted-foreground">
-          Customer authentication is required to collect this outstanding payment.
+          Send the payment link to the customer. Mark paid only after Revolut shows the payment completed
+          {amountPence > 0 ? ` (${currencySymbol}${(amountPence / 100).toFixed(2)})` : ''}.
         </div>
-        {attemptRef && (
-          <div className="text-[10px] text-muted-foreground font-mono">
-            Ref: {attemptRef.slice(0, 12)}…
+        {liveCheckoutUrl ? (
+          <div className="rounded border bg-background/60 px-2 py-1.5 text-[11px] font-mono break-all">
+            {liveCheckoutUrl}
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">
+            Payment link not loaded yet.
+            {recoveryQuery.isFetching ? ' Refreshing…' : ' Try Recapture again to reuse the open attempt.'}
           </div>
         )}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!liveCheckoutUrl}
+            onClick={() => liveCheckoutUrl && void copyCheckoutUrl(liveCheckoutUrl)}
+          >
+            <Copy className="h-3.5 w-3.5 mr-1" />
+            Copy link
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!liveCheckoutUrl}
+            onClick={() => {
+              if (!liveCheckoutUrl) return;
+              window.open(liveCheckoutUrl, '_blank', 'noopener,noreferrer');
+            }}
+          >
+            <ExternalLink className="h-3.5 w-3.5 mr-1" />
+            Open link
+          </Button>
+          <Button
+            size="sm"
+            disabled={!liveSessionId || markPaidMutation.isPending}
+            onClick={() => setMarkPaidOpen(true)}
+          >
+            {markPaidMutation.isPending ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                Verifying…
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                Mark paid
+              </>
+            )}
+          </Button>
+        </div>
+        {liveSessionId && (
+          <div className="text-[10px] text-muted-foreground font-mono">
+            Ref: {liveSessionId.slice(0, 12)}…
+          </div>
+        )}
+
+        <AlertDialog open={markPaidOpen} onOpenChange={setMarkPaidOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Mark recovery as paid?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This checks Revolut for the open recovery order and only marks Trip History paid if
+                the provider status is COMPLETED. It will not create a new charge or credit the
+                driver wallet twice.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={markPaidMutation.isPending}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={markPaidMutation.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setMarkPaidOpen(false);
+                  markPaidMutation.mutate();
+                }}
+              >
+                Mark paid
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     );
   }
@@ -248,7 +435,7 @@ export function TripHistoryShortfallRecaptureAction({
         {lastErrorCode && (
           <div className="text-[10px] text-muted-foreground font-mono">
             {lastErrorCode}
-            {attemptRef ? ` · ${attemptRef.slice(0, 12)}…` : ''}
+            {liveSessionId ? ` · ${liveSessionId.slice(0, 12)}…` : ''}
           </div>
         )}
         {gate.eligible && outstanding > 0 && (
@@ -261,11 +448,10 @@ export function TripHistoryShortfallRecaptureAction({
             <AlertDialogHeader>
               <AlertDialogTitle>Recapture customer payment?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will attempt to collect the outstanding {currencySymbol}
+                This will create a Revolut payment link for the outstanding {currencySymbol}
                 {(outstanding / 100).toFixed(2)} for Trip #
-                {tripNumber || tripId.slice(0, 8)} using the payment method linked to the
-                authoritative Payment Session. The customer will not be charged more than the
-                outstanding balance.
+                {tripNumber || tripId.slice(0, 8)}. The customer must complete the link. The
+                customer will not be charged more than the outstanding balance.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -322,6 +508,9 @@ export function TripHistoryShortfallRecaptureAction({
             </div>
           </div>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Recapture creates a Revolut payment link for the customer. Direct saved-card charge is not available yet.
+        </p>
         <Button
           size="sm"
           disabled={mutation.isPending}
@@ -344,13 +533,12 @@ export function TripHistoryShortfallRecaptureAction({
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Recapture customer payment?</AlertDialogTitle>
+            <AlertDialogTitle>Create payment link?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will attempt to collect the outstanding {currencySymbol}
-              {(outstanding / 100).toFixed(2)} for Trip #
-              {tripNumber || tripId.slice(0, 8)} using the payment method linked to the
-              authoritative Payment Session. The customer will not be charged more than the
-              outstanding balance.
+              This creates a Revolut payment link for the outstanding {currencySymbol}
+              {(outstanding / 100).toFixed(2)} on Trip #
+              {tripNumber || tripId.slice(0, 8)}. Send the link to the customer. After they pay,
+              use Mark paid (or wait for webhook) to update Trip History.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
