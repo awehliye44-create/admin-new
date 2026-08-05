@@ -24,6 +24,7 @@ import {
   evaluateTripHistoryShortfallRecaptureEligibility,
   recaptureActionLabel,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
+  type TripShortfallRecaptureUiState,
 } from '../../../shared/tripHistoryShortfallRecaptureSSOT';
 import { useStaffProfile } from '@/hooks/useStaffProfile';
 
@@ -35,6 +36,8 @@ type Props = {
   financialModel?: string | null;
   customerPayablePence: number;
   verifiedCapturedPence: number;
+  netRefundedPence?: number;
+  hasOpenRecoveryAttempt?: boolean;
   currencySymbol?: string;
   onComplete?: () => void;
 };
@@ -47,10 +50,14 @@ export function TripHistoryShortfallRecaptureAction({
   financialModel,
   customerPayablePence,
   verifiedCapturedPence,
+  netRefundedPence = 0,
+  hasOpenRecoveryAttempt = false,
   currencySymbol = '£',
   onComplete,
 }: Props) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [attemptState, setAttemptState] = useState<TripShortfallRecaptureUiState | null>(null);
+  const [attemptRef, setAttemptRef] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const { canAccessPage, staffProfile } = useStaffProfile();
   // Dedicated permission only (super_admin may have it by default / role matrix).
@@ -65,9 +72,13 @@ export function TripHistoryShortfallRecaptureAction({
     paymentMethod,
     customerPayablePence,
     verifiedCapturedTotalPence: verifiedCapturedPence,
+    netRefundedTotalPence: netRefundedPence,
     providerSettlementVerified: verifiedCapturedPence > 0 && customerPayablePence > 0
-      ? verifiedCapturedPence >= customerPayablePence
+      ? verifiedCapturedPence - netRefundedPence >= customerPayablePence
       : false,
+    hasOpenRecoveryAttempt: hasOpenRecoveryAttempt
+      || attemptState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING
+      || attemptState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED,
     adminPermitted,
   });
 
@@ -87,6 +98,8 @@ export function TripHistoryShortfallRecaptureAction({
         checkout_url?: string | null;
         outstanding_shortfall_pence?: number;
         charged_pence?: number;
+        payment_session_id?: string | null;
+        provider_order_id?: string | null;
         message?: string;
         reused?: boolean;
         already_completed?: boolean;
@@ -95,11 +108,14 @@ export function TripHistoryShortfallRecaptureAction({
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['admin-payment-state', tripId] });
       queryClient.invalidateQueries({ queryKey: ['admin-payment-capture-context', tripId] });
+      setAttemptRef(data.payment_session_id ?? data.provider_order_id ?? null);
       if (data.already_completed) {
+        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID);
         toast.success('Shortfall already collected', {
           description: data.message ?? 'Recovery payment already completed for this trip.',
         });
       } else if (data.requires_customer_action || data.checkout_url) {
+        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED);
         toast.message('Customer action required', {
           description: data.checkout_url
             ? 'Checkout link created — send to the customer to complete payment. Do not mark as captured yet.'
@@ -110,10 +126,12 @@ export function TripHistoryShortfallRecaptureAction({
           toast.message('Checkout URL copied');
         }
       } else if (data.reused) {
+        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
         toast.message('Recapture already processing', {
           description: 'Returning the existing open recovery attempt — no duplicate charge created.',
         });
       } else {
+        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
         toast.message('Recapture processing', {
           description: data.message
             ?? `Requested ${currencySymbol}${((data.charged_pence ?? outstanding) / 100).toFixed(2)}. Final capture waits for provider webhook.`,
@@ -121,10 +139,17 @@ export function TripHistoryShortfallRecaptureAction({
       }
       onComplete?.();
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => {
+      setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED);
+      toast.error(err.message);
+    },
   });
 
-  if (gate.ui_state === TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID) {
+  const effectiveUi =
+    attemptState
+    ?? gate.ui_state;
+
+  if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID) {
     return (
       <Badge variant="outline" className="bg-green-500/10 text-green-700 border-green-500/30">
         Fully paid
@@ -132,18 +157,93 @@ export function TripHistoryShortfallRecaptureAction({
     );
   }
 
-  if (!gate.eligible || outstanding <= 0) {
-    if (gate.ui_state === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING) {
-      return (
+  if (
+    effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING
+    || mutation.isPending
+  ) {
+    return (
+      <div className="space-y-1">
         <Badge variant="outline" className="bg-amber-500/10 text-amber-800 border-amber-500/40">
           Recapture processing
         </Badge>
-      );
-    }
-    if (gate.ui_state === TRIP_SHORTFALL_RECAPTURE_UI_STATE.PAYMENT_METHOD_UNAVAILABLE) {
+        {attemptRef && (
+          <div className="text-[10px] text-muted-foreground font-mono">
+            Ref: {attemptRef.slice(0, 12)}…
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED) {
+    return (
+      <div className="space-y-1">
+        <Badge variant="outline" className="bg-amber-500/10 text-amber-800 border-amber-500/40">
+          Customer action required
+        </Badge>
+        {attemptRef && (
+          <div className="text-[10px] text-muted-foreground font-mono">
+            Ref: {attemptRef.slice(0, 12)}…
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED) {
+    return (
+      <div className="space-y-2">
+        <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/40">
+          Recapture failed
+        </Badge>
+        {gate.eligible && outstanding > 0 && (
+          <Button size="sm" variant="outline" onClick={() => setConfirmOpen(true)}>
+            Retry {label}
+          </Button>
+        )}
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Recapture customer payment?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will attempt to collect the outstanding {currencySymbol}
+                {(outstanding / 100).toFixed(2)} for Trip #
+                {tripNumber || tripId.slice(0, 8)} using the payment method linked to the
+                authoritative Payment Session. The customer will not be charged more than the
+                outstanding balance.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  setConfirmOpen(false);
+                  setAttemptState(null);
+                  mutation.mutate();
+                }}
+              >
+                {label}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    );
+  }
+
+  if (!gate.eligible || outstanding <= 0) {
+    if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.PAYMENT_METHOD_UNAVAILABLE) {
       return (
         <Badge variant="outline" className="text-muted-foreground">
           Payment method unavailable
+        </Badge>
+      );
+    }
+    if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.PROVIDER_SETTLEMENT_PENDING) {
+      return (
+        <Badge variant="outline" className="bg-amber-500/10 text-amber-800 border-amber-500/40">
+          Provider settlement pending
         </Badge>
       );
     }

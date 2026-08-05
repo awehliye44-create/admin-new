@@ -225,3 +225,10 @@ verify_jwt = false
 
 [functions.admin-official-boundaries]
 verify_jwt = false
+
+# Trip History shortfall recapture — admin JWT validated inside the function.
+[functions.admin-recapture-trip-shortfall]
+verify_jwt = false
+
+[functions.create-payment-recovery]
+verify_jwt = false

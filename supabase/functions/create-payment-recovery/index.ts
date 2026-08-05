@@ -36,7 +36,7 @@ import {
   resolveCanonicalCustomerPayablePence,
   validateCollectOutstandingOrPaymentLinkAction,
 } from "../../../shared/paymentSessionsCaptureConfirmationSSOT.ts";
-import { isDriverCollectedFinancialModel, sumVerifiedCapturedFromSessions } from "../../../shared/tripHistoryShortfallRecaptureSSOT.ts";
+import { isDriverCollectedFinancialModel, sumVerifiedCapturedFromSessions, sumVerifiedRefundedFromSessions } from "../../../shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
 
 Deno.serve(async (req) => {
@@ -138,10 +138,11 @@ Deno.serve(async (req) => {
     // Re-read sessions after refresh so outstanding uses latest provider backfill.
     const { data: captureSessions } = await supabase
       .from("payment_sessions")
-      .select("id, purpose, captured_amount_pence, status, provider_state")
+      .select("id, purpose, captured_amount_pence, status, provider_state, refunded_amount_pence")
       .eq("trip_id", trip.id);
 
     const verified = sumVerifiedCapturedFromSessions(captureSessions ?? []);
+    const netRefunded = sumVerifiedRefundedFromSessions(captureSessions ?? []);
     let originalCaptured = verified.original_captured_pence;
     const recoveryCaptured = verified.recaptured_pence;
     // Trip projection may hold confirmed capture when session rows are legacy-incomplete.
@@ -156,6 +157,7 @@ Deno.serve(async (req) => {
       canonicalPayablePence: payableResolved.payable_pence,
       confirmedCapturePence: originalCaptured,
       confirmedRecoveryCapturePence: recoveryCaptured,
+      netRefundedTotalPence: netRefunded,
     });
 
     const safety = validateCollectOutstandingOrPaymentLinkAction({
@@ -175,6 +177,18 @@ Deno.serve(async (req) => {
       console.warn(
         "[create-payment-recovery] ignoring client amount_pence; using server outstanding",
         { client: amount_pence, server: safety.charge_pence, trip_id },
+      );
+    }
+    // Trip History shortfall path must never accept a client charge amount.
+    if (
+      String(body?.source ?? "") === "trip_history_shortfall_recapture"
+      && (amount_pence != null || body?.amount != null || body?.charge_pence != null)
+    ) {
+      return errorResponse(
+        "Arbitrary charge amounts are not accepted for Trip History shortfall recapture",
+        400,
+        undefined,
+        "AMOUNT_NOT_ALLOWED",
       );
     }
     const chargePence = safety.charge_pence;
@@ -238,8 +252,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    // --- Idempotent terminal success: if recovery already completed, never
-    // create another order and never surface as a runtime failure to the UI. ---
+    // --- Idempotent terminal success: only when shortfall is already closed.
+    // A prior completed recovery that was later refunded must allow a new attempt. ---
     const { data: existingCompleted } = await supabase
       .from("payment_sessions")
       .select("id, status, provider_order_id, captured_amount_pence, currency, captured_at")
@@ -247,7 +261,7 @@ Deno.serve(async (req) => {
       .eq("purpose", "PAYMENT_RECOVERY")
       .in("status", ["RECOVERY_COMPLETED", "captured"])
       .maybeSingle();
-    if (existingCompleted) {
+    if (existingCompleted && outstanding != null && outstanding <= 0) {
       return successResponse({
         payment_session_id: existingCompleted.id,
         provider_order_id: existingCompleted.provider_order_id,
@@ -319,8 +333,31 @@ Deno.serve(async (req) => {
       }
 
       sessInsertErr = error;
+      const msg = error?.message ?? "";
       const isClientActionCollision = error?.code === "23505"
-        && (error.message ?? "").includes("payment_sessions_client_action_id_unique");
+        && msg.includes("payment_sessions_client_action_id_unique");
+      const isOpenRecoveryCollision = error?.code === "23505"
+        && msg.includes("payment_sessions_recovery_open_unique");
+      if (isOpenRecoveryCollision) {
+        // Concurrent admin — return the existing open attempt instead of failing.
+        const { data: racedOpen } = await supabase
+          .from("payment_sessions")
+          .select("id, provider_order_id, provider_checkout_url, status, captured_amount_pence, authorised_amount_pence")
+          .eq("trip_id", trip.id)
+          .eq("purpose", "PAYMENT_RECOVERY")
+          .in("status", ["RECOVERY_CHECKOUT_CREATED", "CUSTOMER_ACTION_REQUIRED"])
+          .maybeSingle();
+        if (racedOpen) {
+          return successResponse({
+            payment_session_id: racedOpen.id,
+            provider_order_id: racedOpen.provider_order_id,
+            checkout_url: racedOpen.provider_checkout_url,
+            amount: chargePence,
+            currency,
+            reused: true,
+          });
+        }
+      }
       if (!isClientActionCollision) break;
     }
 

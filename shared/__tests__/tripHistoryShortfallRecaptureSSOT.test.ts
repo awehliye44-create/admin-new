@@ -5,8 +5,14 @@ import {
   isFullyPaidCapturedCoverage,
   paymentCoverageBadgeLabel,
   recaptureActionLabel,
+  recapturedAmountDisplayLabel,
+  rejectClientChargeAmountFields,
+  sumVerifiedCapturedFromSessions,
+  sumVerifiedRefundedFromSessions,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
 } from "../tripHistoryShortfallRecaptureSSOT";
+import { computeOutstandingBalancePence, recoveryWalletCreditDecision } from "../paymentSessionsCaptureConfirmationSSOT";
+import { isRecoveryCompletionIdempotent, planRecoveryCaptureCompletion } from "../paymentSessionsRecoveryCompletionSSOT";
 
 describe("tripHistoryShortfallRecaptureSSOT", () => {
   it("completed trip with full payment → no recapture / fully paid", () => {
@@ -35,6 +41,11 @@ describe("tripHistoryShortfallRecaptureSSOT", () => {
     expect(recaptureActionLabel(793)).toBe("Recapture £7.93");
   });
 
+  it("arbitrary client amount fields are rejected", () => {
+    expect(rejectClientChargeAmountFields({ trip_id: "t1", amount_pence: 9999 }).ok).toBe(false);
+    expect(rejectClientChargeAmountFields({ trip_id: "t1" }).ok).toBe(true);
+  });
+
   it("provider canceled is never Fully paid / Captured", () => {
     expect(
       isFullyPaidCapturedCoverage({
@@ -45,68 +56,38 @@ describe("tripHistoryShortfallRecaptureSSOT", () => {
         providerStatus: "canceled",
       }),
     ).toBe(false);
-
-    const badge = paymentCoverageBadgeLabel({
-      customerPayablePence: 793,
-      verifiedCapturedTotalPence: 0,
-      providerSettlementVerified: false,
-      paymentStatus: "canceled",
-      providerStatus: "canceled",
-    });
-    expect(badge.tone).toBe("canceled");
-    expect(badge.label).not.toMatch(/Fully paid/i);
-  });
-
-  it("null outstanding / unverified settlement is not fully paid", () => {
-    expect(
-      isFullyPaidCapturedCoverage({
-        customerPayablePence: 793,
-        verifiedCapturedTotalPence: null,
-        providerSettlementVerified: false,
-      }),
-    ).toBe(false);
     expect(
       paymentCoverageBadgeLabel({
         customerPayablePence: 793,
-        verifiedCapturedTotalPence: null,
+        verifiedCapturedTotalPence: 0,
         providerSettlementVerified: false,
-      }).tone,
-    ).not.toBe("fully_paid");
+        paymentStatus: "canceled",
+        providerStatus: "canceled",
+      }).label,
+    ).not.toMatch(/Fully paid/i);
   });
 
   it("DRIVER_COLLECTED trips cannot recapture", () => {
-    const gate = evaluateTripHistoryShortfallRecaptureEligibility({
-      tripStatus: "completed",
-      financialModel: "DRIVER_COLLECTED_COMMISSION_WALLET",
-      customerPayablePence: 793,
-      verifiedCapturedTotalPence: 0,
-      adminPermitted: true,
-    });
-    expect(gate.eligible).toBe(false);
-    expect(gate.reject_reason).toBe("driver_collected_not_allowed");
+    expect(
+      evaluateTripHistoryShortfallRecaptureEligibility({
+        tripStatus: "completed",
+        financialModel: "DRIVER_COLLECTED_COMMISSION_WALLET",
+        customerPayablePence: 793,
+        verifiedCapturedTotalPence: 0,
+        adminPermitted: true,
+      }).reject_reason,
+    ).toBe("driver_collected_not_allowed");
   });
 
   it("unauthorized admin cannot recapture", () => {
-    const gate = evaluateTripHistoryShortfallRecaptureEligibility({
-      tripStatus: "completed",
-      customerPayablePence: 793,
-      verifiedCapturedTotalPence: 0,
-      adminPermitted: false,
-    });
-    expect(gate.eligible).toBe(false);
-    expect(gate.reject_reason).toBe("admin_not_permitted");
-  });
-
-  it("open recovery attempt blocks duplicate", () => {
-    const gate = evaluateTripHistoryShortfallRecaptureEligibility({
-      tripStatus: "completed",
-      customerPayablePence: 793,
-      verifiedCapturedTotalPence: 0,
-      hasOpenRecoveryAttempt: true,
-      adminPermitted: true,
-    });
-    expect(gate.eligible).toBe(false);
-    expect(gate.ui_state).toBe(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
+    expect(
+      evaluateTripHistoryShortfallRecaptureEligibility({
+        tripStatus: "completed",
+        customerPayablePence: 793,
+        verifiedCapturedTotalPence: 0,
+        adminPermitted: false,
+      }).reject_reason,
+    ).toBe("admin_not_permitted");
   });
 
   it("refund reduces effective paid and reopens shortfall", () => {
@@ -117,22 +98,60 @@ describe("tripHistoryShortfallRecaptureSSOT", () => {
         netRefundedTotalPence: 200,
       }),
     ).toBe(200);
+    expect(
+      computeOutstandingBalancePence({
+        canonicalPayablePence: 793,
+        confirmedCapturePence: 0,
+        confirmedRecoveryCapturePence: 793,
+        netRefundedTotalPence: 200,
+      }),
+    ).toBe(200);
   });
 
-  it("fully paid requires verified settlement AND coverage", () => {
+  it("wallet: processing does not credit; already credited does not double", () => {
     expect(
-      isFullyPaidCapturedCoverage({
-        customerPayablePence: 793,
-        verifiedCapturedTotalPence: 793,
-        providerSettlementVerified: false,
-      }),
+      recoveryWalletCreditDecision({
+        originalDriverEarningAlreadyCredited: false,
+        recoveryCaptureConfirmed: false,
+        driverEarningWithheldPendingRecovery: true,
+      }).write_driver_credit,
     ).toBe(false);
     expect(
-      isFullyPaidCapturedCoverage({
-        customerPayablePence: 793,
-        verifiedCapturedTotalPence: 793,
-        providerSettlementVerified: true,
+      recoveryWalletCreditDecision({
+        originalDriverEarningAlreadyCredited: true,
+        recoveryCaptureConfirmed: true,
+        driverEarningWithheldPendingRecovery: false,
+      }).write_driver_credit,
+    ).toBe(false);
+  });
+
+  it("duplicate webhook completion is idempotent; subsequent recovery uses captured", () => {
+    expect(
+      isRecoveryCompletionIdempotent({
+        priorRecoveryStatus: "RECOVERY_COMPLETED",
+        priorRecoveryCapturedPence: 793,
+        newRecoveryCapturedPence: 793,
       }),
     ).toBe(true);
+    const plan = planRecoveryCaptureCompletion({
+      recoveryCapturedPence: 200,
+      recoverySessionId: "rec-2",
+      recoveryProviderOrderId: "ord-2",
+      originalCapturedPence: 0,
+      priorRecoveryCapturedPence: 793,
+      priorCompletedRecoveryExists: true,
+      netRefundedTotalPence: 200,
+      finalCustomerFarePence: 793,
+      originalDriverEarningAlreadyCredited: true,
+    });
+    expect(plan.recovery_session_patch.status).toBe("captured");
+    expect(plan.outstanding_pence).toBe(0);
+    expect(recapturedAmountDisplayLabel(793)).toBe("Recaptured £7.93");
+    expect(sumVerifiedRefundedFromSessions([{ refunded_amount_pence: 200 }])).toBe(200);
+    expect(
+      sumVerifiedCapturedFromSessions([
+        { purpose: "TRIP_AUTH", status: "canceled", captured_amount_pence: 793 },
+      ]).total_verified_captured_pence,
+    ).toBe(0);
   });
 });

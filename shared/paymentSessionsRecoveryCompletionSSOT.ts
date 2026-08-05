@@ -45,6 +45,9 @@ export function planRecoveryCaptureCompletion(args: {
   paymentMethod?: string | null;
   originalDriverEarningAlreadyCredited?: boolean;
   driverEarningWithheldPendingRecovery?: boolean;
+  /** True when another PAYMENT_RECOVERY row is already RECOVERY_COMPLETED for this trip. */
+  priorCompletedRecoveryExists?: boolean;
+  netRefundedTotalPence?: number | null;
   nowIso?: string;
 }): RecoveryCaptureCompletionPlan {
   const now = args.nowIso ?? new Date().toISOString();
@@ -56,7 +59,12 @@ export function planRecoveryCaptureCompletion(args: {
     0,
     confirmedPositiveCapturePence(args.priorRecoveryCapturedPence) ?? 0,
   );
-  const totalCaptured = originalAmt + Math.max(recoveryAmt, priorRecovery);
+  // Idempotent single recovery: max(this, prior) avoids double-count on webhook retry.
+  // Subsequent recovery after a prior completed attempt: sum both captures.
+  const recoveryForOutstanding = args.priorCompletedRecoveryExists
+    ? priorRecovery + recoveryAmt
+    : Math.max(recoveryAmt, priorRecovery);
+  const totalCaptured = originalAmt + recoveryForOutstanding;
 
   const payable = resolveCanonicalCustomerPayablePence({
     finalCustomerFarePence: args.finalCustomerFarePence,
@@ -69,7 +77,8 @@ export function planRecoveryCaptureCompletion(args: {
   const outstanding = computeOutstandingBalancePence({
     canonicalPayablePence: payable.payable_pence,
     confirmedCapturePence: originalAmt,
-    confirmedRecoveryCapturePence: Math.max(recoveryAmt, priorRecovery),
+    confirmedRecoveryCapturePence: recoveryForOutstanding,
+    netRefundedTotalPence: args.netRefundedTotalPence,
   }) ?? 0;
 
   const tripProjection = buildTripPaymentProjectionAfterCapture({
@@ -91,7 +100,9 @@ export function planRecoveryCaptureCompletion(args: {
   };
 
   const recovery_session_patch: Record<string, unknown> = {
-    status: "RECOVERY_COMPLETED",
+    // Only one RECOVERY_COMPLETED per trip (unique index). Subsequent
+    // shortfall recoveries after a refund use status "captured".
+    status: args.priorCompletedRecoveryExists ? "captured" : "RECOVERY_COMPLETED",
     captured_amount_pence: recoveryAmt,
     captured_at: now,
     provider_state: "COMPLETED",

@@ -745,11 +745,10 @@ export default function TripHistory() {
     return 0;
   };
 
-  /** @deprecated label — use payable vs captured explicitly */
+  /** @deprecated label — use payable vs captured explicitly.
+   * Never treat unpaid / canceled shortfall trips as paid revenue. */
   const getTripCustomerPaidPence = (trip: CompletedTrip): number =>
-    getTripStripeCapturedPence(trip) > 0
-      ? getTripStripeCapturedPence(trip)
-      : getTripCustomerPayablePence(trip);
+    getTripStripeCapturedPence(trip);
 
   const getTripCustomerPaidPounds = (trip: CompletedTrip): number =>
     getTripCustomerPaidPence(trip) / 100;

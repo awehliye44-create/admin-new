@@ -27,6 +27,8 @@ import {
   isPlatformCollectedEligible,
   rejectClientChargeAmountFields,
   sumVerifiedCapturedFromSessions,
+  sumVerifiedRefundedFromSessions,
+  TRIP_SHORTFALL_RECAPTURE_UI_STATE,
 } from "../../../shared/tripHistoryShortfallRecaptureSSOT.ts";
 
 async function authorizeTripShortfallRecapture(
@@ -123,15 +125,15 @@ Deno.serve(async (req) => {
 
     const { data: captureSessions } = await gate.supabase
       .from("payment_sessions")
-      .select("id, purpose, captured_amount_pence, status, provider_state")
+      .select("id, purpose, captured_amount_pence, status, provider_state, refunded_amount_pence, customer_id")
       .eq("trip_id", trip.id);
 
     const verified = sumVerifiedCapturedFromSessions(captureSessions ?? []);
+    const netRefunded = sumVerifiedRefundedFromSessions(captureSessions ?? []);
     // Trip projection fallback only when no verified session captures exist.
     let originalCaptured = verified.original_captured_pence;
     const recoveryCaptured = verified.recaptured_pence;
     if (originalCaptured <= 0 && Number(trip.capture_amount_pence ?? 0) > 0) {
-      // Only use trip projection when payment_status does not look canceled/failed.
       const ps = String(trip.payment_status ?? "").toLowerCase();
       if (!ps.includes("cancel") && !ps.includes("fail") && !ps.includes("void")) {
         originalCaptured = Math.round(Number(trip.capture_amount_pence));
@@ -142,6 +144,7 @@ Deno.serve(async (req) => {
       canonicalPayablePence: payableResolved.payable_pence,
       confirmedCapturePence: originalCaptured,
       confirmedRecoveryCapturePence: recoveryCaptured,
+      netRefundedTotalPence: netRefunded,
     });
 
     const { count: openRecoveryCount } = await gate.supabase
@@ -151,13 +154,17 @@ Deno.serve(async (req) => {
       .eq("purpose", "PAYMENT_RECOVERY")
       .in("status", ["RECOVERY_CHECKOUT_CREATED", "CUSTOMER_ACTION_REQUIRED"]);
 
+    const hasOpenRecovery = (openRecoveryCount ?? 0) > 0;
+
     const eligibility = evaluateTripHistoryShortfallRecaptureEligibility({
       tripStatus: trip.status,
       financialModel,
       paymentMethod: trip.payment_method,
       customerPayablePence: payableResolved.payable_pence,
       verifiedCapturedTotalPence: originalCaptured + recoveryCaptured,
-      hasOpenRecoveryAttempt: (openRecoveryCount ?? 0) > 0,
+      netRefundedTotalPence: netRefunded,
+      // Open attempt is not a hard reject here — create-payment-recovery reuses it.
+      hasOpenRecoveryAttempt: false,
       adminPermitted: true,
     });
 
@@ -181,7 +188,11 @@ Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    if (parentSession && parentSession.customer_id !== trip.passenger_id) {
+    // Any session on this trip must belong to the trip passenger.
+    const foreignSession = (captureSessions ?? []).find(
+      (s) => s.customer_id != null && s.customer_id !== trip.passenger_id,
+    );
+    if (foreignSession) {
       return jsonResponse({
         error: "Payment session customer does not match trip passenger",
         code: "SESSION_CUSTOMER_MISMATCH",
@@ -219,8 +230,8 @@ Deno.serve(async (req) => {
       admin_user_id: gate.userId,
       action: "extra_payment",
       reason: "trip_history_shortfall_recapture",
-      amount_pence_before: originalCaptured + recoveryCaptured,
-      amount_pence_after: originalCaptured + recoveryCaptured,
+      amount_pence_before: Math.max(0, originalCaptured + recoveryCaptured - netRefunded),
+      amount_pence_after: Math.max(0, originalCaptured + recoveryCaptured - netRefunded),
       delta_pence: 0,
       provider: "revolut",
       provider_payment_id: recoveryJson.provider_order_id ?? null,
@@ -229,12 +240,13 @@ Deno.serve(async (req) => {
         payment_session_id: recoveryJson.payment_session_id ?? null,
         customer_id: trip.passenger_id,
         outstanding_shortfall_pence: outstanding,
-        effective_paid_before_pence: originalCaptured + recoveryCaptured,
+        effective_paid_before_pence: Math.max(0, originalCaptured + recoveryCaptured - netRefunded),
+        net_refunded_pence: netRefunded,
         canonical_payable_pence: payableResolved.payable_pence,
         original_captured_pence: originalCaptured,
         recaptured_pence_before: recoveryCaptured,
         parent_session_id: parentSession?.id ?? null,
-        reused: !!recoveryJson.reused,
+        reused: !!recoveryJson.reused || hasOpenRecovery,
         already_completed: !!recoveryJson.already_completed,
         idempotency_key: parentSession?.id
           ? `recover:${trip.id}:${parentSession.id}:${outstanding ?? 0}`
@@ -250,9 +262,18 @@ Deno.serve(async (req) => {
       || recoveryJson.status === "RECOVERY_CHECKOUT_CREATED"
     );
 
+    let status: string = "processing";
+    if (recoveryJson.already_completed) {
+      status = TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID;
+    } else if (requiresCustomerAction || recoveryJson.reused) {
+      status = requiresCustomerAction
+        ? TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED
+        : TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING;
+    }
+
     return jsonResponse({
       success: true,
-      status: requiresCustomerAction ? "customer_action_required" : "processing",
+      status,
       requires_customer_action: requiresCustomerAction,
       checkout_url: recoveryJson.checkout_url ?? null,
       payment_session_id: recoveryJson.payment_session_id ?? null,
@@ -261,7 +282,8 @@ Deno.serve(async (req) => {
       charged_pence: recoveryJson.amount ?? outstanding,
       original_captured_pence: originalCaptured,
       recaptured_pence_before: recoveryCaptured,
-      reused: !!recoveryJson.reused,
+      net_refunded_pence: netRefunded,
+      reused: !!recoveryJson.reused || hasOpenRecovery,
       already_completed: !!recoveryJson.already_completed,
       message: recoveryJson.message
         ?? (requiresCustomerAction

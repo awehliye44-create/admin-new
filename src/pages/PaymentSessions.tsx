@@ -62,6 +62,7 @@ import {
   sendPaymentLinkActionLabel,
 } from '../../shared/paymentSessionsCaptureConfirmationSSOT';
 import { isValidConfirmedCapturePence } from '../../shared/paymentCaptureEvidenceSSOT';
+import { recapturedAmountDisplayLabel } from '../../shared/tripHistoryShortfallRecaptureSSOT';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
   ServiceAreaFinanceFilter,
@@ -1334,11 +1335,30 @@ export default function PaymentSessions() {
                                       : undefined
                                   }
                                 >
-                                  {formatCapturedAmountDisplay({
-                                    captured_amount_pence: row.captured_amount_pence,
-                                    currencyFormatter: (p) => formatNullablePence(p),
-                                  })}
+                                  {row.purpose === 'PAYMENT_RECOVERY'
+                                    && Number(row.captured_amount_pence ?? 0) > 0
+                                    ? recapturedAmountDisplayLabel(Number(row.captured_amount_pence))
+                                    : formatCapturedAmountDisplay({
+                                      captured_amount_pence: row.captured_amount_pence,
+                                      currencyFormatter: (p) => formatNullablePence(p),
+                                    })}
                                 </span>
+                                {row.purpose === 'PAYMENT_RECOVERY'
+                                  && Number(row.captured_amount_pence ?? 0) > 0 && (
+                                  <div className="mt-1 text-[10px] text-emerald-700">
+                                    Shortfall recapture
+                                  </div>
+                                )}
+                                {row.purpose !== 'PAYMENT_RECOVERY'
+                                  && Number(row.recovery_attempt_count ?? 0) > 0
+                                  && Number(row.captured_amount_pence ?? 0) >= 0 && (
+                                  <div className="mt-1 text-[10px] text-emerald-700">
+                                    Includes shortfall recapture
+                                    {row.outstanding_pence != null && row.outstanding_pence <= 0
+                                      ? ' — fully covered'
+                                      : ''}
+                                  </div>
+                                )}
                                 {row.captured_at && Number(row.captured_amount_pence) > 0 && (
                                   <div className="mt-1 text-[10px] text-muted-foreground">
                                     {format(new Date(row.captured_at), 'dd MMM HH:mm')}

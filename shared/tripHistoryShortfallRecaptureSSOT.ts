@@ -131,6 +131,20 @@ export function sumVerifiedCapturedFromSessions(
   };
 }
 
+/** Sum verified provider refunds that reduce paid coverage. */
+export function sumVerifiedRefundedFromSessions(
+  sessions: Array<{
+    refunded_amount_pence?: number | null;
+  }>,
+): number {
+  let refunded = 0;
+  for (const s of sessions) {
+    const amt = confirmedPositiveCaptureLike(s.refunded_amount_pence);
+    if (amt != null) refunded += amt;
+  }
+  return refunded;
+}
+
 /** Effective paid = verified captures − net refunds (floored at 0). */
 export function computeEffectivePaidTotalPence(args: {
   verifiedCapturedTotalPence: number | null | undefined;
@@ -326,6 +340,14 @@ export function evaluateTripHistoryShortfallRecaptureEligibility(args: {
         ui_state: TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID,
         outstanding_shortfall_pence: 0,
         reject_reason: "already_fully_paid",
+      };
+    }
+    if (args.providerSettlementVerified !== true) {
+      return {
+        eligible: false,
+        ui_state: TRIP_SHORTFALL_RECAPTURE_UI_STATE.PROVIDER_SETTLEMENT_PENDING,
+        outstanding_shortfall_pence: 0,
+        reject_reason: "provider_settlement_pending",
       };
     }
     return {

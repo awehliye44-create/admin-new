@@ -9,8 +9,18 @@ import {
   isFullyPaidCapturedCoverage,
   paymentCoverageBadgeLabel,
   recaptureActionLabel,
+  recapturedAmountDisplayLabel,
+  rejectClientChargeAmountFields,
+  sumVerifiedCapturedFromSessions,
+  sumVerifiedRefundedFromSessions,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
 } from "../tripHistoryShortfallRecaptureSSOT.ts";
+import { computeOutstandingBalancePence } from "../paymentSessionsCaptureConfirmationSSOT.ts";
+import {
+  planRecoveryCaptureCompletion,
+  isRecoveryCompletionIdempotent,
+} from "../paymentSessionsRecoveryCompletionSSOT.ts";
+import { recoveryWalletCreditDecision } from "../paymentSessionsCaptureConfirmationSSOT.ts";
 
 Deno.test("full payment → no recapture", () => {
   const gate = evaluateTripHistoryShortfallRecaptureEligibility({
@@ -36,6 +46,11 @@ Deno.test("£7.93 shortfall → exact recapture available", () => {
   assertEquals(gate.eligible, true);
   assertEquals(gate.outstanding_shortfall_pence, 793);
   assertEquals(recaptureActionLabel(793), "Recapture £7.93");
+});
+
+Deno.test("arbitrary client amount rejected", () => {
+  assertEquals(rejectClientChargeAmountFields({ trip_id: "t1", amount_pence: 9999 }).ok, false);
+  assertEquals(rejectClientChargeAmountFields({ trip_id: "t1" }).ok, true);
 });
 
 Deno.test("canceled is never Fully paid / Captured", () => {
@@ -83,7 +98,7 @@ Deno.test("unauthorized admin blocked", () => {
   assertEquals(gate.reject_reason, "admin_not_permitted");
 });
 
-Deno.test("open recovery blocks duplicate", () => {
+Deno.test("open recovery blocks duplicate UI initiation", () => {
   const gate = evaluateTripHistoryShortfallRecaptureEligibility({
     tripStatus: "completed",
     customerPayablePence: 793,
@@ -100,6 +115,15 @@ Deno.test("refund reopens shortfall", () => {
     computeOutstandingShortfallPence({
       customerPayablePence: 793,
       verifiedCapturedTotalPence: 793,
+      netRefundedTotalPence: 200,
+    }),
+    200,
+  );
+  assertEquals(
+    computeOutstandingBalancePence({
+      canonicalPayablePence: 793,
+      confirmedCapturePence: 0,
+      confirmedRecoveryCapturePence: 793,
       netRefundedTotalPence: 200,
     }),
     200,
@@ -123,4 +147,85 @@ Deno.test("fully paid requires settlement verified", () => {
     }),
     true,
   );
+});
+
+Deno.test("verified sum excludes canceled and labels Recaptured", () => {
+  const sum = sumVerifiedCapturedFromSessions([
+    { purpose: "TRIP_AUTH", status: "canceled", captured_amount_pence: 793 },
+    { purpose: "PAYMENT_RECOVERY", status: "recovery_completed", provider_state: "completed", captured_amount_pence: 793 },
+  ]);
+  assertEquals(sum.original_captured_pence, 0);
+  assertEquals(sum.recaptured_pence, 793);
+  assertEquals(recapturedAmountDisplayLabel(793), "Recaptured £7.93");
+  assertEquals(sumVerifiedRefundedFromSessions([{ refunded_amount_pence: 200 }]), 200);
+});
+
+Deno.test("processing recovery does not credit wallet", () => {
+  const wallet = recoveryWalletCreditDecision({
+    originalDriverEarningAlreadyCredited: false,
+    recoveryCaptureConfirmed: false,
+    driverEarningWithheldPendingRecovery: true,
+  });
+  assertEquals(wallet.write_driver_credit, false);
+});
+
+Deno.test("already-credited driver is not credited twice", () => {
+  const wallet = recoveryWalletCreditDecision({
+    originalDriverEarningAlreadyCredited: true,
+    recoveryCaptureConfirmed: true,
+    driverEarningWithheldPendingRecovery: false,
+  });
+  assertEquals(wallet.write_driver_credit, false);
+  assertEquals(wallet.clear_finance_risk_only, true);
+});
+
+Deno.test("duplicate recovery webhook completion is idempotent", () => {
+  assertEquals(
+    isRecoveryCompletionIdempotent({
+      priorRecoveryStatus: "RECOVERY_COMPLETED",
+      priorRecoveryCapturedPence: 793,
+      newRecoveryCapturedPence: 793,
+    }),
+    true,
+  );
+  const planA = planRecoveryCaptureCompletion({
+    recoveryCapturedPence: 793,
+    recoverySessionId: "rec-1",
+    recoveryProviderOrderId: "ord-1",
+    originalCapturedPence: 0,
+    priorRecoveryCapturedPence: 0,
+    finalCustomerFarePence: 793,
+    originalDriverEarningAlreadyCredited: true,
+  });
+  const planB = planRecoveryCaptureCompletion({
+    recoveryCapturedPence: 793,
+    recoverySessionId: "rec-1",
+    recoveryProviderOrderId: "ord-1",
+    originalCapturedPence: 0,
+    priorRecoveryCapturedPence: 793,
+    finalCustomerFarePence: 793,
+    originalDriverEarningAlreadyCredited: true,
+  });
+  assertEquals(planA.outstanding_pence, 0);
+  assertEquals(planB.outstanding_pence, 0);
+  assertEquals(planA.total_captured_pence, planB.total_captured_pence);
+  assertEquals(planA.wallet.write_driver_credit, false);
+});
+
+Deno.test("subsequent recovery after prior completed uses captured status", () => {
+  // Prior recovery £7.93 completed, then £2.00 refunded → new £2.00 recovery closes shortfall.
+  const plan = planRecoveryCaptureCompletion({
+    recoveryCapturedPence: 200,
+    recoverySessionId: "rec-2",
+    recoveryProviderOrderId: "ord-2",
+    originalCapturedPence: 0,
+    priorRecoveryCapturedPence: 793,
+    priorCompletedRecoveryExists: true,
+    netRefundedTotalPence: 200,
+    finalCustomerFarePence: 793,
+    originalDriverEarningAlreadyCredited: true,
+  });
+  assertEquals(plan.recovery_session_patch.status, "captured");
+  assertEquals(plan.outstanding_pence, 0);
+  assertEquals(plan.total_captured_pence, 993);
 });
