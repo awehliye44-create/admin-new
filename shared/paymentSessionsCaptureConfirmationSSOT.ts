@@ -88,12 +88,14 @@ export function resolveCanonicalCustomerPayablePence(args: {
 }
 
 /**
- * outstanding = payable − all confirmed captures − confirmed recovery captures.
+ * outstanding = payable − (confirmed captures + recovery − net refunds).
+ * Refunds reopen shortfall coverage.
  */
 export function computeOutstandingBalancePence(args: {
   canonicalPayablePence: number | null | undefined;
   confirmedCapturePence?: number | null;
   confirmedRecoveryCapturePence?: number | null;
+  netRefundedTotalPence?: number | null;
 }): number | null {
   const payable = nonNegPence(args.canonicalPayablePence);
   if (payable == null) return null;
@@ -102,7 +104,9 @@ export function computeOutstandingBalancePence(args: {
     0,
     confirmedPositiveCapturePence(args.confirmedRecoveryCapturePence) ?? 0,
   );
-  return Math.max(0, payable - captured - recovered);
+  const refunded = Math.max(0, nonNegPence(args.netRefundedTotalPence) ?? 0);
+  const effectivePaid = Math.max(0, captured + recovered - refunded);
+  return Math.max(0, payable - effectivePaid);
 }
 
 /**

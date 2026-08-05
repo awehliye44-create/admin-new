@@ -60,6 +60,7 @@ import {
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { SyncStripeRefundButton } from '@/components/payment/SyncStripeRefundButton';
+import { TripHistoryShortfallRecaptureAction } from '@/components/trips/TripHistoryShortfallRecaptureAction';
 import { getTripRefundDisplay } from '@/lib/tripRefundDisplay';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { mapboxgl } from '@/lib/mapbox';
@@ -724,8 +725,17 @@ export default function TripHistory() {
     return resolveTripDisplayFare(trip).payable_pence;
   };
 
-  /** Provider actual captured amount only. */
+  /** Provider actual captured amount only — never count canceled/failed/voided as paid. */
   const getTripStripeCapturedPence = (trip: CompletedTrip): number => {
+    const statusBlob = String(trip.payment_status ?? '').toLowerCase();
+    if (
+      statusBlob.includes('cancel')
+      || statusBlob.includes('fail')
+      || statusBlob.includes('void')
+      || statusBlob.includes('expired')
+    ) {
+      return 0;
+    }
     if (trip.payment_captured_pence != null && trip.payment_captured_pence > 0) {
       return trip.payment_captured_pence;
     }
@@ -735,11 +745,10 @@ export default function TripHistory() {
     return 0;
   };
 
-  /** @deprecated label — use payable vs captured explicitly */
+  /** @deprecated label — use payable vs captured explicitly.
+   * Never treat unpaid / canceled shortfall trips as paid revenue. */
   const getTripCustomerPaidPence = (trip: CompletedTrip): number =>
-    getTripStripeCapturedPence(trip) > 0
-      ? getTripStripeCapturedPence(trip)
-      : getTripCustomerPayablePence(trip);
+    getTripStripeCapturedPence(trip);
 
   const getTripCustomerPaidPounds = (trip: CompletedTrip): number =>
     getTripCustomerPaidPence(trip) / 100;
@@ -1233,12 +1242,14 @@ export default function TripHistory() {
                               <span className="text-muted-foreground text-xs font-normal">
                                 Payable {sym}{(payable / 100).toFixed(2)}
                               </span>
-                              <span className="text-green-600">
+                              <span className={captured > 0 ? 'text-green-600' : 'text-muted-foreground'}>
                                 Captured {sym}{(captured / 100).toFixed(2)}
                               </span>
-                              {<span className="text-[10px] text-amber-600 font-normal">
+                              {shortfall > 0 && (
+                                <span className="text-[10px] text-amber-600 font-normal">
                                   Shortfall {sym}{(shortfall / 100).toFixed(2)}
-                                </span>}
+                                </span>
+                              )}
                             </>
                           );
                         })()}
@@ -1417,16 +1428,16 @@ export default function TripHistory() {
                       </div>
                       <div>
                         <Label className="text-xs text-muted-foreground">Provider captured</Label>
-                        <p className="font-medium text-green-600">
+                        <p className={`font-medium ${getTripStripeCapturedPence(selectedTrip) > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
                           {getTripStripeCapturedPence(selectedTrip) > 0
                             ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(getTripStripeCapturedPence(selectedTrip) / 100).toFixed(2)}`
-                            : '—'}
+                            : `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}0.00`}
                         </p>
                       </div>
                       <div>
                           <Label className="text-xs text-muted-foreground">Provider capture shortfall</Label>
-                          <p className="font-medium text-amber-600">
-                            {`${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${((getTripCustomerPayablePence(selectedTrip) - getTripStripeCapturedPence(selectedTrip)) / 100).toFixed(2)}`}
+                          <p className={`font-medium ${Math.max(0, getTripCustomerPayablePence(selectedTrip) - getTripStripeCapturedPence(selectedTrip)) > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                            {`${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(Math.max(0, getTripCustomerPayablePence(selectedTrip) - getTripStripeCapturedPence(selectedTrip)) / 100).toFixed(2)}`}
                           </p>
                         </div>
                       {(() => {
@@ -1740,6 +1751,22 @@ export default function TripHistory() {
                     </>
                     );
                   })()}
+
+                  {isCardTrip(selectedTrip) && (
+                    <TripHistoryShortfallRecaptureAction
+                      tripId={selectedTrip.id}
+                      tripNumber={selectedTrip.trip_number ?? selectedTrip.trip_code}
+                      tripStatus={selectedTrip.status}
+                      paymentMethod={selectedTrip.payment_method}
+                      financialModel={(selectedTrip as { financial_model?: string | null }).financial_model}
+                      customerPayablePence={getTripCustomerPayablePence(selectedTrip)}
+                      verifiedCapturedPence={getTripStripeCapturedPence(selectedTrip)}
+                      currencySymbol={getCurrencySymbol(resolveTripCurrency(selectedTrip))}
+                      onComplete={() => {
+                        void refetch();
+                      }}
+                    />
+                  )}
 
                   {isCardTrip(selectedTrip) && (
                     <FinanceRecoveryPanel

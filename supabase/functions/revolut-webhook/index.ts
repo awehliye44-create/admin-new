@@ -15,6 +15,15 @@ import {
 } from "../_shared/revolutOrders.ts";
 import { revolutMerchantRequest } from "../_shared/revolutApi.ts";
 import { logAuditEvent } from "../_shared/security.ts";
+import { creditCapturedCardTripLedger } from "../_shared/onecabFinanceLedger.ts";
+import {
+  sumVerifiedCapturedFromSessions,
+  sumVerifiedRefundedFromSessions,
+} from "../../../shared/tripHistoryShortfallRecaptureSSOT.ts";
+import {
+  planRecoveryCaptureCompletion,
+  isRecoveryCompletionIdempotent,
+} from "../../../shared/paymentSessionsRecoveryCompletionSSOT.ts";
 
 /**
  * Extract provider processing fee (minor units) from a Revolut order payload.
@@ -267,17 +276,21 @@ Deno.serve(async (req) => {
 
         const { data: tripRow } = await supabase
           .from("trips")
-          .select("final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, estimated_total_pence, capture_amount_pence, authorised_amount_pence, payment_provider, payment_method")
+          .select("final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, estimated_total_pence, capture_amount_pence, authorised_amount_pence, payment_provider, payment_method, driver_id, driver_net_pence, tip_pence, currency_code")
           .eq("id", recoverySession.trip_id)
           .maybeSingle();
 
         const { data: allSessions } = await supabase
           .from("payment_sessions")
-          .select("id, purpose, captured_amount_pence, parent_session_id, provider_order_id, metadata")
+          .select("id, purpose, captured_amount_pence, status, provider_state, refunded_amount_pence, parent_session_id, provider_order_id, metadata")
           .eq("trip_id", recoverySession.trip_id);
 
-        let originalCaptured = 0;
-        let priorRecovery = 0;
+        const verified = sumVerifiedCapturedFromSessions(
+          (allSessions ?? []).filter((s) => s.id !== recoverySession.id),
+        );
+        let originalCaptured = verified.original_captured_pence;
+        let priorRecovery = verified.recaptured_pence;
+        const netRefunded = sumVerifiedRefundedFromSessions(allSessions ?? []);
         let parent: {
           id: string;
           provider_order_id: string | null;
@@ -285,12 +298,6 @@ Deno.serve(async (req) => {
           provider_state?: string | null;
         } | null = null;
         for (const s of allSessions ?? []) {
-          const sAmt = Math.round(Number(s.captured_amount_pence ?? 0));
-          if (String(s.purpose ?? "").toUpperCase() === "PAYMENT_RECOVERY") {
-            if (s.id !== recoverySession.id && sAmt > 0) priorRecovery += sAmt;
-          } else if (sAmt > 0) {
-            originalCaptured += sAmt;
-          }
           if (
             String(s.purpose ?? "").toUpperCase() === "RIDE_BOOKING"
             && (recoveryFull?.parent_session_id == null || s.id === recoveryFull.parent_session_id)
@@ -308,6 +315,13 @@ Deno.serve(async (req) => {
           originalCaptured = Math.round(Number(tripRow?.capture_amount_pence));
         }
 
+        const priorCompletedRecoveryExists = (allSessions ?? []).some(
+          (s) =>
+            s.id !== recoverySession.id
+            && String(s.purpose ?? "").toUpperCase() === "PAYMENT_RECOVERY"
+            && String(s.status ?? "").toUpperCase() === "RECOVERY_COMPLETED",
+        );
+
         // Detect existing trip earning ledger (idempotent wallet gate).
         const { data: existingEarning } = await supabase
           .from("driver_wallet_ledger")
@@ -315,10 +329,6 @@ Deno.serve(async (req) => {
           .eq("related_trip_id", recoverySession.trip_id)
           .eq("type", "TRIP_EARNING_NET")
           .maybeSingle();
-
-        const { planRecoveryCaptureCompletion, isRecoveryCompletionIdempotent } = await import(
-          "../../../shared/paymentSessionsRecoveryCompletionSSOT.ts"
-        );
 
         if (isRecoveryCompletionIdempotent({
           priorRecoveryStatus: recoveryFull?.status ?? recoverySession.status,
@@ -340,6 +350,8 @@ Deno.serve(async (req) => {
             : null,
           originalCapturedPence: originalCaptured,
           priorRecoveryCapturedPence: priorRecovery,
+          netRefundedTotalPence: netRefunded,
+          priorCompletedRecoveryExists,
           finalCustomerFarePence: tripRow?.final_customer_fare_pence,
           finalFarePence: tripRow?.final_fare_pence,
           noShowChargePence: tripRow?.no_show_charge_pence,
@@ -359,6 +371,35 @@ Deno.serve(async (req) => {
         }
         // Never set provider_order_id to the recovery order.
         await supabase.from("trips").update(plan.trip_patch).eq("id", recoverySession.trip_id);
+
+        // Wallet credit only via existing ledger helper after provider-verified capture.
+        // Never double-credit when TRIP_EARNING_NET already exists.
+        if (plan.wallet.write_driver_credit && tripRow?.driver_id) {
+          try {
+            const creditResult = await creditCapturedCardTripLedger(supabase, {
+              driverId: tripRow.driver_id,
+              tripId: recoverySession.trip_id,
+              driverNetPence: Math.max(0, Math.round(Number(tripRow.driver_net_pence ?? 0))),
+              tipPence: Math.max(0, Math.round(Number(tripRow.tip_pence ?? 0))),
+              currency: String(tripRow.currency_code ?? "GBP"),
+              paymentId: recoverySession.id,
+            });
+            await logAuditEvent(supabase, "payment_recovery_wallet_credit", {
+              tripId: recoverySession.trip_id,
+              details: {
+                recovery_session_id: recoverySession.id,
+                credited: creditResult.credited,
+                recovery_pence: creditResult.recovery_pence,
+                write_driver_credit: true,
+              },
+            });
+          } catch (walletErr) {
+            console.error(
+              "[revolut-webhook] recovery wallet credit failed:",
+              (walletErr as Error).message,
+            );
+          }
+        }
 
         await logAuditEvent(supabase, "payment_recovery_completed", {
           tripId: recoverySession.trip_id,
