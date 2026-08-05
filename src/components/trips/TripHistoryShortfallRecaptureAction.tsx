@@ -26,6 +26,10 @@ import {
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
   type TripShortfallRecaptureUiState,
 } from '../../../shared/tripHistoryShortfallRecaptureSSOT';
+import {
+  parseShortfallRecaptureInvokeFailure,
+  shortfallRecaptureUserMessage,
+} from '@/lib/tripHistoryShortfallRecaptureInvoke';
 import { useStaffProfile } from '@/hooks/useStaffProfile';
 
 type Props = {
@@ -58,6 +62,7 @@ export function TripHistoryShortfallRecaptureAction({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [attemptState, setAttemptState] = useState<TripShortfallRecaptureUiState | null>(null);
   const [attemptRef, setAttemptRef] = useState<string | null>(null);
+  const [lastErrorCode, setLastErrorCode] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const { canAccessPage, staffProfile } = useStaffProfile();
   // Dedicated permission only (super_admin may have it by default / role matrix).
@@ -90,9 +95,14 @@ export function TripHistoryShortfallRecaptureAction({
       const { data, error } = await supabase.functions.invoke('admin-recapture-trip-shortfall', {
         body: { trip_id: tripId },
       });
-      if (error) throw new Error(error.message || 'Recapture request failed');
-      if (data?.error) throw new Error(data.error || data.message || 'Recapture request failed');
-      return data as {
+      const payload = (data ?? null) as Record<string, unknown> | null;
+      if (error || payload?.error || payload?.success === false) {
+        const parsed = await parseShortfallRecaptureInvokeFailure(error, payload);
+        throw Object.assign(new Error(shortfallRecaptureUserMessage(parsed)), {
+          shortfallError: parsed,
+        });
+      }
+      return payload as {
         status?: string;
         requires_customer_action?: boolean;
         checkout_url?: string | null;
@@ -108,6 +118,7 @@ export function TripHistoryShortfallRecaptureAction({
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['admin-payment-state', tripId] });
       queryClient.invalidateQueries({ queryKey: ['admin-payment-capture-context', tripId] });
+      setLastErrorCode(null);
       setAttemptRef(data.payment_session_id ?? data.provider_order_id ?? null);
       if (data.already_completed) {
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID);
@@ -139,9 +150,31 @@ export function TripHistoryShortfallRecaptureAction({
       }
       onComplete?.();
     },
-    onError: (err: Error) => {
-      setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED);
-      toast.error(err.message);
+    onError: (err: Error & { shortfallError?: {
+      code: string;
+      retryable: boolean;
+      attempt_id: string | null;
+      provider_attempt_created: boolean;
+    } }) => {
+      const parsed = err.shortfallError;
+      setLastErrorCode(parsed?.code ?? 'RECAPTURE_FAILED');
+      setAttemptRef(parsed?.attempt_id ?? null);
+      if (parsed?.code === 'PAYMENT_METHOD_UNAVAILABLE' || parsed?.code === 'payment_method_unavailable') {
+        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.PAYMENT_METHOD_UNAVAILABLE);
+      } else if (parsed?.code === 'CUSTOMER_ACTION_REQUIRED' || parsed?.code === 'customer_action_required') {
+        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED);
+      } else if (parsed && parsed.retryable === false) {
+        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED);
+      } else {
+        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED);
+      }
+      toast.error(err.message, {
+        description: parsed?.provider_attempt_created
+          ? 'A provider attempt may already exist — do not create another charge until reconciled.'
+          : parsed?.code
+            ? `Code: ${parsed.code}`
+            : undefined,
+      });
     },
   });
 
@@ -181,11 +214,27 @@ export function TripHistoryShortfallRecaptureAction({
         <Badge variant="outline" className="bg-amber-500/10 text-amber-800 border-amber-500/40">
           Customer action required
         </Badge>
+        <div className="text-xs text-muted-foreground">
+          Customer authentication is required to collect this outstanding payment.
+        </div>
         {attemptRef && (
           <div className="text-[10px] text-muted-foreground font-mono">
             Ref: {attemptRef.slice(0, 12)}…
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.PAYMENT_METHOD_UNAVAILABLE) {
+    return (
+      <div className="space-y-1">
+        <Badge variant="outline" className="text-muted-foreground">
+          Payment method unavailable
+        </Badge>
+        <div className="text-xs text-muted-foreground">
+          The customer’s payment method is unavailable for recapture. Shortfall preserved.
+        </div>
       </div>
     );
   }
@@ -196,6 +245,12 @@ export function TripHistoryShortfallRecaptureAction({
         <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/40">
           Recapture failed
         </Badge>
+        {lastErrorCode && (
+          <div className="text-[10px] text-muted-foreground font-mono">
+            {lastErrorCode}
+            {attemptRef ? ` · ${attemptRef.slice(0, 12)}…` : ''}
+          </div>
+        )}
         {gate.eligible && outstanding > 0 && (
           <Button size="sm" variant="outline" onClick={() => setConfirmOpen(true)}>
             Retry {label}
@@ -233,13 +288,6 @@ export function TripHistoryShortfallRecaptureAction({
   }
 
   if (!gate.eligible || outstanding <= 0) {
-    if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.PAYMENT_METHOD_UNAVAILABLE) {
-      return (
-        <Badge variant="outline" className="text-muted-foreground">
-          Payment method unavailable
-        </Badge>
-      );
-    }
     if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.PROVIDER_SETTLEMENT_PENDING) {
       return (
         <Badge variant="outline" className="bg-amber-500/10 text-amber-800 border-amber-500/40">
