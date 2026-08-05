@@ -1,13 +1,25 @@
 /**
- * Edge mirror of scheduled rides urgent-fallback gate.
- * Keep in sync with shared/scheduledRidesPolicySSOT.ts#shouldUseUrgentFallbackTrigger.
+ * Edge re-export of scheduled rides policy SSOT.
+ * Keep consumers on this path so Deno functions share one Admin policy contract.
  */
-export function shouldUseUrgentFallbackTrigger(input: {
-  confirmedDriverId?: string | null;
-  enableScheduledToUrgentConversion?: boolean;
-}): boolean {
-  if (input.enableScheduledToUrgentConversion === false) return false;
-  const id = input.confirmedDriverId;
-  if (typeof id === "string" && id.trim().length > 0) return false;
-  return true;
-}
+export {
+  SCHEDULED_BOOKING_POLICY_DEFAULTS,
+  SCHEDULED_COMMITMENT_POLICY_DEFAULTS,
+  SCHEDULED_COMMITMENT_POLICY_KEYS,
+  buildSaCommitmentOverridePayload,
+  computeDynamicScheduledTiming,
+  evaluateScheduledStackingFeasibility,
+  findOverlappingScheduledCommitments,
+  gateStackedOfferAgainstScheduledCommitments,
+  hasOverlappingScheduledCommitments,
+  mapCommitmentPolicyFromDb,
+  mapCommitmentPolicyToDb,
+  parseSaCommitmentOverride,
+  resolveScheduledCommitmentPolicy,
+  resolveScheduledDispatchPath,
+  shouldUseUrgentFallbackTrigger,
+  tripSignalsIndicateAirport,
+  validateSaCommitmentOverride,
+  validateScheduledBookingPolicy,
+  validateScheduledCommitmentPolicy,
+} from "../../../shared/scheduledRidesPolicySSOT.ts";

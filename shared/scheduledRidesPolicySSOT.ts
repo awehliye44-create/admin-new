@@ -119,6 +119,20 @@ export const STACKING_PROTECTION_FLAGS = [
 ] as const;
 
 /**
+ * Pure airport signal for stacking gate (Admin flag allow_airport_stacking).
+ * Charge pence and/or custom zone_type === "airport".
+ */
+export function tripSignalsIndicateAirport(input: {
+  airportChargePence?: number | null;
+  zoneTypes?: Array<string | null | undefined>;
+}): boolean {
+  if (Number(input.airportChargePence ?? 0) > 0) return true;
+  return (input.zoneTypes ?? []).some(
+    (t) => (t ?? "").toLowerCase().trim() === "airport",
+  );
+}
+
+/**
  * Reminder policies owned by Notifications & Alerts (SSOT).
  * Reminders tab links here — does not duplicate sound/content.
  */
@@ -259,22 +273,111 @@ export function mapCommitmentPolicyToDb(
   return out;
 }
 
+/** Admin field metadata for Commitment Policy knobs (global + SA overrides). */
+export const COMMITMENT_POLICY_FIELD_DEFS: ReadonlyArray<{
+  key: ScheduledCommitmentPolicyKey;
+  label: string;
+  help: string;
+}> = [
+  {
+    key: "check_in_min_lead_minutes",
+    label: "Check-in minimum lead time (minutes)",
+    help: "Earliest check-in may open relative to pickup (policy floor).",
+  },
+  {
+    key: "check_in_grace_minutes",
+    label: "Check-in grace period (minutes)",
+    help: "Grace after check-in due before missed handling.",
+  },
+  {
+    key: "early_arrival_buffer_minutes",
+    label: "Required early-arrival buffer (minutes)",
+    help: "Buffer requiring arrival before scheduled pickup.",
+  },
+  {
+    key: "safety_buffer_minutes",
+    label: "General safety buffer (minutes)",
+    help: "Extra margin applied in commitment timing.",
+  },
+  {
+    key: "start_journey_grace_minutes",
+    label: "Start journey grace period (minutes)",
+    help: "Grace after Start journey due before missed handling.",
+  },
+  {
+    key: "driver_location_freshness_seconds",
+    label: "Driver location freshness limit (seconds)",
+    help: "Max age of driver presence for commitment calculations.",
+  },
+  {
+    key: "driver_response_timeout_minutes",
+    label: "Driver response timeout (minutes)",
+    help: "How long a confirmed driver has to respond after activation.",
+  },
+  {
+    key: "not_moving_detection_minutes",
+    label: "Not-moving detection period (minutes)",
+    help: "How long without movement before risk signals.",
+  },
+  {
+    key: "rescue_search_lead_minutes",
+    label: "Rescue search lead time (minutes)",
+    help: "When rescue search may start before expected failure.",
+  },
+  {
+    key: "admin_escalation_lead_minutes",
+    label: "Admin escalation lead time (minutes)",
+    help: "Must be ≥ rescue lead — alert Admin early enough.",
+  },
+  {
+    key: "scheduled_turnaround_buffer_minutes",
+    label: "Scheduled turnaround buffer (minutes)",
+    help: "Turnaround between consecutive scheduled jobs.",
+  },
+  {
+    key: "min_gap_between_scheduled_minutes",
+    label: "Minimum gap between scheduled jobs (minutes)",
+    help: "Must be ≥ turnaround buffer.",
+  },
+  {
+    key: "expected_pickup_waiting_minutes",
+    label: "Expected pickup-waiting allowance (minutes)",
+    help: "Expected wait at pickup in feasibility math.",
+  },
+  {
+    key: "expected_stop_waiting_minutes",
+    label: "Expected stop-waiting allowance (minutes)",
+    help: "Expected wait at intermediate stops.",
+  },
+  {
+    key: "eta_risk_tolerance_minutes",
+    label: "ETA risk tolerance (minutes)",
+    help: "How much ETA slip before at-risk signalling.",
+  },
+  {
+    key: "pickup_access_allowance_minutes",
+    label: "Pickup access allowance default (minutes)",
+    help: "System/SA default for airports/stations/venues/restricted; zones may override.",
+  },
+] as const;
+
 /**
- * Resolve effective commitment policy.
- * sources order for scalar knobs: SA override → global → defaults
- * access allowance: location → SA → global → defaults
+ * Parse optional SA commitment override from jsonb blob or flat SA row.
+ * Empty / missing keys mean inherit global (or schema defaults).
  */
-function extractSaOverridePartial(
-  serviceArea: Record<string, unknown>,
+export function parseSaCommitmentOverride(
+  serviceAreaOrBlob: Record<string, unknown> | null | undefined,
 ): Partial<ScheduledCommitmentPolicy> {
+  if (!serviceAreaOrBlob) return {};
+
   const blob =
-    serviceArea.scheduled_commitment_policy &&
-    typeof serviceArea.scheduled_commitment_policy === "object" &&
-    !Array.isArray(serviceArea.scheduled_commitment_policy)
-      ? (serviceArea.scheduled_commitment_policy as Record<string, unknown>)
+    serviceAreaOrBlob.scheduled_commitment_policy &&
+    typeof serviceAreaOrBlob.scheduled_commitment_policy === "object" &&
+    !Array.isArray(serviceAreaOrBlob.scheduled_commitment_policy)
+      ? (serviceAreaOrBlob.scheduled_commitment_policy as Record<string, unknown>)
       : null;
 
-  const source = blob ?? serviceArea;
+  const source = blob ?? serviceAreaOrBlob;
   const partial: Partial<ScheduledCommitmentPolicy> = {};
   for (const key of SCHEDULED_COMMITMENT_POLICY_KEYS) {
     if (source[key] != null) {
@@ -285,6 +388,46 @@ function extractSaOverridePartial(
     }
   }
   return partial;
+}
+
+/**
+ * Persist SA overrides. Returns null when nothing overrides (inherit global).
+ * Does not create a separate workflow — storage only.
+ */
+export function buildSaCommitmentOverridePayload(
+  overrides: Partial<
+    Record<ScheduledCommitmentPolicyKey, number | null | undefined>
+  >,
+): Record<string, number> | null {
+  const out: Record<string, number> = {};
+  for (const key of SCHEDULED_COMMITMENT_POLICY_KEYS) {
+    const v = overrides[key];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
+      out[key] = v;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * Validate SA override against effective merged policy (override on top of base).
+ */
+export function validateSaCommitmentOverride(
+  partial: Partial<ScheduledCommitmentPolicy>,
+  base: ScheduledCommitmentPolicy = SCHEDULED_COMMITMENT_POLICY_DEFAULTS,
+): ValidationIssue[] {
+  return validateScheduledCommitmentPolicy({ ...base, ...partial });
+}
+
+/**
+ * Resolve effective commitment policy.
+ * sources order for scalar knobs: SA override → global → defaults
+ * access allowance: location → SA → global → defaults
+ */
+function extractSaOverridePartial(
+  serviceArea: Record<string, unknown>,
+): Partial<ScheduledCommitmentPolicy> {
+  return parseSaCommitmentOverride(serviceArea);
 }
 
 export function resolveScheduledCommitmentPolicy(input: {
@@ -465,4 +608,391 @@ export function stackingDoesNotBypassCommitmentProtection(flags: {
   // the Admin-facing invariant for tests — runtime feasibility is authoritative.
   void flags;
   return true;
+}
+
+// ─── Dynamic timing + stacking feasibility (pure contracts for runtime) ───
+
+/** Runtime-supplied inputs; Admin knobs never invent live ETA/location. */
+export type ScheduledDynamicTimingInput = {
+  scheduledPickupAt: string | Date;
+  /** Traffic-aware travel minutes from driver (after workload) to pickup. */
+  travelEtaMinutes: number;
+  /** Remaining active + stacked trip minutes before the driver is free. */
+  activeWorkloadMinutes?: number;
+  /** Pickup-waiting minutes on the path (defaults to policy expected). */
+  pickupWaitingMinutes?: number;
+  /** Intermediate stop-waiting minutes on the path (defaults to policy expected × stops). */
+  stopWaitingMinutes?: number;
+  stopCount?: number;
+  now?: string | Date;
+};
+
+export type ScheduledDynamicTimingResult = {
+  /** Earliest check-in may open (policy floor vs pickup). */
+  checkInOpensAt: string;
+  checkInGraceEndsAt: string;
+  /** Dynamic leave-by from pickup − (ETA + workload + waits + buffers + access). */
+  leaveByAt: string;
+  startJourneyDueAt: string;
+  startJourneyGraceEndsAt: string;
+  /** Projected arrival at pickup if leave-by is met. */
+  projectedArrivalAt: string;
+  requiredArrivalLeadMinutes: number;
+  totalLeadMinutesBeforePickup: number;
+  atRiskThresholdAt: string;
+  rescueSearchAt: string;
+  adminEscalationAt: string;
+  /** True when computed leave-by is before check-in opens (tight commitment). */
+  leaveByBeforeCheckInOpen: boolean;
+  /** True when projected arrival would miss early-arrival window. */
+  projectedMissesEarlyArrival: boolean;
+};
+
+function toDate(value: string | Date): Date {
+  return value instanceof Date ? value : new Date(value);
+}
+
+function toIso(d: Date): string {
+  return d.toISOString();
+}
+
+function addMinutes(d: Date, minutes: number): Date {
+  return new Date(d.getTime() + minutes * 60_000);
+}
+
+function finiteNonNeg(n: unknown, fallback = 0): number {
+  if (typeof n === "number" && Number.isFinite(n) && n >= 0) return n;
+  return fallback;
+}
+
+/**
+ * Convert commitment knobs + live runtime inputs into dynamic timing milestones.
+ * Does not call maps/traffic — consumers supply travelEtaMinutes / workload.
+ * Confirmed-driver path only; no-preconfirmed uses urgent fixed trigger instead.
+ */
+export function computeDynamicScheduledTiming(
+  policy: ScheduledCommitmentPolicy,
+  input: ScheduledDynamicTimingInput,
+): ScheduledDynamicTimingResult {
+  const pickup = toDate(input.scheduledPickupAt);
+  const travel = finiteNonNeg(input.travelEtaMinutes);
+  const workload = finiteNonNeg(input.activeWorkloadMinutes);
+  const pickupWait =
+    input.pickupWaitingMinutes != null
+      ? finiteNonNeg(input.pickupWaitingMinutes)
+      : policy.expected_pickup_waiting_minutes;
+  const stopWait =
+    input.stopWaitingMinutes != null
+      ? finiteNonNeg(input.stopWaitingMinutes)
+      : policy.expected_stop_waiting_minutes *
+        finiteNonNeg(input.stopCount, 0);
+
+  const requiredArrivalLeadMinutes =
+    policy.early_arrival_buffer_minutes +
+    policy.safety_buffer_minutes +
+    policy.pickup_access_allowance_minutes;
+
+  const totalLeadMinutesBeforePickup =
+    travel + workload + pickupWait + stopWait + requiredArrivalLeadMinutes;
+
+  const leaveByAt = addMinutes(pickup, -totalLeadMinutesBeforePickup);
+  const checkInOpensAt = addMinutes(pickup, -policy.check_in_min_lead_minutes);
+  const checkInGraceEndsAt = addMinutes(
+    checkInOpensAt,
+    policy.check_in_grace_minutes,
+  );
+  const startJourneyDueAt = leaveByAt;
+  const startJourneyGraceEndsAt = addMinutes(
+    startJourneyDueAt,
+    policy.start_journey_grace_minutes,
+  );
+  const projectedArrivalAt = addMinutes(
+    leaveByAt,
+    travel + workload + pickupWait + stopWait,
+  );
+  const earlyArrivalDeadline = addMinutes(
+    pickup,
+    -policy.early_arrival_buffer_minutes,
+  );
+  const atRiskThresholdAt = addMinutes(
+    earlyArrivalDeadline,
+    -policy.eta_risk_tolerance_minutes,
+  );
+  const rescueSearchAt = addMinutes(pickup, -policy.rescue_search_lead_minutes);
+  const adminEscalationAt = addMinutes(
+    pickup,
+    -policy.admin_escalation_lead_minutes,
+  );
+
+  return {
+    checkInOpensAt: toIso(checkInOpensAt),
+    checkInGraceEndsAt: toIso(checkInGraceEndsAt),
+    leaveByAt: toIso(leaveByAt),
+    startJourneyDueAt: toIso(startJourneyDueAt),
+    startJourneyGraceEndsAt: toIso(startJourneyGraceEndsAt),
+    projectedArrivalAt: toIso(projectedArrivalAt),
+    requiredArrivalLeadMinutes,
+    totalLeadMinutesBeforePickup,
+    atRiskThresholdAt: toIso(atRiskThresholdAt),
+    rescueSearchAt: toIso(rescueSearchAt),
+    adminEscalationAt: toIso(adminEscalationAt),
+    leaveByBeforeCheckInOpen: leaveByAt.getTime() < checkInOpensAt.getTime(),
+    projectedMissesEarlyArrival:
+      projectedArrivalAt.getTime() > earlyArrivalDeadline.getTime(),
+  };
+}
+
+export type ScheduledCommitmentSlot = {
+  id?: string;
+  scheduledPickupAt: string | Date;
+  /** Estimated job length from arrival through drop-off (minutes). */
+  estimatedJobMinutes: number;
+};
+
+export type OverlappingCommitmentIssue = {
+  earlierId?: string;
+  laterId?: string;
+  earlierPickupAt: string;
+  laterPickupAt: string;
+  gapMinutes: number;
+  requiredGapMinutes: number;
+  reason: "overlapping_scheduled_commitments" | "below_min_gap";
+};
+
+/**
+ * No overlapping scheduled commitments: consecutive pickups must respect
+ * min_gap_between_scheduled_minutes (≥ turnaround). Job length on the earlier
+ * commitment also cannot overrun into the later pickup − arrival buffers.
+ */
+export function findOverlappingScheduledCommitments(
+  commitments: ScheduledCommitmentSlot[],
+  policy: ScheduledCommitmentPolicy,
+): OverlappingCommitmentIssue[] {
+  const requiredGap = Math.max(
+    policy.min_gap_between_scheduled_minutes,
+    policy.scheduled_turnaround_buffer_minutes,
+  );
+  const arrivalLead =
+    policy.early_arrival_buffer_minutes +
+    policy.safety_buffer_minutes +
+    policy.pickup_access_allowance_minutes;
+
+  const sorted = [...commitments].sort(
+    (a, b) =>
+      toDate(a.scheduledPickupAt).getTime() -
+      toDate(b.scheduledPickupAt).getTime(),
+  );
+  const issues: OverlappingCommitmentIssue[] = [];
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const earlier = sorted[i]!;
+    const later = sorted[i + 1]!;
+    const earlierPickup = toDate(earlier.scheduledPickupAt);
+    const laterPickup = toDate(later.scheduledPickupAt);
+    const gapMinutes =
+      (laterPickup.getTime() - earlierPickup.getTime()) / 60_000;
+
+    if (gapMinutes < requiredGap) {
+      issues.push({
+        earlierId: earlier.id,
+        laterId: later.id,
+        earlierPickupAt: toIso(earlierPickup),
+        laterPickupAt: toIso(laterPickup),
+        gapMinutes,
+        requiredGapMinutes: requiredGap,
+        reason: "below_min_gap",
+      });
+      continue;
+    }
+
+    const earlierDone = addMinutes(
+      earlierPickup,
+      finiteNonNeg(earlier.estimatedJobMinutes) +
+        policy.scheduled_turnaround_buffer_minutes,
+    );
+    const laterMustArriveBy = addMinutes(laterPickup, -arrivalLead);
+    if (earlierDone.getTime() > laterMustArriveBy.getTime()) {
+      issues.push({
+        earlierId: earlier.id,
+        laterId: later.id,
+        earlierPickupAt: toIso(earlierPickup),
+        laterPickupAt: toIso(laterPickup),
+        gapMinutes,
+        requiredGapMinutes: requiredGap,
+        reason: "overlapping_scheduled_commitments",
+      });
+    }
+  }
+
+  return issues;
+}
+
+export function hasOverlappingScheduledCommitments(
+  commitments: ScheduledCommitmentSlot[],
+  policy: ScheduledCommitmentPolicy,
+): boolean {
+  return findOverlappingScheduledCommitments(commitments, policy).length > 0;
+}
+
+export type StackingQueueLeg = {
+  kind: "active" | "stacked" | "candidate" | "scheduled";
+  /** Remaining or estimated duration until this leg frees the driver (minutes). */
+  durationMinutes: number;
+  /** Required when kind === "scheduled" — pickup that must not be delayed. */
+  scheduledPickupAt?: string | Date;
+  id?: string;
+};
+
+export type ScheduledStackingFeasibilityInput = {
+  allowScheduledStacking: boolean;
+  policy: ScheduledCommitmentPolicy;
+  /** Full queue in order, including the candidate stack offer. */
+  queue: StackingQueueLeg[];
+  now?: string | Date;
+};
+
+export type ScheduledStackingFeasibilityResult = {
+  allowed: boolean;
+  reason:
+    | "ok"
+    | "stacked_scheduled_blocked"
+    | "scheduled_pickup_would_be_delayed"
+    | "overlapping_scheduled_commitments"
+    | "empty_queue";
+  delayedCommitmentId?: string;
+  delayedPickupAt?: string;
+  projectedArrivalAt?: string;
+  overlapIssues?: OverlappingCommitmentIssue[];
+};
+
+/**
+ * Scheduled stacking only when full-queue feasibility proves no scheduled
+ * pickup is delayed. Airport / waiting stacking flags never bypass this.
+ */
+export function evaluateScheduledStackingFeasibility(
+  input: ScheduledStackingFeasibilityInput,
+): ScheduledStackingFeasibilityResult {
+  const { policy, queue } = input;
+  if (!queue.length) {
+    return { allowed: false, reason: "empty_queue" };
+  }
+
+  const hasScheduledInQueue = queue.some(
+    (leg) => leg.kind === "scheduled" && leg.scheduledPickupAt != null,
+  );
+  if (hasScheduledInQueue && !input.allowScheduledStacking) {
+    return { allowed: false, reason: "stacked_scheduled_blocked" };
+  }
+
+  const scheduledSlots: ScheduledCommitmentSlot[] = queue
+    .filter((leg) => leg.kind === "scheduled" && leg.scheduledPickupAt != null)
+    .map((leg) => ({
+      id: leg.id,
+      scheduledPickupAt: leg.scheduledPickupAt!,
+      estimatedJobMinutes: finiteNonNeg(leg.durationMinutes),
+    }));
+
+  const overlapIssues = findOverlappingScheduledCommitments(
+    scheduledSlots,
+    policy,
+  );
+  if (overlapIssues.length > 0) {
+    return {
+      allowed: false,
+      reason: "overlapping_scheduled_commitments",
+      overlapIssues,
+    };
+  }
+
+  const arrivalLead =
+    policy.early_arrival_buffer_minutes +
+    policy.safety_buffer_minutes +
+    policy.pickup_access_allowance_minutes;
+
+  let cursor = toDate(input.now ?? new Date());
+
+  for (const leg of queue) {
+    if (leg.kind === "scheduled" && leg.scheduledPickupAt != null) {
+      const pickup = toDate(leg.scheduledPickupAt);
+      const mustArriveBy = addMinutes(pickup, -arrivalLead);
+      // Driver must be free by mustArriveBy; cursor is when current work ends.
+      if (cursor.getTime() > mustArriveBy.getTime()) {
+        return {
+          allowed: false,
+          reason: "scheduled_pickup_would_be_delayed",
+          delayedCommitmentId: leg.id,
+          delayedPickupAt: toIso(pickup),
+          projectedArrivalAt: toIso(cursor),
+        };
+      }
+      // Arrive by early-arrival window, then run the scheduled job + turnaround.
+      const arriveAt =
+        cursor.getTime() < mustArriveBy.getTime() ? mustArriveBy : cursor;
+      cursor = addMinutes(
+        arriveAt,
+        finiteNonNeg(leg.durationMinutes) +
+          policy.scheduled_turnaround_buffer_minutes +
+          policy.expected_pickup_waiting_minutes,
+      );
+    } else {
+      cursor = addMinutes(cursor, finiteNonNeg(leg.durationMinutes));
+    }
+  }
+
+  return { allowed: true, reason: "ok" };
+}
+
+/**
+ * Gate used by schedule-dispatch / activation consumers:
+ * confirmed → dynamic policy path; no-preconfirmed → urgent fixed trigger.
+ */
+export function resolveScheduledDispatchPath(input: {
+  confirmedDriverId?: string | null;
+  enableScheduledToUrgentConversion?: boolean;
+}): "urgent_fallback" | "confirmed_driver_dynamic_policy" | "urgent_conversion_disabled" {
+  if (
+    typeof input.confirmedDriverId === "string" &&
+    input.confirmedDriverId.trim().length > 0
+  ) {
+    return "confirmed_driver_dynamic_policy";
+  }
+  if (input.enableScheduledToUrgentConversion === false) {
+    return "urgent_conversion_disabled";
+  }
+  return "urgent_fallback";
+}
+
+/**
+ * Convenience wrapper for auto-dispatch / offer consumers:
+ * active remaining + candidate stack offer + later scheduled commitments.
+ */
+export function gateStackedOfferAgainstScheduledCommitments(input: {
+  allowScheduledStacking: boolean;
+  policy: ScheduledCommitmentPolicy;
+  activeRemainingMinutes: number;
+  candidateDurationMinutes: number;
+  scheduledCommitments: ScheduledCommitmentSlot[];
+  now?: string | Date;
+}): ScheduledStackingFeasibilityResult {
+  return evaluateScheduledStackingFeasibility({
+    allowScheduledStacking: input.allowScheduledStacking,
+    policy: input.policy,
+    now: input.now,
+    queue: [
+      {
+        kind: "active",
+        durationMinutes: finiteNonNeg(input.activeRemainingMinutes),
+      },
+      {
+        kind: "candidate",
+        durationMinutes: finiteNonNeg(input.candidateDurationMinutes),
+      },
+      ...input.scheduledCommitments.map((c) => ({
+        kind: "scheduled" as const,
+        id: c.id,
+        durationMinutes: finiteNonNeg(c.estimatedJobMinutes),
+        scheduledPickupAt: c.scheduledPickupAt,
+      })),
+    ],
+  });
 }

@@ -5,12 +5,16 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
+import {
+  SCHEDULED_BOOKING_POLICY_DEFAULTS,
+  validateScheduledBookingPolicy,
+} from "../_shared/scheduledRidesPolicy.ts";
 
 /**
  * validate-scheduled-booking
  *
  * Called by customer/driver apps BEFORE creating a scheduled trip.
- * Validates against admin-configured rules in dispatch_settings:
+ * Validates against admin-configured rules in global_dispatch_settings:
  *   - scheduled_rides_enabled
  *   - min_advance_time_minutes
  *   - max_advance_days
@@ -55,12 +59,25 @@ serve(async (req) => {
       });
     }
 
+    // 2. Resolve policy (always echo so clients can bound the picker).
+    const minAdvance =
+      ds.min_advance_time_minutes ??
+      SCHEDULED_BOOKING_POLICY_DEFAULTS.min_advance_time_minutes;
+    const maxDays =
+      ds.max_advance_days ?? SCHEDULED_BOOKING_POLICY_DEFAULTS.max_advance_days;
+
+    const policyEcho = {
+      min_advance_minutes: minAdvance,
+      max_advance_days: maxDays,
+    };
+
     // 1. Check scheduled_rides_enabled
     if (!ds.scheduled_rides_enabled) {
       return successResponse({
         valid: false,
         reason: "Scheduled rides are not available in this area.",
         code: "DISABLED",
+        ...policyEcho,
       });
     }
 
@@ -68,33 +85,42 @@ serve(async (req) => {
     const now = new Date();
     const minutesUntilPickup = (scheduledDate.getTime() - now.getTime()) / 60000;
 
-    // 2. Check min_advance_time_minutes
-    const minAdvance = ds.min_advance_time_minutes ?? 30;
+    const policyIssues = validateScheduledBookingPolicy({
+      min_advance_time_minutes: minAdvance,
+      max_advance_days: maxDays,
+    });
+    if (policyIssues.length > 0) {
+      return successResponse({
+        valid: false,
+        reason: policyIssues[0]?.message ?? "Invalid scheduled booking policy.",
+        code: "INVALID_POLICY",
+        ...policyEcho,
+      });
+    }
+
     if (minutesUntilPickup < minAdvance) {
       return successResponse({
         valid: false,
         reason: `Pickup must be at least ${minAdvance} minutes from now.`,
-        code: "TOO_SOON",
-        min_advance_minutes: minAdvance,
+        code: "SCHEDULED_PICKUP_TOO_SOON",
+        ...policyEcho,
       });
     }
 
     // 3. Check max_advance_days
-    const maxDays = ds.max_advance_days ?? 30;
     const daysUntilPickup = minutesUntilPickup / 1440;
     if (daysUntilPickup > maxDays) {
       return successResponse({
         valid: false,
         reason: `Pickup cannot be more than ${maxDays} days in the future.`,
-        code: "TOO_FAR",
-        max_advance_days: maxDays,
+        code: "SCHEDULED_PICKUP_TOO_FAR",
+        ...policyEcho,
       });
     }
 
     return successResponse({
       valid: true,
-      min_advance_minutes: minAdvance,
-      max_advance_days: maxDays,
+      ...policyEcho,
     });
   } catch (err) {
     console.error("[validate-scheduled-booking] Error:", err);

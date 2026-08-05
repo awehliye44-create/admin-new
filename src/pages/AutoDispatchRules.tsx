@@ -24,16 +24,19 @@ import {
   Percent,
   Timer,
   Loader2,
-  CheckCircle2
+  CheckCircle2,
+  Navigation
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { StackedRidesHelpPanel } from '@/components/dispatch/StackedRidesHelpPanel';
+import { ServiceAreaScheduledCommitmentOverrides } from '@/components/dispatch/ServiceAreaScheduledCommitmentOverrides';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-// useServiceAreas removed — dispatch config is global
+// Global dispatch scoring stays system-wide; SA commitment overrides are optional below.
 import { useRegions } from '@/hooks/useRegions';
 import { convertDistance, convertToKm, getDistanceUnitShort } from '@/lib/regionSettings';
 import {
+  COMMITMENT_POLICY_FIELD_DEFS,
   SCHEDULED_COMMITMENT_POLICY_DEFAULTS,
   SCHEDULED_REMINDER_POLICY_LINKS,
   STACKING_SCHEDULED_COMMITMENT_HELP,
@@ -43,6 +46,7 @@ import {
   validateScheduledBookingPolicy,
   validateScheduledCommitmentPolicy,
   type ScheduledCommitmentPolicy,
+  type ScheduledCommitmentPolicyKey,
 } from '../../shared/scheduledRidesPolicySSOT';
 
 interface DispatchSettings {
@@ -81,6 +85,16 @@ interface DispatchSettings {
   allowScheduledStacking: boolean;
   allowStackingDuringPickupWaiting: boolean;
   allowStackingDuringStopWaiting: boolean;
+
+  // Towards Destination (policy layer)
+  towardsDestinationEnabled: boolean;
+  towardsDestinationDailyLimit: number;
+  towardsDestinationDurationMinutes: number;
+  towardsDestinationMatchingToleranceMeters: number;
+  towardsDestinationMinProgressMeters: number;
+  towardsDestinationMaxPickupDetourMeters: number;
+  towardsDestinationArrivalRadiusMeters: number;
+  towardsDestinationPriorityWeight: number;
 
   // Scheduled Rides (policy layer)
   scheduledRidesEnabled: boolean;
@@ -148,6 +162,15 @@ const defaultSettings: DispatchSettings = {
   allowStackingDuringPickupWaiting: false,
   allowStackingDuringStopWaiting: false,
 
+  towardsDestinationEnabled: true,
+  towardsDestinationDailyLimit: 5,
+  towardsDestinationDurationMinutes: 60,
+  towardsDestinationMatchingToleranceMeters: 200,
+  towardsDestinationMinProgressMeters: 100,
+  towardsDestinationMaxPickupDetourMeters: 8000,
+  towardsDestinationArrivalRadiusMeters: 500,
+  towardsDestinationPriorityWeight: 12,
+
   scheduledRidesEnabled: true,
   minAdvanceTimeMinutes: 15,
   maxAdvanceDays: 30,
@@ -177,6 +200,29 @@ const defaultSettings: DispatchSettings = {
   blockMultipleActiveRides: false,
   cancelProtection: false,
 
+};
+
+/** Map SSOT commitment keys → AutoDispatchRules state fields. */
+const COMMITMENT_SETTINGS_KEY: Record<
+  ScheduledCommitmentPolicyKey,
+  keyof DispatchSettings
+> = {
+  check_in_min_lead_minutes: 'checkInMinLeadMinutes',
+  check_in_grace_minutes: 'checkInGraceMinutes',
+  early_arrival_buffer_minutes: 'earlyArrivalBufferMinutes',
+  safety_buffer_minutes: 'safetyBufferMinutes',
+  start_journey_grace_minutes: 'startJourneyGraceMinutes',
+  driver_location_freshness_seconds: 'driverLocationFreshnessSeconds',
+  driver_response_timeout_minutes: 'lockedDriverResponseMinutes',
+  not_moving_detection_minutes: 'notMovingDetectionMinutes',
+  rescue_search_lead_minutes: 'rescueSearchLeadMinutes',
+  admin_escalation_lead_minutes: 'adminEscalationLeadMinutes',
+  scheduled_turnaround_buffer_minutes: 'scheduledTurnaroundBufferMinutes',
+  min_gap_between_scheduled_minutes: 'minGapBetweenScheduledMinutes',
+  expected_pickup_waiting_minutes: 'expectedPickupWaitingMinutes',
+  expected_stop_waiting_minutes: 'expectedStopWaitingMinutes',
+  eta_risk_tolerance_minutes: 'etaRiskToleranceMinutes',
+  pickup_access_allowance_minutes: 'pickupAccessAllowanceMinutes',
 };
 
 // DB stores all distances in METERS. UI keeps km-named state for display conversion.
@@ -211,6 +257,15 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => {
   allowScheduledStacking: Boolean(data.allow_scheduled_stacking),
   allowStackingDuringPickupWaiting: Boolean(data.allow_stacking_during_pickup_waiting),
   allowStackingDuringStopWaiting: Boolean(data.allow_stacking_during_stop_waiting),
+
+  towardsDestinationEnabled: data.towards_destination_enabled !== false,
+  towardsDestinationDailyLimit: Number(data.towards_destination_daily_limit ?? defaultSettings.towardsDestinationDailyLimit),
+  towardsDestinationDurationMinutes: Number(data.towards_destination_duration_minutes ?? defaultSettings.towardsDestinationDurationMinutes),
+  towardsDestinationMatchingToleranceMeters: Number(data.towards_destination_matching_tolerance_meters ?? defaultSettings.towardsDestinationMatchingToleranceMeters),
+  towardsDestinationMinProgressMeters: Number(data.towards_destination_min_progress_meters ?? defaultSettings.towardsDestinationMinProgressMeters),
+  towardsDestinationMaxPickupDetourMeters: Number(data.towards_destination_max_pickup_detour_meters ?? defaultSettings.towardsDestinationMaxPickupDetourMeters),
+  towardsDestinationArrivalRadiusMeters: Number(data.towards_destination_arrival_radius_meters ?? defaultSettings.towardsDestinationArrivalRadiusMeters),
+  towardsDestinationPriorityWeight: Number(data.towards_destination_priority_weight ?? defaultSettings.towardsDestinationPriorityWeight),
 
   scheduledRidesEnabled: (data.scheduled_rides_enabled as boolean) ?? defaultSettings.scheduledRidesEnabled,
   minAdvanceTimeMinutes: (data.min_advance_time_minutes as number) ?? defaultSettings.minAdvanceTimeMinutes,
@@ -293,6 +348,15 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   allow_scheduled_stacking: !!settings.allowScheduledStacking,
   allow_stacking_during_pickup_waiting: !!settings.allowStackingDuringPickupWaiting,
   allow_stacking_during_stop_waiting: !!settings.allowStackingDuringStopWaiting,
+
+  towards_destination_enabled: !!settings.towardsDestinationEnabled,
+  towards_destination_daily_limit: settings.towardsDestinationDailyLimit,
+  towards_destination_duration_minutes: settings.towardsDestinationDurationMinutes,
+  towards_destination_matching_tolerance_meters: settings.towardsDestinationMatchingToleranceMeters,
+  towards_destination_min_progress_meters: settings.towardsDestinationMinProgressMeters,
+  towards_destination_max_pickup_detour_meters: settings.towardsDestinationMaxPickupDetourMeters,
+  towards_destination_arrival_radius_meters: settings.towardsDestinationArrivalRadiusMeters,
+  towards_destination_priority_weight: settings.towardsDestinationPriorityWeight,
 
   scheduled_rides_enabled: settings.scheduledRidesEnabled,
   min_advance_time_minutes: settings.minAdvanceTimeMinutes,
@@ -740,6 +804,119 @@ export default function AutoDispatchRules() {
         </Card>
 
 
+        {/* Towards Destination Configuration */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Navigation className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <CardTitle>Towards Destination</CardTitle>
+                <CardDescription>
+                  Rolling 24-hour completion limit, directional matching, and arrival radius. Usage is consumed only when the driver reaches the destination.
+                </CardDescription>
+              </div>
+              <Badge variant="outline" className="ml-auto">Policy</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div>
+                <p className="font-medium">Enable Towards Destination</p>
+                <p className="text-sm text-muted-foreground">Drivers can filter offers toward a chosen destination</p>
+              </div>
+              <Switch
+                checked={settings.towardsDestinationEnabled}
+                onCheckedChange={(checked) => updateSetting('towardsDestinationEnabled', checked)}
+                disabled={isLoading}
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label>Completion limit (rolling 24h)</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={settings.towardsDestinationDailyLimit}
+                  onChange={(e) => updateSetting('towardsDestinationDailyLimit', Math.min(20, Math.max(1, parseInt(e.target.value) || 5)))}
+                  disabled={isLoading || !settings.towardsDestinationEnabled}
+                />
+                <p className="text-xs text-muted-foreground">Successful arrivals only — activate/cancel do not count</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Session duration (minutes)</Label>
+                <Input
+                  type="number"
+                  min="5"
+                  max="480"
+                  value={settings.towardsDestinationDurationMinutes}
+                  onChange={(e) => updateSetting('towardsDestinationDurationMinutes', Math.min(480, Math.max(5, parseInt(e.target.value) || 60)))}
+                  disabled={isLoading || !settings.towardsDestinationEnabled}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Arrival radius (metres)</Label>
+                <Input
+                  type="number"
+                  min="50"
+                  max="5000"
+                  value={settings.towardsDestinationArrivalRadiusMeters}
+                  onChange={(e) => updateSetting('towardsDestinationArrivalRadiusMeters', Math.min(5000, Math.max(50, parseInt(e.target.value) || 500)))}
+                  disabled={isLoading || !settings.towardsDestinationEnabled}
+                />
+                <p className="text-xs text-muted-foreground">Completes session and consumes one use when entered</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Matching tolerance (metres)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="5000"
+                  value={settings.towardsDestinationMatchingToleranceMeters}
+                  onChange={(e) => updateSetting('towardsDestinationMatchingToleranceMeters', Math.min(5000, Math.max(0, parseInt(e.target.value) || 0)))}
+                  disabled={isLoading || !settings.towardsDestinationEnabled}
+                />
+                <p className="text-xs text-muted-foreground">Slack on dropoff closer than driver→dest</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Min progress (metres)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="10000"
+                  value={settings.towardsDestinationMinProgressMeters}
+                  onChange={(e) => updateSetting('towardsDestinationMinProgressMeters', Math.min(10000, Math.max(0, parseInt(e.target.value) || 0)))}
+                  disabled={isLoading || !settings.towardsDestinationEnabled}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Max pickup detour (metres)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="50000"
+                  value={settings.towardsDestinationMaxPickupDetourMeters}
+                  onChange={(e) => updateSetting('towardsDestinationMaxPickupDetourMeters', Math.min(50000, Math.max(0, parseInt(e.target.value) || 0)))}
+                  disabled={isLoading || !settings.towardsDestinationEnabled}
+                />
+                <p className="text-xs text-muted-foreground">0 disables the detour gate</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Priority weight</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={settings.towardsDestinationPriorityWeight}
+                  onChange={(e) => updateSetting('towardsDestinationPriorityWeight', Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
+                  disabled={isLoading || !settings.towardsDestinationEnabled}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+
         {/* Stacked Rides Configuration */}
         <Card>
           <CardHeader>
@@ -925,7 +1102,7 @@ export default function AutoDispatchRules() {
                 <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                   <Info className="h-4 w-4 text-blue-600 mt-0.5" />
                   <p className="text-sm text-blue-700 dark:text-blue-400">
-                    System-wide defaults apply to all service areas. Optional SA overrides use <code className="text-xs">dispatch_settings.scheduled_commitment_policy</code>; location access time can be set on Custom Zones. Disabling scheduled rides does not delete stored configuration.
+                    System-wide defaults apply to all service areas. Optional SA overrides are editable on the Commitment Policy tab (<code className="text-xs">dispatch_settings.scheduled_commitment_policy</code>); location access time can be set on Custom Zones. Disabling scheduled rides does not delete stored configuration.
                   </p>
                 </div>
                 <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -1026,36 +1203,32 @@ export default function AutoDispatchRules() {
                   </p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {([
-                    ['checkInMinLeadMinutes', 'Check-in minimum lead time (minutes)', 'Earliest check-in may open relative to pickup (policy floor).'],
-                    ['checkInGraceMinutes', 'Check-in grace period (minutes)', 'Grace after check-in due before missed handling.'],
-                    ['earlyArrivalBufferMinutes', 'Required early-arrival buffer (minutes)', 'Buffer requiring arrival before scheduled pickup.'],
-                    ['safetyBufferMinutes', 'General safety buffer (minutes)', 'Extra margin applied in commitment timing.'],
-                    ['startJourneyGraceMinutes', 'Start journey grace period (minutes)', 'Grace after Start journey due before missed handling.'],
-                    ['driverLocationFreshnessSeconds', 'Driver location freshness limit (seconds)', 'Max age of driver presence for commitment calculations.'],
-                    ['notMovingDetectionMinutes', 'Not-moving detection period (minutes)', 'How long without movement before risk signals.'],
-                    ['rescueSearchLeadMinutes', 'Rescue search lead time (minutes)', 'When rescue search may start before expected failure.'],
-                    ['adminEscalationLeadMinutes', 'Admin escalation lead time (minutes)', 'Must be ≥ rescue lead — alert Admin early enough.'],
-                    ['scheduledTurnaroundBufferMinutes', 'Scheduled turnaround buffer (minutes)', 'Turnaround between consecutive scheduled jobs.'],
-                    ['minGapBetweenScheduledMinutes', 'Minimum gap between scheduled jobs (minutes)', 'Must be ≥ turnaround buffer.'],
-                    ['expectedPickupWaitingMinutes', 'Expected pickup-waiting allowance (minutes)', 'Expected wait at pickup in feasibility math.'],
-                    ['expectedStopWaitingMinutes', 'Expected stop-waiting allowance (minutes)', 'Expected wait at intermediate stops.'],
-                    ['etaRiskToleranceMinutes', 'ETA risk tolerance (minutes)', 'How much ETA slip before at-risk signalling.'],
-                    ['pickupAccessAllowanceMinutes', 'Pickup access allowance default (minutes)', 'System default for airports/stations/venues/restricted; zones may override.'],
-                  ] as const).map(([key, label, help]) => (
-                    <div key={key} className="space-y-2">
-                      <Label>{label}</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        value={settings[key]}
-                        onChange={(e) => updateSetting(key, Math.max(0, parseInt(e.target.value) || 0))}
-                        disabled={isLoading || !settings.scheduledRidesEnabled}
-                      />
-                      <p className="text-xs text-muted-foreground">{help}</p>
-                    </div>
-                  ))}
+                  {COMMITMENT_POLICY_FIELD_DEFS.map(({ key, label, help }) => {
+                    const settingsKey = COMMITMENT_SETTINGS_KEY[key];
+                    return (
+                      <div key={key} className="space-y-2">
+                        <Label>{label}</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={settings[settingsKey] as number}
+                          onChange={(e) =>
+                            updateSetting(
+                              settingsKey,
+                              Math.max(0, parseInt(e.target.value) || 0) as DispatchSettings[typeof settingsKey],
+                            )
+                          }
+                          disabled={isLoading || !settings.scheduledRidesEnabled}
+                        />
+                        <p className="text-xs text-muted-foreground">{help}</p>
+                      </div>
+                    );
+                  })}
                 </div>
+                <ServiceAreaScheduledCommitmentOverrides
+                  globalCommitment={settingsToCommitmentPolicy(settings)}
+                  disabled={isLoading || !settings.scheduledRidesEnabled}
+                />
               </TabsContent>
 
               <TabsContent value="reminders" className="pt-4 space-y-4">

@@ -5,12 +5,20 @@ import {
   SCHEDULED_REMINDER_POLICY_LINKS,
   STACKING_SCHEDULED_COMMITMENT_LABEL,
   STACKING_SCHEDULED_COMMITMENT_HELP,
+  buildSaCommitmentOverridePayload,
   buildScheduledPolicySavePayload,
+  computeDynamicScheduledTiming,
+  evaluateScheduledStackingFeasibility,
+  findOverlappingScheduledCommitments,
+  hasOverlappingScheduledCommitments,
   mapCommitmentPolicyFromDb,
   mapCommitmentPolicyToDb,
+  parseSaCommitmentOverride,
   resolveScheduledCommitmentPolicy,
+  resolveScheduledDispatchPath,
   shouldUseUrgentFallbackTrigger,
   stackingDoesNotBypassCommitmentProtection,
+  validateSaCommitmentOverride,
   validateScheduledBookingPolicy,
   validateScheduledCommitmentPolicy,
 } from "../../../shared/scheduledRidesPolicySSOT";
@@ -179,6 +187,32 @@ describe("scheduledRidesPolicySSOT — SA fallback + location override", () => {
     expect(resolved._access_allowance_source).toBe("location");
     expect(resolved._source).toBe("location_override");
   });
+
+  it("builds/parses SA override payload; empty clears to inherit", () => {
+    expect(
+      buildSaCommitmentOverridePayload({
+        early_arrival_buffer_minutes: 18,
+        check_in_min_lead_minutes: null,
+      }),
+    ).toEqual({ early_arrival_buffer_minutes: 18 });
+    expect(
+      buildSaCommitmentOverridePayload({ early_arrival_buffer_minutes: null }),
+    ).toBeNull();
+    expect(
+      parseSaCommitmentOverride({
+        scheduled_commitment_policy: { early_arrival_buffer_minutes: 18 },
+      }).early_arrival_buffer_minutes,
+    ).toBe(18);
+    expect(
+      validateSaCommitmentOverride(
+        { min_gap_between_scheduled_minutes: 5 },
+        {
+          ...SCHEDULED_COMMITMENT_POLICY_DEFAULTS,
+          scheduled_turnaround_buffer_minutes: 10,
+        },
+      ).some((i) => i.field === "min_gap_between_scheduled_minutes"),
+    ).toBe(true);
+  });
 });
 
 describe("scheduledRidesPolicySSOT — urgent fallback vs confirmed dynamic", () => {
@@ -226,5 +260,124 @@ describe("scheduledRidesPolicySSOT — stacking wording / protection", () => {
     for (const link of SCHEDULED_REMINDER_POLICY_LINKS) {
       expect(link.href).toBe("/notifications");
     }
+  });
+});
+
+describe("scheduledRidesPolicySSOT — dynamic timing + stacking feasibility", () => {
+  it("computes leave-by from pickup, ETA, workload, waits, and buffers", () => {
+    const timing = computeDynamicScheduledTiming(
+      {
+        ...SCHEDULED_COMMITMENT_POLICY_DEFAULTS,
+        early_arrival_buffer_minutes: 10,
+        safety_buffer_minutes: 5,
+        pickup_access_allowance_minutes: 15,
+        check_in_min_lead_minutes: 90,
+      },
+      {
+        scheduledPickupAt: "2030-06-01T12:00:00.000Z",
+        travelEtaMinutes: 20,
+        activeWorkloadMinutes: 30,
+        pickupWaitingMinutes: 5,
+        stopWaitingMinutes: 0,
+      },
+    );
+    expect(timing.totalLeadMinutesBeforePickup).toBe(85);
+    expect(timing.leaveByAt).toBe("2030-06-01T10:35:00.000Z");
+    expect(timing.startJourneyDueAt).toBe(timing.leaveByAt);
+    expect(resolveScheduledDispatchPath({ confirmedDriverId: "d1" })).toBe(
+      "confirmed_driver_dynamic_policy",
+    );
+    expect(resolveScheduledDispatchPath({ confirmedDriverId: null })).toBe(
+      "urgent_fallback",
+    );
+  });
+
+  it("blocks stacking when flag off or queue would delay scheduled pickup", () => {
+    const policy = {
+      ...SCHEDULED_COMMITMENT_POLICY_DEFAULTS,
+      min_gap_between_scheduled_minutes: 60,
+      scheduled_turnaround_buffer_minutes: 10,
+      early_arrival_buffer_minutes: 10,
+      safety_buffer_minutes: 0,
+      pickup_access_allowance_minutes: 0,
+    };
+    expect(
+      findOverlappingScheduledCommitments(
+        [
+          {
+            scheduledPickupAt: "2030-06-01T12:00:00.000Z",
+            estimatedJobMinutes: 40,
+          },
+          {
+            scheduledPickupAt: "2030-06-01T12:30:00.000Z",
+            estimatedJobMinutes: 20,
+          },
+        ],
+        policy,
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      hasOverlappingScheduledCommitments(
+        [
+          {
+            scheduledPickupAt: "2030-06-01T12:00:00.000Z",
+            estimatedJobMinutes: 20,
+          },
+          {
+            scheduledPickupAt: "2030-06-01T14:00:00.000Z",
+            estimatedJobMinutes: 20,
+          },
+        ],
+        policy,
+      ),
+    ).toBe(false);
+
+    expect(
+      evaluateScheduledStackingFeasibility({
+        allowScheduledStacking: false,
+        policy,
+        queue: [
+          { kind: "active", durationMinutes: 10 },
+          {
+            kind: "scheduled",
+            durationMinutes: 30,
+            scheduledPickupAt: "2030-06-01T15:00:00.000Z",
+          },
+        ],
+        now: "2030-06-01T12:00:00.000Z",
+      }).reason,
+    ).toBe("stacked_scheduled_blocked");
+
+    expect(
+      evaluateScheduledStackingFeasibility({
+        allowScheduledStacking: true,
+        policy,
+        queue: [
+          { kind: "candidate", durationMinutes: 120 },
+          {
+            kind: "scheduled",
+            durationMinutes: 30,
+            scheduledPickupAt: "2030-06-01T13:00:00.000Z",
+          },
+        ],
+        now: "2030-06-01T12:00:00.000Z",
+      }).reason,
+    ).toBe("scheduled_pickup_would_be_delayed");
+
+    expect(
+      evaluateScheduledStackingFeasibility({
+        allowScheduledStacking: true,
+        policy,
+        queue: [
+          { kind: "candidate", durationMinutes: 20 },
+          {
+            kind: "scheduled",
+            durationMinutes: 30,
+            scheduledPickupAt: "2030-06-01T15:00:00.000Z",
+          },
+        ],
+        now: "2030-06-01T12:00:00.000Z",
+      }).allowed,
+    ).toBe(true);
   });
 });

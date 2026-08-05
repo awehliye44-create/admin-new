@@ -6,9 +6,11 @@ import {
   errorResponse,
   logAuditEvent,
 } from "../_shared/security.ts";
-import { assertServiceRole } from "../_shared/internalAuth.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
-import { shouldUseUrgentFallbackTrigger } from "../_shared/scheduledRidesPolicy.ts";
+import {
+  resolveScheduledDispatchPath,
+} from "../_shared/scheduledRidesPolicy.ts";
 
 
 /**
@@ -22,7 +24,7 @@ import { shouldUseUrgentFallbackTrigger } from "../_shared/scheduledRidesPolicy.
  *     — FALLBACK ONLY when there is no pre-confirmed driver.
  *  2. Confirmed-driver trips are skipped here; dynamic commitment policy
  *     (check-in / leave-by / start journey / risk / rescue) is owned by the
- *     dedicated runtime consumer (separate wiring).
+ *     dedicated runtime consumer (SSOT: computeDynamicScheduledTiming).
  *  3. Otherwise, invokes `dispatch_trip_offers` RPC for the full wave-cascade.
  *  4. Updates `scheduled_status` so the trip is not re-processed.
  */
@@ -31,8 +33,10 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const gate = assertServiceRole(req);
-  if (gate) return gate;
+  // Accept service-role JWT OR CRON_SECRET — cron_edge_auth_token() may supply
+  // either depending on vault/GUC; exact assertServiceRole rejected valid cron.
+  const auth = await assertCronOrServiceRoleAuth(req);
+  if (!auth.ok) return auth.response;
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -52,7 +56,15 @@ serve(async (req) => {
       )
       .eq("is_scheduled", true)
       .eq("status", "scheduled")
-      .in("scheduled_status", ["pending", "driver_assigned"])
+      // Marketplace uses broadcasting|scheduled|awaiting_confirmation;
+      // legacy lead-time path used pending|driver_assigned.
+      .in("scheduled_status", [
+        "pending",
+        "driver_assigned",
+        "broadcasting",
+        "scheduled",
+        "awaiting_confirmation",
+      ])
       .not("scheduled_at", "is", null)
       .not("pickup_latitude", "is", null)
       .not("pickup_longitude", "is", null)
@@ -116,18 +128,14 @@ serve(async (req) => {
 
         // Confirmed drivers must NOT use the fixed pickup-minus urgent trigger.
         // Dynamic commitment policy is consumed by a dedicated runtime path.
-        if (
-          !shouldUseUrgentFallbackTrigger({
-            confirmedDriverId: trip.confirmed_driver_id,
-            enableScheduledToUrgentConversion: urgentConversionEnabled,
-          })
-        ) {
-          const detail = trip.confirmed_driver_id
-            ? "confirmed_driver_dynamic_policy"
-            : "urgent_conversion_disabled";
-          console.log(`[schedule-dispatch] Trip ${trip.id}: skipped (${detail})`);
+        const dispatchPath = resolveScheduledDispatchPath({
+          confirmedDriverId: trip.confirmed_driver_id,
+          enableScheduledToUrgentConversion: urgentConversionEnabled,
+        });
+        if (dispatchPath !== "urgent_fallback") {
+          console.log(`[schedule-dispatch] Trip ${trip.id}: skipped (${dispatchPath})`);
           skipped++;
-          results.push({ trip_id: trip.id, action: "skipped", detail });
+          results.push({ trip_id: trip.id, action: "skipped", detail: dispatchPath });
           continue;
         }
 
