@@ -450,6 +450,10 @@ export default function DriverDemandZones() {
                 : <Flame className="mr-2 h-4 w-4" />}
               Recompute from trips
             </Button>
+            <Button variant="outline" onClick={() => setSettingsOpen(true)}>
+              <Settings2 className="mr-2 h-4 w-4" />
+              Heat map &amp; surge settings
+            </Button>
             <Button onClick={openCreate}>
               <Plus className="mr-2 h-4 w-4" />
               Add manual zone
