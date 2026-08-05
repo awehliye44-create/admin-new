@@ -201,11 +201,16 @@ Deno.serve(async (req) => {
 
     const authHeader = req.headers.get("Authorization") ?? "";
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anonOrServiceKey =
+      Deno.env.get("SUPABASE_ANON_KEY")
+      ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+      ?? "";
     const recoveryRes = await fetch(`${supabaseUrl}/functions/v1/create-payment-recovery`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: authHeader,
+        ...(anonOrServiceKey ? { apikey: anonOrServiceKey } : {}),
       },
       body: JSON.stringify({
         trip_id: trip.id,
@@ -216,13 +221,45 @@ Deno.serve(async (req) => {
       }),
     });
 
-    const recoveryJson = await recoveryRes.json().catch(() => ({}));
+    const recoveryText = await recoveryRes.text();
+    let recoveryJson: Record<string, unknown> = {};
+    try {
+      recoveryJson = recoveryText ? JSON.parse(recoveryText) as Record<string, unknown> : {};
+    } catch {
+      recoveryJson = {};
+    }
+
     if (!recoveryRes.ok) {
+      const bootFailed =
+        recoveryRes.status === 546
+        || /worker boot error|does not provide an export named/i.test(recoveryText);
+      const code = bootFailed
+        ? "RECOVERY_FUNCTION_UNAVAILABLE"
+        : String(recoveryJson.code ?? recoveryJson.error_code ?? "RECOVERY_FAILED");
+      const message = bootFailed
+        ? "Payment recovery service failed to start. No provider charge was created. Retry after the recovery function is repaired."
+        : String(
+          recoveryJson.message
+            ?? recoveryJson.error
+            ?? "Recovery creation failed",
+        );
       return jsonResponse({
-        error: recoveryJson.error ?? recoveryJson.message ?? "Recovery creation failed",
-        code: recoveryJson.code ?? recoveryJson.error_code ?? "RECOVERY_FAILED",
-        details: recoveryJson,
-      }, recoveryRes.status >= 400 ? recoveryRes.status : 500);
+        success: false,
+        code,
+        error: message,
+        message,
+        retryable: bootFailed || recoveryRes.status >= 500,
+        attempt_id: null,
+        provider_attempt_created: false,
+        payment_session_id: null,
+        outstanding_shortfall_pence: outstanding,
+        details: Object.keys(recoveryJson).length > 0
+          ? {
+            recovery_status: recoveryRes.status,
+            recovery_code: recoveryJson.code ?? recoveryJson.error_code ?? null,
+          }
+          : { recovery_status: recoveryRes.status },
+      }, bootFailed ? 503 : (recoveryRes.status >= 400 ? recoveryRes.status : 500));
     }
 
     await gate.supabase.from("admin_payment_audit").insert({
