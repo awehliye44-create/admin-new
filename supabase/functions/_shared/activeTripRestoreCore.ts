@@ -433,6 +433,8 @@ async function buildCustomerSafeAssignedDriver(
       id: driverRow.id,
       first_name: driverRow.first_name ?? null,
       firstName: driverRow.first_name ?? null,
+      last_name: driverRow.last_name ?? null,
+      lastName: driverRow.last_name ?? null,
       driver_code: driverRow.driver_code ?? null,
       rating,
       profile_photo_url: photoUrl,
