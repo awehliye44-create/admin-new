@@ -38,13 +38,13 @@ export type OnecabLocationResult = {
   alternative_names?: string[];
 };
 
-export const LOCATION_SEARCH_MIN_QUERY_LENGTH = 3;
+export const LOCATION_SEARCH_MIN_QUERY_LENGTH = 2;
 export const LOCATION_SEARCH_DEBOUNCE_MS = 400;
 export const LOCATION_SEARCH_MAX_RESULTS = 8;
 export const LOCATION_SEARCH_EDGE_FN = "search-onecab-locations";
 
 export const LOCATION_SEARCH_GOOGLE_UNAVAILABLE_MESSAGE =
-  "Online place search is temporarily unavailable. Choose a saved location or select the location on the map.";
+  "Place search is temporarily unavailable. Please try again.";
 
 export function shouldCallExternalLocationSearch(query: string, minLength = LOCATION_SEARCH_MIN_QUERY_LENGTH): boolean {
   return query.trim().length >= minLength;
