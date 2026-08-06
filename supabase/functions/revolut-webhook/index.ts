@@ -97,7 +97,10 @@ interface RevolutWebhookEvent {
   event?: string;
   order_id?: string;
   merchant_order_ext_ref?: string;
-  data?: Record<string, unknown> & { state?: string };
+  /** Provider event id when present — used for idempotent dedup. */
+  id?: string;
+  event_id?: string;
+  data?: Record<string, unknown> & { state?: string; id?: string };
 }
 
 function numericMinor(...values: unknown[]): number | null {
@@ -125,12 +128,22 @@ async function resolveAuthorisedAmountMinor(
   try {
     const { secretKey, environment } = getRevolutMerchantConfig();
     const order = await retrieveRevolutOrder(environment, secretKey, orderId);
-    const fromOrder = numericMinor(order.amount);
-    return fromOrder != null && fromOrder > 0 ? fromOrder : null;
+    const { revolutProviderAuthorisedTotalPence } = await import("../_shared/revolutOrders.ts");
+    const fromOrder = revolutProviderAuthorisedTotalPence(order);
+    return fromOrder > 0 ? fromOrder : null;
   } catch (error) {
     console.error(`[revolut-webhook] authorised amount lookup failed for ${orderId}:`, (error as Error).message);
     return null;
   }
+}
+
+function isIncrementalAuthorisationEvent(eventName: string | null): boolean {
+  const n = String(eventName ?? "").toUpperCase();
+  return (
+    n.includes("INCREMENTAL_AUTHORISATION")
+    || n.includes("INCREMENTAL_AUTHORIZATION")
+    || n === "ORDER_INCREMENT_AUTHORISATION"
+  );
 }
 
 Deno.serve(async (req) => {
@@ -203,6 +216,51 @@ Deno.serve(async (req) => {
   const orderId = event.order_id ?? null;
   const extRef = event.merchant_order_ext_ref ?? null;
   const eventName = event.event ?? null;
+  const providerEventId = String(
+    event.id
+      ?? event.event_id
+      ?? event.data?.id
+      ?? `${eventName ?? "unknown"}:${orderId ?? extRef ?? "none"}:${tsHeader}`,
+  ).trim();
+
+  // Deduplicate webhook deliveries (same provider event id).
+  if (providerEventId) {
+    const { data: existingEvt } = await supabase
+      .from("payment_webhook_events")
+      .select("id")
+      .eq("provider", "revolut")
+      .eq("provider_event_id", providerEventId)
+      .maybeSingle();
+    if (existingEvt?.id) {
+      console.log(JSON.stringify({
+        event: "duplicate_webhook_event_ignored",
+        provider_event_id: providerEventId.slice(0, 12),
+        webhook_event: eventName,
+      }));
+      return new Response(JSON.stringify({ ok: true, duplicate: true }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    await supabase.from("payment_webhook_events").upsert({
+      provider: "revolut",
+      provider_event_id: providerEventId,
+      event_name: eventName,
+      provider_order_id: orderId,
+      received_at: new Date().toISOString(),
+      payload_fingerprint: `${eventName}:${orderId}:${stateFromEventSafe(event)}`,
+    }, { onConflict: "provider,provider_event_id", ignoreDuplicates: true }).then(() => undefined).catch((e) => {
+      // Table may not exist until migration — do not fail the webhook.
+      console.warn("[revolut-webhook] webhook dedup persist skipped", (e as Error)?.message ?? e);
+    });
+  }
+
+  function stateFromEventSafe(ev: RevolutWebhookEvent): string {
+    return String(
+      (ev.data?.state as string | undefined)
+        ?? (ev.event ? ev.event.replace(/^ORDER_/, "").toUpperCase() : ""),
+    ).toUpperCase();
+  }
 
   // === Recovery-path detection ===
   // Recovery orders use ext_ref = `recover:<trip_id>:<sessionUuid>` and are
@@ -451,7 +509,9 @@ Deno.serve(async (req) => {
     if (orderId) {
       const { data: session } = await supabase
         .from("payment_sessions")
-        .select("id, trip_id, status, authorised_amount_pence, metadata")
+        .select(
+          "id, trip_id, status, authorised_amount_pence, total_authorised_amount_pence, metadata, provider_state",
+        )
         .eq("provider_order_id", orderId)
         .eq("purpose", "RIDE_BOOKING")
         .maybeSingle();
@@ -473,15 +533,74 @@ Deno.serve(async (req) => {
           },
         };
 
-        if (["AUTHORISED", "COMPLETED"].includes(stateUpper)) {
+        const incrementalEvent = isIncrementalAuthorisationEvent(eventName);
+        const authRelevant =
+          ["AUTHORISED", "AUTHORIZED", "COMPLETED"].includes(stateUpper)
+          || incrementalEvent;
+
+        // Never rewind CAPTURED/COMPLETED sessions on a late AUTHORISED event.
+        const localProvider = String(session.provider_state ?? "").toUpperCase();
+        const alreadyTerminal =
+          localProvider === "COMPLETED"
+          || localProvider === "CAPTURED"
+          || String(session.status ?? "").toLowerCase() === "captured";
+
+        if (authRelevant && !(alreadyTerminal && stateUpper === "AUTHORISED" && !incrementalEvent)) {
           const authorisedAmount = await resolveAuthorisedAmountMinor(orderId, event.data);
           if (authorisedAmount != null && authorisedAmount > 0) {
-            sessionUpdate.authorised_amount_pence = authorisedAmount;
-            sessionUpdate.total_authorised_amount_pence = authorisedAmount;
+            const previousTotal = Math.max(
+              0,
+              Math.round(Number(session.total_authorised_amount_pence ?? session.authorised_amount_pence ?? 0)),
+            );
+            // Older events must not reduce total_authorised_amount_pence.
+            const nextTotal = Math.max(previousTotal, authorisedAmount);
+            if (nextTotal > previousTotal) {
+              sessionUpdate.total_authorised_amount_pence = nextTotal;
+              console.log(JSON.stringify({
+                event: "increment_reconciled_from_webhook",
+                payment_session_id: String(session.id).slice(0, 4) + "…" + String(session.id).slice(-4),
+                provider_order_id: String(orderId).slice(0, 4) + "…" + String(orderId).slice(-4),
+                previous_total: previousTotal,
+                confirmed_total: nextTotal,
+                webhook_event: eventName,
+              }));
+              // Confirm matching pending increment row idempotently.
+              await supabase
+                .from("payment_session_authorisations")
+                .update({
+                  status: "ADDITIONAL_AUTHORISATION_CONFIRMED",
+                  provider_confirmed_total_pence: nextTotal,
+                  confirmed_at: nowIso,
+                })
+                .eq("payment_session_id", session.id)
+                .eq("provider_order_id", orderId)
+                .eq("requested_target_total_pence", nextTotal)
+                .in("status", [
+                  "ADDITIONAL_AUTHORISATION_PENDING",
+                  "pending",
+                  "ADDITIONAL_AUTHORISATION_ACTION_REQUIRED",
+                ]);
+            } else if (nextTotal === previousTotal && authorisedAmount === previousTotal) {
+              // Idempotent no-op / reconcile
+              sessionUpdate.total_authorised_amount_pence = previousTotal;
+            }
+            // Preserve original hold in authorised_amount_pence if already set.
+            if (
+              session.authorised_amount_pence == null
+              || Number(session.authorised_amount_pence) <= 0
+            ) {
+              sessionUpdate.authorised_amount_pence = authorisedAmount;
+            }
           }
-          sessionUpdate.authorised_at = nowIso;
-          sessionUpdate.status = session.trip_id ? "trip_created" : "payment_authorised";
-        } else if (["CANCELLED", "FAILED"].includes(stateUpper)) {
+          if (!alreadyTerminal) {
+            sessionUpdate.authorised_at = nowIso;
+            if (!incrementalEvent) {
+              sessionUpdate.status = session.trip_id ? "trip_created" : "payment_authorised";
+            } else if (String(session.status ?? "").includes("ADDITIONAL_AUTHORISATION")) {
+              sessionUpdate.status = "ADDITIONAL_AUTHORISATION_CONFIRMED";
+            }
+          }
+        } else if (["CANCELLED", "FAILED"].includes(stateUpper) && !alreadyTerminal) {
           sessionUpdate.status = stateUpper === "CANCELLED" ? "cancelled" : "failed";
           sessionUpdate.failure_reason = `REVOLUT_${stateUpper}`;
         }
@@ -494,7 +613,12 @@ Deno.serve(async (req) => {
           console.error(`[revolut-webhook] payment_session update failed for ${session.id}:`, sessionUpdateError.message);
         }
 
-        if (["AUTHORISED", "COMPLETED"].includes(stateUpper) && !session.trip_id) {
+        if (
+          ["AUTHORISED", "COMPLETED"].includes(stateUpper)
+          && !session.trip_id
+          && !alreadyTerminal
+          && !incrementalEvent
+        ) {
           const { data: finaliseData, error: finaliseError } = await supabase.rpc(
             "finalize_paid_booking_session",
             { p_payment_session_id: session.id },

@@ -71,6 +71,7 @@ import {
 import { PaymentSessionsKpiStrip, type PaymentSessionsKpiDrill } from '@/components/finance/PaymentSessionsKpiStrip';
 import { PaymentSessionsCompletedTripsTable } from '@/components/finance/PaymentSessionsCompletedTripsTable';
 import { PaymentSessionsMatchingTable } from '@/components/finance/PaymentSessionsMatchingTable';
+import { AdminIncrementAuthorisationDialog } from '@/components/payment/AdminIncrementAuthorisationDialog';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import type { PaymentTripMatchStatus } from '../../shared/paymentSessionsTripMatchSSOT';
@@ -127,6 +128,7 @@ function SessionActions({
   onRequestRecovery,
   onAbandonRecovery,
   onRefreshProvider,
+  onIncrementAuthorisation,
 }: {
 
   row: AdminPaymentSessionsListRow;
@@ -138,6 +140,7 @@ function SessionActions({
   onRequestRecovery: (row: AdminPaymentSessionsListRow, mode?: 'collect_outstanding' | 'payment_link') => void;
   onAbandonRecovery: (row: AdminPaymentSessionsListRow) => void;
   onRefreshProvider?: (row: AdminPaymentSessionsListRow) => void;
+  onIncrementAuthorisation?: (row: AdminPaymentSessionsListRow) => void;
 }) {
 
   const key = row.provider_order_id || row.payment_session_id || row.id;
@@ -285,6 +288,20 @@ function SessionActions({
           Abandon recovery &amp; release hold
         </Button>
       )}
+      {row.payment_session_id
+        && row.purpose !== 'PAYMENT_RECOVERY'
+        && row.provider_order_id
+        && onIncrementAuthorisation
+        && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => onIncrementAuthorisation(row)}
+          >
+            Increment auth
+          </Button>
+        )}
       {row.provider_order_id && (
         <Button size="sm" variant="ghost" disabled={inspecting} onClick={() => onInspect(row)}>
           {inspecting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Provider evidence'}
@@ -366,6 +383,7 @@ export default function PaymentSessions() {
   const [refundRow, setRefundRow] = useState<AdminPaymentSessionsListRow | null>(null);
   const [refundAmountInput, setRefundAmountInput] = useState('');
   const [refundReason, setRefundReason] = useState('');
+  const [incrementRow, setIncrementRow] = useState<AdminPaymentSessionsListRow | null>(null);
 
   useEffect(() => {
     if (customerIdParam) setCustomerId(customerIdParam);
@@ -1574,6 +1592,7 @@ export default function PaymentSessions() {
                                   onInspect={runInspect}
                                   onRequestRecovery={runRequestRecovery}
                                   onAbandonRecovery={runAbandonRecovery}
+                                  onIncrementAuthorisation={setIncrementRow}
                                   onRefreshProvider={() => {
                                     setRefreshProviderState(true);
                                     void refetch();
@@ -1815,6 +1834,25 @@ export default function PaymentSessions() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AdminIncrementAuthorisationDialog
+        open={Boolean(incrementRow?.payment_session_id)}
+        onOpenChange={(open) => {
+          if (!open) setIncrementRow(null);
+        }}
+        paymentSessionId={incrementRow?.payment_session_id ?? ''}
+        tripId={incrementRow?.trip_id}
+        suggestedTargetPence={
+          incrementRow?.customer_payable_pence
+            ?? incrementRow?.outstanding_pence
+            ?? incrementRow?.authorised_amount_pence
+            ?? null
+        }
+        onComplete={() => {
+          setIncrementRow(null);
+          void refetch();
+        }}
+      />
     </AdminLayout>
   );
 }

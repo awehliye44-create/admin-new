@@ -87,18 +87,28 @@ Deno.serve(async (req) => {
       );
     }
 
-    // --- Provider refresh on parent order (when linked) before charging ---
+    // --- Provider retrieval + MK-260805-016 recovery guard before any second order ---
     if (parent_session_id) {
       const { data: parentSess } = await supabase
         .from("payment_sessions")
-        .select("id, provider_order_id, captured_amount_pence, provider_state, metadata")
+        .select(
+          "id, provider_order_id, captured_amount_pence, provider_state, metadata, "
+            + "financial_operation_state, total_authorised_amount_pence",
+        )
         .eq("id", parent_session_id)
         .maybeSingle();
       if (parentSess?.provider_order_id) {
         try {
           const { secretKey, environment } = getRevolutMerchantConfig();
           const { retrieveRevolutOrder } = await import("../_shared/revolutOrders.ts");
-          const order = await retrieveRevolutOrder(environment, secretKey, parentSess.provider_order_id);
+          const { decidePaymentRecoveryGuard } = await import(
+            "../_shared/paymentRecoveryGuardSSOT.ts"
+          );
+          const order = await retrieveRevolutOrder(
+            environment,
+            secretKey,
+            parentSess.provider_order_id,
+          );
           const orderState = String(order.state ?? "").toUpperCase();
           const orderAmt = typeof order.amount === "number" ? Math.round(order.amount) : null;
           const nowIso = new Date().toISOString();
@@ -119,8 +129,60 @@ Deno.serve(async (req) => {
             parentPatch.status = "captured";
           }
           await supabase.from("payment_sessions").update(parentPatch).eq("id", parentSess.id);
+
+          const payableForGuard = resolveCanonicalCustomerPayablePence({
+            finalCustomerFarePence: trip.final_customer_fare_pence,
+            finalFarePence: trip.final_fare_pence,
+            noShowChargePence: trip.no_show_charge_pence,
+            cancellationFeePence: trip.cancellation_fee_pence,
+            outstandingBalancePence: trip.outstanding_balance_pence,
+            estimatedTotalPence: trip.estimated_total_pence,
+          });
+
+          const guard = decidePaymentRecoveryGuard({
+            parentOrder: order,
+            finalFarePence: payableForGuard.payable_pence,
+            localCapturedPence: parentSess.captured_amount_pence,
+            financialOperationState: parentSess.financial_operation_state,
+          });
+
+          if (!guard.allowRecovery) {
+            console.warn(
+              JSON.stringify({
+                event: "recovery_blocked_original_hold_usable",
+                trip_id: trip_id,
+                payment_session_id: parent_session_id,
+                reason: guard.reason,
+                action: "action" in guard ? guard.action : null,
+                provider_state: guard.providerState,
+              }),
+            );
+            return errorResponse(
+              guard.message,
+              409,
+              {
+                recovery_blocked: true,
+                reason: guard.reason,
+                action: "action" in guard ? guard.action : null,
+                provider_state: guard.providerState,
+                remaining_shortfall_pence: guard.remainingShortfallPence,
+                ui_hint:
+                  guard.reason === "original_authorised_hold_usable"
+                    ? "Original authorised hold is still active. Retrieve and capture the original order before starting recovery."
+                    : guard.message,
+              },
+              String(guard.reason).toUpperCase(),
+            );
+          }
         } catch (refreshErr) {
+          // Fail closed: cannot create recovery without successful provider retrieve.
           console.warn("[create-payment-recovery] parent provider refresh failed", refreshErr);
+          return errorResponse(
+            "Parent Revolut order could not be retrieved. Reconcile before creating recovery.",
+            409,
+            { recovery_blocked: true, reason: "original_unknown_reconcile" },
+            "ORIGINAL_UNKNOWN_RECONCILE",
+          );
         }
       }
     }
@@ -159,6 +221,15 @@ Deno.serve(async (req) => {
       confirmedRecoveryCapturePence: recoveryCaptured,
       netRefundedTotalPence: netRefunded,
     });
+
+    console.log(JSON.stringify({
+      event: "recovery_remaining_shortfall_calculated",
+      trip_id,
+      remaining_shortfall_pence: outstanding,
+      original_captured_pence: originalCaptured,
+      recovery_captured_pence: recoveryCaptured,
+      refunded_pence: netRefunded,
+    }));
 
     const safety = validateCollectOutstandingOrPaymentLinkAction({
       outstandingPence: outstanding,

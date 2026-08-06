@@ -180,13 +180,69 @@ Deno.serve(async (req) => {
     // Authoritative parent session: exact trip + customer, non-recovery.
     const { data: parentSession } = await gate.supabase
       .from("payment_sessions")
-      .select("id, customer_id, trip_id, status, purpose")
+      .select(
+        "id, customer_id, trip_id, status, purpose, provider_order_id, "
+          + "captured_amount_pence, financial_operation_state, provider_state",
+      )
       .eq("trip_id", trip.id)
       .eq("customer_id", trip.passenger_id)
       .neq("purpose", "PAYMENT_RECOVERY")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    // MK-260805-016 guard: block recovery while original AUTHORISED hold is usable.
+    if (parentSession?.provider_order_id) {
+      try {
+        const { getRevolutMerchantConfig, retrieveRevolutOrder } = await import(
+          "../_shared/revolutOrders.ts"
+        );
+        const { decidePaymentRecoveryGuard } = await import(
+          "../_shared/paymentRecoveryGuardSSOT.ts"
+        );
+        const { secretKey, environment } = getRevolutMerchantConfig();
+        const order = await retrieveRevolutOrder(
+          environment,
+          secretKey,
+          String(parentSession.provider_order_id),
+        );
+        const guard = decidePaymentRecoveryGuard({
+          parentOrder: order,
+          finalFarePence: payableResolved.payable_pence ?? 0,
+          localCapturedPence: parentSession.captured_amount_pence,
+          confirmedRecoveryPaymentsPence: recoveryCaptured,
+          confirmedRefundsPence: netRefunded,
+          financialOperationState: parentSession.financial_operation_state,
+        });
+        if (!guard.allowRecovery) {
+          console.warn(JSON.stringify({
+            event: "recovery_blocked_original_hold_usable",
+            trip_id: tripId,
+            reason: guard.reason,
+            action: "action" in guard ? guard.action : null,
+            provider_state: guard.providerState,
+          }));
+          return jsonResponse({
+            error: guard.message,
+            code: String(guard.reason).toUpperCase(),
+            ui_state: TRIP_SHORTFALL_RECAPTURE_UI_STATE.NOT_ELIGIBLE,
+            recovery_blocked: true,
+            action: "action" in guard ? guard.action : null,
+            provider_state: guard.providerState,
+            remaining_shortfall_pence: guard.remainingShortfallPence,
+            hint:
+              "Original authorised hold is still active. Retrieve and capture the original order before starting recovery.",
+          }, 409);
+        }
+      } catch (guardErr) {
+        return jsonResponse({
+          error: "Parent Revolut order could not be retrieved. Reconcile before recovery.",
+          code: "ORIGINAL_UNKNOWN_RECONCILE",
+          recovery_blocked: true,
+          details: guardErr instanceof Error ? guardErr.message : String(guardErr),
+        }, 409);
+      }
+    }
 
     // Any session on this trip must belong to the trip passenger.
     const foreignSession = (captureSessions ?? []).find(

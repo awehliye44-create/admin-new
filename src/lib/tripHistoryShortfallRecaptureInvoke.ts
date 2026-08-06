@@ -98,6 +98,21 @@ export async function parseShortfallRecaptureInvokeFailure(
 
 export function shortfallRecaptureUserMessage(err: ShortfallRecaptureInvokeError): string {
   switch (err.code) {
+    case 'ORIGINAL_AUTHORISED_HOLD_USABLE':
+    case 'original_authorised_hold_usable':
+      return 'Original authorised hold is still active. Retrieve and capture the original order before starting recovery.';
+    case 'ORIGINAL_PROCESSING':
+    case 'original_processing':
+      return 'Original payment is still processing. Wait and reconcile before starting recovery.';
+    case 'ORIGINAL_UNKNOWN_RECONCILE':
+    case 'original_unknown_reconcile':
+      return 'Original payment state could not be confirmed. Retrieve and reconcile before starting recovery.';
+    case 'OPERATION_PENDING':
+    case 'operation_pending':
+      return 'A payment operation is already in progress. Wait for it to finish before recovery.';
+    case 'REMAINING_SHORTFALL_ZERO':
+    case 'remaining_shortfall_zero':
+      return 'There is no remaining shortfall to recover.';
     case 'RECOVERY_FUNCTION_UNAVAILABLE':
       return 'Payment recovery service is temporarily unavailable. No provider charge was created.';
     case 'PAYMENT_METHOD_UNAVAILABLE':
