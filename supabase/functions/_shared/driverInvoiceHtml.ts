@@ -83,7 +83,7 @@ export function buildDisplaySummaryRows(data: DriverInvoiceRenderData): DisplayS
       amountPence: data.cashCollectedOffsetPence,
       isDeduction: true,
     },
-  ].filter((row) => row.amountPence !== 0 || row.trips > 0);
+  ];
 }
 
 function money(pence: number, currency: string): string {
