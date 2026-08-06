@@ -936,7 +936,7 @@ export async function sendDriverInvoiceEmail(
     html: email.html,
     text: email.text,
     from: fromAddress,
-    replyTo: companyBranding.company.email || undefined,
+    replyTo: false,
     attachments: [{
       filename: `ONECAB_Driver_Invoice_${safeText(invoice.invoice_number, "INVOICE")}.pdf`,
       content: bytesToBase64(pdfBytes),

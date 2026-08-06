@@ -78,7 +78,10 @@ export function formatResendFromAddress(companyName: string, _companyEmail?: str
   return getVerifiedFromAddress(companyName);
 }
 
-function resolveReplyTo(explicit?: string): string | undefined {
+function resolveReplyTo(explicit?: string | false): string | undefined {
+  // Explicit false = omit Reply-To (do not fall back to RESEND_REPLY_TO_EMAIL).
+  if (explicit === false) return undefined;
+
   const envReplyTo = getReplyTo();
   const candidate = (explicit || envReplyTo || "").trim();
   if (!candidate.includes("@")) return envReplyTo;
@@ -95,7 +98,8 @@ export async function sendResendEmail(args: {
   html: string;
   text?: string;
   from?: string;
-  replyTo?: string;
+  /** Set false to omit Reply-To entirely (no env fallback). */
+  replyTo?: string | false;
   attachments?: ResendAttachment[];
   tag?: string;
 }): Promise<{ ok: true; id?: string } | { ok: false; message: string }> {
