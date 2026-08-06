@@ -8902,6 +8902,7 @@ export type Database = {
       driver_presence: {
         Row: {
           accuracy_m: number | null
+          altitude_m: number | null
           app_state: string
           battery_level: number | null
           created_at: string
@@ -8920,6 +8921,7 @@ export type Database = {
           last_socket_pong_at: string | null
           lat: number | null
           lng: number | null
+          location_sequence: number | null
           location_source: string | null
           low_accuracy: boolean
           low_accuracy_since: string | null
@@ -8936,6 +8938,7 @@ export type Database = {
         }
         Insert: {
           accuracy_m?: number | null
+          altitude_m?: number | null
           app_state?: string
           battery_level?: number | null
           created_at?: string
@@ -8954,6 +8957,7 @@ export type Database = {
           last_socket_pong_at?: string | null
           lat?: number | null
           lng?: number | null
+          location_sequence?: number | null
           location_source?: string | null
           low_accuracy?: boolean
           low_accuracy_since?: string | null
@@ -8970,6 +8974,7 @@ export type Database = {
         }
         Update: {
           accuracy_m?: number | null
+          altitude_m?: number | null
           app_state?: string
           battery_level?: number | null
           created_at?: string
@@ -8988,6 +8993,7 @@ export type Database = {
           last_socket_pong_at?: string | null
           lat?: number | null
           lng?: number | null
+          location_sequence?: number | null
           location_source?: string | null
           low_accuracy?: boolean
           low_accuracy_since?: string | null
@@ -10108,6 +10114,7 @@ export type Database = {
           last_offer_at: string | null
           last_seen_at: string | null
           last_trip_end_at: string | null
+          location_sequence: number | null
           location_source: string | null
           onboarding_complete: boolean | null
           online_since: string | null
@@ -10175,6 +10182,7 @@ export type Database = {
           last_offer_at?: string | null
           last_seen_at?: string | null
           last_trip_end_at?: string | null
+          location_sequence?: number | null
           location_source?: string | null
           onboarding_complete?: boolean | null
           online_since?: string | null
@@ -10242,6 +10250,7 @@ export type Database = {
           last_offer_at?: string | null
           last_seen_at?: string | null
           last_trip_end_at?: string | null
+          location_sequence?: number | null
           location_source?: string | null
           onboarding_complete?: boolean | null
           online_since?: string | null
@@ -19975,6 +19984,143 @@ export type Database = {
           },
         ]
       }
+      trip_driver_live_location: {
+        Row: {
+          accuracy_m: number | null
+          altitude_m: number | null
+          driver_id: string
+          gps_recorded_at: string
+          heading: number | null
+          latitude: number
+          location_sequence: number | null
+          longitude: number
+          server_received_at: string
+          speed: number | null
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          accuracy_m?: number | null
+          altitude_m?: number | null
+          driver_id: string
+          gps_recorded_at: string
+          heading?: number | null
+          latitude: number
+          location_sequence?: number | null
+          longitude: number
+          server_received_at?: string
+          speed?: number | null
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          accuracy_m?: number | null
+          altitude_m?: number | null
+          driver_id?: string
+          gps_recorded_at?: string
+          heading?: number | null
+          latitude?: number
+          location_sequence?: number | null
+          longitude?: number
+          server_received_at?: string
+          speed?: number | null
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_driver_live_location_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_fleet_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_driver_live_location_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_driver_live_location_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_driver_live_location_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_driver_live_location_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_driver_live_location_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_driver_live_location_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_driver_live_location_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_driver_live_location_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_driver_live_location_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_driver_live_location_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_driver_live_location_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_driver_live_location_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       trip_finance: {
         Row: {
           base_fare_pence: number
@@ -20731,6 +20877,7 @@ export type Database = {
           dispatch_mode: string | null
           dispatch_status: string | null
           distance_unit: string | null
+          driver_checked_in_at: string | null
           driver_confirm_deadline_at: string | null
           driver_id: string | null
           driver_location_lat: number | null
@@ -21018,6 +21165,7 @@ export type Database = {
           dispatch_mode?: string | null
           dispatch_status?: string | null
           distance_unit?: string | null
+          driver_checked_in_at?: string | null
           driver_confirm_deadline_at?: string | null
           driver_id?: string | null
           driver_location_lat?: number | null
@@ -21305,6 +21453,7 @@ export type Database = {
           dispatch_mode?: string | null
           dispatch_status?: string | null
           distance_unit?: string | null
+          driver_checked_in_at?: string | null
           driver_confirm_deadline_at?: string | null
           driver_id?: string | null
           driver_location_lat?: number | null
@@ -25050,6 +25199,7 @@ export type Database = {
           last_offer_at: string | null
           last_seen_at: string | null
           last_trip_end_at: string | null
+          location_sequence: number | null
           location_source: string | null
           onboarding_complete: boolean | null
           online_since: string | null
@@ -25728,6 +25878,7 @@ export type Database = {
         }
         Returns: {
           accuracy_m: number | null
+          altitude_m: number | null
           app_state: string
           battery_level: number | null
           created_at: string
@@ -25746,6 +25897,7 @@ export type Database = {
           last_socket_pong_at: string | null
           lat: number | null
           lng: number | null
+          location_sequence: number | null
           location_source: string | null
           low_accuracy: boolean
           low_accuracy_since: string | null
@@ -25775,6 +25927,10 @@ export type Database = {
           p_online_since: string
         }
         Returns: number
+      }
+      driver_is_assigned_to_live_trip: {
+        Args: { p_driver_id: string; p_trip_id: string }
+        Returns: boolean
       }
       driver_is_excluded_from_trip: {
         Args: { p_driver_id: string; p_trip_id: string }
@@ -25814,6 +25970,16 @@ export type Database = {
       driver_presence_last_signal_at: {
         Args: { p_driver_id: string }
         Returns: string
+      }
+      driver_rate_passenger: {
+        Args: {
+          p_comment?: string
+          p_skipped?: boolean
+          p_stars?: number
+          p_tags?: string[]
+          p_trip_id: string
+        }
+        Returns: Json
       }
       driver_request_go_offline: { Args: { p_reason?: string }; Returns: Json }
       driver_request_go_online: {
@@ -26363,6 +26529,29 @@ export type Database = {
         Args: { p_role: Database["public"]["Enums"]["staff_role"] }
         Returns: string
       }
+      get_trip_driver_live_location: {
+        Args: { p_trip_id: string }
+        Returns: {
+          accuracy_m: number | null
+          altitude_m: number | null
+          driver_id: string
+          gps_recorded_at: string
+          heading: number | null
+          latitude: number
+          location_sequence: number | null
+          longitude: number
+          server_received_at: string
+          speed: number | null
+          trip_id: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "trip_driver_live_location"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       get_user_corporate_accounts: {
         Args: { p_user_id: string }
         Returns: string[]
@@ -26418,6 +26607,10 @@ export type Database = {
           p_stripe_transfer_id: string
         }
         Returns: string
+      }
+      invoke_release_terminal_trip_hold: {
+        Args: { p_reason?: string; p_trip_id: string }
+        Returns: undefined
       }
       invoke_trip_communication_timeout_sweep: {
         Args: never
@@ -27209,6 +27402,14 @@ export type Database = {
         Args: { p_offer_id: string }
         Returns: undefined
       }
+      ride_offer_is_on_voluntary_decline_cooldown: {
+        Args: {
+          p_cooldown_seconds: number
+          p_driver_id: string
+          p_trip_id: string
+        }
+        Returns: boolean
+      }
       ride_offer_retry_unacked_push_deliveries: { Args: never; Returns: number }
       run_digital_finance_migration: { Args: never; Returns: Json }
       search_onecab_location_landmarks: {
@@ -27304,18 +27505,22 @@ export type Database = {
       submit_driver_location_sample: {
         Args: {
           p_accuracy?: number
+          p_altitude?: number
           p_app_state?: string
           p_driver_id: string
           p_gps_recorded_at: string
           p_heading?: number
           p_lat: number
           p_lng: number
+          p_location_sequence?: number
           p_platform?: string
           p_source?: string
           p_speed?: number
+          p_trip_id?: string
         }
         Returns: {
           accuracy_m: number | null
+          altitude_m: number | null
           app_state: string
           battery_level: number | null
           created_at: string
@@ -27334,6 +27539,7 @@ export type Database = {
           last_socket_pong_at: string | null
           lat: number | null
           lng: number | null
+          location_sequence: number | null
           location_source: string | null
           low_accuracy: boolean
           low_accuracy_since: string | null
@@ -27470,6 +27676,10 @@ export type Database = {
         Args: { p_row: Database["public"]["Tables"]["trips"]["Row"] }
         Returns: boolean
       }
+      trip_status_is_live_trackable: {
+        Args: { p_status: string }
+        Returns: boolean
+      }
       update_driver_location: {
         Args: {
           p_driver_id: string
@@ -27526,6 +27736,7 @@ export type Database = {
         }
         Returns: {
           accuracy_m: number | null
+          altitude_m: number | null
           app_state: string
           battery_level: number | null
           created_at: string
@@ -27544,6 +27755,7 @@ export type Database = {
           last_socket_pong_at: string | null
           lat: number | null
           lng: number | null
+          location_sequence: number | null
           location_source: string | null
           low_accuracy: boolean
           low_accuracy_since: string | null

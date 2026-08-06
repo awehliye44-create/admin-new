@@ -38,6 +38,7 @@ import { subDays, startOfDay, endOfDay } from 'date-fns';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
+import { fetchPassengerDirectory, hydratePassengerIdentity } from '@/lib/tripPassengerDisplay';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 
@@ -46,6 +47,7 @@ interface CancelledTrip {
   trip_number: string | null;
   trip_code: string | null;
   status: string | null;
+  passenger_id: string | null;
   passenger_name: string | null;
   passenger_phone: string | null;
   pickup_address: string;
@@ -126,7 +128,7 @@ export default function MissedCancelled() {
       const { data, error } = await supabase
         .from('trips')
         .select(`
-          id, trip_number, trip_code, status, passenger_name, passenger_phone,
+          id, trip_number, trip_code, status, passenger_id, passenger_name, passenger_phone,
           pickup_address, dropoff_address, estimated_fare, fare, currency_code,
           created_at, completed_at, special_instructions, driver_id, service_area_id,
           arrived_at, pickup_waiting_started_at, cancelled_at, cancellation_reason,
@@ -140,7 +142,10 @@ export default function MissedCancelled() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return (data || []) as CancelledTrip[];
+      const rows = (data || []) as unknown as CancelledTrip[];
+      const directory = await fetchPassengerDirectory(rows.map((row) => row.passenger_id));
+      return hydratePassengerIdentity(rows, directory);
+
     },
     staleTime: 30_000,
   });
