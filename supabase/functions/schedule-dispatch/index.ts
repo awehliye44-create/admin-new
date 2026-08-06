@@ -20,9 +20,10 @@ import { shouldUseUrgentFallbackTrigger } from "../_shared/scheduledRidesPolicy.
  * For each eligible trip it:
  *  1. Reads `urgent_dispatch_trigger_minutes_before_pickup` from global settings
  *     — FALLBACK ONLY when there is no pre-confirmed driver.
- *  2. Confirmed-driver trips are skipped here; dynamic commitment policy
- *     (check-in / leave-by / start journey / risk / rescue) is owned by the
- *     dedicated runtime consumer (separate wiring).
+ *  2. Confirmed-driver trips are activated at the same pickup-minus trigger as a
+ *     guaranteed safety net (the dynamic commitment runtime may activate earlier),
+ *     so a locked driver always receives the activation card.
+
  *  3. Otherwise, invokes `dispatch_trip_offers` RPC for the full wave-cascade.
  *  4. Updates `scheduled_status` so the trip is not re-processed.
  */
