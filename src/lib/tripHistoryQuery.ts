@@ -112,7 +112,7 @@ export async function fetchTripHistoryRows(args: {
       const directory = await fetchPassengerDirectory(
         rows.map((row) => (row as { passenger_id?: string | null }).passenger_id),
       );
-      return hydratePassengerIdentity(rows, directory);
+      return hydratePassengerIdentity(rows as unknown as Array<Record<string, unknown>>, directory) as TripHistoryRow[];
     }
 
     lastError = error;
