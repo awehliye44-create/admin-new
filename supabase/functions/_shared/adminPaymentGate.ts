@@ -87,6 +87,17 @@ export async function requireAdminOrStaff(req: Request): Promise<GateResult | Ga
   if (token === supabaseServiceKey) {
     return { ok: true, supabase, userId: 'service-role' };
   }
+  // Dual-key runtime: accept service_role JWT even when env key is sb_secret_*.
+  if (token.includes('.')) {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]!));
+      if (payload?.role === 'service_role') {
+        return { ok: true, supabase, userId: 'service-role' };
+      }
+    } catch {
+      // fall through to user auth
+    }
+  }
 
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
   if (authError || !user) {
