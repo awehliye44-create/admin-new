@@ -108,8 +108,13 @@ export async function fetchTripHistoryRows(args: {
 
     const { data, error } = await query;
     if (!error) {
-      return (data ?? []) as unknown as TripHistoryRow[];
+      const rows = (data ?? []) as unknown as TripHistoryRow[];
+      const directory = await fetchPassengerDirectory(
+        rows.map((row) => (row as { passenger_id?: string | null }).passenger_id),
+      );
+      return hydratePassengerIdentity(rows, directory);
     }
+
     lastError = error;
     if (!isRecoverableTripHistoryQueryError(error)) {
       throw error;
