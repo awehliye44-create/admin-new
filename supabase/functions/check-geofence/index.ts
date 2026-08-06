@@ -40,6 +40,8 @@ serve(async (req) => {
   if (!rateLimitResult.allowed) {
     console.log(`[check-geofence] Rate limit exceeded for IP: ${clientIP}`);
     return rateLimitResponse(rateLimitResult.retryAfter!);
+  }
+
   try {
     // Require driver JWT — derive driver_id from auth, reject body-supplied driver_id
     const auth = await authenticateDriver(req);
@@ -62,8 +64,6 @@ serve(async (req) => {
 
     const { lat, lng, prev_lat, prev_lng, trip_id } = validation.data!;
     const driver_id = authDriverId;
-
-    const { driver_id, lat, lng, prev_lat, prev_lng, trip_id } = validation.data!;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
