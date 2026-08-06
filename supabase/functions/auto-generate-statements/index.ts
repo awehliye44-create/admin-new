@@ -1,5 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertServiceRole } from "../_shared/internalAuth.ts";
+import {
+  computeNextRunAtUtc,
+  resolveEveryNMonthsPeriod,
+} from "../_shared/driverEarningsPeriod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,8 +49,23 @@ Deno.serve(async (req) => {
       // Determine period
       let periodStart: string;
       let periodEnd: string;
+      let periodEndExclusive: string | null = null;
 
-      if (config.statement_period_mode === "previous_month") {
+      if (config.frequency === "every_n_months") {
+        const interval = Number(config.interval_months ?? 8);
+        const window = resolveEveryNMonthsPeriod(now, interval);
+        periodStart = window.periodStartInclusive;
+        periodEnd = window.periodEndInclusive;
+        periodEndExclusive = window.periodEndExclusive;
+        console.log(JSON.stringify({
+          event: "driver_report_run_started",
+          schedule_config_id: config.id,
+          frequency: "every_n_months",
+          interval_months: interval,
+          period_start: periodStart,
+          period_end_exclusive: periodEndExclusive,
+        }));
+      } else if (config.statement_period_mode === "previous_month") {
         const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
         periodStart = prevMonth.toISOString().split("T")[0];
@@ -62,6 +81,11 @@ Deno.serve(async (req) => {
         periodStart = start.toISOString().split("T")[0];
         periodEnd = now.toISOString().split("T")[0];
       }
+
+      const ledgerEndBound = periodEndExclusive
+        ? periodEndExclusive
+        : `${periodEnd}T23:59:59.999Z`;
+      const ledgerEndIsExclusive = Boolean(periodEndExclusive);
 
       // Create run log entry
       const { data: logEntry } = await supabase
@@ -128,12 +152,15 @@ Deno.serve(async (req) => {
           if (runError) throw runError;
 
           // Find drivers with ledger activity from driver_wallet_ledger
-          const { data: ledgerDrivers } = await supabase
+          let ledgerDriversQuery = supabase
             .from("driver_wallet_ledger")
             .select("driver_id")
             .eq("currency", region.currency_code)
-            .gte("created_at", periodStart)
-            .lte("created_at", periodEnd + "T23:59:59Z");
+            .gte("created_at", periodStart);
+          ledgerDriversQuery = ledgerEndIsExclusive
+            ? ledgerDriversQuery.lt("created_at", ledgerEndBound)
+            : ledgerDriversQuery.lte("created_at", ledgerEndBound);
+          const { data: ledgerDrivers } = await ledgerDriversQuery;
 
           let uniqueDriverIds = [...new Set((ledgerDrivers || []).map((d: any) => d.driver_id))];
 
@@ -166,13 +193,16 @@ Deno.serve(async (req) => {
           let runInvoiceCount = 0;
 
           for (const driverId of uniqueDriverIds) {
-            const { data: entries } = await supabase
+            let entriesQuery = supabase
               .from("driver_wallet_ledger")
               .select("type, amount_pence, related_trip_id")
               .eq("driver_id", driverId)
               .eq("currency", region.currency_code)
-              .gte("created_at", periodStart)
-              .lte("created_at", periodEnd + "T23:59:59Z");
+              .gte("created_at", periodStart);
+            entriesQuery = ledgerEndIsExclusive
+              ? entriesQuery.lt("created_at", ledgerEndBound)
+              : entriesQuery.lte("created_at", ledgerEndBound);
+            const { data: entries } = await entriesQuery;
 
             let grossEarnings = 0, commission = 0, bonuses = 0, penalties = 0, adjustments = 0;
             const completedTrips = new Set<string>();
@@ -180,15 +210,44 @@ Deno.serve(async (req) => {
 
             for (const e of entries || []) {
               const amt = e.amount_pence || 0;
+              // Exclude payouts, top-ups, cashout, reservations — net earnings only.
               switch (e.type) {
-                case "TRIP_EARNING_NET": grossEarnings += amt; if (e.related_trip_id) completedTrips.add(e.related_trip_id); break;
-                case "PLATFORM_COMMISSION": case "COMPANY_COMMISSION": commission += Math.abs(amt); break;
-                case "BONUS": case "INCENTIVE": bonuses += amt; break;
-                case "PENALTY": case "DEDUCTION": penalties += Math.abs(amt); break;
-                case "ADJUSTMENT": case "REFUND_DEBIT": adjustments += amt; break;
-                case "NO_SHOW_EARNING": noShowTrips++; grossEarnings += amt; break;
-                case "LATE_CANCEL_EARNING": lateCancelTrips++; grossEarnings += amt; break;
-                case "TIP_CREDIT": case "DRIVER_TIP_CREDIT": grossEarnings += amt; break;
+                case "TRIP_EARNING_NET":
+                case "CASH_TRIP_EARNING":
+                  grossEarnings += amt;
+                  if (e.related_trip_id) completedTrips.add(e.related_trip_id);
+                  break;
+                case "PLATFORM_COMMISSION":
+                case "COMPANY_COMMISSION":
+                  commission += Math.abs(amt);
+                  break;
+                case "BONUS":
+                case "INCENTIVE":
+                  bonuses += amt;
+                  break;
+                case "PENALTY":
+                case "DEDUCTION":
+                  penalties += Math.abs(amt);
+                  break;
+                case "ADJUSTMENT":
+                case "REFUND_DEBIT":
+                case "LEDGER_REVERSAL":
+                  adjustments += amt;
+                  break;
+                case "NO_SHOW_EARNING":
+                  noShowTrips++;
+                  grossEarnings += amt;
+                  break;
+                case "LATE_CANCEL_EARNING":
+                  lateCancelTrips++;
+                  grossEarnings += amt;
+                  break;
+                case "TIP_CREDIT":
+                case "DRIVER_TIP_CREDIT":
+                  grossEarnings += amt;
+                  break;
+                default:
+                  break;
               }
             }
 
@@ -291,7 +350,14 @@ Deno.serve(async (req) => {
 
         // Calculate next run
         let nextRun: Date;
-        if (config.frequency === "monthly") {
+        if (config.frequency === "every_n_months") {
+          nextRun = computeNextRunAtUtc(
+            now,
+            Number(config.interval_months ?? 8),
+            config.generation_day === 0 ? 28 : config.generation_day,
+            config.send_hour ?? 9,
+          );
+        } else if (config.frequency === "monthly") {
           const genDay = config.generation_day === 0 ? 28 : config.generation_day;
           nextRun = new Date(now.getFullYear(), now.getMonth() + 1, genDay, config.send_hour, 0, 0);
         } else {
@@ -308,6 +374,15 @@ Deno.serve(async (req) => {
           last_run_invoice_count: totalInvoices,
           next_run_at: nextRun.toISOString(),
         }).eq("id", config.id);
+
+        console.log(JSON.stringify({
+          event: "driver_report_generated",
+          schedule_config_id: config.id,
+          invoice_count: totalInvoices,
+          period_start: periodStart,
+          period_end: periodEnd,
+          next_run_at: nextRun.toISOString(),
+        }));
 
         if (logEntry) {
           await supabase.from("statement_schedule_run_log").update({

@@ -1,11 +1,18 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
+import {
+  corsHeaders,
+  requireAdminOrStaff,
+  requirePageAccess,
+} from "../_shared/adminPaymentGate.ts";
 import {
   handleDriverInvoiceAction,
   previewDriverInvoiceHtml,
   type DriverInvoiceAction,
   type DriverInvoiceResponse,
 } from "../_shared/driverInvoiceService.ts";
+import { DRIVER_EARNINGS_PAGE_SLUG } from "../_shared/driverInvoiceLedgerPolicy.ts";
+
+const PAGE_SLUG = DRIVER_EARNINGS_PAGE_SLUG;
 
 const VALID_ACTIONS = new Set<DriverInvoiceAction>([
   "generate",
@@ -60,10 +67,19 @@ Deno.serve(async (req) => {
       get_urls: body.get_urls ?? false,
     }));
 
-    const gate = await requireAdminOrStaff(req);
-    if (!gate.ok) {
-      const errBody = await gate.response.json().catch(() => ({ error: "Unauthorized" }));
+    const staffGate = await requireAdminOrStaff(req);
+    if (!staffGate.ok) {
+      const errBody = await staffGate.response.json().catch(() => ({ error: "Unauthorized" }));
       return jsonFail(errBody.error ?? "Unauthorized");
+    }
+
+    const gate = await requirePageAccess(staffGate, PAGE_SLUG);
+    if (!gate.ok) {
+      const errBody = await gate.response.json().catch(() => ({
+        error: "Forbidden",
+        code: "PAGE_FORBIDDEN",
+      }));
+      return jsonFail(errBody.error ?? `Forbidden — missing page access (${PAGE_SLUG})`);
     }
 
     const supabase = gate.supabase;

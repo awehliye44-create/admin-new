@@ -44,16 +44,20 @@ function hasSuccessfulInvoicePdf(trip: TripInvoiceFields): boolean {
 
 function getInvoiceStatusLabel(trip: TripInvoiceFields): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
   const pdfReady = hasSuccessfulInvoicePdf(trip);
-  const emailSent = Boolean(trip.invoice_email_sent || trip.invoice_email_status === 'sent');
+  const emailStatus = (trip.invoice_email_status ?? '').toLowerCase();
+  const emailSent = Boolean(trip.invoice_email_sent || emailStatus === 'sent');
 
   if (emailSent && pdfReady) {
     return { label: 'Sent', variant: 'default' };
   }
+  if (emailStatus === 'skipped_no_valid_email') {
+    return { label: 'No valid email', variant: 'secondary' };
+  }
   if (trip.invoice_pdf_error && !pdfReady) {
     return { label: 'Failed', variant: 'destructive' };
   }
-  if (pdfReady && trip.invoice_email_status === 'failed') {
-    return { label: 'PDF Ready / Email Failed', variant: 'destructive' };
+  if (pdfReady && emailStatus === 'failed') {
+    return { label: 'Failed', variant: 'destructive' };
   }
   if (pdfReady) {
     return { label: emailSent ? 'Sent' : 'Generated', variant: emailSent ? 'default' : 'secondary' };

@@ -24,11 +24,18 @@ import { FinanceSsotOperationalNotice } from "@/components/finance/FinanceSSOTBa
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   draft: { label: "Pending", variant: "secondary" },
+  aggregating: { label: "Aggregating", variant: "secondary" },
+  validated: { label: "Validated", variant: "outline" },
+  generated: { label: "Generated", variant: "outline" },
+  send_pending: { label: "Send pending", variant: "outline" },
   finalized: { label: "Pending", variant: "secondary" },
   sent: { label: "Sent", variant: "default" },
   viewed: { label: "Paid", variant: "default" },
   paid: { label: "Paid", variant: "default" },
   cancelled: { label: "Cancelled", variant: "destructive" },
+  failed: { label: "Failed", variant: "destructive" },
+  superseded_test_error: { label: "Superseded (test error)", variant: "destructive" },
+  voided_test_error: { label: "Voided (test error)", variant: "destructive" },
 };
 
 async function readFunctionError(error: unknown): Promise<string> {
@@ -456,6 +463,15 @@ export default function Invoices() {
                         <Badge variant={sc.variant}>{sc.label}</Badge>
                         {inv.invoice_email_status === "failed" && (
                           <p className="text-[10px] text-destructive mt-0.5">Email failed</p>
+                        )}
+                        {inv.invoice_email_status === "skipped_no_valid_email" && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">No valid email</p>
+                        )}
+                        {inv.status === "superseded_test_error" && (
+                          <p className="text-[10px] text-destructive mt-0.5">Superseded — not deleted</p>
+                        )}
+                        {inv.status === "voided_test_error" && (
+                          <p className="text-[10px] text-destructive mt-0.5">Voided — not deleted</p>
                         )}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">

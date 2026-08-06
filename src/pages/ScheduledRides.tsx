@@ -48,6 +48,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
+import { enrichTripsWithPassengerNames } from '@/lib/passengerDisplayName';
 import { isAdminPageLiveActive, subscribeAdminPageLiveActive } from '@/lib/adminPageVisibility';
 import { 
   Calendar, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
@@ -199,7 +200,9 @@ export default function ScheduledRides() {
       if (driversRes.error) throw driversRes.error;
 
       return {
-        trips: (tripsRes.data as unknown as ScheduledTrip[]) || [],
+        trips: await enrichTripsWithPassengerNames(
+          (tripsRes.data as unknown as ScheduledTrip[]) || [],
+        ),
         drivers: (driversRes.data as unknown as Driver[]) || [],
       };
     },

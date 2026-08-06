@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
-import { fetchPassengerDirectory, hydratePassengerIdentity } from '@/lib/tripPassengerDisplay';
+import { enrichTripsWithPassengerNames } from '@/lib/passengerDisplayName';
 
 /** Terminal trips — aligned with Financial Reconciliation COUNTABLE_FINANCIAL_OUTCOMES. */
 export const TRIP_HISTORY_FINANCIAL_OUTCOMES = [
@@ -15,7 +15,7 @@ export function tripHistoryTerminalOrFilter(): string {
 }
 
 const TRIP_HISTORY_SELECT_BASE = `
-  id, trip_code, trip_number, status, financial_outcome, passenger_id, passenger_name, passenger_phone,
+  id, trip_code, trip_number, status, financial_outcome, passenger_name, passenger_phone,
   pickup_address, pickup_latitude, pickup_longitude, dropoff_address, dropoff_latitude, dropoff_longitude,
   estimated_fare, fare, gross_fare_pence, commission_pence, driver_net_pence, final_fare_pence,
   final_customer_fare_pence, capture_amount_pence,
@@ -109,12 +109,8 @@ export async function fetchTripHistoryRows(args: {
     const { data, error } = await query;
     if (!error) {
       const rows = (data ?? []) as unknown as TripHistoryRow[];
-      const directory = await fetchPassengerDirectory(
-        rows.map((row) => (row as { passenger_id?: string | null }).passenger_id),
-      );
-      return hydratePassengerIdentity(rows as unknown as Array<Record<string, unknown>>, directory) as TripHistoryRow[];
+      return (await enrichTripsWithPassengerNames(rows)) as TripHistoryRow[];
     }
-
     lastError = error;
     if (!isRecoverableTripHistoryQueryError(error)) {
       throw error;

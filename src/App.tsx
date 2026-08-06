@@ -62,6 +62,7 @@ import DisputeSettings from "./pages/DisputeSettings";
 import Invoices from "./pages/Invoices";
 import InvoiceTemplates from "./pages/InvoiceTemplates";
 import StatementRuns from "./pages/StatementRuns";
+import DriverEarningsInvoices from "./pages/DriverEarningsInvoices";
 import GeneralSettings from "./pages/GeneralSettings";
 import Integrations from "./pages/Integrations";
 import PaymentProviders from "./pages/PaymentProviders";
@@ -195,6 +196,7 @@ const App = () => (
               <Route path="invoices" element={<Invoices />} />
               <Route path="invoice-templates" element={<InvoiceTemplates />} />
               <Route path="statement-runs" element={<StatementRuns />} />
+              <Route path="driver-earnings-invoices" element={<DriverEarningsInvoices />} />
               <Route path="annual-taxi-report" element={<AnnualTaxiReport />} />
               <Route path="onecab-revenue-profit" element={<OnecabRevenueProfitReport />} />
               

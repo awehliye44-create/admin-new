@@ -12,6 +12,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { supabase } from '@/integrations/supabase/client';
+import { enrichTripsWithPassengerNames } from '@/lib/passengerDisplayName';
 import { Navigation, Loader2, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '@/lib/regionSettings';
@@ -63,7 +64,7 @@ export default function Dispatch() {
           throw error;
         }
 
-        setTrips(data || []);
+        setTrips(await enrichTripsWithPassengerNames(data || []));
       } catch (err) {
         console.error('Error fetching trips:', err);
         setError('Failed to load trips. Please try again.');

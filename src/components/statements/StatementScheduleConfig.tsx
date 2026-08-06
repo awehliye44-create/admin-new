@@ -32,6 +32,8 @@ interface ScheduleConfig {
   is_auto_generate_enabled: boolean;
   is_auto_send_enabled: boolean;
   frequency: string;
+  /** When frequency=every_n_months (1–36). Example product value: 8. */
+  interval_months: number | null;
   generation_day: number;
   send_mode: string;
   send_day: number | null;
@@ -54,6 +56,7 @@ const DEFAULT_CONFIG: ScheduleConfig = {
   is_auto_generate_enabled: false,
   is_auto_send_enabled: false,
   frequency: "monthly",
+  interval_months: null,
   generation_day: 5,
   send_mode: "immediate",
   send_day: null,
@@ -131,6 +134,10 @@ export default function StatementScheduleConfig() {
         is_auto_generate_enabled: config.is_auto_generate_enabled,
         is_auto_send_enabled: config.is_auto_send_enabled,
         frequency: config.frequency,
+        interval_months:
+          config.frequency === "every_n_months"
+            ? (config.interval_months ?? 8)
+            : null,
         generation_day: config.generation_day,
         send_mode: config.send_mode,
         send_day: config.send_mode === "scheduled" ? config.send_day : null,
@@ -245,10 +252,36 @@ export default function StatementScheduleConfig() {
                 <SelectContent>
                   <SelectItem value="monthly">Monthly</SelectItem>
                   <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="every_n_months">Every N months</SelectItem>
                   <SelectItem value="manual">Manual Only</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {config.frequency === "every_n_months" && (
+              <div>
+                <Label className="flex items-center gap-1.5 mb-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-muted-foreground" /> Interval (months)
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={36}
+                  value={config.interval_months ?? 8}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    update({
+                      interval_months: Number.isFinite(n)
+                        ? Math.min(36, Math.max(1, Math.round(n)))
+                        : 8,
+                    });
+                  }}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Example: 8 = one report every eight months. Inclusive start / exclusive end periods.
+                </p>
+              </div>
+            )}
 
             {config.frequency === "monthly" && (
               <div>

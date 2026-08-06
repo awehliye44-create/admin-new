@@ -77,6 +77,12 @@ const ROUTE_PERMISSION_ALIASES: Record<string, string[]> = {
     'onecab-revenue-profit',
     'financial-reconciliation',
   ],
+  'driver-earnings-invoices': [
+    'driver-earnings-invoices',
+    'invoices',
+    'statement-runs',
+    'invoice-templates',
+  ],
   'payout-batches': [
     'payout-batches',
     'payout-ledger',
