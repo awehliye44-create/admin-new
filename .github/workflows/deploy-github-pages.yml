@@ -1,14 +1,12 @@
 name: Deploy Admin Panel
 
-# Clean deploy path: GitHub Actions Pages (workflow), not legacy gh-pages branch builds.
-# Legacy branch builds were racing/cancelling (pages-build-deployment) and leaving
-# adminonecab.net stuck on an old CDN asset.
-
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+# Match GitHub Pages build_type=workflow. Do not cancel in-progress deploys —
+# cancel-in-progress was aborting pages-build-deployment and leaving the CDN stale.
 permissions:
   contents: read
   pages: write
@@ -16,7 +14,6 @@ permissions:
 
 concurrency:
   group: admin-pages
-  # Never cancel an in-flight Pages deploy — that left the site on a stale asset.
   cancel-in-progress: false
 
 jobs:
@@ -41,9 +38,6 @@ jobs:
       - name: Finance payout SSOT parity guard
         run: bash scripts/check-finance-payout-ssot-parity.sh
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
       - name: Build
         run: npm run build
         env:
@@ -53,14 +47,12 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRoYXppc2xyZGtqcHZ2Z2h0dnpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4NzA1MjIsImV4cCI6MjA4MzQ0NjUyMn0.pXaycIz1t7JXuItyqvjNNrFsZpsaXbB5bV1OWSQLbWM
           VITE_SUPABASE_PROJECT_ID: thazislrdkjpvvghtvzo
 
-      - name: SPA fallback + custom domain + nojekyll
+      - name: SPA fallback + custom domain
         run: |
           cp dist/index.html dist/404.html
           printf 'adminonecab.net\n' > dist/CNAME
           touch dist/.nojekyll
           test -f dist/auth/revolut/callback/index.html
-          # Record source SHA for host verification
-          printf '%s\n' "${{ github.sha }}" > dist/deploy-source-commit.txt
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
