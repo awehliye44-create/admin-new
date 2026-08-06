@@ -114,26 +114,26 @@ serve(async (req) => {
           continue;
         }
 
-        // Confirmed drivers must NOT use the fixed pickup-minus urgent trigger.
-        // Dynamic commitment policy is consumed by a dedicated runtime path.
+        const hasConfirmedDriver = typeof trip.confirmed_driver_id === "string"
+          && trip.confirmed_driver_id.trim().length > 0;
+
+        // Unconfirmed trips only convert to urgent when conversion is enabled.
         if (
+          !hasConfirmedDriver &&
           !shouldUseUrgentFallbackTrigger({
             confirmedDriverId: trip.confirmed_driver_id,
             enableScheduledToUrgentConversion: urgentConversionEnabled,
           })
         ) {
-          const detail = trip.confirmed_driver_id
-            ? "confirmed_driver_dynamic_policy"
-            : "urgent_conversion_disabled";
-          console.log(`[schedule-dispatch] Trip ${trip.id}: skipped (${detail})`);
+          console.log(`[schedule-dispatch] Trip ${trip.id}: skipped (urgent_conversion_disabled)`);
           skipped++;
-          results.push({ trip_id: trip.id, action: "skipped", detail });
+          results.push({ trip_id: trip.id, action: "skipped", detail: "urgent_conversion_disabled" });
           continue;
         }
 
-
-
-        // Skip if pickup is still too far away (no-preconfirmed urgent fallback only)
+        // Confirmed-driver trips still need their activation card. The dynamic
+        // commitment runtime may activate earlier; this is the guaranteed
+        // safety net at pickup-minus-trigger so locked drivers are never missed.
         if (minutesUntilPickup > triggerMinutes) {
           console.log(
             `[schedule-dispatch] Trip ${trip.id}: ${minutesUntilPickup.toFixed(1)}min away, trigger at ${triggerMinutes}min — skipping`
@@ -142,6 +142,7 @@ serve(async (req) => {
           results.push({ trip_id: trip.id, action: "skipped", detail: `${minutesUntilPickup.toFixed(0)}min_away` });
           continue;
         }
+
 
         // Skip trips that are already past their scheduled time by more than 30 min (stale)
         if (minutesUntilPickup < -30) {
