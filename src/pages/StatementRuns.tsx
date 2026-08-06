@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useRegions } from "@/hooks/useRegions";
@@ -30,6 +31,8 @@ const RUN_STATUS: Record<string, { label: string; variant: "default" | "secondar
 };
 
 export default function StatementRuns() {
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab") === "schedule" ? "schedule" : "runs";
   const queryClient = useQueryClient();
   const { data: regions = [] } = useRegions();
   const { data: serviceAreas = [] } = useServiceAreas();
@@ -265,7 +268,7 @@ export default function StatementRuns() {
         </Button>
       </div>
 
-      <Tabs defaultValue="runs" className="space-y-4">
+      <Tabs defaultValue={initialTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="runs"><FileText className="h-4 w-4 mr-1.5" /> Statement Runs</TabsTrigger>
           <TabsTrigger value="schedule"><Settings2 className="h-4 w-4 mr-1.5" /> Automation</TabsTrigger>
