@@ -529,7 +529,7 @@ export default function Invoices() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Generate Driver Earnings Statement</DialogTitle>
-            <p className="text-sm text-muted-foreground">Monthly or annual (HMRC). Platform commission is not included on these statements.</p>
+            <p className="text-sm text-muted-foreground">Same statement design for monthly or annual periods. Choose a preset or enter dates — the PDF total is for that period.</p>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -588,7 +588,7 @@ export default function Invoices() {
                     setGenPeriodEnd(r.end);
                   }}
                 >
-                  Annual HMRC (UK tax year)
+                  Annual (UK tax year)
                 </Button>
                 <Button
                   type="button"
@@ -600,12 +600,12 @@ export default function Invoices() {
                     setGenPeriodEnd(r.end);
                   }}
                 >
-                  Annual calendar year
+                  Annual (calendar year)
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Annual statements use title “Annual Driver Earnings Statement (HMRC)” on the PDF.
-                For trip-level HMRC export also see{" "}
+                Annual uses the same invoice layout as monthly; only the date range (and total) changes.
+                Trip-level export:{" "}
                 <Link to="/annual-taxi-report" className="underline">Annual Taxi Report</Link>.
               </p>
             </div>

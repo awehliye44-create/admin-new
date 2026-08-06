@@ -594,15 +594,7 @@ function buildRenderData(
   template: Record<string, unknown> | null,
 ): DriverInvoiceRenderData {
   const currency = (invoice.currency_code as string) || "GBP";
-  const periodStart = String(invoice.period_start ?? "");
-  const periodEnd = String(invoice.period_end ?? "");
-  const periodDays = (() => {
-    const s = Date.parse(periodStart);
-    const e = Date.parse(periodEnd);
-    if (!Number.isFinite(s) || !Number.isFinite(e)) return 0;
-    return Math.round((e - s) / 86400000) + 1;
-  })();
-  const isAnnualHmrc = periodDays >= 360;
+  // Same statement design for monthly and annual — only the period (and thus totals) changes.
   const summaryRows = [
     { description: "Completed Card Trip Earnings", trips: Number(invoice.card_trips ?? 0), amountPence: Number(invoice.card_trip_earnings_pence ?? 0) },
     { description: "Completed Cash Trip Earnings", trips: Number(invoice.cash_trips ?? 0), amountPence: Number(invoice.cash_trip_earnings_pence ?? 0) },
@@ -616,9 +608,7 @@ function buildRenderData(
 
   return {
     invoiceNo: safeText(invoice.invoice_number, "INVOICE"),
-    invoiceTitle: isAnnualHmrc
-      ? "Annual Driver Earnings Statement (HMRC)"
-      : safeText(template?.invoice_title, "Driver Earnings Statement"),
+    invoiceTitle: safeText(template?.invoice_title, "Driver Earnings Statement"),
     driverName: (() => {
       const fromDriver = formatDriverDisplayName(driver);
       if (fromDriver !== "Driver") return fromDriver;
