@@ -336,6 +336,13 @@ export function AdminSidebar() {
             <P pageSlug="payout-ledger" to="/payout-ledger" icon={<Coins className="h-4 w-4" />} label="Payout Ledger (SSOT)" active={currentPath === '/payout-ledger'} collapsed={isCollapsed} />
           </Section>
 
+          {/* DRIVER STATEMENTS / INVOICES */}
+          <Section label="Driver Statements" slugs={['invoices','statement-runs','invoice-templates']}>
+            <P pageSlug="invoices" to="/invoices" icon={<FileText className="h-4 w-4" />} label="Driver Invoices" active={currentPath === '/invoices'} collapsed={isCollapsed} />
+            <P pageSlug="statement-runs" to="/statement-runs" icon={<Calendar className="h-4 w-4" />} label="Statement Schedule" active={currentPath === '/statement-runs'} collapsed={isCollapsed} />
+            <P pageSlug="invoice-templates" to="/invoice-templates" icon={<FileEdit className="h-4 w-4" />} label="Invoice Templates" active={currentPath === '/invoice-templates'} collapsed={isCollapsed} />
+          </Section>
+
           {/* REPORTS */}
           <Section label="Reports" slugs={['annual-taxi-report','onecab-revenue-profit']}>
             <P pageSlug="annual-taxi-report" to="/annual-taxi-report" icon={<FileText className="h-4 w-4" />} label="Annual Taxi Report" active={currentPath === '/annual-taxi-report'} collapsed={isCollapsed} />

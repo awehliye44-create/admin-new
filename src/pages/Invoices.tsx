@@ -299,14 +299,22 @@ export default function Invoices() {
   return (
     <div className="space-y-6">
       <FinanceSsotOperationalNotice />
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Invoices</h1>
+          <h1 className="text-2xl font-bold text-foreground">Driver Invoices</h1>
           <p className="text-muted-foreground">Driver earnings statements — generated per region</p>
         </div>
-        <Button onClick={() => setGenerateOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" /> Generate Invoice
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" asChild>
+            <Link to="/statement-runs?tab=schedule">Statement Schedule</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="/invoice-templates">Invoice Templates</Link>
+          </Button>
+          <Button onClick={() => setGenerateOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" /> Generate Invoice
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}

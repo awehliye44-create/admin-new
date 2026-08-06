@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useRegions } from "@/hooks/useRegions";
@@ -54,7 +55,7 @@ const DEFAULT_CONFIG: ScheduleConfig = {
   is_auto_generate_enabled: false,
   is_auto_send_enabled: false,
   frequency: "monthly",
-  generation_day: 5,
+  generation_day: 8,
   send_mode: "immediate",
   send_day: null,
   send_hour: 9,
@@ -208,6 +209,19 @@ export default function StatementScheduleConfig() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
+          <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm space-y-2">
+            <p className="font-medium text-foreground">Admin-controlled monthly driver statements</p>
+            <p className="text-muted-foreground">
+              Use the switches below to turn auto-generate and auto-email on or off. Set Generation Day to
+              <strong> 8</strong> for the 8th of each month (Europe/London recommended). Changes apply after
+              <strong> Save Settings</strong>.
+            </p>
+            <p className="text-muted-foreground">
+              Manual generate → email also respects the template toggle on{" "}
+              <Link to="/invoice-templates" className="underline text-foreground">Invoice Templates</Link>
+              {" "}(<code className="text-xs">auto_email_enabled</code>).
+            </p>
+          </div>
           {/* Toggles */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex items-center justify-between rounded-lg border border-border p-4">
