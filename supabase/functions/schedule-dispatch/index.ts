@@ -41,6 +41,8 @@ const CANDIDATE_SCHEDULED_STATUSES = [
   "scheduled",
   "awaiting_confirmation",
   "dispatching",
+  // Retry after gate is satisfied — do not strand bookings on a one-shot block.
+  "payment_gate_blocked",
 ] as const;
 
 async function estimateNearbyDriverEtaMinutes(
@@ -286,7 +288,9 @@ serve(async (req) => {
       .eq("is_scheduled", true)
       // Include 'expired' so a prior auto-dispatch max-rounds expire cannot
       // silently strand a no-preconfirmed scheduled booking outside this loop.
-      .in("status", ["scheduled", "pending", "searching", "expired"])
+      // Include 'offered' so cron can re-enter after wave expiry while status
+      // briefly remains offered (expire sweep may lag).
+      .in("status", ["scheduled", "pending", "searching", "expired", "offered"])
       .in("scheduled_status", [...CANDIDATE_SCHEDULED_STATUSES])
       .is("driver_id", null)
       .not("scheduled_at", "is", null)
@@ -488,9 +492,11 @@ serve(async (req) => {
             overdueGraceMinutes: overdueGrace,
           });
 
-        // Past max waves: before pickup, wait; during overdue grace, reset the
-        // round counter so priority offers can continue until grace ends.
-        // Never call auto-dispatch at round>max — it marks status=expired.
+        // Past configured max waves: before pickup, wait for grace.
+        // During overdue grace, EXTEND max_broadcast_rounds (do NOT reset to 0) —
+        // ride_offers UNIQUE (trip_id, driver_id, broadcast_round) rejects re-using
+        // rounds 1..N, which previously yielded offers=0 / duplicate_wave_offers.
+        let tripMaxRounds = maxDispatchRounds;
         if (roundsDone >= maxDispatchRounds) {
           if (!inOverdueGrace) {
             skipped++;
@@ -501,32 +507,34 @@ serve(async (req) => {
             });
             continue;
           }
+          tripMaxRounds = roundsDone + 1;
           await supabase
             .from("trips")
             .update({
-              current_broadcast_round: 0,
+              max_broadcast_rounds: tripMaxRounds,
               status: "searching",
               scheduled_status: "broadcasting",
               dispatch_status: "searching",
               updated_at: now.toISOString(),
             })
             .eq("id", trip.id);
-          trip.current_broadcast_round = 0;
         }
 
         // Move into searchable instant-offer state without permanently locking out retries.
-        // Recover 'expired' (max-rounds side-effect) back to searching for grace window.
+        // Recover 'expired'/'offered' (wave side-effects) back to searching for grace window.
         await supabase
           .from("trips")
           .update({
             status:
-              trip.status === "scheduled" || trip.status === "expired"
+              trip.status === "scheduled" ||
+              trip.status === "expired" ||
+              trip.status === "offered"
                 ? "searching"
                 : trip.status,
             scheduled_status: "broadcasting",
             dispatch_mode: "scheduled",
             dispatch_status: "searching",
-            max_broadcast_rounds: maxDispatchRounds,
+            max_broadcast_rounds: tripMaxRounds,
             updated_at: now.toISOString(),
           })
           .eq("id", trip.id);
