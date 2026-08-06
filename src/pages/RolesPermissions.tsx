@@ -599,6 +599,7 @@ export default function RolesPermissions() {
     { label: 'Corporate', pages: ['corporate-accounts', 'account-requests', 'corporate-billing', 'corporate-reports', 'corporate-settings'] },
     { label: 'Riders & Support', pages: ['riders', 'pending-customer-signups', 'rider-feedback', 'suspensions', 'complaints', 'live-chat', 'tickets', 'categories'] },
     { label: 'Finance', pages: ['payment-sessions', 'financial-reconciliation', 'payments-trip-shortfall-recapture', 'payments-increment-authorisation', 'driver-wallet-ledger', 'commission-wallet', 'payout-ledger', 'disputes', 'dispute-settings', 'invoices', 'invoice-templates', 'statement-runs'] },
+    { label: 'Reports', pages: ['annual-taxi-report', 'onecab-revenue-profit', 'driver-earnings-invoices'] },
     { label: 'Documents', pages: ['onecab-documents', 'content'] },
     { label: 'Settings', pages: ['general-settings', 'integrations', 'webhooks', 'system', 'roles', 'user-directory', 'notifications', 'alert-sounds'] },
   ];

@@ -13,6 +13,16 @@ import {
 import { buildDriverInvoicePdf, isBrandedDriverInvoicePdf } from "./driverInvoicePdf.ts";
 import { prepareDriverInvoiceHtmlForPdf } from "./driverInvoiceHtml.ts";
 import { formatResendFromAddress, sendResendEmail } from "./resendMail.ts";
+import {
+  canMutateDriverInvoiceArtifact,
+  isEligibleDriverInvoiceEmail,
+  resolvePreferredDriverInvoiceEmail,
+} from "./driverInvoiceLedgerPolicy.ts";
+
+export {
+  isEligibleDriverInvoiceEmail,
+  resolvePreferredDriverInvoiceEmail,
+};
 
 const BUCKET = "driver-invoices";
 const LEGACY_BUCKET = "driver-statement-pdfs";
@@ -270,19 +280,27 @@ async function resolveDriverRecipientEmail(
   driver: Record<string, unknown>,
   invoice?: Record<string, unknown>,
 ): Promise<string | null> {
-  const direct = safeText(driver.email as string | undefined, "");
-  if (direct) return direct;
-
-  const snapshot = safeText(invoice?.driver_display_email as string | undefined, "");
-  if (snapshot) return snapshot;
-
+  // Driver profile email only — never customer profile / company mailbox.
+  let authEmail: string | null = null;
   const userId = driver.user_id as string | undefined;
   if (userId) {
     const { data, error } = await supabase.auth.admin.getUserById(userId);
-    if (!error && data?.user?.email) return data.user.email;
+    if (!error && data?.user?.email) authEmail = data.user.email;
   }
 
-  return null;
+  const profile = safeText(driver.email as string | undefined, "") || null;
+  if (profile && isEligibleDriverInvoiceEmail(profile)) return profile.trim();
+
+  const snapshot = safeText(invoice?.driver_display_email as string | undefined, "") || null;
+  if (snapshot && isEligibleDriverInvoiceEmail(snapshot)) return snapshot.trim();
+
+  return resolvePreferredDriverInvoiceEmail({
+    driverProfileEmail: null,
+    driverAuthEmail: authEmail,
+    customerProfileEmail: null,
+    companyEmail: null,
+    adminEmail: null,
+  });
 }
 
 async function snapshotDriverFieldsForInsert(
@@ -722,6 +740,22 @@ export async function generateDriverInvoice(
   const { data: region } = await supabase.from("regions").select("currency_code, name").eq("id", params.regionId).single();
   if (!region?.currency_code) return { ok: false, error: "Region has no currency" };
 
+  if (params.regenerateInvoiceId) {
+    const { data: existingInv } = await supabase
+      .from("invoices")
+      .select("invoice_number, status, invoice_email_sent")
+      .eq("id", params.regenerateInvoiceId)
+      .single();
+    const mutate = canMutateDriverInvoiceArtifact({
+      status: (existingInv?.status as string | null) ?? null,
+      invoiceEmailSent: Boolean(existingInv?.invoice_email_sent),
+      action: "regenerate",
+    });
+    if (!mutate.allowed) {
+      return { ok: false, error: "Issued driver invoice is immutable", invoice_id: params.regenerateInvoiceId };
+    }
+  }
+
   if (!params.regenerateInvoiceId) {
     const { data: existing } = await supabase
       .from("invoices")
@@ -853,6 +887,14 @@ export async function sendDriverInvoiceEmail(
   const { data: invoice } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
   if (!invoice) return { ok: false, error: "Invoice not found" };
   if (invoice.invoice_email_sent && !forceResend) return { ok: true };
+  if (invoice.invoice_email_sent && forceResend) {
+    const mutate = canMutateDriverInvoiceArtifact({
+      status: (invoice.status as string | null) ?? null,
+      invoiceEmailSent: true,
+      action: "send_email",
+    });
+    if (!mutate.allowed) return { ok: true };
+  }
 
   const relinked = await relinkOrphanInvoiceDriver(
     supabase,
@@ -865,15 +907,18 @@ export async function sendDriverInvoiceEmail(
 
   const recipientEmail = await resolveDriverRecipientEmail(supabase, driver, hydrated);
   if (!recipientEmail) {
-    const message = isValidUuid(hydrated.driver_id)
-      ? "Driver email not found. Update the driver profile email or regenerate this invoice for an active driver."
-      : "Invoice has no linked driver. Regenerate the statement for an active driver before sending email.";
+    const message = "SKIPPED_NO_VALID_EMAIL";
     await supabase.from("invoices").update({
       invoice_email_sent: false,
-      invoice_email_status: "failed",
+      invoice_email_status: "skipped_no_valid_email",
       invoice_email_error: message,
     }).eq("id", invoiceId);
-    return { ok: false, error: message };
+    console.log(JSON.stringify({
+      event: "driver_report_skipped_no_valid_email",
+      invoice_id: invoiceId,
+      driver_id: hydrated.driver_id ?? null,
+    }));
+    return { ok: true, skipped: true };
   }
 
   let pdfPath = hydrated.pdf_storage_path as string | null;
