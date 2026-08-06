@@ -196,7 +196,7 @@ Deno.serve(async (req) => {
               continue;
             }
 
-            const netEarnings = grossEarnings - commission + bonuses - penalties + adjustments;
+            const netEarnings = grossEarnings + bonuses - penalties + adjustments;
             const { data: invNum } = await supabase.rpc("generate_invoice_number");
             const invoiceNumber = invNum || `INV-${Date.now()}-${runInvoiceCount}`;
 
@@ -236,7 +236,7 @@ Deno.serve(async (req) => {
                 service_area_id: saId,
                 currency_code: region.currency_code,
                 gross_earnings_pence: grossEarnings,
-                commission_pence: commission,
+                commission_pence: 0,
                 bonuses_pence: bonuses,
                 penalties_pence: penalties,
                 adjustments_pence: adjustments,
@@ -253,7 +253,6 @@ Deno.serve(async (req) => {
             if (inv) {
               const items: any[] = [
                 { invoice_id: inv.id, item_type: "trip_earnings", description: `Completed trip earnings (${completedTrips.size} trips)`, amount_pence: grossEarnings, sort_order: 1 },
-                { invoice_id: inv.id, item_type: "commission", description: "Platform commission", amount_pence: -commission, sort_order: 2 },
               ];
               if (bonuses > 0) items.push({ invoice_id: inv.id, item_type: "bonus", description: "Bonuses & incentives", amount_pence: bonuses, sort_order: 3 });
               if (penalties > 0) items.push({ invoice_id: inv.id, item_type: "penalty", description: "Penalties & deductions", amount_pence: -penalties, sort_order: 4 });

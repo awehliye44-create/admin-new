@@ -121,9 +121,10 @@ export async function aggregateDriverInvoice(
     + airportFeeEarningsPence + extraChargeEarningsPence + bonusesPence
     + Math.max(0, adjustmentsPence);
 
+  // Platform commission is not shown on driver statements (no Stripe/platform cut on this invoice).
+  // Net statement total = earnings + fees/bonuses/adjustments only.
   const netDriverEarningsPence = cardTripEarningsPence + cashTripEarningsPence
-    + airportFeeEarningsPence + extraChargeEarningsPence + bonusesPence + adjustmentsPence
-    - platformCommissionPence;
+    + airportFeeEarningsPence + extraChargeEarningsPence + bonusesPence + adjustmentsPence;
 
   return {
     cardTripEarningsPence,
@@ -168,17 +169,7 @@ export function buildInvoiceItems(
   push("other", "Extra Charge Earnings", 0, agg.extraChargeEarningsPence);
   if (agg.bonusesPence > 0) push("bonus", "Bonuses", 0, agg.bonusesPence);
   if (agg.adjustmentsPence !== 0) push("adjustment", "Adjustments", 0, agg.adjustmentsPence);
-  if (agg.platformCommissionPence > 0) {
-    items.push({
-      invoice_id: invoiceId,
-      item_type: "commission",
-      description: "Platform Commission",
-      quantity: 1,
-      unit_price_pence: -agg.platformCommissionPence,
-      amount_pence: -agg.platformCommissionPence,
-      sort_order: sort++,
-    });
-  }
+  // Intentionally omit Platform Commission line items from driver invoices.
 
   return items;
 }

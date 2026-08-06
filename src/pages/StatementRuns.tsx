@@ -176,7 +176,7 @@ export default function StatementRuns() {
             service_area_id: saId,
             currency_code: region.currency_code,
             gross_earnings_pence: grossEarnings,
-            commission_pence: commission,
+            commission_pence: 0,
             bonuses_pence: bonuses,
             penalties_pence: penalties,
             adjustments_pence: adjustments,
@@ -192,7 +192,6 @@ export default function StatementRuns() {
         if (inv) {
           const items: any[] = [
             { invoice_id: inv.id, item_type: "trip_earnings", description: `Completed trip earnings (${completedTrips} trips)`, amount_pence: grossEarnings, sort_order: 1 },
-            { invoice_id: inv.id, item_type: "commission", description: "Platform commission", amount_pence: -commission, sort_order: 2 },
           ];
           if (bonuses > 0) items.push({ invoice_id: inv.id, item_type: "bonus", description: "Bonuses & incentives", amount_pence: bonuses, sort_order: 3 });
           if (penalties > 0) items.push({ invoice_id: inv.id, item_type: "penalty", description: "Penalties & deductions", amount_pence: -penalties, sort_order: 4 });

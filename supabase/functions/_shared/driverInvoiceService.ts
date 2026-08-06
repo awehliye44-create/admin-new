@@ -594,20 +594,31 @@ function buildRenderData(
   template: Record<string, unknown> | null,
 ): DriverInvoiceRenderData {
   const currency = (invoice.currency_code as string) || "GBP";
+  const periodStart = String(invoice.period_start ?? "");
+  const periodEnd = String(invoice.period_end ?? "");
+  const periodDays = (() => {
+    const s = Date.parse(periodStart);
+    const e = Date.parse(periodEnd);
+    if (!Number.isFinite(s) || !Number.isFinite(e)) return 0;
+    return Math.round((e - s) / 86400000) + 1;
+  })();
+  const isAnnualHmrc = periodDays >= 360;
   const summaryRows = [
     { description: "Completed Card Trip Earnings", trips: Number(invoice.card_trips ?? 0), amountPence: Number(invoice.card_trip_earnings_pence ?? 0) },
+    { description: "Completed Cash Trip Earnings", trips: Number(invoice.cash_trips ?? 0), amountPence: Number(invoice.cash_trip_earnings_pence ?? 0) },
     { description: "Airport Fee Earnings", trips: 0, amountPence: Number(invoice.airport_fee_earnings_pence ?? 0) },
     { description: "Extra Charge Earnings", trips: 0, amountPence: Number(invoice.extra_charge_earnings_pence ?? 0) },
     { description: "Bonuses", trips: 0, amountPence: Number(invoice.bonuses_pence ?? 0) },
     { description: "Adjustments", trips: 0, amountPence: Number(invoice.adjustments_pence ?? 0) },
-    { description: "Platform Commission", trips: 0, amountPence: Number(invoice.commission_pence ?? 0), isDeduction: true },
   ];
 
   const branding = companyBranding.branding;
 
   return {
     invoiceNo: safeText(invoice.invoice_number, "INVOICE"),
-    invoiceTitle: safeText(template?.invoice_title, "Driver Earnings Statement"),
+    invoiceTitle: isAnnualHmrc
+      ? "Annual Driver Earnings Statement (HMRC)"
+      : safeText(template?.invoice_title, "Driver Earnings Statement"),
     driverName: (() => {
       const fromDriver = formatDriverDisplayName(driver);
       if (fromDriver !== "Driver") return fromDriver;
@@ -631,7 +642,7 @@ function buildRenderData(
     extraChargeEarningsPence: Number(invoice.extra_charge_earnings_pence ?? 0),
     bonusesPence: Number(invoice.bonuses_pence ?? 0),
     adjustmentsPence: Number(invoice.adjustments_pence ?? 0),
-    platformCommissionPence: Number(invoice.commission_pence ?? 0),
+    platformCommissionPence: 0,
     cashCollectedOffsetPence: Number(invoice.cash_collected_pence ?? 0),
     netDriverEarningsPence: Number(invoice.net_earnings_pence ?? 0),
     company: {
@@ -770,7 +781,7 @@ export async function generateDriverInvoice(
         service_area_id: params.serviceAreaId || null,
         currency_code: region.currency_code,
         gross_earnings_pence: agg.grossEarningsPence,
-        commission_pence: agg.platformCommissionPence,
+        commission_pence: 0,
         bonuses_pence: agg.bonusesPence,
         penalties_pence: 0,
         adjustments_pence: agg.adjustmentsPence,
@@ -799,7 +810,7 @@ export async function generateDriverInvoice(
       invoice_email_status: null,
       invoice_email_error: null,
       gross_earnings_pence: agg.grossEarningsPence,
-      commission_pence: agg.platformCommissionPence,
+      commission_pence: 0,
       bonuses_pence: agg.bonusesPence,
       adjustments_pence: agg.adjustmentsPence,
       cash_collected_pence: agg.cashCollectedOffsetPence,

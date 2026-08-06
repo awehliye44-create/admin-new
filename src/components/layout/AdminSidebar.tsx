@@ -337,15 +337,15 @@ export function AdminSidebar() {
           </Section>
 
           {/* DRIVER STATEMENTS / INVOICES */}
-          <Section label="Driver Statements" slugs={['invoices','statement-runs','invoice-templates']}>
+          <Section label="Driver Statements" slugs={['invoices','statement-runs','invoice-templates','annual-taxi-report']}>
             <P pageSlug="invoices" to="/invoices" icon={<FileText className="h-4 w-4" />} label="Driver Invoices" active={currentPath === '/invoices'} collapsed={isCollapsed} />
             <P pageSlug="statement-runs" to="/statement-runs" icon={<Calendar className="h-4 w-4" />} label="Statement Schedule" active={currentPath === '/statement-runs'} collapsed={isCollapsed} />
             <P pageSlug="invoice-templates" to="/invoice-templates" icon={<FileEdit className="h-4 w-4" />} label="Invoice Templates" active={currentPath === '/invoice-templates'} collapsed={isCollapsed} />
+            <P pageSlug="annual-taxi-report" to="/annual-taxi-report" icon={<FileText className="h-4 w-4" />} label="Annual Taxi Report (HMRC)" active={currentPath === '/annual-taxi-report'} collapsed={isCollapsed} />
           </Section>
 
           {/* REPORTS */}
-          <Section label="Reports" slugs={['annual-taxi-report','onecab-revenue-profit']}>
-            <P pageSlug="annual-taxi-report" to="/annual-taxi-report" icon={<FileText className="h-4 w-4" />} label="Annual Taxi Report" active={currentPath === '/annual-taxi-report'} collapsed={isCollapsed} />
+          <Section label="Reports" slugs={['onecab-revenue-profit']}>
             <P pageSlug="onecab-revenue-profit" to="/onecab-revenue-profit" icon={<BarChart3 className="h-4 w-4" />} label="ONECAB Revenue & Profit" active={currentPath === '/onecab-revenue-profit'} collapsed={isCollapsed} />
           </Section>
 
