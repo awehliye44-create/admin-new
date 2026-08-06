@@ -12,12 +12,25 @@ import {
   SCHEDULED_REMINDER_POLICY_LINKS,
   STACKING_SCHEDULED_COMMITMENT_HELP,
   STACKING_SCHEDULED_COMMITMENT_LABEL,
+  buildSaCommitmentOverridePayload,
   buildScheduledPolicySavePayload,
+  computeDynamicScheduledTiming,
+  evaluateScheduledStackingFeasibility,
+  findOverlappingScheduledCommitments,
+  gateStackedOfferAgainstScheduledCommitments,
+  hasOverlappingScheduledCommitments,
   mapCommitmentPolicyFromDb,
   mapCommitmentPolicyToDb,
+  parseSaCommitmentOverride,
   resolveScheduledCommitmentPolicy,
+  resolveScheduledDispatchPath,
   shouldUseUrgentFallbackTrigger,
+  computeNoPreconfirmedPriorityLeadMinutes,
+  shouldStartNoPreconfirmedPriorityDispatch,
+  isPastNoPreconfirmedOverdueGrace,
   stackingDoesNotBypassCommitmentProtection,
+  tripSignalsIndicateAirport,
+  validateSaCommitmentOverride,
   validateScheduledBookingPolicy,
   validateScheduledCommitmentPolicy,
 } from "../scheduledRidesPolicySSOT.ts";
@@ -82,6 +95,34 @@ Deno.test("validation boundaries", () => {
   );
 });
 
+Deno.test("SA override parse/build + empty inherits global", () => {
+  const payload = buildSaCommitmentOverridePayload({
+    early_arrival_buffer_minutes: 18,
+    check_in_min_lead_minutes: null,
+  });
+  assertEquals(payload, { early_arrival_buffer_minutes: 18 });
+
+  const cleared = buildSaCommitmentOverridePayload({
+    early_arrival_buffer_minutes: null,
+  });
+  assertEquals(cleared, null);
+
+  const parsed = parseSaCommitmentOverride({
+    scheduled_commitment_policy: { early_arrival_buffer_minutes: 18 },
+  });
+  assertEquals(parsed.early_arrival_buffer_minutes, 18);
+  assertEquals(parsed.check_in_min_lead_minutes, undefined);
+
+  const issues = validateSaCommitmentOverride(
+    { min_gap_between_scheduled_minutes: 5 },
+    {
+      ...SCHEDULED_COMMITMENT_POLICY_DEFAULTS,
+      scheduled_turnaround_buffer_minutes: 10,
+    },
+  );
+  assert(issues.some((i) => i.field === "min_gap_between_scheduled_minutes"));
+});
+
 Deno.test("SA fallback and location override", () => {
   const sa = resolveScheduledCommitmentPolicy({
     global: { check_in_min_lead_minutes: 90, early_arrival_buffer_minutes: 10 },
@@ -122,4 +163,188 @@ Deno.test("stacking wording and protection + reminder links", () => {
     true,
   );
   assertEquals(SCHEDULED_REMINDER_POLICY_LINKS.length, 9);
+  assertEquals(tripSignalsIndicateAirport({ airportChargePence: 500 }), true);
+  assertEquals(
+    tripSignalsIndicateAirport({ zoneTypes: ["standard", "Airport"] }),
+    true,
+  );
+  assertEquals(
+    tripSignalsIndicateAirport({ airportChargePence: 0, zoneTypes: ["city"] }),
+    false,
+  );
+});
+
+Deno.test("dynamic timing from knobs + runtime ETA/workload", () => {
+  const pickup = new Date("2030-06-01T12:00:00.000Z");
+  const timing = computeDynamicScheduledTiming(
+    {
+      ...SCHEDULED_COMMITMENT_POLICY_DEFAULTS,
+      early_arrival_buffer_minutes: 10,
+      safety_buffer_minutes: 5,
+      pickup_access_allowance_minutes: 15,
+      check_in_min_lead_minutes: 90,
+    },
+    {
+      scheduledPickupAt: pickup,
+      travelEtaMinutes: 20,
+      activeWorkloadMinutes: 30,
+      pickupWaitingMinutes: 5,
+      stopWaitingMinutes: 0,
+    },
+  );
+  // 20+30+5+0+10+5+15 = 85 minutes before pickup
+  assertEquals(timing.totalLeadMinutesBeforePickup, 85);
+  assertEquals(timing.requiredArrivalLeadMinutes, 30);
+  assertEquals(timing.leaveByAt, "2030-06-01T10:35:00.000Z");
+  assertEquals(timing.checkInOpensAt, "2030-06-01T10:30:00.000Z");
+  assertEquals(timing.startJourneyDueAt, timing.leaveByAt);
+  assertEquals(resolveScheduledDispatchPath({ confirmedDriverId: "d1" }), "confirmed_driver_dynamic_policy");
+  assertEquals(resolveScheduledDispatchPath({ confirmedDriverId: null }), "urgent_fallback");
+});
+
+Deno.test("no overlapping scheduled commitments + stacking feasibility", () => {
+  const policy = {
+    ...SCHEDULED_COMMITMENT_POLICY_DEFAULTS,
+    min_gap_between_scheduled_minutes: 60,
+    scheduled_turnaround_buffer_minutes: 10,
+    early_arrival_buffer_minutes: 10,
+    safety_buffer_minutes: 0,
+    pickup_access_allowance_minutes: 0,
+  };
+
+  const overlap = findOverlappingScheduledCommitments(
+    [
+      {
+        id: "a",
+        scheduledPickupAt: "2030-06-01T12:00:00.000Z",
+        estimatedJobMinutes: 40,
+      },
+      {
+        id: "b",
+        scheduledPickupAt: "2030-06-01T12:30:00.000Z",
+        estimatedJobMinutes: 20,
+      },
+    ],
+    policy,
+  );
+  assert(overlap.length > 0);
+  assertEquals(hasOverlappingScheduledCommitments(
+    [
+      {
+        scheduledPickupAt: "2030-06-01T12:00:00.000Z",
+        estimatedJobMinutes: 20,
+      },
+      {
+        scheduledPickupAt: "2030-06-01T14:00:00.000Z",
+        estimatedJobMinutes: 20,
+      },
+    ],
+    policy,
+  ), false);
+
+  const blocked = evaluateScheduledStackingFeasibility({
+    allowScheduledStacking: false,
+    policy,
+    queue: [
+      { kind: "active", durationMinutes: 10 },
+      {
+        kind: "scheduled",
+        id: "s1",
+        durationMinutes: 30,
+        scheduledPickupAt: "2030-06-01T15:00:00.000Z",
+      },
+    ],
+    now: "2030-06-01T12:00:00.000Z",
+  });
+  assertEquals(blocked.reason, "stacked_scheduled_blocked");
+  assertEquals(blocked.allowed, false);
+
+  const delayed = evaluateScheduledStackingFeasibility({
+    allowScheduledStacking: true,
+    policy,
+    queue: [
+      { kind: "candidate", durationMinutes: 120 },
+      {
+        kind: "scheduled",
+        id: "s1",
+        durationMinutes: 30,
+        scheduledPickupAt: "2030-06-01T13:00:00.000Z",
+      },
+    ],
+    now: "2030-06-01T12:00:00.000Z",
+  });
+  assertEquals(delayed.allowed, false);
+  assertEquals(delayed.reason, "scheduled_pickup_would_be_delayed");
+
+  const ok = evaluateScheduledStackingFeasibility({
+    allowScheduledStacking: true,
+    policy,
+    queue: [
+      { kind: "candidate", durationMinutes: 20 },
+      {
+        kind: "scheduled",
+        id: "s1",
+        durationMinutes: 30,
+        scheduledPickupAt: "2030-06-01T15:00:00.000Z",
+      },
+    ],
+    now: "2030-06-01T12:00:00.000Z",
+  });
+  assertEquals(ok.allowed, true);
+  assertEquals(ok.reason, "ok");
+
+  const gated = gateStackedOfferAgainstScheduledCommitments({
+    allowScheduledStacking: false,
+    policy,
+    activeRemainingMinutes: 10,
+    candidateDurationMinutes: 20,
+    scheduledCommitments: [
+      {
+        id: "s1",
+        scheduledPickupAt: "2030-06-01T15:00:00.000Z",
+        estimatedJobMinutes: 30,
+      },
+    ],
+    now: "2030-06-01T12:00:00.000Z",
+  });
+  assertEquals(gated.allowed, false);
+  assertEquals(gated.reason, "stacked_scheduled_blocked");
+});
+
+
+Deno.test("no-preconfirmed lead uses max(dynamic, fallback threshold)", () => {
+  const commitment = {
+    early_arrival_buffer_minutes: 10,
+    safety_buffer_minutes: 5,
+    pickup_access_allowance_minutes: 0,
+    eta_risk_tolerance_minutes: 5,
+    rescue_search_lead_minutes: 20,
+  };
+  const lateOnly = computeNoPreconfirmedPriorityLeadMinutes({
+    fallbackThresholdMinutes: 15,
+    nearbyDriverEtaMinutes: 3,
+    commitment,
+  });
+  // dynamic = 3+10+5+0+5 = 23 → effective 23 (earlier than 15)
+  if (lateOnly.effectiveLeadMinutes !== 23) {
+    throw new Error(`expected 23 got ${lateOnly.effectiveLeadMinutes}`);
+  }
+  const shortDynamic = computeNoPreconfirmedPriorityLeadMinutes({
+    fallbackThresholdMinutes: 15,
+    nearbyDriverEtaMinutes: 1,
+    commitment: { ...commitment, early_arrival_buffer_minutes: 0, safety_buffer_minutes: 0, eta_risk_tolerance_minutes: 0 },
+  });
+  // dynamic=1 < 15 → effective stays 15 (latest permitted)
+  if (shortDynamic.effectiveLeadMinutes !== 15) {
+    throw new Error(`expected 15 got ${shortDynamic.effectiveLeadMinutes}`);
+  }
+  if (!shouldStartNoPreconfirmedPriorityDispatch({ minutesUntilPickup: 15, effectiveLeadMinutes: 15 })) {
+    throw new Error("should start at threshold");
+  }
+  if (shouldStartNoPreconfirmedPriorityDispatch({ minutesUntilPickup: 16, effectiveLeadMinutes: 15 })) {
+    throw new Error("should not start before threshold");
+  }
+  if (!isPastNoPreconfirmedOverdueGrace({ minutesUntilPickup: -16, overdueGraceMinutes: 15 })) {
+    throw new Error("should be past grace");
+  }
 });
