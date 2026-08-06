@@ -163,7 +163,9 @@ async function markUnfulfilledAndRelease(args: {
   reason: string;
 }): Promise<void> {
   const nowIso = new Date().toISOString();
-  await args.supabase
+  // Idempotent terminal transition — concurrent cron + manual invoke must not
+  // double-notify or create duplicate ops incidents.
+  const { data: transitioned, error: transitionErr } = await args.supabase
     .from("trips")
     .update({
       scheduled_status: "unfulfilled",
@@ -173,7 +175,18 @@ async function markUnfulfilledAndRelease(args: {
       updated_at: nowIso,
     })
     .eq("id", args.tripId)
-    .eq("is_scheduled", true);
+    .eq("is_scheduled", true)
+    .neq("scheduled_status", "unfulfilled")
+    .select("id");
+
+  if (transitionErr) {
+    console.error("[schedule-dispatch] unfulfilled transition failed", args.tripId, transitionErr);
+    return;
+  }
+  if (!transitioned?.length) {
+    console.log("[schedule-dispatch] unfulfilled already applied", args.tripId);
+    return;
+  }
 
   // Best-effort payment hold release for Revolut sessions linked to this trip.
   try {
@@ -242,19 +255,41 @@ async function markUnfulfilledAndRelease(args: {
     metadata: { reason: args.reason },
   });
 
-  // Customer notification (best-effort)
+  // Customer notification (best-effort). trips.passenger_id is customers.id —
+  // notifications.target_user_id expects the auth user id (customers.user_id).
   try {
     if (args.customerId) {
+      const { data: customer } = await args.supabase
+        .from("customers")
+        .select("user_id")
+        .eq("id", args.customerId)
+        .maybeSingle();
+      const targetUserId = customer?.user_id ?? args.customerId;
+
+      const { count: existingNotify } = await args.supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .contains("metadata", {
+          trip_id: args.tripId,
+          event: "trip_scheduled_unfulfilled",
+        });
+      if ((existingNotify ?? 0) > 0) {
+        return;
+      }
+
       await args.supabase.from("notifications").insert({
-        target_user_id: args.customerId,
-        target_audience: "specific_user",
+        target_user_id: targetUserId,
+        target_audience: "user",
         title: "Scheduled ride unavailable",
         message:
           "We could not find an available driver for your scheduled pickup. Any payment hold will be released.",
-        type: "trip_scheduled_unfulfilled",
+        type: "warning",
         category: "trip",
         priority: "high",
-        metadata: { trip_id: args.tripId },
+        metadata: {
+          trip_id: args.tripId,
+          event: "trip_scheduled_unfulfilled",
+        },
       });
     }
   } catch (err) {
