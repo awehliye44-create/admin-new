@@ -46,6 +46,7 @@ interface CancelledTrip {
   trip_number: string | null;
   trip_code: string | null;
   status: string | null;
+  passenger_id: string | null;
   passenger_name: string | null;
   passenger_phone: string | null;
   pickup_address: string;
