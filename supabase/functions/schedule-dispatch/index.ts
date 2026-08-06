@@ -53,13 +53,18 @@ async function estimateNearbyDriverEtaMinutes(
   },
 ): Promise<number | null> {
   try {
-    const { data: drivers } = await supabase
+    // Live schema: is_online + current_lat/lng (not status/current_latitude).
+    let q = supabase
       .from("drivers")
-      .select("id, current_latitude, current_longitude, vehicle_type_id, service_area_id, status")
-      .eq("status", "online")
-      .not("current_latitude", "is", null)
-      .not("current_longitude", "is", null)
-      .limit(40);
+      .select("id, current_lat, current_lng, service_area_id, is_online")
+      .eq("is_online", true)
+      .not("current_lat", "is", null)
+      .not("current_lng", "is", null)
+      .limit(60);
+    if (trip.service_area_id) {
+      q = q.eq("service_area_id", trip.service_area_id);
+    }
+    const { data: drivers } = await q;
 
     if (!drivers?.length) return null;
 
@@ -76,14 +81,8 @@ async function estimateNearbyDriverEtaMinutes(
 
     let bestMinutes: number | null = null;
     for (const d of drivers) {
-      if (trip.service_area_id && d.service_area_id && d.service_area_id !== trip.service_area_id) {
-        continue;
-      }
-      if (trip.vehicle_type_id && d.vehicle_type_id && d.vehicle_type_id !== trip.vehicle_type_id) {
-        continue;
-      }
-      const lat = Number(d.current_latitude);
-      const lng = Number(d.current_longitude);
+      const lat = Number(d.current_lat);
+      const lng = Number(d.current_lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
       const km = haversineKm(
         Number(trip.pickup_latitude),
@@ -100,6 +99,31 @@ async function estimateNearbyDriverEtaMinutes(
     console.warn("[schedule-dispatch] nearby ETA estimate failed", err);
     return null;
   }
+}
+
+async function countPendingOffers(
+  supabase: SupabaseClient,
+  tripId: string,
+): Promise<number> {
+  const { count } = await supabase
+    .from("ride_offers")
+    .select("id", { count: "exact", head: true })
+    .eq("trip_id", tripId)
+    .eq("status", "pending");
+  return count ?? 0;
+}
+
+async function hasAdminEscalationLogged(
+  supabase: SupabaseClient,
+  tripId: string,
+): Promise<boolean> {
+  const { count } = await supabase
+    .from("ops_logs")
+    .select("id", { count: "exact", head: true })
+    .eq("trip_id", tripId)
+    .eq("error_code", "SCHEDULED_ADMIN_ESCALATION")
+    .limit(1);
+  return (count ?? 0) > 0;
 }
 
 async function invokeAutoDispatch(args: {
@@ -151,13 +175,32 @@ async function markUnfulfilledAndRelease(args: {
 
   // Best-effort payment hold release for Revolut sessions linked to this trip.
   try {
-    const { data: session } = await args.supabase
+    let session: {
+      id: string;
+      provider_order_id: string | null;
+      status: string | null;
+      payment_provider: string | null;
+    } | null = null;
+
+    const byTrip = await args.supabase
       .from("payment_sessions")
       .select("id, provider_order_id, status, payment_provider")
       .eq("trip_id", args.tripId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+    session = byTrip.data ?? null;
+
+    if (!session) {
+      const byMeta = await args.supabase
+        .from("payment_sessions")
+        .select("id, provider_order_id, status, payment_provider")
+        .contains("metadata", { trip_id: args.tripId })
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      session = byMeta.data ?? null;
+    }
 
     if (
       session?.provider_order_id &&
@@ -238,10 +281,12 @@ serve(async (req) => {
     const { data: pendingTrips, error: tripsErr } = await supabase
       .from("trips")
       .select(
-        "id, passenger_id, scheduled_at, pickup_latitude, pickup_longitude, vehicle_type_id, service_area_id, confirmed_driver_id, scheduled_status, status, driver_id",
+        "id, passenger_id, scheduled_at, pickup_latitude, pickup_longitude, vehicle_type_id, service_area_id, confirmed_driver_id, scheduled_status, status, driver_id, current_broadcast_round, max_broadcast_rounds",
       )
       .eq("is_scheduled", true)
-      .in("status", ["scheduled", "pending", "searching"])
+      // Include 'expired' so a prior auto-dispatch max-rounds expire cannot
+      // silently strand a no-preconfirmed scheduled booking outside this loop.
+      .in("status", ["scheduled", "pending", "searching", "expired"])
       .in("scheduled_status", [...CANDIDATE_SCHEDULED_STATUSES])
       .is("driver_id", null)
       .not("scheduled_at", "is", null)
@@ -280,6 +325,10 @@ serve(async (req) => {
     );
     const scheduledEnabled = Boolean(globalCfg.scheduled_rides_enabled);
     const urgentConversionEnabled = globalCfg.enable_scheduled_to_urgent_conversion !== false;
+    const maxDispatchRounds = Math.max(
+      1,
+      Number(globalCfg.max_dispatch_rounds ?? 3),
+    );
     const commitment = {
       ...SCHEDULED_COMMITMENT_POLICY_DEFAULTS,
       ...mapCommitmentPolicyFromDb(globalCfg as Record<string, unknown>),
@@ -290,6 +339,9 @@ serve(async (req) => {
         globalCfg.scheduled_response_window_minutes ?? 8,
       ),
     });
+    // Priority retry interval: cron is every 1 minute; next wave only after
+    // pending offers clear (wave expiry from Admin Auto-Dispatch Rules).
+    const priorityRetryIntervalMinutes = 1;
 
     let dispatched = 0;
     let skipped = 0;
@@ -374,24 +426,29 @@ serve(async (req) => {
             adminEscalationLeadMinutes: commitment.admin_escalation_lead_minutes,
           })
         ) {
-          await opsLog(supabase, {
-            level: "warn",
-            source: "schedule-dispatch",
-            message: "Scheduled booking approaching pickup without confirmed driver",
-            event_type: "dispatch_timeout_exceeded",
-            workflow_event_type: "dispatch_timeout_exceeded",
-            severity: "warning",
-            trip_id: trip.id,
-            customer_id: trip.passenger_id ?? null,
-            error_code: "SCHEDULED_ADMIN_ESCALATION",
-            metadata: {
-              minutes_until_pickup: Math.round(minutesUntilPickup),
-              effective_lead_minutes: lead.effectiveLeadMinutes,
-              fallback_threshold_minutes: lead.fallbackThresholdMinutes,
-              dynamic_lead_minutes: lead.dynamicRequiredLeadMinutes,
-              nearby_eta_minutes: nearbyEta,
-            },
-          });
+          const already = await hasAdminEscalationLogged(supabase, trip.id);
+          if (!already) {
+            await opsLog(supabase, {
+              level: "warn",
+              source: "schedule-dispatch",
+              message: "Scheduled booking approaching pickup without confirmed driver",
+              event_type: "dispatch_timeout_exceeded",
+              workflow_event_type: "dispatch_timeout_exceeded",
+              severity: "warning",
+              trip_id: trip.id,
+              customer_id: trip.passenger_id ?? null,
+              error_code: "SCHEDULED_ADMIN_ESCALATION",
+              metadata: {
+                minutes_until_pickup: Math.round(minutesUntilPickup),
+                effective_lead_minutes: lead.effectiveLeadMinutes,
+                fallback_threshold_minutes: lead.fallbackThresholdMinutes,
+                dynamic_lead_minutes: lead.dynamicRequiredLeadMinutes,
+                nearby_eta_minutes: nearbyEta,
+                max_dispatch_rounds: maxDispatchRounds,
+                priority_retry_interval_minutes: priorityRetryIntervalMinutes,
+              },
+            });
+          }
         }
 
         try {
@@ -412,13 +469,43 @@ serve(async (req) => {
           throw e;
         }
 
+        const pendingOffers = await countPendingOffers(supabase, trip.id);
+        if (pendingOffers > 0) {
+          skipped++;
+          results.push({
+            trip_id: trip.id,
+            action: "awaiting_offer_responses",
+            detail: `pending_offers=${pendingOffers}`,
+          });
+          continue;
+        }
+
+        const roundsDone = Number(trip.current_broadcast_round ?? 0);
+        // Do NOT call auto-dispatch past max waves — it would mark the trip
+        // status=expired and bypass overdue-grace → unfulfilled handling.
+        if (roundsDone >= maxDispatchRounds) {
+          skipped++;
+          results.push({
+            trip_id: trip.id,
+            action: "waves_exhausted_awaiting_grace",
+            detail: `rounds=${roundsDone}/${maxDispatchRounds}`,
+          });
+          continue;
+        }
+
         // Move into searchable instant-offer state without permanently locking out retries.
+        // Recover 'expired' (max-rounds side-effect) back to searching for grace window.
         await supabase
           .from("trips")
           .update({
-            status: trip.status === "scheduled" ? "searching" : trip.status,
+            status:
+              trip.status === "scheduled" || trip.status === "expired"
+                ? "searching"
+                : trip.status,
             scheduled_status: "broadcasting",
             dispatch_mode: "scheduled",
+            dispatch_status: "searching",
+            max_broadcast_rounds: maxDispatchRounds,
             updated_at: now.toISOString(),
           })
           .eq("id", trip.id);
@@ -431,24 +518,45 @@ serve(async (req) => {
         });
 
         if (!invoke.ok) {
-          errors++;
-          results.push({
-            trip_id: trip.id,
-            action: "auto_dispatch_error",
-            detail: `http_${invoke.status}:${String(invoke.body.error ?? invoke.body.message ?? "unknown")}`,
-          });
+          const code = String(invoke.body.error ?? invoke.body.message ?? "unknown");
+          // If auto-dispatch still reports max rounds, keep booking for grace terminal.
+          if (code.includes("MAX_ROUNDS") || invoke.status === 400) {
+            skipped++;
+            results.push({
+              trip_id: trip.id,
+              action: "waves_exhausted_awaiting_grace",
+              detail: code,
+            });
+          } else {
+            errors++;
+            results.push({
+              trip_id: trip.id,
+              action: "auto_dispatch_error",
+              detail: `http_${invoke.status}:${code}`,
+            });
+          }
         } else {
           const offersCreated = Number(
             invoke.body.offers_created ??
               (invoke.body as { data?: { offers_created?: number } }).data?.offers_created ??
               0,
           );
-          dispatched++;
-          results.push({
-            trip_id: trip.id,
-            action: "auto_dispatched",
-            detail: `offers=${offersCreated} lead=${lead.effectiveLeadMinutes}m eta=${nearbyEta ?? "n/a"}`,
-          });
+          const skippedReason = String(invoke.body.reason ?? "");
+          if (invoke.body.skipped && skippedReason === "pending_offers_exist") {
+            skipped++;
+            results.push({
+              trip_id: trip.id,
+              action: "awaiting_offer_responses",
+              detail: "auto_dispatch_pending_offers",
+            });
+          } else {
+            dispatched++;
+            results.push({
+              trip_id: trip.id,
+              action: "auto_dispatched",
+              detail: `offers=${offersCreated} lead=${lead.effectiveLeadMinutes}m eta=${nearbyEta ?? "n/a"} round=${roundsDone + 1}/${maxDispatchRounds}`,
+            });
+          }
         }
 
         await logAuditEvent(supabase, "schedule_dispatch_triggered", {
@@ -460,6 +568,8 @@ serve(async (req) => {
             effective_lead_minutes: lead.effectiveLeadMinutes,
             nearby_eta_minutes: nearbyEta,
             overdue_grace_minutes: overdueGrace,
+            max_dispatch_rounds: maxDispatchRounds,
+            priority_retry_interval_minutes: priorityRetryIntervalMinutes,
             auth_source: auth.source,
           },
         });
