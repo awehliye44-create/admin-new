@@ -15,7 +15,7 @@ export function tripHistoryTerminalOrFilter(): string {
 }
 
 const TRIP_HISTORY_SELECT_BASE = `
-  id, trip_code, trip_number, status, financial_outcome, passenger_name, passenger_phone,
+  id, trip_code, trip_number, status, financial_outcome, passenger_id, passenger_name, passenger_phone,
   pickup_address, pickup_latitude, pickup_longitude, dropoff_address, dropoff_latitude, dropoff_longitude,
   estimated_fare, fare, gross_fare_pence, commission_pence, driver_net_pence, final_fare_pence,
   final_customer_fare_pence, capture_amount_pence,
