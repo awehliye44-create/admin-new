@@ -1364,12 +1364,19 @@ export async function handleDriverInvoiceAction(
           invoiceNo: invoice.invoice_number as string,
         };
       }
-      log("email_sent", { invoiceId: invoice.id, invoiceNo: invoice.invoice_number });
       const { data: refreshed } = await supabase.from("invoices").select("*").eq("id", invoice.id).single();
+      const skipped = Boolean((emailResult as { skipped?: boolean }).skipped) ||
+        refreshed?.invoice_email_status === "skipped_no_valid_email";
+      log(skipped ? "email_skipped" : "email_sent", {
+        invoiceId: invoice.id,
+        invoiceNo: invoice.invoice_number,
+      });
       return toResponse(refreshed ?? invoice, {
         success: true,
-        emailStatus: "sent",
-        message: "Invoice email sent successfully",
+        emailStatus: skipped ? "skipped_no_valid_email" : "sent",
+        message: skipped
+          ? "Invoice generated; email skipped — no valid driver email"
+          : "Invoice email sent successfully",
       });
     }
 

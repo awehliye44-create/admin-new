@@ -33,12 +33,15 @@ export async function aggregateDriverInvoice(
     .from("driver_wallet_ledger")
     .select("type, amount_pence, related_trip_id, service_area_id")
     .eq("driver_id", params.driverId)
-    .eq("currency", params.currencyCode)
+    .ilike("currency", params.currencyCode)
     .gte("created_at", params.periodStart)
     .lte("created_at", periodEndTs);
 
   if (params.serviceAreaId) {
-    ledgerQuery = ledgerQuery.eq("service_area_id", params.serviceAreaId);
+    // Include NULL service_area_id rows (legacy ledger) plus exact SA matches.
+    ledgerQuery = ledgerQuery.or(
+      `service_area_id.eq.${params.serviceAreaId},service_area_id.is.null`,
+    );
   }
 
   const { data: ledgerData, error: ledgerError } = await ledgerQuery;
