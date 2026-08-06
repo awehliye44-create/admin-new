@@ -18,11 +18,38 @@ import {
   isEligibleDriverInvoiceEmail,
   resolvePreferredDriverInvoiceEmail,
 } from "./driverInvoiceLedgerPolicy.ts";
+import { validateDriverInvoicePreSend } from "./driverInvoicePreSendGate.ts";
+import {
+  acquireInvoiceSmokeSendSlot,
+  confirmInvoiceSmokeSendSlot,
+  loadSmokeRunAllowlists,
+  releaseInvoiceSmokeSendSlot,
+} from "./invoiceSmokeSendSlot.ts";
 
 export {
   isEligibleDriverInvoiceEmail,
   resolvePreferredDriverInvoiceEmail,
 };
+
+const NON_UNIQUE_STATUSES = ["cancelled", "superseded_test_error", "voided_test_error"];
+
+function validationFingerprint(params: {
+  driverId: string;
+  periodStart: string;
+  periodEnd: string;
+  serviceAreaId?: string | null;
+  netPence: number;
+  includedCount: number;
+}): string {
+  return [
+    params.driverId,
+    params.periodStart,
+    params.periodEnd,
+    params.serviceAreaId ?? "global",
+    String(params.netPence),
+    String(params.includedCount),
+  ].join("|");
+}
 
 const BUCKET = "driver-invoices";
 const LEGACY_BUCKET = "driver-statement-pdfs";
@@ -731,6 +758,7 @@ export async function generateDriverInvoice(
     regionId: string;
     serviceAreaId?: string | null;
     regenerateInvoiceId?: string;
+    smokeRunId?: string | null;
   },
 ): Promise<{ ok: boolean; invoice_id?: string; error?: string }> {
   if (!isValidUuid(params.driverId)) {
@@ -743,7 +771,7 @@ export async function generateDriverInvoice(
   if (params.regenerateInvoiceId) {
     const { data: existingInv } = await supabase
       .from("invoices")
-      .select("invoice_number, status, invoice_email_sent")
+      .select("invoice_number, status, invoice_email_sent, lifecycle_status")
       .eq("id", params.regenerateInvoiceId)
       .single();
     const mutate = canMutateDriverInvoiceArtifact({
@@ -757,18 +785,20 @@ export async function generateDriverInvoice(
   }
 
   if (!params.regenerateInvoiceId) {
-    const { data: existing } = await supabase
+    const { data: existingRows } = await supabase
       .from("invoices")
-      .select("id")
+      .select("id, status")
       .eq("driver_id", params.driverId)
       .eq("region_id", params.regionId)
       .eq("period_start", params.periodStart)
-      .eq("period_end", params.periodEnd)
-      .not("status", "eq", "cancelled")
-      .maybeSingle();
-    if (existing) return { ok: false, error: "Invoice already exists for this driver and period" };
+      .eq("period_end", params.periodEnd);
+    const blocking = (existingRows ?? []).find(
+      (r) => !NON_UNIQUE_STATUSES.includes(String(r.status ?? "").toLowerCase()),
+    );
+    if (blocking) return { ok: false, error: "Invoice already exists for this driver and period" };
   }
 
+  // DRAFT → AGGREGATING
   const agg = await aggregateDriverInvoice(supabase, {
     driverId: params.driverId,
     periodStart: params.periodStart,
@@ -777,9 +807,48 @@ export async function generateDriverInvoice(
     serviceAreaId: params.serviceAreaId,
   });
 
+  // Zero-total: only VALID_ZERO_EARNINGS may be generated.
+  if (
+    agg.netDriverEarningsPence === 0 &&
+    agg.outcome.zeroTotalClassification !== "VALID_ZERO_EARNINGS"
+  ) {
+    return {
+      ok: false,
+      error: `Zero-total generation blocked: ${agg.outcome.zeroTotalClassification ?? agg.outcome.failureCode ?? "INVALID_AGGREGATION"}`,
+    };
+  }
+  if (!agg.outcome.ok) {
+    return {
+      ok: false,
+      error: `Aggregation failed: ${agg.outcome.failureCode ?? "INCOMPLETE_AGGREGATION"}`,
+    };
+  }
+
+  const fingerprint = validationFingerprint({
+    driverId: params.driverId,
+    periodStart: params.periodStart,
+    periodEnd: params.periodEnd,
+    serviceAreaId: params.serviceAreaId,
+    netPence: agg.netDriverEarningsPence,
+    includedCount: agg.includedLedgerIds.length,
+  });
+  const validatedAt = new Date().toISOString();
+
   const template = await loadTemplate(supabase);
   let invoiceId = params.regenerateInvoiceId;
   let invoiceNumber: string;
+
+  const validationFields = {
+    lifecycle_status: "VALIDATED",
+    status: "validated",
+    validated_at: validatedAt,
+    validation_error: null as string | null,
+    zero_total_classification: agg.outcome.zeroTotalClassification,
+    aggregation_included_row_count: agg.includedLedgerIds.length,
+    aggregation_scope: agg.outcome.scope,
+    validation_fingerprint: fingerprint,
+    smoke_run_id: params.smokeRunId ?? null,
+  };
 
   if (invoiceId) {
     const { data: existingInv } = await supabase.from("invoices").select("invoice_number").eq("id", invoiceId).single();
@@ -817,7 +886,7 @@ export async function generateDriverInvoice(
         cash_trip_earnings_pence: agg.cashTripEarningsPence,
         airport_fee_earnings_pence: agg.airportFeeEarningsPence,
         extra_charge_earnings_pence: agg.extraChargeEarningsPence,
-        status: "draft",
+        ...validationFields,
       })
       .select()
       .single();
@@ -828,10 +897,12 @@ export async function generateDriverInvoice(
   if (!invoiceId) return { ok: false, error: "Invoice ID missing" };
 
   if (params.regenerateInvoiceId) {
+    // Mutation after prior validation requires revalidation (lifecycle reset then VALIDATED).
     await supabase.from("invoices").update({
       invoice_email_sent: false,
       invoice_email_status: null,
       invoice_email_error: null,
+      provider_message_id: null,
       gross_earnings_pence: agg.grossEarningsPence,
       commission_pence: agg.platformCommissionPence,
       bonuses_pence: agg.bonusesPence,
@@ -845,6 +916,7 @@ export async function generateDriverInvoice(
       cash_trip_earnings_pence: agg.cashTripEarningsPence,
       airport_fee_earnings_pence: agg.airportFeeEarningsPence,
       extra_charge_earnings_pence: agg.extraChargeEarningsPence,
+      ...validationFields,
     }).eq("id", invoiceId);
   }
 
@@ -857,15 +929,18 @@ export async function generateDriverInvoice(
   try {
     const { pdfPath, pdfUrl } = await generatePdfForInvoice(supabase, invoice);
     const now = new Date().toISOString();
+    // VALIDATED → GENERATED (email impossible until VALIDATED; auto-email still gated below)
     await supabase.from("invoices").update({
       pdf_storage_path: pdfPath,
       invoice_pdf_url: pdfUrl,
       invoice_generated_at: now,
       finalized_at: now,
       status: "finalized",
+      lifecycle_status: "GENERATED",
     }).eq("id", invoiceId);
 
     const tpl = await loadTemplate(supabase);
+    // Email delivery must go through sendDriverInvoiceEmail which enforces VALIDATED+.
     if (tpl?.auto_email_enabled) {
       await sendDriverInvoiceEmail(supabase, invoiceId, false);
     }
@@ -873,7 +948,12 @@ export async function generateDriverInvoice(
     return { ok: true, invoice_id: invoiceId };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await supabase.from("invoices").update({ invoice_email_status: "failed", invoice_email_error: msg }).eq("id", invoiceId);
+    await supabase.from("invoices").update({
+      invoice_email_status: "failed",
+      invoice_email_error: msg,
+      lifecycle_status: "FAILED",
+      validation_error: msg,
+    }).eq("id", invoiceId);
     return { ok: false, error: msg, invoice_id: invoiceId };
   }
 }
@@ -882,8 +962,8 @@ export async function sendDriverInvoiceEmail(
   supabase: SupabaseClient,
   invoiceId: string,
   forceResend: boolean,
-  options: { overrideDriverId?: string } = {},
-): Promise<{ ok: boolean; error?: string }> {
+  options: { overrideDriverId?: string; allowEmailValidZero?: boolean } = {},
+): Promise<{ ok: boolean; error?: string; skipped?: boolean; code?: string }> {
   const { data: invoice } = await supabase.from("invoices").select("*").eq("id", invoiceId).single();
   if (!invoice) return { ok: false, error: "Invoice not found" };
   if (invoice.invoice_email_sent && !forceResend) return { ok: true };
@@ -912,6 +992,7 @@ export async function sendDriverInvoiceEmail(
       invoice_email_sent: false,
       invoice_email_status: "skipped_no_valid_email",
       invoice_email_error: message,
+      lifecycle_status: "SKIPPED_NO_VALID_EMAIL",
     }).eq("id", invoiceId);
     console.log(JSON.stringify({
       event: "driver_report_skipped_no_valid_email",
@@ -920,6 +1001,98 @@ export async function sendDriverInvoiceEmail(
     }));
     return { ok: true, skipped: true };
   }
+
+  // Re-aggregate for pre-send financial validation (blocks email before VALIDATED totals match).
+  const currency = String(hydrated.currency_code ?? "GBP");
+  const periodStart = String(hydrated.period_start ?? "");
+  const periodEnd = String(hydrated.period_end ?? "");
+  const driverId = (hydrated.driver_id as string | null) ?? null;
+  let aggregation = null;
+  if (driverId && periodStart && periodEnd) {
+    try {
+      const agg = await aggregateDriverInvoice(supabase, {
+        driverId,
+        periodStart,
+        periodEnd,
+        currencyCode: currency,
+        serviceAreaId: (hydrated.service_area_id as string | null) ?? null,
+      });
+      aggregation = agg.outcome;
+      // Keep rendered totals aligned with fresh aggregation outcome for gate comparison.
+      aggregation = {
+        ...agg.outcome,
+        netDriverEarningsPence: agg.netDriverEarningsPence,
+        includedRowCount: agg.includedLedgerIds.length,
+      };
+    } catch {
+      aggregation = {
+        ok: false,
+        scope: "global" as const,
+        includedRowCount: 0,
+        eligibleEarningRowCount: 0,
+        netDriverEarningsPence: 0,
+        grossEarningsPence: 0,
+        platformCommissionPence: 0,
+        zeroTotalClassification: "INCOMPLETE_AGGREGATION" as const,
+        failureCode: "AGGREGATION_QUERY_FAILED",
+      };
+    }
+  }
+
+  const smokeRunId = (hydrated.smoke_run_id as string | null) ?? null;
+  let allowlistedDriverIds: string[] = [];
+  let smokeBudgetOk = true;
+  let smokeBudgetCode: string | null = null;
+  let slotAcquired = false;
+
+  if (smokeRunId) {
+    const run = await loadSmokeRunAllowlists(supabase, smokeRunId);
+    allowlistedDriverIds = run?.allowlistedDriverIds ?? [];
+  }
+
+  // Pre-send gate BEFORE any provider call (budget checked after gate financial rules).
+  const preGate = validateDriverInvoicePreSend({
+    driverId,
+    periodStart,
+    periodEnd,
+    lifecycleStatus: (hydrated.lifecycle_status as string | null) ?? null,
+    status: (hydrated.status as string | null) ?? null,
+    aggregation,
+    renderedNetPence: Number(hydrated.net_earnings_pence ?? 0),
+    providerMessageId: (hydrated.provider_message_id as string | null) ?? null,
+    invoiceEmailSent: Boolean(hydrated.invoice_email_sent),
+    smokeRunId,
+    recipientDriverId: driverId,
+    allowlistedDriverIds,
+    allowEmailValidZero: options.allowEmailValidZero === true,
+    smokeBudgetOk: true, // budget acquired separately below
+  });
+
+  if (!preGate.ok) {
+    await supabase.from("invoices").update({
+      invoice_email_status: "failed",
+      invoice_email_error: `${preGate.code}: ${preGate.message}`,
+      validation_error: preGate.message,
+    }).eq("id", invoiceId);
+    return { ok: false, error: preGate.message, code: preGate.code };
+  }
+
+  if (smokeRunId) {
+    const slot = await acquireInvoiceSmokeSendSlot(supabase, smokeRunId);
+    if (!slot.ok) {
+      await supabase.from("invoices").update({
+        invoice_email_status: "failed",
+        invoice_email_error: slot.code,
+      }).eq("id", invoiceId);
+      return { ok: false, error: slot.code, code: slot.code };
+    }
+    slotAcquired = true;
+  }
+
+  await supabase.from("invoices").update({
+    lifecycle_status: "SEND_PENDING",
+    status: hydrated.status === "sent" ? "sent" : "send_pending",
+  }).eq("id", invoiceId);
 
   let pdfPath = hydrated.pdf_storage_path as string | null;
   let pdfBytes: Uint8Array;
@@ -939,6 +1112,7 @@ export async function sendDriverInvoiceEmail(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (slotAcquired && smokeRunId) await releaseInvoiceSmokeSendSlot(supabase, smokeRunId);
     await supabase.from("invoices").update({
       invoice_email_sent: false,
       invoice_email_status: "failed",
@@ -993,6 +1167,7 @@ export async function sendDriverInvoiceEmail(
   const now = new Date().toISOString();
   if (!sendResult.ok) {
     log("email_failed", { invoiceId, error: sendResult.message });
+    if (slotAcquired && smokeRunId) await releaseInvoiceSmokeSendSlot(supabase, smokeRunId);
     await supabase.from("invoices").update({
       invoice_email_sent: false,
       invoice_email_status: "failed",
@@ -1007,13 +1182,18 @@ export async function sendDriverInvoiceEmail(
     return { ok: false, error: sendResult.message };
   }
 
+  if (slotAcquired && smokeRunId) await confirmInvoiceSmokeSendSlot(supabase, smokeRunId);
+
+  const providerMessageId = sendResult.id ?? null;
   await supabase.from("invoices").update({
     status: "sent",
+    lifecycle_status: "SENT",
     sent_at: now,
     invoice_email_sent: true,
     invoice_email_sent_at: now,
     invoice_email_status: "sent",
     invoice_email_error: null,
+    provider_message_id: providerMessageId,
   }).eq("id", invoiceId);
 
   await insertDeliveryLog(supabase, {
@@ -1023,7 +1203,12 @@ export async function sendDriverInvoiceEmail(
     sent_at: now,
   });
 
-  log("email_sent", { invoiceId, invoiceNo: invoice.invoice_number, to: recipientEmail });
+  log("email_sent", {
+    invoiceId,
+    invoiceNo: invoice.invoice_number,
+    to: recipientEmail,
+    provider_message_id: providerMessageId,
+  });
   return { ok: true };
 }
 
@@ -1222,6 +1407,7 @@ export async function handleDriverInvoiceAction(
       periodEnd: body.period_end as string,
       regionId: body.region_id as string,
       serviceAreaId: body.service_area_id as string | null | undefined,
+      smokeRunId: (body.smoke_run_id ?? body.smokeRunId) as string | null | undefined,
     });
 
     if (!result.ok) {
