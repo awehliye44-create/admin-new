@@ -492,6 +492,18 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       "at_stop",
       "driving_to_next_stop",
     ];
+    // Queued stacked assignment — block all fare-affecting edits until promotion.
+    if (trip.status === "queued") {
+      return new Response(JSON.stringify({
+        error: "Trip cannot be modified",
+        reason: "STACKED_TRIP_MODIFICATION_BLOCKED",
+        code: "STACKED_TRIP_MODIFICATION_BLOCKED",
+        message: "Trip modifications are unavailable while your driver finishes another trip.",
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     if (!allowedStatuses.includes(trip.status)) {
       return new Response(JSON.stringify({
         error: "Trip cannot be modified",
