@@ -38,6 +38,7 @@ import { subDays, startOfDay, endOfDay } from 'date-fns';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
+import { fetchPassengerDirectory, hydratePassengerIdentity } from '@/lib/tripPassengerDisplay';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 
