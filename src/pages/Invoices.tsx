@@ -111,6 +111,24 @@ interface Invoice {
   service_areas?: { name: string } | null;
 }
 
+
+function ukTaxYearRange(startYear: number) {
+  return { start: `${startYear}-04-06`, end: `${startYear + 1}-04-05` };
+}
+
+function calendarYearRange(year: number) {
+  return { start: `${year}-01-01`, end: `${year}-12-31` };
+}
+
+function previousMonthRange(ref = new Date()) {
+  const y = ref.getFullYear();
+  const m = ref.getMonth(); // 0-based current month
+  const start = new Date(y, m - 1, 1);
+  const end = new Date(y, m, 0);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  return { start: iso(start), end: iso(end) };
+}
+
 export default function Invoices() {
   const queryClient = useQueryClient();
   const { data: regions = [] } = useRegions();
@@ -511,6 +529,7 @@ export default function Invoices() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Generate Driver Earnings Statement</DialogTitle>
+            <p className="text-sm text-muted-foreground">Monthly or annual (HMRC). Platform commission is not included on these statements.</p>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -538,6 +557,57 @@ export default function Invoices() {
                   ))}
                 </div>
               )}
+            </div>
+            <div className="space-y-2">
+              <Label>Period presets</Label>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const r = previousMonthRange();
+                    setGenPeriodStart(r.start);
+                    setGenPeriodEnd(r.end);
+                  }}
+                >
+                  Previous month
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const now = new Date();
+                    // UK tax year starts 6 Apr; if before 6 Apr use previous start year
+                    const startYear = now.getMonth() > 3 || (now.getMonth() === 3 && now.getDate() >= 6)
+                      ? now.getFullYear()
+                      : now.getFullYear() - 1;
+                    const r = ukTaxYearRange(startYear - 1); // last completed UK tax year
+                    setGenPeriodStart(r.start);
+                    setGenPeriodEnd(r.end);
+                  }}
+                >
+                  Annual HMRC (UK tax year)
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const r = calendarYearRange(new Date().getFullYear() - 1);
+                    setGenPeriodStart(r.start);
+                    setGenPeriodEnd(r.end);
+                  }}
+                >
+                  Annual calendar year
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Annual statements use title “Annual Driver Earnings Statement (HMRC)” on the PDF.
+                For trip-level HMRC export also see{" "}
+                <Link to="/annual-taxi-report" className="underline">Annual Taxi Report</Link>.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

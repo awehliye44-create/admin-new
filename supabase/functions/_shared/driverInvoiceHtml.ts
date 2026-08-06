@@ -78,18 +78,12 @@ export function buildDisplaySummaryRows(data: DriverInvoiceRenderData): DisplayS
       isPositive: data.adjustmentsPence > 0,
     },
     {
-      description: "Platform Commission",
-      trips: 0,
-      amountPence: data.platformCommissionPence,
-      isDeduction: true,
-    },
-    {
       description: "Cash Collected (Offset)",
       trips: 0,
       amountPence: data.cashCollectedOffsetPence,
       isDeduction: true,
     },
-  ];
+  ].filter((row) => row.amountPence !== 0 || row.trips > 0);
 }
 
 function money(pence: number, currency: string): string {
@@ -112,7 +106,7 @@ function amountClass(row: { isDeduction?: boolean; isPositive?: boolean; amountP
 }
 
 function formatAmount(row: { isDeduction?: boolean; amountPence: number }, currency: string): string {
-  const prefix = row.isDeduction && row.amountPence !== 0 ? "−" : "";
+  const prefix = row.isDeduction && row.amountPence !== 0 ? "-" : "";
   return `${prefix}${money(row.amountPence, currency)}`;
 }
 
