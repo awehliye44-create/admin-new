@@ -238,7 +238,7 @@ serve(async (req) => {
     const { data: pendingTrips, error: tripsErr } = await supabase
       .from("trips")
       .select(
-        "id, user_id, scheduled_at, pickup_latitude, pickup_longitude, vehicle_type_id, service_area_id, confirmed_driver_id, scheduled_status, status, driver_id",
+        "id, passenger_id, scheduled_at, pickup_latitude, pickup_longitude, vehicle_type_id, service_area_id, confirmed_driver_id, scheduled_status, status, driver_id",
       )
       .eq("is_scheduled", true)
       .in("status", ["scheduled", "pending", "searching"])
@@ -328,7 +328,7 @@ serve(async (req) => {
           await markUnfulfilledAndRelease({
             supabase,
             tripId: trip.id,
-            customerId: trip.user_id ?? null,
+            customerId: trip.passenger_id ?? null,
             reason: `no_driver_after_overdue_grace_${overdueGrace}m`,
           });
           unfulfilled++;
@@ -382,7 +382,7 @@ serve(async (req) => {
             workflow_event_type: "dispatch_timeout_exceeded",
             severity: "warning",
             trip_id: trip.id,
-            customer_id: trip.user_id ?? null,
+            customer_id: trip.passenger_id ?? null,
             error_code: "SCHEDULED_ADMIN_ESCALATION",
             metadata: {
               minutes_until_pickup: Math.round(minutesUntilPickup),
