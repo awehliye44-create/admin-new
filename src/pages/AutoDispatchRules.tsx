@@ -110,12 +110,6 @@ interface DispatchSettings {
   expectedStopWaitingMinutes: number;
   etaRiskToleranceMinutes: number;
   pickupAccessAllowanceMinutes: number;
-
-  // System Settings (operational flags, not dispatch execution)
-  enableLogging: boolean;
-  simulateMode: boolean;
-  blockMultipleActiveRides: boolean;
-  cancelProtection: boolean;
 }
 
 const defaultSettings: DispatchSettings = {
@@ -172,10 +166,6 @@ const defaultSettings: DispatchSettings = {
   expectedStopWaitingMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.expected_stop_waiting_minutes,
   etaRiskToleranceMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.eta_risk_tolerance_minutes,
   pickupAccessAllowanceMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.pickup_access_allowance_minutes,
-  enableLogging: false,
-  simulateMode: false,
-  blockMultipleActiveRides: false,
-  cancelProtection: false,
 
 };
 
@@ -236,10 +226,6 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => {
   expectedStopWaitingMinutes: commitment.expected_stop_waiting_minutes,
   etaRiskToleranceMinutes: commitment.eta_risk_tolerance_minutes,
   pickupAccessAllowanceMinutes: commitment.pickup_access_allowance_minutes,
-  enableLogging: (data.enable_logging as boolean) ?? defaultSettings.enableLogging,
-  simulateMode: (data.simulate_mode as boolean) ?? defaultSettings.simulateMode,
-  blockMultipleActiveRides: (data.block_multiple_active_rides as boolean) ?? defaultSettings.blockMultipleActiveRides,
-  cancelProtection: (data.cancel_protection as boolean) ?? defaultSettings.cancelProtection,
   };
 };
 
@@ -304,10 +290,6 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   scheduled_urgent_card_label: settings.scheduledUrgentCardLabel,
   enable_scheduled_to_urgent_conversion: settings.enableScheduledToUrgentConversion,
   ...mapCommitmentPolicyToDb(settingsToCommitmentPolicy(settings)),
-  enable_logging: settings.enableLogging,
-  simulate_mode: settings.simulateMode,
-  block_multiple_active_rides: settings.blockMultipleActiveRides,
-  cancel_protection: settings.cancelProtection,
 });
 
 export default function AutoDispatchRules() {
@@ -1081,44 +1063,6 @@ export default function AutoDispatchRules() {
                 </div>
               </TabsContent>
             </Tabs>
-          </CardContent>
-        </Card>
-
-        {/* System Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle>System Settings</CardTitle>
-            <CardDescription>Operational flags — do not affect dispatch ranking or scoring</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-              <div>
-                <p className="font-medium">Enable Logging</p>
-                <p className="text-sm text-muted-foreground">Log all dispatch events for debugging</p>
-              </div>
-              <Switch checked={settings.enableLogging} onCheckedChange={(checked) => updateSetting('enableLogging', checked)} disabled={isLoading} />
-            </div>
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-              <div>
-                <p className="font-medium">Simulate Mode</p>
-                <p className="text-sm text-muted-foreground">Test dispatch without actual driver assignments</p>
-              </div>
-              <Switch checked={settings.simulateMode} onCheckedChange={(checked) => updateSetting('simulateMode', checked)} disabled={isLoading} />
-            </div>
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-              <div>
-                <p className="font-medium">Block Multiple Active Rides</p>
-                <p className="text-sm text-muted-foreground">Prevent drivers from having multiple active rides</p>
-              </div>
-              <Switch checked={settings.blockMultipleActiveRides} onCheckedChange={(checked) => updateSetting('blockMultipleActiveRides', checked)} disabled={isLoading} />
-            </div>
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-              <div>
-                <p className="font-medium">Cancel Protection</p>
-                <p className="text-sm text-muted-foreground">Protect against frequent cancellations</p>
-              </div>
-              <Switch checked={settings.cancelProtection} onCheckedChange={(checked) => updateSetting('cancelProtection', checked)} disabled={isLoading} />
-            </div>
           </CardContent>
         </Card>
       </div>
