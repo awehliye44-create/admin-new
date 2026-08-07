@@ -236,10 +236,6 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => {
   expectedStopWaitingMinutes: commitment.expected_stop_waiting_minutes,
   etaRiskToleranceMinutes: commitment.eta_risk_tolerance_minutes,
   pickupAccessAllowanceMinutes: commitment.pickup_access_allowance_minutes,
-  enableLogging: (data.enable_logging as boolean) ?? defaultSettings.enableLogging,
-  simulateMode: (data.simulate_mode as boolean) ?? defaultSettings.simulateMode,
-  blockMultipleActiveRides: (data.block_multiple_active_rides as boolean) ?? defaultSettings.blockMultipleActiveRides,
-  cancelProtection: (data.cancel_protection as boolean) ?? defaultSettings.cancelProtection,
   };
 };
 
