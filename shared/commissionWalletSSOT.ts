@@ -43,7 +43,7 @@ export type CommissionWalletEntryType =
   typeof COMMISSION_WALLET_ENTRY_TYPE[keyof typeof COMMISSION_WALLET_ENTRY_TYPE];
 
 export const DEFAULT_CASH_UPFRONT_POLICY_NOTICE =
-  "Payment is payable directly to the driver upfront. The driver is responsible for collecting payment and may cancel the booking if payment is not provided.";
+  "ONECAB is digital-only. Passenger cash is retired — customers must pay in the app (card or mobile wallet). Driver-collected cash is not supported for new trips.";
 
 export const COMMISSION_WALLET_DRIVER_PAGE_DISCLAIMER =
   "This balance is used only to pay ONECAB commission. It cannot be withdrawn, paid out or transferred.";
