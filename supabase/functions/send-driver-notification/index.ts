@@ -171,6 +171,127 @@ serve(async (req) => {
           },
         );
       }
+
+      // Fail closed before FCM: canonical offer + online + exclusion.
+      // Does not invent eligibility — re-reads ride_offers / drivers / trips SSOT.
+      const offerId = (data.offer_id || data.offerId || "").trim();
+      const tripId = (data.trip_id || data.tripId || data.booking_id || "").trim();
+
+      if (offerId) {
+        const { data: offer } = await supabase
+          .from("ride_offers")
+          .select("id, driver_id, status, trip_id, expires_at")
+          .eq("id", offerId)
+          .maybeSingle();
+        const status = String(offer?.status ?? "").toLowerCase();
+        const actionable = ["pending", "countered", "offered"].includes(status);
+        if (
+          !offer ||
+          offer.driver_id !== driverId ||
+          !actionable ||
+          (offer.expires_at && new Date(String(offer.expires_at)).getTime() <= Date.now())
+        ) {
+          console.log("[send-driver-notification] suppressed ride-offer push", {
+            code: "OFFER_NOT_ACTIONABLE",
+            driver_id: driverId,
+            offer_id: offerId,
+            offer_status: offer?.status ?? null,
+          });
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              suppressed: true,
+              code: "OFFER_NOT_ACTIONABLE",
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+      }
+
+      const { data: driverRow } = await supabase
+        .from("drivers")
+        .select("is_online, driver_online_intent")
+        .eq("id", driverId)
+        .maybeSingle();
+      const onlineIntent = driverRow?.driver_online_intent === true;
+      const isOnline = driverRow?.is_online === true;
+      if (!driverRow || (!isOnline && !onlineIntent)) {
+        console.log("[send-driver-notification] suppressed ride-offer push", {
+          code: "DRIVER_OFFLINE",
+          driver_id: driverId,
+          is_online: driverRow?.is_online ?? null,
+          driver_online_intent: driverRow?.driver_online_intent ?? null,
+        });
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            suppressed: true,
+            code: "DRIVER_OFFLINE",
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      if (tripId) {
+        const { data: tripRow } = await supabase
+          .from("trips")
+          .select("excluded_driver_ids, cancelled_driver_ids, status, confirmed_driver_id")
+          .eq("id", tripId)
+          .maybeSingle();
+        const excluded = [
+          ...(Array.isArray(tripRow?.excluded_driver_ids)
+            ? (tripRow!.excluded_driver_ids as string[])
+            : []),
+          ...(Array.isArray(tripRow?.cancelled_driver_ids)
+            ? (tripRow!.cancelled_driver_ids as string[])
+            : []),
+        ];
+        if (excluded.includes(driverId)) {
+          console.log("[send-driver-notification] suppressed ride-offer push", {
+            code: "DRIVER_EXCLUDED",
+            driver_id: driverId,
+            trip_id: tripId,
+          });
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              suppressed: true,
+              code: "DRIVER_EXCLUDED",
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+        if (
+          tripRow?.confirmed_driver_id &&
+          tripRow.confirmed_driver_id !== driverId
+        ) {
+          console.log("[send-driver-notification] suppressed ride-offer push", {
+            code: "TRIP_ALREADY_ASSIGNED",
+            driver_id: driverId,
+            trip_id: tripId,
+          });
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              suppressed: true,
+              code: "TRIP_ALREADY_ASSIGNED",
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+      }
     }
 
     // This producer is allowlisted for Driver ride-offer OS contracts only.
