@@ -11804,6 +11804,63 @@ export type Database = {
           },
         ]
       }
+      invoice_smoke_runs: {
+        Row: {
+          allowlisted_customer_ids: string[]
+          allowlisted_driver_ids: string[]
+          attempted_send_count: number
+          closed_at: string | null
+          created_at: string
+          environment: string
+          id: string
+          max_successful_sends: number
+          metadata: Json
+          opened_at: string
+          project_ref: string
+          reserved_send_count: number
+          smoke_run_id: string
+          status: string
+          successful_send_count: number
+          updated_at: string
+        }
+        Insert: {
+          allowlisted_customer_ids?: string[]
+          allowlisted_driver_ids?: string[]
+          attempted_send_count?: number
+          closed_at?: string | null
+          created_at?: string
+          environment?: string
+          id?: string
+          max_successful_sends?: number
+          metadata?: Json
+          opened_at?: string
+          project_ref?: string
+          reserved_send_count?: number
+          smoke_run_id: string
+          status?: string
+          successful_send_count?: number
+          updated_at?: string
+        }
+        Update: {
+          allowlisted_customer_ids?: string[]
+          allowlisted_driver_ids?: string[]
+          attempted_send_count?: number
+          closed_at?: string | null
+          created_at?: string
+          environment?: string
+          id?: string
+          max_successful_sends?: number
+          metadata?: Json
+          opened_at?: string
+          project_ref?: string
+          reserved_send_count?: number
+          smoke_run_id?: string
+          status?: string
+          successful_send_count?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       invoice_templates: {
         Row: {
           auto_email_enabled: boolean
@@ -11885,6 +11942,8 @@ export type Database = {
       invoices: {
         Row: {
           adjustments_pence: number
+          aggregation_included_row_count: number | null
+          aggregation_scope: string | null
           airport_fee_earnings_pence: number
           bonuses_pence: number
           card_trip_earnings_pence: number
@@ -11912,24 +11971,36 @@ export type Database = {
           invoice_number: string
           invoice_pdf_url: string | null
           late_cancel_trips: number
+          lifecycle_status: string | null
           net_earnings_pence: number
           no_show_trips: number
           pdf_storage_path: string | null
           penalties_pence: number
           period_end: string
           period_start: string
+          provider_message_id: string | null
           region_id: string
           sent_at: string | null
           sent_by: string | null
           service_area_id: string | null
+          smoke_run_id: string | null
           statement_run_id: string | null
           status: string
+          superseded_by_invoice_id: string | null
+          supersedes_invoice_id: string | null
           template_id: string | null
           template_version: number | null
+          test_error_reason_code: string | null
+          validated_at: string | null
+          validation_error: string | null
+          validation_fingerprint: string | null
           viewed_at: string | null
+          zero_total_classification: string | null
         }
         Insert: {
           adjustments_pence?: number
+          aggregation_included_row_count?: number | null
+          aggregation_scope?: string | null
           airport_fee_earnings_pence?: number
           bonuses_pence?: number
           card_trip_earnings_pence?: number
@@ -11957,24 +12028,36 @@ export type Database = {
           invoice_number: string
           invoice_pdf_url?: string | null
           late_cancel_trips?: number
+          lifecycle_status?: string | null
           net_earnings_pence?: number
           no_show_trips?: number
           pdf_storage_path?: string | null
           penalties_pence?: number
           period_end: string
           period_start: string
+          provider_message_id?: string | null
           region_id: string
           sent_at?: string | null
           sent_by?: string | null
           service_area_id?: string | null
+          smoke_run_id?: string | null
           statement_run_id?: string | null
           status?: string
+          superseded_by_invoice_id?: string | null
+          supersedes_invoice_id?: string | null
           template_id?: string | null
           template_version?: number | null
+          test_error_reason_code?: string | null
+          validated_at?: string | null
+          validation_error?: string | null
+          validation_fingerprint?: string | null
           viewed_at?: string | null
+          zero_total_classification?: string | null
         }
         Update: {
           adjustments_pence?: number
+          aggregation_included_row_count?: number | null
+          aggregation_scope?: string | null
           airport_fee_earnings_pence?: number
           bonuses_pence?: number
           card_trip_earnings_pence?: number
@@ -12002,21 +12085,31 @@ export type Database = {
           invoice_number?: string
           invoice_pdf_url?: string | null
           late_cancel_trips?: number
+          lifecycle_status?: string | null
           net_earnings_pence?: number
           no_show_trips?: number
           pdf_storage_path?: string | null
           penalties_pence?: number
           period_end?: string
           period_start?: string
+          provider_message_id?: string | null
           region_id?: string
           sent_at?: string | null
           sent_by?: string | null
           service_area_id?: string | null
+          smoke_run_id?: string | null
           statement_run_id?: string | null
           status?: string
+          superseded_by_invoice_id?: string | null
+          supersedes_invoice_id?: string | null
           template_id?: string | null
           template_version?: number | null
+          test_error_reason_code?: string | null
+          validated_at?: string | null
+          validation_error?: string | null
+          validation_fingerprint?: string | null
           viewed_at?: string | null
+          zero_total_classification?: string | null
         }
         Relationships: [
           {
@@ -14512,19 +14605,29 @@ export type Database = {
           captured_at: string | null
           created_at: string
           cumulative_total_authorised_pence: number | null
+          currency: string | null
+          error_classification: string | null
+          failed_at: string | null
           id: string
           idempotency_key: string | null
           metadata: Json
           payment_provider: string
           payment_session_id: string
+          previous_authorised_total_pence: number | null
           provider_authorisation_id: string | null
+          provider_confirmed_total_pence: number | null
+          provider_operation_reference: string | null
           provider_order_id: string
           provider_payment_id: string | null
           provider_state: string | null
           released_amount_pence: number | null
           released_at: string | null
+          requested_increment_pence: number | null
+          requested_target_total_pence: number | null
+          sequence_number: number | null
           source: string | null
           status: string
+          submitted_at: string | null
           verified_at: string | null
         }
         Insert: {
@@ -14534,19 +14637,29 @@ export type Database = {
           captured_at?: string | null
           created_at?: string
           cumulative_total_authorised_pence?: number | null
+          currency?: string | null
+          error_classification?: string | null
+          failed_at?: string | null
           id?: string
           idempotency_key?: string | null
           metadata?: Json
           payment_provider: string
           payment_session_id: string
+          previous_authorised_total_pence?: number | null
           provider_authorisation_id?: string | null
+          provider_confirmed_total_pence?: number | null
+          provider_operation_reference?: string | null
           provider_order_id: string
           provider_payment_id?: string | null
           provider_state?: string | null
           released_amount_pence?: number | null
           released_at?: string | null
+          requested_increment_pence?: number | null
+          requested_target_total_pence?: number | null
+          sequence_number?: number | null
           source?: string | null
           status?: string
+          submitted_at?: string | null
           verified_at?: string | null
         }
         Update: {
@@ -14556,19 +14669,29 @@ export type Database = {
           captured_at?: string | null
           created_at?: string
           cumulative_total_authorised_pence?: number | null
+          currency?: string | null
+          error_classification?: string | null
+          failed_at?: string | null
           id?: string
           idempotency_key?: string | null
           metadata?: Json
           payment_provider?: string
           payment_session_id?: string
+          previous_authorised_total_pence?: number | null
           provider_authorisation_id?: string | null
+          provider_confirmed_total_pence?: number | null
+          provider_operation_reference?: string | null
           provider_order_id?: string
           provider_payment_id?: string | null
           provider_state?: string | null
           released_amount_pence?: number | null
           released_at?: string | null
+          requested_increment_pence?: number | null
+          requested_target_total_pence?: number | null
+          sequence_number?: number | null
           source?: string | null
           status?: string
+          submitted_at?: string | null
           verified_at?: string | null
         }
         Relationships: [
@@ -14774,6 +14897,9 @@ export type Database = {
             | Database["public"]["Enums"]["payment_session_fee_status"]
             | null
           final_charge_pence: number | null
+          financial_operation_owner: string | null
+          financial_operation_started_at: string | null
+          financial_operation_state: string | null
           hold_release_state: string | null
           hold_terminal_reason: string | null
           id: string
@@ -14848,6 +14974,9 @@ export type Database = {
             | Database["public"]["Enums"]["payment_session_fee_status"]
             | null
           final_charge_pence?: number | null
+          financial_operation_owner?: string | null
+          financial_operation_started_at?: string | null
+          financial_operation_state?: string | null
           hold_release_state?: string | null
           hold_terminal_reason?: string | null
           id?: string
@@ -14922,6 +15051,9 @@ export type Database = {
             | Database["public"]["Enums"]["payment_session_fee_status"]
             | null
           final_charge_pence?: number | null
+          financial_operation_owner?: string | null
+          financial_operation_started_at?: string | null
+          financial_operation_state?: string | null
           hold_release_state?: string | null
           hold_terminal_reason?: string | null
           id?: string
@@ -15048,6 +15180,33 @@ export type Database = {
             referencedColumns: ["trip_id"]
           },
         ]
+      }
+      payment_webhook_events: {
+        Row: {
+          event_name: string | null
+          id: string
+          provider: string
+          provider_event_id: string
+          provider_order_id: string | null
+          received_at: string
+        }
+        Insert: {
+          event_name?: string | null
+          id?: string
+          provider: string
+          provider_event_id: string
+          provider_order_id?: string | null
+          received_at?: string
+        }
+        Update: {
+          event_name?: string | null
+          id?: string
+          provider?: string
+          provider_event_id?: string
+          provider_order_id?: string | null
+          received_at?: string
+        }
+        Relationships: []
       }
       payments: {
         Row: {
@@ -18930,6 +19089,7 @@ export type Database = {
           frequency: string
           generation_day: number
           id: string
+          interval_months: number | null
           is_auto_generate_enabled: boolean
           is_auto_send_enabled: boolean
           last_run_at: string | null
@@ -18956,6 +19116,7 @@ export type Database = {
           frequency?: string
           generation_day?: number
           id?: string
+          interval_months?: number | null
           is_auto_generate_enabled?: boolean
           is_auto_send_enabled?: boolean
           last_run_at?: string | null
@@ -18982,6 +19143,7 @@ export type Database = {
           frequency?: string
           generation_day?: number
           id?: string
+          interval_months?: number | null
           is_auto_generate_enabled?: boolean
           is_auto_send_enabled?: boolean
           last_run_at?: string | null
@@ -25087,6 +25249,10 @@ export type Database = {
       }
       ack_timeout_sweep: { Args: never; Returns: undefined }
       ack_timeout_sweep_has_work: { Args: never; Returns: boolean }
+      acquire_invoice_smoke_send_slot: {
+        Args: { p_smoke_run_id: string }
+        Returns: Json
+      }
       active_super_admin_count: { Args: never; Returns: number }
       adjust_merchant_credits: {
         Args: { _delta: number; _merchant_id: string; _notes?: string }
@@ -25642,6 +25808,10 @@ export type Database = {
       }
       compute_ride_offer_preset_options: {
         Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: Json
+      }
+      confirm_invoice_smoke_send_slot: {
+        Args: { p_smoke_run_id: string }
         Returns: Json
       }
       consume_personal_voucher: {
@@ -27238,6 +27408,10 @@ export type Database = {
           p_release_reason?: string
           p_reservation_id?: string
         }
+        Returns: Json
+      }
+      release_invoice_smoke_send_slot: {
+        Args: { p_smoke_run_id: string }
         Returns: Json
       }
       release_sub_minimum_weekly_payout_reservations: {
