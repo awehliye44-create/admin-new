@@ -21,6 +21,7 @@ export type CaptureStatusKind =
   | 'captured_split'
   | 'capture_mismatch'
   | 'refunded'
+  | 'historical_legacy'
   | 'unknown';
 
 export interface TripCaptureFields {
@@ -424,11 +425,13 @@ function baseStatus(
 export function getTripCaptureStatus(trip: TripCaptureFields): TripCaptureStatus {
   const paymentStatus = (trip.payment_status || '').toLowerCase();
 
+  // Cash is retired for all new trips. Non-card rows are historical audit only.
   if (!isCardTrip(trip)) {
     return baseStatus(trip, {
-      kind: 'unknown',
-      label: trip.payment_status || '—',
-      shortLabel: trip.payment_status || '—',
+      kind: 'historical_legacy',
+      label: 'Historical Legacy Trip',
+      shortLabel: 'Historical Legacy',
+      tooltip: 'Cash is retired. This row is historical read-only audit data — not an operational payment path.',
     });
   }
 
@@ -522,6 +525,7 @@ export function captureStatusColorClass(kind: CaptureStatusKind): string {
     case 'pending':
       return 'text-amber-600';
     case 'refunded':
+    case 'historical_legacy':
       return 'text-muted-foreground';
     default:
       return 'text-muted-foreground';

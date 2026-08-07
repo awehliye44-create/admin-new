@@ -205,7 +205,7 @@ describe('tripCaptureStatus — Trip History finance SSOT', () => {
     expect(getTripDriverNetPence(trip)).toBe(435);
   });
 
-  it('cash trip: settlement fare from final_fare; capture status unknown (digital-only)', () => {
+  it('historical cash row: read-only legacy label (cash retired — not operational)', () => {
     const trip: TripCaptureFields = {
       payment_method: 'cash',
       payment_status: 'collected_cash',
@@ -216,8 +216,9 @@ describe('tripCaptureStatus — Trip History finance SSOT', () => {
     expect(getTripSettlementFarePence(trip)).toBe(850);
     expect(getTripDriverNetPence(trip)).toBe(680);
     expect(getOutstandingShortfallPence(trip)).toBe(0);
-    // Non-card trips are outside Provider capture SSOT after cash removal.
-    expect(getTripCaptureStatus(trip).kind).toBe('unknown');
+    const status = getTripCaptureStatus(trip);
+    expect(status.kind).toBe('historical_legacy');
+    expect(status.shortLabel).toBe('Historical Legacy');
   });
 
   it('average fare uses settlement fare: captured 512 not legacy 480', () => {
