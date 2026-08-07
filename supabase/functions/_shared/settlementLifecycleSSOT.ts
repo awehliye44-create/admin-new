@@ -19,6 +19,8 @@ export function deriveSettlementLifecycleStatus(row: {
   paid_in_payout_item_id?: string | null;
   paid_at?: string | null;
   allocated_amount_pence?: number | null;
+  provider_transfer_id?: string | null;
+  /** @deprecated compat during Stripe removal — prefer provider_transfer_id */
   stripe_transfer_id?: string | null;
   ledger_amount_pence?: number;
 }): SettlementLifecycleStatus {
@@ -33,7 +35,8 @@ export function deriveSettlementLifecycleStatus(row: {
     }
     return SETTLEMENT_LIFECYCLE.INCLUDED_IN_PAYOUT;
   }
-  if (row.stripe_transfer_id) {
+  const transferId = row.provider_transfer_id ?? null;
+  if (transferId) {
     return SETTLEMENT_LIFECYCLE.TRANSFERRED_TO_CONNECT;
   }
   return SETTLEMENT_LIFECYCLE.CREATED;

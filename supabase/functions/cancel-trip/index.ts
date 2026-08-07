@@ -346,6 +346,27 @@ serve(async (req) => {
       return errorResponse("Failed to cancel trip", 500);
     }
 
+    // EXISTING CODE REUSED — Revolut terminal disposition (fee capture or full release).
+    // Rematch / searching_new_driver must NOT release; disposeTerminalTripPayment enforces that.
+    try {
+      const { disposeTerminalTripPayment } = await import(
+        "../_shared/terminalTripPaymentDisposition.ts"
+      );
+      const disposeResult = await disposeTerminalTripPayment(supabase, {
+        tripId: trip_id,
+        reason: "customer_cancel",
+        feePence: appliedFee,
+        forceFeePenceOverride: true,
+      });
+      console.log("[cancel-trip] terminal payment disposition:", JSON.stringify({
+        outcome: disposeResult.outcome,
+        fee_pence: appliedFee,
+        message: disposeResult.message ?? null,
+      }));
+    } catch (dispErr) {
+      console.error("[cancel-trip] disposeTerminalTripPayment error:", dispErr);
+    }
+
     // Clear driver's current trip if driver was assigned
     const assignedDriverId = trip.confirmed_driver_id ?? trip.driver_id ?? null;
     if (assignedDriverId) {

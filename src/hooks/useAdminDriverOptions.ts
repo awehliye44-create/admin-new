@@ -11,7 +11,7 @@ type AdminDriverRow = {
   service_area_id: string | null;
   approval_status: string | null;
   deleted_at: string | null;
-  stripe_account_id: string | null;
+  payouts_enabled?: boolean | null;
 };
 
 function toDriverOption(row: AdminDriverRow): DriverOption {
@@ -27,7 +27,7 @@ function toDriverOption(row: AdminDriverRow): DriverOption {
 export function useAdminDriverOptions(args?: {
   regionId?: string | null;
   serviceAreaId?: string | null;
-  /** When true, only drivers with a Provider account (wallet SSOT scope). */
+  /** When true, only drivers with payouts enabled (legacy name: stripeConnectOnly). */
   stripeConnectOnly?: boolean;
 }) {
   const regionId = args?.regionId ?? null;
@@ -55,7 +55,8 @@ export function useAdminDriverOptions(args?: {
       let list = ((drivers ?? []) as AdminDriverRow[]).filter((d) => {
         if (d.deleted_at) return false;
         if (d.approval_status && d.approval_status !== 'approved') return false;
-        if (stripeConnectOnly && !d.stripe_account_id) return false;
+        // Stripe Connect retired — payouts_enabled is the active gate.
+        if (stripeConnectOnly && d.payouts_enabled === false) return false;
         return true;
       });
 

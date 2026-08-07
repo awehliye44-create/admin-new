@@ -37,7 +37,7 @@ serve(async (req) => {
 
     if (trip.payment_provider !== "revolut" || !trip.provider_order_id) {
       return jsonResponse(
-        { error: "Trip is not paid via Revolut. Use the legacy Stripe capture endpoint for historical trips." },
+        { error: "Trip is not paid via Revolut. Stripe capture is permanently retired." },
         400,
       );
     }

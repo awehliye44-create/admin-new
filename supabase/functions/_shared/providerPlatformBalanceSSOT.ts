@@ -26,7 +26,8 @@ export type ProviderPlatformBalance = {
 function normalizeProviderId(value: string | null | undefined): PaymentProviderId | null {
   if (!value) return null;
   const id = value.trim().toLowerCase();
-  if (id === "stripe" || id === "revolut") return id;
+  if (id === "stripe") return null; // Stripe retired — fall back to active Revolut config
+  if (id === "revolut") return id;
   return id as PaymentProviderId;
 }
 
@@ -89,6 +90,16 @@ export async function fetchProviderPlatformBalance(
   },
 ): Promise<ProviderPlatformBalance> {
   const currency = args.currency.toLowerCase();
+  if (String(args.provider).toLowerCase() === "stripe") {
+    return {
+      available_pence: 0,
+      pending_pence: 0,
+      currency,
+      provider: "revolut",
+      environment: args.environment,
+      error: "STRIPE_RETIRED",
+    };
+  }
   try {
     const adapter = getPaymentProviderAdapter(supabase, args.provider, args.environment);
     const balance = await adapter.getBalance(currency);

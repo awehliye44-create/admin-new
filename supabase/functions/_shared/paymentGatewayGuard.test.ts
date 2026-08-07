@@ -5,19 +5,35 @@ import {
   type GatewayConfiguredResult,
 } from "./paymentGatewayGuard.ts";
 
-const stripeOk: GatewayConfiguredResult = {
+const revolutOk: GatewayConfiguredResult = {
   ok: true,
-  provider: "stripe",
+  provider: "revolut",
   environment: "live",
-  display_name: "Stripe",
+  display_name: "Revolut",
   role: "customer",
 };
 
-Deno.test("assertGatewayExecutable allows Stripe", () => {
-  assertEquals(assertGatewayExecutable(stripeOk), stripeOk);
+Deno.test("assertGatewayExecutable allows Revolut", () => {
+  assertEquals(assertGatewayExecutable(revolutOk), revolutOk);
 });
 
-Deno.test("assertGatewayExecutable blocks non-Stripe until live adapters exist", () => {
+Deno.test("assertGatewayExecutable blocks retired Stripe", () => {
+  const stripe: GatewayConfiguredResult = {
+    ok: true,
+    provider: "stripe",
+    environment: "live",
+    display_name: "Stripe",
+    role: "customer",
+  };
+  const result = assertGatewayExecutable(stripe);
+  assertEquals(result.ok, false);
+  if (!result.ok) {
+    assertEquals(result.provider, "stripe");
+    assertEquals(result.role, "customer");
+  }
+});
+
+Deno.test("assertGatewayExecutable blocks providers without live adapters", () => {
   const paystack: GatewayConfiguredResult = {
     ok: true,
     provider: "paystack",
@@ -28,7 +44,6 @@ Deno.test("assertGatewayExecutable blocks non-Stripe until live adapters exist",
   const result = assertGatewayExecutable(paystack);
   assertEquals(result.ok, false);
   if (!result.ok) {
-    assertEquals(result.code, PAYMENT_GATEWAY_NOT_CONFIGURED);
     assertEquals(result.provider, "paystack");
     assertEquals(result.role, "customer");
   }

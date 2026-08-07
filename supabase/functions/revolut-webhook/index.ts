@@ -473,7 +473,22 @@ Deno.serve(async (req) => {
           },
         };
 
-        if (["AUTHORISED", "COMPLETED"].includes(stateUpper)) {
+        if (stateUpper === "COMPLETED") {
+          // EXISTING CODE REPAIRED — provider COMPLETED must mark Payment Session captured
+          // (manual Merchant capture self-heal). Never map COMPLETED → trip_created.
+          const capturedAmt = numericMinor(
+            (event.data as { captured_amount?: unknown; amount?: unknown } | undefined)?.captured_amount,
+            (event.data as { amount?: unknown } | undefined)?.amount,
+            session.authorised_amount_pence,
+          );
+          if (capturedAmt != null && capturedAmt > 0) {
+            sessionUpdate.captured_amount_pence = capturedAmt;
+            sessionUpdate.final_charge_pence = capturedAmt;
+          }
+          sessionUpdate.captured_at = nowIso;
+          sessionUpdate.status = "captured";
+          sessionUpdate.provider_state = "COMPLETED";
+        } else if (stateUpper === "AUTHORISED") {
           const authorisedAmount = await resolveAuthorisedAmountMinor(orderId, event.data);
           if (authorisedAmount != null && authorisedAmount > 0) {
             sessionUpdate.authorised_amount_pence = authorisedAmount;
@@ -494,7 +509,48 @@ Deno.serve(async (req) => {
           console.error(`[revolut-webhook] payment_session update failed for ${session.id}:`, sessionUpdateError.message);
         }
 
-        if (["AUTHORISED", "COMPLETED"].includes(stateUpper) && !session.trip_id) {
+        // Manual capture / provider COMPLETED with an attached trip → settle wallet once.
+        if (stateUpper === "COMPLETED" && (session.trip_id || tripId)) {
+          const settleTripId = session.trip_id ?? tripId;
+          try {
+            const { data: tripRow } = await supabase
+              .from("trips")
+              .select("id, driver_id, driver_net_pence, tip_pence, tip_amount_pence, currency_code, currency, provider_order_id, payment_status, capture_amount_pence")
+              .eq("id", settleTripId!)
+              .maybeSingle();
+            if (tripRow?.driver_id) {
+              const capturePence = Math.round(Number(
+                sessionUpdate.captured_amount_pence
+                  ?? tripRow.capture_amount_pence
+                  ?? session.authorised_amount_pence
+                  ?? 0,
+              ));
+              await supabase.from("trips").update({
+                payment_status: "captured",
+                capture_amount_pence: capturePence > 0 ? capturePence : tripRow.capture_amount_pence,
+                provider_charge_id: orderId,
+                updated_at: nowIso,
+              }).eq("id", settleTripId!);
+              const { applyCanonicalSettlementAfterCapture } = await import(
+                "../_shared/applyCanonicalSettlementAfterCapture.ts"
+              );
+              await applyCanonicalSettlementAfterCapture({
+                supabase,
+                tripId: settleTripId!,
+                trip: tripRow as Record<string, unknown>,
+                captureAmountPence: capturePence,
+                tipPence: Math.max(0, Math.round(Number(tripRow.tip_pence ?? tripRow.tip_amount_pence ?? 0))),
+              });
+            }
+          } catch (settleErr) {
+            console.error(
+              `[revolut-webhook] COMPLETED settlement failed for ${settleTripId}:`,
+              (settleErr as Error).message,
+            );
+          }
+        }
+
+        if (stateUpper === "AUTHORISED" && !session.trip_id) {
           const { data: finaliseData, error: finaliseError } = await supabase.rpc(
             "finalize_paid_booking_session",
             { p_payment_session_id: session.id },

@@ -5,7 +5,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
 import { fetchDriverWalletSummary } from "../_shared/fetchDriverWalletSummary.ts";
-import { isStripeRuntimeDisabled } from "../_shared/stripeRuntimeDisabled.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -76,12 +75,7 @@ Deno.serve(async (req) => {
     );
     const offset = Math.max(0, Number(body.offset ?? url.searchParams.get("offset") ?? 0));
 
-    // P0: never pass a live Stripe client into wallet SSOT.
-    const stripe = null;
-    if (!isStripeRuntimeDisabled()) {
-      console.warn("[admin-driver-wallet-ssot] Stripe runtime re-enabled — Connect reads still withheld from DWL/FR");
-    }
-
+    // P0: never pass a live Stripe client into wallet SSOT (Stripe Connect retired).
     if (driverId && mode === "wallet_summary") {
       if (!periodFrom || !periodTo) {
         return new Response(JSON.stringify({ error: "from and to required for wallet_summary" }), {
@@ -94,7 +88,7 @@ Deno.serve(async (req) => {
         periodFrom: String(periodFrom),
         periodTo: String(periodTo),
         serviceAreaId: serviceAreaId ? String(serviceAreaId) : null,
-        stripe,
+        stripe: null,
       });
       return new Response(JSON.stringify({ success: true, wallet_summary }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

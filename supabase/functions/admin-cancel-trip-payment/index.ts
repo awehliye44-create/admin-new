@@ -9,8 +9,11 @@ import {
   retrieveRevolutOrder,
   getRevolutMerchantConfig,
 } from "../_shared/revolutOrders.ts";
-import { resolveTripPaymentProvider, tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
-import { assertStripeMutationAllowed } from "../_shared/stripeRuntimeDisabled.ts";
+import {
+  isRetiredStripeProvider,
+  resolveTripPaymentProvider,
+  tripProviderOrderId,
+} from "../_shared/tripPaymentProviderSSOT.ts";
 import { assertHoldReleaseAllowed, stampReleaseTrigger } from "../_shared/paymentHoldGuard.ts";
 
 const InputSchema = z.object({
@@ -33,16 +36,17 @@ serve(async (req) => {
 
     const { data: trip, error: tripErr } = await gate.supabase
       .from("trips")
-      .select("id, payment_provider, provider_order_id, stripe_payment_intent_id, authorised_amount_pence, payment_status")
+      .select("id, payment_provider, provider_order_id, authorised_amount_pence, payment_status")
       .eq("id", trip_id)
       .single();
     if (tripErr || !trip) return jsonResponse({ error: "Trip not found" }, 404);
 
     const provider = resolveTripPaymentProvider(trip);
-    if (provider === "stripe") {
-      const retired = assertStripeMutationAllowed(corsHeaders, "admin-cancel-trip-payment");
-      if (retired) return retired;
-      return jsonResponse({ error: "Stripe is permanently retired from active ONECAB finance.", error_code: "STRIPE_RETIRED" }, 422);
+    if (isRetiredStripeProvider(provider)) {
+      return jsonResponse({
+        error: "Stripe is permanently retired from active ONECAB finance.",
+        error_code: "STRIPE_RETIRED",
+      }, 422);
     }
 
     const orderId = tripProviderOrderId(trip);

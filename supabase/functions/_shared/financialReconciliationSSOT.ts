@@ -266,7 +266,7 @@ export function mergePaymentSessionsIntoCaptureRows(args: {
 export type TripSSOTRow = {
   id?: string | null;
   commission_pence: number | null;
-  stripe_processing_fee_pence: number | null;
+  provider_fee_pence: number | null;
   onecab_net_pence: number | null;
   driver_net_pence: number | null;
   gross_fare_pence: number | null;
@@ -801,14 +801,11 @@ export type PaymentMethodLedgerMetrics = {
 };
 
 
-/** Provider-neutral processing fee — prefers provider_fee_pence when populated. */
+/** Provider-neutral processing fee — active paths read provider_fee_pence only. */
 export function tripProviderProcessingFeePence(trip: {
   provider_fee_pence?: number | null;
-  stripe_processing_fee_pence?: number | null;
 }): number {
-  const providerFee = trip.provider_fee_pence;
-  if (providerFee != null && providerFee > 0) return providerFee;
-  return Math.max(0, trip.stripe_processing_fee_pence ?? 0);
+  return Math.max(0, trip.provider_fee_pence ?? 0);
 }
 
 export function totalCommissionEarnedPence(

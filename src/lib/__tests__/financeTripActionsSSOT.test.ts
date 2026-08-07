@@ -51,7 +51,6 @@ describe('derivePaymentActionAvailability', () => {
     });
     expect(rules.refund_full.enabled).toBe(false);
     expect(rules.refund_full.reason).toMatch(/refund/i);
-    expect(rules.resync_stripe.enabled).toBe(true);
   });
 
   it('does not gate actions on reconciliation health — outstanding enables extra payment', () => {

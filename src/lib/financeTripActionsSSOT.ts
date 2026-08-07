@@ -10,8 +10,6 @@ export type PaymentActionKey =
   | 'retry_settlement'
   | 'repair_settlement'
   | 'recalculate_settlement'
-  | 'resync_stripe'
-  | 'refresh_stripe'
   | 'request_extra_payment';
 
 export type PaymentActionAvailability = Record<PaymentActionKey, { enabled: boolean; reason?: string }>;
@@ -29,13 +27,12 @@ export type TripPaymentActionInput = {
   hasPaymentIntent?: boolean;
   hasCharge?: boolean;
   tripCancelled?: boolean;
-  stripeSettlementVerified?: boolean;
+  providerSettlementVerified?: boolean;
   actionsAllowed?: {
     can_capture?: boolean;
     can_refund?: boolean;
     can_partial_refund?: boolean;
     can_cancel_authorisation?: boolean;
-    can_sync_stripe?: boolean;
   };
 };
 
@@ -96,18 +93,16 @@ export function derivePaymentActionAvailability(input: TripPaymentActionInput): 
         : captured <= 0 ? 'Nothing captured to refund'
           : 'Partial refund not available',
     ),
-    resync_stripe: disabled('Stripe sync retired — historical evidence only'),
-    refresh_stripe: disabled('Stripe refresh retired — historical evidence only'),
     repair_settlement: digital && hasCharge
       ? enabled()
       : disabled('Settlement repair requires a captured digital payment'),
     recalculate_settlement: digital && captured > 0
       ? enabled()
       : disabled('Recalculate settlement requires captured payment'),
-    retry_settlement: digital && hasCharge && input.stripeSettlementVerified === false
+    retry_settlement: digital && hasCharge && input.providerSettlementVerified === false
       ? enabled()
       : disabled(
-        input.stripeSettlementVerified ? 'Settlement already verified'
+        input.providerSettlementVerified ? 'Settlement already verified'
           : 'Retry settlement requires captured payment',
       ),
     request_extra_payment: outstanding > 0 && digital

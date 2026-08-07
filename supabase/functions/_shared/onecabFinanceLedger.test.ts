@@ -51,27 +51,38 @@ Deno.test("positive wallet — debt fully recovered shows zero owed", () => {
   assertEquals(computeOwedToOnecab(ledger), 0);
 });
 
-Deno.test("payout eligibility — connected but missing external account", () => {
+Deno.test("payout eligibility — destination present but verification failed", () => {
   const result = derivePayoutEligibility({
-    stripe_account_id: "acct_1",
-    onboarding_complete: true,
+    payout_destination_active: true,
+    provider_counterparty_id: "cp_1",
     payouts_enabled: true,
-    external_account_exists: false,
-    requirements_currently_due: [],
+    verification_status: "failed",
   });
+  assertEquals(result.payout_destination_ready, true);
   assertEquals(result.stripe_connected, true);
   assertEquals(result.payout_eligible, false);
   assertEquals(result.settlement_status, "needs_attention");
 });
 
-Deno.test("payout eligibility — fully eligible", () => {
+Deno.test("payout eligibility — fully eligible via Revolut destination", () => {
+  const result = derivePayoutEligibility({
+    payout_destination_active: true,
+    provider_counterparty_id: "cp_1",
+    payouts_enabled: true,
+    verification_status: "verified",
+  });
+  assertEquals(result.payout_destination_ready, true);
+  assertEquals(result.payout_eligible, true);
+  assertEquals(result.settlement_status, "eligible");
+});
+
+Deno.test("payout eligibility — stripe_account_id alone does not qualify", () => {
   const result = derivePayoutEligibility({
     stripe_account_id: "acct_1",
     onboarding_complete: true,
     payouts_enabled: true,
-    external_account_exists: true,
-    requirements_currently_due: [],
   });
-  assertEquals(result.payout_eligible, true);
-  assertEquals(result.settlement_status, "eligible");
+  assertEquals(result.payout_destination_ready, false);
+  assertEquals(result.payout_eligible, false);
+  assertEquals(result.settlement_status, "not_connected");
 });

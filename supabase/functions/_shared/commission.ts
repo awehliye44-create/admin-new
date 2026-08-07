@@ -77,6 +77,19 @@ export async function getDriverCommissionPct(
   return commissionPct;
 }
 
+/**
+ * stop-workflow / legacy call-site shape: { commissionPct }.
+ * Reuses getDriverCommissionPct — no Stripe account lookup.
+ */
+export async function getDriverCommission(
+  supabase: SupabaseClient,
+  driverId: string,
+  serviceAreaId: string | null | undefined,
+): Promise<{ commissionPct: number }> {
+  const commissionPct = await getDriverCommissionPct(supabase, driverId, serviceAreaId);
+  return { commissionPct };
+}
+
 export interface CommissionResult {
   commission_pct: number;
   commission_pence: number;

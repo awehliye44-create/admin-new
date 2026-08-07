@@ -111,7 +111,8 @@ export function isSavedCardVaultImplemented(
   if (!vaultProvider) return false;
   switch (vaultProvider) {
     case "stripe":
-      return true;
+      // Retired — legacy vault classification only, never live.
+      return false;
     case "revolut":
       return REVOLUT_SAVE_CARD_TOKENIZATION_READY;
     case "mobile_wallet":
@@ -242,7 +243,7 @@ export function buildDigitalPaymentMethodsPayload(args: {
       enabled: args.flags.card,
       readiness: resolveMethodReadinessState({
         enabled: args.flags.card,
-        providerSupported: vault === "stripe" || vault === "revolut",
+        providerSupported: vault === "revolut",
         configured: collectionReady,
         environment: env,
       }),
@@ -269,7 +270,7 @@ export function buildDigitalPaymentMethodsPayload(args: {
       enabled: args.flags.applePay,
       readiness: resolveMethodReadinessState({
         enabled: args.flags.applePay,
-        providerSupported: vault === "stripe" || vault === "revolut",
+        providerSupported: vault === "revolut",
         configured: collectionReady,
         environment: env,
       }),
@@ -283,7 +284,7 @@ export function buildDigitalPaymentMethodsPayload(args: {
       enabled: args.flags.googlePay,
       readiness: resolveMethodReadinessState({
         enabled: args.flags.googlePay,
-        providerSupported: vault === "stripe" || vault === "revolut",
+        providerSupported: vault === "revolut",
         configured: collectionReady,
         environment: env,
       }),

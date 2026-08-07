@@ -1,4 +1,4 @@
-// Admin: capture trip payment — routes Revolut vs legacy Stripe by trip provider.
+// Admin: capture trip payment — Revolut only (Stripe permanently retired).
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
@@ -8,9 +8,11 @@ import {
   getRevolutMerchantConfig,
   mapRevolutStateToPaymentStatus,
 } from "../_shared/revolutOrders.ts";
-import { adminLegacyStripeCapture } from "../_shared/adminLegacyStripeTripPayment.ts";
-import { resolveTripPaymentProvider, tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
-import { assertStripeMutationAllowed } from "../_shared/stripeRuntimeDisabled.ts";
+import {
+  isRetiredStripeProvider,
+  resolveTripPaymentProvider,
+  tripProviderOrderId,
+} from "../_shared/tripPaymentProviderSSOT.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -32,16 +34,14 @@ serve(async (req) => {
 
     const { data: trip, error: tripErr } = await gate.supabase
       .from("trips")
-      .select("id, payment_provider, provider_order_id, stripe_payment_intent_id, capture_amount_pence, authorised_amount_pence, payment_status, currency_code, currency")
+      .select("id, payment_provider, provider_order_id, capture_amount_pence, authorised_amount_pence, payment_status, currency_code, currency")
       .eq("id", trip_id)
       .single();
     if (tripErr || !trip) return jsonResponse({ error: "Trip not found" }, 404);
 
     const provider = resolveTripPaymentProvider(trip);
 
-    if (provider === "stripe") {
-      const retired = assertStripeMutationAllowed(corsHeaders, "admin-capture-trip-payment");
-      if (retired) return retired;
+    if (isRetiredStripeProvider(provider)) {
       return jsonResponse({
         error: "Stripe is permanently retired from active ONECAB finance.",
         error_code: "STRIPE_RETIRED",

@@ -45,7 +45,6 @@ const SETTING_KEYS = [
   'early_cashout_min_pence',
   'early_cashout_max_pence',
   'early_cashout_max_per_day',
-  'stripe_instant_payouts_enabled',
   'company_transfer_approval_single_max_pence',
   'company_transfer_approval_dual_max_pence',
   'allow_sole_admin_company_transfer_approval',
@@ -163,7 +162,7 @@ export function PayoutLedgerSettingsPanel({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('drivers')
-        .select('id, first_name, last_name, driver_code, payouts_enabled, stripe_account_id, charges_enabled')
+        .select('id, first_name, last_name, driver_code, payouts_enabled, charges_enabled')
         .eq('id', overrideDriverId!)
         .maybeSingle();
       if (error) throw error;
@@ -777,16 +776,6 @@ export function PayoutLedgerSettingsPanel({
           <div className="space-y-1.5">
             <Label>Max requests per day</Label>
             <Input value={get('early_cashout_max_per_day', '1')} onChange={(e) => set('early_cashout_max_per_day', e.target.value)} />
-          </div>
-          <div className="flex items-center justify-between gap-3 rounded-md border p-3 sm:col-span-2">
-            <div>
-              <Label>Instant payouts flag (legacy)</Label>
-              <p className="text-xs text-muted-foreground">Persisted setting — provider capability gate</p>
-            </div>
-            <Switch
-              checked={get('stripe_instant_payouts_enabled', 'false') === 'true'}
-              onCheckedChange={(v) => set('stripe_instant_payouts_enabled', v ? 'true' : 'false')}
-            />
           </div>
         </CardContent>
       </Card>

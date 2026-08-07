@@ -72,7 +72,7 @@ interface Driver {
   country?: string | null;
   country_code?: string | null;
   is_pet_friendly?: boolean;
-  stripe_account_id?: string | null;
+  payouts_enabled?: boolean | null;
   payouts_enabled?: boolean;
   charges_enabled?: boolean;
   onboarding_complete?: boolean;
@@ -738,10 +738,6 @@ export function DriverDetailsDialog({
                 <DriverPayoutPanel
                   driverId={driver.id}
                   regionId={driver.region_id}
-                  stripeAccountId={null}
-                  payoutsEnabled={driver.payouts_enabled}
-                  onboardingComplete={true}
-                  chargesEnabled={driver.charges_enabled}
                 />
 
 

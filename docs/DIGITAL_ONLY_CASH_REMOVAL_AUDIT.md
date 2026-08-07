@@ -48,14 +48,14 @@ Customer Card / Mobile Wallet / Future gateways (Paystack, Flutterwave, Sifalo P
 - `src/lib/tripCustomerActions.ts` — `canSwitchCashToCardOnTrip` always false
 - `src/hooks/useServiceAreaPaymentMethods.ts` — digital-only flags
 - `src/components/PaymentMethodSheet.tsx` — no cash option
-- `src/pages/SelectVehicle.tsx`, `ScanAndGo.tsx`, `BookRide.tsx`
+- `src/pages/SelectVehicle.tsx`, `BookRide.tsx`
 - `supabase/functions/create-ride/index.ts` — cash 410
 - `supabase/functions/create-trip/index.ts` — cash 410
 - `supabase/functions/create-trip-after-payment/index.ts` — cash 410; no `cash_enabled`
 - `supabase/functions/switch-trip-payment-method/index.ts` — 410 retired
-- `supabase/functions/scan-and-go/index.ts` — cash 410
 - `supabase/functions/finalize-trip-and-capture/index.ts` — historical cash read-only
-- `supabase/functions/_shared/resolveScanGoDriverSsot.ts`, `customerPaymentWorkflow.ts`
+- `supabase/functions/_shared/customerPaymentWorkflow.ts`
+- Retired (removed from product): Scan & Go UI/RPC paths (`ScanAndGo.tsx`, `scan-and-go` edge, `resolveScanGoDriverSsot.ts`)
 
 ### Driver app (`drive-hub-buddy`)
 - `supabase/functions/stop-workflow/index.ts` — no new cash ledger

@@ -325,7 +325,6 @@ export async function recordCardCaptureFailure(
     tripId: string;
     driverId?: string | null;
     message: string;
-    stripePaymentIntentId?: string | null;
   },
 ): Promise<void> {
   const errorText = args.message.slice(0, 2000);
@@ -347,7 +346,7 @@ export async function recordCardCaptureFailure(
     })
     .eq("trip_id", args.tripId);
 
-  let paymentQuery = supabase
+  await supabase
     .from("payments")
     .update({
       status: "capture_failed",
@@ -355,11 +354,6 @@ export async function recordCardCaptureFailure(
       updated_at: now,
     })
     .eq("trip_id", args.tripId);
-
-  if (args.stripePaymentIntentId) {
-    paymentQuery = paymentQuery.eq("stripe_payment_intent_id", args.stripePaymentIntentId);
-  }
-  await paymentQuery;
 
   let driverId = args.driverId ?? null;
   if (!driverId) {
@@ -380,41 +374,57 @@ export async function recordCardCaptureFailure(
 
   await logFinanceAuditEvent(supabase, "CARD_CAPTURE_FAILED", {
     message: errorText,
-    stripe_payment_intent_id: args.stripePaymentIntentId ?? null,
     reversed_phantom_credits: true,
   }, args.tripId, driverId);
 }
 
 export type PayoutEligibilityInput = {
-  stripe_account_id?: string | null;
+  /** Active row in driver_payout_destinations (is_active). */
+  payout_destination_active?: boolean | null;
+  /** Revolut Business / provider counterparty linked on destination. */
+  provider_counterparty_id?: string | null;
+  revolut_business_linked?: boolean | null;
   payouts_enabled?: boolean | null;
-  charges_enabled?: boolean | null;
+  verification_status?: string | null;
   onboarding_complete?: boolean | null;
+  /** @deprecated Ignored — Stripe Connect retired. */
+  stripe_account_id?: string | null;
+  charges_enabled?: boolean | null;
   external_account_exists?: boolean | null;
   requirements_currently_due?: string[] | null;
 };
 
 export type PayoutEligibility = {
+  /** Revolut Business / payout destination ready (not Stripe Connect). */
+  payout_destination_ready: boolean;
+  /** @deprecated Alias of payout_destination_ready for older callers. */
   stripe_connected: boolean;
   payout_eligible: boolean;
   settlement_status: "eligible" | "needs_attention" | "not_connected";
 };
 
 export function derivePayoutEligibility(driver: PayoutEligibilityInput): PayoutEligibility {
-  const stripeConnected = Boolean(driver.stripe_account_id)
-    && (driver.onboarding_complete ?? false);
-  const requirementsDue = driver.requirements_currently_due ?? [];
-  const payoutEligible = stripeConnected
-    && (driver.payouts_enabled ?? false)
-    && (driver.external_account_exists ?? true)
-    && requirementsDue.length === 0;
+  const counterparty = String(driver.provider_counterparty_id ?? "").trim();
+  const destinationReady = Boolean(driver.payout_destination_active)
+    || Boolean(counterparty)
+    || Boolean(driver.revolut_business_linked);
+
+  const verification = String(driver.verification_status ?? "").trim().toLowerCase();
+  const verified = verification === ""
+    || ["verified", "active", "linked", "approved"].includes(verification)
+    || (driver.onboarding_complete ?? false);
+
+  const payoutEligible = destinationReady
+    && (driver.payouts_enabled ?? true)
+    && verified;
 
   let settlementStatus: PayoutEligibility["settlement_status"] = "not_connected";
-  if (stripeConnected && payoutEligible) settlementStatus = "eligible";
-  else if (stripeConnected) settlementStatus = "needs_attention";
+  if (destinationReady && payoutEligible) settlementStatus = "eligible";
+  else if (destinationReady) settlementStatus = "needs_attention";
 
   return {
-    stripe_connected: stripeConnected,
+    payout_destination_ready: destinationReady,
+    stripe_connected: destinationReady,
     payout_eligible: payoutEligible,
     settlement_status: settlementStatus,
   };

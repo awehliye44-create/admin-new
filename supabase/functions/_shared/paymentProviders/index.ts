@@ -3,14 +3,29 @@ import { createPlaceholderAdapter } from "./placeholderAdapter.ts";
 import { createRevolutAdapter } from "./revolutAdapter.ts";
 import { getProviderSecrets } from "./secretManager.ts";
 import type { PaymentProviderAdapter, PaymentProviderId, ProviderEnvironment } from "./types.ts";
-import {
-  emitStripeRetirementTelemetry,
-  PAYMENT_PROVIDER_UNAVAILABLE,
-  resolveActivePaymentProviderName,
-} from "../stripeRuntimeDisabled.ts";
 
 export * from "./types.ts";
 export * from "./secretManager.ts";
+
+/** Active payment providers after Stripe runtime retirement. */
+export type ActivePaymentProvider =
+  | "revolut"
+  | "bank_transfer"
+  | "unknown"
+  | "unavailable";
+
+export function resolveActivePaymentProviderName(
+  raw: string | null | undefined,
+): ActivePaymentProvider {
+  const p = String(raw ?? "").trim().toLowerCase();
+  if (!p) return "unavailable";
+  if (p === "stripe") return "unavailable";
+  if (p === "revolut") return "revolut";
+  if (p === "bank_transfer" || p === "manual" || p === "manual_bank") return "bank_transfer";
+  if (p === "unknown") return "unknown";
+  if (p === "unavailable" || p === "none") return "unavailable";
+  return "unknown";
+}
 
 export function getPaymentProviderAdapter(
   supabase: SupabaseClient,
@@ -45,10 +60,11 @@ export async function getActivePaymentProvider(
     return { provider: "revolut", environment };
   }
 
-  emitStripeRetirementTelemetry({
-    event: PAYMENT_PROVIDER_UNAVAILABLE,
+  console.info(JSON.stringify({
+    event: "PAYMENT_PROVIDER_UNAVAILABLE",
     function: "getActivePaymentProvider",
     operation: "resolve_active_provider",
-  });
+    timestamp: new Date().toISOString(),
+  }));
   return { provider: "revolut", environment };
 }

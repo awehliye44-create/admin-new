@@ -331,12 +331,21 @@ serve(async (req) => {
 
     if (req.method === "PATCH") {
       const body = await req.json();
-      const provider = body.provider as PaymentProviderId;
+      const provider = body.provider as PaymentProviderId | "stripe";
       if (!provider) {
         return new Response(JSON.stringify({ error: "provider is required" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+      }
+      if (provider === "stripe") {
+        return new Response(
+          JSON.stringify({
+            error: "STRIPE_RETIRED",
+            message: "Stripe cannot be enabled. Revolut is the live payment provider.",
+          }),
+          { status: 410, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
 
       const updates: Record<string, unknown> = {};

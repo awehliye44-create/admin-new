@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import type Stripe from "https://esm.sh/stripe@14.21.0";
 import { fetchDriverWalletPayoutSnapshot } from "./fetchDriverWalletPayoutSnapshot.ts";
 import { isLondonSameCalendarDay } from "./financeLondonDay.ts";
 
@@ -83,7 +82,8 @@ export async function fetchRegionPlatformKpis(
   supabase: SupabaseClient,
   args: {
     regionId: string | null;
-    stripe: Stripe | null;
+    /** @deprecated Stripe Connect balance client retired */
+    stripe?: null;
     todayAuditRows: AuditTripRow[];
   },
 ): Promise<PlatformReconciliationKpis> {
@@ -103,7 +103,6 @@ export async function fetchRegionPlatformKpis(
   for (const row of driverRows ?? []) {
     snapshots.push(await fetchDriverWalletPayoutSnapshot(supabase, {
       driverId: row.id as string,
-      stripe: args.stripe,
     }));
   }
 

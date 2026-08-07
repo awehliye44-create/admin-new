@@ -151,7 +151,7 @@ export async function buildPayoutLedgerAccountsOverview(
 ): Promise<AdminPayoutLedgerListResponse> {
   let driverQuery = supabase
     .from("drivers")
-    .select("id, first_name, last_name, driver_code, stripe_account_id, payouts_enabled, category_id, driver_categories(name)")
+    .select("id, first_name, last_name, driver_code, payouts_enabled, category_id, driver_categories(name)")
     .eq("approval_status", "approved")
     .limit(Math.min(200, Math.max(1, args?.limit ?? 100)));
 
@@ -359,10 +359,9 @@ export async function buildPayoutLedgerAccountsOverview(
 
     const saMeta = serviceAreaByDriver.get(String(d.id));
     const provider = saMeta?.provider ?? null;
-    const connected = (d.stripe_account_id as string | null) ?? null;
-    const isRevolut = String(provider ?? "").toLowerCase() === "revolut";
-    const manualBank = isRevolut || !connected;
-    if (!manualBank && !connected) unverified += 1;
+    const isRevolut = String(provider ?? "").toLowerCase() !== "stripe";
+    const manualBank = true;
+    if (!manualBank) unverified += 1;
     const tierJoin = d.driver_categories as { name?: string } | { name?: string }[] | null;
     const tierName = Array.isArray(tierJoin)
       ? (tierJoin[0]?.name ?? null)

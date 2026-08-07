@@ -13,9 +13,7 @@ export function parseLivePayoutExecutionEnabled(
   envGet?: (key: string) => string | undefined | null,
 ): boolean {
   const read = envGet ?? (() => undefined);
-  const a = String(read("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "").trim().toLowerCase();
-  const b = String(read("ADMIN_PAYOUT_STRIPE_EXECUTION_ENABLED") ?? "").trim().toLowerCase();
-  return a === "true" || b === "true";
+  return String(read("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "").trim().toLowerCase() === "true";
 }
 
 /**

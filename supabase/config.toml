@@ -106,9 +106,6 @@ verify_jwt = false
 [functions.capture-trip-payment]
 verify_jwt = false
 
-[functions.stripe-onboard-driver]
-verify_jwt = false
-
 [functions.public-content]
 verify_jwt = false
 
@@ -231,4 +228,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.create-payment-recovery]
+verify_jwt = false
+
+[functions.request-password-recovery]
 verify_jwt = false

@@ -39,7 +39,7 @@ import {
 
 interface PaymentState {
   trip_id: string;
-  payment_provider?: 'stripe' | 'revolut' | 'unknown';
+  payment_provider?: 'revolut' | 'unknown';
   provider_order_id?: string | null;
   legacy_stripe_trip?: boolean;
   payment_intent_id: string | null;
@@ -94,14 +94,13 @@ interface PaymentState {
     can_refund: boolean;
     can_partial_refund: boolean;
     can_cancel_authorisation?: boolean;
-    can_sync_stripe: boolean;
     can_add_note: boolean;
   };
 }
 
 interface AuditEntry {
   id: string;
-  action: 'capture' | 'refund' | 'edit_fare' | 'cancel' | 'extra_payment' | 'finance_note' | 'sync_stripe';
+  action: 'capture' | 'refund' | 'edit_fare' | 'cancel' | 'extra_payment' | 'finance_note';
   reason: string;
   amount_pence_before: number | null;
   amount_pence_after: number | null;
@@ -129,7 +128,6 @@ const ACTION_LABEL: Record<AuditEntry['action'] | 'extra_payment', string> = {
   cancel: 'Hold released',
   extra_payment: 'Extra payment',
   finance_note: 'Finance note',
-  sync_stripe: 'Sync Provider',
 };
 
 const INFORMATIONAL_SETTLEMENT_WARNINGS = new Set([
@@ -310,7 +308,7 @@ export function PaymentControlsCard({
       return data;
     },
     onSuccess: (data) => {
-      const id = data.stripe_refund_id || data.stripe_charge_id || data.stripe_payment_intent_id;
+      const id = data.provider_refund_id || data.provider_charge_id || data.provider_order_id;
       toast.success(data.message || 'Action completed', { description: id ? `Provider ref: ${id}` : undefined });
       setMode(null);
       setReason('');
@@ -336,7 +334,6 @@ export function PaymentControlsCard({
     ?? (state?.payment_provider === 'revolut'
       ? String(state?.provider_status ?? state?.stripe_status ?? '').toLowerCase() === 'authorised'
       : state?.stripe_status === 'requires_capture');
-  const canSyncStripe = false;
   const isCancelled = state?.stripe_status === 'canceled' || String(state?.payment_status ?? '').includes('cancel');
   const hasCharge = !!state && (state.actions_allowed?.can_refund || state.actions_allowed?.can_partial_refund || state.captured_pence > 0);
   const refundable = state ? Math.max(0, state.refundable_pence ?? state.captured_pence - state.refunded_pence) : 0;
@@ -762,7 +759,7 @@ export function PaymentControlsCard({
                   hasPaymentIntent: !!state.payment_intent_id,
                   hasCharge: !!state.charge_id || hasCharge,
                   tripCancelled: isCancelled,
-                  stripeSettlementVerified: state.stripe_settlement_verified,
+                  providerSettlementVerified: state.stripe_settlement_verified,
                   actionsAllowed: state.actions_allowed,
                 }}
                 actionsDisabled={actionMutation.isPending || repairCommissionsMutation.isPending}

@@ -59,7 +59,6 @@ import {
 } from '@/lib/tripCaptureStatus';
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
-import { SyncStripeRefundButton } from '@/components/payment/SyncStripeRefundButton';
 import { TripHistoryShortfallRecaptureAction } from '@/components/trips/TripHistoryShortfallRecaptureAction';
 import { getTripRefundDisplay } from '@/lib/tripRefundDisplay';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
@@ -1798,13 +1797,6 @@ export default function TripHistory() {
                         tripNumber={selectedTrip.trip_number}
                         variant="button"
                       />
-                      {isCardTrip(selectedTrip) && selectedTrip.stripe_payment_intent_id && (
-                        <SyncStripeRefundButton
-                          tripId={selectedTrip.id}
-                          tripCode={selectedTrip.trip_code}
-                          onSynced={fetchData}
-                        />
-                      )}
                       <Separator />
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Capture Status</span>

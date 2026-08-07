@@ -59,7 +59,8 @@ serve(async (req) => {
     const { data: sessions, error } = Array.isArray(body.session_ids) && body.session_ids.length > 0
       ? await query.in("id", body.session_ids)
       : await query.or(
-          `status.in.(${ACTIVE_STATUSES.join(",")}),provider_state.in.(AUTHORISED,PENDING,PROCESSING,UNKNOWN)`,
+          // EXISTING CODE REPAIRED — also pick COMPLETED provider drift (manual capture heal).
+          `status.in.(${ACTIVE_STATUSES.join(",")}),provider_state.in.(AUTHORISED,PENDING,PROCESSING,UNKNOWN,COMPLETED)`,
         );
 
     if (error) return jsonResponse({ error: error.message }, 500);
@@ -268,6 +269,39 @@ serve(async (req) => {
           if (amountMinor != null && amountMinor > 0) {
             update.captured_amount_pence = amountMinor;
             update.captured_at = nowIso;
+          }
+          // Heal trip + settle wallet once (manual Merchant capture safety net).
+          if (s.trip_id) {
+            try {
+              const { data: tripRow } = await gate.supabase
+                .from("trips")
+                .select("id, driver_id, driver_net_pence, tip_pence, tip_amount_pence, currency_code, currency, provider_order_id, capture_amount_pence")
+                .eq("id", s.trip_id)
+                .maybeSingle();
+              const capturePence = Math.round(Number(
+                amountMinor ?? tripRow?.capture_amount_pence ?? s.authorised_amount_pence ?? 0,
+              ));
+              await gate.supabase.from("trips").update({
+                payment_status: "captured",
+                capture_amount_pence: capturePence > 0 ? capturePence : tripRow?.capture_amount_pence,
+                provider_charge_id: s.provider_order_id,
+                updated_at: nowIso,
+              }).eq("id", s.trip_id);
+              if (tripRow?.driver_id) {
+                const { applyCanonicalSettlementAfterCapture } = await import(
+                  "../_shared/applyCanonicalSettlementAfterCapture.ts"
+                );
+                await applyCanonicalSettlementAfterCapture({
+                  supabase: gate.supabase,
+                  tripId: s.trip_id,
+                  trip: tripRow as Record<string, unknown>,
+                  captureAmountPence: capturePence,
+                  tipPence: Math.max(0, Math.round(Number(tripRow.tip_pence ?? tripRow.tip_amount_pence ?? 0))),
+                });
+              }
+            } catch (settleErr) {
+              console.error("[admin-refresh-payment-sessions] COMPLETED settle failed", settleErr);
+            }
           }
         } else if (stateUpper === "AUTHORISED" && s.status === "pending_payment") {
           update.status = s.trip_id ? "trip_created" : "payment_authorised";

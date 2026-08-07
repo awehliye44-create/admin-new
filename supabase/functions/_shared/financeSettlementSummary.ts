@@ -17,6 +17,7 @@ import {
   type PaymentSessionMoneyRow,
   type SSOTComputedMetrics,
   SSOT_VERSION,
+  tripProviderProcessingFeePence,
 } from "./financialReconciliationSSOT.ts";
 import { excludeTripFromPlatformCollectedFinance } from "../../../shared/commissionWalletSSOT.ts";
 import {
@@ -66,7 +67,6 @@ export type OnecabSettlementStatus =
 
 export type TripFinanceRow = {
   commission_pence: number | null;
-  stripe_processing_fee_pence: number | null;
   provider_fee_pence?: number | null;
   onecab_net_pence: number | null;
   driver_net_pence: number | null;
@@ -77,7 +77,7 @@ export type TripFinanceRow = {
   tip_pence: number | null;
   tip_amount_pence: number | null;
   payment_method: string | null;
-  stripe_settlement_verified: boolean | null;
+  provider_settlement_verified?: boolean | null;
   driver_tier_commission_percent: number | null;
   commission_pct: number | null;
   completed_at: string | null;
@@ -126,8 +126,9 @@ export function tripGrossCommissionPence(row: TripFinanceRow): number {
 }
 
 
+/** Provider-neutral processing fee — legacy stripe_processing_fee_pence is historical fallback. */
 export function tripStripeFeePence(row: TripFinanceRow): number {
-  return Math.max(0, row.stripe_processing_fee_pence ?? 0);
+  return tripProviderProcessingFeePence(row);
 }
 
 export function tripOnecabNetPence(row: TripFinanceRow): number | null {
@@ -181,7 +182,7 @@ export function sumTripFinanceMetrics(rows: TripFinanceRow[]) {
     stripeFees += stripeFee;
     if (net != null) onecabNet += net;
 
-    if (row.stripe_settlement_verified === true) {
+    if (row.provider_settlement_verified === true) {
       if (net != null) verifiedOnecabNet += net;
       verifiedCount += 1;
     } else if (net != null) {
@@ -458,6 +459,7 @@ export type TripFinancialAuditRow = {
   customer_name: string | null;
   driver_name: string | null;
   payment_method: string | null;
+  /** Provider order id for live Revolut trips; legacy key retained for API compat. */
   stripe_payment_intent_id?: string | null;
   /** Payment Sessions SSOT id when linked — navigation only. */
   payment_session_id?: string | null;
@@ -587,8 +589,7 @@ export type TripAuditSourceRow = TripFinanceRow & {
   final_customer_fare_pence?: number | null;
   payment_status?: string | null;
   financial_outcome?: string | null;
-  stripe_payment_intent_id?: string | null;
-  stripe_charge_id?: string | null;
+  provider_order_id?: string | null;
   provider_status?: string | null;
   driver_id?: string | null;
   passenger_name?: string | null;
@@ -840,7 +841,7 @@ export function mapTripToFinancialAuditRow(
     status: payment?.status ?? session?.status ?? null,
     provider_status: payment?.provider_status ?? null,
     captured_amount_pence: captured,
-    stripe_payment_intent_id: payment?.stripe_payment_intent_id ?? null,
+    provider_order_id: payment?.provider_order_id ?? null,
     provider_available_on: payment?.provider_available_on ?? null,
   };
 
@@ -877,10 +878,11 @@ export function mapTripToFinancialAuditRow(
     debtRecoveredPence: debtRecovered,
   });
 
+  // Provider-neutral order id — active paths use provider_order_id only.
   const paymentIntentId =
-    row.stripe_payment_intent_id ??
-    payment?.stripe_payment_intent_id ??
-    tripPayments.find((p) => p.stripe_payment_intent_id)?.stripe_payment_intent_id ??
+    row.provider_order_id ??
+    payment?.provider_order_id ??
+    tripPayments.find((p) => p.provider_order_id)?.provider_order_id ??
     null;
 
   // Provider fee: Payment Sessions only — never trip fee invent.
@@ -1170,7 +1172,7 @@ export function buildTripFinancialAuditContext(args: {
     status: string | null;
     provider_status: string | null;
     captured_amount_pence: number | null;
-    stripe_payment_intent_id?: string | null;
+    provider_order_id?: string | null;
     provider_available_on?: string | null;
   }>;
   payoutItems: Array<{
@@ -1185,8 +1187,6 @@ export function buildTripFinancialAuditContext(args: {
     related_trip_id: string | null;
     type: string;
     amount_pence: number;
-    stripe_payout_id?: string | null;
-    stripe_transfer_id?: string | null;
   }>;
   paymentSessions?: PaymentSessionMoneyRow[];
   currencyCodeByServiceAreaId?: Map<string, string>;
@@ -1200,7 +1200,7 @@ export function buildTripFinancialAuditContext(args: {
       status: p.status,
       provider_status: p.provider_status,
       captured_amount_pence: p.captured_amount_pence,
-      stripe_payment_intent_id: p.stripe_payment_intent_id ?? null,
+      provider_order_id: p.provider_order_id ?? null,
       provider_available_on: p.provider_available_on ?? null,
     };
     const list = paymentsByTripId.get(p.trip_id) ?? [];
@@ -1236,8 +1236,6 @@ export function buildTripFinancialAuditContext(args: {
     list.push({
       type: entry.type,
       amount_pence: entry.amount_pence,
-      stripe_payout_id: entry.stripe_payout_id ?? null,
-      stripe_transfer_id: entry.stripe_transfer_id ?? null,
     });
     ledgerByTripId.set(entry.related_trip_id, list);
   }

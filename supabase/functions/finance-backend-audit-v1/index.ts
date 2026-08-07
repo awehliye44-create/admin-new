@@ -1,7 +1,6 @@
 // v1.0.2 — resolve finance scope provider before platform balance fetch
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Stripe from "https://esm.sh/stripe@14.21.0";
 import {
   fetchProviderPlatformBalance,
   resolveFinanceScopeProvider,
@@ -44,7 +43,6 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const authHeader = req.headers.get("Authorization");
@@ -124,7 +122,7 @@ serve(async (req) => {
         trip_code,
         driver_id,
         commission_pence,
-        stripe_processing_fee_pence,
+        provider_fee_pence,
         onecab_net_pence,
         driver_net_pence,
         gross_fare_pence,
@@ -139,7 +137,6 @@ serve(async (req) => {
         payment_method,
         payment_status,
         financial_outcome,
-        stripe_settlement_verified,
         driver_tier_commission_percent,
         commission_pct,
         completed_at,
@@ -158,7 +155,7 @@ serve(async (req) => {
 
     let ledgerQuery = supabase
       .from("driver_wallet_ledger")
-      .select("id, driver_id, type, amount_pence, stripe_transfer_id, stripe_payout_id, created_at")
+      .select("id, driver_id, type, amount_pence, provider_transfer_id, provider_payout_id, created_at")
       .gte("created_at", periodFrom)
       .lte("created_at", periodTo)
       .order("created_at", { ascending: false })
@@ -175,8 +172,8 @@ serve(async (req) => {
         amount_pence,
         driver_amount_pence,
         status,
-        stripe_transfer_id,
-        stripe_payout_id,
+        provider_transfer_id,
+        provider_payout_id,
         ledger_entry_id,
         created_at,
         completed_at,
@@ -198,8 +195,8 @@ serve(async (req) => {
         status,
         requested_cashout_pence,
         driver_receives_pence,
-        stripe_transfer_id,
-        stripe_payout_id,
+        provider_transfer_id,
+        provider_payout_id,
         ledger_cashout_id,
         created_at,
         paid_at
@@ -312,56 +309,9 @@ serve(async (req) => {
     stripePendingPence = providerBalance.pending_pence;
     stripeBalanceError = providerBalance.error;
 
-    const useStripePlatformPayouts = financeScopeProvider.provider === "stripe";
-
-    if (useStripePlatformPayouts && stripeSecretKey) {
-      try {
-        const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
-        const payouts = await stripe.payouts.list({ limit: 100 });
-        stripePlatformPayoutsPence = payouts.data
-          .filter((p: { currency: string; status: string }) => p.currency === currency && p.status === "paid")
-          .reduce((s: number, p: { amount?: number | null }) => s + (p.amount ?? 0), 0);
-
-        const londonTodayStartMs = (() => {
-          const now = new Date();
-          const london = new Date(
-            now.toLocaleString("en-US", { timeZone: "Europe/London" }),
-          );
-          london.setHours(0, 0, 0, 0);
-          return london.getTime();
-        })();
-
-        stripePlatformPayoutDetails = payouts.data
-          .filter((p: { currency: string }) => p.currency === currency)
-          .map((p: {
-            id: string;
-            amount?: number | null;
-            status: string;
-            arrival_date?: number | null;
-            created: number;
-          }) => ({
-            id: p.id,
-            amount_pence: p.amount ?? 0,
-            status: p.status,
-            arrival_date: p.arrival_date
-              ? new Date(p.arrival_date * 1000).toISOString()
-              : null,
-            created_at: new Date(p.created * 1000).toISOString(),
-          }));
-
-        stripePlatformPaidTodayPence = stripePlatformPayoutDetails
-          .filter(
-            (p) =>
-              p.status === "paid" &&
-              p.arrival_date &&
-              new Date(p.arrival_date).getTime() >= londonTodayStartMs,
-          )
-          .reduce((s, p) => s + p.amount_pence, 0);
-      } catch (e) {
-        stripeBalanceError = (e as Error).message;
-      }
-    } else if (useStripePlatformPayouts && !stripeSecretKey) {
-      stripeBalanceError = stripeBalanceError ?? "STRIPE_SECRET_KEY not configured";
+    // Stripe Balance/Payouts API retired — platform payout evidence is ONECAB ledger + Revolut Business only.
+    if (financeScopeProvider.provider === "stripe") {
+      stripeBalanceError = stripeBalanceError ?? "STRIPE_RETIRED";
     }
 
     const finance_backend_audit_v1 = buildFinanceBackendAuditV1({

@@ -162,10 +162,7 @@ export function ServiceAreaGatewayStatusPanel({
                     row.driver.display_name ??
                     provider ??
                     '—';
-                  const payoutName =
-                    provider === 'stripe'
-                      ? 'Provider'
-                      : (row.driver.display_name ?? displayName);
+                  const payoutName = row.driver.display_name ?? displayName;
                   return (
                   <TableRow key={row.service_area_id}>
                     <TableCell className="font-medium">

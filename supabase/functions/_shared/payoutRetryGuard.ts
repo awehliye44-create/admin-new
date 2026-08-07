@@ -1,16 +1,14 @@
-import type Stripe from "https://esm.sh/stripe@14.21.0";
-import {
-  PAYOUT_EXECUTION_DISABLED_CODE,
-  PAYOUT_EXECUTION_DISABLED_MESSAGE,
-  stripeExecutionEnabled,
-} from "./payoutExecutionGate.ts";
+/**
+ * Payout retry guards — Revolut / ledger-only.
+ * Stripe Connect money-movement retries are permanently retired.
+ */
 
-export const PAYOUT_RETRY_INSUFFICIENT_FUNDS_CODE = "PAYOUT_RETRY_INSUFFICIENT_STRIPE_BALANCE";
+export const PAYOUT_RETRY_INSUFFICIENT_FUNDS_CODE = "PAYOUT_RETRY_INSUFFICIENT_PROVIDER_BALANCE";
 export const PAYOUT_RETRY_INSUFFICIENT_FUNDS_MESSAGE =
-  "Cannot retry: Stripe provider balance is negative / insufficient funds.";
-export const PAYOUT_RETRY_NO_CONNECT_CODE = "PAYOUT_RETRY_NO_CONNECT_ACCOUNT";
-export const PAYOUT_RETRY_NO_CONNECT_MESSAGE =
-  "Cannot retry: driver has no valid Stripe Connect account.";
+  "Cannot retry: provider balance is negative / insufficient funds.";
+export const PAYOUT_RETRY_NO_DESTINATION_CODE = "PAYOUT_RETRY_NO_PAYOUT_DESTINATION";
+export const PAYOUT_RETRY_NO_DESTINATION_MESSAGE =
+  "Cannot retry: driver has no active Revolut/business payout destination.";
 export const PAYOUT_RETRY_ALREADY_PAID_CODE = "PAYOUT_RETRY_ALREADY_PAID";
 export const PAYOUT_RETRY_ALREADY_PAID_MESSAGE =
   "Cannot retry: payout item already paid to bank.";
@@ -20,24 +18,16 @@ export const PAYOUT_RETRY_NO_LIABILITY_MESSAGE =
 export const PAYOUT_RETRY_LOCAL_ONLY_CODE = "PAYOUT_RETRY_LOCAL_ONLY_UNAPPROVED";
 export const PAYOUT_RETRY_LOCAL_ONLY_MESSAGE =
   "Cannot retry: local-only failed item requires explicit approval before retry.";
+/** @deprecated Stripe Connect retired — use PAYOUT_RETRY_NO_DESTINATION_CODE. */
+export const PAYOUT_RETRY_NO_CONNECT_CODE = PAYOUT_RETRY_NO_DESTINATION_CODE;
+/** @deprecated Stripe Connect retired — use PAYOUT_RETRY_NO_DESTINATION_MESSAGE. */
+export const PAYOUT_RETRY_NO_CONNECT_MESSAGE = PAYOUT_RETRY_NO_DESTINATION_MESSAGE;
 
 export type RetryGuardResult =
   | { ok: true }
   | { ok: false; code: string; message: string };
 
-export async function readPlatformAvailablePence(
-  stripe: Stripe,
-  currency: string,
-): Promise<number> {
-  const { assertStripeMutationAllowedOrThrow } = await import("./stripeRuntimeDisabled.ts");
-  assertStripeMutationAllowedOrThrow("payoutRetryGuard:readPlatformAvailablePence");
-  const balance = await stripe.balance.retrieve();
-  const ccy = currency.toLowerCase();
-  const available = balance.available.find((b) => b.currency === ccy)?.amount ?? 0;
-  return Number(available);
-}
-
-export function assertRetryStripeBalance(args: {
+export function assertRetryProviderBalance(args: {
   requiredAmountPence: number;
   platformAvailablePence: number;
 }): RetryGuardResult {
@@ -54,57 +44,60 @@ export function assertRetryStripeBalance(args: {
   return { ok: true };
 }
 
-export async function assertPayoutRetryAllowed(args: {
-  stripe: Stripe;
+/** @deprecated Alias — Stripe Balance API retired. */
+export const assertRetryStripeBalance = assertRetryProviderBalance;
+
+/**
+ * Ledger/Revolut retry gate. Does not call Stripe.
+ * Pass platformAvailablePence from Revolut Business balance (or omit to skip balance check).
+ */
+export function assertPayoutRetryAllowed(args: {
   currency: string;
   requiredAmountPence: number;
+  platformAvailablePence?: number | null;
   payoutItem: {
     status: string;
-    stripe_transfer_id?: string | null;
-    stripe_payout_id?: string | null;
+    provider_payment_id?: string | null;
+    provider_transfer_id?: string | null;
+    provider_payout_id?: string | null;
     driver_paid_out_pence?: number | null;
     net_driver_payout_pence?: number | null;
     amount_pence?: number | null;
   };
   driver: {
-    stripe_account_id?: string | null;
+    payout_destination_active?: boolean | null;
+    provider_counterparty_id?: string | null;
+    revolut_business_linked?: boolean | null;
     payouts_enabled?: boolean | null;
+    /** @deprecated Ignored — Stripe Connect retired. */
+    stripe_account_id?: string | null;
     charges_enabled?: boolean | null;
   } | null;
   walletOwedPence?: number;
   localOnlyApproved?: boolean;
-}): Promise<RetryGuardResult> {
-  if (!stripeExecutionEnabled()) {
+}): RetryGuardResult {
+  const destinationReady = Boolean(args.driver?.payout_destination_active)
+    || Boolean(String(args.driver?.provider_counterparty_id ?? "").trim())
+    || Boolean(args.driver?.revolut_business_linked);
+
+  if (!destinationReady) {
     return {
       ok: false,
-      code: PAYOUT_EXECUTION_DISABLED_CODE,
-      message: PAYOUT_EXECUTION_DISABLED_MESSAGE,
+      code: PAYOUT_RETRY_NO_DESTINATION_CODE,
+      message: PAYOUT_RETRY_NO_DESTINATION_MESSAGE,
     };
-  }
-
-  const connectId = args.driver?.stripe_account_id;
-  if (!connectId) {
-    return { ok: false, code: PAYOUT_RETRY_NO_CONNECT_CODE, message: PAYOUT_RETRY_NO_CONNECT_MESSAGE };
   }
 
   if (args.driver?.payouts_enabled === false) {
     return {
       ok: false,
       code: "PAYOUT_RETRY_PAYOUTS_DISABLED",
-      message: "Cannot retry: Stripe Connect payouts_enabled is false for this account.",
-    };
-  }
-
-  if (args.driver?.charges_enabled === false) {
-    return {
-      ok: false,
-      code: "PAYOUT_RETRY_CHARGES_DISABLED",
-      message: "Cannot retry: Stripe Connect charges_enabled is false for this account.",
+      message: "Cannot retry: payouts_enabled is false for this driver destination.",
     };
   }
 
   const st = String(args.payoutItem.status ?? "").toLowerCase();
-  if (st === "completed" || args.payoutItem.stripe_payout_id) {
+  if (st === "completed" || args.payoutItem.provider_payout_id || args.payoutItem.provider_payment_id) {
     return { ok: false, code: PAYOUT_RETRY_ALREADY_PAID_CODE, message: PAYOUT_RETRY_ALREADY_PAID_MESSAGE };
   }
 
@@ -122,23 +115,29 @@ export async function assertPayoutRetryAllowed(args: {
     return { ok: false, code: PAYOUT_RETRY_NO_LIABILITY_CODE, message: PAYOUT_RETRY_NO_LIABILITY_MESSAGE };
   }
 
-  const hasStripeEvidence = Boolean(args.payoutItem.stripe_transfer_id || args.payoutItem.stripe_payout_id);
-  const isLocalOnly = !hasStripeEvidence && ["failed", "ledger_sync_failed"].includes(st);
+  const hasProviderEvidence = Boolean(
+    args.payoutItem.provider_payment_id
+      || args.payoutItem.provider_transfer_id
+      || args.payoutItem.provider_payout_id,
+  );
+  const isLocalOnly = !hasProviderEvidence && ["failed", "ledger_sync_failed"].includes(st);
   if (isLocalOnly && !args.localOnlyApproved) {
     return { ok: false, code: PAYOUT_RETRY_LOCAL_ONLY_CODE, message: PAYOUT_RETRY_LOCAL_ONLY_MESSAGE };
   }
 
-  const platformAvailable = await readPlatformAvailablePence(args.stripe, args.currency);
-  if (platformAvailable < 0) {
-    return {
-      ok: false,
-      code: PAYOUT_RETRY_INSUFFICIENT_FUNDS_CODE,
-      message: PAYOUT_RETRY_INSUFFICIENT_FUNDS_MESSAGE,
-    };
+  if (args.platformAvailablePence != null) {
+    if (args.platformAvailablePence < 0) {
+      return {
+        ok: false,
+        code: PAYOUT_RETRY_INSUFFICIENT_FUNDS_CODE,
+        message: PAYOUT_RETRY_INSUFFICIENT_FUNDS_MESSAGE,
+      };
+    }
+    return assertRetryProviderBalance({
+      requiredAmountPence: args.requiredAmountPence,
+      platformAvailablePence: Math.max(0, args.platformAvailablePence),
+    });
   }
 
-  return assertRetryStripeBalance({
-    requiredAmountPence: args.requiredAmountPence,
-    platformAvailablePence: Math.max(0, platformAvailable),
-  });
+  return { ok: true };
 }

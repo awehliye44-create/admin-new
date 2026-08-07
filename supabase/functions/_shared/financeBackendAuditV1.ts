@@ -140,7 +140,9 @@ export type LedgerRow = {
   type: string;
   amount_pence: number;
   stripe_transfer_id?: string | null;
+  provider_transfer_id?: string | null;
   stripe_payout_id?: string | null;
+  provider_payout_id?: string | null;
   created_at?: string | null;
 };
 
@@ -152,7 +154,9 @@ export type PayoutItemRow = {
   driver_amount_pence?: number | null;
   status: string;
   stripe_transfer_id?: string | null;
+  provider_transfer_id?: string | null;
   stripe_payout_id?: string | null;
+  provider_payout_id?: string | null;
   ledger_entry_id?: string | null;
   created_at?: string | null;
   completed_at?: string | null;
@@ -167,7 +171,9 @@ export type EarlyCashoutRow = {
   requested_cashout_pence: number | null;
   driver_receives_pence: number | null;
   stripe_transfer_id?: string | null;
+  provider_transfer_id?: string | null;
   stripe_payout_id?: string | null;
+  provider_payout_id?: string | null;
   ledger_cashout_id?: string | null;
   created_at?: string | null;
   paid_at?: string | null;
@@ -259,7 +265,7 @@ export function buildPayoutAuditRows(args: {
       driver_id: item.driver_id,
       amount_pence: amount,
       status: item.status,
-      provider_reference: item.stripe_payout_id ?? item.stripe_transfer_id ?? null,
+      provider_reference: item.provider_payout_id ?? item.provider_transfer_id ?? null,
       created_at: item.created_at ?? null,
       paid_at: item.completed_at ?? null,
       ledger_entry_created: !!ledger,
@@ -278,7 +284,7 @@ export function buildPayoutAuditRows(args: {
       driver_id: cashout.driver_id,
       amount_pence: amount,
       status: cashout.status,
-      provider_reference: cashout.stripe_payout_id ?? cashout.stripe_transfer_id ?? null,
+      provider_reference: cashout.provider_payout_id ?? cashout.provider_transfer_id ?? null,
       created_at: cashout.created_at ?? null,
       paid_at: cashout.paid_at ?? null,
       ledger_entry_created: !!ledger,

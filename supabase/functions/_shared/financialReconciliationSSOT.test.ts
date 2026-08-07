@@ -67,7 +67,7 @@ Deno.test("computeSSOTMetrics end-to-end", () => {
       payment_method: "card",
       payment_status: "captured",
       commission_pence: 1500,
-      stripe_processing_fee_pence: 200,
+      provider_fee_pence: 200,
       driver_net_pence: 8500,
       gross_fare_pence: 10000,
       capture_amount_pence: 10000,
@@ -113,7 +113,7 @@ Deno.test("mixed card+cash balances separately — no false mismatch from mixing
         capture_amount_pence: 5783,
         commission_pence: 867,
         driver_net_pence: 4916,
-        stripe_processing_fee_pence: 120,
+        provider_fee_pence: 120,
       },
       {
         id: "cash1",
@@ -150,7 +150,7 @@ Deno.test("total commission and net platform revenue — card + cash, Stripe fee
         capture_amount_pence: 480,
         commission_pence: 72,
         driver_net_pence: 408,
-        stripe_processing_fee_pence: 27,
+        provider_fee_pence: 27,
       },
       {
         id: "cash1",
@@ -158,7 +158,7 @@ Deno.test("total commission and net platform revenue — card + cash, Stripe fee
         commissionable_fare_pence: 1481,
         commission_pence: 222,
         driver_net_pence: 1259,
-        stripe_processing_fee_pence: 99,
+        provider_fee_pence: 99,
       },
     ] as import("./financialReconciliationSSOT.ts").TripSSOTRow[],
     ledger: [],
@@ -184,7 +184,7 @@ Deno.test("computePaymentMethodLedgerMetrics sums all payment PIs per trip (MK-2
       final_fare_pence: 849,
       commission_pence: 127,
       driver_net_pence: 722,
-      stripe_processing_fee_pence: 0,
+      provider_fee_pence: 0,
     }] as import("./financialReconciliationSSOT.ts").TripSSOTRow[],
     payments: [
       { trip_id: "trip-mk-624", captured_amount_pence: 400, status: "captured" },
@@ -218,8 +218,9 @@ Deno.test("completed card trip without capture does not increase reconciled comm
 
 
 Deno.test("tripProviderProcessingFeePence prefers provider_fee_pence", () => {
-  assertEquals(tripProviderProcessingFeePence({ provider_fee_pence: 99, stripe_processing_fee_pence: 10 }), 99);
-  assertEquals(tripProviderProcessingFeePence({ provider_fee_pence: 0, stripe_processing_fee_pence: 10 }), 10);
+  assertEquals(tripProviderProcessingFeePence({ provider_fee_pence: 99 }), 99);
+  assertEquals(tripProviderProcessingFeePence({ provider_fee_pence: 0 }), 0);
+  assertEquals(tripProviderProcessingFeePence({}), 0);
 });
 
 Deno.test("mergePaymentSessionsIntoCaptureRows ignores legacy payments invent", () => {
@@ -237,7 +238,7 @@ Deno.test("isTripPaymentCaptureConfirmed never uses trips.capture_amount_pence",
     id: "t1",
     capture_amount_pence: 780,
     commission_pence: 0,
-    stripe_processing_fee_pence: null,
+    provider_fee_pence: null,
     onecab_net_pence: null,
     driver_net_pence: null,
     gross_fare_pence: null,
@@ -256,7 +257,7 @@ Deno.test("computeSSOTMetrics consumes session fee and capture — ignores trip 
       payment_method: "card",
       payment_status: "captured",
       commission_pence: 72,
-      stripe_processing_fee_pence: 99,
+      provider_fee_pence: 99,
       provider_fee_pence: 99,
       driver_net_pence: 408,
       capture_amount_pence: 0,

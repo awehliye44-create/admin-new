@@ -10,7 +10,7 @@ export async function findInFlightPayoutItem(
 ): Promise<{ id: string; status: string; amount_pence: number } | null> {
   let query = supabase
     .from("payout_items")
-    .select("id, status, amount_pence, settlement_status, stripe_transfer_id")
+    .select("id, status, amount_pence, settlement_status, provider_transfer_id")
     .eq("driver_id", driverId)
     .in("status", [...IN_FLIGHT_STATUSES])
     .order("created_at", { ascending: false })
@@ -26,7 +26,7 @@ export async function findInFlightPayoutItem(
       return row;
     }
     const settlement = String(row.settlement_status ?? "").toUpperCase();
-    if (settlement !== "COMPLETE" && settlement !== "FAILED" && !row.stripe_transfer_id) {
+    if (settlement !== "COMPLETE" && settlement !== "FAILED" && !row.provider_transfer_id) {
       return row;
     }
   }

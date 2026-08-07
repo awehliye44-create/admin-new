@@ -41,18 +41,19 @@ export const PROVIDER_MOBILE_WALLET_CATALOG: Record<string, MobileWalletMethodId
 };
 
 /** Providers with live customer booking adapters (card preauth or mobile collect). */
-export const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["stripe", "revolut"]);
+export const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["revolut"]);
 
-/** Providers with live driver payout adapters (Stripe Connect, Revolut Business, etc.). */
-export const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["stripe", "revolut"]);
+/** Providers with live driver payout adapters. Stripe Connect is retired. */
+export const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["revolut"]);
 
 export function isMobileWalletCollectProvider(provider: string | null | undefined): boolean {
   if (!provider) return false;
   return provider in PROVIDER_MOBILE_WALLET_CATALOG;
 }
 
-export function isStripePreauthProvider(provider: string | null | undefined): boolean {
-  return provider === "stripe";
+/** @deprecated Stripe customer bookings retired — always false for active flows. */
+export function isStripePreauthProvider(_provider: string | null | undefined): boolean {
+  return false;
 }
 
 export function isRevolutPreauthProvider(provider: string | null | undefined): boolean {
@@ -60,7 +61,7 @@ export function isRevolutPreauthProvider(provider: string | null | undefined): b
 }
 
 export function isCardPreauthProvider(provider: string | null | undefined): boolean {
-  return isStripePreauthProvider(provider) || isRevolutPreauthProvider(provider);
+  return isRevolutPreauthProvider(provider);
 }
 
 export function isCustomerBookingAdapterLive(provider: string | null | undefined): boolean {
@@ -83,7 +84,6 @@ export function resolveCustomerBookingWorkflow(
   gatewayCheck: GatewayCheckResult,
 ): CustomerBookingWorkflow {
   if (!gatewayCheck.ok) return "blocked";
-  if (isStripePreauthProvider(gatewayCheck.provider)) return "stripe_preauth";
   if (isRevolutPreauthProvider(gatewayCheck.provider)) return "revolut_preauth";
   if (isMobileWalletCollectProvider(gatewayCheck.provider)) return "mobile_wallet_collect";
   return "blocked";

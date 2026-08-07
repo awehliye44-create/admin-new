@@ -10,10 +10,6 @@ type DriverPayoutPanelProps = {
   driverId: string;
   serviceAreaId?: string | null;
   regionId?: string | null;
-  stripeAccountId?: string | null;
-  payoutsEnabled?: boolean | null;
-  onboardingComplete?: boolean | null;
-  chargesEnabled?: boolean | null;
 };
 
 type DestinationRow = {
@@ -42,10 +38,6 @@ export function DriverPayoutPanel({
   driverId,
   serviceAreaId,
   regionId,
-  stripeAccountId,
-  payoutsEnabled,
-  onboardingComplete,
-  chargesEnabled,
 }: DriverPayoutPanelProps) {
   const queryClient = useQueryClient();
 
@@ -177,12 +169,11 @@ export function DriverPayoutPanel({
   const payoutGateway = String(payoutGatewayRaw ?? "").toLowerCase() === "stripe"
     ? "revolut"
     : (payoutGatewayRaw ?? "revolut");
-  const usesStripe = false; // Stripe Connect payouts retired from active finance
   const region = data?.region;
   const destinations = (data?.destinations ?? []) as DestinationRow[];
   const destination = destinations.find((row) => row.provider === payoutGateway) ?? destinations[0] ?? null;
   const staleOtherProvider = destinations.find((row) => row.provider && row.provider !== payoutGateway) ?? null;
-  const providerMismatch = Boolean(!usesStripe && !destination && staleOtherProvider);
+  const providerMismatch = Boolean(!destination && staleOtherProvider);
   const verificationStatus = String(destination?.verification_status ?? "").toUpperCase() || null;
 
   if (isLoading) {
@@ -223,33 +214,8 @@ export function DriverPayoutPanel({
         </p>
       ) : null}
 
-      {usesStripe ? (
-        <div className="space-y-2 text-sm">
-          <p className="font-medium">Provider</p>
-          {stripeAccountId ? (
-            <div className="grid grid-cols-2 gap-2">
-              <div className="p-2 bg-muted/50 rounded">
-                <p className="text-xs text-muted-foreground">Account ID</p>
-                <p className="font-mono text-xs break-all">{stripeAccountId}</p>
-              </div>
-              <div className="p-2 bg-muted/50 rounded">
-                <p className="text-xs text-muted-foreground">Status</p>
-                <p>
-                  {onboardingComplete && payoutsEnabled
-                    ? "Connected"
-                    : chargesEnabled || onboardingComplete
-                    ? "Restricted"
-                    : "Not Connected"}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-muted-foreground">Driver has not connected Provider.</p>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-2 text-sm">
-          <p className="font-medium">Payout Destination</p>
+      <div className="space-y-2 text-sm">
+        <p className="font-medium">Payout Destination</p>
           {destination ? (
             <div className="p-2 bg-muted/50 rounded space-y-1">
               <p>
@@ -381,10 +347,9 @@ export function DriverPayoutPanel({
               Payout destination is not configured (PAYOUT_DESTINATION_NOT_CONFIGURED).
             </p>
           )}
-        </div>
-      )}
+      </div>
 
-      {!usesStripe && data?.audit && data.audit.length > 0 ? (
+      {data?.audit && data.audit.length > 0 ? (
         <div className="space-y-2">
           <p className="text-sm font-medium flex items-center gap-2">
             <History className="h-4 w-4" />

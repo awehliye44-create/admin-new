@@ -423,7 +423,7 @@ BEGIN
   );
 
   IF v_inserted = 0 THEN
-    PERFORM public.maybe_advance_dispatch_after_offer_resolution(p_trip_id, NULL, 'no_eligible_drivers');
+    PERFORM public.maybe_advance_dispatch_after_offer_resolution(p_trip_id, NULL);
   END IF;
 
   RETURN jsonb_build_object(

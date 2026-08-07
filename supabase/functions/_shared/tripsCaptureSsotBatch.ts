@@ -20,7 +20,7 @@ const TRIP_CAPTURE_SSOT_SELECT = `
   id,
   trip_code,
   commission_pence,
-  stripe_processing_fee_pence,
+  provider_fee_pence,
   onecab_net_pence,
   driver_net_pence,
   gross_fare_pence,
@@ -40,12 +40,10 @@ const TRIP_CAPTURE_SSOT_SELECT = `
   payment_status,
   status,
   financial_outcome,
-  stripe_payment_intent_id,
-  stripe_charge_id,
+  provider_order_id,
   provider_status,
   driver_id,
   passenger_name,
-  stripe_settlement_verified,
   driver_tier_commission_percent,
   commission_pct,
   completed_at
@@ -60,7 +58,7 @@ export function mapTripsToCaptureSsotRows(args: {
     captured_amount_pence: number | null;
     status: string | null;
     provider_status?: string | null;
-    stripe_payment_intent_id?: string | null;
+    provider_order_id?: string | null;
     provider_available_on?: string | null;
     amount_pence?: number | null;
     fee_type?: string | null;
