@@ -304,10 +304,6 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   scheduled_urgent_card_label: settings.scheduledUrgentCardLabel,
   enable_scheduled_to_urgent_conversion: settings.enableScheduledToUrgentConversion,
   ...mapCommitmentPolicyToDb(settingsToCommitmentPolicy(settings)),
-  enable_logging: settings.enableLogging,
-  simulate_mode: settings.simulateMode,
-  block_multiple_active_rides: settings.blockMultipleActiveRides,
-  cancel_protection: settings.cancelProtection,
 });
 
 export default function AutoDispatchRules() {
