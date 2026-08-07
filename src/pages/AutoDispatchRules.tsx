@@ -110,12 +110,6 @@ interface DispatchSettings {
   expectedStopWaitingMinutes: number;
   etaRiskToleranceMinutes: number;
   pickupAccessAllowanceMinutes: number;
-
-  // System Settings (operational flags, not dispatch execution)
-  enableLogging: boolean;
-  simulateMode: boolean;
-  blockMultipleActiveRides: boolean;
-  cancelProtection: boolean;
 }
 
 const defaultSettings: DispatchSettings = {
