@@ -141,10 +141,13 @@ interface CompletedTrip {
   final_fare_pence: number | null;
   final_customer_fare_pence: number | null;
   capture_amount_pence: number | null;
-  stripe_processing_fee_pence: number | null;
+  provider_fee_pence: number | null;
   onecab_net_pence: number | null;
   payment_status: string | null;
   payment_method: string | null;
+  payment_provider: string | null;
+  provider_order_id: string | null;
+  provider_payment_id: string | null;
   currency_code: string | null;
   estimated_distance_km: number | null;
   estimated_duration_minutes: number | null;
@@ -156,7 +159,6 @@ interface CompletedTrip {
   driver_id: string | null;
   driver_location_lat: number | null;
   driver_location_lng: number | null;
-  stripe_payment_intent_id: string | null;
   stacked_trip_id: string | null;
   corporate_account_id: string | null;
   corporate_account?: { id: string; company_name: string } | null;
@@ -1277,8 +1279,19 @@ export default function TripHistory() {
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
                         <Badge variant="outline" className="text-[10px] w-fit">
-                          {trip.payment_method === 'apple_pay' ? '📱 Apple Pay' : trip.payment_method === 'card' ? '💳 Card' : trip.payment_method || 'Unknown'}
+                          {(() => {
+                            const method = String(trip.payment_method ?? '').toLowerCase();
+                            if (method === 'apple_pay') return 'Apple Pay';
+                            if (method === 'card' || method === 'digital') return 'Card';
+                            if (method === 'cash') return 'Cash';
+                            return trip.payment_method || 'Unknown';
+                          })()}
                         </Badge>
+                        {trip.payment_provider ? (
+                          <span className="text-[10px] text-muted-foreground capitalize">
+                            {String(trip.payment_provider)}
+                          </span>
+                        ) : null}
                         {(() => {
                           const captureStatus = getTripCaptureStatus(trip);
                           if (!captureStatus.shortLabel || captureStatus.shortLabel === '—') return null;
@@ -1422,6 +1435,24 @@ export default function TripHistory() {
                           {selectedTrip.payment_method || '—'}
                         </p>
                       </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Provider</Label>
+                        <p className="font-medium capitalize">
+                          {selectedTrip.payment_provider || '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Payment status</Label>
+                        <p className="font-medium capitalize">
+                          {selectedTrip.payment_status || '—'}
+                        </p>
+                      </div>
+                      {selectedTrip.provider_order_id ? (
+                        <div className="col-span-2">
+                          <Label className="text-xs text-muted-foreground">Provider order</Label>
+                          <p className="font-mono text-xs break-all">{selectedTrip.provider_order_id}</p>
+                        </div>
+                      ) : null}
                       <div>
                         <Label className="text-xs text-muted-foreground">Customer payable</Label>
                         <p className="font-medium">
