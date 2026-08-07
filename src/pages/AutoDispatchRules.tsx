@@ -1083,44 +1083,6 @@ export default function AutoDispatchRules() {
             </Tabs>
           </CardContent>
         </Card>
-
-        {/* System Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle>System Settings</CardTitle>
-            <CardDescription>Operational flags — do not affect dispatch ranking or scoring</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-              <div>
-                <p className="font-medium">Enable Logging</p>
-                <p className="text-sm text-muted-foreground">Log all dispatch events for debugging</p>
-              </div>
-              <Switch checked={settings.enableLogging} onCheckedChange={(checked) => updateSetting('enableLogging', checked)} disabled={isLoading} />
-            </div>
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-              <div>
-                <p className="font-medium">Simulate Mode</p>
-                <p className="text-sm text-muted-foreground">Test dispatch without actual driver assignments</p>
-              </div>
-              <Switch checked={settings.simulateMode} onCheckedChange={(checked) => updateSetting('simulateMode', checked)} disabled={isLoading} />
-            </div>
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-              <div>
-                <p className="font-medium">Block Multiple Active Rides</p>
-                <p className="text-sm text-muted-foreground">Prevent drivers from having multiple active rides</p>
-              </div>
-              <Switch checked={settings.blockMultipleActiveRides} onCheckedChange={(checked) => updateSetting('blockMultipleActiveRides', checked)} disabled={isLoading} />
-            </div>
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-              <div>
-                <p className="font-medium">Cancel Protection</p>
-                <p className="text-sm text-muted-foreground">Protect against frequent cancellations</p>
-              </div>
-              <Switch checked={settings.cancelProtection} onCheckedChange={(checked) => updateSetting('cancelProtection', checked)} disabled={isLoading} />
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </AdminLayout>
   );
