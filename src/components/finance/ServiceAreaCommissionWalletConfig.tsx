@@ -424,7 +424,7 @@ export function ServiceAreaCommissionWalletConfig({
         </div>
 
         <div className="space-y-2">
-          <Label>Cash upfront policy notice</Label>
+          <Label>Customer payment policy notice</Label>
           <Textarea
             value={value.cash_upfront_policy_notice}
             onChange={(e) => patch({ cash_upfront_policy_notice: e.target.value })}

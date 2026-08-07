@@ -118,15 +118,16 @@ describe("Phase 8 Banadir pilot lock", () => {
     expect(src).toContain("financial_model");
   });
 
-  it("ManualTrip snapshots CW financial model", () => {
+  it("ManualTrip snapshots CW financial model without forcing cash trips", () => {
     const src = readFileSync(
       resolve(__dirname, "../../pages/ManualTrip.tsx"),
       "utf8",
     );
     expect(src).toContain("buildTripFinancialModelSnapshot");
     expect(src).toContain("tripInsertFieldsFromFinancialModelSnapshot");
-    expect(src).toContain("tripCashUpfrontPaymentFields");
+    expect(src).not.toContain("tripCashUpfrontPaymentFields");
     expect(src).toContain("shouldSkipPlatformPreauthForCommissionWallet");
+    expect(src).toContain("Cash is retired");
   });
 
   it("pass4 auto-grants pilot test_access and clears Banadir digital gateway", () => {

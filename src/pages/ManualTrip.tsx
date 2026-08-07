@@ -31,7 +31,6 @@ import {
   buildTripFinancialModelSnapshot,
   isCommissionWalletWorkflowEnabled,
   shouldSkipPlatformPreauthForCommissionWallet,
-  tripCashUpfrontPaymentFields,
   tripInsertFieldsFromFinancialModelSnapshot,
 } from '../../shared/commissionWalletSSOT';
 
@@ -234,7 +233,7 @@ export default function ManualTrip() {
       setServiceAreaCountryCode(serviceArea.country || null);
     }
 
-    // Fetch payment methods + CW cash-upfront policy for this service area
+    // Fetch payment methods + CW digital-only policy for this service area
     const fetchPaymentConfig = async () => {
       try {
         const [{ data, error }, { data: cwSa }] = await Promise.all([
@@ -250,25 +249,15 @@ export default function ManualTrip() {
             .maybeSingle(),
         ]);
 
-        const cashUpfront = shouldSkipPlatformPreauthForCommissionWallet({
+        const cashUpfrontRetired = shouldSkipPlatformPreauthForCommissionWallet({
           financial_model: cwSa?.financial_model,
           commission_wallet_enabled: cwSa?.commission_wallet_enabled === true,
           customer_payment_policy: cwSa?.customer_payment_policy,
         });
-        setCwCashUpfront(cashUpfront);
+        setCwCashUpfront(cashUpfrontRetired);
 
         if (error && error.code !== 'PGRST116') {
           throw error;
-        }
-
-        if (cashUpfront) {
-          setPaymentConfig({
-            card_enabled: false,
-            wallet_enabled: false,
-            apple_pay_enabled: false,
-            google_pay_enabled: false,
-          });
-          return;
         }
 
         if (data) {
@@ -438,6 +427,12 @@ export default function ManualTrip() {
       return;
     }
 
+    // Passenger cash is retired — never create cash trips from admin Manual Trip.
+    if (String(paymentMethod).toLowerCase() === 'cash') {
+      toast.error('Cash payment is retired. ONECAB is digital-only — use wallet/corporate, or book via the customer app with card/mobile wallet.');
+      return;
+    }
+
     // P0 PAYMENT GATE: Admin manual trips cannot originate a customer-authorised
     // digital payment. Digital methods must go through the customer app checkout
     // + finalize_paid_booking_session RPC. Enforced server-side by the
@@ -445,7 +440,11 @@ export default function ManualTrip() {
     // message before the round-trip.
     const digitalMethods = ['card', 'apple_pay', 'google_pay'];
     if (digitalMethods.includes(String(paymentMethod).toLowerCase())) {
-      toast.error('Digital payments (Card / Apple Pay / Google Pay) must be captured by the customer in the app. For admin manual bookings, use wallet or corporate billing.');
+      toast.error(
+        cwCashUpfront
+          ? 'Commission Wallet areas require digital payment in the customer app. Cash is retired. For admin manual bookings, use wallet or corporate billing.'
+          : 'Digital payments (Card / Apple Pay / Google Pay) must be captured by the customer in the app. For admin manual bookings, use wallet or corporate billing.',
+      );
       return;
     }
 
@@ -607,10 +606,8 @@ export default function ManualTrip() {
             config: cwConfig!,
           });
           if (snap) Object.assign(tripData, tripInsertFieldsFromFinancialModelSnapshot(snap));
-          // Banadir: force cash-upfront payment semantics (digital UI methods are unreachable for CW).
-          if (shouldSkipPlatformPreauthForCommissionWallet(cwConfig)) {
-            Object.assign(tripData, tripCashUpfrontPaymentFields());
-          }
+          // Banadir / DRIVER_COLLECTS_UPFRONT: do not force payment_method=cash.
+          // Passenger cash is retired — digital (customer app) or wallet/corporate only.
         }
       }
 
@@ -967,32 +964,30 @@ export default function ManualTrip() {
                 {/* Payment Method */}
                 <div>
                   <Label>Payment Method</Label>
-                  {cwCashUpfront ? (
+                  {cwCashUpfront && (
                     <p className="text-sm text-muted-foreground mt-2 rounded-md border border-dashed p-3">
-                      Pay driver upfront (cash). Card/Stripe/Revolut are not used for Commission Wallet service areas.
+                      Cash is retired. Commission Wallet areas are digital-only — customers must pay in the app
+                      (card / mobile wallet). For admin manual bookings, use wallet or corporate billing.
                     </p>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
-                        {enabledPaymentMethods.map(method => (
-                          <Button
-                            key={method.id}
-                            type="button"
-                            variant={paymentMethod === method.id ? 'default' : 'outline'}
-                            className="justify-start gap-2"
-                            onClick={() => setPaymentMethod(method.id)}
-                          >
-                            {PAYMENT_ICONS[method.id]}
-                            {method.name}
-                          </Button>
-                        ))}
-                      </div>
-                      {enabledPaymentMethods.length === 0 && (
-                        <p className="text-sm text-muted-foreground mt-2">
-                          No payment methods configured for this service area
-                        </p>
-                      )}
-                    </>
+                  )}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+                    {enabledPaymentMethods.map(method => (
+                      <Button
+                        key={method.id}
+                        type="button"
+                        variant={paymentMethod === method.id ? 'default' : 'outline'}
+                        className="justify-start gap-2"
+                        onClick={() => setPaymentMethod(method.id)}
+                      >
+                        {PAYMENT_ICONS[method.id]}
+                        {method.name}
+                      </Button>
+                    ))}
+                  </div>
+                  {enabledPaymentMethods.length === 0 && (
+                    <p className="text-sm text-muted-foreground mt-2">
+                      No payment methods configured for this service area
+                    </p>
                   )}
                 </div>
               </CardContent>
@@ -1183,14 +1178,11 @@ export default function ManualTrip() {
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Payment:</span>
                     <Badge variant="outline" className="flex items-center gap-1">
-                      {cwCashUpfront ? (
-                        <>Pay driver upfront (cash)</>
-                      ) : (
-                        <>
-                          {PAYMENT_ICONS[paymentMethod]}
-                          {ALL_PAYMENT_METHODS.find(m => m.id === paymentMethod)?.name || paymentMethod}
-                        </>
-                      )}
+                      <>
+                        {PAYMENT_ICONS[paymentMethod]}
+                        {ALL_PAYMENT_METHODS.find(m => m.id === paymentMethod)?.name || paymentMethod}
+                        {cwCashUpfront ? ' (digital-only area)' : ''}
+                      </>
                     </Badge>
                   </div>
                 </CardContent>
