@@ -18,7 +18,7 @@ Shared DB: `thazislrdkjpvvghtvzo`.
 3. Admin Pricing UI loads the rollout row and blocks enable on non-pilot SAs (toast + disabled switch)
 4. SSOT: `COMMISSION_WALLET_PHASE8_PILOT`, `planCommissionWalletServiceAreaEnablement`, `shouldSkipPlatformPreauthForCommissionWallet`, `tripCashUpfrontPaymentFields`
 5. Gap-close: Banadir cash-upfront booking (skip Stripe/Revolut), trip CW snapshot at create-ride, overview trip counts use snapshot flags, Banadir drivers get `commission_wallet_test_access`
-6. Gap-close pass 2: booking readiness skips digital gates for CW; cash insert omits invalid `payment_reauth_status`; CTAP/Scan&Go reject CW card path; ManualTrip snapshots CW; finance-summary excludes CW from UK commissionable loop
+6. Gap-close pass 2: booking readiness skips digital gates for CW; cash insert omits invalid `payment_reauth_status`; CTAP reject CW card path (Scan & Go later retired); ManualTrip snapshots CW; finance-summary excludes CW from UK commissionable loop
 7. Gap-close pass 3: fixed cash `navigateAfterBooking` args (instant → ride-tracking); SelectVehicle shows pay-driver-upfront notice; drive-hub `create-ride` synced to customer CW path
 8. Gap-close pass 4:
    - `create-preauth-payment-intent` rejects CW with `CW_CASH_UPFRONT_REQUIRED`

@@ -13,7 +13,7 @@ Primary repos: `drive-hub-buddy` (dispatch + accept trigger), `admin-new` (reser
   - Trip `driver_id` assignment trigger — reserve on assign, release on clear/reassign
 - Gap-close: `20260831710000_commission_wallet_phase6_gap_close.sql`
   - Trigger also fires on **INSERT** with `driver_id` (manual assign / create-trip paths)
-  - SQL `dispatch_trip_offers` soft gate via `driver_passes_commission_wallet_dispatch_gate` (Scan & Go + emergency)
+  - SQL `dispatch_trip_offers` soft gate via `driver_passes_commission_wallet_dispatch_gate` (emergency / locked-driver; Scan & Go later retired)
   - SA CHECK: reserve cannot be on unless wallet enabled under DRIVER_COLLECTED
 - Gap-close pass 2: `20260831720000_commission_wallet_phase6_reserve_error_code.sql`
   - Reserve failures raise `INSUFFICIENT_COMMISSION_WALLET_BALANCE: …` for edge mappers

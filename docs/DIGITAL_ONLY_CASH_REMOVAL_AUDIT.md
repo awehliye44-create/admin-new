@@ -11,7 +11,8 @@
 | Finance era | `admin_settings.finance_era = digital` |
 | Service area | `cash_enabled` column dropped (migration `20260702203718`) |
 | Booking API | `create-ride` — **410** for cash; deferred scheduled **card** only |
-| Trip creation | `create-trip`, `create-trip-after-payment`, `scan-and-go` — **410** for cash |
+| Trip creation | `create-trip`, `create-trip-after-payment` — **410** for cash |
+| Scan & Go | **Retired** — edge function / pages removed; migrations kept as history only |
 | Payment switch | `switch-trip-payment-method` — **410** (retired) |
 | Driver settings | `accept_cash = false`; toggle removed from UI |
 | Cash completion RPC | `record_cash_trip_completion` raises exception |
@@ -48,14 +49,14 @@ Customer Card / Mobile Wallet / Future gateways (Paystack, Flutterwave, Sifalo P
 - `src/lib/tripCustomerActions.ts` — `canSwitchCashToCardOnTrip` always false
 - `src/hooks/useServiceAreaPaymentMethods.ts` — digital-only flags
 - `src/components/PaymentMethodSheet.tsx` — no cash option
-- `src/pages/SelectVehicle.tsx`, `ScanAndGo.tsx`, `BookRide.tsx`
+- `src/pages/SelectVehicle.tsx`, `BookRide.tsx`
 - `supabase/functions/create-ride/index.ts` — cash 410
 - `supabase/functions/create-trip/index.ts` — cash 410
 - `supabase/functions/create-trip-after-payment/index.ts` — cash 410; no `cash_enabled`
 - `supabase/functions/switch-trip-payment-method/index.ts` — 410 retired
-- `supabase/functions/scan-and-go/index.ts` — cash 410
 - `supabase/functions/finalize-trip-and-capture/index.ts` — historical cash read-only
-- `supabase/functions/_shared/resolveScanGoDriverSsot.ts`, `customerPaymentWorkflow.ts`
+- `supabase/functions/_shared/customerPaymentWorkflow.ts`
+- ~~`ScanAndGo.tsx` / `scan-and-go` / `resolveScanGoDriverSsot.ts`~~ — **removed** (Scan & Go retired)
 
 ### Driver app (`drive-hub-buddy`)
 - `supabase/functions/stop-workflow/index.ts` — no new cash ledger
