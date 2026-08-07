@@ -8,15 +8,16 @@ const anon =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRoYXppc2xyZGtqcHZ2Z2h0dnpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4NzA1MjIsImV4cCI6MjA4MzQ0NjUyMn0.pXaycIz1t7JXuItyqvjNNrFsZpsaXbB5bV1OWSQLbWM';
 
 const TRIP_HISTORY_SELECT_BASE = `
-  id, trip_code, trip_number, status, financial_outcome, passenger_name, passenger_phone,
+  id, trip_code, trip_number, status, financial_outcome, passenger_id, passenger_name, passenger_phone,
   pickup_address, pickup_latitude, pickup_longitude, dropoff_address, dropoff_latitude, dropoff_longitude,
   estimated_fare, fare, gross_fare_pence, commission_pence, driver_net_pence, final_fare_pence,
   final_customer_fare_pence, capture_amount_pence,
-  stripe_processing_fee_pence, onecab_net_pence,
-  payment_status, payment_method, currency_code, estimated_distance_km, estimated_duration_minutes,
+  provider_fee_pence, onecab_net_pence,
+  payment_status, payment_method, payment_provider, provider_order_id, provider_payment_id,
+  currency_code, estimated_distance_km, estimated_duration_minutes,
   refund_amount_pence, refunded_at,
   total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
-  driver_location_lat, driver_location_lng, stripe_payment_intent_id, stacked_trip_id,
+  driver_location_lat, driver_location_lng, stacked_trip_id,
   corporate_account_id, region_id, service_area_id,
   pricing_mode, fare_locked, vehicle_type_id, vehicle_type, fare_engine_config_id,
   waiting_charge_pence, pickup_waiting_charge_pence, total_waiting_charge_pence, waiting_minutes, fare_breakdown,
