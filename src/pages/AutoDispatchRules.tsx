@@ -172,10 +172,6 @@ const defaultSettings: DispatchSettings = {
   expectedStopWaitingMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.expected_stop_waiting_minutes,
   etaRiskToleranceMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.eta_risk_tolerance_minutes,
   pickupAccessAllowanceMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.pickup_access_allowance_minutes,
-  enableLogging: false,
-  simulateMode: false,
-  blockMultipleActiveRides: false,
-  cancelProtection: false,
 
 };
 
