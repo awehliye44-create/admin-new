@@ -18767,6 +18767,7 @@ export type Database = {
           full_name: string
           id: string
           is_active: boolean
+          is_owner: boolean
           role: Database["public"]["Enums"]["staff_role"]
           staff_role_id: string
           updated_at: string
@@ -18780,6 +18781,7 @@ export type Database = {
           full_name: string
           id?: string
           is_active?: boolean
+          is_owner?: boolean
           role?: Database["public"]["Enums"]["staff_role"]
           staff_role_id: string
           updated_at?: string
@@ -18793,6 +18795,7 @@ export type Database = {
           full_name?: string
           id?: string
           is_active?: boolean
+          is_owner?: boolean
           role?: Database["public"]["Enums"]["staff_role"]
           staff_role_id?: string
           updated_at?: string
@@ -26482,6 +26485,7 @@ export type Database = {
         Args: { p_service_area_id: string }
         Returns: boolean
       }
+      is_owner: { Args: { _user_id: string }; Returns: boolean }
       is_phone_pending_active: {
         Args: {
           p_expires_at: string
