@@ -711,17 +711,12 @@ export default function CommissionWallet() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none">Select service area…</SelectItem>
-                  {regionServiceAreas.map((sa) => {
-                    const cwOn = isCommissionWalletWorkflowEnabled({
-                      financial_model: sa.financial_model,
-                      commission_wallet_enabled: sa.commission_wallet_enabled,
-                    });
-                    return (
-                      <SelectItem key={sa.id} value={sa.id}>
-                        {sa.name}{cwOn ? '' : ' (CW off)'}
-                      </SelectItem>
-                    );
-                  })}
+                  {regionServiceAreas.map((sa) => (
+                    <SelectItem key={sa.id} value={sa.id}>
+                      {sa.name}
+                    </SelectItem>
+                  ))}
+
                 </SelectContent>
               </Select>
               {serviceAreaId && !selectedSa?.workflow_enabled && (
