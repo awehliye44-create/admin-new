@@ -1,0 +1,2 @@
+DELETE FROM public.content_audit_log WHERE content_item_id IN (SELECT id FROM public.content_items WHERE app_scope='driver' AND slug LIKE 'help_qa_%');
+DELETE FROM public.content_items WHERE app_scope='driver' AND slug LIKE 'help_qa_%';
