@@ -48,8 +48,9 @@ type LedgerDbRow = {
   created_at: string;
   related_trip_id: string | null;
   driver_id: string;
-  stripe_transfer_id: string | null;
-  stripe_payout_id: string | null;
+  stripe_transfer_id?: string | null;
+  stripe_payout_id?: string | null;
+
   drivers: { first_name: string | null; last_name: string | null; region_id?: string | null } | null;
   trips: {
     trip_code: string | null;
