@@ -678,11 +678,12 @@ export default function CommissionWallet() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none">Select region…</SelectItem>
-                  {regions.map((r) => (
+                  {walletRegions.map((r) => (
                     <SelectItem key={r.id} value={r.id}>
                       {r.name} ({r.currency_code})
                     </SelectItem>
                   ))}
+
                 </SelectContent>
               </Select>
             </div>
