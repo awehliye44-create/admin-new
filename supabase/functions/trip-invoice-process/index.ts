@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
       .eq("status", "completed")
       .gte("completed_at", since)
       .or("invoice_email_sent.is.null,invoice_email_sent.eq.false")
-      .not("invoice_email_status", "in", '("sent","skipped_no_email")')
+      .or("invoice_email_status.is.null,invoice_email_status.neq.sent")
       .order("completed_at", { ascending: true })
       .limit(SWEEP_LIMIT);
 
