@@ -81,17 +81,35 @@ serve(async (req) => {
     if (!parsed.success) return jsonResponse({ error: 'Invalid input', details: parsed.error.flatten() }, 400);
     const { trip_id } = parsed.data;
 
-    const { data: trip, error: tripErr } = await gate.supabase
+    const { data: tripRow, error: tripErr } = await gate.supabase
       .from('trips')
       .select(TRIP_AUDIT_SELECT)
       .eq('id', trip_id)
       .single();
 
-    if (tripErr || !trip) return jsonResponse({ error: 'Trip not found' }, 404);
+    if (tripErr) {
+      console.error('[admin-get-trip-payment-state] trip query failed:', tripErr.message);
+      return jsonResponse({ error: 'Trip lookup failed', details: tripErr.message }, 500);
+    }
+    if (!tripRow) return jsonResponse({ error: 'Trip not found' }, 404);
+
+    // Legacy Stripe columns were dropped in the Revolut migration; keep the
+    // downstream audit shape intact with inert defaults.
+    const trip = {
+      ...(tripRow as Record<string, unknown>),
+      stripe_payment_intent_id: (tripRow as { provider_payment_id?: string | null }).provider_payment_id ?? null,
+      stripe_settlement_verified: false,
+      stripe_settlement_warning: null,
+      stripe_application_fee_id: null,
+      stripe_application_fee_amount_pence: null,
+      stripe_destination_account_id: null,
+      stripe_transfer_amount_pence: null,
+    } as unknown as TripAuditSourceRow & Record<string, any>;
 
     const paymentProvider = resolveTripPaymentProvider(trip);
     const providerOrderId = tripProviderOrderId(trip);
     const legacyStripePi = tripStripePaymentIntentId(trip);
+
 
     const [paymentsRes, payoutItemsRes, ledgerRes] = await Promise.all([
       gate.supabase
