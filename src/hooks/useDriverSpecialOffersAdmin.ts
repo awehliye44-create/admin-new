@@ -5,27 +5,33 @@ import type { DriverSpecialOfferRow } from '../../shared/driverSpecialOffersSSOT
 
 export type { DriverSpecialOfferRow };
 
+/** Offers are strictly separated per app audience — driver offers never reach customers. */
+export type OfferAudience = 'driver' | 'customer';
+
 export interface SpecialOfferCategoryRow {
   id: string;
   name: string;
   badge_label: string | null;
   display_order: number;
   is_active: boolean;
+  audience: OfferAudience;
 }
 
 export interface SpecialOfferWithAreas extends DriverSpecialOfferRow {
   service_area_ids: string[];
+  audience: OfferAudience;
 }
 
 const db = supabase as any;
 
-export function useSpecialOfferCategories() {
+export function useSpecialOfferCategories(audience: OfferAudience) {
   return useQuery({
-    queryKey: ['special-offer-categories'],
+    queryKey: ['special-offer-categories', audience],
     queryFn: async (): Promise<SpecialOfferCategoryRow[]> => {
       const { data, error } = await db
         .from('driver_special_offer_categories')
         .select('*')
+        .eq('audience', audience)
         .order('display_order', { ascending: true })
         .order('name', { ascending: true });
       if (error) throw error;
@@ -35,18 +41,19 @@ export function useSpecialOfferCategories() {
   });
 }
 
-export function useDriverSpecialOffersAdmin() {
+export function useSpecialOffersAdmin(audience: OfferAudience) {
   return useQuery({
-    queryKey: ['driver-special-offers'],
+    queryKey: ['special-offers', audience],
     queryFn: async (): Promise<SpecialOfferWithAreas[]> => {
       const { data, error } = await db
         .from('driver_special_offers')
         .select('*')
+        .eq('audience', audience)
         .order('is_featured', { ascending: false })
         .order('display_order', { ascending: true })
         .order('title', { ascending: true });
       if (error) throw error;
-      const offers = (data ?? []) as DriverSpecialOfferRow[];
+      const offers = (data ?? []) as SpecialOfferWithAreas[];
       if (!offers.length) return [];
 
       const { data: links } = await db
@@ -67,23 +74,24 @@ export function useDriverSpecialOffersAdmin() {
   });
 }
 
-function useInvalidateOffers() {
+function useInvalidateOffers(audience: OfferAudience) {
   const qc = useQueryClient();
   return () => {
-    qc.invalidateQueries({ queryKey: ['driver-special-offers'] });
-    qc.invalidateQueries({ queryKey: ['special-offer-categories'] });
+    qc.invalidateQueries({ queryKey: ['special-offers', audience] });
+    qc.invalidateQueries({ queryKey: ['special-offer-categories', audience] });
   };
 }
 
-export function useSaveSpecialOfferCategory() {
-  const invalidate = useInvalidateOffers();
+export function useSaveSpecialOfferCategory(audience: OfferAudience) {
+  const invalidate = useInvalidateOffers(audience);
   return useMutation({
     mutationFn: async (input: Partial<SpecialOfferCategoryRow> & { id?: string }) => {
       if (input.id) {
-        const { error } = await db.from('driver_special_offer_categories').update(input).eq('id', input.id);
+        const { audience: _ignored, ...patch } = input;
+        const { error } = await db.from('driver_special_offer_categories').update(patch).eq('id', input.id);
         if (error) throw error;
       } else {
-        const { error } = await db.from('driver_special_offer_categories').insert(input);
+        const { error } = await db.from('driver_special_offer_categories').insert({ ...input, audience });
         if (error) throw error;
       }
     },
@@ -95,8 +103,8 @@ export function useSaveSpecialOfferCategory() {
   });
 }
 
-export function useDeleteSpecialOfferCategory() {
-  const invalidate = useInvalidateOffers();
+export function useDeleteSpecialOfferCategory(audience: OfferAudience) {
+  const invalidate = useInvalidateOffers(audience);
   return useMutation({
     mutationFn: async (id: string) => {
       const { error } = await db.from('driver_special_offer_categories').delete().eq('id', id);
@@ -110,8 +118,8 @@ export function useDeleteSpecialOfferCategory() {
   });
 }
 
-export function useSaveSpecialOffer() {
-  const invalidate = useInvalidateOffers();
+export function useSaveSpecialOffer(audience: OfferAudience) {
+  const invalidate = useInvalidateOffers(audience);
   return useMutation({
     mutationFn: async ({
       serviceAreaIds,
@@ -120,7 +128,7 @@ export function useSaveSpecialOffer() {
       // Single transactional backend save: offer + service-area assignments are
       // validated together by the availability-area triggers.
       const { data, error } = await db.rpc('admin_save_driver_special_offer', {
-        p_offer: input,
+        p_offer: { ...input, audience },
         p_service_area_ids: input.scope_type === 'selected_service_areas' ? serviceAreaIds : [],
       });
       if (error) throw error;
@@ -134,8 +142,8 @@ export function useSaveSpecialOffer() {
   });
 }
 
-export function useDeleteSpecialOffer() {
-  const invalidate = useInvalidateOffers();
+export function useDeleteSpecialOffer(audience: OfferAudience) {
+  const invalidate = useInvalidateOffers(audience);
   return useMutation({
     mutationFn: async (id: string) => {
       const { error } = await db.from('driver_special_offers').delete().eq('id', id);
@@ -149,10 +157,11 @@ export function useDeleteSpecialOffer() {
   });
 }
 
-/** Driver tiers SSOT for eligibility selection. */
-export function useDriverTierNames() {
+/** Driver tiers SSOT for eligibility selection (driver audience only). */
+export function useDriverTierNames(enabled = true) {
   return useQuery({
     queryKey: ['driver-tier-names'],
+    enabled,
     queryFn: async (): Promise<string[]> => {
       const { data, error } = await db
         .from('driver_categories')
