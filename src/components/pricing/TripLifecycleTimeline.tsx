@@ -41,7 +41,6 @@ interface TripLifecycleTimelineProps {
   onUpdate: (key: string, value: number | boolean | string) => void;
   // Stop Waiting & Get Paid (from stop_waiting_settings)
   stopWaitingChargeIntervalSeconds: number;
-  stopWaitingChargeIntervalSeconds: number;
   stopWaitingGracePeriodMinutes: number;
   stopWaitingRatePencePerMinute: number;
   stopWaitingMaxMinutes: number | null;
