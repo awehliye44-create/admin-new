@@ -114,6 +114,7 @@ interface StaffMember {
   username: string | null;
   role: StaffRole;
   is_active: boolean;
+  is_owner: boolean;
   created_at: string;
   service_areas: { id: string; service_area_id: string; name: string }[];
 }
