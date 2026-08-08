@@ -699,8 +699,6 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             recalculateOnWaiting={settings.recalculate_on_waiting}
             currencySymbol={symbol}
             onUpdate={(key, value) => updateField(key as keyof FarePricingSettings, value as never)}
-            stopRadiusEnabled={stopWaiting.stopRadiusEnabled}
-            stopRadiusMeters={stopWaiting.stopRadiusMeters}
             stopWaitingChargeIntervalSeconds={stopWaiting.stopWaitingChargeIntervalSeconds}
             stopWaitingGracePeriodMinutes={stopWaiting.stopWaitingGracePeriodMinutes}
             stopWaitingRatePencePerMinute={stopWaiting.stopWaitingRatePencePerMinute}

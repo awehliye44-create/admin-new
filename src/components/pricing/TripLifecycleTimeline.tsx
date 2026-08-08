@@ -40,8 +40,6 @@ interface TripLifecycleTimelineProps {
   currencySymbol: string;
   onUpdate: (key: string, value: number | boolean | string) => void;
   // Stop Waiting & Get Paid (from stop_waiting_settings)
-  stopRadiusEnabled: boolean;
-  stopRadiusMeters: number;
   stopWaitingChargeIntervalSeconds: number;
   stopWaitingGracePeriodMinutes: number;
   stopWaitingRatePencePerMinute: number;
@@ -70,7 +68,6 @@ export function TripLifecycleTimeline({
   recalculateOnWaiting,
   currencySymbol,
   onUpdate,
-  stopRadiusMeters,
   stopWaitingChargeIntervalSeconds,
   stopWaitingGracePeriodMinutes,
   stopWaitingRatePencePerMinute,
@@ -193,7 +190,7 @@ export function TripLifecycleTimeline({
           <div className="flex items-start gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
             <Info className="h-3.5 w-3.5 text-blue-600 mt-0.5 shrink-0" />
             <p className="text-[11px] text-blue-700 dark:text-blue-400">
-              Applies only to intermediate stops during an active trip. Free stop waiting begins when the driver marks <strong>Arrived at Stop</strong>. After the free stop waiting time expires, waiting charges accumulate automatically at the configured charge interval until the driver continues the trip. GPS Radius Restriction is used to validate stop arrival location and may trigger a confirmation warning if the driver is too far from the stop.
+              Applies only to intermediate stops during an active trip. Free stop waiting begins when the driver marks <strong>Arrived at Stop</strong>. After the free stop waiting time expires, waiting charges accumulate automatically at the configured charge interval until the driver continues the trip.
             </p>
           </div>
 
@@ -210,7 +207,7 @@ export function TripLifecycleTimeline({
           />
 
           <div className="flex flex-wrap items-end gap-3">
-            <NumberInput value={stopRadiusMeters} field="stopRadiusMeters" label="GPS Radius Restriction" unit="m" onFieldUpdate={onStopWaitingUpdate} min={1} />
+            
             <NumberInput value={stopWaitingChargeIntervalSeconds} field="stopWaitingChargeIntervalSeconds" label="Charge Interval" unit="sec" onFieldUpdate={onStopWaitingUpdate} min={1} />
           </div>
         </div>
