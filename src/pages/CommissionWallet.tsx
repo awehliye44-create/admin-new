@@ -111,10 +111,28 @@ export default function CommissionWallet() {
   const serviceAreaId = serviceFilter.serviceAreaId || null;
   const regionId = serviceFilter.regionId || null;
 
+  // Only service areas running "Driver-Collected + Commission Wallet" are eligible.
+  const walletServiceAreas = useMemo(
+    () =>
+      allServiceAreas.filter((sa) =>
+        isCommissionWalletWorkflowEnabled({
+          financial_model: sa.financial_model,
+          commission_wallet_enabled: sa.commission_wallet_enabled,
+        }),
+      ),
+    [allServiceAreas],
+  );
+
+  const walletRegions = useMemo(() => {
+    const ids = new Set(walletServiceAreas.map((sa) => String(sa.region_id)));
+    return regions.filter((r) => ids.has(String(r.id)));
+  }, [regions, walletServiceAreas]);
+
   const regionServiceAreas = useMemo(() => {
     if (!regionId) return [];
-    return allServiceAreas.filter((sa) => String(sa.region_id) === String(regionId));
-  }, [allServiceAreas, regionId]);
+    return walletServiceAreas.filter((sa) => String(sa.region_id) === String(regionId));
+  }, [walletServiceAreas, regionId]);
+
 
   const overviewQuery = useQuery({
     queryKey: ['admin-commission-wallet-overview', regionId, serviceAreaId, driverId || null],
