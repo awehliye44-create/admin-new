@@ -54,6 +54,8 @@ Deno.serve(async (req) => {
   }
 
   const internal = isServiceRoleCall(req);
+  console.log("[TRIP_INVOICE] entry", JSON.stringify({ sweep: body.sweep === true, internal }));
+
 
   // Automatic sweep: invoked by pg_cron for completed trips missing an invoice email.
   if (body.sweep === true) {
