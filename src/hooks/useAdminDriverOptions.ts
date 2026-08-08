@@ -11,7 +11,6 @@ type AdminDriverRow = {
   service_area_id: string | null;
   approval_status: string | null;
   deleted_at: string | null;
-  stripe_account_id: string | null;
 };
 
 function toDriverOption(row: AdminDriverRow): DriverOption {
@@ -27,15 +26,12 @@ function toDriverOption(row: AdminDriverRow): DriverOption {
 export function useAdminDriverOptions(args?: {
   regionId?: string | null;
   serviceAreaId?: string | null;
-  /** When true, only drivers with a Provider account (wallet SSOT scope). */
-  stripeConnectOnly?: boolean;
 }) {
   const regionId = args?.regionId ?? null;
   const serviceAreaId = args?.serviceAreaId ?? null;
-  const stripeConnectOnly = args?.stripeConnectOnly ?? false;
 
   return useQuery({
-    queryKey: ['admin-driver-options', regionId, serviceAreaId, stripeConnectOnly],
+    queryKey: ['admin-driver-options', regionId, serviceAreaId],
     queryFn: async (): Promise<DriverOption[]> => {
       const [{ data: drivers, error: driversError }, junctionRes] = await Promise.all([
         supabase.rpc('admin_list_drivers'),
@@ -55,7 +51,6 @@ export function useAdminDriverOptions(args?: {
       let list = ((drivers ?? []) as AdminDriverRow[]).filter((d) => {
         if (d.deleted_at) return false;
         if (d.approval_status && d.approval_status !== 'approved') return false;
-        if (stripeConnectOnly && !d.stripe_account_id) return false;
         return true;
       });
 

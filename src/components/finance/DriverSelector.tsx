@@ -29,7 +29,6 @@ export function DriverSelector({
   regionId,
   serviceAreaId,
   fallbackLabel,
-  stripeConnectOnly = false,
   className,
 }: {
   value: string | null;
@@ -39,7 +38,6 @@ export function DriverSelector({
   /** SSOT or URL fallback when drivers row is still loading */
   fallbackLabel?: string | null;
   /** Limit to drivers with Provider (Driver Wallet Ledger). */
-  stripeConnectOnly?: boolean;
   className?: string;
 }) {
   const [search, setSearch] = useState('');
@@ -52,7 +50,7 @@ export function DriverSelector({
     isError,
     error,
     refetch,
-  } = useAdminDriverOptions({ regionId, serviceAreaId, stripeConnectOnly });
+  } = useAdminDriverOptions({ regionId, serviceAreaId });
 
   useEffect(() => {
     if (!open) return;
@@ -124,7 +122,7 @@ export function DriverSelector({
           {open && (
             <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-md max-h-60 overflow-y-auto">
               <p className="px-3 pt-2 pb-1 text-[11px] text-muted-foreground uppercase tracking-wide">
-                {stripeConnectOnly ? 'Provider drivers' : 'Approved drivers'} {scopeHint}
+                {'Approved drivers'} {scopeHint}
               </p>
               {isLoading ? (
                 <p className="p-3 text-sm text-muted-foreground flex items-center gap-2">

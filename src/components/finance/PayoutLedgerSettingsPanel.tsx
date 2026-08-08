@@ -163,7 +163,7 @@ export function PayoutLedgerSettingsPanel({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('drivers')
-        .select('id, first_name, last_name, driver_code, payouts_enabled, stripe_account_id, charges_enabled')
+        .select('id, first_name, last_name, driver_code, payouts_enabled, charges_enabled')
         .eq('id', overrideDriverId!)
         .maybeSingle();
       if (error) throw error;
@@ -613,7 +613,6 @@ export function PayoutLedgerSettingsPanel({
             onChange={setOverrideDriverId}
             regionId={serviceFilter.regionId}
             serviceAreaId={serviceFilter.serviceAreaId}
-            stripeConnectOnly={false}
           />
           {overrideDriverId && (
             <div className="flex items-center justify-between gap-3 rounded-md border p-3">

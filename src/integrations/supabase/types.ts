@@ -183,8 +183,6 @@ export type Database = {
           provider: string | null
           provider_payment_id: string | null
           reason: string | null
-          stripe_payment_intent_id: string | null
-          stripe_refund_id: string | null
           trip_id: string | null
         }
         Insert: {
@@ -199,8 +197,6 @@ export type Database = {
           provider?: string | null
           provider_payment_id?: string | null
           reason?: string | null
-          stripe_payment_intent_id?: string | null
-          stripe_refund_id?: string | null
           trip_id?: string | null
         }
         Update: {
@@ -215,8 +211,6 @@ export type Database = {
           provider?: string | null
           provider_payment_id?: string | null
           reason?: string | null
-          stripe_payment_intent_id?: string | null
-          stripe_refund_id?: string | null
           trip_id?: string | null
         }
         Relationships: []
@@ -3891,7 +3885,6 @@ export type Database = {
           entry_type: string
           id: string
           status: string
-          stripe_payment_intent_id: string | null
           trip_id: string | null
           updated_at: string
           wallet_id: string
@@ -3903,7 +3896,6 @@ export type Database = {
           entry_type: string
           id?: string
           status?: string
-          stripe_payment_intent_id?: string | null
           trip_id?: string | null
           updated_at?: string
           wallet_id: string
@@ -3915,7 +3907,6 @@ export type Database = {
           entry_type?: string
           id?: string
           status?: string
-          stripe_payment_intent_id?: string | null
           trip_id?: string | null
           updated_at?: string
           wallet_id?: string
@@ -4032,7 +4023,6 @@ export type Database = {
           phone_verified_at: string | null
           revolut_customer_id: string | null
           rider_status: string
-          stripe_customer_id: string | null
           updated_at: string
           user_id: string
         }
@@ -4060,7 +4050,6 @@ export type Database = {
           phone_verified_at?: string | null
           revolut_customer_id?: string | null
           rider_status?: string
-          stripe_customer_id?: string | null
           updated_at?: string
           user_id: string
         }
@@ -4088,7 +4077,6 @@ export type Database = {
           phone_verified_at?: string | null
           revolut_customer_id?: string | null
           rider_status?: string
-          stripe_customer_id?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -7011,13 +6999,10 @@ export type Database = {
           paid_at: string | null
           payout_method: string | null
           payout_type: string
+          provider_payout_id: string | null
+          provider_transfer_id: string | null
           requested_cashout_pence: number
           status: string
-          stripe_fee_pence: number | null
-          stripe_instant_available_before_pence: number | null
-          stripe_method: string
-          stripe_payout_id: string | null
-          stripe_transfer_id: string | null
           updated_at: string
           wallet_after_pence: number | null
           wallet_before_pence: number | null
@@ -7038,13 +7023,10 @@ export type Database = {
           paid_at?: string | null
           payout_method?: string | null
           payout_type?: string
+          provider_payout_id?: string | null
+          provider_transfer_id?: string | null
           requested_cashout_pence: number
           status?: string
-          stripe_fee_pence?: number | null
-          stripe_instant_available_before_pence?: number | null
-          stripe_method?: string
-          stripe_payout_id?: string | null
-          stripe_transfer_id?: string | null
           updated_at?: string
           wallet_after_pence?: number | null
           wallet_before_pence?: number | null
@@ -7065,13 +7047,10 @@ export type Database = {
           paid_at?: string | null
           payout_method?: string | null
           payout_type?: string
+          provider_payout_id?: string | null
+          provider_transfer_id?: string | null
           requested_cashout_pence?: number
           status?: string
-          stripe_fee_pence?: number | null
-          stripe_instant_available_before_pence?: number | null
-          stripe_method?: string
-          stripe_payout_id?: string | null
-          stripe_transfer_id?: string | null
           updated_at?: string
           wallet_after_pence?: number | null
           wallet_before_pence?: number | null
@@ -7205,14 +7184,15 @@ export type Database = {
           paid_in_payout_item_id: string | null
           payment_id: string | null
           payment_session_id: string | null
+          provider_available_on: string | null
+          provider_balance_tx_id: string | null
+          provider_charge_id: string | null
+          provider_payout_id: string | null
+          provider_transfer_id: string | null
           settled_at: string | null
           settlement_lifecycle_status: string
           settlement_status: string
           source: string | null
-          stripe_available_on: string | null
-          stripe_balance_tx_id: string | null
-          stripe_charge_id: string | null
-          stripe_transfer_id: string | null
           trip_id: string | null
           updated_at: string
           verified_at: string | null
@@ -7237,14 +7217,15 @@ export type Database = {
           paid_in_payout_item_id?: string | null
           payment_id?: string | null
           payment_session_id?: string | null
+          provider_available_on?: string | null
+          provider_balance_tx_id?: string | null
+          provider_charge_id?: string | null
+          provider_payout_id?: string | null
+          provider_transfer_id?: string | null
           settled_at?: string | null
           settlement_lifecycle_status?: string
           settlement_status?: string
           source?: string | null
-          stripe_available_on?: string | null
-          stripe_balance_tx_id?: string | null
-          stripe_charge_id?: string | null
-          stripe_transfer_id?: string | null
           trip_id?: string | null
           updated_at?: string
           verified_at?: string | null
@@ -7269,14 +7250,15 @@ export type Database = {
           paid_in_payout_item_id?: string | null
           payment_id?: string | null
           payment_session_id?: string | null
+          provider_available_on?: string | null
+          provider_balance_tx_id?: string | null
+          provider_charge_id?: string | null
+          provider_payout_id?: string | null
+          provider_transfer_id?: string | null
           settled_at?: string | null
           settlement_lifecycle_status?: string
           settlement_status?: string
           source?: string | null
-          stripe_available_on?: string | null
-          stripe_balance_tx_id?: string | null
-          stripe_charge_id?: string | null
-          stripe_transfer_id?: string | null
           trip_id?: string | null
           updated_at?: string
           verified_at?: string | null
@@ -9853,10 +9835,9 @@ export type Database = {
           driver_id: string
           id: string
           provider_payout_id: string | null
+          provider_transfer_id: string | null
           related_trip_id: string | null
           service_area_id: string | null
-          stripe_payout_id: string | null
-          stripe_transfer_id: string | null
           type: string
         }
         Insert: {
@@ -9867,10 +9848,9 @@ export type Database = {
           driver_id: string
           id?: string
           provider_payout_id?: string | null
+          provider_transfer_id?: string | null
           related_trip_id?: string | null
           service_area_id?: string | null
-          stripe_payout_id?: string | null
-          stripe_transfer_id?: string | null
           type: string
         }
         Update: {
@@ -9881,10 +9861,9 @@ export type Database = {
           driver_id?: string
           id?: string
           provider_payout_id?: string | null
+          provider_transfer_id?: string | null
           related_trip_id?: string | null
           service_area_id?: string | null
-          stripe_payout_id?: string | null
-          stripe_transfer_id?: string | null
           type?: string
         }
         Relationships: [
@@ -10140,7 +10119,6 @@ export type Database = {
           residential_address: string | null
           service_area_id: string | null
           speed: number | null
-          stripe_account_id: string | null
           total_trips: number | null
           updated_at: string
           user_id: string
@@ -10208,7 +10186,6 @@ export type Database = {
           residential_address?: string | null
           service_area_id?: string | null
           speed?: number | null
-          stripe_account_id?: string | null
           total_trips?: number | null
           updated_at?: string
           user_id: string
@@ -10276,7 +10253,6 @@ export type Database = {
           residential_address?: string | null
           service_area_id?: string | null
           speed?: number | null
-          stripe_account_id?: string | null
           total_trips?: number | null
           updated_at?: string
           user_id?: string
@@ -10618,8 +10594,6 @@ export type Database = {
           operational_loss_pence: number
           reference_doc: string | null
           remediation_option: string
-          stripe_payout_amount_pence: number
-          stripe_payout_id: string
         }
         Insert: {
           classification?: string | null
@@ -10633,8 +10607,6 @@ export type Database = {
           operational_loss_pence?: number
           reference_doc?: string | null
           remediation_option: string
-          stripe_payout_amount_pence: number
-          stripe_payout_id: string
         }
         Update: {
           classification?: string | null
@@ -10648,8 +10620,6 @@ export type Database = {
           operational_loss_pence?: number
           reference_doc?: string | null
           remediation_option?: string
-          stripe_payout_amount_pence?: number
-          stripe_payout_id?: string
         }
         Relationships: [
           {
@@ -12658,7 +12628,6 @@ export type Database = {
           merchant_id: string
           notes: string | null
           package_id: string | null
-          stripe_payment_id: string | null
         }
         Insert: {
           action_type: string
@@ -12670,7 +12639,6 @@ export type Database = {
           merchant_id: string
           notes?: string | null
           package_id?: string | null
-          stripe_payment_id?: string | null
         }
         Update: {
           action_type?: string
@@ -12682,7 +12650,6 @@ export type Database = {
           merchant_id?: string
           notes?: string | null
           package_id?: string | null
-          stripe_payment_id?: string | null
         }
         Relationships: [
           {
@@ -14162,12 +14129,11 @@ export type Database = {
           metadata: Json
           payment_provider: string
           payment_status: string | null
-          provider_order_id: string | null
+          provider_order_id: string
           resolution_reason: string | null
           resolved_at: string | null
           reversal_status: string
           service_area_id: string | null
-          stripe_payment_intent_id: string
           trip_id: string | null
           updated_at: string
           user_id: string | null
@@ -14184,12 +14150,11 @@ export type Database = {
           metadata?: Json
           payment_provider?: string
           payment_status?: string | null
-          provider_order_id?: string | null
+          provider_order_id: string
           resolution_reason?: string | null
           resolved_at?: string | null
           reversal_status?: string
           service_area_id?: string | null
-          stripe_payment_intent_id: string
           trip_id?: string | null
           updated_at?: string
           user_id?: string | null
@@ -14206,12 +14171,11 @@ export type Database = {
           metadata?: Json
           payment_provider?: string
           payment_status?: string | null
-          provider_order_id?: string | null
+          provider_order_id?: string
           resolution_reason?: string | null
           resolved_at?: string | null
           reversal_status?: string
           service_area_id?: string | null
-          stripe_payment_intent_id?: string
           trip_id?: string | null
           updated_at?: string
           user_id?: string | null
@@ -14408,7 +14372,6 @@ export type Database = {
           metadata: Json
           operation: string
           status: string
-          stripe_payment_intent_id: string | null
           trip_id: string
           updated_at: string
         }
@@ -14422,7 +14385,6 @@ export type Database = {
           metadata?: Json
           operation: string
           status?: string
-          stripe_payment_intent_id?: string | null
           trip_id: string
           updated_at?: string
         }
@@ -14436,7 +14398,6 @@ export type Database = {
           metadata?: Json
           operation?: string
           status?: string
-          stripe_payment_intent_id?: string | null
           trip_id?: string
           updated_at?: string
         }
@@ -15219,7 +15180,6 @@ export type Database = {
           currency: string
           driver_amount_pence: number | null
           driver_id: string | null
-          driver_stripe_account_id: string | null
           fee_type: string | null
           gross_amount_pence: number | null
           id: string
@@ -15230,6 +15190,7 @@ export type Database = {
           provider_available_on: string | null
           provider_charge_id: string | null
           provider_fee_pence: number | null
+          provider_order_id: string | null
           provider_payment_id: string | null
           provider_payout_id: string | null
           provider_status: string | null
@@ -15239,10 +15200,6 @@ export type Database = {
           refunded_amount_pence: number
           refunded_at: string | null
           status: string
-          stripe_application_fee_amount: number | null
-          stripe_fee_pence: number | null
-          stripe_payment_intent_id: string
-          stripe_refund_id: string | null
           trip_id: string
           updated_at: string
         }
@@ -15256,7 +15213,6 @@ export type Database = {
           currency?: string
           driver_amount_pence?: number | null
           driver_id?: string | null
-          driver_stripe_account_id?: string | null
           fee_type?: string | null
           gross_amount_pence?: number | null
           id?: string
@@ -15267,6 +15223,7 @@ export type Database = {
           provider_available_on?: string | null
           provider_charge_id?: string | null
           provider_fee_pence?: number | null
+          provider_order_id?: string | null
           provider_payment_id?: string | null
           provider_payout_id?: string | null
           provider_status?: string | null
@@ -15276,10 +15233,6 @@ export type Database = {
           refunded_amount_pence?: number
           refunded_at?: string | null
           status?: string
-          stripe_application_fee_amount?: number | null
-          stripe_fee_pence?: number | null
-          stripe_payment_intent_id: string
-          stripe_refund_id?: string | null
           trip_id: string
           updated_at?: string
         }
@@ -15293,7 +15246,6 @@ export type Database = {
           currency?: string
           driver_amount_pence?: number | null
           driver_id?: string | null
-          driver_stripe_account_id?: string | null
           fee_type?: string | null
           gross_amount_pence?: number | null
           id?: string
@@ -15304,6 +15256,7 @@ export type Database = {
           provider_available_on?: string | null
           provider_charge_id?: string | null
           provider_fee_pence?: number | null
+          provider_order_id?: string | null
           provider_payment_id?: string | null
           provider_payout_id?: string | null
           provider_status?: string | null
@@ -15313,10 +15266,6 @@ export type Database = {
           refunded_amount_pence?: number
           refunded_at?: string | null
           status?: string
-          stripe_application_fee_amount?: number | null
-          stripe_fee_pence?: number | null
-          stripe_payment_intent_id?: string
-          stripe_refund_id?: string | null
           trip_id?: string
           updated_at?: string
         }
@@ -15838,7 +15787,6 @@ export type Database = {
           driver_amount_pence: number | null
           driver_id: string
           driver_paid_out_pence: number | null
-          driver_stripe_account_id: string | null
           eligibility_snapshot: Json | null
           error_message: string | null
           excluded_from_auto_allocation: boolean
@@ -15861,20 +15809,18 @@ export type Database = {
           payout_destination_id: string | null
           payout_type: string | null
           provider_counterparty_id: string | null
+          provider_fee_pence: number | null
+          provider_payout_id: string | null
           provider_recipient_account_id: string | null
           provider_reference: string | null
           provider_request_id: string | null
           provider_response: Json | null
           provider_status: string | null
+          provider_transfer_id: string | null
           return_ledger_entry_id: string | null
           returned_to_wallet_pence: number | null
           settlement_status: string | null
           status: string
-          stripe_fee_pence: number | null
-          stripe_instant_available_before_pence: number | null
-          stripe_method: string
-          stripe_payout_id: string | null
-          stripe_transfer_id: string | null
           trip_id: string | null
           updated_at: string
           wallet_after_pence: number | null
@@ -15896,7 +15842,6 @@ export type Database = {
           driver_amount_pence?: number | null
           driver_id: string
           driver_paid_out_pence?: number | null
-          driver_stripe_account_id?: string | null
           eligibility_snapshot?: Json | null
           error_message?: string | null
           excluded_from_auto_allocation?: boolean
@@ -15919,20 +15864,18 @@ export type Database = {
           payout_destination_id?: string | null
           payout_type?: string | null
           provider_counterparty_id?: string | null
+          provider_fee_pence?: number | null
+          provider_payout_id?: string | null
           provider_recipient_account_id?: string | null
           provider_reference?: string | null
           provider_request_id?: string | null
           provider_response?: Json | null
           provider_status?: string | null
+          provider_transfer_id?: string | null
           return_ledger_entry_id?: string | null
           returned_to_wallet_pence?: number | null
           settlement_status?: string | null
           status?: string
-          stripe_fee_pence?: number | null
-          stripe_instant_available_before_pence?: number | null
-          stripe_method?: string
-          stripe_payout_id?: string | null
-          stripe_transfer_id?: string | null
           trip_id?: string | null
           updated_at?: string
           wallet_after_pence?: number | null
@@ -15954,7 +15897,6 @@ export type Database = {
           driver_amount_pence?: number | null
           driver_id?: string
           driver_paid_out_pence?: number | null
-          driver_stripe_account_id?: string | null
           eligibility_snapshot?: Json | null
           error_message?: string | null
           excluded_from_auto_allocation?: boolean
@@ -15977,20 +15919,18 @@ export type Database = {
           payout_destination_id?: string | null
           payout_type?: string | null
           provider_counterparty_id?: string | null
+          provider_fee_pence?: number | null
+          provider_payout_id?: string | null
           provider_recipient_account_id?: string | null
           provider_reference?: string | null
           provider_request_id?: string | null
           provider_response?: Json | null
           provider_status?: string | null
+          provider_transfer_id?: string | null
           return_ledger_entry_id?: string | null
           returned_to_wallet_pence?: number | null
           settlement_status?: string | null
           status?: string
-          stripe_fee_pence?: number | null
-          stripe_instant_available_before_pence?: number | null
-          stripe_method?: string
-          stripe_payout_id?: string | null
-          stripe_transfer_id?: string | null
           trip_id?: string | null
           updated_at?: string
           wallet_after_pence?: number | null
@@ -16417,33 +16357,6 @@ export type Database = {
           payload?: Json | null
           processed_at?: string
           trip_id?: string | null
-        }
-        Relationships: []
-      }
-      processed_stripe_events: {
-        Row: {
-          error: string | null
-          event_id: string
-          event_type: string
-          id: string
-          processed_at: string
-          status: string
-        }
-        Insert: {
-          error?: string | null
-          event_id: string
-          event_type: string
-          id?: string
-          processed_at?: string
-          status?: string
-        }
-        Update: {
-          error?: string | null
-          event_id?: string
-          event_type?: string
-          id?: string
-          processed_at?: string
-          status?: string
         }
         Relationships: []
       }
@@ -19303,251 +19216,6 @@ export type Database = {
           },
         ]
       }
-      stripe_connect_payout_schedule_audit: {
-        Row: {
-          action: string
-          after_delay_days: number | null
-          after_interval: string | null
-          before_delay_days: number | null
-          before_interval: string | null
-          connect_available_pence: number | null
-          connect_pending_pence: number | null
-          created_at: string
-          driver_id: string | null
-          dry_run: boolean
-          error_message: string | null
-          id: string
-          in_flight_payout_ids: Json | null
-          performed_by: string | null
-          stripe_account_id: string
-        }
-        Insert: {
-          action: string
-          after_delay_days?: number | null
-          after_interval?: string | null
-          before_delay_days?: number | null
-          before_interval?: string | null
-          connect_available_pence?: number | null
-          connect_pending_pence?: number | null
-          created_at?: string
-          driver_id?: string | null
-          dry_run?: boolean
-          error_message?: string | null
-          id?: string
-          in_flight_payout_ids?: Json | null
-          performed_by?: string | null
-          stripe_account_id: string
-        }
-        Update: {
-          action?: string
-          after_delay_days?: number | null
-          after_interval?: string | null
-          before_delay_days?: number | null
-          before_interval?: string | null
-          connect_available_pence?: number | null
-          connect_pending_pence?: number | null
-          created_at?: string
-          driver_id?: string | null
-          dry_run?: boolean
-          error_message?: string | null
-          id?: string
-          in_flight_payout_ids?: Json | null
-          performed_by?: string | null
-          stripe_account_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "admin_driver_fleet_status"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "admin_driver_online_snapshot"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "dispatchable_drivers"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_document_compliance_ssot"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_document_status"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_financial_summary"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_passenger_profile"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "drivers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payout_schedule_audit_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "drivers_public_safe"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      stripe_connect_payouts: {
-        Row: {
-          amount_pence: number
-          arrival_date: string | null
-          balance_transaction_id: string | null
-          bank_last4: string | null
-          connected_account_id: string
-          created_at: string
-          currency: string
-          driver_id: string | null
-          failure_code: string | null
-          failure_message: string | null
-          id: string
-          initiated_at: string | null
-          last_synced_at: string
-          payout_id: string
-          payout_method: string | null
-          statement_descriptor: string | null
-          status: string
-          updated_at: string
-        }
-        Insert: {
-          amount_pence: number
-          arrival_date?: string | null
-          balance_transaction_id?: string | null
-          bank_last4?: string | null
-          connected_account_id: string
-          created_at?: string
-          currency?: string
-          driver_id?: string | null
-          failure_code?: string | null
-          failure_message?: string | null
-          id?: string
-          initiated_at?: string | null
-          last_synced_at?: string
-          payout_id: string
-          payout_method?: string | null
-          statement_descriptor?: string | null
-          status: string
-          updated_at?: string
-        }
-        Update: {
-          amount_pence?: number
-          arrival_date?: string | null
-          balance_transaction_id?: string | null
-          bank_last4?: string | null
-          connected_account_id?: string
-          created_at?: string
-          currency?: string
-          driver_id?: string | null
-          failure_code?: string | null
-          failure_message?: string | null
-          id?: string
-          initiated_at?: string | null
-          last_synced_at?: string
-          payout_id?: string
-          payout_method?: string | null
-          statement_descriptor?: string | null
-          status?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "admin_driver_fleet_status"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "admin_driver_online_snapshot"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "dispatchable_drivers"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_document_compliance_ssot"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_document_status"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_financial_summary"
-            referencedColumns: ["driver_id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "driver_passenger_profile"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "drivers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "stripe_connect_payouts_driver_id_fkey"
-            columns: ["driver_id"]
-            isOneToOne: false
-            referencedRelation: "drivers_public_safe"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       support_conversations: {
         Row: {
           assigned_admin_id: string | null
@@ -20308,6 +19976,8 @@ export type Database = {
           payment_method: string
           pickup_waiting_charge_pence: number
           platform_commission_pence: number
+          provider_order_id: string | null
+          provider_processing_fee_pence: number | null
           refund_amount_pence: number
           refund_status: string | null
           revenue_type: string
@@ -20316,10 +19986,6 @@ export type Database = {
           settlement_status: string
           stop_modification_charge_pence: number
           stop_waiting_charge_pence: number
-          stripe_application_fee_id: string | null
-          stripe_destination_account_id: string | null
-          stripe_payment_intent_id: string | null
-          stripe_processing_fee_pence: number | null
           tip_amount_pence: number
           trip_id: string
           updated_at: string
@@ -20350,6 +20016,8 @@ export type Database = {
           payment_method?: string
           pickup_waiting_charge_pence?: number
           platform_commission_pence?: number
+          provider_order_id?: string | null
+          provider_processing_fee_pence?: number | null
           refund_amount_pence?: number
           refund_status?: string | null
           revenue_type?: string
@@ -20358,10 +20026,6 @@ export type Database = {
           settlement_status?: string
           stop_modification_charge_pence?: number
           stop_waiting_charge_pence?: number
-          stripe_application_fee_id?: string | null
-          stripe_destination_account_id?: string | null
-          stripe_payment_intent_id?: string | null
-          stripe_processing_fee_pence?: number | null
           tip_amount_pence?: number
           trip_id: string
           updated_at?: string
@@ -20392,6 +20056,8 @@ export type Database = {
           payment_method?: string
           pickup_waiting_charge_pence?: number
           platform_commission_pence?: number
+          provider_order_id?: string | null
+          provider_processing_fee_pence?: number | null
           refund_amount_pence?: number
           refund_status?: string | null
           revenue_type?: string
@@ -20400,10 +20066,6 @@ export type Database = {
           settlement_status?: string
           stop_modification_charge_pence?: number
           stop_waiting_charge_pence?: number
-          stripe_application_fee_id?: string | null
-          stripe_destination_account_id?: string | null
-          stripe_payment_intent_id?: string | null
-          stripe_processing_fee_pence?: number | null
           tip_amount_pence?: number
           trip_id?: string
           updated_at?: string
@@ -21225,17 +20887,6 @@ export type Database = {
           stop_waiting_started_at: string | null
           stop_waiting_status: string | null
           stops: Json | null
-          stripe_application_fee_amount_pence: number | null
-          stripe_application_fee_id: string | null
-          stripe_charge_id: string | null
-          stripe_destination_account_id: string | null
-          stripe_fee_amount: number | null
-          stripe_payment_intent_id: string | null
-          stripe_processing_fee_pence: number | null
-          stripe_settlement_verified: boolean
-          stripe_settlement_warning: string | null
-          stripe_transfer_amount_pence: number | null
-          stripe_transfer_id: string | null
           surge_multiplier: number | null
           tip_amount_pence: number
           tip_pence: number | null
@@ -21513,17 +21164,6 @@ export type Database = {
           stop_waiting_started_at?: string | null
           stop_waiting_status?: string | null
           stops?: Json | null
-          stripe_application_fee_amount_pence?: number | null
-          stripe_application_fee_id?: string | null
-          stripe_charge_id?: string | null
-          stripe_destination_account_id?: string | null
-          stripe_fee_amount?: number | null
-          stripe_payment_intent_id?: string | null
-          stripe_processing_fee_pence?: number | null
-          stripe_settlement_verified?: boolean
-          stripe_settlement_warning?: string | null
-          stripe_transfer_amount_pence?: number | null
-          stripe_transfer_id?: string | null
           surge_multiplier?: number | null
           tip_amount_pence?: number
           tip_pence?: number | null
@@ -21801,17 +21441,6 @@ export type Database = {
           stop_waiting_started_at?: string | null
           stop_waiting_status?: string | null
           stops?: Json | null
-          stripe_application_fee_amount_pence?: number | null
-          stripe_application_fee_id?: string | null
-          stripe_charge_id?: string | null
-          stripe_destination_account_id?: string | null
-          stripe_fee_amount?: number | null
-          stripe_payment_intent_id?: string | null
-          stripe_processing_fee_pence?: number | null
-          stripe_settlement_verified?: boolean
-          stripe_settlement_warning?: string | null
-          stripe_transfer_amount_pence?: number | null
-          stripe_transfer_id?: string | null
           surge_multiplier?: number | null
           tip_amount_pence?: number
           tip_pence?: number | null
@@ -23551,7 +23180,6 @@ export type Database = {
           started_at: string | null
           status: string | null
           stops: Json | null
-          stripe_payment_intent_id: string | null
           surge_multiplier: number | null
           total_stops: number | null
           trip_code: string | null
@@ -23622,7 +23250,6 @@ export type Database = {
           started_at?: string | null
           status?: string | null
           stops?: Json | null
-          stripe_payment_intent_id?: string | null
           surge_multiplier?: number | null
           total_stops?: number | null
           trip_code?: string | null
@@ -23693,7 +23320,6 @@ export type Database = {
           started_at?: string | null
           status?: string | null
           stops?: Json | null
-          stripe_payment_intent_id?: string | null
           surge_multiplier?: number | null
           total_stops?: number | null
           trip_code?: string | null
@@ -24275,6 +23901,7 @@ export type Database = {
         Row: {
           approval_status: string | null
           blocks_online: boolean | null
+          can_upload_replacement: boolean | null
           days_until_expiry: number | null
           display_name: string | null
           document_id: string | null
@@ -24289,6 +23916,8 @@ export type Database = {
           is_required: boolean | null
           is_superseded: boolean | null
           last_updated_at: string | null
+          renewal_open_days: number | null
+          renewal_state: string | null
           replacement_document_id: string | null
         }
         Relationships: [
@@ -24352,7 +23981,6 @@ export type Database = {
           rating: number | null
           region_id: string | null
           reserved_cashout_pence: number | null
-          stripe_account_id: string | null
           today_card_earnings: number | null
           today_cash_earnings: number | null
           today_gross_earnings: number | null
@@ -24953,10 +24581,10 @@ export type Database = {
           description: string | null
           driver_id: string | null
           id: string | null
+          provider_payout_id: string | null
+          provider_transfer_id: string | null
           related_trip_id: string | null
           service_area_id: string | null
-          stripe_payout_id: string | null
-          stripe_transfer_id: string | null
           type: string | null
         }
         Relationships: [
@@ -25068,10 +24696,10 @@ export type Database = {
           description: string | null
           driver_id: string | null
           id: string | null
+          provider_payout_id: string | null
+          provider_transfer_id: string | null
           related_trip_id: string | null
           service_area_id: string | null
-          stripe_payout_id: string | null
-          stripe_transfer_id: string | null
           type: string | null
         }
         Relationships: [
@@ -25312,7 +24940,6 @@ export type Database = {
           rating: number | null
           region_id: string | null
           reserved_cashout_pence: number | null
-          stripe_account_id: string | null
           today_card_earnings: number | null
           today_cash_earnings: number | null
           today_gross_earnings: number | null
@@ -25391,7 +25018,6 @@ export type Database = {
           residential_address: string | null
           service_area_id: string | null
           speed: number | null
-          stripe_account_id: string | null
           total_trips: number | null
           updated_at: string
           user_id: string
@@ -25914,6 +25540,10 @@ export type Database = {
           p_require_push_token?: boolean
         }
         Returns: string
+      }
+      document_type_renewal_open_days: {
+        Args: { p_reminder_days: number[] }
+        Returns: number
       }
       driver_accept_counter_offer: {
         Args: { p_driver_id: string; p_offer_id: string }
@@ -26521,6 +26151,7 @@ export type Database = {
         Returns: {
           approval_status: string | null
           blocks_online: boolean | null
+          can_upload_replacement: boolean | null
           days_until_expiry: number | null
           display_name: string | null
           document_id: string | null
@@ -26535,6 +26166,8 @@ export type Database = {
           is_required: boolean | null
           is_superseded: boolean | null
           last_updated_at: string | null
+          renewal_open_days: number | null
+          renewal_state: string | null
           replacement_document_id: string | null
         }[]
         SetofOptions: {
@@ -26773,8 +26406,8 @@ export type Database = {
           p_driver_id: string
           p_ledger_type: string
           p_paid_at?: string
-          p_stripe_payout_id: string
-          p_stripe_transfer_id: string
+          p_provider_payout_id: string
+          p_provider_transfer_id: string
         }
         Returns: string
       }
