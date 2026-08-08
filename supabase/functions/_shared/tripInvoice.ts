@@ -336,9 +336,9 @@ async function renderPdfLibFallback(data: TripInvoiceHtmlData): Promise<Uint8Arr
   y -= 46;
 
   const cols = [left + 8, left + 40, left + 260, left + 340, left + 400, left + 470];
-  page.drawRectangle({ x: left, y: y - 6, width, height: 20, color: gold });
+  page.drawRectangle({ x: left, y: y - 6, width, height: 20, color: ink });
   ["#", "DESCRIPTION", "DATE", "QTY", "UNIT", "AMOUNT"].forEach((label, i) => {
-    page.drawText(label, { x: cols[i], y, size: 8, font: bold, color: ink });
+    page.drawText(label, { x: cols[i], y, size: 8, font: bold, color: gold });
   });
   y -= 22;
 
@@ -354,6 +354,7 @@ async function renderPdfLibFallback(data: TripInvoiceHtmlData): Promise<Uint8Arr
   });
 
   y -= 10;
+  page.drawRectangle({ x: cols[4] - 10, y: y - 24, width: right - cols[4] + 10, height: 50, color: panel });
   page.drawText("SUBTOTAL", { x: cols[4], y, size: 9.5, font, color: grey });
   page.drawText(data.subtotal, { x: cols[5], y, size: 9.5, font, color: ink });
   y -= 16;

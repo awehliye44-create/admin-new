@@ -119,11 +119,21 @@ export function buildTripInvoiceHtml(data: TripInvoiceHtmlData): string {
       </td>
       <td style="width:32%;vertical-align:top;">
         <div style="background:#f4f4f4;padding:14px;">
-          <div style="font-size:9.5px;font-weight:800;color:#111;line-height:1.5;">DOWNLOAD THE<br />${esc((data.company.name || "ONECAB").toUpperCase())} APP</div>
-          <div style="margin-top:12px;font-size:9px;color:#333;line-height:1.6;">
-            <div style="background:#111;color:#fff;padding:7px 10px;display:inline-block;">GET IT ON Google Play</div>
-            <div style="background:#111;color:#fff;padding:7px 10px;display:inline-block;margin-top:6px;">Download on the App Store</div>
-          </div>
+          <div style="font-size:9.5px;font-weight:800;color:#B98600;line-height:1.6;letter-spacing:0.3px;">DOWNLOAD THE<br />${esc((data.company.name || "ONECAB").toUpperCase())} APP</div>
+          <table style="border-collapse:collapse;margin-top:14px;"><tr>
+            <td style="padding-right:8px;">
+              <div style="background:#111;color:#fff;border-radius:5px;padding:6px 10px;line-height:1.15;">
+                <div style="font-size:5.5px;letter-spacing:0.6px;">GET IT ON</div>
+                <div style="font-size:10px;font-weight:700;">Google Play</div>
+              </div>
+            </td>
+            <td>
+              <div style="background:#111;color:#fff;border-radius:5px;padding:6px 10px;line-height:1.15;">
+                <div style="font-size:5.5px;letter-spacing:0.6px;">Download on the</div>
+                <div style="font-size:10px;font-weight:700;">App Store</div>
+              </div>
+            </td>
+          </tr></table>
         </div>
       </td>
     </tr>
@@ -136,13 +146,13 @@ export function buildTripInvoiceHtml(data: TripInvoiceHtmlData): string {
 
   <table style="width:100%;border-collapse:collapse;margin-top:14px;">
     <thead>
-      <tr style="background:#F5B301;">
-        <th style="text-align:left;padding:8px 10px;font-size:9.5px;letter-spacing:0.4px;color:#111;width:6%;">#</th>
-        <th style="text-align:left;padding:8px 10px;font-size:9.5px;letter-spacing:0.4px;color:#111;width:38%;">DESCRIPTION</th>
-        <th style="text-align:left;padding:8px 10px;font-size:9.5px;letter-spacing:0.4px;color:#111;width:16%;">DATE</th>
-        <th style="text-align:left;padding:8px 10px;font-size:9.5px;letter-spacing:0.4px;color:#111;width:8%;">QTY</th>
-        <th style="text-align:left;padding:8px 10px;font-size:9.5px;letter-spacing:0.4px;color:#111;width:14%;">UNIT</th>
-        <th style="text-align:left;padding:8px 10px;font-size:9.5px;letter-spacing:0.4px;color:#111;width:18%;">AMOUNT</th>
+      <tr style="background:#111;">
+        <th style="text-align:left;padding:8px 10px;font-size:9.5px;letter-spacing:0.4px;color:#F5B301;width:6%;">#</th>
+        <th style="text-align:left;padding:8px 10px;font-size:9.5px;letter-spacing:0.4px;color:#F5B301;width:38%;">DESCRIPTION</th>
+        <th style="text-align:left;padding:8px 10px;font-size:9.5px;letter-spacing:0.4px;color:#F5B301;width:16%;">DATE</th>
+        <th style="text-align:left;padding:8px 10px;font-size:9.5px;letter-spacing:0.4px;color:#F5B301;width:8%;">QTY</th>
+        <th style="text-align:left;padding:8px 10px;font-size:9.5px;letter-spacing:0.4px;color:#F5B301;width:14%;">UNIT</th>
+        <th style="text-align:left;padding:8px 10px;font-size:9.5px;letter-spacing:0.4px;color:#F5B301;width:18%;">AMOUNT</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -151,7 +161,7 @@ export function buildTripInvoiceHtml(data: TripInvoiceHtmlData): string {
   <table style="width:100%;border-collapse:collapse;margin-top:10px;">
     <tr>
       <td style="width:56%;"></td>
-      <td style="width:44%;">
+      <td style="width:44%;background:#f4f4f4;">
         <table style="width:100%;border-collapse:collapse;">
           <tr>
             <td style="padding:6px 10px;font-size:11px;color:#333;">SUBTOTAL</td>
@@ -169,6 +179,7 @@ export function buildTripInvoiceHtml(data: TripInvoiceHtmlData): string {
       </td>
     </tr>
   </table>
+
 
   <div style="margin-top:16px;font-size:12px;font-weight:800;color:#111;">${esc(data.footerHeadline)}</div>
   <div style="margin-top:5px;font-size:10px;color:#555;">${esc(data.footerText)}</div>
