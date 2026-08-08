@@ -114,6 +114,7 @@ interface StaffMember {
   username: string | null;
   role: StaffRole;
   is_active: boolean;
+  is_owner: boolean;
   created_at: string;
   service_areas: { id: string; service_area_id: string; name: string }[];
 }
@@ -208,6 +209,7 @@ export default function RolesPermissions() {
 
       const members: StaffMember[] = (profiles || []).map((p: any) => ({
         ...p,
+        is_owner: p.is_owner === true,
         service_areas: (assignments || [])
           .filter((a: any) => a.staff_id === p.id)
           .map((a: any) => ({
@@ -838,7 +840,13 @@ export default function RolesPermissions() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredStaff.map((staff) => (
+                      {filteredStaff.map((staff) => {
+                        const isSelf = !!user?.id && staff.user_id === user.id;
+                        const protectedRow = staff.is_owner || isSelf;
+                        const protectedReason = staff.is_owner
+                          ? 'Owner account is protected'
+                          : 'You cannot perform this action on your own account';
+                        return (
                         <TableRow key={staff.id} className={!staff.is_active ? 'opacity-60' : undefined}>
                           <TableCell>
                             <span className="font-mono font-semibold text-primary">
@@ -848,6 +856,12 @@ export default function RolesPermissions() {
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
                               {staff.full_name}
+                              {staff.is_owner && (
+                                <Badge className="text-[10px] uppercase bg-amber-500/15 text-amber-500 border-amber-500/30">
+                                  <Crown className="h-3 w-3 mr-1" />
+                                  Owner
+                                </Badge>
+                              )}
                               {!staff.is_active && (
                                 <Badge variant="secondary" className="text-[10px] uppercase">Suspended</Badge>
                               )}
@@ -886,22 +900,42 @@ export default function RolesPermissions() {
                               </Button>
                               {canManageRoles && (
                                 <>
-                                  <Button variant="ghost" size="icon" onClick={() => openEditDialog(staff)}>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    disabled={staff.is_owner && !isSelf}
+                                    title={staff.is_owner && !isSelf ? protectedReason : 'Edit'}
+                                    onClick={() => openEditDialog(staff)}
+                                  >
                                     <Edit className="h-4 w-4" />
                                   </Button>
-                                  <Button variant="ghost" size="icon" onClick={() => openReassignDialog(staff)}>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    disabled={protectedRow}
+                                    title={protectedRow ? protectedReason : 'Change role'}
+                                    onClick={() => openReassignDialog(staff)}
+                                  >
                                     <ArrowRightLeft className="h-4 w-4" />
                                   </Button>
                                   <Button
                                     variant="ghost"
                                     size="icon"
+                                    disabled={protectedRow}
                                     className={staff.is_active ? 'text-amber-500' : 'text-green-500'}
-                                    title={staff.is_active ? 'Suspend' : 'Re-activate'}
+                                    title={protectedRow ? protectedReason : (staff.is_active ? 'Suspend' : 'Re-activate')}
                                     onClick={() => handleToggleSuspend(staff)}
                                   >
                                     {staff.is_active ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
                                   </Button>
-                                  <Button variant="ghost" size="icon" className="text-destructive" onClick={() => { setSelectedStaff(staff); setShowRemoveDialog(true); }}>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-destructive"
+                                    disabled={protectedRow}
+                                    title={protectedRow ? protectedReason : 'Remove'}
+                                    onClick={() => { setSelectedStaff(staff); setShowRemoveDialog(true); }}
+                                  >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </>
@@ -909,7 +943,8 @@ export default function RolesPermissions() {
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))}
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
