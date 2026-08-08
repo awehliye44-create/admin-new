@@ -15,9 +15,9 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const app = url.searchParams.get("app");
 
-    if (!app || !["customer", "driver", "corporate", "legal"].includes(app)) {
+    if (!app || !["customer", "driver", "corporate", "legal", "website"].includes(app)) {
       return new Response(
-        JSON.stringify({ error: "app query param must be customer, driver, corporate, or legal" }),
+        JSON.stringify({ error: "app query param must be customer, driver, corporate, legal, or website" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
