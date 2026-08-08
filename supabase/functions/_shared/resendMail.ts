@@ -78,7 +78,7 @@ export function formatResendFromAddress(companyName: string, _companyEmail?: str
   return getVerifiedFromAddress(companyName);
 }
 
-function resolveReplyTo(explicit?: string | false): string | undefined {
+function resolveReplyTo(explicit?: string | false, allowExternal = false): string | undefined {
   // Explicit false = omit Reply-To (do not fall back to RESEND_REPLY_TO_EMAIL).
   if (explicit === false) return undefined;
 
@@ -86,7 +86,7 @@ function resolveReplyTo(explicit?: string | false): string | undefined {
   const candidate = (explicit || envReplyTo || "").trim();
   if (!candidate.includes("@")) return envReplyTo;
 
-  if (!isVerifiedSendDomain(candidate)) {
+  if (!allowExternal && !isVerifiedSendDomain(candidate)) {
     return envReplyTo;
   }
   return candidate;
@@ -100,6 +100,8 @@ export async function sendResendEmail(args: {
   from?: string;
   /** Set false to omit Reply-To entirely (no env fallback). */
   replyTo?: string | false;
+  /** Allow a Reply-To on an unverified/off-domain address (e.g. website visitor). */
+  allowExternalReplyTo?: boolean;
   attachments?: ResendAttachment[];
   tag?: string;
 }): Promise<{ ok: true; id?: string } | { ok: false; message: string }> {
@@ -134,7 +136,9 @@ export async function sendResendEmail(args: {
       subject: args.subject,
       html: args.html,
       ...(args.text ? { text: args.text } : {}),
-      ...(resolveReplyTo(args.replyTo) ? { reply_to: resolveReplyTo(args.replyTo) } : {}),
+      ...(resolveReplyTo(args.replyTo, args.allowExternalReplyTo)
+        ? { reply_to: resolveReplyTo(args.replyTo, args.allowExternalReplyTo) }
+        : {}),
       ...(args.attachments?.length ? {
         attachments: args.attachments.map((attachment) => ({
           filename: attachment.filename,

@@ -232,3 +232,6 @@ verify_jwt = false
 
 [functions.create-payment-recovery]
 verify_jwt = false
+
+[functions.website-enquiry]
+verify_jwt = false
