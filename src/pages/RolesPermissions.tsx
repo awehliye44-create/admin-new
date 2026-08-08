@@ -942,10 +942,9 @@ export default function RolesPermissions() {
                               )}
                             </div>
                           </TableCell>
-                            </div>
-                          </TableCell>
                         </TableRow>
-                      ))}
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
