@@ -68,7 +68,6 @@ export function TripLifecycleTimeline({
   recalculateOnWaiting,
   currencySymbol,
   onUpdate,
-  stopRadiusMeters,
   stopWaitingChargeIntervalSeconds,
   stopWaitingGracePeriodMinutes,
   stopWaitingRatePencePerMinute,
