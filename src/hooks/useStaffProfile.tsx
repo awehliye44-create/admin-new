@@ -12,6 +12,7 @@ export interface StaffProfile {
   username: string | null;
   role: StaffRole;
   is_active: boolean;
+  is_owner?: boolean;
   created_at: string;
 }
 
