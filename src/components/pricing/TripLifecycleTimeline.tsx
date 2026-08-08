@@ -252,6 +252,19 @@ export function TripLifecycleTimeline({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-0">
+        {/* Unified waiting charge interval */}
+        <div className="mb-6 p-3 rounded-lg border bg-muted/30">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="space-y-1">
+              <Label className="text-sm font-semibold">Waiting Charge Interval</Label>
+              <p className="text-[11px] text-muted-foreground max-w-md">
+                Single shared interval used for both <strong>Pickup Waiting</strong> and <strong>Stop Waiting</strong> charge accrual.
+              </p>
+            </div>
+            <NumberInput value={stopWaitingChargeIntervalSeconds} field="stopWaitingChargeIntervalSeconds" label="Charge Interval" unit="sec" onFieldUpdate={onStopWaitingUpdate} min={1} />
+          </div>
+        </div>
+
         {/* Timeline */}
         <div className="relative">
           {phases.map((phase, index) => {
