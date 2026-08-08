@@ -78,7 +78,7 @@ export function formatResendFromAddress(companyName: string, _companyEmail?: str
   return getVerifiedFromAddress(companyName);
 }
 
-function resolveReplyTo(explicit?: string | false): string | undefined {
+function resolveReplyTo(explicit?: string | false, allowExternal = false): string | undefined {
   // Explicit false = omit Reply-To (do not fall back to RESEND_REPLY_TO_EMAIL).
   if (explicit === false) return undefined;
 
@@ -86,7 +86,7 @@ function resolveReplyTo(explicit?: string | false): string | undefined {
   const candidate = (explicit || envReplyTo || "").trim();
   if (!candidate.includes("@")) return envReplyTo;
 
-  if (!isVerifiedSendDomain(candidate)) {
+  if (!allowExternal && !isVerifiedSendDomain(candidate)) {
     return envReplyTo;
   }
   return candidate;
