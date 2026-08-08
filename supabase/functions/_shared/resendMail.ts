@@ -100,6 +100,8 @@ export async function sendResendEmail(args: {
   from?: string;
   /** Set false to omit Reply-To entirely (no env fallback). */
   replyTo?: string | false;
+  /** Allow a Reply-To on an unverified/off-domain address (e.g. website visitor). */
+  allowExternalReplyTo?: boolean;
   attachments?: ResendAttachment[];
   tag?: string;
 }): Promise<{ ok: true; id?: string } | { ok: false; message: string }> {
