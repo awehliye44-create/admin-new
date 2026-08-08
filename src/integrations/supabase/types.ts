@@ -22399,6 +22399,63 @@ export type Database = {
           },
         ]
       }
+      website_enquiries: {
+        Row: {
+          created_at: string
+          email: string
+          email_error: string | null
+          email_status: string
+          experience: string | null
+          form_type: string
+          id: string
+          idempotency_key: string
+          ip_hash: string | null
+          license: string | null
+          message: string | null
+          name: string
+          phone: string | null
+          provider_message_id: string | null
+          source: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          email_error?: string | null
+          email_status?: string
+          experience?: string | null
+          form_type: string
+          id?: string
+          idempotency_key: string
+          ip_hash?: string | null
+          license?: string | null
+          message?: string | null
+          name: string
+          phone?: string | null
+          provider_message_id?: string | null
+          source?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          email_error?: string | null
+          email_status?: string
+          experience?: string | null
+          form_type?: string
+          id?: string
+          idempotency_key?: string
+          ip_hash?: string | null
+          license?: string | null
+          message?: string | null
+          name?: string
+          phone?: string | null
+          provider_message_id?: string | null
+          source?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       weekly_payout_occurrence_runs: {
         Row: {
           batch_id: string | null
