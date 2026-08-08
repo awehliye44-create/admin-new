@@ -189,10 +189,14 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthReady, fetchStaffData]);
 
+  const isOwner = staffProfile?.is_owner === true;
+
   const canAccessPage = useCallback(
     (pageSlug: string) => {
       // While loading, allow access to prevent flashing
       if (isStaffLoading) return true;
+      // Owner has unrestricted access to every admin page
+      if (staffProfile?.is_owner === true) return true;
       // No staff profile but has admin role → full access (backward compat)
       if (!staffProfile && allowedPages.size > 0) return true;
       if (!staffProfile) return true; // No restrictions if no staff system set up
@@ -205,7 +209,7 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
   );
 
   const canManageRoles = staffProfile
-    ? ['super_admin', 'admin'].includes(staffProfile.role)
+    ? staffProfile.is_owner === true || ['super_admin', 'admin'].includes(staffProfile.role)
     : true; // backward compat
 
   return (
