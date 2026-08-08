@@ -69,6 +69,7 @@ import {
   Coins,
   Lock,
   UserPlus,
+  Gift,
 } from 'lucide-react';
 import {
   Collapsible,
