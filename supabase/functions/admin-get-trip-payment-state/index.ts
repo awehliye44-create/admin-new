@@ -27,8 +27,9 @@ const InputSchema = z.object({ trip_id: z.string().uuid() });
 const TRIP_AUDIT_SELECT = `
   id,
   trip_code,
+  currency_code,
   commission_pence,
-  stripe_processing_fee_pence,
+  stripe_processing_fee_pence:provider_fee_pence,
   onecab_net_pence,
   driver_net_pence,
   gross_fare_pence,
@@ -48,21 +49,15 @@ const TRIP_AUDIT_SELECT = `
   payment_method,
   payment_status,
   financial_outcome,
-  stripe_payment_intent_id,
-  stripe_charge_id,
+  stripe_charge_id:provider_charge_id,
+  stripe_transfer_id:provider_transfer_id,
   provider_order_id,
+  provider_payment_id,
   payment_provider,
   provider_status,
   driver_id,
   passenger_id,
   passenger_name,
-  stripe_settlement_verified,
-  stripe_settlement_warning,
-  stripe_application_fee_id,
-  stripe_application_fee_amount_pence,
-  stripe_destination_account_id,
-  stripe_transfer_id,
-  stripe_transfer_amount_pence,
   created_at,
   refunded_at,
   driver_tier_commission_percent,
@@ -71,6 +66,7 @@ const TRIP_AUDIT_SELECT = `
   service_area_id,
   driver:drivers!trips_driver_id_fkey(first_name, last_name)
 `;
+
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -85,17 +81,35 @@ serve(async (req) => {
     if (!parsed.success) return jsonResponse({ error: 'Invalid input', details: parsed.error.flatten() }, 400);
     const { trip_id } = parsed.data;
 
-    const { data: trip, error: tripErr } = await gate.supabase
+    const { data: tripRow, error: tripErr } = await gate.supabase
       .from('trips')
       .select(TRIP_AUDIT_SELECT)
       .eq('id', trip_id)
       .single();
 
-    if (tripErr || !trip) return jsonResponse({ error: 'Trip not found' }, 404);
+    if (tripErr) {
+      console.error('[admin-get-trip-payment-state] trip query failed:', tripErr.message);
+      return jsonResponse({ error: 'Trip lookup failed', details: tripErr.message }, 500);
+    }
+    if (!tripRow) return jsonResponse({ error: 'Trip not found' }, 404);
+
+    // Legacy Stripe columns were dropped in the Revolut migration; keep the
+    // downstream audit shape intact with inert defaults.
+    const trip = {
+      ...(tripRow as Record<string, unknown>),
+      stripe_payment_intent_id: (tripRow as { provider_payment_id?: string | null }).provider_payment_id ?? null,
+      stripe_settlement_verified: false,
+      stripe_settlement_warning: null,
+      stripe_application_fee_id: null,
+      stripe_application_fee_amount_pence: null,
+      stripe_destination_account_id: null,
+      stripe_transfer_amount_pence: null,
+    } as unknown as TripAuditSourceRow & Record<string, any>;
 
     const paymentProvider = resolveTripPaymentProvider(trip);
     const providerOrderId = tripProviderOrderId(trip);
     const legacyStripePi = tripStripePaymentIntentId(trip);
+
 
     const [paymentsRes, payoutItemsRes, ledgerRes] = await Promise.all([
       gate.supabase
