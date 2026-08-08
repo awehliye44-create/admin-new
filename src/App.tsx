@@ -78,6 +78,7 @@ import { AdminShell } from "@/components/layout/AdminShell";
 import ManageContent from "./pages/ManageContent";
 import HelpCentre from "./pages/HelpCentre";
 import DriverSpecialOffers from "./pages/DriverSpecialOffers";
+import CustomerSpecialOffers from "./pages/CustomerSpecialOffers";
 import LiveChat from "./pages/LiveChat";
 import OnecabDocuments from "./pages/OnecabDocuments";
 import AlertSounds from "./pages/AlertSounds";
@@ -205,6 +206,7 @@ const App = () => (
               <Route path="content" element={<ManageContent />} />
               <Route path="help-centre" element={<HelpCentre />} />
               <Route path="driver-special-offers" element={<DriverSpecialOffers />} />
+              <Route path="customer-special-offers" element={<CustomerSpecialOffers />} />
               
               {/* Settings */}
               <Route path="general-settings" element={<GeneralSettings />} />

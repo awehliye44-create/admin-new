@@ -355,9 +355,10 @@ export function AdminSidebar() {
           </Section>
 
           {/* CONTENT & LEGAL */}
-          <Section label="Content & Legal" slugs={['content', 'help-centre', 'driver-special-offers']}>
+          <Section label="Content & Legal" slugs={['content', 'help-centre', 'customer-special-offers', 'driver-special-offers']}>
             <P pageSlug="content" to="/content" icon={<FileEdit className="h-4 w-4" />} label="Manage Content" active={currentPath === '/content'} collapsed={isCollapsed} />
             <P pageSlug="help-centre" to="/help-centre" icon={<FileEdit className="h-4 w-4" />} label="Help Centre" active={currentPath === '/help-centre'} collapsed={isCollapsed} />
+            <P pageSlug="customer-special-offers" to="/customer-special-offers" icon={<Gift className="h-4 w-4" />} label="Customer Special Offers" active={currentPath === '/customer-special-offers'} collapsed={isCollapsed} />
             <P pageSlug="driver-special-offers" to="/driver-special-offers" icon={<FileEdit className="h-4 w-4" />} label="Driver Special Offers" active={currentPath === '/driver-special-offers'} collapsed={isCollapsed} />
           </Section>
 
