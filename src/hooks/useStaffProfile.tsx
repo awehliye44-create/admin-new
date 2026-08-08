@@ -27,6 +27,7 @@ interface StaffProfileContextType {
   allowedPages: Set<string>;
   assignedServiceAreas: StaffServiceArea[];
   isStaffLoading: boolean;
+  isOwner: boolean;
   canAccessPage: (pageSlug: string) => boolean;
   canManageRoles: boolean;
   refetch: () => Promise<void>;
