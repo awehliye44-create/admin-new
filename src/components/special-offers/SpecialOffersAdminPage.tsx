@@ -37,7 +37,7 @@ import {
   validateSpecialOfferDraft,
   GLOBAL_SCOPE_CONFIRMATION,
   type OfferScopeType,
-} from '@/../shared/driverSpecialOffersSSOT';
+} from '../../../shared/driverSpecialOffersSSOT';
 
 const ALL = '__all__';
 
