@@ -354,6 +354,7 @@ async function renderPdfLibFallback(data: TripInvoiceHtmlData): Promise<Uint8Arr
   });
 
   y -= 10;
+  page.drawRectangle({ x: cols[4] - 10, y: y - 24, width: right - cols[4] + 10, height: 50, color: panel });
   page.drawText("SUBTOTAL", { x: cols[4], y, size: 9.5, font, color: grey });
   page.drawText(data.subtotal, { x: cols[5], y, size: 9.5, font, color: ink });
   y -= 16;
