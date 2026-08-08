@@ -209,6 +209,7 @@ export default function RolesPermissions() {
 
       const members: StaffMember[] = (profiles || []).map((p: any) => ({
         ...p,
+        is_owner: p.is_owner === true,
         service_areas: (assignments || [])
           .filter((a: any) => a.staff_id === p.id)
           .map((a: any) => ({
