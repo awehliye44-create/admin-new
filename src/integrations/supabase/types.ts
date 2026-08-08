@@ -26485,6 +26485,10 @@ export type Database = {
         Args: never
         Returns: undefined
       }
+      invoke_trip_invoice_process: {
+        Args: { p_action?: string; p_trip_id: string }
+        Returns: undefined
+      }
       invoke_weekly_payout_scheduler: { Args: never; Returns: undefined }
       is_active_driver_cancel_rematch_row: {
         Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
@@ -27456,6 +27460,7 @@ export type Database = {
       }
       sweep_revolut_stale_holds: { Args: never; Returns: undefined }
       sweep_stale_searching_trips: { Args: never; Returns: Json }
+      sweep_trip_invoice_emails: { Args: never; Returns: undefined }
       sync_company_transfer_provider_status: {
         Args: {
           p_evidence_redacted?: Json
