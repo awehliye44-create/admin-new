@@ -9295,6 +9295,7 @@ export type Database = {
       }
       driver_special_offer_categories: {
         Row: {
+          audience: string
           badge_label: string | null
           created_at: string
           display_order: number
@@ -9304,6 +9305,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          audience?: string
           badge_label?: string | null
           created_at?: string
           display_order?: number
@@ -9313,6 +9315,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          audience?: string
           badge_label?: string | null
           created_at?: string
           display_order?: number
@@ -9348,6 +9351,7 @@ export type Database = {
       }
       driver_special_offers: {
         Row: {
+          audience: string
           badge_label: string | null
           banner_button_label: string | null
           banner_headline: string | null
@@ -9385,6 +9389,7 @@ export type Database = {
           website_url: string | null
         }
         Insert: {
+          audience?: string
           badge_label?: string | null
           banner_button_label?: string | null
           banner_headline?: string | null
@@ -9422,6 +9427,7 @@ export type Database = {
           website_url?: string | null
         }
         Update: {
+          audience?: string
           badge_label?: string | null
           banner_button_label?: string | null
           banner_headline?: string | null
