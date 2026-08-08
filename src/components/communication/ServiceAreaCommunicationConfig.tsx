@@ -56,7 +56,7 @@ const UNSET_PROVIDER = '__unset__';
 function defaultSettings(serviceAreaId: string, currency: string): ServiceAreaCommunicationSettings {
   return {
     service_area_id: serviceAreaId,
-    voip_enabled: false,
+    voip_enabled: true,
     call_masking_enabled: false,
     default_method: 'voip',
     maximum_call_duration_seconds: 600,
