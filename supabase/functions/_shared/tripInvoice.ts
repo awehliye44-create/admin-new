@@ -7,6 +7,7 @@ import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { fetchCompanyBranding, formatCompanyAddress } from "./companyBranding.ts";
 import { sendResendEmail } from "./resendMail.ts";
+import { buildTripInvoiceHtml, type TripInvoiceHtmlData } from "./tripInvoiceHtml.ts";
 
 const BUCKET = "trip-invoices";
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -479,7 +480,8 @@ export async function ensureTripInvoicePdf(
     currency,
     company,
     tagline: branding.branding.tagline,
-    customerName: trip.passenger_name || "Passenger",
+    customerName: trip.passenger_name || "Customer",
+    customerEmail: (await resolveCustomerEmail(supabase, trip.passenger_id)) ?? "",
   });
 
   const path = `${trip.id}/${invoiceNo}.pdf`;
