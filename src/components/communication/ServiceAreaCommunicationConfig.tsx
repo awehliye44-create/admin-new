@@ -30,15 +30,12 @@ import { getTripDisplayId } from '@/lib/tripUtils';
 import {
   buildUsageMetrics,
   CallMaskingProviderConfig,
-  CommunicationDefaultMethod,
   estimateCallCostMinor,
   minutesToSeconds,
-  resolveDefaultMethod,
   secondsToMinutes,
   ServiceAreaCallMaskingConfig,
   ServiceAreaCommunicationSettings,
   UnifiedCommunicationCallLog,
-  validateCommunicationSettings,
   VOIP_PROVIDER_LABEL,
 } from '@/lib/serviceAreaCommunicationModel';
 import {
@@ -59,7 +56,7 @@ const UNSET_PROVIDER = '__unset__';
 function defaultSettings(serviceAreaId: string, currency: string): ServiceAreaCommunicationSettings {
   return {
     service_area_id: serviceAreaId,
-    voip_enabled: false,
+    voip_enabled: true,
     call_masking_enabled: false,
     default_method: 'voip',
     maximum_call_duration_seconds: 600,
@@ -315,16 +312,6 @@ export function ServiceAreaCommunicationConfig({
   };
 
   const handleSave = async () => {
-    const validationError = validateCommunicationSettings({
-      voip_enabled: settings.voip_enabled,
-      call_masking_enabled: settings.call_masking_enabled,
-      default_method: settings.default_method,
-    });
-    if (validationError) {
-      toast.error(validationError);
-      return;
-    }
-
     if (settings.call_masking_enabled && !maskingConfig?.provider_config_id) {
       toast.error('Select a call masking provider assignment before saving.');
       return;
@@ -355,15 +342,15 @@ export function ServiceAreaCommunicationConfig({
 
     setIsSaving(true);
     try {
+      // VoIP is a global capability — never written per service area.
       const payload = {
-        ...settings,
         service_area_id: serviceAreaId,
+        call_masking_enabled: settings.call_masking_enabled,
+        maximum_call_duration_seconds: settings.maximum_call_duration_seconds,
+        voip_rate_per_minute_minor: settings.voip_rate_per_minute_minor,
+        masked_call_rate_per_minute_minor: settings.masked_call_rate_per_minute_minor,
         outbound_caller_id: normalizedOutbound,
-        default_method: resolveDefaultMethod(
-          settings.voip_enabled,
-          settings.call_masking_enabled,
-          settings.default_method,
-        ),
+        voip_provider: 'livekit',
         currency: currencyCode,
         updated_at: new Date().toISOString(),
       };
@@ -393,7 +380,6 @@ export function ServiceAreaCommunicationConfig({
 
       console.info(COMMUNICATION_LOG_EVENTS.CONFIG_SAVED, {
         service_area_id: serviceAreaId,
-        voip_enabled: settings.voip_enabled,
         call_masking_enabled: settings.call_masking_enabled,
         outbound_caller_id: normalizedOutbound,
       });
@@ -418,8 +404,6 @@ export function ServiceAreaCommunicationConfig({
     );
   }
 
-  const bothEnabled = settings.voip_enabled && settings.call_masking_enabled;
-
   return (
     <div className="space-y-6">
       <Card>
@@ -430,8 +414,9 @@ export function ServiceAreaCommunicationConfig({
               Communication (SSOT)
             </CardTitle>
             <CardDescription>
-              Per–service-area VoIP (LiveKit Cloud) and call masking assignment. Does not modify
-              provider integration — only assigns existing masking config to {serviceAreaName ?? 'this area'}.
+              VoIP (LiveKit Cloud) is a global ONECAB capability and is always enabled. Call Masking
+              is configured per service area — assigning the existing masking config to{' '}
+              {serviceAreaName ?? 'this area'}.
             </CardDescription>
           </div>
           <Button onClick={handleSave} disabled={isSaving}>
@@ -441,94 +426,34 @@ export function ServiceAreaCommunicationConfig({
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-4">
               <div>
-                <Label htmlFor="voip-enabled">VoIP enabled</Label>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Provider: {VOIP_PROVIDER_LABEL}. Shows “Call in app” when enabled.
-                </p>
+                <Label>VoIP calling</Label>
+                <p className="text-xs text-muted-foreground mt-1">{VOIP_PROVIDER_LABEL}</p>
               </div>
-              <Switch
-                id="voip-enabled"
-                checked={settings.voip_enabled}
-                onCheckedChange={(checked) =>
-                  setSettings((current) => ({
-                    ...current,
-                    voip_enabled: checked,
-                    default_method: resolveDefaultMethod(
-                      checked,
-                      current.call_masking_enabled,
-                      current.default_method,
-                    ),
-                  }))
-                }
-              />
+              <Badge variant="outline" className="shrink-0">
+                Global · Always enabled
+              </Badge>
             </div>
 
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div>
                 <Label htmlFor="masking-enabled">Call Masking enabled</Label>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Shows normal phone “Call” when enabled. No automatic fallback.
+                  Allow masked external phone calls for this service area.
                 </p>
               </div>
               <Switch
                 id="masking-enabled"
                 checked={settings.call_masking_enabled}
                 onCheckedChange={(checked) =>
-                  setSettings((current) => ({
-                    ...current,
-                    call_masking_enabled: checked,
-                    default_method: resolveDefaultMethod(
-                      current.voip_enabled,
-                      checked,
-                      current.default_method,
-                    ),
-                  }))
+                  setSettings((current) => ({ ...current, call_masking_enabled: checked }))
                 }
               />
             </div>
           </div>
 
-          {!settings.voip_enabled && !settings.call_masking_enabled && (
-            <Alert>
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>
-                Both methods disabled — customer and driver apps will not show call options for this
-                service area.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <div className="space-y-2">
-              <Label>Default method</Label>
-              <Select
-                value={settings.default_method}
-                disabled={!bothEnabled}
-                onValueChange={(value: CommunicationDefaultMethod) =>
-                  setSettings((current) => ({ ...current, default_method: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="voip" disabled={!settings.voip_enabled}>
-                    VoIP
-                  </SelectItem>
-                  <SelectItem value="call_masking" disabled={!settings.call_masking_enabled}>
-                    Call Masking
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {bothEnabled
-                  ? 'Controls which option appears first when both are enabled.'
-                  : 'Only applies when both VoIP and Call Masking are enabled.'}
-              </p>
-            </div>
-
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="max-duration">Maximum call duration (minutes)</Label>
               <Input
@@ -547,19 +472,6 @@ export function ServiceAreaCommunicationConfig({
               <p className="text-xs text-muted-foreground">
                 Stored as {settings.maximum_call_duration_seconds} seconds.
               </p>
-            </div>
-
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div>
-                <Label>Communication module active</Label>
-                <p className="text-xs text-muted-foreground">Master toggle for this service area.</p>
-              </div>
-              <Switch
-                checked={settings.is_enabled}
-                onCheckedChange={(checked) =>
-                  setSettings((current) => ({ ...current, is_enabled: checked }))
-                }
-              />
             </div>
           </div>
 

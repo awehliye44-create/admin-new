@@ -4,13 +4,16 @@ export type CommunicationCallMethod = 'voip' | 'call_masking';
 
 export interface ServiceAreaCommunicationSettings {
   service_area_id: string;
+  /** @deprecated No runtime authority — VoIP is globally always enabled. */
   voip_enabled: boolean;
   call_masking_enabled: boolean;
+  /** @deprecated No runtime authority — no default method / no fallback. */
   default_method: CommunicationDefaultMethod;
   maximum_call_duration_seconds: number;
   voip_rate_per_minute_minor: number;
   masked_call_rate_per_minute_minor: number;
   currency: string;
+  /** @deprecated No runtime authority — communication module is always active. */
   is_enabled: boolean;
   voip_provider: string;
   outbound_caller_id?: string | null;
@@ -70,29 +73,35 @@ export function secondsToMinutes(seconds: number): number {
   return Math.round((seconds / 60) * 100) / 100;
 }
 
-export function resolveDefaultMethod(
-  voipEnabled: boolean,
-  callMaskingEnabled: boolean,
-  preferred: CommunicationDefaultMethod,
-): CommunicationDefaultMethod {
-  if (voipEnabled && callMaskingEnabled) return preferred;
-  if (voipEnabled) return 'voip';
-  if (callMaskingEnabled) return 'call_masking';
-  return preferred;
+/** VoIP is a global ONECAB capability — always available, never per-service-area. */
+export const VOIP_GLOBALLY_ENABLED = true as const;
+
+export interface ResolvedServiceAreaCommunication {
+  voipAvailable: true;
+  voipProvider: 'livekit';
+  callMaskingAvailable: boolean;
+  maskedOutboundCallerId: string | null;
+  maximumCallDurationSeconds: number;
 }
 
-export function validateCommunicationSettings(input: {
-  voip_enabled: boolean;
-  call_masking_enabled: boolean;
-  default_method: CommunicationDefaultMethod;
-}): string | null {
-  if (input.default_method === 'voip' && !input.voip_enabled) {
-    return 'VoIP must be enabled when default method is VoIP.';
-  }
-  if (input.default_method === 'call_masking' && !input.call_masking_enabled) {
-    return 'Call Masking must be enabled when default method is Call Masking.';
-  }
-  return null;
+/**
+ * Authoritative communication resolver.
+ * VoIP = global + always enabled. Call Masking = per-service-area only.
+ * No automatic fallback between the two methods.
+ */
+export function resolveServiceAreaCommunication(input: {
+  call_masking_enabled?: boolean | null;
+  maximum_call_duration_seconds?: number | null;
+  masking?: { is_active?: boolean | null; outbound_caller_id?: string | null } | null;
+}): ResolvedServiceAreaCommunication {
+  const callMaskingAvailable = Boolean(input.call_masking_enabled) && Boolean(input.masking?.is_active);
+  return {
+    voipAvailable: true,
+    voipProvider: 'livekit',
+    callMaskingAvailable,
+    maskedOutboundCallerId: callMaskingAvailable ? input.masking?.outbound_caller_id ?? null : null,
+    maximumCallDurationSeconds: input.maximum_call_duration_seconds ?? 600,
+  };
 }
 
 export function estimateCallCostMinor(

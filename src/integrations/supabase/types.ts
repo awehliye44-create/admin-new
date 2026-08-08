@@ -27158,6 +27158,17 @@ export type Database = {
         Args: { p_trip_id: string }
         Returns: Json
       }
+      resolve_service_area_communication: {
+        Args: { _service_area_id: string }
+        Returns: {
+          call_masking_available: boolean
+          masked_outbound_caller_id: string
+          maximum_call_duration_seconds: number
+          service_area_id: string
+          voip_available: boolean
+          voip_provider: string
+        }[]
+      }
       resolve_service_area_outbound_caller_id: {
         Args: { p_service_area_id: string }
         Returns: string

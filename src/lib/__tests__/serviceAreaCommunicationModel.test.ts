@@ -3,9 +3,8 @@ import {
   buildUsageMetrics,
   estimateCallCostMinor,
   minutesToSeconds,
-  resolveDefaultMethod,
+  resolveServiceAreaCommunication,
   secondsToMinutes,
-  validateCommunicationSettings,
 } from '../serviceAreaCommunicationModel';
 
 describe('serviceAreaCommunicationModel', () => {
@@ -14,20 +13,30 @@ describe('serviceAreaCommunicationModel', () => {
     expect(secondsToMinutes(600)).toBe(10);
   });
 
-  it('resolves default method from enabled flags', () => {
-    expect(resolveDefaultMethod(true, true, 'call_masking')).toBe('call_masking');
-    expect(resolveDefaultMethod(true, false, 'call_masking')).toBe('voip');
-    expect(resolveDefaultMethod(false, true, 'voip')).toBe('call_masking');
+  it('always reports VoIP as available regardless of legacy flags', () => {
+    const resolved = resolveServiceAreaCommunication({ call_masking_enabled: false });
+    expect(resolved.voipAvailable).toBe(true);
+    expect(resolved.voipProvider).toBe('livekit');
+    expect(resolved.callMaskingAvailable).toBe(false);
+    expect(resolved.maskedOutboundCallerId).toBeNull();
   });
 
-  it('validates default method against enabled toggles', () => {
-    expect(
-      validateCommunicationSettings({
-        voip_enabled: false,
-        call_masking_enabled: true,
-        default_method: 'voip',
-      }),
-    ).toContain('VoIP must be enabled');
+  it('exposes call masking only when enabled for that service area with an active config', () => {
+    const off = resolveServiceAreaCommunication({
+      call_masking_enabled: false,
+      masking: { is_active: true, outbound_caller_id: '+441908831211' },
+    });
+    expect(off.callMaskingAvailable).toBe(false);
+    expect(off.voipAvailable).toBe(true);
+
+    const on = resolveServiceAreaCommunication({
+      call_masking_enabled: true,
+      masking: { is_active: true, outbound_caller_id: '+441908831211' },
+      maximum_call_duration_seconds: 240,
+    });
+    expect(on.callMaskingAvailable).toBe(true);
+    expect(on.maskedOutboundCallerId).toBe('+441908831211');
+    expect(on.maximumCallDurationSeconds).toBe(240);
   });
 
   it('estimates per-call cost from duration and rate', () => {
