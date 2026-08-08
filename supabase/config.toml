@@ -3,7 +3,6 @@ project_id = "thazislrdkjpvvghtvzo"
 [functions.find-drivers]
 verify_jwt = false
 
-
 [functions.accept-trip]
 verify_jwt = false
 
@@ -11,9 +10,6 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.resolve-service-area]
-verify_jwt = false
-
-[functions.complete-trip]
 verify_jwt = false
 
 [functions.document-reminders]
@@ -56,9 +52,6 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.admin-weekly-payout-scheduler]
-verify_jwt = false
-
-[functions.admin-weekly-monday-settlement]
 verify_jwt = false
 
 [functions.admin-reserve-driver-payout-batch]
@@ -114,7 +107,6 @@ verify_jwt = false
 
 [functions.upsert-driver-location]
 verify_jwt = false
-
 
 [functions.create-payment-intent]
 verify_jwt = false
@@ -173,9 +165,6 @@ verify_jwt = false
 [functions.lost-property-ai]
 verify_jwt = false
 
-[functions.driver-arrived]
-verify_jwt = false
-
 [functions.get-preset-offers]
 verify_jwt = false
 
@@ -183,9 +172,6 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.get-mapbox-token]
-verify_jwt = false
-
-[functions.customer-counter-offer]
 verify_jwt = false
 
 [functions.admin-request-extra-payment]
@@ -199,8 +185,6 @@ verify_jwt = false
 
 [functions.admin-integration-secrets]
 verify_jwt = false
-
-
 
 [functions.send-campaign-heads-up]
 verify_jwt = false
