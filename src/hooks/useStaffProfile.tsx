@@ -221,6 +221,7 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
         allowedPages,
         assignedServiceAreas,
         isStaffLoading,
+        isOwner,
         canAccessPage,
         canManageRoles,
         refetch: fetchStaffData,
