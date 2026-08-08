@@ -106,8 +106,8 @@ interface AuditEntry {
   amount_pence_before: number | null;
   amount_pence_after: number | null;
   delta_pence: number | null;
-  stripe_payment_intent_id: string | null;
-  stripe_refund_id: string | null;
+  stripe_payment_intent_id?: string | null;
+  stripe_refund_id?: string | null;
   admin_user_id: string;
   created_at: string;
   metadata: Record<string, unknown> | null;

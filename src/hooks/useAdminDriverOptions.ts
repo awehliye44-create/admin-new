@@ -11,7 +11,6 @@ type AdminDriverRow = {
   service_area_id: string | null;
   approval_status: string | null;
   deleted_at: string | null;
-  stripe_account_id: string | null;
 };
 
 function toDriverOption(row: AdminDriverRow): DriverOption {
@@ -55,7 +54,6 @@ export function useAdminDriverOptions(args?: {
       let list = ((drivers ?? []) as AdminDriverRow[]).filter((d) => {
         if (d.deleted_at) return false;
         if (d.approval_status && d.approval_status !== 'approved') return false;
-        if (stripeConnectOnly && !d.stripe_account_id) return false;
         return true;
       });
 

@@ -96,7 +96,7 @@ type DiscountTripRow = {
 
 const LEDGER_SELECT = `
   id, type, amount_pence, currency, description, created_at, related_trip_id,
-  driver_id, stripe_transfer_id, stripe_payout_id,
+  driver_id,
   drivers(first_name, last_name, region_id),
   trips(trip_code, payment_method, passenger_id, passenger_name, discount_pence, discount_source)
 `;
@@ -110,7 +110,6 @@ function formatName(first: string | null | undefined, last: string | null | unde
 function mapLedgerRow(row: LedgerDbRow): FinanceLedgerTransactionRow {
   const meta = adminFinanceLedgerTypeMeta(row.type);
   const trip = row.trips;
-  const evidenceParts = [row.stripe_payout_id, row.stripe_transfer_id].filter(Boolean);
   return {
     id: row.id,
     created_at: row.created_at,
@@ -126,12 +125,12 @@ function mapLedgerRow(row: LedgerDbRow): FinanceLedgerTransactionRow {
     amount_pence: row.amount_pence,
     currency: (row.currency ?? 'GBP').toUpperCase(),
     payment_method: trip?.payment_method ?? null,
-    source: row.stripe_transfer_id || row.stripe_payout_id ? 'Provider' : 'ledger',
+    source: 'ledger',
     status: 'posted',
     ledger_reference: row.id,
     description: row.description,
     notes: row.description,
-    evidence: evidenceParts.length ? evidenceParts.join(' · ') : null,
+    evidence: null,
   };
 }
 
