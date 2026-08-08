@@ -207,7 +207,7 @@ export function TripLifecycleTimeline({
           />
 
           <div className="flex flex-wrap items-end gap-3">
-            <NumberInput value={stopRadiusMeters} field="stopRadiusMeters" label="GPS Radius Restriction" unit="m" onFieldUpdate={onStopWaitingUpdate} min={1} />
+            
             <NumberInput value={stopWaitingChargeIntervalSeconds} field="stopWaitingChargeIntervalSeconds" label="Charge Interval" unit="sec" onFieldUpdate={onStopWaitingUpdate} min={1} />
           </div>
         </div>
