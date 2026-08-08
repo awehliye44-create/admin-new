@@ -460,15 +460,81 @@ export default function CommissionWallet() {
           </Alert>
         )}
 
-        <div className="flex flex-wrap gap-4 items-end">
-          <Button variant="outline" onClick={() => void overviewQuery.refetch()}>
-            Refresh overview
-          </Button>
-          <p className="text-xs text-muted-foreground max-w-xl">
-            Select Region → Service Area → Driver in Add Credit below.
-            Overview scopes to the selected Service Area.
-          </p>
-        </div>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Filter — Region → Service Area</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-end">
+            <div className="space-y-1">
+              <Label>Region</Label>
+              <Select
+                value={regionId || '__none'}
+                onValueChange={(v) => {
+                  if (v === '__none') {
+                    setServiceFilter(DEFAULT_SERVICE_AREA_SELECTION);
+                    setDriverId('');
+                    setSelectedDriver(null);
+                    return;
+                  }
+                  setCreditRegion(v);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select region" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">All regions…</SelectItem>
+                  {walletRegions.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name} ({r.currency_code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Service Area</Label>
+              <Select
+                value={serviceAreaId || '__none'}
+                disabled={!regionId}
+                onValueChange={(v) => {
+                  if (v === '__none') {
+                    setServiceFilter((prev) => ({
+                      ...prev,
+                      serviceAreaId: null,
+                      currencyCode: regions.find((r) => r.id === prev.regionId)?.currency_code ?? null,
+                    }));
+                    setDriverId('');
+                    setSelectedDriver(null);
+                    return;
+                  }
+                  setCreditServiceArea(v);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={regionId ? 'Select service area' : 'Select region first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">All service areas…</SelectItem>
+                  {regionServiceAreas.map((sa) => (
+                    <SelectItem key={sa.id} value={sa.id}>
+                      {sa.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={() => void overviewQuery.refetch()}>
+                Refresh overview
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Only “Driver-Collected + Commission Wallet” areas are listed.
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+
 
         {driverId.trim() && (
           <Card>
