@@ -430,6 +430,16 @@ export default function CommissionWallet() {
           <Badge variant="secondary">{REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION}</Badge>
         </div>
 
+        {walletServiceAreas.length === 0 && (
+          <Alert variant="destructive">
+            <AlertTitle>No Commission Wallet service areas</AlertTitle>
+            <AlertDescription>
+              No region or service area is running “Driver-Collected + Commission Wallet”.
+              Enable it in Service Area Pricing → Offers &amp; Payment before using this page.
+            </AlertDescription>
+          </Alert>
+        )}
+
         <Alert>
           <AlertTitle>Isolation</AlertTitle>
           <AlertDescription>
