@@ -7,17 +7,29 @@ import { sendResendEmail } from "../_shared/resendMail.ts";
 const ALLOWED_ORIGINS = new Set([
   "https://onecab.net",
   "https://www.onecab.net",
+  "https://onecab-premium-ride.lovable.app",
 ]);
+
+function isAllowedOrigin(origin: string): boolean {
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  try {
+    const url = new URL(origin);
+    return url.protocol === "https:" && url.hostname.endsWith(".lovable.app");
+  } catch {
+    return false;
+  }
+}
 
 function corsHeadersFor(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
   return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.has(origin) ? origin : "https://onecab.net",
+    "Access-Control-Allow-Origin": isAllowedOrigin(origin) ? origin : "https://onecab.net",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Vary": "Origin",
   };
 }
+
 
 function json(req: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
