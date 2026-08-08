@@ -26,10 +26,19 @@ function serviceClient() {
 }
 
 function isServiceRoleCall(req: Request): boolean {
-  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const key = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
   const auth = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  return key.length > 20 && auth === key;
+  if (!auth) return false;
+  if (key.length > 20 && auth === key) return true;
+  // JWT service_role token (pg_cron vault token may differ from the env copy).
+  try {
+    const payload = JSON.parse(atob(auth.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return payload?.role === "service_role";
+  } catch {
+    return false;
+  }
 }
+
 
 const SWEEP_LIMIT = 15;
 
