@@ -136,7 +136,9 @@ export async function sendResendEmail(args: {
       subject: args.subject,
       html: args.html,
       ...(args.text ? { text: args.text } : {}),
-      ...(resolveReplyTo(args.replyTo) ? { reply_to: resolveReplyTo(args.replyTo) } : {}),
+      ...(resolveReplyTo(args.replyTo, args.allowExternalReplyTo)
+        ? { reply_to: resolveReplyTo(args.replyTo, args.allowExternalReplyTo) }
+        : {}),
       ...(args.attachments?.length ? {
         attachments: args.attachments.map((attachment) => ({
           filename: attachment.filename,
