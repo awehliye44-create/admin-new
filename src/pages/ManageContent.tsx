@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { Save, Send, Phone, Building2, Car, Users, Loader2, Eye, Code2, Globe, Scale } from 'lucide-react';
 
-type AppScope = 'customer' | 'driver' | 'corporate' | 'shared' | 'legal';
+type AppScope = 'customer' | 'driver' | 'corporate' | 'shared' | 'legal' | 'website';
 
 interface ContentItem {
   id: string;
@@ -315,6 +315,9 @@ export default function ManageContent() {
             <TabsTrigger value="corporate" className="gap-1.5">
               <Building2 className="h-3.5 w-3.5" /> Corporate Page
             </TabsTrigger>
+            <TabsTrigger value="website" className="gap-1.5">
+              <Globe className="h-3.5 w-3.5" /> ONECAB.NET
+            </TabsTrigger>
             <TabsTrigger value="legal" className="gap-1.5">
               <Scale className="h-3.5 w-3.5" /> Legal Content
             </TabsTrigger>
@@ -356,6 +359,16 @@ export default function ManageContent() {
               items={byScope('corporate')}
               onRefresh={fetchItems}
               apiParam="corporate"
+            />
+          </TabsContent>
+
+          <TabsContent value="website">
+            <ScopeSection
+              scope="ONECAB.NET Website"
+              icon={<Globe className="h-5 w-5 text-primary" />}
+              items={byScope('website')}
+              onRefresh={fetchItems}
+              apiParam="website"
             />
           </TabsContent>
 
