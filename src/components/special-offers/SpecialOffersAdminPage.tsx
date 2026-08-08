@@ -24,11 +24,12 @@ import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { useRegions } from '@/hooks/useRegions';
 import {
   useDeleteSpecialOffer,
-  useDriverSpecialOffersAdmin,
   useDriverTierNames,
   useSaveSpecialOffer,
   useSaveSpecialOfferCategory,
   useSpecialOfferCategories,
+  useSpecialOffersAdmin,
+  type OfferAudience,
   type SpecialOfferWithAreas,
 } from '@/hooks/useDriverSpecialOffersAdmin';
 import {
@@ -105,13 +106,22 @@ const emptyOffer: OfferDraft = {
 const toLocalInput = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 16) : '');
 const toIso = (v: string) => (v ? new Date(v).toISOString() : null);
 
-function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => void }) {
+function OfferDialog({
+  draft,
+  audience,
+  onClose,
+}: {
+  draft: OfferDraft;
+  audience: OfferAudience;
+  onClose: () => void;
+}) {
+  const isDriver = audience === 'driver';
   const [form, setForm] = useState<OfferDraft>(draft);
   const [areaSearch, setAreaSearch] = useState('');
   const [globalConfirmed, setGlobalConfirmed] = useState(draft.scope_type === 'global');
-  const save = useSaveSpecialOffer();
-  const { data: categories = [] } = useSpecialOfferCategories();
-  const { data: tiers = [] } = useDriverTierNames();
+  const save = useSaveSpecialOffer(audience);
+  const { data: categories = [] } = useSpecialOfferCategories(audience);
+  const { data: tiers = [] } = useDriverTierNames(isDriver);
   const { data: areas = [] } = useServiceAreas({ activeOnly: true });
   const { data: regions = [] } = useRegions();
 
@@ -213,7 +223,11 @@ function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => voi
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{form.id ? 'Edit special offer' : 'New special offer'}</DialogTitle>
-          <DialogDescription>Driver App only — customers never see these offers.</DialogDescription>
+          <DialogDescription>
+            {isDriver
+              ? 'Driver App only — customers never see these offers.'
+              : 'Customer App only — drivers never see these offers.'}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -247,7 +261,10 @@ function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => voi
             <div>
               <Label className="text-sm font-medium">Availability area</Label>
               <p className="text-xs text-muted-foreground">
-                Offers are scoped by Region → Service Area. Drivers only see offers for their assigned service area.
+                Offers are scoped by Region → Service Area.{' '}
+                {isDriver
+                  ? 'Drivers only see offers for their assigned service area.'
+                  : 'Customers only see offers for their pickup service area.'}
               </p>
             </div>
 
@@ -426,6 +443,7 @@ function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => voi
             </div>
           </div>
 
+          {isDriver && (
           <div className="space-y-2 rounded-md border p-3">
             <Label className="text-sm font-medium">Driver eligibility</Label>
             <div className="grid gap-3 md:grid-cols-2">
@@ -464,6 +482,7 @@ function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => voi
               </div>
             </div>
           </div>
+          )}
 
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-1">
@@ -513,13 +532,14 @@ function OfferDialog({ draft, onClose }: { draft: OfferDraft; onClose: () => voi
   );
 }
 
-export default function DriverSpecialOffers() {
-  const { data: offers = [], isLoading } = useDriverSpecialOffersAdmin();
-  const { data: categories = [] } = useSpecialOfferCategories();
+export default function SpecialOffersAdminPage({ audience }: { audience: OfferAudience }) {
+  const isDriver = audience === 'driver';
+  const { data: offers = [], isLoading } = useSpecialOffersAdmin(audience);
+  const { data: categories = [] } = useSpecialOfferCategories(audience);
   const { data: areas = [] } = useServiceAreas();
   const { data: regions = [] } = useRegions();
-  const saveCategory = useSaveSpecialOfferCategory();
-  const deleteOffer = useDeleteSpecialOffer();
+  const saveCategory = useSaveSpecialOfferCategory(audience);
+  const deleteOffer = useDeleteSpecialOffer(audience);
   const [dialog, setDialog] = useState<OfferDraft | null>(null);
   const [newCategory, setNewCategory] = useState('');
   const [areasDialog, setAreasDialog] = useState<SpecialOfferWithAreas | null>(null);
@@ -646,8 +666,12 @@ export default function DriverSpecialOffers() {
 
   return (
     <AdminLayout
-      title="Driver Special Offers"
-      description="Manage Driver partner offers by Region and Service Area"
+      title={isDriver ? 'Driver Special Offers' : 'Customer Special Offers'}
+      description={
+        isDriver
+          ? 'Manage Driver App partner offers by Region and Service Area'
+          : 'Manage Customer App offers and promotions by Region and Service Area'
+      }
     >
       <div className="space-y-6">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -666,7 +690,9 @@ export default function DriverSpecialOffers() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Offer categories</CardTitle>
-            <CardDescription className="text-xs">Optional grouping for the Driver App offers screen.</CardDescription>
+            <CardDescription className="text-xs">
+              Optional grouping for the {isDriver ? 'Driver' : 'Customer'} App offers screen.
+            </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-2">
             {categories.map((c) => (
@@ -702,7 +728,9 @@ export default function DriverSpecialOffers() {
             <div>
               <CardTitle className="text-base">Offers</CardTitle>
               <CardDescription className="text-xs">
-                Drivers only see offers scoped to their assigned service area.
+                {isDriver
+                  ? 'Drivers only see offers scoped to their assigned service area.'
+                  : 'Customers only see offers scoped to their pickup service area.'}
               </CardDescription>
             </div>
             <Button onClick={() => setDialog({ ...emptyOffer })}>
@@ -876,7 +904,7 @@ export default function DriverSpecialOffers() {
         </Card>
       </div>
 
-      {dialog && <OfferDialog draft={dialog} onClose={() => setDialog(null)} />}
+      {dialog && <OfferDialog draft={dialog} audience={audience} onClose={() => setDialog(null)} />}
 
       {areasDialog && (
         <Dialog open onOpenChange={(o) => !o && setAreasDialog(null)}>
