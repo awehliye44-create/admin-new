@@ -111,13 +111,24 @@ async function resolveCustomerEmail(
   passengerId: string | null,
 ): Promise<string | null> {
   if (!passengerId) return null;
-  const { data, error } = await supabase.auth.admin.getUserById(passengerId);
-  if (error) {
-    console.warn("[TRIP_INVOICE] customer_email_lookup_failed", error.message);
-    return null;
+
+  // passenger_id may be an auth user id or a customers.id — resolve both.
+  const candidates: string[] = [passengerId];
+  const { data: customer } = await supabase
+    .from("customers")
+    .select("user_id")
+    .or(`id.eq.${passengerId},user_id.eq.${passengerId}`)
+    .maybeSingle();
+  if (customer?.user_id && !candidates.includes(customer.user_id)) candidates.push(customer.user_id);
+
+  for (const userId of candidates) {
+    const { data, error } = await supabase.auth.admin.getUserById(userId);
+    if (error) continue;
+    const email = data?.user?.email?.trim();
+    if (email && email.includes("@")) return email;
   }
-  const email = data?.user?.email?.trim();
-  return email && email.includes("@") ? email : null;
+  console.warn("[TRIP_INVOICE] customer_email_lookup_failed", passengerId);
+  return null;
 }
 
 interface InvoiceLine {
