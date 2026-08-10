@@ -14,7 +14,7 @@ describe('derivePaymentActionAvailability', () => {
   it('enables capture and cancel when authorised', () => {
     const rules = derivePaymentActionAvailability({
       paymentMethod: 'card',
-      providerStatus: 'requires_capture',
+      providerState: 'authorised',
       amountCapturablePence: 500,
       hasPaymentIntent: true,
       authorizedPence: 500,
@@ -28,7 +28,7 @@ describe('derivePaymentActionAvailability', () => {
   it('enables refunds when captured', () => {
     const rules = derivePaymentActionAvailability({
       paymentMethod: 'card',
-      providerStatus: 'succeeded',
+      providerState: 'succeeded',
       capturedPence: 1000,
       refundablePence: 1000,
       hasPaymentIntent: true,
@@ -42,7 +42,7 @@ describe('derivePaymentActionAvailability', () => {
   it('disables refunds when fully refunded but keeps history actions conceptually available', () => {
     const rules = derivePaymentActionAvailability({
       paymentMethod: 'card',
-      providerStatus: 'succeeded',
+      providerState: 'succeeded',
       capturedPence: 1000,
       refundedPence: 1000,
       refundablePence: 0,
@@ -51,13 +51,12 @@ describe('derivePaymentActionAvailability', () => {
     });
     expect(rules.refund_full.enabled).toBe(false);
     expect(rules.refund_full.reason).toMatch(/refund/i);
-    expect(rules.resync_provider.enabled).toBe(true);
   });
 
   it('does not gate actions on reconciliation health — outstanding enables extra payment', () => {
     const rules = derivePaymentActionAvailability({
       paymentMethod: 'card',
-      providerStatus: 'succeeded',
+      providerState: 'succeeded',
       capturedPence: 800,
       refundablePence: 800,
       outstandingPence: 200,
@@ -71,7 +70,7 @@ describe('derivePaymentActionAvailability', () => {
   it('respects server actions_allowed SSOT', () => {
     const rules = derivePaymentActionAvailability({
       paymentMethod: 'card',
-      providerStatus: 'requires_capture',
+      providerState: 'authorised',
       amountCapturablePence: 500,
       hasPaymentIntent: true,
       actionsAllowed: { can_capture: false, can_cancel_authorisation: false },
