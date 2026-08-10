@@ -91,7 +91,9 @@ serve(async (req) => {
       console.error('[admin-get-trip-payment-state] trip query failed:', tripErr.message);
       return jsonResponse({ error: 'Trip lookup failed', details: tripErr.message }, 500);
     }
-    if (!tripRow) return jsonResponse({ error: 'Trip not found' }, 404);
+    if (!tripRow) {
+      return jsonResponse({ error: 'Trip not found', code: 'TRIP_NOT_FOUND', trip_id }, 404);
+    }
 
     // Legacy Stripe columns were dropped in the Revolut migration; keep the
     // downstream audit shape intact with inert defaults.
