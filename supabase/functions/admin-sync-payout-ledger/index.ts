@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { retryPayoutLedgerSync } from "../_shared/payoutLedgerSync.ts";
-import { assertStripeMutationAllowed } from "../_shared/stripeRuntimeDisabled.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -56,23 +55,10 @@ serve(async (req) => {
 
     const body = req.method === "POST" ? await req.json() : {};
     const payoutItemId = body.payout_item_id as string | undefined;
-    const discoverStripe = body.discover_stripe === true;
 
     if (payoutItemId) {
       const result = await retryPayoutLedgerSync(supabase, payoutItemId);
       return new Response(JSON.stringify({ ok: true, result }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (discoverStripe) {
-      const retired = assertStripeMutationAllowed(corsHeaders, "admin-sync-payout-ledger:discover_stripe");
-      if (retired) return retired;
-      return new Response(JSON.stringify({
-        error: "Stripe is permanently retired from active ONECAB finance.",
-        error_code: "STRIPE_RETIRED",
-      }), {
-        status: 422,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

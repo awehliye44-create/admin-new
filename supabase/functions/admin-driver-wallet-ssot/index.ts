@@ -5,7 +5,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
 import { fetchDriverWalletSummary } from "../_shared/fetchDriverWalletSummary.ts";
-import { isStripeRuntimeDisabled } from "../_shared/stripeRuntimeDisabled.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -75,12 +74,6 @@ Deno.serve(async (req) => {
       Math.max(1, Number(body.limit ?? url.searchParams.get("limit") ?? DEFAULT_PAGE_SIZE)),
     );
     const offset = Math.max(0, Number(body.offset ?? url.searchParams.get("offset") ?? 0));
-
-    // P0: never pass a live Stripe client into wallet SSOT.
-    const stripe = null;
-    if (!isStripeRuntimeDisabled()) {
-      console.warn("[admin-driver-wallet-ssot] Stripe runtime re-enabled — Connect reads still withheld from DWL/FR");
-    }
 
     if (driverId && mode === "wallet_summary") {
       if (!periodFrom || !periodTo) {
