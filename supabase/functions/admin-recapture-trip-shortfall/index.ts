@@ -176,7 +176,7 @@ Deno.serve(async (req) => {
           success: true,
           code: "NO_SHORTFALL_DUE",
           message: "No outstanding amount to recapture. Payment state is up to date.",
-          trip_id,
+          trip_id: tripId,
           ui_state: eligibility.ui_state,
           outstanding_shortfall_pence: 0,
         });
