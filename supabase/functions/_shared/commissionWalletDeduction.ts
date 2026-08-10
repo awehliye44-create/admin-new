@@ -4,7 +4,7 @@
  */
 // @ts-ignore Deno remote import
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import { tripUsesCommissionWalletDeduction } from "../../../shared/commissionWalletSSOT.ts";
+import { tripUsesCommissionWalletDeduction } from "./commissionWalletSSOT.ts";
 import { calculateTripSettlement } from "./tripSettlement.ts";
 
 export type ConvertCommissionWalletOnCompleteResult = {

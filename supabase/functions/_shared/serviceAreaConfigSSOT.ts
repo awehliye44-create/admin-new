@@ -3,7 +3,7 @@
  */
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import { getCurrencySymbol } from "../../../shared/currency.ts";
+import { getCurrencySymbol } from "./currency.ts";
 import {
   checkServiceAreaGateway,
   resolveServiceAreaPaymentProvider,

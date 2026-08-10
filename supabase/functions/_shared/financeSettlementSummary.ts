@@ -18,7 +18,7 @@ import {
   type SSOTComputedMetrics,
   SSOT_VERSION,
 } from "./financialReconciliationSSOT.ts";
-import { excludeTripFromPlatformCollectedFinance } from "../../../shared/commissionWalletSSOT.ts";
+import { excludeTripFromPlatformCollectedFinance } from "./commissionWalletSSOT.ts";
 import {
   classifyPayoutReconciliation,
   classifyProviderVerificationStatus,
@@ -34,7 +34,7 @@ import {
   captureClassificationToMatchStatus,
   readPersistedCaptureBreakdown,
   type PaymentSessionCaptureBreakdown,
-} from "../../../shared/paymentSessionsCaptureBreakdownSSOT.ts";
+} from "./paymentSessionsCaptureBreakdownSSOT.ts";
 import {
   deriveTripFinancialAuditStatuses,
   deriveTripReconciliationBadge,

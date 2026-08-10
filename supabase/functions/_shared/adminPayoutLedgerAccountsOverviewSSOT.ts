@@ -9,10 +9,10 @@ import type {
   AdminPayoutLedgerFleetSummary,
   AdminPayoutLedgerListResponse,
   DriverPayoutAccountRow,
-} from "../../../shared/adminPayoutLedgerSSOT.ts";
-import { payoutDestinationLabel } from "../../../shared/payoutLedgerHandoffSSOT.ts";
+} from "./adminPayoutLedgerSSOT.ts";
+import { payoutDestinationLabel } from "./payoutLedgerHandoffSSOT.ts";
 import { fetchDriverPayoutEligibility } from "./fetchDriverPayoutEligibility.ts";
-import { shouldBlockZeroValuePayoutBatch } from "../../../shared/driverPayoutEligibilitySSOT.ts";
+import { shouldBlockZeroValuePayoutBatch } from "./driverPayoutEligibilitySSOT.ts";
 import { loadPayoutControlCentreSettings } from "./payoutControlCentreSettingsSSOT.ts";
 import { buildPayoutScheduleDto } from "./payoutScheduleSSOT.ts";
 

@@ -11,7 +11,7 @@
  */
 
 import { computeLedgerWalletBalancePence } from "./onecabFinanceLedger.ts";
-import { excludeTripFromPlatformCollectedFinance } from "../../../shared/commissionWalletSSOT.ts";
+import { excludeTripFromPlatformCollectedFinance } from "./commissionWalletSSOT.ts";
 
 export const SSOT_VERSION = "financial_reconciliation_ssot_v5";
 

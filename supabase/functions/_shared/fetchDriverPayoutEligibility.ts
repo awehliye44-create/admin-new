@@ -10,7 +10,7 @@ import {
   deriveTripFrStatusForPayoutEligibility,
   type DriverPayoutEligibilityResult,
   type LedgerEligibilityEvidence,
-} from "../../../shared/driverPayoutEligibilitySSOT.ts";
+} from "./driverPayoutEligibilitySSOT.ts";
 
 export type { DriverPayoutEligibilityResult };
 
