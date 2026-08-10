@@ -39,7 +39,7 @@ export const ERROR_CODES = {
   // === Payment ===
   PAYMENT_FAILED: 'Payment processing failed. Please try again.',
   PAYMENT_METHOD_INVALID: 'Invalid payment method.',
-  PAYMENT_STRIPE_ERROR: 'Payment provider error. Please try again later.',
+  PAYMENT_PROVIDER_ERROR: 'Payment provider error. Please try again later.',
   PAYMENT_INSUFFICIENT_FUNDS: 'Insufficient funds.',
 
   // === Dispatch ===

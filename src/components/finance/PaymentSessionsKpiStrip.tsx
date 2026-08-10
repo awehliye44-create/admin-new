@@ -22,7 +22,7 @@ type WidgetDef = {
   hint?: string;
 };
 
-/** Stripe-like KPI strip — values from edge summary only (no client money math). */
+/** provider-like KPI strip — values from edge summary only (no client money math). */
 export function PaymentSessionsKpiStrip({
   summary,
   currencyCode = 'GBP',

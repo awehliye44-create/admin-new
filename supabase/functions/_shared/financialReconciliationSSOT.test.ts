@@ -132,7 +132,7 @@ Deno.test("mixed card+cash balances separately — no false mismatch from mixing
   assertEquals(ledger.onecab_card_commission_pence, 867);
 });
 
-Deno.test("total commission and net platform revenue — card + cash, Stripe fees card only", () => {
+Deno.test("total commission and net platform revenue — card + cash, provider fees card only", () => {
   const cardCommission = 72;
   const cashCommission = 222;
   const providerFees = 27;
@@ -168,7 +168,7 @@ Deno.test("total commission and net platform revenue — card + cash, Stripe fee
 
   assertEquals(m.ledger_split.onecab_card_commission_pence, 72);
   assertEquals(m.ledger_split.onecab_cash_commission_receivable_pence, 222);
-  assertEquals(m.ledger_split.stripe_processing_fees_pence, 27);
+  assertEquals(m.ledger_split.provider_processing_fees_pence, 27);
   assertEquals(m.total_commission_earned_pence, 294);
   assertEquals(m.net_platform_revenue_pence, 267);
   assertEquals(m.onecab_card_net_commission_pence, 45);

@@ -71,7 +71,7 @@ interface ServiceAreaPaymentGatewayConfigProps {
 const UNSET_VALUE = '__unset__';
 
 const SUPPORTED_PROVIDERS = new Set([
-  'stripe',
+  'provider',
   'sifalo_pay',
   'waafi_pay',
   'sahal_pay',
@@ -111,7 +111,7 @@ function GatewayStatusBadge({ snapshot }: { snapshot: GatewayStatusSnapshot | nu
 
 function payoutLabel(provider: string | null, displayName: string): string {
   if (!provider) return 'Not selected';
-  if (provider === 'stripe') return 'Provider';
+  if (provider === 'provider') return 'Provider';
   return displayName;
 }
 

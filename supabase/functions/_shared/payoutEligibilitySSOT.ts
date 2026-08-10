@@ -3,10 +3,10 @@
  *
  * Separates:
  * - driver wallet unpaid (what ONECAB owes)
- * - stripe settled unpaid (what Stripe has made available)
+ * - provider settled unpaid (what provider has made available)
  * - finance reconciled unpaid (FR gate — blocks when payout_blocked)
  *
- * eligible_payout = min(wallet_unpaid, stripe_settled_unpaid, finance_reconciled_unpaid)
+ * eligible_payout = min(wallet_unpaid, provider_settled_unpaid, finance_reconciled_unpaid)
  */
 
 export const SETTLEMENT_STATUSES = ["pending", "settled", "failed"] as const;
@@ -21,7 +21,7 @@ export const LEGACY_MANUAL_PAYOUT_NO_PROVABLE_MATCH = "LEGACY_MANUAL_PAYOUT_NO_P
 
 export type PayoutEligibilityAggregateInput = {
   walletUnpaidPence: number;
-  stripeSettledUnpaidPence: number;
+  providerSettledUnpaidPence: number;
   payoutBlocked: boolean;
   inFlightPayoutPence?: number;
 };
@@ -69,8 +69,8 @@ export function isCardPaymentCaptured(args: {
   return CAPTURED_PAYMENT_STATUSES.has(trip);
 }
 
-/** Stripe Connect settlement permanently retired — never required for eligibility. */
-export function requiresStripeSettlement(
+/** provider Connect settlement permanently retired — never required for eligibility. */
+export function requiresProviderSettlement(
   _paymentMethod: string | null | undefined,
   _paymentProvider?: string | null,
 ): boolean {
@@ -87,20 +87,20 @@ export function computeFinanceReconciledUnpaidPence(
 
 export function computeAwaitingSettlementPence(
   walletUnpaidPence: number,
-  stripeSettledUnpaidPence: number,
+  providerSettledUnpaidPence: number,
 ): number {
-  return Math.max(0, walletUnpaidPence - stripeSettledUnpaidPence);
+  return Math.max(0, walletUnpaidPence - providerSettledUnpaidPence);
 }
 
 /**
  * Aggregate payout eligibility — used by settlement batch, FR edge, and driver UI.
- * Caps payout to the minimum of wallet, stripe-settled, and FR-reconciled unpaid.
+ * Caps payout to the minimum of wallet, provider-settled, and FR-reconciled unpaid.
  */
 export function computePayoutEligibility(
   input: PayoutEligibilityAggregateInput,
 ): PayoutEligibilityAggregateResult {
   const walletUnpaidPence = Math.max(0, input.walletUnpaidPence);
-  const stripeSettledUnpaidPence = Math.max(0, input.stripeSettledUnpaidPence);
+  const providerSettledUnpaidPence = Math.max(0, input.providerSettledUnpaidPence);
   const financeReconciledUnpaidPence = computeFinanceReconciledUnpaidPence(
     walletUnpaidPence,
     input.payoutBlocked,
@@ -108,12 +108,12 @@ export function computePayoutEligibility(
 
   const awaitingSettlementPence = computeAwaitingSettlementPence(
     walletUnpaidPence,
-    stripeSettledUnpaidPence,
+    providerSettledUnpaidPence,
   );
 
   const rawEligible = Math.min(
     walletUnpaidPence,
-    stripeSettledUnpaidPence,
+    providerSettledUnpaidPence,
     financeReconciledUnpaidPence,
   );
 
@@ -144,7 +144,7 @@ export function isEarningEligibleForPayout(
   if (earning.trip_completed === false) return false;
   if (earning.payment_captured === false) return false;
 
-  if (requiresStripeSettlement(earning.payment_method, earning.payment_provider)) {
+  if (requiresProviderSettlement(earning.payment_method, earning.payment_provider)) {
     return earning.settlement_status === "settled";
   }
 
@@ -158,21 +158,21 @@ export function deriveIneligibleReason(earning: EarningSettlementInput): string 
   if (earning.trip_completed === false) return "trip_not_completed";
   if (earning.payment_captured === false) return "payment_not_captured";
   if (
-    requiresStripeSettlement(earning.payment_method, earning.payment_provider)
+    requiresProviderSettlement(earning.payment_method, earning.payment_provider)
     && earning.settlement_status !== "settled"
   ) {
     return earning.settlement_status === "failed"
-      ? "stripe_settlement_failed"
-      : "awaiting_stripe_settlement";
+      ? "provider_settlement_failed"
+      : "awaiting_provider_settlement";
   }
   return null;
 }
 
-export function sumStripeSettledUnpaidPence(
+export function sumProviderSettledUnpaidPence(
   earnings: EarningSettlementInput[],
 ): number {
   return earnings.reduce((sum, row) => {
-    if (!requiresStripeSettlement(row.payment_method, row.payment_provider)) return sum;
+    if (!requiresProviderSettlement(row.payment_method, row.payment_provider)) return sum;
     if (!isEarningPayableForPayout(row)) return sum;
     if (row.settlement_status !== "settled") return sum;
     return sum + remainingPayablePence(row);
@@ -226,4 +226,4 @@ export function computePayoutAmountFromEligibleEarnings(
   return afterHoldbacks;
 }
 
-export const sumClearedSettlementBatchPence = sumStripeSettledUnpaidPence;
+export const sumClearedSettlementBatchPence = sumProviderSettledUnpaidPence;

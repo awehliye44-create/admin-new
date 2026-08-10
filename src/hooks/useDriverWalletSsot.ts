@@ -101,7 +101,7 @@ export type DriverWalletSsotRow = {
   };
   payout_items?: Array<Record<string, unknown>>;
   early_cashouts?: Array<Record<string, unknown>>;
-  stripe_connect_payouts?: Array<Record<string, unknown>>;
+  provider_connect_payouts?: Array<Record<string, unknown>>;
   settlements?: Array<Record<string, unknown>>;
   settlement_history?: DriverWalletSettlementHistoryRow[];
   commission_fee_breakdown?: Array<{

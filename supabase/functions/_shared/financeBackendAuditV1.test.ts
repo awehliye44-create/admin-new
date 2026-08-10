@@ -50,8 +50,8 @@ Deno.test("flags completed payout without ledger — wallet stays inflated", () 
     drivers: [{ id: "drv-1", first_name: "Test", last_name: "Driver" }],
     providerAvailablePence: 10000,
     providerPendingPence: 0,
-    stripePlatformPayoutsPence: 0,
-    stripeBalanceError: null,
+    providerPlatformPayoutsPence: 0,
+    providerBalanceError: null,
   });
 
   assertEquals(audit.paid_out.driver_paid_out_total_pence, 0);
@@ -118,8 +118,8 @@ Deno.test("driver_available_now is min(liability, provider_available)", () => {
     drivers: [],
     providerAvailablePence: 1000,
     providerPendingPence: 0,
-    stripePlatformPayoutsPence: 0,
-    stripeBalanceError: null,
+    providerPlatformPayoutsPence: 0,
+    providerBalanceError: null,
   });
 
   assertEquals(audit.remaining_money.driver_remaining_liability_pence, 2500);
@@ -187,8 +187,8 @@ Deno.test("mixed card+cash does not false MISMATCH on backend audit", () => {
     drivers: [{ id: "drv-1", first_name: "asriya", last_name: "wahbiya" }],
     providerAvailablePence: 1336,
     providerPendingPence: 564,
-    stripePlatformPayoutsPence: 6176,
-    stripeBalanceError: null,
+    providerPlatformPayoutsPence: 6176,
+    providerBalanceError: null,
   });
 
   assertEquals(audit.reconciliation.reconciliation_status, "BALANCED");

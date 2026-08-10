@@ -5,19 +5,19 @@ import {
   type GatewayConfiguredResult,
 } from "./paymentGatewayGuard.ts";
 
-const stripeOk: GatewayConfiguredResult = {
+const providerOk: GatewayConfiguredResult = {
   ok: true,
-  provider: "stripe",
+  provider: "provider",
   environment: "live",
-  display_name: "Stripe",
+  display_name: "provider",
   role: "customer",
 };
 
-Deno.test("assertGatewayExecutable allows Stripe", () => {
-  assertEquals(assertGatewayExecutable(stripeOk), stripeOk);
+Deno.test("assertGatewayExecutable allows provider", () => {
+  assertEquals(assertGatewayExecutable(providerOk), providerOk);
 });
 
-Deno.test("assertGatewayExecutable blocks non-Stripe until live adapters exist", () => {
+Deno.test("assertGatewayExecutable blocks non-provider until live adapters exist", () => {
   const paystack: GatewayConfiguredResult = {
     ok: true,
     provider: "paystack",

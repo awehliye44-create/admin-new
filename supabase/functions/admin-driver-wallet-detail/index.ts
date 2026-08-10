@@ -202,7 +202,7 @@ serve(async (req) => {
         isOnline: driver.is_online,
         rating: driver.rating,
         totalTrips: driver.total_trips,
-        stripeAccountId: driver.provider_account_id,
+        providerAccountId: driver.provider_account_id,
         payoutsEnabled: driver.payouts_enabled,
         chargesEnabled: driver.charges_enabled,
         onboardingComplete: driver.onboarding_complete,

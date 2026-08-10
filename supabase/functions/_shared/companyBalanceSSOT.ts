@@ -219,11 +219,11 @@ export function auditCompanyBalanceSourceCandidates(): CompanyBalanceSourceAudit
       notes: "Requires business_access_token + REVOLUT_SOURCE_BUSINESS_ACCOUNT_ID (merchant_id).",
     },
     {
-      candidate: "stripeAdapter.getBalance",
+      candidate: "providerAdapter.getBalance",
       kind: "adapter",
       exists: true,
       usable_for_company_balance: false,
-      notes: "Stripe retired for runtime payouts — forbidden.",
+      notes: "provider retired for runtime payouts — forbidden.",
     },
     {
       candidate: "company_ledger / treasury table",

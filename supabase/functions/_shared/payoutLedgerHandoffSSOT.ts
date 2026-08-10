@@ -57,7 +57,7 @@ export function planEligibleLedgerAllocations(args: {
   return lines;
 }
 
-/** UI / API label — avoid Stripe-only "Connected Account" wording. */
+/** UI / API label — avoid provider-only "Connected Account" wording. */
 export function payoutDestinationLabel(args: {
   provider?: string | null;
   connected_account_id?: string | null;

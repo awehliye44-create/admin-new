@@ -1,7 +1,7 @@
 // v1.0.2 — resolve finance scope provider before platform balance fetch
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Stripe from "https://esm.sh/stripe@14.21.0";
+import provider from "https://esm.sh/provider@14.21.0";
 import {
   fetchProviderPlatformBalance,
   resolveFinanceScopeProvider,
@@ -44,7 +44,7 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+    const providerSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const authHeader = req.headers.get("Authorization");
@@ -287,16 +287,16 @@ serve(async (req) => {
 
     let providerAvailablePence = 0;
     let providerPendingPence = 0;
-    let stripePlatformPayoutsPence = 0;
-    let stripePlatformPaidTodayPence = 0;
-    let stripePlatformPayoutDetails: Array<{
+    let providerPlatformPayoutsPence = 0;
+    let providerPlatformPaidTodayPence = 0;
+    let providerPlatformPayoutDetails: Array<{
       id: string;
       amount_pence: number;
       status: string;
       arrival_date: string | null;
       created_at: string;
     }> = [];
-    let stripeBalanceError: string | null = null;
+    let providerBalanceError: string | null = null;
 
     const financeScopeProvider = await resolveFinanceScopeProvider(supabase, {
       regionId: resolvedRegionId,
@@ -310,15 +310,15 @@ serve(async (req) => {
     });
     providerAvailablePence = providerBalance.available_pence;
     providerPendingPence = providerBalance.pending_pence;
-    stripeBalanceError = providerBalance.error;
+    providerBalanceError = providerBalance.error;
 
-    const useStripePlatformPayouts = financeScopeProvider.provider === "stripe";
+    const useProviderPlatformPayouts = financeScopeProvider.provider === "provider";
 
-    if (useStripePlatformPayouts && stripeSecretKey) {
+    if (useProviderPlatformPayouts && providerSecretKey) {
       try {
-        const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
-        const payouts = await stripe.payouts.list({ limit: 100 });
-        stripePlatformPayoutsPence = payouts.data
+        const provider = new provider(providerSecretKey, { apiVersion: "2023-10-16" });
+        const payouts = await provider.payouts.list({ limit: 100 });
+        providerPlatformPayoutsPence = payouts.data
           .filter((p: { currency: string; status: string }) => p.currency === currency && p.status === "paid")
           .reduce((s: number, p: { amount?: number | null }) => s + (p.amount ?? 0), 0);
 
@@ -331,7 +331,7 @@ serve(async (req) => {
           return london.getTime();
         })();
 
-        stripePlatformPayoutDetails = payouts.data
+        providerPlatformPayoutDetails = payouts.data
           .filter((p: { currency: string }) => p.currency === currency)
           .map((p: {
             id: string;
@@ -349,7 +349,7 @@ serve(async (req) => {
             created_at: new Date(p.created * 1000).toISOString(),
           }));
 
-        stripePlatformPaidTodayPence = stripePlatformPayoutDetails
+        providerPlatformPaidTodayPence = providerPlatformPayoutDetails
           .filter(
             (p) =>
               p.status === "paid" &&
@@ -358,10 +358,10 @@ serve(async (req) => {
           )
           .reduce((s, p) => s + p.amount_pence, 0);
       } catch (e) {
-        stripeBalanceError = (e as Error).message;
+        providerBalanceError = (e as Error).message;
       }
-    } else if (useStripePlatformPayouts && !stripeSecretKey) {
-      stripeBalanceError = stripeBalanceError ?? "STRIPE_SECRET_KEY not configured";
+    } else if (useProviderPlatformPayouts && !providerSecretKey) {
+      providerBalanceError = providerBalanceError ?? "STRIPE_SECRET_KEY not configured";
     }
 
     const finance_backend_audit_v1 = buildFinanceBackendAuditV1({
@@ -377,18 +377,18 @@ serve(async (req) => {
       drivers: driversResult.data || [],
       providerAvailablePence,
       providerPendingPence,
-      stripePlatformPayoutsPence,
-      stripeBalanceError,
+      providerPlatformPayoutsPence,
+      providerBalanceError,
     });
 
     return new Response(JSON.stringify({
       finance_backend_audit_v1,
-      stripe_platform_payouts: {
-        paid_today_pence: stripePlatformPaidTodayPence,
-        paid_all_time_pence: stripePlatformPayoutsPence,
-        recent: stripePlatformPayoutDetails.slice(0, 20),
+      provider_platform_payouts: {
+        paid_today_pence: providerPlatformPaidTodayPence,
+        paid_all_time_pence: providerPlatformPayoutsPence,
+        recent: providerPlatformPayoutDetails.slice(0, 20),
         note:
-          "Stripe automatic platform payouts to ONECAB business bank — not the same as admin commission-sweep batches.",
+          "provider automatic platform payouts to ONECAB business bank — not the same as admin commission-sweep batches.",
       },
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

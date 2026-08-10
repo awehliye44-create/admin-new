@@ -341,8 +341,8 @@ export function buildFinanceBackendAuditV1(args: {
   drivers: Array<{ id: string; first_name?: string | null; last_name?: string | null }>;
   providerAvailablePence: number;
   providerPendingPence: number;
-  stripePlatformPayoutsPence: number;
-  stripeBalanceError: string | null;
+  providerPlatformPayoutsPence: number;
+  providerBalanceError: string | null;
   tolerancePence?: number;
 }): FinanceBackendAuditV1 {
   const tolerance = args.tolerancePence ?? 100;
@@ -355,7 +355,7 @@ export function buildFinanceBackendAuditV1(args: {
 
   const payoutDebits = sumLedgerPayoutDebits(args.ledgerRows);
   const adjustments = sumLedgerAdjustmentsPence(args.ledgerRows);
-  const providerFees = ledgerSplit.stripe_processing_fees_pence;
+  const providerFees = ledgerSplit.provider_processing_fees_pence;
 
   const failedPayouts = args.payoutItems
     .filter((p) => p.status === "failed")
@@ -439,7 +439,7 @@ export function buildFinanceBackendAuditV1(args: {
     {
       id: "provider_balance_not_commission",
       passed: true,
-      detail: "onecab_remaining_commission_pence is trip-derived, not Stripe available balance.",
+      detail: "onecab_remaining_commission_pence is trip-derived, not provider available balance.",
     },
     {
       id: "wallet_not_available_payout",
@@ -458,7 +458,7 @@ export function buildFinanceBackendAuditV1(args: {
     B_total_refunded_pence: refunded,
     C_net_card_revenue_pence: ledgerSplit.net_card_revenue_pence,
     D_driver_paid_out_total_pence: payoutDebits.total,
-    E_onecab_paid_to_bank_pence: args.stripePlatformPayoutsPence,
+    E_onecab_paid_to_bank_pence: args.providerPlatformPayoutsPence,
     F_driver_still_owed_pence: driverRemainingLiability,
     G_driver_available_now_pence: driverAvailableNow,
     H_driver_pending_settlement_pence: driverPendingSettlement,
@@ -486,14 +486,14 @@ export function buildFinanceBackendAuditV1(args: {
       net_card_revenue_pence: ledgerSplit.net_card_revenue_pence,
       provider_available_balance_pence: args.providerAvailablePence,
       provider_pending_balance_pence: args.providerPendingPence,
-      provider_payouts_to_onecab_bank_pence: args.stripePlatformPayoutsPence,
+      provider_payouts_to_onecab_bank_pence: args.providerPlatformPayoutsPence,
     },
     paid_out: {
       driver_paid_out_total_pence: payoutDebits.total,
       driver_weekly_payouts_paid_pence: payoutDebits.weekly,
       driver_early_cashouts_paid_pence: payoutDebits.early,
       failed_payouts_pence: failedPayouts,
-      onecab_paid_to_bank_pence: args.stripePlatformPayoutsPence,
+      onecab_paid_to_bank_pence: args.providerPlatformPayoutsPence,
       provider_fees_paid_pence: providerFees,
     },
     remaining_money: {
@@ -528,13 +528,13 @@ export function buildFinanceBackendAuditV1(args: {
     meta: {
       trip_count: args.trips.length,
       payout_row_count: payoutRows.length,
-      provider_balance_error: args.stripeBalanceError,
+      provider_balance_error: args.providerBalanceError,
       accounting_rules: {
         driver_remaining_liability:
           "card_driver_payable - ledger_payout_debits + ledger_adjustments (excludes cash driver_net)",
         driver_available_now:
           "min(driver_remaining_liability, provider_available_balance) — NOT wallet balance",
-        onecab_commission: "card commission − Stripe fees (digital-only platform)",
+        onecab_commission: "card commission − provider fees (digital-only platform)",
         card_reconciliation:
           "card_customer_revenue = card_driver_payable + onecab_card_commission",
         historical_legacy_cash_trips: "excluded from digital finance reconciliation",

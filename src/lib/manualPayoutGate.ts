@@ -14,11 +14,11 @@ export type ManualPayoutDriverFlags = {
   payouts_enabled?: boolean | null;
 };
 
-/** True when driver payouts are enabled for non-Stripe adapters (Revolut / bank transfer). */
-export function isDriverStripeOnboardingComplete(
+/** True when driver payouts are enabled for non-provider adapters (Revolut / bank transfer). */
+export function isDriverPayoutOnboardingComplete(
   driver: ManualPayoutDriverFlags,
 ): boolean {
-  // P0: Stripe Connect onboarding is not required for payout eligibility.
+  // P0: provider Connect onboarding is not required for payout eligibility.
   return Boolean(driver.payouts_enabled !== false);
 }
 

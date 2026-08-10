@@ -10,7 +10,7 @@ import {
   computeManualBankAvailablePence,
 } from "./driverWalletPayoutSSOT.ts";
 
-Deno.test("cashout limit is zero when Stripe instant is zero even if wallet owed", () => {
+Deno.test("cashout limit is zero when provider instant is zero even if wallet owed", () => {
   assertEquals(
     computeCashoutLimitPence({
       wallet_owed_pence: 973,
@@ -61,7 +61,7 @@ Deno.test("Revolut available is zero when finance not cleared — with live wall
   assertEquals(snap.cashout_limit_pence, 0);
 });
 
-Deno.test("Revolut ignores Stripe local_only mismatch freeze", () => {
+Deno.test("Revolut ignores provider local_only mismatch freeze", () => {
   const snap = computeDriverWalletPayoutSnapshot({
     wallet_balance_pence: 408,
     finance_cleared_pence: 408,
@@ -92,7 +92,7 @@ Deno.test("scheduled payout display only from batch amount not wallet", () => {
   assertEquals(snap.current_onecab_wallet_owed_pence, 973);
 });
 
-Deno.test("available cash out ignores wallet balance — Stripe after settlement rules only", () => {
+Deno.test("available cash out ignores wallet balance — provider after settlement rules only", () => {
   assertEquals(
     computeAvailableCashOutPence({
       provider_available_pence: 500,
@@ -113,7 +113,7 @@ Deno.test("available cash out ignores wallet balance — Stripe after settlement
   );
 });
 
-Deno.test("local_only failed flags Connect audit LOCAL_ONLY and freezes Stripe cashout", () => {
+Deno.test("local_only failed flags Connect audit LOCAL_ONLY and freezes provider cashout", () => {
   const snap = computeDriverWalletPayoutSnapshot({
     wallet_balance_pence: 973,
     finance_cleared_pence: 973,

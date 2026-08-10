@@ -3,5 +3,5 @@ import { isManualBankPayoutProvider } from "./manualProviderPayoutSSOT.ts";
 
 Deno.test("revolut scope is manual provider payout", () => {
   assertEquals(isManualBankPayoutProvider("revolut"), true);
-  assertEquals(isManualBankPayoutProvider("stripe"), false);
+  assertEquals(isManualBankPayoutProvider("provider"), false);
 });

@@ -47,7 +47,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDriverAddressFull, formatCountryWithFlag } from '@/lib/driverAddress';
-import { isDriverStripeOnboardingComplete } from '@/lib/manualPayoutGate';
+import { isDriverPayoutOnboardingComplete } from '@/lib/manualPayoutGate';
 import { DriverStandardsPanel } from '@/components/drivers/DriverStandardsPanel';
 
 interface Driver {
@@ -595,7 +595,7 @@ export function DriverDetailsDialog({
     return driverCategories.some(dc => dc.vehicle_type_id === vehicleTypeId && dc.is_enabled);
   };
 
-  // Provider onboarding link generation removed with Stripe retirement.
+  // Provider onboarding link generation removed with provider retirement.
   // Driver payout onboarding now happens via Payout Ledger / driver payout destinations.
 
 
@@ -738,7 +738,7 @@ export function DriverDetailsDialog({
                 <DriverPayoutPanel
                   driverId={driver.id}
                   regionId={driver.region_id}
-                  stripeAccountId={null}
+                  providerAccountId={null}
                   payoutsEnabled={driver.payouts_enabled}
                   onboardingComplete={true}
                   chargesEnabled={driver.charges_enabled}

@@ -59,7 +59,7 @@ Deno.test("payout eligibility — connected but missing external account", () =>
     external_account_exists: false,
     requirements_currently_due: [],
   });
-  assertEquals(result.stripe_connected, true);
+  assertEquals(result.provider_connected, true);
   assertEquals(result.payout_eligible, false);
   assertEquals(result.settlement_status, "needs_attention");
 });

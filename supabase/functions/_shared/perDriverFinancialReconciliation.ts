@@ -54,7 +54,7 @@ export type PerDriverSSOT = {
   provider_upcoming_payout_pence: number;
   /** Cleared settlements sum — NOT max(wallet_balance, 0). */
   finance_cleared_amount_pence: number;
-  /** min(wallet, stripe-settled, finance-cleared) − in-flight. */
+  /** min(wallet, provider-settled, finance-cleared) − in-flight. */
   eligible_payout_pence: number;
   included_in_payout_batch_pence: number;
   provider_paid_out_total_pence: number;
@@ -114,7 +114,7 @@ export function buildPayoutGateReasons(args: {
   ledgerSyncMissing: boolean;
   availableNowPence: number;
   walletBalancePence: number;
-  /** Revolut/manual bank payout — skip Stripe platform allocation gate. */
+  /** Revolut/manual bank payout — skip provider platform allocation gate. */
   manualProviderPayout?: boolean;
 }): {
   payout_blocked_reasons: string[];
@@ -220,10 +220,10 @@ export function computePerDriverSSOT(args: {
   const driverDebt = driverDebtPence(walletBalance);
   const pendingPayout = 0;
 
-  const stripeSettledForEligibility = args.manualProviderPayout ? remaining : allocated;
+  const providerSettledForEligibility = args.manualProviderPayout ? remaining : allocated;
   const eligibility = computePayoutEligibility({
     walletUnpaidPence: remaining,
-    stripeSettledUnpaidPence: stripeSettledForEligibility,
+    providerSettledUnpaidPence: providerSettledForEligibility,
     payoutBlocked: walletBalance < 0,
     inFlightPayoutPence: inFlight,
   });

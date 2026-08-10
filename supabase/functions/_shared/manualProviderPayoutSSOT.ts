@@ -13,11 +13,11 @@ export function isManualBankPayoutProvider(provider: string | null | undefined):
 }
 
 export function isLiveDriverPayoutProvider(provider: string | null | undefined): boolean {
-  // Stripe is retired from active payouts — only Revolut / manual bank are live.
+  // provider is retired from active payouts — only Revolut / manual bank are live.
   return Boolean(provider && ["revolut"].includes(provider.trim().toLowerCase()));
 }
 
-/** Wallet-ledger eligibility for manual provider payouts (no Stripe Connect allocation). */
+/** Wallet-ledger eligibility for manual provider payouts (no provider Connect allocation). */
 export function manualProviderEligiblePence(args: {
   walletUnpaidPence: number;
   inFlightPayoutPence?: number;
@@ -31,7 +31,7 @@ export function manualProviderEligiblePence(args: {
 
 /**
  * Resolve driver payout provider for a service area.
- * Prefer driver_payout_gateway — never let legacy payment_provider='stripe' override Revolut payouts.
+ * Prefer driver_payout_gateway — never let legacy payment_provider='provider' override Revolut payouts.
  */
 export function providerFromServiceArea(area: {
   payment_provider?: string | null;
@@ -39,14 +39,14 @@ export function providerFromServiceArea(area: {
   customer_payment_gateway?: string | null;
 }): string | null {
   const payoutGw = String(area.driver_payout_gateway ?? "").trim().toLowerCase();
-  if (payoutGw && payoutGw !== "stripe") return payoutGw;
-  if (payoutGw === "stripe") {
-    // Retired — fall through; never return stripe as active payout provider.
+  if (payoutGw && payoutGw !== "provider") return payoutGw;
+  if (payoutGw === "provider") {
+    // Retired — fall through; never return provider as active payout provider.
   }
   const payment = String(area.payment_provider ?? "").trim().toLowerCase();
-  if (payment && payment !== "stripe") return payment;
+  if (payment && payment !== "provider") return payment;
   const customer = String(area.customer_payment_gateway ?? "").trim().toLowerCase();
-  if (customer && customer !== "stripe") return customer;
+  if (customer && customer !== "provider") return customer;
   return null;
 }
 

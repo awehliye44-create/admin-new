@@ -17,12 +17,12 @@ export type TripAuditStatusBadge = {
 };
 
 export type TripAuditPaymentRecord = {
-  /** payments.status — stripe payment intent / capture lifecycle */
+  /** payments.status — provider payment intent / capture lifecycle */
   status: string | null;
   provider_status: string | null;
   captured_amount_pence: number | null;
   provider_payment_id?: string | null;
-  /** Stripe balance transaction available date (funds settled to balance) */
+  /** provider balance transaction available date (funds settled to balance) */
   provider_available_on?: string | null;
 };
 
@@ -94,13 +94,13 @@ function ledgerTypes(ledger: TripAuditLedgerRecord[]): Set<string> {
   return new Set(ledger.map((e) => String(e.type ?? "").toUpperCase()));
 }
 
-function stripePaymentIntentStatus(input: TripAuditStatusInput): string {
+function providerPaymentStatus(input: TripAuditStatusInput): string {
   return norm(input.payment?.status) || norm(input.trip.payment_status);
 }
 
-function stripeCaptureStatus(input: TripAuditStatusInput): string {
+function providerCaptureStatus(input: TripAuditStatusInput): string {
   if (capturedPence(input) > 0) return "captured";
-  const s = stripePaymentIntentStatus(input);
+  const s = providerPaymentStatus(input);
   if (includesAny(s, ["captured", "paid", "succeeded", "completed"])) return "captured";
   if (includesAny(s, ["pending_capture", "requires_capture", "authorized", "requires_confirmation"])) {
     return "pending_capture";
@@ -147,10 +147,10 @@ function hasRefund(input: TripAuditStatusInput): boolean {
 }
 
 function isCardCaptured(input: TripAuditStatusInput): boolean {
-  return stripeCaptureStatus(input) === "captured";
+  return providerCaptureStatus(input) === "captured";
 }
 
-function stripeBalanceTransactionSettled(input: TripAuditStatusInput): boolean {
+function providerBalanceTransactionSettled(input: TripAuditStatusInput): boolean {
   if (input.trip.provider_settlement_verified === true) return true;
   if (input.payment?.provider_available_on) {
     const availableOn = new Date(input.payment.provider_available_on).getTime();
@@ -160,7 +160,7 @@ function stripeBalanceTransactionSettled(input: TripAuditStatusInput): boolean {
 }
 
 function isProviderSettled(input: TripAuditStatusInput): boolean {
-  if (stripeBalanceTransactionSettled(input)) return true;
+  if (providerBalanceTransactionSettled(input)) return true;
   const providerFields = [
     norm(input.trip.provider_status),
     norm(input.payment?.provider_status),
@@ -261,12 +261,12 @@ export function deriveProviderAuditStatus(input: TripAuditStatusInput): TripAudi
     return { label: "Settled", tone: "green" };
   }
 
-  const capture = stripeCaptureStatus(input);
+  const capture = providerCaptureStatus(input);
   if (capture === "captured") {
     return { label: "Captured", tone: "blue" };
   }
 
-  const ps = stripePaymentIntentStatus(input);
+  const ps = providerPaymentStatus(input);
   if (includesAny(ps, ["recovery_required"])) {
     return { label: "Recovery required", tone: "orange" };
   }
@@ -428,9 +428,9 @@ export function deriveTripCaptureStatusLabel(
   if (hasRefund(input)) {
     return isFullyRefunded(input) ? "Fully refunded" : "Partially refunded";
   }
-  const capture = stripeCaptureStatus(input);
+  const capture = providerCaptureStatus(input);
   if (capture === "captured") return "Captured";
-  const ps = stripePaymentIntentStatus(input);
+  const ps = providerPaymentStatus(input);
   if (includesAny(ps, ["recovery_required"])) return "Recovery required";
   if (includesAny(ps, ["failed", "canceled", "cancelled"])) return "Capture failed";
   if (includesAny(ps, ["pending_capture", "requires_capture", "authorized", "processing"])) {

@@ -1,4 +1,4 @@
-// Admin: refund trip payment — routes Revolut vs legacy Stripe by trip provider.
+// Admin: refund trip payment — routes Revolut vs legacy provider by trip provider.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";

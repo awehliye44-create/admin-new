@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { MobileWalletMethodId } from '@/lib/customerPaymentWorkflow';
 
-export type StripeDigitalPaymentMethodType = 'card' | 'wallet' | 'apple_pay' | 'google_pay';
+export type DigitalPaymentMethodType = 'card' | 'wallet' | 'apple_pay' | 'google_pay';
 
 export interface PaymentMethod {
-  id: StripeDigitalPaymentMethodType;
+  id: DigitalPaymentMethodType;
   name: string;
   icon: string;
   platform: 'ios' | 'android' | 'all';
@@ -21,17 +21,17 @@ export interface ServiceAreaPaymentConfig {
 }
 
 /** Provider card-preauth digital methods only — ONECAB is fully digital. */
-export const STRIPE_DIGITAL_PAYMENT_METHODS: PaymentMethod[] = [
+export const DIGITAL_PAYMENT_METHODS: PaymentMethod[] = [
   { id: 'card', name: 'Card', icon: 'credit-card', platform: 'all' },
   { id: 'apple_pay', name: 'Apple Pay', icon: 'apple', platform: 'ios' },
   { id: 'google_pay', name: 'Google Pay', icon: 'smartphone', platform: 'android' },
   { id: 'wallet', name: 'ONECAB Wallet', icon: 'wallet', platform: 'all' },
 ];
 
-/** @deprecated Use STRIPE_DIGITAL_PAYMENT_METHODS */
-export const ALL_PAYMENT_METHODS = STRIPE_DIGITAL_PAYMENT_METHODS;
+/** @deprecated Use DIGITAL_PAYMENT_METHODS */
+export const ALL_PAYMENT_METHODS = DIGITAL_PAYMENT_METHODS;
 
-export type PaymentMethodType = StripeDigitalPaymentMethodType;
+export type PaymentMethodType = DigitalPaymentMethodType;
 
 const DEFAULT_CONFIG: Omit<ServiceAreaPaymentConfig, 'service_area_id'> = {
   card_enabled: true,
@@ -105,7 +105,7 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
     void fetchPaymentMethods();
   }, [serviceAreaId]);
 
-  const updatePaymentMethod = async (method: StripeDigitalPaymentMethodType, enabled: boolean) => {
+  const updatePaymentMethod = async (method: DigitalPaymentMethodType, enabled: boolean) => {
     if (!serviceAreaId || !paymentConfig) return;
 
     const updatedConfig = {
@@ -152,6 +152,6 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
     isLoading,
     isSaving,
     updatePaymentMethod,
-    stripeDigitalMethods: STRIPE_DIGITAL_PAYMENT_METHODS,
+    digitalMethods: DIGITAL_PAYMENT_METHODS,
   };
 }

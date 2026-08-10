@@ -74,7 +74,7 @@ Deno.test("2. Bosteyo expected payable £4.08 equals wallet credits £4.08", () 
   assertEquals(row.reconciliation_status, "BALANCED");
 });
 
-Deno.test("3. Missing Stripe balance displays UNAVAILABLE, not £0.00", () => {
+Deno.test("3. Missing provider balance displays UNAVAILABLE, not £0.00", () => {
   const row = computeFrDriverReconciliation({
     ledger: ahmedLedger,
     settledTrips: [
@@ -95,7 +95,7 @@ Deno.test("3. Missing Stripe balance displays UNAVAILABLE, not £0.00", () => {
   assertEquals(row.reconciliation_status, "PROVIDER_BALANCE_UNAVAILABLE");
 });
 
-Deno.test("4. Stripe balance £8.53 does not become Driver Wallet balance", () => {
+Deno.test("4. provider balance £8.53 does not become Driver Wallet balance", () => {
   const row = computeFrDriverReconciliation({
     ledger: bosteyoLedger,
     settledTrips: [{ trip_id: "010", driver_net_pence: 408 }],
@@ -236,7 +236,7 @@ Deno.test("9. Overview reports driver mismatch counts separately from trip settl
   assertEquals(overview.overview_driver_audit_status, "DRIVER_AUDIT_MISMATCH");
 });
 
-Deno.test("10. Revolut payout mode does not depend on Stripe Connect balance", () => {
+Deno.test("10. Revolut payout mode does not depend on provider Connect balance", () => {
   const row = computeFrDriverReconciliation({
     ledger: bosteyoLedger,
     settledTrips: [{ trip_id: "010", driver_net_pence: 408 }],

@@ -69,7 +69,7 @@ function formatLastPayout(row: DriverWalletSsotRow, currencyCode: string): strin
 }
 
 /**
- * Level 1 — Driver Wallet Ledger overview list (Stripe Connected Accounts style).
+ * Level 1 — Driver Wallet Ledger overview list (provider Connected Accounts style).
  * Opens Level 2 individual driver wallet account on row / action click.
  */
 export function DriverWalletDriverList({

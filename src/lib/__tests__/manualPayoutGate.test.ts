@@ -3,7 +3,7 @@ import {
   MANUAL_PAYOUT_NO_SSOT_BALANCE_MESSAGE,
   canManualPayout,
   formatPayoutEligibilityStatus,
-  isDriverStripeOnboardingComplete,
+  isDriverPayoutOnboardingComplete,
   manualPayoutBlockedHeadline,
 } from '../manualPayoutGate';
 import type { PerDriverFinanceSSOT } from '@/hooks/usePerDriverFinancialReconciliation';
@@ -54,7 +54,7 @@ describe('manualPayoutGate', () => {
     ).toBe(false);
   });
 
-  it('allows manual payout without Stripe Connect account when SSOT gates pass', () => {
+  it('allows manual payout without provider Connect account when SSOT gates pass', () => {
     expect(
       canManualPayout({
         driver: {
@@ -103,16 +103,16 @@ describe('manualPayoutGate', () => {
     ).toBe('No SSOT Available Balance');
   });
 
-  it('isDriverStripeOnboardingComplete follows payouts_enabled only (Stripe retired)', () => {
+  it('isDriverPayoutOnboardingComplete follows payouts_enabled only (provider retired)', () => {
     expect(
-      isDriverStripeOnboardingComplete({
+      isDriverPayoutOnboardingComplete({
         provider_account_id: null,
         onboarding_complete: false,
         payouts_enabled: true,
       }),
     ).toBe(true);
     expect(
-      isDriverStripeOnboardingComplete({
+      isDriverPayoutOnboardingComplete({
         provider_account_id: 'acct_1',
         onboarding_complete: true,
         payouts_enabled: false,

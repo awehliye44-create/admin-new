@@ -10,8 +10,8 @@ export const PAYOUT_LIFECYCLE = [
   "DRIVER_WALLET_LEDGER",
   "FINANCE_CLEARED",
   "INCLUDED_IN_PAYOUT_BATCH",
-  "STRIPE_TRANSFER_CREATED",
-  "STRIPE_PAYOUT_CREATED",
+  "PROVIDER_TRANSFER_CREATED",
+  "PROVIDER_PAYOUT_CREATED",
   "PAID",
 ] as const;
 
@@ -24,12 +24,12 @@ export type DriverWalletPayoutSnapshotInput = {
   finance_cleared_pence: number;
   /** Sum of net on payout_items in active batch (pending/processing). */
   included_in_payout_batch_pence: number;
-  /** Stripe Connect standard available — physical cash only. */
+  /** provider Connect standard available — physical cash only. */
   provider_available_pence: number | null;
   provider_pending_pence: number | null;
   provider_in_transit_pence?: number | null;
   provider_instant_available_pence?: number | null;
-  /** Sum of paid stripe_connect_payouts or ledger rows with provider_payout_id. */
+  /** Sum of paid provider_connect_payouts or ledger rows with provider_payout_id. */
   provider_paid_out_total_pence: number;
   recovery_debt_pence: number;
   in_flight_cashout_pence?: number;
@@ -102,8 +102,8 @@ export function sumProviderPaidOutFromConnectPayouts(
 }
 
 /**
- * Available Cash Out — Stripe Connect after settlement rules.
- * Never uses wallet_balance as Stripe physical cash (hard SSOT rule).
+ * Available Cash Out — provider Connect after settlement rules.
+ * Never uses wallet_balance as provider physical cash (hard SSOT rule).
  */
 export function computeAvailableCashOutPence(input: {
   provider_available_pence: number | null | undefined;
@@ -131,7 +131,7 @@ export function computeAvailableCashOutPence(input: {
 
 /**
  * Available for manual bank / Revolut driver payouts.
- * Consumes finance-cleared DWL liability — never Stripe Connect balance.
+ * Consumes finance-cleared DWL liability — never provider Connect balance.
  */
 export function computeManualBankAvailablePence(input: {
   wallet_owed_pence: number;
@@ -232,7 +232,7 @@ export function computeDriverWalletPayoutSnapshot(
   const providerAvail = input.provider_platform_available_pence;
   if (!manualBank && typeof providerAvail === "number" && providerAvail < 0) {
     status = "PROVIDER_NEGATIVE";
-    reasons.push("Stripe platform available balance is negative");
+    reasons.push("provider platform available balance is negative");
   }
 
   const providerWithoutLedger = Math.max(0, input.provider_payout_without_ledger_debit_pence ?? 0);
@@ -240,19 +240,19 @@ export function computeDriverWalletPayoutSnapshot(
   const localFailed = Math.max(0, input.local_only_failed_payout_pence ?? 0);
   const stuckProcessing = Math.max(0, input.failed_payout_stuck_processing_pence ?? 0);
 
-  // Stripe Connect reconciliation evidence — never freezes Revolut/manual bank available.
+  // provider Connect reconciliation evidence — never freezes Revolut/manual bank available.
   if (!manualBank) {
     if (providerWithoutLedger > 0) {
       status = status === "BALANCED" ? "PROVIDER_ONLY" : "MISMATCH";
-      reasons.push(`Stripe payout £${(providerWithoutLedger / 100).toFixed(2)} missing ledger debit`);
+      reasons.push(`provider payout £${(providerWithoutLedger / 100).toFixed(2)} missing ledger debit`);
     }
     if (ledgerWithoutProvider > 0) {
       status = "MISMATCH";
-      reasons.push(`Ledger debit £${(ledgerWithoutProvider / 100).toFixed(2)} missing Stripe payout`);
+      reasons.push(`Ledger debit £${(ledgerWithoutProvider / 100).toFixed(2)} missing provider payout`);
     }
     if (localFailed > 0) {
       status = status === "BALANCED" ? "LOCAL_ONLY" : "MISMATCH";
-      reasons.push(`Local failed payout £${(localFailed / 100).toFixed(2)} without Stripe evidence`);
+      reasons.push(`Local failed payout £${(localFailed / 100).toFixed(2)} without provider evidence`);
     }
     if (stuckProcessing > 0) {
       status = "MISMATCH";
@@ -264,7 +264,7 @@ export function computeDriverWalletPayoutSnapshot(
   }
 
   // Hard rule: mismatch / negative wallet freezes automatic payout + cash-out.
-  // Manual bank: only explicit block or negative wallet (never Stripe Connect mismatch).
+  // Manual bank: only explicit block or negative wallet (never provider Connect mismatch).
   const freezeAutomaticPayout = input.payout_blocked === true
     || walletSigned < 0
     || (!manualBank && status !== "BALANCED");

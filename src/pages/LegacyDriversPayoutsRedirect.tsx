@@ -7,8 +7,8 @@ export default function LegacyDriversPayoutsRedirect() {
   if (tab === 'ledger') {
     return <Navigate to="/driver-wallet-ledger?tab=ledger" replace />;
   }
-  if (tab === 'connect-balance' || tab === 'stripe') {
-    return <Navigate to="/driver-wallet-ledger?tab=stripe" replace />;
+  if (tab === 'connect-balance' || tab === 'provider') {
+    return <Navigate to="/driver-wallet-ledger?tab=provider" replace />;
   }
   return <Navigate to="/financial-reconciliation" replace />;
 }
