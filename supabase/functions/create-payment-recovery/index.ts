@@ -245,15 +245,38 @@ Deno.serve(async (req) => {
       .in("status", ["RECOVERY_CHECKOUT_CREATED", "CUSTOMER_ACTION_REQUIRED"])
       .maybeSingle();
     if (existingOpen) {
+      // Heal older attempts that were stored without a checkout URL.
+      let reusedUrl = existingOpen.provider_checkout_url as string | null;
+      if (!reusedUrl && existingOpen.provider_order_id) {
+        try {
+          const { secretKey, environment } = getRevolutMerchantConfig();
+          const existingOrder = await retrieveRevolutOrder(
+            environment,
+            secretKey,
+            existingOpen.provider_order_id,
+          );
+          reusedUrl = resolveRevolutCheckoutUrl(existingOrder, environment as "live" | "sandbox");
+          if (reusedUrl) {
+            await supabase
+              .from("payment_sessions")
+              .update({ provider_checkout_url: reusedUrl, updated_at: new Date().toISOString() })
+              .eq("id", existingOpen.id);
+          }
+        } catch (healErr) {
+          console.warn("[create-payment-recovery] checkout url heal failed", healErr);
+        }
+      }
       return successResponse({
         payment_session_id: existingOpen.id,
         provider_order_id: existingOpen.provider_order_id,
-        checkout_url: existingOpen.provider_checkout_url,
+        checkout_url: reusedUrl,
+        requires_customer_action: true,
         amount: chargePence,
         currency,
         reused: true,
       });
     }
+
 
     // --- Idempotent terminal success: only when shortfall is already closed.
     // A prior completed recovery that was later refunded must allow a new attempt. ---
