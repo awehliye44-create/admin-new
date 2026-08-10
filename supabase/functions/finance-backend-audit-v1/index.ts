@@ -44,7 +44,7 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const providerSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+    const providerSecretKey = Deno.env.get("REVOLUT_SECRET_KEY");
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const authHeader = req.headers.get("Authorization");
@@ -361,7 +361,7 @@ serve(async (req) => {
         providerBalanceError = (e as Error).message;
       }
     } else if (useProviderPlatformPayouts && !providerSecretKey) {
-      providerBalanceError = providerBalanceError ?? "STRIPE_SECRET_KEY not configured";
+      providerBalanceError = providerBalanceError ?? "REVOLUT_SECRET_KEY not configured";
     }
 
     const finance_backend_audit_v1 = buildFinanceBackendAuditV1({
