@@ -2,11 +2,11 @@
 
 ## Summary
 
-Stripe Instant Payouts are not yet enabled for the ONECAB platform. This change adds a **per–service-area admin toggle** (`early_cashout_enabled`) so Instant Early Cash Out can stay hidden/disabled until Stripe enables the platform and ops turns it on area by area.
+provider Instant Payouts are not yet enabled for the ONECAB platform. This change adds a **per–service-area admin toggle** (`early_cashout_enabled`) so Instant Early Cash Out can stay hidden/disabled until provider enables the platform and ops turns it on area by area.
 
 **Default: OFF** for all service areas.
 
-Weekly payouts, wallet balance, earnings history, Stripe Connect onboarding, Financial Reconciliation, and admin manual payouts are **unchanged**.
+Weekly payouts, wallet balance, earnings history, Revolut Merchant onboarding, Financial Reconciliation, and admin manual payouts are **unchanged**.
 
 ---
 
@@ -49,9 +49,9 @@ When `early_cashout_enabled = false` for the driver’s service area:
 |---------------|-------------------|
 | Wallet balance | Instant cash out card + Cash Out button |
 | Available / weekly payout amounts | Confirm cash out dialog |
-| Transaction history | Stripe failure toasts for disabled cash out |
+| Transaction history | provider failure toasts for disabled cash out |
 | Weekly payout date | |
-| Stripe Connect / payout account status | |
+| Revolut Merchant / payout account status | |
 | Activity this week | |
 
 **Driver message (info banner):**  
@@ -67,7 +67,7 @@ When `early_cashout_enabled = false` for the driver’s service area:
 
 ### `driver-early-cashout`
 
-Checks `resolveEarlyCashoutEnabledForDriver()` **before** Stripe, ledger, or payout creation.
+Checks `resolveEarlyCashoutEnabledForDriver()` **before** provider, ledger, or payout creation.
 
 **Response when disabled:**
 
@@ -82,7 +82,7 @@ Checks `resolveEarlyCashoutEnabledForDriver()` **before** Stripe, ledger, or pay
 
 **HTTP status:** `403`
 
-No payout, cashout row, Stripe payout, or ledger debit is created.
+No payout, cashout row, provider payout, or ledger debit is created.
 
 ### `driver-wallet-summary`
 
@@ -124,7 +124,7 @@ Returns `early_cashout_enabled: boolean` and forces `can_cashout` / `cash_out_av
 4. Toggle OFF → Early Cash Out section hidden/disabled only  
 5. Toggle OFF → `driver-early-cashout` returns `EARLY_CASHOUT_DISABLED`  
 6. Toggle ON → Early Cash Out section appears  
-7. Toggle ON → backend proceeds to normal settlement/Stripe checks  
+7. Toggle ON → backend proceeds to normal settlement/provider checks  
 8. Service Area A OFF / B ON → drivers follow their own setting  
 9. Weekly payouts still visible  
 10. Financial Reconciliation unchanged  
@@ -138,7 +138,7 @@ Returns `early_cashout_enabled: boolean` and forces `can_cashout` / `cash_out_av
 3. **Deploy admin panel** with Service Areas toggle (all areas remain OFF).
 4. **Ship driver app** build with UI gating (optional if edge summary already blocks; app build improves UX).
 5. **Verify** Milton Keynes / London drivers see info message, no cash out button, API returns `403 EARLY_CASHOUT_DISABLED`.
-6. When Stripe enables Instant Payouts for ONECAB: enable toggle **per service area** in Admin → Service Areas → Offers & Payment.
+6. When provider enables Instant Payouts for ONECAB: enable toggle **per service area** in Admin → Service Areas → Offers & Payment.
 
 ---
 
@@ -164,6 +164,6 @@ Returns `early_cashout_enabled: boolean` and forces `can_cashout` / `cash_out_av
 
 ---
 
-## When Stripe enables Instant Payouts
+## When provider enables Instant Payouts
 
-Set **Enable Early Cash Out = ON** for each service area that should offer instant payout. Drivers in that area will see the Instant cash out card and button; backend will run existing settlement and Stripe checks.
+Set **Enable Early Cash Out = ON** for each service area that should offer instant payout. Drivers in that area will see the Instant cash out card and button; backend will run existing settlement and provider checks.

@@ -7,14 +7,14 @@
 
 ## Principle
 
-Financial Reconciliation **audits** that ONECAB Platform Stripe and Stripe Connect match the platform ledger. It does **not** calculate trip earnings, commission, or driver net — that is **Trip Settlement SSOT** (Trip History + Finance Recovery).
+Financial Reconciliation **audits** that ONECAB Platform provider and Revolut Merchant match the platform ledger. It does **not** calculate trip earnings, commission, or driver net — that is **Trip Settlement SSOT** (Trip History + Finance Recovery).
 
 ## What Financial Reconciliation owns
 
-- Platform Stripe available/pending balances
-- Incoming card settlements (Stripe payment intents)
-- Stripe fees and money movement
-- Driver Stripe transfers and platform bank payouts
+- Platform provider available/pending balances
+- Incoming card settlements (provider payment intents)
+- provider fees and money movement
+- Driver provider transfers and platform bank payouts
 - Failed/pending transfers, webhook health, sync status
 - Reconciliation PASS / FAIL
 
@@ -28,9 +28,9 @@ Financial Reconciliation **audits** that ONECAB Platform Stripe and Stripe Conne
 
 | Tab | Purpose |
 |-----|---------|
-| Overview | Platform Stripe + sync KPIs |
-| Drivers | Stripe Connect positions per driver |
-| Stripe | Platform balance, transfers, payouts |
+| Overview | Platform provider + sync KPIs |
+| Drivers | Revolut Merchant positions per driver |
+| provider | Platform balance, transfers, payouts |
 | Alerts | Backend audit failures |
 
 Legacy `?tab=trips` redirects to `/trip-history`.
@@ -39,7 +39,7 @@ Legacy `?tab=trips` redirects to `/trip-history`.
 
 | Layer | Path |
 |-------|------|
-| Stripe audit assembly | `supabase/functions/_shared/financialReconciliationSSOT.ts` |
+| provider audit assembly | `supabase/functions/_shared/financialReconciliationSSOT.ts` |
 | Admin edge fn | `supabase/functions/admin-finance-reconciliation/index.ts` |
 | Admin hook | `src/hooks/useFinancialReconciliationSSOT.ts` |
 | Trip settlement (calculations) | Trip History, `tripSettlementFinanceSSOT.ts`, Finance Recovery |
@@ -53,4 +53,4 @@ Legacy `?tab=trips` redirects to `/trip-history`.
 ## Related SSOT pages
 
 - **Trip Settlement** — `/trip-history` (only page that calculates trip money)
-- **Driver Wallet Ledger** — `/driver-wallet-ledger` (Stripe Connect read-only per driver)
+- **Driver Wallet Ledger** — `/driver-wallet-ledger` (Revolut Merchant read-only per driver)

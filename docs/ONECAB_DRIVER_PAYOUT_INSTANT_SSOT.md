@@ -5,11 +5,11 @@
 
 ## Core rule
 
-**ONECAB only pays drivers using Stripe Instant Payouts.**
+**ONECAB only pays drivers using provider Instant Payouts.**
 
 There is no Standard payout execution in ONECAB.
 
-| Flow | Who starts | Stripe method |
+| Flow | Who starts | provider method |
 |------|------------|---------------|
 | Weekly automatic payout | Scheduler | `instant` |
 | Manual instant cash-out | Driver or optional admin | `instant` |
@@ -26,10 +26,10 @@ Operations must see **both** balances to understand cases where Instant Availabl
 ### Formulas
 
 ```
-cashout_now = min(ONECAB wallet owed, finance cleared, Stripe Instant Available)
-awaiting_settlement = max(0, ledger owed − Stripe Standard Available)
+cashout_now = min(ONECAB wallet owed, finance cleared, provider Instant Available)
+awaiting_settlement = max(0, ledger owed − provider Standard Available)
 weekly_instant_eligible = cashout_now
-manual_instant_eligible = min(wallet, finance cleared, Stripe Instant Available)
+manual_instant_eligible = min(wallet, finance cleared, provider Instant Available)
 ```
 
 ## Admin surfaces
@@ -40,12 +40,12 @@ Per-driver read-only table:
 
 - ONECAB Wallet Balance
 - Finance Cleared
-- Stripe Standard Available
-- Stripe Instant Available
-- Stripe Pending / Available Soon
+- provider Standard Available
+- provider Instant Available
+- provider Pending / Available Soon
 - Weekly Instant Payout Eligible
 - Manual Instant Cash-Out Eligible
-- Last Stripe Sync
+- Last provider Sync
 - Last Instant Payout
 - Next Weekly Instant Payout
 
@@ -56,7 +56,7 @@ Per-driver read-only table:
 - Weekly Instant Payout batch records
 - Manual Instant Cash Out (admin optional)
 - Ledger audit
-- Stripe Connect detail + **Instant cash out** action
+- Revolut Merchant detail + **Instant cash out** action
 
 ## Driver app
 
@@ -74,13 +74,13 @@ No Standard payout option anywhere.
 | Field | Values / notes |
 |-------|----------------|
 | `payout_type` | `weekly_auto`, `manual_cashout` |
-| `stripe_method` | always `instant` |
-| `stripe_payout_id` | Stripe payout ID |
+| `provider_method` | always `instant` |
+| `provider_payout_id` | provider payout ID |
 | `wallet_before_pence` | Ledger before debit |
 | `wallet_after_pence` | Ledger after debit |
-| `stripe_instant_available_before_pence` | Connect instant balance at send |
+| `provider_instant_available_before_pence` | Connect instant balance at send |
 | `onecab_fee_pence` / `onecab_cashout_fee_pence` | ONECAB fee (£1.00 cash-out) |
-| `stripe_fee_pence` | Stripe instant fee when known |
+| `provider_fee_pence` | provider instant fee when known |
 | `driver_receives_pence` / `net_driver_payout_pence` | Net to driver |
 
 Migration: `20260826120000_instant_payout_audit_fields.sql`
@@ -97,9 +97,9 @@ Migration: `20260826120000_instant_payout_audit_fields.sql`
 | Payout actions | `AdminPayoutBatches.tsx` → Connect tab |
 | Fee constant | `ONECAB_CASHOUT_FEE_PENCE = 100` |
 
-## Stripe dashboard reference
+## provider dashboard reference
 
-Stripe Connect may show:
+Revolut Merchant may show:
 
 - **Available to pay out** (standard schedule) — lower
 - **Instantly available** (modal) — often higher for card-funded balance
