@@ -217,3 +217,7 @@ verify_jwt = false
 
 [functions.website-enquiry]
 verify_jwt = false
+
+# Driver ride-offer push — invoked by Postgres with the service role key.
+[functions.send-driver-notification]
+verify_jwt = false
