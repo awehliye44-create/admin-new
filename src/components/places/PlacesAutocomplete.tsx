@@ -60,7 +60,7 @@ export function PlacesAutocomplete({
   radiusBiasMeters: _radiusBiasMeters = 30000,
   serviceAreaId = null,
 }: PlacesAutocompleteProps) {
-  const [suggestions, setSuggestions] = useState<MapboxSuggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -137,7 +137,7 @@ export function PlacesAutocomplete({
   };
 
 
-  const handleSelectSuggestion = (feature: MapboxSuggestion) => {
+  const handleSelectSuggestion = (feature: LocationSuggestion) => {
     onChange(feature.place_name);
     setSuggestions([]);
     setIsOpen(false);
