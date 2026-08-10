@@ -1,6 +1,6 @@
 /**
  * Admin Driver Wallet SSOT — per-driver snapshot from distinct sources.
- * P0: No live Stripe Connect reads. Drivers listed without provider_account_id filter.
+ * Drivers listed without provider_account_id filter.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
@@ -87,7 +87,6 @@ Deno.serve(async (req) => {
         periodFrom: String(periodFrom),
         periodTo: String(periodTo),
         serviceAreaId: serviceAreaId ? String(serviceAreaId) : null,
-        stripe,
       });
       return new Response(JSON.stringify({ success: true, wallet_summary }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -97,7 +96,6 @@ Deno.serve(async (req) => {
     if (driverId) {
       const detail = await fetchDriverWalletPayoutSnapshot(supabase, {
         driverId: String(driverId),
-        stripe: null,
       });
       return new Response(JSON.stringify({ success: true, driver: detail }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -132,7 +130,6 @@ Deno.serve(async (req) => {
       for (const d of drivers ?? []) {
         rows.push(await fetchDriverWalletPayoutSnapshot(supabase, {
           driverId: d.id,
-          stripe: null,
         }));
       }
       return new Response(JSON.stringify({
@@ -161,8 +158,7 @@ Deno.serve(async (req) => {
     const rows = [];
     for (const d of drivers ?? []) {
       rows.push(await fetchDriverWalletPayoutSnapshot(supabase, {
-        driverId: d.id,
-        stripe: null,
+          driverId: d.id,
       }));
     }
 

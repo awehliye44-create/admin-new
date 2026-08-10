@@ -195,7 +195,6 @@ export function computePerDriverSSOT(args: {
   sourceTier?: FinanceDataSourceBadge;
   settlements?: SettlementRow[];
   activePayoutItems?: Array<{ status: string; net_driver_payout_pence?: number | null; amount_pence?: number | null }>;
-  stripeConnectPayouts?: Array<{ amount_pence?: number | null; status?: string | null }>;
   /** Wallet-ledger payout path (Revolut manual bank transfer). */
   manualProviderPayout?: boolean;
   weeklyPayoutDay?: string | null;
@@ -205,7 +204,7 @@ export function computePerDriverSSOT(args: {
   const sourceTier = args.sourceTier ?? "LIVE";
   const driverGross = sumDriverGrossEarningsPence(args.trips);
   const driverNet = sumDriverNetEarningsPence(args.trips);
-  const providerPaidOut = sumProviderPaidOutFromConnectPayouts(args.stripeConnectPayouts ?? []);
+  const providerPaidOut = sumProviderPaidOutFromConnectPayouts([]);
   const bankPaidOutLedger = args.ledger
     .filter((r) => ["PAYOUT", "WEEKLY_PAYOUT", "EARLY_CASHOUT", "MANUAL_PAYOUT"].includes(String(r.type)))
     .reduce((s, r) => s + Math.abs(r.amount_pence ?? 0), 0);
@@ -366,7 +365,7 @@ export async function fetchPerDriverFinancialReconciliation(
     .select("type, amount_pence, driver_id")
     .in("driver_id", peerDriverIds);
 
-  const [tripsResult, fullLedgerResult, cashoutsResult, payoutItemsResult, settlementsResult, activePayoutResult, stripePayoutsResult] = await Promise.all([
+  const [tripsResult, fullLedgerResult, cashoutsResult, payoutItemsResult, settlementsResult, activePayoutResult] = await Promise.all([
     tripQuery,
     fullLedgerQuery,
     supabase
@@ -391,10 +390,6 @@ export async function fetchPerDriverFinancialReconciliation(
       .select("status, net_driver_payout_pence, amount_pence")
       .eq("driver_id", driverId)
       .in("status", ["pending", "processing", "ready", "transfer_created"]),
-    supabase
-      .from("stripe_connect_payouts")
-      .select("amount_pence, status")
-      .eq("driver_id", driverId),
   ]);
 
   if (tripsResult.error) throw tripsResult.error;
@@ -403,7 +398,6 @@ export async function fetchPerDriverFinancialReconciliation(
   if (payoutItemsResult.error) throw payoutItemsResult.error;
   if (settlementsResult.error) throw settlementsResult.error;
   if (activePayoutResult.error) throw activePayoutResult.error;
-  if (stripePayoutsResult.error) throw stripePayoutsResult.error;
 
   const allTrips = (tripsResult.data ?? []) as Array<TripSSOTRow & { driver_id?: string }>;
   const allLedger = (fullLedgerResult.data ?? []) as Array<LedgerSSOTRow & { driver_id?: string }>;
@@ -470,7 +464,6 @@ export async function fetchPerDriverFinancialReconciliation(
     sourceTier: args.sourceTier,
     settlements: (settlementsResult.data ?? []) as SettlementRow[],
     activePayoutItems: activePayoutResult.data ?? [],
-    stripeConnectPayouts: stripePayoutsResult.data ?? [],
     manualProviderPayout: args.manualProviderPayout,
     weeklyPayoutDay: controlCentre.weekly_payout_day,
     payoutTimeZone: controlCentre.payout_timezone,

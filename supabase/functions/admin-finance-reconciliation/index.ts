@@ -1012,7 +1012,6 @@ serve(async (req) => {
         STRIPE_SECTION_TIMEOUT_MS,
         fetchRegionPlatformKpis(supabase, {
           regionId: resolvedRegionId,
-          stripe: null,
           todayAuditRows,
         }),
       );
