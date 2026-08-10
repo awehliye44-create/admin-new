@@ -33,17 +33,7 @@ export async function getActivePaymentProvider(
     .eq("is_enabled", true)
     .maybeSingle();
 
-  const resolved = resolveActivePaymentProviderName(data?.provider as string | null);
   const environment = (data?.environment as ProviderEnvironment) ?? "live";
-
-  if (resolved === "revolut") {
-    return { provider: "revolut", environment };
-  }
-
-  emitStripeRetirementTelemetry({
-    event: PAYMENT_PROVIDER_UNAVAILABLE,
-    function: "getActivePaymentProvider",
-    operation: "resolve_active_provider",
-  });
   return { provider: "revolut", environment };
 }
+
