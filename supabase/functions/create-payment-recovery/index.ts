@@ -163,6 +163,34 @@ Deno.serve(async (req) => {
       netRefundedTotalPence: netRefunded,
     });
 
+    // Provider refresh above may prove the parent order settled in full.
+    // Re-sync the trip projection so Trip History stops showing a phantom shortfall.
+    if (
+      outstanding != null && outstanding <= 0
+      && payableResolved.source !== "zero_charge"
+      && (originalCaptured + recoveryCaptured) > 0
+    ) {
+      const capturedTotal = originalCaptured + recoveryCaptured;
+      const { error: syncErr } = await supabase
+        .from("trips")
+        .update({
+          capture_amount_pence: capturedTotal,
+          outstanding_balance_pence: 0,
+          payment_status: "captured",
+          payment_coverage_status: "captured",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", trip.id);
+      if (syncErr) console.error("[create-payment-recovery] trip capture sync failed", syncErr);
+      return errorResponse(
+        "Payment is already fully captured with the provider. The trip has been re-synced — no further charge is due.",
+        409,
+        undefined,
+        "ALREADY_FULLY_CAPTURED",
+      );
+    }
+
+
     const safety = validateCollectOutstandingOrPaymentLinkAction({
       outstandingPence: outstanding,
       // Never trust client amount — always charge exact server outstanding.
