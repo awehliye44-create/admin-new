@@ -26379,11 +26379,11 @@ export type Database = {
           driver_display_name: string
           driver_first_name: string
           driver_id: string
-          driver_last_name_initial: string
-          driver_photo_url: string
+          driver_photo_path: string
           driver_rating: number
           driver_rating_count: number
           trip_id: string
+          trip_status: string
           vehicle_color: string
           vehicle_license_plate: string
           vehicle_make: string
@@ -26477,11 +26477,11 @@ export type Database = {
           driver_display_name: string
           driver_first_name: string
           driver_id: string
-          driver_last_name_initial: string
-          driver_photo_url: string
+          driver_photo_path: string
           driver_rating: number
           driver_rating_count: number
           trip_id: string
+          trip_status: string
           vehicle_color: string
           vehicle_license_plate: string
           vehicle_make: string
