@@ -14,7 +14,7 @@ import {
 import {
   planRecoveryCaptureCompletion,
   isRecoveryCompletionIdempotent,
-} from "../../../shared/paymentSessionsRecoveryCompletionSSOT.ts";
+} from "../_shared/paymentSessionsRecoveryCompletionSSOT.ts";
 
 const ACTIVE_STATUSES = [
   "pending_payment",

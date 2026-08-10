@@ -13,7 +13,7 @@ import {
   isCommissionWalletWorkflowEnabled,
   isTopUpBonusCampaignType,
   validateCommissionWalletCampaignFields,
-} from "../../../shared/commissionWalletSSOT.ts";
+} from "../_shared/commissionWalletSSOT.ts";
 
 const PAGE_SLUG = "commission-wallet";
 

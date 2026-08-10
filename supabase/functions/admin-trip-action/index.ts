@@ -13,7 +13,7 @@ import {
   convertCommissionWalletOnTripComplete,
   ensureCommissionWalletDeductionForCompletedTrip,
 } from "../_shared/commissionWalletDeduction.ts";
-import { tripUsesCommissionWalletDeduction } from "../../../shared/commissionWalletSSOT.ts";
+import { tripUsesCommissionWalletDeduction } from "../_shared/commissionWalletSSOT.ts";
 import { calculateTripSettlement, tripSettlementDbColumns } from "../_shared/tripSettlement.ts";
 
 const ACTIVE_STATUSES = new Set([
