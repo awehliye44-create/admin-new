@@ -222,7 +222,7 @@ async function fetchWebhookHealth(
       supabase
         .from("processed_revolut_events")
         .select("id", { count: "exact", head: true })
-        .in("status", ["failed_retry", "failed_non_retry"])
+        .in("applied_status", ["failed_retry", "failed_non_retry"])
         .gte("processed_at", since24h),
     ]);
     if (lastResult.error || failedWebhooksResult.error) {

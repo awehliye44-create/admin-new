@@ -72,16 +72,16 @@ export async function finalizePayoutAfterProviderSuccess(args: {
   payoutAmount: number;
   currencyCode: string;
   batchKind: string;
-  stripeTransferId?: string | null;
-  stripePayoutId?: string | null;
+  providerTransferId?: string | null;
+  providerPayoutId?: string | null;
   providerReference?: string | null;
   providerPayoutId?: string | null;
   paymentProvider?: string | null;
   walletBalanceBefore: number;
 }): Promise<FinalizePayoutLedgerResult> {
   const ledgerType = ledgerTypeForBatchKind(args.batchKind);
-  const stripeTransferId = args.stripeTransferId ?? null;
-  const stripePayoutId = args.stripePayoutId ?? null;
+  const providerTransferId = args.providerTransferId ?? null;
+  const providerPayoutId = args.providerPayoutId ?? null;
   const providerReference = args.providerReference?.trim() || null;
   const providerPayoutId = args.providerPayoutId?.trim() || providerReference;
 
@@ -93,8 +93,8 @@ export async function finalizePayoutAfterProviderSuccess(args: {
       amount_pence: -args.payoutAmount,
       currency: args.currencyCode,
       description: payoutDescriptionForType(ledgerType),
-      provider_transfer_id: stripeTransferId,
-      provider_payout_id: stripePayoutId,
+      provider_transfer_id: providerTransferId,
+      provider_payout_id: providerPayoutId,
       provider_payout_id: providerPayoutId,
     })
     .select("id")
@@ -106,8 +106,8 @@ export async function finalizePayoutAfterProviderSuccess(args: {
 
     await args.supabase.from("payout_items").update({
       status: "ledger_sync_failed",
-      provider_transfer_id: stripeTransferId,
-      provider_payout_id: stripePayoutId,
+      provider_transfer_id: providerTransferId,
+      provider_payout_id: providerPayoutId,
       provider_reference: providerReference,
       provider_status: providerReference ? "paid" : null,
       ledger_sync_error: errMsg,
@@ -142,8 +142,8 @@ export async function finalizePayoutAfterProviderSuccess(args: {
 
     await args.supabase.from("payout_items").update({
       status: "ledger_sync_failed",
-      provider_transfer_id: stripeTransferId,
-      provider_payout_id: stripePayoutId,
+      provider_transfer_id: providerTransferId,
+      provider_payout_id: providerPayoutId,
       provider_reference: providerReference,
       provider_status: providerReference ? "paid" : null,
       ledger_entry_id: ledgerEntry.id,
@@ -167,8 +167,8 @@ export async function finalizePayoutAfterProviderSuccess(args: {
 
   await args.supabase.from("payout_items").update({
     status: "completed",
-    provider_transfer_id: stripeTransferId,
-    provider_payout_id: stripePayoutId,
+    provider_transfer_id: providerTransferId,
+    provider_payout_id: providerPayoutId,
     provider_reference: providerReference,
     provider_status: providerReference ? "paid" : null,
     ledger_entry_id: ledgerEntry.id,
