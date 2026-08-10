@@ -79,7 +79,11 @@ serve(async (req) => {
       .eq("id", trip_id)
       .single();
 
-    if (tripErr || !trip) {
+    if (tripErr) {
+      console.error("[cancel-trip] trip lookup failed", tripErr);
+      return errorResponse(`Trip lookup failed: ${tripErr.message}`, 500);
+    }
+    if (!trip) {
       return errorResponse("Trip not found", 404);
     }
 
