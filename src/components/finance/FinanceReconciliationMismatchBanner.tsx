@@ -8,8 +8,8 @@ export function FinanceReconciliationMismatchBanner({ regionId }: { regionId?: s
   const { data } = useContinuousReconciliation(regionId);
   if (!data?.summary) return null;
 
-  const { mismatch = 0, local_only = 0, stripe_only = 0, pending = 0 } = data.summary;
-  const totalIssues = mismatch + local_only + stripe_only;
+  const { mismatch = 0, local_only = 0, provider_only = 0, pending = 0 } = data.summary;
+  const totalIssues = mismatch + local_only + provider_only;
   if (totalIssues === 0 && pending === 0) return null;
 
   const issueRows = (data.rows ?? []).filter(
@@ -24,7 +24,7 @@ export function FinanceReconciliationMismatchBanner({ regionId }: { regionId?: s
         <div className="flex flex-wrap gap-2">
           {mismatch > 0 ? <Badge variant="destructive">{mismatch} mismatch</Badge> : null}
           {local_only > 0 ? <Badge variant="secondary">{local_only} local only</Badge> : null}
-          {stripe_only > 0 ? <Badge variant="secondary">{stripe_only} Provider only</Badge> : null}
+          {provider_only > 0 ? <Badge variant="secondary">{provider_only} Provider only</Badge> : null}
           {pending > 0 ? <Badge variant="outline">{pending} pending batch</Badge> : null}
         </div>
         <p className="text-sm">

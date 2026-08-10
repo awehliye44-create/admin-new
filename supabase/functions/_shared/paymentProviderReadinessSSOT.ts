@@ -81,7 +81,6 @@ export async function loadPaymentProviderCredentialReadiness(
 }
 
 export type ProviderBookingWorkflow =
-  | "stripe_preauth"
   | "revolut_merchant"
   | "mobile_wallet_collect"
   | "blocked"
@@ -93,7 +92,6 @@ export function resolveProviderBookingWorkflow(
 ): ProviderBookingWorkflow {
   if (!provider) return "not_configured";
   if (!readyForProduction) return "blocked";
-  if (provider === "stripe") return "stripe_preauth";
   if (provider === "revolut") return "revolut_merchant";
   if (provider in PROVIDER_MOBILE_WALLET_CATALOG) return "mobile_wallet_collect";
   return "blocked";

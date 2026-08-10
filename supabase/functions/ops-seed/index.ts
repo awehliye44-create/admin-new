@@ -46,13 +46,13 @@ serve(async (req) => {
     // ── All 18 required seed scenarios via ops_upsert_alert ──
     const alerts = [
       // 1. Failed payment
-      { fingerprint: 'demo:payment_failed:trip-001', category: 'payment', severity: 'critical', source: 'system', app: 'backend', title: 'Payment Failed', description: 'Stripe returned card_declined for trip MK0042.', metadata: { stripe_error: 'card_declined', amount_pence: 1850 } },
+      { fingerprint: 'demo:payment_failed:trip-001', category: 'payment', severity: 'critical', source: 'system', app: 'backend', title: 'Payment Failed', description: 'provider returned card_declined for trip MK0042.', metadata: { provider_error: 'card_declined', amount_pence: 1850 } },
       // 2. Missing commission
       { fingerprint: 'demo:commission_missing:trip-002', category: 'commission', severity: 'critical', source: 'system', app: 'backend', title: 'Missing Commission', description: 'Completed trip has no commission in trip_finance. Fare: £22.50', metadata: { gross_fare_pence: 2250 } },
       // 3. Missing driver earning
       { fingerprint: 'demo:earning_missing:trip-003', category: 'earning', severity: 'critical', source: 'system', app: 'backend', title: 'Missing Driver Earnings', description: 'Driver ledger has no entry for completed trip.', metadata: { gross_fare_pence: 1800 } },
       // 4. Failed payout
-      { fingerprint: 'demo:payout_failed:batch-001', category: 'payout', severity: 'critical', source: 'system', app: 'backend', title: 'Payout Batch Failed', description: 'Stripe payout batch failed for 3 drivers. Total: £450.00', metadata: { failed_count: 3, total_pence: 45000 } },
+      { fingerprint: 'demo:payout_failed:batch-001', category: 'payout', severity: 'critical', source: 'system', app: 'backend', title: 'Payout Batch Failed', description: 'provider payout batch failed for 3 drivers. Total: £450.00', metadata: { failed_count: 3, total_pence: 45000 } },
       // 5. Stuck dispatch
       { fingerprint: 'demo:dispatch_stuck:trip-004', category: 'dispatch', severity: 'warning', source: 'system', app: 'backend', title: 'Stuck Dispatch', description: 'Trip stuck in dispatch for 28 minutes with no driver accepting.', metadata: { minutes_waiting: 28 } },
       // 6. Slow customer app screen
@@ -69,7 +69,7 @@ serve(async (req) => {
       { fingerprint: 'demo:driver_app_slow:documents', category: 'driver_app', severity: 'warning', source: 'system', app: 'driver', title: 'Driver Documents Screen Slow', description: 'DocumentsScreen load time 5.1s when fetching expiry docs.', metadata: { screen: 'DocumentsScreen', load_time_ms: 5100 } },
       { fingerprint: 'demo:driver_app_slow:accept', category: 'driver_app', severity: 'critical', source: 'system', app: 'driver', title: 'Accept Trip Screen Critical', description: 'AcceptTripScreen took 3.8s — drivers missing offers due to delay.', metadata: { screen: 'AcceptTripScreen', load_time_ms: 3800, threshold_ms: 1000 } },
       // 8. Guest checkout failure
-      { fingerprint: 'demo:guest_checkout_fail:sess-002', category: 'guest_booking', severity: 'critical', source: 'system', app: 'guest', title: 'Guest Checkout Failed', description: 'Guest booking on guest.onecab.net failed at payment checkout.', metadata: { page: '/checkout', error: 'stripe_card_declined' } },
+      { fingerprint: 'demo:guest_checkout_fail:sess-002', category: 'guest_booking', severity: 'critical', source: 'system', app: 'guest', title: 'Guest Checkout Failed', description: 'Guest booking on guest.onecab.net failed at payment checkout.', metadata: { page: '/checkout', error: 'provider_card_declined' } },
       // 9. Guest quote failure
       { fingerprint: 'demo:guest_quote_fail:sess-001', category: 'guest_booking', severity: 'critical', source: 'system', app: 'guest', title: 'Guest Quote Failed', description: 'Guest on guest.onecab.net received error during fare estimation.', metadata: { page: '/quote', error: 'fare_engine_timeout' } },
       // 10. Repeated guest web errors
@@ -79,7 +79,7 @@ serve(async (req) => {
       // 12. Fatal log
       { fingerprint: 'demo:fatal_log:payout', category: 'backend', severity: 'fatal', source: 'system', app: 'backend', title: 'Fatal Error in Payout Processing', description: 'Fatal crash in admin-payout-batches: connection reset.', metadata: { error_code: 'PAYOUT_CRASH' } },
       // 13. Webhook failure
-      { fingerprint: 'demo:webhook_failure:stripe', category: 'backend', severity: 'critical', source: 'system', app: 'backend', title: 'Webhook Processing Failed', description: 'Stripe webhook handler returned 500 for 4 consecutive events.', metadata: { webhook_source: 'stripe', failure_count: 4, event_types: ['payment_intent.succeeded', 'charge.refunded'] } },
+      { fingerprint: 'demo:webhook_failure:provider', category: 'backend', severity: 'critical', source: 'system', app: 'backend', title: 'Webhook Processing Failed', description: 'provider webhook handler returned 500 for 4 consecutive events.', metadata: { webhook_source: 'provider', failure_count: 4, event_types: ['payment_intent.succeeded', 'charge.refunded'] } },
       // 14. Edge function failure
       { fingerprint: 'demo:edge_fn_crash:dispatch', category: 'backend', severity: 'critical', source: 'system', app: 'backend', title: 'Edge Function Crash: dispatch-trip', description: 'dispatch-trip edge function crashed 3 times with OOM error.', metadata: { function_name: 'dispatch-trip', error: 'out_of_memory', crash_count: 3 } },
       // 15. Duplicate booking
@@ -118,12 +118,12 @@ serve(async (req) => {
 
     // Error spike from complete-trip (6 errors in 1h)
     for (let i = 0; i < 6; i++) {
-      logs.push({ ...logBase, level: 'error', source: 'complete-trip', app: 'backend', message: `Payment capture failed: card_declined (attempt ${i + 1})`, error_code: 'STRIPE_CARD_DECLINED', duration_ms: 1200 + i * 100, http_status: 402, created_at: new Date(now.getTime() - i * 3 * 60 * 1000).toISOString() });
+      logs.push({ ...logBase, level: 'error', source: 'complete-trip', app: 'backend', message: `Payment capture failed: card_declined (attempt ${i + 1})`, error_code: 'PROVIDER_CARD_DECLINED', duration_ms: 1200 + i * 100, http_status: 402, created_at: new Date(now.getTime() - i * 3 * 60 * 1000).toISOString() });
     }
 
     // 5xx spike from create-payment-intent
     for (let i = 0; i < 4; i++) {
-      logs.push({ ...logBase, level: 'error', source: 'create-payment-intent', app: 'backend', message: `Stripe API gateway timeout (instance ${i + 1})`, error_code: 'STRIPE_TIMEOUT', duration_ms: 30000, http_status: 500 + (i % 3), created_at: new Date(now.getTime() - i * 2 * 60 * 1000).toISOString() });
+      logs.push({ ...logBase, level: 'error', source: 'create-payment-intent', app: 'backend', message: `provider API gateway timeout (instance ${i + 1})`, error_code: 'PROVIDER_TIMEOUT', duration_ms: 30000, http_status: 500 + (i % 3), created_at: new Date(now.getTime() - i * 2 * 60 * 1000).toISOString() });
     }
 
     // Fatal log
@@ -141,7 +141,7 @@ serve(async (req) => {
 
     // Webhook failures
     for (let i = 0; i < 4; i++) {
-      logs.push({ ...logBase, level: 'error', source: 'stripe-webhook', app: 'backend', message: `Webhook handler failed: payment_intent.succeeded (instance ${i + 1})`, error_code: 'WEBHOOK_FAIL', duration_ms: 800, http_status: 500, created_at: new Date(now.getTime() - i * 2 * 60 * 1000).toISOString() });
+      logs.push({ ...logBase, level: 'error', source: 'provider-webhook', app: 'backend', message: `Webhook handler failed: payment_intent.succeeded (instance ${i + 1})`, error_code: 'WEBHOOK_FAIL', duration_ms: 800, http_status: 500, created_at: new Date(now.getTime() - i * 2 * 60 * 1000).toISOString() });
     }
 
     // Guest booking errors

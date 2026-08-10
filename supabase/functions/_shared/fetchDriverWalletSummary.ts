@@ -4,7 +4,6 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { fetchDriverWalletPayoutSnapshot } from "./fetchDriverWalletPayoutSnapshot.ts";
 import { buildDriverWalletSummaryResponse } from "./driverWalletPeriodWidgetsSSOT.ts";
-import type Stripe from "https://esm.sh/stripe@14.21.0";
 
 export async function fetchDriverWalletSummary(
   supabase: SupabaseClient,
@@ -15,12 +14,10 @@ export async function fetchDriverWalletSummary(
     periodTo: string;
     serviceAreaId?: string | null;
     timezone?: string | null;
-    stripe?: Stripe | null;
   },
 ) {
   const detail = await fetchDriverWalletPayoutSnapshot(supabase, {
     driverId: args.driverId,
-    stripe: args.stripe ?? null,
   });
 
   const { data: ledger } = await supabase

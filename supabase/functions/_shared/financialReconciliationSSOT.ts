@@ -82,7 +82,7 @@ export const ADJUSTMENT_LEDGER_TYPES = [
 
 export const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
 
-/** Trip-level payment_status values that confirm Stripe capture (card trips). */
+/** Trip-level payment_status values that confirm provider capture (card trips). */
 export const CAPTURE_CONFIRMED_TRIP_PAYMENT_STATUSES = CAPTURED_PAYMENT_STATUSES;
 
 export type CustomerRevenueSourceLabel =
@@ -386,7 +386,7 @@ export function sumCustomerRevenuePence(args: {
  * Pending capture revenue — never invent from trip capture/fare.
  * Without Payment Sessions capture evidence the amount is unknown (0 pending invent).
  */
-export function sumPendingStripeConfirmationRevenuePence(_args: {
+export function sumPendingProviderConfirmationRevenuePence(_args: {
   pendingTrips: TripSSOTRow[];
 }): number {
   return 0;
@@ -790,8 +790,8 @@ export type PaymentMethodLedgerMetrics = {
   card_driver_payable_pence: number;
   onecab_card_commission_pence: number;
   onecab_card_net_commission_pence: number;
-  stripe_processing_fees_pence: number;
-  /** Alias — same value as stripe_processing_fees_pence for API compat. */
+  provider_processing_fees_pence: number;
+  /** Alias — same value as provider_processing_fees_pence for API compat. */
   provider_processing_fees_pence: number;
   /** Completed card trips not yet capture-confirmed — not reconciled totals. */
   pending_provider_confirmation_revenue_pence: number;
@@ -814,12 +814,12 @@ export function totalCommissionEarnedPence(
   return Math.max(0, cardCommissionPence);
 }
 
-/** Net platform revenue — Stripe fees apply to card trips only. */
+/** Net platform revenue — provider fees apply to card trips only. */
 export function netPlatformRevenuePence(
   totalCommissionEarnedPenceValue: number,
-  cardStripeFeesPence: number,
+  cardProviderFeesPence: number,
 ): number {
-  return Math.max(0, totalCommissionEarnedPenceValue - Math.max(0, cardStripeFeesPence));
+  return Math.max(0, totalCommissionEarnedPenceValue - Math.max(0, cardProviderFeesPence));
 }
 
 export function computePaymentMethodLedgerMetrics(args: {
@@ -839,7 +839,7 @@ export function computePaymentMethodLedgerMetrics(args: {
   let cardCustomerRevenue = 0;
   let cardDriverPayable = 0;
   let onecabCardCommission = 0;
-  let cardStripeFees = 0;
+  let cardProviderFees = 0;
   for (const trip of reconciledTrips) {
     if (excludeTripFromPlatformCollectedFinance(trip)) continue;
     const commission = Math.max(0, trip.commission_pence ?? 0);
@@ -861,9 +861,9 @@ export function computePaymentMethodLedgerMetrics(args: {
     cardDriverPayable += adjusted.driver_net_pence;
     onecabCardCommission += adjusted.commission_pence;
     if (args.feeByTrip) {
-      cardStripeFees += Math.max(0, feeByTrip.get(tripId) ?? 0);
+      cardProviderFees += Math.max(0, feeByTrip.get(tripId) ?? 0);
     } else {
-      cardStripeFees += tripProviderProcessingFeePence(trip);
+      cardProviderFees += tripProviderProcessingFeePence(trip);
     }
   }
 
@@ -872,7 +872,7 @@ export function computePaymentMethodLedgerMetrics(args: {
   let pendingDriverNet = 0;
   for (const trip of pendingTrips) {
     if (excludeTripFromPlatformCollectedFinance(trip)) continue;
-    pendingRevenue += sumPendingStripeConfirmationRevenuePence({ pendingTrips: [trip] });
+    pendingRevenue += sumPendingProviderConfirmationRevenuePence({ pendingTrips: [trip] });
     pendingCommission += Math.max(0, trip.commission_pence ?? 0);
     pendingDriverNet += Math.max(0, trip.driver_net_pence ?? 0);
   }
@@ -882,9 +882,9 @@ export function computePaymentMethodLedgerMetrics(args: {
     net_card_revenue_pence: Math.max(0, cardCustomerRevenue),
     card_driver_payable_pence: cardDriverPayable,
     onecab_card_commission_pence: onecabCardCommission,
-    onecab_card_net_commission_pence: onecabNetCommissionPence(onecabCardCommission, cardStripeFees),
-    stripe_processing_fees_pence: cardStripeFees,
-    provider_processing_fees_pence: cardStripeFees,
+    onecab_card_net_commission_pence: onecabNetCommissionPence(onecabCardCommission, cardProviderFees),
+    provider_processing_fees_pence: cardProviderFees,
+    provider_processing_fees_pence: cardProviderFees,
     pending_provider_confirmation_revenue_pence: pendingRevenue,
     pending_provider_confirmation_commission_pence: pendingCommission,
     pending_provider_confirmation_driver_net_pence: pendingDriverNet,
@@ -999,7 +999,7 @@ export function computeSSOTMetrics(args: {
     ? sumRefundedFromPaymentSessions(sessionByTrip)
     : sumRefundedPence(args.trips);
   const netCustomer = netCustomerRevenuePence(customerRev.total_pence, refunded);
-  const pendingRevenue = sumPendingStripeConfirmationRevenuePence({ pendingTrips });
+  const pendingRevenue = sumPendingProviderConfirmationRevenuePence({ pendingTrips });
   const driverGross = sumDriverGrossEarningsPence(reconciledTrips);
   const driverNet = sumDriverNetEarningsPence(reconciledTrips, paymentByTrip, refundByTrip);
   const onecabGross = sumOnecabGrossCommissionPence(reconciledTrips, paymentByTrip, refundByTrip);
@@ -1028,11 +1028,11 @@ export function computeSSOTMetrics(args: {
   );
   const netPlatform = netPlatformRevenuePence(
     totalCommissionEarned,
-    ledgerSplit.stripe_processing_fees_pence,
+    ledgerSplit.provider_processing_fees_pence,
   );
   const onecabCardNet = onecabNetCommissionPence(
     ledgerSplit.onecab_card_commission_pence,
-    ledgerSplit.stripe_processing_fees_pence,
+    ledgerSplit.provider_processing_fees_pence,
   );
 
   return {

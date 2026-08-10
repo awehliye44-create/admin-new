@@ -39,9 +39,8 @@ import {
 
 interface PaymentState {
   trip_id: string;
-  payment_provider?: 'stripe' | 'revolut' | 'unknown';
+  payment_provider?: 'revolut' | 'unknown';
   provider_order_id?: string | null;
-  legacy_stripe_trip?: boolean;
   payment_intent_id: string | null;
   charge_id: string | null;
   payment_method: string | null;
@@ -49,8 +48,8 @@ interface PaymentState {
   last4: string | null;
   provider_status?: string | null;
   payment_status: string | null;
-  stripe_status: string | null;
-  stripe_currency: string | null;
+  provider_state: string | null;
+  provider_currency_code: string | null;
   authorized_pence: number;
   captured_pence: number;
   refunded_pence: number;
@@ -69,11 +68,7 @@ interface PaymentState {
   outstanding_pence?: number;
   capture_mismatch?: boolean;
   ssot_source?: string;
-  stripe_application_fee_id: string | null;
-  stripe_application_fee_amount_pence: number | null;
-  stripe_destination_account_id: string | null;
   provider_transfer_id: string | null;
-  stripe_transfer_amount_pence: number | null;
   provider_settlement_verified: boolean;
   provider_settlement_warning: string | null;
   provider_settlement_warning_severity?: 'info' | 'error' | null;
@@ -94,14 +89,13 @@ interface PaymentState {
     can_refund: boolean;
     can_partial_refund: boolean;
     can_cancel_authorisation?: boolean;
-    can_sync_stripe: boolean;
     can_add_note: boolean;
   };
 }
 
 interface AuditEntry {
   id: string;
-  action: 'capture' | 'refund' | 'edit_fare' | 'cancel' | 'extra_payment' | 'finance_note' | 'sync_stripe';
+  action: 'capture' | 'refund' | 'edit_fare' | 'cancel' | 'extra_payment' | 'finance_note';
   reason: string;
   amount_pence_before: number | null;
   amount_pence_after: number | null;
@@ -129,7 +123,6 @@ const ACTION_LABEL: Record<AuditEntry['action'] | 'extra_payment', string> = {
   cancel: 'Hold released',
   extra_payment: 'Extra payment',
   finance_note: 'Finance note',
-  sync_stripe: 'Sync Provider',
 };
 
 const INFORMATIONAL_SETTLEMENT_WARNINGS = new Set([
@@ -155,7 +148,7 @@ function settlementWarningSeverity(
   if (!warning) return null;
   if (apiSeverity) return apiSeverity;
   if (verified && INFORMATIONAL_SETTLEMENT_WARNINGS.has(warning)) return 'info';
-  if (!verified || warning.startsWith('STRIPE_SETTLEMENT_NOT_VERIFIED')) return 'error';
+  if (!verified || warning.startsWith('PROVIDER_SETTLEMENT_NOT_VERIFIED')) return 'error';
   if (
     warning.startsWith('DESTINATION_CHARGE_APP_FEE_MISMATCH') ||
     warning.startsWith('SEPARATE_TRANSFER_MISMATCH')
@@ -329,15 +322,13 @@ export function PaymentControlsCard({
   const state = stateQuery.data;
   const captureContext = captureContextQuery.data;
   const captureStatus = captureContext ? getTripCaptureStatus(captureContext) : null;
-  const currency = state?.stripe_currency
+  const currency = state?.provider_currency_code
     || (captureContext as { currency_code?: string | null } | undefined)?.currency_code
     || 'GBP';
   const isUncaptured = state?.actions_allowed?.can_capture
-    ?? (state?.payment_provider === 'revolut'
-      ? String(state?.provider_status ?? state?.stripe_status ?? '').toLowerCase() === 'authorised'
-      : state?.stripe_status === 'requires_capture');
-  const canSyncStripe = false;
-  const isCancelled = state?.stripe_status === 'canceled' || String(state?.payment_status ?? '').includes('cancel');
+    ?? String(state?.provider_status ?? state?.provider_state ?? '').toLowerCase() === 'authorised';
+  const isCancelled = String(state?.provider_state ?? '').toLowerCase() === 'cancelled'
+    || String(state?.payment_status ?? '').includes('cancel');
   const hasCharge = !!state && (state.actions_allowed?.can_refund || state.actions_allowed?.can_partial_refund || state.captured_pence > 0);
   const refundable = state ? Math.max(0, state.refundable_pence ?? state.captured_pence - state.refunded_pence) : 0;
   const canRefund = state?.actions_allowed?.can_refund ?? (hasCharge && refundable > 0);
@@ -378,8 +369,8 @@ export function PaymentControlsCard({
     verifiedCapturedTotalPence: capturedPence > 0 ? capturedPence : (state?.captured_pence ?? null),
     netRefundedTotalPence: state?.refunded_pence ?? 0,
     providerSettlementVerified: !!state?.provider_settlement_verified,
-    paymentStatus: state?.payment_status ?? state?.stripe_status,
-    providerStatus: state?.provider_status ?? state?.stripe_status,
+    paymentStatus: state?.payment_status ?? state?.provider_state,
+    providerStatus: state?.provider_status ?? state?.provider_state,
   });
   const isLegacyTrip = !!ctx
     && (ctx.final_fare_pence == null || ctx.final_fare_pence === 0)
@@ -567,9 +558,9 @@ export function PaymentControlsCard({
             {/* Status row */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <Badge variant="outline">
-                {state.payment_provider === 'revolut' ? 'Revolut' : state.legacy_stripe_trip ? 'Legacy Stripe' : 'Provider'}
+                {state.payment_provider === 'revolut' ? 'Revolut' : 'Provider'}
               </Badge>
-              <Badge variant="outline">Status: {state.stripe_status || state.provider_status || state.payment_status || '—'}</Badge>
+              <Badge variant="outline">Status: {state.provider_state || state.provider_status || state.payment_status || '—'}</Badge>
               {state.payment_method && (
                 <Badge variant="secondary">
                   {state.payment_method_brand ? `${state.payment_method_brand} •••• ${state.last4 ?? ''}` : state.payment_method}
@@ -701,11 +692,7 @@ export function PaymentControlsCard({
               <div className="flex justify-between font-medium"><span>ONECAB net</span><span className="text-blue-600">{formatPence(state.onecab_net_pence, currency)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Driver net</span><span className="text-green-600">{driverNetPence != null ? formatPence(driverNetPence, currency) : 'Unknown'}</span></div>
               <Separator className="my-1" />
-              <div className="flex justify-between"><span className="text-muted-foreground">Provider application fee</span><span>{state.stripe_application_fee_amount_pence != null ? formatPence(state.stripe_application_fee_amount_pence, currency) : '—'}</span></div>
-              {state.stripe_application_fee_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Application fee ID</span><code className="text-[10px] truncate">{state.stripe_application_fee_id}</code></div>}
-              {state.stripe_destination_account_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Driver destination</span><code className="text-[10px] truncate">{state.stripe_destination_account_id}</code></div>}
               {state.provider_transfer_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Driver transfer</span><code className="text-[10px] truncate">{state.provider_transfer_id}</code></div>}
-              {state.stripe_transfer_amount_pence != null && <div className="flex justify-between"><span className="text-muted-foreground">Transfer amount</span><span>{formatPence(state.stripe_transfer_amount_pence, currency)}</span></div>}
               {settlementWarningText && settlementWarning === 'error' && (
                 <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-destructive flex items-start gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
@@ -727,7 +714,7 @@ export function PaymentControlsCard({
             </div>
             ) : (
             <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1.5">
-              <div className="flex justify-between"><span className="text-muted-foreground">Payment status</span><span>{state.stripe_status || state.payment_status || '—'}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Payment status</span><span>{state.provider_state || state.payment_status || '—'}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Captured</span><span>{formatPence(capturedPence, currency)}</span></div>
               {captureStatus?.shortLabel && (
                 <div className="flex justify-between"><span className="text-muted-foreground">Capture</span><span>{captureStatus.shortLabel}</span></div>
@@ -751,7 +738,7 @@ export function PaymentControlsCard({
                 }}
                 paymentInput={{
                   paymentMethod: state.payment_method,
-                  stripeStatus: state.stripe_status,
+                  providerState: state.provider_state,
                   paymentStatus: state.payment_status,
                   capturedPence,
                   refundedPence: state.refunded_pence,
@@ -762,7 +749,7 @@ export function PaymentControlsCard({
                   hasPaymentIntent: !!state.payment_intent_id,
                   hasCharge: !!state.charge_id || hasCharge,
                   tripCancelled: isCancelled,
-                  stripeSettlementVerified: state.provider_settlement_verified,
+                  providerSettlementVerified: state.provider_settlement_verified,
                   actionsAllowed: state.actions_allowed,
                 }}
                 actionsDisabled={actionMutation.isPending || repairCommissionsMutation.isPending}

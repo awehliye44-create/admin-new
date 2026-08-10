@@ -278,7 +278,7 @@ serve(async (req) => {
       })),
     });
     const providerFee = trip.provider_fee_pence || 0;
-    // ONECAB net after Stripe — read from DB (do NOT recompute on the client).
+    // ONECAB net after provider — read from DB (do NOT recompute on the client).
     // Historical trips that pre-date fee tracking fall back to gross commission.
     const onecabNet = trip.onecab_net_pence != null
       ? trip.onecab_net_pence
@@ -327,7 +327,7 @@ serve(async (req) => {
         providerFee,
         onecabNet,
       },
-      stripe: {
+      provider: {
         paymentIntentId: trip.provider_payment_id,
         chargeId: trip.provider_charge_id,
         captureStatus: trip.payment_status,
@@ -343,7 +343,7 @@ serve(async (req) => {
         name: `${trip.drivers.first_name} ${trip.drivers.last_name}`,
         email: trip.drivers.email,
         phone: trip.drivers.phone,
-        stripeAccountId: trip.drivers.provider_account_id,
+        providerAccountId: trip.drivers.provider_account_id,
         payoutsEnabled: trip.drivers.payouts_enabled,
       } : null,
       customer: customer ? {

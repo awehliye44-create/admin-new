@@ -208,9 +208,9 @@ describe("SLICE A/H — payout ledger never invents money", () => {
     expect(dto.unavailable_reason).toBe(COMPANY_BALANCE_ERROR.PROVIDER_CONNECTION_UNAVAILABLE);
   });
 
-  it("9+10. never uses Stripe or Merchant API as company balance evidence", () => {
+  it("9+10. never uses provider or Merchant API as company balance evidence", () => {
     const audit = auditCompanyBalanceSourceCandidates();
-    expect(audit.some((a) => a.candidate.includes("stripe") && !a.usable_for_company_balance)).toBe(true);
+    expect(audit.some((a) => a.candidate.includes("provider") && !a.usable_for_company_balance)).toBe(true);
     expect(audit.some((a) => a.candidate.includes("revolutAdapter.getBalance") && !a.usable_for_company_balance)).toBe(true);
     expect(audit.some((a) => a.candidate.includes("Business API") && a.usable_for_company_balance)).toBe(true);
     const snap = resolveCompanyBalanceSnapshot({ driver_liability_pence: 1409 });

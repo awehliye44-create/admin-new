@@ -17,7 +17,7 @@ export type DriverStatementPeriodTotal = {
   debt_recovery_pence: number;
   cash_collected_pence: number;
   net_earnings_pence: number;
-  /** Sum of successful payout ledger debits in period (Stripe Connect evidence). */
+  /** Sum of successful payout ledger debits in period (provider Connect evidence). */
   payouts_received_pence: number;
 };
 

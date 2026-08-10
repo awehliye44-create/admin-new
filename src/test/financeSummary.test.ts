@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 /**
  * Regression guard: ONECAB commission MUST come from the ledger
  * (driver_wallet_ledger PLATFORM_COMMISSION) — never derived from
- * `stripe_available_balance - driver_payable`. That formula confuses
+ * `provider_available_balance - driver_payable`. That formula confuses
  * unallocated cash with earned commission and is the bug class this
  * test exists to prevent forever.
  */
@@ -20,7 +20,7 @@ function FORBIDDEN_commissionFromBalances(providerAvailable: number, driverPayab
 }
 
 describe('Finance summary — commission source-of-truth', () => {
-  it('reports commission from the ledger, not from stripe balance minus driver payable', () => {
+  it('reports commission from the ledger, not from provider balance minus driver payable', () => {
     const ledger = [
       { type: 'PLATFORM_COMMISSION', amount_pence: 146 },
       { type: 'PLATFORM_COMMISSION', amount_pence: 79 },

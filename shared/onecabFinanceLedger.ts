@@ -127,26 +127,26 @@ export type PayoutEligibilityInput = {
 };
 
 export type PayoutEligibility = {
-  stripe_connected: boolean;
+  provider_connected: boolean;
   payout_eligible: boolean;
   settlement_status: "eligible" | "needs_attention" | "not_connected";
 };
 
 export function derivePayoutEligibility(driver: PayoutEligibilityInput): PayoutEligibility {
-  const stripeConnected = Boolean(driver.provider_account_id)
+  const providerConnected = Boolean(driver.provider_account_id)
     && (driver.onboarding_complete ?? false);
   const requirementsDue = driver.requirements_currently_due ?? [];
-  const payoutEligible = stripeConnected
+  const payoutEligible = providerConnected
     && (driver.payouts_enabled ?? false)
     && (driver.external_account_exists ?? true)
     && requirementsDue.length === 0;
 
   let settlementStatus: PayoutEligibility["settlement_status"] = "not_connected";
-  if (stripeConnected && payoutEligible) settlementStatus = "eligible";
-  else if (stripeConnected) settlementStatus = "needs_attention";
+  if (providerConnected && payoutEligible) settlementStatus = "eligible";
+  else if (providerConnected) settlementStatus = "needs_attention";
 
   return {
-    stripe_connected: stripeConnected,
+    provider_connected: providerConnected,
     payout_eligible: payoutEligible,
     settlement_status: settlementStatus,
   };

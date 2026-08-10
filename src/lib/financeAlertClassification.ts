@@ -54,7 +54,7 @@ export function classifyFinanceMismatch(m: FinanceMismatchInput): FinanceAlertIt
   }
 
   if (kind === 'payout') {
-    if (text.includes('no matching driver_wallet_ledger') || text.includes('stripe payout paid but no matching')) {
+    if (text.includes('no matching driver_wallet_ledger') || text.includes('provider payout paid but no matching')) {
       return { id: `swl-${ref}`, label: 'Provider without Ledger', detail, severity: 'destructive' };
     }
     if (text.includes('does not match driver wallet ledger')) {
@@ -70,10 +70,10 @@ export function classifyFinanceMismatch(m: FinanceMismatchInput): FinanceAlertIt
     return { id: `neg-${ref}`, label: 'Negative wallet', detail, severity: 'destructive' };
   }
 
-  if (text.includes('stripe without ledger') || text.includes('stripe payout without ledger')) {
+  if (text.includes('provider without ledger') || text.includes('provider payout without ledger')) {
     return { id: `swl-${ref}`, label: 'Provider without Ledger', detail, severity: 'destructive' };
   }
-  if (text.includes('ledger without stripe')) {
+  if (text.includes('ledger without provider')) {
     return { id: `lws-${ref}`, label: 'Ledger without Provider', detail, severity: 'destructive' };
   }
   if (text.includes('capture mismatch') || (text.includes('capture') && text.includes('mismatch'))) {

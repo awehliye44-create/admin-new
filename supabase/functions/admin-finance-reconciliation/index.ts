@@ -91,7 +91,7 @@ const TRIP_AUDIT_SELECT = `
         driver:drivers!trips_driver_id_fkey(first_name, last_name)
       `;
 
-function buildStripePaymentIntentAuditRows(
+function buildProviderPaymentAuditRows(
   tripRows: TripAuditSourceRow[],
   paymentRows: Array<{
     captured_amount_pence: number | null;
@@ -157,9 +157,9 @@ function endOfTodayUtc(): string {
 
 const MAX_LEDGER_DRIVER_IN = 150;
 
-// Hard cap on any single Stripe-heavy sub-call so the whole edge function
+// Hard cap on any single provider-heavy sub-call so the whole edge function
 // stays under the 150s idle-timeout limit even on large Connect accounts.
-const STRIPE_SECTION_TIMEOUT_MS = 25_000;
+const PROVIDER_SECTION_TIMEOUT_MS = 25_000;
 
 async function withTimeout<T>(
   label: string,
@@ -214,15 +214,15 @@ async function fetchWebhookHealth(
   try {
     const [lastResult, failedWebhooksResult] = await Promise.all([
       supabase
-        .from("processed_stripe_events")
+        .from("processed_revolut_events")
         .select("processed_at")
         .order("processed_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
       supabase
-        .from("processed_stripe_events")
+        .from("processed_revolut_events")
         .select("id", { count: "exact", head: true })
-        .in("status", ["failed_retry", "failed_non_retry"])
+        .in("applied_status", ["failed_retry", "failed_non_retry"])
         .gte("processed_at", since24h),
     ]);
     if (lastResult.error || failedWebhooksResult.error) {
@@ -238,15 +238,15 @@ async function fetchWebhookHealth(
 }
 
 function computeProviderHealthStatus(args: {
-  stripeBalanceError: string | null;
-  stripeSecretConfigured: boolean;
+  providerBalanceError: string | null;
+  providerSecretConfigured: boolean;
   connectBundleExpected: boolean;
   connectBundleLoaded: boolean;
   failedWebhookCount: number;
 }): "healthy" | "degraded" | "failing" {
-  if (!args.stripeSecretConfigured) return "failing";
-  if (args.stripeBalanceError) {
-    return args.stripeBalanceError === "connect_money_movement_timeout" ? "degraded" : "failing";
+  if (!args.providerSecretConfigured) return "failing";
+  if (args.providerBalanceError) {
+    return args.providerBalanceError === "connect_money_movement_timeout" ? "degraded" : "failing";
   }
   if (args.failedWebhookCount > 0) return "degraded";
   if (args.connectBundleExpected && !args.connectBundleLoaded) return "degraded";
@@ -341,11 +341,11 @@ async function fetchLedgerRowsForPeriod(
 function settlementStatusLabel(status: string): string {
   switch (status) {
     case "calculated_only":
-      return "Calculated only — not confirmed in Stripe";
+      return "Calculated only — not confirmed with provider";
     case "pending_provider_settlement":
-      return "Pending Stripe settlement";
+      return "Pending provider settlement";
     case "available_in_provider_balance":
-      return "ONECAB net available in Stripe (trip-verified)";
+      return "ONECAB net available with provider (trip-verified)";
     case "paid_to_onecab_bank":
       return "Paid To ONECAB Bank";
     case "reconciled":
@@ -363,7 +363,7 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+    const providerSecretKey = Deno.env.get("REVOLUT_SECRET_KEY");
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const authHeader = req.headers.get("Authorization");
@@ -705,13 +705,13 @@ serve(async (req) => {
     const inFlightCashout = pendingCashout + reservedCashout;
     const pendingTransfers = pendingPayout + inFlightCashout;
 
-    const scopeHeavyStripe = Boolean(resolvedRegionId || serviceAreaId);
+    const scopeHeavyProvider = Boolean(resolvedRegionId || serviceAreaId);
 
-    // FR must not call Revolut/Stripe balance APIs to create a second payment truth.
+    // FR must not call provider balance APIs to create a second payment truth.
     // Provider balance refresh belongs to Payment Sessions / Payout Ledger.
     const providerAvailablePence = 0;
     const providerPendingPence = 0;
-    const stripeBalanceError: string | null = "PROVIDER_BALANCE_NOT_QUERIED_BY_FR";
+    const providerBalanceError: string | null = "PROVIDER_BALANCE_NOT_QUERIED_BY_FR";
     const moneyMovement = undefined;
 
     if (driverId) {
@@ -737,8 +737,7 @@ serve(async (req) => {
           ssot_version: "financial_reconciliation_ssot_v1",
           data_source_badge: perDriver.source_tier,
           payment_provider: financeScopeProvider.provider,
-          provider_balance_error: stripeBalanceError,
-          provider_balance_error: stripeBalanceError,
+          provider_balance_error: providerBalanceError,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -747,9 +746,9 @@ serve(async (req) => {
 
     const { failedWebhookCount, lastWebhookAt } = webhookHealth;
     const providerHealth = computeProviderHealthStatus({
-      stripeBalanceError,
-      stripeSecretConfigured: Boolean(stripeSecretKey),
-      connectBundleExpected: scopeHeavyStripe && !summaryOnly,
+      providerBalanceError,
+      providerSecretConfigured: Boolean(providerSecretKey),
+      connectBundleExpected: scopeHeavyProvider && !summaryOnly,
       connectBundleLoaded: moneyMovement != null,
       failedWebhookCount,
     });
@@ -959,10 +958,10 @@ serve(async (req) => {
       });
     }
 
-    const stripe_payment_intents = buildStripePaymentIntentAuditRows(tripRows, paymentRows);
+    const provider_payment_records = buildProviderPaymentAuditRows(tripRows, paymentRows);
 
     let platform_kpis = null;
-    if (!summaryOnly && !driverId && scopeHeavyStripe) {
+    if (!summaryOnly && !driverId && scopeHeavyProvider) {
       const { start: londonStart, end: londonEnd } = getLondonDayBounds();
       let todayTripQuery = supabase
         .from("trips")
@@ -1009,10 +1008,9 @@ serve(async (req) => {
 
       const kpisResult = await withTimeout(
         "platform_kpis",
-        STRIPE_SECTION_TIMEOUT_MS,
+        PROVIDER_SECTION_TIMEOUT_MS,
         fetchRegionPlatformKpis(supabase, {
           regionId: resolvedRegionId,
-          stripe: null,
           todayAuditRows,
         }),
       );
@@ -1162,7 +1160,7 @@ serve(async (req) => {
         wallet: walletDownstream,
         payouts: payoutsDownstream,
       },
-      stripe_payment_intents,
+      provider_payment_records,
       legacy_manual_review_items: legacyManualReviewItems,
       money_movement: moneyMovement,
       service_area_payment_gateways,
@@ -1172,24 +1170,22 @@ serve(async (req) => {
         payment_provider: financeScopeProvider.provider,
         payment_provider_environment: financeScopeProvider.environment,
         manual_provider_payout: financeScopeProvider.manual_provider_payout,
-        provider_balance_error: stripeBalanceError,
-        provider_balance_error: stripeBalanceError,
+        provider_balance_error: providerBalanceError,
         provider_balance_is_not_payment_truth: true,
         ssot_version: SSOT_VERSION,
         data_source_badge: pageStatus,
         accounting_rules: {
           card_customer_revenue: "sum(captured_amount_pence) where payments.status in captured|paid|succeeded — card only",
           pending_provider_confirmation: "completed card trips without capture confirmation — excluded from reconciled totals",
-          cash_collected_by_driver: "sum(cash trip fare) — not ONECAB Stripe revenue",
+          cash_collected_by_driver: "sum(cash trip fare) — not ONECAB card revenue",
           onecab_card_commission: "sum(card trip commission_pence) capture-confirmed only, refund-adjusted",
           onecab_cash_commission_receivable: "sum(cash trip commission_pence) — owed by driver",
           onecab_card_net_commission: "onecab_card_commission - provider_processing_fees (card trips only)",
           total_commission_earned: "onecab_card_commission + onecab_cash_commission_receivable",
-          net_platform_revenue: "total_commission_earned - stripe_processing_fees (card only; cash fee = 0)",
-          cash_stripe_fees: "always 0 — cash trips have no Stripe processing fee",
+          net_platform_revenue: "total_commission_earned - provider_processing_fees (card only; cash fee = 0)",
           driver_payout_liability: "card_driver_payable - driver_paid_out + adjustments (excludes cash driver_net)",
           driver_wallet: "card: +driver_net+tips; cash: -commission (fare already with driver)",
-          stripe_payout_confirmation: "driver bank receipt requires Stripe Connect payout paid + ledger provider_payout_id",
+          provider_payout_confirmation: "driver bank receipt requires provider payout paid + ledger provider_payout_id",
           card_reconciliation:
             "card_customer_revenue = card_driver_payable + onecab_card_commission",
           historical_legacy_cash_trips:

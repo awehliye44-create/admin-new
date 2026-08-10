@@ -31,7 +31,6 @@ type FinanceTripActionsPanelProps = {
   onRefundFull?: () => void;
   onRefundPartial?: () => void;
   onCancelAuthorisation?: () => void;
-  onResyncStripe?: () => void;
   onRequestExtraPayment?: () => void;
   onRepairSettlement?: () => void;
   onRecalculateSettlement?: () => void;
@@ -110,7 +109,6 @@ export function FinanceTripActionsPanel({
   onRefundFull,
   onRefundPartial,
   onCancelAuthorisation,
-  onResyncStripe,
   onRequestExtraPayment,
   onRepairSettlement,
   onRecalculateSettlement,
@@ -124,8 +122,8 @@ export function FinanceTripActionsPanel({
   isPending = false,
 }: FinanceTripActionsPanelProps) {
   const availability = derivePaymentActionAvailability(paymentInput);
-  const stripePiUrl = context.paymentIntentId
-    ? `https://dashboard.stripe.com/payments/${context.paymentIntentId}`
+  const providerOrderUrl = context.paymentIntentId
+    ? `https://business.revolut.com/merchant/orders/${context.paymentIntentId}`
     : null;
 
   const paymentButtons: Array<{
@@ -142,7 +140,6 @@ export function FinanceTripActionsPanel({
     { key: 'cancel_authorisation', label: 'Cancel Authorisation', icon: <XCircle className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onCancelAuthorisation, variant: 'destructive' },
     { key: 'void_payment', label: 'Void Payment (before capture)', icon: <XCircle className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onCancelAuthorisation, variant: 'destructive' },
     { key: 'request_extra_payment', label: 'Request Extra Payment', icon: <PlusCircle className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onRequestExtraPayment },
-    // Stripe sync/refresh retired from active finance — omit live controls
     { key: 'repair_settlement', label: 'Repair Settlement', icon: <Wrench className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onRepairSettlement },
     { key: 'recalculate_settlement', label: 'Recalculate Settlement', icon: <Calculator className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onRecalculateSettlement },
     { key: 'retry_settlement', label: 'Retry Settlement', icon: <RefreshCw className="h-3.5 w-3.5 mr-1 shrink-0" />, onClick: onRepairSettlement },
@@ -159,27 +156,16 @@ export function FinanceTripActionsPanel({
               label="View Trip"
               icon={<Eye className="h-3.5 w-3.5 mr-1 shrink-0" />}
             />
-            {stripePiUrl ? (
+            {providerOrderUrl ? (
               <Button asChild size="sm" variant="ghost" className="h-8 text-xs justify-start">
-                <a href={stripePiUrl} target="_blank" rel="noopener noreferrer">
+                <a href={providerOrderUrl} target="_blank" rel="noopener noreferrer">
                   <CreditCard className="h-3.5 w-3.5 mr-1 shrink-0" />
-                  View PaymentIntent
+                  View Provider Order
                   <ExternalLink className="h-3 w-3 ml-1 opacity-50" />
                 </a>
               </Button>
             ) : (
-              <ActionButton label="View PaymentIntent" enabled={false} reason="No PaymentIntent on trip" disabled />
-            )}
-            {context.chargeId ? (
-              <Button asChild size="sm" variant="ghost" className="h-8 text-xs justify-start">
-                <a href={`https://dashboard.stripe.com/payments/${context.chargeId}`} target="_blank" rel="noopener noreferrer">
-                  <CreditCard className="h-3.5 w-3.5 mr-1 shrink-0" />
-                  View Charge
-                  <ExternalLink className="h-3 w-3 ml-1 opacity-50" />
-                </a>
-              </Button>
-            ) : (
-              <ActionButton label="View Charge" enabled={false} reason="No charge recorded yet" disabled />
+              <ActionButton label="View Provider Order" enabled={false} reason="No provider order on trip" disabled />
             )}
             {context.passengerId ? (
               <ViewLink to={`/riders?search=${context.passengerId}`} label="View Customer" icon={<User className="h-3.5 w-3.5 mr-1 shrink-0" />} />
@@ -213,7 +199,7 @@ export function FinanceTripActionsPanel({
               <ActionButton label="View Wallet Ledger" enabled={false} reason="No driver assigned" disabled />
             )}
             <ViewLink
-              to={`/financial-reconciliation?tab=stripe${context.paymentIntentId ? `&pi=${context.paymentIntentId}` : ''}`}
+              to={`/financial-reconciliation?tab=overview${context.paymentIntentId ? `&pi=${context.paymentIntentId}` : ''}`}
               label="View Provider Events"
               icon={<CreditCard className="h-3.5 w-3.5 mr-1 shrink-0" />}
             />

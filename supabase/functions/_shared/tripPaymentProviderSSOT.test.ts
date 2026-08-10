@@ -8,11 +8,9 @@ import {
 
 Deno.test("resolveTripPaymentProvider prefers explicit payment_provider", () => {
   assertEquals(resolveTripPaymentProvider({ payment_provider: "revolut", provider_payment_id: "pi_x" }), "revolut");
-  assertEquals(resolveTripPaymentProvider({ payment_provider: "stripe", provider_order_id: "ord_x" }), "stripe");
 });
 
 Deno.test("resolveTripPaymentProvider infers from refs", () => {
-  assertEquals(resolveTripPaymentProvider({ provider_payment_id: "pi_abc" }), "stripe");
   assertEquals(resolveTripPaymentProvider({ provider_order_id: "ord_abc" }), "revolut");
 });
 

@@ -1,5 +1,5 @@
 /**
- * Apply Stripe refund state to ONECAB SSOT — trips, payments, trip_finance, driver ledger.
+ * Apply provider refund state to ONECAB SSOT — trips, payments, trip_finance, driver ledger.
  */
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
@@ -216,8 +216,8 @@ export async function applyProviderRefundToOnecab(
           amount_pence: -reversalPence,
           currency: "GBP",
           description: args.providerRefundId
-            ? `Stripe refund reversal (${args.providerRefundId}) — ${args.source}`
-            : `Stripe refund reversal — ${args.source}`,
+            ? `provider refund reversal (${args.providerRefundId}) — ${args.source}`
+            : `provider refund reversal — ${args.source}`,
         });
         if (!ledgerErr) ledgerReversalInserted = true;
         else console.warn("[applyProviderRefund] REFUND_DEBIT insert failed", ledgerErr.message);
@@ -254,13 +254,13 @@ export async function applyProviderRefundToOnecab(
   };
 }
 
-/** Provider-agnostic refund apply — Revolut admin refunds + legacy Stripe. */
+/** Provider-agnostic refund apply — Revolut admin refunds + legacy provider. */
 export async function applyProviderRefundToOnecab(
   supabase: SupabaseClient,
   args: {
     tripId: string;
     amountRefundedPence: number;
-    provider?: "revolut" | "stripe" | string | null;
+    provider?: "revolut" | "provider" | string | null;
     providerRefundId?: string | null;
     providerOrderId?: string | null;
     source: "webhook" | "admin_sync" | "admin_refund";

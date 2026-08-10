@@ -25,12 +25,12 @@ export type DriverWalletLedgerTab =
 export type DriverWalletLedgerLegacyTab =
   | 'accounting'
   | 'connect-balance'
-  | 'stripe';
+  | 'provider';
 
 const LEGACY_TAB_ALIASES: Record<string, DriverWalletLedgerTab> = {
   accounting: 'overview',
   'connect-balance': 'overview',
-  stripe: 'overview',
+  provider: 'overview',
   ledger: 'transactions',
   adjustments: 'transactions',
   history: 'transactions',

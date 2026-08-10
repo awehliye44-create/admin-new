@@ -5,7 +5,7 @@
  *   driver_wallet_ledger → trip → payment_sessions capture → canonical driver_net
  * DES is an optional settlement companion; missing DES must not erase valid wallet credits.
  *
- * Stripe Connect settlement fields are never required.
+ * provider Connect settlement fields are never required.
  */
 
 export const PAYOUT_ELIGIBILITY_STATUS = {
@@ -154,7 +154,7 @@ export function deriveTripFrStatusForPayoutEligibility(args: {
 
 /**
  * Evaluate one balance-affecting earning credit.
- * Does not require DES. Does not require Stripe fields.
+ * Does not require DES. Does not require provider fields.
  */
 export function evaluateLedgerEntryEligibility(
   entry: LedgerEligibilityEvidence,

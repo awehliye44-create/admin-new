@@ -50,7 +50,7 @@ describe('financeAlertClassification', () => {
       classifyFinanceMismatch({
         kind: 'payout',
         reference_id: 'po_2',
-        message: 'Ledger debit does not match driver wallet ledger stripe payout.',
+        message: 'Ledger debit does not match driver wallet ledger provider payout.',
       })?.label,
     ).toBe('Ledger without Provider');
   });

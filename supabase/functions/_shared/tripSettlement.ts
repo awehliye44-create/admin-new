@@ -1,7 +1,7 @@
 /**
  * Trip settlement — SINGLE SOURCE OF TRUTH for commission / driver net / platform revenue.
  *
- * All settlement writers (trip complete, negotiation accept, admin fare edit, Stripe
+ * All settlement writers (trip complete, negotiation accept, admin fare edit, provider
  * webhook recovery, capture) must use calculateTripSettlement().
  *
  * Formula v2 / Slice 4 (waiting commissionable):
@@ -197,7 +197,7 @@ export function tripSettlementDbColumns(
     driver_tier_commission_percent: settlement.tier_percent_used,
     gross_fare_pence: settlement.commissionable_fare_pence,
     provider_fee_pence: settlement.provider_fee_pence,
-    stripe_fee_amount: settlement.provider_fee_pence,
+    provider_fee_amount: settlement.provider_fee_pence,
     onecab_net_pence: settlement.platform_net_revenue_pence,
     platform_gross_revenue_pence: settlement.platform_gross_revenue_pence,
     platform_net_revenue_pence: settlement.platform_net_revenue_pence,

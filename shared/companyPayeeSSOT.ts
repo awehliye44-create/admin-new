@@ -328,10 +328,10 @@ export function buildCompanyTransferRequestId(args: {
   return `ct:${args.company_transfer_id}:v${Math.max(1, Math.round(args.execution_attempt))}`;
 }
 
-export function assertNoStripeCompanyTransferFields(payload: Record<string, unknown>): void {
+export function assertNoLegacyCompanyTransferFields(payload: Record<string, unknown>): void {
   const keys = Object.keys(payload).map((k) => k.toLowerCase());
   for (const k of keys) {
-    if (k.includes("stripe")) throw new Error("STRIPE_FORBIDDEN_ON_COMPANY_TRANSFER");
+    if (k.includes("provider")) throw new Error("LEGACY_PROVIDER_FORBIDDEN_ON_COMPANY_TRANSFER");
   }
 }
 

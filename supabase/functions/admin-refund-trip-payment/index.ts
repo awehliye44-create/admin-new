@@ -1,4 +1,4 @@
-// Admin: refund trip payment — routes Revolut vs legacy Stripe by trip provider.
+// Admin: refund trip payment — routes Revolut vs legacy provider by trip provider.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
@@ -9,7 +9,6 @@ import {
 } from "../_shared/revolutOrders.ts";
 import { applyProviderRefundToOnecab } from "../_shared/applyProviderRefund.ts";
 import { resolveTripPaymentProvider, tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
-import { assertStripeMutationAllowed } from "../_shared/stripeRuntimeDisabled.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -35,17 +34,6 @@ serve(async (req) => {
       .eq("id", trip_id)
       .single();
     if (tripErr || !trip) return jsonResponse({ error: "Trip not found" }, 404);
-
-    const provider = resolveTripPaymentProvider(trip);
-
-    if (provider === "stripe") {
-      const retired = assertStripeMutationAllowed(corsHeaders, "admin-refund-trip-payment");
-      if (retired) return retired;
-      return jsonResponse({
-        error: "Stripe is permanently retired from active ONECAB finance.",
-        error_code: "STRIPE_RETIRED",
-      }, 422);
-    }
 
     const orderId = tripProviderOrderId(trip);
     if (!orderId) return jsonResponse({ error: "Trip has no Revolut order" }, 400);

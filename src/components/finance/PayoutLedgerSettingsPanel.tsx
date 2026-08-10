@@ -45,7 +45,7 @@ const SETTING_KEYS = [
   'early_cashout_min_pence',
   'early_cashout_max_pence',
   'early_cashout_max_per_day',
-  'stripe_instant_payouts_enabled',
+  'provider_instant_payouts_enabled',
   'company_transfer_approval_single_max_pence',
   'company_transfer_approval_dual_max_pence',
   'allow_sole_admin_company_transfer_approval',
@@ -783,8 +783,8 @@ export function PayoutLedgerSettingsPanel({
               <p className="text-xs text-muted-foreground">Persisted setting — provider capability gate</p>
             </div>
             <Switch
-              checked={get('stripe_instant_payouts_enabled', 'false') === 'true'}
-              onCheckedChange={(v) => set('stripe_instant_payouts_enabled', v ? 'true' : 'false')}
+              checked={get('provider_instant_payouts_enabled', 'false') === 'true'}
+              onCheckedChange={(v) => set('provider_instant_payouts_enabled', v ? 'true' : 'false')}
             />
           </div>
         </CardContent>

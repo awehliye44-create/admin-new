@@ -957,7 +957,7 @@ export default function PaymentSessions() {
               <SelectContent>
                 <SelectItem value="all">All</SelectItem>
                 <SelectItem value="revolut">revolut</SelectItem>
-                <SelectItem value="stripe">stripe — archived legacy</SelectItem>
+                <SelectItem value="provider">provider — archived legacy</SelectItem>
               </SelectContent>
             </Select>
           </div>

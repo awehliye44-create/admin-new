@@ -101,7 +101,7 @@ export type FrDriverReconciliationInput = {
   recovery_debt_pence?: number;
   payout_blocked?: boolean;
   /**
-   * External provider account balance (Stripe Connect / etc).
+   * External provider account balance (provider Connect / etc).
    * null + status UNAVAILABLE = fetch failed / unknown — never coerce to 0 for display.
    */
   provider_account_balance_pence: number | null;
@@ -414,7 +414,7 @@ export function computeFrDriverReconciliation(
     input.provider_account_balance_status === "UNAVAILABLE"
     && !manualBank
   ) {
-    // Stripe-mode: provider reference missing — do not fake BALANCED on Connect success path.
+    // provider-mode: provider reference missing — do not fake BALANCED on Connect success path.
     // Wallet invariants hold; surface provider unavailable as dedicated status.
     status = "PROVIDER_BALANCE_UNAVAILABLE";
     reasons.push("Provider account balance unavailable — not treated as £0.00");

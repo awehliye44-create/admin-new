@@ -6,7 +6,7 @@ import {
   isHighRiskCompanyTransferCategory,
   maskUkAccount,
   toCompanyPayeePublicDto,
-  assertNoStripeCompanyTransferFields,
+  assertNoLegacyCompanyTransferFields,
 } from "../../../shared/companyPayeeSSOT";
 import {
   computeCompanyPayeeNextRun,
@@ -92,9 +92,9 @@ describe("company payee SSOT", () => {
     })).toBe("ct:t1:v2");
   });
 
-  it("rejects stripe fields", () => {
-    expect(() => assertNoStripeCompanyTransferFields({ provider_account_id: "x" }))
-      .toThrow("STRIPE_FORBIDDEN_ON_COMPANY_TRANSFER");
+  it("rejects provider fields", () => {
+    expect(() => assertNoLegacyCompanyTransferFields({ provider_account_id: "x" }))
+      .toThrow("LEGACY_PROVIDER_FORBIDDEN_ON_COMPANY_TRANSFER");
   });
 });
 

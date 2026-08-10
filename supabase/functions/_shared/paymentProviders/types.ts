@@ -67,7 +67,7 @@ export interface ConnectionTestResult {
   endpoint_tested?: string;
   http_status?: number;
   http_status_label?: string;
-  /** Provider-native error code (Revolut code, Stripe code, etc.). */
+  /** Provider-native error code (Revolut code, provider code, etc.). */
   provider_error_code?: string | null;
   provider_error_message?: string | null;
   /** @deprecated use provider_error_code */

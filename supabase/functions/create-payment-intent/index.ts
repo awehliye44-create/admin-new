@@ -27,8 +27,8 @@ const RATE_LIMIT_CONFIG = { limit: 20, windowMs: 60 * 1000 };
  * pre-authorise payment. Creates a Revolut order with capture_mode=manual.
  *
  * Response contract (backwards-compatible fields kept as aliases):
- *   payment_intent_id  → provider order id  (was Stripe PI id)
- *   client_secret      → provider checkout token (was Stripe PI client_secret)
+ *   payment_intent_id  → provider order id  (was provider PI id)
+ *   client_secret      → provider checkout token (was provider PI client_secret)
  *   amount             → hold amount in minor units
  *   currency           → lower-case ISO code
  *   plus explicit: provider, provider_order_id, provider_checkout_token,

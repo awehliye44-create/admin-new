@@ -26,7 +26,7 @@ export type ProviderPlatformBalance = {
 function normalizeProviderId(value: string | null | undefined): PaymentProviderId | null {
   if (!value) return null;
   const id = value.trim().toLowerCase();
-  if (id === "stripe" || id === "revolut") return id;
+  if (id === "provider" || id === "revolut") return id;
   return id as PaymentProviderId;
 }
 

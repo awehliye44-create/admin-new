@@ -1999,7 +1999,7 @@ export function aggregateCommissionWalletFinanceReport(
 }
 
 /**
- * Phase 8 — skip Stripe/Revolut preauth when CW workflow uses driver-collected upfront.
+ * Phase 8 — skip provider/Revolut preauth when CW workflow uses driver-collected upfront.
  * UK PLATFORM_COLLECTED must keep digital authorization.
  */
 export function shouldSkipPlatformPreauthForCommissionWallet(

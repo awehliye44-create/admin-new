@@ -6,8 +6,8 @@ import {
   computeSafePayoutAmount,
   mapTripToFinancialAuditRow,
   parseInsufficientFundsReason,
-  partitionStripePlatformCash,
-  reconcileStripeBalance,
+  partitionProviderPlatformCash,
+  reconcileProviderBalance,
   sumTripFinanceMetrics,
   buildTripFinancialAuditContext,
 } from "./financeSettlementSummary.ts";
@@ -40,10 +40,10 @@ Deno.test("£57.83 revenue → ONECAB gross commission max £8.67 at 15%", () =>
   assertEquals(m.commission_exceeds_15_percent_cap, false);
 });
 
-Deno.test("mislabeled stripe-minus-driver (£28.87) is NOT commission", () => {
+Deno.test("mislabeled provider-minus-driver (£28.87) is NOT commission", () => {
   const providerAvailable = 5783;
   const driverPayable = 2896;
-  const partition = partitionStripePlatformCash({
+  const partition = partitionProviderPlatformCash({
     providerAvailablePence: providerAvailable,
     driverPayoutLiabilityPence: driverPayable,
     pendingTransfersPence: 0,
@@ -54,9 +54,9 @@ Deno.test("mislabeled stripe-minus-driver (£28.87) is NOT commission", () => {
   assertEquals(partition.unallocated_platform_cash_pence !== m.onecab_gross_commission_pence, true);
 });
 
-Deno.test("reconcile uses trip-derived ONECAB net not stripe minus driver", () => {
+Deno.test("reconcile uses trip-derived ONECAB net not provider minus driver", () => {
   const m = sumTripFinanceMetrics([TRIP_5783]);
-  const r = reconcileStripeBalance({
+  const r = reconcileProviderBalance({
     providerAvailablePence: 5783,
     calculatedOnecabNetPence: m.onecab_net_pence,
     availableDriverPayablePence: 4916,
@@ -75,7 +75,7 @@ Deno.test("commission cap flags driver net mistaken as commission", () => {
   assertEquals(bad.commission_exceeds_15_percent_cap, true);
 });
 
-Deno.test("computeSafePayoutAmount caps to Stripe available balance", () => {
+Deno.test("computeSafePayoutAmount caps to provider available balance", () => {
   const r = computeSafePayoutAmount({ driverAvailablePence: 5000, providerAvailablePence: 3200 });
   assertEquals(r.payout_amount_pence, 3200);
   assertEquals(r.waiting_for_provider_funds, true);

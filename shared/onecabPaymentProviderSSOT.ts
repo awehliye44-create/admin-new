@@ -40,7 +40,7 @@ export const AUTO_ENABLE_WHEN_ADAPTER_SUPPORTS: readonly OnecabCustomerPaymentMe
  */
 export const SERVICE_AREA_PROVIDER_ROUTING_EXAMPLES = {
   "milton-keynes": { collection: "revolut", payout: "revolut" },
-  london: { collection: "unavailable", payout: "unavailable" },  // Stripe retired
+  london: { collection: "unavailable", payout: "unavailable" },  // provider retired
   kenya: { collection: "flutterwave", payout: "flutterwave" },
   ghana: { collection: "paystack", payout: "paystack" },
   somalia: { collection: "waafi", payout: "waafi", mobile_wallet: "evc_plus" },
@@ -62,13 +62,13 @@ export const SAVED_CARDS_PLATFORM_RULE =
 /** Phrases that must never appear in customer or driver UI. */
 export const FORBIDDEN_CUSTOMER_PROVIDER_COPY = [
   "provider unsupported",
-  "stripe only",
+  "provider only",
   "revolut only",
-  "via stripe",
+  "via provider",
   "via revolut",
   "card via revolut",
-  "card via stripe",
-  "stripe area",
+  "card via provider",
+  "provider area",
   "revolut area",
   "payment provider",
 ] as const;

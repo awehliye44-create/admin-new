@@ -93,7 +93,7 @@ export type FinanceBackendAuditV1 = {
 
 export type FinanceBackendAuditResponse = {
   finance_backend_audit_v1: FinanceBackendAuditV1;
-  stripe_platform_payouts?: {
+  provider_platform_payouts?: {
     paid_today_pence: number;
     paid_all_time_pence: number;
     recent: Array<{

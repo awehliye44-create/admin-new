@@ -214,7 +214,7 @@ export type AdminPaymentSessionsMatchingRow = {
   provider_order_id: string | null;
 };
 
-/** Stripe-like KPI strip — all values owned by Payment Sessions edge (never client-summed). */
+/** provider-like KPI strip — all values owned by Payment Sessions edge (never client-summed). */
 export type AdminPaymentSessionsSummary = {
   total: number;
   active_hold_count: number;

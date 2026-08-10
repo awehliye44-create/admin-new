@@ -56,14 +56,14 @@ export function evaluatePayoutGuard(args: {
   walletBalancePence: number;
   requestedPence?: number | null;
   financeClearedPence?: number | null;
-  stripeSettledUnpaidPence?: number | null;
+  providerSettledUnpaidPence?: number | null;
   inFlightPayoutPence?: number | null;
   payoutBlocked?: boolean;
 }): PayoutGuardResult {
   const wb = args.walletBalancePence;
   const eligibility = computePayoutEligibility({
     walletUnpaidPence: Math.max(0, wb),
-    stripeSettledUnpaidPence: Math.max(0, args.stripeSettledUnpaidPence ?? args.financeClearedPence ?? 0),
+    providerSettledUnpaidPence: Math.max(0, args.providerSettledUnpaidPence ?? args.financeClearedPence ?? 0),
     payoutBlocked: args.payoutBlocked ?? wb < 0,
     inFlightPayoutPence: args.inFlightPayoutPence ?? 0,
   });

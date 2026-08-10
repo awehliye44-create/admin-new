@@ -121,7 +121,7 @@ export async function aggregateDriverInvoice(
     + airportFeeEarningsPence + extraChargeEarningsPence + bonusesPence
     + Math.max(0, adjustmentsPence);
 
-  // Platform commission is not shown on driver statements (no Stripe/platform cut on this invoice).
+  // Platform commission is not shown on driver statements (no provider/platform cut on this invoice).
   // Net statement total = earnings + fees/bonuses/adjustments only.
   const netDriverEarningsPence = cardTripEarningsPence + cashTripEarningsPence
     + airportFeeEarningsPence + extraChargeEarningsPence + bonusesPence + adjustmentsPence;

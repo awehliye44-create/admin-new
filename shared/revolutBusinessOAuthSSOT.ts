@@ -14,7 +14,7 @@ export function parseLivePayoutExecutionEnabled(
 ): boolean {
   const read = envGet ?? (() => undefined);
   const a = String(read("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "").trim().toLowerCase();
-  const b = String(read("ADMIN_PAYOUT_STRIPE_EXECUTION_ENABLED") ?? "").trim().toLowerCase();
+  const b = String(read("ADMIN_PAYOUT_PROVIDER_EXECUTION_ENABLED") ?? "").trim().toLowerCase();
   return a === "true" || b === "true";
 }
 

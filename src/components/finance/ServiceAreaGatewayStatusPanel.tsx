@@ -163,7 +163,7 @@ export function ServiceAreaGatewayStatusPanel({
                     provider ??
                     '—';
                   const payoutName =
-                    provider === 'stripe'
+                    provider === 'provider'
                       ? 'Provider'
                       : (row.driver.display_name ?? displayName);
                   return (

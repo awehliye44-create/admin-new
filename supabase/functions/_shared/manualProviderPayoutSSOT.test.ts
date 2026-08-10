@@ -8,7 +8,7 @@ import {
 
 Deno.test("isManualBankPayoutProvider identifies revolut", () => {
   assertEquals(isManualBankPayoutProvider("revolut"), true);
-  assertEquals(isManualBankPayoutProvider("stripe"), false);
+  assertEquals(isManualBankPayoutProvider("provider"), false);
   assertEquals(isManualBankPayoutProvider(null), false);
 });
 

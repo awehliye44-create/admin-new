@@ -10,7 +10,7 @@ type DriverPayoutPanelProps = {
   driverId: string;
   serviceAreaId?: string | null;
   regionId?: string | null;
-  stripeAccountId?: string | null;
+  providerAccountId?: string | null;
   payoutsEnabled?: boolean | null;
   onboardingComplete?: boolean | null;
   chargesEnabled?: boolean | null;
@@ -42,7 +42,7 @@ export function DriverPayoutPanel({
   driverId,
   serviceAreaId,
   regionId,
-  stripeAccountId,
+  providerAccountId,
   payoutsEnabled,
   onboardingComplete,
   chargesEnabled,
@@ -174,15 +174,15 @@ export function DriverPayoutPanel({
     serviceArea?.payment_provider ??
     serviceArea?.customer_payment_gateway ??
     null;
-  const payoutGateway = String(payoutGatewayRaw ?? "").toLowerCase() === "stripe"
+  const payoutGateway = String(payoutGatewayRaw ?? "").toLowerCase() === "provider"
     ? "revolut"
     : (payoutGatewayRaw ?? "revolut");
-  const usesStripe = false; // Stripe Connect payouts retired from active finance
+  const usesLegacyProvider = false; // provider Connect payouts retired from active finance
   const region = data?.region;
   const destinations = (data?.destinations ?? []) as DestinationRow[];
   const destination = destinations.find((row) => row.provider === payoutGateway) ?? destinations[0] ?? null;
   const staleOtherProvider = destinations.find((row) => row.provider && row.provider !== payoutGateway) ?? null;
-  const providerMismatch = Boolean(!usesStripe && !destination && staleOtherProvider);
+  const providerMismatch = Boolean(!usesLegacyProvider && !destination && staleOtherProvider);
   const verificationStatus = String(destination?.verification_status ?? "").toUpperCase() || null;
 
   if (isLoading) {
@@ -223,14 +223,14 @@ export function DriverPayoutPanel({
         </p>
       ) : null}
 
-      {usesStripe ? (
+      {usesLegacyProvider ? (
         <div className="space-y-2 text-sm">
           <p className="font-medium">Provider</p>
-          {stripeAccountId ? (
+          {providerAccountId ? (
             <div className="grid grid-cols-2 gap-2">
               <div className="p-2 bg-muted/50 rounded">
                 <p className="text-xs text-muted-foreground">Account ID</p>
-                <p className="font-mono text-xs break-all">{stripeAccountId}</p>
+                <p className="font-mono text-xs break-all">{providerAccountId}</p>
               </div>
               <div className="p-2 bg-muted/50 rounded">
                 <p className="text-xs text-muted-foreground">Status</p>
@@ -384,7 +384,7 @@ export function DriverPayoutPanel({
         </div>
       )}
 
-      {!usesStripe && data?.audit && data.audit.length > 0 ? (
+      {!usesLegacyProvider && data?.audit && data.audit.length > 0 ? (
         <div className="space-y-2">
           <p className="text-sm font-medium flex items-center gap-2">
             <History className="h-4 w-4" />

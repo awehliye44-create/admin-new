@@ -51,11 +51,11 @@ function buildTimeline(driver: DriverWalletSsotRow): TimelineEvent[] {
     });
   }
 
-  for (const sp of driver.stripe_connect_payouts ?? []) {
+  for (const sp of driver.provider_connect_payouts ?? []) {
     events.push({
-      id: `stripe-po-${String(sp.payout_id)}`,
+      id: `provider-po-${String(sp.payout_id)}`,
       at: String(sp.initiated_at ?? ''),
-      kind: 'stripe',
+      kind: 'provider',
       label: `Provider bank payout ${String(sp.status ?? '')}`,
       amountPence: Number(sp.amount_pence ?? 0),
       detail: sp.bank_last4 ? `bank ···${String(sp.bank_last4)}` : undefined,

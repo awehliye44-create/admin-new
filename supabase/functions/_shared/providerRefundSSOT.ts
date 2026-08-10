@@ -1,6 +1,6 @@
 /**
- * Stripe refund SSOT — pure calculations (no I/O).
- * Stripe is the source event; ONECAB persists refund state from webhook/sync/admin.
+ * provider refund SSOT — pure calculations (no I/O).
+ * provider is the source event; ONECAB persists refund state from webhook/sync/admin.
  */
 
 export type RefundStatus = "none" | "partially_refunded" | "refunded";

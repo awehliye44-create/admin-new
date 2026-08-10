@@ -28,7 +28,7 @@ Deno.test("Test 2 — Airport/pass-through: final £20.00, airport £5.00", () =
   assertEquals(s.driver_total_earnings_pence, 1775);
 });
 
-Deno.test("Test 3 — Tip: final £10.00, tip £2.00; Stripe fee does not reduce driver", () => {
+Deno.test("Test 3 — Tip: final £10.00, tip £2.00; provider fee does not reduce driver", () => {
   const s = calculateTripSettlement({
     final_fare_pence: 1000,
     tips_pence: 200,

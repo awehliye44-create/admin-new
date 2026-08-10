@@ -1,6 +1,6 @@
 /**
  * Continuous reconciliation — compare wallet/payout SSOT vs backend records.
- * P0: Stripe Connect sync retired; snapshots use Driver Wallet Ledger only.
+ * P0: provider Connect sync retired; snapshots use Driver Wallet Ledger only.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
@@ -54,11 +54,11 @@ async function requireAdmin(req: Request): Promise<Response | null> {
 type ReconciliationRow = {
   driver_id: string;
   driver_code: string | null;
-  classification: "matched" | "pending" | "mismatch" | "failed" | "local_only" | "stripe_only";
+  classification: "matched" | "pending" | "mismatch" | "failed" | "local_only" | "provider_only";
   reasons: string[];
   wallet_owed_pence: number;
-  stripe_available_pence: number | null;
-  stripe_paid_out_pence: number;
+  provider_available_pence: number | null;
+  provider_paid_out_pence: number;
 };
 
 Deno.serve(async (req) => {
@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const regionId = body.region_id as string | undefined;
 
-    // P0 Stripe retirement: never sync Connect payouts or pass Stripe client into snapshots.
+    // P0 provider retirement: never sync Connect payouts or pass provider client into snapshots.
 
     let driversQuery = supabase
       .from("drivers")
@@ -90,12 +90,12 @@ Deno.serve(async (req) => {
     for (const d of drivers ?? []) {
       const snap = await fetchDriverWalletPayoutSnapshot(supabase, {
         driverId: d.id,
-        stripe: null,
+        provider: null,
       });
 
       let classification: ReconciliationRow["classification"] = "matched";
       if (snap.reconciliation_status === "LOCAL_ONLY") classification = "local_only";
-      else if (snap.reconciliation_status === "PROVIDER_ONLY") classification = "stripe_only";
+      else if (snap.reconciliation_status === "PROVIDER_ONLY") classification = "provider_only";
       else if (snap.reconciliation_status === "MISMATCH" || snap.reconciliation_status === "PROVIDER_NEGATIVE") {
         classification = "mismatch";
       } else if (snap.included_in_payout_batch_amount_pence > 0) {
@@ -108,8 +108,8 @@ Deno.serve(async (req) => {
         classification,
         reasons: snap.reconciliation_reasons,
         wallet_owed_pence: snap.current_onecab_wallet_owed_pence,
-        stripe_available_pence: snap.provider_available_pence,
-        stripe_paid_out_pence: snap.provider_paid_out_total_pence,
+        provider_available_pence: snap.provider_available_pence,
+        provider_paid_out_pence: snap.provider_paid_out_total_pence,
       });
     }
 
@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
       pending: rows.filter((r) => r.classification === "pending").length,
       mismatch: rows.filter((r) => r.classification === "mismatch").length,
       local_only: rows.filter((r) => r.classification === "local_only").length,
-      stripe_only: rows.filter((r) => r.classification === "stripe_only").length,
+      provider_only: rows.filter((r) => r.classification === "provider_only").length,
       failed: rows.filter((r) => r.classification === "failed").length,
     };
 

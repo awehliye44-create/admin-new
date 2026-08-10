@@ -3,14 +3,12 @@ import {
   catalogMethodsForProvider,
   isCustomerBookingAdapterLive,
   isMobileWalletCollectProvider,
-  isStripePreauthProvider,
   normalizeMobileWalletMethods,
   resolveProviderBookingAdapterStatus,
 } from '@/lib/customerPaymentWorkflow';
 
 describe('admin customerPaymentWorkflow', () => {
   it('identifies Provider vs mobile wallet gateways', () => {
-    expect(isStripePreauthProvider('stripe')).toBe(true);
     expect(isMobileWalletCollectProvider('sifalo_pay')).toBe(true);
     expect(isMobileWalletCollectProvider('intasend')).toBe(true);
   });
@@ -28,7 +26,7 @@ describe('admin customerPaymentWorkflow', () => {
   it('flags non-Provider ready providers as not_implemented', () => {
     expect(isCustomerBookingAdapterLive('sifalo_pay')).toBe(false);
     expect(resolveProviderBookingAdapterStatus('sifalo_pay', true)).toBe('not_implemented');
-    expect(resolveProviderBookingAdapterStatus('stripe', true)).toBe('live');
+    expect(resolveProviderBookingAdapterStatus('revolut', true)).toBe('live');
   });
 
   it('respects mobile wallet allowlist', () => {

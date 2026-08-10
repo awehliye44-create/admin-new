@@ -289,7 +289,7 @@ export interface CompleteTripRequest {
   destination_change_charge_pence?: number;
   extras_charge_pence?: number;
   tip_amount_pence?: number;
-  // Stripe
+  // provider
   provider_payment_id?: string;
   // Legacy support
   final_fare_pence?: number;

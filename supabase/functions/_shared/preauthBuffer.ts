@@ -3,10 +3,10 @@
  *
  * STRICT RULES — DO NOT VIOLATE:
  *   • This is a PAYMENT AUTHORIZATION concern, NOT a fare pricing concern.
- *   • The buffer is added ONLY to the Stripe pre-auth HOLD amount.
+ *   • The buffer is added ONLY to the provider pre-auth HOLD amount.
  *   • It is NEVER part of the fare.
  *   • It is NEVER part of driver earnings or commission.
- *   • It is NEVER captured — Stripe releases unused hold automatically when
+ *   • It is NEVER captured — provider releases unused hold automatically when
  *     `capture-trip-payment` captures only the actual final fare.
  *   • At capture time we capture `final_fare_pence` only.
  */
@@ -20,7 +20,7 @@ export interface PreauthBufferConfig {
 }
 
 export interface PreauthHoldResult {
-  /** Final amount Stripe will hold on the customer's card (>= payable_pence). */
+  /** Final amount provider will hold on the customer's card (>= payable_pence). */
   hold_pence: number;
   /** Buffer added on top of payable_pence to compute hold_pence. */
   buffer_pence: number;
@@ -30,14 +30,14 @@ export interface PreauthHoldResult {
 }
 
 /**
- * Compute the Stripe pre-authorization hold from the payable amount.
+ * Compute the provider pre-authorization hold from the payable amount.
  *
  * @param payablePence  estimated_fare - discount (what we will MAX capture).
  * @param cfg           per-service-area pre-auth buffer config (or null = disabled).
  *
- * Returned hold_pence is what we pass to Stripe as `amount`. The actual
+ * Returned hold_pence is what we pass to provider as `amount`. The actual
  * captured amount is determined later by `capture-trip-payment` based on the
- * real final fare — Stripe releases the unused difference automatically.
+ * real final fare — provider releases the unused difference automatically.
  */
 export function computePreauthHold(
   payablePence: number,

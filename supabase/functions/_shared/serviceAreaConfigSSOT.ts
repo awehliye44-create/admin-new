@@ -59,7 +59,7 @@ export type ServiceAreaConfigPayload = {
   driver_payout_gateway: string | null;
   enabled_payment_methods: EnabledPaymentMethods | null;
   enabled_mobile_wallet_methods: string[] | null;
-  booking_workflow: "stripe_preauth" | "revolut_preauth" | "mobile_wallet_collect" | "blocked";
+  booking_workflow: "revolut_preauth" | "mobile_wallet_collect" | "blocked";
   gateway_status: {
     customer: GatewayStatusSummary;
     driver: GatewayStatusSummary;

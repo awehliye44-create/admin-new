@@ -4,13 +4,13 @@
 //   3. Provider processing fees (trips.provider_fee_pence / legacy provider_fee_pence)
 //   4. ONECAB net commission (#2 - #3)
 //   5. Driver net earnings (ledger TRIP_EARNING_NET + DRIVER_TIP_CREDIT + ADJUSTMENT)
-//   6. Stripe platform balance (live, never used as commission)
+//   6. provider platform balance (live, never used as commission)
 //   7. Driver payout liability (Σ driver_financial_summary.wallet_balance)
 //   8. Driver available payout (Σ driver_financial_summary.net_available_for_payout)
 //   9. Driver pending payout (Σ driver_wallets.pending_pence — cache component only)
 // Plus commission_status, validation_warnings, and currency_code grouping.
 //
-// HARD RULE: ONECAB commission is NEVER `stripe_balance - driver_payable`.
+// HARD RULE: ONECAB commission is NEVER `provider_balance - driver_payable`.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -27,8 +27,8 @@ const corsHeaders = {
 };
 
 type CommissionStatus =
-  | 'stripe_confirmed'
-  | 'stripe_paid_out'
+  | 'provider_confirmed'
+  | 'provider_paid_out'
   | 'calculated_pending'
   | 'legacy_fallback';
 
@@ -93,7 +93,7 @@ serve(async (req) => {
     const { data: paymentRows, error: payErr } = await paymentsQuery;
     if (payErr) throw new Error(`payments: ${payErr.message}`);
 
-    // ── 2. Trips: stripe fees + commissionable fares (for tier-cap validation) ──
+    // ── 2. Trips: provider fees + commissionable fares (for tier-cap validation) ──
     // Phase 8: exclude DRIVER_COLLECTED_COMMISSION_WALLET trips from UK commissionable gross.
     let tripsQuery = supabase
       .from('trips')
@@ -140,7 +140,7 @@ serve(async (req) => {
       environment: financeScope.environment,
       currency: primaryCurrency,
     });
-    const stripeBalance: {
+    const providerBalance: {
       available_pence: number;
       pending_pence: number;
       source: "provider_api" | "unavailable";
@@ -197,8 +197,8 @@ serve(async (req) => {
       switch (l.type) {
         case 'PLATFORM_COMMISSION':
           g.totals.onecab_gross_commission_pence += amt;
-          if (l.provider_payout_id) g.commission_status = 'stripe_paid_out';
-          else if (l.provider_transfer_id && g.commission_status === 'legacy_fallback') g.commission_status = 'stripe_confirmed';
+          if (l.provider_payout_id) g.commission_status = 'provider_paid_out';
+          else if (l.provider_transfer_id && g.commission_status === 'legacy_fallback') g.commission_status = 'provider_confirmed';
           break;
         case 'TRIP_EARNING_NET':
         case 'DRIVER_TIP_CREDIT':
@@ -259,7 +259,7 @@ serve(async (req) => {
 
     return json({
       max_tier_pct: maxTierPct,
-      stripe_platform_balance: stripeBalance,
+      provider_platform_balance: providerBalance,
       revenue_sources: {
         PLATFORM_COMMISSION: 'driver_wallet_ledger PLATFORM_COMMISSION (UK/EU)',
         COMMISSION_WALLET_DEDUCTION:

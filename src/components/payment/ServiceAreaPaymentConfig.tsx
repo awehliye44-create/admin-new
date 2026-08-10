@@ -116,7 +116,7 @@ export function ServiceAreaPaymentConfig({ serviceAreaId, serviceAreaName }: Ser
         <CardDescription>
           Provider-neutral customer payment options for {serviceAreaName || 'this service area'}.
           Vault implementation follows the selected provider ({paymentProvider}) — saved cards are
-          standard ONECAB functionality, not Stripe-only.
+          standard ONECAB functionality, not provider-only.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

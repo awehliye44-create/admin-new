@@ -443,7 +443,7 @@ export function formatPaymentSessionsEvidenceStatus(
   return s;
 }
 
-/** Tab membership — Captured = confirmed captures only (amount present). Stripe Payments style. */
+/** Tab membership — Captured = confirmed captures only (amount present). provider Payments style. */
 export function rowBelongsInCapturedTab(row: {
   captured_at?: string | null;
   captured_amount_pence?: number | null;

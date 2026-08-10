@@ -266,9 +266,9 @@ export async function buildPayoutLedgerAccountsOverview(
         service_area: sa?.name ?? null,
         provider: (() => {
           const payoutGw = String(sa?.driver_payout_gateway ?? "").trim().toLowerCase();
-          if (payoutGw && payoutGw !== "stripe") return payoutGw;
+          if (payoutGw && payoutGw !== "provider") return payoutGw;
           const pay = String(sa?.payment_provider ?? "").trim().toLowerCase();
-          if (pay && pay !== "stripe") return pay;
+          if (pay && pay !== "provider") return pay;
           return "revolut";
         })(),
       });
@@ -376,7 +376,7 @@ export async function buildPayoutLedgerAccountsOverview(
       service_area_id: saMeta?.service_area_id ?? null,
       service_area: saMeta?.service_area ?? null,
       tier: tierName,
-      provider: isRevolut ? "revolut" : (provider && provider.toLowerCase() !== "stripe" ? provider : "revolut"),
+      provider: isRevolut ? "revolut" : (provider && provider.toLowerCase() !== "provider" ? provider : "revolut"),
       connected_account: connected,
       payout_destination: payoutDestinationLabel({
         provider: isRevolut ? "revolut" : provider,

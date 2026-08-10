@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import type Stripe from "https://esm.sh/stripe@14.21.0";
 import { fetchDriverWalletPayoutSnapshot } from "./fetchDriverWalletPayoutSnapshot.ts";
 import { isLondonSameCalendarDay } from "./financeLondonDay.ts";
 
@@ -9,8 +8,7 @@ export type PlatformReconciliationKpis = {
   outstanding_liability_pence: number;
   outstanding_recovery_pence: number;
   failed_payouts_pence: number;
-  stripe_only_records: number;
-  /** Provider-side evidence without matching ledger (Stripe Connect or manual bank). */
+  /** Provider-side evidence without matching ledger. */
   provider_only_records: number;
   ledger_only_records: number;
   todays_captures_pence: number;
@@ -41,13 +39,13 @@ export function aggregatePlatformKpisFromDriverSnapshots(
   let outstandingLiability = 0;
   let outstandingRecovery = 0;
   let failedPayouts = 0;
-  let stripeOnly = 0;
+  let providerOnly = 0;
   let ledgerOnly = 0;
 
   for (const d of drivers) {
     const status = String(d.reconciliation_status ?? "").toUpperCase();
     if (status === "BALANCED") balancedDrivers += 1;
-    if (status === "PROVIDER_ONLY" || status === "PROVIDER_ONLY") stripeOnly += 1;
+    if (status === "PROVIDER_ONLY") providerOnly += 1;
     if (status === "LOCAL_ONLY") ledgerOnly += 1;
     if ((d.recovery_debt_pence ?? 0) > 0) driversWithRecovery += 1;
     outstandingLiability += Math.max(0, d.wallet_balance_pence ?? 0);
@@ -70,8 +68,7 @@ export function aggregatePlatformKpisFromDriverSnapshots(
     outstanding_liability_pence: outstandingLiability,
     outstanding_recovery_pence: outstandingRecovery,
     failed_payouts_pence: failedPayouts,
-    stripe_only_records: stripeOnly,
-    provider_only_records: stripeOnly,
+    provider_only_records: providerOnly,
     ledger_only_records: ledgerOnly,
     todays_captures_pence: todaysCaptures,
     todays_card_trips: todaysCardTrips,
@@ -83,7 +80,6 @@ export async function fetchRegionPlatformKpis(
   supabase: SupabaseClient,
   args: {
     regionId: string | null;
-    stripe: Stripe | null;
     todayAuditRows: AuditTripRow[];
   },
 ): Promise<PlatformReconciliationKpis> {
@@ -103,7 +99,6 @@ export async function fetchRegionPlatformKpis(
   for (const row of driverRows ?? []) {
     snapshots.push(await fetchDriverWalletPayoutSnapshot(supabase, {
       driverId: row.id as string,
-      stripe: args.stripe,
     }));
   }
 

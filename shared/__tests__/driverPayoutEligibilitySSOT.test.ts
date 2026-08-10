@@ -65,10 +65,10 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
     expect(agg.available_balance_pence).toBe(408);
   });
 
-  it("4. Stripe fields are not required", () => {
+  it("4. provider fields are not required", () => {
     const r = evaluateLedgerEntryEligibility(
       revolutTripCredit({
-        // No stripe_* fields exist on the evidence type by design.
+        // No provider_* fields exist on the evidence type by design.
         des_present: false,
       }),
     );
@@ -280,7 +280,7 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
     expect(held.pending_balance_pence).toBe(408);
   });
 
-  it("FR/settlement completeness derives BALANCED without Stripe", () => {
+  it("FR/settlement completeness derives BALANCED without provider", () => {
     expect(deriveTripFrStatusForPayoutEligibility({
       canonical_driver_net_pence: 408,
       captured_amount_pence: 480,

@@ -29,7 +29,7 @@ export type PayoutEligibilityGateInput = {
   available_balance_pence: number;
   /**
    * True when a payout destination is ready (manual bank / Revolut Business
-   * OR Stripe Connect). Not Stripe-Connect-only.
+   * OR provider Connect). Not provider-Connect-only.
    */
   connected_account: boolean;
   /** @deprecated Prefer connected_account meaning "destination ready". */

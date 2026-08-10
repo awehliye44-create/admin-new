@@ -10,15 +10,13 @@ export type PaymentActionKey =
   | 'retry_settlement'
   | 'repair_settlement'
   | 'recalculate_settlement'
-  | 'resync_stripe'
-  | 'refresh_stripe'
   | 'request_extra_payment';
 
 export type PaymentActionAvailability = Record<PaymentActionKey, { enabled: boolean; reason?: string }>;
 
 export type TripPaymentActionInput = {
   paymentMethod?: string | null;
-  stripeStatus?: string | null;
+  providerState?: string | null;
   paymentStatus?: string | null;
   capturedPence?: number;
   refundedPence?: number;
@@ -29,13 +27,12 @@ export type TripPaymentActionInput = {
   hasPaymentIntent?: boolean;
   hasCharge?: boolean;
   tripCancelled?: boolean;
-  stripeSettlementVerified?: boolean;
+  providerSettlementVerified?: boolean;
   actionsAllowed?: {
     can_capture?: boolean;
     can_refund?: boolean;
     can_partial_refund?: boolean;
     can_cancel_authorisation?: boolean;
-    can_sync_stripe?: boolean;
   };
 };
 
@@ -56,7 +53,7 @@ export function isDigitalTripPayment(method: string | null | undefined): boolean
 
 export function derivePaymentActionAvailability(input: TripPaymentActionInput): PaymentActionAvailability {
   const digital = isDigitalTripPayment(input.paymentMethod);
-  const stripeStatus = String(input.stripeStatus ?? '').toLowerCase();
+  const providerState = String(input.providerState ?? '').toLowerCase();
   const paymentStatus = String(input.paymentStatus ?? '').toLowerCase();
   const captured = Math.max(0, input.capturedPence ?? 0);
   const refunded = Math.max(0, input.refundedPence ?? 0);
@@ -65,9 +62,9 @@ export function derivePaymentActionAvailability(input: TripPaymentActionInput): 
   const outstanding = Math.max(0, input.outstandingPence ?? 0);
   const tripCancelled = input.tripCancelled === true
     || paymentStatus.includes('cancel')
-    || stripeStatus === 'canceled';
+    || providerState === 'cancelled';
   const fullyRefunded = captured > 0 && refundable <= 0;
-  const isUncaptured = stripeStatus === 'requires_capture' && capturable > 0;
+  const isUncaptured = providerState === 'authorised' && capturable > 0;
   const hasPi = input.hasPaymentIntent === true;
   const hasCharge = input.hasCharge === true || captured > 0;
   const canCapture = input.actionsAllowed?.can_capture ?? (digital && isUncaptured && !tripCancelled && !fullyRefunded);
@@ -96,18 +93,16 @@ export function derivePaymentActionAvailability(input: TripPaymentActionInput): 
         : captured <= 0 ? 'Nothing captured to refund'
           : 'Partial refund not available',
     ),
-    resync_stripe: disabled('Stripe sync retired — historical evidence only'),
-    refresh_stripe: disabled('Stripe refresh retired — historical evidence only'),
     repair_settlement: digital && hasCharge
       ? enabled()
       : disabled('Settlement repair requires a captured digital payment'),
     recalculate_settlement: digital && captured > 0
       ? enabled()
       : disabled('Recalculate settlement requires captured payment'),
-    retry_settlement: digital && hasCharge && input.stripeSettlementVerified === false
+    retry_settlement: digital && hasCharge && input.providerSettlementVerified === false
       ? enabled()
       : disabled(
-        input.stripeSettlementVerified ? 'Settlement already verified'
+        input.providerSettlementVerified ? 'Settlement already verified'
           : 'Retry settlement requires captured payment',
       ),
     request_extra_payment: outstanding > 0 && digital
