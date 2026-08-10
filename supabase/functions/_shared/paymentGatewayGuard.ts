@@ -1,5 +1,5 @@
 /**
- * Read-only payment gateway guard — no Stripe API calls.
+ * Read-only payment gateway guard — no provider API calls.
  *
  * One service area = one admin-selected primary payment provider (`payment_provider`).
  * No dynamic routing, no automatic fallback, no backup switching.
@@ -127,46 +127,16 @@ export async function checkServiceAreaGateway(
   };
 }
 
-/** Customer booking edges: only live adapters execute — never fall back to Stripe. */
+/** Customer booking edges: only live adapters execute. */
 export function assertGatewayExecutable(check: GatewayCheckResult): GatewayCheckResult {
   if (!check.ok) return check;
-  if (check.provider !== "stripe") {
+  if (check.provider !== "revolut") {
     return {
       ok: false,
       code: PROVIDER_NOT_IMPLEMENTED,
       role: check.role,
       provider: check.provider,
       reason: `${check.display_name} is registered but not yet enabled for live booking`,
-    };
-  }
-  return check;
-}
-
-/** Stripe Connect edges: only when service area driver payout gateway is Stripe. */
-export function assertStripeDriverPayoutGateway(check: GatewayCheckResult): GatewayCheckResult {
-  if (!check.ok) return check;
-  if (check.provider !== "stripe") {
-    return {
-      ok: false,
-      code: PAYMENT_GATEWAY_NOT_CONFIGURED,
-      role: check.role,
-      provider: check.provider,
-      reason: "Stripe Connect is not the payout gateway for this service area",
-    };
-  }
-  return check;
-}
-
-/** Non-Stripe destination edges: block Stripe service areas. */
-export function assertNonStripeDriverPayoutGateway(check: GatewayCheckResult): GatewayCheckResult {
-  if (!check.ok) return check;
-  if (check.provider === "stripe") {
-    return {
-      ok: false,
-      code: PAYMENT_GATEWAY_NOT_CONFIGURED,
-      role: check.role,
-      provider: check.provider,
-      reason: "Use Manage Stripe Account for Stripe Connect payouts",
     };
   }
   return check;

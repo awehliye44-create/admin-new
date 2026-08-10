@@ -32,14 +32,10 @@ export const PROVIDER_MOBILE_WALLET_CATALOG: Record<string, MobileWalletMethodId
 /** Providers with live customer booking adapters (card preauth or mobile collect). */
 export const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["revolut"]);
 
-/** Providers with live driver payout adapters. Stripe Connect is retired. */
+/** Providers with live driver payout adapters. */
 export const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["revolut"]);
 
 export const PROVIDER_NOT_IMPLEMENTED_CODE = "PROVIDER_NOT_IMPLEMENTED";
-
-export function isStripePreauthProvider(provider: string | null | undefined): boolean {
-  return provider === "stripe";
-}
 
 export function isRevolutMerchantProvider(provider: string | null | undefined): boolean {
   return provider === "revolut";
@@ -50,8 +46,6 @@ export function resolveBookingWorkflowLabel(
   provider: string | null | undefined,
 ): string {
   switch (workflow) {
-    case "stripe_preauth":
-      return "Stripe preauth (card / Apple Pay / Google Pay)";
     case "revolut_merchant":
       return "Revolut Merchant checkout";
     case "mobile_wallet_collect":
@@ -59,9 +53,6 @@ export function resolveBookingWorkflowLabel(
     case "blocked":
       return "Blocked — provider not ready";
     default:
-      if (isStripePreauthProvider(provider)) {
-        return "Stripe preauth (card / Apple Pay / Google Pay)";
-      }
       if (isRevolutMerchantProvider(provider)) {
         return "Revolut Merchant checkout";
       }
