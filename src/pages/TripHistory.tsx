@@ -732,7 +732,7 @@ export default function TripHistory() {
    * stale canceled booking status — recovery capture can succeed after the
    * original order was canceled.
    */
-  const getTripproviderCapturedPence = (trip: CompletedTrip): number => {
+  const getTripProviderCapturedPence = (trip: CompletedTrip): number => {
     if (trip.payment_captured_pence != null && trip.payment_captured_pence > 0) {
       return trip.payment_captured_pence;
     }
@@ -754,7 +754,7 @@ export default function TripHistory() {
   /** @deprecated label — use payable vs captured explicitly.
    * Never treat unpaid / canceled shortfall trips as paid revenue. */
   const getTripCustomerPaidPence = (trip: CompletedTrip): number =>
-    getTripproviderCapturedPence(trip);
+    getTripProviderCapturedPence(trip);
 
   const getTripCustomerPaidPounds = (trip: CompletedTrip): number =>
     getTripCustomerPaidPence(trip) / 100;
@@ -1238,7 +1238,7 @@ export default function TripHistory() {
                         {(() => {
                           const sym = getCurrencySymbol(resolveTripCurrency(trip));
                           const payable = getTripCustomerPayablePence(trip);
-                          const captured = getTripproviderCapturedPence(trip);
+                          const captured = getTripProviderCapturedPence(trip);
                            const shortfall = Math.max(0, payable - captured);
                           if (payable <= 0 && captured <= 0) {
                             return <span className="text-muted-foreground">—</span>;
@@ -1463,16 +1463,16 @@ export default function TripHistory() {
                       </div>
                       <div>
                         <Label className="text-xs text-muted-foreground">Provider captured</Label>
-                        <p className={`font-medium ${getTripproviderCapturedPence(selectedTrip) > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
-                          {getTripproviderCapturedPence(selectedTrip) > 0
-                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(getTripproviderCapturedPence(selectedTrip) / 100).toFixed(2)}`
+                        <p className={`font-medium ${getTripProviderCapturedPence(selectedTrip) > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
+                          {getTripProviderCapturedPence(selectedTrip) > 0
+                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(getTripProviderCapturedPence(selectedTrip) / 100).toFixed(2)}`
                             : `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}0.00`}
                         </p>
                       </div>
                       <div>
                           <Label className="text-xs text-muted-foreground">Provider capture shortfall</Label>
-                          <p className={`font-medium ${Math.max(0, getTripCustomerPayablePence(selectedTrip) - getTripproviderCapturedPence(selectedTrip)) > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
-                            {`${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(Math.max(0, getTripCustomerPayablePence(selectedTrip) - getTripproviderCapturedPence(selectedTrip)) / 100).toFixed(2)}`}
+                          <p className={`font-medium ${Math.max(0, getTripCustomerPayablePence(selectedTrip) - getTripProviderCapturedPence(selectedTrip)) > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                            {`${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(Math.max(0, getTripCustomerPayablePence(selectedTrip) - getTripProviderCapturedPence(selectedTrip)) / 100).toFixed(2)}`}
                           </p>
                         </div>
                       {(() => {
@@ -1795,7 +1795,7 @@ export default function TripHistory() {
                       paymentMethod={selectedTrip.payment_method}
                       financialModel={(selectedTrip as { financial_model?: string | null }).financial_model}
                       customerPayablePence={getTripCustomerPayablePence(selectedTrip)}
-                      verifiedCapturedPence={getTripproviderCapturedPence(selectedTrip)}
+                      verifiedCapturedPence={getTripProviderCapturedPence(selectedTrip)}
                       currencySymbol={getCurrencySymbol(resolveTripCurrency(selectedTrip))}
                       onComplete={() => {
                         void refetch();
