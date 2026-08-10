@@ -53,7 +53,7 @@ Deno.test("positive wallet — debt fully recovered shows zero owed", () => {
 
 Deno.test("payout eligibility — connected but missing external account", () => {
   const result = derivePayoutEligibility({
-    stripe_account_id: "acct_1",
+    provider_account_id: "acct_1",
     onboarding_complete: true,
     payouts_enabled: true,
     external_account_exists: false,
@@ -66,7 +66,7 @@ Deno.test("payout eligibility — connected but missing external account", () =>
 
 Deno.test("payout eligibility — fully eligible", () => {
   const result = derivePayoutEligibility({
-    stripe_account_id: "acct_1",
+    provider_account_id: "acct_1",
     onboarding_complete: true,
     payouts_enabled: true,
     external_account_exists: true,

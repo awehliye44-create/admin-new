@@ -111,7 +111,7 @@ serve(async (req) => {
         currency: currency_code,
         description: reason || `${entry_type} by admin`,
         related_trip_id: trip_id || null,
-        stripe_transfer_id: `admin_${user.id}_${Date.now()}`,
+        provider_transfer_id: `admin_${user.id}_${Date.now()}`,
       })
       .select()
       .single();

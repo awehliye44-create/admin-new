@@ -59,15 +59,14 @@ export { SSOT_VERSION, type FinanceDataSourceBadge };
 
 export type OnecabSettlementStatus =
   | "calculated_only"
-  | "pending_stripe_settlement"
-  | "available_in_stripe_balance"
+  | "pending_provider_settlement"
+  | "available_in_provider_balance"
   | "paid_to_onecab_bank"
   | "reconciled";
 
 export type TripFinanceRow = {
   commission_pence: number | null;
-  stripe_processing_fee_pence: number | null;
-  provider_fee_pence?: number | null;
+  provider_fee_pence: number | null;
   onecab_net_pence: number | null;
   driver_net_pence: number | null;
   gross_fare_pence: number | null;
@@ -77,7 +76,7 @@ export type TripFinanceRow = {
   tip_pence: number | null;
   tip_amount_pence: number | null;
   payment_method: string | null;
-  stripe_settlement_verified: boolean | null;
+  provider_settlement_verified: boolean | null;
   driver_tier_commission_percent: number | null;
   commission_pct: number | null;
   completed_at: string | null;
@@ -126,8 +125,8 @@ export function tripGrossCommissionPence(row: TripFinanceRow): number {
 }
 
 
-export function tripStripeFeePence(row: TripFinanceRow): number {
-  return Math.max(0, row.stripe_processing_fee_pence ?? 0);
+export function tripProviderFeePence(row: TripFinanceRow): number {
+  return Math.max(0, row.provider_fee_pence ?? 0);
 }
 
 export function tripOnecabNetPence(row: TripFinanceRow): number | null {
@@ -159,7 +158,7 @@ export function sumTripFinanceMetrics(rows: TripFinanceRow[]) {
   let driverGrossEarnings = 0;
   let driverNetEarnings = 0;
   let grossCommission = 0;
-  let stripeFees = 0;
+  let providerFees = 0;
   let onecabNet = 0;
   let verifiedOnecabNet = 0;
   let unverifiedOnecabNet = 0;
@@ -169,7 +168,7 @@ export function sumTripFinanceMetrics(rows: TripFinanceRow[]) {
     const commissionable = commissionableRevenuePence(row);
     const customerRev = customerRevenuePence(row);
     const grossComm = tripGrossCommissionPence(row);
-    const stripeFee = tripStripeFeePence(row);
+    const providerFee = tripProviderFeePence(row);
     const net = tripOnecabNetPence(row);
     const driverNet = tripDriverNetPence(row) ?? 0;
 
@@ -178,10 +177,10 @@ export function sumTripFinanceMetrics(rows: TripFinanceRow[]) {
     driverGrossEarnings += commissionable;
     driverNetEarnings += driverNet;
     grossCommission += grossComm;
-    stripeFees += stripeFee;
+    providerFees += providerFee;
     if (net != null) onecabNet += net;
 
-    if (row.stripe_settlement_verified === true) {
+    if (row.provider_settlement_verified === true) {
       if (net != null) verifiedOnecabNet += net;
       verifiedCount += 1;
     } else if (net != null) {
@@ -199,7 +198,7 @@ export function sumTripFinanceMetrics(rows: TripFinanceRow[]) {
     driver_gross_earnings_pence: driverGrossEarnings,
     driver_net_earnings_pence: driverNetEarnings,
     onecab_gross_commission_pence: grossCommission,
-    stripe_fee_pence: stripeFees,
+    provider_fee_pence: providerFees,
     onecab_net_pence: onecabNet,
     verified_onecab_net_pence: verifiedOnecabNet,
     unverified_onecab_net_pence: unverifiedOnecabNet,
@@ -214,7 +213,7 @@ export function sumTripCommissions(rows: TripFinanceRow[]) {
   const m = sumTripFinanceMetrics(rows);
   return {
     gross: m.onecab_gross_commission_pence,
-    stripeFee: m.stripe_fee_pence,
+    providerFee: m.provider_fee_pence,
     net: m.onecab_net_pence,
     verifiedNet: m.verified_onecab_net_pence,
     unverifiedNet: m.unverified_onecab_net_pence,
@@ -226,29 +225,29 @@ export function sumTripCommissions(rows: TripFinanceRow[]) {
 export function classifyOnecabSettlementStatus(args: {
   calculatedOnecabNetPence: number;
   verifiedOnecabNetPence: number;
-  stripeAvailablePence: number;
-  stripePendingPence: number;
+  providerAvailablePence: number;
+  providerPendingPence: number;
   verifiedTripCount: number;
   tripCount: number;
 }): OnecabSettlementStatus {
   const {
     calculatedOnecabNetPence,
     verifiedOnecabNetPence,
-    stripeAvailablePence,
-    stripePendingPence,
+    providerAvailablePence,
+    providerPendingPence,
     verifiedTripCount,
     tripCount,
   } = args;
 
   if (calculatedOnecabNetPence <= 0) return "calculated_only";
   if (verifiedTripCount === 0) return "calculated_only";
-  if (verifiedTripCount < tripCount || stripePendingPence > 0) {
-    return "pending_stripe_settlement";
+  if (verifiedTripCount < tripCount || providerPendingPence > 0) {
+    return "pending_provider_settlement";
   }
-  if (stripeAvailablePence >= verifiedOnecabNetPence && verifiedOnecabNetPence > 0) {
-    return "available_in_stripe_balance";
+  if (providerAvailablePence >= verifiedOnecabNetPence && verifiedOnecabNetPence > 0) {
+    return "available_in_provider_balance";
   }
-  if (stripePendingPence > 0) return "pending_stripe_settlement";
+  if (providerPendingPence > 0) return "pending_provider_settlement";
   return "calculated_only";
 }
 
@@ -257,14 +256,14 @@ export function classifyOnecabSettlementStatus(args: {
  * platform_cash_after_driver_liability = stripe available − driver payable − pending transfers
  */
 export function partitionStripePlatformCash(args: {
-  stripeAvailablePence: number;
+  providerAvailablePence: number;
   driverPayoutLiabilityPence: number;
   pendingTransfersPence: number;
 }) {
   const allocatedToDrivers = args.driverPayoutLiabilityPence + args.pendingTransfersPence;
-  const unallocatedPlatformCash = args.stripeAvailablePence - allocatedToDrivers;
+  const unallocatedPlatformCash = args.providerAvailablePence - allocatedToDrivers;
   return {
-    stripe_available_platform_balance_pence: args.stripeAvailablePence,
+    provider_available_platform_balance_pence: args.providerAvailablePence,
     driver_payout_liability_pence: args.driverPayoutLiabilityPence,
     pending_transfers_pence: args.pendingTransfersPence,
     unallocated_platform_cash_pence: unallocatedPlatformCash,
@@ -272,7 +271,7 @@ export function partitionStripePlatformCash(args: {
 }
 
 export function reconcileStripeBalance(args: {
-  stripeAvailablePence: number;
+  providerAvailablePence: number;
   calculatedOnecabNetPence: number;
   availableDriverPayablePence: number;
   pendingTransfersPence: number;
@@ -280,7 +279,7 @@ export function reconcileStripeBalance(args: {
 }) {
   const tolerance = args.tolerancePence ?? 100;
   const partition = partitionStripePlatformCash({
-    stripeAvailablePence: args.stripeAvailablePence,
+    providerAvailablePence: args.providerAvailablePence,
     driverPayoutLiabilityPence: args.availableDriverPayablePence,
     pendingTransfersPence: args.pendingTransfersPence,
   });
@@ -289,12 +288,12 @@ export function reconcileStripeBalance(args: {
     args.calculatedOnecabNetPence +
     args.availableDriverPayablePence +
     args.pendingTransfersPence;
-  const reserves = args.stripeAvailablePence - expectedCash;
+  const reserves = args.providerAvailablePence - expectedCash;
   const delta = Math.abs(reserves);
   const reconciles = delta <= tolerance;
 
   return {
-    stripe_available_balance_pence: args.stripeAvailablePence,
+    provider_available_balance_pence: args.providerAvailablePence,
     /** Trip-derived ONECAB net after Stripe fees — NOT (Stripe balance − driver payable) */
     calculated_onecab_net_pence: args.calculatedOnecabNetPence,
     available_driver_payable_pence: args.availableDriverPayablePence,
@@ -320,8 +319,8 @@ export function parseInsufficientFundsReason(errorMessage: string | null): strin
 export function buildInsufficientFundsDiagnosis(args: {
   failureReason: string | null;
   requestedPayoutPence: number;
-  stripeAvailablePence: number;
-  stripePendingPence: number;
+  providerAvailablePence: number;
+  providerPendingPence: number;
   calculatedOnecabNetPence: number;
   driverPendingSettlementPence: number;
 }): string[] {
@@ -329,13 +328,13 @@ export function buildInsufficientFundsDiagnosis(args: {
   const insufficient = parseInsufficientFundsReason(args.failureReason);
 
   if (insufficient) diagnoses.push(insufficient);
-  if (args.requestedPayoutPence > args.stripeAvailablePence) {
+  if (args.requestedPayoutPence > args.providerAvailablePence) {
     diagnoses.push("Driver payout amount exceeded Stripe available balance.");
   }
-  if (args.stripePendingPence > 0 && args.stripeAvailablePence < args.requestedPayoutPence) {
+  if (args.providerPendingPence > 0 && args.providerAvailablePence < args.requestedPayoutPence) {
     diagnoses.push("Stripe funds are pending, not available.");
   }
-  if (args.calculatedOnecabNetPence > 0 && args.stripeAvailablePence < args.requestedPayoutPence) {
+  if (args.calculatedOnecabNetPence > 0 && args.providerAvailablePence < args.requestedPayoutPence) {
     diagnoses.push("ONECAB commission was calculated on trips but Stripe available cash is lower than driver payout request.");
   }
   if (args.driverPendingSettlementPence > 0) {
@@ -349,16 +348,16 @@ export function buildInsufficientFundsDiagnosis(args: {
 
 export function computeSafePayoutAmount(args: {
   driverAvailablePence: number;
-  stripeAvailablePence: number;
+  providerAvailablePence: number;
   minimumPayoutPence?: number;
 }) {
   const min = args.minimumPayoutPence ?? 100;
-  const capped = Math.min(Math.max(0, args.driverAvailablePence), Math.max(0, args.stripeAvailablePence));
+  const capped = Math.min(Math.max(0, args.driverAvailablePence), Math.max(0, args.providerAvailablePence));
   return {
     payout_amount_pence: capped,
     partial: capped < args.driverAvailablePence && capped > 0,
     blocked: capped < min,
-    waiting_for_stripe_funds: args.stripeAvailablePence < args.driverAvailablePence,
+    waiting_for_provider_funds: args.providerAvailablePence < args.driverAvailablePence,
   };
 }
 
@@ -440,14 +439,13 @@ export type FinanceReconciliationSummary = {
     data_source_badge: FinanceDataSourceBadge;
     customer_revenue_source: string;
   };
-  pending_stripe_confirmation?: {
+  pending_provider_confirmation?: {
     label: string;
     trip_count: number;
     expected_revenue_pence: number;
     expected_commission_pence: number;
     expected_driver_net_pence: number;
   };
-  money_movement?: import("./connectMoneyMovementSSOT.ts").ConnectMoneyMovementBundle;
 };
 
 export type TripFinancialAuditRow = {
@@ -458,7 +456,7 @@ export type TripFinancialAuditRow = {
   customer_name: string | null;
   driver_name: string | null;
   payment_method: string | null;
-  stripe_payment_intent_id?: string | null;
+  provider_payment_id?: string | null;
   /** Payment Sessions SSOT id when linked — navigation only. */
   payment_session_id?: string | null;
   /**
@@ -587,8 +585,8 @@ export type TripAuditSourceRow = TripFinanceRow & {
   final_customer_fare_pence?: number | null;
   payment_status?: string | null;
   financial_outcome?: string | null;
-  stripe_payment_intent_id?: string | null;
-  stripe_charge_id?: string | null;
+  provider_payment_id?: string | null;
+  provider_charge_id?: string | null;
   provider_status?: string | null;
   driver_id?: string | null;
   passenger_name?: string | null;
@@ -642,7 +640,6 @@ export function buildFinanceReconciliationSummary(args: {
   dataSourceBadge?: FinanceDataSourceBadge;
   /** When true, BALANCED status uses trip-earnings split (correct for date-filtered reports). */
   periodScoped?: boolean;
-  moneyMovement?: import("./connectMoneyMovementSSOT.ts").ConnectMoneyMovementBundle;
 }): FinanceReconciliationSummary {
   const m = args.ssot;
   const driverAvailablePayout = Math.max(0, m.driver_available_now_pence - args.inFlightCashoutPence);
@@ -714,16 +711,15 @@ export function buildFinanceReconciliationSummary(args: {
       data_source_badge: args.dataSourceBadge ?? "LIVE",
       customer_revenue_source: formatCustomerRevenueSourceLabel(m.customer_revenue_source),
     },
-    pending_stripe_confirmation: m.pending_trip_count > 0
+    pending_provider_confirmation: m.pending_trip_count > 0
       ? {
         label: "Expected / Pending Stripe confirmation",
         trip_count: m.pending_trip_count,
-        expected_revenue_pence: m.pending_stripe_confirmation_revenue_pence,
-        expected_commission_pence: m.pending_stripe_confirmation_commission_pence,
-        expected_driver_net_pence: m.pending_stripe_confirmation_driver_net_pence,
+        expected_revenue_pence: m.pending_provider_confirmation_revenue_pence,
+        expected_commission_pence: m.pending_provider_confirmation_commission_pence,
+        expected_driver_net_pence: m.pending_provider_confirmation_driver_net_pence,
       }
       : undefined,
-    money_movement: args.moneyMovement,
   };
 }
 
@@ -735,7 +731,7 @@ function formatCustomerRevenueSourceLabel(
       return "Reconciled — Payment Sessions captures only";
     case "payments_captured":
       return "Reconciled — captured payments only";
-    case "expected_pending_stripe_confirmation":
+    case "expected_pending_provider_confirmation":
       return "Expected / Pending Stripe confirmation";
     case "trips_capture_fallback_pending":
       return "Expected / Pending Stripe confirmation (trip capture fallback)";
@@ -840,7 +836,7 @@ export function mapTripToFinancialAuditRow(
     status: payment?.status ?? session?.status ?? null,
     provider_status: payment?.provider_status ?? null,
     captured_amount_pence: captured,
-    stripe_payment_intent_id: payment?.stripe_payment_intent_id ?? null,
+    provider_payment_id: payment?.provider_payment_id ?? null,
     provider_available_on: payment?.provider_available_on ?? null,
   };
 
@@ -878,9 +874,9 @@ export function mapTripToFinancialAuditRow(
   });
 
   const paymentIntentId =
-    row.stripe_payment_intent_id ??
-    payment?.stripe_payment_intent_id ??
-    tripPayments.find((p) => p.stripe_payment_intent_id)?.stripe_payment_intent_id ??
+    row.provider_payment_id ??
+    payment?.provider_payment_id ??
+    tripPayments.find((p) => p.provider_payment_id)?.provider_payment_id ??
     null;
 
   // Provider fee: Payment Sessions only — never trip fee invent.
@@ -1072,7 +1068,7 @@ export function mapTripToFinancialAuditRow(
     driver_name: driverName,
     payment_method: paymentMethod,
     service_area_id: row.service_area_id ?? null,
-    stripe_payment_intent_id: paymentIntentId,
+    provider_payment_id: paymentIntentId,
     payment_session_id: session?.payment_session_id ?? null,
     customer_paid_pence: customerPaid,
     gross_fare_pence: grossFarePence,
@@ -1170,7 +1166,7 @@ export function buildTripFinancialAuditContext(args: {
     status: string | null;
     provider_status: string | null;
     captured_amount_pence: number | null;
-    stripe_payment_intent_id?: string | null;
+    provider_payment_id?: string | null;
     provider_available_on?: string | null;
   }>;
   payoutItems: Array<{
@@ -1185,8 +1181,8 @@ export function buildTripFinancialAuditContext(args: {
     related_trip_id: string | null;
     type: string;
     amount_pence: number;
-    stripe_payout_id?: string | null;
-    stripe_transfer_id?: string | null;
+    provider_payout_id?: string | null;
+    provider_transfer_id?: string | null;
   }>;
   paymentSessions?: PaymentSessionMoneyRow[];
   currencyCodeByServiceAreaId?: Map<string, string>;
@@ -1200,7 +1196,7 @@ export function buildTripFinancialAuditContext(args: {
       status: p.status,
       provider_status: p.provider_status,
       captured_amount_pence: p.captured_amount_pence,
-      stripe_payment_intent_id: p.stripe_payment_intent_id ?? null,
+      provider_payment_id: p.provider_payment_id ?? null,
       provider_available_on: p.provider_available_on ?? null,
     };
     const list = paymentsByTripId.get(p.trip_id) ?? [];
@@ -1236,8 +1232,8 @@ export function buildTripFinancialAuditContext(args: {
     list.push({
       type: entry.type,
       amount_pence: entry.amount_pence,
-      stripe_payout_id: entry.stripe_payout_id ?? null,
-      stripe_transfer_id: entry.stripe_transfer_id ?? null,
+      provider_payout_id: entry.provider_payout_id ?? null,
+      provider_transfer_id: entry.provider_transfer_id ?? null,
     });
     ledgerByTripId.set(entry.related_trip_id, list);
   }

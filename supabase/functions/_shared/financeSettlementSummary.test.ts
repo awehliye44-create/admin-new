@@ -14,7 +14,7 @@ import {
 
 const TRIP_5783 = {
   commission_pence: 867,
-  stripe_processing_fee_pence: 120,
+  provider_fee_pence: 120,
   onecab_net_pence: 747,
   driver_net_pence: 4916,
   gross_fare_pence: 5783,
@@ -24,7 +24,7 @@ const TRIP_5783 = {
   tip_pence: 0,
   tip_amount_pence: null,
   payment_method: "card",
-  stripe_settlement_verified: true,
+  provider_settlement_verified: true,
   driver_tier_commission_percent: 15,
   commission_pct: 15,
   completed_at: "2026-06-09T12:00:00Z",
@@ -41,10 +41,10 @@ Deno.test("£57.83 revenue → ONECAB gross commission max £8.67 at 15%", () =>
 });
 
 Deno.test("mislabeled stripe-minus-driver (£28.87) is NOT commission", () => {
-  const stripeAvailable = 5783;
+  const providerAvailable = 5783;
   const driverPayable = 2896;
   const partition = partitionStripePlatformCash({
-    stripeAvailablePence: stripeAvailable,
+    providerAvailablePence: providerAvailable,
     driverPayoutLiabilityPence: driverPayable,
     pendingTransfersPence: 0,
   });
@@ -57,7 +57,7 @@ Deno.test("mislabeled stripe-minus-driver (£28.87) is NOT commission", () => {
 Deno.test("reconcile uses trip-derived ONECAB net not stripe minus driver", () => {
   const m = sumTripFinanceMetrics([TRIP_5783]);
   const r = reconcileStripeBalance({
-    stripeAvailablePence: 5783,
+    providerAvailablePence: 5783,
     calculatedOnecabNetPence: m.onecab_net_pence,
     availableDriverPayablePence: 4916,
     pendingTransfersPence: 0,
@@ -76,9 +76,9 @@ Deno.test("commission cap flags driver net mistaken as commission", () => {
 });
 
 Deno.test("computeSafePayoutAmount caps to Stripe available balance", () => {
-  const r = computeSafePayoutAmount({ driverAvailablePence: 5000, stripeAvailablePence: 3200 });
+  const r = computeSafePayoutAmount({ driverAvailablePence: 5000, providerAvailablePence: 3200 });
   assertEquals(r.payout_amount_pence, 3200);
-  assertEquals(r.waiting_for_stripe_funds, true);
+  assertEquals(r.waiting_for_provider_funds, true);
 });
 
 Deno.test("buildFinanceReconciliationSummary balances card ledger", async () => {
@@ -95,7 +95,7 @@ Deno.test("buildFinanceReconciliationSummary balances card ledger", async () => 
     commissionableRevenuePence: 5783,
     driverWalletBalancePence: 4916,
     inFlightCashoutPence: 0,
-    settlementStatus: "available_in_stripe_balance",
+    settlementStatus: "available_in_provider_balance",
     settlementStatusLabel: "Available",
     providerHealthStatus: "healthy",
     lastWebhookReceivedAt: null,
@@ -110,8 +110,8 @@ Deno.test("classifyOnecabSettlementStatus never marks paid without verification"
     classifyOnecabSettlementStatus({
       calculatedOnecabNetPence: 747,
       verifiedOnecabNetPence: 0,
-      stripeAvailablePence: 5783,
-      stripePendingPence: 0,
+      providerAvailablePence: 5783,
+      providerPendingPence: 0,
       verifiedTripCount: 0,
       tripCount: 1,
     }),
@@ -129,12 +129,12 @@ const MK_260615_006 = {
   capture_amount_pence: 480,
   commission_pence: 77,
   driver_net_pence: 435,
-  stripe_processing_fee_pence: null,
+  provider_fee_pence: null,
   onecab_net_pence: null,
   commissionable_fare_pence: null,
   tip_pence: 0,
   tip_amount_pence: null,
-  stripe_settlement_verified: true,
+  provider_settlement_verified: true,
   driver_tier_commission_percent: null,
   commission_pct: null,
   completed_at: "2026-06-15T12:00:00Z",
@@ -230,12 +230,12 @@ Deno.test("Financial Reconciliation audit: cash trip uses final_fare_pence as cu
     capture_amount_pence: 0,
     commission_pence: 106,
     driver_net_pence: 687,
-    stripe_processing_fee_pence: null,
+    provider_fee_pence: null,
     onecab_net_pence: null,
     commissionable_fare_pence: null,
     tip_pence: 0,
     tip_amount_pence: null,
-    stripe_settlement_verified: null,
+    provider_settlement_verified: null,
     driver_tier_commission_percent: null,
     commission_pct: null,
     completed_at: "2026-06-15T12:00:00Z",
@@ -704,7 +704,7 @@ Deno.test("FR audit: sessions map present with missing fee stays PENDING not zer
   });
   const row = mapTripToFinancialAuditRow({
     ...MK_260615_006,
-    stripe_processing_fee_pence: 99,
+    provider_fee_pence: 99,
     provider_fee_pence: 99,
   }, context);
   assertEquals(row.processing_fee_pence, null);

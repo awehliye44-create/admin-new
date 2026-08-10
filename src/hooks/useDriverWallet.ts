@@ -12,7 +12,7 @@ export interface DriverFinancialSummary {
   is_online: boolean;
   rating: number | null;
   approval_status: string;
-  stripe_account_id: string | null;
+  provider_account_id: string | null;
   payouts_enabled: boolean;
   onboarding_complete: boolean;
   currency_code: string;
@@ -124,7 +124,7 @@ const mapSummary = (d: any): DriverFinancialSummary => ({
   is_online: d.is_online || false,
   rating: d.rating,
   approval_status: d.approval_status || 'pending',
-  stripe_account_id: d.stripe_account_id,
+  provider_account_id: d.provider_account_id,
   payouts_enabled: d.payouts_enabled || false,
   onboarding_complete: d.onboarding_complete || false,
   currency_code: d.currency_code || '',

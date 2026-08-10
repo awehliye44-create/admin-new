@@ -19,7 +19,7 @@ export type PerDriverFinanceSSOT = {
   finance_cleared_amount_pence?: number;
   eligible_payout_pence?: number;
   included_in_payout_batch_pence?: number;
-  stripe_paid_out_total_pence?: number;
+  provider_paid_out_total_pence?: number;
   driver_available_now_pence: number;
   driver_pending_payout_pence: number;
   driver_wallet_balance_pence: number;
@@ -46,7 +46,7 @@ export type PerDriverFinanceSSOTResponse = {
     driver_id: string;
     ssot_version: string;
     data_source_badge: FinanceDataSourceBadge;
-    stripe_balance_error: string | null;
+    provider_balance_error: string | null;
   };
 };
 

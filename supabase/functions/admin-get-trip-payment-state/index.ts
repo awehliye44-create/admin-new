@@ -19,7 +19,7 @@ import {
 import {
   resolveTripPaymentProvider,
   tripProviderOrderId,
-  tripStripePaymentIntentId,
+  tripProviderPaymentIntentId,
 } from "../_shared/tripPaymentProviderSSOT.ts";
 
 const InputSchema = z.object({ trip_id: z.string().uuid() });
@@ -29,7 +29,7 @@ const TRIP_AUDIT_SELECT = `
   trip_code,
   currency_code,
   commission_pence,
-  stripe_processing_fee_pence:provider_fee_pence,
+  provider_fee_pence:provider_fee_pence,
   onecab_net_pence,
   driver_net_pence,
   gross_fare_pence,
@@ -49,8 +49,8 @@ const TRIP_AUDIT_SELECT = `
   payment_method,
   payment_status,
   financial_outcome,
-  stripe_charge_id:provider_charge_id,
-  stripe_transfer_id:provider_transfer_id,
+  provider_charge_id:provider_charge_id,
+  provider_transfer_id:provider_transfer_id,
   provider_order_id,
   provider_payment_id,
   payment_provider,
@@ -99,9 +99,9 @@ serve(async (req) => {
     // downstream audit shape intact with inert defaults.
     const trip = {
       ...(tripRow as Record<string, unknown>),
-      stripe_payment_intent_id: (tripRow as { provider_payment_id?: string | null }).provider_payment_id ?? null,
-      stripe_settlement_verified: false,
-      stripe_settlement_warning: null,
+      provider_payment_id: (tripRow as { provider_payment_id?: string | null }).provider_payment_id ?? null,
+      provider_settlement_verified: false,
+      provider_settlement_warning: null,
       stripe_application_fee_id: null,
       stripe_application_fee_amount_pence: null,
       stripe_destination_account_id: null,
@@ -110,13 +110,13 @@ serve(async (req) => {
 
     const paymentProvider = resolveTripPaymentProvider(trip);
     const providerOrderId = tripProviderOrderId(trip);
-    const legacyStripePi = tripStripePaymentIntentId(trip);
+    const legacyStripePi = tripProviderPaymentIntentId(trip);
 
 
     const [paymentsRes, payoutItemsRes, ledgerRes] = await Promise.all([
       gate.supabase
         .from('payments')
-        .select('trip_id, captured_amount_pence, amount_pence, status, provider_status, stripe_payment_intent_id:provider_payment_id, provider_available_on')
+        .select('trip_id, captured_amount_pence, amount_pence, status, provider_status, provider_payment_id:provider_payment_id, provider_available_on')
         .eq('trip_id', trip_id),
       gate.supabase
         .from('payout_items')
@@ -124,7 +124,7 @@ serve(async (req) => {
         .eq('trip_id', trip_id),
       gate.supabase
         .from('driver_wallet_ledger')
-        .select('related_trip_id, type, amount_pence, stripe_payout_id:provider_payout_id, stripe_transfer_id:provider_transfer_id')
+        .select('related_trip_id, type, amount_pence, provider_payout_id:provider_payout_id, provider_transfer_id:provider_transfer_id')
         .eq('related_trip_id', trip_id),
     ]);
 
@@ -135,8 +135,8 @@ serve(async (req) => {
         related_trip_id: row.related_trip_id ?? null,
         type: row.type,
         amount_pence: row.amount_pence,
-        stripe_payout_id: row.stripe_payout_id ?? null,
-        stripe_transfer_id: row.stripe_transfer_id ?? null,
+        provider_payout_id: row.provider_payout_id ?? null,
+        provider_transfer_id: row.provider_transfer_id ?? null,
       })),
     });
 
@@ -158,20 +158,20 @@ serve(async (req) => {
     let stripe_status: string | null = null;
     let amount_capturable: number | null = null;
     let stripe_currency: string | null = null;
-    let charge_id: string | null = trip.stripe_charge_id ?? null;
+    let charge_id: string | null = trip.provider_charge_id ?? null;
     let payment_created: string | null = trip.created_at ?? null;
     let captured_at: string | null = null;
     let charge_payment_method: string | null = null;
     let payment_method_brand: string | null = null;
     let last4: string | null = null;
-    let stripe_fee_pence: number = auditRow.processing_fee_pence;
+    let provider_fee_pence: number = auditRow.processing_fee_pence;
     let stripe_application_fee_id: string | null = trip.stripe_application_fee_id ?? null;
     let stripe_application_fee_amount_pence: number | null = trip.stripe_application_fee_amount_pence ?? null;
     let stripe_destination_account_id: string | null = trip.stripe_destination_account_id ?? null;
-    let stripe_transfer_id: string | null = trip.stripe_transfer_id ?? null;
+    let provider_transfer_id: string | null = trip.provider_transfer_id ?? null;
     let stripe_transfer_amount_pence: number | null = trip.stripe_transfer_amount_pence ?? null;
-    let stripe_settlement_verified: boolean = trip.stripe_settlement_verified ?? false;
-    let stripe_settlement_warning: string | null = trip.stripe_settlement_warning ?? null;
+    let provider_settlement_verified: boolean = trip.provider_settlement_verified ?? false;
+    let provider_settlement_warning: string | null = trip.provider_settlement_warning ?? null;
     let provider_status: string | null = trip.provider_status ?? null;
     let provider_currency: string | null = null;
 
@@ -224,14 +224,14 @@ serve(async (req) => {
           if (pmd?.card?.brand) payment_method_brand = pmd.card.brand;
           if (pmd?.card?.last4) last4 = pmd.card.last4;
           const bt = charge.balance_transaction;
-          if (bt && typeof bt === 'object' && 'fee' in bt) stripe_fee_pence = (bt as Stripe.BalanceTransaction).fee ?? stripe_fee_pence;
+          if (bt && typeof bt === 'object' && 'fee' in bt) provider_fee_pence = (bt as Stripe.BalanceTransaction).fee ?? provider_fee_pence;
           if (charge.application_fee) {
             stripe_application_fee_id = typeof charge.application_fee === 'string' ? charge.application_fee : charge.application_fee.id;
             if (typeof charge.application_fee === 'object') stripe_application_fee_amount_pence = charge.application_fee.amount ?? stripe_application_fee_amount_pence;
           }
           const transfer = (charge as unknown as { transfer?: string | { id: string; amount?: number } }).transfer;
           if (transfer) {
-            stripe_transfer_id = typeof transfer === 'string' ? transfer : transfer.id;
+            provider_transfer_id = typeof transfer === 'string' ? transfer : transfer.id;
             if (typeof transfer === 'object') stripe_transfer_amount_pence = transfer.amount ?? stripe_transfer_amount_pence;
           }
         }
@@ -248,23 +248,23 @@ serve(async (req) => {
     const buffer_pence = Math.max(0, authorized_pence - final_fare_pence);
 
     if (stripe_application_fee_amount_pence === commission_pence && stripe_application_fee_id && stripe_destination_account_id) {
-      stripe_settlement_verified = true;
-      stripe_settlement_warning = null;
-    } else if (stripe_transfer_amount_pence === driver_net_pence && stripe_transfer_id && stripe_destination_account_id) {
-      stripe_settlement_verified = true;
-      stripe_settlement_warning = 'SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT';
-    } else if (stripe_status === 'succeeded' && commission_pence > 0 && !stripe_application_fee_id && !stripe_transfer_id) {
-      if (!(trip.stripe_settlement_verified && isInformationalSettlementWarning(stripe_settlement_warning))) {
-        stripe_settlement_verified = false;
-        stripe_settlement_warning = 'STRIPE_SETTLEMENT_NOT_VERIFIED_NO_APPLICATION_FEE_OR_TRANSFER';
+      provider_settlement_verified = true;
+      provider_settlement_warning = null;
+    } else if (stripe_transfer_amount_pence === driver_net_pence && provider_transfer_id && stripe_destination_account_id) {
+      provider_settlement_verified = true;
+      provider_settlement_warning = 'SEPARATE_CHARGE_TRANSFER_USED_NO_APPLICATION_FEE_OBJECT';
+    } else if (stripe_status === 'succeeded' && commission_pence > 0 && !stripe_application_fee_id && !provider_transfer_id) {
+      if (!(trip.provider_settlement_verified && isInformationalSettlementWarning(provider_settlement_warning))) {
+        provider_settlement_verified = false;
+        provider_settlement_warning = 'STRIPE_SETTLEMENT_NOT_VERIFIED_NO_APPLICATION_FEE_OR_TRANSFER';
       }
-    } else if (trip.stripe_settlement_verified && stripe_settlement_verified && isInformationalSettlementWarning(stripe_settlement_warning)) {
-      stripe_settlement_verified = true;
+    } else if (trip.provider_settlement_verified && provider_settlement_verified && isInformationalSettlementWarning(provider_settlement_warning)) {
+      provider_settlement_verified = true;
     }
 
-    const stripe_settlement_warning_severity = getSettlementWarningSeverity(
-      stripe_settlement_verified,
-      stripe_settlement_warning,
+    const provider_settlement_warning_severity = getSettlementWarningSeverity(
+      provider_settlement_verified,
+      provider_settlement_warning,
     );
 
     const paymentMethod = String(charge_payment_method ?? trip.payment_method ?? '').toLowerCase();
@@ -377,7 +377,7 @@ serve(async (req) => {
       discount_pence: auditRow.discount_pence,
       buffer_pence,
       commission_pence,
-      stripe_fee_pence,
+      provider_fee_pence,
       onecab_net_pence,
       driver_net_pence,
       recovery_debt_pence: auditRow.debt_recovered_pence,
@@ -390,12 +390,12 @@ serve(async (req) => {
       stripe_application_fee_id,
       stripe_application_fee_amount_pence,
       stripe_destination_account_id,
-      stripe_transfer_id,
+      provider_transfer_id,
       stripe_transfer_amount_pence,
-      stripe_settlement_verified,
-      stripe_settlement_warning,
-      stripe_settlement_warning_severity,
-      stripe_settlement_warning_label: formatSettlementWarning(stripe_settlement_warning),
+      provider_settlement_verified,
+      provider_settlement_warning,
+      provider_settlement_warning_severity,
+      provider_settlement_warning_label: formatSettlementWarning(provider_settlement_warning),
       customer_email,
       payment_created_at: payment_created,
       captured_at,

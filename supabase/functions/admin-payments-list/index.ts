@@ -93,8 +93,8 @@ serve(async (req) => {
         driver_net_pence,
         payment_method,
         payment_status,
-        stripe_payment_intent_id,
-        stripe_charge_id,
+        provider_payment_id,
+        provider_charge_id,
         refund_amount_pence,
         refund_reason,
         refunded_at,
@@ -249,8 +249,8 @@ serve(async (req) => {
         driverNet,
         extras: t.extras_pence || 0,
         tip: t.tip_pence || 0,
-        stripePaymentIntentId: t.stripe_payment_intent_id,
-        stripeChargeId: t.stripe_charge_id,
+        providerPaymentIntentId: t.provider_payment_id,
+        providerChargeId: t.provider_charge_id,
       };
     }) || [];
 

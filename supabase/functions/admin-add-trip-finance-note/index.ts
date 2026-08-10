@@ -32,7 +32,7 @@ serve(async (req) => {
 
     const { data: trip, error: tripErr } = await gate.supabase
       .from("trips")
-      .select("id, trip_code, payment_status, capture_amount_pence, refund_amount_pence, stripe_payment_intent_id")
+      .select("id, trip_code, payment_status, capture_amount_pence, refund_amount_pence, provider_payment_id")
       .eq("id", trip_id)
       .maybeSingle();
 
@@ -52,7 +52,7 @@ serve(async (req) => {
       amount_pence_before: beforeSnapshot.capture_amount_pence,
       amount_pence_after: beforeSnapshot.capture_amount_pence,
       delta_pence: 0,
-      stripe_payment_intent_id: trip.stripe_payment_intent_id,
+      provider_payment_id: trip.provider_payment_id,
       metadata: {
         investigation_required,
         adjustment_request,

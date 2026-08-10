@@ -220,7 +220,7 @@ export function FinancialReconciliationDriverDrawer({
   const commissionNet = perDriver?.digital_onecab_net_commission_pence ?? null;
   const providerFee = perDriver?.digital_provider_processing_fee_pence ?? null;
   const variance = perDriver?.reconciliation_variance_pence ?? null;
-  const paidOut = perDriver?.stripe_paid_out_total_pence ?? driver?.stripe_paid_out_total_pence ?? null;
+  const paidOut = perDriver?.provider_paid_out_total_pence ?? driver?.provider_paid_out_total_pence ?? null;
   const eligiblePayout = perDriver?.eligible_payout_pence ?? perDriver?.driver_available_now_pence ?? null;
   const pendingBatch = perDriver?.included_in_payout_batch_pence ?? driver?.included_in_payout_batch_amount_pence ?? null;
   const walletBalance = perDriver?.driver_wallet_balance_pence ?? driver?.wallet_balance_pence ?? null;

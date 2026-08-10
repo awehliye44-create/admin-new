@@ -63,7 +63,7 @@ serve(async (req) => {
     // Get driver info
     const { data: driver, error: driverError } = await supabase
       .from('drivers')
-      .select('id, first_name, last_name, email, phone, is_online, rating, total_trips, stripe_account_id, payouts_enabled, charges_enabled, onboarding_complete, approval_status, region_id')
+      .select('id, first_name, last_name, email, phone, is_online, rating, total_trips, provider_account_id, payouts_enabled, charges_enabled, onboarding_complete, approval_status, region_id')
       .eq('id', driverId)
       .single();
 
@@ -202,7 +202,7 @@ serve(async (req) => {
         isOnline: driver.is_online,
         rating: driver.rating,
         totalTrips: driver.total_trips,
-        stripeAccountId: driver.stripe_account_id,
+        stripeAccountId: driver.provider_account_id,
         payoutsEnabled: driver.payouts_enabled,
         chargesEnabled: driver.charges_enabled,
         onboardingComplete: driver.onboarding_complete,
@@ -223,15 +223,15 @@ serve(async (req) => {
         currency: e.currency,
         description: e.description,
         tripId: e.related_trip_id,
-        referenceId: e.stripe_transfer_id,
+        referenceId: e.provider_transfer_id,
         createdAt: e.created_at,
       })) || [],
       payoutHistory: payoutItems?.map(p => ({
         id: p.id,
         amount: p.amount_pence,
         status: p.status,
-        stripeTransferId: p.stripe_transfer_id,
-        stripePayoutId: p.stripe_payout_id,
+        stripeTransferId: p.provider_transfer_id,
+        stripePayoutId: p.provider_payout_id,
         errorMessage: p.error_message,
         createdAt: p.created_at,
         completedAt: p.completed_at,

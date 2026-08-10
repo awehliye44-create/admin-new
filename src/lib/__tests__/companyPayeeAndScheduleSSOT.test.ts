@@ -93,7 +93,7 @@ describe("company payee SSOT", () => {
   });
 
   it("rejects stripe fields", () => {
-    expect(() => assertNoStripeCompanyTransferFields({ stripe_account_id: "x" }))
+    expect(() => assertNoStripeCompanyTransferFields({ provider_account_id: "x" }))
       .toThrow("STRIPE_FORBIDDEN_ON_COMPANY_TRANSFER");
   });
 });

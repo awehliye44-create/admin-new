@@ -20,7 +20,7 @@ const TRIP_CAPTURE_SSOT_SELECT = `
   id,
   trip_code,
   commission_pence,
-  stripe_processing_fee_pence:provider_fee_pence,
+  provider_fee_pence:provider_fee_pence,
   onecab_net_pence,
   driver_net_pence,
   gross_fare_pence,
@@ -40,8 +40,8 @@ const TRIP_CAPTURE_SSOT_SELECT = `
   payment_status,
   status,
   financial_outcome,
-  stripe_payment_intent_id:provider_payment_id,
-  stripe_charge_id:provider_charge_id,
+  provider_payment_id:provider_payment_id,
+  provider_charge_id:provider_charge_id,
   provider_status,
   driver_id,
   passenger_name,
@@ -59,7 +59,7 @@ export function mapTripsToCaptureSsotRows(args: {
     captured_amount_pence: number | null;
     status: string | null;
     provider_status?: string | null;
-    stripe_payment_intent_id?: string | null;
+    provider_payment_id?: string | null;
     provider_available_on?: string | null;
     amount_pence?: number | null;
     fee_type?: string | null;
@@ -76,8 +76,8 @@ export function mapTripsToCaptureSsotRows(args: {
     related_trip_id: string | null;
     type: string;
     amount_pence: number;
-    stripe_payout_id?: string | null;
-    stripe_transfer_id?: string | null;
+    provider_payout_id?: string | null;
+    provider_transfer_id?: string | null;
   }>;
 }): TripCaptureSsotRow[] {
   const context = buildTripFinancialAuditContext({

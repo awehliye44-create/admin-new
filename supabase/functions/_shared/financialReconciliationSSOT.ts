@@ -88,7 +88,7 @@ export const CAPTURE_CONFIRMED_TRIP_PAYMENT_STATUSES = CAPTURED_PAYMENT_STATUSES
 export type CustomerRevenueSourceLabel =
   | "payment_sessions_captured"
   | "payments_captured"
-  | "expected_pending_stripe_confirmation"
+  | "expected_pending_provider_confirmation"
   | "trips_capture_fallback_pending"
   | "trips_final_fare_fallback_pending";
 
@@ -266,7 +266,7 @@ export function mergePaymentSessionsIntoCaptureRows(args: {
 export type TripSSOTRow = {
   id?: string | null;
   commission_pence: number | null;
-  stripe_processing_fee_pence: number | null;
+  provider_fee_pence: number | null;
   onecab_net_pence: number | null;
   driver_net_pence: number | null;
   gross_fare_pence: number | null;
@@ -761,9 +761,9 @@ export type SSOTComputedMetrics = {
   customer_revenue_source: CustomerRevenueSourceLabel;
   refunded_amount_pence: number;
   net_customer_revenue_pence: number;
-  pending_stripe_confirmation_revenue_pence: number;
-  pending_stripe_confirmation_commission_pence: number;
-  pending_stripe_confirmation_driver_net_pence: number;
+  pending_provider_confirmation_revenue_pence: number;
+  pending_provider_confirmation_commission_pence: number;
+  pending_provider_confirmation_driver_net_pence: number;
   pending_trip_count: number;
   driver_gross_earnings_pence: number;
   driver_net_earnings_pence: number;
@@ -794,9 +794,9 @@ export type PaymentMethodLedgerMetrics = {
   /** Alias — same value as stripe_processing_fees_pence for API compat. */
   provider_processing_fees_pence: number;
   /** Completed card trips not yet capture-confirmed — not reconciled totals. */
-  pending_stripe_confirmation_revenue_pence: number;
-  pending_stripe_confirmation_commission_pence: number;
-  pending_stripe_confirmation_driver_net_pence: number;
+  pending_provider_confirmation_revenue_pence: number;
+  pending_provider_confirmation_commission_pence: number;
+  pending_provider_confirmation_driver_net_pence: number;
   pending_trip_count: number;
 };
 
@@ -804,11 +804,8 @@ export type PaymentMethodLedgerMetrics = {
 /** Provider-neutral processing fee — prefers provider_fee_pence when populated. */
 export function tripProviderProcessingFeePence(trip: {
   provider_fee_pence?: number | null;
-  stripe_processing_fee_pence?: number | null;
 }): number {
-  const providerFee = trip.provider_fee_pence;
-  if (providerFee != null && providerFee > 0) return providerFee;
-  return Math.max(0, trip.stripe_processing_fee_pence ?? 0);
+  return Math.max(0, trip.provider_fee_pence ?? 0);
 }
 
 export function totalCommissionEarnedPence(
@@ -888,9 +885,9 @@ export function computePaymentMethodLedgerMetrics(args: {
     onecab_card_net_commission_pence: onecabNetCommissionPence(onecabCardCommission, cardStripeFees),
     stripe_processing_fees_pence: cardStripeFees,
     provider_processing_fees_pence: cardStripeFees,
-    pending_stripe_confirmation_revenue_pence: pendingRevenue,
-    pending_stripe_confirmation_commission_pence: pendingCommission,
-    pending_stripe_confirmation_driver_net_pence: pendingDriverNet,
+    pending_provider_confirmation_revenue_pence: pendingRevenue,
+    pending_provider_confirmation_commission_pence: pendingCommission,
+    pending_provider_confirmation_driver_net_pence: pendingDriverNet,
     pending_trip_count: pendingTrips.length,
   };
 }
@@ -1043,9 +1040,9 @@ export function computeSSOTMetrics(args: {
     customer_revenue_source: customerRev.source,
     refunded_amount_pence: refunded,
     net_customer_revenue_pence: netCustomer,
-    pending_stripe_confirmation_revenue_pence: pendingRevenue,
-    pending_stripe_confirmation_commission_pence: ledgerSplit.pending_stripe_confirmation_commission_pence,
-    pending_stripe_confirmation_driver_net_pence: ledgerSplit.pending_stripe_confirmation_driver_net_pence,
+    pending_provider_confirmation_revenue_pence: pendingRevenue,
+    pending_provider_confirmation_commission_pence: ledgerSplit.pending_provider_confirmation_commission_pence,
+    pending_provider_confirmation_driver_net_pence: ledgerSplit.pending_provider_confirmation_driver_net_pence,
     pending_trip_count: ledgerSplit.pending_trip_count,
     driver_gross_earnings_pence: driverGross,
     driver_net_earnings_pence: driverNet,

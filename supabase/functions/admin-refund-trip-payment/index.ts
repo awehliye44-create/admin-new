@@ -31,7 +31,7 @@ serve(async (req) => {
 
     const { data: trip, error: tripErr } = await gate.supabase
       .from("trips")
-      .select("id, payment_provider, provider_order_id, stripe_payment_intent_id, stripe_charge_id, capture_amount_pence, refund_amount_pence, payment_status, final_fare_pence, final_customer_fare_pence")
+      .select("id, payment_provider, provider_order_id, provider_payment_id, provider_charge_id, capture_amount_pence, refund_amount_pence, payment_status, final_fare_pence, final_customer_fare_pence")
       .eq("id", trip_id)
       .single();
     if (tripErr || !trip) return jsonResponse({ error: "Trip not found" }, 404);

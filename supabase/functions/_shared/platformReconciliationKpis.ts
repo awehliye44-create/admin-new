@@ -47,7 +47,7 @@ export function aggregatePlatformKpisFromDriverSnapshots(
   for (const d of drivers) {
     const status = String(d.reconciliation_status ?? "").toUpperCase();
     if (status === "BALANCED") balancedDrivers += 1;
-    if (status === "STRIPE_ONLY" || status === "PROVIDER_ONLY") stripeOnly += 1;
+    if (status === "PROVIDER_ONLY" || status === "PROVIDER_ONLY") stripeOnly += 1;
     if (status === "LOCAL_ONLY") ledgerOnly += 1;
     if ((d.recovery_debt_pence ?? 0) > 0) driversWithRecovery += 1;
     outstandingLiability += Math.max(0, d.wallet_balance_pence ?? 0);

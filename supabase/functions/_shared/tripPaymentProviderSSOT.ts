@@ -7,10 +7,10 @@ export type TripPaymentProvider = "stripe" | "revolut" | "unknown";
 export type TripProviderRow = {
   payment_provider?: string | null;
   provider_order_id?: string | null;
-  stripe_payment_intent_id?: string | null;
+  provider_payment_id?: string | null;
 };
 
-export function looksLikeStripePaymentIntentId(value: string | null | undefined): boolean {
+export function looksLikeProviderPaymentIntentId(value: string | null | undefined): boolean {
   return String(value ?? "").trim().startsWith("pi_");
 }
 
@@ -19,10 +19,10 @@ export function resolveTripPaymentProvider(trip: TripProviderRow): TripPaymentPr
   if (explicit === "revolut") return "revolut";
   if (explicit === "stripe") return "stripe";
 
-  if (trip.provider_order_id && !looksLikeStripePaymentIntentId(trip.stripe_payment_intent_id)) {
+  if (trip.provider_order_id && !looksLikeProviderPaymentIntentId(trip.provider_payment_id)) {
     return "revolut";
   }
-  if (looksLikeStripePaymentIntentId(trip.stripe_payment_intent_id)) {
+  if (looksLikeProviderPaymentIntentId(trip.provider_payment_id)) {
     return "stripe";
   }
   if (trip.provider_order_id) return "revolut";
@@ -32,12 +32,12 @@ export function resolveTripPaymentProvider(trip: TripProviderRow): TripPaymentPr
 export function tripProviderOrderId(trip: TripProviderRow): string | null {
   const orderId = String(trip.provider_order_id ?? "").trim();
   if (orderId) return orderId;
-  const pi = String(trip.stripe_payment_intent_id ?? "").trim();
-  if (pi && !looksLikeStripePaymentIntentId(pi)) return pi;
+  const pi = String(trip.provider_payment_id ?? "").trim();
+  if (pi && !looksLikeProviderPaymentIntentId(pi)) return pi;
   return null;
 }
 
-export function tripStripePaymentIntentId(trip: TripProviderRow): string | null {
-  const pi = String(trip.stripe_payment_intent_id ?? "").trim();
-  return looksLikeStripePaymentIntentId(pi) ? pi : null;
+export function tripProviderPaymentIntentId(trip: TripProviderRow): string | null {
+  const pi = String(trip.provider_payment_id ?? "").trim();
+  return looksLikeProviderPaymentIntentId(pi) ? pi : null;
 }

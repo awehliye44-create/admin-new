@@ -15,8 +15,8 @@ function computeCommissionFromLedger(ledger: { type: string; amount_pence: numbe
 
 // Intentionally exported so a future refactor cannot quietly switch the
 // admin reporting layer back to the wrong formula.
-function FORBIDDEN_commissionFromBalances(stripeAvailable: number, driverPayable: number): number {
-  return stripeAvailable - driverPayable;
+function FORBIDDEN_commissionFromBalances(providerAvailable: number, driverPayable: number): number {
+  return providerAvailable - driverPayable;
 }
 
 describe('Finance summary — commission source-of-truth', () => {
@@ -28,11 +28,11 @@ describe('Finance summary — commission source-of-truth', () => {
       { type: 'DRIVER_TIP_CREDIT',   amount_pence: 500 },
       { type: 'EARLY_CASHOUT',       amount_pence: -777 },
     ];
-    const stripeAvailable = 999_999; // unallocated cash
+    const providerAvailable = 999_999; // unallocated cash
     const driverPayable = 1_500;
 
     const correct = computeCommissionFromLedger(ledger);
-    const wrong = FORBIDDEN_commissionFromBalances(stripeAvailable, driverPayable);
+    const wrong = FORBIDDEN_commissionFromBalances(providerAvailable, driverPayable);
 
     expect(correct).toBe(225);
     expect(correct).not.toBe(wrong);

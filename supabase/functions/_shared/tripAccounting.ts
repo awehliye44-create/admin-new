@@ -7,8 +7,8 @@
  * ║  2. commission_pence = fare × tier_commission_pct (GROSS,       ║
  * ║     before Stripe fee). NEVER reduced by Stripe fee.            ║
  * ║  3. Stripe fee is tracked SEPARATELY on the trip as              ║
- * ║     stripe_processing_fee_pence (from balance_transaction).     ║
- * ║     ONECAB net = commission_pence - stripe_processing_fee_pence  ║
+ * ║     provider_fee_pence (from balance_transaction).     ║
+ * ║     ONECAB net = commission_pence - provider_fee_pence  ║
  * ║     and is reported separately — never deducted from driver.     ║
  * ║  4. Tips are NOT part of fare — NEVER commissioned              ║
  * ║  5. driver_net = fare - commission (tips added separately)      ║

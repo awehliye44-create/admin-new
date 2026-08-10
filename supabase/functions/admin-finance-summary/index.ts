@@ -1,7 +1,7 @@
 // Canonical admin finance summary — single source of truth for:
 //   1. Total customer revenue (payments.captured_amount_pence)
 //   2. ONECAB gross commission (driver_wallet_ledger PLATFORM_COMMISSION)
-//   3. Provider processing fees (trips.provider_fee_pence / legacy stripe_processing_fee_pence)
+//   3. Provider processing fees (trips.provider_fee_pence / legacy provider_fee_pence)
 //   4. ONECAB net commission (#2 - #3)
 //   5. Driver net earnings (ledger TRIP_EARNING_NET + DRIVER_TIP_CREDIT + ADJUSTMENT)
 //   6. Stripe platform balance (live, never used as commission)
@@ -39,7 +39,7 @@ interface CurrencyGroup {
     onecab_gross_commission_pence: number;
     /** Separate Africa CW revenue — never mixed into PLATFORM_COMMISSION gross. */
     commission_wallet_deduction_pence: number;
-    stripe_fees_pence: number;
+    provider_fees_pence: number;
     onecab_net_commission_pence: number;
     driver_net_earnings_pence: number;
     driver_payout_liability_pence: number;
@@ -97,7 +97,7 @@ serve(async (req) => {
     // Phase 8: exclude DRIVER_COLLECTED_COMMISSION_WALLET trips from UK commissionable gross.
     let tripsQuery = supabase
       .from('trips')
-      .select('stripe_processing_fee_pence, provider_fee_pence, commissionable_fare_pence, commission_pence, currency_code, region_id, status, financial_model, commission_wallet_enabled')
+      .select('provider_fee_pence, provider_fee_pence, commissionable_fare_pence, commission_pence, currency_code, region_id, status, financial_model, commission_wallet_enabled')
       .in('status', ['completed', 'no_show']);
     if (regionFilter) tripsQuery = tripsQuery.eq('region_id', regionFilter);
     const { data: tripRows, error: tripErr } = await tripsQuery;
@@ -106,7 +106,7 @@ serve(async (req) => {
     // ── 3. Ledger SOT (commission + driver net + tips + adjustments) ──
     const { data: ledgerRows, error: ledgerErr } = await supabase
       .from('driver_wallet_ledger')
-      .select('amount_pence, type, currency, stripe_payout_id, stripe_transfer_id');
+      .select('amount_pence, type, currency, provider_payout_id, provider_transfer_id');
     if (ledgerErr) throw new Error(`ledger: ${ledgerErr.message}`);
 
     // ── 4. Driver financial summary view (region-aware, currency-aware) ──
@@ -166,7 +166,7 @@ serve(async (req) => {
             customer_revenue_pence: 0,
             onecab_gross_commission_pence: 0,
             commission_wallet_deduction_pence: 0,
-            stripe_fees_pence: 0,
+            provider_fees_pence: 0,
             onecab_net_commission_pence: 0,
             driver_net_earnings_pence: 0,
             driver_payout_liability_pence: 0,
@@ -188,7 +188,7 @@ serve(async (req) => {
     for (const t of tripRows || []) {
       if (excludeTripFromPlatformCollectedFinance(t)) continue;
       const g = ensure(t.currency_code);
-      g.totals.stripe_fees_pence += tripProviderProcessingFeePence(t);
+      g.totals.provider_fees_pence += tripProviderProcessingFeePence(t);
       g.totals.commissionable_revenue_pence += Number(t.commissionable_fare_pence || 0);
     }
     for (const l of ledgerRows || []) {
@@ -197,8 +197,8 @@ serve(async (req) => {
       switch (l.type) {
         case 'PLATFORM_COMMISSION':
           g.totals.onecab_gross_commission_pence += amt;
-          if (l.stripe_payout_id) g.commission_status = 'stripe_paid_out';
-          else if (l.stripe_transfer_id && g.commission_status === 'legacy_fallback') g.commission_status = 'stripe_confirmed';
+          if (l.provider_payout_id) g.commission_status = 'stripe_paid_out';
+          else if (l.provider_transfer_id && g.commission_status === 'legacy_fallback') g.commission_status = 'stripe_confirmed';
           break;
         case 'TRIP_EARNING_NET':
         case 'DRIVER_TIP_CREDIT':
@@ -239,7 +239,7 @@ serve(async (req) => {
     // ── Derive net commission + status + validation per bucket ──
     for (const g of buckets.values()) {
       g.totals.onecab_net_commission_pence =
-        g.totals.onecab_gross_commission_pence - g.totals.stripe_fees_pence;
+        g.totals.onecab_gross_commission_pence - g.totals.provider_fees_pence;
 
       if (g.totals.onecab_gross_commission_pence > 0 && g.commission_status === 'legacy_fallback') {
         g.commission_status = 'calculated_pending';

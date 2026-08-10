@@ -99,8 +99,6 @@ verify_jwt = false
 [functions.capture-trip-payment]
 verify_jwt = false
 
-[functions.stripe-onboard-driver]
-verify_jwt = false
 
 [functions.public-content]
 verify_jwt = false

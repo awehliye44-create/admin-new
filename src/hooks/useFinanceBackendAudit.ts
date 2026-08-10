@@ -86,7 +86,7 @@ export type FinanceBackendAuditV1 = {
   meta: {
     trip_count: number;
     payout_row_count: number;
-    stripe_balance_error: string | null;
+    provider_balance_error: string | null;
     accounting_rules: Record<string, string>;
   };
 };

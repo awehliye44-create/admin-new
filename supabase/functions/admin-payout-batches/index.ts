@@ -155,7 +155,7 @@ serve(async (req) => {
     const batchIds = batches.map(b => b.id);
     const { data: allItems } = batchIds.length > 0 ? await supabase
       .from('payout_items')
-      .select('id,batch_id,driver_id,amount_pence,status,execution_status,stripe_transfer_id,stripe_payout_id,error_message,created_at,completed_at,payout_destination_id,provider_request_id,wallet_snapshot_available_pence,drivers:driver_id(first_name,last_name,region_id)')
+      .select('id,batch_id,driver_id,amount_pence,status,execution_status,provider_transfer_id,provider_payout_id,error_message,created_at,completed_at,payout_destination_id,provider_request_id,wallet_snapshot_available_pence,drivers:driver_id(first_name,last_name,region_id)')
       .in('batch_id', batchIds) : { data: [] };
 
     const filteredRegionDriverIds = regionId
@@ -210,8 +210,8 @@ serve(async (req) => {
           statusLabel: String(item.execution_status || item.status) === 'BLOCKED_EXECUTION_DISABLED'
             ? 'Execution disabled'
             : (item.execution_status || item.status),
-          stripeTransferId: item.stripe_transfer_id,
-          stripePayoutId: item.stripe_payout_id,
+          stripeTransferId: item.provider_transfer_id,
+          stripePayoutId: item.provider_payout_id,
           providerPaymentId: null,
           errorMessage: item.error_message,
           createdAt: item.created_at,

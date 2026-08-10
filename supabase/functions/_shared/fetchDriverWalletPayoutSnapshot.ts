@@ -7,7 +7,7 @@ import { computeLedgerWalletBalancePence, computeCashCommissionOutstanding } fro
 import {
   computeDriverWalletPayoutSnapshot,
   sumIncludedInPayoutBatchPence,
-  sumStripePaidOutFromConnectPayouts,
+  sumProviderPaidOutFromConnectPayouts,
   type DriverWalletPayoutSnapshot,
 } from "./driverWalletPayoutSSOT.ts";
 import {
@@ -101,7 +101,7 @@ export async function fetchDriverWalletPayoutSnapshot(
 
   const { data: driver } = await supabase
     .from("drivers")
-    .select("id, user_id, driver_code, first_name, last_name, stripe_account_id, payouts_enabled, charges_enabled, onboarding_complete, region_id, category_id, driver_categories(name)")
+    .select("id, user_id, driver_code, first_name, last_name, provider_account_id, payouts_enabled, charges_enabled, onboarding_complete, region_id, category_id, driver_categories(name)")
     .eq("id", args.driverId)
     .maybeSingle();
 
@@ -116,22 +116,22 @@ export async function fetchDriverWalletPayoutSnapshot(
     driverServiceAreaRes,
     payoutEligibility,
   ] = await Promise.all([
-    supabase.from("driver_wallet_ledger").select("type, amount_pence, stripe_payout_id, created_at, related_trip_id")
+    supabase.from("driver_wallet_ledger").select("type, amount_pence, provider_payout_id, created_at, related_trip_id")
       .eq("driver_id", args.driverId),
-    supabase.from("driver_wallet_ledger").select("id, type, amount_pence, related_trip_id, stripe_payout_id, stripe_transfer_id, created_at, description")
+    supabase.from("driver_wallet_ledger").select("id, type, amount_pence, related_trip_id, provider_payout_id, provider_transfer_id, created_at, description")
       .eq("driver_id", args.driverId)
       .order("created_at", { ascending: false })
       .limit(100),
-    supabase.from("driver_wallet_ledger").select("id, type, amount_pence, related_trip_id, stripe_payout_id, stripe_transfer_id, created_at")
+    supabase.from("driver_wallet_ledger").select("id, type, amount_pence, related_trip_id, provider_payout_id, provider_transfer_id, created_at")
       .eq("driver_id", args.driverId)
-      .not("stripe_transfer_id", "is", null)
+      .not("provider_transfer_id", "is", null)
       .order("created_at", { ascending: false })
       .limit(100),
     supabase.from("driver_earning_settlement")
       .select("id, trip_id, settlement_status, settlement_lifecycle_status, settled_at, allocated_to_payout, allocated_amount_pence, paid_in_payout_item_id, paid_in_batch_id, driver_wallet_ledger!inner(amount_pence)")
       .eq("driver_id", args.driverId),
     supabase.from("payout_items")
-      .select("id, batch_id, status, settlement_status, net_driver_payout_pence, amount_pence, stripe_transfer_id, stripe_payout_id, failure_reason, created_at, updated_at")
+      .select("id, batch_id, status, settlement_status, net_driver_payout_pence, amount_pence, provider_transfer_id, provider_payout_id, failure_reason, created_at, updated_at")
       .eq("driver_id", args.driverId)
       .order("created_at", { ascending: false })
       .limit(50),
@@ -141,7 +141,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       .order("initiated_at", { ascending: false })
       .limit(50),
     supabase.from("driver_early_cashouts")
-      .select("id, status, requested_cashout_pence, early_cashout_fee_pence, driver_receives_pence, created_at, updated_at, paid_at, stripe_payout_id, failure_reason")
+      .select("id, status, requested_cashout_pence, early_cashout_fee_pence, driver_receives_pence, created_at, updated_at, paid_at, provider_payout_id, failure_reason")
       .eq("driver_id", args.driverId)
       .order("created_at", { ascending: false })
       .limit(50),
@@ -224,7 +224,7 @@ export async function fetchDriverWalletPayoutSnapshot(
   const includedBatch = sumIncludedInPayoutBatchPence(payoutItems);
 
   const stripePayouts = stripePayoutsRes.data ?? [];
-  const stripePaidOut = sumStripePaidOutFromConnectPayouts(stripePayouts);
+  const providerPaidOut = sumProviderPaidOutFromConnectPayouts(stripePayouts);
 
   const earlyCashouts = earlyCashoutsRes.data ?? [];
   const inFlight = earlyCashouts
@@ -245,22 +245,22 @@ export async function fetchDriverWalletPayoutSnapshot(
     stripePayouts.map((r) => String(r.payout_id ?? "")).filter(Boolean),
   );
   const ledgerStripePayoutIds = new Set(
-    ledger.filter((r) => r.stripe_payout_id).map((r) => String(r.stripe_payout_id)),
+    ledger.filter((r) => r.provider_payout_id).map((r) => String(r.provider_payout_id)),
   );
 
-  let stripeWithoutLedger = 0;
+  let providerWithoutLedger = 0;
   for (const sp of stripePayouts) {
     const pid = String(sp.payout_id ?? "");
     if (pid && !ledgerStripePayoutIds.has(pid) && String(sp.status).toLowerCase() === "paid") {
-      stripeWithoutLedger += Math.max(0, Number(sp.amount_pence ?? 0));
+      providerWithoutLedger += Math.max(0, Number(sp.amount_pence ?? 0));
     }
   }
 
-  let ledgerWithoutStripe = 0;
+  let ledgerWithoutProvider = 0;
   for (const row of ledger) {
-    const pid = row.stripe_payout_id ? String(row.stripe_payout_id) : "";
+    const pid = row.provider_payout_id ? String(row.provider_payout_id) : "";
     if (pid && !stripePayoutIds.has(pid) && (row.amount_pence ?? 0) < 0) {
-      ledgerWithoutStripe += Math.abs(row.amount_pence ?? 0);
+      ledgerWithoutProvider += Math.abs(row.amount_pence ?? 0);
     }
   }
 
@@ -269,7 +269,7 @@ export async function fetchDriverWalletPayoutSnapshot(
   for (const item of payoutItems) {
     const st = String(item.status ?? "").toLowerCase();
     const net = Math.max(0, Number(item.net_driver_payout_pence ?? item.amount_pence ?? 0));
-    const hasStripe = Boolean(item.stripe_transfer_id || item.stripe_payout_id);
+    const hasStripe = Boolean(item.provider_transfer_id || item.provider_payout_id);
     if (TERMINAL_FAILED.has(st) && !hasStripe) {
       localFailed += net;
       const ss = String(item.settlement_status ?? "");
@@ -325,18 +325,18 @@ export async function fetchDriverWalletPayoutSnapshot(
     wallet_balance_pence: walletBalance,
     finance_cleared_pence: financeCleared,
     included_in_payout_batch_pence: includedBatch,
-    stripe_connect_available_pence: connectAvailable,
-    stripe_connect_pending_pence: connectPending,
-    stripe_in_transit_pence: connectInTransit,
-    stripe_connect_instant_available_pence: connectInstant,
-    stripe_paid_out_total_pence: stripePaidOut,
+    provider_available_pence: connectAvailable,
+    provider_pending_pence: connectPending,
+    provider_in_transit_pence: connectInTransit,
+    provider_instant_available_pence: connectInstant,
+    provider_paid_out_total_pence: providerPaidOut,
     recovery_debt_pence: recoveryDebt,
     in_flight_cashout_pence: inFlight,
     reserved_payout_pence: reservedPayout,
     payout_blocked: walletBalance < 0 || driver?.payouts_enabled === false,
-    instant_payout_enabled_by_stripe: driver?.charges_enabled !== false,
-    stripe_payout_without_ledger_debit_pence: stripeWithoutLedger,
-    ledger_debit_without_stripe_payout_pence: ledgerWithoutStripe,
+    instant_payout_enabled_by_provider: driver?.charges_enabled !== false,
+    provider_payout_without_ledger_debit_pence: providerWithoutLedger,
+    ledger_debit_without_provider_payout_pence: ledgerWithoutProvider,
     local_only_failed_payout_pence: localFailed,
     failed_payout_stuck_processing_pence: stuckProcessing,
     provider_platform_available_pence: null,
@@ -374,7 +374,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     if (driver?.payouts_enabled === false) verificationStatus = "restricted";
     else if (driver?.payouts_enabled !== false) verificationStatus = "manual_bank";
     else verificationStatus = "pending";
-  } else if (!driver?.stripe_account_id) {
+  } else if (!driver?.provider_account_id) {
     verificationStatus = "not_set";
   } else if (driver.payouts_enabled && driver.onboarding_complete) {
     verificationStatus = "verified";
@@ -416,7 +416,7 @@ export async function fetchDriverWalletPayoutSnapshot(
   if (
     String(payoutProviderResolved ?? "").toLowerCase() === "revolut"
     && providerBalanceStatus === "UNAVAILABLE"
-    && !driver?.stripe_account_id
+    && !driver?.provider_account_id
   ) {
     providerBalanceStatus = "NOT_APPLICABLE";
   }
@@ -643,7 +643,7 @@ export async function fetchDriverWalletPayoutSnapshot(
   let walletStatus: DriverWalletPayoutDetail["wallet_status"] = "ACTIVE";
   if (
     !isRevolutPayout
-    && !driver?.stripe_account_id
+    && !driver?.provider_account_id
     && String(payoutProviderResolved ?? "").toLowerCase() !== "revolut"
   ) {
     walletStatus = "NOT_CONNECTED";
@@ -664,7 +664,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       ? null
       : serviceArea?.payment_provider)
     ?? null;
-  // P0: never infer payout provider from stripe_account_id; never prefer retired stripe payment_provider.
+  // P0: never infer payout provider from provider_account_id; never prefer retired stripe payment_provider.
 
   const controlCentre = await loadPayoutControlCentreSettings(supabase, {
     serviceAreaId,
@@ -693,7 +693,7 @@ export async function fetchDriverWalletPayoutSnapshot(
         !frRow.reconciliation_reasons.includes(r)
       ),
     ].filter((r, i, arr) => arr.indexOf(r) === i),
-    stripe_connect_available_pence: frRow.provider_account_balance_pence,
+    provider_available_pence: frRow.provider_account_balance_pence,
     provider_account_balance_pence: frRow.provider_account_balance_pence,
     cashout_limit_pence: canonicalAvailable,
     wallet_balance_pence: frRow.current_wallet_balance_pence ?? snapshot.wallet_balance_pence,
@@ -701,7 +701,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     user_id: (driver?.user_id as string) ?? null,
     driver_code: (driver?.driver_code as string) ?? null,
     driver_name: driverName,
-    connected_account_id: (driver?.stripe_account_id as string) ?? null,
+    connected_account_id: (driver?.provider_account_id as string) ?? null,
     verification_status: verificationStatus,
     bank_account_last4: bankLast4,
     payouts_enabled: driver?.payouts_enabled ?? null,

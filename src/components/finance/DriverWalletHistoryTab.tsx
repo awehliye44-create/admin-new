@@ -34,8 +34,8 @@ function buildTimeline(driver: DriverWalletSsotRow): TimelineEvent[] {
       amountPence: Number(lr.amount_pence ?? 0),
       detail: (lr.related_trip_id ?? lr.trip_id)
         ? `trip ${String(lr.related_trip_id ?? lr.trip_id).slice(0, 8)}`
-        : lr.stripe_transfer_id
-          ? `transfer ${String(lr.stripe_transfer_id).slice(0, 12)}`
+        : lr.provider_transfer_id
+          ? `transfer ${String(lr.provider_transfer_id).slice(0, 12)}`
           : undefined,
     });
   }
@@ -47,7 +47,7 @@ function buildTimeline(driver: DriverWalletSsotRow): TimelineEvent[] {
       kind: 'payout',
       label: `Payout ${String(pi.status ?? '')}`,
       amountPence: Number(pi.net_driver_payout_pence ?? pi.amount_pence ?? 0),
-      detail: pi.stripe_payout_id ? String(pi.stripe_payout_id) : undefined,
+      detail: pi.provider_payout_id ? String(pi.provider_payout_id) : undefined,
     });
   }
 

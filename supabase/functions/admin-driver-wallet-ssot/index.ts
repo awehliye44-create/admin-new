@@ -1,6 +1,6 @@
 /**
  * Admin Driver Wallet SSOT — per-driver snapshot from distinct sources.
- * P0: No live Stripe Connect reads. Drivers listed without stripe_account_id filter.
+ * P0: No live Stripe Connect reads. Drivers listed without provider_account_id filter.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
@@ -111,7 +111,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // P0: list drivers with wallet activity OR active payout destination — not stripe_account_id.
+    // P0: list drivers with wallet activity OR active payout destination — not provider_account_id.
     let countQuery = supabase
       .from("drivers")
       .select("id", { count: "exact", head: true })

@@ -18,7 +18,7 @@ import {
   sumRefundedAmountPence,
   tripDriverNetPence,
   tripGrossCommissionPence,
-  tripStripeFeePence,
+  tripProviderFeePence,
   type TripAuditSourceRow,
 } from "./financeSettlementSummary.ts";
 
@@ -85,7 +85,7 @@ export type FinanceBackendAuditV1 = {
   meta: {
     trip_count: number;
     payout_row_count: number;
-    stripe_balance_error: string | null;
+    provider_balance_error: string | null;
     accounting_rules: Record<string, string>;
   };
 };
@@ -139,8 +139,8 @@ export type LedgerRow = {
   driver_id: string;
   type: string;
   amount_pence: number;
-  stripe_transfer_id?: string | null;
-  stripe_payout_id?: string | null;
+  provider_transfer_id?: string | null;
+  provider_payout_id?: string | null;
   created_at?: string | null;
 };
 
@@ -151,8 +151,8 @@ export type PayoutItemRow = {
   amount_pence: number | null;
   driver_amount_pence?: number | null;
   status: string;
-  stripe_transfer_id?: string | null;
-  stripe_payout_id?: string | null;
+  provider_transfer_id?: string | null;
+  provider_payout_id?: string | null;
   ledger_entry_id?: string | null;
   created_at?: string | null;
   completed_at?: string | null;
@@ -166,8 +166,8 @@ export type EarlyCashoutRow = {
   status: string;
   requested_cashout_pence: number | null;
   driver_receives_pence: number | null;
-  stripe_transfer_id?: string | null;
-  stripe_payout_id?: string | null;
+  provider_transfer_id?: string | null;
+  provider_payout_id?: string | null;
   ledger_cashout_id?: string | null;
   created_at?: string | null;
   paid_at?: string | null;
@@ -234,7 +234,7 @@ export function buildTripAuditRows(
       refunded_amount_pence: refunded,
       driver_net_pence: driverNet,
       onecab_commission_pence: tripGrossCommissionPence(row),
-      provider_fee_pence: tripStripeFeePence(row),
+      provider_fee_pence: tripProviderFeePence(row),
       payout_status: paidOut > 0 ? "paid_out" :
 (row) ? "historical_legacy" : "unpaid",
       paid_out_amount_pence: paidOut,
@@ -259,7 +259,7 @@ export function buildPayoutAuditRows(args: {
       driver_id: item.driver_id,
       amount_pence: amount,
       status: item.status,
-      provider_reference: item.stripe_payout_id ?? item.stripe_transfer_id ?? null,
+      provider_reference: item.provider_payout_id ?? item.provider_transfer_id ?? null,
       created_at: item.created_at ?? null,
       paid_at: item.completed_at ?? null,
       ledger_entry_created: !!ledger,
@@ -278,7 +278,7 @@ export function buildPayoutAuditRows(args: {
       driver_id: cashout.driver_id,
       amount_pence: amount,
       status: cashout.status,
-      provider_reference: cashout.stripe_payout_id ?? cashout.stripe_transfer_id ?? null,
+      provider_reference: cashout.provider_payout_id ?? cashout.provider_transfer_id ?? null,
       created_at: cashout.created_at ?? null,
       paid_at: cashout.paid_at ?? null,
       ledger_entry_created: !!ledger,
@@ -339,8 +339,8 @@ export function buildFinanceBackendAuditV1(args: {
   /** All-time ledger wallet SSOT per driver (Phase 3A.4 — includes COMMISSION_RECOVERED). */
   ledgerWalletSumByDriver: Map<string, number>;
   drivers: Array<{ id: string; first_name?: string | null; last_name?: string | null }>;
-  stripeAvailablePence: number;
-  stripePendingPence: number;
+  providerAvailablePence: number;
+  providerPendingPence: number;
   stripePlatformPayoutsPence: number;
   stripeBalanceError: string | null;
   tolerancePence?: number;
@@ -484,8 +484,8 @@ export function buildFinanceBackendAuditV1(args: {
       customer_refunded_total_pence: refunded,
       net_customer_money_in_pence: ledgerSplit.net_card_revenue_pence,
       net_card_revenue_pence: ledgerSplit.net_card_revenue_pence,
-      provider_available_balance_pence: args.stripeAvailablePence,
-      provider_pending_balance_pence: args.stripePendingPence,
+      provider_available_balance_pence: args.providerAvailablePence,
+      provider_pending_balance_pence: args.providerPendingPence,
       provider_payouts_to_onecab_bank_pence: args.stripePlatformPayoutsPence,
     },
     paid_out: {
@@ -501,8 +501,8 @@ export function buildFinanceBackendAuditV1(args: {
       driver_available_now_pence: driverAvailableNow,
       driver_pending_settlement_pence: driverPendingSettlement,
       onecab_remaining_commission_pence: onecabRemainingCommission,
-      provider_available_balance_pence: args.stripeAvailablePence,
-      provider_pending_balance_pence: args.stripePendingPence,
+      provider_available_balance_pence: args.providerAvailablePence,
+      provider_pending_balance_pence: args.providerPendingPence,
       reconciliation_difference_pence: reconciliationDiff,
     },
     reconciliation: {
@@ -528,7 +528,7 @@ export function buildFinanceBackendAuditV1(args: {
     meta: {
       trip_count: args.trips.length,
       payout_row_count: payoutRows.length,
-      stripe_balance_error: args.stripeBalanceError,
+      provider_balance_error: args.stripeBalanceError,
       accounting_rules: {
         driver_remaining_liability:
           "card_driver_payable - ledger_payout_debits + ledger_adjustments (excludes cash driver_net)",
