@@ -232,7 +232,7 @@ function FinancialReconciliationPage() {
     return reconciliationStatus;
   }, [summary, ssot.readOnly]);
 
-  if (searchParams.get('tab') === 'connect-balance' || searchParams.get('tab') === 'stripe') {
+  if (searchParams.get('tab') === 'connect-balance') {
     return <Navigate to="/financial-reconciliation?tab=overview" replace />;
   }
   if (searchParams.get('tab') === 'recovery') {
