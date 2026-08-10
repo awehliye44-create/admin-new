@@ -2,7 +2,7 @@
 
 Owner: platform backend. Audience: customer-app team.
 
-Status: **LIVE** on the admin backend as of Phase 2. Historical trips created on the legacy Stripe path continue to be captured/refunded through the existing Stripe admin endpoints; new bookings run entirely on Revolut.
+Status: **LIVE** on the admin backend as of Phase 2. Historical trips created on the legacy provider path continue to be captured/refunded through the existing provider admin endpoints; new bookings run entirely on Revolut.
 
 ## Flow
 
@@ -127,12 +127,12 @@ New provider-scoped columns:
 - `provider_checkout_token` — short-lived widget token (do not persist beyond first use).
 - `provider_charge_id` — populated when captured.
 
-Historical Stripe columns (`stripe_payment_intent_id`, `stripe_charge_id`, `stripe_transfer_id`, etc.) are **frozen for legacy trips** and no longer written for new bookings. Do not dual-write.
+Historical provider columns (`provider_payment_intent_id`, `provider_charge_id`, `provider_transfer_id`, etc.) are **frozen for legacy trips** and no longer written for new bookings. Do not dual-write.
 
 ## Driver payouts
 
 Out of scope for Phase 2. Driver-side settlement (commission, driver
-transfer, ledger writeback) continues on the existing Stripe Connect path
+transfer, ledger writeback) continues on the existing Revolut Merchant path
 for historical trips and is being ported to Revolut Business `/pay` in
 Phase 3. Until Phase 3 ships, captured Revolut orders leave the driver
 payout obligation to accrue in the internal wallet ledger and be settled

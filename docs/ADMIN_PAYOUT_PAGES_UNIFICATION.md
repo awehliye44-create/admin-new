@@ -14,7 +14,7 @@ Two overlapping admin surfaces covered payout operations:
 | Drivers & Payouts | `/drivers-and-payouts` | Driver wallets, manual payout, ledger audit, today payout cards |
 | Payout Batches & Audit | `/payout-batches` | Batches, early cashouts, payout audit, SSOT totals cards |
 
-Financial Reconciliation also duplicated payout audit widgets and hosted Stripe Connect balance — splitting “accounting SSOT” from “payout operations.”
+Financial Reconciliation also duplicated payout audit widgets and hosted Revolut Merchant balance — splitting “accounting SSOT” from “payout operations.”
 
 ## Decision
 
@@ -33,24 +33,24 @@ Financial Reconciliation also duplicated payout audit widgets and hosted Stripe 
 | Payout Batches | `batches` (default) | Weekly Monday settlement, payout activity today, audit table, batch list + detail dialog |
 | Early Cashouts | `early-cashouts` | `driver_early_cashouts` table |
 | Ledger Audit | `ledger` | `FinanceLedgerPanel` (from former Drivers & Payouts) |
-| Stripe Connect Balance | `connect-balance` | `ConnectBalancePanel` + per-driver SSOT detail (from former Financial Reconciliation tab) |
+| Revolut Merchant Balance | `connect-balance` | `ConnectBalancePanel` + per-driver SSOT detail (from former Financial Reconciliation tab) |
 
 ### Payout Batches tab includes
 
 - Weekly / manual admin / early-cashout **batch** runs
 - Status, amount, success/failed counts
-- Batch detail: Stripe payout ID, failed reason, ledger debit, wallet recalc, retry actions
+- Batch detail: provider payout ID, failed reason, ledger debit, wallet recalc, retry actions
 - `FinancePayoutAuditSection` (today activity + full payout audit table)
 
 ### Early Cashouts tab includes
 
-- Driver, requested amount, fee, net to bank, method, Stripe payout ID, status
+- Driver, requested amount, fee, net to bank, method, provider payout ID, status
 
 ### Ledger Audit tab includes
 
 - Driver wallet ledger with filters: trip earnings, commission recovery, debt recovery, adjustments, payout debits, wallet before/after, trip/payout references
 
-### Stripe Connect Balance tab includes
+### Revolut Merchant Balance tab includes
 
 - Connected account ID, account type, payouts enabled
 - Connect available / instantly available / pending / in transit to bank
@@ -61,7 +61,7 @@ Financial Reconciliation also duplicated payout audit widgets and hosted Stripe 
 **Removed from Financial Reconciliation:**
 
 - `FinancePayoutAuditSection` (today cards + payout audit table)
-- Stripe Connect Balance tab
+- Revolut Merchant Balance tab
 
 **Retained (read-only SSOT):**
 
@@ -76,7 +76,7 @@ Financial Reconciliation also duplicated payout audit widgets and hosted Stripe 
 | Before | After |
 |--------|-------|
 | Driver Payout Sent Today | **Driver payout activity today** |
-| (none) | Sub-label: *Recorded payout items today. Bank arrival depends on Stripe payout status.* |
+| (none) | Sub-label: *Recorded payout items today. Bank arrival depends on provider payout status.* |
 
 Related today cards renamed: **Failed today**, **Pending today**.
 

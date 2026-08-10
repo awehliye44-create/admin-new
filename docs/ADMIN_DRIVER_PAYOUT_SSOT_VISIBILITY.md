@@ -1,13 +1,13 @@
 # Admin Driver Payout SSOT Visibility
 
 **Status:** Implemented  
-**Location:** Admin Panel → Financial Reconciliation → **Driver Payout SSOT / Stripe Connect Balance**  
+**Location:** Admin Panel → Financial Reconciliation → **Driver Payout SSOT / Revolut Merchant Balance**  
 **Edge function:** `admin-connect-payout-status`  
 **Report date:** 2026-06-25
 
 ## Requirement
 
-Admins must see **all payout balances** — never a single number in isolation. Each driver exposes ledger truth, Stripe Connect payout truth, and platform reconciliation truth, plus an explicit cash-out decision.
+Admins must see **all payout balances** — never a single number in isolation. Each driver exposes ledger truth, Revolut Merchant payout truth, and platform reconciliation truth, plus an explicit cash-out decision.
 
 ## SSOT formulas
 
@@ -15,21 +15,21 @@ Admins must see **all payout balances** — never a single number in isolation. 
 |-------|------------------|
 | **Wallet owed** | `max(0, driver_wallet_ledger net balance)` |
 | **Finance cleared** | `driver_available_now_pence` from per-driver finance reconciliation |
-| **Connect available** | Stripe `balance.retrieve({ stripeAccount })` → `available` for driver currency |
+| **Connect available** | provider `balance.retrieve({ providerAccount })` → `available` for driver currency |
 | **Cash out now** | `min(wallet owed, finance cleared, Connect available)` |
 | **Awaiting settlement** | `max(0, wallet owed − Connect available)` |
-| **Platform balance** | ONECAB platform Stripe `balance.available` — **reconciliation only**, not cash-out cap |
+| **Platform balance** | ONECAB platform provider `balance.available` — **reconciliation only**, not cash-out cap |
 
 ### Example (MK0001)
 
 - Ledger owed: **£9.73**
-- Stripe Connect instantly available: **£21.30**
+- Revolut Merchant instantly available: **£21.30**
 - Cash-out available now: **£9.73** (ledger is the binding cap)
 - Awaiting settlement: **£0**
 
 Admin copy:
 
-> Driver is owed £9.73. Stripe Connect has £21.30 instantly available. Cash-out available now: £9.73.
+> Driver is owed £9.73. Revolut Merchant has £21.30 instantly available. Cash-out available now: £9.73.
 
 ## UI sections (per driver)
 
@@ -43,29 +43,29 @@ Admin copy:
 | Debt recovery | `DEBT_RECOVERY`, `CASH_COMMISSION_DEBT` |
 | Adjustments | `ADJUSTMENT`, `MANUAL_ADJUSTMENT`, `BONUS`, `CHARGEBACK_DEBIT` |
 
-### 2. Stripe Connect Balance
+### 2. Revolut Merchant Balance
 
 | Field | Source |
 |-------|--------|
-| Connected account ID | `drivers.stripe_account_id` |
-| Account type | Stripe `account.type` (Express / Standard / Custom) |
-| Payouts enabled | Stripe `account.payouts_enabled` |
+| Connected account ID | `drivers.provider_account_id` |
+| Account type | provider `account.type` (Express / Standard / Custom) |
+| Payouts enabled | provider `account.payouts_enabled` |
 | Available to pay out | Connect `balance.available` |
 | Instant available | Connect available when payouts enabled |
 | Available soon / pending | Connect `balance.pending` |
 | In transit to bank | Sum of Connect payouts with status `in_transit` |
-| Last payout | Latest `payout_items` with `stripe_payout_id` |
+| Last payout | Latest `payout_items` with `provider_payout_id` |
 | Next payout date | Finance SSOT weekly schedule |
 
 ### 3. Platform Reconciliation
 
 | Field | Source |
 |-------|--------|
-| Platform Stripe available | Platform `balance.available` |
+| Platform provider available | Platform `balance.available` |
 | Platform pending | Platform `balance.pending` |
 | Allocated to driver | Finance allocation by liability |
 | Application fees | `digital_onecab_net_commission_pence` |
-| Transfers to Connect | Count/sum of `payout_items` with `stripe_transfer_id` |
+| Transfers to Connect | Count/sum of `payout_items` with `provider_transfer_id` |
 | Provider settlement evidence | Reconciliation status + variance |
 
 ### 4. Cash-out Decision
@@ -93,7 +93,7 @@ Minimum cash-out: **£5.00** (`MIN_CASHOUT_AMOUNT_PENCE = 500`).
 ```json
 {
   "onecab_wallet": { "driver_earned_owed_pence", "ledger_balance_pence", "trip_earnings_pence", ... },
-  "stripe_connect": { "available_to_payout_pence", "instant_available_pence", "pending_pence", ... },
+  "provider_connect": { "available_to_payout_pence", "instant_available_pence", "pending_pence", ... },
   "platform_reconciliation": { "platform_available_pence", "application_fees_pence", ... },
   "cashout_decision": { "cashout_now_pence", "awaiting_settlement_pence", "block_reasons", ... }
 }
@@ -110,7 +110,7 @@ supabase functions deploy admin-connect-payout-status
 
 ## Verification checklist
 
-- [ ] Open Financial Reconciliation → Driver Payout SSOT / Stripe Connect Balance
+- [ ] Open Financial Reconciliation → Driver Payout SSOT / Revolut Merchant Balance
 - [ ] Each driver row shows ledger owed, finance cleared, Connect available, cash out now
 - [ ] SSOT detail shows all four sections
 - [ ] MK0001: cash out £9.73 when Connect £21.30 and ledger £9.73

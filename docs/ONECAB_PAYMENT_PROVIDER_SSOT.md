@@ -29,7 +29,7 @@ These are standard **ONECAB features** and must be available regardless of the s
 The UI must **never** display messages such as:
 
 - "Provider unsupported"
-- "Stripe only"
+- "provider only"
 - "Revolut only"
 
 These are internal implementation details and must **never** be exposed to customers or drivers.
@@ -58,7 +58,7 @@ Complete payment
 | Service area | Adapter |
 |--------------|---------|
 | Milton Keynes | Revolut |
-| London | Stripe |
+| London | provider |
 | Kenya | Flutterwave |
 | Ghana | Paystack |
 | Somalia | Waafi / EVC Plus |

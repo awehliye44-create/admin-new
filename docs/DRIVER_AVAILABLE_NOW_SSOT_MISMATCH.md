@@ -159,7 +159,7 @@ cappedAvailable     = min(973, 45) = 45
 | Input | Pence | GBP |
 |-------|------:|----:|
 | MK0001 ledger wallet | 973 | £9.73 |
-| Platform Stripe `balance.available` (region) | 45 | £0.45 |
+| Platform provider `balance.available` (region) | 45 | £0.45 |
 | Provider balance allocated to MK0001 | 45 | £0.45 |
 | Legacy `min(973, 45) − 0` | **45** | **£0.45** |
 | Current SSOT `max(973, 0)` | **973** | **£9.73** |
@@ -280,7 +280,7 @@ All surfaces must show **the same** MK0001 available amount (**973p / £9.73** u
 
 | # | Surface | How to verify |
 |---|---------|---------------|
-| 1 | Admin → Financial Reconciliation → **Stripe Connect Balance** | MK0001 **ONECAB Available Now** = £9.73 |
+| 1 | Admin → Financial Reconciliation → **Revolut Merchant Balance** | MK0001 **ONECAB Available Now** = £9.73 |
 | 2 | Admin → Financial Reconciliation → **Reconciliation** tab | Per-driver API / driver card = £9.73 |
 | 3 | Driver app → **Wallet** | Available to withdraw = £9.73 |
 | 4 | Driver app → **Cash out / payout** dialog | Available to withdraw = £9.73 |
@@ -299,9 +299,9 @@ Both must return **973** for `driver_available_now_pence` / `onecab_available_no
 
 ## 8. What this audit does **not** change
 
-- Stripe Connect balance (£14.49 available on Connect) remains **visibility-only** on the admin Connect tab — not a withdrawal SSOT.
+- Revolut Merchant balance (£14.49 available on Connect) remains **visibility-only** on the admin Connect tab — not a withdrawal SSOT.
 - Wallet balance (ledger entitlement) remains **973p** on all surfaces.
-- `ADMIN_PAYOUT_STRIPE_EXECUTION_ENABLED` remains `false` until explicitly approved.
+- `ADMIN_PAYOUT_PROVIDER_EXECUTION_ENABLED` remains `false` until explicitly approved.
 - Payout **execution** may still fail or require settlement if platform cash is insufficient — that is separate from the **display SSOT** alignment addressed here.
 
 ---
