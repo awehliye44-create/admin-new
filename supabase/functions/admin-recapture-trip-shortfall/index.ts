@@ -169,6 +169,18 @@ Deno.serve(async (req) => {
     });
 
     if (!eligibility.eligible) {
+      const noAmountDue = (eligibility.outstanding_shortfall_pence ?? outstanding ?? 0) <= 0;
+      if (noAmountDue) {
+        // Nothing is owed — treat as a successful no-op instead of a client error.
+        return jsonResponse({
+          success: true,
+          code: "NO_SHORTFALL_DUE",
+          message: "No outstanding amount to recapture. Payment state is up to date.",
+          trip_id,
+          ui_state: eligibility.ui_state,
+          outstanding_shortfall_pence: 0,
+        });
+      }
       return jsonResponse({
         error: eligibility.reject_reason ?? "Recapture not available",
         code: String(eligibility.reject_reason ?? "NOT_ELIGIBLE").toUpperCase(),
