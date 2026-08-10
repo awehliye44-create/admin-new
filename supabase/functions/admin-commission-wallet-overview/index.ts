@@ -16,7 +16,7 @@ import {
   isWelcomeCommissionWalletLedgerEntry,
   buildCommissionWalletDriverRosterRow,
   REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
-} from "../../../shared/commissionWalletSSOT.ts";
+} from "../_shared/commissionWalletSSOT.ts";
 
 const PAGE_SLUG = "commission-wallet";
 const PAGE_SIZE = 1000;

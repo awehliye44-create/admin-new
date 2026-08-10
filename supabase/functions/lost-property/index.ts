@@ -17,7 +17,7 @@ import {
   shouldSkipPlatformPreauthForCommissionWallet,
   tripCashUpfrontPaymentFields,
   tripInsertFieldsFromFinancialModelSnapshot,
-} from "../../../shared/commissionWalletSSOT.ts";
+} from "../_shared/commissionWalletSSOT.ts";
 
 async function tripCwSnapshotFields(
   sb: ReturnType<typeof getServiceClient>,

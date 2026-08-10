@@ -89,7 +89,7 @@ const PAYOUT_TYPES = new Set([
 ]);
 
 /** Reporting-only — excluded from Net Wallet Movement / live balance (Slice 6 SSOT). */
-import { BALANCE_EXCLUDED_LEDGER_TYPES } from "../../../shared/onecabFinanceLedger.ts";
+import { BALANCE_EXCLUDED_LEDGER_TYPES } from "./onecabFinanceLedger.ts";
 
 const BALANCE_EXCLUDED_TYPES = new Set<string>(BALANCE_EXCLUDED_LEDGER_TYPES);
 

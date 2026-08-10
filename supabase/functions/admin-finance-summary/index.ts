@@ -19,7 +19,7 @@ import {
   resolveFinanceScopeProvider,
 } from "../_shared/providerPlatformBalanceSSOT.ts";
 import { tripProviderProcessingFeePence } from "../_shared/financialReconciliationSSOT.ts";
-import { excludeTripFromPlatformCollectedFinance } from "../../../shared/commissionWalletSSOT.ts";
+import { excludeTripFromPlatformCollectedFinance } from "../_shared/commissionWalletSSOT.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

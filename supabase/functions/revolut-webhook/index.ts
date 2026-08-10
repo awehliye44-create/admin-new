@@ -23,7 +23,7 @@ import {
 import {
   planRecoveryCaptureCompletion,
   isRecoveryCompletionIdempotent,
-} from "../../../shared/paymentSessionsRecoveryCompletionSSOT.ts";
+} from "../_shared/paymentSessionsRecoveryCompletionSSOT.ts";
 
 /**
  * Extract provider processing fee (minor units) from a Revolut order payload.

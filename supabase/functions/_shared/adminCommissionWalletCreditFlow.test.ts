@@ -12,7 +12,7 @@ import {
   buildAdminCommissionWalletCreditIdempotencyKey,
   buildCommissionWalletWelcomeIdempotencyKey,
   isCommissionWalletWorkflowEnabled,
-} from "../../../shared/commissionWalletSSOT.ts";
+} from "./commissionWalletSSOT.ts";
 
 /** Mirrors admin-commission-wallet-credit: idempotency replay before welcome insert gate. */
 Deno.test("idempotent replay bypasses welcome-already-received on insert path", () => {

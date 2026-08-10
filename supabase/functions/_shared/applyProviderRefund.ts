@@ -6,7 +6,7 @@ import {
   applyRefundToTripAmounts,
   resolveRefundStatus,
   resolveTripPaymentStatusFromRefund,
-} from "../../../shared/stripeRefundSSOT.ts";
+} from "./stripeRefundSSOT.ts";
 
 export type ApplyStripeRefundArgs = {
   tripId: string;

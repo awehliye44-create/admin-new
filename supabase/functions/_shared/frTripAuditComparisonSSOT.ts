@@ -3,13 +3,13 @@
  * Consumes Payment Sessions / trip settlement / wallet / payout evidence — never invents amounts.
  */
 
-import { readPersistedCaptureBreakdown } from "../../../shared/paymentSessionsCaptureBreakdownSSOT.ts";
+import { readPersistedCaptureBreakdown } from "./paymentSessionsCaptureBreakdownSSOT.ts";
 import {
   evaluateFrSettlementCaptureIdentity,
   isFrTripFullyBalanced,
   resolveFrTripAuditStatus,
   FR_TRIP_AUDIT_STATUS,
-} from "../../../shared/frConsumeOnlySSOT.ts";
+} from "./frConsumeOnlySSOT.ts";
 
 export {
   evaluateFrSettlementCaptureIdentity as evaluateSettlementCaptureIdentity,

@@ -25,7 +25,7 @@ import {
   COMMISSION_WALLET_ENTRY_TYPE,
   COMMISSION_WALLET_CAMPAIGN_TYPE,
   COMMISSION_WALLET_CLAIM_KIND,
-} from "../../../shared/commissionWalletSSOT.ts";
+} from "../_shared/commissionWalletSSOT.ts";
 
 const PAGE_SLUG = "commission-wallet";
 
