@@ -2,12 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Input } from '@/components/ui/input';
 import { MapPin, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { MAPBOX_TOKEN } from '@/lib/mapbox';
+import { searchOnecabLocationsForAdmin } from '@/lib/searchOnecabLocationsClient';
 import {
-  isAdminLocationSearchSsotEnabled,
-  searchOnecabLocationsForAdmin,
-} from '@/lib/searchOnecabLocationsClient';
-import { LOCATION_SEARCH_MIN_QUERY_LENGTH } from '../../../shared/onecabLocationSearchSSOT';
+  LOCATION_SEARCH_DEBOUNCE_MS,
+  LOCATION_SEARCH_MIN_QUERY_LENGTH,
+} from '../../../shared/onecabLocationSearchSSOT';
 
 interface PlaceResult {
   address: string;
@@ -16,13 +15,16 @@ interface PlaceResult {
   placeId: string;
 }
 
-interface MapboxSuggestion {
+interface LocationSuggestion {
   id: string;
   place_name: string;
   text: string;
   center: [number, number]; // [lng, lat]
   place_type?: string[];
+  isLandmark?: boolean;
+  distanceMetres?: number | null;
 }
+
 
 interface PlacesAutocompleteProps {
   value: string;
