@@ -10,7 +10,7 @@ import { logAuditEvent } from "../_shared/security.ts";
 import {
   sumVerifiedCapturedFromSessions,
   sumVerifiedRefundedFromSessions,
-} from "../../../shared/tripHistoryShortfallRecaptureSSOT.ts";
+} from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import {
   planRecoveryCaptureCompletion,
   isRecoveryCompletionIdempotent,

@@ -38,8 +38,8 @@ import {
   computeOutstandingBalancePence,
   resolveCanonicalCustomerPayablePence,
   validateCollectOutstandingOrPaymentLinkAction,
-} from "../../../shared/paymentSessionsCaptureConfirmationSSOT.ts";
-import { isDriverCollectedFinancialModel, sumVerifiedCapturedFromSessions, sumVerifiedRefundedFromSessions } from "../../../shared/tripHistoryShortfallRecaptureSSOT.ts";
+} from "../_shared/paymentSessionsCaptureConfirmationSSOT.ts";
+import { isDriverCollectedFinancialModel, sumVerifiedCapturedFromSessions, sumVerifiedRefundedFromSessions } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
 
 Deno.serve(async (req) => {

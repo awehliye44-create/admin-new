@@ -19,7 +19,7 @@ import { creditCapturedCardTripLedger } from "../_shared/onecabFinanceLedger.ts"
 import {
   sumVerifiedCapturedFromSessions,
   sumVerifiedRefundedFromSessions,
-} from "../../../shared/tripHistoryShortfallRecaptureSSOT.ts";
+} from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import {
   planRecoveryCaptureCompletion,
   isRecoveryCompletionIdempotent,
