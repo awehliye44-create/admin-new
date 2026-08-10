@@ -2,12 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Input } from '@/components/ui/input';
 import { MapPin, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { MAPBOX_TOKEN } from '@/lib/mapbox';
+import { searchOnecabLocationsForAdmin } from '@/lib/searchOnecabLocationsClient';
 import {
-  isAdminLocationSearchSsotEnabled,
-  searchOnecabLocationsForAdmin,
-} from '@/lib/searchOnecabLocationsClient';
-import { LOCATION_SEARCH_MIN_QUERY_LENGTH } from '../../../shared/onecabLocationSearchSSOT';
+  LOCATION_SEARCH_DEBOUNCE_MS,
+  LOCATION_SEARCH_MIN_QUERY_LENGTH,
+} from '../../../shared/onecabLocationSearchSSOT';
 
 interface PlaceResult {
   address: string;
@@ -16,13 +15,16 @@ interface PlaceResult {
   placeId: string;
 }
 
-interface MapboxSuggestion {
+interface LocationSuggestion {
   id: string;
   place_name: string;
   text: string;
   center: [number, number]; // [lng, lat]
   place_type?: string[];
+  isLandmark?: boolean;
+  distanceMetres?: number | null;
 }
+
 
 interface PlacesAutocompleteProps {
   value: string;
@@ -58,7 +60,7 @@ export function PlacesAutocomplete({
   radiusBiasMeters: _radiusBiasMeters = 30000,
   serviceAreaId = null,
 }: PlacesAutocompleteProps) {
-  const [suggestions, setSuggestions] = useState<MapboxSuggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -80,7 +82,8 @@ export function PlacesAutocomplete({
   }, []);
 
   const fetchSuggestions = useCallback(async (input: string) => {
-    if (!input.trim()) {
+    const trimmed = input.trim();
+    if (!trimmed || !serviceAreaId || trimmed.length < LOCATION_SEARCH_MIN_QUERY_LENGTH) {
       setSuggestions([]);
       setIsOpen(false);
       return;
@@ -92,54 +95,24 @@ export function PlacesAutocomplete({
     setIsLoading(true);
 
     try {
-      if (serviceAreaId && input.trim().length >= LOCATION_SEARCH_MIN_QUERY_LENGTH) {
-        const ssotOn = await isAdminLocationSearchSsotEnabled(serviceAreaId);
-        if (ssotOn) {
-          const proximity = userLocation || serviceAreaCenter;
-          const rows = await searchOnecabLocationsForAdmin({
-            query: input,
-            service_area_id: serviceAreaId,
-            user_latitude: proximity?.lat ?? null,
-            user_longitude: proximity?.lng ?? null,
-          });
-          if (ac.signal.aborted) return;
-          const features: MapboxSuggestion[] = rows.map((r) => ({
-            id: r.provider_place_id ?? r.id,
-            place_name: r.address_text || r.display_name,
-            text: r.short_name || r.display_name,
-            center: [r.longitude, r.latitude] as [number, number],
-            place_type: r.category ? [r.category] : ['poi'],
-          }));
-          setSuggestions(features);
-          setIsOpen(features.length > 0);
-          setHighlightedIndex(-1);
-          return;
-        }
-      }
-
-      if (!MAPBOX_TOKEN) {
-        setSuggestions([]);
-        setIsOpen(false);
-        return;
-      }
-
       const proximity = userLocation || serviceAreaCenter;
-      const params = new URLSearchParams({
-        access_token: MAPBOX_TOKEN,
-        autocomplete: 'true',
-        limit: '6',
+      const rows = await searchOnecabLocationsForAdmin({
+        query: trimmed,
+        service_area_id: serviceAreaId,
+        user_latitude: proximity?.lat ?? null,
+        user_longitude: proximity?.lng ?? null,
       });
-      if (proximity) params.set('proximity', `${proximity.lng},${proximity.lat}`);
-      if (serviceAreaCountryCode) params.set('country', serviceAreaCountryCode.toLowerCase());
+      if (ac.signal.aborted) return;
 
-      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
-        input
-      )}.json?${params.toString()}`;
-
-      const res = await fetch(url, { signal: ac.signal });
-      if (!res.ok) throw new Error(`Mapbox geocoding HTTP ${res.status}`);
-      const data = await res.json();
-      const features = (data?.features || []) as MapboxSuggestion[];
+      const features: LocationSuggestion[] = rows.map((r) => ({
+        id: r.provider_place_id ?? r.id,
+        place_name: r.address_text || r.display_name,
+        text: r.short_name || r.display_name,
+        center: [r.longitude, r.latitude] as [number, number],
+        place_type: r.category ? [r.category] : ['poi'],
+        isLandmark: r.is_verified_local_landmark,
+        distanceMetres: r.distance_from_search_centre_metres,
+      }));
       setSuggestions(features);
       setIsOpen(features.length > 0);
       setHighlightedIndex(-1);
@@ -151,16 +124,20 @@ export function PlacesAutocomplete({
     } finally {
       setIsLoading(false);
     }
-  }, [userLocation, serviceAreaCenter, serviceAreaCountryCode, serviceAreaId]);
+  }, [userLocation, serviceAreaCenter, serviceAreaId]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
     onChange(newValue);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => fetchSuggestions(newValue), 300);
+    debounceTimer.current = setTimeout(
+      () => fetchSuggestions(newValue),
+      LOCATION_SEARCH_DEBOUNCE_MS,
+    );
   };
 
-  const handleSelectSuggestion = (feature: MapboxSuggestion) => {
+
+  const handleSelectSuggestion = (feature: LocationSuggestion) => {
     onChange(feature.place_name);
     setSuggestions([]);
     setIsOpen(false);
@@ -255,17 +232,29 @@ export function PlacesAutocomplete({
               >
                 <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{feature.text || main}</div>
+                  <div className="font-medium truncate flex items-center gap-2">
+                    <span className="truncate">{feature.text || main}</span>
+                    {feature.isLandmark && (
+                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-primary border border-primary/40 rounded px-1">
+                        ONECAB
+                      </span>
+                    )}
+                  </div>
                   {rest.length > 0 && (
                     <div className="text-xs text-muted-foreground truncate">{rest.join(', ')}</div>
                   )}
                 </div>
+                {typeof feature.distanceMetres === 'number' && (
+                  <span className="shrink-0 text-[11px] text-muted-foreground mt-0.5">
+                    {feature.distanceMetres < 1000
+                      ? `${feature.distanceMetres} m`
+                      : `${(feature.distanceMetres / 1000).toFixed(1)} km`}
+                  </span>
+                )}
               </button>
             );
           })}
-          <div className="px-3 py-1.5 text-[10px] text-muted-foreground border-t bg-muted/50">
-            Powered by Mapbox
-          </div>
+
         </div>
       )}
     </div>

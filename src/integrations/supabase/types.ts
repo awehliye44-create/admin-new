@@ -12219,6 +12219,62 @@ export type Database = {
           },
         ]
       }
+      location_search_cache: {
+        Row: {
+          cache_key: string
+          centre_lat: number | null
+          centre_lng: number | null
+          created_at: string
+          expires_at: string
+          hit_count: number
+          id: string
+          language_code: string
+          last_used_at: string
+          normalized_query: string
+          radius_metres: number | null
+          results: Json
+          service_area_id: string | null
+        }
+        Insert: {
+          cache_key: string
+          centre_lat?: number | null
+          centre_lng?: number | null
+          created_at?: string
+          expires_at?: string
+          hit_count?: number
+          id?: string
+          language_code?: string
+          last_used_at?: string
+          normalized_query: string
+          radius_metres?: number | null
+          results?: Json
+          service_area_id?: string | null
+        }
+        Update: {
+          cache_key?: string
+          centre_lat?: number | null
+          centre_lng?: number | null
+          created_at?: string
+          expires_at?: string
+          hit_count?: number
+          id?: string
+          language_code?: string
+          last_used_at?: string
+          normalized_query?: string
+          radius_metres?: number | null
+          results?: Json
+          service_area_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "location_search_cache_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       location_search_rollout: {
         Row: {
           debounce_ms: number
