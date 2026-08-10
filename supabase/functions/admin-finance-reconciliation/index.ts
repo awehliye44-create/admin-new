@@ -47,7 +47,7 @@ const TRIP_AUDIT_SELECT = `
         id,
         trip_code,
         commission_pence,
-        stripe_processing_fee_pence,
+        stripe_processing_fee_pence:provider_fee_pence,
         provider_fee_pence,
         onecab_net_pence,
         driver_net_pence,
