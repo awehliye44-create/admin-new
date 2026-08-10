@@ -232,17 +232,29 @@ export function PlacesAutocomplete({
               >
                 <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{feature.text || main}</div>
+                  <div className="font-medium truncate flex items-center gap-2">
+                    <span className="truncate">{feature.text || main}</span>
+                    {feature.isLandmark && (
+                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-primary border border-primary/40 rounded px-1">
+                        ONECAB
+                      </span>
+                    )}
+                  </div>
                   {rest.length > 0 && (
                     <div className="text-xs text-muted-foreground truncate">{rest.join(', ')}</div>
                   )}
                 </div>
+                {typeof feature.distanceMetres === 'number' && (
+                  <span className="shrink-0 text-[11px] text-muted-foreground mt-0.5">
+                    {feature.distanceMetres < 1000
+                      ? `${feature.distanceMetres} m`
+                      : `${(feature.distanceMetres / 1000).toFixed(1)} km`}
+                  </span>
+                )}
               </button>
             );
           })}
-          <div className="px-3 py-1.5 text-[10px] text-muted-foreground border-t bg-muted/50">
-            Powered by Mapbox
-          </div>
+
         </div>
       )}
     </div>
