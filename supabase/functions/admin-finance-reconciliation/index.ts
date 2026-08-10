@@ -47,7 +47,7 @@ const TRIP_AUDIT_SELECT = `
         id,
         trip_code,
         commission_pence,
-        stripe_processing_fee_pence,
+        stripe_processing_fee_pence:provider_fee_pence,
         provider_fee_pence,
         onecab_net_pence,
         driver_net_pence,
@@ -75,13 +75,11 @@ const TRIP_AUDIT_SELECT = `
         payment_status,
         status,
         financial_outcome,
-        stripe_payment_intent_id,
-        stripe_charge_id,
+        stripe_payment_intent_id:provider_payment_id,
+        stripe_charge_id:provider_charge_id,
         provider_status,
         driver_id,
         passenger_name,
-        stripe_settlement_verified,
-        stripe_settlement_warning,
         refunded_at,
         driver_tier_commission_percent,
         commission_pct,
@@ -602,7 +600,7 @@ serve(async (req) => {
       const [paymentsRes, paymentSessionsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
         supabase
           .from("payments")
-          .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
+          .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id:provider_payment_id, provider_available_on")
           .in("trip_id", tripIds),
         supabase
           .from("payment_sessions")
@@ -614,7 +612,7 @@ serve(async (req) => {
           .in("trip_id", tripIds),
         supabase
           .from("driver_wallet_ledger")
-          .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
+          .select("related_trip_id, type, amount_pence, stripe_payout_id:provider_payout_id, stripe_transfer_id:provider_transfer_id")
           .in("related_trip_id", tripIds),
       ]);
       if (paymentSessionsRes.error) {
@@ -873,7 +871,7 @@ serve(async (req) => {
         const [paymentsRes, paymentSessionsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
           supabase
             .from("payments")
-            .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
+            .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id:provider_payment_id, provider_available_on")
             .in("trip_id", auditTripIds),
           supabase
             .from("payment_sessions")
@@ -885,7 +883,7 @@ serve(async (req) => {
             .in("trip_id", auditTripIds),
           supabase
             .from("driver_wallet_ledger")
-            .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
+            .select("related_trip_id, type, amount_pence, stripe_payout_id:provider_payout_id, stripe_transfer_id:provider_transfer_id")
             .in("related_trip_id", auditTripIds),
         ]);
         if (paymentSessionsRes.error) {

@@ -46,7 +46,7 @@ serve(async (req) => {
     const [paymentsRes, payoutItemsRes, ledgerRes] = await Promise.all([
       gate.supabase
         .from("payments")
-        .select("trip_id, captured_amount_pence, amount_pence, status, provider_status, stripe_payment_intent_id, provider_available_on, fee_type, metadata")
+        .select("trip_id, captured_amount_pence, amount_pence, status, provider_status, stripe_payment_intent_id:provider_payment_id, provider_available_on, fee_type, metadata")
         .in("trip_id", tripIds),
       gate.supabase
         .from("payout_items")
@@ -54,7 +54,7 @@ serve(async (req) => {
         .in("trip_id", tripIds),
       gate.supabase
         .from("driver_wallet_ledger")
-        .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
+        .select("related_trip_id, type, amount_pence, stripe_payout_id:provider_payout_id, stripe_transfer_id:provider_transfer_id")
         .in("related_trip_id", tripIds),
     ]);
 
