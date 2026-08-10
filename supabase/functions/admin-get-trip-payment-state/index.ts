@@ -85,7 +85,7 @@ serve(async (req) => {
       .from('trips')
       .select(TRIP_AUDIT_SELECT)
       .eq('id', trip_id)
-      .single();
+      .maybeSingle();
 
     if (tripErr) {
       console.error('[admin-get-trip-payment-state] trip query failed:', tripErr.message);
