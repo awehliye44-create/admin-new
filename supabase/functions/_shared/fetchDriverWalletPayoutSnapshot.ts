@@ -2,7 +2,6 @@
  * Fetch per-driver wallet/payout snapshot from distinct SSOT sources (server I/O).
  */
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import type Stripe from "https://esm.sh/stripe@14.21.0";
 import { computeLedgerWalletBalancePence, computeCashCommissionOutstanding } from "./onecabFinanceLedger.ts";
 import {
   computeDriverWalletPayoutSnapshot,
@@ -61,7 +60,6 @@ export type DriverWalletPayoutDetail = Omit<
   wallet_status: "ACTIVE" | "FROZEN" | "NOT_CONNECTED" | "RESTRICTED";
   payout_items: Array<Record<string, unknown>>;
   early_cashouts: Array<Record<string, unknown>>;
-  stripe_connect_payouts: Array<Record<string, unknown>>;
   settlements: Array<Record<string, unknown>>;
   /** One row per completed trip settlement — consume-only display DTO. */
   settlement_history: Array<Record<string, unknown>>;
@@ -92,7 +90,6 @@ export async function fetchDriverWalletPayoutSnapshot(
   supabase: SupabaseClient,
   args: {
     driverId: string;
-    stripe?: Stripe | null;
     currency?: string;
   },
 ): Promise<DriverWalletPayoutDetail> {
@@ -111,7 +108,6 @@ export async function fetchDriverWalletPayoutSnapshot(
     transferLedgerRes,
     settlementsRes,
     payoutItemsRes,
-    stripePayoutsRes,
     earlyCashoutsRes,
     driverServiceAreaRes,
     payoutEligibility,
@@ -134,11 +130,6 @@ export async function fetchDriverWalletPayoutSnapshot(
       .select("id, batch_id, status, settlement_status, net_driver_payout_pence, amount_pence, provider_transfer_id, provider_payout_id, failure_reason, created_at, updated_at")
       .eq("driver_id", args.driverId)
       .order("created_at", { ascending: false })
-      .limit(50),
-    supabase.from("stripe_connect_payouts")
-      .select("*")
-      .eq("driver_id", args.driverId)
-      .order("initiated_at", { ascending: false })
       .limit(50),
     supabase.from("driver_early_cashouts")
       .select("id, status, requested_cashout_pence, early_cashout_fee_pence, driver_receives_pence, created_at, updated_at, paid_at, provider_payout_id, failure_reason")
@@ -223,8 +214,8 @@ export async function fetchDriverWalletPayoutSnapshot(
   const payoutItems = payoutItemsRes.data ?? [];
   const includedBatch = sumIncludedInPayoutBatchPence(payoutItems);
 
-  const stripePayouts = stripePayoutsRes.data ?? [];
-  const providerPaidOut = sumProviderPaidOutFromConnectPayouts(stripePayouts);
+  const providerPayouts: Array<Record<string, unknown>> = [];
+  const providerPaidOut = sumProviderPaidOutFromConnectPayouts(providerPayouts);
 
   const earlyCashouts = earlyCashoutsRes.data ?? [];
   const inFlight = earlyCashouts
@@ -235,23 +226,21 @@ export async function fetchDriverWalletPayoutSnapshot(
   let connectPending: number | null = null;
   let connectInstant: number | null = null;
   let connectInTransit: number | null = null;
-  // P0: Provider Account Balance from Stripe Connect permanently retired from live finance.
-  // Never call stripe.balance.retrieve for FR / DWL / PL.
+  // Provider Account Balance is not sourced from the payment provider for FR / DWL / PL.
   let providerBalanceStatus: ProviderAccountBalanceStatus = "NOT_APPLICABLE";
-  void args.stripe;
   void currency;
 
-  const stripePayoutIds = new Set(
-    stripePayouts.map((r) => String(r.payout_id ?? "")).filter(Boolean),
+  const providerPayoutIds = new Set(
+    providerPayouts.map((r) => String(r.payout_id ?? "")).filter(Boolean),
   );
-  const ledgerStripePayoutIds = new Set(
+  const ledgerProviderPayoutIds = new Set(
     ledger.filter((r) => r.provider_payout_id).map((r) => String(r.provider_payout_id)),
   );
 
   let providerWithoutLedger = 0;
-  for (const sp of stripePayouts) {
+  for (const sp of providerPayouts) {
     const pid = String(sp.payout_id ?? "");
-    if (pid && !ledgerStripePayoutIds.has(pid) && String(sp.status).toLowerCase() === "paid") {
+    if (pid && !ledgerProviderPayoutIds.has(pid) && String(sp.status).toLowerCase() === "paid") {
       providerWithoutLedger += Math.max(0, Number(sp.amount_pence ?? 0));
     }
   }
@@ -259,7 +248,7 @@ export async function fetchDriverWalletPayoutSnapshot(
   let ledgerWithoutProvider = 0;
   for (const row of ledger) {
     const pid = row.provider_payout_id ? String(row.provider_payout_id) : "";
-    if (pid && !stripePayoutIds.has(pid) && (row.amount_pence ?? 0) < 0) {
+    if (pid && !providerPayoutIds.has(pid) && (row.amount_pence ?? 0) < 0) {
       ledgerWithoutProvider += Math.abs(row.amount_pence ?? 0);
     }
   }
@@ -269,8 +258,8 @@ export async function fetchDriverWalletPayoutSnapshot(
   for (const item of payoutItems) {
     const st = String(item.status ?? "").toLowerCase();
     const net = Math.max(0, Number(item.net_driver_payout_pence ?? item.amount_pence ?? 0));
-    const hasStripe = Boolean(item.provider_transfer_id || item.provider_payout_id);
-    if (TERMINAL_FAILED.has(st) && !hasStripe) {
+    const hasProviderEvidence = Boolean(item.provider_transfer_id || item.provider_payout_id);
+    if (TERMINAL_FAILED.has(st) && !hasProviderEvidence) {
       localFailed += net;
       const ss = String(item.settlement_status ?? "");
       if (STUCK_SETTLEMENT.has(ss)) stuckProcessing += net;
@@ -278,7 +267,6 @@ export async function fetchDriverWalletPayoutSnapshot(
   }
 
   let providerAvailable: number | null = null;
-  // P0: platform Stripe balance retrieve retired from live DWL snapshot.
   void providerAvailable;
 
   const saJoinEarly = driverServiceAreaRes.data?.service_areas as
@@ -296,14 +284,9 @@ export async function fetchDriverWalletPayoutSnapshot(
     }[]
     | null;
   const serviceAreaEarly = Array.isArray(saJoinEarly) ? saJoinEarly[0] ?? null : saJoinEarly;
-  const payoutProviderEarlyRaw = serviceAreaEarly?.driver_payout_gateway
-    ?? (String(serviceAreaEarly?.payment_provider ?? "").toLowerCase() === "stripe"
-      ? null
-      : serviceAreaEarly?.payment_provider)
+  const payoutProviderEarly = serviceAreaEarly?.driver_payout_gateway
+    ?? serviceAreaEarly?.payment_provider
     ?? null;
-  const payoutProviderEarly = String(payoutProviderEarlyRaw ?? "").toLowerCase() === "stripe"
-    ? null
-    : payoutProviderEarlyRaw;
   const inferredRevolut = [...tripMetaById.values()].some((m) =>
     String(m.payment_provider ?? "").toLowerCase() === "revolut"
   );
@@ -352,7 +335,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     ? `${String(driver.first_name ?? "").trim()} ${String(driver.last_name ?? "").trim()}`.trim() || null
     : null;
 
-  const lastPaidPayout = [...stripePayouts]
+  const lastPaidPayout = [...providerPayouts]
     .filter((row) => {
       const st = String(row.status ?? "").toLowerCase();
       return st === "paid" || st === "in_transit" || st === "pending";
@@ -363,7 +346,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       return bTs - aTs;
     })[0] ?? null;
 
-  const bankLast4 = [...stripePayouts]
+  const bankLast4 = [...providerPayouts]
     .map((r) => (r.bank_last4 == null ? null : String(r.bank_last4)))
     .find((v) => v && v.length > 0) ?? null;
 
@@ -660,11 +643,9 @@ export async function fetchDriverWalletPayoutSnapshot(
   }
 
   const payoutProvider = serviceArea?.driver_payout_gateway
-    ?? (String(serviceArea?.payment_provider ?? "").toLowerCase() === "stripe"
-      ? null
-      : serviceArea?.payment_provider)
+    ?? serviceArea?.payment_provider
     ?? null;
-  // P0: never infer payout provider from provider_account_id; never prefer retired stripe payment_provider.
+  // Never infer payout provider from provider_account_id.
 
   const controlCentre = await loadPayoutControlCentreSettings(supabase, {
     serviceAreaId,
@@ -723,7 +704,6 @@ export async function fetchDriverWalletPayoutSnapshot(
     period_kpis,
     payout_items: payoutItems,
     early_cashouts: earlyCashouts,
-    stripe_connect_payouts: stripePayouts,
     settlements,
     settlement_history,
     debt_recovery,
