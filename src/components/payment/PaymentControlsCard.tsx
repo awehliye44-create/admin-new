@@ -63,7 +63,7 @@ interface PaymentState {
   discount_pence?: number;
   buffer_pence: number;
   commission_pence: number;
-  stripe_fee_pence: number;
+  provider_fee_pence: number;
   onecab_net_pence: number;
   driver_net_pence: number | null;
   outstanding_pence?: number;
@@ -72,7 +72,7 @@ interface PaymentState {
   stripe_application_fee_id: string | null;
   stripe_application_fee_amount_pence: number | null;
   stripe_destination_account_id: string | null;
-  stripe_transfer_id: string | null;
+  provider_transfer_id: string | null;
   stripe_transfer_amount_pence: number | null;
   stripe_settlement_verified: boolean;
   stripe_settlement_warning: string | null;
@@ -106,8 +106,8 @@ interface AuditEntry {
   amount_pence_before: number | null;
   amount_pence_after: number | null;
   delta_pence: number | null;
-  stripe_payment_intent_id?: string | null;
-  stripe_refund_id?: string | null;
+  provider_payment_id?: string | null;
+  provider_refund_id?: string | null;
   admin_user_id: string;
   created_at: string;
   metadata: Record<string, unknown> | null;
@@ -310,7 +310,7 @@ export function PaymentControlsCard({
       return data;
     },
     onSuccess: (data) => {
-      const id = data.stripe_refund_id || data.stripe_charge_id || data.stripe_payment_intent_id;
+      const id = data.provider_refund_id || data.provider_charge_id || data.provider_payment_id;
       toast.success(data.message || 'Action completed', { description: id ? `Provider ref: ${id}` : undefined });
       setMode(null);
       setReason('');
@@ -697,14 +697,14 @@ export function PaymentControlsCard({
                 <div className="flex justify-between"><span className="text-muted-foreground">Available payout created</span><span>{formatPence(state.available_payout_created_pence, currency)}</span></div>
               )}
               <div className="flex justify-between"><span className="text-muted-foreground">Gross commission</span><span>{formatPence(state.commission_pence, currency)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Provider fee</span><span className="text-orange-600">{state.stripe_fee_pence > 0 ? `−${formatPence(state.stripe_fee_pence, currency)}` : '—'}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Provider fee</span><span className="text-orange-600">{state.provider_fee_pence > 0 ? `−${formatPence(state.provider_fee_pence, currency)}` : '—'}</span></div>
               <div className="flex justify-between font-medium"><span>ONECAB net</span><span className="text-blue-600">{formatPence(state.onecab_net_pence, currency)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Driver net</span><span className="text-green-600">{driverNetPence != null ? formatPence(driverNetPence, currency) : 'Unknown'}</span></div>
               <Separator className="my-1" />
               <div className="flex justify-between"><span className="text-muted-foreground">Provider application fee</span><span>{state.stripe_application_fee_amount_pence != null ? formatPence(state.stripe_application_fee_amount_pence, currency) : '—'}</span></div>
               {state.stripe_application_fee_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Application fee ID</span><code className="text-[10px] truncate">{state.stripe_application_fee_id}</code></div>}
               {state.stripe_destination_account_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Driver destination</span><code className="text-[10px] truncate">{state.stripe_destination_account_id}</code></div>}
-              {state.stripe_transfer_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Driver transfer</span><code className="text-[10px] truncate">{state.stripe_transfer_id}</code></div>}
+              {state.provider_transfer_id && <div className="flex justify-between gap-2"><span className="text-muted-foreground">Driver transfer</span><code className="text-[10px] truncate">{state.provider_transfer_id}</code></div>}
               {state.stripe_transfer_amount_pence != null && <div className="flex justify-between"><span className="text-muted-foreground">Transfer amount</span><span>{formatPence(state.stripe_transfer_amount_pence, currency)}</span></div>}
               {settlementWarningText && settlementWarning === 'error' && (
                 <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-destructive flex items-start gap-2">
@@ -873,7 +873,7 @@ export function PaymentControlsCard({
                           </div>
                         )}
                         <div><span className="text-muted-foreground">Reason: </span>{e.reason}</div>
-                        {e.stripe_refund_id && <div className="text-muted-foreground break-all">Refund: {e.stripe_refund_id}</div>}
+                        {e.provider_refund_id && <div className="text-muted-foreground break-all">Refund: {e.provider_refund_id}</div>}
                       </div>
                     ))}
                   </div>

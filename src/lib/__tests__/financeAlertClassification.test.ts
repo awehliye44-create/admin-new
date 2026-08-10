@@ -40,7 +40,7 @@ describe('financeAlertClassification', () => {
       classifyFinanceMismatch({
         kind: 'payout',
         reference_id: 'po_1',
-        message: 'Provider payout paid but no matching driver_wallet_ledger stripe_payout_id entry.',
+        message: 'Provider payout paid but no matching driver_wallet_ledger provider_payout_id entry.',
       })?.label,
     ).toBe('Provider without Ledger');
   });

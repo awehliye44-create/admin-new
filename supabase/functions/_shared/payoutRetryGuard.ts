@@ -60,14 +60,14 @@ export async function assertPayoutRetryAllowed(args: {
   requiredAmountPence: number;
   payoutItem: {
     status: string;
-    stripe_transfer_id?: string | null;
-    stripe_payout_id?: string | null;
+    provider_transfer_id?: string | null;
+    provider_payout_id?: string | null;
     driver_paid_out_pence?: number | null;
     net_driver_payout_pence?: number | null;
     amount_pence?: number | null;
   };
   driver: {
-    stripe_account_id?: string | null;
+    provider_account_id?: string | null;
     payouts_enabled?: boolean | null;
     charges_enabled?: boolean | null;
   } | null;
@@ -82,7 +82,7 @@ export async function assertPayoutRetryAllowed(args: {
     };
   }
 
-  const connectId = args.driver?.stripe_account_id;
+  const connectId = args.driver?.provider_account_id;
   if (!connectId) {
     return { ok: false, code: PAYOUT_RETRY_NO_CONNECT_CODE, message: PAYOUT_RETRY_NO_CONNECT_MESSAGE };
   }
@@ -104,7 +104,7 @@ export async function assertPayoutRetryAllowed(args: {
   }
 
   const st = String(args.payoutItem.status ?? "").toLowerCase();
-  if (st === "completed" || args.payoutItem.stripe_payout_id) {
+  if (st === "completed" || args.payoutItem.provider_payout_id) {
     return { ok: false, code: PAYOUT_RETRY_ALREADY_PAID_CODE, message: PAYOUT_RETRY_ALREADY_PAID_MESSAGE };
   }
 
@@ -122,7 +122,7 @@ export async function assertPayoutRetryAllowed(args: {
     return { ok: false, code: PAYOUT_RETRY_NO_LIABILITY_CODE, message: PAYOUT_RETRY_NO_LIABILITY_MESSAGE };
   }
 
-  const hasStripeEvidence = Boolean(args.payoutItem.stripe_transfer_id || args.payoutItem.stripe_payout_id);
+  const hasStripeEvidence = Boolean(args.payoutItem.provider_transfer_id || args.payoutItem.provider_payout_id);
   const isLocalOnly = !hasStripeEvidence && ["failed", "ledger_sync_failed"].includes(st);
   if (isLocalOnly && !args.localOnlyApproved) {
     return { ok: false, code: PAYOUT_RETRY_LOCAL_ONLY_CODE, message: PAYOUT_RETRY_LOCAL_ONLY_MESSAGE };

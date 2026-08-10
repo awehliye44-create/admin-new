@@ -290,7 +290,7 @@ export interface CompleteTripRequest {
   extras_charge_pence?: number;
   tip_amount_pence?: number;
   // Stripe
-  stripe_payment_intent_id?: string;
+  provider_payment_id?: string;
   // Legacy support
   final_fare_pence?: number;
 }
@@ -306,7 +306,7 @@ export const completeTripSchema: Record<keyof CompleteTripRequest, SchemaField> 
   destination_change_charge_pence: { type: 'number', min: 0, max: 10000000, integer: true, optional: true },
   extras_charge_pence: { type: 'number', min: 0, max: 10000000, integer: true, optional: true },
   tip_amount_pence: { type: 'number', min: 0, max: 10000000, integer: true, optional: true },
-  stripe_payment_intent_id: { type: 'string', optional: true, maxLength: 255 },
+  provider_payment_id: { type: 'string', optional: true, maxLength: 255 },
   final_fare_pence: { type: 'number', min: 0, max: 100000000, integer: true, optional: true },
 };
 

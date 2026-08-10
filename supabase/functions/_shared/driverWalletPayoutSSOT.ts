@@ -29,7 +29,7 @@ export type DriverWalletPayoutSnapshotInput = {
   stripe_connect_pending_pence: number | null;
   stripe_in_transit_pence?: number | null;
   stripe_connect_instant_available_pence?: number | null;
-  /** Sum of paid stripe_connect_payouts or ledger rows with stripe_payout_id. */
+  /** Sum of paid stripe_connect_payouts or ledger rows with provider_payout_id. */
   stripe_paid_out_total_pence: number;
   recovery_debt_pence: number;
   in_flight_cashout_pence?: number;

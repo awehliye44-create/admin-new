@@ -124,7 +124,7 @@ serve(async (req) => {
         trip_code,
         driver_id,
         commission_pence,
-        stripe_processing_fee_pence,
+        provider_fee_pence,
         onecab_net_pence,
         driver_net_pence,
         gross_fare_pence,
@@ -158,7 +158,7 @@ serve(async (req) => {
 
     let ledgerQuery = supabase
       .from("driver_wallet_ledger")
-      .select("id, driver_id, type, amount_pence, stripe_transfer_id, stripe_payout_id, created_at")
+      .select("id, driver_id, type, amount_pence, provider_transfer_id, provider_payout_id, created_at")
       .gte("created_at", periodFrom)
       .lte("created_at", periodTo)
       .order("created_at", { ascending: false })
@@ -175,8 +175,8 @@ serve(async (req) => {
         amount_pence,
         driver_amount_pence,
         status,
-        stripe_transfer_id,
-        stripe_payout_id,
+        provider_transfer_id,
+        provider_payout_id,
         ledger_entry_id,
         created_at,
         completed_at,
@@ -198,8 +198,8 @@ serve(async (req) => {
         status,
         requested_cashout_pence,
         driver_receives_pence,
-        stripe_transfer_id,
-        stripe_payout_id,
+        provider_transfer_id,
+        provider_payout_id,
         ledger_cashout_id,
         created_at,
         paid_at

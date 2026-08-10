@@ -86,7 +86,7 @@ serve(async (req) => {
       isOnline: d.is_online,
       rating: d.rating,
       approvalStatus: d.approval_status,
-      stripeAccountId: d.stripe_account_id,
+      stripeAccountId: d.provider_account_id,
       payoutsEnabled: d.payouts_enabled,
       onboardingComplete: d.onboarding_complete,
       currencyCode: d.currency_code || '',

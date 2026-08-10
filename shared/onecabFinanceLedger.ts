@@ -118,7 +118,7 @@ export function computeNextWeeklyPayoutPence(args: DriverPayoutInputs): number {
 }
 
 export type PayoutEligibilityInput = {
-  stripe_account_id?: string | null;
+  provider_account_id?: string | null;
   payouts_enabled?: boolean | null;
   charges_enabled?: boolean | null;
   onboarding_complete?: boolean | null;
@@ -133,7 +133,7 @@ export type PayoutEligibility = {
 };
 
 export function derivePayoutEligibility(driver: PayoutEligibilityInput): PayoutEligibility {
-  const stripeConnected = Boolean(driver.stripe_account_id)
+  const stripeConnected = Boolean(driver.provider_account_id)
     && (driver.onboarding_complete ?? false);
   const requirementsDue = driver.requirements_currently_due ?? [];
   const payoutEligible = stripeConnected

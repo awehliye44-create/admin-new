@@ -24,7 +24,7 @@ export interface FinanceSettlementSummaryResponse {
   };
   onecab_commission_summary: {
     onecab_gross_commission_pence: number;
-    stripe_fee_pence: number;
+    provider_fee_pence: number;
     onecab_net_pence: number;
     max_commission_at_15_percent_pence: number;
     commission_exceeds_cap: boolean;
@@ -288,7 +288,7 @@ export interface TripFinancialAuditRow {
   driver_name: string | null;
   payment_method: string | null;
   service_area_id?: string | null;
-  stripe_payment_intent_id?: string | null;
+  provider_payment_id?: string | null;
   payment_session_id?: string | null;
   customer_paid_pence: number | null;
   gross_fare_pence?: number | null;
@@ -528,7 +528,7 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
     },
     onecab_commission_summary: {
       onecab_gross_commission_pence: s.onecab_money.total_commission_earned_pence ?? s.onecab_money.onecab_gross_commission_pence,
-      stripe_fee_pence: s.onecab_money.provider_processing_fee_pence,
+      provider_fee_pence: s.onecab_money.provider_processing_fee_pence,
       onecab_net_pence: s.onecab_money.net_platform_revenue_pence ?? s.onecab_money.onecab_net_commission_pence,
       max_commission_at_15_percent_pence: Math.round(s.customer_revenue.commissionable_revenue_pence * 0.15),
       commission_exceeds_cap:

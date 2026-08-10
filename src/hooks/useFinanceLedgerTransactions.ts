@@ -68,7 +68,7 @@ type PaymentDbRow = {
   captured_amount_pence: number | null;
   amount_pence: number | null;
   currency: string | null;
-  stripe_fee_pence: number | null;
+  provider_fee_pence: number | null;
   payment_provider: string | null;
   provider_webhook_event_id: string | null;
   created_at: string;
@@ -156,8 +156,8 @@ function mapPaymentRow(row: PaymentDbRow): FinanceLedgerTransactionRow {
     source: row.provider_webhook_event_id ? 'webhook' : (row.payment_provider ?? 'Provider'),
     status: row.status,
     ledger_reference: row.id,
-    description: row.stripe_fee_pence
-      ? `Provider fee ${formatPence(row.stripe_fee_pence, row.currency ?? 'gbp')}`
+    description: row.provider_fee_pence
+      ? `Provider fee ${formatPence(row.provider_fee_pence, row.currency ?? 'gbp')}`
       : null,
     notes: null,
     evidence: row.provider_webhook_event_id ?? row.id,
@@ -331,7 +331,7 @@ export function useFinanceLedgerTransactions(args: {
           .from('payments')
           .select(`
             id, trip_id, driver_id, status, captured_amount_pence, amount_pence, currency,
-            stripe_fee_pence, payment_provider, provider_webhook_event_id, created_at,
+            provider_fee_pence, payment_provider, provider_webhook_event_id, created_at,
             trips(trip_code, payment_method, passenger_id, passenger_name),
             drivers(first_name, last_name, region_id)
           `)

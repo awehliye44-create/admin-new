@@ -33,7 +33,7 @@ Deno.test("Test 3 — Tip: final £10.00, tip £2.00; Stripe fee does not reduce
     final_fare_pence: 1000,
     tips_pence: 200,
     driver_tier_commission_percent: 15,
-    stripe_fee_pence: 29,
+    provider_fee_pence: 29,
   });
   assertEquals(s.commission_pence, 150);
   assertEquals(s.driver_total_earnings_pence, 1050);
@@ -74,7 +74,7 @@ Deno.test("Test 6 — Webhook recovery matches direct settlement", () => {
     airport_charge_pence: 0,
     tips_pence: 200,
     driver_tier_commission_percent: 15,
-    stripe_fee_pence: 29,
+    provider_fee_pence: 29,
   });
   const fromRow = calculateTripSettlementFromTripRow(
     {

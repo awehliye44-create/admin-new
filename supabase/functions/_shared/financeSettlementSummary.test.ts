@@ -14,7 +14,7 @@ import {
 
 const TRIP_5783 = {
   commission_pence: 867,
-  stripe_processing_fee_pence: 120,
+  provider_fee_pence: 120,
   onecab_net_pence: 747,
   driver_net_pence: 4916,
   gross_fare_pence: 5783,
@@ -129,7 +129,7 @@ const MK_260615_006 = {
   capture_amount_pence: 480,
   commission_pence: 77,
   driver_net_pence: 435,
-  stripe_processing_fee_pence: null,
+  provider_fee_pence: null,
   onecab_net_pence: null,
   commissionable_fare_pence: null,
   tip_pence: 0,
@@ -230,7 +230,7 @@ Deno.test("Financial Reconciliation audit: cash trip uses final_fare_pence as cu
     capture_amount_pence: 0,
     commission_pence: 106,
     driver_net_pence: 687,
-    stripe_processing_fee_pence: null,
+    provider_fee_pence: null,
     onecab_net_pence: null,
     commissionable_fare_pence: null,
     tip_pence: 0,
@@ -704,7 +704,7 @@ Deno.test("FR audit: sessions map present with missing fee stays PENDING not zer
   });
   const row = mapTripToFinancialAuditRow({
     ...MK_260615_006,
-    stripe_processing_fee_pence: 99,
+    provider_fee_pence: 99,
     provider_fee_pence: 99,
   }, context);
   assertEquals(row.processing_fee_pence, null);

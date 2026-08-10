@@ -2,7 +2,7 @@ import {
   computeNetPaidAfterRefund,
   resolveRefundStatus,
   type RefundStatus,
-} from '../../shared/stripeRefundSSOT';
+} from '../../shared/providerRefundSSOT';
 
 export type TripRefundFields = {
   payment_status?: string | null;

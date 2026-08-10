@@ -14,7 +14,7 @@ Deno.test("deriveSettlementLifecycleStatus: CREATED when new row", () => {
 
 Deno.test("deriveSettlementLifecycleStatus: TRANSFERRED after SCT", () => {
   assertEquals(
-    deriveSettlementLifecycleStatus({ stripe_transfer_id: "tr_123" }),
+    deriveSettlementLifecycleStatus({ provider_transfer_id: "tr_123" }),
     SETTLEMENT_LIFECYCLE.TRANSFERRED_TO_CONNECT,
   );
 });

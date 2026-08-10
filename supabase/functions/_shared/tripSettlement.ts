@@ -30,7 +30,7 @@ export type TripSettlementInput = {
   other_pass_through_charges_pence?: number;
   tips_pence?: number;
   driver_tier_commission_percent: number;
-  stripe_fee_pence?: number;
+  provider_fee_pence?: number;
 };
 
 export type TripSettlementResult = {
@@ -42,7 +42,7 @@ export type TripSettlementResult = {
   airport_charge_pence: number;
   other_pass_through_charges_pence: number;
   tips_pence: number;
-  stripe_fee_pence: number;
+  provider_fee_pence: number;
   platform_gross_revenue_pence: number;
   platform_net_revenue_pence: number;
   tier_percent_used: number;
@@ -106,7 +106,7 @@ export function calculateTripSettlement(input: TripSettlementInput): TripSettlem
   // v2: pass-through is commissionable when present in final_fare — do not strip.
   const otherPassThroughChargesPence = 0;
   const tipsPence = nonNegInt(input.tips_pence);
-  const stripeFeePence = nonNegInt(input.stripe_fee_pence);
+  const stripeFeePence = nonNegInt(input.provider_fee_pence);
   const tierPercentUsed = capTierCommissionPercent(input.driver_tier_commission_percent);
 
   // Non-commissionable ONLY: airport (tips sit outside final_fare).
@@ -128,7 +128,7 @@ export function calculateTripSettlement(input: TripSettlementInput): TripSettlem
     airport_charge_pence: airportChargePence,
     other_pass_through_charges_pence: otherPassThroughChargesPence,
     tips_pence: tipsPence,
-    stripe_fee_pence: stripeFeePence,
+    provider_fee_pence: stripeFeePence,
     platform_gross_revenue_pence: platformGrossRevenuePence,
     platform_net_revenue_pence: platformNetRevenuePence,
     tier_percent_used: tierPercentUsed,
@@ -175,7 +175,7 @@ export function calculateTripSettlementFromTripRow(
     airport_charge_pence: trip.airport_charge_pence ?? 0,
     tips_pence: trip.tip_pence ?? trip.tip_amount_pence ?? 0,
     driver_tier_commission_percent: resolveTripTierPercent(trip),
-    stripe_fee_pence: stripeFeePence,
+    provider_fee_pence: stripeFeePence,
   });
 }
 
@@ -196,8 +196,8 @@ export function tripSettlementDbColumns(
     commission_pct: settlement.tier_percent_used,
     driver_tier_commission_percent: settlement.tier_percent_used,
     gross_fare_pence: settlement.commissionable_fare_pence,
-    stripe_processing_fee_pence: settlement.stripe_fee_pence,
-    stripe_fee_amount: settlement.stripe_fee_pence,
+    provider_fee_pence: settlement.provider_fee_pence,
+    stripe_fee_amount: settlement.provider_fee_pence,
     onecab_net_pence: settlement.platform_net_revenue_pence,
     platform_gross_revenue_pence: settlement.platform_gross_revenue_pence,
     platform_net_revenue_pence: settlement.platform_net_revenue_pence,
@@ -217,7 +217,7 @@ export function tripSettlementSnapshotJson(
     driver_total_earnings_pence: settlement.driver_total_earnings_pence,
     platform_gross_revenue_pence: settlement.platform_gross_revenue_pence,
     platform_net_revenue_pence: settlement.platform_net_revenue_pence,
-    stripe_fee_pence: settlement.stripe_fee_pence,
+    provider_fee_pence: settlement.provider_fee_pence,
     tier_percent_used: settlement.tier_percent_used,
   };
 }

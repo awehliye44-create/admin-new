@@ -187,7 +187,7 @@ serve(async (req) => {
           last_name,
           email,
           phone,
-          stripe_account_id,
+          provider_account_id,
           payouts_enabled,
           category_id
         )
@@ -229,7 +229,7 @@ serve(async (req) => {
 
     const { data: payments } = await supabase
       .from('payments')
-      .select('id, stripe_payment_intent_id, captured_amount_pence, amount_pence, status, metadata, capture_method, created_at, provider_charge_id')
+      .select('id, provider_payment_id, captured_amount_pence, amount_pence, status, metadata, capture_method, created_at, provider_charge_id')
       .eq('trip_id', tripId)
       .order('created_at', { ascending: true });
 
@@ -242,7 +242,7 @@ serve(async (req) => {
         : {};
       return {
         id: payment.id,
-        stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
+        stripePaymentIntentId: payment.provider_payment_id ?? null,
         capturedAmountPence: captured,
         amountPence: payment.amount_pence ?? 0,
         status: payment.status ?? null,
@@ -277,7 +277,7 @@ serve(async (req) => {
         amount_pence: entry.amount_pence,
       })),
     });
-    const stripeFee = trip.stripe_processing_fee_pence || 0;
+    const stripeFee = trip.provider_fee_pence || 0;
     // ONECAB net after Stripe — read from DB (do NOT recompute on the client).
     // Historical trips that pre-date fee tracking fall back to gross commission.
     const onecabNet = trip.onecab_net_pence != null
@@ -328,8 +328,8 @@ serve(async (req) => {
         onecabNet,
       },
       stripe: {
-        paymentIntentId: trip.stripe_payment_intent_id,
-        chargeId: trip.stripe_charge_id,
+        paymentIntentId: trip.provider_payment_id,
+        chargeId: trip.provider_charge_id,
         captureStatus: trip.payment_status,
       },
       paymentRows,
@@ -343,7 +343,7 @@ serve(async (req) => {
         name: `${trip.drivers.first_name} ${trip.drivers.last_name}`,
         email: trip.drivers.email,
         phone: trip.drivers.phone,
-        stripeAccountId: trip.drivers.stripe_account_id,
+        stripeAccountId: trip.drivers.provider_account_id,
         payoutsEnabled: trip.drivers.payouts_enabled,
       } : null,
       customer: customer ? {

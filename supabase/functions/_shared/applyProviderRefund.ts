@@ -6,7 +6,7 @@ import {
   applyRefundToTripAmounts,
   resolveRefundStatus,
   resolveTripPaymentStatusFromRefund,
-} from "./stripeRefundSSOT.ts";
+} from "./providerRefundSSOT.ts";
 
 export type ApplyStripeRefundArgs = {
   tripId: string;
@@ -41,7 +41,7 @@ async function findTripId(
     const { data } = await supabase
       .from("trips")
       .select("id")
-      .eq("stripe_payment_intent_id", args.stripePaymentIntentId)
+      .eq("provider_payment_id", args.stripePaymentIntentId)
       .maybeSingle();
     if (data?.id) return String(data.id);
   }
@@ -50,7 +50,7 @@ async function findTripId(
     const { data } = await supabase
       .from("trips")
       .select("id")
-      .eq("stripe_charge_id", args.stripeChargeId)
+      .eq("provider_charge_id", args.stripeChargeId)
       .maybeSingle();
     if (data?.id) return String(data.id);
   }
@@ -74,7 +74,7 @@ export async function applyStripeRefundToOnecab(
       id, driver_id, payment_status, payment_method,
       final_fare_pence, final_customer_fare_pence, capture_amount_pence,
       commission_pence, driver_net_pence, refund_amount_pence,
-      stripe_payment_intent_id, stripe_charge_id
+      provider_payment_id, provider_charge_id
     `)
     .eq("id", tripId)
     .single();
@@ -82,7 +82,7 @@ export async function applyStripeRefundToOnecab(
 
   const { data: paymentRows } = await supabase
     .from("payments")
-    .select("id, captured_amount_pence, amount_pence, status, stripe_payment_intent_id")
+    .select("id, captured_amount_pence, amount_pence, status, provider_payment_id")
     .eq("trip_id", tripId)
     .order("created_at", { ascending: false });
 
@@ -126,7 +126,7 @@ export async function applyStripeRefundToOnecab(
     updated_at: now,
   };
   if (args.refundReason) tripUpdate.refund_reason = args.refundReason;
-  if (args.stripeChargeId) tripUpdate.stripe_charge_id = args.stripeChargeId;
+  if (args.stripeChargeId) tripUpdate.provider_charge_id = args.stripeChargeId;
 
   const { error: tripUpdateErr } = await supabase.from("trips").update(tripUpdate).eq("id", tripId);
   if (tripUpdateErr) throw new Error(`trips refund update failed: ${tripUpdateErr.message}`);
@@ -143,7 +143,7 @@ export async function applyStripeRefundToOnecab(
         ? `stripe_refund:${args.stripeRefundId}:${refundedPence}`
         : `${args.source}:${refundedPence}`,
     };
-    if (args.stripeRefundId) paymentPatch.stripe_refund_id = args.stripeRefundId;
+    if (args.stripeRefundId) paymentPatch.provider_refund_id = args.stripeRefundId;
 
     const { error: payErr } = await supabase
       .from("payments")
@@ -233,7 +233,7 @@ export async function applyStripeRefundToOnecab(
       p_details: {
         source: args.source,
         refund_amount_pence: refundedPence,
-        stripe_refund_id: args.stripeRefundId ?? null,
+        provider_refund_id: args.stripeRefundId ?? null,
         payment_status: paymentStatus,
         driver_reversal_pence: adjusted.driver_reversal_pence,
       },

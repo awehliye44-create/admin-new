@@ -36,7 +36,7 @@ const baseSsot: PerDriverFinanceSSOT = {
 };
 
 const eligibleDriver = {
-  stripe_account_id: 'acct',
+  provider_account_id: 'acct',
   onboarding_complete: true,
   payouts_enabled: true,
 };

@@ -357,7 +357,7 @@ export async function recordCardCaptureFailure(
     .eq("trip_id", args.tripId);
 
   if (args.stripePaymentIntentId) {
-    paymentQuery = paymentQuery.eq("stripe_payment_intent_id", args.stripePaymentIntentId);
+    paymentQuery = paymentQuery.eq("provider_payment_id", args.stripePaymentIntentId);
   }
   await paymentQuery;
 
@@ -380,13 +380,13 @@ export async function recordCardCaptureFailure(
 
   await logFinanceAuditEvent(supabase, "CARD_CAPTURE_FAILED", {
     message: errorText,
-    stripe_payment_intent_id: args.stripePaymentIntentId ?? null,
+    provider_payment_id: args.stripePaymentIntentId ?? null,
     reversed_phantom_credits: true,
   }, args.tripId, driverId);
 }
 
 export type PayoutEligibilityInput = {
-  stripe_account_id?: string | null;
+  provider_account_id?: string | null;
   payouts_enabled?: boolean | null;
   charges_enabled?: boolean | null;
   onboarding_complete?: boolean | null;
@@ -401,7 +401,7 @@ export type PayoutEligibility = {
 };
 
 export function derivePayoutEligibility(driver: PayoutEligibilityInput): PayoutEligibility {
-  const stripeConnected = Boolean(driver.stripe_account_id)
+  const stripeConnected = Boolean(driver.provider_account_id)
     && (driver.onboarding_complete ?? false);
   const requirementsDue = driver.requirements_currently_due ?? [];
   const payoutEligible = stripeConnected

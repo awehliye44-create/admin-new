@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
         admin.rpc("__digital_migration_noop").then(() => null).catch(() => null),
         admin.from("payout_items").select("id", { count: "exact", head: true })
           .in("status", ["pending","processing","CREATED","READY","BLOCKED"])
-          .or("stripe_transfer_id.is.null,stripe_transfer_id.eq."),
+          .or("provider_transfer_id.is.null,provider_transfer_id.eq."),
         admin.from("payout_batches").select("id", { count: "exact", head: true })
           .in("status", ["pending","processing","CREATED","READY","BLOCKED"]),
         admin.from("payout_authorization").select("id", { count: "exact", head: true })

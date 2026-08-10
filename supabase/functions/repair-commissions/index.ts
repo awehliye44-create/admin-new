@@ -160,7 +160,7 @@ serve(async (req) => {
         airport_charge_pence: airportPence,
         tips_pence: tipPence,
         driver_tier_commission_percent: correctPct,
-        stripe_fee_pence: 0,
+        provider_fee_pence: 0,
       });
       const correctCommission = settlement.commission_pence;
       const correctNet = settlement.driver_net_pence;

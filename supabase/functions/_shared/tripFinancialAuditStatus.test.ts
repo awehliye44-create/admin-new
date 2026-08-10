@@ -13,7 +13,7 @@ const cardTrip = {
   capture_amount_pence: 480,
   refund_amount_pence: 0,
   stripe_settlement_verified: false,
-  stripe_payment_intent_id: "pi_123",
+  provider_payment_id: "pi_123",
   payment_status: "captured",
 };
 
@@ -106,7 +106,7 @@ Deno.test("card pending capture — never shows generic awaiting settlement", ()
       ...cardTrip,
       capture_amount_pence: 0,
       payment_status: "pending_capture",
-      stripe_payment_intent_id: "pi_pending",
+      provider_payment_id: "pi_pending",
     },
     payment: { status: "requires_capture", provider_status: null, captured_amount_pence: 0 },
     payouts: [],

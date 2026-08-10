@@ -45,7 +45,7 @@ describe('manualPayoutGate', () => {
     expect(
       canManualPayout({
         driver: {
-          stripe_account_id: 'acct',
+          provider_account_id: 'acct',
           onboarding_complete: true,
           payouts_enabled: true,
         },
@@ -58,7 +58,7 @@ describe('manualPayoutGate', () => {
     expect(
       canManualPayout({
         driver: {
-          stripe_account_id: null,
+          provider_account_id: null,
           onboarding_complete: false,
           payouts_enabled: true,
         },
@@ -71,7 +71,7 @@ describe('manualPayoutGate', () => {
     expect(
       canManualPayout({
         driver: {
-          stripe_account_id: 'acct',
+          provider_account_id: 'acct',
           onboarding_complete: true,
           payouts_enabled: true,
         },
@@ -81,7 +81,7 @@ describe('manualPayoutGate', () => {
     expect(
       formatPayoutEligibilityStatus({
         driver: {
-          stripe_account_id: 'acct',
+          provider_account_id: 'acct',
           onboarding_complete: true,
           payouts_enabled: true,
         },
@@ -94,7 +94,7 @@ describe('manualPayoutGate', () => {
     expect(
       formatPayoutEligibilityStatus({
         driver: {
-          stripe_account_id: null,
+          provider_account_id: null,
           onboarding_complete: false,
           payouts_enabled: true,
         },
@@ -106,14 +106,14 @@ describe('manualPayoutGate', () => {
   it('isDriverStripeOnboardingComplete follows payouts_enabled only (Stripe retired)', () => {
     expect(
       isDriverStripeOnboardingComplete({
-        stripe_account_id: null,
+        provider_account_id: null,
         onboarding_complete: false,
         payouts_enabled: true,
       }),
     ).toBe(true);
     expect(
       isDriverStripeOnboardingComplete({
-        stripe_account_id: 'acct_1',
+        provider_account_id: 'acct_1',
         onboarding_complete: true,
         payouts_enabled: false,
       }),

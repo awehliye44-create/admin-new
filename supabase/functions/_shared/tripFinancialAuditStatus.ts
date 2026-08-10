@@ -21,7 +21,7 @@ export type TripAuditPaymentRecord = {
   status: string | null;
   provider_status: string | null;
   captured_amount_pence: number | null;
-  stripe_payment_intent_id?: string | null;
+  provider_payment_id?: string | null;
   /** Stripe balance transaction available date (funds settled to balance) */
   provider_available_on?: string | null;
 };
@@ -37,16 +37,16 @@ export type TripAuditPayoutRecord = {
 export type TripAuditLedgerRecord = {
   type: string;
   amount_pence: number;
-  stripe_payout_id?: string | null;
-  stripe_transfer_id?: string | null;
+  provider_payout_id?: string | null;
+  provider_transfer_id?: string | null;
 };
 
 export type TripAuditStatusTrip = Partial<TripSSOTRow> & {
   id: string;
   payment_status?: string | null;
   financial_outcome?: string | null;
-  stripe_payment_intent_id?: string | null;
-  stripe_charge_id?: string | null;
+  provider_payment_id?: string | null;
+  provider_charge_id?: string | null;
   stripe_settlement_verified?: boolean | null;
   stripe_settlement_warning?: string | null;
   provider_status?: string | null;
@@ -278,7 +278,7 @@ export function deriveProviderAuditStatus(input: TripAuditStatusInput): TripAudi
     return { label: "Pending Capture", tone: "yellow" };
   }
 
-  if (input.trip.stripe_payment_intent_id || input.payment?.stripe_payment_intent_id) {
+  if (input.trip.provider_payment_id || input.payment?.provider_payment_id) {
     return { label: "Pending Capture", tone: "yellow" };
   }
 

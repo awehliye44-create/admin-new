@@ -1,7 +1,7 @@
 // Canonical admin finance summary — single source of truth for:
 //   1. Total customer revenue (payments.captured_amount_pence)
 //   2. ONECAB gross commission (driver_wallet_ledger PLATFORM_COMMISSION)
-//   3. Provider processing fees (trips.provider_fee_pence / legacy stripe_processing_fee_pence)
+//   3. Provider processing fees (trips.provider_fee_pence / legacy provider_fee_pence)
 //   4. ONECAB net commission (#2 - #3)
 //   5. Driver net earnings (ledger TRIP_EARNING_NET + DRIVER_TIP_CREDIT + ADJUSTMENT)
 //   6. Stripe platform balance (live, never used as commission)
@@ -97,7 +97,7 @@ serve(async (req) => {
     // Phase 8: exclude DRIVER_COLLECTED_COMMISSION_WALLET trips from UK commissionable gross.
     let tripsQuery = supabase
       .from('trips')
-      .select('stripe_processing_fee_pence, provider_fee_pence, commissionable_fare_pence, commission_pence, currency_code, region_id, status, financial_model, commission_wallet_enabled')
+      .select('provider_fee_pence, provider_fee_pence, commissionable_fare_pence, commission_pence, currency_code, region_id, status, financial_model, commission_wallet_enabled')
       .in('status', ['completed', 'no_show']);
     if (regionFilter) tripsQuery = tripsQuery.eq('region_id', regionFilter);
     const { data: tripRows, error: tripErr } = await tripsQuery;
@@ -106,7 +106,7 @@ serve(async (req) => {
     // ── 3. Ledger SOT (commission + driver net + tips + adjustments) ──
     const { data: ledgerRows, error: ledgerErr } = await supabase
       .from('driver_wallet_ledger')
-      .select('amount_pence, type, currency, stripe_payout_id, stripe_transfer_id');
+      .select('amount_pence, type, currency, provider_payout_id, provider_transfer_id');
     if (ledgerErr) throw new Error(`ledger: ${ledgerErr.message}`);
 
     // ── 4. Driver financial summary view (region-aware, currency-aware) ──
@@ -197,8 +197,8 @@ serve(async (req) => {
       switch (l.type) {
         case 'PLATFORM_COMMISSION':
           g.totals.onecab_gross_commission_pence += amt;
-          if (l.stripe_payout_id) g.commission_status = 'stripe_paid_out';
-          else if (l.stripe_transfer_id && g.commission_status === 'legacy_fallback') g.commission_status = 'stripe_confirmed';
+          if (l.provider_payout_id) g.commission_status = 'stripe_paid_out';
+          else if (l.provider_transfer_id && g.commission_status === 'legacy_fallback') g.commission_status = 'stripe_confirmed';
           break;
         case 'TRIP_EARNING_NET':
         case 'DRIVER_TIP_CREDIT':

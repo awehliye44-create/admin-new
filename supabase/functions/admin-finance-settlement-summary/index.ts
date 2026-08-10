@@ -106,7 +106,7 @@ serve(async (req) => {
       .from("trips")
       .select(`
         commission_pence,
-        stripe_processing_fee_pence,
+        provider_fee_pence,
         onecab_net_pence,
         driver_net_pence,
         gross_fare_pence,
@@ -273,7 +273,7 @@ serve(async (req) => {
       currency_code: currency.toUpperCase(),
       accounting_rules: {
         onecab_gross_commission: "sum(trips.commission_pence) — 15% includes Stripe fee",
-        onecab_net: "onecab_gross_commission_pence - stripe_fee_pence",
+        onecab_net: "onecab_gross_commission_pence - provider_fee_pence",
         not_commission: [
           "Stripe available platform balance",
           "Captured card revenue / customer revenue",
@@ -292,7 +292,7 @@ serve(async (req) => {
       },
       onecab_commission_summary: {
         onecab_gross_commission_pence: finance.onecab_gross_commission_pence,
-        stripe_fee_pence: finance.stripe_fee_pence,
+        provider_fee_pence: finance.provider_fee_pence,
         onecab_net_pence: finance.onecab_net_pence,
         max_commission_at_15_percent_pence: finance.max_commission_at_15_percent_pence,
         commission_exceeds_cap: finance.commission_exceeds_15_percent_cap,

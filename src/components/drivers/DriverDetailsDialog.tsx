@@ -72,7 +72,7 @@ interface Driver {
   country?: string | null;
   country_code?: string | null;
   is_pet_friendly?: boolean;
-  stripe_account_id?: string | null;
+  provider_account_id?: string | null;
   payouts_enabled?: boolean;
   charges_enabled?: boolean;
   onboarding_complete?: boolean;

@@ -349,7 +349,7 @@ export async function fetchPerDriverFinancialReconciliation(
     .from("trips")
     .select(`
       id, driver_id, payment_method,
-      commission_pence, stripe_processing_fee_pence, onecab_net_pence, driver_net_pence,
+      commission_pence, provider_fee_pence, onecab_net_pence, driver_net_pence,
       gross_fare_pence, final_fare_pence, commissionable_fare_pence, capture_amount_pence,
       refund_amount_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence,
       tip_pence, tip_amount_pence, airport_charge_pence, other_pass_through_charges_pence
@@ -375,7 +375,7 @@ export async function fetchPerDriverFinancialReconciliation(
       .in("driver_id", peerDriverIds),
     supabase
       .from("payout_items")
-      .select("driver_id, status, ledger_entry_id, stripe_payout_id")
+      .select("driver_id, status, ledger_entry_id, provider_payout_id")
       .in("driver_id", peerDriverIds)
       .in("status", ["completed", "ledger_sync_failed"]),
     supabase
@@ -449,7 +449,7 @@ export async function fetchPerDriverFinancialReconciliation(
     (item) =>
       item.driver_id === driverId &&
       (item.status === "ledger_sync_failed" ||
-        (item.status === "completed" && !item.ledger_entry_id && !!item.stripe_payout_id)),
+        (item.status === "completed" && !item.ledger_entry_id && !!item.provider_payout_id)),
   );
 
   const controlCentre = await loadPayoutControlCentreSettings(supabase, {

@@ -9,7 +9,7 @@ export const MANUAL_PAYOUT_SOFT_WARNING_MESSAGE =
   'Finance review warning present. Payout amount is still capped by Provider available balance.';
 
 export type ManualPayoutDriverFlags = {
-  stripe_account_id?: string | null;
+  provider_account_id?: string | null;
   onboarding_complete?: boolean | null;
   payouts_enabled?: boolean | null;
 };

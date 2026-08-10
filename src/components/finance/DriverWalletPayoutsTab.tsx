@@ -38,7 +38,7 @@ function batchLabel(pi: Record<string, unknown>): string {
 function providerPayoutLabel(pi: Record<string, unknown>): string {
   const ref = pi.provider_reference;
   if (ref) return String(ref);
-  return String(pi.stripe_payout_id ?? pi.stripe_transfer_id ?? '—');
+  return String(pi.provider_payout_id ?? pi.provider_transfer_id ?? '—');
 }
 
 /**
@@ -241,7 +241,7 @@ export function DriverWalletPayoutsTab({
                     </TableCell>
                     <TableCell><Badge variant="outline">{String(row.status ?? '—')}</Badge></TableCell>
                     <TableCell className="font-mono text-xs">
-                      {row.stripe_payout_id ? String(row.stripe_payout_id).slice(0, 14) : '—'}
+                      {row.provider_payout_id ? String(row.provider_payout_id).slice(0, 14) : '—'}
                     </TableCell>
                   </TableRow>
                 ))
