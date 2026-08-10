@@ -229,7 +229,35 @@ Deno.serve(async (req) => {
       recoveryJson = {};
     }
 
+    // Provider proved the parent order is fully settled and re-synced the trip.
+    // This is a terminal success outcome, not a failure.
+    if (
+      !recoveryRes.ok
+      && String(recoveryJson.code ?? recoveryJson.error_code ?? "") === "ALREADY_FULLY_CAPTURED"
+    ) {
+      return jsonResponse({
+        success: true,
+        status: TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID,
+        requires_customer_action: false,
+        checkout_url: null,
+        payment_session_id: null,
+        provider_order_id: null,
+        outstanding_shortfall_pence: 0,
+        charged_pence: 0,
+        original_captured_pence: originalCaptured,
+        recaptured_pence_before: recoveryCaptured,
+        net_refunded_pence: netRefunded,
+        reused: false,
+        already_completed: true,
+        message: String(
+          recoveryJson.message
+            ?? "Payment is already fully captured with the provider. The trip has been re-synced — no further charge is due.",
+        ),
+      });
+    }
+
     if (!recoveryRes.ok) {
+
       const bootFailed =
         recoveryRes.status === 546
         || /worker boot error|does not provide an export named/i.test(recoveryText);
