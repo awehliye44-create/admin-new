@@ -26511,6 +26511,20 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      get_trip_passenger_details: {
+        Args: { p_trip_id: string }
+        Returns: {
+          completed_trips: number
+          customer_code: string
+          display_name: string
+          first_name: string
+          passenger_id: string
+          phone_verified: boolean
+          rating: number
+          ratings_count: number
+          trip_id: string
+        }[]
+      }
       get_user_corporate_accounts: {
         Args: { p_user_id: string }
         Returns: string[]
