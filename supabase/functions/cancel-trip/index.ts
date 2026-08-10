@@ -74,12 +74,16 @@ serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, confirmed_driver_id, passenger_id, customer_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at"
+        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at"
       )
       .eq("id", trip_id)
-      .single();
+      .maybeSingle();
 
-    if (tripErr || !trip) {
+    if (tripErr) {
+      console.error("[cancel-trip] trip lookup failed", tripErr);
+      return errorResponse(`Trip lookup failed: ${tripErr.message}`, 500);
+    }
+    if (!trip) {
       return errorResponse("Trip not found", 404);
     }
 
@@ -101,7 +105,7 @@ serve(async (req) => {
         .select("id")
         .eq("user_id", callerUserId)
         .maybeSingle();
-      if (customer && trip.customer_id === customer.id) {
+      if (customer && trip.passenger_id === customer.id) {
         cancelled_by_id = customer.id;
       } else {
         // Try as driver (drivers.user_id)
@@ -110,7 +114,7 @@ serve(async (req) => {
           .select("id")
           .eq("user_id", callerUserId)
           .maybeSingle();
-        if (driver && trip.driver_id === driver.id) {
+        if (driver && (trip.driver_id === driver.id || trip.confirmed_driver_id === driver.id)) {
           cancelled_by_id = driver.id;
         }
       }
