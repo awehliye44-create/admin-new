@@ -26,7 +26,7 @@ export type SanitisedRevolutOrderSnapshot = {
   sanitisation_version: "v1";
 };
 
-export type SanitisedStripePaymentIntentSnapshot = {
+export type SanitisedproviderPaymentIntentSnapshot = {
   id: string | null;
   status: string | null;
   amount: number | null;
@@ -79,7 +79,7 @@ export function assertNoRedactedKeysInSnapshot(
   return leaks;
 }
 
-export function sanitiseStripePaymentIntent(raw: Record<string, unknown>): SanitisedStripePaymentIntentSnapshot {
+export function sanitiseproviderPaymentIntent(raw: Record<string, unknown>): SanitisedproviderPaymentIntentSnapshot {
   const pm = raw.payment_method as Record<string, unknown> | undefined;
   const card = pm?.card as Record<string, unknown> | undefined;
   return {

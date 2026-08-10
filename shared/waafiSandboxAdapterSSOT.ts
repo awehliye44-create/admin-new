@@ -1,6 +1,6 @@
 /**
  * Waafi-shaped Commission Wallet sandbox adapter (Phase 4).
- * Does NOT use booking PaymentProviderAdapter — keeps Stripe/Revolut isolated.
+ * Does NOT use booking PaymentProviderAdapter — keeps provider/Revolut isolated.
  */
 
 export const WAAFI_SANDBOX_PROVIDER = "waafi_pay" as const;

@@ -7,7 +7,7 @@ export function normalizePaymentMethod(method: string | null | undefined): strin
   return (method ?? "").trim().toLowerCase();
 }
 
-/** Digital card/wallet trips — always show Stripe capture shortfall when payable > captured. */
+/** Digital card/wallet trips — always show provider capture shortfall when payable > captured. */
 export function shouldShowDigitalCaptureShortfall(
   _paymentMethod: string | null | undefined,
   payablePence: number,
