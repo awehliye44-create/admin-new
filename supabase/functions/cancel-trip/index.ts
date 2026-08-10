@@ -101,7 +101,7 @@ serve(async (req) => {
         .select("id")
         .eq("user_id", callerUserId)
         .maybeSingle();
-      if (customer && trip.customer_id === customer.id) {
+      if (customer && trip.passenger_id === customer.id) {
         cancelled_by_id = customer.id;
       } else {
         // Try as driver (drivers.user_id)
