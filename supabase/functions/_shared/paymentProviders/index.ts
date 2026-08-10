@@ -3,11 +3,6 @@ import { createPlaceholderAdapter } from "./placeholderAdapter.ts";
 import { createRevolutAdapter } from "./revolutAdapter.ts";
 import { getProviderSecrets } from "./secretManager.ts";
 import type { PaymentProviderAdapter, PaymentProviderId, ProviderEnvironment } from "./types.ts";
-import {
-  emitStripeRetirementTelemetry,
-  PAYMENT_PROVIDER_UNAVAILABLE,
-  resolveActivePaymentProviderName,
-} from "../stripeRuntimeDisabled.ts";
 
 export * from "./types.ts";
 export * from "./secretManager.ts";
