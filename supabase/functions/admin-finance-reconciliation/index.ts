@@ -612,7 +612,7 @@ serve(async (req) => {
           .in("trip_id", tripIds),
         supabase
           .from("driver_wallet_ledger")
-          .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
+          .select("related_trip_id, type, amount_pence, stripe_payout_id:provider_payout_id, stripe_transfer_id:provider_transfer_id")
           .in("related_trip_id", tripIds),
       ]);
       if (paymentSessionsRes.error) {
@@ -883,7 +883,7 @@ serve(async (req) => {
             .in("trip_id", auditTripIds),
           supabase
             .from("driver_wallet_ledger")
-            .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
+            .select("related_trip_id, type, amount_pence, stripe_payout_id:provider_payout_id, stripe_transfer_id:provider_transfer_id")
             .in("related_trip_id", auditTripIds),
         ]);
         if (paymentSessionsRes.error) {

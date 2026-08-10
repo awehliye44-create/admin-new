@@ -54,7 +54,7 @@ serve(async (req) => {
         .in("trip_id", tripIds),
       gate.supabase
         .from("driver_wallet_ledger")
-        .select("related_trip_id, type, amount_pence, stripe_payout_id, stripe_transfer_id")
+        .select("related_trip_id, type, amount_pence, stripe_payout_id:provider_payout_id, stripe_transfer_id:provider_transfer_id")
         .in("related_trip_id", tripIds),
     ]);
 
