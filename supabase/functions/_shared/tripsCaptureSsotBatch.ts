@@ -20,7 +20,7 @@ const TRIP_CAPTURE_SSOT_SELECT = `
   id,
   trip_code,
   commission_pence,
-  stripe_processing_fee_pence,
+  stripe_processing_fee_pence:provider_fee_pence,
   onecab_net_pence,
   driver_net_pence,
   gross_fare_pence,
