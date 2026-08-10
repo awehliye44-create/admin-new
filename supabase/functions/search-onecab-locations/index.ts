@@ -1,0 +1,346 @@
+/**
+ * ONECAB location search (SSOT) — international, proximity-restricted, cost-optimised.
+ *
+ * Cost controls (in order — each step can end the request without calling Google):
+ *   1. Minimum query length (rollout config).
+ *   2. Verified ONECAB landmarks first — exact match short-circuits Google entirely.
+ *   3. Shared 14-day result cache keyed by service area + query + language + rounded centre.
+ *   4. A single Places API (New) Text Search call with a HARD locationRestriction circle,
+ *      so suggestions can never jump to another city/country.
+ *
+ * Country / language / radius are all derived dynamically from the service area
+ * (and its region) — nothing is hardcoded to any market.
+ */
+
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import {
+  geoBoundaryToBbox,
+  haversineMetres,
+  hasStrongExactLandmarkMatch,
+  isInsideOrNearServiceArea,
+  LOCATION_SEARCH_MAX_RESULTS,
+  LOCATION_SEARCH_MIN_QUERY_LENGTH,
+  normalizeCountryCode,
+  type OnecabLocationResult,
+  rankLocationSearchResults,
+} from "../_shared/onecabLocationSearchSSOT.ts";
+
+const PLACES_TEXT_SEARCH = "https://places.googleapis.com/v1/places:searchText";
+
+/** Hard proximity bounds (metres) — never suggest beyond the upper bound. */
+const MIN_RADIUS_M = 5_000;
+const MAX_RADIUS_M = 60_000;
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function googleKey(): string | null {
+  return Deno.env.get("GOOGLE_API_KEY") || Deno.env.get("GOOGLE_MAPS_API_KEY") || null;
+}
+
+function normaliseQuery(q: string): string {
+  return q.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** Dynamic search radius from the service area polygon (fallback: 25 km). */
+function radiusFromBbox(
+  centreLat: number,
+  centreLng: number,
+  bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number } | null,
+): number {
+  if (!bbox) return 25_000;
+  const corners: [number, number][] = [
+    [bbox.minLat, bbox.minLng],
+    [bbox.minLat, bbox.maxLng],
+    [bbox.maxLat, bbox.minLng],
+    [bbox.maxLat, bbox.maxLng],
+  ];
+  let max = 0;
+  for (const [lat, lng] of corners) {
+    max = Math.max(max, haversineMetres(centreLat, centreLng, lat, lng));
+  }
+  // Small pad so edge-of-area addresses still resolve.
+  const padded = Math.round(max * 1.15);
+  return Math.min(MAX_RADIUS_M, Math.max(MIN_RADIUS_M, padded));
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+
+  try {
+    // ---- Auth: any signed-in ONECAB user may search ------------------------
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const token = authHeader.replace("Bearer ", "").trim();
+    if (!token) return json({ success: false, error: "Unauthorized" }, 401);
+    const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+    if (userErr || !userData?.user) return json({ success: false, error: "Unauthorized" }, 401);
+
+    const body = await req.json().catch(() => ({}));
+    const action = String(body?.action ?? "search");
+    if (action !== "search") return json({ success: false, error: "Unsupported action" }, 400);
+
+    const rawQuery = typeof body?.query === "string" ? body.query : "";
+    const serviceAreaId = body?.service_area_id ? String(body.service_area_id) : null;
+    const language = typeof body?.language === "string" && body.language.length >= 2
+      ? body.language.slice(0, 5)
+      : "en";
+    const userLat = Number.isFinite(Number(body?.user_latitude)) ? Number(body.user_latitude) : null;
+    const userLng = Number.isFinite(Number(body?.user_longitude)) ? Number(body.user_longitude) : null;
+
+    // ---- Rollout config ----------------------------------------------------
+    const { data: rollout } = await supabase
+      .from("location_search_rollout")
+      .select("global_enabled, google_places_enabled, enabled_service_area_ids, min_query_length, max_results")
+      .eq("id", true)
+      .maybeSingle();
+
+    const minLength = rollout?.min_query_length ?? LOCATION_SEARCH_MIN_QUERY_LENGTH;
+    const limit = Math.min(
+      Number(body?.limit) || rollout?.max_results || LOCATION_SEARCH_MAX_RESULTS,
+      LOCATION_SEARCH_MAX_RESULTS,
+    );
+    const query = rawQuery.trim();
+    if (query.length < minLength) return json({ success: true, results: [], reason: "query_too_short" });
+    if (!serviceAreaId) return json({ success: true, results: [], reason: "missing_service_area" });
+
+    const ssotEnabled = rollout?.global_enabled === true
+      || (rollout?.enabled_service_area_ids ?? []).includes(serviceAreaId);
+    if (!ssotEnabled) return json({ success: true, results: [], reason: "rollout_disabled" });
+
+    // ---- Service area geography (dynamic, international) -------------------
+    const { data: sa } = await supabase
+      .from("service_areas")
+      .select("id, region_id, name, country, center_lat, center_lng, geo_boundary")
+      .eq("id", serviceAreaId)
+      .maybeSingle();
+
+    if (!sa) return json({ success: true, results: [], reason: "service_area_not_found" });
+
+    let countryCode = normalizeCountryCode(sa.country);
+    if (!countryCode && sa.region_id) {
+      const { data: region } = await supabase
+        .from("regions")
+        .select("country_code")
+        .eq("id", sa.region_id)
+        .maybeSingle();
+      countryCode = normalizeCountryCode(region?.country_code ?? null);
+    }
+
+    const bbox = geoBoundaryToBbox(sa.geo_boundary);
+    const centreLat = sa.center_lat ?? (bbox ? (bbox.minLat + bbox.maxLat) / 2 : null);
+    const centreLng = sa.center_lng ?? (bbox ? (bbox.minLng + bbox.maxLng) / 2 : null);
+    if (centreLat == null || centreLng == null) {
+      return json({ success: true, results: [], reason: "service_area_has_no_centre" });
+    }
+
+    const radius = radiusFromBbox(centreLat, centreLng, bbox);
+    // Bias to the operator's live position when it is inside the area, else the area centre.
+    const useUserCentre = userLat != null && userLng != null
+      && haversineMetres(centreLat, centreLng, userLat, userLng) <= radius;
+    const searchLat = useUserCentre ? userLat! : centreLat;
+    const searchLng = useUserCentre ? userLng! : centreLng;
+
+    // ---- 1. Verified ONECAB landmarks (free) -------------------------------
+    const like = `%${query.replace(/[%_]/g, "")}%`;
+    const { data: landmarkRows } = await supabase
+      .from("onecab_location_landmarks")
+      .select("id, canonical_name, alternative_names, category, latitude, longitude, address_description, country_code, region_id, service_area_id, is_verified, search_priority")
+      .eq("service_area_id", serviceAreaId)
+      .eq("enabled", true)
+      .or(`canonical_name.ilike.${like},address_description.ilike.${like}`)
+      .limit(limit);
+
+    const landmarks: OnecabLocationResult[] = (landmarkRows ?? []).map((l) => {
+      const near = isInsideOrNearServiceArea({
+        lat: l.latitude,
+        lng: l.longitude,
+        centreLat: searchLat,
+        centreLng: searchLng,
+        bbox,
+      });
+      return {
+        id: l.id,
+        source: "ONECAB_LANDMARK",
+        provider_place_id: null,
+        display_name: l.canonical_name,
+        short_name: l.canonical_name,
+        address_text: l.address_description ?? l.canonical_name,
+        latitude: l.latitude,
+        longitude: l.longitude,
+        category: l.category,
+        country_code: normalizeCountryCode(l.country_code),
+        region_id: l.region_id,
+        service_area_id: l.service_area_id,
+        inside_service_area: near.inside,
+        distance_from_search_centre_metres: near.distanceMetres,
+        is_verified_local_landmark: Boolean(l.is_verified),
+        alternative_names: (l.alternative_names ?? []) as string[],
+      };
+    });
+
+    if (hasStrongExactLandmarkMatch(landmarks, query)) {
+      return json({
+        success: true,
+        results: rankLocationSearchResults(landmarks, query).slice(0, limit),
+        source: "landmarks_exact",
+      });
+    }
+
+    if (rollout?.google_places_enabled === false) {
+      return json({
+        success: true,
+        results: rankLocationSearchResults(landmarks, query).slice(0, limit),
+        source: "landmarks_only",
+      });
+    }
+
+    // ---- 2. Cache lookup (free) -------------------------------------------
+    const cacheKey = [
+      serviceAreaId,
+      normaliseQuery(query),
+      language,
+      searchLat.toFixed(2),
+      searchLng.toFixed(2),
+      String(radius),
+    ].join("|");
+
+    const { data: cached } = await supabase
+      .from("location_search_cache")
+      .select("id, results, expires_at, hit_count")
+      .eq("cache_key", cacheKey)
+      .maybeSingle();
+
+    if (cached && new Date(cached.expires_at).getTime() > Date.now()) {
+      await supabase
+        .from("location_search_cache")
+        .update({ hit_count: (cached.hit_count ?? 0) + 1, last_used_at: new Date().toISOString() })
+        .eq("id", cached.id);
+      const merged = [...landmarks, ...((cached.results ?? []) as OnecabLocationResult[])];
+      return json({
+        success: true,
+        results: rankLocationSearchResults(merged, query).slice(0, limit),
+        source: "cache",
+      });
+    }
+
+    // ---- 3. Google Places (New) Text Search — one billable call ------------
+    const key = googleKey();
+    if (!key) {
+      return json({
+        success: true,
+        results: rankLocationSearchResults(landmarks, query).slice(0, limit),
+        source: "landmarks_only_no_key",
+      });
+    }
+
+    const placesBody: Record<string, unknown> = {
+      textQuery: query,
+      languageCode: language,
+      maxResultCount: limit,
+      // HARD restriction — results outside this circle are never returned.
+      locationRestriction: {
+        circle: {
+          center: { latitude: searchLat, longitude: searchLng },
+          radius,
+        },
+      },
+    };
+    if (countryCode) placesBody.regionCode = countryCode;
+
+    const res = await fetch(PLACES_TEXT_SEARCH, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": key,
+        "X-Goog-FieldMask":
+          "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType",
+      },
+      body: JSON.stringify(placesBody),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      console.error(`[search-onecab-locations] Places HTTP ${res.status}: ${text}`);
+      return json({
+        success: true,
+        results: rankLocationSearchResults(landmarks, query).slice(0, limit),
+        source: "landmarks_only_provider_error",
+        provider_status: res.status,
+      });
+    }
+
+    const data = await res.json();
+    const googleResults: OnecabLocationResult[] = [];
+    for (const p of (data?.places ?? []) as Record<string, any>[]) {
+      const lat = Number(p?.location?.latitude);
+      const lng = Number(p?.location?.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+      const distance = haversineMetres(searchLat, searchLng, lat, lng);
+      // Second guard: never surface anything beyond the operating radius.
+      if (distance > radius) continue;
+
+      const name = String(p?.displayName?.text ?? "").trim();
+      const address = String(p?.formattedAddress ?? "").trim();
+      if (!name && !address) continue;
+
+      googleResults.push({
+        id: String(p?.id ?? `${lat},${lng}`),
+        source: "GOOGLE_PLACES",
+        provider_place_id: p?.id ? String(p.id) : null,
+        display_name: name || address,
+        short_name: name || address,
+        address_text: address || name,
+        latitude: lat,
+        longitude: lng,
+        category: p?.primaryType ? String(p.primaryType) : null,
+        country_code: countryCode,
+        region_id: sa.region_id ?? null,
+        service_area_id: serviceAreaId,
+        inside_service_area: isInsideOrNearServiceArea({
+          lat,
+          lng,
+          centreLat,
+          centreLng,
+          bbox,
+        }).inside,
+        distance_from_search_centre_metres: distance,
+        is_verified_local_landmark: false,
+      });
+    }
+
+    // ---- 4. Persist cache (best effort) ------------------------------------
+    await supabase.from("location_search_cache").upsert({
+      cache_key: cacheKey,
+      service_area_id: serviceAreaId,
+      normalized_query: normaliseQuery(query),
+      language_code: language,
+      centre_lat: searchLat,
+      centre_lng: searchLng,
+      radius_metres: radius,
+      results: googleResults,
+      hit_count: 0,
+      last_used_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+    }, { onConflict: "cache_key" });
+
+    return json({
+      success: true,
+      results: rankLocationSearchResults([...landmarks, ...googleResults], query).slice(0, limit),
+      source: "google_places",
+    });
+  } catch (err) {
+    console.error("[search-onecab-locations] error", err);
+    return json({ success: false, error: (err as Error).message }, 500);
+  }
+});
