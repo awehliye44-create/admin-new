@@ -26373,6 +26373,23 @@ export type Database = {
         Args: { p_service_area_id: string }
         Returns: Json
       }
+      get_my_last_trip_driver_details: {
+        Args: never
+        Returns: {
+          driver_display_name: string
+          driver_first_name: string
+          driver_id: string
+          driver_last_name_initial: string
+          driver_photo_url: string
+          driver_rating: number
+          driver_rating_count: number
+          trip_id: string
+          vehicle_color: string
+          vehicle_license_plate: string
+          vehicle_make: string
+          vehicle_model: string
+        }[]
+      }
       get_p95_action_metrics: {
         Args: {
           p_app_name: string
@@ -26453,6 +26470,23 @@ export type Database = {
       get_staff_role_prefix: {
         Args: { p_role: Database["public"]["Enums"]["staff_role"] }
         Returns: string
+      }
+      get_trip_driver_details: {
+        Args: { p_trip_id: string }
+        Returns: {
+          driver_display_name: string
+          driver_first_name: string
+          driver_id: string
+          driver_last_name_initial: string
+          driver_photo_url: string
+          driver_rating: number
+          driver_rating_count: number
+          trip_id: string
+          vehicle_color: string
+          vehicle_license_plate: string
+          vehicle_make: string
+          vehicle_model: string
+        }[]
       }
       get_trip_driver_live_location: {
         Args: { p_trip_id: string }
