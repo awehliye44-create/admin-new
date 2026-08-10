@@ -362,6 +362,31 @@ serve(async (req) => {
         .eq("id", assignedDriverId);
     }
 
+    // Revoke any outstanding ride offers so the driver app clears the offer card too
+    const terminalNegotiation =
+      cancelled_by === "driver"
+        ? "cancelled_by_driver"
+        : cancelled_by === "admin"
+        ? "cancelled_by_admin"
+        : "cancelled_by_customer";
+
+    const { error: offersErr } = await supabase
+      .from("ride_offers")
+      .update({
+        status: "revoked",
+        revoked_reason: "trip_terminal_cancel",
+        negotiation_status: terminalNegotiation,
+        updated_at: now.toISOString(),
+      })
+      .eq("trip_id", trip_id)
+      .in("status", ["pending", "countered", "accepted"]);
+
+    if (offersErr) {
+      console.error("[cancel-trip] ride_offers revoke error:", offersErr);
+    }
+
+
+
     await supabase
       .from("customers")
       .update({ active_trip_id: null, updated_at: now.toISOString() })
