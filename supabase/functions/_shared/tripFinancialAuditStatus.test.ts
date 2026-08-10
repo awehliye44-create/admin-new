@@ -12,7 +12,7 @@ const cardTrip = {
   commission_pence: 72,
   capture_amount_pence: 480,
   refund_amount_pence: 0,
-  stripe_settlement_verified: false,
+  provider_settlement_verified: false,
   provider_payment_id: "pi_123",
   payment_status: "captured",
 };
@@ -43,14 +43,14 @@ Deno.test("card captured with full debt recovery — no payout due", () => {
 });
 
 Deno.test("card settled — provider settled", () => {
-  const input = { trip: { ...cardTrip, stripe_settlement_verified: true } };
+  const input = { trip: { ...cardTrip, provider_settlement_verified: true } };
   assertEquals(deriveProviderAuditStatus(input).label, "Settled");
   assertEquals(deriveProviderAuditStatus(input).tone, "green");
 });
 
 Deno.test("card paid out — driver paid out", () => {
   const input = {
-    trip: { ...cardTrip, stripe_settlement_verified: true },
+    trip: { ...cardTrip, provider_settlement_verified: true },
     payouts: [{ status: "completed", driver_amount_pence: 408 }],
   };
   assertEquals(deriveDriverPayoutAuditStatus(input).label, "Paid Out");
@@ -79,7 +79,7 @@ Deno.test("dispute — on hold, under review, disputed", () => {
 
 Deno.test("provider settled via balance transaction available_on", () => {
   const input = {
-    trip: { ...cardTrip, stripe_settlement_verified: false },
+    trip: { ...cardTrip, provider_settlement_verified: false },
     payment: {
       status: "captured",
       provider_status: "available",

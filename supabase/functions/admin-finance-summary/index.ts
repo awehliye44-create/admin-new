@@ -39,7 +39,7 @@ interface CurrencyGroup {
     onecab_gross_commission_pence: number;
     /** Separate Africa CW revenue — never mixed into PLATFORM_COMMISSION gross. */
     commission_wallet_deduction_pence: number;
-    stripe_fees_pence: number;
+    provider_fees_pence: number;
     onecab_net_commission_pence: number;
     driver_net_earnings_pence: number;
     driver_payout_liability_pence: number;
@@ -166,7 +166,7 @@ serve(async (req) => {
             customer_revenue_pence: 0,
             onecab_gross_commission_pence: 0,
             commission_wallet_deduction_pence: 0,
-            stripe_fees_pence: 0,
+            provider_fees_pence: 0,
             onecab_net_commission_pence: 0,
             driver_net_earnings_pence: 0,
             driver_payout_liability_pence: 0,
@@ -188,7 +188,7 @@ serve(async (req) => {
     for (const t of tripRows || []) {
       if (excludeTripFromPlatformCollectedFinance(t)) continue;
       const g = ensure(t.currency_code);
-      g.totals.stripe_fees_pence += tripProviderProcessingFeePence(t);
+      g.totals.provider_fees_pence += tripProviderProcessingFeePence(t);
       g.totals.commissionable_revenue_pence += Number(t.commissionable_fare_pence || 0);
     }
     for (const l of ledgerRows || []) {
@@ -239,7 +239,7 @@ serve(async (req) => {
     // ── Derive net commission + status + validation per bucket ──
     for (const g of buckets.values()) {
       g.totals.onecab_net_commission_pence =
-        g.totals.onecab_gross_commission_pence - g.totals.stripe_fees_pence;
+        g.totals.onecab_gross_commission_pence - g.totals.provider_fees_pence;
 
       if (g.totals.onecab_gross_commission_pence > 0 && g.commission_status === 'legacy_fallback') {
         g.commission_status = 'calculated_pending';

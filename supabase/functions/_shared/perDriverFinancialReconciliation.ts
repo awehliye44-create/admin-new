@@ -33,7 +33,7 @@ import {
   computeIncludedInPayoutBatchPence,
   type SettlementRow,
 } from "./settlementFinanceSSOT.ts";
-import { sumStripePaidOutFromConnectPayouts } from "./driverWalletPayoutSSOT.ts";
+import { sumProviderPaidOutFromConnectPayouts } from "./driverWalletPayoutSSOT.ts";
 import {
   driverDebtPence,
   WALLET_NEGATIVE_BLOCK_REASON,
@@ -57,7 +57,7 @@ export type PerDriverSSOT = {
   /** min(wallet, stripe-settled, finance-cleared) − in-flight. */
   eligible_payout_pence: number;
   included_in_payout_batch_pence: number;
-  stripe_paid_out_total_pence: number;
+  provider_paid_out_total_pence: number;
   /** @deprecated Use eligible_payout_pence — kept for API compat. */
   driver_available_now_pence: number;
   /** Always 0 under the SSOT; kept for UI compatibility. */
@@ -205,11 +205,11 @@ export function computePerDriverSSOT(args: {
   const sourceTier = args.sourceTier ?? "LIVE";
   const driverGross = sumDriverGrossEarningsPence(args.trips);
   const driverNet = sumDriverNetEarningsPence(args.trips);
-  const stripePaidOut = sumStripePaidOutFromConnectPayouts(args.stripeConnectPayouts ?? []);
+  const providerPaidOut = sumProviderPaidOutFromConnectPayouts(args.stripeConnectPayouts ?? []);
   const bankPaidOutLedger = args.ledger
     .filter((r) => ["PAYOUT", "WEEKLY_PAYOUT", "EARLY_CASHOUT", "MANUAL_PAYOUT"].includes(String(r.type)))
     .reduce((s, r) => s + Math.abs(r.amount_pence ?? 0), 0);
-  const bankPaidOut = stripePaidOut > 0 ? stripePaidOut : bankPaidOutLedger;
+  const bankPaidOut = providerPaidOut > 0 ? providerPaidOut : bankPaidOutLedger;
   const completedEarly = sumCompletedEarlyCashoutsPence(args.earlyCashouts);
   const inFlight = sumInFlightCashoutPence(args.earlyCashouts);
   const adjustments = sumAdjustmentsPence(args.ledger);
@@ -289,7 +289,7 @@ export function computePerDriverSSOT(args: {
     finance_cleared_amount_pence: financeCleared,
     eligible_payout_pence: eligiblePayout,
     included_in_payout_batch_pence: includedBatch,
-    stripe_paid_out_total_pence: stripePaidOut,
+    provider_paid_out_total_pence: providerPaidOut,
     driver_available_now_pence: eligiblePayout,
     driver_pending_payout_pence: pendingPayout,
     driver_wallet_balance_pence: walletBalance,

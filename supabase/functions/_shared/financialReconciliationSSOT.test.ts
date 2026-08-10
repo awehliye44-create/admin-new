@@ -135,9 +135,9 @@ Deno.test("mixed card+cash balances separately — no false mismatch from mixing
 Deno.test("total commission and net platform revenue — card + cash, Stripe fees card only", () => {
   const cardCommission = 72;
   const cashCommission = 222;
-  const stripeFees = 27;
+  const providerFees = 27;
   assertEquals(totalCommissionEarnedPence(cardCommission, cashCommission), 294);
-  assertEquals(netPlatformRevenuePence(294, stripeFees), 267);
+  assertEquals(netPlatformRevenuePence(294, providerFees), 267);
 
   const m = computeSSOTMetrics({
     payments: [{ trip_id: "c1", captured_amount_pence: 480, status: "captured" }],
@@ -213,7 +213,7 @@ Deno.test("completed card trip without capture does not increase reconciled comm
   assertEquals(m.onecab_gross_commission_pence, 0);
   assertEquals(m.total_customer_revenue_pence, 0);
   assertEquals(m.pending_trip_count, 1);
-  assertEquals(m.pending_stripe_confirmation_commission_pence, 500);
+  assertEquals(m.pending_provider_confirmation_commission_pence, 500);
 });
 
 

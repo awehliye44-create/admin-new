@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
 
       let classification: ReconciliationRow["classification"] = "matched";
       if (snap.reconciliation_status === "LOCAL_ONLY") classification = "local_only";
-      else if (snap.reconciliation_status === "STRIPE_ONLY") classification = "stripe_only";
+      else if (snap.reconciliation_status === "PROVIDER_ONLY") classification = "stripe_only";
       else if (snap.reconciliation_status === "MISMATCH" || snap.reconciliation_status === "PROVIDER_NEGATIVE") {
         classification = "mismatch";
       } else if (snap.included_in_payout_batch_amount_pence > 0) {
@@ -108,8 +108,8 @@ Deno.serve(async (req) => {
         classification,
         reasons: snap.reconciliation_reasons,
         wallet_owed_pence: snap.current_onecab_wallet_owed_pence,
-        stripe_available_pence: snap.stripe_connect_available_pence,
-        stripe_paid_out_pence: snap.stripe_paid_out_total_pence,
+        stripe_available_pence: snap.provider_available_pence,
+        stripe_paid_out_pence: snap.provider_paid_out_total_pence,
       });
     }
 

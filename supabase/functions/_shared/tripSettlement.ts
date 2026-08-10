@@ -106,7 +106,7 @@ export function calculateTripSettlement(input: TripSettlementInput): TripSettlem
   // v2: pass-through is commissionable when present in final_fare — do not strip.
   const otherPassThroughChargesPence = 0;
   const tipsPence = nonNegInt(input.tips_pence);
-  const stripeFeePence = nonNegInt(input.provider_fee_pence);
+  const providerFeePence = nonNegInt(input.provider_fee_pence);
   const tierPercentUsed = capTierCommissionPercent(input.driver_tier_commission_percent);
 
   // Non-commissionable ONLY: airport (tips sit outside final_fare).
@@ -117,7 +117,7 @@ export function calculateTripSettlement(input: TripSettlementInput): TripSettlem
   const driverTotalEarningsPence = driverNetPence + airportChargePence + tipsPence;
 
   const platformGrossRevenuePence = commissionPence;
-  const platformNetRevenuePence = Math.max(0, commissionPence - stripeFeePence);
+  const platformNetRevenuePence = Math.max(0, commissionPence - providerFeePence);
 
   return {
     final_fare_pence: finalFarePence,
@@ -128,7 +128,7 @@ export function calculateTripSettlement(input: TripSettlementInput): TripSettlem
     airport_charge_pence: airportChargePence,
     other_pass_through_charges_pence: otherPassThroughChargesPence,
     tips_pence: tipsPence,
-    provider_fee_pence: stripeFeePence,
+    provider_fee_pence: providerFeePence,
     platform_gross_revenue_pence: platformGrossRevenuePence,
     platform_net_revenue_pence: platformNetRevenuePence,
     tier_percent_used: tierPercentUsed,
@@ -165,7 +165,7 @@ export function assertSettlementCaptureIdentity(args: {
 /** Settlement from persisted trip fare columns (webhook recovery, backfill, capture). */
 export function calculateTripSettlementFromTripRow(
   trip: TripSettlementTripRow,
-  stripeFeePence = 0,
+  providerFeePence = 0,
 ): TripSettlementResult | null {
   const finalFarePence = resolveSettlementFinalFarePence(trip);
   if (finalFarePence <= 0) return null;
@@ -175,7 +175,7 @@ export function calculateTripSettlementFromTripRow(
     airport_charge_pence: trip.airport_charge_pence ?? 0,
     tips_pence: trip.tip_pence ?? trip.tip_amount_pence ?? 0,
     driver_tier_commission_percent: resolveTripTierPercent(trip),
-    provider_fee_pence: stripeFeePence,
+    provider_fee_pence: providerFeePence,
   });
 }
 

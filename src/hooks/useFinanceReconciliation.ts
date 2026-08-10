@@ -5,8 +5,8 @@ import { invokeFinanceReconciliation } from '@/hooks/financeReconciliationApi';
 
 export type OnecabSettlementStatus =
   | 'calculated_only'
-  | 'pending_stripe_settlement'
-  | 'available_in_stripe_balance'
+  | 'pending_provider_settlement'
+  | 'available_in_provider_balance'
   | 'paid_to_onecab_bank'
   | 'reconciled';
 
@@ -28,7 +28,7 @@ export interface FinanceSettlementSummaryResponse {
     onecab_net_pence: number;
     max_commission_at_15_percent_pence: number;
     commission_exceeds_cap: boolean;
-    pending_stripe_settlement_pence: number;
+    pending_provider_settlement_pence: number;
     settlement_status: OnecabSettlementStatus;
     settlement_status_label: string;
     driver_payout_liability_pence: number;
@@ -47,10 +47,10 @@ export interface FinanceSettlementSummaryResponse {
     failed_amount_today_pence: number;
     failure_reasons: Array<{ reason: string; amount_pence: number; count: number }>;
     safe_payout_amount_pence: number;
-    waiting_for_stripe_funds: boolean;
+    waiting_for_provider_funds: boolean;
   };
   reconciliation: {
-    stripe_available_balance_pence: number;
+    provider_available_balance_pence: number;
     calculated_onecab_net_pence: number;
     available_driver_payable_pence: number;
     pending_transfers_pence: number;
@@ -146,7 +146,7 @@ export interface FinanceReconciliationSummary {
     data_source_badge: 'LIVE' | 'DEGRADED_SNAPSHOT' | 'UNAVAILABLE';
     customer_revenue_source: string;
   };
-  pending_stripe_confirmation?: {
+  pending_provider_confirmation?: {
     label: string;
     trip_count: number;
     expected_revenue_pence: number;
@@ -157,7 +157,7 @@ export interface FinanceReconciliationSummary {
 }
 
 export type MoneyMovementReconciliationStatus =
-  | 'pending_stripe_confirmation'
+  | 'pending_provider_confirmation'
   | 'matched'
   | 'mismatch'
   | 'refunded_reversed'
@@ -501,7 +501,7 @@ export interface FinanceReconciliationResponse {
     trip_count?: number;
     audit_row_count?: number;
     driver_count?: number;
-    stripe_balance_error?: string | null;
+    provider_balance_error?: string | null;
     ssot_version?: string;
     data_source_badge?: string;
     accounting_rules?: Record<string, string>;
@@ -534,7 +534,7 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
       commission_exceeds_cap:
         s.onecab_money.onecab_gross_commission_pence >
         Math.round(s.customer_revenue.commissionable_revenue_pence * 0.15) + 5,
-      pending_stripe_settlement_pence: s.provider_money.provider_pending_balance_pence,
+      pending_provider_settlement_pence: s.provider_money.provider_pending_balance_pence,
       settlement_status: s.onecab_money.onecab_commission_status,
       settlement_status_label: s.onecab_money.onecab_commission_status_label,
       driver_payout_liability_pence: s.driver_money.driver_payout_liability_pence,
@@ -542,7 +542,7 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
     stripe_platform_summary: {
       available_platform_balance_pence: s.provider_money.provider_available_balance_pence,
       pending_platform_balance_pence: s.provider_money.provider_pending_balance_pence,
-      error: data.meta.stripe_balance_error,
+      error: data.meta.provider_balance_error,
       note: 'Platform balance — NOT ONECAB commission',
     },
     driver_payout_summary: {
@@ -553,11 +553,11 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
       failed_amount_today_pence: 0,
       failure_reasons: [],
       safe_payout_amount_pence: s.driver_money.driver_available_payout_pence,
-      waiting_for_stripe_funds:
+      waiting_for_provider_funds:
         s.provider_money.provider_available_balance_pence < s.driver_money.driver_available_payout_pence,
     },
     reconciliation: {
-      stripe_available_balance_pence: s.provider_money.provider_available_balance_pence,
+      provider_available_balance_pence: s.provider_money.provider_available_balance_pence,
       calculated_onecab_net_pence: s.onecab_money.onecab_card_net_commission_pence,
       available_driver_payable_pence: s.driver_money.driver_payout_liability_pence,
       pending_transfers_pence: s.driver_money.in_flight_cashout_pence,

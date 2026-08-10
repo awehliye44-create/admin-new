@@ -342,9 +342,9 @@ function settlementStatusLabel(status: string): string {
   switch (status) {
     case "calculated_only":
       return "Calculated only — not confirmed in Stripe";
-    case "pending_stripe_settlement":
+    case "pending_provider_settlement":
       return "Pending Stripe settlement";
-    case "available_in_stripe_balance":
+    case "available_in_provider_balance":
       return "ONECAB net available in Stripe (trip-verified)";
     case "paid_to_onecab_bank":
       return "Paid To ONECAB Bank";
@@ -709,8 +709,8 @@ serve(async (req) => {
 
     // FR must not call Revolut/Stripe balance APIs to create a second payment truth.
     // Provider balance refresh belongs to Payment Sessions / Payout Ledger.
-    const stripeAvailablePence = 0;
-    const stripePendingPence = 0;
+    const providerAvailablePence = 0;
+    const providerPendingPence = 0;
     const stripeBalanceError: string | null = "PROVIDER_BALANCE_NOT_QUERIED_BY_FR";
     const moneyMovement = undefined;
 
@@ -722,8 +722,8 @@ serve(async (req) => {
         periodTo,
         providerAvailableBalancePence: financeScopeProvider.manual_provider_payout
           ? Number.MAX_SAFE_INTEGER
-          : stripeAvailablePence,
-        providerPendingBalancePence: stripePendingPence,
+          : providerAvailablePence,
+        providerPendingBalancePence: providerPendingPence,
         sourceTier: "LIVE",
         manualProviderPayout: financeScopeProvider.manual_provider_payout,
       });
@@ -738,7 +738,7 @@ serve(async (req) => {
           data_source_badge: perDriver.source_tier,
           payment_provider: financeScopeProvider.provider,
           provider_balance_error: stripeBalanceError,
-          stripe_balance_error: stripeBalanceError,
+          provider_balance_error: stripeBalanceError,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -758,16 +758,16 @@ serve(async (req) => {
       payments: paymentRows,
       trips: tripRows,
       ledger: ledgerRows,
-      providerAvailableBalancePence: stripeAvailablePence,
-      providerPendingBalancePence: stripePendingPence,
+      providerAvailableBalancePence: providerAvailablePence,
+      providerPendingBalancePence: providerPendingPence,
       paymentSessions: paymentSessionRows,
     });
 
     const settlementStatus = classifyOnecabSettlementStatus({
       calculatedOnecabNetPence: ssotMetrics.onecab_card_net_commission_pence,
       verifiedOnecabNetPence: finance.verified_onecab_net_pence,
-      stripeAvailablePence,
-      stripePendingPence,
+      providerAvailablePence,
+      providerPendingPence,
       verifiedTripCount: finance.verified_trip_count,
       tripCount: finance.tripCount,
     });
@@ -1173,13 +1173,13 @@ serve(async (req) => {
         payment_provider_environment: financeScopeProvider.environment,
         manual_provider_payout: financeScopeProvider.manual_provider_payout,
         provider_balance_error: stripeBalanceError,
-        stripe_balance_error: stripeBalanceError,
+        provider_balance_error: stripeBalanceError,
         provider_balance_is_not_payment_truth: true,
         ssot_version: SSOT_VERSION,
         data_source_badge: pageStatus,
         accounting_rules: {
           card_customer_revenue: "sum(captured_amount_pence) where payments.status in captured|paid|succeeded — card only",
-          pending_stripe_confirmation: "completed card trips without capture confirmation — excluded from reconciled totals",
+          pending_provider_confirmation: "completed card trips without capture confirmation — excluded from reconciled totals",
           cash_collected_by_driver: "sum(cash trip fare) — not ONECAB Stripe revenue",
           onecab_card_commission: "sum(card trip commission_pence) capture-confirmed only, refund-adjusted",
           onecab_cash_commission_receivable: "sum(cash trip commission_pence) — owed by driver",

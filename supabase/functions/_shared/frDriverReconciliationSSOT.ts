@@ -340,7 +340,7 @@ export function computeFrDriverReconciliation(
     })
     : computeAvailableCashOutPence({
       // Eligibility may treat unknown Connect as 0 capacity — display stays null separately.
-      stripe_connect_available_pence:
+      provider_available_pence:
         input.provider_account_balance_status === "AVAILABLE"
           ? input.provider_account_balance_pence
           : null,

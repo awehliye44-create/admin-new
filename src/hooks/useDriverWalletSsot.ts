@@ -62,10 +62,10 @@ export type DriverWalletSsotRow = {
   finance_cleared_amount_pence: number;
   included_in_payout_batch_amount_pence: number;
   scheduled_payout_display_pence: number | null;
-  stripe_connect_available_pence: number | null;
-  stripe_connect_pending_pence: number | null;
-  stripe_in_transit_pence: number | null;
-  stripe_paid_out_total_pence: number;
+  provider_available_pence: number | null;
+  provider_pending_pence: number | null;
+  provider_in_transit_pence: number | null;
+  provider_paid_out_total_pence: number;
   local_only_failed_payout_pence: number;
   failed_payout_stuck_processing_pence: number;
   recovery_debt_pence: number;

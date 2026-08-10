@@ -249,8 +249,8 @@ serve(async (req) => {
         driverNet,
         extras: t.extras_pence || 0,
         tip: t.tip_pence || 0,
-        stripePaymentIntentId: t.provider_payment_id,
-        stripeChargeId: t.provider_charge_id,
+        providerPaymentIntentId: t.provider_payment_id,
+        providerChargeId: t.provider_charge_id,
       };
     }) || [];
 

@@ -325,7 +325,7 @@ export async function recordCardCaptureFailure(
     tripId: string;
     driverId?: string | null;
     message: string;
-    stripePaymentIntentId?: string | null;
+    providerPaymentIntentId?: string | null;
   },
 ): Promise<void> {
   const errorText = args.message.slice(0, 2000);
@@ -356,8 +356,8 @@ export async function recordCardCaptureFailure(
     })
     .eq("trip_id", args.tripId);
 
-  if (args.stripePaymentIntentId) {
-    paymentQuery = paymentQuery.eq("provider_payment_id", args.stripePaymentIntentId);
+  if (args.providerPaymentIntentId) {
+    paymentQuery = paymentQuery.eq("provider_payment_id", args.providerPaymentIntentId);
   }
   await paymentQuery;
 
@@ -380,7 +380,7 @@ export async function recordCardCaptureFailure(
 
   await logFinanceAuditEvent(supabase, "CARD_CAPTURE_FAILED", {
     message: errorText,
-    provider_payment_id: args.stripePaymentIntentId ?? null,
+    provider_payment_id: args.providerPaymentIntentId ?? null,
     reversed_phantom_credits: true,
   }, args.tripId, driverId);
 }

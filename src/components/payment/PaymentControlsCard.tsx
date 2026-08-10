@@ -74,10 +74,10 @@ interface PaymentState {
   stripe_destination_account_id: string | null;
   provider_transfer_id: string | null;
   stripe_transfer_amount_pence: number | null;
-  stripe_settlement_verified: boolean;
-  stripe_settlement_warning: string | null;
-  stripe_settlement_warning_severity?: 'info' | 'error' | null;
-  stripe_settlement_warning_label?: string | null;
+  provider_settlement_verified: boolean;
+  provider_settlement_warning: string | null;
+  provider_settlement_warning_severity?: 'info' | 'error' | null;
+  provider_settlement_warning_label?: string | null;
   customer_email: string | null;
   payment_created_at: string | null;
   captured_at: string | null;
@@ -345,13 +345,13 @@ export function PaymentControlsCard({
   const isFullyRefunded = state ? state.captured_pence > 0 && refundable === 0 : false;
   const settlementWarning = state
     ? settlementWarningSeverity(
-        state.stripe_settlement_verified,
-        state.stripe_settlement_warning,
-        state.stripe_settlement_warning_severity,
+        state.provider_settlement_verified,
+        state.provider_settlement_warning,
+        state.provider_settlement_warning_severity,
       )
     : null;
   const settlementWarningText = state
-    ? settlementWarningLabel(state.stripe_settlement_warning, state.stripe_settlement_warning_label)
+    ? settlementWarningLabel(state.provider_settlement_warning, state.provider_settlement_warning_label)
     : null;
 
   // ---- Extra-payment derivation (with legacy/past-trip fallbacks) ----
@@ -377,7 +377,7 @@ export function PaymentControlsCard({
     customerPayablePence: settlementTotalPence > 0 ? settlementTotalPence : null,
     verifiedCapturedTotalPence: capturedPence > 0 ? capturedPence : (state?.captured_pence ?? null),
     netRefundedTotalPence: state?.refunded_pence ?? 0,
-    providerSettlementVerified: !!state?.stripe_settlement_verified,
+    providerSettlementVerified: !!state?.provider_settlement_verified,
     paymentStatus: state?.payment_status ?? state?.stripe_status,
     providerStatus: state?.provider_status ?? state?.stripe_status,
   });
@@ -581,12 +581,12 @@ export function PaymentControlsCard({
               <Badge
                 variant="outline"
                 className={
-                  state.stripe_settlement_verified
+                  state.provider_settlement_verified
                     ? 'bg-green-500/10 text-green-600 border-green-500/30'
                     : 'bg-destructive/10 text-destructive border-destructive/40'
                 }
               >
-                {state.stripe_settlement_verified ? 'Provider settlement verified' : 'Provider settlement not verified'}
+                {state.provider_settlement_verified ? 'Provider settlement verified' : 'Provider settlement not verified'}
               </Badge>
             </div>
 
@@ -762,7 +762,7 @@ export function PaymentControlsCard({
                   hasPaymentIntent: !!state.payment_intent_id,
                   hasCharge: !!state.charge_id || hasCharge,
                   tripCancelled: isCancelled,
-                  stripeSettlementVerified: state.stripe_settlement_verified,
+                  stripeSettlementVerified: state.provider_settlement_verified,
                   actionsAllowed: state.actions_allowed,
                 }}
                 actionsDisabled={actionMutation.isPending || repairCommissionsMutation.isPending}

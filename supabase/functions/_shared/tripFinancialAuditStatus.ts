@@ -47,8 +47,8 @@ export type TripAuditStatusTrip = Partial<TripSSOTRow> & {
   financial_outcome?: string | null;
   provider_payment_id?: string | null;
   provider_charge_id?: string | null;
-  stripe_settlement_verified?: boolean | null;
-  stripe_settlement_warning?: string | null;
+  provider_settlement_verified?: boolean | null;
+  provider_settlement_warning?: string | null;
   provider_status?: string | null;
   refunded_at?: string | null;
 };
@@ -113,7 +113,7 @@ function isDisputed(input: TripAuditStatusInput): boolean {
     input.trip.payment_status,
     input.trip.financial_outcome,
     input.trip.provider_status,
-    input.trip.stripe_settlement_warning,
+    input.trip.provider_settlement_warning,
     input.payment?.status,
     input.payment?.provider_status,
   ].map(norm);
@@ -151,7 +151,7 @@ function isCardCaptured(input: TripAuditStatusInput): boolean {
 }
 
 function stripeBalanceTransactionSettled(input: TripAuditStatusInput): boolean {
-  if (input.trip.stripe_settlement_verified === true) return true;
+  if (input.trip.provider_settlement_verified === true) return true;
   if (input.payment?.provider_available_on) {
     const availableOn = new Date(input.payment.provider_available_on).getTime();
     if (!Number.isNaN(availableOn) && availableOn <= Date.now()) return true;

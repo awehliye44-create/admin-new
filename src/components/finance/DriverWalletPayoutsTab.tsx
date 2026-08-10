@@ -177,7 +177,7 @@ export function DriverWalletPayoutsTab({
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Paid</p>
-              <p className="font-semibold tabular-nums">{formatNullablePence(driver.stripe_paid_out_total_pence, ccy)}</p>
+              <p className="font-semibold tabular-nums">{formatNullablePence(driver.provider_paid_out_total_pence, ccy)}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Failed</p>

@@ -139,7 +139,7 @@ serve(async (req) => {
         payment_method,
         payment_status,
         financial_outcome,
-        stripe_settlement_verified,
+        provider_settlement_verified,
         driver_tier_commission_percent,
         commission_pct,
         completed_at,
@@ -285,8 +285,8 @@ serve(async (req) => {
       walletLedgerResult.data || [],
     );
 
-    let stripeAvailablePence = 0;
-    let stripePendingPence = 0;
+    let providerAvailablePence = 0;
+    let providerPendingPence = 0;
     let stripePlatformPayoutsPence = 0;
     let stripePlatformPaidTodayPence = 0;
     let stripePlatformPayoutDetails: Array<{
@@ -308,8 +308,8 @@ serve(async (req) => {
       environment: financeScopeProvider.environment,
       currency,
     });
-    stripeAvailablePence = providerBalance.available_pence;
-    stripePendingPence = providerBalance.pending_pence;
+    providerAvailablePence = providerBalance.available_pence;
+    providerPendingPence = providerBalance.pending_pence;
     stripeBalanceError = providerBalance.error;
 
     const useStripePlatformPayouts = financeScopeProvider.provider === "stripe";
@@ -375,8 +375,8 @@ serve(async (req) => {
       walletByDriver,
       ledgerWalletSumByDriver,
       drivers: driversResult.data || [],
-      stripeAvailablePence,
-      stripePendingPence,
+      providerAvailablePence,
+      providerPendingPence,
       stripePlatformPayoutsPence,
       stripeBalanceError,
     });

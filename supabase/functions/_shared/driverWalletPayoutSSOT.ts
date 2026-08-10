@@ -25,23 +25,23 @@ export type DriverWalletPayoutSnapshotInput = {
   /** Sum of net on payout_items in active batch (pending/processing). */
   included_in_payout_batch_pence: number;
   /** Stripe Connect standard available — physical cash only. */
-  stripe_connect_available_pence: number | null;
-  stripe_connect_pending_pence: number | null;
-  stripe_in_transit_pence?: number | null;
-  stripe_connect_instant_available_pence?: number | null;
+  provider_available_pence: number | null;
+  provider_pending_pence: number | null;
+  provider_in_transit_pence?: number | null;
+  provider_instant_available_pence?: number | null;
   /** Sum of paid stripe_connect_payouts or ledger rows with provider_payout_id. */
-  stripe_paid_out_total_pence: number;
+  provider_paid_out_total_pence: number;
   recovery_debt_pence: number;
   in_flight_cashout_pence?: number;
   /** ACTIVE driver_payout_reservations — cannot be cash-out or re-batch reserved. */
   reserved_payout_pence?: number;
   payout_blocked?: boolean;
-  instant_payout_enabled_by_stripe?: boolean;
+  instant_payout_enabled_by_provider?: boolean;
   early_cashout_enabled_by_service_area?: boolean;
   min_cashout_pence?: number;
   /** Evidence flags for reconciliation */
-  stripe_payout_without_ledger_debit_pence?: number;
-  ledger_debit_without_stripe_payout_pence?: number;
+  provider_payout_without_ledger_debit_pence?: number;
+  ledger_debit_without_provider_payout_pence?: number;
   local_only_failed_payout_pence?: number;
   failed_payout_stuck_processing_pence?: number;
   provider_platform_available_pence?: number | null;
@@ -56,10 +56,10 @@ export type DriverWalletPayoutSnapshot = {
   current_onecab_wallet_owed_pence: number;
   finance_cleared_amount_pence: number;
   included_in_payout_batch_amount_pence: number;
-  stripe_connect_available_pence: number | null;
-  stripe_connect_pending_pence: number | null;
-  stripe_in_transit_pence: number | null;
-  stripe_paid_out_total_pence: number;
+  provider_available_pence: number | null;
+  provider_pending_pence: number | null;
+  provider_in_transit_pence: number | null;
+  provider_paid_out_total_pence: number;
   cashout_limit_pence: number;
   scheduled_payout_display_pence: number | null;
   local_only_failed_payout_pence: number;
@@ -76,7 +76,7 @@ export type ReconciliationStatus =
   | "BALANCED"
   | "MISMATCH"
   | "LOCAL_ONLY"
-  | "STRIPE_ONLY"
+  | "PROVIDER_ONLY"
   | "PROVIDER_NEGATIVE";
 
 const ACTIVE_BATCH_STATUSES = new Set(["pending", "processing"]);
@@ -91,7 +91,7 @@ export function sumIncludedInPayoutBatchPence(
   }, 0);
 }
 
-export function sumStripePaidOutFromConnectPayouts(
+export function sumProviderPaidOutFromConnectPayouts(
   rows: Array<{ amount_pence?: number | null; status?: string | null }>,
 ): number {
   return rows.reduce((sum, row) => {
@@ -106,8 +106,8 @@ export function sumStripePaidOutFromConnectPayouts(
  * Never uses wallet_balance as Stripe physical cash (hard SSOT rule).
  */
 export function computeAvailableCashOutPence(input: {
-  stripe_connect_available_pence: number | null | undefined;
-  stripe_instant_available_pence?: number | null | undefined;
+  provider_available_pence: number | null | undefined;
+  provider_instant_available_pence?: number | null | undefined;
   finance_cleared_pence: number;
   recovery_debt_pence: number;
   in_flight_cashout_pence?: number;
@@ -117,15 +117,15 @@ export function computeAvailableCashOutPence(input: {
 }): number {
   if (input.payout_blocked || input.instant_enabled === false) return 0;
   const financeCleared = Math.max(0, input.finance_cleared_pence);
-  const stripeBase = typeof input.stripe_instant_available_pence === "number"
-    ? Math.max(0, input.stripe_instant_available_pence)
-    : typeof input.stripe_connect_available_pence === "number"
-    ? Math.max(0, input.stripe_connect_available_pence)
+  const providerBase = typeof input.provider_instant_available_pence === "number"
+    ? Math.max(0, input.provider_instant_available_pence)
+    : typeof input.provider_available_pence === "number"
+    ? Math.max(0, input.provider_available_pence)
     : 0;
   const recovery = Math.max(0, input.recovery_debt_pence);
   const inFlight = Math.max(0, input.in_flight_cashout_pence ?? 0);
   const reserved = Math.max(0, input.reserved_payout_pence ?? 0);
-  const raw = Math.min(stripeBase, financeCleared);
+  const raw = Math.min(providerBase, financeCleared);
   return Math.max(0, raw - recovery - inFlight - reserved);
 }
 
@@ -159,16 +159,16 @@ export function isManualBankPayoutProviderName(provider: string | null | undefin
 export function computeCashoutLimitPence(input: {
   wallet_owed_pence: number;
   finance_cleared_pence: number;
-  stripe_instant_available_pence: number | null | undefined;
+  provider_instant_available_pence: number | null | undefined;
   recovery_debt_pence: number;
   in_flight_cashout_pence?: number;
   payout_blocked?: boolean;
   instant_enabled?: boolean;
-  stripe_connect_available_pence?: number | null;
+  provider_available_pence?: number | null;
 }): number {
   return computeAvailableCashOutPence({
-    stripe_connect_available_pence: input.stripe_connect_available_pence ?? null,
-    stripe_instant_available_pence: input.stripe_instant_available_pence,
+    provider_available_pence: input.provider_available_pence ?? null,
+    provider_instant_available_pence: input.provider_instant_available_pence,
     finance_cleared_pence: input.finance_cleared_pence,
     recovery_debt_pence: input.recovery_debt_pence,
     in_flight_cashout_pence: input.in_flight_cashout_pence,
@@ -188,17 +188,17 @@ export function computeDriverWalletPayoutSnapshot(
   const inFlight = Math.max(0, Math.round(input.in_flight_cashout_pence ?? 0));
   const reservedPayout = Math.max(0, Math.round(input.reserved_payout_pence ?? 0));
 
-  const stripeAvailable = typeof input.stripe_connect_available_pence === "number"
-    ? Math.max(0, Math.round(input.stripe_connect_available_pence))
+  const providerAvailable = typeof input.provider_available_pence === "number"
+    ? Math.max(0, Math.round(input.provider_available_pence))
     : null;
-  const stripePending = typeof input.stripe_connect_pending_pence === "number"
-    ? Math.max(0, Math.round(input.stripe_connect_pending_pence))
+  const providerPending = typeof input.provider_pending_pence === "number"
+    ? Math.max(0, Math.round(input.provider_pending_pence))
     : null;
-  const stripeInTransit = typeof input.stripe_in_transit_pence === "number"
-    ? Math.max(0, Math.round(input.stripe_in_transit_pence))
+  const providerInTransit = typeof input.provider_in_transit_pence === "number"
+    ? Math.max(0, Math.round(input.provider_in_transit_pence))
     : null;
 
-  const instantEnabled = input.instant_payout_enabled_by_stripe !== false
+  const instantEnabled = input.instant_payout_enabled_by_provider !== false
     && input.early_cashout_enabled_by_service_area !== false;
 
   const manualBank = isManualBankPayoutProviderName(input.payout_provider);
@@ -213,8 +213,8 @@ export function computeDriverWalletPayoutSnapshot(
       payout_blocked: input.payout_blocked,
     })
     : computeAvailableCashOutPence({
-      stripe_connect_available_pence: stripeAvailable,
-      stripe_instant_available_pence: input.stripe_connect_instant_available_pence,
+      provider_available_pence: providerAvailable,
+      provider_instant_available_pence: input.provider_instant_available_pence,
       finance_cleared_pence: financeCleared,
       recovery_debt_pence: recoveryDebt,
       in_flight_cashout_pence: inFlight,
@@ -235,20 +235,20 @@ export function computeDriverWalletPayoutSnapshot(
     reasons.push("Stripe platform available balance is negative");
   }
 
-  const stripeWithoutLedger = Math.max(0, input.stripe_payout_without_ledger_debit_pence ?? 0);
-  const ledgerWithoutStripe = Math.max(0, input.ledger_debit_without_stripe_payout_pence ?? 0);
+  const providerWithoutLedger = Math.max(0, input.provider_payout_without_ledger_debit_pence ?? 0);
+  const ledgerWithoutProvider = Math.max(0, input.ledger_debit_without_provider_payout_pence ?? 0);
   const localFailed = Math.max(0, input.local_only_failed_payout_pence ?? 0);
   const stuckProcessing = Math.max(0, input.failed_payout_stuck_processing_pence ?? 0);
 
   // Stripe Connect reconciliation evidence — never freezes Revolut/manual bank available.
   if (!manualBank) {
-    if (stripeWithoutLedger > 0) {
-      status = status === "BALANCED" ? "STRIPE_ONLY" : "MISMATCH";
-      reasons.push(`Stripe payout £${(stripeWithoutLedger / 100).toFixed(2)} missing ledger debit`);
+    if (providerWithoutLedger > 0) {
+      status = status === "BALANCED" ? "PROVIDER_ONLY" : "MISMATCH";
+      reasons.push(`Stripe payout £${(providerWithoutLedger / 100).toFixed(2)} missing ledger debit`);
     }
-    if (ledgerWithoutStripe > 0) {
+    if (ledgerWithoutProvider > 0) {
       status = "MISMATCH";
-      reasons.push(`Ledger debit £${(ledgerWithoutStripe / 100).toFixed(2)} missing Stripe payout`);
+      reasons.push(`Ledger debit £${(ledgerWithoutProvider / 100).toFixed(2)} missing Stripe payout`);
     }
     if (localFailed > 0) {
       status = status === "BALANCED" ? "LOCAL_ONLY" : "MISMATCH";
@@ -274,10 +274,10 @@ export function computeDriverWalletPayoutSnapshot(
     current_onecab_wallet_owed_pence: walletOwed,
     finance_cleared_amount_pence: financeCleared,
     included_in_payout_batch_amount_pence: includedBatch,
-    stripe_connect_available_pence: stripeAvailable,
-    stripe_connect_pending_pence: stripePending,
-    stripe_in_transit_pence: stripeInTransit,
-    stripe_paid_out_total_pence: Math.max(0, Math.round(input.stripe_paid_out_total_pence)),
+    provider_available_pence: providerAvailable,
+    provider_pending_pence: providerPending,
+    provider_in_transit_pence: providerInTransit,
+    provider_paid_out_total_pence: Math.max(0, Math.round(input.provider_paid_out_total_pence)),
     cashout_limit_pence: cashoutLimit,
     scheduled_payout_display_pence: scheduledDisplay,
     local_only_failed_payout_pence: localFailed,

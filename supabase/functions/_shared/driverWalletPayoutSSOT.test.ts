@@ -15,7 +15,7 @@ Deno.test("cashout limit is zero when Stripe instant is zero even if wallet owed
     computeCashoutLimitPence({
       wallet_owed_pence: 973,
       finance_cleared_pence: 973,
-      stripe_instant_available_pence: 0,
+      provider_instant_available_pence: 0,
       recovery_debt_pence: 0,
     }),
     0,
@@ -35,9 +35,9 @@ Deno.test("Revolut manual bank available uses finance-cleared wallet — never C
     wallet_balance_pence: 986,
     finance_cleared_pence: 986,
     included_in_payout_batch_pence: 0,
-    stripe_connect_available_pence: 0,
-    stripe_connect_pending_pence: 0,
-    stripe_paid_out_total_pence: 0,
+    provider_available_pence: 0,
+    provider_pending_pence: 0,
+    provider_paid_out_total_pence: 0,
     recovery_debt_pence: 0,
     payout_provider: "revolut",
   });
@@ -51,9 +51,9 @@ Deno.test("Revolut available is zero when finance not cleared — with live wall
     wallet_balance_pence: 986,
     finance_cleared_pence: 0,
     included_in_payout_batch_pence: 0,
-    stripe_connect_available_pence: 0,
-    stripe_connect_pending_pence: 0,
-    stripe_paid_out_total_pence: 0,
+    provider_available_pence: 0,
+    provider_pending_pence: 0,
+    provider_paid_out_total_pence: 0,
     recovery_debt_pence: 0,
     payout_provider: "revolut",
   });
@@ -66,9 +66,9 @@ Deno.test("Revolut ignores Stripe local_only mismatch freeze", () => {
     wallet_balance_pence: 408,
     finance_cleared_pence: 408,
     included_in_payout_batch_pence: 0,
-    stripe_connect_available_pence: 0,
-    stripe_connect_pending_pence: 0,
-    stripe_paid_out_total_pence: 0,
+    provider_available_pence: 0,
+    provider_pending_pence: 0,
+    provider_paid_out_total_pence: 0,
     recovery_debt_pence: 0,
     local_only_failed_payout_pence: 408,
     payout_provider: "revolut",
@@ -83,9 +83,9 @@ Deno.test("scheduled payout display only from batch amount not wallet", () => {
     wallet_balance_pence: 973,
     finance_cleared_pence: 973,
     included_in_payout_batch_pence: 0,
-    stripe_connect_available_pence: 0,
-    stripe_connect_pending_pence: 0,
-    stripe_paid_out_total_pence: 0,
+    provider_available_pence: 0,
+    provider_pending_pence: 0,
+    provider_paid_out_total_pence: 0,
     recovery_debt_pence: 0,
   });
   assertEquals(snap.scheduled_payout_display_pence, null);
@@ -95,8 +95,8 @@ Deno.test("scheduled payout display only from batch amount not wallet", () => {
 Deno.test("available cash out ignores wallet balance — Stripe after settlement rules only", () => {
   assertEquals(
     computeAvailableCashOutPence({
-      stripe_connect_available_pence: 500,
-      stripe_instant_available_pence: 500,
+      provider_available_pence: 500,
+      provider_instant_available_pence: 500,
       finance_cleared_pence: 400,
       recovery_debt_pence: 50,
     }),
@@ -104,8 +104,8 @@ Deno.test("available cash out ignores wallet balance — Stripe after settlement
   );
   assertEquals(
     computeAvailableCashOutPence({
-      stripe_connect_available_pence: 200,
-      stripe_instant_available_pence: 200,
+      provider_available_pence: 200,
+      provider_instant_available_pence: 200,
       finance_cleared_pence: 973,
       recovery_debt_pence: 0,
     }),
@@ -118,9 +118,9 @@ Deno.test("local_only failed flags Connect audit LOCAL_ONLY and freezes Stripe c
     wallet_balance_pence: 973,
     finance_cleared_pence: 973,
     included_in_payout_batch_pence: 0,
-    stripe_connect_available_pence: 0,
-    stripe_connect_pending_pence: 0,
-    stripe_paid_out_total_pence: 0,
+    provider_available_pence: 0,
+    provider_pending_pence: 0,
+    provider_paid_out_total_pence: 0,
     recovery_debt_pence: 0,
     local_only_failed_payout_pence: 973,
   });
@@ -134,14 +134,14 @@ Deno.test("wallet not equal to Connect balance is Connect-OK — never FR BALANC
     wallet_balance_pence: 9_730,
     finance_cleared_pence: 9_730,
     included_in_payout_batch_pence: 0,
-    stripe_connect_available_pence: 408,
-    stripe_connect_pending_pence: 0,
-    stripe_paid_out_total_pence: 0,
+    provider_available_pence: 408,
+    provider_pending_pence: 0,
+    provider_paid_out_total_pence: 0,
     recovery_debt_pence: 0,
   });
   // Connect audit may be OK (reference differs from wallet by design).
   assertEquals(snap.provider_connect_audit_status, "OK");
-  assertEquals(snap.stripe_connect_available_pence, 408);
+  assertEquals(snap.provider_available_pence, 408);
   assertEquals(snap.wallet_balance_pence, 9_730);
   // Legacy field is Connect audit only — FR Drivers must use frDriverReconciliationSSOT.
   assertEquals(snap.reconciliation_status, "BALANCED");
@@ -152,12 +152,12 @@ Deno.test("null Connect balance stays null — never coerced to 0", () => {
     wallet_balance_pence: 1001,
     finance_cleared_pence: 1001,
     included_in_payout_batch_pence: 0,
-    stripe_connect_available_pence: null,
-    stripe_connect_pending_pence: null,
-    stripe_paid_out_total_pence: 0,
+    provider_available_pence: null,
+    provider_pending_pence: null,
+    provider_paid_out_total_pence: 0,
     recovery_debt_pence: 0,
   });
-  assertEquals(snap.stripe_connect_available_pence, null);
+  assertEquals(snap.provider_available_pence, null);
   assertEquals(snap.provider_connect_audit_status, "UNAVAILABLE");
   assertEquals(snap.reconciliation_status, "PROVIDER_BALANCE_UNAVAILABLE");
 });
@@ -167,12 +167,12 @@ Deno.test("mismatch freezes automatic payout and cash-out", () => {
     wallet_balance_pence: 500,
     finance_cleared_pence: 500,
     included_in_payout_batch_pence: 0,
-    stripe_connect_available_pence: 500,
-    stripe_connect_pending_pence: 0,
-    stripe_connect_instant_available_pence: 500,
-    stripe_paid_out_total_pence: 0,
+    provider_available_pence: 500,
+    provider_pending_pence: 0,
+    provider_instant_available_pence: 500,
+    provider_paid_out_total_pence: 0,
     recovery_debt_pence: 0,
-    ledger_debit_without_stripe_payout_pence: 100,
+    ledger_debit_without_provider_payout_pence: 100,
   });
   assertEquals(snap.provider_connect_audit_status, "MISMATCH");
   assertEquals(snap.payout_blocked, true);

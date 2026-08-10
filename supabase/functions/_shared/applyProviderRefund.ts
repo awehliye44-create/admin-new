@@ -8,17 +8,17 @@ import {
   resolveTripPaymentStatusFromRefund,
 } from "./providerRefundSSOT.ts";
 
-export type ApplyStripeRefundArgs = {
+export type ApplyProviderRefundArgs = {
   tripId: string;
   amountRefundedPence: number;
-  stripeRefundId?: string | null;
-  stripeChargeId?: string | null;
-  stripePaymentIntentId?: string | null;
+  providerRefundId?: string | null;
+  providerChargeId?: string | null;
+  providerPaymentIntentId?: string | null;
   source: "webhook" | "admin_sync" | "admin_refund";
   refundReason?: string | null;
 };
 
-export type ApplyStripeRefundResult = {
+export type ApplyProviderRefundResult = {
   trip_id: string;
   payment_status: string;
   refund_status: string;
@@ -33,24 +33,24 @@ const REFUND_DEBIT_TYPE = "REFUND_DEBIT";
 
 async function findTripId(
   supabase: SupabaseClient,
-  args: Pick<ApplyStripeRefundArgs, "tripId" | "stripePaymentIntentId" | "stripeChargeId">,
+  args: Pick<ApplyProviderRefundArgs, "tripId" | "providerPaymentIntentId" | "providerChargeId">,
 ): Promise<string | null> {
   if (args.tripId) return args.tripId;
 
-  if (args.stripePaymentIntentId) {
+  if (args.providerPaymentIntentId) {
     const { data } = await supabase
       .from("trips")
       .select("id")
-      .eq("provider_payment_id", args.stripePaymentIntentId)
+      .eq("provider_payment_id", args.providerPaymentIntentId)
       .maybeSingle();
     if (data?.id) return String(data.id);
   }
 
-  if (args.stripeChargeId) {
+  if (args.providerChargeId) {
     const { data } = await supabase
       .from("trips")
       .select("id")
-      .eq("provider_charge_id", args.stripeChargeId)
+      .eq("provider_charge_id", args.providerChargeId)
       .maybeSingle();
     if (data?.id) return String(data.id);
   }
@@ -58,10 +58,10 @@ async function findTripId(
   return null;
 }
 
-export async function applyStripeRefundToOnecab(
+export async function applyProviderRefundToOnecab(
   supabase: SupabaseClient,
-  args: ApplyStripeRefundArgs,
-): Promise<ApplyStripeRefundResult> {
+  args: ApplyProviderRefundArgs,
+): Promise<ApplyProviderRefundResult> {
   const tripId = await findTripId(supabase, args);
   if (!tripId) throw new Error("Trip not found for refund");
 
@@ -126,7 +126,7 @@ export async function applyStripeRefundToOnecab(
     updated_at: now,
   };
   if (args.refundReason) tripUpdate.refund_reason = args.refundReason;
-  if (args.stripeChargeId) tripUpdate.provider_charge_id = args.stripeChargeId;
+  if (args.providerChargeId) tripUpdate.provider_charge_id = args.providerChargeId;
 
   const { error: tripUpdateErr } = await supabase.from("trips").update(tripUpdate).eq("id", tripId);
   if (tripUpdateErr) throw new Error(`trips refund update failed: ${tripUpdateErr.message}`);
@@ -139,18 +139,18 @@ export async function applyStripeRefundToOnecab(
       refund_status: refundStatus,
       refunded_at: now,
       updated_at: now,
-      last_error: args.stripeRefundId
-        ? `stripe_refund:${args.stripeRefundId}:${refundedPence}`
+      last_error: args.providerRefundId
+        ? `provider_refund:${args.providerRefundId}:${refundedPence}`
         : `${args.source}:${refundedPence}`,
     };
-    if (args.stripeRefundId) paymentPatch.provider_refund_id = args.stripeRefundId;
+    if (args.providerRefundId) paymentPatch.provider_refund_id = args.providerRefundId;
 
     const { error: payErr } = await supabase
       .from("payments")
       .update(paymentPatch)
       .eq("id", payment.id);
     if (payErr) {
-      console.warn("[applyStripeRefund] payments update failed (column may be missing)", payErr.message);
+      console.warn("[applyProviderRefund] payments update failed (column may be missing)", payErr.message);
       const { error: fallbackErr } = await supabase
         .from("payments")
         .update({
@@ -178,7 +178,7 @@ export async function applyStripeRefundToOnecab(
     .update(financePatch)
     .eq("trip_id", tripId);
   if (financeErr) {
-    console.warn("[applyStripeRefund] trip_finance update skipped", financeErr.message);
+    console.warn("[applyProviderRefund] trip_finance update skipped", financeErr.message);
   }
 
   let ledgerReversalInserted = false;
@@ -215,25 +215,25 @@ export async function applyStripeRefundToOnecab(
           type: REFUND_DEBIT_TYPE,
           amount_pence: -reversalPence,
           currency: "GBP",
-          description: args.stripeRefundId
-            ? `Stripe refund reversal (${args.stripeRefundId}) — ${args.source}`
+          description: args.providerRefundId
+            ? `Stripe refund reversal (${args.providerRefundId}) — ${args.source}`
             : `Stripe refund reversal — ${args.source}`,
         });
         if (!ledgerErr) ledgerReversalInserted = true;
-        else console.warn("[applyStripeRefund] REFUND_DEBIT insert failed", ledgerErr.message);
+        else console.warn("[applyProviderRefund] REFUND_DEBIT insert failed", ledgerErr.message);
       }
     }
   }
 
   try {
     await supabase.rpc("log_audit_event", {
-      p_event_type: "stripe_refund_applied",
+      p_event_type: "provider_refund_applied",
       p_trip_id: tripId,
       p_driver_id: driverId,
       p_details: {
         source: args.source,
         refund_amount_pence: refundedPence,
-        provider_refund_id: args.stripeRefundId ?? null,
+        provider_refund_id: args.providerRefundId ?? null,
         payment_status: paymentStatus,
         driver_reversal_pence: adjusted.driver_reversal_pence,
       },
@@ -266,12 +266,12 @@ export async function applyProviderRefundToOnecab(
     source: "webhook" | "admin_sync" | "admin_refund";
     refundReason?: string | null;
   },
-): Promise<ApplyStripeRefundResult> {
-  const result = await applyStripeRefundToOnecab(supabase, {
+): Promise<ApplyProviderRefundResult> {
+  const result = await applyProviderRefundToOnecab(supabase, {
     tripId: args.tripId,
     amountRefundedPence: args.amountRefundedPence,
-    stripeRefundId: args.providerRefundId ?? null,
-    stripePaymentIntentId: args.providerOrderId ?? null,
+    providerRefundId: args.providerRefundId ?? null,
+    providerPaymentIntentId: args.providerOrderId ?? null,
     source: args.source,
     refundReason: args.refundReason ?? null,
   });
