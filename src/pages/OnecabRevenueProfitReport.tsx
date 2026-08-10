@@ -157,7 +157,7 @@ export default function OnecabRevenueProfitReport() {
       chargebacks: profitSsot?.chargebacks_pence ?? null,
       driverPayouts: profitSsot?.driver_payouts_pence ?? null,
       cashCommission: null as number | null,
-      providerFees: profitSsot?.provider_fees_pence ?? null,
+
       netRevenue,
       currency,
       ssotUnavailable: profitSsotQuery.isError || (profitSsotQuery.isSuccess && netRevenue == null),
