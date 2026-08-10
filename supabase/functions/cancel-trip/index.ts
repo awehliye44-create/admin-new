@@ -322,6 +322,10 @@ serve(async (req) => {
     // ══════════════════════════════════════════
     // UPDATE TRIP
     // ══════════════════════════════════════════
+    // NOTE: driver_id / confirmed_driver_id are intentionally PRESERVED.
+    // Driver RLS on trips matches driver_id/confirmed_driver_id, so nulling them in
+    // this same UPDATE hid the realtime cancellation event from the assigned driver's
+    // device and the active trip card never cleared immediately.
     const tripUpdate: Record<string, unknown> = {
       status: tripStatus,
       cancelled_at: now.toISOString(),
@@ -329,8 +333,6 @@ serve(async (req) => {
       cancellation_reason: cancellationReasonFinal,
       cancellation_fee_pence: appliedFee,
       financial_outcome: financialOutcome,
-      driver_id: null,
-      confirmed_driver_id: null,
       negotiation_owner_driver_id: null,
       current_offer_driver_id: null,
       negotiation_locked_until: null,
@@ -339,6 +341,7 @@ serve(async (req) => {
       dispatch_status: "cancelled",
       updated_at: now.toISOString(),
     };
+
 
     const { error: updateErr } = await supabase
       .from("trips")
@@ -358,6 +361,31 @@ serve(async (req) => {
         .update({ current_trip_id: null })
         .eq("id", assignedDriverId);
     }
+
+    // Revoke any outstanding ride offers so the driver app clears the offer card too
+    const terminalNegotiation =
+      cancelled_by === "driver"
+        ? "cancelled_by_driver"
+        : cancelled_by === "admin"
+        ? "cancelled_by_admin"
+        : "cancelled_by_customer";
+
+    const { error: offersErr } = await supabase
+      .from("ride_offers")
+      .update({
+        status: "revoked",
+        revoked_reason: "trip_terminal_cancel",
+        negotiation_status: terminalNegotiation,
+        updated_at: now.toISOString(),
+      })
+      .eq("trip_id", trip_id)
+      .in("status", ["pending", "countered", "accepted"]);
+
+    if (offersErr) {
+      console.error("[cancel-trip] ride_offers revoke error:", offersErr);
+    }
+
+
 
     await supabase
       .from("customers")
