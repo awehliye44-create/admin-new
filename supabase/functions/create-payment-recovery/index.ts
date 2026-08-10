@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
       if (parentSess?.provider_order_id) {
         try {
           const { secretKey, environment } = getRevolutMerchantConfig();
-          const { retrieveRevolutOrder } = await import("../_shared/revolutOrders.ts");
+          
           const order = await retrieveRevolutOrder(environment, secretKey, parentSess.provider_order_id);
           const orderState = String(order.state ?? "").toUpperCase();
           const orderAmt = typeof order.amount === "number" ? Math.round(order.amount) : null;
