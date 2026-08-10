@@ -791,8 +791,6 @@ export type PaymentMethodLedgerMetrics = {
   onecab_card_commission_pence: number;
   onecab_card_net_commission_pence: number;
   provider_processing_fees_pence: number;
-  /** Alias — same value as provider_processing_fees_pence for API compat. */
-  provider_processing_fees_pence: number;
   /** Completed card trips not yet capture-confirmed — not reconciled totals. */
   pending_provider_confirmation_revenue_pence: number;
   pending_provider_confirmation_commission_pence: number;
@@ -883,7 +881,6 @@ export function computePaymentMethodLedgerMetrics(args: {
     card_driver_payable_pence: cardDriverPayable,
     onecab_card_commission_pence: onecabCardCommission,
     onecab_card_net_commission_pence: onecabNetCommissionPence(onecabCardCommission, cardProviderFees),
-    provider_processing_fees_pence: cardProviderFees,
     provider_processing_fees_pence: cardProviderFees,
     pending_provider_confirmation_revenue_pence: pendingRevenue,
     pending_provider_confirmation_commission_pence: pendingCommission,
