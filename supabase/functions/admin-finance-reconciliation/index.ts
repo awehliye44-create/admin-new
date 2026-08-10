@@ -602,7 +602,7 @@ serve(async (req) => {
       const [paymentsRes, paymentSessionsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
         supabase
           .from("payments")
-          .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
+          .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id:provider_payment_id, provider_available_on")
           .in("trip_id", tripIds),
         supabase
           .from("payment_sessions")
@@ -873,7 +873,7 @@ serve(async (req) => {
         const [paymentsRes, paymentSessionsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
           supabase
             .from("payments")
-            .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id, provider_available_on")
+            .select("captured_amount_pence, status, trip_id, provider_status, stripe_payment_intent_id:provider_payment_id, provider_available_on")
             .in("trip_id", auditTripIds),
           supabase
             .from("payment_sessions")
