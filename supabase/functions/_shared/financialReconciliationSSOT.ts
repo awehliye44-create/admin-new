@@ -804,10 +804,7 @@ export type PaymentMethodLedgerMetrics = {
 /** Provider-neutral processing fee — prefers provider_fee_pence when populated. */
 export function tripProviderProcessingFeePence(trip: {
   provider_fee_pence?: number | null;
-  provider_fee_pence?: number | null;
 }): number {
-  const providerFee = trip.provider_fee_pence;
-  if (providerFee != null && providerFee > 0) return providerFee;
   return Math.max(0, trip.provider_fee_pence ?? 0);
 }
 

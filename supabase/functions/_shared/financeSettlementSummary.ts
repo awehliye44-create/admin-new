@@ -67,7 +67,6 @@ export type OnecabSettlementStatus =
 export type TripFinanceRow = {
   commission_pence: number | null;
   provider_fee_pence: number | null;
-  provider_fee_pence?: number | null;
   onecab_net_pence: number | null;
   driver_net_pence: number | null;
   gross_fare_pence: number | null;
@@ -447,7 +446,6 @@ export type FinanceReconciliationSummary = {
     expected_commission_pence: number;
     expected_driver_net_pence: number;
   };
-  money_movement?: import("./connectMoneyMovementSSOT.ts").ConnectMoneyMovementBundle;
 };
 
 export type TripFinancialAuditRow = {
@@ -642,7 +640,6 @@ export function buildFinanceReconciliationSummary(args: {
   dataSourceBadge?: FinanceDataSourceBadge;
   /** When true, BALANCED status uses trip-earnings split (correct for date-filtered reports). */
   periodScoped?: boolean;
-  moneyMovement?: import("./connectMoneyMovementSSOT.ts").ConnectMoneyMovementBundle;
 }): FinanceReconciliationSummary {
   const m = args.ssot;
   const driverAvailablePayout = Math.max(0, m.driver_available_now_pence - args.inFlightCashoutPence);
@@ -723,7 +720,6 @@ export function buildFinanceReconciliationSummary(args: {
         expected_driver_net_pence: m.pending_stripe_confirmation_driver_net_pence,
       }
       : undefined,
-    money_movement: args.moneyMovement,
   };
 }
 
