@@ -33,7 +33,7 @@ export interface FinanceSettlementSummaryResponse {
     settlement_status_label: string;
     driver_payout_liability_pence: number;
   };
-  stripe_platform_summary: {
+  provider_platform_summary: {
     available_platform_balance_pence: number;
     pending_platform_balance_pence: number;
     error: string | null;
@@ -61,7 +61,7 @@ export interface FinanceSettlementSummaryResponse {
   insufficient_funds_insight: {
     reason: string | null;
     requested_driver_payout_pence: number;
-    stripe_available_balance_at_review_pence: number;
+    provider_available_balance_at_review_pence: number;
     calculated_onecab_net_pence: number;
     diagnoses: string[];
     why_commission_showed_but_payout_failed: string[];
@@ -171,7 +171,7 @@ export interface ConnectMoneyMovementBundle {
     driver_id: string;
     driver_name: string;
     driver_code: string | null;
-    stripe_live_balance_pence: number;
+    provider_live_balance_pence: number;
     future_payout_pence: number;
     in_transit_to_bank_pence: number;
     lifetime_volume_pence: number;
@@ -179,7 +179,7 @@ export interface ConnectMoneyMovementBundle {
     duplicate_connect_account: boolean;
     duplicate_connect_group_key: string | null;
     expected_wallet_balance_pence: number;
-    actual_stripe_balance_pence: number;
+    actual_provider_balance_pence: number;
     difference_pence: number;
     recovery_debt_pence: number;
     net_payable_after_recovery_pence: number;
@@ -191,7 +191,7 @@ export interface ConnectMoneyMovementBundle {
     driver_id: string;
     driver_name: string;
     driver_code: string | null;
-    stripe_live_balance_pence: number;
+    provider_live_balance_pence: number;
     future_payout_pence: number;
     in_transit_to_bank_pence: number;
     lifetime_volume_pence: number;
@@ -205,7 +205,7 @@ export interface ConnectMoneyMovementBundle {
     statement_descriptor: string | null;
     last_synced_at: string;
     expected_ledger_pence: number | null;
-    actual_stripe_pence: number;
+    actual_provider_pence: number;
     difference_pence: number;
     reconciliation_status: MoneyMovementReconciliationStatus;
     ledger_entry_ids: string[];
@@ -377,7 +377,7 @@ export interface LegacyManualReviewItem {
   excluded_from_auto_allocation: boolean;
 }
 
-export interface StripePaymentIntentAuditRow {
+export interface ProviderPaymentAuditRow {
   payment_intent_id: string;
   trip_id: string | null;
   trip_code: string | null;
@@ -459,7 +459,7 @@ export interface FinanceReconciliationResponse {
     payouts?: string;
   };
   driver_statement_totals?: DriverStatementPeriodTotal[];
-  stripe_payment_intents?: StripePaymentIntentAuditRow[];
+  provider_payment_records?: ProviderPaymentAuditRow[];
   legacy_manual_review_items?: LegacyManualReviewItem[];
   money_movement?: ConnectMoneyMovementBundle;
   service_area_payment_gateways?: Array<{
@@ -538,7 +538,7 @@ export function toSettlementOverviewResponse(data: FinanceReconciliationResponse
       settlement_status_label: s.onecab_money.onecab_commission_status_label,
       driver_payout_liability_pence: s.driver_money.driver_payout_liability_pence,
     },
-    stripe_platform_summary: {
+    provider_platform_summary: {
       available_platform_balance_pence: s.provider_money.provider_available_balance_pence,
       pending_platform_balance_pence: s.provider_money.provider_pending_balance_pence,
       error: data.meta.provider_balance_error,

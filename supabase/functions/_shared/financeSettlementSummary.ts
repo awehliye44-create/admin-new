@@ -5,7 +5,7 @@
  * See financialReconciliationSSOT.ts for canonical formulas.
  *
  * ONECAB gross commission = sum(trips.commission_pence) only.
- * Never use Stripe available balance, captured revenue, or driver payable as commission.
+ * Never use provider available balance, captured revenue, or driver payable as commission.
  */
 
 import {
@@ -252,10 +252,10 @@ export function classifyOnecabSettlementStatus(args: {
 }
 
 /**
- * Stripe cash partition — NOT ONECAB commission.
- * platform_cash_after_driver_liability = stripe available − driver payable − pending transfers
+ * Provider cash partition — NOT ONECAB commission.
+ * platform_cash_after_driver_liability = provider available − driver payable − pending transfers
  */
-export function partitionStripePlatformCash(args: {
+export function partitionProviderPlatformCash(args: {
   providerAvailablePence: number;
   driverPayoutLiabilityPence: number;
   pendingTransfersPence: number;
@@ -270,7 +270,7 @@ export function partitionStripePlatformCash(args: {
   };
 }
 
-export function reconcileStripeBalance(args: {
+export function reconcileProviderBalance(args: {
   providerAvailablePence: number;
   calculatedOnecabNetPence: number;
   availableDriverPayablePence: number;
@@ -278,7 +278,7 @@ export function reconcileStripeBalance(args: {
   tolerancePence?: number;
 }) {
   const tolerance = args.tolerancePence ?? 100;
-  const partition = partitionStripePlatformCash({
+  const partition = partitionProviderPlatformCash({
     providerAvailablePence: args.providerAvailablePence,
     driverPayoutLiabilityPence: args.availableDriverPayablePence,
     pendingTransfersPence: args.pendingTransfersPence,
@@ -294,7 +294,7 @@ export function reconcileStripeBalance(args: {
 
   return {
     provider_available_balance_pence: args.providerAvailablePence,
-    /** Trip-derived ONECAB net after Stripe fees — NOT (Stripe balance − driver payable) */
+    /** Trip-derived ONECAB net after provider fees — NOT (provider balance − driver payable) */
     calculated_onecab_net_pence: args.calculatedOnecabNetPence,
     available_driver_payable_pence: args.availableDriverPayablePence,
     pending_transfers_pence: args.pendingTransfersPence,
@@ -303,7 +303,7 @@ export function reconcileStripeBalance(args: {
     reconciles,
     mismatch_warning: reconciles
       ? null
-      : "Stripe balance reconciliation mismatch.",
+      : "Provider balance reconciliation mismatch.",
   };
 }
 
@@ -311,7 +311,7 @@ export function parseInsufficientFundsReason(errorMessage: string | null): strin
   if (!errorMessage) return null;
   const lower = errorMessage.toLowerCase();
   if (lower.includes("insufficient") && (lower.includes("fund") || lower.includes("balance"))) {
-    return "Stripe available balance was lower than requested driver payout.";
+    return "Provider available balance was lower than requested driver payout.";
   }
   return null;
 }
@@ -329,13 +329,13 @@ export function buildInsufficientFundsDiagnosis(args: {
 
   if (insufficient) diagnoses.push(insufficient);
   if (args.requestedPayoutPence > args.providerAvailablePence) {
-    diagnoses.push("Driver payout amount exceeded Stripe available balance.");
+    diagnoses.push("Driver payout amount exceeded provider available balance.");
   }
   if (args.providerPendingPence > 0 && args.providerAvailablePence < args.requestedPayoutPence) {
-    diagnoses.push("Stripe funds are pending, not available.");
+    diagnoses.push("Provider funds are pending, not available.");
   }
   if (args.calculatedOnecabNetPence > 0 && args.providerAvailablePence < args.requestedPayoutPence) {
-    diagnoses.push("ONECAB commission was calculated on trips but Stripe available cash is lower than driver payout request.");
+    diagnoses.push("ONECAB commission was calculated on trips but provider available cash is lower than driver payout request.");
   }
   if (args.driverPendingSettlementPence > 0) {
     diagnoses.push("Driver funds are pending next payout cycle.");
@@ -371,7 +371,7 @@ export type FinanceReconciliationSummary = {
     net_card_revenue_pence: number;
     /** @deprecated Use card_customer_revenue_pence */
     total_customer_revenue_pence: number;
-    /** @deprecated Use net_card_revenue_pence for Stripe revenue */
+    /** @deprecated Use net_card_revenue_pence for card revenue */
     net_customer_revenue_pence: number;
     commissionable_revenue_pence: number;
   };
@@ -684,7 +684,7 @@ export function buildFinanceReconciliationSummary(args: {
       onecab_commission_status_label: args.settlementStatusLabel,
     },
     provider_money: {
-      provider_name: "Stripe",
+      provider_name: "Revolut",
       provider_available_balance_pence: m.provider_available_balance_pence,
       provider_pending_balance_pence: m.provider_pending_balance_pence,
       provider_health_status: args.providerHealthStatus,
@@ -713,7 +713,7 @@ export function buildFinanceReconciliationSummary(args: {
     },
     pending_provider_confirmation: m.pending_trip_count > 0
       ? {
-        label: "Expected / Pending Stripe confirmation",
+        label: "Expected / Pending provider confirmation",
         trip_count: m.pending_trip_count,
         expected_revenue_pence: m.pending_provider_confirmation_revenue_pence,
         expected_commission_pence: m.pending_provider_confirmation_commission_pence,
@@ -732,11 +732,11 @@ function formatCustomerRevenueSourceLabel(
     case "payments_captured":
       return "Reconciled — captured payments only";
     case "expected_pending_provider_confirmation":
-      return "Expected / Pending Stripe confirmation";
+      return "Expected / Pending provider confirmation";
     case "trips_capture_fallback_pending":
-      return "Expected / Pending Stripe confirmation (trip capture fallback)";
+      return "Expected / Pending provider confirmation (trip capture fallback)";
     case "trips_final_fare_fallback_pending":
-      return "Expected / Pending Stripe confirmation (trip fare fallback)";
+      return "Expected / Pending provider confirmation (trip fare fallback)";
     default:
       return String(source);
   }
