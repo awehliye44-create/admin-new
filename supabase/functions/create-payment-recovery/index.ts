@@ -29,14 +29,17 @@ import {
 import {
   createRevolutOrder,
   getRevolutMerchantConfig,
+  payRevolutOrderWithSavedPaymentMethod,
+  resolveRevolutCheckoutUrl,
+  retrieveRevolutOrder,
 } from "../_shared/revolutOrders.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 import {
   computeOutstandingBalancePence,
   resolveCanonicalCustomerPayablePence,
   validateCollectOutstandingOrPaymentLinkAction,
-} from "../../../shared/paymentSessionsCaptureConfirmationSSOT.ts";
-import { isDriverCollectedFinancialModel, sumVerifiedCapturedFromSessions, sumVerifiedRefundedFromSessions } from "../../../shared/tripHistoryShortfallRecaptureSSOT.ts";
+} from "../_shared/paymentSessionsCaptureConfirmationSSOT.ts";
+import { isDriverCollectedFinancialModel, sumVerifiedCapturedFromSessions, sumVerifiedRefundedFromSessions } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
 
 Deno.serve(async (req) => {
@@ -97,7 +100,7 @@ Deno.serve(async (req) => {
       if (parentSess?.provider_order_id) {
         try {
           const { secretKey, environment } = getRevolutMerchantConfig();
-          const { retrieveRevolutOrder } = await import("../_shared/revolutOrders.ts");
+          
           const order = await retrieveRevolutOrder(environment, secretKey, parentSess.provider_order_id);
           const orderState = String(order.state ?? "").toUpperCase();
           const orderAmt = typeof order.amount === "number" ? Math.round(order.amount) : null;
@@ -242,15 +245,38 @@ Deno.serve(async (req) => {
       .in("status", ["RECOVERY_CHECKOUT_CREATED", "CUSTOMER_ACTION_REQUIRED"])
       .maybeSingle();
     if (existingOpen) {
+      // Heal older attempts that were stored without a checkout URL.
+      let reusedUrl = existingOpen.provider_checkout_url as string | null;
+      if (!reusedUrl && existingOpen.provider_order_id) {
+        try {
+          const { secretKey, environment } = getRevolutMerchantConfig();
+          const existingOrder = await retrieveRevolutOrder(
+            environment,
+            secretKey,
+            existingOpen.provider_order_id,
+          );
+          reusedUrl = resolveRevolutCheckoutUrl(existingOrder, environment as "live" | "sandbox");
+          if (reusedUrl) {
+            await supabase
+              .from("payment_sessions")
+              .update({ provider_checkout_url: reusedUrl, updated_at: new Date().toISOString() })
+              .eq("id", existingOpen.id);
+          }
+        } catch (healErr) {
+          console.warn("[create-payment-recovery] checkout url heal failed", healErr);
+        }
+      }
       return successResponse({
         payment_session_id: existingOpen.id,
         provider_order_id: existingOpen.provider_order_id,
-        checkout_url: existingOpen.provider_checkout_url,
+        checkout_url: reusedUrl,
+        requires_customer_action: true,
         amount: chargePence,
         currency,
         reused: true,
       });
     }
+
 
     // --- Idempotent terminal success: only when shortfall is already closed.
     // A prior completed recovery that was later refunded must allow a new attempt. ---
@@ -370,8 +396,12 @@ Deno.serve(async (req) => {
 
     // --- Create Revolut order (automatic capture — no separate capture step) ---
     let order;
+    let revolutEnv: "live" | "sandbox" = "live";
+    let revolutSecret = "";
     try {
       const { secretKey, environment } = getRevolutMerchantConfig();
+      revolutEnv = environment as "live" | "sandbox";
+      revolutSecret = secretKey;
       order = await createRevolutOrder({
         environment,
         secretKey,
@@ -400,14 +430,87 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Checkout URL must never be missing: derive from the order token when the
+    // provider omits checkout_url, and re-read the order once as a last resort.
+    let checkoutUrl = resolveRevolutCheckoutUrl(order, revolutEnv);
+    if (!checkoutUrl) {
+      try {
+        const refetched = await retrieveRevolutOrder(revolutEnv, revolutSecret, order.id);
+        checkoutUrl = resolveRevolutCheckoutUrl(refetched, revolutEnv);
+      } catch (urlErr) {
+        console.warn("[create-payment-recovery] checkout url refetch failed", urlErr);
+      }
+    }
+
+    // --- Saved-card (merchant-initiated) attempt before falling back to link ---
+    let savedCardAttempt: {
+      attempted: boolean;
+      succeeded: boolean;
+      payment_method_id: string | null;
+      state: string | null;
+      error: string | null;
+    } = { attempted: false, succeeded: false, payment_method_id: null, state: null, error: null };
+
+    if (action_mode !== "payment_link") {
+      const { data: savedCard } = await supabase
+        .from("customer_saved_payment_method_tokens")
+        .select("id, provider_payment_method_id, revolut_verified, tokenization_status, payment_provider")
+        .eq("user_id", customer.user_id)
+        .eq("payment_provider", "revolut")
+        .eq("revolut_verified", true)
+        .not("provider_payment_method_id", "is", null)
+        .order("verified_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (savedCard?.provider_payment_method_id) {
+        savedCardAttempt.attempted = true;
+        savedCardAttempt.payment_method_id = savedCard.provider_payment_method_id;
+        try {
+          const payment = await payRevolutOrderWithSavedPaymentMethod({
+            environment: revolutEnv,
+            secretKey: revolutSecret,
+            orderId: order.id,
+            savedPaymentMethodId: savedCard.provider_payment_method_id,
+          });
+          const state = String(payment.state ?? "").toUpperCase();
+          savedCardAttempt.state = state || null;
+          savedCardAttempt.succeeded = state === "COMPLETED"
+            || state === "CAPTURED"
+            || state === "AUTHORISED"
+            || state === "PROCESSING";
+          if (!savedCardAttempt.succeeded) {
+            savedCardAttempt.error = String(payment.decline_reason ?? state ?? "not_completed");
+          }
+        } catch (payErr) {
+          savedCardAttempt.error = (payErr as { message?: string })?.message
+            ?? String(payErr);
+          console.warn("[create-payment-recovery] saved-card charge failed", savedCardAttempt.error);
+        }
+      }
+    }
+
+    // Provider webhook remains authoritative for capture success.
+    const sessionStatus = savedCardAttempt.succeeded
+      ? "RECOVERY_CHECKOUT_CREATED"
+      : "CUSTOMER_ACTION_REQUIRED";
+
     // --- Persist provider identifiers + checkout URL onto the session ---
     await supabase
       .from("payment_sessions")
       .update({
         provider_order_id: order.id,
-        provider_checkout_url: order.checkout_url ?? null,
-        status: "CUSTOMER_ACTION_REQUIRED",
+        provider_checkout_url: checkoutUrl,
+        status: sessionStatus,
         updated_at: new Date().toISOString(),
+        metadata: {
+          ...(order.metadata ?? {}),
+          recovery_reason: "OUTSTANDING_BALANCE",
+          final_customer_charge_pence: chargePence,
+          outstanding_pence: outstanding,
+          saved_card_attempt: savedCardAttempt,
+          checkout_url_source: order.checkout_url ? "provider" : "derived_from_token",
+        },
       })
       .eq("id", session.id);
 
@@ -423,18 +526,28 @@ Deno.serve(async (req) => {
         canonical_payable_pence: payableResolved.payable_pence,
         currency,
         action_mode: action_mode === "payment_link" ? "payment_link" : "collect_outstanding",
+        saved_card_attempt: savedCardAttempt,
       },
     });
 
     return successResponse({
       payment_session_id: session.id,
       provider_order_id: order.id,
-      checkout_url: order.checkout_url,
-      checkout_token: order.token,
+      checkout_url: checkoutUrl,
+      checkout_token: order.token ?? order.public_id ?? null,
       amount: chargePence,
       outstanding_pence: outstanding,
       currency,
-      status: "CUSTOMER_ACTION_REQUIRED",
+      status: sessionStatus,
+      requires_customer_action: !savedCardAttempt.succeeded,
+      saved_card_charged: savedCardAttempt.succeeded,
+      saved_card_attempted: savedCardAttempt.attempted,
+      saved_card_error: savedCardAttempt.error,
+      message: savedCardAttempt.succeeded
+        ? "Saved card charged off-session — awaiting provider webhook confirmation."
+        : (savedCardAttempt.attempted
+          ? `Saved-card charge could not be completed (${savedCardAttempt.error ?? "declined"}). Send the payment link to the customer.`
+          : "Payment link created — send it to the customer."),
       payment_link_state: action_mode === "payment_link" ? "CREATED" : null,
     });
   } catch (e) {

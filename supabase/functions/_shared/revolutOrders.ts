@@ -63,6 +63,63 @@ export async function createRevolutOrder(p: CreateOrderParams): Promise<RevolutO
 }
 
 
+/**
+ * Hosted checkout URL for an order. Revolut only returns `checkout_url` on
+ * some API versions/flows; when absent it is deterministically derivable from
+ * the order token (public id). Never return an empty link.
+ */
+export function resolveRevolutCheckoutUrl(
+  order: RevolutOrder | null | undefined,
+  environment: ProviderEnvironment,
+): string | null {
+  const direct = typeof order?.checkout_url === "string" ? order.checkout_url.trim() : "";
+  if (direct) return direct;
+  const token = (order?.token ?? order?.public_id ?? "").toString().trim();
+  if (!token) return null;
+  const host = environment === "live"
+    ? "https://checkout.revolut.com"
+    : "https://sandbox-checkout.revolut.com";
+  return `${host}/payment-link/${token}`;
+}
+
+export interface RevolutOrderPayment {
+  id?: string;
+  state?: string;
+  order_id?: string;
+  decline_reason?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Merchant-initiated (off-session) charge against a customer's saved Revolut
+ * payment method. Used by payment recovery so admins do not always have to
+ * send a link. May still fail when the issuer demands SCA — callers must fall
+ * back to the hosted checkout link in that case.
+ */
+export async function payRevolutOrderWithSavedPaymentMethod(params: {
+  environment: ProviderEnvironment;
+  secretKey: string;
+  orderId: string;
+  savedPaymentMethodId: string;
+  initiator?: "merchant" | "customer";
+}): Promise<RevolutOrderPayment> {
+  return await revolutMerchantRequest<RevolutOrderPayment>(
+    params.environment,
+    params.secretKey,
+    `/orders/${params.orderId}/payments`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        saved_payment_method: {
+          type: "card",
+          id: params.savedPaymentMethodId,
+          initiator: params.initiator ?? "merchant",
+        },
+      }),
+    },
+  );
+}
+
 export async function retrieveRevolutOrder(
   environment: ProviderEnvironment,
   secretKey: string,

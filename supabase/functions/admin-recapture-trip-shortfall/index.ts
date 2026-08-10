@@ -21,7 +21,7 @@ import {
 import {
   computeOutstandingBalancePence,
   resolveCanonicalCustomerPayablePence,
-} from "../../../shared/paymentSessionsCaptureConfirmationSSOT.ts";
+} from "../_shared/paymentSessionsCaptureConfirmationSSOT.ts";
 import {
   evaluateTripHistoryShortfallRecaptureEligibility,
   isPlatformCollectedEligible,
@@ -29,7 +29,7 @@ import {
   sumVerifiedCapturedFromSessions,
   sumVerifiedRefundedFromSessions,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
-} from "../../../shared/tripHistoryShortfallRecaptureSSOT.ts";
+} from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 
 async function authorizeTripShortfallRecapture(
   gate: GateResult,
