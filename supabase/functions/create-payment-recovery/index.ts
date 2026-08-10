@@ -29,6 +29,9 @@ import {
 import {
   createRevolutOrder,
   getRevolutMerchantConfig,
+  payRevolutOrderWithSavedPaymentMethod,
+  resolveRevolutCheckoutUrl,
+  retrieveRevolutOrder,
 } from "../_shared/revolutOrders.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 import {
