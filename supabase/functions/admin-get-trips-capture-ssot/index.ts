@@ -46,7 +46,7 @@ serve(async (req) => {
     const [paymentsRes, payoutItemsRes, ledgerRes] = await Promise.all([
       gate.supabase
         .from("payments")
-        .select("trip_id, captured_amount_pence, amount_pence, status, provider_status, stripe_payment_intent_id, provider_available_on, fee_type, metadata")
+        .select("trip_id, captured_amount_pence, amount_pence, status, provider_status, stripe_payment_intent_id:provider_payment_id, provider_available_on, fee_type, metadata")
         .in("trip_id", tripIds),
       gate.supabase
         .from("payout_items")
