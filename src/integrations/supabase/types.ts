@@ -26881,6 +26881,10 @@ export type Database = {
         Args: { p_event_type: string }
         Returns: string
       }
+      passenger_has_live_immediate_trip: {
+        Args: { p_exclude_trip_id?: string; p_passenger_id: string }
+        Returns: string
+      }
       passenger_map_nearby_drivers: {
         Args: {
           p_lat: number
