@@ -162,6 +162,9 @@ export function TripHistoryShortfallRecaptureAction({
         message?: string;
         reused?: boolean;
         already_completed?: boolean;
+        saved_card_charged?: boolean;
+        saved_card_attempted?: boolean;
+        saved_card_error?: string | null;
       };
     },
     onSuccess: (data) => {
@@ -174,6 +177,12 @@ export function TripHistoryShortfallRecaptureAction({
         setCheckoutUrl(null);
         toast.success('Shortfall already collected', {
           description: data.message ?? 'Recovery payment already completed for this trip.',
+        });
+      } else if (data.saved_card_charged) {
+        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
+        setCheckoutUrl(null);
+        toast.success('Saved card charged', {
+          description: data.message ?? 'Off-session charge accepted — waiting for provider confirmation.',
         });
       } else if (data.requires_customer_action || data.checkout_url) {
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED);
@@ -509,7 +518,8 @@ export function TripHistoryShortfallRecaptureAction({
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Recapture creates a Revolut payment link for the customer. Direct saved-card charge is not available yet.
+          Recapture first attempts an off-session charge on the customer's saved card. If the card is
+          missing or the issuer requires authentication, a Revolut payment link is created instead.
         </p>
         <Button
           size="sm"
