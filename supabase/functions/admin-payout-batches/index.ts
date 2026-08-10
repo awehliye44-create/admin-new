@@ -210,8 +210,8 @@ serve(async (req) => {
           statusLabel: String(item.execution_status || item.status) === 'BLOCKED_EXECUTION_DISABLED'
             ? 'Execution disabled'
             : (item.execution_status || item.status),
-          stripeTransferId: item.provider_transfer_id,
-          stripePayoutId: item.provider_payout_id,
+          providerTransferId: item.provider_transfer_id,
+          providerPayoutId: item.provider_payout_id,
           providerPaymentId: null,
           errorMessage: item.error_message,
           createdAt: item.created_at,

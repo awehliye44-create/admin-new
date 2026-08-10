@@ -271,8 +271,7 @@ export interface PlatformReconciliationKpis {
   balanced_drivers: number;
   outstanding_liability_pence: number;
   failed_payouts_pence: number;
-  stripe_only_records: number;
-  provider_only_records?: number;
+  provider_only_records: number;
   ledger_only_records: number;
   todays_captures_pence: number;
   todays_card_trips: number;
