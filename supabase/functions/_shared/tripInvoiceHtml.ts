@@ -29,6 +29,11 @@ export interface TripInvoiceHtmlData {
   taxLabel: string;
   tax: string;
   total: string;
+  paymentStatusLabel?: string;
+  paidLabel?: string;
+  paid?: string;
+  outstanding?: string;
+  showOutstanding?: boolean;
   company: { name: string; email: string; phone: string; website: string; address: string };
   tagline: string;
   footerHeadline: string;
@@ -175,6 +180,18 @@ export function buildTripInvoiceHtml(data: TripInvoiceHtmlData): string {
             <td style="padding:9px 10px;font-size:13px;font-weight:800;color:#111;">TOTAL</td>
             <td style="padding:9px 10px;font-size:13px;font-weight:800;color:#111;text-align:left;">${esc(data.total)}</td>
           </tr>
+          ${data.paid ? `<tr>
+            <td style="padding:6px 10px;font-size:11px;color:#333;">${esc(data.paidLabel || "PAID")}</td>
+            <td style="padding:6px 10px;font-size:11px;color:#111;text-align:left;">${esc(data.paid)}</td>
+          </tr>` : ""}
+          ${data.showOutstanding && data.outstanding ? `<tr>
+            <td style="padding:6px 10px;font-size:11px;color:#b00020;font-weight:700;">OUTSTANDING</td>
+            <td style="padding:6px 10px;font-size:11px;color:#b00020;font-weight:700;text-align:left;">${esc(data.outstanding)}</td>
+          </tr>` : ""}
+          ${data.paymentStatusLabel ? `<tr>
+            <td style="padding:6px 10px;font-size:11px;color:#333;">PAYMENT STATUS</td>
+            <td style="padding:6px 10px;font-size:11px;color:#111;text-align:left;text-transform:uppercase;">${esc(data.paymentStatusLabel)}</td>
+          </tr>` : ""}
         </table>
       </td>
     </tr>

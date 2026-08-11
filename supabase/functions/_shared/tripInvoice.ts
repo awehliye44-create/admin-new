@@ -421,6 +421,22 @@ async function renderPdfLibFallback(data: TripInvoiceHtmlData): Promise<Uint8Arr
   page.drawText("TOTAL", { x: cols[4], y, size: 12, font: bold, color: ink });
   page.drawText(data.total, { x: cols[5], y, size: 12, font: bold, color: ink });
 
+  if (data.paid) {
+    y -= 18;
+    page.drawText(data.paidLabel || "PAID", { x: cols[4], y, size: 9.5, font, color: grey });
+    page.drawText(data.paid, { x: cols[5], y, size: 9.5, font, color: ink });
+  }
+  if (data.showOutstanding && data.outstanding) {
+    y -= 14;
+    page.drawText("OUTSTANDING", { x: cols[4], y, size: 9.5, font: bold, color: rgb(0.69, 0, 0.13) });
+    page.drawText(data.outstanding, { x: cols[5], y, size: 9.5, font: bold, color: rgb(0.69, 0, 0.13) });
+  }
+  if (data.paymentStatusLabel) {
+    y -= 14;
+    page.drawText("PAYMENT STATUS", { x: cols[4], y, size: 9.5, font, color: grey });
+    page.drawText(data.paymentStatusLabel.toUpperCase(), { x: cols[5], y, size: 9.5, font: bold, color: ink });
+  }
+
   y -= 36;
   page.drawText(data.footerHeadline, { x: left, y, size: 11, font: bold, color: ink });
   page.drawText(data.footerText, { x: left, y: y - 14, size: 9, font, color: grey });
@@ -450,7 +466,10 @@ function buildEmailHtml(args: {
   companyName: string;
   invoiceNo: string;
   tripRef: string;
-  total: string;
+  totalFare: string;
+  paid: string;
+  outstanding: string;
+  statusLabel: string;
   date: string;
   pickup: string;
   dropoff: string;
@@ -466,9 +485,11 @@ function buildEmailHtml(args: {
       <table style="width:100%;font-size:14px;border-collapse:collapse">
         <tr><td style="padding:6px 0;color:#6b7280">Pickup</td><td style="padding:6px 0;text-align:right">${args.pickup}</td></tr>
         <tr><td style="padding:6px 0;color:#6b7280">Drop-off</td><td style="padding:6px 0;text-align:right">${args.dropoff}</td></tr>
-        <tr><td style="padding:12px 0;font-weight:bold;border-top:1px solid #e6e8ee">Total paid</td><td style="padding:12px 0;text-align:right;font-weight:bold;border-top:1px solid #e6e8ee">${args.total}</td></tr>
+        <tr><td style="padding:12px 0;font-weight:bold;border-top:1px solid #e6e8ee">Total fare</td><td style="padding:12px 0;text-align:right;font-weight:bold;border-top:1px solid #e6e8ee">${args.totalFare}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Amount paid</td><td style="padding:6px 0;text-align:right">${args.paid}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Outstanding balance</td><td style="padding:6px 0;text-align:right">${args.outstanding}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Payment status</td><td style="padding:6px 0;text-align:right;font-weight:bold">${args.statusLabel}</td></tr>
       </table>
-      <p style="margin:20px 0 0;font-size:12px;color:#6b7280">Payment was taken digitally on the card or wallet used for the booking.</p>
     </div>
   </div></body></html>`;
 }
@@ -488,6 +509,9 @@ export interface TripInvoiceResult {
   emailed?: boolean;
   skipped?: boolean;
   stage?: string;
+  payment_classification?: string;
+  paid_pence?: number;
+  outstanding_pence?: number;
 }
 
 async function signedUrl(supabase: SupabaseClient, path: string): Promise<string | null> {
@@ -606,7 +630,9 @@ export async function sendTripInvoiceEmail(
 
   const result = await sendResendEmail({
     to: email,
-    subject: `Your ${companyName} invoice ${invoiceNo}`,
+    subject: paymentState.paymentClassification === "PARTIALLY_PAID"
+      ? `Your ${companyName} invoice ${invoiceNo} — partially paid`
+      : `Your ${companyName} invoice ${invoiceNo}`,
     html: buildEmailHtml({
       companyName,
       invoiceNo,
@@ -665,8 +691,43 @@ export async function handleTripInvoiceAction(
   }
 
   try {
+    const paymentState = await loadTripInvoicePaymentState(supabase, trip);
+    const emailAllowed = isInvoiceEmailAllowed(paymentState);
+
+    await supabase
+      .from("trips")
+      .update({
+        invoice_payment_classification: paymentState.paymentClassification,
+        invoice_paid_pence: paymentState.authoritativePaidPence,
+        invoice_outstanding_pence: paymentState.outstandingPence,
+        invoice_delivery_eligible: emailAllowed,
+        invoice_payment_evidence_source: paymentState.evidenceSource,
+        invoice_payment_evidence_ids: paymentState.providerTransactionIds,
+        invoice_payment_resolved_at: paymentState.resolvedAt,
+      })
+      .eq("id", trip.id);
+
+    if (!emailAllowed) {
+      // Completed trip is NOT proof of payment — never generate/send a "paid" document.
+      await logEvent(supabase, trip.id, "payment_gate", "blocked", paymentState.blockReason ?? undefined, {
+        classification: paymentState.paymentClassification,
+        paid_pence: paymentState.authoritativePaidPence,
+        final_fare_pence: paymentState.finalFarePence,
+      });
+      return {
+        success: false,
+        ok: false,
+        skipped: true,
+        stage: "payment_gate",
+        error: `Invoice blocked — ${paymentState.paymentClassification}: ${paymentState.blockReason ?? "payment not confirmed"}`,
+        payment_classification: paymentState.paymentClassification,
+        paid_pence: paymentState.authoritativePaidPence,
+        outstanding_pence: paymentState.outstandingPence,
+      };
+    }
+
     const force = action === "regenerate";
-    const { trip: updated, url, path } = await ensureTripInvoicePdf(supabase, trip, { force });
+    const { trip: updated, url, path } = await ensureTripInvoicePdf(supabase, trip, paymentState, { force });
 
     let emailed = false;
     let emailError: string | undefined;
@@ -677,7 +738,7 @@ export async function handleTripInvoiceAction(
       (action === "generate" && !updated.invoice_email_sent);
 
     if (shouldEmail) {
-      const emailResult = await sendTripInvoiceEmail(supabase, updated, path);
+      const emailResult = await sendTripInvoiceEmail(supabase, updated, path, paymentState);
       emailed = emailResult.ok;
       emailError = emailResult.error;
     }
