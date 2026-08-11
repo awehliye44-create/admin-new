@@ -37,7 +37,8 @@ const TRIP_HISTORY_SELECT_BASE = `
 const TRIP_HISTORY_SELECT_INVOICE = `
   invoice_no, invoice_pdf_url, invoice_generated_at, invoice_email_sent,
   invoice_email_sent_at, invoice_email_status, invoice_email_error,
-  invoice_pdf_error, invoice_total_paid_pence, invoice_regenerated_at
+  invoice_pdf_error, invoice_total_paid_pence, invoice_regenerated_at,
+  invoice_payment_classification, invoice_paid_pence, invoice_outstanding_pence, invoice_delivery_eligible
 `;
 
 const TRIP_HISTORY_SELECT_CORPORATE = `
