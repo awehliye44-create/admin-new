@@ -218,6 +218,10 @@ interface CompletedTrip {
   invoice_pdf_error: string | null;
   invoice_total_paid_pence: number | null;
   invoice_regenerated_at: string | null;
+  invoice_payment_classification: string | null;
+  invoice_paid_pence: number | null;
+  invoice_outstanding_pence: number | null;
+  invoice_delivery_eligible: boolean | null;
 }
 
 export default function TripHistory() {
@@ -404,6 +408,10 @@ export default function TripHistory() {
           invoice_pdf_error: (trip.invoice_pdf_error as string | null | undefined) ?? null,
           invoice_total_paid_pence: (trip.invoice_total_paid_pence as number | null | undefined) ?? null,
           invoice_regenerated_at: (trip.invoice_regenerated_at as string | null | undefined) ?? null,
+          invoice_payment_classification: (trip.invoice_payment_classification as string | null | undefined) ?? null,
+          invoice_paid_pence: (trip.invoice_paid_pence as number | null | undefined) ?? null,
+          invoice_outstanding_pence: (trip.invoice_outstanding_pence as number | null | undefined) ?? null,
+          invoice_delivery_eligible: (trip.invoice_delivery_eligible as boolean | null | undefined) ?? null,
         };
       }) as CompletedTrip[];
     },
@@ -1919,7 +1927,8 @@ export default function TripHistory() {
                       .select(`
                         invoice_no, invoice_pdf_url, invoice_generated_at, invoice_email_sent,
                         invoice_email_sent_at, invoice_email_status, invoice_email_error,
-                        invoice_pdf_error, invoice_total_paid_pence, invoice_regenerated_at
+                        invoice_pdf_error, invoice_total_paid_pence, invoice_regenerated_at,
+                        invoice_payment_classification, invoice_paid_pence, invoice_outstanding_pence, invoice_delivery_eligible
                       `)
                       .eq('id', selectedTrip.id)
                       .single();

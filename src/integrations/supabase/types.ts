@@ -20817,6 +20817,7 @@ export type Database = {
           gross_fare_pence: number | null
           id: string
           idempotency_key: string | null
+          invoice_delivery_eligible: boolean | null
           invoice_delivery_status: string | null
           invoice_email_error: string | null
           invoice_email_sent: boolean
@@ -20824,6 +20825,12 @@ export type Database = {
           invoice_email_status: string | null
           invoice_generated_at: string | null
           invoice_no: string | null
+          invoice_outstanding_pence: number | null
+          invoice_paid_pence: number | null
+          invoice_payment_classification: string | null
+          invoice_payment_evidence_ids: string[] | null
+          invoice_payment_evidence_source: string | null
+          invoice_payment_resolved_at: string | null
           invoice_pdf_error: string | null
           invoice_pdf_path: string | null
           invoice_pdf_url: string | null
@@ -21098,6 +21105,7 @@ export type Database = {
           gross_fare_pence?: number | null
           id?: string
           idempotency_key?: string | null
+          invoice_delivery_eligible?: boolean | null
           invoice_delivery_status?: string | null
           invoice_email_error?: string | null
           invoice_email_sent?: boolean
@@ -21105,6 +21113,12 @@ export type Database = {
           invoice_email_status?: string | null
           invoice_generated_at?: string | null
           invoice_no?: string | null
+          invoice_outstanding_pence?: number | null
+          invoice_paid_pence?: number | null
+          invoice_payment_classification?: string | null
+          invoice_payment_evidence_ids?: string[] | null
+          invoice_payment_evidence_source?: string | null
+          invoice_payment_resolved_at?: string | null
           invoice_pdf_error?: string | null
           invoice_pdf_path?: string | null
           invoice_pdf_url?: string | null
@@ -21379,6 +21393,7 @@ export type Database = {
           gross_fare_pence?: number | null
           id?: string
           idempotency_key?: string | null
+          invoice_delivery_eligible?: boolean | null
           invoice_delivery_status?: string | null
           invoice_email_error?: string | null
           invoice_email_sent?: boolean
@@ -21386,6 +21401,12 @@ export type Database = {
           invoice_email_status?: string | null
           invoice_generated_at?: string | null
           invoice_no?: string | null
+          invoice_outstanding_pence?: number | null
+          invoice_paid_pence?: number | null
+          invoice_payment_classification?: string | null
+          invoice_payment_evidence_ids?: string[] | null
+          invoice_payment_evidence_source?: string | null
+          invoice_payment_resolved_at?: string | null
           invoice_pdf_error?: string | null
           invoice_pdf_path?: string | null
           invoice_pdf_url?: string | null

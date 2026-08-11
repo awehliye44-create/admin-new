@@ -8,6 +8,12 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { fetchCompanyBranding, formatCompanyAddress } from "./companyBranding.ts";
 import { sendResendEmail } from "./resendMail.ts";
 import { buildTripInvoiceHtml, type TripInvoiceHtmlData } from "./tripInvoiceHtml.ts";
+import {
+  isInvoiceEmailAllowed,
+  paymentClassificationLabel,
+  resolveTripInvoicePaymentState,
+  type TripInvoicePaymentState,
+} from "./tripInvoicePaymentStateSSOT.ts";
 
 const BUCKET = "trip-invoices";
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -45,10 +51,15 @@ export interface TripInvoiceRow {
   invoice_email_status: string | null;
   invoice_email_sent_at: string | null;
   invoice_total_paid_pence: number | null;
+  payment_status: string | null;
+  payment_collection_model: string | null;
+  financial_model: string | null;
+  cash_collected_at: string | null;
+  driver_payment_confirmed_at: string | null;
 }
 
 const TRIP_COLUMNS =
-  "id, trip_number, trip_code, passenger_id, passenger_name, status, payment_method, currency_code, currency, completed_at, created_at, pickup_address, dropoff_address, base_fare_pence, gross_fare_pence, final_fare_pence, final_customer_fare_pence, capture_amount_pence, extras_pence, tip_pence, discount_pence, offer_discount_pence, total_waiting_charge_pence, airport_charge_pence, invoice_no, invoice_pdf_path, invoice_pdf_url, invoice_generated_at, invoice_email_sent, invoice_email_status, invoice_email_sent_at, invoice_total_paid_pence";
+  "id, trip_number, trip_code, passenger_id, passenger_name, status, payment_method, currency_code, currency, completed_at, created_at, pickup_address, dropoff_address, base_fare_pence, gross_fare_pence, final_fare_pence, final_customer_fare_pence, capture_amount_pence, extras_pence, tip_pence, discount_pence, offer_discount_pence, total_waiting_charge_pence, airport_charge_pence, invoice_no, invoice_pdf_path, invoice_pdf_url, invoice_generated_at, invoice_email_sent, invoice_email_status, invoice_email_sent_at, invoice_total_paid_pence, payment_status, payment_collection_model, financial_model, cash_collected_at, driver_payment_confirmed_at";
 
 export function currencySymbol(code: string): string {
   if (code === "GBP") return "£";
@@ -132,14 +143,53 @@ async function resolveCustomerEmail(
   return null;
 }
 
+/** Resolve the authoritative payment outcome for THIS trip from provider evidence. */
+export async function loadTripInvoicePaymentState(
+  supabase: SupabaseClient,
+  trip: TripInvoiceRow,
+): Promise<TripInvoicePaymentState> {
+  const [{ data: sessions }, { data: payments }] = await Promise.all([
+    supabase
+      .from("payment_sessions")
+      .select(
+        "id, trip_id, status, provider_state, captured_amount_pence, authorised_amount_pence, refunded_amount_pence, provider_payment_id, provider_capture_id, provider_order_id",
+      )
+      .eq("trip_id", trip.id),
+    supabase
+      .from("payments")
+      .select(
+        "id, trip_id, status, provider_status, amount_pence, captured_amount_pence, refunded_amount_pence, provider_payment_id, provider_charge_id",
+      )
+      .eq("trip_id", trip.id),
+  ]);
+
+  return resolveTripInvoicePaymentState({
+    trip: {
+      id: trip.id,
+      status: trip.status,
+      payment_method: trip.payment_method,
+      payment_status: trip.payment_status,
+      payment_collection_model: trip.payment_collection_model,
+      financial_model: trip.financial_model,
+      final_customer_fare_pence: trip.final_customer_fare_pence,
+      final_fare_pence: trip.final_fare_pence,
+      gross_fare_pence: trip.gross_fare_pence,
+      cash_collected_at: trip.cash_collected_at,
+      driver_payment_confirmed_at: trip.driver_payment_confirmed_at,
+    },
+    paymentSessions: (sessions ?? []) as never,
+    payments: (payments ?? []) as never,
+  });
+}
+
 interface InvoiceLine {
   label: string;
   amountPence: number;
 }
 
 /** Line items exactly as the existing ONECAB customer invoice lays them out. */
-function buildLines(trip: TripInvoiceRow): InvoiceLine[] {
-  const total = getTripSettlementFarePence(trip);
+function buildLines(trip: TripInvoiceRow, totalFarePence: number): InvoiceLine[] {
+  const total = totalFarePence;
   const waiting = trip.total_waiting_charge_pence ?? 0;
   const extras = trip.extras_pence ?? 0;
   const airport = trip.airport_charge_pence ?? 0;
@@ -188,12 +238,13 @@ interface RenderArgs {
   tagline: string;
   customerName: string;
   customerEmail: string;
+  paymentState: TripInvoicePaymentState;
 }
 
 function buildHtmlData(args: RenderArgs): TripInvoiceHtmlData {
-  const { trip, invoiceNo, currency, company, tagline, customerName, customerEmail } = args;
+  const { trip, invoiceNo, currency, company, tagline, customerName, customerEmail, paymentState } = args;
   const dateLabel = formatDate(trip.completed_at ?? trip.created_at);
-  const total = getTripSettlementFarePence(trip);
+  const total = paymentState.finalFarePence;
 
   return {
     invoiceNo,
@@ -207,7 +258,7 @@ function buildHtmlData(args: RenderArgs): TripInvoiceHtmlData {
     customerEmail: customerEmail || "—",
     pickupLine: `${trip.pickup_address ?? "—"} — ${formatDateTime(trip.completed_at ?? trip.created_at)}`,
     dropoffLine: `${trip.dropoff_address ?? "—"} — ${formatDateTime(trip.completed_at ?? trip.created_at)}`,
-    items: buildLines(trip).map((line) => ({
+    items: buildLines(trip, total).map((line) => ({
       description: line.label,
       date: dateLabel,
       qty: 1,
@@ -218,6 +269,11 @@ function buildHtmlData(args: RenderArgs): TripInvoiceHtmlData {
     taxLabel: "TAX (0%)",
     tax: money(0, currency),
     total: money(total, currency),
+    paymentStatusLabel: paymentClassificationLabel(paymentState.paymentClassification),
+    paidLabel: "PAID",
+    paid: money(paymentState.authoritativePaidPence, currency),
+    outstanding: money(paymentState.outstandingPence, currency),
+    showOutstanding: paymentState.outstandingPence > 0,
     company,
     tagline: (tagline || "One App. Every Journey.").toUpperCase(),
     footerHeadline: `THANK YOU FOR RIDING WITH ${(company.name || "ONECAB").toUpperCase()}!`,
@@ -365,6 +421,22 @@ async function renderPdfLibFallback(data: TripInvoiceHtmlData): Promise<Uint8Arr
   page.drawText("TOTAL", { x: cols[4], y, size: 12, font: bold, color: ink });
   page.drawText(data.total, { x: cols[5], y, size: 12, font: bold, color: ink });
 
+  if (data.paid) {
+    y -= 18;
+    page.drawText(data.paidLabel || "PAID", { x: cols[4], y, size: 9.5, font, color: grey });
+    page.drawText(data.paid, { x: cols[5], y, size: 9.5, font, color: ink });
+  }
+  if (data.showOutstanding && data.outstanding) {
+    y -= 14;
+    page.drawText("OUTSTANDING", { x: cols[4], y, size: 9.5, font: bold, color: rgb(0.69, 0, 0.13) });
+    page.drawText(data.outstanding, { x: cols[5], y, size: 9.5, font: bold, color: rgb(0.69, 0, 0.13) });
+  }
+  if (data.paymentStatusLabel) {
+    y -= 14;
+    page.drawText("PAYMENT STATUS", { x: cols[4], y, size: 9.5, font, color: grey });
+    page.drawText(data.paymentStatusLabel.toUpperCase(), { x: cols[5], y, size: 9.5, font: bold, color: ink });
+  }
+
   y -= 36;
   page.drawText(data.footerHeadline, { x: left, y, size: 11, font: bold, color: ink });
   page.drawText(data.footerText, { x: left, y: y - 14, size: 9, font, color: grey });
@@ -394,7 +466,10 @@ function buildEmailHtml(args: {
   companyName: string;
   invoiceNo: string;
   tripRef: string;
-  total: string;
+  totalFare: string;
+  paid: string;
+  outstanding: string;
+  statusLabel: string;
   date: string;
   pickup: string;
   dropoff: string;
@@ -410,9 +485,11 @@ function buildEmailHtml(args: {
       <table style="width:100%;font-size:14px;border-collapse:collapse">
         <tr><td style="padding:6px 0;color:#6b7280">Pickup</td><td style="padding:6px 0;text-align:right">${args.pickup}</td></tr>
         <tr><td style="padding:6px 0;color:#6b7280">Drop-off</td><td style="padding:6px 0;text-align:right">${args.dropoff}</td></tr>
-        <tr><td style="padding:12px 0;font-weight:bold;border-top:1px solid #e6e8ee">Total paid</td><td style="padding:12px 0;text-align:right;font-weight:bold;border-top:1px solid #e6e8ee">${args.total}</td></tr>
+        <tr><td style="padding:12px 0;font-weight:bold;border-top:1px solid #e6e8ee">Total fare</td><td style="padding:12px 0;text-align:right;font-weight:bold;border-top:1px solid #e6e8ee">${args.totalFare}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Amount paid</td><td style="padding:6px 0;text-align:right">${args.paid}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Outstanding balance</td><td style="padding:6px 0;text-align:right">${args.outstanding}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Payment status</td><td style="padding:6px 0;text-align:right;font-weight:bold">${args.statusLabel}</td></tr>
       </table>
-      <p style="margin:20px 0 0;font-size:12px;color:#6b7280">Payment was taken digitally on the card or wallet used for the booking.</p>
     </div>
   </div></body></html>`;
 }
@@ -432,6 +509,9 @@ export interface TripInvoiceResult {
   emailed?: boolean;
   skipped?: boolean;
   stage?: string;
+  payment_classification?: string;
+  paid_pence?: number;
+  outstanding_pence?: number;
 }
 
 async function signedUrl(supabase: SupabaseClient, path: string): Promise<string | null> {
@@ -447,6 +527,7 @@ async function signedUrl(supabase: SupabaseClient, path: string): Promise<string
 export async function ensureTripInvoicePdf(
   supabase: SupabaseClient,
   trip: TripInvoiceRow,
+  paymentState: TripInvoicePaymentState,
   opts: { force?: boolean } = {},
 ): Promise<{ trip: TripInvoiceRow; url: string | null; path: string }> {
   if (!opts.force && trip.invoice_pdf_path && trip.invoice_generated_at) {
@@ -483,6 +564,7 @@ export async function ensureTripInvoicePdf(
     tagline: branding.branding.tagline,
     customerName: trip.passenger_name || "Customer",
     customerEmail: (await resolveCustomerEmail(supabase, trip.passenger_id)) ?? "",
+    paymentState,
   });
 
   const path = `${trip.id}/${invoiceNo}.pdf`;
@@ -499,7 +581,14 @@ export async function ensureTripInvoicePdf(
     invoice_pdf_url: url,
     invoice_generated_at: nowIso,
     invoice_pdf_error: null,
-    invoice_total_paid_pence: getTripSettlementFarePence(trip),
+    invoice_total_paid_pence: paymentState.authoritativePaidPence,
+    invoice_paid_pence: paymentState.authoritativePaidPence,
+    invoice_outstanding_pence: paymentState.outstandingPence,
+    invoice_payment_classification: paymentState.paymentClassification,
+    invoice_delivery_eligible: isInvoiceEmailAllowed(paymentState),
+    invoice_payment_evidence_source: paymentState.evidenceSource,
+    invoice_payment_evidence_ids: paymentState.providerTransactionIds,
+    invoice_payment_resolved_at: paymentState.resolvedAt,
   };
   if (opts.force && trip.invoice_generated_at) patch.invoice_regenerated_at = nowIso;
 
@@ -516,6 +605,7 @@ export async function sendTripInvoiceEmail(
   supabase: SupabaseClient,
   trip: TripInvoiceRow,
   pdfPath: string,
+  paymentState: TripInvoicePaymentState,
 ): Promise<{ ok: boolean; error?: string; email?: string }> {
   const email = await resolveCustomerEmail(supabase, trip.passenger_id);
   if (!email) {
@@ -540,12 +630,17 @@ export async function sendTripInvoiceEmail(
 
   const result = await sendResendEmail({
     to: email,
-    subject: `Your ${companyName} invoice ${invoiceNo}`,
+    subject: paymentState.paymentClassification === "PARTIALLY_PAID"
+      ? `Your ${companyName} invoice ${invoiceNo} — partially paid`
+      : `Your ${companyName} invoice ${invoiceNo}`,
     html: buildEmailHtml({
       companyName,
       invoiceNo,
       tripRef: tripDisplayId(trip),
-      total: money(getTripSettlementFarePence(trip), currency),
+      totalFare: money(paymentState.finalFarePence, currency),
+      paid: money(paymentState.authoritativePaidPence, currency),
+      outstanding: money(paymentState.outstandingPence, currency),
+      statusLabel: paymentClassificationLabel(paymentState.paymentClassification),
       date: formatDate(trip.completed_at ?? trip.created_at),
       pickup: trip.pickup_address ?? "—",
       dropoff: trip.dropoff_address ?? "—",
@@ -596,8 +691,43 @@ export async function handleTripInvoiceAction(
   }
 
   try {
+    const paymentState = await loadTripInvoicePaymentState(supabase, trip);
+    const emailAllowed = isInvoiceEmailAllowed(paymentState);
+
+    await supabase
+      .from("trips")
+      .update({
+        invoice_payment_classification: paymentState.paymentClassification,
+        invoice_paid_pence: paymentState.authoritativePaidPence,
+        invoice_outstanding_pence: paymentState.outstandingPence,
+        invoice_delivery_eligible: emailAllowed,
+        invoice_payment_evidence_source: paymentState.evidenceSource,
+        invoice_payment_evidence_ids: paymentState.providerTransactionIds,
+        invoice_payment_resolved_at: paymentState.resolvedAt,
+      })
+      .eq("id", trip.id);
+
+    if (!emailAllowed) {
+      // Completed trip is NOT proof of payment — never generate/send a "paid" document.
+      await logEvent(supabase, trip.id, "payment_gate", "blocked", paymentState.blockReason ?? undefined, {
+        classification: paymentState.paymentClassification,
+        paid_pence: paymentState.authoritativePaidPence,
+        final_fare_pence: paymentState.finalFarePence,
+      });
+      return {
+        success: false,
+        ok: false,
+        skipped: true,
+        stage: "payment_gate",
+        error: `Invoice blocked — ${paymentState.paymentClassification}: ${paymentState.blockReason ?? "payment not confirmed"}`,
+        payment_classification: paymentState.paymentClassification,
+        paid_pence: paymentState.authoritativePaidPence,
+        outstanding_pence: paymentState.outstandingPence,
+      };
+    }
+
     const force = action === "regenerate";
-    const { trip: updated, url, path } = await ensureTripInvoicePdf(supabase, trip, { force });
+    const { trip: updated, url, path } = await ensureTripInvoicePdf(supabase, trip, paymentState, { force });
 
     let emailed = false;
     let emailError: string | undefined;
@@ -608,7 +738,7 @@ export async function handleTripInvoiceAction(
       (action === "generate" && !updated.invoice_email_sent);
 
     if (shouldEmail) {
-      const emailResult = await sendTripInvoiceEmail(supabase, updated, path);
+      const emailResult = await sendTripInvoiceEmail(supabase, updated, path, paymentState);
       emailed = emailResult.ok;
       emailError = emailResult.error;
     }
