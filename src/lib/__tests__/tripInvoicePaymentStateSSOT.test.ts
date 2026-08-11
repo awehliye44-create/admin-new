@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isInvoiceEmailAllowed,
   resolveTripInvoicePaymentState,
-} from '../tripInvoicePaymentStateSSOT';
+} from '../../../shared/tripInvoicePaymentStateSSOT';
 
 const cardTrip = (overrides: Record<string, unknown> = {}) => ({
   id: 'trip-a',
