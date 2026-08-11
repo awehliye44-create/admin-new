@@ -36,6 +36,10 @@ export interface TripInvoiceFields {
   invoice_pdf_error: string | null;
   invoice_total_paid_pence: number | null;
   invoice_regenerated_at: string | null;
+  invoice_payment_classification?: string | null;
+  invoice_paid_pence?: number | null;
+  invoice_outstanding_pence?: number | null;
+  invoice_delivery_eligible?: boolean | null;
 }
 
 function hasSuccessfulInvoicePdf(trip: TripInvoiceFields): boolean {
@@ -45,6 +49,26 @@ function hasSuccessfulInvoicePdf(trip: TripInvoiceFields): boolean {
 function getInvoiceStatusLabel(trip: TripInvoiceFields): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
   const pdfReady = hasSuccessfulInvoicePdf(trip);
   const emailSent = Boolean(trip.invoice_email_sent || trip.invoice_email_status === 'sent');
+  const classification = trip.invoice_payment_classification ?? null;
+
+  // Payment truth first — a completed trip is not proof of payment.
+  if (!pdfReady && classification) {
+    if (classification === 'PAYMENT_FAILED' || classification === 'UNPAID') {
+      return { label: 'Blocked — payment failed', variant: 'destructive' };
+    }
+    if (classification === 'RECONCILIATION_REQUIRED' || classification === 'REFUNDED' || classification === 'PARTIALLY_REFUNDED') {
+      return { label: 'Blocked — reconciliation required', variant: 'destructive' };
+    }
+    if (classification === 'PAYMENT_PENDING') {
+      return { label: 'Not ready — payment pending', variant: 'outline' };
+    }
+    if (classification === 'PARTIALLY_PAID') {
+      return { label: 'Ready — partially paid', variant: 'secondary' };
+    }
+    if (classification === 'FULLY_PAID') {
+      return { label: 'Ready — fully paid', variant: 'secondary' };
+    }
+  }
 
   if (emailSent && pdfReady) {
     return { label: 'Sent', variant: 'default' };
@@ -145,9 +169,21 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
           <p>{formatPaymentMethod(trip.payment_method)}</p>
         </div>
         <div>
-          <Label className="text-xs text-muted-foreground">Invoice Total (snapshot)</Label>
-          <p className="font-medium">{formatTotalPaid(trip.invoice_total_paid_pence)}</p>
+          <Label className="text-xs text-muted-foreground">Amount Paid (authoritative)</Label>
+          <p className="font-medium">{formatTotalPaid(trip.invoice_paid_pence ?? trip.invoice_total_paid_pence)}</p>
         </div>
+        {trip.invoice_outstanding_pence != null && trip.invoice_outstanding_pence > 0 && (
+          <div>
+            <Label className="text-xs text-muted-foreground">Outstanding</Label>
+            <p className="font-medium text-destructive">{formatTotalPaid(trip.invoice_outstanding_pence)}</p>
+          </div>
+        )}
+        {trip.invoice_payment_classification && (
+          <div>
+            <Label className="text-xs text-muted-foreground">Payment Classification</Label>
+            <p className="font-medium">{trip.invoice_payment_classification.replace(/_/g, ' ').toLowerCase()}</p>
+          </div>
+        )}
         <div>
           <Label className="text-xs text-muted-foreground">Generated</Label>
           <p>{trip.invoice_generated_at ? format(new Date(trip.invoice_generated_at), 'MMM d, yyyy HH:mm') : '—'}</p>
