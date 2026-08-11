@@ -20897,6 +20897,10 @@ export type Database = {
           pickup_paid_waiting_started_at: string | null
           pickup_waiting_admin_config: Json | null
           pickup_waiting_charge_pence: number
+          pickup_waiting_chargeable_seconds: number
+          pickup_waiting_finalized_at: string | null
+          pickup_waiting_intervals_charged: number
+          pickup_waiting_last_tick_at: string | null
           pickup_waiting_started_at: string | null
           pickup_zone_id: string | null
           platform_commission_amount: number | null
@@ -21174,6 +21178,10 @@ export type Database = {
           pickup_paid_waiting_started_at?: string | null
           pickup_waiting_admin_config?: Json | null
           pickup_waiting_charge_pence?: number
+          pickup_waiting_chargeable_seconds?: number
+          pickup_waiting_finalized_at?: string | null
+          pickup_waiting_intervals_charged?: number
+          pickup_waiting_last_tick_at?: string | null
           pickup_waiting_started_at?: string | null
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
@@ -21451,6 +21459,10 @@ export type Database = {
           pickup_paid_waiting_started_at?: string | null
           pickup_waiting_admin_config?: Json | null
           pickup_waiting_charge_pence?: number
+          pickup_waiting_chargeable_seconds?: number
+          pickup_waiting_finalized_at?: string | null
+          pickup_waiting_intervals_charged?: number
+          pickup_waiting_last_tick_at?: string | null
           pickup_waiting_started_at?: string | null
           pickup_zone_id?: string | null
           platform_commission_amount?: number | null
@@ -27007,6 +27019,10 @@ export type Database = {
           updated_at: string
         }[]
       }
+      payment_authorisation_valid: {
+        Args: { p_trip_id: string }
+        Returns: boolean
+      }
       payment_gate_historical_audit: { Args: never; Returns: Json }
       payment_session_action_policy: {
         Args: { p_provider_verification?: Json; p_session_id: string }
@@ -27316,6 +27332,19 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      resolve_booking_customer_payable_pence: {
+        Args: {
+          p_booking_snapshot: Json
+          p_fare_snapshot: Json
+          p_session_authorised_amount_pence: number
+          p_session_estimated_total_pence: number
+        }
+        Returns: {
+          customer_payable_pence: number
+          discount_pence: number
+          gross_fare_pence: number
+        }[]
       }
       resolve_driver_alert: {
         Args: { p_alert_type: string; p_driver_id: string }
