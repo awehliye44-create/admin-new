@@ -165,7 +165,15 @@ serve(async (req) => {
     for (const row of tokens) {
       const message: Record<string, unknown> = {
         token: row.token,
-        data: { ...data, title, body, channelId, sound },
+        data: {
+          ...data,
+          title,
+          body,
+          channelId,
+          sound,
+          ...(mappedSoundUrl ? { soundUrl: mappedSoundUrl } : {}),
+        },
+
       };
 
       if (row.platform === "ios") {
