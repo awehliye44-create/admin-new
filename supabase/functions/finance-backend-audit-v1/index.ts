@@ -1,7 +1,7 @@
 // v1.0.2 — resolve finance scope provider before platform balance fetch
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import provider from "https://esm.sh/provider@14.21.0";
+
 import {
   fetchProviderPlatformBalance,
   resolveFinanceScopeProvider,
@@ -312,55 +312,7 @@ serve(async (req) => {
     providerPendingPence = providerBalance.pending_pence;
     providerBalanceError = providerBalance.error;
 
-    const useProviderPlatformPayouts = financeScopeProvider.provider === "provider";
-
-    if (useProviderPlatformPayouts && providerSecretKey) {
-      try {
-        const provider = new provider(providerSecretKey, { apiVersion: "2023-10-16" });
-        const payouts = await provider.payouts.list({ limit: 100 });
-        providerPlatformPayoutsPence = payouts.data
-          .filter((p: { currency: string; status: string }) => p.currency === currency && p.status === "paid")
-          .reduce((s: number, p: { amount?: number | null }) => s + (p.amount ?? 0), 0);
-
-        const londonTodayStartMs = (() => {
-          const now = new Date();
-          const london = new Date(
-            now.toLocaleString("en-US", { timeZone: "Europe/London" }),
-          );
-          london.setHours(0, 0, 0, 0);
-          return london.getTime();
-        })();
-
-        providerPlatformPayoutDetails = payouts.data
-          .filter((p: { currency: string }) => p.currency === currency)
-          .map((p: {
-            id: string;
-            amount?: number | null;
-            status: string;
-            arrival_date?: number | null;
-            created: number;
-          }) => ({
-            id: p.id,
-            amount_pence: p.amount ?? 0,
-            status: p.status,
-            arrival_date: p.arrival_date
-              ? new Date(p.arrival_date * 1000).toISOString()
-              : null,
-            created_at: new Date(p.created * 1000).toISOString(),
-          }));
-
-        providerPlatformPaidTodayPence = providerPlatformPayoutDetails
-          .filter(
-            (p) =>
-              p.status === "paid" &&
-              p.arrival_date &&
-              new Date(p.arrival_date).getTime() >= londonTodayStartMs,
-          )
-          .reduce((s, p) => s + p.amount_pence, 0);
-      } catch (e) {
-        providerBalanceError = (e as Error).message;
-      }
-    } else if (useProviderPlatformPayouts && !providerSecretKey) {
+    if (!providerSecretKey) {
       providerBalanceError = providerBalanceError ?? "REVOLUT_SECRET_KEY not configured";
     }
 
