@@ -112,6 +112,7 @@ serve(async (req) => {
       : (data.event_type || payload.type || "").toLowerCase();
 
     let mappedSoundFile: string | null = null;
+    let mappedSoundUrl: string | null = null;
     if (eventType) {
       const { data: mapping } = await supabase
         .from("alert_sound_mappings")
@@ -124,11 +125,14 @@ serve(async (req) => {
         ?.alert_sounds;
       if (mapped?.is_active && mapped.storage_path) {
         mappedSoundFile = mapped.storage_path.split("/").pop() ?? null;
+        mappedSoundUrl = supabase.storage.from("alert-sounds").getPublicUrl(mapped.storage_path)
+          .data.publicUrl;
       }
     }
 
     const sound = payload.sound ?? mappedSoundFile ?? "onecab_new_ride_offer.wav";
     const soundKey = sound.replace(/\.[^.]+$/, "");
+
     // Android bakes the sound into the channel at creation time, so the channel
     // id must change whenever the configured sound changes.
     const channelId =
