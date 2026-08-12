@@ -106,11 +106,39 @@ serve(async (req) => {
       (payload.type ?? "").toUpperCase() === "RIDE_OFFER" ||
       (data.type ?? "").toUpperCase() === "NEW_RIDE_OFFER";
 
-    const channelId = payload.android_channel_id ?? payload.channel_id ?? "onecab_new_ride_offers_v1";
-    const sound = payload.sound ?? "onecab_new_ride_offer.wav";
+    // Admin Alert Sounds SSOT: resolve the configured sound for this driver event.
+    const eventType = isRideOffer
+      ? "new_ride_offer"
+      : (data.event_type || payload.type || "").toLowerCase();
+
+    let mappedSoundFile: string | null = null;
+    if (eventType) {
+      const { data: mapping } = await supabase
+        .from("alert_sound_mappings")
+        .select("alert_sounds(storage_path, is_active)")
+        .eq("target_app", "driver")
+        .eq("event_type", eventType)
+        .eq("is_active", true)
+        .maybeSingle();
+      const mapped = (mapping as { alert_sounds?: { storage_path: string; is_active: boolean } } | null)
+        ?.alert_sounds;
+      if (mapped?.is_active && mapped.storage_path) {
+        mappedSoundFile = mapped.storage_path.split("/").pop() ?? null;
+      }
+    }
+
+    const sound = payload.sound ?? mappedSoundFile ?? "onecab_new_ride_offer.wav";
+    const soundKey = sound.replace(/\.[^.]+$/, "");
+    // Android bakes the sound into the channel at creation time, so the channel
+    // id must change whenever the configured sound changes.
+    const channelId =
+      payload.android_channel_id ??
+      payload.channel_id ??
+      (isRideOffer ? `onecab_ride_offer_${soundKey}` : `onecab_${soundKey}`);
     const title = payload.title ?? "New ride offer available near you!";
     const body = payload.body ?? "Tap to view details";
     const ttl = isRideOffer ? offerTtlSeconds(data) : 300;
+
 
     const { data: tokens, error: tokenErr } = await supabase
       .from("push_tokens")
