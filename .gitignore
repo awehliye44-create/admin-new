@@ -41,3 +41,4 @@ secrets/revolut-business/*_private.key
 !**/public*.pem
 !**/public*.cer
 !**/public*.crt
+.tmp/
