@@ -26,7 +26,8 @@ Until Revolut vault ships, admin readiness = **Not implemented for Revolut yet**
 - [ ] `REVOLUT_SAVE_CARD_TOKENIZATION_READY` flipped to `true` in SSOT only after E2E proof
 - [ ] Admin saved card readiness → Live
 - [ ] Customer Wallet shows Revolut saved cards (max 2, same policy as provider)
-- [ ] No `list-saved-cards` / `setup-card` calls in Revolut service areas
+- [x] No `list-saved-cards` / `setup-card` calls in Revolut service areas
+- [x] Slice B (2026-08-13): undeployed dead Stripe Edges `setup-card`, `list-saved-cards`, `delete-saved-card` (Revolut trio live; no rewrite)
 
 ## References
 
