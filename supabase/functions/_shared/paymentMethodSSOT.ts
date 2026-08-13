@@ -18,7 +18,7 @@ import {
 import type { GatewayStatusSnapshot } from "./paymentGatewayStatus.ts";
 
 /** Phase 2 — Revolut customer tokenisation endpoints. */
-export const REVOLUT_SAVE_CARD_TOKENIZATION_READY = false;
+export const REVOLUT_SAVE_CARD_TOKENIZATION_READY = true;
 
 export type PaymentMethodKind =
   | "card"

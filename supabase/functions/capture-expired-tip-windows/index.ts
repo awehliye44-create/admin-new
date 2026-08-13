@@ -65,10 +65,10 @@ Deno.serve(async (req) => {
     const { data: candidates, error: queryErr } = await supabase
       .from("trips")
       .select(
-        "id, status, payment_method, payment_status, payment_provider, stripe_payment_intent_id, tip_window_expires_at, tip_window_closed_at, completed_at",
+        "id, status, payment_method, payment_status, payment_provider, payment_intent_id, provider_order_id, tip_window_expires_at, tip_window_closed_at, completed_at",
       )
       .eq("status", "completed")
-      .not("stripe_payment_intent_id", "is", null)
+      .or("payment_intent_id.not.is.null,provider_order_id.not.is.null")
       .lt("tip_window_expires_at", nowIso)
       .in("payment_status", UNCAPPED_PAYMENT_STATUSES)
       .order("tip_window_expires_at", { ascending: true })
@@ -79,9 +79,12 @@ Deno.serve(async (req) => {
     const stripeOff = isStripeRuntimeDisabled();
     const eligible = (candidates ?? []).filter((row) => {
       if (!needsServerTipWindowFareCapture(row, Date.now())) return false;
+      const providerPaymentId = String(
+        row.payment_intent_id ?? row.provider_order_id ?? "",
+      ).trim() || null;
       const isStripeTrip =
         String(row.payment_provider ?? "").toLowerCase() === "stripe"
-        || looksLikeStripePaymentIntentId(row.stripe_payment_intent_id as string | null);
+        || looksLikeStripePaymentIntentId(providerPaymentId);
       if (stripeOff && isStripeTrip) {
         emitStripeRetirementTelemetry({
           event: STRIPE_RUNTIME_BLOCKED,
