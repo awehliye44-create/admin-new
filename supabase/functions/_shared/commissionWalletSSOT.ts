@@ -294,6 +294,32 @@ export function commissionWalletDisplayBalanceMinor(
   return purchased + promotional;
 }
 
+export type CommissionWalletBalanceStatus =
+  | "sufficient"
+  | "low"
+  | "insufficient";
+
+/**
+ * Admin/driver balance health labels for Commission Wallet overview UI.
+ * Insufficient matches dispatch soft-block when minimum is 0 (balance <= 0)
+ * or when below configured minimum_balance_minor.
+ */
+export function resolveCommissionWalletBalanceStatus(input: {
+  balanceMinor: number;
+  minimumBalanceMinor?: number | null;
+}): CommissionWalletBalanceStatus {
+  const balance = Math.round(Number(input.balanceMinor) || 0);
+  const minimum = Math.max(0, Math.round(Number(input.minimumBalanceMinor) || 0));
+  if (minimum > 0) {
+    if (balance < minimum) return "insufficient";
+    if (balance < minimum * 2) return "low";
+    return "sufficient";
+  }
+  if (balance <= 0) return "insufficient";
+  if (balance < 500) return "low";
+  return "sufficient";
+}
+
 /** Forbidden actions on Commission Wallet — UI/API must never expose these. */
 export const COMMISSION_WALLET_FORBIDDEN_ACTIONS = [
   "Withdraw",

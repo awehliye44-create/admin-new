@@ -15,6 +15,7 @@ import {
   isCommissionWalletWorkflowEnabled,
   isWelcomeCommissionWalletLedgerEntry,
   buildCommissionWalletDriverRosterRow,
+  resolveCommissionWalletBalanceStatus,
   REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
 } from "../_shared/commissionWalletSSOT.ts";
 
@@ -96,7 +97,7 @@ serve(async (req) => {
     let ledgerQuery = gate.supabase
       .from("driver_commission_wallet_ledger")
       .select(
-        "id, driver_id, service_area_id, region_id, currency, entry_type, credit_type, amount_minor, direction, trip_id, topup_id, campaign_id, provider, provider_transaction_id, admin_user_id, reason, promotional_portion_minor, purchased_portion_minor, metadata, created_at",
+        "id, driver_id, service_area_id, region_id, currency, entry_type, credit_type, amount_minor, direction, trip_id, topup_id, campaign_id, provider, provider_transaction_id, admin_user_id, reason, promotional_portion_minor, purchased_portion_minor, idempotency_key, metadata, created_at",
       )
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -297,15 +298,28 @@ serve(async (req) => {
         // Prefer roster for driver_balances when SA selected (includes zero-balance profiles).
         driverBalances.length = 0;
         for (const r of driverRoster) {
+          const usable = Number(r.usable_commission_balance_minor) || 0;
+          const balanceStatus = resolveCommissionWalletBalanceStatus({
+            balanceMinor: usable,
+            minimumBalanceMinor: minRequired,
+          });
           driverBalances.push({
             driver_id: String(r.driver_id),
             service_area_id: String(r.service_area_id),
             currency: String(r.currency),
-            usable_commission_balance_minor: Number(r.usable_commission_balance_minor) || 0,
+            usable_commission_balance_minor: usable,
             purchased_balance_minor: Number(r.purchased_balance_minor) || 0,
             promotional_balance_minor: Number(r.promotional_balance_minor) || 0,
             reserved_balance_minor: Number(r.reserved_balance_minor) || 0,
             below_minimum: Boolean(r.below_minimum),
+            balance_status: balanceStatus,
+            balance_status_label:
+              balanceStatus === "sufficient"
+                ? "Sufficient balance"
+                : balanceStatus === "low"
+                ? "Low balance"
+                : "Insufficient balance",
+            minimum_balance_minor: minRequired,
             profile_status: r.profile_status,
             offer_eligible: Boolean(r.offer_eligible),
             welcome_credit_granted: Boolean(r.welcome_credit_granted),

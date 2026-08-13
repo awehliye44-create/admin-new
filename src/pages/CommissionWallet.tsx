@@ -46,6 +46,7 @@ import {
   COMMISSION_WALLET_DRIVER_PAGE_DISCLAIMER,
   COMMISSION_WALLET_CAMPAIGN_TYPE,
   REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
+  resolveCommissionWalletBalanceStatus,
 } from '../../shared/commissionWalletSSOT';
 import {
   AlertDialog,
@@ -1126,6 +1127,8 @@ export default function CommissionWallet() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Driver</TableHead>
+                  <TableHead>Driver ID</TableHead>
+                  <TableHead>Service area</TableHead>
                   <TableHead>Profile</TableHead>
                   <TableHead>Usable</TableHead>
                   <TableHead>Purchased</TableHead>
@@ -1145,8 +1148,14 @@ export default function CommissionWallet() {
                         {String(row.driver_name || row.driver_code || String(row.driver_id).slice(0, 8))}
                       </div>
                       <div className="font-mono text-muted-foreground">
-                        {String(row.driver_code || String(row.driver_id).slice(0, 8))}
+                        {String(row.driver_code || '—')}
                       </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs" title={String(row.driver_id)}>
+                      {String(row.driver_id)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs" title={String(row.service_area_id)}>
+                      {String(row.service_area_id)}
                     </TableCell>
                     <TableCell>
                       {row.profile_status === 'missing'
@@ -1173,15 +1182,32 @@ export default function CommissionWallet() {
                         : <Badge variant="outline">Off</Badge>}
                     </TableCell>
                     <TableCell>
-                      {row.below_minimum
-                        ? <Badge variant="destructive">Below minimum</Badge>
-                        : <Badge variant="secondary">OK</Badge>}
+                      {(() => {
+                        const status = String(row.balance_status ?? '')
+                          || resolveCommissionWalletBalanceStatus({
+                            balanceMinor: Number(row.usable_commission_balance_minor) || 0,
+                            minimumBalanceMinor: Number(row.minimum_balance_minor) || 0,
+                          });
+                        const label = String(row.balance_status_label ?? '')
+                          || (status === 'sufficient'
+                            ? 'Sufficient balance'
+                            : status === 'low'
+                              ? 'Low balance'
+                              : 'Insufficient balance');
+                        if (status === 'insufficient') {
+                          return <Badge variant="destructive">{label}</Badge>;
+                        }
+                        if (status === 'low') {
+                          return <Badge variant="outline">{label}</Badge>;
+                        }
+                        return <Badge variant="secondary">{label}</Badge>;
+                      })()}
                     </TableCell>
                   </TableRow>
                 ))}
                 {(overviewQuery.data?.driver_balances ?? []).length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-muted-foreground text-sm">
+                    <TableCell colSpan={12} className="text-muted-foreground text-sm">
                       {serviceAreaId
                         ? 'No drivers assigned to this Service Area.'
                         : 'Select a Service Area to list assigned drivers and wallet profiles.'}
@@ -1275,7 +1301,7 @@ export default function CommissionWallet() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Recent ledger</CardTitle>
+            <CardTitle>Recent ledger (canonical Commission Wallet SSOT)</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
@@ -1283,9 +1309,13 @@ export default function CommissionWallet() {
                 <TableRow>
                   <TableHead>When</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead>Credit type</TableHead>
-                  <TableHead>Amount</TableHead>
                   <TableHead>Driver</TableHead>
+                  <TableHead>Trip</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Fare / commissionable</TableHead>
+                  <TableHead>Rate</TableHead>
+                  <TableHead>Balance before → after</TableHead>
+                  <TableHead>Idempotency / ref</TableHead>
                   <TableHead>Reason</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1295,21 +1325,68 @@ export default function CommissionWallet() {
                     ? row.metadata as Record<string, unknown>
                     : null;
                   const creditType = String(row.credit_type ?? meta?.credit_type ?? '');
+                  const tripId = String(row.trip_id ?? meta?.trip_id ?? '');
+                  const finalFare = meta?.final_fare_minor ?? meta?.final_fare_pence;
+                  const commissionable = meta?.commissionable_fare_minor ?? meta?.commissionable_fare_pence;
+                  const rateBps = meta?.commission_rate_bps;
+                  const before = meta?.balance_before_minor;
+                  const after = meta?.balance_after_minor;
+                  const idem = String(
+                    row.idempotency_key
+                      ?? meta?.idempotency_key
+                      ?? meta?.ledger_idempotency_key
+                      ?? '',
+                  );
+                  const providerTxn = String(
+                    row.provider_transaction_id
+                      ?? meta?.provider_transaction_id
+                      ?? '',
+                  );
                   return (
                   <TableRow key={String(row.id)}>
                     <TableCell className="text-xs whitespace-nowrap">
                       {row.created_at ? new Date(String(row.created_at)).toLocaleString() : '—'}
                     </TableCell>
-                    <TableCell className="text-xs">{String(row.entry_type)}</TableCell>
                     <TableCell className="text-xs">
-                      {creditType ? adminCommissionCreditTypeLabel(creditType) : '—'}
+                      <div>{String(row.entry_type)}</div>
+                      {creditType ? (
+                        <div className="text-muted-foreground">
+                          {adminCommissionCreditTypeLabel(creditType)}
+                        </div>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs" title={String(row.driver_id)}>
+                      {String(row.driver_id)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs" title={tripId || undefined}>
+                      {tripId || '—'}
                     </TableCell>
                     <TableCell>
                       {row.direction === 'debit' ? '−' : '+'}
                       {formatMinor(row.amount_minor, String(row.currency))}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{String(row.driver_id).slice(0, 8)}…</TableCell>
-                    <TableCell className="text-xs max-w-[240px] truncate" title={String(row.reason ?? '')}>
+                    <TableCell className="text-xs">
+                      {finalFare != null || commissionable != null ? (
+                        <>
+                          <div>Final: {finalFare != null ? formatMinor(finalFare, String(row.currency)) : '—'}</div>
+                          <div>Commissionable: {commissionable != null ? formatMinor(commissionable, String(row.currency)) : '—'}</div>
+                        </>
+                      ) : '—'}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {rateBps != null && Number.isFinite(Number(rateBps))
+                        ? `${(Number(rateBps) / 100).toFixed(2)}%`
+                        : '—'}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {before != null || after != null
+                        ? `${before != null ? formatMinor(before, String(row.currency)) : '—'} → ${after != null ? formatMinor(after, String(row.currency)) : '—'}`
+                        : '—'}
+                    </TableCell>
+                    <TableCell className="text-xs max-w-[160px] truncate" title={[idem, providerTxn].filter(Boolean).join(' | ')}>
+                      {idem || providerTxn || String(row.id).slice(0, 8)}
+                    </TableCell>
+                    <TableCell className="text-xs max-w-[180px] truncate" title={String(row.reason ?? '')}>
                       {String(row.reason ?? '')}
                     </TableCell>
                   </TableRow>
@@ -1317,7 +1394,7 @@ export default function CommissionWallet() {
                 })}
                 {(overviewQuery.data?.recent_ledger ?? []).length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-muted-foreground text-sm">
+                    <TableCell colSpan={10} className="text-muted-foreground text-sm">
                       No recent ledger entries.
                     </TableCell>
                   </TableRow>
