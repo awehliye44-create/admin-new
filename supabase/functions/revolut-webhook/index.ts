@@ -24,6 +24,10 @@ import {
   planRecoveryCaptureCompletion,
   isRecoveryCompletionIdempotent,
 } from "../_shared/paymentSessionsRecoveryCompletionSSOT.ts";
+import {
+  isRevolutProviderStateRegression,
+  revolutProviderStateRank,
+} from "../_shared/revolutProviderStateRankSSOT.ts";
 
 /**
  * Extract provider processing fee (minor units) from a Revolut order payload.
@@ -477,9 +481,6 @@ Deno.serve(async (req) => {
         const priorProvider = String(
           (session as { provider_state?: string | null }).provider_state ?? "",
         ).toUpperCase();
-        const { isRevolutProviderStateRegression, revolutProviderStateRank } = await import(
-          "../../../shared/revolutProviderStateRankSSOT.ts"
-        );
         const priorRank = revolutProviderStateRank;
         const incomingIsRegression = isRevolutProviderStateRegression(priorProvider, stateUpper);
 
