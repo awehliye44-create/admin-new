@@ -465,6 +465,7 @@ export async function createRevolutPreauthResponse(
       serviceAreaId: metadataExtra.service_area_id,
       paymentProvider: "revolut",
       providerOrderId: order.id,
+      idempotencyKey,
       authorisedAmountPence,
       estimatedTotalPence,
       bufferPence,
@@ -480,10 +481,31 @@ export async function createRevolutPreauthResponse(
     });
     paymentSessionId = sessionResult.sessionId;
     if (!paymentSessionId) {
-      logStep("Revolut payment session upsert failed", {
+      // P0 fail-closed: never return a usable preauth if the authoritative session
+      // row did not persist (Slice A regression: missing idempotency_key).
+      logStep("Revolut payment session upsert failed — cancelling order", {
         error: sessionResult.error ?? "unknown",
         orderId: order.id,
         clientActionId,
+      });
+      try {
+        const { cancelRevolutOrder } = await import("./revolutOrders.ts");
+        await cancelRevolutOrder(environment, secretKey, order.id);
+      } catch (cancelErr) {
+        logStep("Session-persist cancel failed", {
+          orderId: order.id,
+          error: String(cancelErr),
+        });
+      }
+      return new Response(JSON.stringify({
+        error:
+          "We couldn't complete your booking. Any temporary card hold will be released.",
+        code: "PAYMENT_SESSION_PERSIST_FAILED",
+        charge_state: "reversed",
+        payment_intent_id: order.id,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500,
       });
     }
     bookingWaterfall.completeStep(
@@ -700,6 +722,32 @@ async function attemptRevolutSavedCardCharge(args: {
       logStep: args.logStep,
     });
     if (resolved.kind === "authorised") {
+      // P0: never return booking-ready success without an authoritative session row.
+      if (args.clientActionId && !args.paymentSessionId) {
+        args.logStep("Authorised but payment session missing — cancelling hold", {
+          orderId: args.orderId,
+          clientActionId: args.clientActionId,
+        });
+        try {
+          const { cancelRevolutOrder } = await import("./revolutOrders.ts");
+          await cancelRevolutOrder(args.environment, args.secretKey, args.orderId);
+        } catch (cancelErr) {
+          args.logStep("Authorised-without-session cancel failed", {
+            orderId: args.orderId,
+            error: String(cancelErr),
+          });
+        }
+        return new Response(JSON.stringify({
+          error:
+            "We couldn't complete your booking. Any temporary card hold will be released.",
+          code: "PAYMENT_SESSION_PERSIST_FAILED",
+          charge_state: "reversed",
+          payment_intent_id: args.orderId,
+        }), {
+          headers: { ...args.corsHeaders, "Content-Type": "application/json" },
+          status: 500,
+        });
+      }
       if (args.clientActionId) {
         await markPaymentSessionAuthorised(args.supabase, {
           providerOrderId: args.orderId,

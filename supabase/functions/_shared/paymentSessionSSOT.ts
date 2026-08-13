@@ -84,6 +84,8 @@ export type UpsertPaymentSessionInput = {
   serviceAreaId: string;
   paymentProvider?: string;
   providerOrderId?: string | null;
+  /** Required NOT NULL on payment_sessions — defaults to preauth_<clientActionId>. */
+  idempotencyKey?: string | null;
   authorisedAmountPence?: number | null;
   estimatedTotalPence?: number | null;
   bufferPence?: number | null;
@@ -98,6 +100,10 @@ export async function upsertPaymentSessionPending(
   supabase: SupabaseClient,
   input: UpsertPaymentSessionInput,
 ): Promise<{ sessionId: string | null; error?: string }> {
+  // Production-proven format (MK-260813-003 / Customer SSOT): preauth_${clientActionId}
+  const idempotencyKey =
+    String(input.idempotencyKey ?? "").trim() ||
+    `preauth_${input.clientActionId}`;
   const row = {
     client_action_id: input.clientActionId,
     user_id: input.userId,
@@ -105,6 +111,7 @@ export async function upsertPaymentSessionPending(
     service_area_id: input.serviceAreaId,
     payment_provider: input.paymentProvider ?? "revolut",
     provider_order_id: input.providerOrderId ?? null,
+    idempotency_key: idempotencyKey,
     status: toDbPaymentSessionStatus("created"),
     authorised_amount_pence: input.authorisedAmountPence ?? null,
     estimated_total_pence: input.estimatedTotalPence ?? null,
