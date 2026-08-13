@@ -37,9 +37,28 @@ serve(async (req) => {
 
     if (trip.payment_provider !== "revolut" || !trip.provider_order_id) {
       return jsonResponse(
-        { error: "Trip is not paid via Revolut. Use the legacy provider capture endpoint for historical trips." },
+        { error: "Trip is not paid via Revolut. Stripe capture is permanently retired." },
         400,
       );
+    }
+
+    // P0: never capture duplicate-trip / orphan incident holds.
+    const { data: paySession } = await gate.supabase
+      .from("payment_sessions")
+      .select("id, metadata")
+      .eq("provider_order_id", trip.provider_order_id)
+      .eq("purpose", "RIDE_BOOKING")
+      .maybeSingle();
+    const meta =
+      paySession?.metadata && typeof paySession.metadata === "object"
+        ? (paySession.metadata as Record<string, unknown>)
+        : {};
+    if (meta.never_capture === true) {
+      return jsonResponse({
+        error: "Capture blocked — payment session is flagged never_capture",
+        error_code: "CAPTURE_BLOCKED_NEVER_CAPTURE",
+        payment_session_id: paySession?.id ?? null,
+      }, 409);
     }
 
     const { secretKey, environment } = getRevolutMerchantConfig();

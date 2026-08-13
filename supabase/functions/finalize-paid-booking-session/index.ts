@@ -56,11 +56,24 @@ serve(async (req) => {
 
     if (error) {
       const msg = String(error.message || "");
+      if (msg.includes("CUSTOMER_ALREADY_HAS_ACTIVE_TRIP")) {
+        const m = msg.match(/CUSTOMER_ALREADY_HAS_ACTIVE_TRIP:([0-9a-f-]{36})/i);
+        return errorResponse(
+          "Customer already has an active trip",
+          409,
+          {
+            success: false,
+            code: "CUSTOMER_ALREADY_HAS_ACTIVE_TRIP",
+            existing_trip_id: m?.[1] ?? null,
+          },
+          "CUSTOMER_ALREADY_HAS_ACTIVE_TRIP",
+        );
+      }
       const status = msg.includes("PAYMENT_GATE_NOT_SATISFIED") ? 409 : 500;
       return errorResponse(msg, status, undefined, "FINALIZE_FAILED");
     }
 
-    return successResponse(data ?? {});
+    return successResponse({ success: true, trip_id: data ?? null });
   } catch (e) {
     console.error("[finalize-paid-booking-session] error", e);
     return errorResponse(e instanceof Error ? e.message : "Unknown error", 500);

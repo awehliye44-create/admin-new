@@ -38,6 +38,26 @@ serve(async (req) => {
     const orderId = tripProviderOrderId(trip);
     if (!orderId) return jsonResponse({ error: "Trip has no Revolut order" }, 400);
 
+    // Temporary P0 guard: never capture sessions explicitly flagged never_capture
+    // (duplicate-trip incident holds / orphaned authorisations).
+    const { data: paySession } = await gate.supabase
+      .from("payment_sessions")
+      .select("id, metadata, status")
+      .eq("provider_order_id", orderId)
+      .eq("purpose", "RIDE_BOOKING")
+      .maybeSingle();
+    const meta =
+      paySession?.metadata && typeof paySession.metadata === "object"
+        ? (paySession.metadata as Record<string, unknown>)
+        : {};
+    if (meta.never_capture === true) {
+      return jsonResponse({
+        error: "Capture blocked — payment session is flagged never_capture",
+        error_code: "CAPTURE_BLOCKED_NEVER_CAPTURE",
+        payment_session_id: paySession?.id ?? null,
+      }, 409);
+    }
+
     const { secretKey, environment } = getRevolutMerchantConfig();
     const orderBefore = await retrieveRevolutOrder(environment, secretKey, orderId);
     const state = (orderBefore.state ?? "").toUpperCase();
