@@ -160,7 +160,7 @@ export function FinancialReconciliationTripsTab({
       const id = row.trip_id.toLowerCase();
       const customer = row.customer_name?.toLowerCase() ?? '';
       const driver = row.driver_name?.toLowerCase() ?? '';
-      const pi = row.stripe_payment_intent_id?.toLowerCase() ?? '';
+      const pi = (row.provider_order_id ?? row.stripe_payment_intent_id)?.toLowerCase() ?? '';
       const session = row.payment_session_id?.toLowerCase() ?? '';
       return code.includes(q) || id.includes(q) || customer.includes(q) || driver.includes(q) || pi.includes(q) || session.includes(q);
     });

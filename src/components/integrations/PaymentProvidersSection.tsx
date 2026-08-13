@@ -523,7 +523,8 @@ export function PaymentProvidersCardsGrid() {
   }
 
   const providers = data?.providers ?? [];
-  const activeProviders = providers;
+  // Stripe is fully retired — do not surface as an admin option or action card.
+  const activeProviders = providers.filter((p) => p.provider !== "stripe");
   const archivedProviders: typeof providers = [];
 
   return (
@@ -532,8 +533,8 @@ export function PaymentProvidersCardsGrid() {
         <div>
           <h2 className="text-lg font-semibold">Payment Providers</h2>
           <p className="text-sm text-muted-foreground">
-            Active customer payments use Revolut only. Stripe is retired from active ONECAB finance
-            and listed under Archived Providers with no action controls.
+            Active customer payments use Revolut only. Stripe is retired and is not offered as a
+            provider option.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()}>

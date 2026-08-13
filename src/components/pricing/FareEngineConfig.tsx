@@ -148,7 +148,8 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
   const [stopWaiting, setStopWaiting] = useState({
     stopRadiusEnabled: false,
     stopRadiusMeters: 100,
-    stopWaitingChargeIntervalSeconds: 10,
+    // null = Admin interval unknown — never invent 10s on load.
+    stopWaitingChargeIntervalSeconds: null as number | null,
     stopWaitingGracePeriodMinutes: 1,
     stopWaitingRatePencePerMinute: 30,
     stopWaitingMaxMinutes: null as number | null,
@@ -279,7 +280,11 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
       setStopWaiting({
         stopRadiusEnabled: (data as any).stop_radius_enabled ?? false,
         stopRadiusMeters: (data as any).stop_radius_meters ?? 100,
-        stopWaitingChargeIntervalSeconds: (data as any).stop_waiting_charge_interval_seconds ?? 10,
+        stopWaitingChargeIntervalSeconds:
+          typeof (data as any).stop_waiting_charge_interval_seconds === 'number' &&
+          (data as any).stop_waiting_charge_interval_seconds > 0
+            ? (data as any).stop_waiting_charge_interval_seconds
+            : null,
         stopWaitingGracePeriodMinutes:
           typeof (data as any).stop_waiting_grace_period_seconds === 'number'
             ? (data as any).stop_waiting_grace_period_seconds / 60
@@ -345,6 +350,8 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         waiting_per_minute_pence: settings.waiting_per_minute_pence,
         extra_stop_flat_fee_pence: settings.extra_stop_flat_fee_pence,
         recalculate_on_waiting: settings.recalculate_on_waiting,
+        // Keep paid-waiting flag in lockstep with Admin "Enable Pickup Waiting Charge".
+        pickup_paid_waiting_enabled: settings.recalculate_on_waiting,
         recalculate_on_stop_added: settings.recalculate_on_stop_added,
         recalculate_on_dropoff_changed: settings.recalculate_on_dropoff_changed,
         enable_surge: settings.enable_surge,
@@ -396,6 +403,14 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
 
       // Save stop waiting settings to stop_waiting_settings if changed
       if (stopWaitingHasChanges) {
+        if (
+          stopWaiting.stopWaitingChargeIntervalSeconds == null ||
+          stopWaiting.stopWaitingChargeIntervalSeconds <= 0
+        ) {
+          throw new Error(
+            'Charge Interval is required (seconds). Admin must set a positive interval — never invent 10s.',
+          );
+        }
         const stopPayload = {
           service_area_id: serviceAreaId,
           stop_radius_enabled: stopWaiting.stopRadiusEnabled,

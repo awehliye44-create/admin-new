@@ -335,6 +335,8 @@ export async function recordCardCaptureFailure(
     .from("trips")
     .update({
       payment_status: "capture_failed",
+      // Never leave completed card trips in draft with no settlement outcome.
+      payment_hold_status: "capture_failed",
       updated_at: now,
     })
     .eq("id", args.tripId);

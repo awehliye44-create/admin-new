@@ -106,7 +106,7 @@ serve(async (req) => {
       .from("trips")
       .select(`
         commission_pence,
-        stripe_processing_fee_pence,
+        provider_fee_pence,
         onecab_net_pence,
         driver_net_pence,
         gross_fare_pence,
@@ -116,7 +116,6 @@ serve(async (req) => {
         tip_pence,
         tip_amount_pence,
         payment_method,
-        stripe_settlement_verified,
         driver_tier_commission_percent,
         commission_pct,
         payment_status,
@@ -272,13 +271,13 @@ serve(async (req) => {
       period: { from: periodFrom, to: periodTo },
       currency_code: currency.toUpperCase(),
       accounting_rules: {
-        onecab_gross_commission: "sum(trips.commission_pence) — 15% includes Stripe fee",
-        onecab_net: "onecab_gross_commission_pence - stripe_fee_pence",
+        onecab_gross_commission: "sum(trips.commission_pence) — 15% includes provider processing fee",
+        onecab_net: "onecab_gross_commission_pence - stripe_fee_pence (provider fee alias)",
         not_commission: [
-          "Stripe available platform balance",
+          "Provider available platform balance",
           "Captured card revenue / customer revenue",
           "Driver payable / wallet balance",
-          "Stripe balance minus driver payable",
+          "Provider balance minus driver payable",
         ],
       },
       customer_revenue_summary: {
@@ -307,7 +306,7 @@ serve(async (req) => {
         pending_platform_balance_pence: stripePendingPence,
         unallocated_platform_cash_pence: stripeCash.unallocated_platform_cash_pence,
         error: stripeBalanceError,
-        note: "Platform balance is total Stripe cash — NOT ONECAB commission",
+        note: "Platform balance is total provider cash — NOT ONECAB commission",
       },
       driver_payout_summary: {
         wallet_balance_pence: walletBalance,
@@ -353,11 +352,11 @@ serve(async (req) => {
 function settlementStatusLabel(status: OnecabSettlementStatus): string {
   switch (status) {
     case "calculated_only":
-      return "Calculated only — not confirmed in Stripe";
+      return "Calculated only — not confirmed with payment provider";
     case "pending_stripe_settlement":
-      return "Pending Stripe settlement";
+      return "Pending provider settlement";
     case "available_in_stripe_balance":
-      return "ONECAB net available in Stripe (trip-verified)";
+      return "ONECAB net available in provider balance (trip-verified)";
     case "paid_to_onecab_bank":
       return "Paid out to ONECAB bank";
     case "reconciled":

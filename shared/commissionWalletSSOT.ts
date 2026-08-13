@@ -108,6 +108,50 @@ export function shouldShowDriverCommissionWalletPage(
   return isCommissionWalletWorkflowEnabled(config);
 }
 
+/**
+ * Driver-facing Commission Wallet activity — credits / top-ups only.
+ * Never expose COMMISSION_DEDUCTION or trip-level commission internals to drivers.
+ */
+export const COMMISSION_WALLET_DRIVER_VISIBLE_ENTRY_TYPES = [
+  COMMISSION_WALLET_ENTRY_TYPE.TOP_UP_CREDIT,
+  COMMISSION_WALLET_ENTRY_TYPE.WELCOME_CREDIT,
+  COMMISSION_WALLET_ENTRY_TYPE.PROMOTIONAL_CREDIT,
+  COMMISSION_WALLET_ENTRY_TYPE.ADMIN_CREDIT,
+] as const;
+
+export function isDriverVisibleCommissionWalletEntryType(
+  entryType: string | null | undefined,
+): boolean {
+  const t = String(entryType ?? "").toUpperCase();
+  return (COMMISSION_WALLET_DRIVER_VISIBLE_ENTRY_TYPES as readonly string[]).includes(t);
+}
+
+export type CommissionWalletBalanceStatus =
+  | "sufficient"
+  | "low"
+  | "insufficient";
+
+/**
+ * Driver-facing balance health for Commission Wallet UI.
+ * Insufficient matches dispatch soft-block when minimum is 0 (balance <= 0)
+ * or when below configured minimum_balance_minor.
+ */
+export function resolveCommissionWalletBalanceStatus(input: {
+  balanceMinor: number;
+  minimumBalanceMinor?: number | null;
+}): CommissionWalletBalanceStatus {
+  const balance = Math.round(Number(input.balanceMinor) || 0);
+  const minimum = Math.max(0, Math.round(Number(input.minimumBalanceMinor) || 0));
+  if (minimum > 0) {
+    if (balance < minimum) return "insufficient";
+    if (balance < minimum * 2) return "low";
+    return "sufficient";
+  }
+  if (balance <= 0) return "insufficient";
+  if (balance < 500) return "low";
+  return "sufficient";
+}
+
 export type DriverCommissionWalletPageAccessPlan =
   | {
     ok: true;
