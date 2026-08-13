@@ -196,22 +196,79 @@ serve(async (req) => {
     let failed = 0;
 
     for (const app of targetApps) {
-      const table = app === "customer" ? "customer_push_tokens" : "push_tokens";
       let userIds: string[] | null = null;
 
       if (campaign.target_scope === "users" && Array.isArray(campaign.target_user_ids)) {
         userIds = campaign.target_user_ids as string[];
       }
 
-      let tokenQuery = supabase.from(table).select("id, user_id, token, platform");
-      if (userIds?.length) {
-        tokenQuery = tokenQuery.in("user_id", userIds);
+      type CampaignToken = {
+        user_id: string;
+        token: string;
+        platform: string;
+      };
+      const tokens: CampaignToken[] = [];
+
+      if (app === "customer") {
+        let activeQuery = supabase
+          .from("customer_active_devices")
+          .select("user_id, device_id");
+        if (userIds?.length) {
+          activeQuery = activeQuery.in("user_id", userIds);
+        }
+        const { data: actives, error: activeErr } = await activeQuery;
+        if (activeErr) throw activeErr;
+
+        for (const active of actives ?? []) {
+          if (!active?.user_id) continue;
+          const { data: row } = await supabase
+            .from("customer_push_tokens")
+            .select("token, platform, user_id")
+            .eq("user_id", active.user_id)
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (row?.token) {
+            tokens.push({
+              user_id: active.user_id,
+              token: row.token,
+              platform: row.platform ?? "android",
+            });
+          }
+        }
+      } else {
+        // Driver: sole token via driver_active_devices.device_id
+        let driversQuery = supabase
+          .from("driver_active_devices")
+          .select("driver_id, device_id");
+        const { data: actives, error: activeErr } = await driversQuery;
+        if (activeErr) throw activeErr;
+
+        for (const active of actives ?? []) {
+          if (!active?.driver_id || !active?.device_id) continue;
+          const { data: row } = await supabase
+            .from("push_tokens")
+            .select("token, platform, user_id, driver_id")
+            .eq("driver_id", active.driver_id)
+            .eq("app_type", "driver")
+            .eq("is_active", true)
+            .eq("device_id", active.device_id)
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (!row?.token) continue;
+          const uid = row.user_id;
+          if (!uid) continue;
+          if (userIds?.length && !userIds.includes(uid)) continue;
+          tokens.push({
+            user_id: uid,
+            token: row.token,
+            platform: row.platform ?? "android",
+          });
+        }
       }
 
-      const { data: tokens, error: tokenErr } = await tokenQuery;
-      if (tokenErr) throw tokenErr;
-
-      for (const row of tokens ?? []) {
+      for (const row of tokens) {
         const dedupeKey = `${campaignId}:${row.user_id}:${app}`;
         const { error: deliveryInsertErr } = await supabase.from("campaign_heads_up_deliveries").upsert({
           campaign_id: campaignId,

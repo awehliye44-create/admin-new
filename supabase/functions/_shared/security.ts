@@ -21,6 +21,28 @@ export const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
 
+/** JSON response headers (security + Content-Type). Required by stop-workflow / ticks. */
+export const jsonHeaders = {
+  ...securityHeaders,
+  'Content-Type': 'application/json',
+};
+
+/** OPTIONS preflight — missing export caused Edge BOOT_ERROR (Arrive / bind / tick). */
+export function handleCORSPreflight(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders,
+  });
+}
+
+/** Validate action against an allowlist (stop-workflow). */
+export function isValidAction(
+  action: unknown,
+  validActions: string[],
+): action is string {
+  return typeof action === 'string' && validActions.includes(action);
+}
+
 // ============= RATE LIMITING =============
 // In-memory rate limiter (per edge function instance)
 // Note: For production at scale, consider using Redis or a database-backed solution
@@ -167,40 +189,107 @@ export function isValidPaymentMethod(method: string): boolean {
 
 // ============= ERROR RESPONSES =============
 
+/**
+ * Dual-signature error helper:
+ * - Admin/payment style: errorResponse(message, status, details?, errorCode?)
+ * - stop-workflow style: errorResponse(errorCode, message, status, details?)
+ * Detected by whether the 2nd arg is a number (admin) or string (workflow).
+ */
 export function errorResponse(
-  message: string,
-  status: number = 400,
-  details?: Record<string, unknown>,
-  errorCode?: string
+  messageOrCode: string,
+  statusOrMessage: number | string = 400,
+  detailsOrStatus?: Record<string, unknown> | number | unknown,
+  errorCodeOrDetails?: string | unknown,
 ): Response {
+  let errorCode: string | null = null;
+  let message: string;
+  let status: number;
+  let details: Record<string, unknown> | undefined;
+
+  if (typeof statusOrMessage === 'string') {
+    // stop-workflow: (code, message, status?, details?)
+    errorCode = messageOrCode;
+    message = statusOrMessage;
+    status =
+      typeof detailsOrStatus === 'number' && Number.isFinite(detailsOrStatus)
+        ? detailsOrStatus
+        : 500;
+    if (
+      detailsOrStatus != null &&
+      typeof detailsOrStatus === 'object' &&
+      !Array.isArray(detailsOrStatus)
+    ) {
+      details = detailsOrStatus as Record<string, unknown>;
+    } else if (
+      errorCodeOrDetails != null &&
+      typeof errorCodeOrDetails === 'object' &&
+      !Array.isArray(errorCodeOrDetails)
+    ) {
+      details = errorCodeOrDetails as Record<string, unknown>;
+    } else if (typeof detailsOrStatus === 'number' && errorCodeOrDetails != null) {
+      details = { details: errorCodeOrDetails };
+    }
+  } else {
+    // admin/payment: (message, status, details?, errorCode?)
+    message = messageOrCode;
+    status = Number.isFinite(statusOrMessage) ? statusOrMessage : 400;
+    if (
+      detailsOrStatus != null &&
+      typeof detailsOrStatus === 'object' &&
+      !Array.isArray(detailsOrStatus)
+    ) {
+      details = detailsOrStatus as Record<string, unknown>;
+    }
+    if (typeof errorCodeOrDetails === 'string') {
+      errorCode = errorCodeOrDetails;
+    }
+  }
+
   return new Response(
     JSON.stringify({
       success: false,
-      error: message,
-      error_code: errorCode || null,
-      retry_allowed: status >= 500, // Server errors are retryable
-      ...details,
+      error: errorCode ?? message,
+      message,
+      error_code: errorCode,
+      retry_allowed: status >= 500,
+      ...(details ?? {}),
     }),
     {
       status,
-      headers: securityHeaders,
-    }
+      headers: jsonHeaders,
+    },
   );
 }
 
-export function validationErrorResponse(errors: string[]): Response {
+export function validationErrorResponse(
+  errors: string[] | Record<string, string>,
+): Response {
+  if (Array.isArray(errors)) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: 'Validation failed',
+        error_code: 'VALIDATION_FAILED',
+        validation_errors: errors,
+        retry_allowed: false,
+      }),
+      {
+        status: 400,
+        headers: jsonHeaders,
+      },
+    );
+  }
+
   return new Response(
     JSON.stringify({
-      success: false,
-      error: 'Validation failed',
-      error_code: 'VALIDATION_FAILED',
-      validation_errors: errors,
-      retry_allowed: false,
+      error: 'VALIDATION_ERROR',
+      message: 'Invalid request data',
+      details: errors,
     }),
     {
       status: 400,
-      headers: securityHeaders,
-    }
+      headers: jsonHeaders,
+    },
   );
 }
 
