@@ -10982,6 +10982,7 @@ export type Database = {
           allow_scheduled_stacking: boolean
           allow_stacking_during_pickup_waiting: boolean
           allow_stacking_during_stop_waiting: boolean
+          base_driver_commission_percent: number
           block_multiple_active_rides: boolean
           cancel_protection: boolean
           check_in_grace_minutes: number
@@ -11046,10 +11047,13 @@ export type Database = {
           urgent_dispatch_trigger_minutes_before_pickup: number
           waiting_bonus_per_minute: number
           waiting_time_grace_period_minutes: number
+          wave1_commission_reduction_percent: number
           wave1_offer_expiry_seconds: number
           wave1_size: number
+          wave2_commission_reduction_percent: number
           wave2_offer_expiry_seconds: number
           wave2_size: number
+          wave3_commission_reduction_percent: number
           wave3_offer_expiry_seconds: number
           wave3_size: number
         }
@@ -11061,6 +11065,7 @@ export type Database = {
           allow_scheduled_stacking?: boolean
           allow_stacking_during_pickup_waiting?: boolean
           allow_stacking_during_stop_waiting?: boolean
+          base_driver_commission_percent?: number
           block_multiple_active_rides?: boolean
           cancel_protection?: boolean
           check_in_grace_minutes?: number
@@ -11125,10 +11130,13 @@ export type Database = {
           urgent_dispatch_trigger_minutes_before_pickup?: number
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
+          wave1_commission_reduction_percent?: number
           wave1_offer_expiry_seconds?: number
           wave1_size?: number
+          wave2_commission_reduction_percent?: number
           wave2_offer_expiry_seconds?: number
           wave2_size?: number
+          wave3_commission_reduction_percent?: number
           wave3_offer_expiry_seconds?: number
           wave3_size?: number
         }
@@ -11140,6 +11148,7 @@ export type Database = {
           allow_scheduled_stacking?: boolean
           allow_stacking_during_pickup_waiting?: boolean
           allow_stacking_during_stop_waiting?: boolean
+          base_driver_commission_percent?: number
           block_multiple_active_rides?: boolean
           cancel_protection?: boolean
           check_in_grace_minutes?: number
@@ -11204,10 +11213,13 @@ export type Database = {
           urgent_dispatch_trigger_minutes_before_pickup?: number
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
+          wave1_commission_reduction_percent?: number
           wave1_offer_expiry_seconds?: number
           wave1_size?: number
+          wave2_commission_reduction_percent?: number
           wave2_offer_expiry_seconds?: number
           wave2_size?: number
+          wave3_commission_reduction_percent?: number
           wave3_offer_expiry_seconds?: number
           wave3_size?: number
         }
@@ -17135,6 +17147,7 @@ export type Database = {
       ride_offers: {
         Row: {
           ack_at: string | null
+          base_commission_percent: number | null
           broadcast_round: number
           counter_fare: number | null
           created_at: string
@@ -17147,10 +17160,13 @@ export type Database = {
           delivery_phase: string
           delivery_push_attempts: number
           delivery_trace: Json
+          dispatch_round: number | null
+          dispatch_wave: number | null
           distance_meters: number | null
           driver_id: string
           driver_offer_fare: number | null
           driver_respond_by: string | null
+          effective_commission_percent: number | null
           eta_seconds: number | null
           expires_at: string
           grace_window_expires_at: string | null
@@ -17164,14 +17180,17 @@ export type Database = {
           offer_snapshot: Json | null
           offer_version: number
           offered_at: string
+          offered_driver_net_pence: number | null
           responded_at: string | null
           revoked_reason: string | null
           status: string
           trip_id: string
           updated_at: string
+          wave_commission_reduction_percent: number | null
         }
         Insert: {
           ack_at?: string | null
+          base_commission_percent?: number | null
           broadcast_round?: number
           counter_fare?: number | null
           created_at?: string
@@ -17184,10 +17203,13 @@ export type Database = {
           delivery_phase?: string
           delivery_push_attempts?: number
           delivery_trace?: Json
+          dispatch_round?: number | null
+          dispatch_wave?: number | null
           distance_meters?: number | null
           driver_id: string
           driver_offer_fare?: number | null
           driver_respond_by?: string | null
+          effective_commission_percent?: number | null
           eta_seconds?: number | null
           expires_at: string
           grace_window_expires_at?: string | null
@@ -17201,14 +17223,17 @@ export type Database = {
           offer_snapshot?: Json | null
           offer_version?: number
           offered_at?: string
+          offered_driver_net_pence?: number | null
           responded_at?: string | null
           revoked_reason?: string | null
           status?: string
           trip_id: string
           updated_at?: string
+          wave_commission_reduction_percent?: number | null
         }
         Update: {
           ack_at?: string | null
+          base_commission_percent?: number | null
           broadcast_round?: number
           counter_fare?: number | null
           created_at?: string
@@ -17221,10 +17246,13 @@ export type Database = {
           delivery_phase?: string
           delivery_push_attempts?: number
           delivery_trace?: Json
+          dispatch_round?: number | null
+          dispatch_wave?: number | null
           distance_meters?: number | null
           driver_id?: string
           driver_offer_fare?: number | null
           driver_respond_by?: string | null
+          effective_commission_percent?: number | null
           eta_seconds?: number | null
           expires_at?: string
           grace_window_expires_at?: string | null
@@ -17238,11 +17266,13 @@ export type Database = {
           offer_snapshot?: Json | null
           offer_version?: number
           offered_at?: string
+          offered_driver_net_pence?: number | null
           responded_at?: string | null
           revoked_reason?: string | null
           status?: string
           trip_id?: string
           updated_at?: string
+          wave_commission_reduction_percent?: number | null
         }
         Relationships: [
           {
@@ -20698,6 +20728,9 @@ export type Database = {
       }
       trips: {
         Row: {
+          accepted_commission_percent: number | null
+          accepted_dispatch_round: number | null
+          accepted_dispatch_wave: number | null
           accepted_driver_offer_fare_pence: number | null
           accepted_preset_offer_fare_pence: number | null
           accepted_ride_offer_id: string | null
@@ -20848,6 +20881,7 @@ export type Database = {
           locked_base_fare_pence: number | null
           locked_offer_type: string | null
           max_broadcast_rounds: number | null
+          max_wave_commission_reduction_percent: number
           modification_confirmed_at: string | null
           modification_delta_pence: number | null
           modification_status: string | null
@@ -20986,6 +21020,9 @@ export type Database = {
           wallet_balance_before: number | null
         }
         Insert: {
+          accepted_commission_percent?: number | null
+          accepted_dispatch_round?: number | null
+          accepted_dispatch_wave?: number | null
           accepted_driver_offer_fare_pence?: number | null
           accepted_preset_offer_fare_pence?: number | null
           accepted_ride_offer_id?: string | null
@@ -21136,6 +21173,7 @@ export type Database = {
           locked_base_fare_pence?: number | null
           locked_offer_type?: string | null
           max_broadcast_rounds?: number | null
+          max_wave_commission_reduction_percent?: number
           modification_confirmed_at?: string | null
           modification_delta_pence?: number | null
           modification_status?: string | null
@@ -21274,6 +21312,9 @@ export type Database = {
           wallet_balance_before?: number | null
         }
         Update: {
+          accepted_commission_percent?: number | null
+          accepted_dispatch_round?: number | null
+          accepted_dispatch_wave?: number | null
           accepted_driver_offer_fare_pence?: number | null
           accepted_preset_offer_fare_pence?: number | null
           accepted_ride_offer_id?: string | null
@@ -21424,6 +21465,7 @@ export type Database = {
           locked_base_fare_pence?: number | null
           locked_offer_type?: string | null
           max_broadcast_rounds?: number | null
+          max_wave_commission_reduction_percent?: number
           modification_confirmed_at?: string | null
           modification_delta_pence?: number | null
           modification_status?: string | null
@@ -27410,6 +27452,14 @@ export type Database = {
         }
         Returns: Json
       }
+      resolve_wave_commission_percent: {
+        Args: { p_floor_reduction_percent?: number; p_wave: number }
+        Returns: {
+          base_percent: number
+          effective_percent: number
+          reduction_percent: number
+        }[]
+      }
       resolve_zone: {
         Args: {
           p_region_id: string
@@ -27495,6 +27545,10 @@ export type Database = {
           p_postcode?: string
         }
         Returns: Json
+      }
+      snapshot_accepted_wave_commission: {
+        Args: { p_offer_id: string; p_trip_id: string }
+        Returns: undefined
       }
       snapshot_driver_tier_commission_on_trip: {
         Args: { p_driver_id: string; p_trip_id: string }
