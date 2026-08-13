@@ -60,7 +60,18 @@ export type RevolutCompletionCapturePlan =
       release_remainder_pence: number;
     }
   | {
-      /** Keep original hold; authorise shortfall only — never cancel original first. */
+      /** Preferred: raise authorised total on the SAME Revolut order, then capture. */
+      kind: "same_order_increment_required";
+      shortfall_pence: number;
+      target_total_authorised_pence: number;
+      capture_amount_pence: number;
+      capture_from_original_pence: number;
+    }
+  | {
+      /**
+       * Controlled fallback only when same-order increment is unsupported/declined.
+       * Keep original hold; authorise shortfall only — never cancel original first.
+       */
       kind: "additional_authorisation_required";
       shortfall_pence: number;
       additional_authorisation_pence: number;
@@ -69,12 +80,19 @@ export type RevolutCompletionCapturePlan =
       new_hold_amount_pence: number;
     };
 
-/** Completion: capture min(final_fare, hold); additional auth if final exceeds hold. */
+/**
+ * Completion: capture min(final_fare, hold); if final exceeds hold, prefer
+ * same-order incremental authorisation to the final fare total.
+ */
 export function planRevolutCompletionCapture(
-  input: RevolutCompletionCaptureInput,
+  input: RevolutCompletionCaptureInput & {
+    /** When false, emit legacy additional_authorisation_required (fallback path). */
+    preferSameOrderIncrement?: boolean;
+  },
 ): RevolutCompletionCapturePlan {
   const finalFare = Math.max(0, Math.round(input.finalFarePence));
   const hold = Math.max(0, Math.round(input.authorisedHoldPence));
+  const preferIncrement = input.preferSameOrderIncrement !== false;
 
   if (finalFare <= hold) {
     return {
@@ -85,12 +103,21 @@ export function planRevolutCompletionCapture(
   }
 
   const shortfall = finalFare - hold;
+  if (preferIncrement) {
+    return {
+      kind: "same_order_increment_required",
+      shortfall_pence: shortfall,
+      target_total_authorised_pence: finalFare,
+      capture_amount_pence: finalFare,
+      capture_from_original_pence: hold,
+    };
+  }
+
   return {
     kind: "additional_authorisation_required",
     shortfall_pence: shortfall,
     additional_authorisation_pence: shortfall,
     capture_from_original_pence: hold,
-    // Legacy field retained for callers that still size a replacement hold.
     new_hold_amount_pence: finalFare + Math.max(0, Math.round(input.bufferPence)),
   };
 }
