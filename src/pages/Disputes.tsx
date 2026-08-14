@@ -233,7 +233,7 @@ export default function Disputes() {
               <TabsTrigger value="ADJUSTMENT">Adjustments</TabsTrigger>
               <TabsTrigger value="BONUS">Bonuses</TabsTrigger>
               <TabsTrigger value="REFUND_DEBIT">Refund Debits</TabsTrigger>
-              <TabsTrigger value="CASHOUT_FEE">Cashout Fees</TabsTrigger>
+              <TabsTrigger value="CASHOUT_FEE">Withdrawal fees</TabsTrigger>
             </TabsList>
 
             <div className="flex gap-2">

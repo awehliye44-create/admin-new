@@ -119,7 +119,7 @@ export function buildCashoutBlockReasons(args: {
     reasons.push('Provider available balance is zero');
   }
   if (args.cashoutNowPence != null && args.cashoutNowPence > 0 && args.cashoutNowPence < MIN_CASHOUT_AMOUNT_PENCE) {
-    reasons.push(`Below minimum cash-out (£${(MIN_CASHOUT_AMOUNT_PENCE / 100).toFixed(2)})`);
+    reasons.push(`Below minimum withdrawal (£${(MIN_CASHOUT_AMOUNT_PENCE / 100).toFixed(2)})`);
   }
   if (args.cashoutNowPence === 0 || args.cashoutNowPence == null) {
     reasons.push(...args.manualConnectBlockReasons.filter(

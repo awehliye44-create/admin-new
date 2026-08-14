@@ -15,7 +15,7 @@ const ENTRY_TYPES = [
   { value: 'ADJUSTMENT', label: 'Adjustment', description: 'General credit or debit' },
   { value: 'BONUS', label: 'Bonus', description: 'Incentive or reward payment' },
   { value: 'REFUND_DEBIT', label: 'Refund Debit', description: 'Deduct for rider refund' },
-  { value: 'CASHOUT_FEE', label: 'Cashout Fee', description: 'Early cashout fee' },
+  { value: 'CASHOUT_FEE', label: 'Withdrawal fee', description: 'Driver withdrawal fee' },
 ];
 
 interface NewAdjustmentDialogProps {

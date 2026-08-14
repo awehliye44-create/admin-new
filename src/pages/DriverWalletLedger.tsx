@@ -414,7 +414,7 @@ export default function DriverWalletLedger() {
 
         {driverId && !isError && (
           <p className="text-xs text-muted-foreground">
-            Live SSOT — auto-refreshes on ledger, settlement, payout, and cashout changes
+            Live SSOT — auto-refreshes on ledger, settlement, payout, and withdrawal changes
             {driver?.last_synced_at ? ` · last synced ${driver.last_synced_at}` : ''}
             {' · '}
             <Link className="underline" to="/annual-taxi-report">Annual driver report</Link>

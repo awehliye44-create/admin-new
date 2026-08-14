@@ -10,6 +10,6 @@ Deno.test("ledgerTypeForBatchKind maps weekly and manual", () => {
   assertEquals(ledgerTypeForBatchKind("EARLY_CASHOUT"), "EARLY_CASHOUT");
 });
 
-Deno.test("weekly payout description", () => {
-  assertEquals(payoutDescriptionForType("WEEKLY_PAYOUT"), "Weekly payout to bank");
+Deno.test("withdrawal ledger description uses Withdrawal label", () => {
+  assertEquals(payoutDescriptionForType("EARLY_CASHOUT"), "Withdrawal");
 });

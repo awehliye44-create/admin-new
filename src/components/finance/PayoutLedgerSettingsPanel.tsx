@@ -1,5 +1,5 @@
 /**
- * Payout Ledger settings — schedule, eligibility, instant cash-out, per-driver override.
+ * Payout Ledger settings — schedule, eligibility, Driver Withdrawals, per-driver override.
  * Persists to admin_settings + service_areas + drivers.payouts_enabled. No earnings math.
  */
 import { useEffect, useState } from 'react';
@@ -653,7 +653,7 @@ export function PayoutLedgerSettingsPanel({
           )}
           <p className="text-xs text-muted-foreground">
             Per-driver override writes drivers.payouts_enabled only. Platform pause/resume remains above.
-            Service-area instant cash-out is a separate override below.
+            Service-area Driver Withdrawals are a separate override below.
           </p>
         </CardContent>
       </Card>
@@ -766,7 +766,7 @@ export function PayoutLedgerSettingsPanel({
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="flex items-center justify-between gap-3 rounded-md border p-3 sm:col-span-2 lg:col-span-3">
             <div>
-              <Label>Enable Driver Withdrawals for selected service area</Label>
+              <Label>Enable Driver Withdrawals</Label>
               <p className="text-xs text-muted-foreground">
                 {areaRow?.name ?? 'Select a service area'} · {tz}
               </p>

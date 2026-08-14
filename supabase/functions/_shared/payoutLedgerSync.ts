@@ -20,7 +20,7 @@ export function ledgerTypeForBatchKind(kind: string): PayoutLedgerType {
 export function payoutDescriptionForType(type: PayoutLedgerType): string {
   if (type === "WEEKLY_PAYOUT") return "Weekly payout to bank";
   if (type === "MANUAL_PAYOUT") return "Manual payout to bank";
-  if (type === "EARLY_CASHOUT") return "Early cash out";
+  if (type === "EARLY_CASHOUT") return "Withdrawal";
   return "Payout to bank";
 }
 

@@ -491,7 +491,7 @@ export function validateCollectOutstandingOrPaymentLinkAction(args: {
 
 /**
  * CAPTURED_CONFIRMED ≠ SETTLED_CONFIRMED.
- * Early Cash Out must use finance-cleared / settled earnings — never capture alone.
+ * Early withdrawal eligibility must use finance-cleared / settled earnings — never capture alone.
  */
 export function earlyCashOutRequiresSettledNotMerelyCaptured(args: {
   captureClassification: PaymentSessionCaptureClassificationStatus;

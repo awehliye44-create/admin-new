@@ -197,7 +197,7 @@ export function DriverWalletPayoutsTab({
       </Card>
 
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">Early cash-outs</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle className="text-base">Withdrawals</CardTitle></CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
@@ -214,7 +214,7 @@ export function DriverWalletPayoutsTab({
               {earlyCashouts.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
-                    No early cash-outs
+                    No withdrawals
                   </TableCell>
                 </TableRow>
               ) : (
