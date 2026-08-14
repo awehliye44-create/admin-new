@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2, Timer, Sparkles, Calendar, Clock } from 'lucide-react';
+import { Loader2, Sparkles, Calendar, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
 const PRESET_SLOT_COUNT = 3;
@@ -387,24 +387,10 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
             </div>
 
             <div className="p-4 bg-muted/30 rounded-lg border space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Timer className="h-4 w-4 text-muted-foreground" />
-                  <Label className="font-medium">Countdown Timer</Label>
-                </div>
-                <Switch
-                  checked={config.countdown_enabled}
-                  onCheckedChange={(v) => updateConfig('countdown_enabled', v)}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Negotiation countdown used for both Driver and Customer responses in this service area. Expiry never auto-accepts an offer.
-              </p>
-
               <div className="space-y-2 max-w-xs">
                 <Label>Countdown Duration (seconds)</Label>
                 <p className="text-xs text-muted-foreground">
-                  Response window for both sides. Not controlled by the toggle.
+                  Negotiation countdown used for both Driver and Customer responses in this service area. Expiry never auto-accepts an offer.
                 </p>
                 <Input
                   type="number"

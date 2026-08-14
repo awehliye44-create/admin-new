@@ -271,9 +271,9 @@ describe("Admin UI lock", () => {
     expect(ui).toMatch(/Negotiation countdown used for both Driver and Customer/);
     expect(ui).not.toMatch(/Driver offer countdown for this service area/);
     expect(ui).toMatch(/Expiry never auto-accepts an offer/);
-    expect(ui).toMatch(/countdown_enabled/);
+    expect(ui).not.toMatch(/Countdown Timer/);
     expect(ui).toMatch(/Countdown Duration \(seconds\)/);
     expect(ui).not.toMatch(/disabled=\{!config.countdown_enabled\}/);
-    expect(ui).toMatch(/Not controlled by the toggle/);
+    expect(ui).not.toMatch(/Not controlled by the toggle/);
   });
 });

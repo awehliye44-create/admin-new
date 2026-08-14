@@ -320,9 +320,10 @@ Deno.test("Admin UI lock: exactly 3 slots, no Add Offer, no auto-accept", async 
   assert(/Negotiation countdown used for both Driver and Customer/.test(ui));
   assert(!/Driver offer countdown for this service area/.test(ui));
   assert(/Expiry never auto-accepts an offer/.test(ui));
+  assert(!/Countdown Timer/.test(ui));
   assert(/Countdown Duration \(seconds\)/.test(ui));
   assert(!/disabled=\{!config.countdown_enabled\}/.test(ui));
-  assert(/Not controlled by the toggle/.test(ui));
+  assert(!/Not controlled by the toggle/.test(ui));
 });
 
 Deno.test("guest and WhatsApp referer persist as ineligible sources", () => {
