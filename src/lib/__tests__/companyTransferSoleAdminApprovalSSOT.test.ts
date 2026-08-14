@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  canUiSoleApproveCompanyTransfer,
   evaluateSoleAdminCompanyTransferSelfApproval,
   parseSoleAdminCtAllowedTransferTypes,
   parseSoleAdminCtLimitPence,
   parseSoleAdminCtSettingEnabled,
   SOLE_ADMIN_CT_REASON,
+  SOLE_OWNER_CT_APPROVAL_POLICY_VERSION,
 } from "../../../shared/companyTransferSoleAdminApprovalSSOT";
 
 const baseOk = {
   policy_enabled: true,
   actor_role: "super_admin",
+  actor_is_owner: false,
   requester_user_id: "u1",
   approver_user_id: "u1",
   other_eligible_approver_count: 0,
@@ -28,6 +31,18 @@ const baseOk = {
   transfer_reference: "COT-TEST",
 };
 
+const ownerOutgoing = {
+  ...baseOk,
+  actor_is_owner: true,
+  amount_pence: 111,
+  limit_pence: 1,
+  transfer_type: "COMPANY_OUTGOING",
+  allowed_transfer_types: ["CERTIFICATION"],
+  other_eligible_approver_count: 2,
+  override_reason: "Owner sole approval for company outgoing transfer audit",
+  transfer_reference: "COT-75A57C98",
+};
+
 describe("companyTransferSoleAdminApprovalSSOT", () => {
   it("parses settings fail-closed", () => {
     expect(parseSoleAdminCtSettingEnabled(false)).toBe(false);
@@ -41,17 +56,89 @@ describe("companyTransferSoleAdminApprovalSSOT", () => {
     ]);
   });
 
-  it("allows certification 1p sole-admin when all gates pass", () => {
+  it("A: Owner + COMPANY_OUTGOING → sole approval allowed", () => {
+    const result = evaluateSoleAdminCompanyTransferSelfApproval(ownerOutgoing);
+    expect(result.ok).toBe(true);
+    expect(result.audit?.owner_override).toBe(true);
+    expect(result.audit?.transfer_type).toBe("COMPANY_OUTGOING");
+    expect(result.audit?.amount_pence).toBe(111);
+  });
+
+  it("B: Owner self-approves own COMPANY_OUTGOING → Owner audit event fields", () => {
+    const result = evaluateSoleAdminCompanyTransferSelfApproval(ownerOutgoing);
+    expect(result.ok).toBe(true);
+    expect(result.audit?.owner_override).toBe(true);
+    expect(result.audit?.role).toBe("owner");
+    expect(result.audit?.reason).toBe("COMPANY_TRANSFER_OWNER_SOLE_APPROVAL");
+    expect(result.audit?.approval_policy_version).toBe(SOLE_OWNER_CT_APPROVAL_POLICY_VERSION);
+    expect(result.audit?.requester_user_id).toBe(result.audit?.approver_user_id);
+  });
+
+  it("C: Owner + CERTIFICATION → allowed (Owner path)", () => {
+    const result = evaluateSoleAdminCompanyTransferSelfApproval({
+      ...baseOk,
+      actor_is_owner: true,
+      amount_pence: 50,
+      other_eligible_approver_count: 1,
+      override_reason: "Owner certification sole approval with audit reason",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.audit?.owner_override).toBe(true);
+    expect(result.audit?.transfer_type).toBe("CERTIFICATION");
+  });
+
+  it("D: super_admin WITHOUT is_owner + COMPANY_OUTGOING → no Owner bypass", () => {
+    const result = evaluateSoleAdminCompanyTransferSelfApproval({
+      ...ownerOutgoing,
+      actor_is_owner: false,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason_codes).toEqual(
+      expect.arrayContaining([
+        SOLE_ADMIN_CT_REASON.AMOUNT_NOT_CERTIFICATION_1P,
+        SOLE_ADMIN_CT_REASON.TRANSFER_TYPE_BLOCKED,
+      ]),
+    );
+    expect(result.audit).toBeNull();
+  });
+
+  it("E: non-owner super_admin CERTIFICATION 1p → existing sole-admin preserved", () => {
     const result = evaluateSoleAdminCompanyTransferSelfApproval(baseOk);
     expect(result.ok).toBe(true);
+    expect(result.audit?.owner_override).toBe(false);
     expect(result.audit?.sole_admin_override).toBe(true);
     expect(result.audit?.amount_pence).toBe(1);
     expect(result.audit?.reason).toBe("COMPANY_TRANSFER_CERTIFICATION");
-    expect(result.audit?.role).toBe("super_admin");
-    expect(result.audit?.approval_policy_version).toBe("SOLE_ADMIN_CT_APPROVAL_V1");
   });
 
-  it("blocks when another eligible approver exists", () => {
+  it("F: ordinary admin → unchanged (blocked)", () => {
+    expect(
+      evaluateSoleAdminCompanyTransferSelfApproval({
+        ...baseOk,
+        actor_role: "admin",
+        actor_is_owner: false,
+      }).reason_codes,
+    ).toContain(SOLE_ADMIN_CT_REASON.ROLE_NOT_SUPER_ADMIN);
+  });
+
+  it("G: COMPANY_INTERNAL → Owner exception NOT granted", () => {
+    const result = evaluateSoleAdminCompanyTransferSelfApproval({
+      ...ownerOutgoing,
+      transfer_type: "COMPANY_INTERNAL",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason_codes.length).toBeGreaterThan(0);
+  });
+
+  it("H: COMPANY_PAYABLE → Owner exception NOT granted", () => {
+    const result = evaluateSoleAdminCompanyTransferSelfApproval({
+      ...ownerOutgoing,
+      transfer_type: "COMPANY_PAYABLE",
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("blocks when another eligible approver exists (non-owner)", () => {
     const result = evaluateSoleAdminCompanyTransferSelfApproval({
       ...baseOk,
       other_eligible_approver_count: 1,
@@ -60,34 +147,13 @@ describe("companyTransferSoleAdminApprovalSSOT", () => {
     expect(result.reason_codes).toContain(SOLE_ADMIN_CT_REASON.OTHER_APPROVER_EXISTS);
   });
 
-  it("blocks non-super_admin and non-1p certification", () => {
-    expect(
-      evaluateSoleAdminCompanyTransferSelfApproval({
-        ...baseOk,
-        actor_role: "admin",
-      }).reason_codes,
-    ).toContain(SOLE_ADMIN_CT_REASON.ROLE_NOT_SUPER_ADMIN);
-
-    expect(
-      evaluateSoleAdminCompanyTransferSelfApproval({
-        ...baseOk,
-        amount_pence: 111,
-      }).reason_codes,
-    ).toContain(SOLE_ADMIN_CT_REASON.AMOUNT_NOT_CERTIFICATION_1P);
-  });
-
-  it("blocks company_outgoing type and missing confirmation/reason", () => {
+  it("blocks company_outgoing type and missing confirmation/reason (non-owner)", () => {
     expect(
       evaluateSoleAdminCompanyTransferSelfApproval({
         ...baseOk,
         transfer_type: "COMPANY_OUTGOING",
       }).reason_codes,
-    ).toEqual(
-      expect.arrayContaining([
-        SOLE_ADMIN_CT_REASON.AMOUNT_NOT_CERTIFICATION_1P,
-        SOLE_ADMIN_CT_REASON.TRANSFER_TYPE_BLOCKED,
-      ]),
-    );
+    ).toContain(SOLE_ADMIN_CT_REASON.TRANSFER_TYPE_BLOCKED);
 
     expect(
       evaluateSoleAdminCompanyTransferSelfApproval({
@@ -113,9 +179,49 @@ describe("companyTransferSoleAdminApprovalSSOT", () => {
 
     expect(
       evaluateSoleAdminCompanyTransferSelfApproval({
+        ...ownerOutgoing,
+        has_provider_payment: true,
+      }).reason_codes,
+    ).toContain(SOLE_ADMIN_CT_REASON.PROVIDER_PAYMENT_EXISTS);
+
+    expect(
+      evaluateSoleAdminCompanyTransferSelfApproval({
         ...baseOk,
         money_source: "DRIVER_WALLET",
       }).reason_codes,
     ).toContain(SOLE_ADMIN_CT_REASON.MONEY_SOURCE_INVALID);
+  });
+
+  it("L: frontend button state matches backend Owner/non-owner rule", () => {
+    expect(canUiSoleApproveCompanyTransfer({
+      actor_is_owner: true,
+      transfer_type: "COMPANY_OUTGOING",
+      amount_pence: 111,
+    })).toBe(true);
+    expect(canUiSoleApproveCompanyTransfer({
+      actor_is_owner: true,
+      transfer_type: "CERTIFICATION",
+      amount_pence: 50,
+    })).toBe(true);
+    expect(canUiSoleApproveCompanyTransfer({
+      actor_is_owner: true,
+      transfer_type: "COMPANY_INTERNAL",
+      amount_pence: 111,
+    })).toBe(false);
+    expect(canUiSoleApproveCompanyTransfer({
+      actor_is_owner: false,
+      transfer_type: "COMPANY_OUTGOING",
+      amount_pence: 111,
+    })).toBe(false);
+    expect(canUiSoleApproveCompanyTransfer({
+      actor_is_owner: false,
+      transfer_type: "CERTIFICATION",
+      amount_pence: 1,
+    })).toBe(true);
+    expect(canUiSoleApproveCompanyTransfer({
+      actor_is_owner: false,
+      transfer_type: "CERTIFICATION",
+      amount_pence: 2,
+    })).toBe(false);
   });
 });

@@ -17,7 +17,7 @@ import {
   isCompanyTransferCertificationOrTestProof,
   isCompanyTransferOperationallyVisible,
 } from '../../../shared/companyTransferLifecycleSSOT';
-import { soleAdminCtReasonLabel } from '../../../shared/companyTransferSoleAdminApprovalSSOT';
+import { soleAdminCtReasonLabel, canUiSoleApproveCompanyTransfer } from '../../../shared/companyTransferSoleAdminApprovalSSOT';
 import { isCompanyPayeeProviderVerified } from '../../../shared/companyPayeeRevolutLinkSSOT';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,6 +48,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/useAuth';
+import { useStaffProfile } from '@/hooks/useStaffProfile';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { supabase } from '@/integrations/supabase/client';
@@ -262,6 +263,7 @@ export function PayoutLedgerCompanyTransfersPanel({
 }) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { isOwner } = useStaffProfile();
   const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
   const [showForm, setShowForm] = useState(false);
   const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
@@ -2698,10 +2700,25 @@ export function PayoutLedgerCompanyTransfersPanel({
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Sole-admin approval</DialogTitle>
+            <DialogTitle>
+              {isOwner
+                && canUiSoleApproveCompanyTransfer({
+                  actor_is_owner: true,
+                  transfer_type: soleAdminTransfer?.transfer_type,
+                  amount_pence: soleAdminTransfer?.amount_pence,
+                })
+                ? 'Owner sole approval'
+                : 'Sole-admin approval'}
+            </DialogTitle>
             <DialogDescription>
-              You are the only authorised company-transfer approver. This £0.01 certification
-              approval will be recorded as a sole-admin override.
+              {isOwner
+                && canUiSoleApproveCompanyTransfer({
+                  actor_is_owner: true,
+                  transfer_type: soleAdminTransfer?.transfer_type,
+                  amount_pence: soleAdminTransfer?.amount_pence,
+                })
+                ? 'As the authorised company Owner, you can approve this transfer without a second approver. The approval will be recorded in the audit trail. Approval does not send the payment.'
+                : 'You are the only authorised company-transfer approver. This £0.01 certification approval will be recorded as a sole-admin override. Approval does not send the payment.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-sm">
@@ -2711,13 +2728,19 @@ export function PayoutLedgerCompanyTransfersPanel({
               <div>Amount: {formatNullablePence(soleAdminTransfer?.amount_pence ?? null)}</div>
               <div>Payee: {soleAdminTransfer?.recipient_name ?? '—'}</div>
             </div>
-            {String(soleAdminTransfer?.transfer_type ?? '').toUpperCase() !== 'CERTIFICATION'
-              || Number(soleAdminTransfer?.amount_pence) !== 1 ? (
+            {!canUiSoleApproveCompanyTransfer({
+              actor_is_owner: isOwner,
+              transfer_type: soleAdminTransfer?.transfer_type,
+              amount_pence: soleAdminTransfer?.amount_pence,
+            }) ? (
               <Alert>
-                <AlertTitle>Certification £0.01 only</AlertTitle>
+                <AlertTitle>
+                  {isOwner ? 'Owner sole approval not available for this type' : 'Certification £0.01 only'}
+                </AlertTitle>
                 <AlertDescription>
-                  Sole-admin self-approval is limited to transfer_type = CERTIFICATION and
-                  amount = 1p. Operational transfers still require a second approver.
+                  {isOwner
+                    ? 'Owner sole approval applies to COMPANY_OUTGOING and CERTIFICATION only. Other transfer types still require a second approver.'
+                    : 'Sole-admin self-approval is limited to transfer_type = CERTIFICATION and amount = 1p. Operational transfers still require a second approver.'}
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -2744,8 +2767,11 @@ export function PayoutLedgerCompanyTransfersPanel({
               disabled={
                 actionMutation.isPending
                 || soleAdminReason.trim().length < 10
-                || String(soleAdminTransfer?.transfer_type ?? '').toUpperCase() !== 'CERTIFICATION'
-                || Number(soleAdminTransfer?.amount_pence) !== 1
+                || !canUiSoleApproveCompanyTransfer({
+                  actor_is_owner: isOwner,
+                  transfer_type: soleAdminTransfer?.transfer_type,
+                  amount_pence: soleAdminTransfer?.amount_pence,
+                })
               }
               onClick={() => {
                 if (!soleAdminTransfer) return;
@@ -2760,6 +2786,13 @@ export function PayoutLedgerCompanyTransfersPanel({
             >
               {actionMutation.isPending
                 ? <Loader2 className="h-4 w-4 animate-spin" />
+                : isOwner
+                  && canUiSoleApproveCompanyTransfer({
+                    actor_is_owner: true,
+                    transfer_type: soleAdminTransfer?.transfer_type,
+                    amount_pence: soleAdminTransfer?.amount_pence,
+                  })
+                ? 'Approve as owner'
                 : 'Approve as sole administrator'}
             </Button>
           </DialogFooter>
