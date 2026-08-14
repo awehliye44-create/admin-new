@@ -10,6 +10,7 @@ import {
   logAuditEvent,
 } from "../_shared/security.ts";
 import { requireUser } from "../_shared/internalAuth.ts";
+import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
 
 
 /**
@@ -391,6 +392,36 @@ serve(async (req) => {
       .from("customers")
       .update({ active_trip_id: null, updated_at: now.toISOString() })
       .eq("active_trip_id", trip_id);
+
+    // Release Revolut preauth after terminal cancel is committed.
+    // Fee ordering: use cancel-trip's already-computed appliedFee —
+    // fee > 0 → disposer partial-captures then releases remainder;
+    // fee = 0 → void full unused authorisation. Do not invent a second fee policy.
+    try {
+      const dispositionReason =
+        cancelled_by === "admin"
+          ? "admin_cancel" as const
+          : cancelled_by === "driver"
+          ? "driver_cancel_terminal" as const
+          : "customer_cancel" as const;
+      const holdDisposition = await disposeTerminalTripPayment(supabase, {
+        tripId: trip_id,
+        reason: dispositionReason,
+        feePence: appliedFee,
+        forceFeePenceOverride: true,
+      });
+      console.log("[PAYMENT_AUDIT] cancel-trip hold disposition", {
+        trip_id,
+        fee_pence: appliedFee,
+        fee_type: feeType,
+        ...holdDisposition,
+      });
+    } catch (holdErr) {
+      console.error(
+        "[PAYMENT_AUDIT] cancel-trip hold disposition failed (non-fatal):",
+        holdErr,
+      );
+    }
 
     // Record financial outcome if fee > 0
     if (appliedFee > 0 && trip.driver_id) {
