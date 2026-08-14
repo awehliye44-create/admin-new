@@ -17,6 +17,47 @@ import {
   persistRevolutBusinessTokens,
   refreshRevolutBusinessAccessToken,
 } from "./revolutBusinessOAuthSSOT.ts";
+import {
+  isRevolutBusinessRelayConfigured,
+  relayRevolutAccounts,
+} from "./revolutBusinessRelayClient.ts";
+
+/**
+ * Production Revolut Business /accounts must use the fixed-IP relay when configured.
+ * Direct Edge fetch to b2b.revolut.com is rejected (401/403 → AUTHENTICATION_REQUIRED)
+ * because only the relay egress IP is whitelisted — same path as token refresh + /pay.
+ *
+ * Fallback policy:
+ * - Relay configured → relay is authoritative. Never silently fall back to direct
+ *   Edge fetch on relay auth/network failure (that would hide infrastructure issues).
+ * - Relay not configured → direct `listRevolutAccounts` only (local/dev).
+ */
+export function normalizeRelayAccountsBody(body: unknown): RevolutAccount[] {
+  if (Array.isArray(body)) return body as RevolutAccount[];
+  if (body && typeof body === "object" && Array.isArray((body as { accounts?: unknown }).accounts)) {
+    return (body as { accounts: RevolutAccount[] }).accounts;
+  }
+  return [];
+}
+
+export async function listCompanyBalanceAccounts(accessToken: string): Promise<RevolutAccount[]> {
+  if (isRevolutBusinessRelayConfigured()) {
+    const res = await relayRevolutAccounts(accessToken);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = typeof body === "object" && body && "message" in body
+        ? String((body as { message?: string }).message)
+        : typeof body === "object" && body && "error" in body
+        ? String((body as { error?: string }).error)
+        : `Revolut Business accounts relay error (${res.status})`;
+      // Fail closed — do not fall back to direct public Edge fetch.
+      throw { message, status: res.status, body };
+    }
+    return normalizeRelayAccountsBody(body);
+  }
+  // Dev/fallback only when relay is not configured.
+  return listRevolutAccounts("live", accessToken);
+}
 
 async function readRevolutVault(supabase: AnySupabase, environment: "live" | "test"): Promise<{
   merchant_id: string | null;
@@ -316,7 +357,7 @@ export async function resolveLiveCompanyBalanceSnapshot(args: {
   }
 
   try {
-    const accounts = await listRevolutAccounts("live", businessToken);
+    const accounts = await listCompanyBalanceAccounts(businessToken);
     // Exact selected account only — never fall back to first GBP / Main / highest balance.
     const match = accounts.find((a) => String(a.id) === merchant_id) ?? null;
     if (!match) {

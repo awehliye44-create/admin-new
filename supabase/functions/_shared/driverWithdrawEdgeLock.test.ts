@@ -49,3 +49,17 @@ Deno.test("admin-submit retains Slice 7 LIVE=false gate unchanged", async () => 
   assertStringIncludes(src, "evaluateSlice7FlagGate");
   assertEquals(src.includes("evaluateDriverWithdrawExecutionGate"), false);
 });
+
+Deno.test("pre-provider release must terminal-fail EARLY_CASHOUT (no stuck VALIDATED pending)", async () => {
+  const src = await Deno.readTextFile(EDGE);
+  assertStringIncludes(src, "markDriverWithdrawPreProviderFailed");
+  assertStringIncludes(src, "releaseAndFailPreProvider");
+  assertStringIncludes(src, 'status: "FAILED"');
+  assertStringIncludes(src, 'execution_status: "FAILED"');
+  // Company-balance gate must release+fail (not bare release leaving VALIDATED)
+  const gateIdx = src.indexOf("companyBalance.status_code !== \"AVAILABLE\"");
+  assertEquals(gateIdx > 0, true);
+  const gateWindow = src.slice(gateIdx, gateIdx + 800);
+  assertStringIncludes(gateWindow, "releaseAndFailPreProvider");
+  assertEquals(gateWindow.includes("release_driver_payout_reservation"), false);
+});

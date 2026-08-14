@@ -80,6 +80,87 @@ function normalizeClientIdempotency(raw: unknown, driverId: string): string {
   return `driver-withdraw:${driverId}:${crypto.randomUUID()}`;
 }
 
+/**
+ * Pre-provider hard failure: release rolls item back to VALIDATED (weekly Slice 6
+ * semantics), which wallet SSOT treats as CASHOUT_ALREADY_PROCESSING forever.
+ * Driver Withdraw must mark the EARLY_CASHOUT item terminal FAILED so the Driver
+ * can retry. Never call this after Revolut /pay / UNKNOWN provider state.
+ */
+async function markDriverWithdrawPreProviderFailed(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  payoutItemId: string,
+  failureCode: string,
+  failureReason: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  await supabase
+    .from("payout_items")
+    .update({
+      status: "FAILED",
+      execution_status: "FAILED",
+      failure_code: failureCode,
+      failure_reason: failureReason,
+      error_message: failureReason,
+      failed_at: now,
+      updated_at: now,
+    })
+    .eq("id", payoutItemId)
+    .in("status", [
+      "VALIDATED",
+      "RESERVING",
+      "RESERVED",
+      "BLOCKED_EXECUTION_DISABLED",
+      "SUBMITTING",
+    ]);
+
+  const { data: item } = await supabase
+    .from("payout_items")
+    .select("batch_id")
+    .eq("id", payoutItemId)
+    .maybeSingle();
+  const batchId = item?.batch_id ? String(item.batch_id) : "";
+  if (!batchId) return;
+
+  await supabase
+    .from("payout_batches")
+    .update({
+      status: "FAILED",
+      failure_code: failureCode,
+      failure_reason: failureReason,
+      failed_at: now,
+      updated_at: now,
+    })
+    .eq("id", batchId)
+    .eq("kind", "EARLY_CASHOUT")
+    .in("status", [
+      "FUNDS_RESERVED_EXECUTION_DISABLED",
+      "BLOCKED_EXECUTION_DISABLED",
+      "ITEMS_CREATED",
+      "DRAFT",
+    ]);
+}
+
+async function releaseAndFailPreProvider(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  payoutItemId: string,
+  failureCode: string,
+  failureReason: string,
+): Promise<void> {
+  await supabase.rpc("release_driver_payout_reservation", {
+    p_reservation_id: null,
+    p_payout_item_id: payoutItemId,
+    p_release_reason: failureCode,
+  });
+  await markDriverWithdrawPreProviderFailed(
+    supabase,
+    payoutItemId,
+    failureCode,
+    failureReason,
+  );
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -106,6 +187,51 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: "unauthorized", driver_message: "Sign in to continue." }, 401);
   }
 
+  let body: Record<string, unknown> = {};
+  try {
+    body = await req.json();
+  } catch {
+    body = {};
+  }
+
+  // Service-role read-only Company Balance probe (no payout, no /pay).
+  const bearer = authHeader.slice("Bearer ".length).trim();
+  if (body.probe_company_balance === true) {
+    let jwtRole = "";
+    try {
+      const payloadB64 = bearer.split(".")[1] ?? "";
+      const padded = payloadB64 + "=".repeat((4 - (payloadB64.length % 4)) % 4);
+      const payload = JSON.parse(atob(padded.replace(/-/g, "+").replace(/_/g, "/")));
+      jwtRole = String(payload?.role ?? "");
+    } catch {
+      jwtRole = "";
+    }
+    if (jwtRole !== "service_role" && bearer !== serviceKey) {
+      return json({ ok: false, error: "forbidden", revolut_pay_called: false }, 403);
+    }
+    const supabase = createClient(supabaseUrl, serviceKey);
+    const snap = await resolveLiveCompanyBalanceSnapshot({
+      supabase,
+      currency: "GBP",
+      refresh: true,
+    });
+    const available = snap.provider_available_balance_pence
+      ?? snap.provider_cash_balance_pence
+      ?? null;
+    return json({
+      ok: snap.status_code === "AVAILABLE",
+      probe: true,
+      revolut_pay_called: false,
+      status_code: snap.status_code,
+      source_account_id: snap.source_account_id ?? null,
+      currency: snap.currency ?? "GBP",
+      provider_available_balance_pence: available,
+      last_provider_sync_at: snap.last_provider_sync_at ?? null,
+      source_account_label: snap.source_account_label ?? null,
+      covers_803p: typeof available === "number" && available >= 803,
+    });
+  }
+
   const userClient = createClient(supabaseUrl, anonKey || serviceKey, {
     global: { headers: { Authorization: authHeader } },
   });
@@ -124,13 +250,6 @@ Deno.serve(async (req) => {
     }, 403);
   }
   const driverId = resolved.driver.driver_id;
-
-  let body: Record<string, unknown> = {};
-  try {
-    body = await req.json();
-  } catch {
-    body = {};
-  }
 
   // Never trust client driver_id / amount.
   if (body.driver_id && String(body.driver_id) !== driverId) {
@@ -386,14 +505,17 @@ Deno.serve(async (req) => {
     refresh: true,
   });
   if (!companyBalance.source_account_id || companyBalance.status_code !== "AVAILABLE") {
-    await supabase.rpc("release_driver_payout_reservation", {
-      p_reservation_id: null,
-      p_payout_item_id: payoutItemId,
-      p_release_reason: "SOURCE_BALANCE_UNAVAILABLE",
-    });
+    await releaseAndFailPreProvider(
+      supabase,
+      payoutItemId,
+      SUBMISSION_ERROR.SOURCE_BALANCE_UNAVAILABLE,
+      `Company Balance not AVAILABLE (${companyBalance.status_code})`,
+    );
     return json({
       ok: false,
       error: SUBMISSION_ERROR.SOURCE_BALANCE_UNAVAILABLE,
+      company_balance_status: companyBalance.status_code,
+      source_account_label: companyBalance.source_account_label ?? null,
       driver_message: "Payout source is temporarily unavailable. Try again later.",
       revolut_pay_called: false,
     }, 409);
@@ -408,11 +530,12 @@ Deno.serve(async (req) => {
     account_active: true,
   });
   if (!amountGate.ok) {
-    await supabase.rpc("release_driver_payout_reservation", {
-      p_reservation_id: null,
-      p_payout_item_id: payoutItemId,
-      p_release_reason: amountGate.code,
-    });
+    await releaseAndFailPreProvider(
+      supabase,
+      payoutItemId,
+      amountGate.code,
+      "Payout source cannot cover this withdrawal right now.",
+    );
     return json({
       ok: false,
       error: amountGate.code,
@@ -426,11 +549,12 @@ Deno.serve(async (req) => {
     const tok = await ensureFreshRevolutBusinessAccessToken(supabase);
     accessToken = tok.accessToken;
   } catch (err) {
-    await supabase.rpc("release_driver_payout_reservation", {
-      p_reservation_id: null,
-      p_payout_item_id: payoutItemId,
-      p_release_reason: SUBMISSION_ERROR.ACCESS_TOKEN_REQUIRED,
-    });
+    await releaseAndFailPreProvider(
+      supabase,
+      payoutItemId,
+      SUBMISSION_ERROR.ACCESS_TOKEN_REQUIRED,
+      "Payout provider authentication unavailable.",
+    );
     return json({
       ok: false,
       error: SUBMISSION_ERROR.ACCESS_TOKEN_REQUIRED,
