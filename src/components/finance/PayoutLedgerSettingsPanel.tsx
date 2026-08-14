@@ -45,7 +45,6 @@ const SETTING_KEYS = [
   'early_cashout_min_pence',
   'early_cashout_max_pence',
   'early_cashout_max_per_day',
-  'provider_instant_payouts_enabled',
   'company_transfer_approval_single_max_pence',
   'company_transfer_approval_dual_max_pence',
   'allow_sole_admin_company_transfer_approval',
@@ -613,6 +612,7 @@ export function PayoutLedgerSettingsPanel({
             onChange={setOverrideDriverId}
             regionId={serviceFilter.regionId}
             serviceAreaId={serviceFilter.serviceAreaId}
+            stripeConnectOnly={false}
           />
           {overrideDriverId && (
             <div className="flex items-center justify-between gap-3 rounded-md border p-3">
@@ -745,12 +745,12 @@ export function PayoutLedgerSettingsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Instant cash-out</CardTitle>
+          <CardTitle className="text-base">Driver Withdrawals</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="flex items-center justify-between gap-3 rounded-md border p-3 sm:col-span-2 lg:col-span-3">
             <div>
-              <Label>Enable for selected service area</Label>
+              <Label>Enable Driver Withdrawals for selected service area</Label>
               <p className="text-xs text-muted-foreground">
                 {areaRow?.name ?? 'Select a service area'} · {tz}
               </p>
@@ -776,16 +776,6 @@ export function PayoutLedgerSettingsPanel({
           <div className="space-y-1.5">
             <Label>Max requests per day</Label>
             <Input value={get('early_cashout_max_per_day', '1')} onChange={(e) => set('early_cashout_max_per_day', e.target.value)} />
-          </div>
-          <div className="flex items-center justify-between gap-3 rounded-md border p-3 sm:col-span-2">
-            <div>
-              <Label>Instant payouts flag (legacy)</Label>
-              <p className="text-xs text-muted-foreground">Persisted setting — provider capability gate</p>
-            </div>
-            <Switch
-              checked={get('provider_instant_payouts_enabled', 'false') === 'true'}
-              onCheckedChange={(v) => set('provider_instant_payouts_enabled', v ? 'true' : 'false')}
-            />
           </div>
         </CardContent>
       </Card>
