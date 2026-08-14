@@ -1,0 +1,657 @@
+/**
+ * customer-fare-decision – Customer responds to driver's fare offer
+ * 
+ * Actions: ACCEPT, DECLINE, COUNTER (counter must match remaining admin preset options)
+ * 
+ * DECLINE flow: sets grace_window_expires_at = now + 25s (NEGOTIATION_COUNTDOWN_SECONDS)
+ *   Driver sees "Offer declined — accept standard fare?" with 25s countdown.
+ *   If driver accepts within 25s → CONFIRMED at base fare.
+ *   If driver ignores → expire-offers releases trip after grace_window_expires_at.
+ * 
+ * POST body: { offer_id, action: "ACCEPT"|"DECLINE"|"COUNTER", selected_fare_pence?: number }
+ */
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  handleCORSPreflight,
+  checkRateLimit,
+  getClientIP,
+  rateLimitResponse,
+  isValidUUID,
+  isValidAction,
+  successResponse,
+  errorResponse,
+} from "../_shared/security.ts";
+import {
+  broadcastCustomerCounterOffer,
+  broadcastCustomerDeclinedOffer,
+} from "../_shared/driverNegotiationBroadcast.ts";
+import { buildDriverNegotiationPushData } from "../_shared/driverNegotiationPush.ts";
+import { applyCustomerDeclineGrace } from "../_shared/customerNegotiationGrace.ts";
+import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
+import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
+import { resolveNegotiationBaseFarePence } from "../_shared/negotiationBaseFare.ts";
+import { negotiationExpiresAtIso } from "../_shared/negotiation-deadline.ts";
+import {
+  extractPresetOptionsFromOffer,
+  faresMatchPence,
+  type PresetOptionCanonical,
+} from "../_shared/presetOptionsCanonical.ts";
+
+const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://thazislrdkjpvvghtvzo.supabase.co";
+const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+function extractCounterFareOptions(offer: {
+  offer_snapshot?: unknown;
+  driver_offer_fare?: number | null;
+}): number[] {
+  return extractCounterPresetOptions(offer).map((o) => o.grossFarePence);
+}
+
+function extractCounterPresetOptions(offer: {
+  offer_snapshot?: unknown;
+  driver_offer_fare?: number | null;
+}): PresetOptionCanonical[] {
+  const presetOptions = extractPresetOptionsFromOffer(offer);
+  if (presetOptions.length === 0) return [];
+
+  const driverPence = offer.driver_offer_fare ?? 0;
+  const remaining = presetOptions
+    .filter((o) => !faresMatchPence(o.grossFarePence, driverPence));
+
+  const seen = new Set<number>();
+  return remaining.filter((option) => {
+    if (seen.has(option.grossFarePence)) return false;
+    seen.add(option.grossFarePence);
+    return true;
+  });
+}
+
+function isAwaitingCustomerDecision(offer: {
+  negotiation_status?: string | null;
+  status?: string | null;
+  driver_offer_fare?: number | null;
+}): boolean {
+  if (offer.negotiation_status === "waiting_customer") return true;
+  const fare = offer.driver_offer_fare;
+  if (typeof fare !== "number" || fare <= 0) return false;
+  return offer.status === "pending" || offer.status === "countered";
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return handleCORSPreflight();
+
+  const ip = getClientIP(req);
+  const rl = checkRateLimit(ip, { limit: 30, windowMs: 60000, keyPrefix: "customer-fare-decision" });
+  if (!rl.allowed) return rateLimitResponse(rl);
+
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return errorResponse("UNAUTHORIZED", "Missing authorization", 401);
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await userClient.auth.getUser(token);
+    if (authError || !user) return errorResponse("UNAUTHORIZED", "Invalid token", 401);
+
+    const body = await req.json();
+    const offer_id = body.offer_id ?? body.ride_offer_id ?? body.negotiation_id;
+    const action = body.action;
+    const selected_fare_pence =
+      typeof body.selected_fare_pence === "number"
+        ? body.selected_fare_pence
+        : typeof body.counter_offer_fare === "number"
+          ? body.counter_offer_fare
+          : Number.NaN;
+    const selected_preset_key =
+      typeof body.selected_preset_key === "string" && body.selected_preset_key.trim().length > 0
+        ? body.selected_preset_key.trim()
+        : null;
+    const requestedTripId = body.ride_id ?? body.trip_id ?? null;
+    const requestedDriverId = body.locked_driver_id ?? body.driver_id ?? null;
+    const requestedCustomerId = body.customer_id ?? null;
+
+    if (!isValidUUID(offer_id)) return errorResponse("VALIDATION_ERROR", "Invalid offer_id", 400);
+    if (!isValidAction(action, ["ACCEPT", "DECLINE", "COUNTER"])) {
+      return errorResponse("VALIDATION_ERROR", "Action must be ACCEPT, DECLINE, or COUNTER", 400);
+    }
+
+    // Get offer
+    const { data: offer, error: offerErr } = await supabase
+      .from("ride_offers")
+      .select("*, trips(id, passenger_id, status, excluded_driver_ids, service_area_id, base_fare_pence, estimated_fare, fare, fare_breakdown, negotiation_disabled, negotiation_allowed, negotiation_owner_driver_id, current_offer_driver_id)")
+      .eq("id", offer_id)
+      .single();
+
+    if (offerErr || !offer) return errorResponse("NOT_FOUND", "Offer not found", 404);
+
+    // Verify this is the customer's trip
+    const trip = offer.trips;
+    if (!trip) return errorResponse("NOT_FOUND", "Trip not found", 404);
+
+    const { data: customerRow } = await supabase
+      .from("customers")
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    const customerRecordId = customerRow?.id ?? null;
+    const isCustomer =
+      trip.passenger_id === user.id
+      || (customerRecordId != null && trip.passenger_id === customerRecordId);
+
+    if (!isCustomer) {
+      return errorResponse("FORBIDDEN", "Not your trip", 403);
+    }
+    if (requestedCustomerId && ![user.id, customerRecordId, trip.passenger_id].filter(Boolean).includes(requestedCustomerId)) {
+      return errorResponse("CUSTOMER_MISMATCH", "Customer does not match this trip", 403);
+    }
+    if (requestedTripId && requestedTripId !== trip.id) {
+      return errorResponse("TRIP_MISMATCH", "Counter offer trip does not match active ride offer", 409);
+    }
+    if (requestedDriverId && requestedDriverId !== offer.driver_id) {
+      return errorResponse("LOCKED_DRIVER_MISMATCH", "Counter offer driver does not match locked driver", 409);
+    }
+
+    const tripNegotiationDisabled =
+      (trip as { negotiation_disabled?: boolean }).negotiation_disabled === true
+      || (trip as { negotiation_allowed?: boolean }).negotiation_allowed === false;
+    if (tripNegotiationDisabled && action === "COUNTER") {
+      return errorResponse(
+        "DISABLED",
+        "Fare negotiation is not available for this trip",
+        403,
+      );
+    }
+
+    if (!isAwaitingCustomerDecision(offer)) {
+      return errorResponse(
+        "INVALID_STATE",
+        `Offer is not awaiting customer decision (status=${offer.status}, negotiation=${offer.negotiation_status})`,
+        409,
+      );
+    }
+
+    // Heal rows where driver preset landed but negotiation_status was not set.
+    if (
+      offer.driver_offer_fare > 0
+      && offer.negotiation_status !== "waiting_customer"
+      && (offer.status === "pending" || offer.status === "countered")
+    ) {
+      const healedBy = negotiationExpiresAtIso();
+      await supabase
+        .from("ride_offers")
+        .update({
+          negotiation_status: "waiting_customer",
+          customer_respond_by: offer.customer_respond_by ?? healedBy,
+          negotiation_expires_at: offer.negotiation_expires_at ?? healedBy,
+          expires_at: offer.negotiation_expires_at ?? healedBy,
+          status: "countered",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", offer_id);
+      offer.negotiation_status = "waiting_customer";
+      offer.customer_respond_by = offer.customer_respond_by ?? healedBy;
+      offer.negotiation_expires_at = offer.negotiation_expires_at ?? healedBy;
+      offer.status = "countered";
+    }
+    const respondByIso =
+      (offer as { negotiation_expires_at?: string | null }).negotiation_expires_at
+      ?? offer.customer_respond_by;
+    const respondByMs = respondByIso ? new Date(respondByIso).getTime() : null;
+    if (respondByMs != null && respondByMs < Date.now() - 5000) {
+      const rematch = await finalizeNegotiationFailureAndRebroadcast(supabase, {
+        tripId: trip.id,
+        failedDriverId: offer.driver_id,
+        offerId: offer_id,
+        offerTerminalStatus: "expired",
+        offerNegotiationStatus: "timeout_customer",
+      });
+
+      return errorResponse("TIMEOUT", "Response time expired — finding another driver", 410, {
+        trip_id: rematch.trip_id ?? trip.id,
+        negotiation_disabled: true,
+      });
+    }
+
+    if (action === "ACCEPT") {
+      const finalFarePence = offer.driver_offer_fare;
+      if (typeof finalFarePence !== "number" || finalFarePence <= 0) {
+        return errorResponse("INVALID_STATE", "Driver offer fare missing", 409);
+      }
+
+      // Same atomic assignment path as driver Accept — supports countered preset offers.
+      const { data: acceptResult, error: acceptErr } = await supabase.rpc("accept_ride_offer", {
+        p_offer_id: offer_id,
+        p_driver_id: offer.driver_id,
+      });
+      const acceptErrorMessage = acceptErr?.message ?? null;
+
+      if (acceptErr) {
+        console.error("[customer-fare-decision] accept_ride_offer error:", acceptErr);
+        return errorResponse("UPDATE_FAILED", acceptErrorMessage ?? "accept_ride_offer failed", 500);
+      }
+      let assigned = acceptResult?.success === true;
+      if (!assigned && !acceptErr) {
+        const { data: tripRow } = await supabase
+          .from("trips")
+          .select("driver_id, confirmed_driver_id, status")
+          .eq("id", trip.id)
+          .maybeSingle();
+        const st = tripRow?.status ?? "";
+        assigned = !!(
+          tripRow?.driver_id
+          && ["confirmed", "accepted", "driver_assigned", "en_route", "en_route_to_pickup", "driver_en_route"].includes(st)
+        );
+      }
+      if (!assigned) {
+        const errCode = acceptErrorMessage?.includes("offer_expired")
+          ? "OFFER_EXPIRED"
+          : (acceptResult as Record<string, unknown> | null)?.error ?? "ACCEPT_FAILED";
+        return errorResponse(
+          String(errCode),
+          acceptErrorMessage ?? String((acceptResult as Record<string, unknown> | null)?.message ?? "Failed to assign driver"),
+          errCode === "OFFER_EXPIRED" ? 410 : 409,
+        );
+      }
+
+      console.log("[customer-fare-decision] NEGOTIATED_ACCEPT_STARTED", {
+        trip_id: trip.id,
+        offer_id,
+        driver_id: offer.driver_id,
+      });
+      console.log("NEGOTIATION_CUSTOMER_ACCEPTED", {
+        trip_id: trip.id,
+        offer_id,
+        driver_id: offer.driver_id,
+        final_fare_pence: finalFarePence,
+      });
+
+      const finalize = await finalizeRideAssignmentSideEffects(supabase, {
+        tripId: trip.id,
+        offerId: offer_id,
+        driverId: offer.driver_id,
+        source: "edge_customer_fare_decision",
+        fareSource: "negotiated_offer",
+        acceptedVia: "accept_ride_offer",
+      });
+
+      const { data: tripAfterAccept } = await supabase
+        .from("trips")
+        .select("final_fare_pence, commission_pence, driver_net_pence, driver_tier_commission_percent, fare_snapshot_json")
+        .eq("id", trip.id)
+        .maybeSingle();
+
+      console.log("[customer-fare-decision] NEGOTIATION_RESOLVED_DRIVER", {
+        trip_id: trip.id,
+        offer_id,
+        driver_id: offer.driver_id,
+        final_fare_pence: tripAfterAccept?.final_fare_pence ?? finalFarePence,
+        fare_source: (tripAfterAccept?.fare_snapshot_json as { fare_source?: string } | null)?.fare_source ?? "negotiated_offer",
+        commission_pence: tripAfterAccept?.commission_pence,
+        driver_net_pence: tripAfterAccept?.driver_net_pence,
+      });
+      console.log("[customer-fare-decision] FINAL_FARE_SET", {
+        trip_id: trip.id,
+        final_fare_pence: tripAfterAccept?.final_fare_pence ?? finalFarePence,
+      });
+      if (tripAfterAccept?.commission_pence != null) {
+        console.log("[customer-fare-decision] COMMISSION_RECALCULATED", {
+          trip_id: trip.id,
+          commission_pence: tripAfterAccept.commission_pence,
+          driver_net_pence: tripAfterAccept.driver_net_pence,
+        });
+      }
+
+      if (!finalize.ok) {
+        console.error("[customer-fare-decision] finalize assignment incomplete", finalize);
+        return errorResponse(
+          "ASSIGN_INCOMPLETE",
+          "Ride assigned but booking record could not be verified",
+          500,
+        );
+      }
+
+      await supabase.rpc("log_audit_event", {
+        p_event_type: "customer_accepted_fare",
+        p_user_id: user.id,
+        p_trip_id: trip.id,
+        p_details: {
+          offer_id,
+          accepted_fare_pence: finalFarePence,
+          fare_source: "negotiated_offer",
+          assigned_via: "accept_ride_offer",
+        },
+      });
+
+      return successResponse({
+        success: true,
+        action: "ACCEPTED",
+        final_fare_pence: finalFarePence,
+        trip_id: trip.id,
+        driver_id: offer.driver_id,
+      });
+    }
+
+    if (action === "DECLINE") {
+      const baseFarePence = resolveNegotiationBaseFarePence(trip);
+      const { grace_window_expires_at: graceWindowExpiresAt } = await applyCustomerDeclineGrace(supabase, {
+        offer_id,
+        trip_id: trip.id,
+        driver_id: offer.driver_id,
+        reason: "decline",
+      });
+
+      await supabase.rpc("log_audit_event", {
+        p_event_type: "customer_declined_fare",
+        p_user_id: user.id,
+        p_trip_id: trip.id,
+        p_details: {
+          offer_id,
+          driver_id: offer.driver_id,
+          base_fare_pence: baseFarePence,
+          grace_window_expires_at: graceWindowExpiresAt,
+          driver_can_accept_standard: true,
+        },
+      });
+
+      await broadcastCustomerDeclinedOffer(supabase, {
+        id: offer_id,
+        trip_id: trip.id,
+        driver_id: offer.driver_id,
+        negotiation_status: "declined_customer_awaiting_driver",
+        grace_window_expires_at: graceWindowExpiresAt,
+        negotiation_expires_at: graceWindowExpiresAt,
+      });
+
+      return successResponse({
+        success: true,
+        action: "DECLINED",
+        trip_id: trip.id,
+        base_fare_pence: baseFarePence,
+        grace_window_expires_at: graceWindowExpiresAt,
+        message: "Driver can accept the standard fare",
+      });
+    }
+
+    if (action === "COUNTER") {
+      // Customer selects one of the remaining preset options (not the driver's selected fare)
+      if (!Number.isFinite(selected_fare_pence) || selected_fare_pence <= 0) {
+        return errorResponse("VALIDATION_ERROR", "selected_fare_pence required for COUNTER", 400);
+      }
+      console.log("CUSTOMER_COUNTER_PAYLOAD", {
+        ride_id: requestedTripId ?? trip.id,
+        trip_id: requestedTripId ?? trip.id,
+        ride_offer_id: offer_id,
+        negotiation_id: offer_id,
+        customer_id: requestedCustomerId ?? customerRecordId ?? user.id,
+        driver_id: requestedDriverId ?? offer.driver_id,
+        locked_driver_id: requestedDriverId ?? offer.driver_id,
+        counter_offer_fare: selected_fare_pence,
+        selected_preset_key,
+        action,
+      });
+
+      if (offer.negotiation_status !== "waiting_customer") {
+        return errorResponse(
+          "INVALID_STATE",
+          `Offer is not awaiting customer counter (negotiation=${offer.negotiation_status})`,
+          409,
+        );
+      }
+
+      const lockedDriverId =
+        (trip as { negotiation_owner_driver_id?: string | null }).negotiation_owner_driver_id
+        ?? (trip as { current_offer_driver_id?: string | null }).current_offer_driver_id
+        ?? null;
+      if (lockedDriverId && lockedDriverId !== offer.driver_id) {
+        return errorResponse(
+          "LOCKED_DRIVER_MISMATCH",
+          "This offer is no longer the locked driver offer",
+          409,
+        );
+      }
+
+      const counterPresetOptions = extractCounterPresetOptions(offer);
+      const validOptions = extractCounterFareOptions(offer);
+      const driverFare = offer.driver_offer_fare ?? 0;
+      let matchingPreset = counterPresetOptions.find((option) =>
+        faresMatchPence(option.grossFarePence, selected_fare_pence)
+      );
+      if (selected_preset_key) {
+        const keyMatch = counterPresetOptions.find((option) => option.key === selected_preset_key);
+        if (!keyMatch || !faresMatchPence(keyMatch.grossFarePence, selected_fare_pence)) {
+          return errorResponse(
+            "INVALID_PRESET_KEY",
+            "Selected preset key does not match the counter fare",
+            400,
+            { selected_preset_key, valid_options: counterPresetOptions },
+          );
+        }
+        matchingPreset = keyMatch;
+      }
+      let fareOk = !!matchingPreset;
+      if (!fareOk && validOptions.length > 0) {
+        const closest = validOptions.reduce((best, n) =>
+          Math.abs(n - selected_fare_pence) < Math.abs(best - selected_fare_pence) ? n : best
+        );
+        fareOk = Math.abs(closest - selected_fare_pence) <= 2;
+        matchingPreset = counterPresetOptions.find((option) => faresMatchPence(option.grossFarePence, closest));
+      }
+      if (!fareOk) {
+        return errorResponse(
+          "INVALID_FARE",
+          validOptions.length > 0
+            ? `Selected fare must be one of: ${validOptions.join(", ")} pence`
+            : "Selected fare is not a valid counter option",
+          400,
+          { valid_options: validOptions },
+        );
+      }
+
+      // Counter cannot be the same as driver's offer
+      if (faresMatchPence(selected_fare_pence, driverFare)) {
+        return errorResponse(
+          "INVALID_COUNTER",
+          "Counter-offer cannot equal the driver's offer. Use ACCEPT instead.",
+          400
+        );
+      }
+
+      const driverRespondBy = negotiationExpiresAtIso();
+
+      console.log("[customer-fare-decision] CUSTOMER_SEND_COUNTER", {
+        ride_id: trip.id,
+        trip_id: trip.id,
+        ride_offer_id: offer_id,
+        negotiation_id: offer_id,
+        customer_id: requestedCustomerId ?? customerRecordId ?? user.id,
+        driver_id: offer.driver_id,
+        locked_driver_id: offer.driver_id,
+        counter_fare: selected_fare_pence,
+        counter_offer_fare: selected_fare_pence,
+        selected_preset_key: selected_preset_key ?? matchingPreset?.key ?? null,
+        driver_respond_by: driverRespondBy,
+      });
+
+      const { data: updatedOffer, error: counterErr } = await supabase
+        .from("ride_offers")
+        .update({
+          status: "countered",
+          negotiation_status: "waiting_driver_final",
+          customer_counter_fare: selected_fare_pence,
+          driver_respond_by: driverRespondBy,
+          negotiation_expires_at: driverRespondBy,
+          expires_at: driverRespondBy,
+          grace_window_expires_at: driverRespondBy,
+          responded_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", offer_id)
+        .eq("trip_id", trip.id)
+        .eq("driver_id", offer.driver_id)
+        .eq("negotiation_status", "waiting_customer")
+        .select("id, trip_id, driver_id, status, negotiation_status, customer_counter_fare, driver_respond_by")
+        .single();
+
+      if (counterErr || !updatedOffer) {
+        console.error("[customer-fare-decision] COUNTER update failed:", counterErr);
+        return errorResponse("UPDATE_FAILED", "Failed to record counter-offer", 500);
+      }
+
+      await supabase
+        .from("trips")
+        .update({
+          status: "negotiating",
+          negotiation_owner_driver_id: offer.driver_id,
+          current_offer_driver_id: offer.driver_id,
+          negotiation_locked_until: driverRespondBy,
+          dispatch_status: "paused",
+          broadcast_enabled: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", trip.id);
+
+      const { data: fareCommit, error: fareCommitErr } = await supabase.rpc("commit_negotiation_fare", {
+        p_trip_id: trip.id,
+        p_committed_fare_pence: selected_fare_pence,
+        p_fare_source: "customer_counter_offer",
+        p_ride_offer_id: offer_id,
+        p_driver_id: null,
+      });
+      if (fareCommitErr || fareCommit?.success !== true) {
+        console.error("[customer-fare-decision] commit_negotiation_fare failed:", fareCommitErr, fareCommit);
+        return errorResponse(
+          "FARE_COMMIT_FAILED",
+          "Counter-offer recorded but committed fare could not be persisted",
+          500,
+        );
+      }
+
+      console.log("[customer-fare-decision] DB_AFTER_COUNTER", {
+        negotiation_id: updatedOffer.id,
+        status: updatedOffer.status,
+        negotiation_status: updatedOffer.negotiation_status,
+        counter_fare: updatedOffer.customer_counter_fare,
+        driver_id: updatedOffer.driver_id,
+        expires_at: driverRespondBy,
+      });
+
+      await supabase.rpc("log_audit_event", {
+        p_event_type: "customer_counter_offer",
+        p_user_id: user.id,
+        p_trip_id: trip.id,
+        p_details: {
+          offer_id,
+          selected_fare_pence,
+          driver_respond_by: driverRespondBy,
+          event: "customer_counter_offer_received",
+          driver_id: offer.driver_id,
+        },
+      });
+
+      const { data: broadcastRow } = await supabase
+        .from("ride_offers")
+        .select(
+          "id, trip_id, driver_id, status, negotiation_status, customer_counter_fare, driver_offer_fare, driver_respond_by, negotiation_expires_at, expires_at, offer_options, customer_respond_by, grace_window_expires_at",
+        )
+        .eq("id", offer_id)
+        .single();
+
+      if (!broadcastRow) {
+        console.error("[customer-fare-decision] COUNTER broadcast row missing after update", {
+          offer_id,
+          trip_id: trip.id,
+        });
+        return errorResponse("BROADCAST_ROW_MISSING", "Counter-offer persisted but could not be verified", 500);
+      }
+
+      const broadcastDelivered = await broadcastCustomerCounterOffer(supabase, {
+        id: broadcastRow.id,
+        trip_id: broadcastRow.trip_id,
+        driver_id: broadcastRow.driver_id,
+        status: broadcastRow.status,
+        negotiation_status: broadcastRow.negotiation_status,
+        customer_counter_fare: broadcastRow.customer_counter_fare,
+        driver_offer_fare: broadcastRow.driver_offer_fare,
+        driver_respond_by: broadcastRow.driver_respond_by,
+        expires_at: broadcastRow.expires_at ?? driverRespondBy,
+        negotiation_expires_at:
+          (broadcastRow as { negotiation_expires_at?: string }).negotiation_expires_at
+          ?? driverRespondBy,
+        offer_options: broadcastRow.offer_options,
+        customer_respond_by: broadcastRow.customer_respond_by,
+        grace_window_expires_at: broadcastRow.grace_window_expires_at,
+      });
+
+      if (!broadcastDelivered) {
+        console.error("[customer-fare-decision] COUNTER driver broadcast failed", {
+          offer_id,
+          trip_id: trip.id,
+          driver_id: broadcastRow.driver_id,
+        });
+        return errorResponse(
+          "BROADCAST_FAILED",
+          "Counter-offer saved but driver notification failed — please retry",
+          503,
+        );
+      }
+
+      try {
+          const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+          const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+          const pushData = buildDriverNegotiationPushData({
+            offer_id: broadcastRow.id,
+            trip_id: broadcastRow.trip_id,
+            negotiation_status: broadcastRow.negotiation_status,
+            negotiation_expires_at:
+              (broadcastRow as { negotiation_expires_at?: string }).negotiation_expires_at
+              ?? broadcastRow.driver_respond_by,
+            customer_counter_fare: broadcastRow.customer_counter_fare,
+            expires_at: broadcastRow.expires_at ?? broadcastRow.driver_respond_by,
+            notificationType: "customer_counter_offer",
+          });
+          await fetch(`${supabaseUrl}/functions/v1/send-driver-notification`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${serviceKey}`,
+            },
+            body: JSON.stringify({
+              driverId: broadcastRow.driver_id,
+              type: "NEGOTIATION_UPDATE",
+              title: "Customer counter offer",
+              body: "Review the counter fare before it expires.",
+              data: pushData,
+            }),
+          });
+        } catch (pushErr) {
+          console.warn("[customer-fare-decision] driver negotiation push failed:", pushErr);
+        }
+
+      console.log("CUSTOMER_COUNTER_EDGE_SUCCESS", {
+        ride_id: trip.id,
+        negotiation_id: offer_id,
+        driver_id: offer.driver_id,
+        counter_fare: selected_fare_pence,
+        driver_respond_by: driverRespondBy,
+        broadcast_sent: true,
+      });
+
+      return successResponse({
+        success: true,
+        action: "COUNTERED",
+        customer_counter_fare: selected_fare_pence,
+        driver_respond_by: driverRespondBy,
+      });
+    }
+
+    return errorResponse("INVALID_ACTION", "Unknown action", 400);
+  } catch (err) {
+    console.error("[customer-fare-decision] Error:", err);
+    return errorResponse("INTERNAL_ERROR", "Internal server error", 500);
+  }
+});
