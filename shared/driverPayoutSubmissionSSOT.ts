@@ -97,6 +97,10 @@ export function maySubmitReservedDriverPayoutViaTransport(
   return transport && !live;
 }
 
+/**
+ * Admin Slice 7 submit gate — LIVE must stay false (no automatic weekly execution).
+ * Do NOT use this inside Driver Withdraw.
+ */
 export function evaluateSlice7FlagGate(env: {
   get(key: string): string | undefined;
 }): { ok: true } | { ok: false; code: SubmissionErrorCode; message: string } {
@@ -115,6 +119,26 @@ export function evaluateSlice7FlagGate(env: {
       ok: false,
       code: SUBMISSION_ERROR.PAYMENT_TRANSPORT_DISABLED,
       message: "REVOLUT_PAYMENT_TRANSPORT_ENABLED must be true for Slice 7 submission",
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Driver Withdraw execution gate — product-triggered Revolut payout.
+ * Requires payment transport only. Does NOT inherit the admin Slice 7
+ * "LIVE must stay false" invariant (that gates admin weekly/manual submit).
+ */
+export function evaluateDriverWithdrawExecutionGate(env: {
+  get(key: string): string | undefined;
+}): { ok: true } | { ok: false; code: SubmissionErrorCode; message: string } {
+  const transport =
+    (env.get("REVOLUT_PAYMENT_TRANSPORT_ENABLED") ?? "false").trim().toLowerCase() === "true";
+  if (!transport) {
+    return {
+      ok: false,
+      code: SUBMISSION_ERROR.PAYMENT_TRANSPORT_DISABLED,
+      message: "Withdrawals are temporarily unavailable. Please try again later.",
     };
   }
   return { ok: true };

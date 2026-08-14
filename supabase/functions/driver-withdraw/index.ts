@@ -11,7 +11,7 @@ import {
   validateApprovedDriverPayoutPayment,
 } from "../_shared/revolutDriverPayoutPaymentSSOT.ts";
 import {
-  evaluateSlice7FlagGate,
+  evaluateDriverWithdrawExecutionGate,
   evaluateSourceAccountGate,
   mapProviderSubmissionOutcome,
   maskProviderId,
@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
-  const flagGate = evaluateSlice7FlagGate(Deno.env);
+  const flagGate = evaluateDriverWithdrawExecutionGate(Deno.env);
   if (!flagGate.ok) {
     return json({
       ok: false,
