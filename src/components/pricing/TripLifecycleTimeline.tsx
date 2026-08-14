@@ -40,7 +40,9 @@ interface TripLifecycleTimelineProps {
   currencySymbol: string;
   onUpdate: (key: string, value: number | boolean | string) => void;
   // Stop Waiting & Get Paid (from stop_waiting_settings)
-  stopWaitingChargeIntervalSeconds: number;
+  stopRadiusEnabled: boolean;
+  stopRadiusMeters: number;
+  stopWaitingChargeIntervalSeconds: number | null;
   stopWaitingGracePeriodMinutes: number;
   stopWaitingRatePencePerMinute: number;
   stopWaitingMaxMinutes: number | null;
@@ -68,6 +70,7 @@ export function TripLifecycleTimeline({
   recalculateOnWaiting,
   currencySymbol,
   onUpdate,
+  stopRadiusMeters,
   stopWaitingChargeIntervalSeconds,
   stopWaitingGracePeriodMinutes,
   stopWaitingRatePencePerMinute,
@@ -190,7 +193,7 @@ export function TripLifecycleTimeline({
           <div className="flex items-start gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
             <Info className="h-3.5 w-3.5 text-blue-600 mt-0.5 shrink-0" />
             <p className="text-[11px] text-blue-700 dark:text-blue-400">
-              Applies only to intermediate stops during an active trip. Free stop waiting begins when the driver marks <strong>Arrived at Stop</strong>. After the free stop waiting time expires, waiting charges accumulate automatically at the configured charge interval until the driver continues the trip.
+              Applies only to intermediate stops during an active trip. Free stop waiting begins when the driver marks <strong>Arrived at Stop</strong>. After the free stop waiting time expires, waiting charges accumulate automatically at the configured charge interval until the driver continues the trip. GPS Radius Restriction is used to validate stop arrival location and may trigger a confirmation warning if the driver is too far from the stop.
             </p>
           </div>
 
@@ -206,6 +209,17 @@ export function TripLifecycleTimeline({
             description="Apply per-minute charge after free stop waiting time expires"
           />
 
+          <div className="flex flex-wrap items-end gap-3">
+            <NumberInput value={stopRadiusMeters} field="stopRadiusMeters" label="GPS Radius Restriction" unit="m" onFieldUpdate={onStopWaitingUpdate} min={1} />
+            <NumberInput
+              value={stopWaitingChargeIntervalSeconds ?? 0}
+              field="stopWaitingChargeIntervalSeconds"
+              label="Charge Interval"
+              unit="sec"
+              onFieldUpdate={onStopWaitingUpdate}
+              min={1}
+            />
+          </div>
         </div>
       ),
     },
@@ -252,19 +266,6 @@ export function TripLifecycleTimeline({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-0">
-        {/* Unified waiting charge interval */}
-        <div className="mb-6 p-3 rounded-lg border bg-muted/30">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div className="space-y-1">
-              <Label className="text-sm font-semibold">Waiting Charge Interval</Label>
-              <p className="text-[11px] text-muted-foreground max-w-md">
-                Single shared interval used for both <strong>Pickup Waiting</strong> and <strong>Stop Waiting</strong> charge accrual.
-              </p>
-            </div>
-            <NumberInput value={stopWaitingChargeIntervalSeconds} field="stopWaitingChargeIntervalSeconds" label="Charge Interval" unit="sec" onFieldUpdate={onStopWaitingUpdate} min={1} />
-          </div>
-        </div>
-
         {/* Timeline */}
         <div className="relative">
           {phases.map((phase, index) => {
