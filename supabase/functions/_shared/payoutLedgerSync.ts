@@ -75,15 +75,14 @@ export async function finalizePayoutAfterProviderSuccess(args: {
   providerTransferId?: string | null;
   providerPayoutId?: string | null;
   providerReference?: string | null;
-  providerPayoutId?: string | null;
   paymentProvider?: string | null;
   walletBalanceBefore: number;
 }): Promise<FinalizePayoutLedgerResult> {
   const ledgerType = ledgerTypeForBatchKind(args.batchKind);
   const providerTransferId = args.providerTransferId ?? null;
-  const providerPayoutId = args.providerPayoutId ?? null;
   const providerReference = args.providerReference?.trim() || null;
-  const providerPayoutId = args.providerPayoutId?.trim() || providerReference;
+  const providerPayoutId =
+    args.providerPayoutId?.trim() || providerReference;
 
   const { data: ledgerEntry, error: ledgerError } = await args.supabase
     .from("driver_wallet_ledger")
@@ -94,7 +93,6 @@ export async function finalizePayoutAfterProviderSuccess(args: {
       currency: args.currencyCode,
       description: payoutDescriptionForType(ledgerType),
       provider_transfer_id: providerTransferId,
-      provider_payout_id: providerPayoutId,
       provider_payout_id: providerPayoutId,
     })
     .select("id")
