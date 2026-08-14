@@ -17,7 +17,8 @@
 
 export const SETTLEMENT_FORMULA_VERSION = "2";
 
-export const MAX_COMMISSION_PERCENT = 15;
+/** Sanity ceiling for commission % (wave/base rates may exceed legacy 15% tier caps). */
+export const MAX_COMMISSION_PERCENT = 100;
 
 export type TripSettlementInput = {
   /** Customer trip fare including waiting and commissionable extras; tips usually excluded. */
@@ -61,6 +62,8 @@ export type TripSettlementTripRow = {
   other_pass_through_charges_pence?: number | null;
   tip_pence?: number | null;
   tip_amount_pence?: number | null;
+  /** Preferred: snapshotted at offer accept (wave commission). */
+  accepted_commission_percent?: number | null;
   driver_tier_commission_percent?: number | null;
   commission_pct?: number | null;
 };
@@ -136,8 +139,12 @@ export function calculateTripSettlement(input: TripSettlementInput): TripSettlem
   };
 }
 
-/** Resolve tier % from a persisted trip row. */
+/** Resolve commission % from a persisted trip row (accepted wave snapshot first). */
 export function resolveTripTierPercent(trip: TripSettlementTripRow): number {
+  const accepted = trip.accepted_commission_percent;
+  if (accepted != null && Number.isFinite(Number(accepted))) {
+    return capTierCommissionPercent(Number(accepted));
+  }
   const pct = trip.driver_tier_commission_percent ?? trip.commission_pct ?? 0;
   return capTierCommissionPercent(pct);
 }

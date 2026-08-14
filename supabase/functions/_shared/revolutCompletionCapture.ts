@@ -234,6 +234,8 @@ export async function executeRevolutTripCompletionCapture(args: {
           // Prefer persisted settlement columns from stop-workflow / prior writers.
           driver_net_pence: (tripFresh ?? args.trip).driver_net_pence
             ?? args.trip.driver_net_pence,
+          accepted_commission_percent: (tripFresh ?? args.trip).accepted_commission_percent
+            ?? args.trip.accepted_commission_percent,
           driver_tier_commission_percent: (tripFresh ?? args.trip).driver_tier_commission_percent
             ?? args.trip.driver_tier_commission_percent,
           commission_pct: (tripFresh ?? args.trip).commission_pct
@@ -563,6 +565,8 @@ export async function executeRevolutTripCompletionCapture(args: {
           tip_amount_pence: safeTipPence,
           driver_net_pence: (tripFresh ?? args.trip).driver_net_pence
             ?? args.trip.driver_net_pence,
+          accepted_commission_percent: (tripFresh ?? args.trip).accepted_commission_percent
+            ?? args.trip.accepted_commission_percent,
           driver_tier_commission_percent: (tripFresh ?? args.trip).driver_tier_commission_percent
             ?? args.trip.driver_tier_commission_percent,
           commission_pct: (tripFresh ?? args.trip).commission_pct
@@ -837,6 +841,8 @@ export async function executeRevolutTripCompletionCapture(args: {
           tip_amount_pence: safeTipPence,
           driver_net_pence: (tripFresh ?? args.trip).driver_net_pence
             ?? args.trip.driver_net_pence,
+          accepted_commission_percent: (tripFresh ?? args.trip).accepted_commission_percent
+            ?? args.trip.accepted_commission_percent,
           driver_tier_commission_percent: (tripFresh ?? args.trip).driver_tier_commission_percent
             ?? args.trip.driver_tier_commission_percent,
           commission_pct: (tripFresh ?? args.trip).commission_pct

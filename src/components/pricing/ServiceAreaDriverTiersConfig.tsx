@@ -154,7 +154,7 @@ export function ServiceAreaDriverTiersConfig({
             <div>
               <CardTitle>Driver Tiers Configuration</CardTitle>
               <CardDescription>
-                Per service area: commission rates, dispatch priority, and auto-promotion targets
+                Per service area: category priority and auto-promotion targets
                 {serviceAreaName ? ` for ${serviceAreaName}` : ''}
               </CardDescription>
             </div>
@@ -170,8 +170,8 @@ export function ServiceAreaDriverTiersConfig({
             <Info className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
             <div className="text-sm text-muted-foreground">
               <p>
-                <strong>Commission %</strong> is resolved at trip settlement from this service area
-                and the driver&apos;s current tier (Bronze → Diamond).
+                Trip commission is no longer taken from Driver Tiers. Effective commission comes from
+                Auto-Dispatch Rules (base commission ± per-wave reduction) and is snapshotted at accept.
               </p>
               <p className="mt-1">
                 <strong>Category Priority</strong> feeds dispatch scoring for trips in this service area.
@@ -179,6 +179,9 @@ export function ServiceAreaDriverTiersConfig({
               <p className="mt-1">
                 <strong>Trip Target</strong> triggers automatic tier promotion when a driver completes
                 enough trips — upgrades only, never demotions.
+              </p>
+              <p className="mt-1 text-xs">
+                The Commission % column is legacy display only and is not used for offer or settlement math.
               </p>
             </div>
           </div>

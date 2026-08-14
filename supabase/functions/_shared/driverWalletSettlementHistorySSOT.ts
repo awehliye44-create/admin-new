@@ -18,6 +18,7 @@ export type DriverWalletSettlementHistoryInput = {
     payment_method?: string | null;
     provider_fee_pence?: number | null;
     platform_commission_amount?: number | null;
+    accepted_commission_percent?: number | null;
     driver_tier_commission_percent?: number | null;
     driver_net_pence?: number | null;
     payment_session_id?: string | null;
@@ -87,9 +88,12 @@ export function buildDriverWalletSettlementHistoryRow(
     platform_commission_pence: trip?.platform_commission_amount == null
       ? null
       : Math.max(0, Number(trip.platform_commission_amount)),
-    driver_commission_percent: trip?.driver_tier_commission_percent == null
-      ? null
-      : Number(trip.driver_tier_commission_percent),
+    driver_commission_percent: (() => {
+      const accepted = trip?.accepted_commission_percent;
+      if (accepted != null && Number.isFinite(Number(accepted))) return Number(accepted);
+      if (trip?.driver_tier_commission_percent == null) return null;
+      return Number(trip.driver_tier_commission_percent);
+    })(),
     driver_net_pence: trip?.driver_net_pence == null
       ? null
       : Math.max(0, Number(trip.driver_net_pence)),

@@ -81,7 +81,7 @@ export async function buildPaymentSessionsTripCompare(
   let tripQuery = supabase
     .from("trips")
     .select(
-      "id, trip_code, status, completed_at, passenger_id, driver_id, service_area_id, payment_method, payment_provider, final_fare_pence, final_customer_fare_pence, commissionable_fare_pence, gross_fare_pence, locked_base_fare_pence, airport_charge_pence, tip_pence, tip_amount_pence, refund_amount_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, total_waiting_charge_pence, waiting_charge_pence, no_show_charge_pence, customer_modification_charge_pence, destination_change_adjustment_pence, extras_pence, other_pass_through_charges_pence, discount_pence, commission_pence, platform_commission_amount, driver_net_pence, provider_fee_pence, driver_tier_commission_percent, provider_payment_id",
+      "id, trip_code, status, completed_at, passenger_id, driver_id, service_area_id, payment_method, payment_provider, final_fare_pence, final_customer_fare_pence, commissionable_fare_pence, gross_fare_pence, locked_base_fare_pence, airport_charge_pence, tip_pence, tip_amount_pence, refund_amount_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, total_waiting_charge_pence, waiting_charge_pence, no_show_charge_pence, customer_modification_charge_pence, destination_change_adjustment_pence, extras_pence, other_pass_through_charges_pence, discount_pence, commission_pence, platform_commission_amount, driver_net_pence, provider_fee_pence, accepted_commission_percent, driver_tier_commission_percent, provider_payment_id",
     )
     .eq("status", "completed")
     .not("completed_at", "is", null)
@@ -409,9 +409,12 @@ export async function buildPaymentSessionsTripCompare(
       payment_provider: (trip.payment_provider as string | null) ?? null,
       payment_method: (trip.payment_method as string | null) ?? null,
       commissionable_fare_pence: finalFare,
-      commission_rate_percent: trip.driver_tier_commission_percent == null
-        ? null
-        : Number(trip.driver_tier_commission_percent),
+      commission_rate_percent: (() => {
+        const accepted = trip.accepted_commission_percent;
+        if (accepted != null && Number.isFinite(Number(accepted))) return Number(accepted);
+        if (trip.driver_tier_commission_percent == null) return null;
+        return Number(trip.driver_tier_commission_percent);
+      })(),
       gross_commission_pence: resolveTripGrossCommissionPence(trip as Record<string, unknown>),
       provider_transaction_id: (trip.provider_payment_id as string | null) ?? null,
       driver_net_pence: nullablePence(trip.driver_net_pence),

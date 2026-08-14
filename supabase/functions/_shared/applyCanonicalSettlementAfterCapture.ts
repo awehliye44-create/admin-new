@@ -24,7 +24,9 @@ export async function applyCanonicalSettlementAfterCapture(args: {
   const tip = Math.max(0, Math.round(Number(args.tipPence ?? args.trip.tip_pence ?? args.trip.tip_amount_pence ?? 0)));
   let driverNet = Math.max(0, Math.round(Number(args.trip.driver_net_pence ?? 0)));
   let commissionPct: number | undefined =
-    args.trip.driver_tier_commission_percent != null
+    args.trip.accepted_commission_percent != null
+      ? Number(args.trip.accepted_commission_percent)
+      : args.trip.driver_tier_commission_percent != null
       ? Number(args.trip.driver_tier_commission_percent)
       : args.trip.commission_pct != null
       ? Number(args.trip.commission_pct)

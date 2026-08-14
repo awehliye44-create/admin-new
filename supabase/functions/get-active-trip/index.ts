@@ -482,6 +482,7 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
       stop_charge_total_pence: trip.stop_charge_total_pence ?? null,
       customer_modification_charge_pence: trip.customer_modification_charge_pence ?? null,
       modification_delta_pence: trip.modification_delta_pence ?? null,
+      accepted_commission_percent: trip.accepted_commission_percent ?? null,
       driver_tier_commission_percent: trip.driver_tier_commission_percent ?? null,
       commission_pct: trip.commission_pct ?? null,
       commission_pence: trip.commission_pence ?? null,

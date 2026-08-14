@@ -19,6 +19,7 @@ export type LiveTripFareInput = {
   stop_charge_total_pence?: number | null;
   customer_modification_charge_pence?: number | null;
   modification_delta_pence?: number | null;
+  accepted_commission_percent?: number | null;
   driver_tier_commission_percent?: number | null;
   commission_pct?: number | null;
   commission_pence?: number | null;
@@ -49,6 +50,9 @@ function normalizeCommissionPercent(raw: number): number {
 }
 
 function resolveCommissionPercent(trip: LiveTripFareInput): number {
+  const accepted = Number(trip.accepted_commission_percent);
+  if (Number.isFinite(accepted) && accepted >= 0) return normalizeCommissionPercent(accepted);
+
   const tier = Number(trip.driver_tier_commission_percent);
   if (Number.isFinite(tier) && tier >= 0) return normalizeCommissionPercent(tier);
 

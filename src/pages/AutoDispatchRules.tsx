@@ -56,6 +56,12 @@ interface DispatchSettings {
   wave1OfferExpirySeconds: number;
   wave2OfferExpirySeconds: number;
   wave3OfferExpirySeconds: number;
+  /** Base ONECAB commission % for the service area (driver economics SSOT). */
+  baseDriverCommissionPercent: number;
+  /** Percentage-point reductions from base (not % of commission). */
+  wave1CommissionReductionPercent: number;
+  wave2CommissionReductionPercent: number;
+  wave3CommissionReductionPercent: number;
   distancePenaltyPerKm: number;
   waitingBonusPerMinute: number;
   maxWaitingBonusMinutes: number;
@@ -122,6 +128,10 @@ const defaultSettings: DispatchSettings = {
   wave1OfferExpirySeconds: 40,
   wave2OfferExpirySeconds: 45,
   wave3OfferExpirySeconds: 50,
+  baseDriverCommissionPercent: 15,
+  wave1CommissionReductionPercent: 0,
+  wave2CommissionReductionPercent: 0,
+  wave3CommissionReductionPercent: 0,
   distancePenaltyPerKm: 2.0,
   waitingBonusPerMinute: 0.5,
   maxWaitingBonusMinutes: 20,
@@ -182,6 +192,10 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => {
   wave1OfferExpirySeconds: (data.wave1_offer_expiry_seconds as number) ?? defaultSettings.wave1OfferExpirySeconds,
   wave2OfferExpirySeconds: (data.wave2_offer_expiry_seconds as number) ?? defaultSettings.wave2OfferExpirySeconds,
   wave3OfferExpirySeconds: (data.wave3_offer_expiry_seconds as number) ?? defaultSettings.wave3OfferExpirySeconds,
+  baseDriverCommissionPercent: Number(data.base_driver_commission_percent ?? defaultSettings.baseDriverCommissionPercent),
+  wave1CommissionReductionPercent: Number(data.wave1_commission_reduction_percent ?? defaultSettings.wave1CommissionReductionPercent),
+  wave2CommissionReductionPercent: Number(data.wave2_commission_reduction_percent ?? defaultSettings.wave2CommissionReductionPercent),
+  wave3CommissionReductionPercent: Number(data.wave3_commission_reduction_percent ?? defaultSettings.wave3CommissionReductionPercent),
   distancePenaltyPerKm: Number(data.distance_penalty_per_meter ?? 0.002) * 1000,
   waitingBonusPerMinute: (data.waiting_bonus_per_minute as number) ?? defaultSettings.waitingBonusPerMinute,
   maxWaitingBonusMinutes: (data.max_waiting_bonus_minutes as number) ?? defaultSettings.maxWaitingBonusMinutes,
@@ -258,6 +272,10 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   wave1_offer_expiry_seconds: settings.wave1OfferExpirySeconds,
   wave2_offer_expiry_seconds: settings.wave2OfferExpirySeconds,
   wave3_offer_expiry_seconds: settings.wave3OfferExpirySeconds,
+  base_driver_commission_percent: settings.baseDriverCommissionPercent,
+  wave1_commission_reduction_percent: settings.wave1CommissionReductionPercent,
+  wave2_commission_reduction_percent: settings.wave2CommissionReductionPercent,
+  wave3_commission_reduction_percent: settings.wave3CommissionReductionPercent,
   distance_penalty_per_meter: settings.distancePenaltyPerKm / 1000,
   waiting_bonus_per_minute: settings.waitingBonusPerMinute,
   max_waiting_bonus_minutes: settings.maxWaitingBonusMinutes,
@@ -365,6 +383,30 @@ export default function AutoDispatchRules() {
       settingsToCommitmentPolicy(settings),
     );
     const issues = [...bookingIssues, ...commitmentIssues];
+    if (settings.baseDriverCommissionPercent < 0 || settings.baseDriverCommissionPercent > 100) {
+      toast.error('Base driver commission must be between 0 and 100');
+      return;
+    }
+    for (const [label, value] of [
+      ['Wave 1', settings.wave1CommissionReductionPercent],
+      ['Wave 2', settings.wave2CommissionReductionPercent],
+      ['Wave 3', settings.wave3CommissionReductionPercent],
+    ] as const) {
+      if (value < 0) {
+        toast.error(`${label} commission reduction must be ≥ 0`);
+        return;
+      }
+      if (settings.baseDriverCommissionPercent - value < 0) {
+        toast.error(`${label} reduction would make effective commission negative`);
+        return;
+      }
+    }
+    if (
+      settings.wave2CommissionReductionPercent < settings.wave1CommissionReductionPercent
+      || settings.wave3CommissionReductionPercent < settings.wave2CommissionReductionPercent
+    ) {
+      toast.warning('Wave reductions usually increase (W1 ≤ W2 ≤ W3). Customer fare is unchanged.');
+    }
     if (issues.length > 0) {
       toast.error(issues[0]?.message ?? 'Invalid scheduled rides policy');
       return;
@@ -579,9 +621,43 @@ export default function AutoDispatchRules() {
                   <Label>Wave 3 Expiry (seconds)</Label>
                   <Input type="number" min="10" max="120" value={settings.wave3OfferExpirySeconds}
                     onChange={(e) => updateSetting('wave3OfferExpirySeconds', parseInt(e.target.value) || 50)} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">Time Wave 3 waits before marking unassigned</p>
+                  <p className="text-xs text-muted-foreground">Time Wave 3 waits before the next dispatch round</p>
                 </div>
               </div>
+            </div>
+
+            {/* Per-wave driver commission incentive (driver-side only; customer fare unchanged) */}
+            <div>
+              <h4 className="text-sm font-semibold mb-3">Per-Wave Driver Commission Incentive</h4>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label>Base commission (%)</Label>
+                  <Input type="number" min="0" max="100" step="0.1" value={settings.baseDriverCommissionPercent}
+                    onChange={(e) => updateSetting('baseDriverCommissionPercent', parseFloat(e.target.value) || 0)} disabled={isLoading} />
+                  <p className="text-xs text-muted-foreground">Service-area base; customer fare never changes</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Wave 1 Commission Reduction (pp)</Label>
+                  <Input type="number" min="0" max="100" step="0.1" value={settings.wave1CommissionReductionPercent}
+                    onChange={(e) => updateSetting('wave1CommissionReductionPercent', parseFloat(e.target.value) || 0)} disabled={isLoading} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Wave 2 Commission Reduction (pp)</Label>
+                  <Input type="number" min="0" max="100" step="0.1" value={settings.wave2CommissionReductionPercent}
+                    onChange={(e) => updateSetting('wave2CommissionReductionPercent', parseFloat(e.target.value) || 0)} disabled={isLoading} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Wave 3 Commission Reduction (pp)</Label>
+                  <Input type="number" min="0" max="100" step="0.1" value={settings.wave3CommissionReductionPercent}
+                    onChange={(e) => updateSetting('wave3CommissionReductionPercent', parseFloat(e.target.value) || 0)} disabled={isLoading} />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-3">
+                Base commission: {settings.baseDriverCommissionPercent}% · Effective commission:{' '}
+                Wave 1 {Math.max(0, settings.baseDriverCommissionPercent - settings.wave1CommissionReductionPercent)}% ·{' '}
+                Wave 2 {Math.max(0, settings.baseDriverCommissionPercent - settings.wave2CommissionReductionPercent)}% ·{' '}
+                Wave 3 {Math.max(0, settings.baseDriverCommissionPercent - settings.wave3CommissionReductionPercent)}%
+              </p>
             </div>
 
             {/* Dispatcher Internals — promoted from hardcoded values */}
@@ -592,7 +668,9 @@ export default function AutoDispatchRules() {
                   <Label>Max Dispatch Rounds</Label>
                   <Input type="number" min="1" max="6" value={settings.maxDispatchRounds}
                     onChange={(e) => updateSetting('maxDispatchRounds', parseInt(e.target.value) || 3)} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">Wave cascade limit before marking trip unassigned</p>
+                  <p className="text-xs text-muted-foreground">
+                    Full W1→W2→W3 cycles (e.g. 3 = up to 9 waves) while trip TTL remains
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label>Degraded Driver Penalty</Label>

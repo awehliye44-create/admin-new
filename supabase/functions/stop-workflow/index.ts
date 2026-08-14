@@ -2828,7 +2828,9 @@ Deno.serve(async (req) => {
           other_pass_through_charges_pence: resolvedFare.pass_through_charge_pence,
           tips_pence: tipAmountPence,
           driver_tier_commission_percent: Number(
-            fareTrip.driver_tier_commission_percent ?? commissionPct,
+            fareTrip.accepted_commission_percent
+              ?? fareTrip.driver_tier_commission_percent
+              ?? commissionPct,
           ),
         });
         const commissionableFarePence = settlement.commissionable_fare_pence;

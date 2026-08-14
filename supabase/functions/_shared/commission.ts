@@ -1,86 +1,53 @@
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /**
- * Commission resolution — service_area_driver_tiers is SSOT for tier % per service area.
- * driver_categories remains the driver's tier identity (Bronze → Diamond).
+ * Commission resolution — global_dispatch_settings.base_driver_commission_percent is SSOT
+ * for live (pre-accept) resolution. Accepted trips must prefer trips.accepted_commission_percent.
+ * Driver tiers no longer determine trip commission.
  */
-
-async function resolveTierName(
-  supabase: SupabaseClient,
-  driverId: string,
-): Promise<string> {
-  const { data: driver } = await supabase
-    .from("drivers")
-    .select("category_id, driver_categories(name)")
-    .eq("id", driverId)
-    .single();
-
-  const category = driver?.driver_categories as { name?: string } | null;
-  return category?.name ?? "Bronze";
-}
-
-async function loadServiceAreaTierCommission(
-  supabase: SupabaseClient,
-  serviceAreaId: string,
-  tierName: string,
-): Promise<number | null> {
-  const { data: saTier } = await supabase
-    .from("service_area_driver_tiers")
-    .select("commission_percent")
-    .eq("service_area_id", serviceAreaId)
-    .ilike("tier_name", tierName)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (saTier?.commission_percent != null) {
-    return Number(saTier.commission_percent);
-  }
-
-  const { data: bronze } = await supabase
-    .from("service_area_driver_tiers")
-    .select("commission_percent")
-    .eq("service_area_id", serviceAreaId)
-    .ilike("tier_name", "bronze")
-    .eq("is_active", true)
-    .maybeSingle();
-
-  if (bronze?.commission_percent != null) {
-    console.warn(
-      `[commission] Tier "${tierName}" not configured for service area ${serviceAreaId}; using Bronze fallback`,
-    );
-    return Number(bronze.commission_percent);
-  }
-
-  return null;
-}
 
 export async function getDriverCommissionPct(
   supabase: SupabaseClient,
-  driverId: string,
-  serviceAreaId: string | null | undefined,
+  _driverId: string,
+  _serviceAreaId: string | null | undefined,
 ): Promise<number> {
-  if (!serviceAreaId) {
-    throw new Error(
-      `service_area_id required for tier commission resolution (driver ${driverId})`,
-    );
+  const { data, error } = await supabase
+    .from("global_dispatch_settings")
+    .select("base_driver_commission_percent")
+    .eq("singleton", true)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load base driver commission: ${error.message}`);
   }
 
-  const tierName = await resolveTierName(supabase, driverId);
-  const commissionPct = await loadServiceAreaTierCommission(supabase, serviceAreaId, tierName);
-
-  if (commissionPct == null) {
-    throw new Error(
-      `No tier commission configured for service area ${serviceAreaId}. Configure service_area_driver_tiers.`,
-    );
+  const pct = Number(data?.base_driver_commission_percent);
+  if (!Number.isFinite(pct)) {
+    throw new Error("global_dispatch_settings.base_driver_commission_percent missing");
   }
 
-  return commissionPct;
+  return Math.min(100, Math.max(0, pct));
 }
 
 export interface CommissionResult {
   commission_pct: number;
   commission_pence: number;
   driver_net_pence: number;
+}
+
+/** Synchronous split for offer preview (airport stripped from commissionable base). */
+export function calculateCommissionSplit(
+  grossFarePence: number,
+  commissionPercent: number,
+  opts?: { airport_charge_pence?: number },
+): { commissionPence: number; driverNetPence: number; commissionablePence: number } {
+  const gross = Math.max(0, Math.round(Number(grossFarePence) || 0));
+  const airport = Math.max(0, Math.round(Number(opts?.airport_charge_pence ?? 0) || 0));
+  const pct = Math.min(100, Math.max(0, Number(commissionPercent) || 0));
+  const commissionablePence = Math.max(0, gross - airport);
+  const commissionPence = Math.round((commissionablePence * pct) / 100);
+  const driverNetPence = Math.max(0, commissionablePence - commissionPence) + airport;
+  return { commissionPence, driverNetPence, commissionablePence };
 }
 
 /**

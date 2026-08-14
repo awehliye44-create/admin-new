@@ -267,7 +267,8 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     service_area_code: input.serviceAreaCode,
     vehicle_type_id: body.vehicle_type_id || null,
     searching_expires_at: isScheduled ? null : defaultSearchExpiresAt,
-    max_broadcast_rounds: isScheduled ? null : 3,
+    // Absolute sequences (Max Dispatch Rounds × 3). Post-commit overwrites from settings.
+    max_broadcast_rounds: isScheduled ? null : 9,
   };
 
   if (body.pre_assigned_driver_id) {

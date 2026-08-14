@@ -14,7 +14,7 @@ import {
   ensureCommissionWalletDeductionForCompletedTrip,
 } from "../_shared/commissionWalletDeduction.ts";
 import { tripUsesCommissionWalletDeduction } from "../_shared/commissionWalletSSOT.ts";
-import { calculateTripSettlement, tripSettlementDbColumns } from "../_shared/tripSettlement.ts";
+import { calculateTripSettlement, resolveTripTierPercent, tripSettlementDbColumns } from "../_shared/tripSettlement.ts";
 
 const ACTIVE_STATUSES = new Set([
   "pending",
@@ -126,7 +126,11 @@ Deno.serve(async (req) => {
           ? body.reason.trim()
           : `Force ended by admin. Final fare: ${fareMajor}`;
 
-      const tierPct = Number(trip.driver_tier_commission_percent ?? 0);
+      const tierPct = resolveTripTierPercent({
+        accepted_commission_percent: trip.accepted_commission_percent,
+        driver_tier_commission_percent: trip.driver_tier_commission_percent,
+        commission_pct: trip.commission_pct,
+      });
       const settlement = calculateTripSettlement({
         final_fare_pence: farePence,
         airport_charge_pence: Number(trip.airport_charge_pence ?? 0),

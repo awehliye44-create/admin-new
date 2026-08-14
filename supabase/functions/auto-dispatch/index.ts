@@ -19,17 +19,18 @@ import {
   computeDispatchScore,
   destinationMatchRadiusMeters,
   dispatchOfferSnapshotFields,
+  effectiveOfferExpirySeconds,
   effectiveRadiusMeters,
   extractDriverTierName,
   loadDispatchSettings,
   loadServiceAreaTierPriorityMap,
   maxBroadcastRounds,
+  resolveWaveCommission,
   waveDriverCapForRound,
   waveOfferExpirySeconds,
 } from "../_shared/dispatch-settings.ts";
 import {
   enrichOfferSnapshotDriverNet,
-  loadServiceAreaTierCommissionMap,
 } from "../_shared/driverOfferNetPreview.ts";
 import {
   recordDispatchWaveSnapshot,
@@ -64,6 +65,7 @@ import { resolveNegotiationBaseFarePence } from "../_shared/negotiationBaseFare.
 import { tripFareFieldsForOfferSnapshot } from "../_shared/tripFareSnapshot.ts";
 import {
   isCustomerSearchWindowActive,
+  resolveCustomerSearchDeadlineMs,
   resolveDispatchBroadcastRound,
   shouldExpireTripAfterWavesExhausted,
   WAVE3_NO_ELIGIBLE_LOG_TOKEN,
@@ -727,16 +729,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Get dispatch settings (service area row â global row â schema defaults)
+    // 2. Get dispatch settings (service area row → global row → schema defaults)
     let dispatchSettings: Awaited<ReturnType<typeof loadDispatchSettings>>;
     let stackedRideConfig: StackedRideConfig;
     let tierPriorityMap: Map<string, number>;
-    let tierCommissionMap: Map<string, number>;
     try {
       dispatchSettings = await loadDispatchSettings(supabase, trip.service_area_id);
       stackedRideConfig = await loadStackedRideConfig(supabase, trip.service_area_id);
       tierPriorityMap = await loadServiceAreaTierPriorityMap(supabase, trip.service_area_id);
-      tierCommissionMap = await loadServiceAreaTierCommissionMap(supabase, trip.service_area_id);
       if (!stackedRideConfig.operational) {
         logStackedRideDisabledSafeGuard(
           { trip_id, service_area_id: trip.service_area_id ?? null },
@@ -775,15 +775,25 @@ Deno.serve(async (req) => {
     const suppressSeconds = coercePositiveInt(dispatchSettings.suppress_recent_offers_seconds) ?? 60;
     const locationRecencySeconds = 20;
 
-    // ââ PROGRESSIVE RADIUS EXPANSION (dispatch_settings SSOT) ââ
+    // ── PROGRESSIVE RADIUS + 3-WAVE CYCLE SEQUENCES ──
+    // current_broadcast_round stores absolute sequence (1…max_dispatch_rounds×3).
+    // Wave = ((seq-1)%3)+1; Round = floor((seq-1)/3)+1.
     const storedRound = trip.current_broadcast_round || 0;
     let searchWindowActive = true;
     let currentRound = storedRound + 1;
-    let maxRounds = coercePositiveInt(trip.max_broadcast_rounds) ?? 3;
+    let maxRounds = coercePositiveInt(trip.max_broadcast_rounds) ?? 9;
     let startRadiusM = 3000;
     let maxRadiusM = 8000;
     let expandPerRoundM = 0;
     let effectiveRadiusM = 3000;
+    let waveCommission = {
+      basePercent: 15,
+      reductionPercent: 0,
+      effectivePercent: 15,
+      wave: 1 as 1 | 2 | 3,
+      dispatchRound: 1,
+    };
+    let offerExpirySecondsResolved = 20;
     const shortlistLimit = coercePositiveInt(dispatchSettings.shortlist_limit) ?? 100;
 
     try {
@@ -796,11 +806,22 @@ Deno.serve(async (req) => {
         searchWindowActive,
       });
       startRadiusM = effectiveRadiusMeters(dispatchSettings, 1);
-      maxRadiusM = effectiveRadiusMeters(dispatchSettings, 9999);
-      expandPerRoundM = currentRound > 1
-        ? effectiveRadiusMeters(dispatchSettings, 2) - startRadiusM
-        : 0;
+      maxRadiusM = effectiveRadiusMeters(dispatchSettings, 3);
+      expandPerRoundM = effectiveRadiusMeters(dispatchSettings, 2) - startRadiusM;
       effectiveRadiusM = effectiveRadiusMeters(dispatchSettings, currentRound);
+      waveCommission = resolveWaveCommission({
+        settings: dispatchSettings,
+        sequence: currentRound,
+        floorReductionPercent: (trip as { max_wave_commission_reduction_percent?: number | null })
+          .max_wave_commission_reduction_percent ?? 0,
+      });
+      const deadlineMs = resolveCustomerSearchDeadlineMs(trip, dispatchSettings);
+      const remainingTtlSec = Math.max(0, Math.floor((deadlineMs - Date.now()) / 1000));
+      offerExpirySecondsResolved = effectiveOfferExpirySeconds({
+        settings: dispatchSettings,
+        sequence: currentRound,
+        remainingTripTtlSeconds: remainingTtlSec,
+      });
     } catch (roundErr) {
       const roundErrorMessage = roundErr instanceof Error ? roundErr.message : String(roundErr);
       console.error("[auto-dispatch] dispatch_round_resolve_error:", roundErrorMessage, roundErr);
@@ -824,11 +845,15 @@ Deno.serve(async (req) => {
       startRadius: startRadiusM,
       expandPerRound: expandPerRoundM,
       maxRadius: maxRadiusM,
-      round: currentRound,
-      maxRounds,
-      expiry: dispatchSettings.offer_expiry_seconds,
+      sequence: currentRound,
+      dispatch_wave: waveCommission.wave,
+      dispatch_round: waveCommission.dispatchRound,
+      maxSequences: maxRounds,
+      expiry: offerExpirySecondsResolved,
       waveNExpiryThisRound: waveOfferExpirySeconds(dispatchSettings as Record<string, unknown>, currentRound),
       waveDriverCapThisRound: waveDriverCapForRound(dispatchSettings as Record<string, unknown>, currentRound),
+      effective_commission_percent: waveCommission.effectivePercent,
+      wave_commission_reduction_percent: waveCommission.reductionPercent,
       batchMode: batchMode,
       maxOffersPerRequest: maxOffersPerRequest,
       cooldownSeconds: cooldownSeconds,
@@ -887,7 +912,7 @@ Deno.serve(async (req) => {
       batch_mode: batchMode,
       cascade_batch_size: dispatchSettings.cascade_batch_size,
       note:
-        "Wave width uses wave1_size / wave2_size / wave3_size only; cascade_batch_size does not cap parallel offers.",
+        "Wave width uses wave1_size / wave2_size / wave3_size only; cascade_batch_size does not cap parallel offers. max_broadcast_rounds is max sequences (cycles×3).",
       wave1_size: dispatchSettings.wave1_size,
       wave2_size: dispatchSettings.wave2_size,
       wave3_size: dispatchSettings.wave3_size,
@@ -901,13 +926,32 @@ Deno.serve(async (req) => {
       radius_max_m: maxRadiusM,
       radius_effective_this_round_m: effectiveRadiusM,
       max_offers_per_request: maxOffersPerRequest,
-      broadcast_round: currentRound,
-      max_broadcast_rounds: maxRounds,
+      broadcast_sequence: currentRound,
+      dispatch_wave: waveCommission.wave,
+      dispatch_round: waveCommission.dispatchRound,
+      max_broadcast_sequences: maxRounds,
       wave_driver_cap_this_round: waveDriverCapForRound(dispatchSettings as Record<string, unknown>, currentRound),
-      wave_offer_expiry_this_round_seconds: waveOfferExpirySeconds(dispatchSettings as Record<string, unknown>, currentRound),
+      wave_offer_expiry_this_round_seconds: offerExpirySecondsResolved,
+      base_commission_percent: waveCommission.basePercent,
+      wave_commission_reduction_percent: waveCommission.reductionPercent,
+      effective_commission_percent: waveCommission.effectivePercent,
     });
 
-    // (broadcast round already calculated above for radius expansion)
+    // (broadcast sequence already calculated above for radius / wave economics)
+
+    if (offerExpirySecondsResolved <= 0 || !searchWindowActive) {
+      await supabase.rpc("expire_trip_when_search_exhausted", { p_trip_id: trip_id });
+      abortDispatch("SEARCH_WINDOW_ENDED", {
+        sequence: currentRound,
+        searching_expires_at: trip.searching_expires_at ?? null,
+      });
+      return errorResponse(
+        "SEARCH_WINDOW_ENDED",
+        "Customer search window ended before next wave",
+        400,
+        { sequence: currentRound },
+      );
+    }
 
     if (currentRound > maxRounds) {
       console.log("[auto-dispatch] Max broadcast rounds reached:", currentRound);
@@ -2226,11 +2270,17 @@ Deno.serve(async (req) => {
     } // end !enrichExistingOffersMode (driver search)
 
     // 7. Create offers for each driver
-    const offerExpirySeconds = waveOfferExpirySeconds(dispatchSettings as Record<string, unknown>, currentRound);
+    const offerExpirySeconds = offerExpirySecondsResolved;
     const expiresAt = new Date(Date.now() + offerExpirySeconds * 1000).toISOString();
     const dispatchSnapshotFields = {
       ...dispatchOfferSnapshotFields(dispatchSettings as Record<string, unknown>, currentRound),
       dispatch_source: "auto_dispatch",
+      dispatch_wave: waveCommission.wave,
+      dispatch_round: waveCommission.dispatchRound,
+      broadcast_sequence: currentRound,
+      base_commission_percent: waveCommission.basePercent,
+      wave_commission_reduction_percent: waveCommission.reductionPercent,
+      effective_commission_percent: waveCommission.effectivePercent,
     };
 
     // 7a. Preset Fare Offers â admin preset_offer_configs ONLY (no legacy fallbacks).
@@ -2495,7 +2545,7 @@ Deno.serve(async (req) => {
             ...dispatchSnapshotFields,
           },
           driver,
-          tierCommissionMap,
+          waveCommission.effectivePercent,
           baseFarePence,
           offerCurrencyCode,
         )
@@ -2516,7 +2566,7 @@ Deno.serve(async (req) => {
                 ...dispatchSnapshotFields,
               },
           driver,
-          tierCommissionMap,
+          waveCommission.effectivePercent,
           baseFarePence,
           offerCurrencyCode,
         );
@@ -2531,6 +2581,7 @@ Deno.serve(async (req) => {
           trip_id,
           driver_id: driver.id,
           base_fare_pence: baseFarePence,
+          effective_commission_percent: waveCommission.effectivePercent,
           tier: extractDriverTierName(driver),
         });
         return null;
@@ -2542,6 +2593,12 @@ Deno.serve(async (req) => {
         status: "pending",
         expires_at: expiresAt,
         broadcast_round: currentRound,
+        dispatch_wave: waveCommission.wave,
+        dispatch_round: waveCommission.dispatchRound,
+        base_commission_percent: waveCommission.basePercent,
+        wave_commission_reduction_percent: waveCommission.reductionPercent,
+        effective_commission_percent: waveCommission.effectivePercent,
+        offered_driver_net_pence: Math.round(driverNetPreview),
         offered_at: insertedAt,
         is_stacked: isStacked,
         distance_meters: driver.distance_meters ? Math.round(driver.distance_meters) : null,
@@ -2555,7 +2612,7 @@ Deno.serve(async (req) => {
     }).filter((row): row is NonNullable<typeof row> => row != null);
 
     // Atomically commit dispatch wave and insert offers with optimistic concurrency checks
-    const waveExpirySeconds = waveOfferExpirySeconds(dispatchSettings as Record<string, unknown>, currentRound);
+    const waveExpirySeconds = offerExpirySeconds;
     const { data: waveResult, error: waveErr } = await supabase.rpc("commit_dispatch_wave", {
       p_trip_id: trip_id,
       p_expected_version: trip.trip_version ?? 1,
@@ -2570,6 +2627,16 @@ Deno.serve(async (req) => {
       });
       return errorResponse("DB_ERROR", "Failed to commit dispatch wave", 500);
     }
+
+    // Monotonic incentive floor for subsequent waves/rounds (never regress earnings).
+    await supabase
+      .from("trips")
+      .update({
+        max_wave_commission_reduction_percent: waveCommission.reductionPercent,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", trip_id)
+      .lt("max_wave_commission_reduction_percent", waveCommission.reductionPercent);
 
     const createdOffers = (waveResult.inserted_offers || []).map((o: any) => ({
       id: o.offer_id,

@@ -126,7 +126,7 @@ export async function ensureCommissionWalletDeductionForCompletedTrip(input: {
   const { data: trip, error: tripErr } = await input.supabase
     .from("trips")
     .select(
-      "id, driver_id, service_area_id, financial_model, commission_wallet_enabled, final_fare_pence, final_customer_fare_pence, airport_charge_pence, other_pass_through_charges_pence, tip_amount_pence, tip_pence, driver_tier_commission_percent, commission_pence, commissionable_fare_pence, snapshotted_commission_rate_bps",
+      "id, driver_id, service_area_id, financial_model, commission_wallet_enabled, final_fare_pence, final_customer_fare_pence, airport_charge_pence, other_pass_through_charges_pence, tip_amount_pence, tip_pence, accepted_commission_percent, driver_tier_commission_percent, commission_pence, commissionable_fare_pence, snapshotted_commission_rate_bps",
     )
     .eq("id", input.tripId)
     .maybeSingle();
@@ -201,7 +201,11 @@ export async function ensureCommissionWalletDeductionForCompletedTrip(input: {
     airport_charge_pence: Number(trip.airport_charge_pence ?? 0),
     other_pass_through_charges_pence: Number(trip.other_pass_through_charges_pence ?? 0),
     tips_pence: Number(trip.tip_amount_pence ?? trip.tip_pence ?? 0),
-    driver_tier_commission_percent: Number(trip.driver_tier_commission_percent ?? 0),
+    driver_tier_commission_percent: Number(
+      trip.accepted_commission_percent
+        ?? trip.driver_tier_commission_percent
+        ?? 0,
+    ),
   });
   const commissionMinor = Math.max(
     0,

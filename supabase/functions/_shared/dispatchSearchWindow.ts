@@ -53,8 +53,11 @@ export function shouldExpireTripAfterWavesExhausted(
 }
 
 /**
- * Next broadcast round for auto-dispatch.
- * At max waves with an active search window, rebroadcast re-runs the last wave (no round burn).
+ * Next absolute broadcast sequence for auto-dispatch.
+ *
+ * Sequences advance W1→W2→W3→(next round)W1… up to maxSequences (= max_dispatch_rounds × 3).
+ * Trip TTL does NOT block sequence advancement; when sequences are exhausted and the
+ * search window is still active, the caller waits (does not invent seq beyond max).
  */
 export function resolveDispatchBroadcastRound(params: {
   storedRound: number;
@@ -62,14 +65,16 @@ export function resolveDispatchBroadcastRound(params: {
   forceRebroadcast: boolean;
   searchWindowActive: boolean;
 }): number {
-  const { storedRound, maxRounds, forceRebroadcast, searchWindowActive } = params;
+  const { storedRound, maxRounds, forceRebroadcast } = params;
+  const maxSequences = Math.max(1, Math.floor(maxRounds));
   if (!forceRebroadcast) {
     return storedRound + 1;
   }
-  if (storedRound >= maxRounds && searchWindowActive) {
-    return maxRounds;
+  if (storedRound >= maxSequences) {
+    return maxSequences;
   }
-  return Math.min(storedRound + 1, maxRounds);
+  return storedRound + 1;
 }
 
+/** @deprecated Token retained for log compatibility; means sequences exhausted, waiting TTL. */
 export const WAVE3_NO_ELIGIBLE_LOG_TOKEN = "wave3_no_eligible_waiting_search_window" as const;

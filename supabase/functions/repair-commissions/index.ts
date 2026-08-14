@@ -71,7 +71,7 @@ serve(async (req) => {
     // === Fetch completed trips ===
     let query = supabase
       .from('trips')
-      .select('id, driver_id, service_area_id, gross_fare_pence, final_fare_pence, capture_amount_pence, airport_charge_pence, other_pass_through_charges_pence, commission_pence, driver_net_pence, payment_method, payment_status, currency_code, financial_outcome, completed_at, fare, tip_pence, tip_amount_pence, driver_tier_commission_percent, commission_pct, settlement_formula_version')
+      .select('id, driver_id, service_area_id, gross_fare_pence, final_fare_pence, capture_amount_pence, airport_charge_pence, other_pass_through_charges_pence, commission_pence, driver_net_pence, payment_method, payment_status, currency_code, financial_outcome, completed_at, fare, tip_pence, tip_amount_pence, accepted_commission_percent, driver_tier_commission_percent, commission_pct, settlement_formula_version')
       .eq('status', 'completed')
       .not('driver_id', 'is', null);
 
@@ -134,19 +134,24 @@ serve(async (req) => {
       const missingOutcome = !trip.financial_outcome;
       if (missingOutcome) issues.push('missing financial_outcome');
 
-      // === Check commission via canonical settlement (Slice 4) — never commission on gross ignoring airport ===
-      const commissionCacheKey = `${dId}:${trip.service_area_id ?? 'unknown'}`;
-      if (!commissionCache[commissionCacheKey]) {
-        try {
-          const pct = await getDriverCommissionPct(supabase, dId, trip.service_area_id);
-          commissionCache[commissionCacheKey] = { commission_pct: pct };
-        } catch {
-          console.warn(`[repair-commissions] Could not get commission for driver ${dId} SA ${trip.service_area_id}, skipping`);
-          continue;
+      // Prefer snapshotted accept commission — never overwrite with live base/tier.
+      const acceptedPct = Number(trip.accepted_commission_percent);
+      let correctPct: number;
+      if (Number.isFinite(acceptedPct) && acceptedPct > 0) {
+        correctPct = acceptedPct;
+      } else {
+        const commissionCacheKey = `${dId}:${trip.service_area_id ?? 'unknown'}`;
+        if (!commissionCache[commissionCacheKey]) {
+          try {
+            const pct = await getDriverCommissionPct(supabase, dId, trip.service_area_id);
+            commissionCache[commissionCacheKey] = { commission_pct: pct };
+          } catch {
+            console.warn(`[repair-commissions] Could not get commission for driver ${dId} SA ${trip.service_area_id}, skipping`);
+            continue;
+          }
         }
+        correctPct = commissionCache[commissionCacheKey].commission_pct;
       }
-
-      const correctPct = commissionCache[commissionCacheKey].commission_pct;
       const tipPence = Math.max(0, Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0));
       const airportPence = Math.max(0, Number(trip.airport_charge_pence ?? 0));
       const finalFare = Math.max(

@@ -47,7 +47,6 @@ const TRIP_AUDIT_SELECT = `
         id,
         trip_code,
         commission_pence,
-        provider_fee_pence:provider_fee_pence,
         provider_fee_pence,
         onecab_net_pence,
         driver_net_pence,
@@ -75,12 +74,12 @@ const TRIP_AUDIT_SELECT = `
         payment_status,
         status,
         financial_outcome,
-        provider_payment_id:provider_payment_id,
-        provider_charge_id:provider_charge_id,
+        provider_order_id,
         provider_status,
         driver_id,
         passenger_name,
         refunded_at,
+        accepted_commission_percent,
         driver_tier_commission_percent,
         commission_pct,
         completed_at,
@@ -91,14 +90,14 @@ const TRIP_AUDIT_SELECT = `
         driver:drivers!trips_driver_id_fkey(first_name, last_name)
       `;
 
-function buildProviderPaymentAuditRows(
+function buildProviderOrderAuditRows(
   tripRows: TripAuditSourceRow[],
   paymentRows: Array<{
     captured_amount_pence: number | null;
     status: string | null;
     trip_id: string | null;
     provider_status: string | null;
-    provider_payment_id: string | null;
+    provider_order_id?: string | null;
   }>,
 ) {
   const tripById = new Map(tripRows.map((t) => [t.id, t]));
@@ -115,16 +114,36 @@ function buildProviderPaymentAuditRows(
     date: string | null;
   }> = [];
 
+  for (const trip of tripRows) {
+    const orderId = String(trip.provider_order_id ?? "").trim();
+    if (!orderId || seen.has(orderId)) continue;
+    seen.add(orderId);
+    const driverName = trip.driver
+      ? [trip.driver.first_name, trip.driver.last_name].filter(Boolean).join(" ").trim() || null
+      : null;
+    rows.push({
+      payment_intent_id: orderId,
+      trip_id: trip.id,
+      trip_code: trip.trip_code ?? null,
+      driver_id: trip.driver_id ?? null,
+      customer_name: trip.passenger_name?.trim() || null,
+      driver_name: driverName,
+      captured_pence: 0,
+      status: trip.provider_status ?? "unknown",
+      date: trip.completed_at ?? null,
+    });
+  }
+
   for (const payment of paymentRows) {
-    const pi = payment.provider_payment_id?.trim();
-    if (!pi || seen.has(pi)) continue;
-    seen.add(pi);
+    const orderId = String(payment.provider_order_id ?? "").trim();
+    if (!orderId || seen.has(orderId)) continue;
+    seen.add(orderId);
     const trip = payment.trip_id ? tripById.get(payment.trip_id) ?? null : null;
     const driverName = trip?.driver
       ? [trip.driver.first_name, trip.driver.last_name].filter(Boolean).join(" ").trim() || null
       : null;
     rows.push({
-      payment_intent_id: pi,
+      payment_intent_id: orderId,
       trip_id: payment.trip_id,
       trip_code: trip?.trip_code ?? null,
       driver_id: trip?.driver_id ?? null,
@@ -158,7 +177,7 @@ function endOfTodayUtc(): string {
 const MAX_LEDGER_DRIVER_IN = 150;
 
 // Hard cap on any single provider-heavy sub-call so the whole edge function
-// stays under the 150s idle-timeout limit even on large Connect accounts.
+// stays under the 150s idle-timeout limit even on large accounts.
 const PROVIDER_SECTION_TIMEOUT_MS = 25_000;
 
 async function withTimeout<T>(
@@ -207,48 +226,14 @@ async function fetchLegacyManualReviewItems(
   }));
 }
 
-async function fetchWebhookHealth(
-  supabase: ReturnType<typeof createClient>,
-): Promise<{ lastWebhookAt: string | null; failedWebhookCount: number }> {
-  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  try {
-    const [lastResult, failedWebhooksResult] = await Promise.all([
-      supabase
-        .from("processed_revolut_events")
-        .select("processed_at")
-        .order("processed_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from("processed_revolut_events")
-        .select("id", { count: "exact", head: true })
-        .in("applied_status", ["failed_retry", "failed_non_retry"])
-        .gte("processed_at", since24h),
-    ]);
-    if (lastResult.error || failedWebhooksResult.error) {
-      return { lastWebhookAt: null, failedWebhookCount: 0 };
-    }
-    return {
-      lastWebhookAt: lastResult.data?.processed_at ?? null,
-      failedWebhookCount: failedWebhooksResult.count ?? 0,
-    };
-  } catch {
-    return { lastWebhookAt: null, failedWebhookCount: 0 };
-  }
-}
-
 function computeProviderHealthStatus(args: {
   providerBalanceError: string | null;
-  providerSecretConfigured: boolean;
   connectBundleExpected: boolean;
   connectBundleLoaded: boolean;
-  failedWebhookCount: number;
 }): "healthy" | "degraded" | "failing" {
-  if (!args.providerSecretConfigured) return "failing";
   if (args.providerBalanceError) {
     return args.providerBalanceError === "connect_money_movement_timeout" ? "degraded" : "failing";
   }
-  if (args.failedWebhookCount > 0) return "degraded";
   if (args.connectBundleExpected && !args.connectBundleLoaded) return "degraded";
   return "healthy";
 }
@@ -341,11 +326,11 @@ async function fetchLedgerRowsForPeriod(
 function settlementStatusLabel(status: string): string {
   switch (status) {
     case "calculated_only":
-      return "Calculated only — not confirmed with provider";
-    case "pending_provider_settlement":
+      return "Calculated only — not confirmed with payment provider";
+    case "pending_stripe_settlement":
       return "Pending provider settlement";
-    case "available_in_provider_balance":
-      return "ONECAB net available with provider (trip-verified)";
+    case "available_in_stripe_balance":
+      return "ONECAB net available in provider balance (trip-verified)";
     case "paid_to_onecab_bank":
       return "Paid To ONECAB Bank";
     case "reconciled":
@@ -363,7 +348,6 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const providerSecretKey = Deno.env.get("REVOLUT_SECRET_KEY");
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const authHeader = req.headers.get("Authorization");
@@ -531,7 +515,6 @@ serve(async (req) => {
       ledgerRows,
       pendingPayoutsResult,
       pendingCashoutsResult,
-      webhookHealth,
       legacyManualReviewItems,
     ] = await Promise.all([
       tripQuery,
@@ -547,7 +530,6 @@ serve(async (req) => {
         .from("driver_early_cashouts")
         .select("requested_cashout_pence, driver_receives_pence")
         .in("status", ["processing", "pending", "transfer_created"]),
-      fetchWebhookHealth(supabase),
       fetchLegacyManualReviewItems(supabase),
     ]);
 
@@ -569,7 +551,7 @@ serve(async (req) => {
       status: string | null;
       trip_id: string | null;
       provider_status: string | null;
-      provider_payment_id: string | null;
+      provider_order_id: string | null;
       provider_available_on: string | null;
     }> = [];
     let paymentSessionRows: PaymentSessionMoneyRow[] = [];
@@ -578,7 +560,7 @@ serve(async (req) => {
       status: string | null;
       provider_status: string | null;
       captured_amount_pence: number | null;
-      provider_payment_id: string | null;
+      provider_order_id: string | null;
       provider_available_on: string | null;
     }> = [];
     let auditPayoutItems: Array<{
@@ -592,15 +574,13 @@ serve(async (req) => {
       related_trip_id: string | null;
       type: string;
       amount_pence: number;
-      provider_payout_id?: string | null;
-      provider_transfer_id?: string | null;
     }> = [];
 
     if (tripIds.length > 0 && !summaryOnly) {
       const [paymentsRes, paymentSessionsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
         supabase
           .from("payments")
-          .select("captured_amount_pence, status, trip_id, provider_status, provider_payment_id:provider_payment_id, provider_available_on")
+          .select("captured_amount_pence, status, trip_id, provider_status, provider_order_id, provider_payment_id, provider_available_on")
           .in("trip_id", tripIds),
         supabase
           .from("payment_sessions")
@@ -612,7 +592,7 @@ serve(async (req) => {
           .in("trip_id", tripIds),
         supabase
           .from("driver_wallet_ledger")
-          .select("related_trip_id, type, amount_pence, provider_payout_id:provider_payout_id, provider_transfer_id:provider_transfer_id")
+          .select("related_trip_id, type, amount_pence")
           .in("related_trip_id", tripIds),
       ]);
       if (paymentSessionsRes.error) {
@@ -633,7 +613,7 @@ serve(async (req) => {
         status: p.status,
         provider_status: p.provider_status,
         captured_amount_pence: null,
-        provider_payment_id: p.provider_payment_id ?? null,
+        provider_order_id: p.provider_order_id ?? null,
         provider_available_on: p.provider_available_on ?? null,
       }));
       if (paymentsRes.error) {
@@ -655,8 +635,6 @@ serve(async (req) => {
           related_trip_id: row.related_trip_id ?? null,
           type: row.type,
           amount_pence: row.amount_pence,
-          provider_payout_id: row.provider_payout_id ?? null,
-          provider_transfer_id: row.provider_transfer_id ?? null,
         }));
       }
     } else if (tripIds.length > 0 && summaryOnly) {
@@ -738,19 +716,17 @@ serve(async (req) => {
           data_source_badge: perDriver.source_tier,
           payment_provider: financeScopeProvider.provider,
           provider_balance_error: providerBalanceError,
+          stripe_balance_error: providerBalanceError,
         },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const { failedWebhookCount, lastWebhookAt } = webhookHealth;
     const providerHealth = computeProviderHealthStatus({
-      providerBalanceError,
-      providerSecretConfigured: Boolean(providerSecretKey),
+      providerBalanceError: providerBalanceError,
       connectBundleExpected: scopeHeavyProvider && !summaryOnly,
       connectBundleLoaded: moneyMovement != null,
-      failedWebhookCount,
     });
 
     const ssotMetrics = computeSSOTMetrics({
@@ -779,7 +755,7 @@ serve(async (req) => {
       settlementStatus,
       settlementStatusLabel: settlementStatusLabel(settlementStatus),
       providerHealthStatus: providerHealth,
-      lastWebhookReceivedAt: lastWebhookAt,
+      lastWebhookReceivedAt: null,
       onecabBankPayoutPence: settlementStatus === "paid_to_onecab_bank" ? ssotMetrics.net_platform_revenue_pence : 0,
       dataSourceBadge: "LIVE",
       moneyMovement,
@@ -870,7 +846,7 @@ serve(async (req) => {
         const [paymentsRes, paymentSessionsRes, payoutItemsRes, tripLedgerRes] = await Promise.all([
           supabase
             .from("payments")
-            .select("captured_amount_pence, status, trip_id, provider_status, provider_payment_id:provider_payment_id, provider_available_on")
+            .select("captured_amount_pence, status, trip_id, provider_status, provider_order_id, provider_payment_id, provider_available_on")
             .in("trip_id", auditTripIds),
           supabase
             .from("payment_sessions")
@@ -882,7 +858,7 @@ serve(async (req) => {
             .in("trip_id", auditTripIds),
           supabase
             .from("driver_wallet_ledger")
-            .select("related_trip_id, type, amount_pence, provider_payout_id:provider_payout_id, provider_transfer_id:provider_transfer_id")
+            .select("related_trip_id, type, amount_pence")
             .in("related_trip_id", auditTripIds),
         ]);
         if (paymentSessionsRes.error) {
@@ -910,7 +886,7 @@ serve(async (req) => {
             status: p.status,
             provider_status: p.provider_status,
             captured_amount_pence: null,
-            provider_payment_id: p.provider_payment_id ?? null,
+            provider_order_id: p.provider_order_id ?? null,
             provider_available_on: p.provider_available_on ?? null,
           })),
           payoutItems: payoutItemsRes.error ? [] : (payoutItemsRes.data || []),
@@ -920,8 +896,6 @@ serve(async (req) => {
               related_trip_id: row.related_trip_id ?? null,
               type: row.type,
               amount_pence: row.amount_pence,
-              provider_payout_id: row.provider_payout_id ?? null,
-              provider_transfer_id: row.provider_transfer_id ?? null,
             })),
           paymentSessions: searchSessions,
           currencyCodeByServiceAreaId,
@@ -958,7 +932,7 @@ serve(async (req) => {
       });
     }
 
-    const provider_payment_records = buildProviderPaymentAuditRows(tripRows, paymentRows);
+    const stripe_payment_intents = buildProviderOrderAuditRows(tripRows, auditPaymentBadgeRows);
 
     let platform_kpis = null;
     if (!summaryOnly && !driverId && scopeHeavyProvider) {
@@ -1011,6 +985,7 @@ serve(async (req) => {
         PROVIDER_SECTION_TIMEOUT_MS,
         fetchRegionPlatformKpis(supabase, {
           regionId: resolvedRegionId,
+          stripe: null,
           todayAuditRows,
         }),
       );
@@ -1160,7 +1135,7 @@ serve(async (req) => {
         wallet: walletDownstream,
         payouts: payoutsDownstream,
       },
-      provider_payment_records,
+      stripe_payment_intents,
       legacy_manual_review_items: legacyManualReviewItems,
       money_movement: moneyMovement,
       service_area_payment_gateways,
@@ -1171,21 +1146,23 @@ serve(async (req) => {
         payment_provider_environment: financeScopeProvider.environment,
         manual_provider_payout: financeScopeProvider.manual_provider_payout,
         provider_balance_error: providerBalanceError,
+        stripe_balance_error: providerBalanceError,
         provider_balance_is_not_payment_truth: true,
         ssot_version: SSOT_VERSION,
         data_source_badge: pageStatus,
         accounting_rules: {
           card_customer_revenue: "sum(captured_amount_pence) where payments.status in captured|paid|succeeded — card only",
-          pending_provider_confirmation: "completed card trips without capture confirmation — excluded from reconciled totals",
-          cash_collected_by_driver: "sum(cash trip fare) — not ONECAB card revenue",
+          pending_stripe_confirmation: "completed card trips without capture confirmation — excluded from reconciled totals",
+          cash_collected_by_driver: "sum(cash trip fare) — not ONECAB Stripe revenue",
           onecab_card_commission: "sum(card trip commission_pence) capture-confirmed only, refund-adjusted",
           onecab_cash_commission_receivable: "sum(cash trip commission_pence) — owed by driver",
           onecab_card_net_commission: "onecab_card_commission - provider_processing_fees (card trips only)",
           total_commission_earned: "onecab_card_commission + onecab_cash_commission_receivable",
-          net_platform_revenue: "total_commission_earned - provider_processing_fees (card only; cash fee = 0)",
+          net_platform_revenue: "total_commission_earned - stripe_processing_fees (card only; cash fee = 0)",
+          cash_stripe_fees: "always 0 — cash trips have no Stripe processing fee",
           driver_payout_liability: "card_driver_payable - driver_paid_out + adjustments (excludes cash driver_net)",
           driver_wallet: "card: +driver_net+tips; cash: -commission (fare already with driver)",
-          provider_payout_confirmation: "driver bank receipt requires provider payout paid + ledger provider_payout_id",
+          stripe_payout_confirmation: "driver bank receipt requires a completed provider payout item + matching ledger debit",
           card_reconciliation:
             "card_customer_revenue = card_driver_payable + onecab_card_commission",
           historical_legacy_cash_trips:

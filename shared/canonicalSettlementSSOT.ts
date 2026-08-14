@@ -25,7 +25,8 @@
 
 export const SETTLEMENT_FORMULA_VERSION = "2";
 export const CANONICAL_SETTLEMENT_FORMULA_VERSION = SETTLEMENT_FORMULA_VERSION;
-export const MAX_COMMISSION_PERCENT = 15;
+/** Sanity ceiling for commission % (wave/base rates may exceed legacy 15% tier caps). */
+export const MAX_COMMISSION_PERCENT = 100;
 
 export type CanonicalSettlementComponents = {
   ride_fare_pence: number;
