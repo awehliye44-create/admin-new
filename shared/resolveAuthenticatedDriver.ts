@@ -21,7 +21,6 @@ export type ResolvedAuthenticatedDriver = {
   email: string;
   full_name: string;
   phone: string | null;
-  stripe_account_id: string | null;
   first_name: string;
   last_name: string;
 };
@@ -47,7 +46,6 @@ export type DriverRowForResolve = {
   phone?: string | null;
   first_name?: string | null;
   last_name?: string | null;
-  stripe_account_id?: string | null;
   deleted_at?: string | null;
 };
 
@@ -106,7 +104,6 @@ export function mapDriverRowToResolved(
     email: (row.email ?? "").trim(),
     full_name: buildDriverFullName(row.first_name, row.last_name),
     phone: row.phone?.trim() ? row.phone.trim() : null,
-    stripe_account_id: row.stripe_account_id ?? null,
     first_name: (row.first_name ?? "").trim(),
     last_name: (row.last_name ?? "").trim(),
   };

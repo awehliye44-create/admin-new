@@ -14,7 +14,7 @@ export {
 } from "../../../shared/resolveAuthenticatedDriver.ts";
 
 const DRIVER_SELECT =
-  'id, user_id, email, phone, first_name, last_name, stripe_account_id, deleted_at, created_at';
+  'id, user_id, email, phone, first_name, last_name, deleted_at, created_at';
 
 function isRlsOrPermissionError(message: string, code?: string): boolean {
   const m = message.toLowerCase();

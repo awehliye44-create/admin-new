@@ -123,7 +123,7 @@ Deno.serve(async (req) => {
       driver_message: resolved.message,
     }, 403);
   }
-  const driverId = resolved.driver.id;
+  const driverId = resolved.driver.driver_id;
 
   let body: Record<string, unknown> = {};
   try {
