@@ -1,5 +1,5 @@
 /**
- * Slice 5 — Tuesday (settings-driven) weekly payout batch workflow SSOT.
+ * Slice 5 â Tuesday (settings-driven) weekly payout batch workflow SSOT.
  * Creates deterministic batches + items, then stops at BLOCKED_EXECUTION_DISABLED.
  * Never reserves wallets, never debit, never calls Revolut /pay.
  */
@@ -12,53 +12,15 @@ import {
 } from "./payoutScheduleSSOT.ts";
 
 export const WEEKLY_PAYOUT_BATCH_KIND = "WEEKLY_SCHEDULED" as const;
-/** Legacy kind — retired from active scheduler writes. */
+/** Legacy kind â retired from active scheduler writes. */
 export const LEGACY_WEEKLY_MONDAY_KIND = "WEEKLY_MONDAY" as const;
-
-/** UI-only labels — never rewrite DB `kind`. */
-export const LEGACY_MONDAY_BATCH_UI_LABEL = "Legacy Monday batch";
-export const LEGACY_MONDAY_BATCH_UI_TOOLTIP =
-  "Historical batch created before the Tuesday schedule SSOT migration.";
-
-export function isLegacyMondayBatchKind(kind: string | null | undefined): boolean {
-  return String(kind ?? "").toUpperCase() === LEGACY_WEEKLY_MONDAY_KIND;
-}
-
-export function isCanonicalScheduledBatchKind(kind: string | null | undefined): boolean {
-  return String(kind ?? "").toUpperCase() === WEEKLY_PAYOUT_BATCH_KIND;
-}
-
-/** Display label for batch kind. Preserves raw DB value for unknown kinds. */
-export function payoutBatchKindUiLabel(kind: string | null | undefined): string {
-  if (isLegacyMondayBatchKind(kind)) return LEGACY_MONDAY_BATCH_UI_LABEL;
-  if (kind == null || String(kind).trim() === "") return "—";
-  return String(kind);
-}
-
-/**
- * Sort key for admin lists: canonical WEEKLY_SCHEDULED first, legacy Monday last.
- * Does not mutate stored rows.
- */
-export function compareBatchesForAdminDisplay(
-  a: { kind?: string | null; created_at?: string | null },
-  b: { kind?: string | null; created_at?: string | null },
-): number {
-  const rank = (kind: string | null | undefined) => {
-    if (isCanonicalScheduledBatchKind(kind)) return 0;
-    if (isLegacyMondayBatchKind(kind)) return 2;
-    return 1;
-  };
-  const byKind = rank(a.kind) - rank(b.kind);
-  if (byKind !== 0) return byKind;
-  return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
-}
 
 export const SLICE5_BATCH_STATUS = {
   DRAFT: "DRAFT",
   ELIGIBILITY_SNAPSHOTTED: "ELIGIBILITY_SNAPSHOTTED",
   ITEMS_CREATED: "ITEMS_CREATED",
   BLOCKED_EXECUTION_DISABLED: "BLOCKED_EXECUTION_DISABLED",
-  /** Slice 6 terminal — funds held, provider submission still disabled. */
+  /** Slice 6 terminal â funds held, provider submission still disabled. */
   FUNDS_RESERVED_EXECUTION_DISABLED: "FUNDS_RESERVED_EXECUTION_DISABLED",
   FAILED: "FAILED",
 } as const;
@@ -82,15 +44,16 @@ export type Slice5ItemStatus =
 export const SLICE5_ALLOWED_BATCH_STATUSES = new Set<string>(Object.values(SLICE5_BATCH_STATUS));
 export const SLICE5_ALLOWED_ITEM_STATUSES = new Set<string>(Object.values(SLICE5_ITEM_STATUS));
 
-/** Items that would conflict with creating a new pay path for the same driver. */
+/**
+ * Items that conflict with creating a new pay path for the same driver.
+ * Money-in-flight / reserved only â do NOT include CREATED, VALIDATED, or
+ * BLOCKED_EXECUTION_DISABLED (planning/blocked rows must not skip drivers forever).
+ */
 export const CONFLICTING_ACTIVE_ITEM_STATUSES = new Set([
   "pending",
   "processing",
-  "CREATED",
-  "VALIDATED",
   "RESERVING",
   "RESERVED",
-  "BLOCKED_EXECUTION_DISABLED",
   "READY",
   "SCHEDULED",
   "PROCESSING",
@@ -98,10 +61,12 @@ export const CONFLICTING_ACTIVE_ITEM_STATUSES = new Set([
   "SUBMITTING",
   "SUBMITTED",
   "SENT",
+  // Timeout / ambiguous provider accept â never open a second pay path.
+  "UNKNOWN",
 ]);
 
 export const ADMIN_EXECUTION_DISABLED_LABEL = "Execution disabled";
-export const ADMIN_FUNDS_RESERVED_LABEL = "Funds reserved — execution disabled";
+export const ADMIN_FUNDS_RESERVED_LABEL = "Funds reserved â execution disabled";
 
 export type ScheduleSettingsSnapshot = {
   payouts_enabled: boolean;
@@ -128,7 +93,7 @@ export type ScheduleOccurrence = {
 export type DriverBatchEligibilityInput = {
   driver_id: string;
   wallet_balance_pence: number;
-  /** DWL available payout — never Revolut/company/session-derived. */
+  /** DWL available payout â never Revolut/company/session-derived. */
   available_payout_pence: number;
   payouts_enabled: boolean;
   driver_held_or_blocked: boolean;
@@ -586,7 +551,7 @@ export function assertSlice5MoneySafety(args: {
   if (args.wallet_debited) throw new Error("SLICE5_INVARIANT: wallet debited");
   if (args.revolut_pay_called) throw new Error("SLICE5_INVARIANT: Revolut /pay called");
   if (args.relay_payment_called) throw new Error("SLICE5_INVARIANT: relay payment called");
-  if (args.slices_6_to_12_started) throw new Error("SLICE5_INVARIANT: slices 6–12 started");
+  if (args.slices_6_to_12_started) throw new Error("SLICE5_INVARIANT: slices 6â12 started");
 }
 
 /** Reject active Monday hardcodes in scheduler labels / kinds. */
