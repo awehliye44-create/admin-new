@@ -1,6 +1,7 @@
 /**
- * Phase 5 — block Stripe customer paths in Revolut service areas.
- * Legacy Stripe trips continue to use trip-level provider fields.
+ * Phase 5 + P0 — block Stripe customer paths globally when runtime retired,
+ * and always in Revolut service areas.
+ * Legacy Stripe trips continue to use trip-level provider fields (read-only).
  */
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
@@ -9,6 +10,10 @@ import {
   checkServiceAreaGateway,
   gatewayNotConfiguredResponse,
 } from "./paymentGatewayGuard.ts";
+import {
+  isStripeRuntimeDisabled,
+  stripeRetiredHttpResponse,
+} from "./stripeRuntimeDisabled.ts";
 
 export const STRIPE_RETIRED_IN_REVOLUT_AREA = "STRIPE_RETIRED_IN_REVOLUT_AREA";
 
@@ -36,6 +41,10 @@ export async function assertStripeCustomerPathAllowed(args: {
   corsHeaders: Record<string, string>;
   requireServiceArea?: boolean;
 }): Promise<Response | null> {
+  if (isStripeRuntimeDisabled()) {
+    return stripeRetiredHttpResponse(args.corsHeaders, "stripe-customer-path");
+  }
+
   const serviceAreaId = args.serviceAreaId?.trim() || null;
   if (!serviceAreaId) {
     if (args.requireServiceArea) {

@@ -1,6 +1,11 @@
 /**
- * Synced from drive-hub-buddy — run scripts/sync-finance-ssot.ts to refresh.
+ * Settlement finance SSOT — customer paid / cash collected / driver net display.
+ * Driver Net: TRIP_EARNING_NET ledger first, trips.driver_net_pence second — never fare − commission.
  */
+
+import {
+  computeDriverStripeTransferAmountPence,
+} from "../../../shared/cardCaptureRecoveryTransferSSOT.ts";
 
 export type TripSettlementFields = {
   payment_method?: string | null;
@@ -24,10 +29,15 @@ export type LedgerEarningFields = {
 
 const CARD_METHODS = new Set(["card", "apple_pay", "google_pay"]);
 const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
+const CASH_COLLECTED_STATUSES = new Set(["collected_cash", "cash_collected"]);
 
 export function isCardTrip(trip: { payment_method?: string | null }): boolean {
   const method = (trip.payment_method ?? "").toLowerCase();
   return CARD_METHODS.has(method);
+}
+
+export function isCashTrip(trip: { payment_method?: string | null }): boolean {
+  return String(trip.payment_method ?? "").trim().toLowerCase() === "cash";
 }
 
 export function getPaymentRowCapturedPence(payment: PaymentCaptureFields): number {
@@ -78,6 +88,18 @@ export function getTripSettlementFarePence(
     return 0;
   }
 
+  if (!isCardTrip(trip)) {
+    const status = (trip.payment_status ?? "").toLowerCase();
+    if (CASH_COLLECTED_STATUSES.has(status)) {
+      if (trip.final_fare_pence != null && trip.final_fare_pence > 0) {
+        return trip.final_fare_pence;
+      }
+      if (paymentCaptured != null && paymentCaptured > 0) return paymentCaptured;
+      if (trip.capture_amount_pence != null && trip.capture_amount_pence > 0) {
+        return trip.capture_amount_pence;
+      }
+    }
+  }
 
   if (trip.final_fare_pence != null) {
     return Math.max(0, trip.final_fare_pence);
@@ -118,29 +140,31 @@ export function getTripDebtRecoveredPence(ledger: LedgerEarningFields[] = []): n
   return total;
 }
 
-/** Driver net credited to wallet minus cash-commission debt recovered on capture. */
+/** Stripe Connect net transfer after recovery debt offset on this trip. */
 export function getTripAvailablePayoutCreatedPence(args: {
   driverNetPence: number | null;
   debtRecoveredPence: number;
 }): number | null {
   if (args.driverNetPence == null) return null;
-  return Math.max(0, args.driverNetPence - args.debtRecoveredPence);
+  return computeDriverStripeTransferAmountPence({
+    driverNetPence: args.driverNetPence,
+    outstandingRecoveryDebtPence: args.debtRecoveredPence,
+  });
 }
 
-/** Captured amount for audit — Payment Sessions / payments only. Never invent from trips. */
+/** Captured amount for audit — payments.captured_amount_pence primary, trips.capture_amount_pence fallback. */
 export function getTripCapturedPenceForAudit(args: {
   paymentCapturedPence?: number | null;
-  /** Ignored — trips must never invent customer capture for FR. */
   tripCaptureAmountPence?: number | null;
-}): number | null {
+}): number {
   if (args.paymentCapturedPence != null && args.paymentCapturedPence > 0) {
     return args.paymentCapturedPence;
   }
-  return null;
+  return Math.max(0, args.tripCaptureAmountPence ?? 0);
 }
 
-export function customerPaidLabel(_trip: { payment_method?: string | null }): "Customer Paid" {
-  return "Customer Paid";
+export function customerPaidLabel(trip: { payment_method?: string | null }): "Customer Paid" | "Cash Collected" {
+  return isCashTrip(trip) ? "Cash Collected" : "Customer Paid";
 }
 
 /** Completed-trip payment status badge — not ambiguous "card" alone. */
@@ -151,6 +175,9 @@ export function completedTripPaymentStatusLabel(trip: {
   const status = String(trip.payment_status ?? "").trim().toLowerCase();
   if (status === "refunded") return "Refunded";
   if (status === "partially_refunded") return "Partially refunded";
+  if (isCashTrip(trip) && CASH_COLLECTED_STATUSES.has(status)) {
+    return "Cash Collected";
+  }
   if (isCardTrip(trip) && CAPTURED_PAYMENT_STATUSES.has(status)) {
     return "Card Captured";
   }

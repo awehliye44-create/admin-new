@@ -9,10 +9,10 @@ import type {
   AdminPayoutLedgerFleetSummary,
   AdminPayoutLedgerListResponse,
   DriverPayoutAccountRow,
-} from "./adminPayoutLedgerSSOT.ts";
-import { payoutDestinationLabel } from "./payoutLedgerHandoffSSOT.ts";
+} from "../../../shared/adminPayoutLedgerSSOT.ts";
+import { payoutDestinationLabel } from "../../../shared/payoutLedgerHandoffSSOT.ts";
 import { fetchDriverPayoutEligibility } from "./fetchDriverPayoutEligibility.ts";
-import { shouldBlockZeroValuePayoutBatch } from "./driverPayoutEligibilitySSOT.ts";
+import { shouldBlockZeroValuePayoutBatch } from "../../../shared/driverPayoutEligibilitySSOT.ts";
 import { loadPayoutControlCentreSettings } from "./payoutControlCentreSettingsSSOT.ts";
 import { buildPayoutScheduleDto } from "./payoutScheduleSSOT.ts";
 
@@ -151,7 +151,7 @@ export async function buildPayoutLedgerAccountsOverview(
 ): Promise<AdminPayoutLedgerListResponse> {
   let driverQuery = supabase
     .from("drivers")
-    .select("id, first_name, last_name, driver_code, provider_account_id, payouts_enabled, category_id, driver_categories(name)")
+    .select("id, first_name, last_name, driver_code, payouts_enabled, category_id, driver_categories(name)")
     .eq("approval_status", "approved")
     .limit(Math.min(200, Math.max(1, args?.limit ?? 100)));
 
@@ -266,9 +266,9 @@ export async function buildPayoutLedgerAccountsOverview(
         service_area: sa?.name ?? null,
         provider: (() => {
           const payoutGw = String(sa?.driver_payout_gateway ?? "").trim().toLowerCase();
-          if (payoutGw && payoutGw !== "provider") return payoutGw;
+          if (payoutGw && payoutGw !== "stripe") return payoutGw;
           const pay = String(sa?.payment_provider ?? "").trim().toLowerCase();
-          if (pay && pay !== "provider") return pay;
+          if (pay && pay !== "stripe") return pay;
           return "revolut";
         })(),
       });
@@ -359,10 +359,9 @@ export async function buildPayoutLedgerAccountsOverview(
 
     const saMeta = serviceAreaByDriver.get(String(d.id));
     const provider = saMeta?.provider ?? null;
-    const connected = (d.provider_account_id as string | null) ?? null;
-    const isRevolut = String(provider ?? "").toLowerCase() === "revolut";
-    const manualBank = isRevolut || !connected;
-    if (!manualBank && !connected) unverified += 1;
+    const isRevolut = String(provider ?? "").toLowerCase() !== "stripe";
+    const manualBank = true;
+    if (!manualBank) unverified += 1;
     const tierJoin = d.driver_categories as { name?: string } | { name?: string }[] | null;
     const tierName = Array.isArray(tierJoin)
       ? (tierJoin[0]?.name ?? null)
@@ -376,7 +375,7 @@ export async function buildPayoutLedgerAccountsOverview(
       service_area_id: saMeta?.service_area_id ?? null,
       service_area: saMeta?.service_area ?? null,
       tier: tierName,
-      provider: isRevolut ? "revolut" : (provider && provider.toLowerCase() !== "provider" ? provider : "revolut"),
+      provider: isRevolut ? "revolut" : (provider && provider.toLowerCase() !== "stripe" ? provider : "revolut"),
       connected_account: connected,
       payout_destination: payoutDestinationLabel({
         provider: isRevolut ? "revolut" : provider,

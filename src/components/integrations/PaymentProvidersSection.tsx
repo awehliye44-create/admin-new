@@ -238,7 +238,7 @@ function ProviderCard({
   onEditSecrets: () => void;
   isTesting: boolean;
 }) {
-  const isLegacyProvider = false;
+  const isStripe = false;
 
 
 
@@ -288,9 +288,9 @@ function ProviderCard({
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">
-              {isLegacyProvider ? "Webhook health" : "Webhook secret"}
+              {isStripe ? "Webhook health" : "Webhook secret"}
             </span>
-            {isLegacyProvider ? webhookBadge(provider.webhook_status) : webhookSecretBadge(provider.webhook_secret_status)}
+            {isStripe ? webhookBadge(provider.webhook_status) : webhookSecretBadge(provider.webhook_secret_status)}
           </div>
           {provider.last_webhook_received && (
             <div className="flex justify-between md:col-span-2">
@@ -319,20 +319,20 @@ function ProviderCard({
           )}
         </div>
 
-        {isLegacyProvider && (
+        {isStripe && (
           <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
             <p className="font-medium flex items-center gap-2">
               <Shield className="h-4 w-4" />
               Archived provider (read-only)
             </p>
             <p className="text-muted-foreground">
-              provider credentials are retained for rollback and historical verification only.
+              Stripe credentials are retained for rollback and historical verification only.
               API keys and webhook secrets are not shown.
             </p>
           </div>
         )}
 
-        {!isLegacyProvider && provider.webhook_health && (
+        {!isStripe && provider.webhook_health && (
           <div className="rounded-lg border p-3 space-y-3">
             <p className="font-medium flex items-center gap-2 text-sm">
               <Webhook className="h-4 w-4" />
@@ -400,9 +400,9 @@ function ProviderCard({
         )}
 
         <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
-          {isLegacyProvider ? (
+          {isStripe ? (
             <div className="rounded-md border border-dashed p-3 text-sm space-y-1 w-full">
-              <p className="font-medium">provider — Archived Legacy</p>
+              <p className="font-medium">Stripe — Archived Legacy</p>
               <p className="text-muted-foreground">Status: Retired</p>
               <p className="text-muted-foreground">New transactions: Disabled</p>
               <p className="text-muted-foreground">Historical evidence: Preserved</p>
@@ -436,7 +436,7 @@ function ProviderCard({
           )}
         </div>
 
-        {!isLegacyProvider && (
+        {!isStripe && (
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={onEditSecrets}>
             Edit secrets
@@ -523,7 +523,8 @@ export function PaymentProvidersCardsGrid() {
   }
 
   const providers = data?.providers ?? [];
-  const activeProviders = providers;
+  // Stripe is fully retired — do not surface as an admin option or action card.
+  const activeProviders = providers.filter((p) => p.provider !== "stripe");
   const archivedProviders: typeof providers = [];
 
   return (
@@ -532,8 +533,8 @@ export function PaymentProvidersCardsGrid() {
         <div>
           <h2 className="text-lg font-semibold">Payment Providers</h2>
           <p className="text-sm text-muted-foreground">
-            Active customer payments use Revolut only. provider is retired from active ONECAB finance
-            and listed under Archived Providers with no action controls.
+            Active customer payments use Revolut only. Stripe is retired and is not offered as a
+            provider option.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()}>

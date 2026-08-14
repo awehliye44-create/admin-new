@@ -50,4 +50,5 @@ Deno.test("resolveAdapterReadinessStatus marks live Revolut when credentials rea
 Deno.test("resolveProviderBookingWorkflow maps Revolut when production ready", () => {
   assertEquals(resolveProviderBookingWorkflow("revolut", true), "revolut_merchant");
   assertEquals(resolveProviderBookingWorkflow("revolut", false), "blocked");
+  assertEquals(resolveProviderBookingWorkflow("stripe", true), "blocked");
 });
