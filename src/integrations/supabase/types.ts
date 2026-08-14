@@ -25994,9 +25994,10 @@ export type Database = {
       }
       driver_send_preset_offer: {
         Args: {
-          p_driver_offer_fare_pence: number
+          p_allowed_total_fares_pence: number[]
+          p_customer_respond_seconds: number
           p_offer_id: string
-          p_offer_options?: number[]
+          p_selected_total_fare_pence: number
         }
         Returns: Json
       }

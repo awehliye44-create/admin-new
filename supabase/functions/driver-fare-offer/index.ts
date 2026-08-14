@@ -5,7 +5,7 @@
  * Flow: 3 preset chips → faresMatchPence validation → waiting_customer.
  * Base fare: resolveNegotiationBaseFarePence. Do not require exact pre-enrich pence match.
  *
- * POST body: { offer_id, driver_id, selected_fare_pence, selected_offer_key?, offer_options_pence? }
+ * POST body: { offer_id, driver_id, selected_fare_pence, selected_offer_key? }
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -29,13 +29,14 @@ import {
 } from "../_shared/presetOptionsCanonical.ts";
 import { resolveNegotiationBaseFarePence } from "../_shared/negotiationBaseFare.ts";
 import {
-  negotiationExpiresAtIso,
-  negotiationCountdownSeconds,
-} from "../_shared/negotiation-deadline.ts";
-import {
-  CUSTOMER_NEW_FARE_OFFER_BODY,
   CUSTOMER_NEW_FARE_OFFER_TITLE,
+  customerNewFareOfferBody,
 } from "../_shared/negotiationPushCopy.ts";
+import { presetNegotiationOfferIneligibility, presetNegotiationSourceIneligibility } from "../_shared/presetNegotiationEligibility.ts";
+import {
+  loadServiceAreaNegotiationCountdown,
+  resolveNegotiationDeadlineIso,
+} from "../_shared/negotiation-deadline.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://thazislrdkjpvvghtvzo.supabase.co";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -70,7 +71,7 @@ Deno.serve(async (req) => {
     if (authError || !user) return errorResponse("UNAUTHORIZED", "Invalid token", 401);
 
     const body = await req.json();
-    const { offer_id, driver_id, selected_fare_pence, selected_offer_key, offer_options_pence } = body;
+    const { offer_id, driver_id, selected_fare_pence, selected_offer_key } = body;
 
     console.log("[driver-fare-offer] SEND_PRESET_OFFER_REQUEST", {
       offer_id,
@@ -101,7 +102,7 @@ Deno.serve(async (req) => {
     // Get offer with trip including vehicle_type_id, service_area_id, and current negotiation owner
     const { data: offer, error: offerErr } = await supabase
       .from("ride_offers")
-      .select("*, trips(id, estimated_fare, fare, fare_breakdown, base_fare_pence, service_area_id, vehicle_type_id, status, negotiation_locked_until, negotiation_owner_driver_id, negotiation_disabled, negotiation_allowed, dispatch_status)")
+      .select("*, trips(id, estimated_fare, fare, fare_breakdown, base_fare_pence, service_area_id, vehicle_type_id, status, negotiation_locked_until, negotiation_owner_driver_id, negotiation_disabled, negotiation_allowed, dispatch_status, is_scheduled, dispatch_mode, trip_type, corporate_account_id, booking_source)")
       .eq("id", offer_id)
       .eq("driver_id", driver_id)
       .single();
@@ -138,12 +139,14 @@ Deno.serve(async (req) => {
     }
 
     // Hard rule: stacked rides disable negotiations — no fare offers on stacked offers.
-    if (offer.is_stacked === true) {
+    const stackedBlock = presetNegotiationOfferIneligibility(offer);
+    if (stackedBlock) {
       console.log("[driver-fare-offer] SEND_PRESET_OFFER_ERROR stacked_ride_no_negotiation", {
         offer_id,
         trip_id: trip.id,
+        reason: stackedBlock.reason,
       });
-      return errorResponse("DISABLED", "Fare negotiation is not available for stacked rides", 403);
+      return errorResponse("DISABLED", stackedBlock.message, 403, { reason: stackedBlock.reason });
     }
 
     // negotiation_locked_until is the customer respond deadline — only block another driver.
@@ -172,6 +175,17 @@ Deno.serve(async (req) => {
       });
     }
 
+    const sourceBlock = presetNegotiationSourceIneligibility(trip as {
+      is_scheduled?: boolean | null;
+      dispatch_mode?: string | null;
+      trip_type?: string | null;
+      corporate_account_id?: string | null;
+      booking_source?: string | null;
+    });
+    if (sourceBlock) {
+      return errorResponse("DISABLED", sourceBlock.message, 403, { reason: sourceBlock.reason });
+    }
+
     let offerForPresets = offer;
     let presetOptions = extractPresetOptionsFromOffer(offerForPresets);
     if (presetOptions.length < 3) {
@@ -191,49 +205,13 @@ Deno.serve(async (req) => {
       }
       const { data: refreshedOffer } = await supabase
         .from("ride_offers")
-        .select("*, trips(id, estimated_fare, fare, fare_breakdown, base_fare_pence, service_area_id, vehicle_type_id, status, negotiation_locked_until, negotiation_owner_driver_id, negotiation_disabled, negotiation_allowed, dispatch_status)")
+        .select("*, trips(id, status, negotiation_locked_until, negotiation_owner_driver_id, negotiation_disabled, negotiation_allowed, dispatch_status, is_scheduled, dispatch_mode, trip_type, corporate_account_id, booking_source)")
         .eq("id", offer_id)
         .eq("driver_id", driver_id)
         .single();
       if (refreshedOffer) {
         offerForPresets = refreshedOffer;
         presetOptions = extractPresetOptionsFromOffer(offerForPresets);
-      }
-    }
-    if (presetOptions.length < 3) {
-      console.log("[driver-fare-offer] SEND_PRESET_OFFER_ERROR missing_preset_options", {
-        count: presetOptions.length,
-        offer_id,
-        enrich_attempted: true,
-        client_options_pence: Array.isArray(offer_options_pence) ? offer_options_pence : null,
-      });
-      // Client may have displayed chips from aligned local fallback — accept body options when fare matches.
-      if (
-        Array.isArray(offer_options_pence)
-        && offer_options_pence.length >= 3
-        && offer_options_pence.some((p: unknown) => faresMatchPence(Number(p), selected_fare_pence))
-      ) {
-        const uniquePence = [...new Set(
-          offer_options_pence
-            .map((p: unknown) => Math.round(Number(p)))
-            .filter((p) => Number.isFinite(p) && p > 0),
-        )].slice(0, 3);
-        if (uniquePence.length >= 3) {
-          presetOptions = uniquePence.map((pence, i) => ({
-            key: `P${i + 1}`,
-            label: null,
-            grossFare: pence / 100,
-            grossFarePence: pence,
-            configuredAmount: null,
-            color: null,
-            order: i,
-            enabled: true,
-          }));
-          console.log("[driver-fare-offer] using client offer_options_pence fallback", {
-            offer_id,
-            preset_options: presetOptions.map((o) => o.grossFarePence),
-          });
-        }
       }
     }
     if (presetOptions.length < 3) {
@@ -293,25 +271,48 @@ Deno.serve(async (req) => {
       selected_fare_pence,
       selected_offer_key ?? null,
     );
+    const adminCountdown = await loadServiceAreaNegotiationCountdown(
+      supabase,
+      (trip as { service_area_id?: string | null }).service_area_id,
+    );
+    const snapshotCountdown = Number(
+      existingSnap.countdown_seconds ?? existingSnap.presetCountdownSeconds,
+    );
+    const resolvedCountdown =
+      adminCountdown ??
+      (Number.isFinite(snapshotCountdown) && snapshotCountdown >= 5
+        ? Math.round(snapshotCountdown)
+        : null);
+    const customerRespondByDefault = resolveNegotiationDeadlineIso({
+      countdownSeconds: resolvedCountdown,
+    });
+    const customerRespondSeconds = Math.min(
+      120,
+      Math.max(
+        5,
+        Math.ceil((Date.parse(customerRespondByDefault) - Date.now()) / 1000),
+      ),
+    );
+    let customerRespondBy = customerRespondByDefault;
     const snapshotForOffer = {
       ...existingSnap,
       baseFarePence,
       preset_options: presetOptions,
-      offerTimeoutSeconds: negotiationCountdownSeconds,
       selectedOfferKey: selected_offer_key ?? selectedOffer.key,
       selectedOffer,
       remainingOptions,
       negotiationLocked: true,
+      countdown_auto_select: false,
+      countdown_seconds: resolvedCountdown ?? customerRespondSeconds,
+      presetCountdownSeconds: resolvedCountdown ?? customerRespondSeconds,
     };
-
-    const customerRespondByDefault = negotiationExpiresAtIso();
-    let customerRespondBy = customerRespondByDefault;
 
     // Primary path: atomic DB RPC (no strict trip.status filter — avoids CLAIM_FAILED on fresh offers).
     const { data: rpcResult, error: rpcErr } = await supabase.rpc("driver_send_preset_offer", {
       p_offer_id: offer_id,
-      p_driver_offer_fare_pence: selected_fare_pence,
-      p_offer_options: uniqueOptions,
+      p_selected_total_fare_pence: selected_fare_pence,
+      p_allowed_total_fares_pence: uniqueOptions,
+      p_customer_respond_seconds: customerRespondSeconds,
     });
 
     if (rpcErr) {
@@ -320,6 +321,30 @@ Deno.serve(async (req) => {
 
       if (rpcMsg.includes("negotiation_disabled")) {
         return errorResponse("DISABLED", "Fare negotiation is not available for this trip", 403);
+      }
+      if (
+        rpcMsg.includes("ineligible_scheduled")
+        || rpcMsg.includes("ineligible_corporate")
+        || rpcMsg.includes("ineligible_whatsapp")
+        || rpcMsg.includes("ineligible_stacked")
+      ) {
+        const stackedBlock = presetNegotiationOfferIneligibility(offer);
+        if (stackedBlock) {
+          return errorResponse("DISABLED", stackedBlock.message, 403, { reason: stackedBlock.reason });
+        }
+        const block = presetNegotiationSourceIneligibility(trip as {
+          is_scheduled?: boolean | null;
+          dispatch_mode?: string | null;
+          trip_type?: string | null;
+          corporate_account_id?: string | null;
+          booking_source?: string | null;
+        });
+        return errorResponse(
+          "DISABLED",
+          block?.message ?? "Fare negotiation is not available for this trip",
+          403,
+          { reason: block?.reason ?? "ineligible_scheduled" },
+        );
       }
       if (rpcMsg.includes("offer_not_pending") || rpcMsg.includes("offer_not_found")) {
         return errorResponse("INVALID_STATE", "Offer is no longer pending", 409);
@@ -403,6 +428,7 @@ Deno.serve(async (req) => {
           offer_options: uniqueOptions,
           offer_snapshot: snapshotForOffer,
           customer_respond_by: customerRespondByDefault,
+          driver_respond_by: null,
           negotiation_expires_at: customerRespondByDefault,
           expires_at: customerRespondByDefault,
           delivery_phase: "negotiation",
@@ -539,7 +565,9 @@ Deno.serve(async (req) => {
             tripId: trip.id,
             event: "customer_new_fare_offer",
             title: CUSTOMER_NEW_FARE_OFFER_TITLE,
-            body: CUSTOMER_NEW_FARE_OFFER_BODY,
+            body: customerNewFareOfferBody(selected_fare_pence),
+            expiresAt: customerRespondBy,
+            negotiationExpiresAt: customerRespondBy,
           }),
         });
         console.log("NEGOTIATION_CUSTOMER_PUSH_SENT", {

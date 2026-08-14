@@ -398,27 +398,28 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Driver offer countdown for this service area. Expiry fails the offer and rebroadcasts at the customer-committed fare. It does not auto-accept a negotiation.
+                Negotiation countdown used for both Driver and Customer responses in this service area. Expiry never auto-accepts an offer.
               </p>
 
-              {config.countdown_enabled && (
-                <div className="space-y-2 max-w-xs">
-                  <Label>Countdown Duration (seconds)</Label>
-                  <Input
-                    type="number"
-                    min={5}
-                    max={120}
-                    value={config.countdown_seconds}
-                    onChange={(e) => {
-                      const parsed = parseInt(e.target.value, 10);
-                      updateConfig(
-                        'countdown_seconds',
-                        Number.isFinite(parsed) ? parsed : 30,
-                      );
-                    }}
-                  />
-                </div>
-              )}
+              <div className="space-y-2 max-w-xs">
+                <Label>Countdown Duration (seconds)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Response window for both sides. Not controlled by the toggle.
+                </p>
+                <Input
+                  type="number"
+                  min={5}
+                  max={120}
+                  value={config.countdown_seconds}
+                  onChange={(e) => {
+                    const parsed = parseInt(e.target.value, 10);
+                    updateConfig(
+                      'countdown_seconds',
+                      Number.isFinite(parsed) ? parsed : 30,
+                    );
+                  }}
+                />
+              </div>
             </div>
 
             <div className="p-4 bg-muted/30 rounded-lg border space-y-4">

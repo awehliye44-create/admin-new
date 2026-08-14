@@ -26,6 +26,7 @@ import {
   filterTripIdsExcludingTerminal,
   isTripTerminalForDispatch,
 } from "../_shared/tripTerminalDispatch.ts";
+import { FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY } from "../_shared/negotiationPushCopy.ts";
 
 // Rate limit: 60 requests per minute (for cron jobs)
 const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60000, keyPrefix: 'expire-offers' };
@@ -275,6 +276,33 @@ Deno.serve(async (req) => {
             offerNegotiationStatus: offerNegStatus,
           });
           console.log("[expire-offers] Negotiation rematch after grace/counter timeout", o.trip_id);
+          if (isWaitingDriver) {
+            try {
+              const { data: tripRow } = await supabase
+                .from("trips")
+                .select("passenger_id")
+                .eq("id", o.trip_id)
+                .maybeSingle();
+              if (tripRow?.passenger_id) {
+                await fetch(`${supabaseUrl}/functions/v1/send-trip-notification`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${supabaseKey}`,
+                  },
+                  body: JSON.stringify({
+                    userId: tripRow.passenger_id,
+                    tripId: o.trip_id,
+                    event: "finding_another_driver_updated_fare",
+                    title: "Finding another driver",
+                    body: FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY,
+                  }),
+                });
+              }
+            } catch (pushErr) {
+              console.warn("[expire-offers] updated-fare customer push failed", o.id, pushErr);
+            }
+          }
         }
       } catch (e) {
         console.warn("[expire-offers] Negotiation timeout handler error for offer", o.id, e);

@@ -61,7 +61,9 @@ import { deriveOfferOptionsPence } from "../_shared/presetOptionsCanonical.ts";
 import {
   isScheduledTripIneligibleForPresetNegotiation,
   presetNegotiationSnapshotFields,
+  presetNegotiationSourceIneligibility,
   resolvePresetNegotiation,
+  stackedOfferNegotiationLockFields,
 } from "../_shared/presetNegotiationEligibility.ts";
 import { resolveNegotiationBaseFarePence } from "../_shared/negotiationBaseFare.ts";
 import { tripFareFieldsForOfferSnapshot } from "../_shared/tripFareSnapshot.ts";
@@ -2212,10 +2214,10 @@ Deno.serve(async (req) => {
     let offerOptions: number[] | null = null;
     let offerSnapshot: Record<string, unknown> | null = null;
 
-    const isScanAndGo = trip.dispatch_mode === "scan_and_go";
+    const sourceBlock = presetNegotiationSourceIneligibility(trip);
     const isScheduledTrip = isScheduledTripIneligibleForPresetNegotiation(trip);
+    const isScanAndGo = trip.dispatch_mode === "scan_and_go";
     const isCustomZoneTrip = !!(trip.pickup_zone_id || trip.dropoff_zone_id);
-    const isCorporateTrip = !!trip.corporate_account_id;
     const negotiationDisabledForTrip = !!(trip as { negotiation_disabled?: boolean }).negotiation_disabled;
 
     const baseFarePence = resolveNegotiationBaseFarePence(trip);
@@ -2225,22 +2227,19 @@ Deno.serve(async (req) => {
 
     let presetEligibilityResult: string = negotiationDisabledForTrip
       ? "negotiation_disabled"
-      : isScheduledTrip
-      ? "ineligible_scheduled"
+      : sourceBlock
+      ? sourceBlock.reason
       : isScanAndGo
       ? "ineligible_scan_and_go"
       : isCustomZoneTrip
       ? "ineligible_custom_zone"
-      : isCorporateTrip
-      ? "ineligible_corporate"
       : "pending";
 
     const mayAttachPresets =
       !negotiationDisabledForTrip &&
-      !isScheduledTrip &&
+      !sourceBlock &&
       !isScanAndGo &&
-      !isCustomZoneTrip &&
-      !isCorporateTrip;
+      !isCustomZoneTrip;
 
     console.log("[auto-dispatch] Preset eligibility:", {
       ride_id: trip_id,
@@ -2328,18 +2327,15 @@ Deno.serve(async (req) => {
             }),
             ...dispatchSnapshotFields,
           };
-          if (resolved.countdownSeconds != null) {
-            const remaining = Math.max(1, offerExpirySecondsResolved);
-            offerExpirySeconds = Math.min(resolved.countdownSeconds, remaining);
-            expiresAt = new Date(Date.now() + offerExpirySeconds * 1000).toISOString();
-          }
+          // Initial offer TTL stays dispatch offer_expiry_seconds.
+          // Admin countdown_seconds is stamped later as the negotiation response window.
         }
       }
     } else if (!trip.service_area_id) {
       presetEligibilityResult = "missing_service_area";
     }
 
-    if (negotiationDisabledForTrip || isScheduledTrip) {
+    if (negotiationDisabledForTrip || sourceBlock) {
       offerOptions = null;
       offerSnapshot = {
         baseFarePence,
@@ -2347,6 +2343,7 @@ Deno.serve(async (req) => {
         negotiationLocked: true,
         negotiationDisabled: true,
         negotiationAllowed: false,
+        negotiation_eligible: false,
         rebroadcastStandardOnly: true,
         presets_enabled: false,
         countdown_auto_select: false,
@@ -2357,7 +2354,7 @@ Deno.serve(async (req) => {
             ?? "rebroadcast_standard"),
         ...dispatchSnapshotFields,
       };
-      if (isScheduledTrip) presetEligibilityResult = "ineligible_scheduled";
+      if (sourceBlock) presetEligibilityResult = sourceBlock.reason;
     }
 
     console.log("PRESET_COMPUTED", {
@@ -2373,6 +2370,70 @@ Deno.serve(async (req) => {
     });
 
     if (enrichExistingOffersMode) {
+      const { data: stackedPending } = await supabase
+        .from("ride_offers")
+        .select("id, offer_snapshot")
+        .eq("trip_id", trip_id)
+        .eq("status", "pending")
+        .eq("is_stacked", true)
+        .gt("expires_at", new Date().toISOString());
+
+      let stackedStripped = 0;
+      for (const row of stackedPending ?? []) {
+        const existing = (row.offer_snapshot && typeof row.offer_snapshot === "object"
+          && !Array.isArray(row.offer_snapshot))
+          ? { ...(row.offer_snapshot as Record<string, unknown>) }
+          : {};
+        delete existing.countdown_seconds;
+        delete existing.presetCountdownSeconds;
+        delete existing.default_selected_offer_id;
+        delete existing.negotiationExpiresAt;
+        const { error: stackedStripErr } = await supabase
+          .from("ride_offers")
+          .update({
+            offer_options: null,
+            offer_snapshot: {
+              ...existing,
+              ...stackedOfferNegotiationLockFields(),
+            },
+          })
+          .eq("id", row.id);
+        if (!stackedStripErr) stackedStripped += 1;
+      }
+      if (stackedStripped > 0) {
+        console.log("PRESET_STRIPPED_STACKED_OFFERS", {
+          trip_id,
+          stripped_count: stackedStripped,
+        });
+      }
+
+      if (sourceBlock && offerSnapshot) {
+        const { data: stripped, error: stripErr } = await supabase
+          .from("ride_offers")
+          .update({
+            offer_options: null,
+            offer_snapshot: offerSnapshot,
+          })
+          .eq("trip_id", trip_id)
+          .eq("status", "pending")
+          .or("is_stacked.eq.false,is_stacked.is.null")
+          .gt("expires_at", new Date().toISOString())
+          .select("id");
+        console.log("PRESET_STRIPPED_EXCLUDED_SOURCE", {
+          trip_id,
+          reason: sourceBlock.reason,
+          stripped_count: stripped?.length ?? 0,
+          strip_error: stripErr?.message ?? null,
+        });
+        return successResponse({
+          success: true,
+          trip_id,
+          message: "Excluded booking source — negotiation chips stripped",
+          offers_enriched: stripped?.length ?? 0,
+          offer_options: null,
+          offers_created: stripped?.length ?? 0,
+        });
+      }
       if (offerOptions && offerOptions.length >= 3) {
         const { data: enriched, error: enrichErr } = await supabase
           .from("ride_offers")
@@ -2382,6 +2443,7 @@ Deno.serve(async (req) => {
           })
           .eq("trip_id", trip_id)
           .eq("status", "pending")
+          .or("is_stacked.eq.false,is_stacked.is.null")
           .gt("expires_at", new Date().toISOString())
           .select("id, offer_options, offer_snapshot");
 
@@ -2453,13 +2515,7 @@ Deno.serve(async (req) => {
           {
             baseFarePence,
             ...tripFareSnapshotFields,
-            negotiationLocked: true,
-            negotiationDisabled: true,
-            negotiationAllowed: false,
-            presets_enabled: false,
-            countdown_auto_select: false,
-            preset_options: [],
-            fareSource: "stacked_ride",
+            ...stackedOfferNegotiationLockFields(),
             ...dispatchSnapshotFields,
           },
           driver,
@@ -2476,6 +2532,7 @@ Deno.serve(async (req) => {
                 negotiationLocked: true,
                 negotiationDisabled: true,
                 negotiationAllowed: false,
+                negotiation_eligible: false,
                 rebroadcastStandardOnly: true,
                 presets_enabled: false,
                 countdown_auto_select: false,

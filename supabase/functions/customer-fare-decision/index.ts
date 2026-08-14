@@ -3,10 +3,9 @@
  * 
  * Actions: ACCEPT, DECLINE, COUNTER (counter must match remaining admin preset options)
  * 
- * DECLINE flow: sets grace_window_expires_at = now + 25s (NEGOTIATION_COUNTDOWN_SECONDS)
- *   Driver sees "Offer declined — accept standard fare?" with 25s countdown.
- *   If driver accepts within 25s → CONFIRMED at base fare.
- *   If driver ignores → expire-offers releases trip after grace_window_expires_at.
+ * DECLINE / timeout: exclude negotiating Driver, rematch immediately at original £X.
+ * COUNTER £Z: persist as new original fare immediately; Driver has the
+ * Admin service-area countdown to Accept £Z.
  * 
  * POST body: { offer_id, action: "ACCEPT"|"DECLINE"|"COUNTER", selected_fare_pence?: number }
  */
@@ -22,16 +21,24 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
-import {
-  broadcastCustomerCounterOffer,
-  broadcastCustomerDeclinedOffer,
-} from "../_shared/driverNegotiationBroadcast.ts";
+import { broadcastCustomerCounterOffer } from "../_shared/driverNegotiationBroadcast.ts";
 import { buildDriverNegotiationPushData } from "../_shared/driverNegotiationPush.ts";
-import { applyCustomerDeclineGrace } from "../_shared/customerNegotiationGrace.ts";
+import {
+  CUSTOMER_DECLINED_OFFER_BODY,
+  CUSTOMER_DECLINED_OFFER_TITLE,
+  OFFER_ACCEPTED_ASSIGNED_BODY,
+  OFFER_ACCEPTED_ASSIGNED_TITLE,
+  customerCounterOfferPushBody,
+} from "../_shared/negotiationPushCopy.ts";
+import { enrichOfferSnapshotDriverNet } from "../_shared/driverOfferNetPreview.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
 import { resolveNegotiationBaseFarePence } from "../_shared/negotiationBaseFare.ts";
-import { negotiationExpiresAtIso } from "../_shared/negotiation-deadline.ts";
+import { presetNegotiationSourceIneligibility } from "../_shared/presetNegotiationEligibility.ts";
+import {
+  loadServiceAreaNegotiationCountdown,
+  resolveNegotiationDeadlineIso,
+} from "../_shared/negotiation-deadline.ts";
 import {
   extractPresetOptionsFromOffer,
   faresMatchPence,
@@ -122,7 +129,7 @@ Deno.serve(async (req) => {
     // Get offer
     const { data: offer, error: offerErr } = await supabase
       .from("ride_offers")
-      .select("*, trips(id, passenger_id, status, excluded_driver_ids, service_area_id, base_fare_pence, estimated_fare, fare, fare_breakdown, negotiation_disabled, negotiation_allowed, negotiation_owner_driver_id, current_offer_driver_id)")
+      .select("*, trips(id, passenger_id, status, excluded_driver_ids, service_area_id, base_fare_pence, estimated_fare, fare, fare_breakdown, negotiation_disabled, negotiation_allowed, negotiation_owner_driver_id, current_offer_driver_id, is_scheduled, dispatch_mode, trip_type, corporate_account_id, booking_source)")
       .eq("id", offer_id)
       .single();
 
@@ -156,6 +163,22 @@ Deno.serve(async (req) => {
       return errorResponse("LOCKED_DRIVER_MISMATCH", "Counter offer driver does not match locked driver", 409);
     }
 
+    const adminCountdown = await loadServiceAreaNegotiationCountdown(
+      supabase,
+      (trip as { service_area_id?: string | null }).service_area_id,
+    );
+
+    const sourceBlock = presetNegotiationSourceIneligibility(trip as {
+      is_scheduled?: boolean | null;
+      dispatch_mode?: string | null;
+      trip_type?: string | null;
+      corporate_account_id?: string | null;
+      booking_source?: string | null;
+    });
+    if (sourceBlock) {
+      return errorResponse("DISABLED", sourceBlock.message, 403, { reason: sourceBlock.reason });
+    }
+
     const tripNegotiationDisabled =
       (trip as { negotiation_disabled?: boolean }).negotiation_disabled === true
       || (trip as { negotiation_allowed?: boolean }).negotiation_allowed === false;
@@ -181,7 +204,12 @@ Deno.serve(async (req) => {
       && offer.negotiation_status !== "waiting_customer"
       && (offer.status === "pending" || offer.status === "countered")
     ) {
-      const healedBy = negotiationExpiresAtIso();
+      const healedBy =
+        offer.customer_respond_by
+        ?? offer.negotiation_expires_at
+        ?? resolveNegotiationDeadlineIso({
+          countdownSeconds: adminCountdown,
+        });
       await supabase
         .from("ride_offers")
         .update({
@@ -327,6 +355,30 @@ Deno.serve(async (req) => {
         },
       });
 
+      try {
+        await fetch(`${supabaseUrl}/functions/v1/send-driver-notification`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify({
+            driverId: offer.driver_id,
+            type: "NEGOTIATION_UPDATE",
+            title: OFFER_ACCEPTED_ASSIGNED_TITLE,
+            body: OFFER_ACCEPTED_ASSIGNED_BODY,
+            data: {
+              type: "NEGOTIATION_UPDATE",
+              notificationType: "offer_accepted_assigned",
+              offer_id,
+              trip_id: trip.id,
+            },
+          }),
+        });
+      } catch (pushErr) {
+        console.warn("[customer-fare-decision] accept driver push failed:", pushErr);
+      }
+
       return successResponse({
         success: true,
         action: "ACCEPTED",
@@ -338,11 +390,12 @@ Deno.serve(async (req) => {
 
     if (action === "DECLINE") {
       const baseFarePence = resolveNegotiationBaseFarePence(trip);
-      const { grace_window_expires_at: graceWindowExpiresAt } = await applyCustomerDeclineGrace(supabase, {
-        offer_id,
-        trip_id: trip.id,
-        driver_id: offer.driver_id,
-        reason: "decline",
+      const rematch = await finalizeNegotiationFailureAndRebroadcast(supabase, {
+        tripId: trip.id,
+        failedDriverId: offer.driver_id,
+        offerId: offer_id,
+        offerTerminalStatus: "declined",
+        offerNegotiationStatus: "declined_customer",
       });
 
       await supabase.rpc("log_audit_event", {
@@ -353,27 +406,40 @@ Deno.serve(async (req) => {
           offer_id,
           driver_id: offer.driver_id,
           base_fare_pence: baseFarePence,
-          grace_window_expires_at: graceWindowExpiresAt,
-          driver_can_accept_standard: true,
+          rematch_success: rematch.success,
         },
       });
 
-      await broadcastCustomerDeclinedOffer(supabase, {
-        id: offer_id,
-        trip_id: trip.id,
-        driver_id: offer.driver_id,
-        negotiation_status: "declined_customer_awaiting_driver",
-        grace_window_expires_at: graceWindowExpiresAt,
-        negotiation_expires_at: graceWindowExpiresAt,
-      });
+      try {
+        await fetch(`${supabaseUrl}/functions/v1/send-driver-notification`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify({
+            driverId: offer.driver_id,
+            type: "NEGOTIATION_UPDATE",
+            title: CUSTOMER_DECLINED_OFFER_TITLE,
+            body: CUSTOMER_DECLINED_OFFER_BODY,
+            data: {
+              type: "NEGOTIATION_UPDATE",
+              notificationType: "customer_declined_offer",
+              offer_id,
+              trip_id: trip.id,
+            },
+          }),
+        });
+      } catch (pushErr) {
+        console.warn("[customer-fare-decision] decline driver push failed:", pushErr);
+      }
 
       return successResponse({
         success: true,
         action: "DECLINED",
         trip_id: trip.id,
         base_fare_pence: baseFarePence,
-        grace_window_expires_at: graceWindowExpiresAt,
-        message: "Driver can accept the standard fare",
+        message: "Finding another driver at the original fare",
       });
     }
 
@@ -461,7 +527,9 @@ Deno.serve(async (req) => {
         );
       }
 
-      const driverRespondBy = negotiationExpiresAtIso();
+      const driverRespondBy = resolveNegotiationDeadlineIso({
+        countdownSeconds: adminCountdown,
+      });
 
       console.log("[customer-fare-decision] CUSTOMER_SEND_COUNTER", {
         ride_id: trip.id,
@@ -483,6 +551,7 @@ Deno.serve(async (req) => {
           status: "countered",
           negotiation_status: "waiting_driver_final",
           customer_counter_fare: selected_fare_pence,
+          customer_respond_by: null,
           driver_respond_by: driverRespondBy,
           negotiation_expires_at: driverRespondBy,
           expires_at: driverRespondBy,
@@ -529,6 +598,37 @@ Deno.serve(async (req) => {
           "Counter-offer recorded but committed fare could not be persisted",
           500,
         );
+      }
+
+      try {
+        const { data: tripForNet } = await supabase
+          .from("trips")
+          .select("commission_pct, driver_tier_commission_percent, currency_code")
+          .eq("id", trip.id)
+          .maybeSingle();
+        const commission = Number(
+          tripForNet?.driver_tier_commission_percent ?? tripForNet?.commission_pct ?? 0,
+        );
+        const { data: offerSnapRow } = await supabase
+          .from("ride_offers")
+          .select("offer_snapshot")
+          .eq("id", offer_id)
+          .maybeSingle();
+        if (offerSnapRow?.offer_snapshot && Number.isFinite(commission) && commission >= 0) {
+          const restamped = enrichOfferSnapshotDriverNet(
+            offerSnapRow.offer_snapshot as Record<string, unknown>,
+            {},
+            commission,
+            selected_fare_pence,
+            typeof tripForNet?.currency_code === "string" ? tripForNet.currency_code : null,
+          );
+          await supabase
+            .from("ride_offers")
+            .update({ offer_snapshot: restamped, updated_at: new Date().toISOString() })
+            .eq("id", offer_id);
+        }
+      } catch (netErr) {
+        console.warn("[customer-fare-decision] driver-net restamp failed:", netErr);
       }
 
       console.log("[customer-fare-decision] DB_AFTER_COUNTER", {
@@ -624,7 +724,7 @@ Deno.serve(async (req) => {
               driverId: broadcastRow.driver_id,
               type: "NEGOTIATION_UPDATE",
               title: "Customer counter offer",
-              body: "Review the counter fare before it expires.",
+              body: customerCounterOfferPushBody(selected_fare_pence),
               data: pushData,
             }),
           });
@@ -646,6 +746,8 @@ Deno.serve(async (req) => {
         action: "COUNTERED",
         customer_counter_fare: selected_fare_pence,
         driver_respond_by: driverRespondBy,
+        negotiation_expires_at: driverRespondBy,
+        expires_at: driverRespondBy,
       });
     }
 

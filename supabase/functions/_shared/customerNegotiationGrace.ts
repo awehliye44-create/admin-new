@@ -1,8 +1,14 @@
 import { type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { negotiationExpiresAtIso, negotiationCountdownSeconds } from "./negotiation-deadline.ts";
+import {
+  negotiationDeadlineIso,
+  PRESET_COUNTDOWN_SECONDS_FALLBACK,
+} from "./negotiation-deadline.ts";
 
-/** Driver may accept standard/base fare briefly after an explicit customer decline. */
-export const CUSTOMER_DECLINE_GRACE_SECONDS = negotiationCountdownSeconds;
+/**
+ * Fallback only when apply_customer_decline_grace omits a deadline.
+ * Not the preset negotiation response countdown.
+ */
+export const CUSTOMER_DECLINE_GRACE_SECONDS = PRESET_COUNTDOWN_SECONDS_FALLBACK;
 
 export type CustomerGraceReason = "decline" | "timeout_customer";
 
@@ -36,7 +42,7 @@ export async function applyCustomerDeclineGrace(
   const negotiationExpiresAt =
     row?.negotiation_expires_at
     ?? row?.grace_window_expires_at
-    ?? negotiationExpiresAtIso();
+    ?? negotiationDeadlineIso(CUSTOMER_DECLINE_GRACE_SECONDS);
 
   console.log("[customerNegotiationGrace] DRIVER_GRACE_NO_REBROADCAST", {
     trip_id: params.trip_id,

@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { resolveCustomerPreauthBasePence } from "../_shared/customerDisplayFare.ts";
+import { loadCustomerNegotiationView } from "../_shared/customerNegotiationView.ts";
 import { buildServiceAreaConfigPayload } from "../_shared/serviceAreaConfigSSOT.ts";
 import { buildTripCommunicationConfigForTrip } from "../_shared/tripCommunicationConfigBuilder.ts";
 import { computeLiveTripFarePreview } from "../_shared/liveTripFareSSOT.ts";
@@ -414,9 +415,12 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
       .eq("leg", "full")
       .maybeSingle();
 
-    // Get driver info only if driver has accepted (confirmed_driver_id)
-    // For instant trips, driver_id is set at acceptance. For scheduled, confirmed_driver_id is the authority.
-    const resolvedDriverId = trip.confirmed_driver_id || trip.driver_id;
+    // Get driver info only after assignment. Pre-hold / negotiating must not
+    // leak name, photo, rating, phone, or plate.
+    const negotiating = String(trip.status ?? "") === "negotiating";
+    const resolvedDriverId = negotiating
+      ? null
+      : (trip.confirmed_driver_id || trip.driver_id);
     let driver = null;
     if (resolvedDriverId) {
       // Parallel: fetch driver row + approved profile photo document
@@ -521,7 +525,9 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
           })()
         : null;
 
-    const communicationConfig = await buildTripCommunicationConfigForTrip(supabase, {
+    const communicationConfig = negotiating
+      ? null
+      : await buildTripCommunicationConfigForTrip(supabase, {
       id: trip.id,
       status: trip.status,
       service_area_id: serviceAreaId,
@@ -529,6 +535,14 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
       confirmed_driver_id: trip.confirmed_driver_id ?? null,
       passenger_id: trip.passenger_id ?? null,
     });
+
+    const negotiation = negotiating
+      ? await loadCustomerNegotiationView(
+          supabase,
+          String(trip.id),
+          resolveCustomerPreauthBasePence(trip),
+        )
+      : null;
 
     return new Response(
       JSON.stringify({
@@ -588,8 +602,9 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
           distance: trip.estimated_distance_km ?? null,
           duration: trip.estimated_duration_minutes ?? null,
           updatedAt: trip.updated_at ?? null,
-          driverId: trip.driver_id,
-          driver,
+          driverId: negotiating ? null : trip.driver_id,
+          driver: negotiating ? null : driver,
+          negotiation,
           createdAt: trip.created_at,
           scheduledAt: trip.scheduled_at,
           scheduledStatus: trip.scheduled_status,

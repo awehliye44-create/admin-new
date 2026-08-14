@@ -8,7 +8,9 @@ import {
   PRESET_SLOT_COUNT,
 } from "../../../supabase/functions/_shared/presetOptionsCanonical.ts";
 import {
+  isCorporateTripIneligibleForPresetNegotiation,
   isScheduledTripIneligibleForPresetNegotiation,
+  isWhatsAppTripIneligibleForPresetNegotiation,
   presetNegotiationSnapshotFields,
   resolvePresetNegotiation,
 } from "../../../supabase/functions/_shared/presetNegotiationEligibility.ts";
@@ -120,6 +122,70 @@ describe("scheduled trip exclusion", () => {
   });
 });
 
+describe("corporate and WhatsApp exclusions", () => {
+  const enabled = {
+    serviceAreaId: "sa-1",
+    baseFarePence: 1000,
+    config: {
+      is_enabled: true,
+      schedule_enabled: false,
+      schedule_days: [1, 2, 3, 4, 5, 6, 7],
+      schedule_start_time: "00:00",
+      schedule_end_time: "23:59",
+      price_mode: "multiplier",
+      countdown_seconds: 25,
+    },
+    offers: slots([{ multiplier: 1 }, { multiplier: 1.1 }, { multiplier: 1.2 }]),
+    timezone: "Europe/London",
+  };
+
+  it("rejects corporate_account_id even when negotiation is enabled", () => {
+    expect(isCorporateTripIneligibleForPresetNegotiation({ corporate_account_id: "corp-1" })).toBe(true);
+    const result = resolvePresetNegotiation({
+      ...enabled,
+      trip: { booking_source: "customer", corporate_account_id: "corp-1" },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("ineligible_corporate");
+    expect(result.presetOptions).toEqual([]);
+  });
+
+  it("rejects WhatsApp booking_source even when negotiation is enabled", () => {
+    expect(isWhatsAppTripIneligibleForPresetNegotiation({ booking_source: "whatsapp-booking" })).toBe(true);
+    expect(isWhatsAppTripIneligibleForPresetNegotiation({ booking_source: "guest" })).toBe(true);
+    const result = resolvePresetNegotiation({
+      ...enabled,
+      trip: { booking_source: "whatsapp_booking", is_scheduled: false },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("ineligible_whatsapp");
+    expect(result.presetOptions).toEqual([]);
+  });
+
+  it("still attaches 3 chips for instant Customer app bookings", () => {
+    const result = resolvePresetNegotiation({
+      ...enabled,
+      trip: { booking_source: "customer", is_scheduled: false, dispatch_mode: "instant" },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.presetOptions).toHaveLength(PRESET_SLOT_COUNT);
+    expect(result.countdownSeconds).toBe(25);
+  });
+
+  it("keeps excluded sources ineligible after unused rebroadcast chance", () => {
+    const result = resolvePresetNegotiation({
+      ...enabled,
+      trip: {
+        booking_source: "corporate",
+        is_scheduled: false,
+        negotiation_disabled: false,
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("ineligible_corporate");
+  });
+});
+
 describe("availability window", () => {
   const fridayEvening = new Date("2026-08-14T18:00:00Z"); // Friday
 
@@ -199,5 +265,15 @@ describe("Admin UI lock", () => {
     expect(ui).not.toMatch(/8\.50|9\.00|10\.00/);
     expect(ui).not.toMatch(/grossFarePence:\s*(850|900|1000)/);
     expect(ui).not.toMatch(/\[8\.5,\s*9,\s*10\]/);
+  });
+
+  it("describes one negotiation countdown for Driver and Customer", () => {
+    expect(ui).toMatch(/Negotiation countdown used for both Driver and Customer/);
+    expect(ui).not.toMatch(/Driver offer countdown for this service area/);
+    expect(ui).toMatch(/Expiry never auto-accepts an offer/);
+    expect(ui).toMatch(/countdown_enabled/);
+    expect(ui).toMatch(/Countdown Duration \(seconds\)/);
+    expect(ui).not.toMatch(/disabled=\{!config.countdown_enabled\}/);
+    expect(ui).toMatch(/Not controlled by the toggle/);
   });
 });

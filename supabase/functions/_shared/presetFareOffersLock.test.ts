@@ -10,8 +10,12 @@ import {
   PRESET_SLOT_COUNT,
 } from "./presetOptionsCanonical.ts";
 import {
+  isCorporateTripIneligibleForPresetNegotiation,
+  isPresetNegotiationEligible,
   isScheduledTripIneligibleForPresetNegotiation,
+  isWhatsAppTripIneligibleForPresetNegotiation,
   presetNegotiationSnapshotFields,
+  resolvePersistedTripBookingSource,
   resolvePresetNegotiation,
 } from "./presetNegotiationEligibility.ts";
 
@@ -128,6 +132,105 @@ Deno.test("scheduled trips are never negotiation-eligible", () => {
   assertEquals(result.presetOptions, []);
 });
 
+const enabledNegotiationArgs = {
+  serviceAreaId: "sa-1",
+  baseFarePence: 1000,
+  config: {
+    is_enabled: true,
+    schedule_enabled: false,
+    schedule_days: [1, 2, 3, 4, 5, 6, 7],
+    schedule_start_time: "00:00",
+    schedule_end_time: "23:59",
+    price_mode: "multiplier" as const,
+    countdown_seconds: 25,
+  },
+  offers: slots([{ multiplier: 1 }, { multiplier: 1.1 }, { multiplier: 1.2 }]),
+  timezone: "Europe/London",
+};
+
+Deno.test("corporate trips are never negotiation-eligible even when config is enabled", () => {
+  assertEquals(isCorporateTripIneligibleForPresetNegotiation({ corporate_account_id: "corp-1" }), true);
+  assertEquals(isCorporateTripIneligibleForPresetNegotiation({ booking_source: "corporate" }), true);
+  assertEquals(isCorporateTripIneligibleForPresetNegotiation({ booking_source: "corporate_portal" }), true);
+  assertEquals(isCorporateTripIneligibleForPresetNegotiation({ booking_source: "customer" }), false);
+
+  const byAccount = resolvePresetNegotiation({
+    ...enabledNegotiationArgs,
+    trip: { is_scheduled: false, dispatch_mode: "instant", booking_source: "customer", corporate_account_id: "corp-1" },
+  });
+  assertEquals(byAccount.ok, false);
+  assertEquals(byAccount.reason, "ineligible_corporate");
+  assertEquals(byAccount.presetOptions, []);
+  assertEquals(byAccount.countdownSeconds, null);
+});
+
+Deno.test("WhatsApp bookings are never negotiation-eligible even when config is enabled", () => {
+  assertEquals(isWhatsAppTripIneligibleForPresetNegotiation({ booking_source: "whatsapp" }), true);
+  assertEquals(isWhatsAppTripIneligibleForPresetNegotiation({ booking_source: "whatsapp-booking" }), true);
+  assertEquals(isWhatsAppTripIneligibleForPresetNegotiation({ booking_source: "whatsapp_booking" }), true);
+  assertEquals(isWhatsAppTripIneligibleForPresetNegotiation({ booking_source: "customer" }), false);
+
+  const result = resolvePresetNegotiation({
+    ...enabledNegotiationArgs,
+    trip: { is_scheduled: false, dispatch_mode: "instant", booking_source: "whatsapp_booking" },
+  });
+  assertEquals(result.ok, false);
+  assertEquals(result.reason, "ineligible_whatsapp");
+  assertEquals(result.presetOptions, []);
+  assertEquals(result.countdownSeconds, null);
+});
+
+Deno.test("instant Customer app bookings still attach exactly 3 chips", () => {
+  const result = resolvePresetNegotiation({
+    ...enabledNegotiationArgs,
+    trip: { is_scheduled: false, dispatch_mode: "instant", booking_source: "customer" },
+  });
+  assertEquals(result.ok, true);
+  assertEquals(result.reason, "attached");
+  assertEquals(result.presetOptions.length, PRESET_SLOT_COUNT);
+  assertEquals(result.countdownSeconds, 25);
+  assertEquals(
+    isPresetNegotiationEligible(
+      { is_scheduled: false, dispatch_mode: "instant", booking_source: "customer" },
+      enabledNegotiationArgs.config,
+      {
+        serviceAreaId: enabledNegotiationArgs.serviceAreaId,
+        baseFarePence: enabledNegotiationArgs.baseFarePence,
+        offers: enabledNegotiationArgs.offers,
+        timezone: enabledNegotiationArgs.timezone,
+      },
+    ),
+    true,
+  );
+  assertEquals(
+    isPresetNegotiationEligible(
+      { is_scheduled: false, dispatch_mode: "instant", booking_source: "whatsapp_booking" },
+      enabledNegotiationArgs.config,
+      {
+        serviceAreaId: enabledNegotiationArgs.serviceAreaId,
+        baseFarePence: enabledNegotiationArgs.baseFarePence,
+        offers: enabledNegotiationArgs.offers,
+        timezone: enabledNegotiationArgs.timezone,
+      },
+    ),
+    false,
+  );
+  assertEquals(
+    isPresetNegotiationEligible(
+      { is_scheduled: false, dispatch_mode: "instant", booking_source: "customer" },
+      enabledNegotiationArgs.config,
+      {
+        serviceAreaId: enabledNegotiationArgs.serviceAreaId,
+        baseFarePence: enabledNegotiationArgs.baseFarePence,
+        offers: enabledNegotiationArgs.offers,
+        timezone: enabledNegotiationArgs.timezone,
+        isStacked: true,
+      },
+    ),
+    false,
+  );
+});
+
 Deno.test("availability window uses service-area timezone days", () => {
   const fridayEvening = new Date("2026-08-14T18:00:00Z");
   const inside = checkOfferSchedule(
@@ -158,6 +261,28 @@ Deno.test("availability window uses service-area timezone days", () => {
   assertEquals(outside.reason, "OFFERS_OUTSIDE_SCHEDULE");
 });
 
+Deno.test("Admin countdown_seconds is used even when the display toggle is off", () => {
+  const result = resolvePresetNegotiation({
+    trip: { is_scheduled: false },
+    serviceAreaId: "sa-1",
+    baseFarePence: 1000,
+    config: {
+      is_enabled: true,
+      schedule_enabled: false,
+      schedule_days: [1, 2, 3, 4, 5, 6, 7],
+      schedule_start_time: "00:00",
+      schedule_end_time: "23:59",
+      price_mode: "multiplier",
+      countdown_enabled: false,
+      countdown_seconds: 25,
+    },
+    offers: slots([{ multiplier: 1 }, { multiplier: 1.1 }, { multiplier: 1.2 }]),
+    timezone: "UTC",
+  });
+  assertEquals(result.ok, true);
+  assertEquals(result.countdownSeconds, 25);
+});
+
 Deno.test("snapshot never enables countdown_auto_select", () => {
   const snap = presetNegotiationSnapshotFields({
     baseFarePence: 1000,
@@ -170,6 +295,8 @@ Deno.test("snapshot never enables countdown_auto_select", () => {
   });
   assertEquals(snap.countdown_auto_select, false);
   assertEquals(snap.presets_enabled, true);
+  assertEquals(snap.negotiationAllowed, true);
+  assertEquals(snap.negotiation_eligible, true);
   assertEquals(snap.countdown_seconds, 30);
 });
 
@@ -190,4 +317,64 @@ Deno.test("Admin UI lock: exactly 3 slots, no Add Offer, no auto-accept", async 
   assert(!/\[8\.5,\s*9,\s*10\]/.test(ui));
   assert(/Adjustment \(pence\)/.test(ui));
   assert(/50 = \+/.test(ui));
+  assert(/Negotiation countdown used for both Driver and Customer/.test(ui));
+  assert(!/Driver offer countdown for this service area/.test(ui));
+  assert(/Expiry never auto-accepts an offer/.test(ui));
+  assert(/Countdown Duration \(seconds\)/.test(ui));
+  assert(!/disabled=\{!config.countdown_enabled\}/.test(ui));
+  assert(/Not controlled by the toggle/.test(ui));
+});
+
+Deno.test("guest and WhatsApp referer persist as ineligible sources", () => {
+  assertEquals(isWhatsAppTripIneligibleForPresetNegotiation({ booking_source: "guest" }), true);
+  assertEquals(
+    resolvePersistedTripBookingSource({
+      snapshotSource: "select_vehicle",
+      referer: "https://onecab.net/whatsapp-booking",
+    }),
+    "whatsapp_booking",
+  );
+  assertEquals(
+    resolvePersistedTripBookingSource({
+      bodySource: "choose_ride",
+      snapshotSource: "choose_ride",
+    }),
+    "choose_ride",
+  );
+});
+
+Deno.test("excluded trips stay ineligible after rebroadcast chance is unused", () => {
+  for (const source of ["corporate", "whatsapp_booking", "guest"] as const) {
+    const result = resolvePresetNegotiation({
+      ...enabledNegotiationArgs,
+      trip: {
+        is_scheduled: false,
+        dispatch_mode: "instant",
+        booking_source: source,
+        negotiation_disabled: false,
+        negotiation_status: null,
+      },
+    });
+    assertEquals(result.ok, false);
+    assertEquals(result.presetOptions, []);
+    assertEquals(result.countdownSeconds, null);
+  }
+  const scheduledResume = resolvePresetNegotiation({
+    ...enabledNegotiationArgs,
+    trip: {
+      is_scheduled: true,
+      dispatch_mode: "scheduled",
+      booking_source: "customer",
+      negotiation_disabled: false,
+    },
+  });
+  assertEquals(scheduledResume.ok, false);
+  assertEquals(scheduledResume.reason, "ineligible_scheduled");
+
+  const customerApp = resolvePresetNegotiation({
+    ...enabledNegotiationArgs,
+    trip: { is_scheduled: false, dispatch_mode: "instant", booking_source: "customer_app" },
+  });
+  assertEquals(customerApp.ok, true);
+  assertEquals(customerApp.presetOptions.length, PRESET_SLOT_COUNT);
 });

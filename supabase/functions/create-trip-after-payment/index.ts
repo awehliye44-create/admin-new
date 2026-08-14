@@ -877,6 +877,8 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       preauthAmountPence: preauthAmount,
       paymentSessionId,
       sessionFareSnapshot,
+      requestReferer: req.headers.get("referer") ?? req.headers.get("referrer"),
+      requestOrigin: req.headers.get("origin"),
     });
 
     if (preAssignedDriverId) {

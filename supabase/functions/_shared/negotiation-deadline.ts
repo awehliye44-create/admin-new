@@ -1,53 +1,68 @@
-/** Fixed negotiation window for every fare-negotiation action (both apps). SSOT = 25 seconds. */
-export const NEGOTIATION_COUNTDOWN_SECONDS = 25;
+/**
+ * Preset negotiation response deadline.
+ * SSOT: preset_offer_configs.countdown_seconds for the trip's service area.
+ * Same duration for Driver→Customer (£Y) and Customer→Driver (£Z).
+ * countdown_enabled is a display toggle only — it never changes the window.
+ * Never auto-accept on expiry.
+ */
+import { normalizeCountdownSeconds } from "./presetNegotiationEligibility.ts";
 
-/** @deprecated Use `NEGOTIATION_COUNTDOWN_SECONDS` */
-export const NEGOTIATION_SECONDS = NEGOTIATION_COUNTDOWN_SECONDS;
+/** Column default on preset_offer_configs.countdown_seconds — last-resort only. */
+export const PRESET_COUNTDOWN_SECONDS_FALLBACK = 30;
 
-/** Alias for UI and edge functions. */
-export const negotiationCountdownSeconds = NEGOTIATION_COUNTDOWN_SECONDS;
-
-/** @deprecated Use `NEGOTIATION_COUNTDOWN_SECONDS` */
-export const NEGOTIATION_TIMER_SECONDS = NEGOTIATION_COUNTDOWN_SECONDS;
-
-/** @deprecated Use `NEGOTIATION_COUNTDOWN_SECONDS` */
-export const NEGOTIATION_ACTION_EXTENSION_SEC = NEGOTIATION_COUNTDOWN_SECONDS;
-
-/** Fixed deadline for a new negotiation action. */
-export function negotiationExpiresAtIso(fromMs = Date.now()): string {
-  return new Date(fromMs + NEGOTIATION_COUNTDOWN_SECONDS * 1000).toISOString();
+export function resolveNegotiationCountdownSeconds(config: {
+  countdown_enabled?: boolean | null;
+  countdown_seconds?: number | null;
+} | null | undefined): number | null {
+  if (!config) return null;
+  return normalizeCountdownSeconds(config.countdown_seconds);
 }
 
-/** UI countdown — caps display at NEGOTIATION_COUNTDOWN_SECONDS even when server deadline is farther out. */
+export function clampNegotiationCountdownSeconds(raw: unknown): number {
+  return normalizeCountdownSeconds(raw) ?? PRESET_COUNTDOWN_SECONDS_FALLBACK;
+}
+
+/** Absolute server deadline from Admin duration. */
+export function negotiationDeadlineIso(seconds: number, fromMs = Date.now()): string {
+  return new Date(fromMs + clampNegotiationCountdownSeconds(seconds) * 1000).toISOString();
+}
+
+export function resolveNegotiationDeadlineIso(args: {
+  countdownSeconds: number | null;
+  fromMs?: number;
+}): string {
+  const fromMs = args.fromMs ?? Date.now();
+  return negotiationDeadlineIso(
+    args.countdownSeconds ?? PRESET_COUNTDOWN_SECONDS_FALLBACK,
+    fromMs,
+  );
+}
+
+export async function loadServiceAreaNegotiationCountdown(
+  supabase: { from: (table: string) => any },
+  serviceAreaId: string | null | undefined,
+): Promise<number | null> {
+  if (!serviceAreaId) return null;
+  const { data } = await supabase
+    .from("preset_offer_configs")
+    .select("countdown_seconds")
+    .eq("service_area_id", serviceAreaId)
+    .maybeSingle();
+  return resolveNegotiationCountdownSeconds(
+    data as {
+      countdown_seconds?: number | null;
+    } | null,
+  );
+}
+
+/** Remaining whole seconds until an absolute deadline. No hardcoded cap. */
 export function calcNegotiationRemainingSec(
   negotiationExpiresAt: string | null | undefined,
+  nowMs = Date.now(),
 ): number {
-  if (!negotiationExpiresAt) return NEGOTIATION_COUNTDOWN_SECONDS;
-  const raw = Math.max(
+  if (!negotiationExpiresAt) return 0;
+  return Math.max(
     0,
-    Math.ceil((new Date(negotiationExpiresAt).getTime() - Date.now()) / 1000),
+    Math.ceil((new Date(negotiationExpiresAt).getTime() - nowMs) / 1000),
   );
-  return Math.min(NEGOTIATION_COUNTDOWN_SECONDS, raw);
-}
-
-/**
- * Next deadline after a negotiation action (driver counter window).
- * - At least `timeoutSec` from now
- * - Extends a still-future `currentExpiresAt` by `extensionSec`
- */
-export function nextNegotiationExpiresAt(
-  currentExpiresAt: string | null | undefined,
-  timeoutSec: number,
-  extensionSec = NEGOTIATION_COUNTDOWN_SECONDS,
-): string {
-  const now = Date.now();
-  const floorMs = now + Math.max(timeoutSec, extensionSec) * 1000;
-  let candidateMs = floorMs;
-  if (currentExpiresAt) {
-    const currentMs = new Date(currentExpiresAt).getTime();
-    if (currentMs > now) {
-      candidateMs = Math.max(candidateMs, currentMs + extensionSec * 1000);
-    }
-  }
-  return new Date(candidateMs).toISOString();
 }

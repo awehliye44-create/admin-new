@@ -200,6 +200,36 @@ Deno.serve(async (req) => {
       .eq("driver_id", driver_id)
       .maybeSingle();
 
+    // Pre-hold: another driver must not accept (or stacked-queue) a trip owned
+    // by the negotiating driver. Backend SSOT is trips.negotiation_owner_driver_id.
+    if (pendingOffer?.trip_id) {
+      const { data: holdTrip } = await supabase
+        .from("trips")
+        .select("status, negotiation_owner_driver_id")
+        .eq("id", pendingOffer.trip_id)
+        .maybeSingle();
+      const ownerId =
+        (holdTrip as { negotiation_owner_driver_id?: string | null } | null)
+          ?.negotiation_owner_driver_id ?? null;
+      const tripStatus = String(holdTrip?.status ?? "");
+      if (
+        (ownerId && ownerId !== driver_id) ||
+        (tripStatus === "negotiating" && ownerId !== driver_id)
+      ) {
+        console.log("[accept-offer] BLOCKED_NEGOTIATION_HELD", {
+          offer_id,
+          driver_id,
+          owner_driver_id: ownerId,
+          trip_status: tripStatus,
+        });
+        return businessFailureResponse(
+          "NEGOTIATION_HELD",
+          "This trip is held for another driver",
+          { trip_id: pendingOffer.trip_id, owner_driver_id: ownerId },
+        );
+      }
+    }
+
     let effectiveIsStacked = Boolean(is_stacked);
     let effectiveCurrentTripId = current_trip_id ?? null;
 
@@ -253,6 +283,7 @@ Deno.serve(async (req) => {
         if (msg.includes("offer_not_for_driver"))     return businessFailureResponse("OFFER_FORBIDDEN",       "This offer does not belong to you");
         if (msg.includes("offer_not_pending"))        return businessFailureResponse("OFFER_NOT_PENDING",     `Offer already ${msg.split("::").pop()}`);
         if (msg.includes("offer_expired"))            return businessFailureResponse("OFFER_EXPIRED",         "Offer has expired");
+        if (msg.includes("NEGOTIATION_HELD"))         return businessFailureResponse("NEGOTIATION_HELD",      "This trip is held for another driver");
         if (msg.includes("stacked_rides_disabled"))   {
           // Re-log the safe-guard token so ops can see it
           console.log(STACKED_RIDE_DISABLED_SAFE_GUARD, { offer_id, driver_id, phase: "stacked_accept_rpc_blocked" });

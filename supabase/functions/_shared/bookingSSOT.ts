@@ -5,6 +5,7 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { buildTripPaymentSyncPatch } from "./dynamicPaymentWorkflow.ts";
+import { resolvePersistedTripBookingSource } from "./presetNegotiationEligibility.ts";
 import {
   applyBookingFinancialSnapshotToTripData,
   type DiscountSource,
@@ -43,6 +44,7 @@ export type BookingCommitBody = {
   personal_voucher_code?: string;
   qr_session_id?: string;
   internal_user_id?: string;
+  booking_source?: string | null;
 };
 
 export function applyBookingTypeFieldsToTrip(
@@ -88,6 +90,8 @@ export type MinimalTripBuildInput = {
   preauthAmountPence: number;
   paymentSessionId?: string | null;
   sessionFareSnapshot?: Record<string, unknown> | null;
+  requestReferer?: string | null;
+  requestOrigin?: string | null;
 };
 
 /** Build "First Last" from customer profile fields. */
@@ -270,6 +274,16 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     // Absolute sequences (Max Dispatch Rounds × 3). Post-commit overwrites from settings.
     max_broadcast_rounds: isScheduled ? null : 9,
   };
+
+  const persistedBookingSource = resolvePersistedTripBookingSource({
+    bodySource: body.booking_source,
+    snapshotSource: sessionSnap?.booking_source,
+    referer: input.requestReferer,
+    origin: input.requestOrigin,
+  });
+  if (persistedBookingSource) {
+    tripData.booking_source = persistedBookingSource;
+  }
 
   if (body.pre_assigned_driver_id) {
     tripData.pre_assigned_driver_id = body.pre_assigned_driver_id;

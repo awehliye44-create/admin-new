@@ -6,7 +6,7 @@
  * - DECLINE or TIMEOUT → exclude driver + rebroadcast same trip (no new trip id);
  *   negotiation_disabled=true — future drivers see normal accept/decline at original fare only.
  * 
- * Also handles declined_customer_awaiting_driver (20s grace):
+ * Also handles declined_customer_awaiting_driver (legacy grace window):
  * - ACCEPT_STANDARD → CONFIRMED(finalFare=original fare)
  * - DECLINE / timeout → exclude driver + rebroadcast same trip (no new trip id)
  * 
@@ -27,6 +27,12 @@ import {
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
 import { resolveNegotiationBaseFarePence } from "../_shared/negotiationBaseFare.ts";
+import { presetNegotiationSourceIneligibility } from "../_shared/presetNegotiationEligibility.ts";
+import {
+  DRIVER_ACCEPTED_COUNTER_BODY,
+  DRIVER_ACCEPTED_COUNTER_TITLE,
+  FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY,
+} from "../_shared/negotiationPushCopy.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://thazislrdkjpvvghtvzo.supabase.co";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -117,7 +123,7 @@ Deno.serve(async (req) => {
     const fetchOfferWithTrip = (id: string) =>
       supabase
         .from("ride_offers")
-        .select("*, trips(id, status, excluded_driver_ids, base_fare_pence, estimated_fare, fare, fare_breakdown)")
+        .select("*, trips(id, status, excluded_driver_ids, base_fare_pence, estimated_fare, fare, fare_breakdown, passenger_id, is_scheduled, dispatch_mode, trip_type, corporate_account_id, booking_source)")
         .eq("id", id)
         .eq("driver_id", driver_id)
         .maybeSingle();
@@ -150,6 +156,17 @@ Deno.serve(async (req) => {
 
     const trip = offer.trips;
     if (!trip) return errorResponse("NOT_FOUND", "Trip not found", 404);
+
+    const sourceBlock = presetNegotiationSourceIneligibility(trip as {
+      is_scheduled?: boolean | null;
+      dispatch_mode?: string | null;
+      trip_type?: string | null;
+      corporate_account_id?: string | null;
+      booking_source?: string | null;
+    });
+    if (sourceBlock) {
+      return errorResponse("DISABLED", sourceBlock.message, 403, { reason: sourceBlock.reason });
+    }
 
     if (
       action === "ACCEPT"
@@ -215,58 +232,17 @@ Deno.serve(async (req) => {
       });
     };
 
-    // ── ACCEPT_STANDARD: driver accepts standard fare after customer DECLINED ──
+    // Retired: customer decline rematches immediately at £X. Stale ACCEPT_STANDARD
+    // must never assign the original fare after negotiation was consumed.
     if (action === "ACCEPT_STANDARD") {
-      if (offer.negotiation_status !== "declined_customer_awaiting_driver") {
-        return errorResponse("INVALID_STATE", "ACCEPT_STANDARD only valid after customer declined", 409);
-      }
-
-      // Check grace window hasn't expired
-      if (offer.grace_window_expires_at && new Date(offer.grace_window_expires_at) < new Date()) {
-        // Grace window expired → treat as DECLINE
-        await supabase
-          .from("ride_offers")
-          .update({ negotiation_status: "timeout_driver", status: "expired", updated_at: new Date().toISOString() })
-          .eq("id", offer_id);
-
+      if (offer.negotiation_status === "declined_customer_awaiting_driver") {
         await rematchSameTrip("expired", "timeout_driver");
-
-        return errorResponse("TIMEOUT", "Grace window expired — ride offered to other drivers", 410);
       }
-
-      const baseFarePence = resolveNegotiationBaseFarePence(trip);
-
-      const { error: acceptErr } = await supabase.rpc("accept_ride_offer", {
-        p_offer_id: offer_id,
-        p_driver_id: driver_id,
-      });
-      if (acceptErr) {
-        return errorResponse("ACCEPT_FAILED", acceptErr.message, 409);
-      }
-
-      await finalizeRideAssignmentSideEffects(supabase, {
-        tripId: trip.id,
-        offerId: offer_id,
-        driverId: driver_id,
-        source: "edge_driver_fare_final",
-        fareSource: "standard_after_declined_offer",
-        acceptedVia: "accept_ride_offer",
-      });
-
-      await supabase.rpc("log_audit_event", {
-        p_event_type: "driver_accepted_standard_after_decline",
-        p_driver_id: driver_id,
-        p_trip_id: trip.id,
-        p_details: { offer_id, base_fare_pence: baseFarePence },
-      });
-
-      return successResponse({
-        success: true,
-        action: "ACCEPTED_STANDARD",
-        final_fare_pence: baseFarePence,
-        fare_source: "standard_after_declined_offer",
-        trip_id: trip.id,
-      });
+      return errorResponse(
+        "INVALID_STATE",
+        "Customer declined — this trip was offered to other drivers",
+        409,
+      );
     }
 
     // ── ACCEPT: driver accepts customer's COUNTER offer → CONFIRMED ────────
@@ -400,6 +376,28 @@ Deno.serve(async (req) => {
         },
       });
 
+      const passengerId = (trip as { passenger_id?: string | null }).passenger_id;
+      if (passengerId) {
+        try {
+          await fetch(`${supabaseUrl}/functions/v1/send-trip-notification`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify({
+              userId: passengerId,
+              tripId: trip.id,
+              event: "driver_accepted_counter",
+              title: DRIVER_ACCEPTED_COUNTER_TITLE,
+              body: DRIVER_ACCEPTED_COUNTER_BODY,
+            }),
+          });
+        } catch (pushErr) {
+          console.warn("[driver-fare-final] customer accept push failed:", pushErr);
+        }
+      }
+
       return successResponse({
         success: true,
         action: "ACCEPTED",
@@ -427,6 +425,28 @@ Deno.serve(async (req) => {
           rematch_success: rematch.success,
         },
       });
+
+      const passengerId = (trip as { passenger_id?: string | null }).passenger_id;
+      if (passengerId && offer.negotiation_status !== "declined_customer_awaiting_driver") {
+        try {
+          await fetch(`${supabaseUrl}/functions/v1/send-trip-notification`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify({
+              userId: passengerId,
+              tripId: trip.id,
+              event: "finding_another_driver_updated_fare",
+              title: "Finding another driver",
+              body: FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY,
+            }),
+          });
+        } catch (pushErr) {
+          console.warn("[driver-fare-final] customer reject push failed:", pushErr);
+        }
+      }
 
       return successResponse({
         success: true,

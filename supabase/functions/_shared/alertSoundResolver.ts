@@ -83,6 +83,8 @@ export const TRIP_EVENT_SOUND_MAP: Record<string, string> = {
   payment_failed: "payment_status",
   lost_item_followup: "general_notification",
   customer_new_fare_offer: "general_notification",
+  driver_accepted_counter: "general_notification",
+  finding_another_driver_updated_fare: "general_notification",
   negotiation_offer_expired: "general_notification",
   trip_cancelled: "trip_cancelled",
 };

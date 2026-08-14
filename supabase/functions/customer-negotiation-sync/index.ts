@@ -1,12 +1,14 @@
 /**
  * customer-negotiation-sync – sync customer negotiation deadlines.
  *
- * The customer app calls this when its local countdown hits zero. For final driver
- * response windows, expiry is an automatic reject: exclude this driver and
- * rebroadcast the same trip without opening another negotiation.
+ * The customer app calls this when remaining time from the backend deadline
+ * hits zero. For final driver response windows, expiry is an automatic reject:
+ * exclude this driver and rebroadcast the same trip without opening another
+ * negotiation. Never auto-accept.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
+import { presetNegotiationSourceIneligibility } from "../_shared/presetNegotiationEligibility.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -65,7 +67,7 @@ Deno.serve(async (req) => {
 
     const { data: trip } = await supabase
       .from("trips")
-      .select("id, passenger_id, customer_id, status, negotiation_owner_driver_id")
+      .select("id, passenger_id, customer_id, status, negotiation_owner_driver_id, is_scheduled, dispatch_mode, trip_type, corporate_account_id, booking_source")
       .eq("id", offer.trip_id)
       .single();
 
@@ -94,7 +96,24 @@ Deno.serve(async (req) => {
       });
     }
 
+    const sourceBlock = presetNegotiationSourceIneligibility(trip);
     const ns = offer.negotiation_status;
+    const liveNegotiation =
+      ns === "waiting_customer"
+      || ns === "waiting_driver_final"
+      || ns === "declined_customer_awaiting_driver";
+    if (sourceBlock && !liveNegotiation) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "DISABLED",
+        message: sourceBlock.message,
+        reason: sourceBlock.reason,
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const alreadyResolved =
       offer.status === "accepted" ||
       offer.status === "revoked" ||
@@ -133,13 +152,29 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Deadline passed but expire-offers cron hasn't swept yet — tell client
-      // to wait. The cron runs every 10s and will transition this offer.
+      // Timeout = decline: discard £Y, rematch at original £X, exclude this Driver.
+      const result = await finalizeNegotiationFailureAndRebroadcast(supabase, {
+        tripId: offer.trip_id,
+        failedDriverId: offer.driver_id,
+        offerId,
+        offerTerminalStatus: "expired",
+        offerNegotiationStatus: "timeout_customer",
+      });
+      if (!result.success) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: result.error ?? "Failed to resume driver search",
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       return new Response(JSON.stringify({
         success: true,
-        action: "expiry_pending",
-        trip_id: offer.trip_id,
-        message: "Server is processing this expiry",
+        action: "negotiation_failed_rebroadcasting",
+        trip_id: result.trip_id ?? offer.trip_id,
+        negotiation_disabled: true,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

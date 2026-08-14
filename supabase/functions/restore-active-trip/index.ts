@@ -11,6 +11,7 @@ import {
 import type { RestoreActiveTripRole } from "../../../shared/activeTripRestoreSSOT.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { buildTripCommunicationConfigForTrip } from "../_shared/tripCommunicationConfigBuilder.ts";
+import { loadCustomerNegotiationView } from "../_shared/customerNegotiationView.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -218,12 +219,26 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
     delete response.trip;
 
     if (role === "customer") {
+      const negotiating = String(trip.status ?? "") === "negotiating";
       response.activeTrip = await buildCustomerActiveTrip(
         supabase,
         trip,
-        (payload.driver as Record<string, unknown> | null) ?? null,
+        negotiating ? null : ((payload.driver as Record<string, unknown> | null) ?? null),
         stops,
       );
+      if (negotiating) {
+        const originalFarePence = resolveCustomerPreauthBasePence(trip);
+        const negotiation = await loadCustomerNegotiationView(
+          supabase,
+          tripId,
+          originalFarePence,
+        );
+        if (negotiation) {
+          (response.activeTrip as Record<string, unknown>).negotiation = negotiation;
+        }
+        (response.activeTrip as Record<string, unknown>).driver = null;
+        (response.activeTrip as Record<string, unknown>).driverId = null;
+      }
     } else {
       response.trip_row = trip;
       response.communicationConfig = await buildTripCommunicationConfigForTrip(supabase, {

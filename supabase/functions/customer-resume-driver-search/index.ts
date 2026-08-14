@@ -161,7 +161,6 @@ Deno.serve(async (req) => {
           searching_expires_at: searchingExpiresAt,
           ...buildClearTripAssignmentPatch(),
           negotiation_locked_until: null,
-          negotiation_disabled: false,
           negotiation_status: null,
           current_negotiation_id: null,
           locked_driver_id: null,

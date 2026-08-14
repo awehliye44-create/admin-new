@@ -38,7 +38,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkOfferSchedule } from "../_shared/offerSchedule.ts";
 import {
-  isScheduledTripIneligibleForPresetNegotiation,
+  presetNegotiationSourceIneligibility,
   tripConsumedNegotiationChance,
 } from "../_shared/presetNegotiationEligibility.ts";
 
@@ -77,12 +77,14 @@ serve(async (req) => {
       trip_type?: string | null;
       negotiation_disabled?: boolean | null;
       negotiation_status?: string | null;
+      corporate_account_id?: string | null;
+      booking_source?: string | null;
     } | null = null;
 
     if (trip_id) {
       const { data: trip } = await supabase
         .from("trips")
-        .select("service_area_id, is_scheduled, dispatch_mode, trip_type, negotiation_disabled, negotiation_status")
+        .select("service_area_id, is_scheduled, dispatch_mode, trip_type, negotiation_disabled, negotiation_status, corporate_account_id, booking_source")
         .eq("id", trip_id)
         .maybeSingle();
       tripRow = trip;
@@ -125,12 +127,14 @@ serve(async (req) => {
     // Schedule check (master toggle + day/time window)
     const scheduleCheck = checkOfferSchedule(configRow as any, timezone);
 
-    if (tripRow && isScheduledTripIneligibleForPresetNegotiation(tripRow)) {
+    const sourceBlock = tripRow ? presetNegotiationSourceIneligibility(tripRow) : null;
+    if (sourceBlock) {
       return json({
         ok: true,
         offers_enabled: scheduleCheck.offersEnabled,
         offers_allowed_now: false,
-        reason: "INELIGIBLE_SCHEDULED",
+        negotiation_eligible: false,
+        reason: sourceBlock.reason.toUpperCase(),
         config: {
           price_mode: configRow.price_mode,
           countdown_enabled: configRow.countdown_enabled,

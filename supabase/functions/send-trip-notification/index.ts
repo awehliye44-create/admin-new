@@ -41,6 +41,9 @@ interface SendTripNotificationRequest {
   /** Optional overrides */
   title?: string;
   body?: string;
+  /** Absolute negotiation deadline (ISO). Clients tick remaining time from this. */
+  expiresAt?: string;
+  negotiationExpiresAt?: string;
   /** Driver name for personalization */
   driverName?: string;
   /** Fare in display format */
@@ -67,8 +70,16 @@ const NOTIFICATION_COPY: Record<string, { title: string; body: string }> = {
   payment_failed:     { title: 'Payment Failed',     body: 'Payment failed. Please update your payment method.' },
   lost_item_followup: { title: 'Left Something?',    body: 'Left something behind? Contact your driver.' },
   customer_new_fare_offer: {
-    title: 'ONECAB NEW FARE OFFER',
-    body: 'Driver sent a new fare offer. Review before it expires.',
+    title: 'New fare offer',
+    body: 'Driver offered a new fare — respond before it expires.',
+  },
+  driver_accepted_counter: {
+    title: 'Counter accepted',
+    body: 'Driver accepted your counter offer.',
+  },
+  finding_another_driver_updated_fare: {
+    title: 'Finding another driver',
+    body: "We're finding another driver at your updated fare.",
   },
   negotiation_offer_expired: {
     title: 'ONECAB FARE OFFER EXPIRED',
@@ -110,6 +121,8 @@ const EVENT_CHANNEL: Record<string, string> = {
   payment_failed: 'critical_alerts',
   lost_item_followup: 'post_trip',
   customer_new_fare_offer: 'critical_alerts',
+  driver_accepted_counter: 'critical_alerts',
+  finding_another_driver_updated_fare: 'trip_updates',
   negotiation_offer_expired: 'trip_updates',
   new_driver_assigned: 'trip_updates',
   driver_cancelled: 'critical_alerts',
@@ -135,6 +148,8 @@ const EVENT_PRIORITY: Record<string, 'high' | 'normal'> = {
   payment_failed: 'high',
   lost_item_followup: 'normal',
   customer_new_fare_offer: 'high',
+  driver_accepted_counter: 'high',
+  finding_another_driver_updated_fare: 'high',
   negotiation_offer_expired: 'normal',
   new_driver_assigned: 'high',
   driver_cancelled: 'high',
@@ -159,8 +174,10 @@ const EVENT_SCREEN: Record<string, string> = {
   payment_success: '/wallet',
   payment_failed: '/wallet',
   lost_item_followup: '/lost-property',
-  customer_new_fare_offer: '/ride-tracking',
-  negotiation_offer_expired: '/ride-tracking',
+  customer_new_fare_offer: '/booking/finding-drivers',
+  driver_accepted_counter: '/booking/driver-accepted',
+  finding_another_driver_updated_fare: '/booking/finding-drivers',
+  negotiation_offer_expired: '/booking/finding-drivers',
   new_driver_assigned: '/ride-tracking',
   driver_cancelled: '/ride-tracking',
   customer_new_message: '/ride-tracking',
@@ -381,7 +398,9 @@ serve(async (req) => {
     const dataPayload: Record<string, string> = {
       type: event,
       tripId,
+      trip_id: tripId,
       screen,
+      path: screen,
       channelId,
       notificationId,
       priority,
@@ -389,6 +408,13 @@ serve(async (req) => {
     };
     if (driverName) dataPayload.driverName = driverName;
     if (fareDisplay) dataPayload.fareDisplay = fareDisplay;
+    const negotiationDeadline = body.negotiationExpiresAt || body.expiresAt;
+    if (negotiationDeadline) {
+      dataPayload.negotiation_expires_at = negotiationDeadline;
+      dataPayload.negotiationExpiresAt = negotiationDeadline;
+      dataPayload.expires_at = negotiationDeadline;
+      dataPayload.expiresAt = negotiationDeadline;
+    }
 
     const alertSoundEvent = TRIP_EVENT_SOUND_MAP[event] ?? null;
     if (alertSoundEvent) {

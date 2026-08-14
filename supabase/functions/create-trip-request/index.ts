@@ -18,6 +18,7 @@ import {
   logServiceAreaCorrection,
   PICKUP_OUTSIDE_SERVICE_AREAS_MESSAGE,
 } from "../_shared/resolveTripServiceArea.ts";
+import { resolvePersistedTripBookingSource } from "../_shared/presetNegotiationEligibility.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 20,
@@ -136,7 +137,11 @@ Deno.serve(async (req) => {
       return validationErrorResponse(validationErrors);
     }
 
-    const bookingSource = sanitizeString(payload.booking_source, 32) || "admin";
+    const bookingSource = resolvePersistedTripBookingSource({
+      bodySource: payload.booking_source,
+      referer: req.headers.get("referer") ?? req.headers.get("referrer"),
+      origin: req.headers.get("origin"),
+    }) || "admin";
 
     const passengerId = payload.passenger_id || crypto.randomUUID();
     const intermediateStops = payload.intermediate_stops || [];
