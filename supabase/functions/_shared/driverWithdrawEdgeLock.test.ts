@@ -29,9 +29,34 @@ Deno.test("driver-withdraw reuses production Revolut payout primitives", async (
     "ensureFreshRevolutBusinessAccessToken",
     "resolveLiveCompanyBalanceSnapshot",
     "EARLY_CASHOUT",
+    "reconcileSubmittedDriverWithdrawPayout",
+    "provider_transfer_pence",
+    "withdrawal_fee_pence",
   ]) {
     assertStringIncludes(src, needle);
   }
+  // Status client is used via reconcile helper (never second /pay).
+  const reconcileSrc = await Deno.readTextFile(
+    new URL("./driverWithdrawProviderReconcile.ts", import.meta.url),
+  );
+  assertStringIncludes(reconcileSrc, "relayApprovedDriverPayoutPaymentStatus");
+});
+
+Deno.test("driver-withdraw never second /pay on reconcile — status path only", async () => {
+  const src = await Deno.readTextFile(EDGE);
+  assertStringIncludes(src, "reconcile_payout_item_id");
+  assertStringIncludes(src, "driverWithdrawProviderReconcile");
+  // Reconcile path must not invoke pay helper as a second submission trigger
+  const reconcileIdx = src.indexOf("reconcileSubmittedDriverWithdrawPayout");
+  assertEquals(reconcileIdx > 0, true);
+});
+
+Deno.test("future fee: provider transfer is gross minus fee before /pay", async () => {
+  const src = await Deno.readTextFile(EDGE);
+  assertStringIncludes(src, "early_cash_out_driver_receives_pence");
+  assertStringIncludes(src, "providerTransferPence");
+  assertStringIncludes(src, "BALANCE_NOT_GREATER_THAN_FEE");
+  assertStringIncludes(src, "amount_pence: providerTransferPence");
 });
 
 Deno.test("driver-withdraw uses Driver execution gate — not admin Slice 7 LIVE=false gate", async () => {

@@ -24,6 +24,7 @@ import {
 } from "../_shared/revolutBusinessRelayClient.ts";
 import { resolveLiveCompanyBalanceSnapshot } from "../_shared/companyBalanceResolveSSOT.ts";
 import { ensureFreshRevolutBusinessAccessToken } from "../_shared/revolutBusinessAccessTokenRefresh.ts";
+import { reconcileSubmittedDriverWithdrawPayout } from "../_shared/driverWithdrawProviderReconcile.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,18 +53,27 @@ function projectCashout(args: {
   payoutItemId: string;
   amountPence: number;
   status: string;
+  feePence?: number;
+  receivesPence?: number;
   createdAt?: string | null;
   paidAt?: string | null;
   failedAt?: string | null;
   failureReason?: string | null;
 }) {
+  const fee = Math.max(0, Math.round(Number(args.feePence ?? 0)));
+  const receives = Math.round(
+    Number(
+      args.receivesPence
+        ?? Math.max(0, args.amountPence - fee),
+    ),
+  );
   return {
     id: args.payoutItemId,
     status: mapItemStatusToCashoutStatus(args.status),
     requested_cashout_pence: args.amountPence,
-    early_cashout_fee_pence: 0,
-    onecab_cashout_fee_pence: 0,
-    driver_receives_pence: args.amountPence,
+    early_cashout_fee_pence: fee,
+    onecab_cashout_fee_pence: fee,
+    driver_receives_pence: receives,
     created_at: args.createdAt ?? new Date().toISOString(),
     paid_at: args.paidAt ?? null,
     failed_at: args.failedAt ?? null,
@@ -194,19 +204,21 @@ Deno.serve(async (req) => {
     body = {};
   }
 
-  // Service-role read-only Company Balance probe (no payout, no /pay).
+  // Service-role probes only (no new /pay).
   const bearer = authHeader.slice("Bearer ".length).trim();
+  let jwtRole = "";
+  try {
+    const payloadB64 = bearer.split(".")[1] ?? "";
+    const padded = payloadB64 + "=".repeat((4 - (payloadB64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded.replace(/-/g, "+").replace(/_/g, "/")));
+    jwtRole = String(payload?.role ?? "");
+  } catch {
+    jwtRole = "";
+  }
+  const isServiceRole = jwtRole === "service_role" || bearer === serviceKey;
+
   if (body.probe_company_balance === true) {
-    let jwtRole = "";
-    try {
-      const payloadB64 = bearer.split(".")[1] ?? "";
-      const padded = payloadB64 + "=".repeat((4 - (payloadB64.length % 4)) % 4);
-      const payload = JSON.parse(atob(padded.replace(/-/g, "+").replace(/_/g, "/")));
-      jwtRole = String(payload?.role ?? "");
-    } catch {
-      jwtRole = "";
-    }
-    if (jwtRole !== "service_role" && bearer !== serviceKey) {
+    if (!isServiceRole) {
       return json({ ok: false, error: "forbidden", revolut_pay_called: false }, 403);
     }
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -230,6 +242,26 @@ Deno.serve(async (req) => {
       source_account_label: snap.source_account_label ?? null,
       covers_803p: typeof available === "number" && available >= 803,
     });
+  }
+
+  // Service-role: reconcile one SUBMITTED withdraw via GET /transaction (never /pay).
+  if (
+    isServiceRole
+    && typeof body.reconcile_payout_item_id === "string"
+    && body.reconcile_payout_item_id.trim()
+  ) {
+    const supabase = createClient(supabaseUrl, serviceKey);
+    const result = await reconcileSubmittedDriverWithdrawPayout({
+      supabase,
+      payoutItemId: body.reconcile_payout_item_id.trim(),
+    });
+    return json({
+      ...result,
+      reconcile: true,
+      revolut_pay_called: false,
+    }, result.ok || result.provider_state === "pending" || result.provider_state === "created"
+      ? 200
+      : 409);
   }
 
   const userClient = createClient(supabaseUrl, anonKey || serviceKey, {
@@ -268,27 +300,67 @@ Deno.serve(async (req) => {
   // Reuse in-flight EARLY_CASHOUT item for same idempotency key.
   const { data: existingItem } = await supabase
     .from("payout_items")
-    .select("id, status, amount_pence, created_at, completed_at, failed_at, failure_reason, batch_id")
+    .select("id, status, amount_pence, net_driver_payout_pence, created_at, completed_at, failed_at, failure_reason, batch_id, eligibility_snapshot")
     .eq("driver_id", driverId)
     .eq("idempotency_key", clientIdempotency)
     .maybeSingle();
 
   if (existingItem?.id) {
     const status = String(existingItem.status ?? "");
-    if (["SUBMITTED", "SUBMITTING", "RESERVED", "UNKNOWN", "COMPLETED", "PAID"].includes(status.toUpperCase())) {
-      const { data: intent } = await supabase
-        .from("driver_payout_payment_intents")
-        .select("provider_payment_id, provider_state, execution_status")
-        .eq("payout_item_id", existingItem.id)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    const upper = status.toUpperCase();
+    if (["SUBMITTED", "SUBMITTING", "RESERVED", "UNKNOWN"].includes(upper)) {
+      const reconciled = await reconcileSubmittedDriverWithdrawPayout({
+        supabase,
+        payoutItemId: String(existingItem.id),
+        expectedDriverId: driverId,
+      });
+      const feeFromSnap = Number(
+        (existingItem.eligibility_snapshot as Record<string, unknown> | null)
+          ?.withdrawal_fee_pence ?? 0,
+      );
+      const receives = Number(
+        existingItem.net_driver_payout_pence
+          ?? Math.max(0, Number(existingItem.amount_pence ?? 0) - feeFromSnap),
+      );
+      return json({
+        ok: reconciled.ok || reconciled.provider_state === "pending"
+          || reconciled.provider_state === "created",
+        reused: true,
+        reconciled: true,
+        cashout: projectCashout({
+          payoutItemId: existingItem.id,
+          amountPence: Number(existingItem.amount_pence ?? 0),
+          feePence: feeFromSnap,
+          receivesPence: receives,
+          status: reconciled.item_status ?? status,
+          createdAt: existingItem.created_at,
+          paidAt: reconciled.financially_applied
+            ? new Date().toISOString()
+            : existingItem.completed_at,
+          failedAt: existingItem.failed_at,
+          failureReason: existingItem.failure_reason,
+        }),
+        payout_item_id: existingItem.id,
+        provider_payment_id: reconciled.provider_payment_id,
+        provider_state: reconciled.provider_state,
+        wallet_debited: reconciled.wallet_debited,
+        reservation_consumed: reconciled.reservation_consumed,
+        revolut_pay_called: false,
+      });
+    }
+    if (["COMPLETED", "PAID"].includes(upper)) {
+      const feeFromSnap = Number(
+        (existingItem.eligibility_snapshot as Record<string, unknown> | null)
+          ?.withdrawal_fee_pence ?? 0,
+      );
       return json({
         ok: true,
         reused: true,
         cashout: projectCashout({
           payoutItemId: existingItem.id,
           amountPence: Number(existingItem.amount_pence ?? 0),
+          feePence: feeFromSnap,
+          receivesPence: Number(existingItem.net_driver_payout_pence ?? 0) || undefined,
           status,
           createdAt: existingItem.created_at,
           paidAt: existingItem.completed_at,
@@ -296,11 +368,24 @@ Deno.serve(async (req) => {
           failureReason: existingItem.failure_reason,
         }),
         payout_item_id: existingItem.id,
-        provider_payment_id: intent?.provider_payment_id ?? null,
-        provider_state: intent?.provider_state ?? null,
         revolut_pay_called: false,
+        wallet_debited: true,
       });
     }
+  }
+
+  // Explicit driver reconcile of a known SUBMITTED item (no new /pay).
+  if (typeof body.reconcile_payout_item_id === "string" && body.reconcile_payout_item_id.trim()) {
+    const reconciled = await reconcileSubmittedDriverWithdrawPayout({
+      supabase,
+      payoutItemId: body.reconcile_payout_item_id.trim(),
+      expectedDriverId: driverId,
+    });
+    return json({
+      ...reconciled,
+      reconcile: true,
+      revolut_pay_called: false,
+    }, reconciled.ok || reconciled.provider_state === "pending" ? 200 : 409);
   }
 
   const { data: summaryRaw, error: summaryErr } = await supabase.rpc(
@@ -361,6 +446,34 @@ Deno.serve(async (req) => {
       driver_message: "No balance available to withdraw.",
     }, 409);
   }
+
+  const feePence = Math.max(0, Math.round(Number(summary.early_cash_out_fee_pence ?? 0)));
+  const receivesPence = Math.round(
+    Number(
+      summary.early_cash_out_driver_receives_pence
+        ?? Math.max(0, amountPence - feePence),
+    ),
+  );
+  // Fee must be deducted from provider transfer before /pay (never after).
+  if (feePence > 0 && receivesPence <= 0) {
+    return json({
+      ok: false,
+      error: "BALANCE_NOT_GREATER_THAN_FEE",
+      error_code: "BALANCE_NOT_GREATER_THAN_FEE",
+      driver_message: "Available balance does not cover the withdrawal fee.",
+      revolut_pay_called: false,
+    }, 409);
+  }
+  if (receivesPence <= 0 || receivesPence > amountPence) {
+    return json({
+      ok: false,
+      error: "INVALID_WITHDRAWAL_AMOUNT",
+      error_code: "INVALID_WITHDRAWAL_AMOUNT",
+      driver_message: "Withdrawal amount is invalid.",
+      revolut_pay_called: false,
+    }, 409);
+  }
+  const providerTransferPence = receivesPence;
 
   const serviceAreaId = summary.service_area_id
     ? String(summary.service_area_id)
@@ -437,7 +550,7 @@ Deno.serve(async (req) => {
         batch_id: batchId,
         driver_id: driverId,
         amount_pence: amountPence,
-        net_driver_payout_pence: amountPence,
+        net_driver_payout_pence: providerTransferPence,
         currency: "GBP",
         status: "VALIDATED",
         payout_destination_id: dest.id,
@@ -449,6 +562,10 @@ Deno.serve(async (req) => {
         eligibility_snapshot: {
           source: "driver_wallet_summary_ssot",
           early_cash_out_block_reason: null,
+          withdrawal_fee_pence: feePence,
+          provider_transfer_pence: providerTransferPence,
+          wallet_gross_pence: amountPence,
+          fee_formula: "provider_transfer = wallet_gross - withdrawal_fee",
         },
       })
       .select("id, status, amount_pence, created_at")
@@ -526,7 +643,7 @@ Deno.serve(async (req) => {
     currency: "GBP",
     available_pence: companyBalance.provider_available_balance_pence
       ?? companyBalance.provider_cash_balance_pence,
-    amount_pence: amountPence,
+    amount_pence: providerTransferPence,
     account_active: true,
   });
   if (!amountGate.ok) {
@@ -583,24 +700,31 @@ Deno.serve(async (req) => {
   const claim = (claimRaw ?? {}) as Record<string, unknown>;
   if (claim.ok !== true) {
     if (String(claim.error ?? "") === SUBMISSION_ERROR.ALREADY_SUBMITTED) {
-      const { data: existingIntent } = await supabase
-        .from("driver_payout_payment_intents")
-        .select("provider_payment_id, provider_state, execution_status")
-        .eq("payout_item_id", payoutItemId)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const reconciled = await reconcileSubmittedDriverWithdrawPayout({
+        supabase,
+        payoutItemId,
+        expectedDriverId: driverId,
+      });
       return json({
-        ok: true,
+        ok: reconciled.ok
+          || reconciled.provider_state === "pending"
+          || reconciled.provider_state === "created"
+          || reconciled.already_applied,
         reused_existing_execution: true,
+        reconciled: true,
         cashout: projectCashout({
           payoutItemId,
           amountPence,
-          status: "SUBMITTED",
+          feePence,
+          receivesPence: providerTransferPence,
+          status: reconciled.item_status ?? "SUBMITTED",
+          paidAt: reconciled.financially_applied ? new Date().toISOString() : null,
         }),
         payout_item_id: payoutItemId,
-        provider_payment_id: existingIntent?.provider_payment_id ?? null,
-        provider_state: existingIntent?.provider_state ?? null,
+        provider_payment_id: reconciled.provider_payment_id,
+        provider_state: reconciled.provider_state,
+        wallet_debited: reconciled.wallet_debited,
+        reservation_consumed: reconciled.reservation_consumed,
         revolut_pay_called: false,
       });
     }
@@ -619,7 +743,8 @@ Deno.serve(async (req) => {
     source_account_id: String(claim.source_account_id),
     provider_counterparty_id: String(claim.provider_counterparty_id),
     provider_recipient_account_id: String(claim.provider_recipient_account_id),
-    amount_pence: Number(claim.amount_pence),
+    // Provider transfer is net of withdrawal fee (SSOT: driver_receives).
+    amount_pence: providerTransferPence,
     currency: String(claim.currency ?? "GBP"),
     payment_reference: claim.payment_reference ?? `ONECAB WD ${String(payoutItemId).slice(0, 8)}`,
     provider_request_id: canonicalProviderRequestId(String(claim.payout_item_id)),
@@ -748,6 +873,7 @@ Deno.serve(async (req) => {
   let walletDebited = false;
   let finalStatus = outcome.item_status;
   let paidAt: string | null = null;
+  let finalProviderState = providerState;
 
   if (
     !outcome.release_reservation
@@ -767,6 +893,24 @@ Deno.serve(async (req) => {
       finalStatus = "COMPLETED";
       paidAt = new Date().toISOString();
     }
+  } else if (
+    !outcome.release_reservation
+    && providerPaymentId
+    && String(providerState ?? "").toLowerCase() !== "completed"
+    && (outcome.execution_status === "SUBMITTED" || outcome.execution_status === "UNKNOWN")
+  ) {
+    // Immediate read-only status sync — never second /pay.
+    const reconciled = await reconcileSubmittedDriverWithdrawPayout({
+      supabase,
+      payoutItemId,
+      expectedDriverId: driverId,
+    });
+    finalProviderState = reconciled.provider_state ?? providerState;
+    if (reconciled.financially_applied) {
+      walletDebited = true;
+      finalStatus = "COMPLETED";
+      paidAt = new Date().toISOString();
+    }
   }
 
   const ok = outcome.execution_status === "SUBMITTED"
@@ -778,6 +922,8 @@ Deno.serve(async (req) => {
     cashout: projectCashout({
       payoutItemId,
       amountPence,
+      feePence,
+      receivesPence: providerTransferPence,
       status: finalStatus,
       paidAt,
       failedAt: outcome.release_reservation ? new Date().toISOString() : null,
@@ -788,11 +934,13 @@ Deno.serve(async (req) => {
     payout_item_id: payoutItemId,
     provider_payment_id: providerPaymentId,
     provider_payment_id_masked: maskProviderId(providerPaymentId),
-    provider_state: providerState,
+    provider_state: finalProviderState,
     provider_request_id: validated.normalized.provider_request_id,
     execution_status: outcome.execution_status,
-    reservation_active: outcome.keep_reservation_active,
+    reservation_active: outcome.keep_reservation_active && !walletDebited,
     wallet_debited: walletDebited,
+    withdrawal_fee_pence: feePence,
+    provider_transfer_pence: providerTransferPence,
     revolut_pay_called: relayResult.revolut_pay_called === true,
   }, ok ? 200 : 422);
 });
