@@ -27,7 +27,8 @@ interface ScheduleCheckResult {
  */
 export function checkOfferSchedule(
   config: OfferScheduleConfig | null,
-  timezone: string
+  timezone: string,
+  now: Date = new Date(),
 ): ScheduleCheckResult {
   // No config or feature disabled
   if (!config || !config.is_enabled) {
@@ -39,12 +40,11 @@ export function checkOfferSchedule(
     return { offersEnabled: true, offersAllowedNow: true };
   }
 
-  // Get current time in service area timezone
-  const now = new Date();
-  
+  const tz = timezone && timezone.trim().length > 0 ? timezone : "UTC";
+
   // Get day of week in target timezone (JS: 0=Sun, we need 1=Mon..7=Sun)
   const dayFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
+    timeZone: tz,
     weekday: 'short',
   });
   const weekdayStr = dayFormatter.format(now);
@@ -63,7 +63,7 @@ export function checkOfferSchedule(
 
   // Get current HH:mm in timezone
   const timeFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
+    timeZone: tz,
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,

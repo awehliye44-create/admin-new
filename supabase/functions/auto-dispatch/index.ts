@@ -57,10 +57,12 @@ import {
   rideOfferPushBodyDriverNet,
 } from "../_shared/driverOfferPushCopy.ts";
 import { DRIVER_NEW_RIDE_OFFER_TITLE } from "../_shared/negotiationPushCopy.ts";
+import { deriveOfferOptionsPence } from "../_shared/presetOptionsCanonical.ts";
 import {
-  buildPresetOptionsFromAdminOffers,
-  deriveOfferOptionsPence,
-} from "../_shared/presetOptionsCanonical.ts";
+  isScheduledTripIneligibleForPresetNegotiation,
+  presetNegotiationSnapshotFields,
+  resolvePresetNegotiation,
+} from "../_shared/presetNegotiationEligibility.ts";
 import { resolveNegotiationBaseFarePence } from "../_shared/negotiationBaseFare.ts";
 import { tripFareFieldsForOfferSnapshot } from "../_shared/tripFareSnapshot.ts";
 import {
@@ -220,26 +222,6 @@ function isExplicitOfflineReason(reason: string | null | undefined): boolean {
   ].includes(normalized);
 }
 
-// Compute offer pence for one preset entry
-function computePresetFare(baseFarePence: number, preset: any, caps: any): number {
-  let fare: number;
-  if (preset.type === "PERCENT" || preset.percent != null) {
-    fare = baseFarePence + Math.round(baseFarePence * (preset.percent ?? preset.value) / 100);
-  } else {
-    fare = baseFarePence + (preset.fixedPence ?? preset.value ?? 0);
-  }
-  if (caps?.maxIncreasePercent != null) {
-    const maxByPct = baseFarePence + Math.round(baseFarePence * caps.maxIncreasePercent / 100);
-    fare = Math.min(fare, maxByPct);
-  }
-  if (caps?.maxIncreaseFixedPence != null) {
-    fare = Math.min(fare, baseFarePence + caps.maxIncreaseFixedPence);
-  }
-  if (caps?.minFinalFarePence != null) fare = Math.max(fare, caps.minFinalFarePence);
-  if (caps?.maxFinalFarePence != null) fare = Math.min(fare, caps.maxFinalFarePence);
-  return fare;
-}
-
 async function resolveEffectiveVehicleTypeId(
   supabase: any,
   trip: { id: string; vehicle_type_id?: string | null; vehicle_type?: string | null }
@@ -305,63 +287,6 @@ function isWithinSchedule(timezone: string, windows: any[]): boolean {
   } catch {
     return true;
   }
-}
-
-/**
- * Schedule gate for `preset_offer_configs` rows.
- * `schedule_days` uses JS-style day numbers (0=Sun â¦ 6=Sat).
- * `schedule_start_time` / `schedule_end_time` are "HH:MM" strings in UTC.
- */
-function isWithinPresetConfigSchedule(config: {
-  schedule_days: number[];
-  schedule_start_time: string;
-  schedule_end_time: string;
-}): boolean {
-  try {
-    const now = new Date();
-    const day = now.getUTCDay();
-    if (!config.schedule_days.includes(day)) return false;
-    const hhmm =
-      String(now.getUTCHours()).padStart(2, "0") +
-      ":" +
-      String(now.getUTCMinutes()).padStart(2, "0");
-    return hhmm >= config.schedule_start_time && hhmm <= config.schedule_end_time;
-  } catch {
-    return true;
-  }
-}
-
-/**
- * Compute a single offer gross fare from a `preset_offers` row.
- * Supported price_mode values:
- *   "fixed_amount" â add fixed_amount_pence (increment) to baseFarePence
- *   "fixed"        â fixed_amount_pence IS the absolute total fare
- *   "multiplier" / "percentage" / "percent" â baseFarePence * multiplier
- */
-function computePresetOfferFare(
-  baseFarePence: number,
-  offer: { fixed_amount_pence: number | null; multiplier: number | null },
-  priceMode: string,
-): number | null {
-  if (priceMode === "fixed_amount" && offer.fixed_amount_pence != null) {
-    return baseFarePence + offer.fixed_amount_pence;
-  }
-  if (priceMode === "fixed" && offer.fixed_amount_pence != null) {
-    // Admin Preset Fare Offers UI uses price_mode "fixed" for per-option increments
-    // (e.g. +50p on Â£7.84), not absolute total fares.
-    if (offer.fixed_amount_pence < baseFarePence) {
-      return baseFarePence + offer.fixed_amount_pence;
-    }
-    return offer.fixed_amount_pence;
-  }
-  if (
-    (priceMode === "multiplier" || priceMode === "percentage" || priceMode === "percent") &&
-    offer.multiplier != null
-  ) {
-    return Math.round(baseFarePence * offer.multiplier);
-  }
-  if (offer.fixed_amount_pence != null) return baseFarePence + offer.fixed_amount_pence;
-  return null;
 }
 
 Deno.serve(async (req) => {
@@ -2270,8 +2195,8 @@ Deno.serve(async (req) => {
     } // end !enrichExistingOffersMode (driver search)
 
     // 7. Create offers for each driver
-    const offerExpirySeconds = offerExpirySecondsResolved;
-    const expiresAt = new Date(Date.now() + offerExpirySeconds * 1000).toISOString();
+    let offerExpirySeconds = offerExpirySecondsResolved;
+    let expiresAt = new Date(Date.now() + offerExpirySeconds * 1000).toISOString();
     const dispatchSnapshotFields = {
       ...dispatchOfferSnapshotFields(dispatchSettings as Record<string, unknown>, currentRound),
       dispatch_source: "auto_dispatch",
@@ -2283,25 +2208,15 @@ Deno.serve(async (req) => {
       effective_commission_percent: waveCommission.effectivePercent,
     };
 
-    // 7a. Preset Fare Offers â admin preset_offer_configs ONLY (no legacy fallbacks).
+    // 7a. Preset Fare Offers — Admin config + SSOT eligibility (no hardcoded chips).
     let offerOptions: number[] | null = null;
     let offerSnapshot: Record<string, unknown> | null = null;
 
     const isScanAndGo = trip.dispatch_mode === "scan_and_go";
-    const isScheduledTrip =
-      !!trip.is_scheduled ||
-      trip.dispatch_mode === "scheduled" ||
-      trip.trip_type === "scheduled";
+    const isScheduledTrip = isScheduledTripIneligibleForPresetNegotiation(trip);
     const isCustomZoneTrip = !!(trip.pickup_zone_id || trip.dropoff_zone_id);
     const isCorporateTrip = !!trip.corporate_account_id;
     const negotiationDisabledForTrip = !!(trip as { negotiation_disabled?: boolean }).negotiation_disabled;
-
-    const isPresetEligibleRide =
-      !negotiationDisabledForTrip &&
-      !isScheduledTrip &&
-      !isScanAndGo &&
-      !isCustomZoneTrip &&
-      !isCorporateTrip;
 
     const baseFarePence = resolveNegotiationBaseFarePence(trip);
     const tripFareSnapshotFields = tripFareFieldsForOfferSnapshot(
@@ -2309,9 +2224,7 @@ Deno.serve(async (req) => {
     );
 
     let presetEligibilityResult: string = negotiationDisabledForTrip
-      ? "negotiation_disabled_per_ride"
-      : isPresetEligibleRide
-      ? "eligible"
+      ? "negotiation_disabled"
       : isScheduledTrip
       ? "ineligible_scheduled"
       : isScanAndGo
@@ -2320,7 +2233,14 @@ Deno.serve(async (req) => {
       ? "ineligible_custom_zone"
       : isCorporateTrip
       ? "ineligible_corporate"
-      : "ineligible";
+      : "pending";
+
+    const mayAttachPresets =
+      !negotiationDisabledForTrip &&
+      !isScheduledTrip &&
+      !isScanAndGo &&
+      !isCustomZoneTrip &&
+      !isCorporateTrip;
 
     console.log("[auto-dispatch] Preset eligibility:", {
       ride_id: trip_id,
@@ -2332,14 +2252,24 @@ Deno.serve(async (req) => {
       base_fare_pence: baseFarePence,
     });
 
-    if (trip.service_area_id && isPresetEligibleRide) {
-      const { data: presetConfig, error: presetConfigError } = await supabase
-        .from("preset_offer_configs")
-        .select("*, preset_offers(*)")
-        .eq("service_area_id", trip.service_area_id)
-        .eq("is_enabled", true)
-        .maybeSingle();
+    if (trip.service_area_id && mayAttachPresets) {
+      const [{ data: presetConfig, error: presetConfigError }, { data: saRow }] = await Promise.all([
+        supabase
+          .from("preset_offer_configs")
+          .select("*, preset_offers(*)")
+          .eq("service_area_id", trip.service_area_id)
+          .maybeSingle(),
+        supabase
+          .from("service_areas")
+          .select("timezone, region:regions(timezone)")
+          .eq("id", trip.service_area_id)
+          .maybeSingle(),
+      ]);
 
+      const timezone =
+        (saRow as { region?: { timezone?: string } } | null)?.region?.timezone
+        || saRow?.timezone
+        || "UTC";
       const nestedOffers = ((presetConfig?.preset_offers as unknown[]) ?? []);
 
       console.log("PRESET_CONFIG_QUERY", {
@@ -2348,85 +2278,68 @@ Deno.serve(async (req) => {
         config_found: !!presetConfig,
         config_enabled: presetConfig?.is_enabled ?? false,
         query_error: presetConfigError?.message ?? null,
-        active_preset_offers_count: nestedOffers.filter(
-          (o: { is_active?: boolean }) => o.is_active,
+        active_preset_offers_count: (nestedOffers as Array<{ is_active?: boolean }>).filter(
+          (o) => o.is_active,
         ).length,
         price_mode: presetConfig?.price_mode ?? null,
+        timezone,
       });
 
       if (presetConfigError) {
         console.warn("[auto-dispatch] preset_offer_configs query error:", presetConfigError.message);
         presetEligibilityResult = "config_query_error";
-      } else if (!presetConfig) {
-        presetEligibilityResult = "no_enabled_config_for_service_area";
       } else {
-        let withinSchedule = true;
-        if (presetConfig.schedule_enabled) {
-          withinSchedule = isWithinPresetConfigSchedule({
-            schedule_days: presetConfig.schedule_days ?? [],
-            schedule_start_time: presetConfig.schedule_start_time ?? "00:00",
-            schedule_end_time: presetConfig.schedule_end_time ?? "23:59",
-          });
-        }
-
-        if (!withinSchedule) {
-          presetEligibilityResult = "outside_schedule";
-        } else {
-          const activeOffers = nestedOffers
-            .filter((o: { is_active?: boolean }) => o.is_active)
-            .sort(
-              (a: { display_order?: number }, b: { display_order?: number }) =>
-                (a.display_order ?? 0) - (b.display_order ?? 0),
-            );
-
-          const priceMode: string = presetConfig.price_mode ?? "fixed_amount";
-
-          type ComputedOffer = { pence: number; offer: Record<string, unknown> };
-          const computed: ComputedOffer[] = activeOffers
-            .map((o: Record<string, unknown>): ComputedOffer | null => {
-              const pence = computePresetOfferFare(
-                baseFarePence,
-                o as { fixed_amount_pence: number | null; multiplier: number | null },
-                priceMode,
-              );
-              return pence != null && pence > 0 ? { pence, offer: o } : null;
-            })
-            .filter((v): v is ComputedOffer => v !== null);
-
-          const seen = new Set<number>();
-          const deduped = computed.filter((c) => {
-            if (seen.has(c.pence)) return false;
-            seen.add(c.pence);
-            return true;
-          });
-
-          if (deduped.length < 3) {
-            presetEligibilityResult = `insufficient_unique_options_${deduped.length}`;
-          } else {
-            const top3 = deduped.slice(0, 3);
-            const presetOptions = buildPresetOptionsFromAdminOffers(
+        const resolved = resolvePresetNegotiation({
+          trip,
+          serviceAreaId: trip.service_area_id,
+          baseFarePence,
+          config: presetConfig
+            ? {
+                is_enabled: presetConfig.is_enabled,
+                schedule_enabled: presetConfig.schedule_enabled,
+                schedule_days: presetConfig.schedule_days ?? [],
+                schedule_start_time: presetConfig.schedule_start_time ?? "00:00",
+                schedule_end_time: presetConfig.schedule_end_time ?? "23:59",
+                price_mode: presetConfig.price_mode,
+                countdown_seconds: presetConfig.countdown_seconds,
+                countdown_enabled: presetConfig.countdown_enabled,
+              }
+            : null,
+          offers: nestedOffers as Array<{
+            offer_key?: string | null;
+            label?: string | null;
+            fixed_amount_pence?: number | null;
+            multiplier?: number | null;
+            color?: string | null;
+            display_order?: number | null;
+            is_active?: boolean | null;
+          }>,
+          timezone,
+        });
+        presetEligibilityResult = resolved.reason;
+        if (resolved.ok) {
+          offerOptions = deriveOfferOptionsPence(resolved.presetOptions);
+          offerSnapshot = {
+            ...tripFareSnapshotFields,
+            ...presetNegotiationSnapshotFields({
               baseFarePence,
-              top3.map((c) => c.offer as Record<string, unknown>),
-              priceMode,
-            );
-            offerOptions = deriveOfferOptionsPence(presetOptions);
-
-            offerSnapshot = {
-              baseFarePence,
-              ...tripFareSnapshotFields,
-              preset_options: presetOptions,
-              presetCountdownSeconds: presetConfig.countdown_seconds ?? 40,
-              ...dispatchSnapshotFields,
-            };
-            presetEligibilityResult = "attached";
+              presetOptions: resolved.presetOptions,
+              countdownSeconds: resolved.countdownSeconds,
+            }),
+            ...dispatchSnapshotFields,
+          };
+          if (resolved.countdownSeconds != null) {
+            const remaining = Math.max(1, offerExpirySecondsResolved);
+            offerExpirySeconds = Math.min(resolved.countdownSeconds, remaining);
+            expiresAt = new Date(Date.now() + offerExpirySeconds * 1000).toISOString();
           }
         }
       }
     } else if (!trip.service_area_id) {
-      presetEligibilityResult = "missing_service_area_id";
+      presetEligibilityResult = "missing_service_area";
     }
 
-    if (negotiationDisabledForTrip) {
+    if (negotiationDisabledForTrip || isScheduledTrip) {
       offerOptions = null;
       offerSnapshot = {
         baseFarePence,
@@ -2435,13 +2348,16 @@ Deno.serve(async (req) => {
         negotiationDisabled: true,
         negotiationAllowed: false,
         rebroadcastStandardOnly: true,
+        presets_enabled: false,
+        countdown_auto_select: false,
         preset_options: [],
-        fareSource:
-          (trip as { fare_snapshot_json?: { fare_source?: string } }).fare_snapshot_json?.fare_source
-          ?? "rebroadcast_standard",
+        fareSource: isScheduledTrip
+          ? "scheduled_standard"
+          : ((trip as { fare_snapshot_json?: { fare_source?: string } }).fare_snapshot_json?.fare_source
+            ?? "rebroadcast_standard"),
         ...dispatchSnapshotFields,
       };
-      presetEligibilityResult = "negotiation_disabled_per_ride";
+      if (isScheduledTrip) presetEligibilityResult = "ineligible_scheduled";
     }
 
     console.log("PRESET_COMPUTED", {
@@ -2540,6 +2456,8 @@ Deno.serve(async (req) => {
             negotiationLocked: true,
             negotiationDisabled: true,
             negotiationAllowed: false,
+            presets_enabled: false,
+            countdown_auto_select: false,
             preset_options: [],
             fareSource: "stacked_ride",
             ...dispatchSnapshotFields,
@@ -2559,6 +2477,8 @@ Deno.serve(async (req) => {
                 negotiationDisabled: true,
                 negotiationAllowed: false,
                 rebroadcastStandardOnly: true,
+                presets_enabled: false,
+                countdown_auto_select: false,
                 preset_options: [],
                 fareSource:
                   (trip as { fare_snapshot_json?: { fare_source?: string } }).fare_snapshot_json?.fare_source
@@ -2658,7 +2578,7 @@ Deno.serve(async (req) => {
 
     // Stamp preset_options on offers when edge dispatch skipped them (SQL-only path / race).
     if (
-      isPresetEligibleRide
+      mayAttachPresets
       && presetEligibilityResult !== "attached"
       && createdOffers?.length
     ) {

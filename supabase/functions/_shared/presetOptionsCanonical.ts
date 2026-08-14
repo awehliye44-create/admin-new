@@ -1,5 +1,5 @@
 /**
- * Canonical preset fare chips â Admin Preset Fare Offers (preset_offers) only.
+ * Canonical preset fare chips — Admin Preset Fare Offers (preset_offers) only.
  * Written to ride_offers.offer_snapshot.preset_options at dispatch; read by driver + customer apps.
  */
 
@@ -27,27 +27,41 @@ export type AdminPresetOfferRow = {
   is_active?: boolean | null;
 };
 
+/** Exactly 3 Admin-configured preset slots. Never invent chip amounts. */
+export const PRESET_SLOT_COUNT = 3;
+/** @deprecated Use PRESET_SLOT_COUNT — kept for existing readers. */
+export const MIN_PRESET_OPTIONS = PRESET_SLOT_COUNT;
+
+export const PRESET_SLOT_KEYS = ["offer_1", "offer_2", "offer_3"] as const;
+
+/**
+ * Canonical fare math (pence, integer round).
+ * - multiplier / percentage / percent: round(base * multiplier). Admin 100% → 1.0 × original.
+ * - fixed / fixed_amount: original + adjustment pence. Admin 50 → +£0.50.
+ */
 export function computePresetOfferFarePence(
   baseFarePence: number,
   offer: { fixed_amount_pence: number | null; multiplier: number | null },
   priceMode: string,
 ): number | null {
-  if (priceMode === "fixed_amount" && offer.fixed_amount_pence != null) {
-    return baseFarePence + offer.fixed_amount_pence;
-  }
-  if (priceMode === "fixed" && offer.fixed_amount_pence != null) {
-    if (offer.fixed_amount_pence < baseFarePence) {
-      return baseFarePence + offer.fixed_amount_pence;
+  if (!Number.isFinite(baseFarePence) || baseFarePence <= 0) return null;
+  const mode = (priceMode ?? "").trim().toLowerCase();
+
+  if (mode === "fixed_amount" || mode === "fixed") {
+    if (offer.fixed_amount_pence == null || !Number.isFinite(offer.fixed_amount_pence)) {
+      return null;
     }
-    return offer.fixed_amount_pence;
+    return baseFarePence + Math.round(offer.fixed_amount_pence);
   }
-  if (
-    (priceMode === "multiplier" || priceMode === "percentage" || priceMode === "percent") &&
-    offer.multiplier != null
-  ) {
+
+  if (mode === "multiplier" || mode === "percentage" || mode === "percent") {
+    if (offer.multiplier == null || !Number.isFinite(offer.multiplier)) return null;
     return Math.round(baseFarePence * offer.multiplier);
   }
-  if (offer.fixed_amount_pence != null) return baseFarePence + offer.fixed_amount_pence;
+
+  if (offer.fixed_amount_pence != null && Number.isFinite(offer.fixed_amount_pence)) {
+    return baseFarePence + Math.round(offer.fixed_amount_pence);
+  }
   return null;
 }
 
@@ -67,7 +81,11 @@ function configuredAmountFromRow(
   return null;
 }
 
-/** Build up to 3 unique preset_options from admin preset_offers rows. */
+/**
+ * Build exactly 3 preset chips from the canonical first 3 active Admin slots
+ * (display_order). Does not skip to later rows if a slot is invalid or duplicate.
+ * Returns [] unless all 3 slots compute unique positive fares.
+ */
 export function buildPresetOptionsFromAdminOffers(
   baseFarePence: number,
   offers: AdminPresetOfferRow[],
@@ -75,47 +93,47 @@ export function buildPresetOptionsFromAdminOffers(
 ): PresetOptionCanonical[] {
   if (baseFarePence <= 0) return [];
 
-  const normalizedMode = priceMode === "fixed" ? "fixed_amount" : priceMode;
-  const active = offers
-    .filter((o) => o.is_active !== false)
-    .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));
+  const slots = [...offers]
+    .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0))
+    .slice(0, PRESET_SLOT_COUNT);
+
+  if (slots.length !== PRESET_SLOT_COUNT) return [];
+  if (slots.some((o) => o.is_active === false)) return [];
 
   const result: PresetOptionCanonical[] = [];
   const seenPence = new Set<number>();
 
-  for (let i = 0; i < active.length; i++) {
-    const row = active[i];
+  for (let i = 0; i < slots.length; i++) {
+    const row = slots[i];
     const pence = computePresetOfferFarePence(
       baseFarePence,
       {
         fixed_amount_pence: row.fixed_amount_pence ?? null,
         multiplier: row.multiplier ?? null,
       },
-      normalizedMode,
+      priceMode,
     );
-    if (pence == null || pence <= 0 || seenPence.has(pence)) continue;
+    if (pence == null || pence <= 0 || seenPence.has(pence)) return [];
     seenPence.add(pence);
 
     const key =
       typeof row.offer_key === "string" && row.offer_key.trim().length > 0
         ? row.offer_key.trim()
-        : `P${result.length + 1}`;
+        : PRESET_SLOT_KEYS[i];
 
     result.push({
       key,
       label: row.label ?? null,
       grossFare: Math.round((pence / 100) * 100) / 100,
       grossFarePence: pence,
-      configuredAmount: configuredAmountFromRow(row, normalizedMode),
+      configuredAmount: configuredAmountFromRow(row, priceMode),
       color: row.color ?? null,
-      order: row.display_order ?? i,
+      order: i,
       enabled: true,
     });
-
-    if (result.length >= 3) break;
   }
 
-  return result.sort((a, b) => a.order - b.order);
+  return result;
 }
 
 export function deriveOfferOptionsPence(options: PresetOptionCanonical[]): number[] {
@@ -159,9 +177,6 @@ function configuredAmountPenceFromRaw(o: Record<string, unknown>): number | null
   }
   return null;
 }
-
-/** Minimum unique presets required before chips / negotiation UI. */
-export const MIN_PRESET_OPTIONS = 3;
 
 function mapRawPresetOptionRows(raw: unknown[]): PresetOptionCanonical[] {
   const mapped: PresetOptionCanonical[] = [];
@@ -212,7 +227,7 @@ function mapRawPresetOptionRows(raw: unknown[]): PresetOptionCanonical[] {
   return mapped
     .filter((o) => o.enabled)
     .sort((a, b) => a.order - b.order)
-    .slice(0, 3);
+    .slice(0, PRESET_SLOT_COUNT);
 }
 
 /** Normalize snapshot / row preset_options (SSOT for UI). */

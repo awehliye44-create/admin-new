@@ -17,11 +17,9 @@
  *   reason?: string,                // when offers_allowed_now=false
  *   config: {
  *     price_mode: 'fixed' | 'multiplier',
- *     default_selected_offer_id: string | null,
  *     countdown_enabled: boolean,
  *     countdown_seconds: number,
- *     countdown_auto_select: boolean,
- *     countdown_auto_select_offer_id: string | null,
+ *     countdown_auto_select: false,  // legacy auto-accept is disabled
  *   } | null,
  *   offers: Array<{
  *     id: string,
@@ -39,6 +37,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkOfferSchedule } from "../_shared/offerSchedule.ts";
+import {
+  isScheduledTripIneligibleForPresetNegotiation,
+  tripConsumedNegotiationChance,
+} from "../_shared/presetNegotiationEligibility.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,14 +70,25 @@ serve(async (req) => {
       trip_id?: string;
     };
 
-    // Resolve service_area_id from trip_id when not provided
-    if (!service_area_id && trip_id) {
+    let tripRow: {
+      service_area_id?: string | null;
+      is_scheduled?: boolean | null;
+      dispatch_mode?: string | null;
+      trip_type?: string | null;
+      negotiation_disabled?: boolean | null;
+      negotiation_status?: string | null;
+    } | null = null;
+
+    if (trip_id) {
       const { data: trip } = await supabase
         .from("trips")
-        .select("service_area_id")
+        .select("service_area_id, is_scheduled, dispatch_mode, trip_type, negotiation_disabled, negotiation_status")
         .eq("id", trip_id)
         .maybeSingle();
-      service_area_id = trip?.service_area_id ?? undefined;
+      tripRow = trip;
+      if (!service_area_id) {
+        service_area_id = trip?.service_area_id ?? undefined;
+      }
     }
 
     if (!service_area_id) {
@@ -112,6 +125,38 @@ serve(async (req) => {
     // Schedule check (master toggle + day/time window)
     const scheduleCheck = checkOfferSchedule(configRow as any, timezone);
 
+    if (tripRow && isScheduledTripIneligibleForPresetNegotiation(tripRow)) {
+      return json({
+        ok: true,
+        offers_enabled: scheduleCheck.offersEnabled,
+        offers_allowed_now: false,
+        reason: "INELIGIBLE_SCHEDULED",
+        config: {
+          price_mode: configRow.price_mode,
+          countdown_enabled: configRow.countdown_enabled,
+          countdown_seconds: configRow.countdown_seconds,
+          countdown_auto_select: false,
+        },
+        offers: [],
+      });
+    }
+
+    if (tripRow && tripConsumedNegotiationChance(tripRow)) {
+      return json({
+        ok: true,
+        offers_enabled: scheduleCheck.offersEnabled,
+        offers_allowed_now: false,
+        reason: "NEGOTIATION_DISABLED",
+        config: {
+          price_mode: configRow.price_mode,
+          countdown_enabled: configRow.countdown_enabled,
+          countdown_seconds: configRow.countdown_seconds,
+          countdown_auto_select: false,
+        },
+        offers: [],
+      });
+    }
+
     // Always include offers list when configured so the Driver App can render
     // the buttons even if temporarily out-of-schedule (UI hides per offers_allowed_now).
     const { data: offersData } = await supabase
@@ -119,7 +164,8 @@ serve(async (req) => {
       .select("id, offer_key, label, description, multiplier, fixed_amount_pence, icon, color, display_order")
       .eq("config_id", configRow.id)
       .eq("is_active", true)
-      .order("display_order", { ascending: true });
+      .order("display_order", { ascending: true })
+      .limit(3);
 
     return json({
       ok: true,
@@ -128,11 +174,9 @@ serve(async (req) => {
       reason: scheduleCheck.reason,
       config: {
         price_mode: configRow.price_mode,
-        default_selected_offer_id: configRow.default_selected_offer_id,
         countdown_enabled: configRow.countdown_enabled,
         countdown_seconds: configRow.countdown_seconds,
-        countdown_auto_select: configRow.countdown_auto_select,
-        countdown_auto_select_offer_id: configRow.countdown_auto_select_offer_id,
+        countdown_auto_select: false,
       },
       offers: offersData ?? [],
     });

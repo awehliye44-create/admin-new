@@ -14,8 +14,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2, Plus, Trash2, Tag, Timer, Sparkles, Calendar, Clock } from 'lucide-react';
+import { Loader2, Timer, Sparkles, Calendar, Clock } from 'lucide-react';
 import { toast } from 'sonner';
+
+const PRESET_SLOT_COUNT = 3;
+const SLOT_KEYS = ['offer_1', 'offer_2', 'offer_3'] as const;
+const SLOT_TITLES = ['Preset 1', 'Preset 2', 'Preset 3'] as const;
 
 interface PresetOffer {
   id?: string;
@@ -32,7 +36,7 @@ interface PresetOffer {
 
 interface OfferSchedule {
   enabled: boolean;
-  days: number[]; // 1=Mon..7=Sun
+  days: number[];
   startLocalHHmm: string;
   endLocalHHmm: string;
 }
@@ -41,11 +45,8 @@ interface PresetConfig {
   id?: string;
   is_enabled: boolean;
   price_mode: 'multiplier' | 'fixed';
-  default_selected_offer_id: string;
   countdown_enabled: boolean;
   countdown_seconds: number;
-  countdown_auto_select: boolean;
-  countdown_auto_select_offer_id: string;
   schedule: OfferSchedule;
 }
 
@@ -59,50 +60,37 @@ const DAY_LABELS = [
   { value: 7, label: 'Sun' },
 ];
 
-const DEFAULT_OFFERS: PresetOffer[] = [
-  {
-    offer_key: 'offer_1',
-    label: 'Offer 1',
+const SLOT_COLORS = ['#22C55E', '#3B82F6', '#F59E0B'] as const;
+
+function emptySlot(index: number): PresetOffer {
+  return {
+    offer_key: SLOT_KEYS[index],
+    label: SLOT_TITLES[index],
     description: '',
     multiplier: 1.0,
     fixed_amount_pence: 0,
     icon: 'tag',
-    color: '#22C55E',
-    display_order: 0,
+    color: SLOT_COLORS[index],
+    display_order: index,
     is_active: true,
-  },
-  {
-    offer_key: 'offer_2',
-    label: 'Offer 2',
-    description: '',
-    multiplier: 1.0,
-    fixed_amount_pence: 0,
-    icon: 'sparkles',
-    color: '#3B82F6',
-    display_order: 1,
-    is_active: true,
-  },
-  {
-    offer_key: 'offer_3',
-    label: 'Offer 3',
-    description: '',
-    multiplier: 1.0,
-    fixed_amount_pence: 0,
-    icon: 'zap',
-    color: '#F59E0B',
-    display_order: 2,
-    is_active: true,
-  },
-];
+  };
+}
+
+function padToThreeSlots(rows: PresetOffer[]): PresetOffer[] {
+  const ordered = [...rows].sort((a, b) => a.display_order - b.display_order);
+  const slots: PresetOffer[] = [];
+  for (let i = 0; i < PRESET_SLOT_COUNT; i++) {
+    const existing = ordered[i];
+    slots.push(existing ? { ...existing, display_order: i } : emptySlot(i));
+  }
+  return slots;
+}
 
 const DEFAULT_CONFIG: PresetConfig = {
   is_enabled: false,
   price_mode: 'multiplier',
-  default_selected_offer_id: 'offer_2',
   countdown_enabled: false,
   countdown_seconds: 30,
-  countdown_auto_select: false,
-  countdown_auto_select_offer_id: 'offer_2',
   schedule: {
     enabled: false,
     days: [1, 2, 3, 4, 5, 6, 7],
@@ -118,7 +106,8 @@ interface PresetOffersConfigProps {
 
 export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffersConfigProps) {
   const [config, setConfig] = useState<PresetConfig>(DEFAULT_CONFIG);
-  const [offers, setOffers] = useState<PresetOffer[]>([]);
+  const [offers, setOffers] = useState<PresetOffer[]>(() => padToThreeSlots([]));
+  const [legacyExcessCount, setLegacyExcessCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
@@ -133,20 +122,18 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
         .maybeSingle();
 
       if (configData) {
+        const seconds = Number(configData.countdown_seconds);
         setConfig({
           id: configData.id,
           is_enabled: configData.is_enabled,
-          price_mode: configData.price_mode as 'multiplier' | 'fixed',
-          default_selected_offer_id: configData.default_selected_offer_id || 'recommended',
+          price_mode: configData.price_mode === 'fixed' ? 'fixed' : 'multiplier',
           countdown_enabled: configData.countdown_enabled,
-          countdown_seconds: configData.countdown_seconds,
-          countdown_auto_select: configData.countdown_auto_select,
-          countdown_auto_select_offer_id: configData.countdown_auto_select_offer_id || 'recommended',
+          countdown_seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : 30,
           schedule: {
-            enabled: (configData as any).schedule_enabled ?? false,
-            days: (configData as any).schedule_days ?? [1, 2, 3, 4, 5, 6, 7],
-            startLocalHHmm: (configData as any).schedule_start_time ?? '08:00',
-            endLocalHHmm: (configData as any).schedule_end_time ?? '22:00',
+            enabled: (configData as { schedule_enabled?: boolean }).schedule_enabled ?? false,
+            days: (configData as { schedule_days?: number[] }).schedule_days ?? [1, 2, 3, 4, 5, 6, 7],
+            startLocalHHmm: (configData as { schedule_start_time?: string }).schedule_start_time ?? '08:00',
+            endLocalHHmm: (configData as { schedule_end_time?: string }).schedule_end_time ?? '22:00',
           },
         });
 
@@ -156,25 +143,24 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
           .eq('config_id', configData.id)
           .order('display_order');
 
-        if (offersData && offersData.length > 0) {
-          setOffers(offersData.map(o => ({
-            id: o.id,
-            offer_key: o.offer_key,
-            label: o.label,
-            description: o.description || '',
-            multiplier: Number(o.multiplier),
-            fixed_amount_pence: o.fixed_amount_pence || 0,
-            icon: o.icon || 'tag',
-            color: o.color || '#3B82F6',
-            display_order: o.display_order,
-            is_active: o.is_active,
-          })));
-        } else {
-          setOffers(DEFAULT_OFFERS);
-        }
+        const mapped = (offersData ?? []).map((o) => ({
+          id: o.id,
+          offer_key: o.offer_key,
+          label: o.label,
+          description: o.description || '',
+          multiplier: Number(o.multiplier),
+          fixed_amount_pence: o.fixed_amount_pence || 0,
+          icon: o.icon || 'tag',
+          color: o.color || '#3B82F6',
+          display_order: o.display_order,
+          is_active: o.is_active,
+        }));
+        setLegacyExcessCount(Math.max(0, mapped.length - PRESET_SLOT_COUNT));
+        setOffers(padToThreeSlots(mapped));
       } else {
         setConfig(DEFAULT_CONFIG);
-        setOffers(DEFAULT_OFFERS);
+        setOffers(padToThreeSlots([]));
+        setLegacyExcessCount(0);
       }
     } catch (err) {
       console.error('Error loading preset offers:', err);
@@ -187,13 +173,21 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
     loadData();
   }, [loadData]);
 
-  const updateConfig = (field: keyof PresetConfig, value: any) => {
-    setConfig(prev => ({ ...prev, [field]: value }));
+  const updateConfig = (field: keyof PresetConfig, value: unknown) => {
+    setConfig((prev) => ({ ...prev, [field]: value }));
     setHasChanges(true);
   };
 
-  const updateOffer = (index: number, field: keyof PresetOffer, value: any) => {
-    setOffers(prev => {
+  const updateSchedule = (patch: Partial<OfferSchedule>) => {
+    setConfig((prev) => ({
+      ...prev,
+      schedule: { ...prev.schedule, ...patch },
+    }));
+    setHasChanges(true);
+  };
+
+  const updateOffer = (index: number, field: keyof PresetOffer, value: unknown) => {
+    setOffers((prev) => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
       return updated;
@@ -201,123 +195,124 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
     setHasChanges(true);
   };
 
-  const addOffer = () => {
-    const newOrder = offers.length;
-    setOffers(prev => [...prev, {
-      offer_key: `custom_${Date.now()}`,
-      label: 'New Offer',
-      description: '',
-      multiplier: 1.0,
-      fixed_amount_pence: 0,
-      icon: 'tag',
-      color: '#6B7280',
-      display_order: newOrder,
-      is_active: true,
-    }]);
-    setHasChanges(true);
-  };
-
-  const removeOffer = (index: number) => {
-    if (offers.length <= 1) {
-      toast.error('You need at least one offer');
+  const handleSave = async () => {
+    const slots = padToThreeSlots(offers);
+    if (slots.length !== PRESET_SLOT_COUNT) {
+      toast.error('Exactly 3 preset slots are required');
       return;
     }
-    setOffers(prev => prev.filter((_, i) => i !== index));
-    setHasChanges(true);
-  };
 
-  const handleSave = async () => {
     setIsSaving(true);
     try {
       let configId = config.id;
 
-      // Upsert config
+      const configPayload = {
+        is_enabled: config.is_enabled,
+        price_mode: config.price_mode,
+        countdown_enabled: config.countdown_enabled,
+        countdown_seconds: Math.min(120, Math.max(5, Math.round(Number(config.countdown_seconds) || 30))),
+        countdown_auto_select: false,
+        schedule_enabled: config.schedule.enabled,
+        schedule_days: config.schedule.days,
+        schedule_start_time: config.schedule.startLocalHHmm,
+        schedule_end_time: config.schedule.endLocalHHmm,
+      };
+
       if (configId) {
-        await supabase
+        const { error } = await supabase
           .from('preset_offer_configs')
-          .update({
-            is_enabled: config.is_enabled,
-            price_mode: config.price_mode,
-            default_selected_offer_id: config.default_selected_offer_id,
-            countdown_enabled: config.countdown_enabled,
-            countdown_seconds: config.countdown_seconds,
-            countdown_auto_select: config.countdown_auto_select,
-            countdown_auto_select_offer_id: config.countdown_auto_select_offer_id,
-            schedule_enabled: config.schedule.enabled,
-            schedule_days: config.schedule.days,
-            schedule_start_time: config.schedule.startLocalHHmm,
-            schedule_end_time: config.schedule.endLocalHHmm,
-          } as any)
+          .update(configPayload as never)
           .eq('id', configId);
+        if (error) throw error;
       } else {
-        const { data: newConfig } = await supabase
+        const { data: newConfig, error } = await supabase
           .from('preset_offer_configs')
           .insert({
             service_area_id: serviceAreaId,
-            is_enabled: config.is_enabled,
-            price_mode: config.price_mode,
-            default_selected_offer_id: config.default_selected_offer_id,
-            countdown_enabled: config.countdown_enabled,
-            countdown_seconds: config.countdown_seconds,
-            countdown_auto_select: config.countdown_auto_select,
-            countdown_auto_select_offer_id: config.countdown_auto_select_offer_id,
-            schedule_enabled: config.schedule.enabled,
-            schedule_days: config.schedule.days,
-            schedule_start_time: config.schedule.startLocalHHmm,
-            schedule_end_time: config.schedule.endLocalHHmm,
-          } as any)
+            ...configPayload,
+          } as never)
           .select()
           .single();
-
+        if (error) throw error;
         if (newConfig) {
           configId = newConfig.id;
-          setConfig(prev => ({ ...prev, id: configId }));
+          setConfig((prev) => ({ ...prev, id: configId }));
         }
       }
 
       if (!configId) throw new Error('Failed to save config');
 
-      // Delete existing offers and re-insert
-      await supabase.from('preset_offers').delete().eq('config_id', configId);
+      const savedSlots: PresetOffer[] = [];
+      for (let i = 0; i < PRESET_SLOT_COUNT; i++) {
+        const slot = slots[i];
+        const row = {
+          config_id: configId,
+          offer_key: slot.offer_key || SLOT_KEYS[i],
+          label: slot.label || SLOT_TITLES[i],
+          description: slot.description,
+          multiplier: slot.multiplier,
+          fixed_amount_pence: slot.fixed_amount_pence,
+          icon: slot.icon,
+          color: slot.color,
+          display_order: i,
+          is_active: slot.is_active,
+        };
 
-      const offersToInsert = offers.map((o, i) => ({
-        config_id: configId!,
-        offer_key: o.offer_key,
-        label: o.label,
-        description: o.description,
-        multiplier: o.multiplier,
-        fixed_amount_pence: o.fixed_amount_pence,
-        icon: o.icon,
-        color: o.color,
-        display_order: i,
-        is_active: o.is_active,
-      }));
-
-      const { data: savedOffers } = await supabase
-        .from('preset_offers')
-        .insert(offersToInsert)
-        .select();
-
-      if (savedOffers) {
-        setOffers(savedOffers.map(o => ({
-          id: o.id,
-          offer_key: o.offer_key,
-          label: o.label,
-          description: o.description || '',
-          multiplier: Number(o.multiplier),
-          fixed_amount_pence: o.fixed_amount_pence || 0,
-          icon: o.icon || 'tag',
-          color: o.color || '#3B82F6',
-          display_order: o.display_order,
-          is_active: o.is_active,
-        })));
+        if (slot.id) {
+          const { data, error } = await supabase
+            .from('preset_offers')
+            .update(row as never)
+            .eq('id', slot.id)
+            .select()
+            .single();
+          if (error) throw error;
+          savedSlots.push({
+            id: data.id,
+            offer_key: data.offer_key,
+            label: data.label,
+            description: data.description || '',
+            multiplier: Number(data.multiplier),
+            fixed_amount_pence: data.fixed_amount_pence || 0,
+            icon: data.icon || 'tag',
+            color: data.color || '#3B82F6',
+            display_order: data.display_order,
+            is_active: data.is_active,
+          });
+        } else {
+          const { data, error } = await supabase
+            .from('preset_offers')
+            .insert(row as never)
+            .select()
+            .single();
+          if (error) throw error;
+          savedSlots.push({
+            id: data.id,
+            offer_key: data.offer_key,
+            label: data.label,
+            description: data.description || '',
+            multiplier: Number(data.multiplier),
+            fixed_amount_pence: data.fixed_amount_pence || 0,
+            icon: data.icon || 'tag',
+            color: data.color || '#3B82F6',
+            display_order: data.display_order,
+            is_active: data.is_active,
+          });
+        }
       }
 
+      const { count } = await supabase
+        .from('preset_offers')
+        .select('id', { count: 'exact', head: true })
+        .eq('config_id', configId);
+
+      setOffers(padToThreeSlots(savedSlots));
+      setLegacyExcessCount(Math.max(0, (count ?? savedSlots.length) - PRESET_SLOT_COUNT));
       toast.success('Preset offers saved');
       setHasChanges(false);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error saving preset offers:', err);
-      toast.error(err.message || 'Failed to save preset offers');
+      const message = err instanceof Error ? err.message : 'Failed to save preset offers';
+      toast.error(message);
     } finally {
       setIsSaving(false);
     }
@@ -336,7 +331,6 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
   return (
     <Card>
       <CardContent className="p-6 space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
@@ -345,7 +339,7 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
             <div>
               <h3 className="text-lg font-semibold">Preset Fare Offers</h3>
               <p className="text-sm text-muted-foreground">
-                Configure 3 preset pricing options shown to drivers when a ride request comes in
+                Exactly 3 Admin-configured slots. Backend calculates chip fares from the original trip fare. Scheduled bookings never use these offers.
               </p>
             </div>
           </div>
@@ -361,9 +355,15 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
           </div>
         </div>
 
+        {legacyExcessCount > 0 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            This service area has {legacyExcessCount} extra stored offer row{legacyExcessCount === 1 ? '' : 's'} beyond the 3 slots.
+            Dispatch uses only the first 3 by display order. Extra rows were not deleted.
+          </div>
+        )}
+
         {config.is_enabled && (
           <>
-            {/* Config settings */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg border">
               <div className="space-y-2">
                 <Label>Price Mode</Label>
@@ -380,34 +380,12 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Percentage scales the calculated fare by the entered percent; Fixed sets exact amounts
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Default Selected Offer</Label>
-                <Select
-                  value={config.default_selected_offer_id}
-                  onValueChange={(v) => updateConfig('default_selected_offer_id', v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {offers.map(o => (
-                      <SelectItem key={o.offer_key} value={o.offer_key}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Pre-selected offer when the driver opens the offers panel
+                  Percentage: chip = original fare × (percent / 100). 100 keeps the original fare.
+                  Fixed: chip = original fare + adjustment pence. 50 = +{currencySymbol}0.50.
                 </p>
               </div>
             </div>
 
-            {/* Countdown settings */}
             <div className="p-4 bg-muted/30 rounded-lg border space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -419,56 +397,30 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                   onCheckedChange={(v) => updateConfig('countdown_enabled', v)}
                 />
               </div>
+              <p className="text-xs text-muted-foreground">
+                Driver offer countdown for this service area. Expiry fails the offer and rebroadcasts at the customer-committed fare. It does not auto-accept a negotiation.
+              </p>
 
               {config.countdown_enabled && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label>Countdown Duration (seconds)</Label>
-                    <Input
-                      type="number"
-                      min={5}
-                      max={120}
-                      value={config.countdown_seconds}
-                      onChange={(e) => updateConfig('countdown_seconds', parseInt(e.target.value) || 30)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Label>Auto-select on expiry</Label>
-                      <Switch
-                        checked={config.countdown_auto_select}
-                        onCheckedChange={(v) => updateConfig('countdown_auto_select', v)}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Automatically accept the default offer when countdown ends
-                    </p>
-                  </div>
-                  {config.countdown_auto_select && (
-                    <div className="space-y-2">
-                      <Label>Auto-select Offer</Label>
-                      <Select
-                        value={config.countdown_auto_select_offer_id}
-                        onValueChange={(v) => updateConfig('countdown_auto_select_offer_id', v)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {offers.map(o => (
-                            <SelectItem key={o.offer_key} value={o.offer_key}>
-                              {o.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
+                <div className="space-y-2 max-w-xs">
+                  <Label>Countdown Duration (seconds)</Label>
+                  <Input
+                    type="number"
+                    min={5}
+                    max={120}
+                    value={config.countdown_seconds}
+                    onChange={(e) => {
+                      const parsed = parseInt(e.target.value, 10);
+                      updateConfig(
+                        'countdown_seconds',
+                        Number.isFinite(parsed) ? parsed : 30,
+                      );
+                    }}
+                  />
                 </div>
               )}
             </div>
 
-            {/* Schedule Window */}
             <div className="p-4 bg-muted/30 rounded-lg border space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -477,23 +429,19 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                 </div>
                 <Switch
                   checked={config.schedule.enabled}
-                  onCheckedChange={(v) => setConfig(prev => ({
-                    ...prev,
-                    schedule: { ...prev.schedule, enabled: v }
-                  }))}
+                  onCheckedChange={(v) => updateSchedule({ enabled: v })}
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                When enabled, preset offers are only available during the configured days and time window (using the service area timezone). Outside this window, drivers see standard fare only.
+                When enabled, preset negotiation is available only during these days and times in the service area timezone, for instant/on-demand trips. Outside this window, drivers receive the standard fare. Scheduled/pre-booked trips never negotiate.
               </p>
 
               {config.schedule.enabled && (
                 <div className="space-y-4">
-                  {/* Days selection */}
                   <div className="space-y-2">
                     <Label className="text-sm">Active Days</Label>
                     <div className="flex flex-wrap gap-2">
-                      {DAY_LABELS.map(day => (
+                      {DAY_LABELS.map((day) => (
                         <label
                           key={day.value}
                           className="flex items-center gap-1.5 cursor-pointer"
@@ -501,16 +449,10 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                           <Checkbox
                             checked={config.schedule.days.includes(day.value)}
                             onCheckedChange={(checked) => {
-                              setConfig(prev => {
-                                const days = checked
-                                  ? [...prev.schedule.days, day.value].sort()
-                                  : prev.schedule.days.filter(d => d !== day.value);
-                                return {
-                                  ...prev,
-                                  schedule: { ...prev.schedule, days },
-                                };
-                              });
-                              setHasChanges(true);
+                              const days = checked
+                                ? [...config.schedule.days, day.value].sort()
+                                : config.schedule.days.filter((d) => d !== day.value);
+                              updateSchedule({ days });
                             }}
                           />
                           <span className="text-sm">{day.label}</span>
@@ -519,7 +461,6 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                     </div>
                   </div>
 
-                  {/* Time window */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="text-sm flex items-center gap-1">
@@ -529,13 +470,7 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                       <Input
                         type="time"
                         value={config.schedule.startLocalHHmm}
-                        onChange={(e) => {
-                          setConfig(prev => ({
-                            ...prev,
-                            schedule: { ...prev.schedule, startLocalHHmm: e.target.value },
-                          }));
-                          setHasChanges(true);
-                        }}
+                        onChange={(e) => updateSchedule({ startLocalHHmm: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
@@ -546,13 +481,7 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                       <Input
                         type="time"
                         value={config.schedule.endLocalHHmm}
-                        onChange={(e) => {
-                          setConfig(prev => ({
-                            ...prev,
-                            schedule: { ...prev.schedule, endLocalHHmm: e.target.value },
-                          }));
-                          setHasChanges(true);
-                        }}
+                        onChange={(e) => updateSchedule({ endLocalHHmm: e.target.value })}
                       />
                     </div>
                   </div>
@@ -560,63 +489,36 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
               )}
             </div>
 
-            {/* Offers list */}
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium">Offer Options</h4>
-                <Button variant="outline" size="sm" onClick={addOffer}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Offer
-                </Button>
-              </div>
+              <h4 className="font-medium">Offer Options</h4>
+              <p className="text-xs text-muted-foreground">
+                Three fixed slots. Values are configuration only — actual chip fares are calculated by the backend from the trip fare.
+              </p>
 
               {offers.map((offer, index) => (
                 <div
-                  key={offer.offer_key}
+                  key={offer.id ?? offer.offer_key}
                   className="p-4 border rounded-lg space-y-4"
                   style={{ borderLeftColor: offer.color, borderLeftWidth: 4 }}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Badge
-                        style={{ backgroundColor: offer.color, color: 'white' }}
-                      >
-                        {offer.label}
+                      <Badge style={{ backgroundColor: offer.color, color: 'white' }}>
+                        {SLOT_TITLES[index]}
                       </Badge>
-                      <span className="text-sm text-muted-foreground">({offer.offer_key})</span>
-                      {config.default_selected_offer_id === offer.offer_key && (
-                        <Badge variant="outline" className="text-xs">Default</Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
                       <Switch
                         checked={offer.is_active}
                         onCheckedChange={(v) => updateOffer(index, 'is_active', v)}
                       />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-muted-foreground hover:text-destructive"
-                        onClick={() => removeOffer(index)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     <div className="space-y-1">
                       <Label className="text-xs">Label</Label>
                       <Input
                         value={offer.label}
                         onChange={(e) => updateOffer(index, 'label', e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Offer Key</Label>
-                      <Input
-                        value={offer.offer_key}
-                        onChange={(e) => updateOffer(index, 'offer_key', e.target.value)}
                       />
                     </div>
                     {config.price_mode === 'multiplier' ? (
@@ -636,14 +538,24 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
                       </div>
                     ) : (
                       <div className="space-y-1">
-                        <Label className="text-xs">Fixed Amount ({currencySymbol})</Label>
+                        <Label className="text-xs">Adjustment (pence)</Label>
                         <Input
                           type="number"
-                          step="0.01"
+                          step="1"
                           min="0"
-                          value={(offer.fixed_amount_pence / 100).toFixed(2)}
-                          onChange={(e) => updateOffer(index, 'fixed_amount_pence', Math.round((parseFloat(e.target.value) || 0) * 100))}
+                          value={offer.fixed_amount_pence}
+                          onChange={(e) =>
+                            updateOffer(
+                              index,
+                              'fixed_amount_pence',
+                              Math.round(parseFloat(e.target.value) || 0),
+                            )
+                          }
+                          placeholder="50"
                         />
+                        <p className="text-[11px] text-muted-foreground">
+                          50 = +{currencySymbol}0.50 on the original fare
+                        </p>
                       </div>
                     )}
                     <div className="space-y-1">
