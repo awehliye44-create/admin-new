@@ -185,12 +185,60 @@ export default function ServiceAreaPricing() {
   };
 
   const updateEarlyCashoutEnabled = (enabled: boolean) => {
+    // Optimistic UI — authoritative persist is persistEarlyCashoutEnabled.
     setServiceAreas(prev => prev.map(sa =>
       sa.id === selectedServiceAreaId
         ? { ...sa, early_cashout_enabled: enabled }
         : sa
     ));
-    setHasChanges(true);
+    void persistEarlyCashoutEnabled(enabled);
+  };
+
+  /**
+   * Persist Driver Withdrawals immediately (same column as Payout Ledger panel).
+   * Must check PostgREST error AND returned row — RLS can yield 0 rows with no thrown error.
+   */
+  const persistEarlyCashoutEnabled = async (enabled: boolean) => {
+    if (!selectedServiceAreaId) return;
+    const serviceAreaId = selectedServiceAreaId;
+    const { data, error } = await supabase
+      .from('service_areas')
+      .update({ early_cashout_enabled: enabled })
+      .eq('id', serviceAreaId)
+      .select('id, early_cashout_enabled')
+      .maybeSingle();
+
+    if (error) {
+      console.error('early_cashout_enabled persist failed', error);
+      setServiceAreas(prev => prev.map(sa =>
+        sa.id === serviceAreaId
+          ? { ...sa, early_cashout_enabled: !enabled }
+          : sa
+      ));
+      toast.error(error.message || 'Failed to update Driver Withdrawals');
+      return;
+    }
+    if (!data) {
+      setServiceAreas(prev => prev.map(sa =>
+        sa.id === serviceAreaId
+          ? { ...sa, early_cashout_enabled: !enabled }
+          : sa
+      ));
+      toast.error(
+        'Driver Withdrawals update did not persist (no row returned). Check admin role / RLS.',
+      );
+      return;
+    }
+    setServiceAreas(prev => prev.map(sa =>
+      sa.id === serviceAreaId
+        ? { ...sa, early_cashout_enabled: data.early_cashout_enabled === true }
+        : sa
+    ));
+    toast.success(
+      data.early_cashout_enabled
+        ? 'Driver Withdrawals enabled for this service area'
+        : 'Driver Withdrawals disabled for this service area',
+    );
   };
 
   const handleSave = async () => {
@@ -198,18 +246,33 @@ export default function ServiceAreaPricing() {
 
     setIsSaving(true);
     try {
-      // Save per-booking fee settings
       if (selectedServiceArea) {
-        await supabase
+        const { data, error } = await supabase
           .from('service_areas')
           .update({
             tips_enabled: selectedServiceArea.tips_enabled,
             early_cashout_enabled: selectedServiceArea.early_cashout_enabled ?? false,
           })
-          .eq('id', selectedServiceAreaId);
+          .eq('id', selectedServiceAreaId)
+          .select('id, tips_enabled, early_cashout_enabled')
+          .maybeSingle();
+
+        if (error) throw error;
+        if (!data) {
+          throw new Error(
+            'Service area save did not persist (no row returned). Check admin role / RLS.',
+          );
+        }
+        setServiceAreas(prev => prev.map(sa =>
+          sa.id === selectedServiceAreaId
+            ? {
+                ...sa,
+                tips_enabled: data.tips_enabled === true,
+                early_cashout_enabled: data.early_cashout_enabled === true,
+              }
+            : sa
+        ));
       }
-
-
 
       toast.success('Service area pricing saved successfully');
       setHasChanges(false);

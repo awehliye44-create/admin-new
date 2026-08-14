@@ -466,14 +466,30 @@ export function PayoutLedgerSettingsPanel({
   const cashoutMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
       if (!serviceFilter.serviceAreaId) throw new Error('Select a service area');
-      const { error } = await supabase
+      // PostgREST + RLS can return success with 0 rows unless we .select() the update.
+      const { data, error } = await supabase
         .from('service_areas')
         .update({ early_cashout_enabled: enabled })
-        .eq('id', serviceFilter.serviceAreaId);
+        .eq('id', serviceFilter.serviceAreaId)
+        .select('id, early_cashout_enabled')
+        .maybeSingle();
       if (error) throw error;
+      if (!data) {
+        throw new Error(
+          'Driver Withdrawals update did not persist (no row returned). Check admin role / RLS.',
+        );
+      }
+      if (data.early_cashout_enabled !== enabled) {
+        throw new Error('Driver Withdrawals value mismatch after save');
+      }
+      return data;
     },
-    onSuccess: () => {
-      toast.success('Instant cash-out updated for service area');
+    onSuccess: (data) => {
+      toast.success(
+        data.early_cashout_enabled
+          ? 'Driver Withdrawals enabled for service area'
+          : 'Driver Withdrawals disabled for service area',
+      );
       void queryClient.invalidateQueries({ queryKey: ['payout-ledger-sa-cashout'] });
     },
     onError: (err: Error) => toast.error(err.message),
