@@ -48,6 +48,25 @@ import {
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://thazislrdkjpvvghtvzo.supabase.co";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+async function postDriverNegotiationPush(
+  body: Record<string, unknown>,
+  label: string,
+): Promise<void> {
+  const res = await fetch(`${supabaseUrl}/functions/v1/send-driver-notification`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${supabaseServiceKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  console.log(`[customer-fare-decision] ${label} driver push`, {
+    http_status: res.status,
+    body: text.slice(0, 240),
+  });
+}
+
 function extractCounterFareOptions(offer: {
   offer_snapshot?: unknown;
   driver_offer_fare?: number | null;
@@ -365,25 +384,18 @@ Deno.serve(async (req) => {
       });
 
       try {
-        await fetch(`${supabaseUrl}/functions/v1/send-driver-notification`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${supabaseServiceKey}`,
-          },
-          body: JSON.stringify({
-            driverId: offer.driver_id,
+        await postDriverNegotiationPush({
+          driverId: offer.driver_id,
+          type: "NEGOTIATION_UPDATE",
+          title: OFFER_ACCEPTED_ASSIGNED_TITLE,
+          body: OFFER_ACCEPTED_ASSIGNED_BODY,
+          data: {
             type: "NEGOTIATION_UPDATE",
-            title: OFFER_ACCEPTED_ASSIGNED_TITLE,
-            body: OFFER_ACCEPTED_ASSIGNED_BODY,
-            data: {
-              type: "NEGOTIATION_UPDATE",
-              notificationType: "offer_accepted_assigned",
-              offer_id,
-              trip_id: trip.id,
-            },
-          }),
-        });
+            notificationType: "offer_accepted_assigned",
+            offer_id,
+            trip_id: trip.id,
+          },
+        }, "accept");
       } catch (pushErr) {
         console.warn("[customer-fare-decision] accept driver push failed:", pushErr);
       }
@@ -429,25 +441,18 @@ Deno.serve(async (req) => {
       });
 
       try {
-        await fetch(`${supabaseUrl}/functions/v1/send-driver-notification`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${supabaseServiceKey}`,
-          },
-          body: JSON.stringify({
-            driverId: offer.driver_id,
+        await postDriverNegotiationPush({
+          driverId: offer.driver_id,
+          type: "NEGOTIATION_UPDATE",
+          title: CUSTOMER_DECLINED_OFFER_TITLE,
+          body: CUSTOMER_DECLINED_OFFER_BODY,
+          data: {
             type: "NEGOTIATION_UPDATE",
-            title: CUSTOMER_DECLINED_OFFER_TITLE,
-            body: CUSTOMER_DECLINED_OFFER_BODY,
-            data: {
-              type: "NEGOTIATION_UPDATE",
-              notificationType: "customer_declined_offer",
-              offer_id,
-              trip_id: trip.id,
-            },
-          }),
-        });
+            notificationType: "customer_declined_offer",
+            offer_id,
+            trip_id: trip.id,
+          },
+        }, "decline");
       } catch (pushErr) {
         console.warn("[customer-fare-decision] decline driver push failed:", pushErr);
       }
@@ -719,8 +724,6 @@ Deno.serve(async (req) => {
       }
 
       try {
-          const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-          const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
           const pushData = buildDriverNegotiationPushData({
             offer_id: broadcastRow.id,
             trip_id: broadcastRow.trip_id,
@@ -732,20 +735,13 @@ Deno.serve(async (req) => {
             expires_at: broadcastRow.expires_at ?? broadcastRow.driver_respond_by,
             notificationType: "customer_counter_offer",
           });
-          await fetch(`${supabaseUrl}/functions/v1/send-driver-notification`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${serviceKey}`,
-            },
-            body: JSON.stringify({
-              driverId: broadcastRow.driver_id,
-              type: "NEGOTIATION_UPDATE",
-              title: "Customer counter offer",
-              body: customerCounterOfferPushBody(selected_fare_pence),
-              data: pushData,
-            }),
-          });
+          await postDriverNegotiationPush({
+            driverId: broadcastRow.driver_id,
+            type: "NEGOTIATION_UPDATE",
+            title: "Customer counter offer",
+            body: customerCounterOfferPushBody(selected_fare_pence),
+            data: pushData,
+          }, "counter");
         } catch (pushErr) {
           console.warn("[customer-fare-decision] driver negotiation push failed:", pushErr);
         }

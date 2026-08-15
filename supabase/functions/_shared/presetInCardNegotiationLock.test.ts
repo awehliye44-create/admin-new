@@ -374,6 +374,7 @@ Deno.test("original Accept and negotiated Accept still assign immediately", asyn
   assertEquals(decision.includes("accept_ride_offer"), true);
   assertEquals(decision.includes("REMATCH_FAILED"), true);
   assertEquals(decision.includes("TIMEOUT rematch failed"), true);
+  assertEquals(decision.includes("postDriverNegotiationPush"), true);
   assertEquals(final.includes("accept_ride_offer"), true);
 
   const driverPush = await Deno.readTextFile(
