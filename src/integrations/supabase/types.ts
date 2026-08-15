@@ -22103,6 +22103,36 @@ export type Database = {
           },
         ]
       }
+      user_safety_contacts: {
+        Row: {
+          contact_name: string
+          contact_type: string
+          created_at: string
+          id: string
+          phone_number: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          contact_name: string
+          contact_type: string
+          created_at?: string
+          id?: string
+          phone_number: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          contact_name?: string
+          contact_type?: string
+          created_at?: string
+          id?: string
+          phone_number?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
