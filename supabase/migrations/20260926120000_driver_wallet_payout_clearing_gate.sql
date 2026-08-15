@@ -144,8 +144,8 @@ BEGIN
       l.amount_pence,
       l.related_trip_id,
       l.created_at,
-      t.payment_collection_model,
-      t.financial_model,
+      t.payment_collection_model::text AS payment_collection_model,
+      t.financial_model::text AS financial_model,
       t.payment_method AS trip_payment_method,
       t.driver_net_pence,
       t.tip_pence,
@@ -155,7 +155,7 @@ BEGIN
       ps.captured_amount_pence,
       ps.captured_at,
       ps.refunded_amount_pence,
-      ps.status AS session_status,
+      ps.status::text AS session_status,
       ps.provider_state,
       ps.payment_method AS session_payment_method,
       des.settled_at,
@@ -203,7 +203,7 @@ BEGIN
       CONTINUE;
     END IF;
 
-    v_session_status := lower(COALESCE(r.session_status, ''));
+    v_session_status := lower(COALESCE(r.session_status::text, ''));
     v_refunded := GREATEST(0, COALESCE(r.refunded_amount_pence, 0));
     IF v_refunded > 0
        OR v_session_status LIKE '%refund%'
