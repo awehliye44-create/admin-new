@@ -740,3 +740,21 @@ export function assertActionAllowed(
   }
   return { ok: true };
 }
+
+const CLOSED_RECOVERY_STATUS = /captured|completed|cancelled|canceled|released|refunded|failed|abandoned/;
+
+/**
+ * True while a PAYMENT_RECOVERY session is still open on a trip.
+ * Closed/captured/cancelled recovery rows must not keep sibling ride sessions in recovery.
+ * Required named export — missing it boots admin-payment-sessions with BOOT_ERROR.
+ */
+export function isOpenTripPaymentRecoverySession(args: {
+  purpose?: string | null;
+  sessionStatus?: string | null;
+  technicalStatus?: string | null;
+}): boolean {
+  if (String(args.purpose ?? "").toUpperCase() !== "PAYMENT_RECOVERY") return false;
+  const status = String(args.sessionStatus ?? args.technicalStatus ?? "").toLowerCase();
+  if (!status) return true;
+  return !CLOSED_RECOVERY_STATUS.test(status);
+}

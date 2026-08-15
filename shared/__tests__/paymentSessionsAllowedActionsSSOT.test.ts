@@ -3,6 +3,7 @@ import {
   assertActionAllowed,
   computeReleasablePence,
   derivePaymentSessionAllowedActions,
+  isOpenTripPaymentRecoverySession,
   planPaymentSessionLocalProjectionRepair,
   PAYMENT_ACTION_STALE_REFRESH_REQUIRED,
 } from "../paymentSessionsAllowedActionsSSOT";
@@ -234,5 +235,20 @@ describe("paymentSessionsAllowedActionsSSOT — tab/action correction", () => {
     });
     expect(r.allowed_actions).not.toContain("retry_recovery");
     expect(r.allowed_actions).toContain("collect_outstanding");
+  });
+
+  it("exports isOpenTripPaymentRecoverySession so admin-payment-sessions can boot", () => {
+    expect(isOpenTripPaymentRecoverySession({
+      purpose: "PAYMENT_RECOVERY",
+      sessionStatus: "authorised_hold",
+    })).toBe(true);
+    expect(isOpenTripPaymentRecoverySession({
+      purpose: "PAYMENT_RECOVERY",
+      sessionStatus: "recovery_completed",
+    })).toBe(false);
+    expect(isOpenTripPaymentRecoverySession({
+      purpose: "RIDE_BOOKING",
+      sessionStatus: "authorised_hold",
+    })).toBe(false);
   });
 });

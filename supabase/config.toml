@@ -93,6 +93,9 @@ verify_jwt = false
 [functions.admin-payment-providers]
 verify_jwt = false
 
+[functions.admin-payment-sessions]
+verify_jwt = false
+
 [functions.capture-trip-payment]
 verify_jwt = false
 
