@@ -1,5 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  mergeDriverWalletEligibilityOverlay,
+  type DriverWalletEligibilityOverlay,
+} from '@/lib/driverWalletSsotBalances';
 
 export type DriverWalletPeriodKpis = {
   today_earnings_pence: number;
@@ -145,6 +149,26 @@ export type DriverWalletSsotListResult = {
 
 const DEFAULT_PAGE_SIZE = 25;
 
+async function overlayDriverWalletEligibility(
+  drivers: DriverWalletSsotRow[],
+): Promise<DriverWalletSsotRow[]> {
+  const ids = drivers.map((d) => d.driver_id).filter(Boolean);
+  if (ids.length === 0) return drivers;
+
+  const { data, error } = await supabase.rpc(
+    'admin_driver_wallet_eligibility_balances' as never,
+    { p_driver_ids: ids } as never,
+  );
+  if (error || !Array.isArray(data)) return drivers;
+
+  const byId = new Map<string, DriverWalletEligibilityOverlay>();
+  for (const row of data as DriverWalletEligibilityOverlay[]) {
+    if (row?.driver_id) byId.set(String(row.driver_id), row);
+  }
+
+  return drivers.map((row) => mergeDriverWalletEligibilityOverlay(row, byId.get(row.driver_id)));
+}
+
 export function useDriverWalletSsot(args?: {
   regionId?: string | null;
   page?: number;
@@ -167,8 +191,11 @@ export function useDriverWalletSsot(args?: {
       });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
+      const drivers = await overlayDriverWalletEligibility(
+        (data.drivers ?? []) as DriverWalletSsotRow[],
+      );
       return {
-        drivers: (data.drivers ?? []) as DriverWalletSsotRow[],
+        drivers,
         total: Number(data.total ?? 0),
         limit: Number(data.limit ?? pageSize),
         offset: Number(data.offset ?? offset),
@@ -195,7 +222,9 @@ async function fetchAllDriverWalletSsotPages(regionId: string | null): Promise<D
     if (error) throw error;
     if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
 
-    const drivers = (data.drivers ?? []) as DriverWalletSsotRow[];
+    const drivers = await overlayDriverWalletEligibility(
+      (data.drivers ?? []) as DriverWalletSsotRow[],
+    );
     total = Number(data.total ?? drivers.length);
     all.push(...drivers);
     offset += pageSize;
@@ -225,7 +254,10 @@ export function useDriverWalletSsotDetail(driverId: string | null) {
       });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
-      return (data.driver ?? null) as DriverWalletSsotRow | null;
+      const driver = (data.driver ?? null) as DriverWalletSsotRow | null;
+      if (!driver) return null;
+      const [overlaid] = await overlayDriverWalletEligibility([driver]);
+      return overlaid ?? driver;
     },
     staleTime: 30_000,
   });

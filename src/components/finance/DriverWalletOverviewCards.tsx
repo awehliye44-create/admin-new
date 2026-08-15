@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2 } from 'lucide-react';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
 import { formatNullablePence } from '@/lib/formatNullablePence';
+import { displayDriverWalletSsotBalances } from '@/lib/driverWalletSsotBalances';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
@@ -70,6 +71,7 @@ export function DriverWalletOverviewCards({
 
   const ccy = currencyCode;
   const kpis = driver.period_kpis;
+  const balances = displayDriverWalletSsotBalances(driver);
   const fmt = (p: number | null | undefined) => formatNullablePence(p, ccy);
   const payoutFrozen = driver.wallet_status === 'FROZEN'
     || driver.payout_blocked === true
@@ -104,17 +106,17 @@ export function DriverWalletOverviewCards({
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <Metric
           label="Live Wallet Balance"
-          value={fmt(driver.wallet_balance_pence)}
+          value={fmt(balances.livePence)}
           hint="Ledger SSOT only — never calculated from trips"
         />
         <Metric
           label="Available Balance"
-          value={fmt(driver.cashout_limit_pence)}
-          hint="Consumed by Payout Ledger only — never bank transfer here"
+          value={fmt(balances.availablePence)}
+          hint="Payout-cleared Driver Wallet funds — Revolut COMPLETED/CAPTURED is not clearing"
         />
         <Metric
           label="Pending Balance"
-          value={fmt(driver.pending_balance_pence ?? kpis?.pending_earnings_pence)}
+          value={fmt(balances.pendingPence)}
           hint="Earned but not yet payout-cleared — settlement pending, not a withdrawal reservation"
         />
         {(driver.withdrawal_in_progress_pence ?? 0) > 0 ? (

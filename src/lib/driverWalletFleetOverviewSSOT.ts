@@ -5,6 +5,7 @@
 
 export type DriverWalletFleetOverviewInput = {
   wallet_balance_pence?: number | null;
+  available_for_payout_pence?: number | null;
   cashout_limit_pence?: number | null;
   /** Canonical eligibility pending (settlement/capture hold) — preferred over period KPI. */
   pending_balance_pence?: number | null;
@@ -66,7 +67,9 @@ export function buildDriverWalletFleetOverview(
   for (const row of rows) {
     const balance = Math.round(Number(row.wallet_balance_pence ?? 0));
     live += balance;
-    available += Math.round(Number(row.cashout_limit_pence ?? 0));
+    available += Math.round(
+      Number(row.available_for_payout_pence ?? row.cashout_limit_pence ?? 0),
+    );
     pending += Math.max(
       0,
       Math.round(

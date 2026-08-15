@@ -9,6 +9,7 @@ import {
 } from "../../../shared/driverPayoutEligibilitySSOT";
 import { buildDriverWalletPeriodKpis } from "@shared/driverWalletPeriodKpisSSOT";
 import { buildDriverWalletSummaryResponse } from "@/lib/driverWalletPeriodWidgetsSSOT";
+import { displayDriverWalletSsotBalances } from "@/lib/driverWalletSsotBalances";
 
 const NOW_MS = Date.parse("2026-08-15T16:00:00.000Z");
 const FRESH_CAPTURE = "2026-08-15T15:00:00.000Z";
@@ -343,6 +344,22 @@ describe("driver wallet payout clearing lock", () => {
       POLICY_48H,
     );
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING);
+  });
+
+  it("Admin Driver Wallet list reads eligibility pending/available, not period KPI or live cashout", () => {
+    const row = {
+      wallet_balance_pence: 2239,
+      cashout_limit_pence: 2239,
+      available_for_payout_pence: 0,
+      pending_balance_pence: 1818,
+      period_kpis: { pending_earnings_pence: 0 },
+    };
+    const shown = displayDriverWalletSsotBalances(row);
+    expect(shown.livePence).toBe(2239);
+    expect(shown.availablePence).toBe(0);
+    expect(shown.pendingPence).toBe(1818);
+    expect(shown.pendingPence).not.toBe(row.period_kpis.pending_earnings_pence);
+    expect(shown.availablePence).not.toBe(row.wallet_balance_pence);
   });
 
   it("debt recovery still wipes Available without duplicating earnings", () => {

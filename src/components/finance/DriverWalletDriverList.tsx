@@ -18,6 +18,7 @@ import {
   useDriverWalletSsot,
   type DriverWalletSsotRow,
 } from '@/hooks/useDriverWalletSsot';
+import { displayDriverWalletSsotBalances } from '@/lib/driverWalletSsotBalances';
 
 function driverLabel(row: Pick<DriverWalletSsotRow, 'driver_code' | 'driver_name' | 'driver_id'>): string {
   if (row.driver_name) return row.driver_name;
@@ -145,7 +146,9 @@ export function DriverWalletDriverList({
                   </TableCell>
                 </TableRow>
               ) : null}
-              {rows.map((row) => (
+              {rows.map((row) => {
+                const balances = displayDriverWalletSsotBalances(row);
+                return (
                 <TableRow
                   key={row.driver_id}
                   className={`cursor-pointer hover:bg-muted/40 ${
@@ -166,13 +169,13 @@ export function DriverWalletDriverList({
                     {row.commission_percent != null ? `${row.commission_percent}%` : '—'}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {formatNullablePence(row.wallet_balance_pence, currencyCode)}
+                    {formatNullablePence(balances.livePence, currencyCode)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {formatNullablePence(row.cashout_limit_pence, currencyCode)}
+                    {formatNullablePence(balances.availablePence, currencyCode)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {formatNullablePence(row.period_kpis?.pending_earnings_pence, currencyCode)}
+                    {formatNullablePence(balances.pendingPence, currencyCode)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatNullablePence(outstandingDebt(row), currencyCode)}
@@ -204,7 +207,8 @@ export function DriverWalletDriverList({
                     </DropdownMenu>
                   </TableCell>
                 </TableRow>
-              ))}
+              );
+              })}
             </TableBody>
           </Table>
         </div>
