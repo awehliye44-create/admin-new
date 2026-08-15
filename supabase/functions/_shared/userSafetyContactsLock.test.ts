@@ -35,3 +35,18 @@ Deno.test("does not attach contacts to trips or offers", () => {
   assert(!sql.includes("REFERENCES public.trips"));
   assert(!sql.includes("ride_offers"));
 });
+
+Deno.test("trip / dispatch / call-masking paths never mention user_safety_contacts", async () => {
+  const files = [
+    "callMaskingLogs.ts",
+    "callMaskingPhones.ts",
+    "callMaskingConfig.ts",
+  ];
+  for (const name of files) {
+    const text = await Deno.readTextFile(new URL(`./${name}`, import.meta.url));
+    assert(
+      !text.includes("user_safety_contacts"),
+      `${name} must not read user_safety_contacts`,
+    );
+  }
+});
