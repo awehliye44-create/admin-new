@@ -373,7 +373,11 @@ Deno.serve(async (req) => {
           : {
               ...incomingData,
               type: payload.type,
-              notificationType: incomingData.type || payload.type,
+              notificationType:
+                incomingData.notificationType ||
+                incomingData.notification_type ||
+                incomingData.type ||
+                payload.type,
               ...(offerId ? { offerId, requestId: offerId, offer_id: offerId } : {}),
               ...(tripId ? { tripId, trip_id: tripId } : {}),
               ...(pickupAddress ? { pickupAddress, pickup: pickupAddress, pickup_address: pickupAddress } : {}),

@@ -56,6 +56,19 @@ Deno.test("Decline, timeout, and ignore share one enterDriverSecondChance helper
   assertEquals(sql.includes("timeout_customer_second_chance"), true);
   assertEquals(sql.includes("preset_offer_configs"), true);
   assertEquals(sql.includes("interval '25 seconds'"), false);
+  const continuitySql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260925150000_negotiation_continuity_pending_timeout_owner.sql",
+      import.meta.url,
+    ),
+  );
+  assertEquals(continuitySql.includes("timeout_customer_second_chance"), false);
+  assertEquals(
+    continuitySql.includes("expire-offers → enterDriverSecondChanceAtOriginalFare"),
+    true,
+  );
+  assertEquals(continuitySql.includes("declined_customer_awaiting_driver"), true);
+  assertEquals(continuitySql.includes("ro.expires_at > now()"), true);
   assertEquals(grace.includes("apply_customer_decline_grace"), true);
   assertEquals(grace.includes("!grace.already"), true);
   assertEquals(decision.includes('offerNegotiationStatus: "declined_customer"'), false);
@@ -84,3 +97,32 @@ Deno.test("generic accept-offer cannot assign during Driver second chance", asyn
   assertEquals(accept.includes("BLOCKED_SECOND_CHANCE_USE_FARE_FINAL"), true);
   assertEquals(accept.includes("NEGOTIATION_HELD"), true);
 });
+
+Deno.test("Customer £Y timeout has one cron owner; pending RPC keeps active negotiation", async () => {
+  const expire = await Deno.readTextFile(
+    new URL("../expire-offers/index.ts", import.meta.url),
+  );
+  const send = await Deno.readTextFile(
+    new URL("../send-driver-notification/index.ts", import.meta.url),
+  );
+  const continuitySql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260925150000_negotiation_continuity_pending_timeout_owner.sql",
+      import.meta.url,
+    ),
+  );
+  assertEquals(expire.includes("enterDriverSecondChanceAtOriginalFare"), true);
+  assertEquals(continuitySql.includes("apply_customer_decline_grace"), false);
+  assertEquals(
+    continuitySql.includes("AND responded_at IS NULL"),
+    false,
+  );
+  assertEquals(
+    continuitySql.includes("status = 'countered'") ||
+      continuitySql.includes("ro.status = 'countered'"),
+    true,
+  );
+  assertEquals(send.includes("incomingData.notificationType"), true);
+  assertEquals(send.includes("incomingData.notification_type"), true);
+});
+
