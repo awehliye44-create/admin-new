@@ -373,11 +373,15 @@ Deno.test("original Accept and negotiated Accept still assign immediately", asyn
   assertEquals(decision.includes('if (action === "ACCEPT")'), true);
   assertEquals(decision.includes("accept_ride_offer"), true);
   assertEquals(decision.includes("ensureNegotiationPayableAuthorised"), true);
+  assertEquals(decision.includes("assignedNegotiationSuccessBody"), true);
+  assertEquals(decision.includes('errorResponse(\n          "ASSIGN_INCOMPLETE"'), false);
+  assertEquals(decision.includes('errorResponse("ASSIGN_INCOMPLETE"'), false);
   assertEquals(decision.includes("REMATCH_FAILED"), true);
   assertEquals(decision.includes("TIMEOUT rematch failed"), true);
   assertEquals(decision.includes("postDriverNegotiationPush"), true);
   assertEquals(final.includes("accept_ride_offer"), true);
   assertEquals(final.includes("ensureNegotiationPayableAuthorised"), true);
+  assertEquals(final.includes("assignedNegotiationSuccessBody"), true);
 
   const driverPush = await Deno.readTextFile(
     new URL("../send-driver-notification/index.ts", import.meta.url),

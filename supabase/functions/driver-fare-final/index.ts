@@ -24,6 +24,7 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
+import { assignedNegotiationSuccessBody } from "../_shared/assignedNegotiationSnapshot.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
 import { resolveNegotiationBaseFarePence } from "../_shared/negotiationBaseFare.ts";
@@ -343,7 +344,7 @@ Deno.serve(async (req) => {
         fare_source: acceptResult?.fare_source ?? "customer_counter_offer",
       });
 
-      await finalizeRideAssignmentSideEffects(supabase, {
+      const finalize = await finalizeRideAssignmentSideEffects(supabase, {
         tripId: trip.id,
         offerId: offer_id,
         driverId: driver_id,
@@ -351,17 +352,12 @@ Deno.serve(async (req) => {
         fareSource: (acceptResult?.fare_source as string) ?? "customer_counter_offer",
         acceptedVia: "accept_ride_offer",
       });
-
-      const { data: tripAfter } = await supabase
-        .from("trips")
-        .select("final_fare_pence, fare, gross_fare_pence, fare_snapshot_json, commission_pence, driver_net_pence, driver_tier_commission_percent")
-        .eq("id", trip.id)
-        .maybeSingle();
+      const tripAfter = finalize.snapshot;
       console.log("[driver-fare-final] BOOKING_CREATED_WITH_FINAL_FARE", {
         trip_id: trip.id,
         final_fare_pence: tripAfter?.final_fare_pence,
         fare: tripAfter?.fare,
-        fare_source: tripAfter?.fare_snapshot_json?.fare_source,
+        fare_source: tripAfter?.fare_source,
       });
       console.log("[driver-fare-final] NEGOTIATION_RESOLVED_DRIVER", {
         trip_id: trip.id,
@@ -422,14 +418,14 @@ Deno.serve(async (req) => {
         }
       }
 
-      return successResponse({
-        success: true,
-        action: "ACCEPTED",
-        final_fare_pence: resolvedFarePence,
-        fare_source: acceptResult?.fare_source ?? "customer_counter_offer",
-        trip_id: trip.id,
-        offer_id,
-      });
+      return successResponse(assignedNegotiationSuccessBody({
+        tripId: trip.id,
+        offerId: offer_id,
+        driverId: driver_id,
+        snapshot: finalize.snapshot ?? null,
+        fallbackFarePence: resolvedFarePence,
+        fallbackFareSource: (acceptResult?.fare_source as string) ?? "customer_counter_offer",
+      }));
     }
 
     // ── DECLINE: driver declines → SECTION 9 lock rule ────────────────────

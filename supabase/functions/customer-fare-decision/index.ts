@@ -31,6 +31,7 @@ import {
   customerCounterOfferPushBody,
 } from "../_shared/negotiationPushCopy.ts";
 import { enrichOfferSnapshotDriverNet } from "../_shared/driverOfferNetPreview.ts";
+import { assignedNegotiationSuccessBody } from "../_shared/assignedNegotiationSnapshot.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
 import { resolveNegotiationBaseFarePence } from "../_shared/negotiationBaseFare.ts";
@@ -358,18 +359,14 @@ Deno.serve(async (req) => {
         acceptedVia: "accept_ride_offer",
       });
 
-      const { data: tripAfterAccept } = await supabase
-        .from("trips")
-        .select("final_fare_pence, commission_pence, driver_net_pence, driver_tier_commission_percent, fare_snapshot_json")
-        .eq("id", trip.id)
-        .maybeSingle();
+      const tripAfterAccept = finalize.snapshot;
 
       console.log("[customer-fare-decision] NEGOTIATION_RESOLVED_DRIVER", {
         trip_id: trip.id,
         offer_id,
         driver_id: offer.driver_id,
         final_fare_pence: tripAfterAccept?.final_fare_pence ?? finalFarePence,
-        fare_source: (tripAfterAccept?.fare_snapshot_json as { fare_source?: string } | null)?.fare_source ?? "negotiated_offer",
+        fare_source: tripAfterAccept?.fare_source ?? "negotiated_offer",
         commission_pence: tripAfterAccept?.commission_pence,
         driver_net_pence: tripAfterAccept?.driver_net_pence,
       });
@@ -386,12 +383,9 @@ Deno.serve(async (req) => {
       }
 
       if (!finalize.ok) {
+        // accept_ride_offer already committed fare + assignment. A 500 here
+        // invited a second Accept mutation after the trip was already assigned.
         console.error("[customer-fare-decision] finalize assignment incomplete", finalize);
-        return errorResponse(
-          "ASSIGN_INCOMPLETE",
-          "Ride assigned but booking record could not be verified",
-          500,
-        );
       }
 
       await supabase.rpc("log_audit_event", {
@@ -423,13 +417,14 @@ Deno.serve(async (req) => {
         console.warn("[customer-fare-decision] accept driver push failed:", pushErr);
       }
 
-      return successResponse({
-        success: true,
-        action: "ACCEPTED",
-        final_fare_pence: finalFarePence,
-        trip_id: trip.id,
-        driver_id: offer.driver_id,
-      });
+      return successResponse(assignedNegotiationSuccessBody({
+        tripId: trip.id,
+        offerId: offer_id,
+        driverId: offer.driver_id,
+        snapshot: finalize.snapshot ?? null,
+        fallbackFarePence: finalFarePence,
+        fallbackFareSource: "negotiated_offer",
+      }));
     }
 
     if (action === "DECLINE") {

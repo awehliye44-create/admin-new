@@ -3,6 +3,11 @@
  * booking_id === trips.id in this codebase.
  */
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  ASSIGNED_NEGOTIATION_TRIP_SELECT,
+  buildAssignedNegotiationSnapshot,
+  type AssignedNegotiationSnapshot,
+} from "./assignedNegotiationSnapshot.ts";
 
 export type FinalizeRideAssignmentParams = {
   tripId: string;
@@ -25,10 +30,17 @@ const ASSIGNED_TRIP_STATUSES = new Set([
   "in_progress",
 ]);
 
+export type FinalizeRideAssignmentResult = {
+  ok: boolean;
+  tripStatus?: string;
+  dispatchStatus?: string | null;
+  snapshot?: AssignedNegotiationSnapshot | null;
+};
+
 export async function finalizeRideAssignmentSideEffects(
   supabase: SupabaseClient,
   params: FinalizeRideAssignmentParams,
-): Promise<{ ok: boolean; tripStatus?: string; dispatchStatus?: string | null }> {
+): Promise<FinalizeRideAssignmentResult> {
   const { tripId, offerId, driverId, source, fareSource, acceptedVia } = params;
 
   console.log("[ride-assignment] NEGOTIATED_ACCEPT_STARTED", {
@@ -133,9 +145,7 @@ export async function finalizeRideAssignmentSideEffects(
 
   let { data: tripAfter, error: tripAfterErr } = await supabase
     .from("trips")
-    .select(
-      "id, status, dispatch_status, driver_id, final_fare_pence, fare_locked, commission_pence, driver_net_pence, driver_tier_commission_percent, fare_snapshot_json",
-    )
+    .select(ASSIGNED_NEGOTIATION_TRIP_SELECT)
     .eq("id", tripId)
     .maybeSingle();
 
@@ -153,9 +163,7 @@ export async function finalizeRideAssignmentSideEffects(
     } else {
       const { data: tripAfterSnapshot } = await supabase
         .from("trips")
-        .select(
-          "id, status, dispatch_status, driver_id, final_fare_pence, fare_locked, commission_pence, driver_net_pence, driver_tier_commission_percent, fare_snapshot_json",
-        )
+        .select(ASSIGNED_NEGOTIATION_TRIP_SELECT)
         .eq("id", tripId)
         .maybeSingle();
       if (tripAfterSnapshot) {
@@ -240,5 +248,9 @@ export async function finalizeRideAssignmentSideEffects(
     ok: adminVisible,
     tripStatus: tripAfter.status ?? undefined,
     dispatchStatus: tripAfter.dispatch_status,
+    snapshot: buildAssignedNegotiationSnapshot(
+      tripAfter as Record<string, unknown>,
+      { fareSource, tripId },
+    ),
   };
 }
