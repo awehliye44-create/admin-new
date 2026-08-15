@@ -18,11 +18,14 @@ Example: hold 495p, final 595p → increment existing order to 595 → provider 
 
 - `executeSameOrderIncrement` persist **then** `POST /orders/{id}/increment-authorisation` with `{ amount: targetTotal }`
 - Persist is a **plain insert** keyed by `revolut_increment:{session}:{order}:{target}` — never upsert on a guessed unique target
+- `revolutProviderAuthorisedTotalPence` reads `payments[].authorised_amount` and authorised `incremental_authorisations[].new_amount` (current TOTAL, never a sum). `order.authorised_amount` may be null after increment (MK-260815-018)
+- Ambiguous increment POST → read-only GET the same order → reconcile. Never mark `authorised_total_not_increased` terminal before retrieve. Never POST a second increment
 - `preferSameOrderIncrement: true` in `revolutCompletionCapture`
 - Safe/partial capture **only** for genuine `declined` / `unsupported` / `provider_limit` / `ineligible`
-- `persist_failed` is an **internal** failure before Revolut was asked — fix/retry/reconcile increment; do **not** treat it as a provider decline
+- `persist_failed` / `INCREMENT_CONFIRM_PERSIST_FAILED` are **internal** — do **not** map them to `PAYMENT_AUTHORISATION_INSUFFICIENT`
 
 Lock tests: `supabase/functions/_shared/revolutIncrementAuthorisationSSOT.test.ts`  
+Coverage: `supabase/functions/_shared/revolutIncrementCoverage018.test.ts`  
 **If they fail, fix the code — never delete or soften the lock.**
 
 ## Do not

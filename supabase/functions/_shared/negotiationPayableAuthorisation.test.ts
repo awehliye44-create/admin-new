@@ -21,8 +21,8 @@ Deno.test("card-like methods require increment; cash skips", () => {
 
 Deno.test("cover failure maps increment decline to payment codes without leaking provider text", () => {
   const insufficient = mapNegotiationCoverFailure({
-    errorCode: "REVOLUT_INCREMENT_UNSUPPORTED",
-    error: "provider limit exceeded",
+    errorCode: "AUTHORISED_TOTAL_BELOW_TARGET",
+    error: "Provider authorised total remains below the required fare.",
     status: 409,
   });
   assertEquals(insufficient.code, NEGOTIATION_PAYABLE_INSUFFICIENT_CODE);
@@ -36,6 +36,22 @@ Deno.test("cover failure maps increment decline to payment codes without leaking
   });
   assertEquals(reauth.code, "PAYMENT_REAUTH_REQUIRED");
   assertEquals(reauth.status, 402);
+
+  const pending = mapNegotiationCoverFailure({
+    errorCode: "authorised_total_not_increased",
+    error: "Increment response did not confirm the requested authorised total; retrieve required.",
+    status: 409,
+  });
+  assertEquals(pending.code, "AUTHORISATION_RECONCILIATION_PENDING");
+  assertEquals(pending.message, "Could not confirm payment authorisation. Please try again.");
+
+  const persist = mapNegotiationCoverFailure({
+    errorCode: "INCREMENT_CONFIRM_PERSIST_FAILED",
+    error: "Provider authorised the increase but local confirmation failed",
+    status: 500,
+  });
+  assertEquals(persist.code, "PAYMENT_STATE_PERSIST_FAILED");
+  assertEquals(persist.message.includes("insufficient"), false);
 });
 
 Deno.test("payment-gate RPC text is recognized so Edge does not swallow it as ACCEPT_FAILED", () => {

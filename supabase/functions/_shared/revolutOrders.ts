@@ -53,9 +53,16 @@ export interface RevolutOrder {
   }>;
   incremental_authorisations?: Array<{
     amount?: number;
+    /** New cumulative authorised total for this increment (not a delta). */
+    new_amount?: number;
+    old_amount?: number;
     state?: string;
     created_at?: string;
+    reference?: string;
   }>;
+  /** Present when increment POST returns the increment object instead of a full order. */
+  new_amount?: number;
+  old_amount?: number;
 }
 
 export type RevolutOrderPayment = {
@@ -372,19 +379,123 @@ export async function captureRevolutOrder(
   );
 }
 
+function positiveMinorUnits(value: unknown): number {
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function isRevolutAuthorisedState(state: unknown): boolean {
+  const s = String(state ?? "").toUpperCase();
+  return s === "AUTHORISED" || s === "AUTHORIZED";
+}
+
 /**
- * Provider-confirmed authorised total in minor units.
- * Prefer authorised_amount; fall back to order.amount when still AUTHORISED.
+ * Provider-confirmed authorised TOTAL in minor units.
+ *
+ * Revolut increment responses often omit order.authorised_amount (null) and
+ * expose the current total on payments[].authorised_amount and/or
+ * incremental_authorisations[].new_amount (already a TOTAL, never a delta).
+ *
+ * Take the maximum current-total representation. Never sum 495+695.
  */
 export function revolutProviderAuthorisedTotalPence(
   order: RevolutOrder | null | undefined,
 ): number {
   if (!order) return 0;
-  const auth = Number(order.authorised_amount);
-  if (Number.isFinite(auth) && auth > 0) return Math.round(auth);
-  const amt = Number(order.amount);
-  if (Number.isFinite(amt) && amt > 0) return Math.round(amt);
-  return 0;
+  const candidates: number[] = [];
+
+  for (const payment of Array.isArray(order.payments) ? order.payments : []) {
+    const paymentAuth = positiveMinorUnits(payment?.authorised_amount);
+    if (paymentAuth > 0) candidates.push(paymentAuth);
+  }
+
+  for (const increment of Array.isArray(order.incremental_authorisations)
+    ? order.incremental_authorisations
+    : []) {
+    if (!isRevolutAuthorisedState(increment?.state)) continue;
+    const incrementTotal = positiveMinorUnits(
+      increment?.new_amount ?? increment?.amount,
+    );
+    if (incrementTotal > 0) candidates.push(incrementTotal);
+  }
+
+  const orderAuth = positiveMinorUnits(order.authorised_amount);
+  if (orderAuth > 0) candidates.push(orderAuth);
+
+  if (isRevolutAuthorisedState(order.state)) {
+    const rootNew = positiveMinorUnits(order.new_amount);
+    if (rootNew > 0) candidates.push(rootNew);
+    const orderAmount = positiveMinorUnits(order.amount);
+    if (orderAmount > 0) candidates.push(orderAmount);
+  }
+
+  if (candidates.length === 0) return 0;
+  return Math.max(...candidates);
+}
+
+export type IncrementCoverageClass =
+  | "confirmed"
+  | "processing"
+  | "insufficient"
+  | "unknown";
+
+/**
+ * Classify whether a retrieved/POST order covers the requested increment target.
+ * Processing increment new_amount is not treated as confirmed.
+ */
+export function classifyIncrementCoverage(
+  order: RevolutOrder | null | undefined,
+  targetTotalPence: number,
+): { class: IncrementCoverageClass; authorisedTotalPence: number } {
+  const target = Math.round(Number(targetTotalPence));
+  const authorisedTotalPence = revolutProviderAuthorisedTotalPence(order);
+  if (!order) return { class: "unknown", authorisedTotalPence: 0 };
+
+  const state = String(order.state ?? "").toUpperCase();
+  const increments = Array.isArray(order.incremental_authorisations)
+    ? order.incremental_authorisations
+    : [];
+  const incrementAuthorisedCovering = increments.some((increment) => {
+    const amount = positiveMinorUnits(increment?.new_amount ?? increment?.amount);
+    return isRevolutAuthorisedState(increment?.state) && amount >= target;
+  });
+  const incrementProcessing = increments.some((increment) => {
+    const s = String(increment?.state ?? "").toLowerCase();
+    return s === "processing" || s === "pending";
+  });
+  const incrementDeclined = increments.some((increment) => {
+    const s = String(increment?.state ?? "").toLowerCase();
+    return s === "declined" || s === "failed";
+  });
+  const paymentCovering = (Array.isArray(order.payments) ? order.payments : [])
+    .some((payment) => positiveMinorUnits(payment?.authorised_amount) >= target);
+
+  if (
+    authorisedTotalPence >= target
+    && (
+      isRevolutAuthorisedState(state)
+      || incrementAuthorisedCovering
+      || paymentCovering
+    )
+  ) {
+    return { class: "confirmed", authorisedTotalPence };
+  }
+
+  if (state === "PROCESSING" || state === "PENDING" || incrementProcessing) {
+    return { class: "processing", authorisedTotalPence };
+  }
+
+  if (
+    authorisedTotalPence < target
+    && !incrementProcessing
+    && state !== "PROCESSING"
+    && state !== "PENDING"
+    && (isRevolutAuthorisedState(state) || incrementDeclined)
+  ) {
+    return { class: "insufficient", authorisedTotalPence };
+  }
+
+  return { class: "unknown", authorisedTotalPence };
 }
 
 export type RevolutIncrementOutcomeClass =
@@ -508,22 +619,11 @@ export async function incrementRevolutOrderAuthorisation(args: {
       apiVersion,
     );
 
-    const confirmed = revolutProviderAuthorisedTotalPence(order);
+    const coverage = classifyIncrementCoverage(order, target);
+    const confirmed = coverage.authorisedTotalPence;
     const state = String(order.state ?? "").toUpperCase();
 
-    if (state === "PROCESSING" || state === "PENDING") {
-      return {
-        ok: true,
-        outcome: "processing",
-        order,
-        previousAuthorisedPence: previous,
-        requestedTargetTotalPence: target,
-        providerConfirmedTotalPence: confirmed > 0 ? confirmed : previous,
-        apiVersion,
-      };
-    }
-
-    if (confirmed >= target && (state === "AUTHORISED" || state === "AUTHORIZED")) {
+    if (coverage.class === "confirmed") {
       return {
         ok: true,
         outcome: "confirmed",
@@ -535,7 +635,19 @@ export async function incrementRevolutOrderAuthorisation(args: {
       };
     }
 
-    // HTTP 200 but authorised total did not rise to target — treat as unknown.
+    if (coverage.class === "processing" || state === "PROCESSING" || state === "PENDING") {
+      return {
+        ok: true,
+        outcome: "processing",
+        order,
+        previousAuthorisedPence: previous,
+        requestedTargetTotalPence: target,
+        providerConfirmedTotalPence: confirmed > 0 ? confirmed : previous,
+        apiVersion,
+      };
+    }
+
+    // HTTP 200 but authorised total is not yet unambiguous — retrieve required.
     return {
       ok: false,
       outcome: "unknown",
@@ -696,7 +808,9 @@ export function getRevolutMerchantConfig(): {
 } {
   const key = Deno.env.get("REVOLUT_MERCHANT_SECRET_KEY");
   if (!key) throw new Error("Revolut merchant secret key is not configured (REVOLUT_MERCHANT_SECRET_KEY)");
-  const environment: ProviderEnvironment = key.startsWith("sk_sandbox") ? "sandbox" : "live";
+  const environment: ProviderEnvironment = key.startsWith("sk_sandbox") || key.startsWith("sk_test")
+    ? "test"
+    : "live";
   return { secretKey: key, environment };
 }
 

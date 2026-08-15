@@ -141,6 +141,16 @@ export async function prepareRevolutModificationAuthorisation(args: {
     };
   }
 
+  if (incrementResult.kind === "persist_failed") {
+    return {
+      ok: false,
+      error: incrementResult.message,
+      error_code: incrementResult.errorClassification || "INCREMENT_CONFIRM_PERSIST_FAILED",
+      status: 500,
+      payment_coverage_status: "authorization_persist_failed",
+    };
+  }
+
   if (
     incrementResult.kind === "declined"
     || incrementResult.kind === "customer_action_required"
@@ -149,12 +159,24 @@ export async function prepareRevolutModificationAuthorisation(args: {
     || incrementResult.kind === "lock_busy"
   ) {
     // Fail closed — do not apply modification; do not create second order automatically.
+    const declined = incrementResult.kind === "declined";
+    const pending = incrementResult.kind === "unknown"
+      || incrementResult.kind === "retryable"
+      || incrementResult.kind === "lock_busy";
     return {
       ok: false,
       error: incrementResult.message,
       error_code: incrementResult.errorClassification,
-      status: incrementResult.kind === "declined" ? 402 : 409,
-      payment_coverage_status: "authorization_insufficient",
+      status: incrementResult.kind === "customer_action_required"
+        ? 402
+        : declined
+        ? 409
+        : 409,
+      payment_coverage_status: declined
+        ? "authorization_insufficient"
+        : pending
+        ? "authorization_reconciliation_pending"
+        : "authorization_action_required",
     };
   }
 

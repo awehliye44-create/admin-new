@@ -92,6 +92,24 @@ Deno.test("increment persist is a plain insert — never upsert on a guessed uni
   );
 });
 
+Deno.test("ambiguous increment POST retrieves the same order and never POSTs a second increment", async () => {
+  const src = await Deno.readTextFile(
+    new URL("./executeSameOrderIncrementSSOT.ts", import.meta.url),
+  );
+  const incrementCall = src.indexOf("incrementRevolutOrderAuthorisation({");
+  const secondIncrementCall = src.indexOf("incrementRevolutOrderAuthorisation({", incrementCall + 1);
+  const retrieveAfterPost = src.indexOf("retrieveRevolutOrder(", incrementCall);
+  assertEquals(incrementCall > 0, true);
+  assertEquals(secondIncrementCall, -1);
+  assertEquals(retrieveAfterPost > incrementCall, true);
+  assertEquals(src.includes("increment_post_retrieve_reconcile"), true);
+  assertEquals(src.includes("INCREMENT_CONFIRM_PERSIST_FAILED"), true);
+  assertEquals(src.includes("ADDITIONAL_AUTHORISATION_FAILED_TERMINAL"), true);
+  const terminalIdx = src.indexOf("ADDITIONAL_AUTHORISATION_FAILED_TERMINAL");
+  const retrieveIdx = src.indexOf("increment_post_retrieve_reconcile");
+  assertEquals(retrieveIdx > 0 && retrieveIdx < terminalIdx, true);
+});
+
 Deno.test("persist_failed is not a provider decline and must not trigger safe capture", async () => {
   const completion = await Deno.readTextFile(
     new URL("./revolutCompletionCapture.ts", import.meta.url),

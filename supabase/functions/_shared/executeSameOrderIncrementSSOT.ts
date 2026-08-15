@@ -16,6 +16,7 @@ import {
   type IncrementEligibility,
 } from "./revolutIncrementAuthorisationSSOT.ts";
 import {
+  classifyIncrementCoverage,
   incrementRevolutOrderAuthorisation,
   listRevolutOrderPayments,
   retrieveRevolutOrder,
@@ -69,6 +70,57 @@ function logIncrementEvent(
   payload: Record<string, unknown>,
 ): void {
   console.log(JSON.stringify({ event, ...payload, ts: new Date().toISOString() }));
+}
+
+async function persistConfirmedIncrementProjection(args: {
+  supabase: SupabaseClient;
+  sessionId: string;
+  incrementRowId: string | null | undefined;
+  confirmed: number;
+  providerState: string | null;
+  businessKey: string;
+  sessionMetadata: Record<string, unknown>;
+  verifiedBy: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const nowIso = new Date().toISOString();
+  if (args.incrementRowId) {
+    const { error: authErr } = await args.supabase
+      .from("payment_session_authorisations")
+      .update({
+        status: "ADDITIONAL_AUTHORISATION_CONFIRMED",
+        provider_confirmed_total_pence: args.confirmed,
+        cumulative_total_authorised_pence: args.confirmed,
+        provider_operation_reference: args.businessKey,
+        error_classification: null,
+        failed_at: null,
+      })
+      .eq("id", args.incrementRowId);
+    if (authErr) {
+      return { ok: false, message: authErr.message };
+    }
+  }
+  const { error: sessErr } = await args.supabase
+    .from("payment_sessions")
+    .update({
+      total_authorised_amount_pence: args.confirmed,
+      provider_state: args.providerState ?? "AUTHORISED",
+      status: "authorised_hold",
+      provider_state_verified_at: nowIso,
+      provider_state_verified_by: args.verifiedBy,
+      updated_at: nowIso,
+      metadata: {
+        ...args.sessionMetadata,
+        last_increment_business_key: args.businessKey,
+        last_increment_confirmed_total_pence: args.confirmed,
+        last_increment_at: nowIso,
+        last_increment_status: "ADDITIONAL_AUTHORISATION_CONFIRMED",
+      },
+    })
+    .eq("id", args.sessionId);
+  if (sessErr) {
+    return { ok: false, message: sessErr.message };
+  }
+  return { ok: true };
 }
 
 /**
@@ -208,6 +260,7 @@ export async function executeSameOrderIncrement(args: {
               id: p.id,
               state: p.state,
               amount: p.amount,
+              authorised_amount: p.authorised_amount,
               payment_method: p.payment_method
                 ? { type: p.payment_method.type, card_brand: p.payment_method.card_brand }
                 : undefined,
@@ -592,41 +645,87 @@ export async function executeSameOrderIncrement(args: {
       previousAuthorisedPence: providerTotal,
     });
     const elapsed = Date.now() - started;
+    const incrementRowId = inserted?.id ?? existingAuth?.id ?? null;
+    const sessionMetadata = (session.metadata && typeof session.metadata === "object")
+      ? session.metadata as Record<string, unknown>
+      : {};
 
-    if (result.ok && result.outcome === "confirmed") {
-      const confirmed = result.providerConfirmedTotalPence;
-      await args.supabase
-        .from("payment_session_authorisations")
-        .update({
-          status: "ADDITIONAL_AUTHORISATION_CONFIRMED",
-          provider_confirmed_total_pence: confirmed,
-          cumulative_total_authorised_pence: confirmed,
-          confirmed_at: new Date().toISOString(),
-          provider_operation_reference: result.order?.id ?? null,
-        })
-        .eq("id", inserted?.id ?? existingAuth?.id);
+    let coverage = classifyIncrementCoverage(result.order, plan.targetTotalPence);
+    let coverageOrder = result.order;
+    if (coverage.class !== "confirmed") {
+      // Ambiguous POST — GET the same order. Never POST a second increment.
+      try {
+        coverageOrder = await retrieveRevolutOrder(
+          args.environment,
+          args.secretKey,
+          orderId,
+        );
+        coverage = classifyIncrementCoverage(coverageOrder, plan.targetTotalPence);
+        logIncrementEvent("increment_post_retrieve_reconcile", {
+          payment_session_id: maskId(sessionId),
+          provider_order_id: maskId(orderId),
+          requested_target: plan.targetTotalPence,
+          coverage_class: coverage.class,
+          confirmed_total: coverage.authorisedTotalPence,
+          source: args.source,
+          elapsed_ms: elapsed,
+        });
+      } catch (retrieveErr) {
+        logIncrementEvent("increment_post_retrieve_failed", {
+          payment_session_id: maskId(sessionId),
+          provider_order_id: maskId(orderId),
+          message: (retrieveErr as Error).message,
+          source: args.source,
+        });
+        await args.supabase
+          .from("payment_session_authorisations")
+          .update({
+            status: "ADDITIONAL_AUTHORISATION_PENDING",
+            error_classification: "AUTHORISATION_RECONCILIATION_PENDING",
+          })
+          .eq("id", incrementRowId);
+        return {
+          ok: false,
+          kind: "unknown",
+          message: "Increment response was ambiguous and provider retrieve failed.",
+          providerConfirmedTotalPence: coverage.authorisedTotalPence,
+          eligibility,
+          errorClassification: "AUTHORISATION_RECONCILIATION_PENDING",
+        };
+      }
+    }
 
-      await args.supabase
-        .from("payment_sessions")
-        .update({
-          total_authorised_amount_pence: confirmed,
-          provider_state: String(result.order?.state ?? "AUTHORISED").toUpperCase(),
-          // Return to authorised hold after confirmed increment (lifecycle SSOT).
-          status: "authorised_hold",
-          provider_state_verified_at: new Date().toISOString(),
-          provider_state_verified_by: "same_order_increment_api",
-          updated_at: new Date().toISOString(),
-          metadata: {
-            ...((session.metadata && typeof session.metadata === "object")
-              ? session.metadata as Record<string, unknown>
-              : {}),
-            last_increment_business_key: businessKey,
-            last_increment_confirmed_total_pence: confirmed,
-            last_increment_at: new Date().toISOString(),
-            last_increment_status: "ADDITIONAL_AUTHORISATION_CONFIRMED",
-          },
-        })
-        .eq("id", sessionId);
+    if (coverage.class === "confirmed") {
+      const confirmed = coverage.authorisedTotalPence;
+      const persisted = await persistConfirmedIncrementProjection({
+        supabase: args.supabase,
+        sessionId,
+        incrementRowId,
+        confirmed,
+        providerState: String(coverageOrder?.state ?? "AUTHORISED").toUpperCase(),
+        businessKey,
+        sessionMetadata,
+        verifiedBy: result.ok && result.outcome === "confirmed"
+          ? "same_order_increment_api"
+          : "same_order_increment_retrieve",
+      });
+      if (!persisted.ok) {
+        logIncrementEvent("increment_confirm_persist_failed", {
+          payment_session_id: maskId(sessionId),
+          provider_order_id: maskId(orderId),
+          confirmed_total: confirmed,
+          message: persisted.message,
+          source: args.source,
+        });
+        return {
+          ok: false,
+          kind: "persist_failed",
+          message: "Provider authorised the increase but local confirmation failed",
+          providerConfirmedTotalPence: confirmed,
+          eligibility,
+          errorClassification: "INCREMENT_CONFIRM_PERSIST_FAILED",
+        };
+      }
 
       logIncrementEvent("increment_provider_confirmed", {
         payment_session_id: maskId(sessionId),
@@ -649,33 +748,39 @@ export async function executeSameOrderIncrement(args: {
       };
     }
 
-    if (result.ok && result.outcome === "processing") {
+    if (coverage.class === "processing" || coverage.class === "unknown") {
       logIncrementEvent("increment_provider_unknown", {
         payment_session_id: maskId(sessionId),
         provider_order_id: maskId(orderId),
         requested_target: plan.targetTotalPence,
         source: args.source,
         elapsed_ms: elapsed,
-        decision_reason: "processing",
+        decision_reason: coverage.class,
       });
       await args.supabase
         .from("payment_session_authorisations")
         .update({
           status: "ADDITIONAL_AUTHORISATION_PENDING",
-          error_classification: "PROCESSING",
+          error_classification: coverage.class === "processing"
+            ? "PROCESSING"
+            : "AUTHORISATION_RECONCILIATION_PENDING",
         })
-        .eq("id", inserted?.id);
+        .eq("id", incrementRowId);
       return {
         ok: false,
         kind: "unknown",
-        message: "Increment is processing; retrieve required before retry or fallback.",
-        providerConfirmedTotalPence: result.providerConfirmedTotalPence,
+        message: coverage.class === "processing"
+          ? "Increment is processing; retrieve required before retry or fallback."
+          : "Increment authorised total is still ambiguous after retrieve.",
+        providerConfirmedTotalPence: coverage.authorisedTotalPence,
         eligibility,
-        errorClassification: "PROCESSING",
+        errorClassification: coverage.class === "processing"
+          ? "PROCESSING"
+          : "AUTHORISATION_RECONCILIATION_PENDING",
       };
     }
 
-    // Failure outcomes only below.
+    // Failure outcomes only below. Provider retrieve proved authorised total < target.
     const failOutcome = !result.ok ? result.outcome : "unknown";
     const failMessage = !result.ok ? result.message : "Increment failed";
     const failCode = !result.ok ? result.errorCode : null;
@@ -694,34 +799,35 @@ export async function executeSameOrderIncrement(args: {
           status: "ADDITIONAL_AUTHORISATION_ACTION_REQUIRED",
           error_classification: "CUSTOMER_ACTION_REQUIRED",
         })
-        .eq("id", inserted?.id);
+        .eq("id", incrementRowId);
       return {
         ok: false,
         kind: "customer_action_required",
         message: failMessage,
-        providerConfirmedTotalPence: result.providerConfirmedTotalPence,
+        providerConfirmedTotalPence: coverage.authorisedTotalPence,
         eligibility,
         errorClassification: "CUSTOMER_ACTION_REQUIRED",
       };
     }
 
     const failKind =
-      failOutcome === "declined"
-        ? "declined"
-        : failOutcome === "unsupported"
+      failOutcome === "unsupported"
         ? "unsupported"
         : failOutcome === "retryable"
         ? "retryable"
+        : coverage.class === "insufficient" || failOutcome === "declined"
+        ? "declined"
         : failOutcome === "unknown"
         ? "unknown"
         : "terminal";
 
     logIncrementEvent(
-      failOutcome === "declined" ? "increment_provider_declined" : "increment_provider_unknown",
+      failKind === "declined" ? "increment_provider_declined" : "increment_provider_unknown",
       {
         payment_session_id: maskId(sessionId),
         provider_order_id: maskId(orderId),
         outcome: failOutcome,
+        coverage_class: coverage.class,
         source: args.source,
         elapsed_ms: elapsed,
       },
@@ -736,11 +842,15 @@ export async function executeSameOrderIncrement(args: {
           ? "ADDITIONAL_AUTHORISATION_UNSUPPORTED"
           : failKind === "retryable"
           ? "ADDITIONAL_AUTHORISATION_FAILED_RETRYABLE"
+          : failKind === "unknown"
+          ? "ADDITIONAL_AUTHORISATION_PENDING"
           : "ADDITIONAL_AUTHORISATION_FAILED_TERMINAL",
-        failed_at: new Date().toISOString(),
-        error_classification: failCode ?? failOutcome,
+        failed_at: failKind === "unknown" ? null : new Date().toISOString(),
+        error_classification: failKind === "declined"
+          ? "AUTHORISED_TOTAL_BELOW_TARGET"
+          : failCode ?? failOutcome,
       })
-      .eq("id", inserted?.id);
+      .eq("id", incrementRowId);
 
     await args.supabase
       .from("payment_sessions")
@@ -755,10 +865,14 @@ export async function executeSameOrderIncrement(args: {
     return {
       ok: false,
       kind: failKind,
-      message: failMessage,
-      providerConfirmedTotalPence: result.providerConfirmedTotalPence,
+      message: failKind === "declined"
+        ? "Provider authorised total remains below the required fare."
+        : failMessage,
+      providerConfirmedTotalPence: coverage.authorisedTotalPence,
       eligibility,
-      errorClassification: failCode ?? String(failOutcome).toUpperCase(),
+      errorClassification: failKind === "declined"
+        ? "AUTHORISED_TOTAL_BELOW_TARGET"
+        : failCode ?? String(failOutcome).toUpperCase(),
     };
   } finally {
     await releasePaymentSessionFinancialLock(args.supabase, {
