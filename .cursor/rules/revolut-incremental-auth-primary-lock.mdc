@@ -1,0 +1,34 @@
+---
+description: Revolut incremental authorisation is PRIMARY; safe capture is emergency fallback only.
+alwaysApply: true
+---
+
+# Revolut incremental authorisation primary lock
+
+## Canonical order
+
+1. Existing Revolut pre-authorisation (`manual` + `pre_authorisation`)
+2. Fare increases
+3. Increment the **same** Revolut order to the required **TOTAL**
+4. At completion, capture the actual final fare
+
+Example: hold 495p, final 595p → increment existing order to 595 → provider confirms 595 → capture 595.
+
+## Never remove or “simplify away”
+
+- `executeSameOrderIncrement` persist **then** `POST /orders/{id}/increment-authorisation` with `{ amount: targetTotal }`
+- Persist is a **plain insert** keyed by `revolut_increment:{session}:{order}:{target}` — never upsert on a guessed unique target
+- `preferSameOrderIncrement: true` in `revolutCompletionCapture`
+- Safe/partial capture **only** for genuine `declined` / `unsupported` / `provider_limit` / `ineligible`
+- `persist_failed` is an **internal** failure before Revolut was asked — fix/retry/reconcile increment; do **not** treat it as a provider decline
+
+Lock tests: `supabase/functions/_shared/revolutIncrementAuthorisationSSOT.test.ts`  
+**If they fail, fix the code — never delete or soften the lock.**
+
+## Do not
+
+- Default to capturing only the original hold
+- Skip increment because a fallback exists
+- Create a second preauth/order
+- Auto-create `create-payment-recovery` on increment decline
+- Silently downgrade `persist_failed` to backup capture

@@ -71,3 +71,59 @@ Deno.test("increment orchestrator hydrates payments and passes trip method fallb
   assertEquals(topUp.includes("fallbackPaymentMethodType"), true);
   assertEquals(topUp.includes("args.trip.payment_method"), true);
 });
+
+Deno.test("increment persist is a plain insert — never upsert on a guessed unique target", async () => {
+  const src = await Deno.readTextFile(
+    new URL("./executeSameOrderIncrementSSOT.ts", import.meta.url),
+  );
+  const persistBlock = src.slice(
+    src.indexOf("const incrementReason"),
+    src.indexOf("logIncrementEvent(\"increment_required\""),
+  );
+  assertEquals(persistBlock.includes(".insert(authRow)"), true);
+  assertEquals(persistBlock.includes("onConflict"), false);
+  assertEquals(persistBlock.includes("payment_session_id,provider_order_id,requested_target_total_pence"), false);
+  assertEquals(persistBlock.includes("idempotency_key: businessKey"), true);
+  assertEquals(src.includes("incrementRevolutOrderAuthorisation"), true);
+  assertEquals(
+    src.indexOf(".insert(authRow)")
+      < src.indexOf("incrementRevolutOrderAuthorisation({"),
+    true,
+  );
+});
+
+Deno.test("persist_failed is not a provider decline and must not trigger safe capture", async () => {
+  const completion = await Deno.readTextFile(
+    new URL("./revolutCompletionCapture.ts", import.meta.url),
+  );
+  const fallbackStart = completion.indexOf(
+    'incrementResult.kind === "declined"',
+  );
+  const fallback = completion.slice(
+    fallbackStart,
+    completion.indexOf("const safe = safeCaptureAfterIncrementDecline", fallbackStart),
+  );
+  assertEquals(fallback.includes('incrementResult.kind === "declined"'), true);
+  assertEquals(fallback.includes('incrementResult.kind === "unsupported"'), true);
+  assertEquals(fallback.includes('incrementResult.kind === "provider_limit"'), true);
+  assertEquals(fallback.includes('incrementResult.kind === "ineligible"'), true);
+  assertEquals(fallback.includes("persist_failed"), false);
+  assertEquals(fallback.includes("lock_busy"), false);
+  assertEquals(fallback.includes("retryable"), false);
+  assertEquals(completion.includes("preferSameOrderIncrement: true"), true);
+  assertEquals(completion.includes("executeSameOrderIncrement"), true);
+  assertEquals(
+    completion.includes(
+      "Increment did not confirm an authorised total covering the final fare",
+    ),
+    true,
+  );
+  assertEquals(
+    completion.includes("original-hold capture is not the primary path"),
+    true,
+  );
+  assertEquals(
+    completion.includes("Captured ${safeCapture}p from original order"),
+    false,
+  );
+});

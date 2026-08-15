@@ -74,6 +74,10 @@ function logIncrementEvent(
 /**
  * Raise authorised total on the existing Revolut order to cover requiredTotalPence.
  * Provider state wins over local totals. Idempotent per target total business key.
+ *
+ * PRIMARY path: persist pending row → POST increment (target TOTAL) → confirm.
+ * persist_failed means Revolut was never asked — retry/reconcile this path.
+ * Do not treat persist_failed as a provider decline.
  */
 export async function executeSameOrderIncrement(args: {
   supabase: SupabaseClient;
@@ -446,6 +450,10 @@ export async function executeSameOrderIncrement(args: {
     const providerPaymentId = Array.isArray(order.payments) && order.payments[0]
       ? String((order.payments[0] as { id?: string }).id ?? "").trim() || null
       : null;
+    // Plain insert — do not upsert on a guessed unique target.
+    // persist_failed is an INTERNAL failure before Revolut is asked; never treat it
+    // as a provider decline / safe-capture fallback.
+    const incrementReason = args.reason ?? `same_order_increment_${args.source}`;
     const authRow = {
       payment_session_id: sessionId,
       payment_provider: "revolut",
@@ -456,32 +464,34 @@ export async function executeSameOrderIncrement(args: {
       requested_increment_pence: plan.deltaPence,
       requested_target_total_pence: plan.targetTotalPence,
       authorised_amount_pence: plan.deltaPence,
+      authorised_at: nowIso,
       cumulative_total_authorised_pence: plan.targetTotalPence,
       currency,
       status: "ADDITIONAL_AUTHORISATION_PENDING",
       source: args.source,
-      reason: args.reason ?? `same_order_increment_${args.source}`,
       idempotency_key: businessKey,
       submitted_at: nowIso,
       created_at: nowIso,
+      metadata: {
+        reason: incrementReason,
+        source: args.source,
+        requested_target_total_pence: plan.targetTotalPence,
+      },
     };
 
     const { data: inserted, error: insertErr } = await args.supabase
       .from("payment_session_authorisations")
-      .upsert(authRow, {
-        onConflict: "payment_session_id,provider_order_id,requested_target_total_pence",
-        ignoreDuplicates: false,
-      })
+      .insert(authRow)
       .select("id, sequence_number")
       .maybeSingle();
 
     if (insertErr) {
-      // Unique conflict → reuse path
-      const { data: raced } = await args.supabase
+      const { data: racedByKey } = await args.supabase
         .from("payment_session_authorisations")
         .select("*")
         .eq("idempotency_key", businessKey)
         .maybeSingle();
+      const raced = racedByKey ?? existingAuth;
       if (
         raced
         && ["confirmed", "ADDITIONAL_AUTHORISATION_CONFIRMED"].includes(String(raced.status))
@@ -497,6 +507,46 @@ export async function executeSameOrderIncrement(args: {
           eligibility,
         };
       }
+      if (
+        raced
+        && ["pending", "ADDITIONAL_AUTHORISATION_PENDING", "unknown"].includes(
+          String(raced.status ?? "").toLowerCase(),
+        )
+      ) {
+        if (providerTotal >= plan.targetTotalPence) {
+          await args.supabase
+            .from("payment_session_authorisations")
+            .update({
+              status: "ADDITIONAL_AUTHORISATION_CONFIRMED",
+              provider_confirmed_total_pence: providerTotal,
+              confirmed_at: nowIso,
+            })
+            .eq("id", raced.id);
+          return {
+            ok: true,
+            kind: "already_confirmed",
+            providerConfirmedTotalPence: providerTotal,
+            sequenceNumber: raced.sequence_number != null ? Number(raced.sequence_number) : null,
+            businessKey,
+            eligibility,
+          };
+        }
+        return {
+          ok: false,
+          kind: "unknown",
+          message: "Prior increment still pending/unknown after retrieve; not submitting another.",
+          providerConfirmedTotalPence: providerTotal,
+          eligibility,
+          errorClassification: "INCREMENT_PENDING_UNKNOWN",
+        };
+      }
+      logIncrementEvent("increment_persist_failed", {
+        payment_session_id: maskId(sessionId),
+        provider_order_id: maskId(orderId),
+        requested_target: plan.targetTotalPence,
+        source: args.source,
+        message: insertErr.message,
+      });
       return {
         ok: false,
         kind: "persist_failed",

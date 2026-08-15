@@ -9,14 +9,21 @@ import {
   captureRevolutOrder,
   mapRevolutStateToPaymentStatus,
   retrieveRevolutOrder,
+  revolutProviderAuthorisedTotalPence,
 } from "./revolutOrders.ts";
+import { executeSameOrderIncrement } from "./executeSameOrderIncrementSSOT.ts";
+import { safeCaptureAfterIncrementDecline } from "./paymentRecoveryGuardSSOT.ts";
+import {
+  claimPaymentSessionFinancialLock,
+  releasePaymentSessionFinancialLock,
+} from "./paymentSessionFinancialLockSSOT.ts";
+import { decideCaptureAfterRetrieve } from "./revolutCaptureIdempotencySSOT.ts";
 import { applyCanonicalSettlementAfterCapture } from "./applyCanonicalSettlementAfterCapture.ts";
 import {
   markPaymentSessionCaptured,
   markPaymentSessionCaptureResidualRelease,
   markPaymentSessionCompletedPendingCapture,
   markPaymentSessionPaymentShortfall,
-  markPaymentSessionAdditionalAuthorisationLifecycle,
   markPaymentSessionProviderFee,
 } from "./paymentSessionSSOT.ts";
 import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "../../../shared/paymentHoldProviderTerminalPure.ts";
@@ -26,7 +33,6 @@ import {
 } from "../../../shared/paymentSessionReleaseEvidenceSSOT.ts";
 import {
   assertCaptureWithinTotalAuthorised,
-  classifyAdditionalAuthorisationNeed,
 } from "../../../shared/paymentSessionAdditionalAuthSSOT.ts";
 import type { FinalizeRevolutCaptureResult } from "./finalizeRevolutTripCapture.ts";
 import {
@@ -156,7 +162,6 @@ export async function executeRevolutTripCompletionCapture(args: {
     orderId,
   );
   const state = String(orderBefore.state ?? "").toUpperCase();
-  const { revolutProviderAuthorisedTotalPence } = await import("./revolutOrders.ts");
   let authorisedHoldPence = Math.max(
     0,
     revolutProviderAuthorisedTotalPence(orderBefore)
@@ -311,8 +316,6 @@ export async function executeRevolutTripCompletionCapture(args: {
       };
     }
 
-    const { executeSameOrderIncrement } = await import("./executeSameOrderIncrementSSOT.ts");
-    const { safeCaptureAfterIncrementDecline } = await import("./paymentRecoveryGuardSSOT.ts");
     const incrementResult = await executeSameOrderIncrement({
       supabase: args.supabase,
       environment: merchant.environment,
@@ -418,125 +421,43 @@ export async function executeRevolutTripCompletionCapture(args: {
   }
 
   if (plan.kind === "additional_authorisation_required") {
-    // EXISTING CODE REPAIRED — never create a second Revolut order at completion.
-    // Same-order increment is preferred above; remaining shortfall uses create-payment-recovery.
-    const need = classifyAdditionalAuthorisationNeed({
-      finalFarePence,
-      authorisedHoldPence,
-    });
-    const shortfall = Math.max(0, need.shortfall_pence ?? plan.shortfall_pence ?? 0);
-    const safeCapture = Math.max(0, Math.min(finalFarePence, authorisedHoldPence));
-
-    await markPaymentSessionAdditionalAuthorisationLifecycle(args.supabase, {
-      clientActionId,
-      tripId,
-      phase: "REQUIRED",
-      previousProviderOrderId: orderId,
-      previousAuthorisedPence: authorisedHoldPence,
-      shortfallPence: shortfall,
-    });
-
-    if (safeCapture > 0) {
-      try {
-        const capturedSafe = await captureRevolutOrder(
-          merchant.environment,
-          merchant.secretKey,
-          orderId,
-          safeCapture,
-        );
-        const nowSafe = new Date().toISOString();
-        await markPaymentSessionCaptured(args.supabase, {
-          clientActionId,
-          providerOrderId: orderId,
-          tripId,
-          captureAmountPence: safeCapture,
-          capturedAt: nowSafe,
-          providerCaptureId: extractProviderCaptureId(
-            capturedSafe as unknown as Record<string, unknown>,
-          ),
-        });
-        await args.supabase.from("trips").update({
-          payment_status: shortfall > 0 ? "payment_shortfall" : "captured",
-          payment_hold_status: shortfall > 0 ? "payment_shortfall" : "captured",
-          capture_amount_pence: safeCapture,
-          updated_at: nowSafe,
-        }).eq("id", tripId);
-        try {
-          await applyCanonicalSettlementAfterCapture({
-            supabase: args.supabase,
-            tripId,
-            trip: {
-              ...args.trip,
-              final_fare_pence: resolvedFare.final_fare_pence,
-              tip_pence: safeTipPence,
-              tip_amount_pence: safeTipPence,
-            },
-            captureAmountPence: safeCapture,
-            tipPence: safeTipPence,
-          });
-        } catch (ledgerErr) {
-          console.error("[revolutCompletionCapture] safe-capture settlement failed", ledgerErr);
-        }
-      } catch (capErr) {
-        await markPaymentSessionPaymentShortfall(args.supabase, {
-          clientActionId,
-          tripId,
-          shortfallPence: finalFarePence,
-          reason: `Capture of authorised hold failed: ${(capErr as Error).message}`,
-        });
-        return {
-          success: false,
-          status: "capture_failed",
-          capture_amount_pence: 0,
-          provider_order_id: orderId,
-          shortfall_pence: finalFarePence,
-          error: (capErr as Error).message,
-        };
-      }
-    }
-
-    if (shortfall > 0) {
-      await markPaymentSessionPaymentShortfall(args.supabase, {
-        clientActionId,
-        tripId,
-        shortfallPence: shortfall,
-        reason:
-          `Final fare exceeds authorised hold; captured safe ${safeCapture}p; shortfall ${shortfall}p only`,
-      });
-      return {
-        success: true,
-        status: "PAYMENT_RECOVERY_REQUIRED",
-        capture_amount_pence: safeCapture,
-        provider_order_id: orderId,
-        shortfall_pence: shortfall,
-        message:
-          `Captured ${safeCapture}p from original order; remaining shortfall ${shortfall}p requires recovery`,
-      };
-    }
-
+    // Must not be reached while preferSameOrderIncrement is on.
+    // Do not default to capturing the original hold — that skips increment.
     return {
-      success: true,
-      status: "captured",
-      capture_amount_pence: safeCapture,
+      success: false,
+      status: "ADDITIONAL_AUTHORISATION_UNKNOWN",
+      capture_amount_pence: 0,
       provider_order_id: orderId,
+      error:
+        "Same-order increment is required before capture; original-hold capture is not the primary path.",
     };
   }
 
-  // Dead code guard — plan kinds are exhaustive above / below for within-hold.
   if ((plan as { kind: string }).kind === "rehold_required") {
     return {
       success: false,
-      status: "PAYMENT_RECOVERY_REQUIRED",
+      status: "ADDITIONAL_AUTHORISATION_UNKNOWN",
       capture_amount_pence: 0,
       provider_order_id: orderId,
-      message: "Legacy rehold_required path removed — use additional_authorisation_required",
+      message: "Legacy rehold_required path removed — increment same order first",
     };
   }
 
-  if (plan.kind !== "capture_within_hold" && plan.kind !== "same_order_increment_required") {
+  if (plan.kind === "same_order_increment_required") {
     return {
       success: false,
-      status: "PAYMENT_RECOVERY_REQUIRED",
+      status: "ADDITIONAL_AUTHORISATION_UNKNOWN",
+      capture_amount_pence: 0,
+      provider_order_id: orderId,
+      error:
+        "Increment did not confirm an authorised total covering the final fare; reconcile before capture.",
+    };
+  }
+
+  if (plan.kind !== "capture_within_hold") {
+    return {
+      success: false,
+      status: "ADDITIONAL_AUTHORISATION_UNKNOWN",
       capture_amount_pence: 0,
       provider_order_id: orderId,
       error: `Unexpected capture plan kind: ${(plan as { kind: string }).kind}`,
@@ -593,8 +514,6 @@ export async function executeRevolutTripCompletionCapture(args: {
   const captureOwner = `capture:${tripId}`;
 
   if (captureSessionId) {
-    const { claimPaymentSessionFinancialLock, releasePaymentSessionFinancialLock } =
-      await import("./paymentSessionFinancialLockSSOT.ts");
     const lock = await claimPaymentSessionFinancialLock(args.supabase, {
       paymentSessionId: captureSessionId,
       owner: captureOwner,
@@ -618,7 +537,6 @@ export async function executeRevolutTripCompletionCapture(args: {
         merchant.secretKey,
         orderId,
       );
-      const { decideCaptureAfterRetrieve } = await import("./revolutCaptureIdempotencySSOT.ts");
       const decision = decideCaptureAfterRetrieve({
         paymentSessionId: captureSessionId,
         providerOrderId: orderId,
