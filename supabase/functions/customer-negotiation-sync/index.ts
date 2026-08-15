@@ -9,6 +9,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
 import { presetNegotiationSourceIneligibility } from "../_shared/presetNegotiationEligibility.ts";
+import { shouldTimeoutWaitingCustomer } from "../_shared/customerNegotiationDecisionHold.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,7 +55,7 @@ Deno.serve(async (req) => {
 
     const { data: offer, error: offerErr } = await supabase
       .from("ride_offers")
-      .select("id, trip_id, driver_id, status, negotiation_status, customer_respond_by, driver_respond_by, grace_window_expires_at")
+      .select("id, trip_id, driver_id, status, negotiation_status, customer_respond_by, driver_respond_by, grace_window_expires_at, responded_at")
       .eq("id", offerId)
       .single();
 
@@ -142,12 +143,21 @@ Deno.serve(async (req) => {
 
     // Customer timeout → check if server has already transitioned to grace
     if (ns === "waiting_customer") {
-      const respondByMs = offer.customer_respond_by
-        ? new Date(offer.customer_respond_by).getTime()
-        : null;
-
-      if (respondByMs && respondByMs > Date.now()) {
-        return new Response(JSON.stringify({ success: true, action: "not_expired_yet", trip_id: offer.trip_id }), {
+      if (
+        !shouldTimeoutWaitingCustomer({
+          negotiationStatus: ns,
+          customerRespondByIso: offer.customer_respond_by,
+          respondedAtIso: (offer as { responded_at?: string | null }).responded_at,
+          nowMs: Date.now(),
+        })
+      ) {
+        return new Response(JSON.stringify({
+          success: true,
+          action: (offer as { responded_at?: string | null }).responded_at
+            ? "decision_in_flight"
+            : "not_expired_yet",
+          trip_id: offer.trip_id,
+        }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }

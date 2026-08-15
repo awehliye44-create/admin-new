@@ -28,6 +28,10 @@ import {
 } from "../_shared/tripTerminalDispatch.ts";
 import { FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY } from "../_shared/negotiationPushCopy.ts";
 import {
+  shouldTimeoutAbandonedDecisionHold,
+  shouldTimeoutWaitingCustomer,
+} from "../_shared/customerNegotiationDecisionHold.ts";
+import {
   EXPIRE_OFFERS_AUTO_DISPATCH_SOURCE,
   invokeAutoDispatchWithServiceRole,
   type DispatchTripContext,
@@ -207,7 +211,7 @@ Deno.serve(async (req) => {
 
     const { data: customerResponseExpired } = await supabase
       .from("ride_offers")
-      .select("id, driver_id, trip_id, negotiation_status, customer_respond_by")
+      .select("id, driver_id, trip_id, negotiation_status, customer_respond_by, responded_at")
       .eq("negotiation_status", "waiting_customer")
       .lt("customer_respond_by", nowIso);
 
@@ -215,10 +219,20 @@ Deno.serve(async (req) => {
       try {
         const { data: offerGuard } = await supabase
           .from("ride_offers")
-          .select("status, negotiation_status")
+          .select("status, negotiation_status, responded_at")
           .eq("id", o.id)
           .maybeSingle();
         if (offerGuard?.status === "accepted" || offerGuard?.negotiation_status === "confirmed") continue;
+        if (
+          !shouldTimeoutWaitingCustomer({
+            negotiationStatus: offerGuard?.negotiation_status ?? o.negotiation_status,
+            customerRespondByIso: o.customer_respond_by,
+            respondedAtIso: offerGuard?.responded_at ?? o.responded_at,
+            nowMs: Date.now(),
+          })
+        ) {
+          continue;
+        }
 
         if (o.driver_id) {
           await finalizeNegotiationFailureAndRebroadcast(supabase, {
@@ -350,7 +364,14 @@ Deno.serve(async (req) => {
       .is("customer_respond_by", null)
       .lt("updated_at", stuckCutoff);
 
-    for (const o of stuckWaitingCustomer || []) {
+    const { data: abandonedDecisionHolds } = await supabase
+      .from("ride_offers")
+      .select("id, driver_id, trip_id, negotiation_status, responded_at")
+      .eq("negotiation_status", "waiting_customer")
+      .not("responded_at", "is", null)
+      .lt("responded_at", stuckCutoff);
+
+    for (const o of [...(stuckWaitingCustomer || []), ...(abandonedDecisionHolds || [])]) {
       try {
         const { data: offerGuard } = await supabase
           .from("ride_offers")
@@ -358,6 +379,16 @@ Deno.serve(async (req) => {
           .eq("id", o.id)
           .maybeSingle();
         if (offerGuard?.status === "accepted" || offerGuard?.negotiation_status === "confirmed") continue;
+        if (
+          (o as { responded_at?: string | null }).responded_at
+          && !shouldTimeoutAbandonedDecisionHold({
+            negotiationStatus: offerGuard?.negotiation_status ?? o.negotiation_status,
+            respondedAtIso: (o as { responded_at?: string | null }).responded_at,
+            nowMs: Date.now(),
+          })
+        ) {
+          continue;
+        }
 
         if (o.driver_id) {
           await finalizeNegotiationFailureAndRebroadcast(supabase, {

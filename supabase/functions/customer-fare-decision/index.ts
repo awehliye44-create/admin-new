@@ -46,6 +46,7 @@ import {
   NEGOTIATION_PAYABLE_INSUFFICIENT_CODE,
   NEGOTIATION_PAYABLE_INSUFFICIENT_MESSAGE,
 } from "../_shared/negotiationPayableAuthorisation.ts";
+import { claimCustomerNegotiationDecision } from "../_shared/customerNegotiationDecisionHold.ts";
 import {
   extractPresetOptionsFromOffer,
   faresMatchPence,
@@ -278,6 +279,24 @@ Deno.serve(async (req) => {
         trip_id: rematch.trip_id ?? trip.id,
         negotiation_disabled: true,
       });
+    }
+
+    if (action === "ACCEPT" || action === "COUNTER") {
+      const submittedAtIso = new Date().toISOString();
+      const claimed = await claimCustomerNegotiationDecision(supabase, offer_id, submittedAtIso);
+      if (!claimed.ok) {
+        if (claimed.reason === "expired") {
+          return errorResponse("TIMEOUT", "Response time expired — finding another driver", 410, {
+            trip_id: trip.id,
+            negotiation_disabled: true,
+          });
+        }
+        return errorResponse(
+          "INVALID_STATE",
+          `Offer is not awaiting customer decision (status=${offer.status}, negotiation=${offer.negotiation_status})`,
+          409,
+        );
+      }
     }
 
     if (action === "ACCEPT") {
