@@ -14,6 +14,9 @@ export type ApplyProviderRefundArgs = {
   providerRefundId?: string | null;
   providerChargeId?: string | null;
   providerPaymentIntentId?: string | null;
+  /** Revolut admin refunds pass the merchant order id here. */
+  providerOrderId?: string | null;
+  provider?: "revolut" | "provider" | string | null;
   source: "webhook" | "admin_sync" | "admin_refund";
   refundReason?: string | null;
 };
@@ -33,15 +36,19 @@ const REFUND_DEBIT_TYPE = "REFUND_DEBIT";
 
 async function findTripId(
   supabase: SupabaseClient,
-  args: Pick<ApplyProviderRefundArgs, "tripId" | "providerPaymentIntentId" | "providerChargeId">,
+  args: Pick<
+    ApplyProviderRefundArgs,
+    "tripId" | "providerPaymentIntentId" | "providerOrderId" | "providerChargeId"
+  >,
 ): Promise<string | null> {
   if (args.tripId) return args.tripId;
 
-  if (args.providerPaymentIntentId) {
+  const paymentIntentId = args.providerPaymentIntentId ?? args.providerOrderId ?? null;
+  if (paymentIntentId) {
     const { data } = await supabase
       .from("trips")
       .select("id")
-      .eq("provider_payment_id", args.providerPaymentIntentId)
+      .eq("provider_payment_id", paymentIntentId)
       .maybeSingle();
     if (data?.id) return String(data.id);
   }
@@ -242,6 +249,19 @@ export async function applyProviderRefundToOnecab(
     /* optional audit */
   }
 
+  // Keep payment_sessions in sync for Payment Sessions overcapture UI.
+  const { error: psErr } = await supabase
+    .from("payment_sessions")
+    .update({
+      refunded_amount_pence: refundedPence,
+      updated_at: now,
+    })
+    .eq("trip_id", tripId)
+    .not("captured_amount_pence", "is", null);
+  if (psErr) {
+    console.warn("[applyProviderRefund] payment_sessions update skipped", psErr.message);
+  }
+
   return {
     trip_id: tripId,
     payment_status: paymentStatus,
@@ -252,43 +272,4 @@ export async function applyProviderRefundToOnecab(
     commission_reversal_pence: adjusted.commission_reversal_pence,
     ledger_reversal_inserted: ledgerReversalInserted,
   };
-}
-
-/** Provider-agnostic refund apply — Revolut admin refunds + legacy provider. */
-export async function applyProviderRefundToOnecab(
-  supabase: SupabaseClient,
-  args: {
-    tripId: string;
-    amountRefundedPence: number;
-    provider?: "revolut" | "provider" | string | null;
-    providerRefundId?: string | null;
-    providerOrderId?: string | null;
-    source: "webhook" | "admin_sync" | "admin_refund";
-    refundReason?: string | null;
-  },
-): Promise<ApplyProviderRefundResult> {
-  const result = await applyProviderRefundToOnecab(supabase, {
-    tripId: args.tripId,
-    amountRefundedPence: args.amountRefundedPence,
-    providerRefundId: args.providerRefundId ?? null,
-    providerPaymentIntentId: args.providerOrderId ?? null,
-    source: args.source,
-    refundReason: args.refundReason ?? null,
-  });
-
-  // Keep payment_sessions in sync for Payment Sessions overcapture UI.
-  const now = new Date().toISOString();
-  const { error: psErr } = await supabase
-    .from("payment_sessions")
-    .update({
-      refunded_amount_pence: args.amountRefundedPence,
-      updated_at: now,
-    })
-    .eq("trip_id", args.tripId)
-    .not("captured_amount_pence", "is", null);
-  if (psErr) {
-    console.warn("[applyProviderRefund] payment_sessions update skipped", psErr.message);
-  }
-
-  return result;
 }
