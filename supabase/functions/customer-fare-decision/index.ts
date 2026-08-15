@@ -397,6 +397,15 @@ Deno.serve(async (req) => {
         offerTerminalStatus: "declined",
         offerNegotiationStatus: "declined_customer",
       });
+      if (!rematch.success) {
+        console.error("[customer-fare-decision] DECLINE rematch failed:", rematch);
+        return errorResponse(
+          "REMATCH_FAILED",
+          "Could not return this trip to search",
+          500,
+          { trip_id: trip.id, detail: rematch.error ?? null },
+        );
+      }
 
       await supabase.rpc("log_audit_event", {
         p_event_type: "customer_declined_fare",

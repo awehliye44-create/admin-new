@@ -48,6 +48,32 @@ export async function resolveDriverAuthoritativeToken(
 }
 
 /**
+ * trips.passenger_id is customers.id. Push tokens and customer_active_devices
+ * are keyed by auth.users.id. Resolve either shape to the auth user id.
+ */
+export async function resolveCustomerAuthUserId(
+  client: SupabaseClient,
+  passengerOrUserId: string,
+): Promise<string> {
+  const id = passengerOrUserId.trim();
+  if (!id) return id;
+  const { data: byUser } = await client
+    .from("customers")
+    .select("user_id")
+    .eq("user_id", id)
+    .maybeSingle();
+  if (typeof byUser?.user_id === "string" && byUser.user_id) return byUser.user_id;
+  const { data: byCustomer } = await client
+    .from("customers")
+    .select("user_id")
+    .eq("id", id)
+    .maybeSingle();
+  return typeof byCustomer?.user_id === "string" && byCustomer.user_id
+    ? byCustomer.user_id
+    : id;
+}
+
+/**
  * Customer: active device must exist; only the latest token for that user is
  * selectable (claim/bind must have wiped siblings). No historical fan-out.
  * Prefer platform matching the active device when multiple rows exist transiently.
@@ -56,10 +82,11 @@ export async function resolveCustomerAuthoritativeToken(
   client: SupabaseClient,
   userId: string,
 ): Promise<AuthoritativeToken | null> {
+  const authUserId = await resolveCustomerAuthUserId(client, userId);
   const { data: active, error: activeErr } = await client
     .from("customer_active_devices")
     .select("device_id, platform")
-    .eq("user_id", userId)
+    .eq("user_id", authUserId)
     .maybeSingle();
 
   if (activeErr || !active?.device_id) {
@@ -69,7 +96,7 @@ export async function resolveCustomerAuthoritativeToken(
   let query = client
     .from("customer_push_tokens")
     .select("token, platform")
-    .eq("user_id", userId)
+    .eq("user_id", authUserId)
     .order("updated_at", { ascending: false })
     .limit(1);
 
@@ -78,7 +105,7 @@ export async function resolveCustomerAuthoritativeToken(
     const { data: matched } = await client
       .from("customer_push_tokens")
       .select("token, platform")
-      .eq("user_id", userId)
+      .eq("user_id", authUserId)
       .eq("platform", active.platform)
       .order("updated_at", { ascending: false })
       .limit(1)

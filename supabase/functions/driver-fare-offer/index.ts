@@ -554,6 +554,11 @@ Deno.serve(async (req) => {
 
     if (passengerRow?.passenger_id) {
       try {
+        const { resolveCustomerAuthUserId } = await import("../_shared/authoritativeDevicePush.ts");
+        const customerAuthUserId = await resolveCustomerAuthUserId(
+          supabase,
+          passengerRow.passenger_id,
+        );
         const pushResp = await fetch(`${supabaseUrl}/functions/v1/send-trip-notification`, {
           method: "POST",
           headers: {
@@ -561,7 +566,7 @@ Deno.serve(async (req) => {
             Authorization: `Bearer ${supabaseServiceKey}`,
           },
           body: JSON.stringify({
-            userId: passengerRow.passenger_id,
+            userId: customerAuthUserId,
             tripId: trip.id,
             event: "customer_new_fare_offer",
             title: CUSTOMER_NEW_FARE_OFFER_TITLE,

@@ -160,6 +160,23 @@ Deno.test("fare formulas: Y is not original; Z becomes original immediately", ()
   assertEquals(customerZ, 525);
 });
 
+Deno.test("customer fare push resolves customers.id to auth user id", async () => {
+  const auth = await Deno.readTextFile(
+    new URL("./authoritativeDevicePush.ts", import.meta.url),
+  );
+  const offer = await Deno.readTextFile(
+    new URL("../driver-fare-offer/index.ts", import.meta.url),
+  );
+  const tripNotif = await Deno.readTextFile(
+    new URL("../send-trip-notification/index.ts", import.meta.url),
+  );
+  assertEquals(auth.includes("export async function resolveCustomerAuthUserId"), true);
+  assertEquals(offer.includes("resolveCustomerAuthUserId"), true);
+  assertEquals(offer.includes("userId: customerAuthUserId"), true);
+  assertEquals(tripNotif.includes("resolveCustomerAuthUserId"), true);
+  assertEquals(tripNotif.includes("authUserId"), true);
+});
+
 Deno.test("customer negotiation pushes deep-link to the current ride", async () => {
   const src = await Deno.readTextFile(
     new URL("../send-trip-notification/index.ts", import.meta.url),
@@ -189,6 +206,18 @@ Deno.test("accept-offer blocks other drivers while pre-held", async () => {
   assertEquals(src.includes("NEGOTIATION_HELD"), true);
   assertEquals(src.includes("negotiation_owner_driver_id"), true);
   assertEquals(src.includes("This trip is held for another driver"), true);
+});
+
+Deno.test("negotiation failure rematch may leave negotiating for searching_new_driver", async () => {
+  const src = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260924170000_allow_negotiation_failure_rematch.sql",
+      import.meta.url,
+    ),
+  );
+  assertEquals(src.includes("'searching', 'pending', 'offered', 'broadcasting', 'offering', 'negotiating'"), true);
+  assertEquals(src.includes("NEW.negotiation_disabled = true"), true);
+  assertEquals(src.includes("is_driver_cancel_rematch_eligible_status"), true);
 });
 
 Deno.test("SQL pre-hold trigger blocks assignment to non-owner", async () => {
@@ -341,6 +370,7 @@ Deno.test("original Accept and negotiated Accept still assign immediately", asyn
   assertEquals(accept.includes("accept_ride_offer"), true);
   assertEquals(decision.includes('if (action === "ACCEPT")'), true);
   assertEquals(decision.includes("accept_ride_offer"), true);
+  assertEquals(decision.includes("REMATCH_FAILED"), true);
   assertEquals(final.includes("accept_ride_offer"), true);
 });
 

@@ -431,12 +431,14 @@ serve(async (req) => {
       }
     }
 
-    // Get customer's push tokens
+    // Get customer's push tokens (passenger_id or auth user id)
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const { resolveCustomerAuthUserId } = await import("../_shared/authoritativeDevicePush.ts");
+    const authUserId = await resolveCustomerAuthUserId(supabase, userId);
     const { data: tokens, error: tokenError } = await supabase
       .from("customer_push_tokens")
       .select("token, platform")
-      .eq("user_id", userId)
+      .eq("user_id", authUserId)
       .eq("app_type", "customer");
 
     if (tokenError) {
