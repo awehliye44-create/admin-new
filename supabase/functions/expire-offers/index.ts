@@ -31,6 +31,7 @@ import {
   shouldTimeoutAbandonedDecisionHold,
   shouldTimeoutWaitingCustomer,
 } from "../_shared/customerNegotiationDecisionHold.ts";
+import { enterDriverSecondChanceAtOriginalFare } from "../_shared/customerNegotiationGrace.ts";
 import {
   EXPIRE_OFFERS_AUTO_DISPATCH_SOURCE,
   invokeAutoDispatchWithServiceRole,
@@ -205,8 +206,8 @@ Deno.serve(async (req) => {
     // Do not chain invoke here — it doubled Edge invocations on every expire-offers cron tick.
 
     // ─── 0a. Negotiation timeouts (two-phase industry standard) ───────────────
-    // Customer timeout / driver final timeout -> exclude driver + same-trip rematch.
-    // Explicit customer decline still creates the driver's Accept standard window.
+    // Customer £Y timeout → Driver second chance at original £X (same as Decline).
+    // Driver £Z / second-chance timeout → exclude driver + same-trip rematch.
     const nowIso = new Date().toISOString();
 
     const { data: customerResponseExpired } = await supabase
@@ -235,16 +236,14 @@ Deno.serve(async (req) => {
         }
 
         if (o.driver_id) {
-          await finalizeNegotiationFailureAndRebroadcast(supabase, {
-            tripId: o.trip_id,
-            failedDriverId: o.driver_id,
-            offerId: o.id,
-            offerTerminalStatus: "expired",
-            offerNegotiationStatus: "timeout_customer",
+          await enterDriverSecondChanceAtOriginalFare(supabase, {
+            offer_id: o.id,
+            trip_id: o.trip_id,
+            driver_id: o.driver_id,
+            reason: "timeout_customer",
           });
         }
-        await sendNegotiationExpiredPush(supabaseUrl, supabaseKey, supabase, o.trip_id, o.id, o.driver_id ?? null);
-        console.log("[expire-offers] Customer response timeout → rematch", o.id);
+        console.log("[expire-offers] Customer response timeout → Driver second chance £X", o.id);
       } catch (e) {
         console.warn("[expire-offers] customer grace start error", o.id, e);
       }

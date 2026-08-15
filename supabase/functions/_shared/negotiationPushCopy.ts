@@ -30,8 +30,14 @@ export function customerCounterOfferPushBody(counterPence: number): string {
 export const OFFER_ACCEPTED_ASSIGNED_TITLE = 'Offer accepted';
 export const OFFER_ACCEPTED_ASSIGNED_BODY = 'Offer accepted — trip assigned.';
 
-export const CUSTOMER_DECLINED_OFFER_TITLE = 'Offer declined';
-export const CUSTOMER_DECLINED_OFFER_BODY = 'Customer declined your offer.';
+export const CUSTOMER_DECLINED_OFFER_TITLE = 'Customer declined your offer';
+export const CUSTOMER_DECLINED_OFFER_BODY = 'Customer declined your offer';
+export function customerDeclinedSecondChanceBody(originalFarePence: number): string {
+  if (!Number.isFinite(originalFarePence) || originalFarePence <= 0) {
+    return 'Accept original fare';
+  }
+  return `Accept original fare ${formatNegotiationGbp(originalFarePence)}`;
+}
 
 export const DRIVER_ACCEPTED_COUNTER_TITLE = 'Counter accepted';
 export const DRIVER_ACCEPTED_COUNTER_BODY = 'Driver accepted your counter offer.';

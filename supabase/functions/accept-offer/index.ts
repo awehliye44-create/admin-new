@@ -428,6 +428,17 @@ Deno.serve(async (req) => {
           "Customer must accept or decline your fare offer before you can accept this ride",
         );
       }
+      if (ns === "declined_customer_awaiting_driver" && offerRow.status !== "accepted") {
+        console.log("[accept-offer] BLOCKED_SECOND_CHANCE_USE_FARE_FINAL", {
+          offer_id,
+          driver_id,
+          negotiation_status: ns,
+        });
+        return businessFailureResponse(
+          "NEGOTIATION_SECOND_CHANCE",
+          "Accept the original fare from the negotiation card",
+        );
+      }
     }
 
     // Collect other pending offers for this trip BEFORE accept (they'll be revoked by RPC)

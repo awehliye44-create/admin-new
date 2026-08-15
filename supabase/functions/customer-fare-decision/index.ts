@@ -3,9 +3,10 @@
  * 
  * Actions: ACCEPT, DECLINE, COUNTER (counter must match remaining admin preset options)
  * 
- * DECLINE / timeout: exclude negotiating Driver, rematch immediately at original £X.
+ * DECLINE / ignore / Customer £Y timeout: one Driver second chance at original £X
+ * (declined_customer_awaiting_driver). Do not rematch or exclude yet.
  * COUNTER £Z: persist as new original fare immediately; Driver has the
- * Admin service-area countdown to Accept £Z.
+ * Admin service-area countdown to Accept £Z. No second chance after £Z.
  * 
  * POST body: { offer_id, action: "ACCEPT"|"DECLINE"|"COUNTER", selected_fare_pence?: number }
  */
@@ -24,8 +25,6 @@ import {
 import { broadcastCustomerCounterOffer } from "../_shared/driverNegotiationBroadcast.ts";
 import { buildDriverNegotiationPushData } from "../_shared/driverNegotiationPush.ts";
 import {
-  CUSTOMER_DECLINED_OFFER_BODY,
-  CUSTOMER_DECLINED_OFFER_TITLE,
   OFFER_ACCEPTED_ASSIGNED_BODY,
   OFFER_ACCEPTED_ASSIGNED_TITLE,
   customerCounterOfferPushBody,
@@ -33,7 +32,6 @@ import {
 import { enrichOfferSnapshotDriverNet } from "../_shared/driverOfferNetPreview.ts";
 import { assignedNegotiationSuccessBody } from "../_shared/assignedNegotiationSnapshot.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
-import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
 import { resolveNegotiationBaseFarePence } from "../_shared/negotiationBaseFare.ts";
 import { presetNegotiationSourceIneligibility } from "../_shared/presetNegotiationEligibility.ts";
 import {
@@ -47,6 +45,7 @@ import {
   NEGOTIATION_PAYABLE_INSUFFICIENT_MESSAGE,
 } from "../_shared/negotiationPayableAuthorisation.ts";
 import { claimCustomerNegotiationDecision } from "../_shared/customerNegotiationDecisionHold.ts";
+import { enterDriverSecondChanceAtOriginalFare } from "../_shared/customerNegotiationGrace.ts";
 import {
   extractPresetOptionsFromOffer,
   faresMatchPence,
@@ -217,6 +216,23 @@ Deno.serve(async (req) => {
       );
     }
 
+    if (offer.negotiation_status === "declined_customer_awaiting_driver") {
+      const baseFarePence = resolveNegotiationBaseFarePence(trip);
+      return successResponse({
+        success: true,
+        action: "DRIVER_SECOND_CHANCE",
+        trip_id: trip.id,
+        base_fare_pence: baseFarePence,
+        negotiation_status: "declined_customer_awaiting_driver",
+        negotiation_expires_at:
+          offer.grace_window_expires_at
+          ?? offer.negotiation_expires_at
+          ?? offer.driver_respond_by,
+        original_fare_pence: baseFarePence,
+        message: "Driver has one chance to accept the original fare",
+      });
+    }
+
     if (!isAwaitingCustomerDecision(offer)) {
       return errorResponse(
         "INVALID_STATE",
@@ -229,6 +245,8 @@ Deno.serve(async (req) => {
     if (
       offer.driver_offer_fare > 0
       && offer.negotiation_status !== "waiting_customer"
+      && offer.negotiation_status !== "waiting_driver_final"
+      && offer.negotiation_status !== "declined_customer_awaiting_driver"
       && (offer.status === "pending" || offer.status === "countered")
     ) {
       const healedBy =
@@ -258,37 +276,44 @@ Deno.serve(async (req) => {
       ?? offer.customer_respond_by;
     const respondByMs = respondByIso ? new Date(respondByIso).getTime() : null;
     if (respondByMs != null && respondByMs < Date.now() - 5000) {
-      const rematch = await finalizeNegotiationFailureAndRebroadcast(supabase, {
-        tripId: trip.id,
-        failedDriverId: offer.driver_id,
-        offerId: offer_id,
-        offerTerminalStatus: "expired",
-        offerNegotiationStatus: "timeout_customer",
+      const secondChance = await enterDriverSecondChanceAtOriginalFare(supabase, {
+        offer_id,
+        trip_id: trip.id,
+        driver_id: offer.driver_id,
+        reason: "timeout_customer",
+        trip,
       });
-      if (!rematch.success) {
-        console.error("[customer-fare-decision] TIMEOUT rematch failed:", rematch);
-        return errorResponse(
-          "REMATCH_FAILED",
-          "Could not return this trip to search",
-          500,
-          { trip_id: trip.id, detail: rematch.error ?? null },
-        );
-      }
-
-      return errorResponse("TIMEOUT", "Response time expired — finding another driver", 410, {
-        trip_id: rematch.trip_id ?? trip.id,
-        negotiation_disabled: true,
+      return successResponse({
+        success: true,
+        action: "DRIVER_SECOND_CHANCE",
+        trip_id: trip.id,
+        negotiation_status: "declined_customer_awaiting_driver",
+        negotiation_expires_at: secondChance.negotiation_expires_at,
+        original_fare_pence: secondChance.original_fare_pence,
+        message: "Driver has one chance to accept the original fare",
       });
     }
 
-    if (action === "ACCEPT" || action === "COUNTER") {
+    if (action === "ACCEPT" || action === "COUNTER" || action === "DECLINE") {
       const submittedAtIso = new Date().toISOString();
       const claimed = await claimCustomerNegotiationDecision(supabase, offer_id, submittedAtIso);
       if (!claimed.ok) {
         if (claimed.reason === "expired") {
-          return errorResponse("TIMEOUT", "Response time expired — finding another driver", 410, {
+          const secondChance = await enterDriverSecondChanceAtOriginalFare(supabase, {
+            offer_id,
             trip_id: trip.id,
-            negotiation_disabled: true,
+            driver_id: offer.driver_id,
+            reason: "timeout_customer",
+            trip,
+          });
+          return successResponse({
+            success: true,
+            action: "DRIVER_SECOND_CHANCE",
+            trip_id: trip.id,
+            negotiation_status: "declined_customer_awaiting_driver",
+            negotiation_expires_at: secondChance.negotiation_expires_at,
+            original_fare_pence: secondChance.original_fare_pence,
+            message: "Driver has one chance to accept the original fare",
           });
         }
         return errorResponse(
@@ -447,23 +472,15 @@ Deno.serve(async (req) => {
     }
 
     if (action === "DECLINE") {
-      const baseFarePence = resolveNegotiationBaseFarePence(trip);
-      const rematch = await finalizeNegotiationFailureAndRebroadcast(supabase, {
-        tripId: trip.id,
-        failedDriverId: offer.driver_id,
-        offerId: offer_id,
-        offerTerminalStatus: "declined",
-        offerNegotiationStatus: "declined_customer",
+      const secondChance = await enterDriverSecondChanceAtOriginalFare(supabase, {
+        offer_id,
+        trip_id: trip.id,
+        driver_id: offer.driver_id,
+        reason: "decline",
+        trip,
       });
-      if (!rematch.success) {
-        console.error("[customer-fare-decision] DECLINE rematch failed:", rematch);
-        return errorResponse(
-          "REMATCH_FAILED",
-          "Could not return this trip to search",
-          500,
-          { trip_id: trip.id, detail: rematch.error ?? null },
-        );
-      }
+      const baseFarePence =
+        secondChance.original_fare_pence ?? resolveNegotiationBaseFarePence(trip);
 
       await supabase.rpc("log_audit_event", {
         p_event_type: "customer_declined_fare",
@@ -473,33 +490,20 @@ Deno.serve(async (req) => {
           offer_id,
           driver_id: offer.driver_id,
           base_fare_pence: baseFarePence,
-          rematch_success: rematch.success,
+          second_chance: true,
+          negotiation_expires_at: secondChance.negotiation_expires_at,
         },
       });
 
-      try {
-        await postDriverNegotiationPush({
-          driverId: offer.driver_id,
-          type: "NEGOTIATION_UPDATE",
-          title: CUSTOMER_DECLINED_OFFER_TITLE,
-          body: CUSTOMER_DECLINED_OFFER_BODY,
-          data: {
-            type: "NEGOTIATION_UPDATE",
-            notificationType: "customer_declined_offer",
-            offer_id,
-            trip_id: trip.id,
-          },
-        }, "decline");
-      } catch (pushErr) {
-        console.warn("[customer-fare-decision] decline driver push failed:", pushErr);
-      }
-
       return successResponse({
         success: true,
-        action: "DECLINED",
+        action: "DRIVER_SECOND_CHANCE",
         trip_id: trip.id,
         base_fare_pence: baseFarePence,
-        message: "Finding another driver at the original fare",
+        negotiation_status: "declined_customer_awaiting_driver",
+        negotiation_expires_at: secondChance.negotiation_expires_at,
+        original_fare_pence: baseFarePence,
+        message: "Driver has one chance to accept the original fare",
       });
     }
 

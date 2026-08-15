@@ -122,7 +122,9 @@ Deno.test("expire-offers and sync skip in-flight responded_at holds", async () =
   assertEquals(expire.includes("shouldTimeoutAbandonedDecisionHold"), true);
   assertEquals(sync.includes("shouldTimeoutWaitingCustomer"), true);
   assertEquals(decision.includes("claimCustomerNegotiationDecision"), true);
-  const acceptStart = decision.indexOf('if (action === "ACCEPT" || action === "COUNTER")');
+  const acceptStart = decision.indexOf(
+    'if (action === "ACCEPT" || action === "COUNTER" || action === "DECLINE")',
+  );
   const firstCover = decision.indexOf("ensureNegotiationPayableAuthorised({");
   assertEquals(acceptStart > 0 && firstCover > acceptStart, true);
   assertEquals(

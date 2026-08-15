@@ -13,6 +13,8 @@ import {
   customerCounterOfferPushBody,
   customerNewFareOfferBody,
   CUSTOMER_DECLINED_OFFER_BODY,
+  CUSTOMER_DECLINED_OFFER_TITLE,
+  customerDeclinedSecondChanceBody,
   DRIVER_ACCEPTED_COUNTER_BODY,
   FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY,
   OFFER_ACCEPTED_ASSIGNED_BODY,
@@ -143,7 +145,9 @@ Deno.test("approved push copy matches product strings without hardcoded 20s", ()
     "Customer counter offer £5.25 — respond before it expires.",
   );
   assertEquals(OFFER_ACCEPTED_ASSIGNED_BODY, "Offer accepted — trip assigned.");
-  assertEquals(CUSTOMER_DECLINED_OFFER_BODY, "Customer declined your offer.");
+  assertEquals(CUSTOMER_DECLINED_OFFER_TITLE, "Customer declined your offer");
+  assertEquals(CUSTOMER_DECLINED_OFFER_BODY, "Customer declined your offer");
+  assertEquals(customerDeclinedSecondChanceBody(450), "Accept original fare £4.50");
   assertEquals(DRIVER_ACCEPTED_COUNTER_BODY, "Driver accepted your counter offer.");
   assertEquals(
     FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY,
@@ -306,20 +310,31 @@ Deno.test("expiry rematches and never auto-accepts", async () => {
   assertEquals(expire.includes("negotiation_disabled: true"), true);
 });
 
-Deno.test("£Y timeout rematches at original; £Z is committed before the driver window", async () => {
+Deno.test("£Y timeout and Decline enter the same Driver second chance; £Z stays committed", async () => {
   const decision = await Deno.readTextFile(
     new URL("../customer-fare-decision/index.ts", import.meta.url),
+  );
+  const expire = await Deno.readTextFile(
+    new URL("../expire-offers/index.ts", import.meta.url),
+  );
+  const sync = await Deno.readTextFile(
+    new URL("../customer-negotiation-sync/index.ts", import.meta.url),
   );
   const final = await Deno.readTextFile(
     new URL("../driver-fare-final/index.ts", import.meta.url),
   );
-  const timeoutIdx = decision.indexOf("timeout_customer");
-  const commitIdx = decision.indexOf('p_fare_source: "customer_counter_offer"');
-  assertEquals(timeoutIdx > 0, true);
-  assertEquals(commitIdx > timeoutIdx, true);
+  const grace = await Deno.readTextFile(
+    new URL("./customerNegotiationGrace.ts", import.meta.url),
+  );
+  assertEquals(decision.includes("enterDriverSecondChanceAtOriginalFare"), true);
+  assertEquals(expire.includes("enterDriverSecondChanceAtOriginalFare"), true);
+  assertEquals(sync.includes("enterDriverSecondChanceAtOriginalFare"), true);
+  assertEquals(grace.includes('DRIVER_SECOND_CHANCE_PHASE = "declined_customer_awaiting_driver"'), true);
+  assertEquals(decision.includes('p_fare_source: "customer_counter_offer"'), true);
   assertEquals(final.includes("timeout_driver"), true);
   assertEquals(final.includes("customer_counter_fare"), true);
   assertEquals(final.includes("CUSTOMER_COUNTER_DRIVER_SECONDS"), false);
+  assertEquals(final.includes("assignAcceptedNegotiation"), true);
 });
 
 Deno.test("scheduled trips never receive a negotiation deadline", async () => {
@@ -376,8 +391,9 @@ Deno.test("original Accept and negotiated Accept still assign immediately", asyn
   assertEquals(decision.includes("assignedNegotiationSuccessBody"), true);
   assertEquals(decision.includes('errorResponse(\n          "ASSIGN_INCOMPLETE"'), false);
   assertEquals(decision.includes('errorResponse("ASSIGN_INCOMPLETE"'), false);
-  assertEquals(decision.includes("REMATCH_FAILED"), true);
-  assertEquals(decision.includes("TIMEOUT rematch failed"), true);
+  assertEquals(decision.includes("enterDriverSecondChanceAtOriginalFare"), true);
+  assertEquals(decision.includes("DRIVER_SECOND_CHANCE"), true);
+  assertEquals(decision.includes("TIMEOUT rematch failed"), false);
   assertEquals(decision.includes("postDriverNegotiationPush"), true);
   assertEquals(final.includes("accept_ride_offer"), true);
   assertEquals(final.includes("ensureNegotiationPayableAuthorised"), true);
@@ -573,10 +589,14 @@ Deno.test("Customer counter and decline still send Driver NEGOTIATION_UPDATE hea
     new URL("../send-driver-notification/index.ts", import.meta.url),
   );
   assertEquals(decision.includes('notificationType: "customer_counter_offer"'), true);
-  assertEquals(decision.includes('notificationType: "customer_declined_offer"'), true);
+  assertEquals(decision.includes("enterDriverSecondChanceAtOriginalFare"), true);
   assertEquals(decision.includes('notificationType: "offer_accepted_assigned"'), true);
   assertEquals(decision.includes("customerCounterOfferPushBody"), true);
-  assertEquals(decision.includes("CUSTOMER_DECLINED_OFFER_BODY"), true);
+  const grace = await Deno.readTextFile(
+    new URL("./customerNegotiationGrace.ts", import.meta.url),
+  );
+  assertEquals(grace.includes('notificationType: "customer_declined_offer"'), true);
+  assertEquals(grace.includes("customerDeclinedSecondChanceBody"), true);
   assertEquals(driverPush.includes("isNegotiationUpdate"), true);
   assertEquals(driverPush.includes("onecab_driver_trip_updates_v1"), true);
 });

@@ -6,8 +6,8 @@
  * - DECLINE or TIMEOUT → exclude driver + rebroadcast same trip (no new trip id);
  *   negotiation_disabled=true — future drivers see normal accept/decline at original fare only.
  * 
- * Also handles declined_customer_awaiting_driver (legacy grace window):
- * - ACCEPT_STANDARD → CONFIRMED(finalFare=original fare)
+ * Also handles declined_customer_awaiting_driver (Driver second chance at £X):
+ * - ACCEPT / ACCEPT_STANDARD → CONFIRMED(finalFare=original fare) via accept_ride_offer
  * - DECLINE / timeout → exclude driver + rebroadcast same trip (no new trip id)
  * 
  * POST body: { offer_id, driver_id, action: "ACCEPT"|"ACCEPT_STANDARD"|"DECLINE" }
@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
     const fetchOfferWithTrip = (id: string) =>
       supabase
         .from("ride_offers")
-        .select("*, trips(id, status, excluded_driver_ids, base_fare_pence, estimated_fare, fare, fare_breakdown, passenger_id, is_scheduled, dispatch_mode, trip_type, corporate_account_id, booking_source)")
+        .select("*, trips(id, status, excluded_driver_ids, base_fare_pence, estimated_fare, fare, fare_breakdown, gross_fare_pence, estimated_total_pence, fare_snapshot_json, passenger_id, is_scheduled, dispatch_mode, trip_type, corporate_account_id, booking_source)")
         .eq("id", id)
         .eq("driver_id", driver_id)
         .maybeSingle();
@@ -239,15 +239,99 @@ Deno.serve(async (req) => {
       });
     };
 
-    // Retired: customer decline rematches immediately at £X. Stale ACCEPT_STANDARD
-    // must never assign the original fare after negotiation was consumed.
-    if (action === "ACCEPT_STANDARD") {
-      if (offer.negotiation_status === "declined_customer_awaiting_driver") {
-        await rematchSameTrip("expired", "timeout_driver");
+    const assignAcceptedNegotiation = async (args: {
+      finalFarePence: number;
+      fareSource: string;
+      auditEvent: string;
+    }) => {
+      const cover = await ensureNegotiationPayableAuthorised({
+        supabase,
+        tripId: trip.id,
+        requiredFarePence: args.finalFarePence,
+        owner: `negotiation_accept:${args.fareSource}:${trip.id}:${offer_id}`,
+      });
+      if (!cover.ok) {
+        return errorResponse(cover.code, cover.message, cover.status);
       }
+
+      const { data: acceptResult, error: acceptErr } = await supabase.rpc("accept_ride_offer", {
+        p_offer_id: offer_id,
+        p_driver_id: driver_id,
+      });
+      if (acceptErr || acceptResult?.success !== true) {
+        const acceptMessage =
+          acceptErr?.message ?? acceptResult?.message ?? acceptResult?.error ?? "Failed to assign trip";
+        if (isPaymentGateAcceptFailure(String(acceptMessage))) {
+          return errorResponse(
+            NEGOTIATION_PAYABLE_INSUFFICIENT_CODE,
+            NEGOTIATION_PAYABLE_INSUFFICIENT_MESSAGE,
+            409,
+          );
+        }
+        return errorResponse("ACCEPT_FAILED", acceptMessage, 409);
+      }
+
+      const resolvedFarePence =
+        (acceptResult?.final_fare_pence as number | undefined) ?? args.finalFarePence;
+      const finalize = await finalizeRideAssignmentSideEffects(supabase, {
+        tripId: trip.id,
+        offerId: offer_id,
+        driverId: driver_id,
+        source: "edge_driver_fare_final",
+        fareSource: (acceptResult?.fare_source as string) ?? args.fareSource,
+        acceptedVia: "accept_ride_offer",
+      });
+
+      await supabase.rpc("log_audit_event", {
+        p_event_type: args.auditEvent,
+        p_driver_id: driver_id,
+        p_trip_id: trip.id,
+        p_details: {
+          offer_id,
+          final_fare_pence: resolvedFarePence,
+          fare_source: args.fareSource,
+        },
+      });
+
+      return successResponse(assignedNegotiationSuccessBody({
+        tripId: trip.id,
+        offerId: offer_id,
+        driverId: driver_id,
+        snapshot: finalize.snapshot ?? null,
+        fallbackFarePence: resolvedFarePence,
+        fallbackFareSource: (acceptResult?.fare_source as string) ?? args.fareSource,
+      }));
+    };
+
+    // Driver second chance at original £X after Customer did not accept £Y.
+    if (
+      (action === "ACCEPT" || action === "ACCEPT_STANDARD")
+      && offer.negotiation_status === "declined_customer_awaiting_driver"
+    ) {
+      const graceMs = offer.grace_window_expires_at
+        ? new Date(offer.grace_window_expires_at).getTime()
+        : offer.negotiation_expires_at
+          ? new Date(offer.negotiation_expires_at).getTime()
+          : null;
+      if (graceMs != null && graceMs + 2000 < Date.now()) {
+        await rematchSameTrip("expired", "timeout_driver");
+        return errorResponse("TIMEOUT", "Response time expired", 410);
+      }
+      const originalFarePence = resolveNegotiationBaseFarePence(trip);
+      if (originalFarePence <= 0) {
+        return errorResponse("INVALID_STATE", "Original fare missing", 409);
+      }
+      return await assignAcceptedNegotiation({
+        finalFarePence: originalFarePence,
+        fareSource: "original_fare",
+        auditEvent: "driver_accepted_original_after_customer_decline",
+      });
+    }
+
+    if (action === "ACCEPT_STANDARD") {
       return errorResponse(
         "INVALID_STATE",
-        "Customer declined — this trip was offered to other drivers",
+        "Accept original fare is only valid during the Driver second-chance window",
         409,
       );
     }

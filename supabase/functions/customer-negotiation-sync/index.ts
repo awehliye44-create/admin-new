@@ -10,6 +10,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
 import { presetNegotiationSourceIneligibility } from "../_shared/presetNegotiationEligibility.ts";
 import { shouldTimeoutWaitingCustomer } from "../_shared/customerNegotiationDecisionHold.ts";
+import { enterDriverSecondChanceAtOriginalFare } from "../_shared/customerNegotiationGrace.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -162,29 +163,21 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Timeout = decline: discard £Y, rematch at original £X, exclude this Driver.
-      const result = await finalizeNegotiationFailureAndRebroadcast(supabase, {
-        tripId: offer.trip_id,
-        failedDriverId: offer.driver_id,
-        offerId,
-        offerTerminalStatus: "expired",
-        offerNegotiationStatus: "timeout_customer",
+      // Timeout = Decline: discard £Y, Driver second chance at original £X.
+      const result = await enterDriverSecondChanceAtOriginalFare(supabase, {
+        offer_id: offerId,
+        trip_id: offer.trip_id,
+        driver_id: offer.driver_id,
+        reason: "timeout_customer",
       });
-      if (!result.success) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: result.error ?? "Failed to resume driver search",
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
 
       return new Response(JSON.stringify({
         success: true,
-        action: "negotiation_failed_rebroadcasting",
-        trip_id: result.trip_id ?? offer.trip_id,
-        negotiation_disabled: true,
+        action: "driver_second_chance",
+        trip_id: offer.trip_id,
+        negotiation_status: "declined_customer_awaiting_driver",
+        negotiation_expires_at: result.negotiation_expires_at,
+        original_fare_pence: result.original_fare_pence,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

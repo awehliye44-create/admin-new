@@ -44,6 +44,8 @@ export function buildDriverNegotiationPushData(input: {
   offer_snapshot?: unknown;
   expires_at?: string | null;
   notificationType?: string;
+  original_fare_pence?: number | null;
+  action_required?: boolean;
 }): Record<string, string> {
   const presetCount = countPresetOptions(input.offer_snapshot);
   const presetFares = presetFaresPenceFromSnapshot(input.offer_snapshot);
@@ -80,6 +82,15 @@ export function buildDriverNegotiationPushData(input: {
   if (presetFares) {
     data.preset_fares_pence = presetFares;
     data.presetFaresPence = presetFares;
+  }
+  if (input.original_fare_pence != null && input.original_fare_pence > 0) {
+    const fare = String(Math.round(input.original_fare_pence));
+    data.original_fare_pence = fare;
+    data.originalFarePence = fare;
+  }
+  if (input.action_required) {
+    data.action_required = "true";
+    data.actionRequired = "true";
   }
   return data;
 }
