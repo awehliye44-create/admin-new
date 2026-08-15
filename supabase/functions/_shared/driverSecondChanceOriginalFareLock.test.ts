@@ -117,11 +117,21 @@ Deno.test("Customer £Y timeout has one cron owner; pending RPC keeps active neg
     continuitySql.includes("AND responded_at IS NULL"),
     false,
   );
+  const pendingKeepSql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260925151000_pending_offers_keep_live_negotiation_phases.sql",
+      import.meta.url,
+    ),
+  );
   assertEquals(
     continuitySql.includes("status = 'countered'") ||
       continuitySql.includes("ro.status = 'countered'"),
     true,
   );
+  assertEquals(pendingKeepSql.includes("waiting_customer"), true);
+  assertEquals(pendingKeepSql.includes("declined_customer_awaiting_driver"), true);
+  assertEquals(pendingKeepSql.includes("ro.expires_at > now()"), true);
+  assertEquals(pendingKeepSql.includes("ro.status = 'countered'"), false);
   assertEquals(send.includes("incomingData.notificationType"), true);
   assertEquals(send.includes("incomingData.notification_type"), true);
 });
