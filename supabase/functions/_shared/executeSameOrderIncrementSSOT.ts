@@ -17,6 +17,7 @@ import {
 } from "./revolutIncrementAuthorisationSSOT.ts";
 import {
   incrementRevolutOrderAuthorisation,
+  listRevolutOrderPayments,
   retrieveRevolutOrder,
   revolutProviderAuthorisedTotalPence,
   type ProviderEnvironment,
@@ -87,6 +88,8 @@ export async function executeSameOrderIncrement(args: {
   owner: string;
   /** Kill switch — when false, returns unsupported for controlled fallback. */
   featureEnabled?: boolean;
+  /** Trip/session payment method when retrieve omits payments[].payment_method. */
+  fallbackPaymentMethodType?: string | null;
 }): Promise<SameOrderIncrementResult> {
   const sessionId = String(args.paymentSessionId).trim();
   const orderId = String(args.providerOrderId).trim();
@@ -187,6 +190,35 @@ export async function executeSameOrderIncrement(args: {
       };
     }
 
+    if (!Array.isArray(order.payments) || order.payments.length === 0) {
+      try {
+        const payments = await listRevolutOrderPayments(
+          args.environment,
+          args.secretKey,
+          orderId,
+        );
+        if (payments.length > 0) {
+          order = {
+            ...order,
+            payments: payments.map((p) => ({
+              id: p.id,
+              state: p.state,
+              amount: p.amount,
+              payment_method: p.payment_method
+                ? { type: p.payment_method.type, card_brand: p.payment_method.card_brand }
+                : undefined,
+            })),
+          };
+        }
+      } catch (payErr) {
+        logIncrementEvent("increment_payments_hydrate_failed", {
+          payment_session_id: maskId(sessionId),
+          provider_order_id: maskId(orderId),
+          message: (payErr as Error).message,
+        });
+      }
+    }
+
     const providerTotal = revolutProviderAuthorisedTotalPence(order);
     const orderCurrency = String(order.currency ?? "").toUpperCase();
     const sessionCurrency = String(session.currency ?? currency).toUpperCase();
@@ -268,6 +300,7 @@ export async function executeSameOrderIncrement(args: {
       targetTotalAuthorisedPence: plan.targetTotalPence,
       initialAuthorisedPence: session.authorised_amount_pence,
       localIncrementCount: localIncCount ?? 0,
+      fallbackPaymentMethodType: args.fallbackPaymentMethodType ?? null,
     });
 
     logIncrementEvent("increment_eligibility_checked", {

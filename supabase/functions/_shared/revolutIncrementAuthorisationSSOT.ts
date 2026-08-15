@@ -144,6 +144,11 @@ export function evaluateRevolutIncrementEligibility(args: {
   initialAuthorisedPence?: number | null;
   /** Confirmed+pending increment rows already recorded locally. */
   localIncrementCount?: number | null;
+  /**
+   * When retrieve omits payments[].payment_method, use the trip/session method
+   * (card / apple_pay / google_pay). Provider increment API remains the authority.
+   */
+  fallbackPaymentMethodType?: string | null;
 }): IncrementEligibility {
   const order = args.order;
   if (!order?.id) {
@@ -169,7 +174,8 @@ export function evaluateRevolutIncrementEligibility(args: {
     countProviderIncrements(order),
     Math.round(Number(args.localIncrementCount ?? 0)),
   );
-  const method = paymentMethodTypeFromOrder(order);
+  const method = paymentMethodTypeFromOrder(order)
+    ?? (String(args.fallbackPaymentMethodType ?? "").trim().toLowerCase() || null);
   const target = Math.round(Number(args.targetTotalAuthorisedPence));
 
   const base = {
@@ -199,8 +205,14 @@ export function evaluateRevolutIncrementEligibility(args: {
   }
 
   const authType = String(order.authorisation_type ?? "").toLowerCase();
-  // Missing authorisation_type on older orders → unsupported for increment (fail closed).
-  if (authType !== "pre_authorisation" && authType !== "pre_authorization") {
+  // Retrieve often omits authorisation_type even when create set pre_authorisation.
+  // Only fail when the provider explicitly says this is not a pre-auth hold.
+  // Missing type → attempt increment; Revolut rejects if unsupported.
+  if (
+    authType
+    && authType !== "pre_authorisation"
+    && authType !== "pre_authorization"
+  ) {
     return { eligible: false, reason: "wrong_authorisation_type", ...base };
   }
 
@@ -209,7 +221,6 @@ export function evaluateRevolutIncrementEligibility(args: {
     return { eligible: false, reason: "unsupported_payment_method", ...base };
   }
   if (methodOk === "unknown") {
-    // Fail closed when provider does not classify the method.
     return { eligible: false, reason: "unsupported_payment_method", ...base };
   }
 

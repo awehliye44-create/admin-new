@@ -122,6 +122,7 @@ export async function prepareRevolutModificationAuthorisation(args: {
     reason: "trip_modification_fare_increase",
     owner: `trip_mod:${String(args.trip.id)}:r${args.fareRevisionNumber ?? 0}`,
     featureEnabled,
+    fallbackPaymentMethodType: String(args.trip.payment_method ?? "") || null,
   });
 
   if (incrementResult.ok) {
