@@ -49,8 +49,10 @@ Deno.test("Decline, timeout, and ignore share one enterDriverSecondChance helper
 
   assertEquals(decision.includes("enterDriverSecondChanceAtOriginalFare"), true);
   assertEquals(expire.includes("enterDriverSecondChanceAtOriginalFare"), true);
-  assertEquals(sync.includes("enterDriverSecondChanceAtOriginalFare"), true);
-  assertEquals(driverSync.includes("enterDriverSecondChanceAtOriginalFare"), true);
+  assertEquals(sync.includes("enterDriverSecondChanceAtOriginalFare"), false);
+  assertEquals(sync.includes("awaiting_timeout_owner"), true);
+  assertEquals(driverSync.includes("enterDriverSecondChanceAtOriginalFare"), false);
+  assertEquals(driverSync.includes("awaiting_timeout_owner"), true);
   assertEquals(driverSync.includes("customer_timeout_rebroadcast"), false);
   assertEquals(sql.includes("apply_customer_decline_grace"), true);
   assertEquals(sql.includes("timeout_customer_second_chance"), true);
@@ -105,6 +107,12 @@ Deno.test("Customer £Y timeout has one cron owner; pending RPC keeps active neg
   const send = await Deno.readTextFile(
     new URL("../send-driver-notification/index.ts", import.meta.url),
   );
+  const sync = await Deno.readTextFile(
+    new URL("../customer-negotiation-sync/index.ts", import.meta.url),
+  );
+  const driverSync = await Deno.readTextFile(
+    new URL("../driver-negotiation-sync/index.ts", import.meta.url),
+  );
   const continuitySql = await Deno.readTextFile(
     new URL(
       "../../migrations/20260925150000_negotiation_continuity_pending_timeout_owner.sql",
@@ -112,6 +120,10 @@ Deno.test("Customer £Y timeout has one cron owner; pending RPC keeps active neg
     ),
   );
   assertEquals(expire.includes("enterDriverSecondChanceAtOriginalFare"), true);
+  assertEquals(sync.includes("enterDriverSecondChanceAtOriginalFare"), false);
+  assertEquals(sync.includes("awaiting_timeout_owner"), true);
+  assertEquals(driverSync.includes("enterDriverSecondChanceAtOriginalFare"), false);
+  assertEquals(driverSync.includes("awaiting_timeout_owner"), true);
   assertEquals(continuitySql.includes("apply_customer_decline_grace"), false);
   assertEquals(
     continuitySql.includes("AND responded_at IS NULL"),

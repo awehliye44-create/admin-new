@@ -328,7 +328,8 @@ Deno.test("£Y timeout and Decline enter the same Driver second chance; £Z stay
   );
   assertEquals(decision.includes("enterDriverSecondChanceAtOriginalFare"), true);
   assertEquals(expire.includes("enterDriverSecondChanceAtOriginalFare"), true);
-  assertEquals(sync.includes("enterDriverSecondChanceAtOriginalFare"), true);
+  assertEquals(sync.includes("enterDriverSecondChanceAtOriginalFare"), false);
+  assertEquals(sync.includes("awaiting_timeout_owner"), true);
   assertEquals(grace.includes('DRIVER_SECOND_CHANCE_PHASE = "declined_customer_awaiting_driver"'), true);
   assertEquals(decision.includes('p_fare_source: "customer_counter_offer"'), true);
   assertEquals(final.includes("timeout_driver"), true);

@@ -1,7 +1,7 @@
 /**
  * Driver app: sync negotiation countdown expiry server-side.
  *
- * waiting_customer timeout → Driver second chance at original £X
+ * waiting_customer timeout → expire-offers owns Driver second chance at £X
  * waiting_driver_final / declined_customer_awaiting_driver timeout → exclude driver + rebroadcast
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -15,7 +15,6 @@ import {
   errorResponse,
 } from "../_shared/security.ts";
 import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
-import { enterDriverSecondChanceAtOriginalFare } from "../_shared/customerNegotiationGrace.ts";
 import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
 
 const RATE_LIMIT_CONFIG = {
@@ -94,20 +93,12 @@ Deno.serve(async (req) => {
         return successResponse({ success: true, action: "not_expired_yet", trip_id: offer.trip_id });
       }
 
-      const result = await enterDriverSecondChanceAtOriginalFare(supabase, {
-        offer_id: offerId,
-        trip_id: offer.trip_id,
-        driver_id: driverId,
-        reason: "timeout_customer",
-      });
-
+      // Customer £Y timeout is owned by expire-offers. Do not stamp second chance here.
       return successResponse({
-        success: result.ok,
-        action: "driver_second_chance",
+        success: true,
+        action: "awaiting_timeout_owner",
         trip_id: offer.trip_id,
-        negotiation_status: "declined_customer_awaiting_driver",
-        negotiation_expires_at: result.negotiation_expires_at,
-        original_fare_pence: result.original_fare_pence,
+        negotiation_status: "waiting_customer",
       });
     }
 
