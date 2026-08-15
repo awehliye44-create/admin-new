@@ -14,6 +14,10 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
+import {
+  computeScheduledDispatchAnchors,
+  resolveScheduledDispatchConfig,
+} from "../_shared/scheduledDispatchConfig.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60000, keyPrefix: 'create-ride' };
 
@@ -480,39 +484,21 @@ Deno.serve(async (req) => {
     let scheduledConvertAt: string | null = null;
 
     if (payload.when === 'SCHEDULED' && payload.scheduled_at) {
-      const scheduledTime = new Date(payload.scheduled_at);
-
-      // Read configurable timing from admin_settings (falls back to sensible defaults)
-      let broadcastMinutesBefore = 15;
-      let convertMinutesBefore = 15;
-      {
-        const { data: schedSettings } = await supabase
-          .from("admin_settings")
-          .select("setting_key, setting_value")
-          .in("setting_key", [
-            "scheduled_broadcast_minutes_before",
-            "scheduled_convert_minutes_before",
-            "urgent_dispatch_trigger_minutes_before_pickup",
-            "scheduled_convert_to_instant_minutes_before",
-          ]);
-        if (schedSettings) {
-          for (const s of schedSettings) {
-            const v = parseInt(String(s.setting_value), 10);
-            if (!Number.isFinite(v) || v <= 0) continue;
-            if (s.setting_key === "scheduled_broadcast_minutes_before") broadcastMinutesBefore = v;
-            if (s.setting_key === "scheduled_convert_minutes_before") convertMinutesBefore = v;
-            if (s.setting_key === "urgent_dispatch_trigger_minutes_before_pickup") {
-              convertMinutesBefore = v;
-            }
-            if (s.setting_key === "scheduled_convert_to_instant_minutes_before") {
-              convertMinutesBefore = v;
-            }
-          }
-        }
-      }
-
-      scheduledBroadcastAt = new Date(scheduledTime.getTime() - broadcastMinutesBefore * 60 * 1000).toISOString();
-      scheduledConvertAt = new Date(scheduledTime.getTime() - convertMinutesBefore * 60 * 1000).toISOString();
+      const { data: globalCfg } = await supabase
+        .from("global_dispatch_settings")
+        .select(
+          "enable_scheduled_to_urgent_conversion, scheduled_response_window_minutes, urgent_dispatch_trigger_minutes_before_pickup, locked_driver_response_minutes, max_driver_find_time_minutes, scheduled_urgent_card_label",
+        )
+        .eq("singleton", true)
+        .maybeSingle();
+      const cfg = resolveScheduledDispatchConfig(globalCfg);
+      const anchors = computeScheduledDispatchAnchors({
+        scheduledAtIso: payload.scheduled_at,
+        urgentTriggerMinutesBeforePickup: cfg.urgentTriggerMinutesBeforePickup,
+        responseWindowMinutes: cfg.responseWindowMinutes,
+      });
+      scheduledBroadcastAt = anchors.scheduledBroadcastAt;
+      scheduledConvertAt = anchors.scheduledConvertAt;
     }
 
     // Create trip:

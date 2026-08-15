@@ -3,6 +3,7 @@ import {
   buildMinimalTripInsertRow,
   type BookingCommitBody,
 } from "../_shared/bookingSSOT.ts";
+import { resolveScheduledDispatchConfig } from "../_shared/scheduledDispatchConfig.ts";
 import { buildBookingPostCommitTasks } from "../_shared/bookingPostCommit.ts";
 import { verifyRevolutHoldForTripCreateFast } from "../_shared/bookingPaymentVerifyFast.ts";
 import {
@@ -872,6 +873,20 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       ? Math.round(body.original_estimated_fare * 100)
       : Math.round(body.estimated_fare * 100);
     const finalFarePence = Math.round(body.estimated_fare * 100);
+
+    // Admin Scheduled Rides Configuration (Dispatch tab) — never hardcode −30/−10.
+    let scheduledDispatchConfig = resolveScheduledDispatchConfig(null);
+    if (body.when === "SCHEDULED") {
+      const { data: globalCfg } = await supabase
+        .from("global_dispatch_settings")
+        .select(
+          "enable_scheduled_to_urgent_conversion, scheduled_response_window_minutes, urgent_dispatch_trigger_minutes_before_pickup, locked_driver_response_minutes, max_driver_find_time_minutes, scheduled_urgent_card_label",
+        )
+        .eq("singleton", true)
+        .maybeSingle();
+      scheduledDispatchConfig = resolveScheduledDispatchConfig(globalCfg);
+    }
+
     const tripData = buildMinimalTripInsertRow({
       body,
       customerId,
@@ -894,6 +909,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       sessionFareSnapshot,
       requestReferer: req.headers.get("referer") ?? req.headers.get("referrer"),
       requestOrigin: req.headers.get("origin"),
+      scheduledDispatchConfig,
     });
 
     if (preAssignedDriverId) {

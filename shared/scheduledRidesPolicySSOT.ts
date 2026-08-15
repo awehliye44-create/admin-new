@@ -332,6 +332,11 @@ export function resolveScheduledCommitmentPolicy(input: {
 /**
  * Urgent fixed pickup-minus trigger applies ONLY when there is no
  * pre-confirmed driver. Confirmed jobs use dynamic commitment policy.
+ *
+ * Admin Scheduled Rides Configuration → Dispatch → "Two paths":
+ * - No pre-confirmed driver: urgent fallback trigger + response window → wave dispatch
+ * - Confirmed driver: dynamic commitment policy (check-in, leave-by, Start journey,
+ *   risk, rescue) — NOT the fixed urgent trigger
  */
 export function shouldUseUrgentFallbackTrigger(input: {
   confirmedDriverId?: string | null;

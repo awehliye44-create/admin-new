@@ -104,6 +104,21 @@ Deno.test("SA fallback and location override", () => {
 Deno.test("no-preconfirmed urgent fallback vs confirmed dynamic separation", () => {
   assertEquals(shouldUseUrgentFallbackTrigger({ confirmedDriverId: null }), true);
   assertEquals(shouldUseUrgentFallbackTrigger({ confirmedDriverId: "drv-1" }), false);
+  assertEquals(
+    shouldUseUrgentFallbackTrigger({
+      confirmedDriverId: null,
+      enableScheduledToUrgentConversion: false,
+    }),
+    false,
+  );
+  // Admin Two paths lock: confirmed never uses fixed urgent even when conversion ON
+  assertEquals(
+    shouldUseUrgentFallbackTrigger({
+      confirmedDriverId: "drv-locked",
+      enableScheduledToUrgentConversion: true,
+    }),
+    false,
+  );
 });
 
 Deno.test("stacking wording and protection + reminder links", () => {

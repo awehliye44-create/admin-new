@@ -139,6 +139,7 @@ export type ScheduledTripForConversion = {
   scheduled_broadcast_at: string | null;
   scheduled_convert_at: string | null;
   driver_id: string | null;
+  confirmed_driver_id?: string | null;
 };
 
 export type OfferAnchor = {
@@ -146,7 +147,48 @@ export type OfferAnchor = {
   created_at?: string | null;
 };
 
-/** OR: pickup urgent window OR response window elapsed with no accept. */
+/**
+ * Compute scheduled_broadcast_at / scheduled_convert_at from Admin
+ * Scheduled Rides Configuration (Dispatch tab) — NO-PRECONFIRMED path only:
+ * - urgentTriggerMinutesBeforePickup = "No-preconfirmed urgent fallback"
+ * - responseWindowMinutes = "Scheduled Response Window"
+ *
+ * Confirmed drivers never use these anchors for activation (Commitment Policy).
+ *
+ * Marketplace opens `responseWindow` minutes before the urgent fallback
+ * (so drivers get a full response window in Scheduled Jobs). If the booking
+ * is created later than that ideal open time, broadcast_at = now (never past).
+ */
+export function computeScheduledDispatchAnchors(input: {
+  scheduledAtIso: string;
+  nowMs?: number;
+  urgentTriggerMinutesBeforePickup: number;
+  responseWindowMinutes: number;
+}): { scheduledBroadcastAt: string; scheduledConvertAt: string } {
+  const nowMs = input.nowMs ?? Date.now();
+  const pickupMs = Date.parse(input.scheduledAtIso);
+  const urgent = Math.max(1, Math.floor(input.urgentTriggerMinutesBeforePickup));
+  const response = Math.max(1, Math.floor(input.responseWindowMinutes));
+
+  if (!Number.isFinite(pickupMs)) {
+    const iso = new Date(nowMs).toISOString();
+    return { scheduledBroadcastAt: iso, scheduledConvertAt: iso };
+  }
+
+  const convertAtMs = pickupMs - urgent * 60_000;
+  const idealBroadcastMs = convertAtMs - response * 60_000;
+  // Never stamp a past broadcast_at — that collapses the response window to zero.
+  const broadcastAtMs = nowMs < idealBroadcastMs ? idealBroadcastMs : nowMs;
+
+  return {
+    scheduledBroadcastAt: new Date(broadcastAtMs).toISOString(),
+    scheduledConvertAt: new Date(convertAtMs).toISOString(),
+  };
+}
+
+/** OR: pickup urgent window OR response window elapsed with no accept.
+ * Admin Two paths: never for a pre-confirmed driver.
+ */
 export function shouldConvertScheduledToUrgent(input: {
   trip: ScheduledTripForConversion;
   config: ScheduledDispatchConfig;
@@ -159,7 +201,14 @@ export function shouldConvertScheduledToUrgent(input: {
   if (!config.enableScheduledToUrgentConversion) {
     return { convert: false };
   }
+  // Confirmed / locked driver → Commitment Policy path (not fixed urgent waves).
   if (trip.driver_id || hasAcceptedOffer) {
+    return { convert: false };
+  }
+  if (
+    typeof trip.confirmed_driver_id === "string" &&
+    trip.confirmed_driver_id.trim().length > 0
+  ) {
     return { convert: false };
   }
 

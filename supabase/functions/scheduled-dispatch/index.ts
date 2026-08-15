@@ -315,7 +315,9 @@ Deno.serve(async (req) => {
     let stackedRedispatched = 0;
 
     // ============================================================
-    // STEP 1: COMMITMENT MODE — activate confirmed driver using ETA
+    // STEP 1: COMMITMENT MODE — confirmed-driver path only
+    // Admin Two paths: check-in / leave-by / Start journey / risk / rescue
+    // — NOT the fixed urgent_dispatch_trigger_minutes_before_pickup.
     //
     // No second "accept" required. When now >= commitment_time
     // (which = scheduled_at − targetArrival − liveEta), the driver
@@ -379,8 +381,10 @@ Deno.serve(async (req) => {
             targetArrivalMinutesBeforePickup: schedConfig.targetArrivalMinutesBeforePickup,
           }).getTime();
         } else {
-          // No driver location — fall back to fixed urgency window (same as old behaviour)
-          commitmentTimeMs = pickupMs - schedConfig.urgentTriggerMinutesBeforePickup * 60_000;
+          // Admin Two paths: confirmed drivers use Commitment Policy buffers —
+          // never the no-preconfirmed urgent_dispatch_trigger_minutes_before_pickup.
+          commitmentTimeMs =
+            pickupMs - schedConfig.targetArrivalMinutesBeforePickup * 60_000;
         }
 
         // Not yet commitment time — update cached ETA and move on
@@ -878,17 +882,19 @@ Deno.serve(async (req) => {
     }
 
     // ============================================================
-    // STEP 3: CONVERT TO INSTANT — Still no driver near pickup time
+    // STEP 3: CONVERT TO INSTANT — No-preconfirmed path only
+    // (Admin Two paths: confirmed drivers stay on Commitment Policy)
     // ============================================================
 
     const { data: ridesToConvert, error: convertError } = await supabase
       .from("trips")
       .select(
-        "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, driver_id, scheduled_status, status, dispatch_status, dispatch_mode",
+        "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, driver_id, confirmed_driver_id, scheduled_status, status, dispatch_status, dispatch_mode",
       )
       .eq("dispatch_mode", "scheduled")
       .in("scheduled_status", ["broadcasting", "dispatching"])
-      .is("driver_id", null);
+      .is("driver_id", null)
+      .is("confirmed_driver_id", null);
 
     if (convertError) {
       console.error("[scheduled-dispatch] Error fetching rides to convert:", convertError);
@@ -944,6 +950,14 @@ Deno.serve(async (req) => {
           console.error(`[scheduled-dispatch] Error converting trip ${trip.id}:`, updateError);
           continue;
         }
+
+        // Mark any still-open offers as urgent so Driver shows the nearby card
+        // (Scheduled • Urgent path) instead of diverting to Scheduled Jobs only.
+        await supabase
+          .from("ride_offers")
+          .update({ is_urgent_dispatch: true })
+          .eq("trip_id", trip.id)
+          .in("status", ["pending", "offered", "countered"]);
 
         await logSnapshot(supabase, {
           tripId: trip.id,

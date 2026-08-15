@@ -7,6 +7,11 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { buildTripPaymentSyncPatch } from "./dynamicPaymentWorkflow.ts";
 import { resolvePersistedTripBookingSource } from "./presetNegotiationEligibility.ts";
 import {
+  computeScheduledDispatchAnchors,
+  resolveScheduledDispatchConfig,
+  type ScheduledDispatchConfig,
+} from "./scheduledDispatchConfig.ts";
+import {
   applyBookingFinancialSnapshotToTripData,
   type DiscountSource,
 } from "./tripDisplayFareSSOT.ts";
@@ -92,6 +97,10 @@ export type MinimalTripBuildInput = {
   sessionFareSnapshot?: Record<string, unknown> | null;
   requestReferer?: string | null;
   requestOrigin?: string | null;
+  /** Admin Scheduled Rides Dispatch tab — required for correct broadcast/convert anchors. */
+  scheduledDispatchConfig?: ScheduledDispatchConfig | null;
+  /** Wall clock for anchor math (tests). Defaults to Date.now(). */
+  nowMs?: number;
 };
 
 /** Build "First Last" from customer profile fields. */
@@ -194,9 +203,17 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
   let scheduledBroadcastAt: string | null = null;
   let scheduledConvertAt: string | null = null;
   if (isScheduled && body.scheduled_at) {
-    const t = new Date(body.scheduled_at);
-    scheduledBroadcastAt = new Date(t.getTime() - 30 * 60 * 1000).toISOString();
-    scheduledConvertAt = new Date(t.getTime() - 10 * 60 * 1000).toISOString();
+    const cfg =
+      input.scheduledDispatchConfig ??
+      resolveScheduledDispatchConfig(null);
+    const anchors = computeScheduledDispatchAnchors({
+      scheduledAtIso: body.scheduled_at,
+      nowMs: input.nowMs,
+      urgentTriggerMinutesBeforePickup: cfg.urgentTriggerMinutesBeforePickup,
+      responseWindowMinutes: cfg.responseWindowMinutes,
+    });
+    scheduledBroadcastAt = anchors.scheduledBroadcastAt;
+    scheduledConvertAt = anchors.scheduledConvertAt;
   }
 
   const defaultSearchExpiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();

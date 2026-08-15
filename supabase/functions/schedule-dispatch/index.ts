@@ -14,18 +14,15 @@ import { shouldUseUrgentFallbackTrigger } from "../_shared/scheduledRidesPolicy.
 /**
  * schedule-dispatch
  *
- * Cron-triggered (every 1 minute) function that scans for scheduled trips
- * approaching their pickup time and dispatches them.
+ * Cron-triggered (every 1 minute) — NO-PRECONFIRMED path only (Admin "Two paths"):
+ *  - No pre-confirmed driver: urgent fallback trigger + response window → wave dispatch
+ *  - Confirmed driver: handled by scheduled-dispatch commitment policy — NOT this Edge
  *
- * For each eligible trip it:
+ * For each eligible unconfirmed trip it:
  *  1. Reads `urgent_dispatch_trigger_minutes_before_pickup` from global settings
  *     — FALLBACK ONLY when there is no pre-confirmed driver.
- *  2. Confirmed-driver trips are activated at the same pickup-minus trigger as a
- *     guaranteed safety net (the dynamic commitment runtime may activate earlier),
- *     so a locked driver always receives the activation card.
-
- *  3. Otherwise, invokes `dispatch_trip_offers` RPC for the full wave-cascade.
- *  4. Updates `scheduled_status` so the trip is not re-processed.
+ *  2. Invokes `dispatch_trip_offers` RPC for the full wave-cascade.
+ *  3. Updates `scheduled_status` so the trip is not re-processed.
  */
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -44,7 +41,7 @@ serve(async (req) => {
     console.log(`[schedule-dispatch] Running at ${now.toISOString()}`);
 
     // ══════════════════════════════════════════
-    // 1. Find all scheduled trips that are NOT yet dispatching/assigned
+    // 1. Find scheduled trips with NO pre-confirmed driver
     // ══════════════════════════════════════════
     const { data: pendingTrips, error: tripsErr } = await supabase
       .from("trips")
@@ -54,6 +51,8 @@ serve(async (req) => {
       .eq("is_scheduled", true)
       .eq("status", "scheduled")
       .in("scheduled_status", ["pending", "driver_assigned"])
+      .is("confirmed_driver_id", null)
+      .is("driver_id", null)
       .not("scheduled_at", "is", null)
       .not("pickup_latitude", "is", null)
       .not("pickup_longitude", "is", null)
@@ -118,9 +117,16 @@ serve(async (req) => {
         const hasConfirmedDriver = typeof trip.confirmed_driver_id === "string"
           && trip.confirmed_driver_id.trim().length > 0;
 
+        // Admin Two paths: confirmed drivers never use this fixed urgent Edge.
+        if (hasConfirmedDriver) {
+          console.log(`[schedule-dispatch] Trip ${trip.id}: skipped (confirmed_driver_commitment_path)`);
+          skipped++;
+          results.push({ trip_id: trip.id, action: "skipped", detail: "confirmed_driver_commitment_path" });
+          continue;
+        }
+
         // Unconfirmed trips only convert to urgent when conversion is enabled.
         if (
-          !hasConfirmedDriver &&
           !shouldUseUrgentFallbackTrigger({
             confirmedDriverId: trip.confirmed_driver_id,
             enableScheduledToUrgentConversion: urgentConversionEnabled,
@@ -132,9 +138,7 @@ serve(async (req) => {
           continue;
         }
 
-        // Confirmed-driver trips still need their activation card. The dynamic
-        // commitment runtime may activate earlier; this is the guaranteed
-        // safety net at pickup-minus-trigger so locked drivers are never missed.
+        // No-preconfirmed path: fixed urgent fallback (pickup-minus Admin minutes).
         if (minutesUntilPickup > triggerMinutes) {
           console.log(
             `[schedule-dispatch] Trip ${trip.id}: ${minutesUntilPickup.toFixed(1)}min away, trigger at ${triggerMinutes}min — skipping`
