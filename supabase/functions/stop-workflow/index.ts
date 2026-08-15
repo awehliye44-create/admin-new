@@ -1,8 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
-import { getDriverCommission } from "../_shared/commission.ts";
+import { getDriverCommissionPct } from "../_shared/commission.ts";
 import { resolveTripFare, type TripFareRow } from "../_shared/tripFareSSOT.ts";
-import { calculateTripSettlement, tripSettlementDbColumns } from "../_shared/tripSettlement.ts";
+import { calculateTripSettlement, resolveTripTierPercent, tripSettlementDbColumns } from "../_shared/tripSettlement.ts";
 import {
   securityHeaders,
   jsonHeaders,
@@ -46,6 +46,12 @@ import {
   finishEdgeRequestLog,
 } from "../_shared/edgeRequestTiming.ts";
 import { invokeFinalizeTripCapture as invokeFinalizeTripCaptureWithRetry } from "../_shared/invokeFinalizeTripCapture.ts";
+import {
+  isCardPaymentMethod,
+  recordTripCaptureFailure,
+  requiresProviderSettlement,
+} from "../_shared/digitalPaymentCapture.ts";
+import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -2776,7 +2782,7 @@ Deno.serve(async (req) => {
               updated_at: now,
             })
             .eq("id", trip_id),
-          getDriverCommission(supabase, driver_id, (tripBeforeComplete ?? trip).service_area_id),
+          getDriverCommissionPct(supabase, driver_id, (tripBeforeComplete ?? trip).service_area_id),
           supabase
             .from('drivers')
             .select('region_id, total_trips, regions(currency_code)')
@@ -2811,13 +2817,11 @@ Deno.serve(async (req) => {
         const CS_MAP: Record<string, string> = { GBP:'£',USD:'$',EUR:'€',INR:'₹',AED:'د.إ',CAD:'C$',AUD:'A$',KES:'KSh',NGN:'₦',ZAR:'R',PKR:'₨',BDT:'৳' };
         const cs = ledgerCurrency ? (CS_MAP[ledgerCurrency.toUpperCase()] || '') : '';
 
-        const { commissionPct } = commissionResult;
+        const commissionPct = Number(commissionResult);
         const tipAmountPence = fareTrip.tip_amount_pence || fareTrip.tip_pence || 0;
         const isCash = (fareTrip.payment_method ?? "").toLowerCase() === "cash";
         const isOperationalCash = isCash && Boolean(fareTrip.cash_authorized_at);
         // EXISTING CODE REPAIRED — Revolut Payment Session / provider_order_id gate (never Stripe PI).
-        const { requiresProviderSettlement, isCardPaymentMethod } = await import("../_shared/digitalPaymentCapture.ts");
-        const { tripProviderOrderId } = await import("../_shared/tripPaymentProviderSSOT.ts");
         const needsProviderSettlement = requiresProviderSettlement(fareTrip);
         const providerOrderId = tripProviderOrderId(fareTrip);
         const isCardPaymentMethodFlag = isCardPaymentMethod(fareTrip.payment_method);
@@ -2827,11 +2831,10 @@ Deno.serve(async (req) => {
           airport_charge_pence: resolvedFare.airport_charge_pence,
           other_pass_through_charges_pence: resolvedFare.pass_through_charge_pence,
           tips_pence: tipAmountPence,
-          driver_tier_commission_percent: Number(
-            fareTrip.accepted_commission_percent
-              ?? fareTrip.driver_tier_commission_percent
-              ?? commissionPct,
-          ),
+          driver_tier_commission_percent: resolveTripTierPercent({
+            ...fareTrip,
+            commission_pct: fareTrip.commission_pct ?? commissionPct,
+          }),
         });
         const commissionableFarePence = settlement.commissionable_fare_pence;
         const commissionPence = settlement.commission_pence;
@@ -2946,7 +2949,6 @@ Deno.serve(async (req) => {
                 updated_at: new Date().toISOString(),
               }).eq("id", trip_id);
             } else {
-              const { recordTripCaptureFailure } = await import("../_shared/digitalPaymentCapture.ts");
               await recordTripCaptureFailure(
                 supabase,
                 trip_id,
@@ -3100,7 +3102,7 @@ Deno.serve(async (req) => {
                 driver_id,
                 related_trip_id: trip_id,
                 type: 'TRIP_EARNING_NET',
-                amount_pence: driverNetBeforeTip,
+                amount_pence: driverNetBeforeTip + settlement.airport_charge_pence,
                 currency: ledgerCurrency || 'GBP',
                 description: `Trip earnings (fare ${cs}${(commissionableFarePence / 100).toFixed(2)} - ${settlement.tier_percent_used}% commission)`,
               })

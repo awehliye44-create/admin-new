@@ -66,6 +66,8 @@ export type TripSettlementTripRow = {
   accepted_commission_percent?: number | null;
   driver_tier_commission_percent?: number | null;
   commission_pct?: number | null;
+  driver_net_pence?: number | null;
+  provider_fee_pence?: number | null;
 };
 
 function nonNegInt(value: unknown): number {
@@ -167,6 +169,40 @@ export function assertSettlementCaptureIdentity(args: {
     + Math.max(0, args.tips_pence);
   const variance = Math.max(0, args.captured_pence) - rhs;
   return { balanced: variance === 0, variance_pence: variance };
+}
+
+/**
+ * Card wallet TRIP_EARNING_NET = commissionable net + airport.
+ * Tips stay on DRIVER_TIP_CREDIT. Provider fee never enters this amount.
+ */
+export function resolveCapturedTripEarningNetPence(args: {
+  trip: TripSettlementTripRow & { provider_fee_pence?: number | null };
+  captureAmountPence: number;
+  tipPence?: number;
+}): { driverNetPence: number; commissionPct: number; tipPence: number } {
+  const tip = nonNegInt(args.tipPence ?? args.trip.tip_pence ?? args.trip.tip_amount_pence);
+  const row: TripSettlementTripRow = {
+    ...args.trip,
+    capture_amount_pence: args.captureAmountPence,
+    tip_pence: tip,
+    tip_amount_pence: tip,
+  };
+  const settlement = calculateTripSettlementFromTripRow(
+    row,
+    nonNegInt(args.trip.provider_fee_pence),
+  );
+  if (settlement) {
+    return {
+      driverNetPence: settlement.driver_net_pence + settlement.airport_charge_pence,
+      commissionPct: settlement.tier_percent_used,
+      tipPence: settlement.tips_pence,
+    };
+  }
+  return {
+    driverNetPence: nonNegInt(args.trip.driver_net_pence) + nonNegInt(args.trip.airport_charge_pence),
+    commissionPct: resolveTripTierPercent(row),
+    tipPence: tip,
+  };
 }
 
 /** Settlement from persisted trip fare columns (webhook recovery, backfill, capture). */

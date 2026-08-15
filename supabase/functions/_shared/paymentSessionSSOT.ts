@@ -459,12 +459,16 @@ export async function markPaymentSessionCaptured(
     : {};
   metadata.capture_amount_pence = args.captureAmountPence;
 
+  const now = args.capturedAt ?? new Date().toISOString();
   const patch: Record<string, unknown> = {
     trip_id: args.tripId,
-    captured_at: args.capturedAt ?? new Date().toISOString(),
+    captured_at: now,
     captured_amount_pence: args.captureAmountPence,
     hold_terminal_reason: "provider_captured",
     release_failure_reason: null,
+    provider_state: "COMPLETED",
+    provider_state_verified_at: now,
+    provider_state_verified_by: "markPaymentSessionCaptured",
     metadata,
   };
   if (args.providerOrderId) {

@@ -9,8 +9,9 @@
  * - Provider CANCELLED / COMPLETED with local AUTHORISED drift (via disposer retrieve)
  * - Pending disposition beyond grace (metadata.terminal_disposition_pending)
  * - Fee capture incomplete (local capture missing after provider COMPLETED)
+ * - Completed + AUTHORISED / capture_failed (retry finalize — never void the fare hold)
  *
- * Excludes: completed, rematch/active, in-progress (started_at set → interrupted policy skip).
+ * Dispose excludes completed / rematch / active / in-progress (started_at set).
  * Supports dry_run and bounded batches.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -22,6 +23,9 @@ import {
   sessionAgeMs,
   TRIPLESS_AUTHORISED_HOLD_SWEEP_MIN_AGE_MS,
 } from "../_shared/holdReleaseSSOT.ts";
+import { applyCanonicalSettlementAfterCapture } from "../_shared/applyCanonicalSettlementAfterCapture.ts";
+import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
+import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -43,6 +47,20 @@ const TERMINAL = new Set([
 
 /** Pending disposition grace — after this, sweep retries and reports watchdog age. */
 const PENDING_GRACE_MS = 5 * 60 * 1000;
+
+/** Avoid racing an in-flight complete_trip → finalize invoke. */
+const COMPLETED_AUTHORISED_RETRY_GRACE_MS = 90_000;
+
+const COMPLETED_CAPTURE_RETRY_PAYMENT_STATUSES = new Set([
+  "capture_failed",
+  "authorized",
+  "authorised",
+  "capture_requested",
+  "preauth_authorized",
+  "preauth_authorised",
+  "preauth_created",
+  "preauth_updated",
+]);
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
@@ -234,7 +252,6 @@ serve(async (req) => {
     }
 
     try {
-      const { getRevolutMerchantConfig, retrieveRevolutOrder } = await import("../_shared/revolutOrders.ts");
       const { secretKey, environment } = getRevolutMerchantConfig();
       const order = await retrieveRevolutOrder(environment, secretKey, String(row.provider_order_id));
       const state = String(order.state ?? "").toUpperCase();
@@ -264,9 +281,6 @@ serve(async (req) => {
         updated_at: nowIso,
       }).eq("id", tripId);
       if (trip.driver_id) {
-        const { applyCanonicalSettlementAfterCapture } = await import(
-          "../_shared/applyCanonicalSettlementAfterCapture.ts"
-        );
         await applyCanonicalSettlementAfterCapture({
           supabase,
           tripId,
@@ -285,7 +299,118 @@ serve(async (req) => {
     }
   }
 
-  // Trip-less AUTHORISED holds: create-trip never started (or failed before
+  // Captured locally but provider_state still AUTHORISED — 010 retry leftover.
+  // Snapshot only. Never void or recapture.
+  const { data: capturedAuthorisedDrift } = await supabase
+    .from("payment_sessions")
+    .select(
+      "id, trip_id, provider_state, status, captured_amount_pence",
+    )
+    .eq("purpose", "RIDE_BOOKING")
+    .in("provider_state", ["AUTHORISED", "AUTHORIZED"])
+    .eq("status", "captured")
+    .gt("captured_amount_pence", 0)
+    .not("trip_id", "is", null)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  for (const row of capturedAuthorisedDrift ?? []) {
+    const tripId = String(row.trip_id);
+    const { data: trip } = await supabase
+      .from("trips")
+      .select("id, status, payment_status")
+      .eq("id", tripId)
+      .maybeSingle();
+    if (!trip || String(trip.status ?? "").toLowerCase() !== "completed") continue;
+    if (String(trip.payment_status ?? "").toLowerCase() !== "captured") continue;
+    if (dryRun) {
+      healResults.push({
+        trip_id: tripId,
+        dry_run: true,
+        action: "would_heal_captured_authorised_snapshot",
+      });
+      continue;
+    }
+    const nowIso = new Date().toISOString();
+    const { error: snapErr } = await supabase.from("payment_sessions").update({
+      provider_state: "COMPLETED",
+      provider_state_verified_at: nowIso,
+      provider_state_verified_by: "sweep_captured_authorised_snapshot",
+      updated_at: nowIso,
+    }).eq("id", row.id);
+    healResults.push({
+      trip_id: tripId,
+      action: "heal_captured_authorised_snapshot",
+      ok: !snapErr,
+      error: snapErr?.message ?? null,
+    });
+  }
+
+  // Completed + AUTHORISED + uncaptured — MK-260815-010 class.
+  // Dispose excludes completed (must not void a live fare hold). Retry finalize.
+  const { data: completedAuthorised } = await supabase
+    .from("payment_sessions")
+    .select(
+      "id, trip_id, provider_order_id, captured_amount_pence, provider_state, status",
+    )
+    .eq("purpose", "RIDE_BOOKING")
+    .in("provider_state", ["AUTHORISED", "AUTHORIZED"])
+    .not("provider_order_id", "is", null)
+    .not("trip_id", "is", null)
+    .is("captured_amount_pence", null)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  const retryResults: Array<Record<string, unknown>> = [];
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  for (const row of completedAuthorised ?? []) {
+    const tripId = String(row.trip_id);
+    const { data: trip } = await supabase
+      .from("trips")
+      .select("id, status, payment_status, completed_at")
+      .eq("id", tripId)
+      .maybeSingle();
+    if (!trip || String(trip.status ?? "").toLowerCase() !== "completed") continue;
+    const pay = String(trip.payment_status ?? "").toLowerCase();
+    if (!COMPLETED_CAPTURE_RETRY_PAYMENT_STATUSES.has(pay)) continue;
+    const completedAt = trip.completed_at ? Date.parse(String(trip.completed_at)) : NaN;
+    if (!Number.isFinite(completedAt) || (nowMs - completedAt) < COMPLETED_AUTHORISED_RETRY_GRACE_MS) {
+      retryResults.push({
+        trip_id: tripId,
+        skipped: true,
+        reason: "completed_too_recent",
+      });
+      continue;
+    }
+    if (dryRun) {
+      retryResults.push({
+        trip_id: tripId,
+        dry_run: true,
+        action: "would_retry_completed_authorised_capture",
+        payment_status: trip.payment_status,
+      });
+      continue;
+    }
+    const rec = await invokeFinalizeTripCapture({
+      supabaseUrl,
+      serviceRoleKey,
+      tripId,
+      tipPence: 0,
+      source: "sweep-revolut-stale-holds:completed_authorised_retry",
+    });
+    retryResults.push({
+      trip_id: tripId,
+      action: "retry_completed_authorised_capture",
+      ok: rec.ok,
+      error: rec.error ?? null,
+      status: rec.body?.status ?? null,
+      attempts: rec.attempts ?? null,
+    });
+  }
+
+  // Trip-less AUTHORISED holds: create-trip never started (or failed before)
   // insert). The trip-scoped query above excludes these — they stay on the
   // customer's card until this path cancels the Revolut order.
   const { data: triplessSessions } = await supabase
@@ -404,6 +529,7 @@ serve(async (req) => {
     results,
     tripless_holds: orphanResults,
     completed_capture_heals: healResults,
+    completed_authorised_retries: retryResults,
     watchdog: {
       unresolved_count: watchdog.length,
       by_currency: byCurrency,
