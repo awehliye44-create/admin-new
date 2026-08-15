@@ -372,10 +372,12 @@ Deno.test("original Accept and negotiated Accept still assign immediately", asyn
   assertEquals(accept.includes("accept_ride_offer"), true);
   assertEquals(decision.includes('if (action === "ACCEPT")'), true);
   assertEquals(decision.includes("accept_ride_offer"), true);
+  assertEquals(decision.includes("ensureNegotiationPayableAuthorised"), true);
   assertEquals(decision.includes("REMATCH_FAILED"), true);
   assertEquals(decision.includes("TIMEOUT rematch failed"), true);
   assertEquals(decision.includes("postDriverNegotiationPush"), true);
   assertEquals(final.includes("accept_ride_offer"), true);
+  assertEquals(final.includes("ensureNegotiationPayableAuthorised"), true);
 
   const driverPush = await Deno.readTextFile(
     new URL("../send-driver-notification/index.ts", import.meta.url),
@@ -557,5 +559,21 @@ Deno.test("driver-fare-offer rejects stacked before any negotiation write", asyn
   assertEquals(accept.includes('msg.includes("NEGOTIATION_HELD")'), true);
   assertEquals(accept.includes("stacked_driver_assigned"), true);
   assertEquals(accept.includes("accept_stacked_ride"), true);
+});
+
+Deno.test("Customer counter and decline still send Driver NEGOTIATION_UPDATE heads-up", async () => {
+  const decision = await Deno.readTextFile(
+    new URL("../customer-fare-decision/index.ts", import.meta.url),
+  );
+  const driverPush = await Deno.readTextFile(
+    new URL("../send-driver-notification/index.ts", import.meta.url),
+  );
+  assertEquals(decision.includes('notificationType: "customer_counter_offer"'), true);
+  assertEquals(decision.includes('notificationType: "customer_declined_offer"'), true);
+  assertEquals(decision.includes('notificationType: "offer_accepted_assigned"'), true);
+  assertEquals(decision.includes("customerCounterOfferPushBody"), true);
+  assertEquals(decision.includes("CUSTOMER_DECLINED_OFFER_BODY"), true);
+  assertEquals(driverPush.includes("isNegotiationUpdate"), true);
+  assertEquals(driverPush.includes("onecab_driver_trip_updates_v1"), true);
 });
 

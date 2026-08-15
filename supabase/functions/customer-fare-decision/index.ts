@@ -40,6 +40,12 @@ import {
   resolveNegotiationDeadlineIso,
 } from "../_shared/negotiation-deadline.ts";
 import {
+  ensureNegotiationPayableAuthorised,
+  isPaymentGateAcceptFailure,
+  NEGOTIATION_PAYABLE_INSUFFICIENT_CODE,
+  NEGOTIATION_PAYABLE_INSUFFICIENT_MESSAGE,
+} from "../_shared/negotiationPayableAuthorisation.ts";
+import {
   extractPresetOptionsFromOffer,
   faresMatchPence,
   type PresetOptionCanonical,
@@ -279,6 +285,16 @@ Deno.serve(async (req) => {
         return errorResponse("INVALID_STATE", "Driver offer fare missing", 409);
       }
 
+      const cover = await ensureNegotiationPayableAuthorised({
+        supabase,
+        tripId: trip.id,
+        requiredFarePence: finalFarePence,
+        owner: `negotiation_accept_y:${trip.id}:${offer_id}`,
+      });
+      if (!cover.ok) {
+        return errorResponse(cover.code, cover.message, cover.status);
+      }
+
       // Same atomic assignment path as driver Accept — supports countered preset offers.
       const { data: acceptResult, error: acceptErr } = await supabase.rpc("accept_ride_offer", {
         p_offer_id: offer_id,
@@ -288,6 +304,13 @@ Deno.serve(async (req) => {
 
       if (acceptErr) {
         console.error("[customer-fare-decision] accept_ride_offer error:", acceptErr);
+        if (isPaymentGateAcceptFailure(acceptErrorMessage)) {
+          return errorResponse(
+            NEGOTIATION_PAYABLE_INSUFFICIENT_CODE,
+            NEGOTIATION_PAYABLE_INSUFFICIENT_MESSAGE,
+            409,
+          );
+        }
         return errorResponse("UPDATE_FAILED", acceptErrorMessage ?? "accept_ride_offer failed", 500);
       }
       let assigned = acceptResult?.success === true;
@@ -548,6 +571,16 @@ Deno.serve(async (req) => {
           "Counter-offer cannot equal the driver's offer. Use ACCEPT instead.",
           400
         );
+      }
+
+      const cover = await ensureNegotiationPayableAuthorised({
+        supabase,
+        tripId: trip.id,
+        requiredFarePence: selected_fare_pence,
+        owner: `negotiation_counter_z:${trip.id}:${offer_id}`,
+      });
+      if (!cover.ok) {
+        return errorResponse(cover.code, cover.message, cover.status);
       }
 
       const driverRespondBy = resolveNegotiationDeadlineIso({

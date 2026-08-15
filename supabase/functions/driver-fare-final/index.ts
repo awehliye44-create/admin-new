@@ -33,6 +33,12 @@ import {
   DRIVER_ACCEPTED_COUNTER_TITLE,
   FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY,
 } from "../_shared/negotiationPushCopy.ts";
+import {
+  ensureNegotiationPayableAuthorised,
+  isPaymentGateAcceptFailure,
+  NEGOTIATION_PAYABLE_INSUFFICIENT_CODE,
+  NEGOTIATION_PAYABLE_INSUFFICIENT_MESSAGE,
+} from "../_shared/negotiationPayableAuthorisation.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://thazislrdkjpvvghtvzo.supabase.co";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -267,6 +273,9 @@ Deno.serve(async (req) => {
       }
 
       const finalFarePence = offer.customer_counter_fare;
+      if (typeof finalFarePence !== "number" || finalFarePence <= 0) {
+        return errorResponse("INVALID_STATE", "Customer counter fare missing", 409);
+      }
       console.log("[driver-fare-final] DRIVER_ACCEPTED_COUNTER", {
         offer_id,
         trip_id: trip.id,
@@ -286,6 +295,16 @@ Deno.serve(async (req) => {
         offer_status: offer.status,
       });
 
+      const cover = await ensureNegotiationPayableAuthorised({
+        supabase,
+        tripId: trip.id,
+        requiredFarePence: finalFarePence,
+        owner: `negotiation_accept_z:${trip.id}:${offer_id}`,
+      });
+      if (!cover.ok) {
+        return errorResponse(cover.code, cover.message, cover.status);
+      }
+
       const { data: acceptResult, error: acceptErr } = await supabase.rpc("accept_ride_offer", {
         p_offer_id: offer_id,
         p_driver_id: driver_id,
@@ -297,11 +316,16 @@ Deno.serve(async (req) => {
           negotiation_status: offer.negotiation_status,
           result: acceptResult,
         });
-        return errorResponse(
-          "ACCEPT_FAILED",
-          acceptErr?.message ?? acceptResult?.message ?? acceptResult?.error ?? "Failed to assign trip",
-          409,
-        );
+        const acceptMessage =
+          acceptErr?.message ?? acceptResult?.message ?? acceptResult?.error ?? "Failed to assign trip";
+        if (isPaymentGateAcceptFailure(String(acceptMessage))) {
+          return errorResponse(
+            NEGOTIATION_PAYABLE_INSUFFICIENT_CODE,
+            NEGOTIATION_PAYABLE_INSUFFICIENT_MESSAGE,
+            409,
+          );
+        }
+        return errorResponse("ACCEPT_FAILED", acceptMessage, 409);
       }
 
       console.log("[driver-fare-final] ACCEPT_COUNTER_RPC_SUCCESS", {
