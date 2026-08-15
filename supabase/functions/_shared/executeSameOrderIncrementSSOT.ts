@@ -74,6 +74,54 @@ function logIncrementEvent(
   console.log(JSON.stringify({ event, ...payload, ts: new Date().toISOString() }));
 }
 
+function paymentsLackAuthorisedTotal(
+  order: RevolutOrder | null | undefined,
+): boolean {
+  const payments = Array.isArray(order?.payments) ? order.payments : [];
+  if (payments.length === 0) return true;
+  return payments.every((payment) => {
+    const n = Math.round(Number(payment?.authorised_amount));
+    return !Number.isFinite(n) || n <= 0;
+  });
+}
+
+async function hydrateOrderPayments(args: {
+  environment: ProviderEnvironment;
+  secretKey: string;
+  orderId: string;
+  order: RevolutOrder;
+  sessionId: string;
+}): Promise<RevolutOrder> {
+  if (!paymentsLackAuthorisedTotal(args.order)) return args.order;
+  try {
+    const payments = await listRevolutOrderPayments(
+      args.environment,
+      args.secretKey,
+      args.orderId,
+    );
+    if (payments.length === 0) return args.order;
+    return {
+      ...args.order,
+      payments: payments.map((p) => ({
+        id: p.id,
+        state: p.state,
+        amount: p.amount,
+        authorised_amount: p.authorised_amount,
+        payment_method: p.payment_method
+          ? { type: p.payment_method.type, card_brand: p.payment_method.card_brand }
+          : undefined,
+      })),
+    };
+  } catch (payErr) {
+    logIncrementEvent("increment_payments_hydrate_failed", {
+      payment_session_id: maskId(args.sessionId),
+      provider_order_id: maskId(args.orderId),
+      message: (payErr as Error).message,
+    });
+    return args.order;
+  }
+}
+
 async function persistConfirmedIncrementProjection(args: {
   supabase: SupabaseClient;
   sessionId: string;
@@ -248,35 +296,13 @@ export async function executeSameOrderIncrement(args: {
       };
     }
 
-    if (!Array.isArray(order.payments) || order.payments.length === 0) {
-      try {
-        const payments = await listRevolutOrderPayments(
-          args.environment,
-          args.secretKey,
-          orderId,
-        );
-        if (payments.length > 0) {
-          order = {
-            ...order,
-            payments: payments.map((p) => ({
-              id: p.id,
-              state: p.state,
-              amount: p.amount,
-              authorised_amount: p.authorised_amount,
-              payment_method: p.payment_method
-                ? { type: p.payment_method.type, card_brand: p.payment_method.card_brand }
-                : undefined,
-            })),
-          };
-        }
-      } catch (payErr) {
-        logIncrementEvent("increment_payments_hydrate_failed", {
-          payment_session_id: maskId(sessionId),
-          provider_order_id: maskId(orderId),
-          message: (payErr as Error).message,
-        });
-      }
-    }
+    order = await hydrateOrderPayments({
+      environment: args.environment,
+      secretKey: args.secretKey,
+      orderId,
+      order,
+      sessionId,
+    });
 
     const providerTotal = revolutProviderAuthorisedTotalPence(order);
     const orderCurrency = String(order.currency ?? "").toUpperCase();
@@ -730,6 +756,13 @@ export async function executeSameOrderIncrement(args: {
           args.secretKey,
           orderId,
         );
+        coverageOrder = await hydrateOrderPayments({
+          environment: args.environment,
+          secretKey: args.secretKey,
+          orderId,
+          order: coverageOrder,
+          sessionId,
+        });
         coverage = classifyIncrementCoverage(coverageOrder, plan.targetTotalPence);
         logIncrementEvent("increment_post_retrieve_reconcile", {
           payment_session_id: maskId(sessionId),
