@@ -5,6 +5,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { computeLedgerWalletBalancePence, computeCashCommissionOutstanding } from "./onecabFinanceLedger.ts";
 import {
+  DEFAULT_PAYOUT_CLEARING_DELAY_HOURS,
   PAYOUT_ELIGIBLE_LEDGER_TYPES,
   aggregateDriverPayoutEligibility,
   deriveTripFrStatusForPayoutEligibility,
@@ -86,7 +87,7 @@ export async function fetchDriverPayoutEligibility(
         ? supabase
           .from("trips")
           .select(
-            "id, payment_session_id, driver_net_pence, tip_pence, tip_amount_pence, payment_status, payment_method, payment_provider, completed_at, settlement_formula_version",
+            "id, payment_session_id, driver_net_pence, tip_pence, tip_amount_pence, payment_status, payment_method, payment_provider, completed_at, settlement_formula_version, payment_collection_model, financial_model, provider_available_on",
           )
           .in("id", tripIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
@@ -94,7 +95,7 @@ export async function fetchDriverPayoutEligibility(
         ? supabase
           .from("payment_sessions")
           .select(
-            "id, trip_id, captured_amount_pence, refunded_amount_pence, status, captured_at",
+            "id, trip_id, captured_amount_pence, refunded_amount_pence, status, captured_at, provider_state, payment_method",
           )
           .in("trip_id", tripIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
@@ -102,7 +103,7 @@ export async function fetchDriverPayoutEligibility(
         ? supabase
           .from("driver_earning_settlement")
           .select(
-            "id, ledger_entry_id, trip_id, settlement_status, settlement_lifecycle_status, eligible_for_payout, allocated_to_payout, allocated_amount_pence, paid_in_batch_id, paid_in_payout_item_id",
+            "id, ledger_entry_id, trip_id, settlement_status, settlement_lifecycle_status, eligible_for_payout, allocated_to_payout, allocated_amount_pence, paid_in_batch_id, paid_in_payout_item_id, settled_at, provider_available_on, capture_time",
           )
           .in("ledger_entry_id", ledgerIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
@@ -127,7 +128,7 @@ export async function fetchDriverPayoutEligibility(
     if (sessionIdsFromTrips.length > 0) {
       const { data: sessionsById } = await supabase
         .from("payment_sessions")
-        .select("id, trip_id, captured_amount_pence, refunded_amount_pence, status, captured_at")
+        .select("id, trip_id, captured_amount_pence, refunded_amount_pence, status, captured_at, provider_state, payment_method")
         .in("id", sessionIdsFromTrips);
       for (const s of sessionsById ?? []) {
         sessionById.set(String(s.id), s as Record<string, unknown>);
@@ -213,10 +214,44 @@ export async function fetchDriverPayoutEligibility(
       payout_processing: lifecycle === "INCLUDED_IN_PAYOUT" && !des?.paid_in_payout_item_id,
       des_present: Boolean(des),
       des_eligible_for_payout: des?.eligible_for_payout === true,
+      payment_collection_model: trip?.payment_collection_model
+        ? String(trip.payment_collection_model)
+        : null,
+      financial_model: trip?.financial_model ? String(trip.financial_model) : null,
+      payment_method: trip?.payment_method
+        ? String(trip.payment_method)
+        : (session?.payment_method ? String(session.payment_method) : null),
+      provider_available_on: (des?.provider_available_on as string | null)
+        ?? (trip?.provider_available_on as string | null)
+        ?? null,
+      settled_at: (des?.settled_at as string | null) ?? null,
+      des_settlement_status: des?.settlement_status ? String(des.settlement_status) : null,
+      provider_state: session?.provider_state ? String(session.provider_state) : null,
+      captured_at: (session?.captured_at as string | null)
+        ?? (des?.capture_time as string | null)
+        ?? null,
+      earning_credited_at: (row as { created_at?: string | null }).created_at ?? null,
     };
   });
 
   const payoutsEnabled = driverRes.data?.payouts_enabled !== false;
+  let clearingDelayHours = DEFAULT_PAYOUT_CLEARING_DELAY_HOURS;
+  try {
+    const { data: delayRow } = await supabase
+      .from("admin_settings")
+      .select("setting_value")
+      .eq("setting_key", "payout_clearing_delay_hours")
+      .maybeSingle();
+    const raw = delayRow?.setting_value;
+    const parsed = typeof raw === "number"
+      ? raw
+      : Number(String(raw ?? "").replace(/^"+|"+$/g, ""));
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      clearingDelayHours = parsed;
+    }
+  } catch {
+    clearingDelayHours = DEFAULT_PAYOUT_CLEARING_DELAY_HOURS;
+  }
 
   return aggregateDriverPayoutEligibility({
     live_balance_pence: live,
@@ -227,6 +262,7 @@ export async function fetchDriverPayoutEligibility(
     payout_provider_available: true,
     // Revolut manual bank: account is valid when payouts are enabled (no Connect required).
     account_verified: payoutsEnabled ? true : false,
+    clearing_policy: { clearing_delay_hours: clearingDelayHours },
     entries,
   });
 }

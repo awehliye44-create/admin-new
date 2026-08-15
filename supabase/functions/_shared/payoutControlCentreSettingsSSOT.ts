@@ -25,6 +25,8 @@ export type PayoutControlCentreSettings = {
   early_cashout_min_pence: number;
   early_cashout_max_pence: number | null;
   early_cashout_max_per_day: number;
+  /** Backend-owned PLATFORM_COLLECTED clearing fallback (hours). Never a Driver-app timer. */
+  payout_clearing_delay_hours: number;
 };
 
 export type PayoutControlCentreDriverFlags = {
@@ -61,6 +63,7 @@ const DEFAULTS: PayoutControlCentreSettings = {
   early_cashout_min_pence: 500,
   early_cashout_max_pence: null,
   early_cashout_max_per_day: 1,
+  payout_clearing_delay_hours: 48,
 };
 
 function parseMode(raw: unknown, fallback: PayoutRuleMode): PayoutRuleMode {
@@ -125,6 +128,10 @@ export function parsePayoutControlCentreSettings(
     early_cashout_min_pence: Math.max(0, parseIntOr(map.early_cashout_min_pence, DEFAULTS.early_cashout_min_pence)),
     early_cashout_max_pence: parseNullableInt(map.early_cashout_max_pence),
     early_cashout_max_per_day: Math.max(1, parseIntOr(map.early_cashout_max_per_day, DEFAULTS.early_cashout_max_per_day)),
+    payout_clearing_delay_hours: Math.max(
+      0,
+      parseIntOr(map.payout_clearing_delay_hours, DEFAULTS.payout_clearing_delay_hours),
+    ),
   };
 }
 
@@ -264,6 +271,7 @@ export async function loadPayoutControlCentreSettings(
     "early_cashout_min_pence",
     "early_cashout_max_pence",
     "early_cashout_max_per_day",
+    "payout_clearing_delay_hours",
   ];
   const saKey = args?.serviceAreaId ? `payout_sa_override:${args.serviceAreaId}` : null;
   const { data, error } = await supabase

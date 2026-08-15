@@ -86,6 +86,7 @@ export type DriverWalletSsotRow = {
   current_wallet_balance_pence?: number | null;
   available_for_payout_pence?: number | null;
   pending_balance_pence?: number | null;
+  withdrawal_in_progress_pence?: number | null;
   provider_account_balance_pence?: number | null;
   provider_account_balance_status?: 'AVAILABLE' | 'UNAVAILABLE' | 'NOT_APPLICABLE' | string | null;
   wallet_variance_pence?: number | null;

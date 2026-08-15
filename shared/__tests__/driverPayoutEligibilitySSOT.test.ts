@@ -7,7 +7,7 @@ import {
   evaluateLedgerEntryEligibility,
   shouldBlockZeroValuePayoutBatch,
   type LedgerEligibilityEvidence,
-} from "../driverPayoutEligibilitySSOT";
+} from "../../../shared/driverPayoutEligibilitySSOT";
 
 function revolutTripCredit(overrides: Partial<LedgerEligibilityEvidence> = {}): LedgerEligibilityEvidence {
   return {
@@ -22,6 +22,10 @@ function revolutTripCredit(overrides: Partial<LedgerEligibilityEvidence> = {}): 
     fr_trip_status: "BALANCED",
     refunded_amount_pence: 0,
     des_present: false,
+    captured_at: "2020-01-01T00:00:00.000Z",
+    earning_credited_at: "2020-01-01T00:00:00.000Z",
+    provider_available_on: "2020-01-01T00:00:00.000Z",
+    payment_collection_model: "PLATFORM_COLLECTED",
     ...overrides,
   };
 }
@@ -65,10 +69,10 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
     expect(agg.available_balance_pence).toBe(408);
   });
 
-  it("4. provider fields are not required", () => {
+  it("4. Stripe Connect settlement fields are not required when payout-cleared", () => {
     const r = evaluateLedgerEntryEligibility(
       revolutTripCredit({
-        // No provider_* fields exist on the evidence type by design.
+        provider_available_on: "2020-01-01T00:00:00.000Z",
         des_present: false,
       }),
     );
@@ -190,6 +194,7 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
       live_balance_pence: 1001,
       available_balance_pence: 1001,
       pending_balance_pence: 0,
+      withdrawal_in_progress_pence: 0,
       outstanding_debt_pence: 0,
     });
   });
@@ -246,9 +251,10 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
     expect(agg.eligible_entries[0]?.des_companion_missing).toBe(true);
   });
 
-  it("DWL/PL pending parity: pending = live − available", () => {
+  it("DWL/PL pending parity: pending is settlement hold, not live − available", () => {
     const eligible = aggregateDriverPayoutEligibility({
       live_balance_pence: 1409,
+      reserved_payout_pence: 200,
       entries: [
         revolutTripCredit({ amount_pence: 408, ledger_entry_id: "a", trip_id: "t1" }),
         revolutTripCredit({
@@ -261,9 +267,10 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
         revolutTripCredit({ amount_pence: 408, ledger_entry_id: "c", trip_id: "t3" }),
       ],
     });
-    expect(eligible.available_balance_pence).toBe(1409);
+    expect(eligible.available_balance_pence).toBe(1209);
     expect(eligible.pending_balance_pence).toBe(0);
-    expect(eligible.pending_balance_pence).toBe(
+    expect(eligible.withdrawal_in_progress_pence).toBe(200);
+    expect(eligible.pending_balance_pence).not.toBe(
       Math.max(0, eligible.live_balance_pence - eligible.available_balance_pence),
     );
 

@@ -208,8 +208,9 @@ export async function fetchDriverWalletPayoutSnapshot(
   }
   // Canonical cleared = eligibility eligible earnings only (DES optional — never DES fallback invent).
   const financeCleared = Math.max(0, payoutEligibility.eligible_earnings_pence);
-  // Canonical pending = live − available (same as Payout Ledger). Never cleared−batch.
+  // Canonical pending = settlement/capture pending from DWL eligibility (not reservations).
   const canonicalPending = Math.max(0, payoutEligibility.pending_balance_pence);
+  const withdrawalInProgress = Math.max(0, payoutEligibility.withdrawal_in_progress_pence);
 
   const payoutItems = payoutItemsRes.data ?? [];
   const includedBatch = sumIncludedInPayoutBatchPence(payoutItems);
@@ -440,7 +441,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     })),
     {
       recoveryDebtPence: recoveryDebt,
-      // Slice 6: Pending = eligibility pending (live − available) — same as Payout Ledger.
+      // Slice 6: Pending = settlement pending (earned, not payout-cleared). Reservations are separate.
       pendingEarningsPence: canonicalPending,
     },
   );
@@ -683,6 +684,8 @@ export async function fetchDriverWalletPayoutSnapshot(
     provider_available_pence: frRow.provider_account_balance_pence,
     provider_account_balance_pence: frRow.provider_account_balance_pence,
     cashout_limit_pence: canonicalAvailable,
+    pending_balance_pence: canonicalPending,
+    withdrawal_in_progress_pence: withdrawalInProgress,
     wallet_balance_pence: frRow.current_wallet_balance_pence ?? snapshot.wallet_balance_pence,
     driver_id: args.driverId,
     user_id: (driver?.user_id as string) ?? null,

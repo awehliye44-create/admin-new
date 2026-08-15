@@ -367,7 +367,7 @@ export async function buildPayoutLedgerOverview(
     dto.next_driver_batch_amount_pence = driverSection.next_driver_batch_amount_pence;
     dto.next_driver_batch_count = driverSection.next_driver_batch_count;
 
-    // Split pending: reserved (ACTIVE) vs other holds — never double-count.
+    // Reservations are reported separately from settlement Pending.
     let reserved = 0;
     try {
       reserved = await loadActiveReservedDriverPayoutPence(supabase, service_area_id);
@@ -377,12 +377,8 @@ export async function buildPayoutLedgerOverview(
       dto.driver_reserved_pence = null;
       dto.section_errors.push("RESERVED_DRIVER_PAYOUTS_QUERY_FAILED");
     }
-    const combinedPending = Math.max(0, driverSection.driver_pending_pence);
-    if (dto.driver_reserved_pence != null) {
-      dto.driver_pending_pence = Math.max(0, combinedPending - reserved);
-    } else {
-      dto.driver_pending_pence = combinedPending;
-    }
+    // Settlement Pending is independent of ACTIVE payout reservations.
+    dto.driver_pending_pence = Math.max(0, driverSection.driver_pending_pence);
   } catch (err) {
     console.warn("[admin-payout-ledger] driver overview failed", err);
     dto.section_errors.push(PAYOUT_LEDGER_ERROR.DRIVER_WALLET_SOURCE_UNAVAILABLE);

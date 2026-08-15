@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
+import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -35,9 +36,8 @@ function isValidDateStr(s: string): boolean {
 }
 
 /**
- * driver-earnings-summary — period earnings from ledger; balance from driver_financial_summary SSOT.
- *
- * Wallet balance uses driver_financial_summary (ledger aggregate), not stale driver_wallets cache.
+ * driver-earnings-summary — period earnings from Driver Wallet Ledger.
+ * Available / Pending come from the same payout-eligibility SSOT as Admin DWL.
  */
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -121,13 +121,7 @@ Deno.serve(async (req) => {
     const earningTypes = ['TRIP_EARNING_NET', 'DRIVER_TIP_CREDIT'];
     const reportingOnlyTypes = '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")';
 
-    const [summaryResult, lifetimeResult, ledgerResult] = await Promise.all([
-      supabase
-        .from('driver_financial_summary')
-        .select('wallet_balance, net_available_for_payout')
-        .eq('driver_id', driver.id)
-        .maybeSingle(),
-
+    const [lifetimeResult, ledgerResult, eligibility] = await Promise.all([
       supabase
         .from('driver_wallet_ledger')
         .select('amount_pence')
@@ -142,10 +136,12 @@ Deno.serve(async (req) => {
         .in('type', earningTypes)
         .gte('created_at', `${ledgerQueryStart}T00:00:00Z`)
         .order('created_at', { ascending: false }),
+
+      fetchDriverPayoutEligibility(supabase, { driver_id: driver.id }),
     ]);
 
-    const available_pence = summaryResult.data?.net_available_for_payout ?? 0;
-    const pending_pence = 0;
+    const available_pence = eligibility.available_balance_pence;
+    const pending_pence = eligibility.pending_balance_pence;
     const lifetime_earned_pence = (lifetimeResult.data || []).reduce(
       (sum, row) => sum + (row.amount_pence ?? 0),
       0,

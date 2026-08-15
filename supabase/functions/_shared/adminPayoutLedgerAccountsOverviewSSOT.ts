@@ -424,7 +424,7 @@ export async function buildPayoutLedgerAccountsOverview(
     total_available_pence: totalAvailable,
     total_reserved_pence: totalReserved,
     // Other holds only — ACTIVE reservations live under total_reserved_pence.
-    total_pending_pence: Math.max(0, totalPending - totalReserved),
+    total_pending_pence: Math.max(0, totalPending),
     total_outstanding_debt_pence: totalDebt,
     total_scheduled_pence: itemTotals.scheduled_pence,
     total_processing_pence: itemTotals.processing_pence,

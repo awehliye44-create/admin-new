@@ -5,6 +5,7 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveAuthenticatedDriver } from "../_shared/resolveAuthenticatedDriver.ts";
+import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
 import {
   canonicalIdempotencyKey,
   canonicalProviderRequestId,
@@ -437,13 +438,23 @@ Deno.serve(async (req) => {
     }, 409);
   }
 
-  const amountPence = Math.round(Number(summary.early_cash_out_requested_pence ?? 0));
-  if (!Number.isFinite(amountPence) || amountPence <= 0) {
+  const eligibility = await fetchDriverPayoutEligibility(supabase, { driver_id: driverId });
+  const ssotAvailable = Math.max(0, Math.round(Number(eligibility.available_balance_pence ?? 0)));
+  const summaryRequested = Math.round(Number(summary.early_cash_out_requested_pence ?? 0));
+  const amountPence = Math.min(
+    Number.isFinite(summaryRequested) ? Math.max(0, summaryRequested) : 0,
+    ssotAvailable,
+  );
+  if (!Number.isFinite(amountPence) || amountPence <= 0 || ssotAvailable <= 0) {
     return json({
       ok: false,
       error: "NO_AVAILABLE_BALANCE",
       error_code: "NO_AVAILABLE_BALANCE",
       driver_message: "No balance available to withdraw.",
+      live_balance_pence: eligibility.live_balance_pence,
+      available_balance_pence: ssotAvailable,
+      pending_balance_pence: eligibility.pending_balance_pence,
+      withdrawal_in_progress_pence: eligibility.withdrawal_in_progress_pence,
     }, 409);
   }
 

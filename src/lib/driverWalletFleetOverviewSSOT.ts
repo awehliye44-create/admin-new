@@ -6,7 +6,7 @@
 export type DriverWalletFleetOverviewInput = {
   wallet_balance_pence?: number | null;
   cashout_limit_pence?: number | null;
-  /** Canonical eligibility pending (live − available) — preferred over period KPI. */
+  /** Canonical eligibility pending (settlement/capture hold) — preferred over period KPI. */
   pending_balance_pence?: number | null;
   wallet_status?: string | null;
   recovery_debt_pence?: number | null;

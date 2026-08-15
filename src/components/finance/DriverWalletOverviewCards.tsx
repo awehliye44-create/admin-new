@@ -114,9 +114,16 @@ export function DriverWalletOverviewCards({
         />
         <Metric
           label="Pending Balance"
-          value={fmt(kpis?.pending_earnings_pence)}
-          hint="Held / not yet eligible — same as Payout Ledger (live − available)"
+          value={fmt(driver.pending_balance_pence ?? kpis?.pending_earnings_pence)}
+          hint="Earned but not yet payout-cleared — settlement pending, not a withdrawal reservation"
         />
+        {(driver.withdrawal_in_progress_pence ?? 0) > 0 ? (
+          <Metric
+            label="Withdrawal in progress"
+            value={fmt(driver.withdrawal_in_progress_pence)}
+            hint="Active payout reservation — separate from settlement Pending"
+          />
+        ) : null}
         <Metric
           label="Outstanding Debt"
           value={fmt(

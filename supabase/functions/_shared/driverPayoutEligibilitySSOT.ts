@@ -2,10 +2,14 @@
  * Canonical driver payout eligibility SSOT (pure — no I/O).
  *
  * DWL owns monetary balance. Eligibility is proven from:
- *   driver_wallet_ledger → trip → payment_sessions capture → canonical driver_net
+ *   driver_wallet_ledger → trip → payment_sessions capture → payout-clearing gate
+ *     → canonical driver_net
  * DES is an optional settlement companion; missing DES must not erase valid wallet credits.
  *
- * provider Connect settlement fields are never required.
+ * PLATFORM_COLLECTED card: capture is necessary but NOT sufficient for Available.
+ * Lifecycle: earned/captured → PENDING (settlement) → AVAILABLE → PAID.
+ * Pending/Available is a liquidity classification only — it must not change
+ * live liability, TRIP_EARNING_NET, or period earnings.
  */
 
 export const PAYOUT_ELIGIBILITY_STATUS = {
@@ -13,6 +17,7 @@ export const PAYOUT_ELIGIBILITY_STATUS = {
   MISSING_EARNING_SETTLEMENT: "MISSING_EARNING_SETTLEMENT",
   CAPTURE_PENDING: "CAPTURE_PENDING",
   CAPTURE_MISMATCH: "CAPTURE_MISMATCH",
+  SETTLEMENT_PENDING: "SETTLEMENT_PENDING",
   SETTLEMENT_MISMATCH: "SETTLEMENT_MISMATCH",
   WALLET_CREDIT_MISMATCH: "WALLET_CREDIT_MISMATCH",
   REFUND_HOLD: "REFUND_HOLD",
@@ -38,7 +43,113 @@ export const PAYOUT_ELIGIBLE_LEDGER_TYPES = new Set([
 
 export const DES_SOURCE_WALLET_CREDIT = "REVOLUT_WALLET_CREDIT";
 export const DES_SOURCE_PHASE1_BACKFILL = "REVOLUT_PHASE1_BACKFILL";
-export const DES_FORMULA_VERSION = "payout_eligibility_v1";
+export const DES_FORMULA_VERSION = "payout_eligibility_v2";
+
+/** Backend-owned fallback when Revolut does not expose a merchant-clearing event. */
+export const DEFAULT_PAYOUT_CLEARING_DELAY_HOURS = 48;
+
+/** Holds that mean earned-but-not-withdrawable (settlement Pending). Not reservations. */
+export const SETTLEMENT_PENDING_HOLD_REASONS = new Set<PayoutEligibilityStatus>([
+  PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING,
+  PAYOUT_ELIGIBILITY_STATUS.CAPTURE_PENDING,
+]);
+
+export type PayoutClearingPolicy = {
+  now_ms?: number;
+  clearing_delay_hours?: number;
+};
+
+function parseTimeMs(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const ms = Date.parse(String(iso));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Settlement-pending applies only where ONECAB collects the customer payment.
+ * DRIVER_COLLECTED_COMMISSION_WALLET keeps its existing model (no DWL card-settlement hold).
+ */
+export function requiresPlatformCollectedClearing(args: {
+  payment_collection_model?: string | null;
+  financial_model?: string | null;
+  payment_method?: string | null;
+}): boolean {
+  const model = String(
+    args.payment_collection_model ?? args.financial_model ?? "PLATFORM_COLLECTED",
+  ).trim().toUpperCase();
+  if (model.includes("DRIVER_COLLECTED")) return false;
+  const method = String(args.payment_method ?? "").trim().toLowerCase();
+  if (method === "cash" || method.includes("cash")) return false;
+  return true;
+}
+
+/**
+ * Revolut Merchant COMPLETED/CAPTURED is capture, not clearing.
+ * Only treat explicit settlement/available-on states as cleared.
+ */
+export function isProviderFundsClearedState(state: string | null | undefined): boolean {
+  const s = String(state ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (!s) return false;
+  if (
+    s === "COMPLETED"
+    || s === "CAPTURED"
+    || s === "AUTHORISED"
+    || s === "AUTHORIZED"
+    || s === "PROCESSING"
+    || s === "PENDING"
+  ) {
+    return false;
+  }
+  return s.includes("SETTLE")
+    || s === "AVAILABLE"
+    || s.includes("BALANCE_AVAILABLE")
+    || s === "PAID_OUT"
+    || s === "FUNDS_AVAILABLE";
+}
+
+export type PayoutClearingEvidence = {
+  payment_collection_model?: string | null;
+  financial_model?: string | null;
+  payment_method?: string | null;
+  /** Stripe-era / DES / payments column — strongest when present and reached. */
+  provider_available_on?: string | null;
+  settled_at?: string | null;
+  des_settlement_status?: string | null;
+  provider_state?: string | null;
+  /** Payment Sessions capture confirmation time — delay origin, not SSOT alone. */
+  captured_at?: string | null;
+  /** Ledger credit time — delay origin fallback when captured_at is missing. */
+  earning_credited_at?: string | null;
+};
+
+/**
+ * Payout-cleared for PLATFORM_COLLECTED card earnings.
+ * Prefer real provider/financial settlement evidence; otherwise apply backend delay policy.
+ * Never uses trip.completed_at or client clocks.
+ */
+export function isPayoutClearedForPlatformCollected(
+  evidence: PayoutClearingEvidence,
+  policy?: PayoutClearingPolicy,
+): boolean {
+  if (!requiresPlatformCollectedClearing(evidence)) return true;
+  const nowMs = policy?.now_ms ?? Date.now();
+  const delayHours = policy?.clearing_delay_hours;
+  const hours = typeof delayHours === "number" && Number.isFinite(delayHours)
+    ? Math.max(0, delayHours)
+    : DEFAULT_PAYOUT_CLEARING_DELAY_HOURS;
+
+  const availableOn = parseTimeMs(evidence.provider_available_on);
+  if (availableOn != null && availableOn <= nowMs) return true;
+
+  // DES settlement_status / settled_at are capture-companion fields in this
+  // codebase, not Revolut merchant-clearing. Do not treat them as Available.
+
+  if (isProviderFundsClearedState(evidence.provider_state)) return true;
+
+  const origin = parseTimeMs(evidence.captured_at) ?? parseTimeMs(evidence.earning_credited_at);
+  if (origin == null) return false;
+  return origin + hours * 3_600_000 <= nowMs;
+}
 
 export type LedgerEligibilityEvidence = {
   ledger_entry_id: string;
@@ -65,6 +176,15 @@ export type LedgerEligibilityEvidence = {
   /** Companion DES row present (audit only — not required for Revolut eligibility). */
   des_present?: boolean;
   des_eligible_for_payout?: boolean | null;
+  payment_collection_model?: string | null;
+  financial_model?: string | null;
+  payment_method?: string | null;
+  provider_available_on?: string | null;
+  settled_at?: string | null;
+  des_settlement_status?: string | null;
+  provider_state?: string | null;
+  captured_at?: string | null;
+  earning_credited_at?: string | null;
 };
 
 export type EligiblePayoutEntry = {
@@ -85,7 +205,10 @@ export type HeldPayoutEntry = {
 export type DriverPayoutEligibilityResult = {
   live_balance_pence: number;
   available_balance_pence: number;
+  /** Earned but not yet payout-cleared. Does NOT include withdrawal reservations. */
   pending_balance_pence: number;
+  /** ACTIVE payout reservations + in-flight cashouts. Separate from settlement Pending. */
+  withdrawal_in_progress_pence: number;
   outstanding_debt_pence: number;
   /** Sum of eligible entry amounts before debt / in-flight caps. */
   eligible_earnings_pence: number;
@@ -104,6 +227,7 @@ export type AggregateDriverPayoutEligibilityInput = {
   payouts_enabled?: boolean | null;
   payout_provider_available?: boolean | null;
   account_verified?: boolean | null;
+  clearing_policy?: PayoutClearingPolicy;
   entries: LedgerEligibilityEvidence[];
 };
 
@@ -145,19 +269,21 @@ export function deriveTripFrStatusForPayoutEligibility(args: {
 
   const pay = String(args.trip_payment_status ?? "").toLowerCase();
   const capturedStatus = pay === "captured" || pay === "paid" || pay === "succeeded" || pay === "partially_paid";
-  const settled = Boolean(args.settlement_formula_version)
-    || Boolean(args.completed_at)
-    || capturedStatus;
+  // Capture + canonical net prove the earning exists. Do NOT treat trip.completed_at
+  // as payout-clearing — that is a liquidity gate, not FR existence.
+  const settled = Boolean(args.settlement_formula_version) || capturedStatus;
 
   return settled ? "BALANCED" : null;
 }
 
 /**
  * Evaluate one balance-affecting earning credit.
- * Does not require DES. Does not require provider fields.
+ * Capture is necessary but not sufficient for PLATFORM_COLLECTED Available.
+ * Does not require DES. Does not require Stripe Connect settlement fields.
  */
 export function evaluateLedgerEntryEligibility(
   entry: LedgerEligibilityEvidence,
+  policy?: PayoutClearingPolicy,
 ): { status: PayoutEligibilityStatus; payable_pence: number } {
   const amount = Math.max(0, Math.round(Number(entry.amount_pence ?? 0)));
   const type = String(entry.ledger_type ?? "").toUpperCase();
@@ -227,12 +353,27 @@ export function evaluateLedgerEntryEligibility(
     return { status: PAYOUT_ELIGIBILITY_STATUS.CAPTURE_MISMATCH, payable_pence: payable };
   }
 
+  if (!isPayoutClearedForPlatformCollected(entry, policy)) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING, payable_pence: payable };
+  }
+
   return { status: PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE, payable_pence: payable };
+}
+
+function settlementPendingPence(held: HeldPayoutEntry[]): number {
+  let sum = 0;
+  for (const row of held) {
+    if (SETTLEMENT_PENDING_HOLD_REASONS.has(row.hold_reason as PayoutEligibilityStatus)) {
+      sum += Math.max(0, Math.round(Number(row.amount_pence ?? 0)));
+    }
+  }
+  return sum;
 }
 
 /**
  * Aggregate per-driver payout eligibility from evaluated ledger evidence.
- * available = min(live, eligible_sum) − debt − in_flight (floored at 0).
+ * available = min(live, eligible_sum) − debt − withdrawal_in_progress (floored at 0).
+ * pending = settlement-pending + capture-pending only (not reservations).
  */
 export function aggregateDriverPayoutEligibility(
   input: AggregateDriverPayoutEligibilityInput,
@@ -241,6 +382,8 @@ export function aggregateDriverPayoutEligibility(
   const debt = Math.max(0, Math.round(Number(input.outstanding_debt_pence ?? 0)));
   const inFlight = Math.max(0, Math.round(Number(input.in_flight_cashout_pence ?? 0)));
   const reserved = Math.max(0, Math.round(Number(input.reserved_payout_pence ?? 0)));
+  const withdrawalInProgress = reserved + inFlight;
+  const policy = input.clearing_policy;
 
   const eligible_entries: EligiblePayoutEntry[] = [];
   const held_entries: HeldPayoutEntry[] = [];
@@ -262,6 +405,7 @@ export function aggregateDriverPayoutEligibility(
       live_balance_pence: live,
       available_balance_pence: 0,
       pending_balance_pence: Math.max(0, live),
+      withdrawal_in_progress_pence: withdrawalInProgress,
       outstanding_debt_pence: debt,
       eligible_earnings_pence: 0,
       eligible_entries,
@@ -287,6 +431,7 @@ export function aggregateDriverPayoutEligibility(
       live_balance_pence: live,
       available_balance_pence: 0,
       pending_balance_pence: Math.max(0, live),
+      withdrawal_in_progress_pence: withdrawalInProgress,
       outstanding_debt_pence: debt,
       eligible_earnings_pence: 0,
       eligible_entries,
@@ -312,6 +457,7 @@ export function aggregateDriverPayoutEligibility(
       live_balance_pence: live,
       available_balance_pence: 0,
       pending_balance_pence: Math.max(0, live),
+      withdrawal_in_progress_pence: withdrawalInProgress,
       outstanding_debt_pence: debt,
       eligible_earnings_pence: 0,
       eligible_entries,
@@ -322,7 +468,7 @@ export function aggregateDriverPayoutEligibility(
 
   let eligibleSum = 0;
   for (const entry of input.entries) {
-    const { status, payable_pence } = evaluateLedgerEntryEligibility(entry);
+    const { status, payable_pence } = evaluateLedgerEntryEligibility(entry, policy);
     if (status === PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE) {
       eligibleSum += payable_pence;
       eligible_entries.push({
@@ -344,8 +490,10 @@ export function aggregateDriverPayoutEligibility(
 
   let available = Math.max(
     0,
-    Math.min(Math.max(0, live), eligibleSum) - debt - inFlight - reserved,
+    Math.min(Math.max(0, live), eligibleSum) - debt - withdrawalInProgress,
   );
+
+  const pending = settlementPendingPence(held_entries);
 
   // Debt recovery can wipe available even when entries are otherwise eligible.
   let primary: DriverPayoutEligibilityResult["primary_hold_reason"] = null;
@@ -363,7 +511,8 @@ export function aggregateDriverPayoutEligibility(
   return {
     live_balance_pence: live,
     available_balance_pence: available,
-    pending_balance_pence: Math.max(0, live - available),
+    pending_balance_pence: pending,
+    withdrawal_in_progress_pence: withdrawalInProgress,
     outstanding_debt_pence: debt,
     eligible_earnings_pence: eligibleSum,
     eligible_entries,
