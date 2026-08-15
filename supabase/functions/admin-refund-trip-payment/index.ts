@@ -14,6 +14,8 @@ const InputSchema = z.object({
   trip_id: z.string().uuid(),
   amount_pence: z.number().int().positive().optional(),
   reason: z.string().trim().min(5).max(1000),
+  /** Skip proportional wallet REFUND_DEBIT when wallet is corrected separately. */
+  skip_driver_wallet_reversal: z.boolean().optional(),
 });
 
 serve(async (req) => {
@@ -26,7 +28,7 @@ serve(async (req) => {
     try { body = await req.json(); } catch { return jsonResponse({ error: "Invalid JSON body" }, 400); }
     const parsed = InputSchema.safeParse(body);
     if (!parsed.success) return jsonResponse({ error: "Invalid input", details: parsed.error.flatten() }, 400);
-    const { trip_id, amount_pence, reason } = parsed.data;
+    const { trip_id, amount_pence, reason, skip_driver_wallet_reversal } = parsed.data;
 
     const { data: trip, error: tripErr } = await gate.supabase
       .from("trips")
@@ -92,6 +94,7 @@ serve(async (req) => {
       providerOrderId: orderId,
       source: "admin_refund",
       refundReason: reason,
+      skipDriverWalletReversal: skip_driver_wallet_reversal === true,
     });
 
     await gate.supabase.from("admin_payment_audit").insert({

@@ -48,6 +48,23 @@ Deno.test("complete_trip settles from accepted snapshot via resolveTripTierPerce
     new URL("../stop-workflow/index.ts", import.meta.url),
   );
   assertEquals(src.includes("resolveTripTierPercent"), true);
-  assertEquals(src.includes("calculateTripSettlement"), true);
+  assertEquals(src.includes("calculateTripSettlementFromTripRow"), true);
+  assertEquals(src.includes("buildSettlementTripRow"), true);
   assertEquals(src.includes("driverNetBeforeTip + settlement.airport_charge_pence"), true);
+});
+
+Deno.test("complete_trip forces waiting into settlement stamp row", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../stop-workflow/index.ts", import.meta.url),
+  );
+  assertEquals(src.includes("pickupWaitingChargePence: resolvedFare.arrival_waiting_charge_pence"), true);
+  assertEquals(src.includes("stopWaitingChargePence: resolvedFare.stop_waiting_charge_pence"), true);
+});
+
+Deno.test("post-capture settlement persists stamp columns with wallet credit", async () => {
+  const src = await Deno.readTextFile(
+    new URL("./applyCanonicalSettlementAfterCapture.ts", import.meta.url),
+  );
+  assertEquals(src.includes("tripSettlementDbColumns"), true);
+  assertEquals(src.includes("credit.settlement"), true);
 });

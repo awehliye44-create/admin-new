@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -52,17 +52,11 @@ import {
 } from '@/lib/financialReconciliationRoutes';
 import { formatAgeMinutes, formatNullablePence } from '@/lib/formatNullablePence';
 import {
-  formatCapturedAmountDisplay,
-  formatReleasedAmountDisplay,
-  formatPaymentSessionsEvidenceStatus,
-} from '../../shared/paymentSessionsDisplaySSOT';
-import {
   classifyCaptureConfirmation,
   collectOutstandingActionLabel,
   sendPaymentLinkActionLabel,
 } from '../../shared/paymentSessionsCaptureConfirmationSSOT';
 import { isValidConfirmedCapturePence } from '../../shared/paymentCaptureEvidenceSSOT';
-import { recapturedAmountDisplayLabel } from '../../shared/tripHistoryShortfallRecaptureSSOT';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,
   ServiceAreaFinanceFilter,
@@ -198,12 +192,12 @@ function SessionActions({
           </Link>
         </Button>
       )}
-      {row.trip_id && policy.can_open_trip !== false && (
+      {row.trip_id && policy?.can_open_trip !== false && (
         <Button asChild size="sm" variant="outline">
           <Link to={tripSettlementRecoverUrl(row.trip_id, row.trip_code)}>Open completed trip</Link>
         </Button>
       )}
-      {policy.can_open_reconciliation && row.trip_id && (
+      {policy?.can_open_reconciliation && row.trip_id && (
         <Button asChild size="sm" variant="outline">
           <Link to={financeReconciliationTripUrl(row.trip_id, row.trip_code)}>
             Financial Reconciliation
@@ -325,6 +319,7 @@ function SessionActions({
 
 export default function PaymentSessions() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const tab = parseTab(searchParams.get('tab'));
   const paymentSessionId = searchParams.get('paymentSessionId');
   const providerOrderId = searchParams.get('providerOrderId');
@@ -486,6 +481,11 @@ export default function PaymentSessions() {
   };
 
   const applyKpiDrill = (drill: PaymentSessionsKpiDrill) => {
+    // FR-owned chips do not invent PS amount filters — open Financial Reconciliation.
+    if (drill.open_financial_reconciliation) {
+      navigate('/financial-reconciliation?tab=trips');
+      return;
+    }
     setProviderFeesPending(Boolean(drill.provider_fees_pending));
     setCaptureFailed(Boolean(drill.capture_failed));
     setRecoveryPending(Boolean(drill.recovery_pending));
@@ -586,7 +586,7 @@ export default function PaymentSessions() {
         }
         await refetch();
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = String(err instanceof Error ? err.message : err ?? '');
         if (
           msg.includes('PAYMENT_ACTION_STALE_REFRESH_REQUIRED')
           || msg.includes('NO_ACTIVE_HOLD')
@@ -1112,9 +1112,9 @@ export default function PaymentSessions() {
             <TabsContent key={t.id} value={t.id} className="space-y-3">
               {t.id === 'overview' && (
                 <p className="text-sm text-muted-foreground">
-                  Payment Sessions are the customer payment source of truth. Provider Payments owns provider amounts;
-                  Completed Trips — Payment Status shows backend fares; Payment Matching compares them.
-                  Financial Reconciliation audits these values — it never invents payment amounts.
+                  Payment Sessions owns customer provider money. Trip Fare / Settlement stamps supply
+                  expected payable and commission. Tabs filter the same canonical read adapter.
+                  Match / shortfall / overcapture chips open Financial Reconciliation (FR owns audit conclusions).
                 </p>
               )}
               {t.id === 'provider_payments' && (
@@ -1124,22 +1124,19 @@ export default function PaymentSessions() {
               )}
               {t.id === 'completed_trips_paid' && (
                 <p className="text-sm text-muted-foreground">
-                  Completed ONECAB trips with canonical final fares from trip settlement fields.
-                  Does not own provider payment state.
+                  Trip Fare + Settlement stamps beside Payment Sessions capture. Formatting/filter only —
+                  does not rebuild fare or classify FR audit status.
                 </p>
               )}
               {t.id === 'payment_matching' && (
                 <p className="text-sm text-muted-foreground">
-                  Comparison only: expected capture vs provider-confirmed capture.
-                  Gross overcapture is historical evidence; Outstanding Customer Overcharge
-                  is what remains after confirmed refunds. Refunds above the original excess
-                  stay visible for reconciliation (not silently netted).
+                  Side-by-side owned fields: Trip Fare expected vs Payment Sessions captured/refunded.
+                  Amount reconciliation conclusions are FR-owned — use Open FR (not calculated here).
                 </p>
               )}
               {t.id === 'captured' && (
                 <p className="text-sm text-muted-foreground">
-                  Confirmed provider-captured payments only (amount present). Authorisations are excluded.
-                  Healthy captures show CAPTURED — CONFIRMED; manual review is for unresolved contradictions only.
+                  Confirmed provider-captured payments only (captured amount present). Authorisations are excluded.
                 </p>
               )}
               {t.id === 'active_holds' && (
@@ -1249,23 +1246,32 @@ export default function PaymentSessions() {
                     <TableBody>
                       {rows.map((row) => {
                         const key = row.id;
-                        const captureConfirmation = classifyCaptureConfirmation({
-                          providerState: row.provider_state,
-                          providerCapturedPence: row.captured_amount_pence,
-                          localCapturedPence: row.captured_amount_pence,
-                          canonicalPayablePence: row.customer_payable_pence,
-                          authorisedPence: row.authorised_amount_pence,
-                          purpose: row.purpose,
-                        });
-                        const captureConfirmed =
-                          captureConfirmation.classification === 'CAPTURED_CONFIRMED'
-                          && isValidConfirmedCapturePence(row.captured_amount_pence);
-                        const expectedResidualRelease =
-                          row.authorised_amount_pence != null
-                          && row.captured_amount_pence != null
-                          && Number(row.authorised_amount_pence) > Number(row.captured_amount_pence)
-                            ? Math.round(Number(row.authorised_amount_pence) - Number(row.captured_amount_pence))
-                            : null;
+                        const verificationLabel = (() => {
+                          const v = row.provider_verification_status;
+                          if (v === 'VERIFIED') return 'Verified';
+                          if (v === 'STALE') return 'Cached / stale';
+                          if (v === 'UNAVAILABLE') return 'Provider record unavailable';
+                          if (!row.provider_order_id) return 'Refresh required';
+                          return v ?? 'UNKNOWN';
+                        })();
+                        const evidenceLabel = (() => {
+                          const s = String(row.evidence_status ?? '').toUpperCase();
+                          if (s === 'COMPLETE') return 'Provider evidence';
+                          if (s === 'PENDING_PROVIDER_FEE') return 'Pending provider fee';
+                          if (s === 'LOCAL_BACKFILL_REQUIRED' || s.includes('BACKFILL')) {
+                            return row.evidence_label?.includes('PROVIDER REFRESH')
+                              ? 'Refresh required'
+                              : 'Backfill required';
+                          }
+                          if (s.includes('CAPTURE')) return row.evidence_label ?? 'Local evidence';
+                          if (row.source === 'orphan_payments') return 'Historical evidence';
+                          return row.evidence_label ?? (row.evidence_status ? String(row.evidence_status) : '—');
+                        })();
+                        const lifecycleLabel =
+                          row.session_status_display
+                          ?? row.session_status_label
+                          ?? row.session_status
+                          ?? '—';
                         return (
                           <Fragment key={key}>
                             <TableRow>
@@ -1286,9 +1292,6 @@ export default function PaymentSessions() {
                                 <div>order: {row.provider_order_id ? row.provider_order_id.slice(0, 10) : '—'}</div>
                                 <div>pay: {row.provider_payment_id ? row.provider_payment_id.slice(0, 10) : '—'}</div>
                                 <div>cap: {row.provider_capture_id ? row.provider_capture_id.slice(0, 10) : '—'}</div>
-                                {row.refunded_amount_pence != null && (
-                                  <div>refund: {formatNullablePence(row.refunded_amount_pence)}</div>
-                                )}
                               </TableCell>
                               <TableCell className="text-xs">
                                 {row.trip_id ? (
@@ -1299,7 +1302,7 @@ export default function PaymentSessions() {
                                     {row.trip_code ?? row.trip_id.slice(0, 8)}
                                   </Link>
                                 ) : (
-                                  'No trip'
+                                  'No linked trip'
                                 )}
                               </TableCell>
                               <TableCell className="text-xs">
@@ -1318,156 +1321,40 @@ export default function PaymentSessions() {
                               <TableCell className="text-xs">{row.payment_provider}</TableCell>
                               <TableCell className="text-xs">{row.payment_method ?? '—'}</TableCell>
                               <TableCell className="text-xs">{row.purpose ?? '—'}</TableCell>
-                              <TableCell className="text-xs">
+                              <TableCell className="text-xs tabular-nums">
                                 {formatNullablePence(row.customer_payable_pence)}
                               </TableCell>
-                              <TableCell className="text-xs">
+                              <TableCell className="text-xs tabular-nums">
                                 {formatNullablePence(row.buffer_pence)}
                               </TableCell>
-                              <TableCell className="text-xs">
+                              <TableCell className="text-xs tabular-nums">
                                 {formatNullablePence(row.authorised_amount_pence)}
                               </TableCell>
-                              <TableCell className="text-xs">
-                                <span
-                                  className={
-                                    formatCapturedAmountDisplay({
-                                      captured_amount_pence: row.captured_amount_pence,
-                                      currencyFormatter: () => '',
-                                    }) === 'Not recorded locally'
-                                      ? 'text-amber-800'
-                                      : undefined
-                                  }
-                                >
-                                  {row.purpose === 'PAYMENT_RECOVERY'
-                                    && Number(row.captured_amount_pence ?? 0) > 0
-                                    ? recapturedAmountDisplayLabel(Number(row.captured_amount_pence))
-                                    : formatCapturedAmountDisplay({
-                                      captured_amount_pence: row.captured_amount_pence,
-                                      currencyFormatter: (p) => formatNullablePence(p),
-                                    })}
-                                </span>
-                                {row.purpose === 'PAYMENT_RECOVERY'
-                                  && Number(row.captured_amount_pence ?? 0) > 0 && (
-                                  <div className="mt-1 text-[10px] text-emerald-700">
-                                    Shortfall recapture
-                                  </div>
-                                )}
-                                {row.purpose !== 'PAYMENT_RECOVERY'
-                                  && Number(row.recovery_attempt_count ?? 0) > 0
-                                  && Number(row.captured_amount_pence ?? 0) >= 0 && (
-                                  <div className="mt-1 text-[10px] text-emerald-700">
-                                    Includes shortfall recapture
-                                    {row.outstanding_pence != null && row.outstanding_pence <= 0
-                                      ? ' — fully covered'
-                                      : ''}
-                                  </div>
-                                )}
-                                {row.captured_at && Number(row.captured_amount_pence) > 0 && (
-                                  <div className="mt-1 text-[10px] text-muted-foreground">
-                                    {format(new Date(row.captured_at), 'dd MMM HH:mm')}
-                                  </div>
-                                )}
-                                {captureConfirmed && (
-                                  <div className="mt-1 text-[10px] text-emerald-700">
-                                    CAPTURED — CONFIRMED ✓
-                                  </div>
-                                )}
-                                {!captureConfirmed && captureConfirmation.label && (
-                                  <div className="mt-1 text-[10px] text-amber-700">
-                                    {captureConfirmation.label}
-                                  </div>
-                                )}
-                                {(row.evidence_status === 'CAPTURE_ZERO_INVALID'
-                                  || row.evidence_status === 'CAPTURE_AMOUNT_MISSING'
-                                  || row.evidence_status === 'CAPTURE_AMOUNT_MISMATCH') && (
-                                  <div className="mt-1 text-[10px] text-amber-700">{row.evidence_label ?? row.evidence_status}</div>
-                                )}
+                              <TableCell className="text-xs tabular-nums">
+                                {/* Money only — lifecycle / auth labels belong elsewhere. */}
+                                {formatNullablePence(row.captured_amount_pence)}
                               </TableCell>
-                              <TableCell className="text-xs">
-                                {captureConfirmation.difference_pence == null
+                              <TableCell className="text-xs tabular-nums">
+                                {row.difference_pence == null
                                   ? '—'
-                                  : formatNullablePence(captureConfirmation.difference_pence)}
-                                {captureConfirmed && (
-                                  <div className="mt-1 text-[10px] text-muted-foreground">No action required</div>
-                                )}
-                                {captureConfirmation.classification === 'UNDERCAPTURED_RECOVERY_REQUIRED'
-                                  && captureConfirmation.outstanding_pence != null && (
-                                  <div className="mt-1 text-[10px] text-amber-700">
-                                    Outstanding {formatNullablePence(captureConfirmation.outstanding_pence)}
-                                  </div>
-                                )}
-                                {captureConfirmation.classification === 'OVERCAPTURED_REFUND_REQUIRED'
-                                  && captureConfirmation.difference_pence != null && (
-                                  <div className="mt-1 text-[10px] text-amber-700">
-                                    Overcharged {formatNullablePence(captureConfirmation.difference_pence)}
-                                  </div>
-                                )}
+                                  : formatNullablePence(row.difference_pence)}
                               </TableCell>
                               <TableCell className="text-xs">
-                                <div className="font-medium">
-                                  {row.action_classification_label
-                                    ?? row.capture_classification_label
-                                    ?? captureConfirmation.label
-                                    ?? row.reconciliation_status
-                                    ?? '—'}
-                                </div>
-                                {captureConfirmation.manual_review_reason && (
-                                  <div className="mt-1 text-[10px] text-amber-700">
-                                    {captureConfirmation.manual_review_reason}
-                                  </div>
-                                )}
-                                {row.provider_state_verified_at && (
-                                  <div className="mt-1 text-[10px] text-muted-foreground">
-                                    Last verified {format(new Date(row.provider_state_verified_at), 'dd MMM HH:mm')}
-                                  </div>
-                                )}
+                                {row.reconciliation_status
+                                  ? row.reconciliation_status
+                                  : (
+                                    <Link
+                                      className="underline text-muted-foreground"
+                                      to={row.trip_id
+                                        ? financeReconciliationTripUrl(row.trip_id, row.trip_code)
+                                        : '/financial-reconciliation'}
+                                    >
+                                      Open FR
+                                    </Link>
+                                  )}
                               </TableCell>
-                              <TableCell className="text-xs">
-                                {(() => {
-                                  const released = formatReleasedAmountDisplay({
-                                    released_amount_pence: row.released_amount_pence,
-                                    released_at: row.released_at,
-                                    release_evidence_status: row.release_evidence_status,
-                                    currencyFormatter: (p) => formatNullablePence(p),
-                                    captureConfirmed,
-                                    providerState: row.provider_state,
-                                    capturedAmountPence: row.captured_amount_pence,
-                                    expectedReleasePence: expectedResidualRelease,
-                                  });
-                                  const showManualReview = released.primary === 'MANUAL_REVIEW_REQUIRED';
-                                  return (
-                                    <>
-                                      <span className={showManualReview ? 'text-amber-800' : undefined}>
-                                        {released.primary}
-                                      </span>
-                                      {released.secondary && (
-                                        <div className="mt-1 text-[10px] text-muted-foreground">
-                                          {released.secondary}
-                                        </div>
-                                      )}
-                                    </>
-                                  );
-                                })()}
-                                {row.released_at && (
-                                  <div className="mt-1 text-[10px] text-muted-foreground">
-                                    {format(new Date(row.released_at), 'dd MMM HH:mm')}
-                                  </div>
-                                )}
-                                {row.provider_verification_status
-                                  && (row.released_at || tab === 'released')
-                                  && !(captureConfirmed && row.provider_verification_status === 'STALE')
-                                  && (
-                                  <div className="mt-1 text-[10px] text-muted-foreground">
-                                    {row.provider_verification_status === 'STALE'
-                                      ? 'Provider reconciliation pending'
-                                      : `Provider: ${row.provider_verification_status}`}
-                                  </div>
-                                )}
-                                {captureConfirmed && row.provider_state_verified_at && (
-                                  <div className="mt-1 text-[10px] text-muted-foreground">
-                                    Last verified {format(new Date(row.provider_state_verified_at), 'dd MMM HH:mm')}
-                                  </div>
-                                )}
+                              <TableCell className="text-xs tabular-nums">
+                                {formatNullablePence(row.released_amount_pence)}
                               </TableCell>
                               <TableCell className="text-xs max-w-[160px] break-words">
                                 {row.release_reason
@@ -1475,21 +1362,19 @@ export default function PaymentSessions() {
                                   ?? row.release_failure_reason
                                   ?? '—'}
                               </TableCell>
-                              <TableCell className="text-xs">
+                              <TableCell className="text-xs tabular-nums">
                                 {formatNullablePence(row.refunded_amount_pence)}
-                                {row.refunded_at && (
-                                  <div className="mt-1 text-[10px] text-muted-foreground">
-                                    {format(new Date(row.refunded_at), 'dd MMM HH:mm')}
-                                  </div>
-                                )}
                               </TableCell>
-                              <TableCell className="text-xs">
-                                {row.fee_display_badge === 'UNAVAILABLE'
-                                  ? (row.fee_display_label ?? 'Fee unavailable')
-                                  : row.fee_display_badge === 'PENDING'
-                                    || row.provider_processing_fee_pence == null
-                                  ? (row.fee_display_label ?? 'Pending provider fee')
-                                  : formatNullablePence(row.provider_processing_fee_pence)}
+                              <TableCell className="text-xs tabular-nums">
+                                {row.provider_processing_fee_pence != null
+                                  && row.fee_display_badge !== 'PENDING'
+                                  && row.fee_display_badge !== 'UNAVAILABLE'
+                                  && row.fee_display_badge !== 'ESTIMATED'
+                                  && String(row.fee_status ?? '').toUpperCase() !== 'PENDING'
+                                  && String(row.fee_status ?? '').toUpperCase() !== 'UNAVAILABLE'
+                                  && String(row.fee_status ?? '').toUpperCase() !== 'ESTIMATED'
+                                  ? formatNullablePence(row.provider_processing_fee_pence)
+                                  : '—'}
                               </TableCell>
                               <TableCell className="text-xs">
                                 {row.fee_display_badge ? (
@@ -1508,16 +1393,13 @@ export default function PaymentSessions() {
                                 <Badge
                                   variant={
                                     row.provider_verification_status === 'VERIFIED'
-                                      || (captureConfirmed && row.provider_verification_status === 'STALE')
                                       ? 'default'
                                       : row.provider_verification_status === 'UNAVAILABLE'
                                       ? 'destructive'
                                       : 'secondary'
                                   }
                                 >
-                                  {captureConfirmed && row.provider_verification_status === 'STALE'
-                                    ? 'VERIFIED (cached)'
-                                    : (row.provider_verification_status ?? 'UNKNOWN')}
+                                  {verificationLabel}
                                 </Badge>
                                 {row.provider_state_verified_at && (
                                   <div className="mt-1 text-[10px] text-muted-foreground">
@@ -1526,17 +1408,12 @@ export default function PaymentSessions() {
                                 )}
                               </TableCell>
                               <TableCell className="text-xs">
-                                <div className="font-medium">
-                                  {row.action_classification_label
-                                    ?? (row.session_status_label
-                                      && !/incomplete/i.test(row.session_status_label)
-                                      ? row.session_status_label
-                                      : null)
-                                    ?? row.session_status
-                                    ?? '—'}
-                                </div>
-                                {row.technical_status && row.technical_status !== row.session_status_display && (
-                                  <div className="text-[10px] text-muted-foreground">tech: {row.technical_status}</div>
+                                <div className="font-medium">{lifecycleLabel}</div>
+                                {row.technical_status
+                                  && row.technical_status !== row.session_status_display && (
+                                  <div className="text-[10px] text-muted-foreground">
+                                    tech: {row.technical_status}
+                                  </div>
                                 )}
                               </TableCell>
                               <TableCell className="text-xs">
@@ -1548,23 +1425,11 @@ export default function PaymentSessions() {
                                       || row.evidence_status === 'CAPTURE_AMOUNT_MISMATCH'
                                       || row.session_status_display === 'CAPTURE_EVIDENCE_MISMATCH'
                                       ? 'destructive'
-                                      : row.evidence_status === 'CAPTURE_AMOUNT_MISSING'
-                                      || row.evidence_status === 'INCOMPLETE'
-                                      || row.evidence_status === 'LOCAL_BACKFILL_REQUIRED'
-                                      ? 'secondary'
-                                      : 'outline'
+                                      : 'secondary'
                                   }
                                 >
-                                  {formatPaymentSessionsEvidenceStatus(
-                                    row.evidence_status,
-                                    row.evidence_label,
-                                  )}
+                                  {evidenceLabel}
                                 </Badge>
-                                {row.evidence_label
-                                  && row.evidence_status !== 'COMPLETE'
-                                  && !/incomplete/i.test(row.evidence_label) && (
-                                  <div className="mt-1 text-[10px] text-muted-foreground">{row.evidence_label}</div>
-                                )}
                               </TableCell>
                               <TableCell className="text-xs">{formatAgeMinutes(row.age_minutes)}</TableCell>
                               <TableCell>
@@ -1598,7 +1463,7 @@ export default function PaymentSessions() {
                                 <TableCell colSpan={26} className="bg-muted/40 text-xs">
                                   <div className="space-y-3">
                                     <div>
-                                      <div className="mb-1 font-medium">Session evidence</div>
+                                      <div className="mb-1 font-medium">Session evidence (audit)</div>
                                       <pre className="whitespace-pre-wrap">
                                         {JSON.stringify(
                                           {
@@ -1611,39 +1476,26 @@ export default function PaymentSessions() {
                                             provider_capture_id: row.provider_capture_id,
                                             authorised_amount_pence: row.authorised_amount_pence,
                                             captured_amount_pence: row.captured_amount_pence,
-                                            capture_confirmation: captureConfirmation,
-                                            difference_pence: captureConfirmation.difference_pence,
                                             released_amount_pence: row.released_amount_pence,
-                                            release_evidence_status: row.release_evidence_status,
-                                            release_evidence_source: row.release_evidence_source,
-                                            release_display: formatReleasedAmountDisplay({
-                                              released_amount_pence: row.released_amount_pence,
-                                              released_at: row.released_at,
-                                              release_evidence_status: row.release_evidence_status,
-                                              currencyFormatter: (p) => formatNullablePence(p),
-                                              captureConfirmed,
-                                              providerState: row.provider_state,
-                                              capturedAmountPence: row.captured_amount_pence,
-                                              expectedReleasePence: expectedResidualRelease,
-                                            }),
                                             refunded_amount_pence: row.refunded_amount_pence,
                                             provider_processing_fee_pence: row.provider_processing_fee_pence,
                                             fee_status: row.fee_status,
                                             provider_state: row.provider_state,
+                                            provider_verification_status: row.provider_verification_status,
                                             provider_state_verified_at: row.provider_state_verified_at,
-                                            session_status_canonical: row.session_status_display,
-                                            'Technical status': row.technical_status,
-                                            captured_at: row.captured_at,
-                                            released_at: row.released_at,
-                                            refunded_at: row.refunded_at,
+                                            session_status_display: row.session_status_display,
+                                            technical_status: row.technical_status,
                                             evidence_status: row.evidence_status,
                                             evidence_label: row.evidence_label,
                                             evidence_warnings: row.evidence_warnings,
-                                            reconciliation_status: row.reconciliation_status,
+                                            fr_reconciliation_status: row.reconciliation_status,
+                                            fr_difference_pence: row.difference_pence,
+                                            capture_classification_action_only: row.capture_classification,
+                                            action_classification: row.action_classification,
                                             attention_class: row.attention_class,
                                             webhook_timeline: row.webhook_timeline,
                                             admin_refresh_timeline: row.admin_refresh_timeline,
-                                            action_policy: row.action_policy,
+                                            allowed_actions: row.allowed_actions,
                                           },
                                           null,
                                           2,

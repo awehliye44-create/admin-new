@@ -149,7 +149,7 @@ export async function listPaymentHoldsRequiringAttention(
       "id, status, payment_provider, provider_order_id, authorised_amount_pence, captured_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_capture_id, created_at, authorised_at, released_at, captured_at, refunded_at, trip_id, user_id, customer_id, client_action_id, release_attempt_count, recovery_attempt_count, release_failure_reason, hold_terminal_reason, hold_release_state, failure_reason, metadata, provider_state, provider_state_verified_at, provider_state_verified_by",
     )
     .order("created_at", { ascending: false })
-    .limit(Math.min(1000, Math.max(limit, view === "all" || view === "history" ? 500 : limit * 3)));
+    .limit(Math.min(1000, Math.max(limit, view === "history" ? Math.max(limit, 300) : limit * 2)));
 
   if (filters.paymentSessionId) sessionQuery = sessionQuery.eq("id", filters.paymentSessionId);
   if (filters.providerOrderId) sessionQuery = sessionQuery.eq("provider_order_id", filters.providerOrderId);
@@ -218,6 +218,25 @@ export async function listPaymentHoldsRequiringAttention(
       // Do not persist transient retrieve failures as terminal — keep verified DB state.
       providerRefreshPartial = true;
       return null;
+    }
+  }
+
+  // Prefetch unique Revolut orders with bounded concurrency (list load used to await serially).
+  if (shouldRefresh && merchant) {
+    const uniqueOrders: string[] = [];
+    const seen = new Set<string>();
+    for (const session of sessions ?? []) {
+      if (String(session.payment_provider ?? "").toLowerCase() !== "revolut") continue;
+      const oid = String(session.provider_order_id ?? "");
+      if (!oid || seen.has(oid)) continue;
+      seen.add(oid);
+      uniqueOrders.push(oid);
+      if (uniqueOrders.length >= 40) break; // cap list-time live refresh
+    }
+    const concurrency = 8;
+    for (let i = 0; i < uniqueOrders.length; i += concurrency) {
+      const chunk = uniqueOrders.slice(i, i + concurrency);
+      await Promise.all(chunk.map((oid) => fetchProviderState("revolut", oid)));
     }
   }
 

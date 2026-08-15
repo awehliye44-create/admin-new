@@ -5,7 +5,10 @@
 // @ts-ignore Deno remote import
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { tripUsesCommissionWalletDeduction } from "./commissionWalletSSOT.ts";
-import { calculateTripSettlement } from "./tripSettlement.ts";
+import {
+  calculateTripSettlementFromTripRow,
+  resolveTripTierPercent,
+} from "./tripSettlement.ts";
 
 export type ConvertCommissionWalletOnCompleteResult = {
   ok: boolean;
@@ -190,35 +193,24 @@ export async function ensureCommissionWalletDeductionForCompletedTrip(input: {
     };
   }
 
-  const farePence = Math.max(
-    0,
-    Number(trip.final_customer_fare_pence)
-      || Number(trip.final_fare_pence)
-      || 0,
-  );
-  const settlement = calculateTripSettlement({
-    final_fare_pence: farePence,
-    airport_charge_pence: Number(trip.airport_charge_pence ?? 0),
-    other_pass_through_charges_pence: Number(trip.other_pass_through_charges_pence ?? 0),
-    tips_pence: Number(trip.tip_amount_pence ?? trip.tip_pence ?? 0),
-    driver_tier_commission_percent: Number(
-      trip.accepted_commission_percent
-        ?? trip.driver_tier_commission_percent
-        ?? 0,
-    ),
+  // Prefer persisted completion stamp; otherwise recompute from final_fare + waiting
+  // (never settle CW from ride-only final_customer when waiting is present).
+  const settlement = calculateTripSettlementFromTripRow({
+    ...trip,
+    driver_tier_commission_percent: resolveTripTierPercent(trip),
   });
   const commissionMinor = Math.max(
     0,
-    Number(trip.commission_pence) || settlement.commission_pence,
+    Number(trip.commission_pence) || settlement?.commission_pence || 0,
   );
   const commissionable = Math.max(
     0,
-    Number(trip.commissionable_fare_pence) || settlement.commissionable_fare_pence,
+    Number(trip.commissionable_fare_pence) || settlement?.commissionable_fare_pence || 0,
   );
   const rateBps = Math.max(
     0,
     Number(trip.snapshotted_commission_rate_bps)
-      || Math.round(settlement.tier_percent_used * 100),
+      || Math.round((settlement?.tier_percent_used ?? resolveTripTierPercent(trip)) * 100),
   );
 
   const result = await convertCommissionWalletOnTripComplete({

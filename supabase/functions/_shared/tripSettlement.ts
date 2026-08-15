@@ -172,21 +172,59 @@ export function assertSettlementCaptureIdentity(args: {
 }
 
 /**
+ * Build the trip row used for post-capture / completion settlement.
+ * Waiting must remain inside the fare base (never settle from ride-only final_customer).
+ */
+export function buildSettlementTripRow(args: {
+  trip: TripSettlementTripRow & { provider_fee_pence?: number | null };
+  captureAmountPence?: number | null;
+  tipPence?: number;
+  finalFarePence?: number | null;
+  pickupWaitingChargePence?: number | null;
+  stopWaitingChargePence?: number | null;
+}): TripSettlementTripRow {
+  const tip = nonNegInt(args.tipPence ?? args.trip.tip_pence ?? args.trip.tip_amount_pence);
+  return {
+    ...args.trip,
+    capture_amount_pence: args.captureAmountPence == null
+      ? args.trip.capture_amount_pence
+      : args.captureAmountPence,
+    tip_pence: tip,
+    tip_amount_pence: tip,
+    final_fare_pence: args.finalFarePence == null
+      ? args.trip.final_fare_pence
+      : args.finalFarePence,
+    pickup_waiting_charge_pence: args.pickupWaitingChargePence == null
+      ? args.trip.pickup_waiting_charge_pence
+      : args.pickupWaitingChargePence,
+    stop_waiting_charge_pence: args.stopWaitingChargePence == null
+      ? args.trip.stop_waiting_charge_pence
+      : args.stopWaitingChargePence,
+  };
+}
+
+/**
  * Card wallet TRIP_EARNING_NET = commissionable net + airport.
  * Tips stay on DRIVER_TIP_CREDIT. Provider fee never enters this amount.
+ *
+ * Also returns `settlement` so callers can persist the same stamp columns
+ * (commissionable / commission / driver_net) that produced the wallet credit.
  */
 export function resolveCapturedTripEarningNetPence(args: {
   trip: TripSettlementTripRow & { provider_fee_pence?: number | null };
   captureAmountPence: number;
   tipPence?: number;
-}): { driverNetPence: number; commissionPct: number; tipPence: number } {
-  const tip = nonNegInt(args.tipPence ?? args.trip.tip_pence ?? args.trip.tip_amount_pence);
-  const row: TripSettlementTripRow = {
-    ...args.trip,
-    capture_amount_pence: args.captureAmountPence,
-    tip_pence: tip,
-    tip_amount_pence: tip,
-  };
+}): {
+  driverNetPence: number;
+  commissionPct: number;
+  tipPence: number;
+  settlement: TripSettlementResult | null;
+} {
+  const row = buildSettlementTripRow({
+    trip: args.trip,
+    captureAmountPence: args.captureAmountPence,
+    tipPence: args.tipPence,
+  });
   const settlement = calculateTripSettlementFromTripRow(
     row,
     nonNegInt(args.trip.provider_fee_pence),
@@ -196,12 +234,14 @@ export function resolveCapturedTripEarningNetPence(args: {
       driverNetPence: settlement.driver_net_pence + settlement.airport_charge_pence,
       commissionPct: settlement.tier_percent_used,
       tipPence: settlement.tips_pence,
+      settlement,
     };
   }
   return {
     driverNetPence: nonNegInt(args.trip.driver_net_pence) + nonNegInt(args.trip.airport_charge_pence),
     commissionPct: resolveTripTierPercent(row),
-    tipPence: tip,
+    tipPence: nonNegInt(args.tipPence ?? args.trip.tip_pence ?? args.trip.tip_amount_pence),
+    settlement: null,
   };
 }
 

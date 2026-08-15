@@ -25,12 +25,14 @@ import {
 } from "../../../shared/paymentSessionsDisplaySSOT.ts";
 import {
   classifyCaptureConfirmation,
-  resolveCanonicalCustomerPayablePence,
 } from "../../../shared/paymentSessionsCaptureConfirmationSSOT.ts";
 import { derivePaymentSessionAllowedActions, isOpenTripPaymentRecoverySession } from "../../../shared/paymentSessionsAllowedActionsSSOT.ts";
 import { isValidConfirmedCapturePence } from "../../../shared/paymentCaptureEvidenceSSOT.ts";
+import {
+  buildCanonicalTripEconomicsRead,
+} from "../../../shared/paymentSessionsCanonicalReadAdapterSSOT.ts";
 import { listPaymentHoldsRequiringAttention } from "./paymentHoldReconciliationSSOT.ts";
-import { buildPaymentSessionsTripCompare } from "./adminPaymentSessionsTripCompareSSOT.ts";
+import { buildPaymentSessionsTripCompare, buildPsOnlyCompareSummary } from "./adminPaymentSessionsTripCompareSSOT.ts";
 import type { PaymentHoldReconciliationRow } from "../../../shared/paymentHoldReconciliation.ts";
 import {
   classifyPaymentHoldOperationalBucket,
@@ -240,16 +242,17 @@ function mapHoldToSessionRow(
   });
 
   const attention = hold.attention_class ?? null;
+  // Session lifecycle only — never overlay action-policy labels into Session Status.
   const operatorLabel = operatorFacingSessionStatus({
     canonicalLabel: display.session_status_label,
     attentionClass: attention,
     sessionStatusDisplay: display.session_status_display,
-    actionClassificationLabel: allowed.classification_label,
   });
   const releaseReason = hold.hold_terminal_reason
     ?? hold.release_failure_reason
     ?? null;
 
+  // classifyCaptureConfirmation is for action policy / outstanding only — NOT FR SSOT.
   const captureClass = classifyCaptureConfirmation({
     providerState: hold.provider_order_state,
     providerCapturedPence: capturedAmount,
@@ -261,19 +264,6 @@ function mapHoldToSessionRow(
     purpose,
     hasTripOwnership: Boolean(hold.trip_id) || purpose === "SAVE_CARD",
   });
-
-  const reconciliationStatus =
-    captureClass.classification === "CAPTURED_CONFIRMED"
-    || captureClass.classification === "UNDERCAPTURED_RECOVERY_REQUIRED"
-    || captureClass.classification === "OVERCAPTURED_REFUND_REQUIRED"
-    || captureClass.classification === "PARTIALLY_CAPTURED_CONFIRMED"
-    || captureClass.classification === "PAYMENT_LINK_PENDING"
-    || captureClass.classification === "RECOVERY_IN_PROGRESS"
-    || captureClass.classification === "RELEASED_CONFIRMED"
-    || captureClass.classification === "REFUNDED_CONFIRMED"
-    || captureClass.requires_manual_review
-      ? captureClass.classification
-      : display.reconciliation_status;
 
   return {
     id: hold.id,
@@ -331,10 +321,11 @@ function mapHoldToSessionRow(
     hold_terminal_reason: hold.hold_terminal_reason ?? null,
     release_failure_reason: hold.release_failure_reason ?? null,
     age_minutes: hold.age_minutes,
-    reconciliation_status: reconciliationStatus,
+    // FR owns Difference / Reconciliation — null until FR persists per-session conclusions.
+    reconciliation_status: null,
     capture_classification: captureClass.classification,
     capture_classification_label: captureClass.label,
-    difference_pence: captureClass.difference_pence,
+    difference_pence: null,
     outstanding_pence: captureClass.outstanding_pence ?? allowed.outstanding_pence,
     action_classification: allowed.classification,
     action_classification_label: allowed.classification_label,
@@ -344,9 +335,7 @@ function mapHoldToSessionRow(
     provider_release_reference: extra.provider_release_reference ?? null,
     recovery_attempt_count: extra.recovery_attempt_count ?? hold.recovery_attempt_count ?? 0,
     attention_class: attention,
-    classification: captureClass.requires_manual_review
-      ? "RED"
-      : (display.classification ?? hold.classification),
+    classification: display.classification ?? hold.classification,
     in_active_queue: hold.in_active_queue !== false,
     amount_display: hold.amount_display
       ?? (capturedAt && capturedAmount == null ? "AMOUNT_UNCONFIRMED" : null),
@@ -363,9 +352,7 @@ function operatorFacingSessionStatus(args: {
   canonicalLabel: string;
   attentionClass: string | null;
   sessionStatusDisplay: string | null;
-  actionClassificationLabel?: string | null;
 }): string {
-  if (args.actionClassificationLabel) return args.actionClassificationLabel;
   const display = String(args.sessionStatusDisplay ?? "").toUpperCase();
   if (display === "CAPTURE_FAILED") return "CAPTURE FAILED";
   if (display === "CANCELLED") return "CANCELLED";
@@ -395,7 +382,16 @@ export async function listAdminPaymentSessions(
 
   let refreshFailed = false;
   let holds;
-  const fetchLimit = Math.min(1000, Math.max(request.limit ?? 100, tab === "history" || tab === "overview" ? 500 : 200));
+  // Keep hold fetch close to page size — overview used to force 500 and felt stuck.
+  const pageLimit = Math.min(1000, Math.max(1, request.limit ?? 100));
+  const fetchLimit = Math.min(
+    1000,
+    tab === "history"
+      ? Math.max(pageLimit, 300)
+      : tab === "active_holds" || tab === "failed_recovery"
+      ? Math.max(pageLimit, 150)
+      : pageLimit,
+  );
   try {
     holds = await listPaymentHoldsRequiringAttention(supabase, {
       refreshProviderState: refresh,
@@ -502,7 +498,11 @@ export async function listAdminPaymentSessions(
       (sessions ?? []).map((s) => s.provider_order_id).filter(Boolean).map(String),
     )];
     const webhookByOrder = new Map<string, AdminPaymentSessionsListRow["webhook_timeline"]>();
-    if (orderIds.length > 0) {
+    // Webhook timelines are heavy — only for drill/history/provider tabs.
+    const loadWebhooks = Boolean(request.payment_session_id)
+      || tab === "history"
+      || tab === "provider_payments";
+    if (loadWebhooks && orderIds.length > 0) {
       try {
         const { data: events } = await supabase
           .from("processed_revolut_events")
@@ -724,40 +724,20 @@ export async function listAdminPaymentSessions(
     mapped.push(row);
   }
 
-  // Override customer_payable with trip canonical fare (not original estimate).
+  // Override customer_payable with Trip Fare canonical final payable (adapter).
+  // Never prefer final_customer_fare alone; never backfill refunds from trips.
   const payableTripIds = [...new Set(mapped.map((r) => r.trip_id).filter(Boolean))] as string[];
   if (payableTripIds.length > 0) {
     const { data: tripPayables } = await supabase
       .from("trips")
       .select(
-        "id, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, waiting_charge_pence, total_waiting_charge_pence, tip_pence, tip_amount_pence, refund_amount_pence, capture_amount_pence",
+        "id, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, waiting_charge_pence, total_waiting_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, tip_pence, tip_amount_pence, locked_base_fare_pence, customer_modification_charge_pence, destination_change_adjustment_pence, accepted_preset_offer_fare_pence, accepted_driver_offer_fare_pence, commissionable_fare_pence, commission_pence, driver_net_pence",
       )
       .in("id", payableTripIds);
     const payableByTrip = new Map<string, number | null>();
-    const tripRefundById = new Map<string, number>();
     for (const t of tripPayables ?? []) {
-      const waiting = Number(t.waiting_charge_pence ?? t.total_waiting_charge_pence ?? 0) || 0;
-      const tip = Number(t.tip_pence ?? t.tip_amount_pence ?? 0) || 0;
-      const resolved = resolveCanonicalCustomerPayablePence({
-        finalCustomerFarePence: t.final_customer_fare_pence == null
-          ? null
-          : Number(t.final_customer_fare_pence),
-        finalFarePence: t.final_fare_pence == null ? null : Number(t.final_fare_pence),
-        waitingChargePence: waiting,
-        tipPence: tip,
-        noShowChargePence: t.no_show_charge_pence == null ? null : Number(t.no_show_charge_pence),
-        cancellationFeePence: t.cancellation_fee_pence == null
-          ? null
-          : Number(t.cancellation_fee_pence),
-        outstandingBalancePence: t.outstanding_balance_pence == null
-          ? null
-          : Number(t.outstanding_balance_pence),
-        estimatedTotalPence: t.estimated_total_pence == null
-          ? null
-          : Number(t.estimated_total_pence),
-      });
-      payableByTrip.set(String(t.id), resolved.payable_pence);
-      tripRefundById.set(String(t.id), Math.max(0, Number(t.refund_amount_pence ?? 0) || 0));
+      const eco = buildCanonicalTripEconomicsRead(t as Record<string, unknown>);
+      payableByTrip.set(String(t.id), eco.final_fare_pence);
     }
     const openRecoveryByTripId = new Set<string>();
     for (const r of mapped) {
@@ -776,11 +756,8 @@ export async function listAdminPaymentSessions(
       if (canonical != null) {
         row.customer_payable_pence = canonical;
       }
-      const tripRefund = tripRefundById.get(row.trip_id) ?? 0;
-      if ((row.refunded_amount_pence == null || row.refunded_amount_pence <= 0) && tripRefund > 0) {
-        row.refunded_amount_pence = tripRefund;
-      }
-      // Recompute capture classification against canonical trip payable.
+      // Recompute action classification against canonical trip payable (policy only).
+      // Difference / Reconciliation stay null — FR owns those conclusions.
       const captureClass = classifyCaptureConfirmation({
         providerState: row.provider_state,
         providerCapturedPence: row.captured_amount_pence,
@@ -794,17 +771,9 @@ export async function listAdminPaymentSessions(
       });
       row.capture_classification = captureClass.classification;
       row.capture_classification_label = captureClass.label;
-      row.difference_pence = captureClass.difference_pence;
+      row.difference_pence = null;
       row.outstanding_pence = captureClass.outstanding_pence;
-      if (
-        captureClass.classification === "CAPTURED_CONFIRMED"
-        || captureClass.classification === "UNDERCAPTURED_RECOVERY_REQUIRED"
-        || captureClass.classification === "OVERCAPTURED_REFUND_REQUIRED"
-        || captureClass.classification === "PARTIALLY_CAPTURED_CONFIRMED"
-        || captureClass.requires_manual_review
-      ) {
-        row.reconciliation_status = captureClass.classification;
-      }
+      row.reconciliation_status = null;
 
       const unresolvedFinalCharge = (row.outstanding_pence ?? 0) > 0
         && !isValidConfirmedCapturePence(row.captured_amount_pence)
@@ -855,15 +824,26 @@ export async function listAdminPaymentSessions(
         row.action_policy.can_retry_recovery = allowed.can_retry_recovery;
         row.action_policy.can_refund = allowed.can_refund;
       }
-      if (allowed.local_state_corrected) {
-        row.session_status_label = allowed.classification_label;
-      }
+      // Do not overwrite session_status with action classification labels.
     }
   }
 
   const summary = buildPaymentSessionsSummary(mapped, holds.summary);
 
-  const compare = await buildPaymentSessionsTripCompare(supabase, request, mapped);
+  // Trip compare is expensive (trips + names + sessions). Only for Overview KPIs
+  // and Completed/Matching tabs — other tabs use Payment Sessions money summary only.
+  const needsTripCompare = tab === "overview"
+    || tab === "completed_trips_paid"
+    || tab === "payment_matching";
+  const compare = needsTripCompare
+    ? await buildPaymentSessionsTripCompare(supabase, request, mapped)
+    : {
+      completed_trip_rows: [],
+      matching_rows: [],
+      trip_evidence_available: true,
+      trip_evidence_message: null as string | null,
+      compare_summary: buildPsOnlyCompareSummary(mapped),
+    };
   const mergedSummary: AdminPaymentSessionsSummary = {
     ...summary,
     ...compare.compare_summary,
@@ -878,10 +858,7 @@ export async function listAdminPaymentSessions(
 
   let page_status: AdminPaymentSessionsPageStatus = refreshFailed
     ? "PROVIDER_UNAVAILABLE"
-    : mapped.some((r) =>
-      r.provider_verification_status === "STALE"
-      && r.reconciliation_status !== "CAPTURED_CONFIRMED"
-    )
+    : mapped.some((r) => r.provider_verification_status === "STALE")
     ? "PARTIAL"
     : "LIVE";
   if (!compare.trip_evidence_available && (tab === "completed_trips_paid" || tab === "payment_matching")) {
@@ -1086,13 +1063,16 @@ function buildPaymentSessionsSummary(
     historical_evidence_count: historicalEvidence,
     provider_captured_total_pence: revenue,
     completed_trip_fare_total_pence: null,
-    matched_trips_count: 0,
+    matched_trips_count: null,
     capture_shortfall_pence: null,
     overcaptured_amount_pence: null,
     gross_overcapture_pence: null,
     resolved_overcapture_pence: null,
     outstanding_customer_overcharge_pence: null,
     refund_beyond_gross_overcapture_pence: null,
+    fr_match_chips_available: false,
+    fr_match_chips_message:
+      "FR does not persist per-session match for Payment Sessions. Open Financial Reconciliation for audit conclusions.",
     missing_payment_sessions_count: 0,
     released_buffer_total_pence: null,
     refunded_total_pence: null,

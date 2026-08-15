@@ -132,9 +132,10 @@ function isNoActiveHold(canonical: CanonicalProviderHoldState | null): boolean {
 function withFlags(
   base: PaymentSessionAllowedActionsResult,
 ): PaymentSessionAllowedActionsResult {
-  const actions = base.allowed_actions;
+  const actions = Array.isArray(base.allowed_actions) ? base.allowed_actions : [];
   return {
     ...base,
+    allowed_actions: actions,
     can_release: actions.includes("release_hold"),
     can_retry_release: actions.includes("retry_release"),
     can_retry_recovery: actions.includes("retry_recovery"),
@@ -715,7 +716,8 @@ export function assertActionAllowed(
     | "refresh_provider_evidence",
 ): { ok: true } | { ok: false; error_code: string; message: string } {
   const id = holdActionToAllowedActionId(action);
-  if (!id || !allowed.allowed_actions.includes(id)) {
+  const allowedActions = Array.isArray(allowed.allowed_actions) ? allowed.allowed_actions : [];
+  if (!id || !allowedActions.includes(id)) {
     const specific = allowed.reject_reason_if_stale_action;
     // Prefer explicit domain codes when set; otherwise stale-refresh for UI race.
     const error_code = specific

@@ -20,17 +20,16 @@ import {
 } from '@/components/ui/table';
 import type { AdminPaymentSessionsCompletedTripRow } from '../../../shared/adminPaymentSessionsSSOT';
 import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { isPaymentSessionsAmountsOnFrStatus } from '../../../shared/paymentSessionsTripMatchSSOT';
 import {
   financeReconciliationTripUrl,
   tripSettlementRecoverUrl,
 } from '@/lib/financialReconciliationRoutes';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 
-function matchBadgeVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
-  if (status === 'MATCHED') return 'default';
-  if (status.includes('OVERCAPTURE') || status.includes('SHORTFALL') || status.includes('MISSING')) {
-    return 'destructive';
-  }
+function matchBadgeVariant(status: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
+  if (!status || isPaymentSessionsAmountsOnFrStatus(status)) return 'outline';
+  if (String(status).includes('MISSING') || String(status).includes('PENDING')) return 'secondary';
   return 'secondary';
 }
 
@@ -66,6 +65,9 @@ export function PaymentSessionsCompletedTripsTable({
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        Trip Fare / Settlement stamps + Payment Sessions amounts. Reconciliation conclusions: Open FR.
+      </p>
       <div className="overflow-x-auto rounded-md border">
         <Table>
           <TableHeader>
@@ -75,14 +77,14 @@ export function PaymentSessionsCompletedTripsTable({
               <TableHead>Customer</TableHead>
               <TableHead>Driver</TableHead>
               <TableHead>Service Area</TableHead>
-              <TableHead>Final Customer Fare</TableHead>
-              <TableHead>Waiting Charges</TableHead>
-              <TableHead>Other Payment Components</TableHead>
-              <TableHead>Expected Capture</TableHead>
+              <TableHead>Ride fare</TableHead>
+              <TableHead>Waiting</TableHead>
+              <TableHead>Final payable</TableHead>
               <TableHead>Provider Captured</TableHead>
-              <TableHead>Variance</TableHead>
-              <TableHead>Reason</TableHead>
-              <TableHead>Match Status</TableHead>
+              <TableHead>Refunded</TableHead>
+              <TableHead>Settlement net</TableHead>
+              <TableHead>Presence</TableHead>
+              <TableHead>Reconciliation</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -98,36 +100,40 @@ export function PaymentSessionsCompletedTripsTable({
                 <TableCell className="text-xs">{row.customer_name ?? '—'}</TableCell>
                 <TableCell className="text-xs">{row.driver_name ?? '—'}</TableCell>
                 <TableCell className="text-xs">{row.service_area_name ?? '—'}</TableCell>
-                <TableCell className="text-xs">
-                  {formatNullablePence(row.final_customer_fare_pence, currencyCode)}
+                <TableCell className="text-xs tabular-nums">
+                  {formatNullablePence(row.ride_fare_pence ?? row.final_customer_fare_pence, currencyCode)}
                 </TableCell>
-                <TableCell className="text-xs">
+                <TableCell className="text-xs tabular-nums">
                   {formatNullablePence(row.waiting_charges_pence, currencyCode)}
                 </TableCell>
-                <TableCell className="text-xs">
-                  {formatNullablePence(row.other_payment_components_pence, currencyCode)}
+                <TableCell className="text-xs font-medium tabular-nums">
+                  {formatNullablePence(row.final_fare_pence ?? row.expected_capture_pence, currencyCode)}
                 </TableCell>
-                <TableCell className="text-xs">
-                  {formatNullablePence(row.expected_capture_pence, currencyCode)}
-                </TableCell>
-                <TableCell className="text-xs">
+                <TableCell className="text-xs tabular-nums">
                   {formatNullablePence(row.provider_captured_pence, currencyCode)}
                 </TableCell>
-                <TableCell className="text-xs">
-                  {formatNullablePence(row.variance_pence ?? row.shortfall_overcapture_pence, currencyCode)}
+                <TableCell className="text-xs tabular-nums">
+                  {formatNullablePence(row.provider_refunded_pence, currencyCode)}
                 </TableCell>
-                <TableCell className="text-xs max-w-[140px] truncate" title={row.variance_reason ?? undefined}>
-                  {row.variance_reason ?? '—'}
+                <TableCell className="text-xs tabular-nums">
+                  {formatNullablePence(row.driver_net_pence, currencyCode)}
                 </TableCell>
                 <TableCell>
-                  <div className="flex flex-col gap-0.5">
+                  {!isPaymentSessionsAmountsOnFrStatus(row.match_status) && row.match_status ? (
                     <Badge variant={matchBadgeVariant(row.match_status)} className="text-[10px] w-fit">
                       {row.match_status}
                     </Badge>
-                    {row.capture_classification ? (
-                      <span className="text-[10px] text-muted-foreground">{row.capture_classification}</span>
-                    ) : null}
-                  </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-xs">
+                  <Link
+                    className="underline text-muted-foreground"
+                    to={financeReconciliationTripUrl(row.trip_id, row.trip_code)}
+                  >
+                    Open FR
+                  </Link>
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
@@ -148,11 +154,6 @@ export function PaymentSessionsCompletedTripsTable({
                         </Link>
                       </Button>
                     )}
-                    <Button asChild size="sm" variant="outline">
-                      <Link to={financeReconciliationTripUrl(row.trip_id, row.trip_code)}>
-                        Financial Reconciliation
-                      </Link>
-                    </Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -167,41 +168,48 @@ export function PaymentSessionsCompletedTripsTable({
             <>
               <DialogHeader>
                 <DialogTitle>
-                  Capture breakdown — {drawer.trip_code ?? drawer.trip_id.slice(0, 8)}
+                  Owned stamps — {drawer.trip_code ?? drawer.trip_id.slice(0, 8)}
                 </DialogTitle>
                 <DialogDescription>
-                  Payment Sessions SSOT — every captured penny explained. Formatting only in UI.
+                  Trip Fare + Settlement stamps and Payment Sessions provider amounts. No fare rebuild.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-2 rounded-md border p-3 bg-muted/20">
-                <BreakdownLine label="Ride fare" value={drawer.capture_breakdown?.ride_fare_pence ?? drawer.ride_fare_pence} currencyCode={currencyCode} />
-                <BreakdownLine label="Pickup waiting" value={drawer.capture_breakdown?.pickup_waiting_charge_pence ?? drawer.pickup_waiting_charge_pence} currencyCode={currencyCode} />
-                <BreakdownLine label="Stop waiting" value={drawer.capture_breakdown?.stop_waiting_charge_pence ?? drawer.stop_waiting_charge_pence} currencyCode={currencyCode} />
-                <BreakdownLine label="No-show" value={drawer.capture_breakdown?.no_show_charge_pence ?? drawer.no_show_charge_pence} currencyCode={currencyCode} />
-                <BreakdownLine label="Airport" value={drawer.capture_breakdown?.airport_charge_pence ?? drawer.airport_charge_pence} currencyCode={currencyCode} />
-                <BreakdownLine label="Toll" value={drawer.capture_breakdown?.toll_charge_pence} currencyCode={currencyCode} />
-                <BreakdownLine label="Parking" value={drawer.capture_breakdown?.parking_charge_pence} currencyCode={currencyCode} />
-                <BreakdownLine label="Extras" value={drawer.capture_breakdown?.extra_stop_charge_pence} currencyCode={currencyCode} />
-                <BreakdownLine label="Manual adjustment" value={drawer.capture_breakdown?.manual_adjustment_pence} currencyCode={currencyCode} />
-                <BreakdownLine label="Destination change" value={drawer.capture_breakdown?.destination_change_pence} currencyCode={currencyCode} />
-                <BreakdownLine label="Tip" value={drawer.capture_breakdown?.tip_pence ?? drawer.tips_pence} currencyCode={currencyCode} />
-                <BreakdownLine label="Other" value={drawer.capture_breakdown?.other_payment_component_pence} currencyCode={currencyCode} />
+                <p className="text-[10px] font-medium text-muted-foreground uppercase">Trip Fare SSOT</p>
+                <BreakdownLine label="Original / locked (audit)" value={drawer.original_locked_fare_pence} currencyCode={currencyCode} />
+                <BreakdownLine label="Preset quote (audit only)" value={drawer.accepted_preset_offer_fare_pence} currencyCode={currencyCode} />
+                <BreakdownLine label="Ride fare (excl. waiting)" value={drawer.ride_fare_pence ?? drawer.final_customer_fare_pence} currencyCode={currencyCode} />
+                <BreakdownLine label="Pickup waiting" value={drawer.pickup_waiting_charge_pence} currencyCode={currencyCode} />
+                <BreakdownLine label="Stop waiting" value={drawer.stop_waiting_charge_pence} currencyCode={currencyCode} />
+                <BreakdownLine label="Modification audit (not re-added)" value={drawer.modification_audit_pence} currencyCode={currencyCode} />
+                <BreakdownLine label="Airport / other non-mod" value={drawer.other_payment_components_pence} currencyCode={currencyCode} />
+                <BreakdownLine label="Tip" value={drawer.tips_pence} currencyCode={currencyCode} />
+                <BreakdownLine label="Final payable" value={drawer.final_fare_pence ?? drawer.expected_capture_pence} currencyCode={currencyCode} />
                 <div className="border-t pt-2 mt-2 space-y-2">
-                  <BreakdownLine label="Expected capture" value={drawer.expected_capture_pence} currencyCode={currencyCode} />
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase">Settlement SSOT</p>
+                  <BreakdownLine label="Commissionable" value={drawer.commissionable_fare_pence} currencyCode={currencyCode} />
+                  <BreakdownLine label="Commission" value={drawer.commission_pence} currencyCode={currencyCode} />
+                  <BreakdownLine label="Driver net" value={drawer.driver_net_pence} currencyCode={currencyCode} />
+                </div>
+                <div className="border-t pt-2 mt-2 space-y-2">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase">Payment Sessions</p>
                   <BreakdownLine label="Provider captured" value={drawer.provider_captured_pence} currencyCode={currencyCode} />
-                  <BreakdownLine label="Variance" value={drawer.variance_pence ?? drawer.shortfall_overcapture_pence} currencyCode={currencyCode} />
+                  <BreakdownLine label="Provider refunded" value={drawer.provider_refunded_pence} currencyCode={currencyCode} />
+                  <BreakdownLine label="Provider released" value={drawer.provider_released_pence} currencyCode={currencyCode} />
                 </div>
                 <p className="text-xs pt-2">
-                  <span className="text-muted-foreground">Reason: </span>
-                  {drawer.variance_reason ?? '—'}
+                  <span className="text-muted-foreground">Presence: </span>
+                  {isPaymentSessionsAmountsOnFrStatus(drawer.match_status)
+                    ? '—'
+                    : (drawer.match_status ?? '—')}
                 </p>
                 <p className="text-xs">
-                  <span className="text-muted-foreground">Classification: </span>
-                  {drawer.capture_classification ?? '—'}
-                </p>
-                <p className="text-xs">
-                  <span className="text-muted-foreground">Reconciliation: </span>
-                  {drawer.match_status}
+                  <Link
+                    className="underline"
+                    to={financeReconciliationTripUrl(drawer.trip_id, drawer.trip_code)}
+                  >
+                    Open FR for reconciliation conclusions
+                  </Link>
                 </p>
               </div>
             </>

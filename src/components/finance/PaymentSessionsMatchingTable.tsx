@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/table';
 import type { AdminPaymentSessionsMatchingRow } from '../../../shared/adminPaymentSessionsSSOT';
 import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { isPaymentSessionsAmountsOnFrStatus } from '../../../shared/paymentSessionsTripMatchSSOT';
 import {
   financeReconciliationTripUrl,
   tripSettlementRecoverUrl,
@@ -31,7 +32,12 @@ export function PaymentSessionsMatchingTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-md border">
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        Expected = Trip Fare stamp. Actual / Refunded / Authorised / Released = Payment Sessions.
+        Amount reconciliation: Open FR (not calculated here).
+      </p>
+      <div className="overflow-x-auto rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
@@ -43,11 +49,8 @@ export function PaymentSessionsMatchingTable({
             <TableHead>Refunded</TableHead>
             <TableHead>Authorised</TableHead>
             <TableHead>Released</TableHead>
-            <TableHead>Variance</TableHead>
-            <TableHead>Outstanding Overcharge</TableHead>
-            <TableHead>Reason</TableHead>
-            <TableHead>Classification</TableHead>
-            <TableHead>Match Status</TableHead>
+            <TableHead>Presence</TableHead>
+            <TableHead>Reconciliation</TableHead>
             <TableHead>Provider State</TableHead>
             <TableHead>Verification</TableHead>
             <TableHead>Actions</TableHead>
@@ -57,64 +60,49 @@ export function PaymentSessionsMatchingTable({
           {rows.map((row) => (
             <TableRow key={row.id}>
               <TableCell className="font-mono text-xs">
-                {row.trip_code ?? (row.trip_id ? row.trip_id.slice(0, 8) : '—')}
+                {row.trip_code ?? (row.trip_id ? row.trip_id.slice(0, 8) : 'No linked trip')}
               </TableCell>
               <TableCell className="font-mono text-xs">
                 {row.payment_session_id ? row.payment_session_id.slice(0, 8) : '—'}
               </TableCell>
               <TableCell className="text-xs">{row.customer_name ?? '—'}</TableCell>
-              <TableCell className="text-xs">{formatNullablePence(row.expected_capture_pence, currencyCode)}</TableCell>
-              <TableCell className="text-xs">{formatNullablePence(row.actual_capture_pence, currencyCode)}</TableCell>
-              <TableCell className="text-xs">
+              <TableCell className="text-xs tabular-nums">{formatNullablePence(row.expected_capture_pence, currencyCode)}</TableCell>
+              <TableCell className="text-xs tabular-nums">{formatNullablePence(row.actual_capture_pence, currencyCode)}</TableCell>
+              <TableCell className="text-xs tabular-nums">
                 {formatNullablePence(row.refunded_amount_pence, currencyCode)}
-                {row.refund_beyond_gross_overcapture_pence != null
-                  && row.refund_beyond_gross_overcapture_pence > 0 && (
-                  <div className="text-[10px] text-amber-700">
-                    beyond excess {formatNullablePence(row.refund_beyond_gross_overcapture_pence, currencyCode)}
-                  </div>
-                )}
               </TableCell>
-              <TableCell className="text-xs">{formatNullablePence(row.authorised_amount_pence, currencyCode)}</TableCell>
-              <TableCell className="text-xs">{formatNullablePence(row.released_amount_pence, currencyCode)}</TableCell>
-              <TableCell className="text-xs">
-                {formatNullablePence(row.variance_pence, currencyCode)}
-                {row.shortfall_pence != null && (
-                  <div className="text-[10px] text-amber-700">
-                    shortfall {formatNullablePence(row.shortfall_pence, currencyCode)}
-                  </div>
-                )}
-                {row.overcapture_pence != null && (
-                  <div className="text-[10px] text-amber-700">
-                    gross over {formatNullablePence(row.overcapture_pence, currencyCode)}
-                  </div>
-                )}
-                {row.resolved_overcapture_pence != null && row.resolved_overcapture_pence > 0 && (
-                  <div className="text-[10px] text-muted-foreground">
-                    resolved {formatNullablePence(row.resolved_overcapture_pence, currencyCode)}
-                  </div>
-                )}
-              </TableCell>
-              <TableCell className="text-xs">
-                {formatNullablePence(row.outstanding_overcharge_pence, currencyCode)}
-              </TableCell>
-              <TableCell className="text-xs max-w-[140px] truncate" title={row.variance_reason ?? undefined}>
-                {row.variance_reason ?? '—'}
-              </TableCell>
-              <TableCell className="text-[10px] text-muted-foreground">
-                {row.capture_classification ?? '—'}
-              </TableCell>
+              <TableCell className="text-xs tabular-nums">{formatNullablePence(row.authorised_amount_pence, currencyCode)}</TableCell>
+              <TableCell className="text-xs tabular-nums">{formatNullablePence(row.released_amount_pence, currencyCode)}</TableCell>
               <TableCell>
-                <Badge variant={row.match_status === 'MATCHED' ? 'default' : 'destructive'}>
-                  {row.match_status}
-                </Badge>
+                {!isPaymentSessionsAmountsOnFrStatus(row.match_status) && row.match_status ? (
+                  <Badge variant="secondary">{row.match_status}</Badge>
+                ) : (
+                  <span className="text-xs text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              <TableCell className="text-xs">
+                {row.trip_id ? (
+                  <Link
+                    className="underline text-muted-foreground"
+                    to={financeReconciliationTripUrl(row.trip_id, row.trip_code)}
+                  >
+                    Open FR
+                  </Link>
+                ) : (
+                  '—'
+                )}
               </TableCell>
               <TableCell className="text-xs">{row.provider_state ?? '—'}</TableCell>
-              <TableCell className="text-xs">{row.provider_verification_status ?? '—'}</TableCell>
+              <TableCell className="text-xs">
+                {row.provider_verification_status === 'STALE'
+                  ? 'Cached / stale'
+                  : (row.provider_verification_status ?? '—')}
+              </TableCell>
               <TableCell>
                 <div className="flex flex-wrap gap-1">
                   {row.trip_id && (
                     <Button asChild size="sm" variant="outline">
-                      <Link to={tripSettlementRecoverUrl(row.trip_id, row.trip_code)}>Trip evidence</Link>
+                      <Link to={tripSettlementRecoverUrl(row.trip_id, row.trip_code)}>Open Trip</Link>
                     </Button>
                   )}
                   {row.payment_session_id && (
@@ -124,24 +112,17 @@ export function PaymentSessionsMatchingTable({
                         paymentSessionId: row.payment_session_id,
                       })}
                       >
-                        Provider payment
+                        Session
                       </Link>
                     </Button>
                   )}
                   {row.provider_order_id && onInspectProvider && (
                     <Button
                       size="sm"
-                      variant="ghost"
+                      variant="outline"
                       onClick={() => onInspectProvider(row.provider_order_id!)}
                     >
-                      Provider evidence
-                    </Button>
-                  )}
-                  {row.trip_id && (
-                    <Button asChild size="sm" variant="outline">
-                      <Link to={financeReconciliationTripUrl(row.trip_id, row.trip_code)}>
-                        Reconciliation
-                      </Link>
+                      Evidence
                     </Button>
                   )}
                 </div>
@@ -150,6 +131,7 @@ export function PaymentSessionsMatchingTable({
           ))}
         </TableBody>
       </Table>
+      </div>
     </div>
   );
 }

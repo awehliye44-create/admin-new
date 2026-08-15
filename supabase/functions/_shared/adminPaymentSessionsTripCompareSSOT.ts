@@ -15,25 +15,19 @@ import {
   type PaymentTripMatchStatus,
 } from "../../../shared/paymentSessionsTripMatchSSOT.ts";
 import {
-  buildCaptureBreakdownForCompletedTrip,
-  captureClassificationToMatchStatus,
-} from "../../../shared/paymentSessionsCaptureBreakdownSSOT.ts";
-import {
   confirmedCapturedRevenuePence,
   isProviderAuthorisedState,
   sumReleasedBufferTotalPence,
 } from "../../../shared/paymentSessionsDisplaySSOT.ts";
-import { computeCaptureAmount } from "./tripFareSSOT.ts";
+import {
+  buildCanonicalTripEconomicsRead,
+  resolveOtherNonModComponentsPence,
+} from "../../../shared/paymentSessionsCanonicalReadAdapterSSOT.ts";
 import {
   buildPaymentSessionsCommissionWidgets,
   resolveTripGrossCommissionPence,
 } from "../../../shared/paymentSessionsCommissionWidgetsSSOT.ts";
 import type { CommissionFeeSessionInput } from "../../../shared/driverWalletCommissionFeeSSOT.ts";
-import {
-  resolveOvercaptureCustomerPosition,
-  sumOvercaptureResolutionTotals,
-  type OvercaptureResolutionResult,
-} from "../../../shared/paymentSessionsOvercaptureResolutionSSOT.ts";
 
 export { sumReleasedBufferTotalPence };
 
@@ -69,6 +63,8 @@ export type TripCompareBundle = {
     | "resolved_overcapture_pence"
     | "outstanding_customer_overcharge_pence"
     | "refund_beyond_gross_overcapture_pence"
+    | "fr_match_chips_available"
+    | "fr_match_chips_message"
     | "missing_payment_sessions_count"
     | "released_buffer_total_pence"
     | "refunded_total_pence"
@@ -84,13 +80,18 @@ export async function buildPaymentSessionsTripCompare(
   request: AdminPaymentSessionsListRequest,
   providerRows: AdminPaymentSessionsListRow[],
 ): Promise<TripCompareBundle> {
+  const tab = request.tab ?? "overview";
+  const detailRows = tab === "completed_trips_paid" || tab === "payment_matching";
   const limit = Math.min(1000, Math.max(1, request.limit ?? 100));
-  const fetchLimit = Math.min(1000, Math.max(limit * 5, 200));
+  // Overview KPIs: smaller completed-trip window, no name joins.
+  const fetchLimit = detailRows
+    ? Math.min(1000, Math.max(limit * 5, 200))
+    : Math.min(300, Math.max(limit * 2, 100));
 
   let tripQuery = supabase
     .from("trips")
     .select(
-      "id, trip_code, status, completed_at, passenger_id, driver_id, service_area_id, payment_method, payment_provider, final_fare_pence, final_customer_fare_pence, commissionable_fare_pence, gross_fare_pence, locked_base_fare_pence, airport_charge_pence, tip_pence, tip_amount_pence, refund_amount_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, total_waiting_charge_pence, waiting_charge_pence, no_show_charge_pence, customer_modification_charge_pence, destination_change_adjustment_pence, extras_pence, other_pass_through_charges_pence, discount_pence, commission_pence, platform_commission_amount, driver_net_pence, provider_fee_pence, accepted_commission_percent, driver_tier_commission_percent, provider_payment_id",
+      "id, trip_code, status, completed_at, passenger_id, driver_id, service_area_id, payment_method, payment_provider, final_fare_pence, final_customer_fare_pence, commissionable_fare_pence, gross_fare_pence, locked_base_fare_pence, airport_charge_pence, tip_pence, tip_amount_pence, refund_amount_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, total_waiting_charge_pence, waiting_charge_pence, no_show_charge_pence, customer_modification_charge_pence, destination_change_adjustment_pence, extras_pence, other_pass_through_charges_pence, discount_pence, commission_pence, platform_commission_amount, driver_net_pence, provider_fee_pence, accepted_commission_percent, driver_tier_commission_percent, provider_payment_id, accepted_preset_offer_fare_pence, accepted_driver_offer_fare_pence, locked_offer_type",
     )
     .eq("status", "completed")
     .not("completed_at", "is", null)
@@ -144,32 +145,37 @@ export async function buildPaymentSessionsTripCompare(
   }
 
   const tripRows = trips ?? [];
-  const passengerIds = [...new Set(tripRows.map((t) => t.passenger_id).filter(Boolean))] as string[];
-  const driverIds = [...new Set(tripRows.map((t) => t.driver_id).filter(Boolean))] as string[];
-  const areaIds = [...new Set(tripRows.map((t) => t.service_area_id).filter(Boolean))] as string[];
   const tripIds = tripRows.map((t) => t.id as string);
 
-  const [customersRes, driversRes, areasRes] = await Promise.all([
-    passengerIds.length > 0
-      ? supabase.from("customers").select("id, first_name, last_name").in("id", passengerIds)
-      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
-    driverIds.length > 0
-      ? supabase.from("drivers").select("id, first_name, last_name").in("id", driverIds)
-      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
-    areaIds.length > 0
-      ? supabase.from("service_areas").select("id, name").in("id", areaIds)
-      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
-  ]);
+  const customerById = new Map<string, { first_name?: string; last_name?: string }>();
+  const driverById = new Map<string, { first_name?: string; last_name?: string }>();
+  const areaById = new Map<string, { name?: string }>();
 
-  const customerById = new Map(
-    (customersRes.data ?? []).map((c) => [c.id as string, c as { first_name?: string; last_name?: string }]),
-  );
-  const driverById = new Map(
-    (driversRes.data ?? []).map((d) => [d.id as string, d as { first_name?: string; last_name?: string }]),
-  );
-  const areaById = new Map(
-    (areasRes.data ?? []).map((a) => [a.id as string, a as { name?: string }]),
-  );
+  if (detailRows) {
+    const passengerIds = [...new Set(tripRows.map((t) => t.passenger_id).filter(Boolean))] as string[];
+    const driverIds = [...new Set(tripRows.map((t) => t.driver_id).filter(Boolean))] as string[];
+    const areaIds = [...new Set(tripRows.map((t) => t.service_area_id).filter(Boolean))] as string[];
+    const [customersRes, driversRes, areasRes] = await Promise.all([
+      passengerIds.length > 0
+        ? supabase.from("customers").select("id, first_name, last_name").in("id", passengerIds)
+        : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+      driverIds.length > 0
+        ? supabase.from("drivers").select("id, first_name, last_name").in("id", driverIds)
+        : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+      areaIds.length > 0
+        ? supabase.from("service_areas").select("id, name").in("id", areaIds)
+        : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+    ]);
+    for (const c of customersRes.data ?? []) {
+      customerById.set(c.id as string, c as { first_name?: string; last_name?: string });
+    }
+    for (const d of driversRes.data ?? []) {
+      driverById.set(d.id as string, d as { first_name?: string; last_name?: string });
+    }
+    for (const a of areasRes.data ?? []) {
+      areaById.set(a.id as string, a as { name?: string });
+    }
+  }
 
   // Prefer provider list rows; supplement with direct session lookup for trips not in window.
   const sessionByTrip = new Map<string, AdminPaymentSessionsListRow>();
@@ -186,7 +192,9 @@ export async function buildPaymentSessionsTripCompare(
     if (existingCap == null && nextCap != null) sessionByTrip.set(row.trip_id, row);
   }
 
-  const missingTripIds = tripIds.filter((id) => !sessionByTrip.has(id));
+  const missingTripIds = detailRows
+    ? tripIds.filter((id) => !sessionByTrip.has(id))
+    : [];
   if (missingTripIds.length > 0) {
     const { data: sessions } = await supabase
       .from("payment_sessions")
@@ -277,17 +285,11 @@ export async function buildPaymentSessionsTripCompare(
 
   const completed_trip_rows: AdminPaymentSessionsCompletedTripRow[] = [];
   const matching_rows: AdminPaymentSessionsMatchingRow[] = [];
-  const breakdownPersistQueue: Array<{
-    payment_session_id: string;
-    breakdown: ReturnType<typeof buildCaptureBreakdownForCompletedTrip>;
-  }> = [];
 
   let fareTotal: number | null = null;
-  let matchedCount = 0;
-  let shortfallTotal: number | null = null;
-  let overcaptureTotal: number | null = null;
   let missingSessions = 0;
-  const overcaptureResolutions: OvercaptureResolutionResult[] = [];
+  // FR-owned chip aggregates stay null until FR persists per-session match.
+  // Rows may still show stamp↔PS variance for display (owned fields only).
   const commissionTripInputs: Array<{
     trip_id: string;
     trip_code: string | null;
@@ -305,50 +307,13 @@ export async function buildPaymentSessionsTripCompare(
   for (const trip of tripRows) {
     const tripId = trip.id as string;
     const session = sessionByTrip.get(tripId) ?? null;
-    const finalFare = nullablePence(
-      trip.final_customer_fare_pence ?? trip.commissionable_fare_pence ?? trip.gross_fare_pence,
-    );
-    const rideFare = nullablePence(
-      trip.final_customer_fare_pence
-        ?? trip.commissionable_fare_pence
-        ?? trip.locked_base_fare_pence
-        ?? trip.gross_fare_pence,
-    );
-    const airport = nullablePence(trip.airport_charge_pence);
-    const tips = nullablePence(trip.tip_pence ?? trip.tip_amount_pence);
-    const pickupWaiting = nullablePence(trip.pickup_waiting_charge_pence);
-    const stopWaiting = nullablePence(
-      trip.stop_waiting_charge_pence ?? trip.stop_charge_total_pence,
-    );
-    const noShow = nullablePence(trip.no_show_charge_pence);
-    const destinationChange = nullablePence(trip.destination_change_adjustment_pence);
-    const manualAdj = nullablePence(trip.customer_modification_charge_pence);
-    const extras = nullablePence(trip.extras_pence);
-    const passThrough = nullablePence(trip.other_pass_through_charges_pence);
+    const economics = buildCanonicalTripEconomicsRead(trip as Record<string, unknown>);
     const actual = session ? confirmedCapturedRevenuePence(session) : null;
+    const expected = economics.expected_capture_pence;
 
-    // Canonical expected = same capture path as revolutCompletionCapture (tripFareSSOT).
-    const fareCapture = computeCaptureAmount(trip as Record<string, unknown>, "completed");
-    const noShowForExpected = noShow ?? 0;
-    const canonicalExpected = Math.max(0, fareCapture.capture_amount_pence + noShowForExpected);
-
-    const breakdown = buildCaptureBreakdownForCompletedTrip({
-      trip: trip as Record<string, unknown>,
-      provider_captured_pence: actual,
-      canonical_expected_capture_pence: canonicalExpected > 0 ? canonicalExpected : null,
-    });
-
-    // Persist PS-owned breakdown onto the session so FR can consume without re-deriving.
-    if (session?.payment_session_id) {
-      breakdownPersistQueue.push({
-        payment_session_id: session.payment_session_id,
-        breakdown,
-      });
-    }
-
-    const breakdownMatchStatus = captureClassificationToMatchStatus(breakdown.capture_classification);
+    // Presence / lifecycle matching only — never invent amount FR conclusions.
     const match = classifyPaymentTripMatch({
-      expected_capture_pence: breakdown.expected_capture_pence,
+      expected_capture_pence: expected,
       actual_capture_pence: actual,
       has_payment_session: Boolean(session?.payment_session_id),
       has_trip_link: true,
@@ -361,76 +326,41 @@ export async function buildPaymentSessionsTripCompare(
         : false,
       authorised_amount_pence: session?.authorised_amount_pence ?? null,
       actual_released_pence: session?.released_amount_pence ?? null,
-      expected_refund_pence: nullablePence(trip.refund_amount_pence),
+      expected_refund_pence: null,
       actual_refund_pence: session?.refunded_amount_pence ?? null,
     });
 
-    // Prefer breakdown classification for capture amount compare; keep release/refund match overrides.
-    const matchStatus: PaymentTripMatchStatus =
-      match.status === "RELEASE_MISMATCH"
-      || match.status === "REFUND_MISMATCH"
-      || match.status === "NO_PAYMENT_SESSION"
-      || match.status === "CAPTURE_MISSING"
-      || match.status === "CAPTURE_EVIDENCE_PENDING"
-      || match.status === "PROVIDER_STATE_PENDING"
-      || match.status === "PROVIDER_VERIFICATION_PENDING"
-      || match.status === "TRIP_FARE_UNAVAILABLE"
-        ? match.status
-        : breakdownMatchStatus === "UNEXPLAINED_OVERCAPTURE"
-        ? "UNEXPLAINED_OVERCAPTURE"
-        : breakdownMatchStatus === "OVERCAPTURE"
-        ? "UNEXPLAINED_OVERCAPTURE"
-        : breakdownMatchStatus === "MATCHED"
-        ? "MATCHED"
-        : match.status;
+    /**
+     * Presence / lifecycle only — never classify shortfall/overcapture/matched here.
+     * FR owns amount reconciliation.
+     */
+    const presenceLifecycleStatuses = new Set<PaymentTripMatchStatus>([
+      "RELEASE_MISMATCH",
+      "REFUND_MISMATCH",
+      "NO_PAYMENT_SESSION",
+      "CAPTURE_MISSING",
+      "CAPTURE_EVIDENCE_PENDING",
+      "PROVIDER_STATE_PENDING",
+      "PROVIDER_VERIFICATION_PENDING",
+      "TRIP_FARE_UNAVAILABLE",
+      "NO_TRIP_LINK",
+      "TRIP_EVIDENCE_UNAVAILABLE",
+    ]);
+    // Never emit null — older Completed Trips UI called status.includes(…) and crashed.
+    // Amount MATCHED/SHORTFALL/OVERCAPTURE stay FR-owned via AMOUNTS_ON_FR (not invented here).
+    const matchStatus: PaymentTripMatchStatus = presenceLifecycleStatuses.has(match.status)
+      ? match.status
+      : "AMOUNTS_ON_FR";
 
-    const expected = breakdown.expected_capture_pence;
-    const waitingTotal =
-      (pickupWaiting ?? 0) + (stopWaiting ?? 0) > 0
-        ? (pickupWaiting ?? 0) + (stopWaiting ?? 0)
-        : null;
-    const otherComponents =
-      (airport ?? 0)
-        + (extras ?? 0)
-        + (manualAdj ?? 0)
-        + (destinationChange ?? 0)
-        + (passThrough ?? 0)
-        + (noShow ?? 0);
-    const otherPaymentComponentsPence = otherComponents > 0 ? otherComponents : null;
+    const otherPaymentComponentsPence = resolveOtherNonModComponentsPence(
+      trip as Record<string, unknown>,
+    );
 
-    if (expected != null) fareTotal = (fareTotal ?? 0) + expected;
-    if (matchStatus === "MATCHED") matchedCount += 1;
+    if (economics.final_fare_pence != null) {
+      fareTotal = (fareTotal ?? 0) + economics.final_fare_pence;
+    }
+    // missing_sessions is PS presence (owned), not an FR classification chip.
     if (matchStatus === "NO_PAYMENT_SESSION") missingSessions += 1;
-    if (matchStatus === "CAPTURE_SHORTFALL" && breakdown.variance_pence != null && breakdown.variance_pence < 0) {
-      shortfallTotal = (shortfallTotal ?? 0) + Math.abs(breakdown.variance_pence);
-    }
-    if (matchStatus === "UNEXPLAINED_OVERCAPTURE" || matchStatus === "OVERCAPTURE") {
-      if (breakdown.variance_pence != null && breakdown.variance_pence > 0) {
-        overcaptureTotal = (overcaptureTotal ?? 0) + breakdown.variance_pence;
-        const resolution = resolveOvercaptureCustomerPosition({
-          expected_capture_pence: expected,
-          provider_captured_pence: actual,
-          refunded_amount_pence: session?.refunded_amount_pence ?? null,
-          gross_overcapture_pence: breakdown.variance_pence,
-        });
-        overcaptureResolutions.push(resolution);
-      }
-    }
-
-    const varianceDisplay = breakdown.variance_pence ?? match.variance_pence;
-
-    const overcapturePence = matchStatus === "UNEXPLAINED_OVERCAPTURE" && breakdown.variance_pence != null
-      && breakdown.variance_pence > 0
-      ? breakdown.variance_pence
-      : null;
-    const overcaptureResolution = overcapturePence != null
-      ? resolveOvercaptureCustomerPosition({
-        expected_capture_pence: expected,
-        provider_captured_pence: actual,
-        refunded_amount_pence: session?.refunded_amount_pence ?? null,
-        gross_overcapture_pence: overcapturePence,
-      })
-      : null;
 
     commissionTripInputs.push({
       trip_id: tripId,
@@ -438,16 +368,12 @@ export async function buildPaymentSessionsTripCompare(
       completed_at: (trip.completed_at as string | null) ?? null,
       payment_provider: (trip.payment_provider as string | null) ?? null,
       payment_method: (trip.payment_method as string | null) ?? null,
-      commissionable_fare_pence: finalFare,
-      commission_rate_percent: (() => {
-        const accepted = trip.accepted_commission_percent;
-        if (accepted != null && Number.isFinite(Number(accepted))) return Number(accepted);
-        if (trip.driver_tier_commission_percent == null) return null;
-        return Number(trip.driver_tier_commission_percent);
-      })(),
+      // Settlement stamp — never derive from capture or final_customer alone.
+      commissionable_fare_pence: economics.commissionable_fare_pence,
+      commission_rate_percent: economics.commission_percent,
       gross_commission_pence: resolveTripGrossCommissionPence(trip as Record<string, unknown>),
       provider_transaction_id: (trip.provider_payment_id as string | null) ?? null,
-      driver_net_pence: nullablePence(trip.driver_net_pence),
+      driver_net_pence: economics.driver_net_pence,
     });
     if (session) {
       commissionSessionByTrip.set(tripId, {
@@ -460,6 +386,8 @@ export async function buildPaymentSessionsTripCompare(
       });
     }
 
+    if (!detailRows) continue;
+
     completed_trip_rows.push({
       id: tripId,
       trip_id: tripId,
@@ -471,15 +399,22 @@ export async function buildPaymentSessionsTripCompare(
       driver_name: personName(driverById.get(String(trip.driver_id ?? ""))),
       service_area_id: (trip.service_area_id as string | null) ?? null,
       service_area_name: areaById.get(String(trip.service_area_id ?? ""))?.name ?? null,
-      final_customer_fare_pence: finalFare,
-      ride_fare_pence: rideFare,
-      airport_charge_pence: airport,
-      tips_pence: tips,
-      pickup_waiting_charge_pence: pickupWaiting,
-      stop_waiting_charge_pence: stopWaiting,
-      waiting_charges_pence: waitingTotal,
+      final_customer_fare_pence: economics.final_customer_payable_pence,
+      ride_fare_pence: economics.final_customer_payable_pence,
+      final_fare_pence: economics.final_fare_pence,
+      original_locked_fare_pence: economics.original_locked_fare_pence,
+      accepted_preset_offer_fare_pence: economics.accepted_preset_offer_fare_pence,
+      airport_charge_pence: economics.airport_pence,
+      tips_pence: economics.tip_pence,
+      pickup_waiting_charge_pence: economics.pickup_waiting_pence,
+      stop_waiting_charge_pence: economics.stop_waiting_pence,
+      waiting_charges_pence: economics.waiting_total_pence,
       other_payment_components_pence: otherPaymentComponentsPence,
-      no_show_charge_pence: noShow,
+      no_show_charge_pence: nullablePence(trip.no_show_charge_pence),
+      modification_audit_pence: economics.modification_audit_pence,
+      commissionable_fare_pence: economics.commissionable_fare_pence,
+      commission_pence: economics.commission_pence,
+      driver_net_pence: economics.driver_net_pence,
       expected_capture_pence: expected,
       payment_session_id: session?.payment_session_id ?? null,
       payment_provider: session?.payment_provider
@@ -487,12 +422,16 @@ export async function buildPaymentSessionsTripCompare(
         ?? null,
       provider_captured_pence: actual,
       provider_released_pence: session?.released_amount_pence ?? null,
-      shortfall_overcapture_pence: varianceDisplay,
-      variance_pence: breakdown.variance_pence,
-      variance_reason: breakdown.variance_reason,
-      capture_classification: breakdown.capture_classification,
+      provider_refunded_pence: session?.refunded_amount_pence ?? null,
+      // FR-owned — null until FR persists per-session conclusions.
+      shortfall_overcapture_pence: null,
+      variance_pence: null,
+      variance_reason: null,
+      capture_classification: null,
       match_status: matchStatus,
-      capture_breakdown: breakdown,
+      match_classification_source: "ps_presence_lifecycle",
+      fr_match_status_persisted: false,
+      capture_breakdown: null,
     });
 
     matching_rows.push({
@@ -505,19 +444,15 @@ export async function buildPaymentSessionsTripCompare(
       actual_capture_pence: actual,
       authorised_amount_pence: session?.authorised_amount_pence ?? null,
       released_amount_pence: session?.released_amount_pence ?? null,
-      variance_pence: breakdown.variance_pence ?? match.variance_pence,
-      shortfall_pence: matchStatus === "CAPTURE_SHORTFALL" && breakdown.variance_pence != null
-        ? Math.abs(breakdown.variance_pence)
-        : match.shortfall_pence,
-      overcapture_pence: overcapturePence,
+      variance_pence: null,
+      shortfall_pence: null,
+      overcapture_pence: null,
       refunded_amount_pence: session?.refunded_amount_pence ?? null,
-      outstanding_overcharge_pence: overcaptureResolution?.outstanding_customer_overcharge_pence
-        ?? null,
-      resolved_overcapture_pence: overcaptureResolution?.resolved_overcapture_pence ?? null,
-      refund_beyond_gross_overcapture_pence:
-        overcaptureResolution?.refund_beyond_gross_overcapture_pence ?? null,
-      variance_reason: breakdown.variance_reason,
-      capture_classification: breakdown.capture_classification,
+      outstanding_overcharge_pence: null,
+      resolved_overcapture_pence: null,
+      refund_beyond_gross_overcapture_pence: null,
+      variance_reason: null,
+      capture_classification: null,
       match_status: matchStatus,
       provider_state: session?.provider_state ?? null,
       provider_verification_status: session?.provider_verification_status ?? null,
@@ -525,7 +460,8 @@ export async function buildPaymentSessionsTripCompare(
     });
   }
 
-  // Sessions without trip link (matching view completeness).
+  // Sessions without trip link (matching view completeness) — detail tabs only.
+  if (detailRows) {
   for (const row of providerRows) {
     if (row.source !== "payment_sessions") continue;
     if (row.trip_id && sessionByTrip.has(row.trip_id)) continue;
@@ -549,74 +485,32 @@ export async function buildPaymentSessionsTripCompare(
         actual_capture_pence: confirmedCapturedRevenuePence(row),
         authorised_amount_pence: row.authorised_amount_pence,
         released_amount_pence: row.released_amount_pence,
-        variance_pence: match.variance_pence,
-        shortfall_pence: match.shortfall_pence,
-        overcapture_pence: match.overcapture_pence,
-        match_status: match.status,
+        variance_pence: null,
+        shortfall_pence: null,
+        overcapture_pence: null,
+        match_status: match.status === "NO_TRIP_LINK" ? match.status : "NO_TRIP_LINK",
         provider_state: row.provider_state,
         provider_verification_status: row.provider_verification_status,
         provider_order_id: row.provider_order_id,
       });
     }
   }
+  }
 
   const matchFilter = request.match_status ?? null;
   const filteredCompleted = matchFilter
-    ? completed_trip_rows.filter((r) => r.match_status === matchFilter)
+    ? completed_trip_rows.filter((r) => rowMatchesOwnedFieldFilter(matchFilter, r))
     : completed_trip_rows;
   const filteredMatching = matchFilter
-    ? matching_rows.filter((r) => r.match_status === matchFilter)
+    ? matching_rows.filter((r) => rowMatchesOwnedFieldFilter(matchFilter, r))
     : matching_rows;
 
-  // Persist capture breakdown onto payment_sessions.metadata (PS owns; FR consumes).
-  if (breakdownPersistQueue.length > 0) {
-    await Promise.all(
-      breakdownPersistQueue.slice(0, 100).map(async ({ payment_session_id, breakdown }) => {
-        const { data: existing } = await supabase
-          .from("payment_sessions")
-          .select("metadata")
-          .eq("id", payment_session_id)
-          .maybeSingle();
-        const prev = (existing?.metadata && typeof existing.metadata === "object")
-          ? existing.metadata as Record<string, unknown>
-          : {};
-        const prevBreakdown = prev.capture_breakdown as Record<string, unknown> | undefined;
-        if (
-          prevBreakdown
-          && prevBreakdown.expected_capture_pence === breakdown.expected_capture_pence
-          && prevBreakdown.provider_captured_pence === breakdown.provider_captured_pence
-          && prevBreakdown.capture_classification === breakdown.capture_classification
-          && prevBreakdown.variance_pence === breakdown.variance_pence
-        ) {
-          return;
-        }
-        const { error } = await supabase
-          .from("payment_sessions")
-          .update({
-            metadata: {
-              ...prev,
-              capture_breakdown: breakdown,
-              capture_breakdown_at: new Date().toISOString(),
-            },
-          })
-          .eq("id", payment_session_id);
-        if (error) {
-          console.warn(
-            "[admin-payment-sessions] capture_breakdown persist failed",
-            payment_session_id,
-            error.message,
-          );
-        }
-      }),
-    );
-  }
+  // Read-path only: do not persist capture_breakdown on list (write side-effect removed).
 
   const commissionWidgets = buildPaymentSessionsCommissionWidgets({
     trips: commissionTripInputs,
     sessionByTripId: commissionSessionByTrip,
   });
-
-  const overcaptureResolutionTotals = sumOvercaptureResolutionTotals(overcaptureResolutions);
 
   return {
     completed_trip_rows: filteredCompleted,
@@ -626,15 +520,17 @@ export async function buildPaymentSessionsTripCompare(
     compare_summary: {
       ...emptyCompareSummary(providerRows),
       completed_trip_fare_total_pence: fareTotal,
-      matched_trips_count: matchedCount,
-      capture_shortfall_pence: shortfallTotal,
-      overcaptured_amount_pence: overcaptureTotal,
-      gross_overcapture_pence: overcaptureTotal,
-      resolved_overcapture_pence: overcaptureResolutionTotals.resolved_overcapture_pence,
-      outstanding_customer_overcharge_pence:
-        overcaptureResolutionTotals.outstanding_customer_overcharge_pence,
-      refund_beyond_gross_overcapture_pence:
-        overcaptureResolutionTotals.refund_beyond_gross_overcapture_pence,
+      // FR owns match/shortfall/overcapture chips — unavailable on PS until FR persists them.
+      matched_trips_count: null,
+      capture_shortfall_pence: null,
+      overcaptured_amount_pence: null,
+      gross_overcapture_pence: null,
+      resolved_overcapture_pence: null,
+      outstanding_customer_overcharge_pence: null,
+      refund_beyond_gross_overcapture_pence: null,
+      fr_match_chips_available: false,
+      fr_match_chips_message:
+        "FR does not persist per-session match for Payment Sessions. Open Financial Reconciliation for audit conclusions.",
       missing_payment_sessions_count: missingSessions,
       gross_onecab_commission_pence: commissionWidgets.gross_onecab_commission_pence,
       net_onecab_commission_pence: commissionWidgets.net_onecab_commission_pence,
@@ -657,26 +553,39 @@ function emptyCompareSummary(
       const n = Number(row.refunded_amount_pence);
       if (Number.isFinite(n) && n >= 0) refundedTotal = (refundedTotal ?? 0) + Math.round(n);
     }
-    if (row.provider_processing_fee_pence != null) {
-      const badge = String(row.fee_display_badge ?? "").toUpperCase();
-      const feeStatus = String(row.fee_status ?? "").toUpperCase();
-      // Provider Fees widget = confirmed ACTUAL fees only (never estimated/pending).
-      if (badge !== "ACTUAL" && feeStatus !== "ACTUAL") continue;
-      const n = Number(row.provider_processing_fee_pence);
-      if (Number.isFinite(n) && n >= 0) feesTotal = (feesTotal ?? 0) + Math.round(n);
+    // Provider Fees chip = confirmed ACTUAL fees only.
+    // Amount present + null fee_status (common after capture) counts as ACTUAL.
+    // PENDING / ESTIMATED / UNAVAILABLE contribute 0.
+    if (row.provider_processing_fee_pence == null) continue;
+    const badge = String(row.fee_display_badge ?? "").toUpperCase();
+    const feeStatus = String(row.fee_status ?? "").toUpperCase();
+    if (
+      badge === "PENDING"
+      || feeStatus === "PENDING"
+      || badge === "ESTIMATED"
+      || feeStatus === "ESTIMATED"
+      || badge === "UNAVAILABLE"
+      || feeStatus === "UNAVAILABLE"
+    ) {
+      continue;
     }
+    const n = Number(row.provider_processing_fee_pence);
+    if (Number.isFinite(n) && n >= 0) feesTotal = (feesTotal ?? 0) + Math.round(n);
   }
 
   return {
     provider_captured_total_pence: providerCaptured,
     completed_trip_fare_total_pence: null,
-    matched_trips_count: 0,
+    matched_trips_count: null,
     capture_shortfall_pence: null,
     overcaptured_amount_pence: null,
     gross_overcapture_pence: null,
     resolved_overcapture_pence: null,
     outstanding_customer_overcharge_pence: null,
     refund_beyond_gross_overcapture_pence: null,
+    fr_match_chips_available: false,
+    fr_match_chips_message:
+      "FR does not persist per-session match for Payment Sessions. Open Financial Reconciliation for audit conclusions.",
     missing_payment_sessions_count: 0,
     released_buffer_total_pence: sumReleasedBufferTotalPence(providerRows),
     refunded_total_pence: refundedTotal,
@@ -687,10 +596,38 @@ function emptyCompareSummary(
   };
 }
 
+/** PS-money compare summary only (no Trip Fare / Settlement trip scan). */
+export function buildPsOnlyCompareSummary(
+  providerRows: AdminPaymentSessionsListRow[],
+): TripCompareBundle["compare_summary"] {
+  return emptyCompareSummary(providerRows);
+}
+
 export function filterMatchStatus(
   status: PaymentTripMatchStatus | null | undefined,
   rows: AdminPaymentSessionsMatchingRow[],
 ): AdminPaymentSessionsMatchingRow[] {
   if (!status) return rows;
-  return rows.filter((r) => r.match_status === status);
+  return rows.filter((r) => rowMatchesOwnedFieldFilter(status, r));
+}
+
+/**
+ * Tab filter only.
+ * Amount MATCHED / SHORTFALL / OVERCAPTURE are FR-owned — never invent from local variance.
+ * Presence / lifecycle filters use match_status.
+ */
+export function rowMatchesOwnedFieldFilter(
+  filter: PaymentTripMatchStatus,
+  row: { match_status?: PaymentTripMatchStatus | null; variance_pence?: number | null },
+): boolean {
+  if (
+    filter === "MATCHED"
+    || filter === "CAPTURE_SHORTFALL"
+    || filter === "UNEXPLAINED_OVERCAPTURE"
+    || filter === "OVERCAPTURE"
+  ) {
+    // FR does not persist these on PS rows — do not reconstruct via variance_pence.
+    return false;
+  }
+  return row.match_status === filter;
 }

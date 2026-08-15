@@ -37,6 +37,8 @@ export type TripFareRow = {
   total_waiting_charge_pence?: number | null;
   customer_modification_charge_pence?: number | null;
   destination_change_charge_pence?: number | null;
+  /** Persisted destination-change delta (same semantics as destination_change_charge_pence). */
+  destination_change_adjustment_pence?: number | null;
   stop_modification_charge_pence?: number | null;
   extras_pence?: number | null;
   airport_charge_pence?: number | null;
@@ -148,11 +150,37 @@ export function resolveCustomerModificationChargePence(trip: TripFareRow): numbe
   const direct = nonNegInt(trip.customer_modification_charge_pence);
   if (direct > 0) return direct;
 
+  const destination =
+    nonNegInt(trip.destination_change_charge_pence) ||
+    nonNegInt(trip.destination_change_adjustment_pence);
+
   return (
-    nonNegInt(trip.destination_change_charge_pence) +
+    destination +
     nonNegInt(trip.stop_modification_charge_pence) +
     nonNegInt(trip.extras_pence)
   );
+}
+
+/**
+ * True when ride base already is the post-modification customer payable.
+ * Modification workflow updates final_customer_fare_pence to include the delta;
+ * customer_modification_charge_pence remains the audit delta and must not be
+ * added again at completion capture (MK-260815-029: 716+266→982).
+ */
+export function isModificationAlreadyInRideBase(
+  trip: TripFareRow,
+  rideBasePence?: number,
+): boolean {
+  const finalCustomer = nonNegInt(trip.final_customer_fare_pence);
+  const modification = resolveCustomerModificationChargePence(trip);
+  if (finalCustomer <= 0 || modification <= 0) return false;
+
+  const rideBase = rideBasePence != null
+    ? Math.max(0, Math.round(rideBasePence))
+    : resolveRideFareBasePence(trip);
+
+  // Display / ride base resolved to final_customer → mod already baked in.
+  return rideBase === finalCustomer;
 }
 
 export function resolveAirportChargePence(trip: TripFareRow): number {
@@ -262,7 +290,9 @@ export function computeFinalFarePence(trip: TripFareRow): number {
   const rideBase = resolveRideFareBasePence(trip);
   const arrivalWaiting = resolveArrivalWaitingChargePence(trip);
   const stopWaiting = resolveStopWaitingChargePence(trip);
-  const modification = resolveCustomerModificationChargePence(trip);
+  const modificationRaw = resolveCustomerModificationChargePence(trip);
+  const modificationAlreadyIncluded = isModificationAlreadyInRideBase(trip, rideBase);
+  const modification = modificationAlreadyIncluded ? 0 : modificationRaw;
   const airport = resolveAirportChargePence(trip);
   const passThrough = resolvePassThroughChargePence(trip);
   const discount = resolveDiscountPence(trip);
@@ -275,7 +305,13 @@ export function computeFinalFarePence(trip: TripFareRow): number {
     airport +
     passThrough;
 
-  if (isDiscountAlreadyInLockedRideBase(trip)) {
+  // final_customer_fare_pence is already net of discount (and of folded modifications).
+  const finalCustomer = nonNegInt(trip.final_customer_fare_pence);
+  const discountAlreadyInRide =
+    isDiscountAlreadyInLockedRideBase(trip) ||
+    (finalCustomer > 0 && rideBase === finalCustomer);
+
+  if (discountAlreadyInRide) {
     return Math.max(0, subtotal);
   }
 

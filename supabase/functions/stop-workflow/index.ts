@@ -2,7 +2,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 import { getDriverCommissionPct } from "../_shared/commission.ts";
 import { resolveTripFare, type TripFareRow } from "../_shared/tripFareSSOT.ts";
-import { calculateTripSettlement, resolveTripTierPercent, tripSettlementDbColumns } from "../_shared/tripSettlement.ts";
+import {
+  buildSettlementTripRow,
+  calculateTripSettlementFromTripRow,
+  resolveTripTierPercent,
+  tripSettlementDbColumns,
+} from "../_shared/tripSettlement.ts";
 import {
   securityHeaders,
   jsonHeaders,
@@ -2826,16 +2831,27 @@ Deno.serve(async (req) => {
         const providerOrderId = tripProviderOrderId(fareTrip);
         const isCardPaymentMethodFlag = isCardPaymentMethod(fareTrip.payment_method);
 
-        const settlement = calculateTripSettlement({
-          final_fare_pence: finalFarePence,
-          airport_charge_pence: resolvedFare.airport_charge_pence,
-          other_pass_through_charges_pence: resolvedFare.pass_through_charge_pence,
-          tips_pence: tipAmountPence,
-          driver_tier_commission_percent: resolveTripTierPercent({
+        // Settle from fare row with waiting forced in — never ride-only final_customer.
+        const settlementRow = buildSettlementTripRow({
+          trip: {
             ...fareTrip,
+            airport_charge_pence: resolvedFare.airport_charge_pence,
+            accepted_commission_percent: fareTrip.accepted_commission_percent,
+            driver_tier_commission_percent: resolveTripTierPercent({
+              ...fareTrip,
+              commission_pct: fareTrip.commission_pct ?? commissionPct,
+            }),
             commission_pct: fareTrip.commission_pct ?? commissionPct,
-          }),
+          },
+          finalFarePence,
+          tipPence: tipAmountPence,
+          pickupWaitingChargePence: resolvedFare.arrival_waiting_charge_pence,
+          stopWaitingChargePence: resolvedFare.stop_waiting_charge_pence,
         });
+        const settlement = calculateTripSettlementFromTripRow(settlementRow);
+        if (!settlement) {
+          return errorResponse("SETTLEMENT_FAILED", "Unable to compute trip settlement", 500);
+        }
         const commissionableFarePence = settlement.commissionable_fare_pence;
         const commissionPence = settlement.commission_pence;
         const driverNetBeforeTip = settlement.driver_net_pence;

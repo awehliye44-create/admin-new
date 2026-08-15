@@ -268,6 +268,8 @@ export function buildPaymentSessionCaptureBreakdown(
   ]);
   // Prefer the fuller of canonical vs component sum. Stale final_fare that omits
   // waiting/no-show must never become expected and invent UNEXPLAINED_OVERCAPTURE.
+  // Modification double-count is prevented upstream (do not pass mod fields when
+  // already included in ride / final_customer).
   const expected =
     canonical != null && summed != null
       ? Math.max(canonical, summed)
@@ -343,9 +345,19 @@ export function buildCaptureBreakdownForCompletedTrip(args: {
   const airport = nullableComponentPence(trip.airport_charge_pence);
   const tip = nullableComponentPence(trip.tip_pence ?? trip.tip_amount_pence);
   const extras = nullableComponentPence(trip.extras_pence);
-  const manual = nullableComponentPence(trip.customer_modification_charge_pence);
-  const destination = nullableComponentPence(trip.destination_change_adjustment_pence);
+  let manual = nullableComponentPence(trip.customer_modification_charge_pence);
+  let destination = nullableComponentPence(trip.destination_change_adjustment_pence);
   const other = nullableComponentPence(trip.other_pass_through_charges_pence);
+
+  // final_customer_fare already includes destination/stop modification deltas.
+  // Adding those fields again invents false expected capture (MK-260815-029).
+  const rideFromFinalCustomer =
+    nullableComponentPence(trip.final_customer_fare_pence) != null &&
+    ride === nullableComponentPence(trip.final_customer_fare_pence);
+  if (rideFromFinalCustomer && ((manual ?? 0) > 0 || (destination ?? 0) > 0)) {
+    manual = null;
+    destination = null;
+  }
 
   const persistedFinal = nullableComponentPence(trip.final_fare_pence);
   const canonical = nullableComponentPence(args.canonical_expected_capture_pence)

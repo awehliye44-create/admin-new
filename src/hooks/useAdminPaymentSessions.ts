@@ -24,6 +24,7 @@ export function useAdminPaymentSessions(
         {
           body: {
             ...request,
+            // Overview / history stay DB-first. Active holds still live-refresh (capped + concurrent).
             refresh_provider_state:
               request.refresh_provider_state
               ?? (tab === 'active_holds' || tab === 'failed_recovery'),

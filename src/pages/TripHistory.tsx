@@ -50,17 +50,17 @@ import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUni
 import { TripInvoiceCard, TripInvoiceStatusBadge } from '@/components/trips/TripInvoiceCard';
 import { TripHistoryRowActions } from '@/components/trips/TripHistoryRowActions';
 import { getTripDisplayId } from '@/lib/tripUtils';
-import { resolveTripDisplayFare } from '@/lib/fareDisplaySSOT';
 import {
-  captureStatusColorClass,
-  getTripCaptureStatus,
+  buildCanonicalTripEconomicsRead,
+  resolveCanonicalFinalPayablePence,
+} from '../../shared/paymentSessionsCanonicalReadAdapterSSOT';
+import {
   isCardTrip,
   summarizeTripPayments,
 } from '@/lib/tripCaptureStatus';
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { TripHistoryShortfallRecaptureAction } from '@/components/trips/TripHistoryShortfallRecaptureAction';
-import { getTripRefundDisplay } from '@/lib/tripRefundDisplay';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
@@ -172,11 +172,18 @@ interface CompletedTrip {
   // Waiting & fare breakdown fields
   waiting_charge_pence: number | null;
   pickup_waiting_charge_pence: number | null;
+  stop_waiting_charge_pence?: number | null;
   total_waiting_charge_pence: number | null;
   waiting_minutes: number | null;
   fare_breakdown: Record<string, unknown> | null;
   tip_pence: number | null;
   tip_amount_pence: number | null;
+  commissionable_fare_pence?: number | null;
+  locked_base_fare_pence?: number | null;
+  accepted_preset_offer_fare_pence?: number | null;
+  accepted_driver_offer_fare_pence?: number | null;
+  customer_modification_charge_pence?: number | null;
+  destination_change_adjustment_pence?: number | null;
   refunded_at?: string | null;
   driver?: {
     id: string;
@@ -196,8 +203,11 @@ interface CompletedTrip {
   } | null;
   // Joined trip_stops for display
   trip_stops?: TripStop[];
-  // Joined from payments table — settlement source of truth
+  // Legacy payments table — fallback only when Payment Sessions row missing
   payment_captured_pence?: number | null;
+  /** Payment Sessions SSOT captured / refunded (preferred). */
+  ps_captured_pence?: number | null;
+  ps_refunded_pence?: number | null;
   payment_authorized_pence?: number | null;
   payment_tip_pence?: number | null;
   payment_count?: number;
@@ -330,7 +340,7 @@ export default function TripHistory() {
         }
       }
 
-      // Fetch payments — captured_amount_pence is the settlement source of truth for card trips
+      // Fetch payments — legacy fallback when Payment Sessions row is absent
       let paymentsMap: Record<string, {
         captured: number;
         authorized: number | null;
@@ -375,6 +385,29 @@ export default function TripHistory() {
         }
       }
 
+      // Payment Sessions SSOT — preferred customer money for display
+      const psByTrip = new Map<string, { captured: number | null; refunded: number | null }>();
+      if (tripIds.length > 0) {
+        const { data: psRows } = await supabase
+          .from('payment_sessions')
+          .select('trip_id, captured_amount_pence, refunded_amount_pence')
+          .in('trip_id', tripIds);
+        for (const row of psRows ?? []) {
+          const tid = String((row as { trip_id?: string }).trip_id ?? '');
+          if (!tid) continue;
+          const cap = (row as { captured_amount_pence?: number | null }).captured_amount_pence;
+          const ref = (row as { refunded_amount_pence?: number | null }).refunded_amount_pence;
+          const prev = psByTrip.get(tid);
+          // Prefer the session with the larger confirmed capture (multi-session rare).
+          if (!prev || (cap != null && (prev.captured == null || cap > prev.captured))) {
+            psByTrip.set(tid, {
+              captured: cap != null && Number.isFinite(Number(cap)) ? Math.round(Number(cap)) : null,
+              refunded: ref != null && Number.isFinite(Number(ref)) ? Math.round(Number(ref)) : null,
+            });
+          }
+        }
+      }
+
       const captureSsotRows = tripIds.length > 0
         ? await fetchTripsCaptureSsot(tripIds).catch((captureErr) => {
             console.warn('[TripHistory] Capture SSOT optional fetch failed:', captureErr);
@@ -386,10 +419,13 @@ export default function TripHistory() {
       return tripsData.map((trip) => {
         const pay = paymentsMap[trip.id];
         const capture = captureByTrip.get(trip.id);
+        const ps = psByTrip.get(trip.id);
         return {
           ...trip,
           trip_stops: stopsMap[trip.id] || [],
           payment_captured_pence: pay && pay.captured > 0 ? pay.captured : null,
+          ps_captured_pence: ps?.captured ?? null,
+          ps_refunded_pence: ps?.refunded ?? null,
           payment_authorized_pence: pay?.authorized ?? null,
           payment_tip_pence: pay?.tip ?? null,
           payment_count: pay?.count ?? 0,
@@ -722,50 +758,60 @@ export default function TripHistory() {
     return null;
   };
 
-  /** Expected customer payable (not Provider captured). */
-  const getTripCustomerPayablePence = (trip: CompletedTrip): number => {
-    const finalCustomer = trip.final_customer_fare_pence ?? 0;
-    const waiting =
-      trip.total_waiting_charge_pence
-      ?? trip.waiting_charge_pence
-      ?? trip.pickup_waiting_charge_pence
-      ?? 0;
-    if (finalCustomer > 0) return finalCustomer + Math.max(0, waiting);
-    return resolveTripDisplayFare(trip).payable_pence;
-  };
+  /**
+   * Final customer payable — Trip Fare stamp only (no page-local reconstruction).
+   */
+  const getTripCustomerPayablePence = (trip: CompletedTrip): number =>
+    resolveCanonicalFinalPayablePence(trip) ?? 0;
 
   /**
-   * Provider actual captured amount only.
-   * Prefer positive capture evidence (payments / trip.capture_amount_pence) over a
-   * stale canceled booking status — recovery capture can succeed after the
-   * original order was canceled.
+   * Provider actual captured amount — Payment Sessions SSOT only.
+   * No trip.capture_amount_pence / payments-table fallback for finance display.
    */
-  const getTripProviderCapturedPence = (trip: CompletedTrip): number => {
-    if (trip.payment_captured_pence != null && trip.payment_captured_pence > 0) {
-      return trip.payment_captured_pence;
+  const getTripProviderCapturedPence = (trip: CompletedTrip): number | null => {
+    if (trip.ps_captured_pence != null && Number.isFinite(Number(trip.ps_captured_pence))) {
+      return Math.round(Number(trip.ps_captured_pence));
     }
-    if (trip.capture_amount_pence != null && trip.capture_amount_pence > 0) {
-      return trip.capture_amount_pence;
-    }
-    const statusBlob = String(trip.payment_status ?? '').toLowerCase();
-    if (
-      statusBlob.includes('cancel')
-      || statusBlob.includes('fail')
-      || statusBlob.includes('void')
-      || statusBlob.includes('expired')
-    ) {
-      return 0;
-    }
-    return 0;
+    return null;
   };
 
-  /** @deprecated label — use payable vs captured explicitly.
-   * Never treat unpaid / canceled shortfall trips as paid revenue. */
+  /** PS-owned refund only — never reconstruct from trip.refund_amount as primary. */
+  const getTripProviderRefundedPence = (trip: CompletedTrip): number | null => {
+    if (trip.ps_refunded_pence != null && Number.isFinite(Number(trip.ps_refunded_pence))) {
+      return Math.round(Number(trip.ps_refunded_pence));
+    }
+    return null;
+  };
+
+  /** Net charged = PS captured − PS refunded (owned fields only; display arithmetic). */
+  const getTripNetChargedPence = (trip: CompletedTrip): number | null => {
+    const captured = getTripProviderCapturedPence(trip);
+    if (captured == null) return null;
+    const refunded = getTripProviderRefundedPence(trip) ?? 0;
+    return Math.max(0, captured - refunded);
+  };
+
   const getTripCustomerPaidPence = (trip: CompletedTrip): number =>
-    getTripProviderCapturedPence(trip);
+    getTripProviderCapturedPence(trip) ?? 0;
 
   const getTripCustomerPaidPounds = (trip: CompletedTrip): number =>
     getTripCustomerPaidPence(trip) / 100;
+
+  /** Lifecycle label from payment_status / PS amounts — no local expected vs capture FR. */
+  const getTripPaymentLifecycleLabel = (trip: CompletedTrip): string => {
+    const refunded = getTripProviderRefundedPence(trip);
+    if (refunded != null && refunded > 0) {
+      return refunded >= (getTripProviderCapturedPence(trip) ?? 0) ? 'Refunded' : 'Partially refunded';
+    }
+    const captured = getTripProviderCapturedPence(trip);
+    if (captured != null && captured > 0) return 'Captured';
+    const status = String(trip.payment_status ?? '').toLowerCase();
+    if (status.includes('author')) return 'Authorised';
+    if (status.includes('pending')) return 'Pending capture';
+    if (status.includes('fail')) return 'Failed';
+    if (status.includes('cancel')) return 'Cancelled';
+    return trip.payment_status || '—';
+  };
 
   const getTripStatusLabel = (trip: CompletedTrip): string => {
     if (trip.status === 'no_show') return 'No Show';
@@ -1247,8 +1293,9 @@ export default function TripHistory() {
                           const sym = getCurrencySymbol(resolveTripCurrency(trip));
                           const payable = getTripCustomerPayablePence(trip);
                           const captured = getTripProviderCapturedPence(trip);
-                           const shortfall = Math.max(0, payable - captured);
-                          if (payable <= 0 && captured <= 0) {
+                          const refunded = getTripProviderRefundedPence(trip);
+                          const net = getTripNetChargedPence(trip);
+                          if (payable <= 0 && (captured == null || captured <= 0)) {
                             return <span className="text-muted-foreground">—</span>;
                           }
                           return (
@@ -1256,29 +1303,19 @@ export default function TripHistory() {
                               <span className="text-muted-foreground text-xs font-normal">
                                 Payable {sym}{(payable / 100).toFixed(2)}
                               </span>
-                              <span className={captured > 0 ? 'text-green-600' : 'text-muted-foreground'}>
-                                Captured {sym}{(captured / 100).toFixed(2)}
+                              <span className={captured != null && captured > 0 ? 'text-green-600' : 'text-muted-foreground'}>
+                                Captured {captured == null ? '—' : `${sym}${(captured / 100).toFixed(2)}`}
                               </span>
-                              {shortfall > 0 && (
-                                <span className="text-[10px] text-amber-600 font-normal">
-                                  Shortfall {sym}{(shortfall / 100).toFixed(2)}
+                              {refunded != null && refunded > 0 && (
+                                <span className="text-[10px] text-red-600 font-normal">
+                                  Refunded {sym}{(refunded / 100).toFixed(2)}
                                 </span>
                               )}
-                            </>
-                          );
-                        })()}
-                        {(() => {
-                          const refund = getTripRefundDisplay(trip);
-                          if (!refund.showRefundBreakdown) return null;
-                          const sym = getCurrencySymbol(resolveTripCurrency(trip));
-                          return (
-                            <>
-                              <span className="text-[10px] text-red-600 font-normal">
-                                Ref {sym}{(refund.refundPence / 100).toFixed(2)}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground font-normal">
-                                Net {sym}{(refund.netPaidPence / 100).toFixed(2)}
-                              </span>
+                              {net != null && refunded != null && refunded > 0 && (
+                                <span className="text-[10px] text-muted-foreground font-normal">
+                                  Net charged {sym}{(net / 100).toFixed(2)}
+                                </span>
+                              )}
                             </>
                           );
                         })()}
@@ -1300,26 +1337,9 @@ export default function TripHistory() {
                             {String(trip.payment_provider)}
                           </span>
                         ) : null}
-                        {(() => {
-                          const captureStatus = getTripCaptureStatus(trip);
-                          if (!captureStatus.shortLabel || captureStatus.shortLabel === '—') return null;
-                          const content = (
-                            <span className={`text-[10px] ${captureStatusColorClass(captureStatus.kind)}`}>
-                              {captureStatus.shortLabel}
-                            </span>
-                          );
-                          if (!captureStatus.tooltip) return content;
-                          return (
-                            <TooltipProvider delayDuration={150}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>{content}</TooltipTrigger>
-                                <TooltipContent side="top" className="text-xs max-w-xs">
-                                  {captureStatus.tooltip}
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          );
-                        })()}
+                        <span className="text-[10px] text-muted-foreground">
+                          {getTripPaymentLifecycleLabel(trip)}
+                        </span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -1462,7 +1482,7 @@ export default function TripHistory() {
                         </div>
                       ) : null}
                       <div>
-                        <Label className="text-xs text-muted-foreground">Customer payable</Label>
+                        <Label className="text-xs text-muted-foreground">Final customer payable (Trip Fare)</Label>
                         <p className="font-medium">
                           {getTripCustomerPayablePence(selectedTrip) > 0
                             ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(getTripCustomerPayablePence(selectedTrip) / 100).toFixed(2)}`
@@ -1470,47 +1490,76 @@ export default function TripHistory() {
                         </p>
                       </div>
                       <div>
-                        <Label className="text-xs text-muted-foreground">Provider captured</Label>
-                        <p className={`font-medium ${getTripProviderCapturedPence(selectedTrip) > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
-                          {getTripProviderCapturedPence(selectedTrip) > 0
-                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(getTripProviderCapturedPence(selectedTrip) / 100).toFixed(2)}`
-                            : `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}0.00`}
+                        <Label className="text-xs text-muted-foreground">Provider captured (Payment Sessions)</Label>
+                        <p className={`font-medium ${(getTripProviderCapturedPence(selectedTrip) ?? 0) > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
+                          {getTripProviderCapturedPence(selectedTrip) != null
+                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${((getTripProviderCapturedPence(selectedTrip) ?? 0) / 100).toFixed(2)}`
+                            : '—'}
                         </p>
                       </div>
                       <div>
-                          <Label className="text-xs text-muted-foreground">Provider capture shortfall</Label>
-                          <p className={`font-medium ${Math.max(0, getTripCustomerPayablePence(selectedTrip) - getTripProviderCapturedPence(selectedTrip)) > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
-                            {`${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(Math.max(0, getTripCustomerPayablePence(selectedTrip) - getTripProviderCapturedPence(selectedTrip)) / 100).toFixed(2)}`}
-                          </p>
-                        </div>
+                        <Label className="text-xs text-muted-foreground">Net charged (PS captured − PS refunded)</Label>
+                        <p className="font-medium text-muted-foreground">
+                          {getTripNetChargedPence(selectedTrip) != null
+                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${((getTripNetChargedPence(selectedTrip) ?? 0) / 100).toFixed(2)}`
+                            : '—'}
+                        </p>
+                      </div>
                       {(() => {
-                        const refund = getTripRefundDisplay(selectedTrip);
-                        if (!refund.showRefundBreakdown) return null;
+                        const eco = buildCanonicalTripEconomicsRead(selectedTrip);
                         const sym = getCurrencySymbol(resolveTripCurrency(selectedTrip));
+                        const fmt = (p: number | null | undefined) =>
+                          p != null && p > 0 ? `${sym}${(p / 100).toFixed(2)}` : '—';
                         return (
                           <>
-                            <div>
-                              <Label className="text-xs text-muted-foreground">Refunded</Label>
-                              <p className="font-medium text-red-600">
-                                {sym}{(refund.refundPence / 100).toFixed(2)}
-                              </p>
-                            </div>
-                            <div>
-                              <Label className="text-xs text-muted-foreground">Net Paid</Label>
-                              <p className="font-medium">
-                                {sym}{(refund.netPaidPence / 100).toFixed(2)}
-                              </p>
-                            </div>
-                            <div>
-                              <Label className="text-xs text-muted-foreground">Payment Status</Label>
-                              <Badge variant="outline" className="text-xs bg-red-500/10 text-red-700 border-red-500/30">
-                                {refund.paymentStatusLabel}
-                              </Badge>
-                            </div>
-                            {selectedTrip.refunded_at && (
-                              <div className="col-span-2">
-                                <Label className="text-xs text-muted-foreground">Refunded At</Label>
-                                <p className="text-sm">{formatFinanceDateSafe(String(selectedTrip.refunded_at), 'MMM d, yyyy HH:mm')}</p>
+                            {(eco.original_locked_fare_pence != null || eco.accepted_preset_offer_fare_pence != null) && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Original / preset quote (audit)</Label>
+                                <p className="font-medium text-muted-foreground">
+                                  {fmt(eco.accepted_preset_offer_fare_pence ?? eco.original_locked_fare_pence)}
+                                </p>
+                              </div>
+                            )}
+                            {eco.pickup_waiting_pence != null && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Pickup waiting (Trip Fare)</Label>
+                                <p className="font-medium">{fmt(eco.pickup_waiting_pence)}</p>
+                              </div>
+                            )}
+                            {eco.stop_waiting_pence != null && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Stop waiting (Trip Fare)</Label>
+                                <p className="font-medium">{fmt(eco.stop_waiting_pence)}</p>
+                              </div>
+                            )}
+                            {eco.modification_audit_pence != null && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Modification audit (not re-added)</Label>
+                                <p className="font-medium text-muted-foreground">{fmt(eco.modification_audit_pence)}</p>
+                              </div>
+                            )}
+                            {selectedTrip.ps_refunded_pence != null && selectedTrip.ps_refunded_pence > 0 && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Refunded (Payment Sessions)</Label>
+                                <p className="font-medium text-red-600">{fmt(selectedTrip.ps_refunded_pence)}</p>
+                              </div>
+                            )}
+                            {eco.commissionable_fare_pence != null && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Commissionable (Settlement)</Label>
+                                <p className="font-medium">{fmt(eco.commissionable_fare_pence)}</p>
+                              </div>
+                            )}
+                            {eco.commission_pence != null && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Commission (Settlement)</Label>
+                                <p className="font-medium">{fmt(eco.commission_pence)}</p>
+                              </div>
+                            )}
+                            {eco.driver_net_pence != null && (
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Driver net (Settlement)</Label>
+                                <p className="font-medium">{fmt(eco.driver_net_pence)}</p>
                               </div>
                             )}
                           </>
@@ -1758,42 +1807,18 @@ export default function TripHistory() {
                     </div>
                   </div>
 
-                  {/* Card capture status — amounts in Financial Reconciliation → Trips only */}
-                  {(() => {
-                    const captureStatus = getTripCaptureStatus(selectedTrip);
-                    if (!isCardTrip(selectedTrip)) return null;
-                    const isOk = captureStatus.kind === 'captured' || captureStatus.kind === 'captured_split';
-                    const isMismatch = captureStatus.kind === 'capture_mismatch';
-                    if (!isOk && !isMismatch) return null;
-                    return (
-                      <>
-                        <Alert
-                        variant={isMismatch ? 'destructive' : 'default'}
-                        className={
-                          isMismatch
-                            ? 'border-amber-400 bg-amber-500/10 text-amber-900 dark:text-amber-100 [&>svg]:text-amber-600'
-                            : 'border-green-400 bg-green-500/10 text-green-900 dark:text-green-100 [&>svg]:text-green-600'
-                        }
-                      >
-                        {isMismatch ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
-                        <AlertTitle>{captureStatus.label}</AlertTitle>
-                        <AlertDescription className="text-xs space-y-2 mt-1">
-                          <p>
-                            {isMismatch
-                              ? 'Capture mismatch detected. Use Trip Settlement tools below or Financial Reconciliation for platform audit.'
-                              : (captureStatus.tooltip ?? captureStatus.shortLabel)}
-                          </p>
-                          <FinancialReconciliationTripLink
-                            tripId={selectedTrip.id}
-                            tripCode={selectedTrip.trip_code}
-                            tripNumber={selectedTrip.trip_number}
-                            variant="button"
-                          />
-                        </AlertDescription>
-                      </Alert>
-                    </>
-                    );
-                  })()}
+                  <div className="rounded-md border p-3 text-sm">
+                    <span className="text-muted-foreground">Payment lifecycle: </span>
+                    <span className="font-medium">{getTripPaymentLifecycleLabel(selectedTrip)}</span>
+                    <div className="mt-2">
+                      <FinancialReconciliationTripLink
+                        tripId={selectedTrip.id}
+                        tripCode={selectedTrip.trip_code}
+                        tripNumber={selectedTrip.trip_number}
+                        variant="button"
+                      />
+                    </div>
+                  </div>
 
                   {isCardTrip(selectedTrip) && (
                     <TripHistoryShortfallRecaptureAction
@@ -1803,7 +1828,7 @@ export default function TripHistory() {
                       paymentMethod={selectedTrip.payment_method}
                       financialModel={(selectedTrip as { financial_model?: string | null }).financial_model}
                       customerPayablePence={getTripCustomerPayablePence(selectedTrip)}
-                      verifiedCapturedPence={getTripProviderCapturedPence(selectedTrip)}
+                      verifiedCapturedPence={getTripProviderCapturedPence(selectedTrip) ?? 0}
                       currencySymbol={getCurrencySymbol(resolveTripCurrency(selectedTrip))}
                       onComplete={() => {
                         void refetch();
@@ -1838,23 +1863,9 @@ export default function TripHistory() {
                       />
                       <Separator />
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Capture Status</span>
-                        <Badge
-                          variant="outline"
-                          className={`text-xs ${
-                            (() => {
-                              const k = getTripCaptureStatus(selectedTrip).kind;
-                              if (k === 'captured' || k === 'captured_split') {
-                                return 'bg-green-500/10 text-green-700 border-green-500/30';
-                              }
-                              if (k === 'capture_mismatch' || k === 'pending_capture') {
-                                return 'bg-amber-500/10 text-amber-700 border-amber-500/30';
-                              }
-                              return '';
-                            })()
-                          }`}
-                        >
-                          {getTripCaptureStatus(selectedTrip).shortLabel}
+                        <span className="text-muted-foreground">Payment lifecycle</span>
+                        <Badge variant="outline" className="text-xs">
+                          {getTripPaymentLifecycleLabel(selectedTrip)}
                         </Badge>
                       </div>
                     </div>

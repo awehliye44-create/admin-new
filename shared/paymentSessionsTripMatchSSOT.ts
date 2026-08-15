@@ -17,7 +17,19 @@ export type PaymentTripMatchStatus =
   | "CAPTURE_EVIDENCE_PENDING"
   | "TRIP_FARE_UNAVAILABLE"
   | "PROVIDER_VERIFICATION_PENDING"
-  | "TRIP_EVIDENCE_UNAVAILABLE";
+  | "TRIP_EVIDENCE_UNAVAILABLE"
+  /**
+   * Session+trip linked; amount match/shortfall/overcapture is FR-owned.
+   * Never null on the wire — older Admin UI called `.includes` on match_status.
+   */
+  | "AMOUNTS_ON_FR";
+
+/** True when PS must not treat the value as an amount-FR conclusion chip. */
+export function isPaymentSessionsAmountsOnFrStatus(
+  status: string | null | undefined,
+): boolean {
+  return status == null || status === "" || status === "AMOUNTS_ON_FR";
+}
 
 export type PaymentTripMatchInput = {
   /** Canonical completed-trip final customer fare (pence). Null = unavailable. */

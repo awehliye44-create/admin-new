@@ -19,6 +19,12 @@ export type ApplyProviderRefundArgs = {
   provider?: "revolut" | "provider" | string | null;
   source: "webhook" | "admin_sync" | "admin_refund";
   refundReason?: string | null;
+  /**
+   * When true, skip proportional REFUND_DEBIT on driver_wallet_ledger.
+   * Use for overcapture remediations where wallet is corrected separately
+   * to canonical driver_net (e.g. MK-260815-029 settlement correction).
+   */
+  skipDriverWalletReversal?: boolean;
 };
 
 export type ApplyProviderRefundResult = {
@@ -190,7 +196,7 @@ export async function applyProviderRefundToOnecab(
 
   let ledgerReversalInserted = false;
   const driverId = trip.driver_id as string | null;
-  if (driverId && adjusted.driver_reversal_pence > 0) {
+  if (driverId && adjusted.driver_reversal_pence > 0 && !args.skipDriverWalletReversal) {
     const { data: existingDebit } = await supabase
       .from("driver_wallet_ledger")
       .select("id")

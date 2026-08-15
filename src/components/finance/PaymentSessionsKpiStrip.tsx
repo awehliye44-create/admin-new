@@ -12,6 +12,8 @@ export type PaymentSessionsKpiDrill = {
   release_failed?: boolean;
   money_at_risk?: boolean;
   match_status?: PaymentTripMatchStatus;
+  /** FR-owned chips — navigate to Financial Reconciliation; do not invent PS filters. */
+  open_financial_reconciliation?: boolean;
 };
 
 type WidgetDef = {
@@ -47,42 +49,58 @@ export function PaymentSessionsKpiStrip({
       label: 'Completed Trip Fare Total',
       value: formatNullablePence(summary.completed_trip_fare_total_pence, currencyCode),
       drill: { tab: 'completed_trips_paid' },
+      hint: 'SUM of stamped Trip Fare final_fare_pence (not provider capture, not tips)',
     },
     {
       id: 'matched',
-      label: 'Matched Trips',
-      value: String(summary.matched_trips_count ?? 0),
-      drill: { tab: 'payment_matching', match_status: 'MATCHED' },
+      label: 'Matched Trips (FR)',
+      value: summary.fr_match_chips_available === false
+        ? 'Open FR'
+        : String(summary.matched_trips_count ?? '—'),
+      drill: { tab: 'payment_matching', open_financial_reconciliation: true },
+      hint: summary.fr_match_chips_message
+        ?? 'FR-owned — not calculated in Payment Sessions',
     },
     {
       id: 'shortfall',
-      label: 'Capture Shortfall',
-      value: formatNullablePence(summary.capture_shortfall_pence, currencyCode),
-      drill: { tab: 'payment_matching', match_status: 'CAPTURE_SHORTFALL' },
+      label: 'Capture Shortfall (FR)',
+      value: summary.fr_match_chips_available === false
+        ? 'Open FR'
+        : formatNullablePence(summary.capture_shortfall_pence, currencyCode),
+      drill: { tab: 'payment_matching', open_financial_reconciliation: true },
+      hint: summary.fr_match_chips_message
+        ?? 'FR-owned — not calculated in Payment Sessions',
     },
     {
       id: 'gross_overcapture',
-      label: 'Gross Overcapture (Historical)',
-      value: formatNullablePence(
-        summary.gross_overcapture_pence ?? summary.overcaptured_amount_pence,
-        currencyCode,
-      ),
-      drill: { tab: 'payment_matching', match_status: 'UNEXPLAINED_OVERCAPTURE' },
-      hint: 'Gross unexplained capture vs expected — not outstanding customer debt',
+      label: 'Gross Overcapture (FR)',
+      value: summary.fr_match_chips_available === false
+        ? 'Open FR'
+        : formatNullablePence(
+          summary.gross_overcapture_pence ?? summary.overcaptured_amount_pence,
+          currencyCode,
+        ),
+      drill: { tab: 'payment_matching', open_financial_reconciliation: true },
+      hint: summary.fr_match_chips_message
+        ?? 'FR-owned — open Financial Reconciliation for audit conclusion',
     },
     {
       id: 'resolved_overcapture',
-      label: 'Refunded / Resolved Overcapture',
-      value: formatNullablePence(summary.resolved_overcapture_pence, currencyCode),
-      drill: { tab: 'payment_matching', match_status: 'UNEXPLAINED_OVERCAPTURE' },
-      hint: 'Portion of gross overcapture already covered by confirmed refunds',
+      label: 'Refunded / Resolved Overcapture (FR)',
+      value: summary.fr_match_chips_available === false
+        ? 'Open FR'
+        : formatNullablePence(summary.resolved_overcapture_pence, currencyCode),
+      drill: { tab: 'payment_matching', open_financial_reconciliation: true },
+      hint: 'FR-owned when persisted; PS still shows per-row refunded amounts',
     },
     {
       id: 'outstanding_overcharge',
-      label: 'Outstanding Customer Overcharge',
-      value: formatNullablePence(summary.outstanding_customer_overcharge_pence, currencyCode),
-      drill: { tab: 'payment_matching', match_status: 'UNEXPLAINED_OVERCAPTURE' },
-      hint: 'Net charged still above expected payable after refunds',
+      label: 'Outstanding Customer Overcharge (FR)',
+      value: summary.fr_match_chips_available === false
+        ? 'Open FR'
+        : formatNullablePence(summary.outstanding_customer_overcharge_pence, currencyCode),
+      drill: { tab: 'payment_matching', open_financial_reconciliation: true },
+      hint: 'FR-owned when persisted',
     },
     {
       id: 'missing_sessions',
@@ -118,24 +136,24 @@ export function PaymentSessionsKpiStrip({
     },
     {
       id: 'gross_onecab_commission',
-      label: 'ONECAB Gross Commission',
+      label: 'ONECAB Gross Commission (Settlement)',
       value: formatNullablePence(summary.gross_onecab_commission_pence, currencyCode),
       drill: { tab: 'completed_trips_paid' },
-      hint: 'Trip settlement — before provider fees',
+      hint: 'Settlement SSOT stamp SUM(commission_pence) — not provider capture',
     },
     {
       id: 'net_onecab_commission',
-      label: 'ONECAB Net Commission',
+      label: 'ONECAB Net Commission (Settlement)',
       value: formatNullablePence(summary.net_onecab_commission_pence, currencyCode),
       drill: { tab: 'completed_trips_paid' },
-      hint: 'Gross − provider fees',
+      hint: 'Settlement commission − PS provider fees',
     },
     {
       id: 'driver_net_total',
-      label: 'Driver Net Total',
+      label: 'Driver Net Total (Settlement)',
       value: formatNullablePence(summary.driver_net_total_pence, currencyCode),
       drill: { tab: 'completed_trips_paid' },
-      hint: 'Driver-owned trip settlement',
+      hint: 'Settlement SSOT stamp SUM(driver_net_pence)',
     },
   ];
 

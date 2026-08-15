@@ -80,7 +80,10 @@ export type AdminPaymentSessionsListRow = {
   payment_provider: string;
   payment_method: string | null;
   purpose: PaymentSessionPurpose | string | null;
-  /** Customer payable / estimated fare at session open — never invent £0. */
+  /**
+   * Trip Fare canonical final payable (adapter) when trip-linked;
+   * otherwise session estimate seed only — never invent £0.
+   */
   customer_payable_pence: number | null;
   /** Pre-authorisation buffer above customer payable. */
   buffer_pence: number | null;
@@ -128,10 +131,15 @@ export type AdminPaymentSessionsListRow = {
     provider_state: string | null;
   }>;
   age_minutes: number;
+  /**
+   * FR-owned reconciliation conclusion when persisted.
+   * Null on Payment Sessions until FR provides it — UI shows Open FR.
+   */
   reconciliation_status: string | null;
-  /** Capture confirmation taxonomy (CAPTURED_CONFIRMED, UNDERCAPTURED_…, etc.). */
+  /** Action-policy capture taxonomy only — not FR SSOT. */
   capture_classification: string | null;
   capture_classification_label: string | null;
+  /** FR-owned variance when persisted; otherwise null (never local captured−payable). */
   difference_pence: number | null;
   outstanding_pence: number | null;
   /** Provider-truth action classification (AUTHORISED_ACTIVE, NO_ACTIVE_HOLD, …). */
@@ -166,29 +174,47 @@ export type AdminPaymentSessionsCompletedTripRow = {
   driver_name: string | null;
   service_area_id: string | null;
   service_area_name: string | null;
-  /** Canonical trip final customer fare (ride) — waiting shown separately. */
+  /** Ride-only stamp (excludes waiting) — not the complete final payable. */
   final_customer_fare_pence: number | null;
   ride_fare_pence: number | null;
+  /** Trip Fare final payable (incl. waiting) — stamped. */
+  final_fare_pence?: number | null;
+  original_locked_fare_pence?: number | null;
+  accepted_preset_offer_fare_pence?: number | null;
   airport_charge_pence: number | null;
   tips_pence: number | null;
-  /** Waiting + other legitimate components (backend breakdown). */
+  /** Waiting + other legitimate components (stamped Trip Fare fields). */
   pickup_waiting_charge_pence?: number | null;
   stop_waiting_charge_pence?: number | null;
   waiting_charges_pence?: number | null;
   other_payment_components_pence?: number | null;
   no_show_charge_pence?: number | null;
-  /** Canonical expected capture (tripFareSSOT capture path + legitimate components). */
+  /** Audit-only mod delta — never re-added into expected capture. */
+  modification_audit_pence?: number | null;
+  /** Settlement SSOT stamps. */
+  commissionable_fare_pence?: number | null;
+  commission_pence?: number | null;
+  driver_net_pence?: number | null;
+  /** Canonical expected capture from Trip Fare stamps (not PS money). */
   expected_capture_pence: number | null;
   payment_session_id: string | null;
   payment_provider: string | null;
   provider_captured_pence: number | null;
   provider_released_pence: number | null;
+  provider_refunded_pence?: number | null;
   shortfall_overcapture_pence: number | null;
   variance_pence?: number | null;
   variance_reason?: string | null;
   capture_classification?: string | null;
-  match_status: PaymentTripMatchStatus;
-  /** Full Payment Sessions capture breakdown DTO (backend-owned). */
+  match_status: PaymentTripMatchStatus | null;
+  /**
+   * FR does not persist per-session match here.
+   * Amount shortfall/overcapture are not classified on this row — use variance_pence only.
+   * match_status is presence/lifecycle only; amount conclusions use AMOUNTS_ON_FR (never null).
+   */
+  match_classification_source?: "stamp_vs_provider_interim" | "ps_presence_lifecycle";
+  fr_match_status_persisted?: false;
+  /** Legacy write-path DTO — read path leaves null; UI uses stamp fields. */
   capture_breakdown?: import("./paymentSessionsCaptureBreakdownSSOT.ts").PaymentSessionCaptureBreakdown | null;
 };
 
@@ -219,7 +245,7 @@ export type AdminPaymentSessionsMatchingRow = {
   refund_beyond_gross_overcapture_pence?: number | null;
   variance_reason?: string | null;
   capture_classification?: string | null;
-  match_status: PaymentTripMatchStatus;
+  match_status: PaymentTripMatchStatus | null;
   provider_state: string | null;
   provider_verification_status: "VERIFIED" | "STALE" | "UNKNOWN" | "UNAVAILABLE" | null;
   provider_order_id: string | null;
@@ -256,11 +282,16 @@ export type AdminPaymentSessionsSummary = {
   /** Provider vs completed-trip comparison widgets (backend-owned). */
   provider_captured_total_pence: number | null;
   completed_trip_fare_total_pence: number | null;
-  matched_trips_count: number;
+  /**
+   * FR-owned match chips. Null when FR does not persist per-session match
+   * (Payment Sessions must not invent a second matching engine for chips).
+   */
+  matched_trips_count: number | null;
   capture_shortfall_pence: number | null;
   /**
    * Historical gross unexplained overcapture (actual − expected).
    * Does not mean customers are still owed this amount.
+   * Null when FR chip path unavailable.
    */
   overcaptured_amount_pence: number | null;
   /** Alias of overcaptured_amount_pence — explicit “gross / historical” label. */
@@ -274,6 +305,10 @@ export type AdminPaymentSessionsSummary = {
   outstanding_customer_overcharge_pence?: number | null;
   /** Refund total above gross overcapture (over-refund history; FR-visible). */
   refund_beyond_gross_overcapture_pence?: number | null;
+  /** False until FR exposes a canonical per-session match read path. */
+  fr_match_chips_available?: boolean;
+  fr_match_chips_message?: string | null;
+  /** COUNT completed trips with no Payment Sessions row (PS presence, not FR). */
   missing_payment_sessions_count: number;
   released_buffer_total_pence: number | null;
   refunded_total_pence: number | null;

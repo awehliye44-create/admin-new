@@ -592,9 +592,11 @@ export async function fetchDriverWalletPayoutSnapshot(
         completed_at: (trip.completed_at as string | null) ?? null,
         payment_provider: (trip.payment_provider as string | null) ?? null,
         payment_method: (trip.payment_method as string | null) ?? null,
-        commissionable_fare_pence: trip.final_customer_fare_pence == null
-          ? null
-          : Number(trip.final_customer_fare_pence),
+        // Prefer stamped commissionable (includes waiting). Never display ride-only
+        // final_customer as the commission base after waiting has been charged.
+        commissionable_fare_pence: trip.commissionable_fare_pence == null
+          ? (trip.final_fare_pence == null ? null : Number(trip.final_fare_pence))
+          : Number(trip.commissionable_fare_pence),
         commission_rate_percent: (() => {
           const accepted = trip.accepted_commission_percent;
           if (accepted != null && Number.isFinite(Number(accepted))) return Number(accepted);
