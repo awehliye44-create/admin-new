@@ -28,6 +28,11 @@ Deno.test("flags completed payout without ledger — wallet stays inflated", () 
       commission_pct: 15,
       completed_at: "2026-06-01T12:00:00Z",
     }],
+    payments: [{
+      trip_id: "trip-1",
+      captured_amount_pence: 5000,
+      status: "captured",
+    }],
     ledgerRows: [{
       id: "earn-1",
       driver_id: "drv-1",
@@ -110,6 +115,11 @@ Deno.test("driver_available_now is min(liability, provider_available)", () => {
       commission_pct: 15,
       completed_at: "2026-06-01",
     }],
+    payments: [{
+      trip_id: "t1",
+      captured_amount_pence: 3000,
+      status: "captured",
+    }],
     ledgerRows: [],
     payoutItems: [],
     earlyCashouts: [],
@@ -123,6 +133,7 @@ Deno.test("driver_available_now is min(liability, provider_available)", () => {
   });
 
   assertEquals(audit.remaining_money.driver_remaining_liability_pence, 2500);
+  // Platform audit does not invent per-driver eligible payout from provider balance.
   assertEquals(audit.remaining_money.driver_available_now_pence, 0);
   assertEquals(audit.remaining_money.driver_pending_settlement_pence, 0);
 });
@@ -169,6 +180,11 @@ Deno.test("mixed card+cash does not false MISMATCH on backend audit", () => {
         completed_at: "2026-06-12",
       },
     ],
+    payments: [{
+      trip_id: "card-1",
+      captured_amount_pence: 480,
+      status: "captured",
+    }],
     ledgerRows: [{
       id: "earn-1",
       driver_id: "drv-1",
@@ -193,6 +209,6 @@ Deno.test("mixed card+cash does not false MISMATCH on backend audit", () => {
 
   assertEquals(audit.reconciliation.reconciliation_status, "BALANCED");
   assertEquals(audit.incoming_money.card_customer_revenue_pence, 480);
-  assertEquals(audit.incoming_money.cash_collected_by_driver_pence, 840);
+  assertEquals(audit.trip_rows.find((r) => r.trip_id === "cash-1")?.payout_status, "historical_legacy");
   assertEquals(audit.remaining_money.driver_remaining_liability_pence, 408);
 });
