@@ -5,11 +5,12 @@
  *   1. Minimum query length (rollout config).
  *   2. Verified ONECAB landmarks first — exact match short-circuits Google entirely.
  *   3. Shared 14-day result cache keyed by service area + query + language + rounded centre.
- *   4. A single Places API (New) Text Search call with a HARD locationRestriction circle,
- *      so suggestions can never jump to another city/country.
+ *   4. A single Places API (New) Text Search call with locationBias (not a
+ *      hard locationRestriction). Nearby ranks first; valid places outside
+ *      the service-area circle still return. Serviceability is post-select.
  *
- * Country / language / radius are all derived dynamically from the service area
- * (and its region) — nothing is hardcoded to any market.
+ * Country / language / bias radius are derived from the active service area
+ * as ranking hints — nothing is hardcoded to one market.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -28,9 +29,21 @@ import {
 
 const PLACES_TEXT_SEARCH = "https://places.googleapis.com/v1/places:searchText";
 
-/** Hard proximity bounds (metres) — never suggest beyond the upper bound. */
+/** Bias circle only — Google Places (New) circle max is 50 km. */
 const MIN_RADIUS_M = 5_000;
-const MAX_RADIUS_M = 60_000;
+const MAX_RADIUS_M = 50_000;
+const SEARCH_UNAVAILABLE =
+  "Place search is temporarily unavailable. Please try again.";
+
+/** Compact postal codes (UK/CA/etc.) — supplemental retry, never a reject gate. */
+function supplementalCompactQuery(query: string): string | null {
+  const compact = query.replace(/\s+/g, "");
+  if (compact.length < 5 || compact.length > 10) return null;
+  if (!/^[A-Za-z0-9]+$/.test(compact)) return null;
+  if (/\s/.test(query.trim())) return null;
+  const spaced = `${compact.slice(0, -3)} ${compact.slice(-3)}`;
+  return spaced.toLowerCase() === query.trim().toLowerCase() ? null : spaced;
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -206,6 +219,7 @@ Deno.serve(async (req) => {
 
     // ---- 2. Cache lookup (free) -------------------------------------------
     const cacheKey = [
+      "bias-v2",
       serviceAreaId,
       normaliseQuery(query),
       language,
@@ -228,6 +242,8 @@ Deno.serve(async (req) => {
       const merged = [...landmarks, ...((cached.results ?? []) as OnecabLocationResult[])];
       return json({
         success: true,
+        country_code: countryCode,
+        service_area_id: serviceAreaId,
         results: rankLocationSearchResults(merged, query).slice(0, limit),
         source: "cache",
       });
@@ -243,99 +259,118 @@ Deno.serve(async (req) => {
       });
     }
 
-    const placesBody: Record<string, unknown> = {
-      textQuery: query,
-      languageCode: language,
-      maxResultCount: limit,
-      // HARD restriction — results outside this circle are never returned.
-      locationRestriction: {
-        circle: {
-          center: { latitude: searchLat, longitude: searchLng },
-          radius,
-        },
-      },
+    const mapGooglePlaces = (data: { places?: Record<string, unknown>[] }): OnecabLocationResult[] => {
+      const googleResults: OnecabLocationResult[] = [];
+      for (const p of (data?.places ?? []) as Record<string, any>[]) {
+        const lat = Number(p?.location?.latitude);
+        const lng = Number(p?.location?.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+        const distance = haversineMetres(searchLat, searchLng, lat, lng);
+        const name = String(p?.displayName?.text ?? "").trim();
+        const address = String(p?.formattedAddress ?? "").trim();
+        if (!name && !address) continue;
+
+        googleResults.push({
+          id: String(p?.id ?? `${lat},${lng}`),
+          source: "GOOGLE_PLACES",
+          provider_place_id: p?.id ? String(p.id) : null,
+          display_name: name || address,
+          short_name: name || address,
+          address_text: address || name,
+          latitude: lat,
+          longitude: lng,
+          category: p?.primaryType ? String(p.primaryType) : null,
+          country_code: countryCode,
+          region_id: sa.region_id ?? null,
+          service_area_id: serviceAreaId,
+          inside_service_area: isInsideOrNearServiceArea({
+            lat,
+            lng,
+            centreLat,
+            centreLng,
+            bbox,
+          }).inside,
+          distance_from_search_centre_metres: distance,
+          is_verified_local_landmark: false,
+        });
+      }
+      return googleResults;
     };
-    if (countryCode) placesBody.regionCode = countryCode;
 
-    const res = await fetch(PLACES_TEXT_SEARCH, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": key,
-        "X-Goog-FieldMask":
-          "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType",
-      },
-      body: JSON.stringify(placesBody),
-    });
+    const callTextSearch = async (textQuery: string) => {
+      const placesBody: Record<string, unknown> = {
+        textQuery,
+        languageCode: language,
+        maxResultCount: limit,
+        // Bias nearby first. Do not use locationRestriction — that hid
+        // airports, compact postcodes, and valid places just outside the SA.
+        locationBias: {
+          circle: {
+            center: { latitude: searchLat, longitude: searchLng },
+            radius,
+          },
+        },
+      };
+      if (countryCode) placesBody.regionCode = countryCode;
 
+      const res = await fetch(PLACES_TEXT_SEARCH, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": key,
+          "X-Goog-FieldMask":
+            "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType",
+        },
+        body: JSON.stringify(placesBody),
+      });
+      return res;
+    };
+
+    let res = await callTextSearch(query);
     if (!res.ok) {
       const text = await res.text();
       console.error(`[search-onecab-locations] Places HTTP ${res.status}: ${text}`);
       return json({
-        success: true,
-        results: rankLocationSearchResults(landmarks, query).slice(0, limit),
-        source: "landmarks_only_provider_error",
+        success: false,
+        message: SEARCH_UNAVAILABLE,
         provider_status: res.status,
-      });
+      }, 502);
     }
 
-    const data = await res.json();
-    const googleResults: OnecabLocationResult[] = [];
-    for (const p of (data?.places ?? []) as Record<string, any>[]) {
-      const lat = Number(p?.location?.latitude);
-      const lng = Number(p?.location?.longitude);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    let data = await res.json();
+    let googleResults = mapGooglePlaces(data);
 
-      const distance = haversineMetres(searchLat, searchLng, lat, lng);
-      // Second guard: never surface anything beyond the operating radius.
-      if (distance > radius) continue;
+    const compactRetry = supplementalCompactQuery(query);
+    if (googleResults.length === 0 && compactRetry) {
+      res = await callTextSearch(compactRetry);
+      if (res.ok) {
+        data = await res.json();
+        googleResults = mapGooglePlaces(data);
+      }
+    }
 
-      const name = String(p?.displayName?.text ?? "").trim();
-      const address = String(p?.formattedAddress ?? "").trim();
-      if (!name && !address) continue;
-
-      googleResults.push({
-        id: String(p?.id ?? `${lat},${lng}`),
-        source: "GOOGLE_PLACES",
-        provider_place_id: p?.id ? String(p.id) : null,
-        display_name: name || address,
-        short_name: name || address,
-        address_text: address || name,
-        latitude: lat,
-        longitude: lng,
-        category: p?.primaryType ? String(p.primaryType) : null,
-        country_code: countryCode,
-        region_id: sa.region_id ?? null,
+    // ---- 4. Persist cache (best effort) — never cache an empty Google miss
+    if (googleResults.length > 0) {
+      await supabase.from("location_search_cache").upsert({
+        cache_key: cacheKey,
         service_area_id: serviceAreaId,
-        inside_service_area: isInsideOrNearServiceArea({
-          lat,
-          lng,
-          centreLat,
-          centreLng,
-          bbox,
-        }).inside,
-        distance_from_search_centre_metres: distance,
-        is_verified_local_landmark: false,
-      });
+        normalized_query: normaliseQuery(query),
+        language_code: language,
+        centre_lat: searchLat,
+        centre_lng: searchLng,
+        radius_metres: radius,
+        results: googleResults,
+        hit_count: 0,
+        last_used_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      }, { onConflict: "cache_key" });
     }
-
-    // ---- 4. Persist cache (best effort) ------------------------------------
-    await supabase.from("location_search_cache").upsert({
-      cache_key: cacheKey,
-      service_area_id: serviceAreaId,
-      normalized_query: normaliseQuery(query),
-      language_code: language,
-      centre_lat: searchLat,
-      centre_lng: searchLng,
-      radius_metres: radius,
-      results: googleResults,
-      hit_count: 0,
-      last_used_at: new Date().toISOString(),
-      expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-    }, { onConflict: "cache_key" });
 
     return json({
       success: true,
+      country_code: countryCode,
+      service_area_id: serviceAreaId,
       results: rankLocationSearchResults([...landmarks, ...googleResults], query).slice(0, limit),
       source: "google_places",
     });
