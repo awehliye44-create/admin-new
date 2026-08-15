@@ -25694,13 +25694,15 @@ export type Database = {
         Returns: number
       }
       dispatch_jobs_sweep: { Args: never; Returns: undefined }
-      dispatch_max_broadcast_rounds: {
-        Args: {
-          p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
-          p_trip_max_rounds?: number
-        }
-        Returns: number
-      }
+      dispatch_max_broadcast_rounds:
+        | {
+            Args: {
+              p_settings: Database["public"]["Tables"]["dispatch_settings"]["Row"]
+              p_trip_max_rounds?: number
+            }
+            Returns: number
+          }
+        | { Args: { p_settings: Json; p_trip_max?: number }; Returns: number }
       dispatch_max_driver_find_minutes: {
         Args: { p_service_area_id?: string }
         Returns: number
