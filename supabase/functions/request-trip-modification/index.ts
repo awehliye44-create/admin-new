@@ -246,6 +246,7 @@ async function fetchModificationFareEstimate(
     pickup_lng?: number;
     dropoff_lat?: number;
     dropoff_lng?: number;
+    stops?: Array<{ lat: number; lng: number }>;
   },
 ): Promise<FareEstimatePayload | null> {
   const fareBody = {
@@ -257,6 +258,7 @@ async function fetchModificationFareEstimate(
     pickup_lng: params.pickup_lng,
     dropoff_lat: params.dropoff_lat,
     dropoff_lng: params.dropoff_lng,
+    ...(params.stops && params.stops.length > 0 ? { stops: params.stops } : {}),
   };
 
   const calculateResult = await invokeEdgeFunctionJson(
@@ -888,6 +890,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         pickup_lng: originLng,
         dropoff_lat: destinationLat,
         dropoff_lng: destinationLng,
+        stops: intermediateStops,
       },
     );
 
@@ -932,6 +935,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
           pickup_lng: originLng,
           dropoff_lat: beforeDestinationLat!,
           dropoff_lng: beforeDestinationLng!,
+          stops: beforeIntermediateStops,
         },
       );
       if (beforeEstimate?.success) {

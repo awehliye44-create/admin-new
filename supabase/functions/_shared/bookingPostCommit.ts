@@ -173,12 +173,21 @@ async function enrichTripFareAsync(ctx: BookingPostCommitContext): Promise<void>
       ]);
 
       if (fareRes.data) {
+        const stops = (body.stops || [])
+          .map((s) => {
+            const lat = Number(s.lat);
+            const lng = Number(s.lng);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+            return { lat, lng };
+          })
+          .filter((p): p is { lat: number; lng: number } => p != null);
         const eb = calculateFare({
           pricing: fareRes.data as FarePricingRow,
           distanceKm: body.estimated_distance || 0,
           durationMin: body.estimated_duration || 0,
           pickup,
           dropoff,
+          stops,
           zones: (zonesRes.data || []) as unknown as ZoneRow[],
           zoneRoutes: (routesRes.data || []) as unknown as ZoneRoutePricingRow[],
           serviceAreaId: ctx.serviceAreaId,

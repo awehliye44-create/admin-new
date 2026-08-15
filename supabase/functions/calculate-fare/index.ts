@@ -38,6 +38,25 @@ interface CalculateFareRequest {
   pickup_lng?: number;
   dropoff_lat?: number;
   dropoff_lng?: number;
+  /** Ordered intermediate stops between pickup and dropoff. */
+  stops?: LatLng[];
+  intermediate_stops?: LatLng[];
+  intermediateStops?: LatLng[];
+}
+
+function parseLatLng(raw: unknown): LatLng | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  const lat = Number(row.lat ?? row.latitude);
+  const lng = Number(row.lng ?? row.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+function parseStopsList(body: CalculateFareRequest): LatLng[] {
+  const raw = body.stops ?? body.intermediate_stops ?? body.intermediateStops ?? [];
+  if (!Array.isArray(raw)) return [];
+  return raw.map(parseLatLng).filter((p): p is LatLng => p != null);
 }
 
 Deno.serve(async (req) => {
@@ -76,9 +95,10 @@ Deno.serve(async (req) => {
       (Number.isFinite(body.dropoff_lat) && Number.isFinite(body.dropoff_lng)
         ? { lat: body.dropoff_lat as number, lng: body.dropoff_lng as number }
         : null);
+    const stops = parseStopsList(body);
 
     console.log(
-      `[calculate-fare] sa=${service_area_id} dist=${distanceKm}km dur=${durationMin}min pickup=${!!pickup} dropoff=${!!dropoff}`,
+      `[calculate-fare] sa=${service_area_id} dist=${distanceKm}km dur=${durationMin}min pickup=${!!pickup} dropoff=${!!dropoff} stops=${stops.length}`,
     );
 
     const { data: saRow, error: saErr } = await supabase
@@ -249,6 +269,7 @@ Deno.serve(async (req) => {
           durationMin,
           pickup,
           dropoff,
+          stops,
           zones,
           zoneRoutes,
           serviceAreaId: service_area_id,
