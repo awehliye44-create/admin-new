@@ -12,6 +12,10 @@ import {
   mapNegotiationCoverFailure,
   NEGOTIATION_PAYABLE_INSUFFICIENT_CODE,
   NEGOTIATION_PAYABLE_INSUFFICIENT_MESSAGE,
+  NEGOTIATION_PERSIST_FAILED_CODE,
+  NEGOTIATION_PERSIST_FAILED_MESSAGE,
+  NEGOTIATION_RECONCILIATION_PENDING_CODE,
+  NEGOTIATION_RECONCILIATION_PENDING_MESSAGE,
 } from "./negotiationPayableAuthorisationMap.ts";
 
 export {
@@ -43,11 +47,13 @@ async function persistAuthorisedCover(
     paymentSessionId: string | null;
     authorisedPence: number;
   },
-): Promise<void> {
+): Promise<{ ok: true } | { ok: false; message: string }> {
   const authorised = Math.max(0, Math.round(Number(args.authorisedPence)));
-  if (authorised <= 0) return;
+  if (authorised <= 0) {
+    return { ok: false, message: "Authorised cover amount was not positive" };
+  }
   const now = new Date().toISOString();
-  await supabase
+  const { error: tripErr } = await supabase
     .from("trips")
     .update({
       authorised_amount_pence: authorised,
@@ -57,15 +63,22 @@ async function persistAuthorisedCover(
       updated_at: now,
     })
     .eq("id", args.tripId);
+  if (tripErr) {
+    return { ok: false, message: tripErr.message };
+  }
   if (args.paymentSessionId) {
-    await supabase
+    const { error: sessErr } = await supabase
       .from("payment_sessions")
       .update({
         total_authorised_amount_pence: authorised,
         updated_at: now,
       })
       .eq("id", args.paymentSessionId);
+    if (sessErr) {
+      return { ok: false, message: sessErr.message };
+    }
   }
+  return { ok: true };
 }
 
 /**
@@ -101,8 +114,8 @@ export async function ensureNegotiationPayableAuthorised(args: {
   if (tripErr || !trip) {
     return {
       ok: false,
-      code: NEGOTIATION_PAYABLE_INSUFFICIENT_CODE,
-      message: NEGOTIATION_PAYABLE_INSUFFICIENT_MESSAGE,
+      code: NEGOTIATION_RECONCILIATION_PENDING_CODE,
+      message: NEGOTIATION_RECONCILIATION_PENDING_MESSAGE,
       status: 409,
     };
   }
@@ -153,11 +166,19 @@ export async function ensureNegotiationPayableAuthorised(args: {
     };
   }
 
-  await persistAuthorisedCover(args.supabase, {
+  const coverWrite = await persistAuthorisedCover(args.supabase, {
     tripId: args.tripId,
     paymentSessionId: (trip.payment_session_id as string | null) ?? null,
     authorisedPence: result.authorised_amount_pence,
   });
+  if (!coverWrite.ok) {
+    return {
+      ok: false,
+      code: NEGOTIATION_PERSIST_FAILED_CODE,
+      message: NEGOTIATION_PERSIST_FAILED_MESSAGE,
+      status: 500,
+    };
+  }
 
   console.log("[negotiation-payable] cover_ok", {
     trip_id: args.tripId,

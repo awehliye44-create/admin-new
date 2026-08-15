@@ -11,7 +11,10 @@ import {
   revolutProviderAuthorisedTotalPence,
   type RevolutOrder,
 } from "./revolutOrders.ts";
-import { planSameOrderIncrement } from "./revolutIncrementAuthorisationSSOT.ts";
+import {
+  isPriorIncrementAttemptStatus,
+  planSameOrderIncrement,
+} from "./revolutIncrementAuthorisationSSOT.ts";
 import { mapNegotiationCoverFailure } from "./negotiationPayableAuthorisationMap.ts";
 
 const mk018Shape: RevolutOrder = {
@@ -138,6 +141,8 @@ Deno.test("H. provider already >=695 → no increment plan / no duplicate POST",
     providerConfirmedTotalPence: 695,
   });
   assertEquals(plan.kind, "not_required");
+  assertEquals(isPriorIncrementAttemptStatus("ADDITIONAL_AUTHORISATION_FAILED_TERMINAL"), true);
+  assertEquals(isPriorIncrementAttemptStatus("ADDITIONAL_AUTHORISATION_CONFIRMED"), false);
 });
 
 Deno.test("I. 495→645→695 uses running target totals, not stacked deltas", () => {

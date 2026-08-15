@@ -242,6 +242,22 @@ export function evaluateRevolutIncrementEligibility(args: {
   return { eligible: true, reason: "eligible", ...base };
 }
 
+export function isConfirmedIncrementRowStatus(status: string | null | undefined): boolean {
+  const s = String(status ?? "");
+  return s === "confirmed" || s === "ADDITIONAL_AUTHORISATION_CONFIRMED";
+}
+
+/**
+ * Any prior increment row for the same target means Revolut may already have
+ * been asked. Reconcile from retrieve — never POST a second increment.
+ * MK-260815-018 left ADDITIONAL_AUTHORISATION_FAILED_TERMINAL after a successful POST.
+ */
+export function isPriorIncrementAttemptStatus(status: string | null | undefined): boolean {
+  const s = String(status ?? "").trim();
+  if (!s || s === "superseded") return false;
+  return !isConfirmedIncrementRowStatus(s);
+}
+
 export function planSameOrderIncrement(args: {
   requiredTotalPence: number;
   providerConfirmedTotalPence: number;

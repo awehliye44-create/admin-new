@@ -12,6 +12,8 @@ import {
 import {
   buildRevolutIncrementBusinessKey,
   evaluateRevolutIncrementEligibility,
+  isConfirmedIncrementRowStatus,
+  isPriorIncrementAttemptStatus,
   planSameOrderIncrement,
   type IncrementEligibility,
 } from "./revolutIncrementAuthorisationSSOT.ts";
@@ -328,6 +330,43 @@ export async function executeSameOrderIncrement(args: {
       providerConfirmedTotalPence: providerTotal,
     });
     if (plan.kind === "not_required") {
+      const businessKey = buildRevolutIncrementBusinessKey({
+        paymentSessionId: sessionId,
+        providerOrderId: orderId,
+        targetTotalAuthorisedPence: required,
+      });
+      const { data: existingCovered } = await args.supabase
+        .from("payment_session_authorisations")
+        .select("id, status, sequence_number")
+        .eq("payment_session_id", sessionId)
+        .eq("provider_order_id", orderId)
+        .eq("requested_target_total_pence", required)
+        .maybeSingle();
+      if (existingCovered && isPriorIncrementAttemptStatus(existingCovered.status)) {
+        const sessionMetadata = (session.metadata && typeof session.metadata === "object")
+          ? session.metadata as Record<string, unknown>
+          : {};
+        const persisted = await persistConfirmedIncrementProjection({
+          supabase: args.supabase,
+          sessionId,
+          incrementRowId: existingCovered.id,
+          confirmed: providerTotal,
+          providerState: String(order.state ?? "AUTHORISED").toUpperCase(),
+          businessKey,
+          sessionMetadata,
+          verifiedBy: "same_order_increment_retrieve",
+        });
+        if (!persisted.ok) {
+          return {
+            ok: false,
+            kind: "persist_failed",
+            message: "Provider authorised the increase but local confirmation failed",
+            providerConfirmedTotalPence: providerTotal,
+            eligibility: null,
+            errorClassification: "INCREMENT_CONFIRM_PERSIST_FAILED",
+          };
+        }
+      }
       logIncrementEvent("increment_not_required", {
         payment_session_id: maskId(sessionId),
         provider_order_id: maskId(orderId),
@@ -339,8 +378,10 @@ export async function executeSameOrderIncrement(args: {
         ok: true,
         kind: "not_required",
         providerConfirmedTotalPence: providerTotal,
-        sequenceNumber: null,
-        businessKey: null,
+        sequenceNumber: existingCovered?.sequence_number != null
+          ? Number(existingCovered.sequence_number)
+          : null,
+        businessKey,
         eligibility: null,
       };
     }
@@ -416,12 +457,7 @@ export async function executeSameOrderIncrement(args: {
       .eq("requested_target_total_pence", plan.targetTotalPence)
       .maybeSingle();
 
-    if (
-      existingAuth
-      && ["confirmed", "ADDITIONAL_AUTHORISATION_CONFIRMED"].includes(
-        String(existingAuth.status ?? ""),
-      )
-    ) {
+    if (existingAuth && isConfirmedIncrementRowStatus(existingAuth.status)) {
       const confirmed = Math.round(
         Number(
           existingAuth.provider_confirmed_total_pence
@@ -453,30 +489,39 @@ export async function executeSameOrderIncrement(args: {
       };
     }
 
-    if (
-      existingAuth
-      && ["pending", "ADDITIONAL_AUTHORISATION_PENDING", "unknown"].includes(
-        String(existingAuth.status ?? "").toLowerCase(),
-      )
-    ) {
-      // Pending/unknown → retrieve already done; if still short, do not blind-retry.
+    if (existingAuth && isPriorIncrementAttemptStatus(existingAuth.status)) {
+      // Prior POST may already have succeeded (018 FAILED_TERMINAL). Never POST again.
+      const sessionMetadata = (session.metadata && typeof session.metadata === "object")
+        ? session.metadata as Record<string, unknown>
+        : {};
       if (providerTotal >= plan.targetTotalPence) {
-        await args.supabase
-          .from("payment_session_authorisations")
-          .update({
-            status: "ADDITIONAL_AUTHORISATION_CONFIRMED",
-            provider_confirmed_total_pence: providerTotal,
-            confirmed_at: new Date().toISOString(),
-          })
-          .eq("id", existingAuth.id);
-        await args.supabase
-          .from("payment_sessions")
-          .update({
-            total_authorised_amount_pence: providerTotal,
-            status: "ADDITIONAL_AUTHORISATION_CONFIRMED",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", sessionId);
+        const persisted = await persistConfirmedIncrementProjection({
+          supabase: args.supabase,
+          sessionId,
+          incrementRowId: existingAuth.id,
+          confirmed: providerTotal,
+          providerState: String(order.state ?? "AUTHORISED").toUpperCase(),
+          businessKey,
+          sessionMetadata,
+          verifiedBy: "same_order_increment_retrieve",
+        });
+        if (!persisted.ok) {
+          return {
+            ok: false,
+            kind: "persist_failed",
+            message: "Provider authorised the increase but local confirmation failed",
+            providerConfirmedTotalPence: providerTotal,
+            eligibility,
+            errorClassification: "INCREMENT_CONFIRM_PERSIST_FAILED",
+          };
+        }
+        logIncrementEvent("duplicate_increment_prevented", {
+          payment_session_id: maskId(sessionId),
+          provider_order_id: maskId(orderId),
+          requested_target: plan.targetTotalPence,
+          source: args.source,
+          prior_status: existingAuth.status,
+        });
         return {
           ok: true,
           kind: "confirmed",
@@ -488,13 +533,31 @@ export async function executeSameOrderIncrement(args: {
           eligibility,
         };
       }
+      const priorCoverage = classifyIncrementCoverage(order, plan.targetTotalPence);
+      logIncrementEvent("increment_prior_attempt_no_second_post", {
+        payment_session_id: maskId(sessionId),
+        provider_order_id: maskId(orderId),
+        prior_status: existingAuth.status,
+        coverage_class: priorCoverage.class,
+        source: args.source,
+      });
+      if (priorCoverage.class === "insufficient") {
+        return {
+          ok: false,
+          kind: "declined",
+          message: "Provider authorised total remains below the required fare.",
+          providerConfirmedTotalPence: providerTotal,
+          eligibility,
+          errorClassification: "AUTHORISED_TOTAL_BELOW_TARGET",
+        };
+      }
       return {
         ok: false,
         kind: "unknown",
         message: "Prior increment still pending/unknown after retrieve; not submitting another.",
         providerConfirmedTotalPence: providerTotal,
         eligibility,
-        errorClassification: "INCREMENT_PENDING_UNKNOWN",
+        errorClassification: "AUTHORISATION_RECONCILIATION_PENDING",
       };
     }
 
@@ -545,10 +608,7 @@ export async function executeSameOrderIncrement(args: {
         .eq("idempotency_key", businessKey)
         .maybeSingle();
       const raced = racedByKey ?? existingAuth;
-      if (
-        raced
-        && ["confirmed", "ADDITIONAL_AUTHORISATION_CONFIRMED"].includes(String(raced.status))
-      ) {
+      if (raced && isConfirmedIncrementRowStatus(raced.status)) {
         return {
           ok: true,
           kind: "already_confirmed",
@@ -560,21 +620,31 @@ export async function executeSameOrderIncrement(args: {
           eligibility,
         };
       }
-      if (
-        raced
-        && ["pending", "ADDITIONAL_AUTHORISATION_PENDING", "unknown"].includes(
-          String(raced.status ?? "").toLowerCase(),
-        )
-      ) {
+      if (raced && isPriorIncrementAttemptStatus(raced.status)) {
         if (providerTotal >= plan.targetTotalPence) {
-          await args.supabase
-            .from("payment_session_authorisations")
-            .update({
-              status: "ADDITIONAL_AUTHORISATION_CONFIRMED",
-              provider_confirmed_total_pence: providerTotal,
-              confirmed_at: nowIso,
-            })
-            .eq("id", raced.id);
+          const sessionMetadata = (session.metadata && typeof session.metadata === "object")
+            ? session.metadata as Record<string, unknown>
+            : {};
+          const persisted = await persistConfirmedIncrementProjection({
+            supabase: args.supabase,
+            sessionId,
+            incrementRowId: raced.id,
+            confirmed: providerTotal,
+            providerState: String(order.state ?? "AUTHORISED").toUpperCase(),
+            businessKey,
+            sessionMetadata,
+            verifiedBy: "same_order_increment_retrieve",
+          });
+          if (!persisted.ok) {
+            return {
+              ok: false,
+              kind: "persist_failed",
+              message: "Provider authorised the increase but local confirmation failed",
+              providerConfirmedTotalPence: providerTotal,
+              eligibility,
+              errorClassification: "INCREMENT_CONFIRM_PERSIST_FAILED",
+            };
+          }
           return {
             ok: true,
             kind: "already_confirmed",
@@ -590,7 +660,7 @@ export async function executeSameOrderIncrement(args: {
           message: "Prior increment still pending/unknown after retrieve; not submitting another.",
           providerConfirmedTotalPence: providerTotal,
           eligibility,
-          errorClassification: "INCREMENT_PENDING_UNKNOWN",
+          errorClassification: "AUTHORISATION_RECONCILIATION_PENDING",
         };
       }
       logIncrementEvent("increment_persist_failed", {

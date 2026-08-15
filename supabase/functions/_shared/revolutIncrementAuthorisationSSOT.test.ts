@@ -104,6 +104,8 @@ Deno.test("ambiguous increment POST retrieves the same order and never POSTs a s
   assertEquals(retrieveAfterPost > incrementCall, true);
   assertEquals(src.includes("increment_post_retrieve_reconcile"), true);
   assertEquals(src.includes("INCREMENT_CONFIRM_PERSIST_FAILED"), true);
+  assertEquals(src.includes("isPriorIncrementAttemptStatus"), true);
+  assertEquals(src.includes("increment_prior_attempt_no_second_post"), true);
   assertEquals(src.includes("ADDITIONAL_AUTHORISATION_FAILED_TERMINAL"), true);
   const terminalIdx = src.indexOf("ADDITIONAL_AUTHORISATION_FAILED_TERMINAL");
   const retrieveIdx = src.indexOf("increment_post_retrieve_reconcile");

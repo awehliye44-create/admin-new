@@ -125,6 +125,12 @@ Deno.test("helper reuses same-order increment and never opens a second checkout"
   assertEquals(helper.includes("allowControlledFallback: false"), true);
   assertEquals(helper.includes("createRevolutOrder"), false);
   assertEquals(helper.includes("persistAuthorisedCover"), true);
+  assertEquals(helper.includes("NEGOTIATION_PERSIST_FAILED_CODE"), true);
+  assertEquals(helper.includes("if (!coverWrite.ok)"), true);
+  const missingTripStart = helper.lastIndexOf("if (tripErr || !trip)");
+  const missingTrip = helper.slice(missingTripStart, missingTripStart + 280);
+  assertEquals(missingTrip.includes("NEGOTIATION_RECONCILIATION_PENDING_CODE"), true);
+  assertEquals(missingTrip.includes("NEGOTIATION_PAYABLE_INSUFFICIENT_CODE"), false);
   assertEquals(increment.includes("incrementRevolutOrderAuthorisation"), true);
   assertEquals(topUp.includes('source: "trip_modification"'), true);
 });
