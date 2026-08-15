@@ -69,21 +69,23 @@ Deno.test("effective radius uses wave-in-cycle (round 2 wave 1 restarts)", () =>
   assertEquals(effectiveRadiusMeters(settings, 6), 8000); // R2W3
 });
 
-Deno.test("wave commission reductions are percentage points with floor", () => {
+Deno.test("wave commission reductions follow Admin per-wave table (no floor pin)", () => {
   const settings = {
     base_driver_commission_percent: 15,
-    wave1_commission_reduction_percent: 0,
-    wave2_commission_reduction_percent: 3,
-    wave3_commission_reduction_percent: 6,
+    wave1_commission_reduction_percent: 15,
+    wave2_commission_reduction_percent: 12,
+    wave3_commission_reduction_percent: 9,
   };
-  assertEquals(resolveWaveCommission({ settings, sequence: 1 }).effectivePercent, 15);
-  assertEquals(resolveWaveCommission({ settings, sequence: 2 }).effectivePercent, 12);
-  assertEquals(resolveWaveCommission({ settings, sequence: 3 }).effectivePercent, 9);
-  // Round 2 Wave 1 keeps Wave 3 floor
+  assertEquals(resolveWaveCommission({ settings, sequence: 1 }).effectivePercent, 0);
+  assertEquals(resolveWaveCommission({ settings, sequence: 2 }).effectivePercent, 3);
+  assertEquals(resolveWaveCommission({ settings, sequence: 3 }).effectivePercent, 6);
+  // Round 2 Wave 1 uses W1 table again — not pinned to W1's 15pp floor
   assertEquals(
-    resolveWaveCommission({ settings, sequence: 4, floorReductionPercent: 6 }).effectivePercent,
-    9,
+    resolveWaveCommission({ settings, sequence: 4, floorReductionPercent: 15 }).effectivePercent,
+    0,
   );
+  assertEquals(resolveWaveCommission({ settings, sequence: 5 }).effectivePercent, 3);
+  assertEquals(resolveWaveCommission({ settings, sequence: 6 }).effectivePercent, 6);
 });
 
 Deno.test("effectiveOfferExpirySeconds caps at remaining TTL", () => {

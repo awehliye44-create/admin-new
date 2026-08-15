@@ -202,8 +202,10 @@ export function baseDriverCommissionPercent(settings: Record<string, unknown>): 
 }
 
 /**
- * effective = max(0, base − max(wave_reduction, floor_reduction)).
- * Floor enforces monotonic incentive across repeated rounds.
+ * effective = max(0, base − this wave's configured reduction).
+ * Admin Auto-Dispatch Rules per-wave table is SSOT (e.g. 15/12/9 pp → 0/3/6).
+ * Do not floor later waves to an earlier wave's reduction — that pinned every
+ * wave at W1 0% when W1 reduction was 15pp.
  */
 export function resolveWaveCommission(params: {
   settings: Record<string, unknown>;
@@ -220,8 +222,7 @@ export function resolveWaveCommission(params: {
   const dispatchRound = dispatchRoundFromSequence(params.sequence);
   const basePercent = baseDriverCommissionPercent(params.settings);
   const configuredReduction = waveCommissionReductionPercent(params.settings, params.sequence);
-  const floor = coerceNonNegativeNumber(params.floorReductionPercent, 0);
-  const reductionPercent = Math.min(basePercent, Math.max(configuredReduction, floor));
+  const reductionPercent = Math.min(basePercent, configuredReduction);
   const effectivePercent = Math.max(0, basePercent - reductionPercent);
   return { basePercent, reductionPercent, effectivePercent, wave, dispatchRound };
 }
