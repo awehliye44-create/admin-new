@@ -27,6 +27,11 @@ import {
   isTripTerminalForDispatch,
 } from "../_shared/tripTerminalDispatch.ts";
 import { FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY } from "../_shared/negotiationPushCopy.ts";
+import {
+  EXPIRE_OFFERS_AUTO_DISPATCH_SOURCE,
+  invokeAutoDispatchWithServiceRole,
+  type DispatchTripContext,
+} from "../_shared/invokeAutoDispatchServiceRole.ts";
 
 // Rate limit: 60 requests per minute (for cron jobs)
 const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60000, keyPrefix: 'expire-offers' };
@@ -89,6 +94,29 @@ async function sendNegotiationExpiredPush(
   } catch (e) {
     console.warn("[expire-offers] negotiation_offer_expired push error:", e);
   }
+}
+
+async function loadDispatchTripContext(
+  supabase: ReturnType<typeof createClient>,
+  tripId: string,
+): Promise<DispatchTripContext> {
+  const { data } = await supabase
+    .from("trips")
+    .select("id, trip_number, current_broadcast_round, searching_expires_at, expires_at")
+    .eq("id", tripId)
+    .maybeSingle();
+  const row = data as {
+    trip_number?: string | null;
+    current_broadcast_round?: number | null;
+    searching_expires_at?: string | null;
+    expires_at?: string | null;
+  } | null;
+  return {
+    tripId,
+    publicTripId: row?.trip_number ?? null,
+    currentSequence: row?.current_broadcast_round ?? null,
+    ttlDeadline: row?.searching_expires_at ?? row?.expires_at ?? null,
+  };
 }
 
 /**
@@ -417,9 +445,17 @@ Deno.serve(async (req) => {
           await assertGlobalRebroadcastAllowed(supabase, t.id, "expire-offers:stuck_negotiating_trip")
             .then(async (allowed) => {
               if (allowed) {
-                await supabase.functions.invoke("auto-dispatch", {
+                const tripContext = await loadDispatchTripContext(supabase, t.id);
+                const dispatchResult = await invokeAutoDispatchWithServiceRole({
+                  supabaseUrl,
+                  serviceRoleKey: supabaseKey,
                   body: { trip_id: t.id, force_rebroadcast: true, trigger_reason: "stuck_negotiation_recovery" },
+                  source: EXPIRE_OFFERS_AUTO_DISPATCH_SOURCE,
+                  tripContext,
                 });
+                if (!dispatchResult.ok) {
+                  console.error("[expire-offers] auto-dispatch non-2xx", dispatchResult.logPayload);
+                }
               }
             })
             .catch((e) => console.warn("[expire-offers] stuck trip rebroadcast error", t.id, e));
@@ -591,6 +627,8 @@ Deno.serve(async (req) => {
       trip_id: string;
       success: boolean;
       trigger_reason?: string;
+      outcome?: string;
+      http_status?: number | null;
       error?: string;
     }[] = [];
 
@@ -608,18 +646,24 @@ Deno.serve(async (req) => {
         const allowed = await assertGlobalRebroadcastAllowed(supabase, tripId, rebroadcastSource);
         if (!allowed) continue;
 
-        const { data: dispatchResult, error: dispatchError } = await supabase.functions.invoke(
-          "auto-dispatch",
-          { body },
-        );
+        const tripContext = await loadDispatchTripContext(supabase, tripId);
+        const dispatchResult = await invokeAutoDispatchWithServiceRole({
+          supabaseUrl,
+          serviceRoleKey: supabaseKey,
+          body,
+          source: EXPIRE_OFFERS_AUTO_DISPATCH_SOURCE,
+          tripContext,
+        });
 
-        if (dispatchError) {
-          console.error("[expire-offers] Rebroadcast failed for", tripId, dispatchError);
+        if (!dispatchResult.ok) {
+          console.error("[expire-offers] auto-dispatch non-2xx", dispatchResult.logPayload);
           rebroadcastResults.push({
             trip_id: tripId,
             success: false,
             trigger_reason: body.trigger_reason,
-            error: dispatchError.message,
+            outcome: dispatchResult.outcome,
+            http_status: dispatchResult.httpStatus,
+            error: dispatchResult.errorCode ?? "non-2xx",
           });
         } else {
           const isOfferExpiredWave =
@@ -628,18 +672,24 @@ Deno.serve(async (req) => {
             console.log("[expire-offers] next_wave_started", {
               trip_id: tripId,
               reason_for_next_wave: body.reason_for_next_wave ?? OFFER_EXPIRED_TRIGGER_REASON,
-              dispatchResult,
+              outcome: dispatchResult.outcome,
+              http_status: dispatchResult.httpStatus,
+              dispatchResult: dispatchResult.responseBody,
             });
           }
           console.log("[expire-offers] Rebroadcast success for", tripId, {
             trigger_reason: body.trigger_reason,
             reason_for_next_wave: body.reason_for_next_wave ?? null,
-            dispatchResult,
+            outcome: dispatchResult.outcome,
+            http_status: dispatchResult.httpStatus,
+            dispatchResult: dispatchResult.responseBody,
           });
           rebroadcastResults.push({
             trip_id: tripId,
             success: true,
             trigger_reason: body.trigger_reason,
+            outcome: dispatchResult.outcome,
+            http_status: dispatchResult.httpStatus,
           });
         }
       } catch (err) {

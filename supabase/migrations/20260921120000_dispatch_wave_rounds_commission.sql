@@ -283,13 +283,7 @@ DECLARE
     nullif(trim(current_setting('app.settings.edge_expire_offers_url', true)), ''),
     'https://thazislrdkjpvvghtvzo.supabase.co/functions/v1/expire-offers'
   );
-  v_token text := coalesce(
-    nullif(trim(current_setting('app.settings.service_role_key', true)), ''),
-    nullif(trim(current_setting('supabase.service_role_key', true)), ''),
-    nullif(trim(current_setting('app.settings.supabase_anon_key', true)), ''),
-    nullif(trim(current_setting('SUPABASE_ANON_KEY', true)), ''),
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRoYXppc2xyZGtqcHZ2Z2h0dnpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4NzA1MjIsImV4cCI6MjA4MzQ0NjUyMn0.pXaycIz-1t7JXuItyqvjNNrFsZpsaXbB5bV1OWSQLbWM'
-  );
+  v_token text := public.cron_edge_auth_token();
 BEGIN
   -- Work-gate: only invoke Edge when there is something to expire or advance.
   IF NOT EXISTS (
@@ -318,6 +312,11 @@ BEGIN
 
   IF v_url IS NULL OR length(trim(v_url)) < 20 THEN
     RAISE LOG '[delivery] expire_offers_sweep aborted reason=bad_url';
+    RETURN;
+  END IF;
+
+  IF v_token IS NULL OR length(trim(v_token)) < 20 THEN
+    RAISE LOG '[delivery] expire_offers_sweep aborted reason=bad_token';
     RETURN;
   END IF;
 
