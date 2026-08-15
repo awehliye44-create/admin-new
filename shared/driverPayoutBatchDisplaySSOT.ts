@@ -104,6 +104,62 @@ export function resolveDriverPayoutItemDisplayLabel(
 }
 
 /**
+ * Full display presentation for Payout Ledger item rows (read-model only).
+ */
+export function resolveDriverPayoutItemDisplayPresentation(args: {
+  status?: string | null;
+  execution_status?: string | null;
+  completed_at?: string | null;
+  paid_at?: string | null;
+  reservation_status?: string | null;
+  wallet_ledger_entry_id?: string | null;
+  debit_ledger_entry_id?: string | null;
+  release_reason?: string | null;
+  failure_reason?: string | null;
+}): {
+  display_status: DriverPayoutItemDisplayStatus;
+  display_status_label: string;
+  supporting_text: string | null;
+  reason_label: string | null;
+  included_in_live_wallet: boolean;
+} {
+  const display_status = resolveDriverPayoutItemDisplayStatus({
+    status: args.status,
+    execution_status: args.execution_status,
+    completed_at: args.completed_at ?? args.paid_at,
+    reservation_status: args.reservation_status,
+  });
+  const display_status_label = resolveDriverPayoutItemDisplayLabel(display_status);
+  const reason_label = args.failure_reason ?? args.release_reason ?? null;
+  const included_in_live_wallet =
+    display_status === DRIVER_PAYOUT_ITEM_DISPLAY.NOT_SUBMITTED
+    || display_status === DRIVER_PAYOUT_ITEM_DISPLAY.RESERVED
+    || display_status === DRIVER_PAYOUT_ITEM_DISPLAY.SUBMITTED;
+  let supporting_text: string | null = null;
+  if (display_status === DRIVER_PAYOUT_ITEM_DISPLAY.NOT_SUBMITTED) {
+    supporting_text = "Funds reserved in Driver Wallet — not yet submitted to provider";
+  } else if (display_status === DRIVER_PAYOUT_ITEM_DISPLAY.SUBMITTED) {
+    supporting_text = "Submitted to payout provider";
+  } else if (display_status === DRIVER_PAYOUT_ITEM_DISPLAY.COMPLETED) {
+    supporting_text = args.wallet_ledger_entry_id || args.debit_ledger_entry_id
+      ? "Wallet debit recorded"
+      : null;
+  } else if (
+    display_status === DRIVER_PAYOUT_ITEM_DISPLAY.FAILED
+    || display_status === DRIVER_PAYOUT_ITEM_DISPLAY.DECLINED
+  ) {
+    supporting_text = reason_label;
+  }
+  return {
+    display_status,
+    display_status_label,
+    supporting_text,
+    reason_label,
+    included_in_live_wallet,
+  };
+}
+
+/**
  * Batch aggregate from item statuses.
  * Mix of completed + unfinished → PARTIALLY_COMPLETED (never claim full COMPLETED;
  * never leave generic PROVIDER_SUBMISSION_PARTIAL once a child is COMPLETED).

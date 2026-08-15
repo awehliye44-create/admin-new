@@ -40,9 +40,9 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
 }
 
 function driverLabel(row: Pick<DriverWalletSsotRow, 'driver_code' | 'driver_name' | 'driver_id'>): string {
-  if (row.driver_name) return row.driver_name;
-  if (row.driver_code) return row.driver_code;
-  return row.driver_id.slice(0, 8);
+  if (row.driver_name?.trim()) return row.driver_name.trim();
+  if (row.driver_code?.trim()) return row.driver_code.trim();
+  return 'Unknown driver';
 }
 
 
@@ -172,9 +172,15 @@ export function DriverWalletSsotPanel({
                   >
                     <TableCell>
                       <div className="font-medium whitespace-nowrap">{driverLabel(row)}</div>
+                      {row.driver_name?.trim() && row.driver_code?.trim() ? (
+                        <div className="text-xs text-muted-foreground mt-0.5">{row.driver_code.trim()}</div>
+                      ) : null}
                     </TableCell>
-                    <TableCell className="text-xs font-mono text-muted-foreground whitespace-nowrap">
-                      {row.driver_code ?? row.driver_id.slice(0, 8)}
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      <div className="font-medium text-foreground">{row.driver_code?.trim() || '—'}</div>
+                      <div className="font-mono mt-0.5" title={row.driver_id}>
+                        Internal ID: {row.driver_id.slice(0, 8)}…
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">
                       {row.service_area_name ?? serviceAreaName ?? '—'}

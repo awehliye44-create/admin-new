@@ -29,6 +29,39 @@ export const VOIP_END_REASON = {
   FAILED: "FAILED",
 } as const;
 
+/** Raw active voip_call_logs row for trip-communication-config active_call. */
+export type ActiveVoipCallLogRow = {
+  id: string;
+  status: string;
+  started_at: string | null;
+  connected_at: string | null;
+  expires_at: string | null;
+  initiator_role: string | null;
+  initiator_user_id: string | null;
+};
+
+/**
+ * SSOT lookup for an in-flight VoIP session on a trip.
+ * Used by trip-communication-config so callees can poll-join when push misses.
+ */
+export async function findActiveVoipCallLog(
+  client: SupabaseClient,
+  tripId: string,
+): Promise<ActiveVoipCallLogRow | null> {
+  const { data } = await client
+    .from("voip_call_logs")
+    .select(
+      "id, status, started_at, connected_at, expires_at, initiator_role, initiator_user_id",
+    )
+    .eq("trip_id", tripId)
+    .is("ended_at", null)
+    .in("status", ["requested", "ringing", "connecting", "active"])
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data ?? null;
+}
+
 export type VoipSessionCreateInput = {
   tripId: string;
   serviceAreaId: string | null;

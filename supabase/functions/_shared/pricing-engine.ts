@@ -76,6 +76,15 @@ export type FarePricingRow = Record<string, unknown> & {
   demand_supply_multiplier?: number | null;
 };
 
+export type DistanceBandUsage = {
+  from_distance: number;
+  to_distance: number | null;
+  distance_used: number;
+  rate_per_unit_pence: number;
+  charge_pence: number;
+  unit: "mi" | "km";
+};
+
 export type DistancePricingMode = "flat" | "bands";
 
 /** Exclusive selector that the UI must branch on. Mixing breakdowns is a bug. */
@@ -123,6 +132,8 @@ export interface FareBreakdown {
   distance_pricing_mode: DistancePricingMode;
   /** Human-readable band summary for UI when distance_pricing_mode is bands. */
   distance_band_summary: string | null;
+  /** Used Admin bands for this trip — spans and charges from the engine, not the client. */
+  distance_bands: DistanceBandUsage[];
   /** Ride subtotal before minimum fare floor (money units). */
   subtotal_before_minimum: number;
   /** True when minimum_fare raised the trip fare above subtotal. */
@@ -488,11 +499,17 @@ export function calculateDistanceChargeMoney(input: {
   perKmRatePence?: number | null;
   distancePricingBands?: unknown;
   multiplier?: number;
-}): { charge: number; usedBands: boolean; bandSummary: string | null } {
+}): {
+  charge: number;
+  usedBands: boolean;
+  bandSummary: string | null;
+  bands: DistanceBandUsage[];
+} {
   const multiplier = input.multiplier ?? 1;
   const isMiles = String(input.distanceUnit || "km").toLowerCase().startsWith("mi");
   const tripDist = isMiles ? input.distanceKm / KM_PER_MILE : input.distanceKm;
   const bands = parseDistanceBands(input.distancePricingBands);
+  const unit: DistanceBandUsage["unit"] = isMiles ? "mi" : "km";
 
   if (bands.length === 0) {
     const perUnit = penceToUnit(input.perKmRatePence) * multiplier;
@@ -500,20 +517,33 @@ export function calculateDistanceChargeMoney(input: {
       charge: round2(tripDist * perUnit),
       usedBands: false,
       bandSummary: null,
+      bands: [],
     };
   }
 
   const sorted = [...bands].sort((a, b) => (a.from ?? 0) - (b.from ?? 0));
   let chargePence = 0;
+  const used: DistanceBandUsage[] = [];
   for (const b of sorted) {
     const upper = b.to == null ? Infinity : b.to;
     const span = Math.max(0, Math.min(tripDist, upper) - (b.from ?? 0));
-    if (span > 0) chargePence += span * (b.rate_pence ?? 0);
+    if (span <= 0) continue;
+    const raw = span * (b.rate_pence ?? 0);
+    chargePence += raw;
+    used.push({
+      from_distance: b.from ?? 0,
+      to_distance: b.to,
+      distance_used: round2(span),
+      rate_per_unit_pence: Math.round((b.rate_pence ?? 0) * multiplier),
+      charge_pence: Math.round(raw * multiplier),
+      unit,
+    });
   }
   return {
     charge: round2((chargePence / 100) * multiplier),
     usedBands: true,
     bandSummary: summariseDistanceBands(bands, input.distanceUnit),
+    bands: used,
   };
 }
 
@@ -734,6 +764,7 @@ export function fareBreakdownToTripSnapshot(
     fixedFareApplied: breakdown.fixed_fare_applied,
     distance_pricing_mode: breakdown.distance_pricing_mode,
     distance_band_summary: breakdown.distance_band_summary,
+    distance_bands: breakdown.distance_bands,
     subtotal_before_minimum: breakdown.subtotal_before_minimum,
     minimum_applied: breakdown.minimum_applied,
     totalFare: breakdown.final_fare,
@@ -858,6 +889,7 @@ export function calculateFare(input: CalculateFareInput): FareBreakdown {
   let rideFare = 0;
   let distancePricingMode: DistancePricingMode = "flat";
   let distanceBandSummary: string | null = null;
+  let distanceBandsUsed: DistanceBandUsage[] = [];
   let subtotalBeforeMinimum = 0;
   let minimumAppliedFlag = false;
 
@@ -878,6 +910,7 @@ export function calculateFare(input: CalculateFareInput): FareBreakdown {
     rideFare = Math.max(subtotalBeforeMinimum, minimumFare);
     distancePricingMode = distanceResult.usedBands ? "bands" : "flat";
     distanceBandSummary = distanceResult.bandSummary;
+    distanceBandsUsed = distanceResult.bands;
   }
 
   // STEP 4 — Waiting/cancellation handled by lifecycle endpoints; not in estimate.
@@ -944,6 +977,7 @@ export function calculateFare(input: CalculateFareInput): FareBreakdown {
     pricing_mode: tripPricingMode,
     distance_pricing_mode: fixedApplied ? "flat" : distancePricingMode,
     distance_band_summary: fixedApplied ? null : distanceBandSummary,
+    distance_bands: fixedApplied ? [] : distanceBandsUsed,
     subtotal_before_minimum: fixedApplied ? 0 : subtotalBeforeMinimum,
     minimum_applied: fixedApplied ? false : minimumAppliedFlag,
     route_match: fixedApplied && route != null,

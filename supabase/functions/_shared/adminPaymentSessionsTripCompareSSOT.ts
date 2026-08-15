@@ -29,6 +29,11 @@ import {
   resolveTripGrossCommissionPence,
 } from "../../../shared/paymentSessionsCommissionWidgetsSSOT.ts";
 import type { CommissionFeeSessionInput } from "../../../shared/driverWalletCommissionFeeSSOT.ts";
+import {
+  resolveOvercaptureCustomerPosition,
+  sumOvercaptureResolutionTotals,
+  type OvercaptureResolutionResult,
+} from "../../../shared/paymentSessionsOvercaptureResolutionSSOT.ts";
 
 export { sumReleasedBufferTotalPence };
 
@@ -60,6 +65,10 @@ export type TripCompareBundle = {
     | "matched_trips_count"
     | "capture_shortfall_pence"
     | "overcaptured_amount_pence"
+    | "gross_overcapture_pence"
+    | "resolved_overcapture_pence"
+    | "outstanding_customer_overcharge_pence"
+    | "refund_beyond_gross_overcapture_pence"
     | "missing_payment_sessions_count"
     | "released_buffer_total_pence"
     | "refunded_total_pence"
@@ -278,6 +287,7 @@ export async function buildPaymentSessionsTripCompare(
   let shortfallTotal: number | null = null;
   let overcaptureTotal: number | null = null;
   let missingSessions = 0;
+  const overcaptureResolutions: OvercaptureResolutionResult[] = [];
   const commissionTripInputs: Array<{
     trip_id: string;
     trip_code: string | null;
@@ -397,10 +407,30 @@ export async function buildPaymentSessionsTripCompare(
     if (matchStatus === "UNEXPLAINED_OVERCAPTURE" || matchStatus === "OVERCAPTURE") {
       if (breakdown.variance_pence != null && breakdown.variance_pence > 0) {
         overcaptureTotal = (overcaptureTotal ?? 0) + breakdown.variance_pence;
+        const resolution = resolveOvercaptureCustomerPosition({
+          expected_capture_pence: expected,
+          provider_captured_pence: actual,
+          refunded_amount_pence: session?.refunded_amount_pence ?? null,
+          gross_overcapture_pence: breakdown.variance_pence,
+        });
+        overcaptureResolutions.push(resolution);
       }
     }
 
     const varianceDisplay = breakdown.variance_pence ?? match.variance_pence;
+
+    const overcapturePence = matchStatus === "UNEXPLAINED_OVERCAPTURE" && breakdown.variance_pence != null
+      && breakdown.variance_pence > 0
+      ? breakdown.variance_pence
+      : null;
+    const overcaptureResolution = overcapturePence != null
+      ? resolveOvercaptureCustomerPosition({
+        expected_capture_pence: expected,
+        provider_captured_pence: actual,
+        refunded_amount_pence: session?.refunded_amount_pence ?? null,
+        gross_overcapture_pence: overcapturePence,
+      })
+      : null;
 
     commissionTripInputs.push({
       trip_id: tripId,
@@ -479,9 +509,13 @@ export async function buildPaymentSessionsTripCompare(
       shortfall_pence: matchStatus === "CAPTURE_SHORTFALL" && breakdown.variance_pence != null
         ? Math.abs(breakdown.variance_pence)
         : match.shortfall_pence,
-      overcapture_pence: matchStatus === "UNEXPLAINED_OVERCAPTURE" && breakdown.variance_pence != null
-        ? breakdown.variance_pence
-        : null,
+      overcapture_pence: overcapturePence,
+      refunded_amount_pence: session?.refunded_amount_pence ?? null,
+      outstanding_overcharge_pence: overcaptureResolution?.outstanding_customer_overcharge_pence
+        ?? null,
+      resolved_overcapture_pence: overcaptureResolution?.resolved_overcapture_pence ?? null,
+      refund_beyond_gross_overcapture_pence:
+        overcaptureResolution?.refund_beyond_gross_overcapture_pence ?? null,
       variance_reason: breakdown.variance_reason,
       capture_classification: breakdown.capture_classification,
       match_status: matchStatus,
@@ -582,6 +616,8 @@ export async function buildPaymentSessionsTripCompare(
     sessionByTripId: commissionSessionByTrip,
   });
 
+  const overcaptureResolutionTotals = sumOvercaptureResolutionTotals(overcaptureResolutions);
+
   return {
     completed_trip_rows: filteredCompleted,
     matching_rows: filteredMatching,
@@ -593,6 +629,12 @@ export async function buildPaymentSessionsTripCompare(
       matched_trips_count: matchedCount,
       capture_shortfall_pence: shortfallTotal,
       overcaptured_amount_pence: overcaptureTotal,
+      gross_overcapture_pence: overcaptureTotal,
+      resolved_overcapture_pence: overcaptureResolutionTotals.resolved_overcapture_pence,
+      outstanding_customer_overcharge_pence:
+        overcaptureResolutionTotals.outstanding_customer_overcharge_pence,
+      refund_beyond_gross_overcapture_pence:
+        overcaptureResolutionTotals.refund_beyond_gross_overcapture_pence,
       missing_payment_sessions_count: missingSessions,
       gross_onecab_commission_pence: commissionWidgets.gross_onecab_commission_pence,
       net_onecab_commission_pence: commissionWidgets.net_onecab_commission_pence,
@@ -631,6 +673,10 @@ function emptyCompareSummary(
     matched_trips_count: 0,
     capture_shortfall_pence: null,
     overcaptured_amount_pence: null,
+    gross_overcapture_pence: null,
+    resolved_overcapture_pence: null,
+    outstanding_customer_overcharge_pence: null,
+    refund_beyond_gross_overcapture_pence: null,
     missing_payment_sessions_count: 0,
     released_buffer_total_pence: sumReleasedBufferTotalPence(providerRows),
     refunded_total_pence: refundedTotal,

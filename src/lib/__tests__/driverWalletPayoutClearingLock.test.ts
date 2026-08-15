@@ -14,7 +14,7 @@ import { displayDriverWalletSsotBalances } from "@/lib/driverWalletSsotBalances"
 const NOW_MS = Date.parse("2026-08-15T16:00:00.000Z");
 const FRESH_CAPTURE = "2026-08-15T15:00:00.000Z";
 const CLEARED_AT = "2026-08-13T12:00:00.000Z";
-const POLICY_48H = { now_ms: NOW_MS, clearing_delay_hours: 48 };
+const POLICY_27H = { now_ms: NOW_MS, clearing_delay_hours: 27 };
 
 function earning(overrides: Partial<LedgerEligibilityEvidence> = {}): LedgerEligibilityEvidence {
   return {
@@ -57,12 +57,12 @@ function cleared(overrides: Partial<LedgerEligibilityEvidence> = {}) {
 
 describe("driver wallet payout clearing lock", () => {
   it("1. captured but uncleared PLATFORM_COLLECTED → Pending, not Available", () => {
-    const r = evaluateLedgerEntryEligibility(uncleared(), POLICY_48H);
+    const r = evaluateLedgerEntryEligibility(uncleared(), POLICY_27H);
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING);
     const agg = aggregateDriverPayoutEligibility({
       live_balance_pence: 2239,
       entries: [uncleared()],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     expect(agg).toMatchObject({
       live_balance_pence: 2239,
@@ -72,12 +72,12 @@ describe("driver wallet payout clearing lock", () => {
   });
 
   it("2. payout-cleared → Available", () => {
-    const r = evaluateLedgerEntryEligibility(cleared(), POLICY_48H);
+    const r = evaluateLedgerEntryEligibility(cleared(), POLICY_27H);
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE);
     const agg = aggregateDriverPayoutEligibility({
       live_balance_pence: 2239,
       entries: [cleared()],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     expect(agg).toMatchObject({
       live_balance_pence: 2239,
@@ -98,12 +98,12 @@ describe("driver wallet payout clearing lock", () => {
     const pendingAgg = aggregateDriverPayoutEligibility({
       live_balance_pence: 2239,
       entries: [uncleared()],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     const availableAgg = aggregateDriverPayoutEligibility({
       live_balance_pence: 2239,
       entries: [cleared()],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     expect(pendingAgg.live_balance_pence).toBe(availableAgg.live_balance_pence);
 
@@ -166,7 +166,7 @@ describe("driver wallet payout clearing lock", () => {
     const agg = aggregateDriverPayoutEligibility({
       live_balance_pence: 2239,
       entries: [uncleared()],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     expect(agg).toEqual(expect.objectContaining({
       live_balance_pence: 2239,
@@ -180,7 +180,7 @@ describe("driver wallet payout clearing lock", () => {
     const agg = aggregateDriverPayoutEligibility({
       live_balance_pence: 2239,
       entries: [uncleared()],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     const requested = 2239;
     expect(requested <= agg.available_balance_pence).toBe(false);
@@ -192,7 +192,7 @@ describe("driver wallet payout clearing lock", () => {
       live_balance_pence: 2239,
       reserved_payout_pence: 500,
       entries: [uncleared()],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     expect(agg.pending_balance_pence).toBe(2239);
     expect(agg.withdrawal_in_progress_pence).toBe(500);
@@ -202,13 +202,13 @@ describe("driver wallet payout clearing lock", () => {
   it("10. refund before availability holds the earning", () => {
     const r = evaluateLedgerEntryEligibility(
       uncleared({ refunded_amount_pence: 2634 }),
-      POLICY_48H,
+      POLICY_27H,
     );
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.REFUND_HOLD);
     const agg = aggregateDriverPayoutEligibility({
       live_balance_pence: 0,
       entries: [uncleared({ refunded_amount_pence: 2634 })],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     expect(agg.available_balance_pence).toBe(0);
     expect(agg.pending_balance_pence).toBe(0);
@@ -217,13 +217,13 @@ describe("driver wallet payout clearing lock", () => {
   it("11. refund after availability holds the earning", () => {
     const r = evaluateLedgerEntryEligibility(
       cleared({ refunded_amount_pence: 2634 }),
-      POLICY_48H,
+      POLICY_27H,
     );
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.REFUND_HOLD);
     const agg = aggregateDriverPayoutEligibility({
       live_balance_pence: 0,
       entries: [cleared({ refunded_amount_pence: 2634 })],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     expect(agg.available_balance_pence).toBe(0);
   });
@@ -231,7 +231,7 @@ describe("driver wallet payout clearing lock", () => {
   it("12. chargeback is held and not Available", () => {
     const r = evaluateLedgerEntryEligibility(
       uncleared({ chargeback_hold: true }),
-      POLICY_48H,
+      POLICY_27H,
     );
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.CHARGEBACK_HOLD);
   });
@@ -239,7 +239,7 @@ describe("driver wallet payout clearing lock", () => {
   it("13. partial capture is CAPTURE_MISMATCH, not Available", () => {
     const r = evaluateLedgerEntryEligibility(
       uncleared({ captured_amount_pence: 1000, canonical_driver_net_pence: 2239 }),
-      POLICY_48H,
+      POLICY_27H,
     );
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.CAPTURE_MISMATCH);
   });
@@ -250,12 +250,12 @@ describe("driver wallet payout clearing lock", () => {
         captured_amount_pence: null,
         payment_session_id: "ps-auth",
       }),
-      POLICY_48H,
+      POLICY_27H,
     );
     expect(authorisedOnly.status).toBe(PAYOUT_ELIGIBILITY_STATUS.CAPTURE_PENDING);
     const captureFail = evaluateLedgerEntryEligibility(
       uncleared({ captured_amount_pence: 0 }),
-      POLICY_48H,
+      POLICY_27H,
     );
     expect(captureFail.status).toBe(PAYOUT_ELIGIBILITY_STATUS.CAPTURE_PENDING);
   });
@@ -274,7 +274,7 @@ describe("driver wallet payout clearing lock", () => {
     const agg = aggregateDriverPayoutEligibility({
       live_balance_pence: 773,
       entries: [historical],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     expect(agg.available_balance_pence).toBe(0);
     expect(agg.pending_balance_pence).toBe(773);
@@ -285,14 +285,14 @@ describe("driver wallet payout clearing lock", () => {
   it("16. payout consumes Available exactly once", () => {
     const first = evaluateLedgerEntryEligibility(
       cleared({ allocated_to_payout: true }),
-      POLICY_48H,
+      POLICY_27H,
     );
     expect(first.status).toBe(PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED);
     expect(first.payable_pence).toBe(0);
     const agg = aggregateDriverPayoutEligibility({
       live_balance_pence: 0,
       entries: [cleared({ allocated_to_payout: true })],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     expect(agg.available_balance_pence).toBe(0);
     expect(agg.eligible_entries).toHaveLength(0);
@@ -309,7 +309,7 @@ describe("driver wallet payout clearing lock", () => {
         financial_model: "DRIVER_COLLECTED_COMMISSION_WALLET",
         payment_method: "cash",
       }),
-      POLICY_48H,
+      POLICY_27H,
     );
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE);
   });
@@ -318,20 +318,20 @@ describe("driver wallet payout clearing lock", () => {
     expect(isPayoutClearedForPlatformCollected({
       payment_collection_model: "PLATFORM_COLLECTED",
       captured_at: FRESH_CAPTURE,
-    }, POLICY_48H)).toBe(false);
+    }, POLICY_27H)).toBe(false);
     expect(isPayoutClearedForPlatformCollected({
       payment_collection_model: "PLATFORM_COLLECTED",
       captured_at: "2026-08-13T12:00:00.000Z",
-    }, POLICY_48H)).toBe(true);
+    }, POLICY_27H)).toBe(true);
     expect(isPayoutClearedForPlatformCollected({
       payment_collection_model: "PLATFORM_COLLECTED",
       provider_state: "COMPLETED",
       captured_at: FRESH_CAPTURE,
-    }, POLICY_48H)).toBe(false);
+    }, POLICY_27H)).toBe(false);
     expect(isPayoutClearedForPlatformCollected({
       payment_collection_model: "PLATFORM_COLLECTED",
       provider_available_on: CLEARED_AT,
-    }, POLICY_48H)).toBe(true);
+    }, POLICY_27H)).toBe(true);
   });
 
   it("DES settlement_status=settled is capture companion, not merchant clearing", () => {
@@ -341,7 +341,7 @@ describe("driver wallet payout clearing lock", () => {
         des_settlement_status: "settled",
         settled_at: FRESH_CAPTURE,
       }),
-      POLICY_48H,
+      POLICY_27H,
     );
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING);
   });
@@ -375,7 +375,7 @@ describe("driver wallet payout clearing lock", () => {
     const mk0001 = aggregateDriverPayoutEligibility({
       live_balance_pence: 2239,
       entries: [mk0001Pending, mk0001Cancelled, mk0001PaidOut],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     const mk0002 = aggregateDriverPayoutEligibility({
       live_balance_pence: 773,
@@ -389,14 +389,14 @@ describe("driver wallet payout clearing lock", () => {
           captured_amount_pence: 450,
         }),
       ],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     expect(mk0001.pending_balance_pence).toBe(565);
     expect(mk0002.pending_balance_pence).toBe(391);
     expect(mk0001.pending_balance_pence).not.toBe(mk0002.pending_balance_pence);
-    expect(evaluateLedgerEntryEligibility(mk0001Cancelled, POLICY_48H).status)
+    expect(evaluateLedgerEntryEligibility(mk0001Cancelled, POLICY_27H).status)
       .not.toBe(PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING);
-    expect(evaluateLedgerEntryEligibility(mk0001PaidOut, POLICY_48H).status)
+    expect(evaluateLedgerEntryEligibility(mk0001PaidOut, POLICY_27H).status)
       .toBe(PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED);
   });
 
@@ -428,11 +428,54 @@ describe("driver wallet payout clearing lock", () => {
     const agg = aggregateDriverPayoutEligibility({
       live_balance_pence: 2239,
       entries: [...capturedUncleared, ...noise],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     expect(agg.pending_balance_pence).toBe(1818);
     expect(agg.pending_balance_pence).not.toBe(2957);
     expect(agg.available_balance_pence).toBe(0);
+  });
+
+  it("MK0001: already-paid cleared history must not inflate Available above live − pending", () => {
+    // Unpaid set: one cleared (£4.21) + four settlement-pending (£18.18) = £22.39 live.
+    // Historical cleared rows still evaluate ELIGIBLE because DES allocation was never written.
+    const unpaidCleared = cleared({
+      ledger_entry_id: "mk-260813-002",
+      trip_id: "t-002",
+      amount_pence: 421,
+      canonical_driver_net_pence: 421,
+      captured_amount_pence: 495,
+      captured_at: CLEARED_AT,
+    });
+    const unpaidPending = [
+      uncleared({ ledger_entry_id: "a", trip_id: "t1", amount_pence: 565, canonical_driver_net_pence: 565, captured_amount_pence: 650 }),
+      uncleared({ ledger_entry_id: "b", trip_id: "t2", amount_pence: 396, canonical_driver_net_pence: 396, captured_amount_pence: 450 }),
+      uncleared({ ledger_entry_id: "c", trip_id: "t3", amount_pence: 475, canonical_driver_net_pence: 475, captured_amount_pence: 495 }),
+      uncleared({ ledger_entry_id: "d", trip_id: "t4", amount_pence: 382, canonical_driver_net_pence: 382, captured_amount_pence: 450 }),
+    ];
+    const alreadyPaidClearedPools = [
+      cleared({ ledger_entry_id: "paid-3149-a", trip_id: "tp1", amount_pence: 593, canonical_driver_net_pence: 593, captured_amount_pence: 700 }),
+      cleared({ ledger_entry_id: "paid-3149-b", trip_id: "tp2", amount_pence: 408, canonical_driver_net_pence: 408, captured_amount_pence: 480 }),
+      cleared({ ledger_entry_id: "paid-3149-c", trip_id: "tp3", amount_pence: 435, canonical_driver_net_pence: 435, captured_amount_pence: 510 }),
+      cleared({ ledger_entry_id: "paid-3149-d", trip_id: "tp4", amount_pence: 408, canonical_driver_net_pence: 408, captured_amount_pence: 480 }),
+      cleared({ ledger_entry_id: "paid-3149-e", trip_id: "tp5", amount_pence: 408, canonical_driver_net_pence: 408, captured_amount_pence: 480 }),
+      cleared({ ledger_entry_id: "paid-3149-f", trip_id: "tp6", amount_pence: 897, canonical_driver_net_pence: 897, captured_amount_pence: 1050 }),
+      cleared({ ledger_entry_id: "paid-3090-a", trip_id: "tp7", amount_pence: 674, canonical_driver_net_pence: 674, captured_amount_pence: 790 }),
+      cleared({ ledger_entry_id: "paid-3090-b", trip_id: "tp8", amount_pence: 598, canonical_driver_net_pence: 598, captured_amount_pence: 700 }),
+      cleared({ ledger_entry_id: "paid-3090-c", trip_id: "tp9", amount_pence: 297, canonical_driver_net_pence: 297, captured_amount_pence: 350 }),
+      cleared({ ledger_entry_id: "paid-3090-d", trip_id: "tp10", amount_pence: 382, canonical_driver_net_pence: 382, captured_amount_pence: 450 }),
+    ];
+    const agg = aggregateDriverPayoutEligibility({
+      live_balance_pence: 2239,
+      entries: [unpaidCleared, ...unpaidPending, ...alreadyPaidClearedPools],
+      clearing_policy: POLICY_27H,
+    });
+    expect(agg.live_balance_pence).toBe(2239);
+    expect(agg.pending_balance_pence).toBe(1818);
+    expect(agg.available_balance_pence).toBe(421);
+    expect(agg.available_balance_pence + agg.pending_balance_pence).toBe(2239);
+    expect(agg.eligible_earnings_pence).toBe(421);
+    // Raw cleared history still evaluates ELIGIBLE, but must not inflate Available.
+    expect(agg.eligible_entries.length).toBeGreaterThan(1);
   });
 
   it("Admin Driver Wallet list reads eligibility pending/available, not period KPI or live cashout", () => {
@@ -456,7 +499,7 @@ describe("driver wallet payout clearing lock", () => {
       live_balance_pence: 2239,
       outstanding_debt_pence: 2239,
       entries: [cleared()],
-      clearing_policy: POLICY_48H,
+      clearing_policy: POLICY_27H,
     });
     expect(agg.available_balance_pence).toBe(0);
     expect(agg.primary_hold_reason).toBe(PAYOUT_ELIGIBILITY_STATUS.DEBT_RECOVERY);

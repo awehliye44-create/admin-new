@@ -61,10 +61,28 @@ export function PaymentSessionsKpiStrip({
       drill: { tab: 'payment_matching', match_status: 'CAPTURE_SHORTFALL' },
     },
     {
-      id: 'overcapture',
-      label: 'Overcaptured Amount',
-      value: formatNullablePence(summary.overcaptured_amount_pence, currencyCode),
-      drill: { tab: 'payment_matching', match_status: 'OVERCAPTURE' },
+      id: 'gross_overcapture',
+      label: 'Gross Overcapture (Historical)',
+      value: formatNullablePence(
+        summary.gross_overcapture_pence ?? summary.overcaptured_amount_pence,
+        currencyCode,
+      ),
+      drill: { tab: 'payment_matching', match_status: 'UNEXPLAINED_OVERCAPTURE' },
+      hint: 'Gross unexplained capture vs expected — not outstanding customer debt',
+    },
+    {
+      id: 'resolved_overcapture',
+      label: 'Refunded / Resolved Overcapture',
+      value: formatNullablePence(summary.resolved_overcapture_pence, currencyCode),
+      drill: { tab: 'payment_matching', match_status: 'UNEXPLAINED_OVERCAPTURE' },
+      hint: 'Portion of gross overcapture already covered by confirmed refunds',
+    },
+    {
+      id: 'outstanding_overcharge',
+      label: 'Outstanding Customer Overcharge',
+      value: formatNullablePence(summary.outstanding_customer_overcharge_pence, currencyCode),
+      drill: { tab: 'payment_matching', match_status: 'UNEXPLAINED_OVERCAPTURE' },
+      hint: 'Net charged still above expected payable after refunds',
     },
     {
       id: 'missing_sessions',

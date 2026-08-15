@@ -361,6 +361,8 @@ export async function buildPayoutLedgerAccountsOverview(
     const provider = saMeta?.provider ?? null;
     const isRevolut = String(provider ?? "").toLowerCase() !== "stripe";
     const manualBank = true;
+    // Connect account id retired from drivers — Revolut/manual bank has no Connect id.
+    const connected: string | null = null;
     if (!manualBank) unverified += 1;
     const tierJoin = d.driver_categories as { name?: string } | { name?: string }[] | null;
     const tierName = Array.isArray(tierJoin)

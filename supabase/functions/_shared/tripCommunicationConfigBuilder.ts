@@ -38,6 +38,7 @@ export async function buildTripCommunicationConfigForTrip(
 
   return {
     ...config,
+    trip_id: trip.id,
     config_version: runtime.configVersion,
     service_area_id: trip.service_area_id,
   };

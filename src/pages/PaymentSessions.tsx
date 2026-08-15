@@ -79,7 +79,7 @@ import type { PaymentTripMatchStatus } from '../../shared/paymentSessionsTripMat
 const TABS: Array<{ id: AdminPaymentSessionsTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'provider_payments', label: 'Provider Payments' },
-  { id: 'completed_trips_paid', label: 'Completed Trips Paid' },
+  { id: 'completed_trips_paid', label: 'Completed Trips — Payment Status' },
   { id: 'payment_matching', label: 'Payment Matching' },
   { id: 'active_holds', label: 'Active Holds' },
   { id: 'captured', label: 'Captured — Provider Confirmed' },
@@ -1113,7 +1113,7 @@ export default function PaymentSessions() {
               {t.id === 'overview' && (
                 <p className="text-sm text-muted-foreground">
                   Payment Sessions are the customer payment source of truth. Provider Payments owns provider amounts;
-                  Completed Trips Paid shows backend fares; Payment Matching compares them.
+                  Completed Trips — Payment Status shows backend fares; Payment Matching compares them.
                   Financial Reconciliation audits these values — it never invents payment amounts.
                 </p>
               )}
@@ -1130,7 +1130,10 @@ export default function PaymentSessions() {
               )}
               {t.id === 'payment_matching' && (
                 <p className="text-sm text-muted-foreground">
-                  Comparison only: expected capture (trip final fare) vs provider-confirmed capture.
+                  Comparison only: expected capture vs provider-confirmed capture.
+                  Gross overcapture is historical evidence; Outstanding Customer Overcharge
+                  is what remains after confirmed refunds. Refunds above the original excess
+                  stay visible for reconciliation (not silently netted).
                 </p>
               )}
               {t.id === 'captured' && (

@@ -155,6 +155,8 @@ export type AdminPayoutLedgerFleetSummary = {
   /** Σ live DWL balances for listed drivers. */
   total_live_wallet_pence?: number;
   total_available_pence: number;
+  /** Σ ACTIVE driver_payout_reservations (not permanent debits). */
+  total_reserved_pence?: number;
   total_pending_pence?: number;
   total_outstanding_debt_pence?: number;
   total_scheduled_pence: number;

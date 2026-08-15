@@ -63,7 +63,7 @@ const DEFAULTS: PayoutControlCentreSettings = {
   early_cashout_min_pence: 500,
   early_cashout_max_pence: null,
   early_cashout_max_per_day: 1,
-  payout_clearing_delay_hours: 48,
+  payout_clearing_delay_hours: 27,
 };
 
 function parseMode(raw: unknown, fallback: PayoutRuleMode): PayoutRuleMode {

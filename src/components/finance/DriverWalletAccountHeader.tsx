@@ -32,6 +32,11 @@ function Field({ label, value }: { label: string; value: ReactNode }) {
 /**
  * Driver financial account header — identity + payout connectivity only.
  * Does not own bank transfer execution (Payout Ledger).
+ *
+ * Identity hierarchy (never UUID-first):
+ * 1. Driver name (profiles.full_name / drivers.first_name+last_name)
+ * 2. Driver code (drivers.driver_code)
+ * 3. Internal UUID as secondary audit only
  */
 export function DriverWalletAccountHeader({
   driver,
@@ -55,13 +60,24 @@ export function DriverWalletAccountHeader({
     driver.next_scheduled_payout_local ?? null,
   ].filter(Boolean).join(' · ') || '—';
 
+  const displayName = driver.driver_name?.trim() || null;
+  const displayCode = driver.driver_code?.trim() || null;
+
   return (
     <Card>
       <CardContent className="pt-4 pb-4 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold">{driver.driver_name ?? driver.driver_code ?? 'Driver'}</h2>
-            <p className="text-xs text-muted-foreground font-mono mt-0.5">{driver.driver_id}</p>
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Driver</p>
+            <h2 className="text-lg font-semibold mt-0.5">
+              {displayName ?? displayCode ?? 'Unknown driver'}
+            </h2>
+            {displayName && displayCode ? (
+              <p className="text-sm text-muted-foreground mt-0.5">{displayCode}</p>
+            ) : null}
+            <p className="text-[11px] text-muted-foreground font-mono mt-1" title={driver.driver_id}>
+              Internal ID: {driver.driver_id}
+            </p>
           </div>
           <Badge variant={statusVariant(driver.wallet_status)}>
             {driver.wallet_status ?? '—'}

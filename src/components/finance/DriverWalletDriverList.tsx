@@ -21,9 +21,9 @@ import {
 import { displayDriverWalletSsotBalances } from '@/lib/driverWalletSsotBalances';
 
 function driverLabel(row: Pick<DriverWalletSsotRow, 'driver_code' | 'driver_name' | 'driver_id'>): string {
-  if (row.driver_name) return row.driver_name;
-  if (row.driver_code) return row.driver_code;
-  return row.driver_id.slice(0, 8);
+  if (row.driver_name?.trim()) return row.driver_name.trim();
+  if (row.driver_code?.trim()) return row.driver_code.trim();
+  return 'Unknown driver';
 }
 
 function walletStatusVariant(status: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
@@ -156,11 +156,16 @@ export function DriverWalletDriverList({
                   }`}
                   onClick={() => onSelectDriver(row.driver_id)}
                 >
-                  <TableCell className="font-medium">{driverLabel(row)}</TableCell>
-                  <TableCell className="text-xs font-mono text-muted-foreground">
-                    <div>{row.driver_code ?? '—'}</div>
-                    <div className="truncate max-w-[120px]" title={row.driver_id}>
-                      {row.driver_id.slice(0, 8)}…
+                  <TableCell className="font-medium">
+                    <div>{driverLabel(row)}</div>
+                    {row.driver_name?.trim() && row.driver_code?.trim() ? (
+                      <div className="text-xs text-muted-foreground mt-0.5">{row.driver_code.trim()}</div>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    <div className="font-medium text-foreground">{row.driver_code?.trim() || '—'}</div>
+                    <div className="font-mono truncate max-w-[140px] mt-0.5" title={row.driver_id}>
+                      Internal ID: {row.driver_id.slice(0, 8)}…
                     </div>
                   </TableCell>
                   <TableCell className="text-xs">{row.service_area_name ?? '—'}</TableCell>

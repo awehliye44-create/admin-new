@@ -34,6 +34,7 @@ function methodOption(input: {
 
 function buildActiveCallPayload(input: {
   callId: string;
+  status: string;
   startedAt: string | null;
   connectedAt: string | null;
   expiresAt: string | null;
@@ -42,11 +43,13 @@ function buildActiveCallPayload(input: {
   const remainingSeconds = input.expiresAt
     ? Math.max(0, Math.floor((Date.parse(input.expiresAt) - Date.now()) / 1000))
     : null;
+  const allowedStatuses = new Set(["requested", "ringing", "connecting", "active"]);
+  const status = allowedStatuses.has(input.status) ? input.status : "ringing";
   return {
     call_id: input.callId,
     method: "voip" as const,
     provider: "livekit" as const,
-    status: "active" as const,
+    status,
     started_at: input.startedAt,
     connected_at: input.connectedAt,
     expires_at: input.expiresAt,
@@ -149,6 +152,7 @@ Deno.serve(async (req) => {
           : true;
         activeCall = buildActiveCallPayload({
           callId: activeLog.id,
+          status: activeLog.status,
           startedAt: activeLog.started_at,
           connectedAt: activeLog.connected_at,
           expiresAt: activeLog.expires_at,

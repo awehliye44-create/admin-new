@@ -206,6 +206,17 @@ export type AdminPaymentSessionsMatchingRow = {
   variance_pence: number | null;
   shortfall_pence: number | null;
   overcapture_pence: number | null;
+  /** Provider-confirmed refunds on the session (pence). Null = unknown / none recorded. */
+  refunded_amount_pence?: number | null;
+  /** Gross unexplained overcapture still above payable after refunds. */
+  outstanding_overcharge_pence?: number | null;
+  /** Portion of gross overcapture covered by refunds. */
+  resolved_overcapture_pence?: number | null;
+  /**
+   * Refund above gross overcapture (e.g. £6 refund on £3 excess).
+   * Historical reconciliation signal — not silently netted.
+   */
+  refund_beyond_gross_overcapture_pence?: number | null;
   variance_reason?: string | null;
   capture_classification?: string | null;
   match_status: PaymentTripMatchStatus;
@@ -247,7 +258,22 @@ export type AdminPaymentSessionsSummary = {
   completed_trip_fare_total_pence: number | null;
   matched_trips_count: number;
   capture_shortfall_pence: number | null;
+  /**
+   * Historical gross unexplained overcapture (actual − expected).
+   * Does not mean customers are still owed this amount.
+   */
   overcaptured_amount_pence: number | null;
+  /** Alias of overcaptured_amount_pence — explicit “gross / historical” label. */
+  gross_overcapture_pence?: number | null;
+  /** Portion of gross overcapture already covered by provider-confirmed refunds. */
+  resolved_overcapture_pence?: number | null;
+  /**
+   * Remaining customer overcharge after refunds:
+   * max(0, (captured − refunded) − expected) on unexplained-overcapture rows.
+   */
+  outstanding_customer_overcharge_pence?: number | null;
+  /** Refund total above gross overcapture (over-refund history; FR-visible). */
+  refund_beyond_gross_overcapture_pence?: number | null;
   missing_payment_sessions_count: number;
   released_buffer_total_pence: number | null;
   refunded_total_pence: number | null;

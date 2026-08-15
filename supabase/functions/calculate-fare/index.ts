@@ -300,6 +300,7 @@ Deno.serve(async (req) => {
           fixedFareApplied: breakdown.fixed_fare_applied,
           distancePricingMode: breakdown.distance_pricing_mode,
           distanceBandSummary: breakdown.distance_band_summary,
+          distanceBands: breakdown.distance_bands,
           minimumApplied: breakdown.minimum_applied,
           subtotalBeforeMinimum: breakdown.subtotal_before_minimum,
           grossFarePence: breakdown.final_fare_pence,

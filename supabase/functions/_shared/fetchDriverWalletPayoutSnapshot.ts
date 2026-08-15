@@ -96,11 +96,26 @@ export async function fetchDriverWalletPayoutSnapshot(
   const currency = (args.currency ?? "gbp").toLowerCase();
   const syncedAt = new Date().toISOString();
 
+  // Identity SSOT: public.drivers (first_name, last_name, driver_code) + profiles.full_name via user_id.
+  // Do not select retired Connect columns (e.g. provider_account_id) — missing columns null the whole row.
   const { data: driver } = await supabase
     .from("drivers")
-    .select("id, user_id, driver_code, first_name, last_name, provider_account_id, payouts_enabled, charges_enabled, onboarding_complete, region_id, category_id, driver_categories(name)")
+    .select("id, user_id, driver_code, first_name, last_name, payouts_enabled, charges_enabled, onboarding_complete, region_id, category_id, driver_categories(name)")
     .eq("id", args.driverId)
     .maybeSingle();
+
+  let profileFullName: string | null = null;
+  const driverUserId = driver?.user_id ? String(driver.user_id) : null;
+  if (driverUserId) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("user_id", driverUserId)
+      .eq("role", "driver")
+      .maybeSingle();
+    const trimmed = String(profile?.full_name ?? "").trim();
+    profileFullName = trimmed.length > 0 ? trimmed : null;
+  }
 
   const [
     fullLedgerRes,
@@ -154,6 +169,19 @@ export async function fetchDriverWalletPayoutSnapshot(
   const settlementTripIds = [...new Set(
     settlements.map((s) => String(s.trip_id ?? "")).filter(Boolean),
   )];
+  // DWL freeze/reconciliation must compare wallet trip credits to those trips' nets —
+  // not only the incomplete DES subset (which falsely freezes after historical payouts).
+  const walletCreditTripIds = [...new Set(
+    ledger
+      .filter((r) => {
+        const t = String(r.type ?? "").toUpperCase();
+        return (t === "TRIP_EARNING_NET" || t === "TRIP_SETTLEMENT_CORRECTION" || t === "SETTLEMENT_CORRECTION")
+          && Number(r.amount_pence ?? 0) !== 0
+          && r.related_trip_id;
+      })
+      .map((r) => String(r.related_trip_id)),
+  )];
+  const tripIdsForFr = [...new Set([...settlementTripIds, ...walletCreditTripIds])];
   const tripMetaById = new Map<string, {
     payment_method: string | null;
     payment_provider: string | null;
@@ -161,20 +189,20 @@ export async function fetchDriverWalletPayoutSnapshot(
   }>();
   const tripDetailById = new Map<string, Record<string, unknown>>();
   const sessionByTripId = new Map<string, Record<string, unknown>>();
-  if (settlementTripIds.length > 0) {
+  if (tripIdsForFr.length > 0) {
     const [tripRowsRes, sessionRowsRes] = await Promise.all([
       supabase
         .from("trips")
         .select(
           "id, trip_code, completed_at, passenger_name, payment_status, final_customer_fare_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, payment_session_id, provider_payment_id, service_area_id",
         )
-        .in("id", settlementTripIds),
+        .in("id", tripIdsForFr),
       supabase
         .from("payment_sessions")
         .select(
           "id, trip_id, captured_amount_pence, payment_provider, payment_method, provider_processing_fee_pence, fee_status, provider_order_id, provider_payment_id, provider_fee_percentage_snapshot_pence, provider_fixed_fee_snapshot_pence, provider_fee_total_snapshot_pence, provider_fee_currency_snapshot, provider_fee_version_snapshot, provider_fee_source, provider_fee_confirmed_at, provider_name_snapshot",
         )
-        .in("trip_id", settlementTripIds),
+        .in("trip_id", tripIdsForFr),
     ]);
     for (const t of tripRowsRes.data ?? []) {
       tripMetaById.set(String(t.id), {
@@ -332,9 +360,11 @@ export async function fetchDriverWalletPayoutSnapshot(
     snapshot.payout_blocked ? 0 : payoutEligibility.available_balance_pence,
   );
 
-  const driverName = driver
+  const driversTableName = driver
     ? `${String(driver.first_name ?? "").trim()} ${String(driver.last_name ?? "").trim()}`.trim() || null
     : null;
+  // Prefer profiles.full_name when present; fall back to drivers.first_name + last_name.
+  const driverName = profileFullName ?? driversTableName;
 
   const lastPaidPayout = [...providerPayouts]
     .filter((row) => {
@@ -358,25 +388,23 @@ export async function fetchDriverWalletPayoutSnapshot(
     if (driver?.payouts_enabled === false) verificationStatus = "restricted";
     else if (driver?.payouts_enabled !== false) verificationStatus = "manual_bank";
     else verificationStatus = "pending";
-  } else if (!driver?.provider_account_id) {
-    verificationStatus = "not_set";
-  } else if (driver.payouts_enabled && driver.onboarding_complete) {
-    verificationStatus = "verified";
-  } else if (driver.onboarding_complete || driver.charges_enabled) {
-    verificationStatus = "restricted";
   } else {
-    verificationStatus = "pending";
+    // Connect account id column retired from drivers — non-Revolut without Connect stays not_set.
+    verificationStatus = "not_set";
   }
 
   const settledTripsForFr: Array<{
     trip_id: string | null;
     driver_net_pence: number | null;
     settlement_status?: string | null;
-  }> = [...tripDetailById.values()].map((trip) => ({
-    trip_id: String(trip.id ?? ""),
-    driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
-    settlement_status: "settled",
-  }));
+  }> = walletCreditTripIds.map((tripId) => {
+    const trip = tripDetailById.get(tripId);
+    return {
+      trip_id: tripId,
+      driver_net_pence: trip?.driver_net_pence == null ? null : Number(trip.driver_net_pence),
+      settlement_status: "settled",
+    };
+  });
   if (settledTripsForFr.length === 0 && settlements.length > 0) {
     for (const s of settlements) {
       const tripId = s.trip_id == null ? null : String(s.trip_id);
@@ -400,7 +428,6 @@ export async function fetchDriverWalletPayoutSnapshot(
   if (
     String(payoutProviderResolved ?? "").toLowerCase() === "revolut"
     && providerBalanceStatus === "UNAVAILABLE"
-    && !driver?.provider_account_id
   ) {
     providerBalanceStatus = "NOT_APPLICABLE";
   }
@@ -633,9 +660,9 @@ export async function fetchDriverWalletPayoutSnapshot(
   let walletStatus: DriverWalletPayoutDetail["wallet_status"] = "ACTIVE";
   if (
     !isRevolutPayout
-    && !driver?.provider_account_id
     && String(payoutProviderResolved ?? "").toLowerCase() !== "revolut"
   ) {
+    // Connect account id column retired — non-Revolut destinations without Connect stay NOT_CONNECTED.
     walletStatus = "NOT_CONNECTED";
   } else if (
     snapshot.payout_blocked
@@ -691,7 +718,8 @@ export async function fetchDriverWalletPayoutSnapshot(
     user_id: (driver?.user_id as string) ?? null,
     driver_code: (driver?.driver_code as string) ?? null,
     driver_name: driverName,
-    connected_account_id: (driver?.provider_account_id as string) ?? null,
+    // Legacy Connect account id retired from drivers — Revolut/manual bank uses payout destination status.
+    connected_account_id: null,
     verification_status: verificationStatus,
     bank_account_last4: bankLast4,
     payouts_enabled: driver?.payouts_enabled ?? null,

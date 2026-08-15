@@ -40,9 +40,11 @@ export function PaymentSessionsMatchingTable({
             <TableHead>Customer</TableHead>
             <TableHead>Expected Capture</TableHead>
             <TableHead>Actual Capture</TableHead>
+            <TableHead>Refunded</TableHead>
             <TableHead>Authorised</TableHead>
             <TableHead>Released</TableHead>
             <TableHead>Variance</TableHead>
+            <TableHead>Outstanding Overcharge</TableHead>
             <TableHead>Reason</TableHead>
             <TableHead>Classification</TableHead>
             <TableHead>Match Status</TableHead>
@@ -63,6 +65,15 @@ export function PaymentSessionsMatchingTable({
               <TableCell className="text-xs">{row.customer_name ?? '—'}</TableCell>
               <TableCell className="text-xs">{formatNullablePence(row.expected_capture_pence, currencyCode)}</TableCell>
               <TableCell className="text-xs">{formatNullablePence(row.actual_capture_pence, currencyCode)}</TableCell>
+              <TableCell className="text-xs">
+                {formatNullablePence(row.refunded_amount_pence, currencyCode)}
+                {row.refund_beyond_gross_overcapture_pence != null
+                  && row.refund_beyond_gross_overcapture_pence > 0 && (
+                  <div className="text-[10px] text-amber-700">
+                    beyond excess {formatNullablePence(row.refund_beyond_gross_overcapture_pence, currencyCode)}
+                  </div>
+                )}
+              </TableCell>
               <TableCell className="text-xs">{formatNullablePence(row.authorised_amount_pence, currencyCode)}</TableCell>
               <TableCell className="text-xs">{formatNullablePence(row.released_amount_pence, currencyCode)}</TableCell>
               <TableCell className="text-xs">
@@ -74,9 +85,17 @@ export function PaymentSessionsMatchingTable({
                 )}
                 {row.overcapture_pence != null && (
                   <div className="text-[10px] text-amber-700">
-                    over {formatNullablePence(row.overcapture_pence, currencyCode)}
+                    gross over {formatNullablePence(row.overcapture_pence, currencyCode)}
                   </div>
                 )}
+                {row.resolved_overcapture_pence != null && row.resolved_overcapture_pence > 0 && (
+                  <div className="text-[10px] text-muted-foreground">
+                    resolved {formatNullablePence(row.resolved_overcapture_pence, currencyCode)}
+                  </div>
+                )}
+              </TableCell>
+              <TableCell className="text-xs">
+                {formatNullablePence(row.outstanding_overcharge_pence, currencyCode)}
               </TableCell>
               <TableCell className="text-xs max-w-[140px] truncate" title={row.variance_reason ?? undefined}>
                 {row.variance_reason ?? '—'}

@@ -11,7 +11,7 @@ import {
   resolveCompanyBalanceSnapshot,
   type CompanyBalanceSnapshot,
   type CompanyBalanceStatusCode,
-} from "../../../shared/companyBalanceSSOT.ts";
+} from "./companyBalanceSSOT.ts";
 import { listRevolutAccounts, type RevolutAccount } from "./revolutApi.ts";
 import {
   persistRevolutBusinessTokens,
@@ -21,6 +21,8 @@ import {
   isRevolutBusinessRelayConfigured,
   relayRevolutAccounts,
 } from "./revolutBusinessRelayClient.ts";
+import { loadPaymentSessionsNetCommissionPence } from "./payoutLedgerCompanyFundingCommissionSSOT.ts";
+import { resolveLoadedOperationalReserve } from "./companyOperationalReserveLoadSSOT.ts";
 
 /**
  * Production Revolut Business /accounts must use the fixed-IP relay when configured.
@@ -452,6 +454,99 @@ export async function resolveLiveCompanyBalanceSnapshot(args: {
       last_provider_sync_at: persisted?.last_provider_sync_at ?? null,
     });
   }
+}
+
+/**
+ * Slice 10 gate for Payout Ledger / company transfers.
+ * Loads Payment Sessions net commission (classified cash) + operational reserve,
+ * then recomposes Company Balance. Never invents £0 when sources fail closed.
+ */
+export async function resolveLiveCompanyBalanceWithSlice10Gate(args: {
+  supabase?: AnySupabase;
+  service_area_id?: string | null;
+  currency?: string | null;
+  approved_payables_pending_pence?: number | null;
+  driver_liability_pence?: number | null;
+  driver_payout_reserved_pence?: number | null;
+  customer_refund_reserved_pence?: number | null;
+  operational_reserve_pence?: number | null;
+  classified_company_cash_pence?: number | null;
+  refresh?: boolean;
+}): Promise<CompanyBalanceSnapshot> {
+  const live = await resolveLiveCompanyBalanceSnapshot({
+    supabase: args.supabase,
+    service_area_id: args.service_area_id,
+    currency: args.currency,
+    approved_payables_pending_pence: args.approved_payables_pending_pence,
+    driver_liability_pence: args.driver_liability_pence,
+    driver_payout_reserved_pence: args.driver_payout_reserved_pence,
+    customer_refund_reserved_pence: args.customer_refund_reserved_pence,
+    refresh: args.refresh,
+  });
+
+  let classified = args.classified_company_cash_pence ?? null;
+  if (classified == null && args.supabase) {
+    try {
+      const commission = await loadPaymentSessionsNetCommissionPence(args.supabase, {
+        service_area_id: args.service_area_id ?? null,
+      });
+      classified = commission.net_onecab_commission_pence;
+    } catch (err) {
+      console.warn("[company-balance] PS net commission load failed", err);
+      classified = null;
+    }
+  }
+
+  let reservePence = args.operational_reserve_pence ?? null;
+  let reserveReason: string | null = null;
+  if (reservePence == null && args.supabase) {
+    const eligibleForReserve =
+      live.company_available_before_operational_reserve_pence
+      ?? live.provider_cash_balance_pence
+      ?? live.company_ledger_balance_pence;
+    try {
+      const reserve = await resolveLoadedOperationalReserve(args.supabase, {
+        service_area_id: args.service_area_id ?? null,
+        currency: args.currency ?? live.currency ?? "GBP",
+        eligible_company_cash_pence: eligibleForReserve,
+      });
+      reservePence = reserve.amount_pence;
+      reserveReason = String(reserve.reason_code ?? reserve.error_code ?? "").trim() || null;
+    } catch (err) {
+      console.warn("[company-balance] operational reserve load failed", err);
+      reservePence = null;
+      reserveReason = "OPERATIONAL_RESERVE_QUERY_FAILED";
+    }
+  }
+
+  const statusCode: CompanyBalanceStatusCode | string | null =
+    live.status === "LIVE" || live.status_code === "AVAILABLE"
+      ? "AVAILABLE"
+      : (live.status_code ?? live.unavailable_reason ?? live.status);
+
+  return resolveCompanyBalanceSnapshot({
+    service_area_id: live.service_area_id,
+    currency: live.currency,
+    company_ledger_balance_pence: live.company_ledger_balance_pence,
+    provider_cash_balance_pence: live.provider_cash_balance_pence,
+    provider_current_balance_pence: live.provider_current_balance_pence,
+    provider_available_balance_pence: live.provider_available_balance_pence,
+    approved_payables_pending_pence:
+      args.approved_payables_pending_pence ?? live.approved_payables_pending_pence,
+    driver_liability_pence: args.driver_liability_pence ?? live.driver_liability_pence,
+    driver_payout_reserved_pence:
+      args.driver_payout_reserved_pence ?? live.driver_payout_reserved_pence,
+    customer_refund_reserved_pence:
+      args.customer_refund_reserved_pence ?? live.customer_refund_reserved_pence,
+    operational_reserve_pence: reservePence,
+    operational_reserve_reason_code: reserveReason,
+    classified_company_cash_pence: classified,
+    source_account_id: live.source_account_id,
+    source_account_label: live.source_account_label,
+    status_code: statusCode,
+    last_provider_sync_at: live.last_provider_sync_at,
+    refresh_requested: args.refresh === true,
+  });
 }
 
 export { COMPANY_BALANCE_ERROR };

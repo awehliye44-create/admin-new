@@ -46,7 +46,7 @@ export const DES_SOURCE_PHASE1_BACKFILL = "REVOLUT_PHASE1_BACKFILL";
 export const DES_FORMULA_VERSION = "payout_eligibility_v2";
 
 /** Backend-owned fallback when Revolut does not expose a merchant-clearing event. */
-export const DEFAULT_PAYOUT_CLEARING_DELAY_HOURS = 48;
+export const DEFAULT_PAYOUT_CLEARING_DELAY_HOURS = 27;
 
 /** Holds that mean captured-but-not-withdrawable (settlement Pending). Not reservations, not voided/uncaptured. */
 export const SETTLEMENT_PENDING_HOLD_REASONS = new Set<PayoutEligibilityStatus>([
@@ -405,8 +405,16 @@ function settlementPendingPence(held: HeldPayoutEntry[]): number {
 
 /**
  * Aggregate per-driver payout eligibility from evaluated ledger evidence.
- * available = min(live, eligible_sum) − debt − withdrawal_in_progress (floored at 0).
+ *
+ * Unpaid invariant (debt/reservations aside):
+ *   Pending + Available = Live unpaid balance
+ *
+ * available = min(eligible_sum, live − pending) − debt − withdrawal_in_progress (floored at 0).
  * pending = captured SETTLEMENT_PENDING only (not reservations, not cancelled/uncaptured).
+ *
+ * eligible_sum may still list historically cleared rows that were already paid out
+ * (DES allocation missing). Cap Available (and reported eligible_earnings) by
+ * live − pending so already-paid pools cannot inflate Available above unpaid live.
  */
 export function aggregateDriverPayoutEligibility(
   input: AggregateDriverPayoutEligibilityInput,
@@ -521,17 +529,17 @@ export function aggregateDriverPayoutEligibility(
     }
   }
 
-  let available = Math.max(
-    0,
-    Math.min(Math.max(0, live), eligibleSum) - debt - withdrawalInProgress,
-  );
-
   const pending = settlementPendingPence(held_entries);
+  // Cap cleared pool by unpaid live after settlement-pending — already-paid history
+  // still present in eligibleSum must not make Available copy Live.
+  const unpaidLiveAfterPending = Math.max(0, Math.max(0, live) - pending);
+  const unpaidEligible = Math.min(Math.max(0, eligibleSum), unpaidLiveAfterPending);
+  let available = Math.max(0, unpaidEligible - debt - withdrawalInProgress);
 
   // Debt recovery can wipe available even when entries are otherwise eligible.
   let primary: DriverPayoutEligibilityResult["primary_hold_reason"] = null;
   if (available <= 0 && live > 0) {
-    if (debt > 0 && eligibleSum > 0 && Math.min(Math.max(0, live), eligibleSum) - debt <= 0) {
+    if (debt > 0 && unpaidEligible > 0 && unpaidEligible - debt <= 0) {
       primary = PAYOUT_ELIGIBILITY_STATUS.DEBT_RECOVERY;
       available = 0;
     } else if (held_entries.length > 0) {
@@ -547,7 +555,7 @@ export function aggregateDriverPayoutEligibility(
     pending_balance_pence: pending,
     withdrawal_in_progress_pence: withdrawalInProgress,
     outstanding_debt_pence: debt,
-    eligible_earnings_pence: eligibleSum,
+    eligible_earnings_pence: unpaidEligible,
     eligible_entries,
     held_entries,
     primary_hold_reason: primary,

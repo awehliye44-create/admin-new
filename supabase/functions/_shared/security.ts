@@ -34,14 +34,6 @@ export const securityHeaders = {
   'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
 };
 
-/** Back-compat alias used by payment + dispatch Edge Functions. */
-export const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': NATIVE_APP_CORS_ALLOW_HEADERS,
-  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-  'Content-Type': 'application/json',
-};
-
 export const jsonHeaders = {
   ...securityHeaders,
   'Content-Type': 'application/json',
@@ -253,105 +245,25 @@ export function handleCORSPreflight(): Response {
 
 // ==================== SUCCESS/ERROR RESPONSES ====================
 
-/**
- * Payment / dispatch convention (dominant in this repo):
- *   errorResponse(message, status?, details?, errorCode?)
- * Also accepts the newer shape:
- *   errorResponse(errorCode, message, status?, details?)
- */
-export function errorResponse(
-  errorOrMessage: string,
-  messageOrStatus?: string | number,
-  statusOrDetails?: number | unknown,
-  detailsOrCode?: unknown,
-): Response {
-  // New style: second arg is a string message.
-  if (typeof messageOrStatus === "string") {
-    const error = errorOrMessage;
-    const message = messageOrStatus;
-    const status = typeof statusOrDetails === "number" ? statusOrDetails : 500;
-    const details = detailsOrCode;
-    const body: Record<string, unknown> = {
-      success: false,
-      error,
-      message,
-      code: error,
-      error_code: error,
-      retryable: status >= 500,
-      retry_allowed: status >= 500,
-    };
-    if (details !== undefined) body.details = details;
-    return new Response(JSON.stringify(body), {
-      status,
-      headers: jsonHeaders,
-    });
-  }
-
-  // Payment style: errorResponse(message, status, details?, errorCode?)
-  const message = errorOrMessage;
-  const status = typeof messageOrStatus === "number" ? messageOrStatus : 400;
-  const details =
-    statusOrDetails && typeof statusOrDetails === "object"
-      ? (statusOrDetails as Record<string, unknown>)
-      : undefined;
-  const errorCode = typeof detailsOrCode === "string" ? detailsOrCode : null;
-  return new Response(
-    JSON.stringify({
-      success: false,
-      error: message,
-      message,
-      code: errorCode,
-      error_code: errorCode,
-      retryable: status >= 500,
-      retry_allowed: status >= 500,
-      ...(details ?? {}),
-    }),
-    {
-      status,
-      headers: jsonHeaders,
-    },
-  );
-}
-
 export function successResponse(data: unknown, status = 200): Response {
-  if (data && typeof data === "object" && !Array.isArray(data)) {
-    return new Response(JSON.stringify({ success: true, ...(data as Record<string, unknown>) }), {
-      status,
-      headers: jsonHeaders,
-    });
-  }
   return new Response(JSON.stringify(data), {
     status,
     headers: jsonHeaders,
   });
 }
 
-/** Soft audit logger — never throws into the payment path. */
-// deno-lint-ignore no-explicit-any
-export async function logAuditEvent(
-  supabase: any,
-  eventType: string,
-  options: {
-    userId?: string;
-    driverId?: string;
-    tripId?: string;
-    details?: Record<string, unknown>;
-    ipAddress?: string;
-    userAgent?: string;
-  } = {},
-): Promise<void> {
-  try {
-    await supabase.rpc("log_audit_event", {
-      p_event_type: eventType,
-      p_user_id: options.userId || null,
-      p_driver_id: options.driverId || null,
-      p_trip_id: options.tripId || null,
-      p_details: options.details || {},
-      p_ip_address: options.ipAddress || null,
-      p_user_agent: options.userAgent || null,
-    });
-  } catch (error) {
-    console.error("[audit] Failed to log audit event:", eventType, error);
+export function errorResponse(
+  error: string,
+  message: string,
+  status = 500,
+  details?: unknown
+): Response {
+  const body: Record<string, unknown> = { error, message };
+  if (details !== undefined) {
+    body.details = details;
   }
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: jsonHeaders,
+  });
 }
-

@@ -11,6 +11,7 @@ import {
 } from "../_shared/voipCallLogs.ts";
 import { findVoipCallByRoomName, capDurationSeconds } from "../_shared/tripCallSession.ts";
 import { mapLiveKitWebhookEventType } from "../_shared/tripCallStatus.ts";
+import { shouldFinalizeVoipOnLastParticipantLeft } from "../_shared/voipLastParticipantLeftSSOT.ts";
 
 function json(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
@@ -164,8 +165,16 @@ Deno.serve(async (req) => {
         .eq("id", session.callId)
         .is("ended_at", null);
 
-      // Last participant left — terminalise if room webhook is delayed.
-      if (remaining <= 0) {
+      // Last participant left — only end if the call had actually connected.
+      // Solo ringing/connecting leave is reconnect noise (audio reassert / ICE);
+      // finalising here deletes the room and the caller client self hang-ups.
+      if (
+        remaining <= 0 &&
+        shouldFinalizeVoipOnLastParticipantLeft({
+          connected_at: log.connected_at,
+          status: log.status,
+        })
+      ) {
         const baseMs = new Date(log.connected_at ?? log.started_at).getTime();
         const duration = capDurationSeconds(Math.floor((Date.now() - baseMs) / 1000));
         await finalizeVoipCallLog(client, session.callId, {
@@ -173,9 +182,28 @@ Deno.serve(async (req) => {
           end_reason: VOIP_END_REASON.PARTICIPANT_LEFT,
           status: log.connected_at ? "completed" : "missed",
         });
+      } else if (remaining <= 0) {
+        console.info("[livekit-webhook] skip finalize on solo ring leave", {
+          call_id: session.callId,
+          status: log.status,
+        });
       }
     }
   } else if (mapped === "room_finished") {
+    // Empty-room close during solo ring must not end the invite — same class as
+    // participant_left self hang-up (caller audio blip → room empty → finished).
+    if (
+      !shouldFinalizeVoipOnLastParticipantLeft({
+        connected_at: session.connectedAt,
+        status: session.status,
+      })
+    ) {
+      console.info("[livekit-webhook] skip finalize on room_finished during solo ring", {
+        call_id: session.callId,
+        status: session.status,
+      });
+      return json(200, { ok: true, skipped_solo_ring: true });
+    }
     const baseMs = new Date(session.connectedAt ?? session.startedAt ?? Date.now()).getTime();
     const duration = capDurationSeconds(Math.floor((Date.now() - baseMs) / 1000));
     await finalizeVoipCallLog(client, session.callId, {
