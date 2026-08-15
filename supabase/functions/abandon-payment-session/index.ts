@@ -7,6 +7,7 @@ import {
 import {
   releaseHoldForPaymentSession,
   sessionAgeMs,
+  shouldForceAuthorisedSessionRelease,
 } from "../_shared/holdReleaseSSOT.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 
@@ -98,10 +99,13 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
     return json({ success: true, skipped: true, reason: "session_already_terminal", status });
   }
 
-  // Post-auth abandon: authorised + no trip + age > 30s → release hold
+  // Post-auth abandon: authorised + no trip → release hold.
+  // 30s grace is only for checkout-abandon / Try Again. Platform booking
+  // failures (CTAP never started) must release immediately.
   if (isAuthorisedHoldSessionStatus(status)) {
     const ageMs = sessionAgeMs(session);
-    if (ageMs < ABANDON_RELEASE_MIN_AGE_MS) {
+    const forceRelease = shouldForceAuthorisedSessionRelease(reason);
+    if (!forceRelease && ageMs < ABANDON_RELEASE_MIN_AGE_MS) {
       return json({
         success: true,
         skipped: true,
@@ -131,6 +135,15 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
       release,
     });
 
+    if (!release.ok) {
+      return json({
+        success: false,
+        error: release.error ?? "release_failed",
+        released: release.released,
+        release_status: release.status,
+      }, 500);
+    }
+
     return json({
       success: true,
       abandoned: true,
@@ -139,7 +152,40 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
     });
   }
 
-  // Pre-auth / pending: mark abandoned (no provider release if not authorised)
+  // Pre-auth / pending: cancel the Revolut order if it exists (PENDING can
+  // still authorise later). Then mark the local session abandoned.
+  if (orderId) {
+    const release = await releaseHoldForPaymentSession(supabase, {
+      providerOrderId: orderId,
+      clientActionId: clientActionId ?? String(session.client_action_id ?? ""),
+      terminalReason: reason,
+      source: "abandon-payment-session",
+      idempotencyKey: `abandon_pending_${sessionId}`,
+      session,
+    });
+    console.info("CHECKOUT_CANCELLED", {
+      client_action_id: clientActionId ?? session.client_action_id,
+      provider_order_id: orderId,
+      reason,
+      release,
+    });
+    if (release.ok || release.released) {
+      return json({
+        success: true,
+        abandoned: true,
+        released: release.released,
+        release_status: release.status,
+      });
+    }
+
+    return json({
+      success: false,
+      error: release.error ?? "release_failed",
+      released: false,
+      release_status: release.status,
+    }, 500);
+  }
+
   await markPaymentSessionAbandoned(supabase, {
     clientActionId: clientActionId ?? String(session.client_action_id ?? ""),
     providerOrderId: orderId,

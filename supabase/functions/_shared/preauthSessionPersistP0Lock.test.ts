@@ -55,6 +55,7 @@ Deno.test("create-trip-after-payment still gates on payment session", () => {
   const src = Deno.readTextFileSync(`${ROOT}/create-trip-after-payment/index.ts`);
   assertEquals(src.includes("gatePaymentSessionForTripCreate"), true);
   assertEquals(src.includes("BOOKING_FAILED_PREAUTH_REVERSED"), true);
+  assertEquals(src.includes("releaseHoldForPaymentSession"), true);
   const ssot = Deno.readTextFileSync(`${ROOT}/_shared/paymentSessionSSOT.ts`);
   assertEquals(ssot.includes("payment_session_missing"), true);
   assertEquals(ssot.includes("gatePaymentSessionForTripCreate"), true);

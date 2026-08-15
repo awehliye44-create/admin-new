@@ -272,7 +272,30 @@ export async function markPaymentSessionReleased(
     patch.release_verified_at = now;
   }
 
-  await markPaymentSessionStatus(supabase, "released", args, patch);
+  // prevent_authorised_session_client_cancel uses OLD.provider_state.
+  // Flip AUTHORISED/COMPLETED first, then set status cancelled.
+  const sessionId = session?.id ? String(session.id) : null;
+  const oldState = String(session?.provider_state ?? "").toUpperCase();
+  if (sessionId && (oldState === "AUTHORISED" || oldState === "AUTHORIZED" || oldState === "COMPLETED")) {
+    const { error: flipErr } = await supabase
+      .from("payment_sessions")
+      .update({
+        provider_state: oldState === "COMPLETED" ? "REFUNDED" : "CANCELLED",
+        provider_state_verified_at: now,
+        provider_state_verified_by: "markPaymentSessionReleased",
+        updated_at: now,
+      })
+      .eq("id", sessionId);
+    if (flipErr) {
+      console.warn("[paymentSessionSSOT] provider_state pre-flip failed", flipErr.message);
+    }
+  }
+
+  await markPaymentSessionStatus(supabase, "released", {
+    sessionId,
+    clientActionId: args.clientActionId,
+    providerOrderId: args.providerOrderId,
+  }, patch);
 }
 
 /**

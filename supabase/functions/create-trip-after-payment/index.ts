@@ -27,7 +27,6 @@ import {
   stripeRetiredHttpResponse,
 } from "../_shared/stripeRuntimeDisabled.ts";
 import {
-  cancelRevolutOrder,
   type RevolutOrder,
 } from "../_shared/revolutOrders.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
@@ -45,6 +44,7 @@ import { digitalOnlyPaymentMethodFlags } from "../../../shared/digitalFinanceSSO
 import { isAuthorisedHoldSessionStatus } from "../../../shared/revolutPaymentHoldSSOT.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { createBookingWaterfallCollector } from "../_shared/bookingWaterfallTelemetry.ts";
+import { releaseHoldForPaymentSession } from "../_shared/holdReleaseSSOT.ts";
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
@@ -119,9 +119,24 @@ async function failBookingAfterAuthorizedRevolutOrder(
 ): Promise<Response> {
   let reversalStatus = "none";
   try {
-    const { secretKey, environment } = await resolveRevolutMerchantContext(supabase, "live");
-    await cancelRevolutOrder(environment, secretKey, order.id);
-    reversalStatus = "cancelled";
+    const release = await releaseHoldForPaymentSession(supabase, {
+      providerOrderId: order.id,
+      clientActionId: ctx.clientActionId ?? null,
+      terminalReason: ctx.failureReason || "booking_failed_no_trip",
+      source: "create-trip-after-payment",
+      idempotencyKey: `ctap_fail_${ctx.clientActionId ?? order.id}`,
+    });
+    reversalStatus =
+      release.released || release.idempotent || release.status === "released"
+        ? "cancelled"
+        : "failed";
+    if (reversalStatus === "failed") {
+      console.error("[CREATE-TRIP-AFTER-PAYMENT] Revolut session release failed", {
+        order_id: order.id,
+        status: release.status,
+        error: release.error ?? null,
+      });
+    }
   } catch (err) {
     console.error("[CREATE-TRIP-AFTER-PAYMENT] Revolut cancel failed", {
       order_id: order.id,

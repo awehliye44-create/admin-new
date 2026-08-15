@@ -17,6 +17,11 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
+import {
+  releaseHoldForPaymentSession,
+  sessionAgeMs,
+  TRIPLESS_AUTHORISED_HOLD_SWEEP_MIN_AGE_MS,
+} from "../_shared/holdReleaseSSOT.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -280,12 +285,124 @@ serve(async (req) => {
     }
   }
 
+  // Trip-less AUTHORISED holds: create-trip never started (or failed before
+  // insert). The trip-scoped query above excludes these — they stay on the
+  // customer's card until this path cancels the Revolut order.
+  const { data: triplessSessions } = await supabase
+    .from("payment_sessions")
+    .select(
+      "id, trip_id, provider_order_id, client_action_id, authorised_amount_pence, provider_state, status, created_at, authorised_at, released_at, captured_at, hold_release_state",
+    )
+    .in("provider_state", ["AUTHORISED", "AUTHORIZED"])
+    .in("status", ["payment_authorised", "pending_payment", "payment_orphaned"])
+    .is("trip_id", null)
+    .not("provider_order_id", "is", null)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  const { data: localOnlyStale } = await supabase
+    .from("payment_sessions")
+    .select("id, provider_state, status, created_at, authorised_at")
+    .in("provider_state", ["AUTHORISED", "AUTHORIZED"])
+    .in("status", ["payment_authorised", "pending_payment", "payment_orphaned"])
+    .is("trip_id", null)
+    .is("provider_order_id", null)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  const orphanResults: Array<Record<string, unknown>> = [];
+  for (const row of localOnlyStale ?? []) {
+    const ageMs = sessionAgeMs(row as Record<string, unknown>);
+    if (ageMs < TRIPLESS_AUTHORISED_HOLD_SWEEP_MIN_AGE_MS) continue;
+    if (dryRun) {
+      orphanResults.push({
+        payment_session_id: row.id,
+        dry_run: true,
+        action: "would_close_local_only_stale",
+        age_ms: ageMs,
+      });
+      continue;
+    }
+    const now = new Date().toISOString();
+    const { error: flipErr } = await supabase.from("payment_sessions").update({
+      provider_state: "CANCELLED",
+      provider_state_verified_at: now,
+      provider_state_verified_by: "sweep_local_only_stale",
+      updated_at: now,
+    }).eq("id", row.id);
+    if (flipErr) {
+      orphanResults.push({ payment_session_id: row.id, outcome: "LOCAL_FLIP_FAILED", message: flipErr.message });
+      continue;
+    }
+    const { error: closeErr } = await supabase.from("payment_sessions").update({
+      status: "cancelled",
+      hold_release_state: "released",
+      released_at: now,
+      hold_terminal_reason: "sweep_local_only_no_provider_order",
+      failure_reason: "missing_provider_order_id",
+      updated_at: now,
+    }).eq("id", row.id);
+    orphanResults.push({
+      payment_session_id: row.id,
+      action: "closed_local_only_stale",
+      ok: !closeErr,
+      error: closeErr?.message ?? null,
+      age_ms: ageMs,
+    });
+  }
+
+  for (const row of triplessSessions ?? []) {
+    const ageMs = sessionAgeMs(row as Record<string, unknown>);
+    if (ageMs < TRIPLESS_AUTHORISED_HOLD_SWEEP_MIN_AGE_MS) {
+      orphanResults.push({
+        payment_session_id: row.id,
+        skipped: true,
+        reason: "authorised_too_recent",
+        age_ms: ageMs,
+      });
+      continue;
+    }
+    if (dryRun) {
+      orphanResults.push({
+        payment_session_id: row.id,
+        dry_run: true,
+        action: "would_release_tripless_hold",
+        auth_pence: row.authorised_amount_pence,
+        order_mask: String(row.provider_order_id).slice(0, 8) + "…",
+        age_ms: ageMs,
+      });
+      continue;
+    }
+    try {
+      const release = await releaseHoldForPaymentSession(supabase, {
+        providerOrderId: String(row.provider_order_id),
+        clientActionId: (row.client_action_id as string | null) ?? null,
+        terminalReason: "sweep_tripless_authorised_hold",
+        source: "sweep-revolut-stale-holds",
+        idempotencyKey: `sweep_tripless_${row.id}`,
+        session: row as Record<string, unknown>,
+      });
+      orphanResults.push({
+        payment_session_id: row.id,
+        ...release,
+        age_ms: ageMs,
+      });
+    } catch (e) {
+      orphanResults.push({
+        payment_session_id: row.id,
+        outcome: "PROVIDER_FAILED",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
   return new Response(JSON.stringify({
     success: true,
     dry_run: dryRun,
     scanned_sessions: sessionRows.length,
     eligible: candidates.length,
     results,
+    tripless_holds: orphanResults,
     completed_capture_heals: healResults,
     watchdog: {
       unresolved_count: watchdog.length,
