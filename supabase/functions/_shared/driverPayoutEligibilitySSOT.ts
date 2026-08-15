@@ -48,10 +48,9 @@ export const DES_FORMULA_VERSION = "payout_eligibility_v2";
 /** Backend-owned fallback when Revolut does not expose a merchant-clearing event. */
 export const DEFAULT_PAYOUT_CLEARING_DELAY_HOURS = 48;
 
-/** Holds that mean earned-but-not-withdrawable (settlement Pending). Not reservations. */
+/** Holds that mean captured-but-not-withdrawable (settlement Pending). Not reservations, not voided/uncaptured. */
 export const SETTLEMENT_PENDING_HOLD_REASONS = new Set<PayoutEligibilityStatus>([
   PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING,
-  PAYOUT_ELIGIBILITY_STATUS.CAPTURE_PENDING,
 ]);
 
 export type PayoutClearingPolicy = {
@@ -373,7 +372,7 @@ function settlementPendingPence(held: HeldPayoutEntry[]): number {
 /**
  * Aggregate per-driver payout eligibility from evaluated ledger evidence.
  * available = min(live, eligible_sum) − debt − withdrawal_in_progress (floored at 0).
- * pending = settlement-pending + capture-pending only (not reservations).
+ * pending = captured SETTLEMENT_PENDING only (not reservations, not cancelled/uncaptured).
  */
 export function aggregateDriverPayoutEligibility(
   input: AggregateDriverPayoutEligibilityInput,

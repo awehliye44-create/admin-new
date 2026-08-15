@@ -284,7 +284,7 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
       ],
     });
     expect(held.available_balance_pence).toBe(0);
-    expect(held.pending_balance_pence).toBe(408);
+    expect(held.pending_balance_pence).toBe(0);
   });
 
   it("FR/settlement completeness derives BALANCED without provider", () => {

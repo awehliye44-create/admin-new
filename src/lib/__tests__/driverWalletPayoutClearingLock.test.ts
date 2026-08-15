@@ -346,6 +346,41 @@ describe("driver wallet payout clearing lock", () => {
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING);
   });
 
+  it("cancelled and uncaptured holds are not settlement Pending", () => {
+    const capturedUncleared = [
+      uncleared({ ledger_entry_id: "a", trip_id: "t1", amount_pence: 565, canonical_driver_net_pence: 565, captured_amount_pence: 650 }),
+      uncleared({ ledger_entry_id: "b", trip_id: "t2", amount_pence: 396, canonical_driver_net_pence: 396, captured_amount_pence: 450 }),
+      uncleared({ ledger_entry_id: "c", trip_id: "t3", amount_pence: 475, canonical_driver_net_pence: 475, captured_amount_pence: 495 }),
+      uncleared({ ledger_entry_id: "d", trip_id: "t4", amount_pence: 382, canonical_driver_net_pence: 382, captured_amount_pence: 450 }),
+    ];
+    const noise = [
+      uncleared({
+        ledger_entry_id: "cancel",
+        trip_id: "t-cancel",
+        amount_pence: 425,
+        canonical_driver_net_pence: 425,
+        captured_amount_pence: null,
+        payment_session_id: "ps-cancel",
+      }),
+      uncleared({
+        ledger_entry_id: "auth",
+        trip_id: "t-auth",
+        amount_pence: 714,
+        canonical_driver_net_pence: 714,
+        captured_amount_pence: null,
+        payment_session_id: "ps-auth",
+      }),
+    ];
+    const agg = aggregateDriverPayoutEligibility({
+      live_balance_pence: 2239,
+      entries: [...capturedUncleared, ...noise],
+      clearing_policy: POLICY_48H,
+    });
+    expect(agg.pending_balance_pence).toBe(1818);
+    expect(agg.pending_balance_pence).not.toBe(2957);
+    expect(agg.available_balance_pence).toBe(0);
+  });
+
   it("Admin Driver Wallet list reads eligibility pending/available, not period KPI or live cashout", () => {
     const row = {
       wallet_balance_pence: 2239,

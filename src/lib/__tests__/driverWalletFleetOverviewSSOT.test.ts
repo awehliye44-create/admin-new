@@ -41,7 +41,7 @@ describe('buildDriverWalletFleetOverview', () => {
         wallet_balance_pence: 2239,
         cashout_limit_pence: 2239,
         available_for_payout_pence: 2239,
-        pending_balance_pence: 2957,
+        pending_balance_pence: 1818,
         period_kpis: { pending_earnings_pence: 0 },
         wallet_status: 'ACTIVE',
       },
@@ -49,14 +49,14 @@ describe('buildDriverWalletFleetOverview', () => {
         wallet_balance_pence: 773,
         cashout_limit_pence: 773,
         available_for_payout_pence: 773,
-        pending_balance_pence: 2244,
+        pending_balance_pence: 1155,
         period_kpis: { pending_earnings_pence: 0 },
         wallet_status: 'ACTIVE',
       },
     ]);
     expect(overview.total_live_balance_pence).toBe(3012);
     expect(overview.total_available_balance_pence).toBe(3012);
-    expect(overview.total_pending_balance_pence).toBe(5201);
+    expect(overview.total_pending_balance_pence).toBe(2973);
   });
 
   it('returns zeros for empty fleet', () => {

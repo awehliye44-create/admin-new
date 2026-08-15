@@ -45,14 +45,14 @@ describe('mergeDriverWalletEligibilityOverlay', () => {
       {
         driver_id: 'mk0001',
         available_balance_pence: 2239,
-        pending_balance_pence: 2957,
+        pending_balance_pence: 1818,
         withdrawal_in_progress_pence: 0,
       },
     );
-    expect(merged.pending_balance_pence).toBe(2957);
+    expect(merged.pending_balance_pence).toBe(1818);
     expect(merged.available_for_payout_pence).toBe(2239);
     expect(merged.cashout_limit_pence).toBe(2239);
-    expect(merged.period_kpis?.pending_earnings_pence).toBe(2957);
-    expect(displayDriverWalletSsotBalances(merged).pendingPence).toBe(2957);
+    expect(merged.period_kpis?.pending_earnings_pence).toBe(1818);
+    expect(displayDriverWalletSsotBalances(merged).pendingPence).toBe(1818);
   });
 });

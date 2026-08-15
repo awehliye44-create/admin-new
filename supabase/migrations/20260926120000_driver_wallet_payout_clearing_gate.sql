@@ -208,7 +208,10 @@ BEGIN
     IF v_refunded > 0
        OR v_session_status LIKE '%refund%'
        OR v_session_status LIKE '%chargeback%'
-       OR v_session_status LIKE '%dispute%' THEN
+       OR v_session_status LIKE '%dispute%'
+       OR v_session_status LIKE '%cancel%'
+       OR v_session_status LIKE '%void%'
+       OR lower(COALESCE(r.provider_state, '')) IN ('cancelled', 'canceled', 'failed', 'void') THEN
       CONTINUE;
     END IF;
 
@@ -217,8 +220,8 @@ BEGIN
       ELSE round(r.captured_amount_pence)::bigint
     END;
 
+    -- Uncaptured / authorised-only is not settlement Pending.
     IF r.session_id IS NULL OR v_captured IS NULL OR v_captured <= 0 THEN
-      v_pending := v_pending + r.amount_pence;
       CONTINUE;
     END IF;
 
