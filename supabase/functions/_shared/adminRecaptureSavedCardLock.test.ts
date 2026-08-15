@@ -120,6 +120,20 @@ Deno.test("D. retry after £4 saved-card success forwards charged and does not s
   assertEquals(recaptureAttemptBadgeLabel(outcome.status), "Saved card charged");
 });
 
+Deno.test("pending saved-card provider state is processing, not charged UI and not a payment link", () => {
+  const outcome = deriveAdminRecaptureOutcome({
+    saved_card_charged: true,
+    requires_customer_action: false,
+    checkout_url: "https://checkout.revolut.com/pay/recover-4",
+    saved_card_state: "PROCESSING",
+  });
+  assertEquals(outcome.saved_card_charged, true);
+  assertEquals(outcome.requires_customer_action, false);
+  assertEquals(outcome.show_payment_link, false);
+  assertEquals(outcome.status, TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
+  assertEquals(recaptureAttemptBadgeLabel(outcome.status), "Recapture processing");
+});
+
 Deno.test("refresh with leftover open recovery still shows Saved card charged", () => {
   const ui = resolveRecaptureAttemptUi({
     attemptState: null,
@@ -136,6 +150,7 @@ Deno.test("admin-recapture-trip-shortfall forwards saved_card_charged and uses S
   assert(src.includes("deriveAdminRecaptureOutcome"));
   assert(src.includes("saved_card_charged: outcome.saved_card_charged"));
   assert(src.includes("saved_card_charged: recoveryJson.saved_card_charged"));
+  assert(src.includes("saved_card_state: recoveryJson.saved_card_state"));
   assert(!/requiresCustomerAction = !!\(\s*recoveryJson\.checkout_url/.test(src));
 });
 

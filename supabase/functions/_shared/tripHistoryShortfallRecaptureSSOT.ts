@@ -380,6 +380,28 @@ export type SavedCardAttemptFromMetadata = {
   error: string | null;
 };
 
+const PENDING_SAVED_CARD_STATES = new Set([
+  "PROCESSING",
+  "AUTHORISED",
+  "AUTHORIZED",
+  "PENDING",
+]);
+
+const CONFIRMED_SAVED_CARD_STATES = new Set([
+  "COMPLETED",
+  "CAPTURED",
+]);
+
+export function isPendingSavedCardProviderState(state: unknown): boolean {
+  const s = asNonEmptyString(state);
+  return s != null && PENDING_SAVED_CARD_STATES.has(s.toUpperCase());
+}
+
+export function isConfirmedSavedCardProviderState(state: unknown): boolean {
+  const s = asNonEmptyString(state);
+  return s != null && CONFIRMED_SAVED_CARD_STATES.has(s.toUpperCase());
+}
+
 export function readSavedCardAttemptFromSessionMetadata(
   metadata: unknown,
 ): SavedCardAttemptFromMetadata {
@@ -408,6 +430,7 @@ export function buildReusedRecoveryContract(args: {
   requires_customer_action: boolean;
   saved_card_attempted: boolean;
   saved_card_error: string | null;
+  saved_card_state: string | null;
 } {
   const attempt = readSavedCardAttemptFromSessionMetadata(args.metadata);
   return {
@@ -415,6 +438,7 @@ export function buildReusedRecoveryContract(args: {
     requires_customer_action: !attempt.succeeded,
     saved_card_attempted: attempt.attempted,
     saved_card_error: attempt.error,
+    saved_card_state: attempt.state,
   };
 }
 
@@ -427,6 +451,7 @@ export type AdminRecaptureRecoveryInput = {
   reused?: unknown;
   message?: unknown;
   saved_card_error?: unknown;
+  saved_card_state?: unknown;
 };
 
 export type AdminRecaptureOutcome = {
@@ -473,7 +498,9 @@ export function deriveAdminRecaptureOutcome(
   if (alreadyCompleted) {
     status = TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID;
   } else if (savedCardCharged && !requiresCustomerAction) {
-    status = TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED;
+    status = isPendingSavedCardProviderState(recovery.saved_card_state)
+      ? TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING
+      : TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED;
   } else if (requiresCustomerAction) {
     status = TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED;
   } else if (looksFailed) {
@@ -504,6 +531,7 @@ export function resolveRecaptureAttemptUi(args: {
   attemptState: TripShortfallRecaptureUiState | null;
   hasOpenRecoverySession: boolean;
   openRecoverySavedCardCharged?: boolean;
+  openRecoverySavedCardPending?: boolean;
   gateUiState: TripShortfallRecaptureUiState;
 }): {
   ui_state: TripShortfallRecaptureUiState;
@@ -530,7 +558,9 @@ export function resolveRecaptureAttemptUi(args: {
   }
   if (args.openRecoverySavedCardCharged === true) {
     return {
-      ui_state: TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED,
+      ui_state: args.openRecoverySavedCardPending === true
+        ? TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING
+        : TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED,
       show_payment_link: false,
     };
   }

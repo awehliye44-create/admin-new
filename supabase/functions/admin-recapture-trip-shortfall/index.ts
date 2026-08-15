@@ -342,6 +342,8 @@ Deno.serve(async (req) => {
       already_completed: recoveryJson.already_completed,
       reused: recoveryJson.reused === true || hasOpenRecovery,
       message: recoveryJson.message,
+      saved_card_error: recoveryJson.saved_card_error,
+      saved_card_state: recoveryJson.saved_card_state,
     });
 
     return jsonResponse({
@@ -351,6 +353,7 @@ Deno.serve(async (req) => {
       saved_card_charged: outcome.saved_card_charged,
       saved_card_attempted: recoveryJson.saved_card_attempted === true,
       saved_card_error: recoveryJson.saved_card_error ?? null,
+      saved_card_state: recoveryJson.saved_card_state ?? null,
       checkout_url: recoveryJson.checkout_url ?? null,
       payment_session_id: recoveryJson.payment_session_id ?? null,
       provider_order_id: recoveryJson.provider_order_id ?? null,

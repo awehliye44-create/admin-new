@@ -274,19 +274,20 @@ serve(async (req) => {
       passenger_id: trip.passenger_id ?? null,
       payment_provider: paymentProvider,
       provider_order_id: providerOrderId,
-      open_recovery_session: openRecovery
-        ? {
+      open_recovery_session: (() => {
+        if (!openRecovery) return null;
+        const savedCard = readSavedCardAttemptFromSessionMetadata(openRecovery.metadata);
+        return {
           id: openRecovery.id,
           status: openRecovery.status,
           provider_checkout_url: openRecovery.provider_checkout_url ?? null,
           provider_order_id: openRecovery.provider_order_id ?? null,
           estimated_total_pence: openRecovery.estimated_total_pence ?? null,
           captured_amount_pence: openRecovery.captured_amount_pence ?? null,
-          saved_card_charged: readSavedCardAttemptFromSessionMetadata(
-            openRecovery.metadata,
-          ).succeeded,
-        }
-        : null,
+          saved_card_charged: savedCard.succeeded,
+          saved_card_state: savedCard.state,
+        };
+      })(),
       ssot_source: 'trip_financial_audit',
       payment_intent_id: providerOrderId,
       charge_id,

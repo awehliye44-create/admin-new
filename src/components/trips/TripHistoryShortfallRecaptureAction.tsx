@@ -25,6 +25,7 @@ import { Loader2, CreditCard, Copy, ExternalLink, CheckCircle2 } from 'lucide-re
 import { toast } from 'sonner';
 import {
   evaluateTripHistoryShortfallRecaptureEligibility,
+  isPendingSavedCardProviderState,
   recaptureActionLabel,
   recaptureAttemptBadgeLabel,
   resolveRecaptureAttemptUi,
@@ -45,6 +46,7 @@ type OpenRecoverySession = {
   estimated_total_pence: number | null;
   captured_amount_pence: number | null;
   saved_card_charged?: boolean | null;
+  saved_card_state?: string | null;
 };
 
 type Props = {
@@ -168,6 +170,7 @@ export function TripHistoryShortfallRecaptureAction({
         saved_card_charged?: boolean;
         saved_card_attempted?: boolean;
         saved_card_error?: string | null;
+        saved_card_state?: string | null;
       };
     },
     onSuccess: (data) => {
@@ -181,11 +184,28 @@ export function TripHistoryShortfallRecaptureAction({
           description: data.message ?? 'Recovery payment already completed for this trip.',
         });
       } else if (data.saved_card_charged === true && data.requires_customer_action !== true) {
-        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED);
+        const pending = data.status === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING
+          || isPendingSavedCardProviderState(data.saved_card_state);
+        setAttemptState(
+          pending
+            ? TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING
+            : TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED,
+        );
         setCheckoutUrl(null);
-        toast.success('Saved card charged', {
-          description: data.message ?? 'Off-session charge accepted — waiting for provider confirmation.',
-        });
+        if (pending) {
+          toast.message('Recapture processing', {
+            description: data.message ?? 'Saved-card charge is pending with the provider.',
+          });
+        } else {
+          toast.success('Saved card charged', {
+            description: data.message ?? 'Off-session charge accepted — waiting for provider confirmation.',
+          });
+        }
+      } else if (data.status === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED) {
+        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED);
+        setCheckoutUrl(null);
+        setLastErrorCode(data.saved_card_error ?? 'RECAPTURE_FAILED');
+        toast.error(data.message ?? 'Recapture failed');
       } else if (data.requires_customer_action === true) {
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED);
         if (data.checkout_url) setCheckoutUrl(data.checkout_url);
@@ -297,6 +317,7 @@ export function TripHistoryShortfallRecaptureAction({
     attemptState,
     hasOpenRecoverySession: hasLiveOpenRecovery,
     openRecoverySavedCardCharged: openRecovery?.saved_card_charged === true,
+    openRecoverySavedCardPending: isPendingSavedCardProviderState(openRecovery?.saved_card_state),
     gateUiState: gate.ui_state,
   });
   const effectiveUi = resolvedUi.ui_state;

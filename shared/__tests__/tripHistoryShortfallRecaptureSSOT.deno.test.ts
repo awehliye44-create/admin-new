@@ -257,6 +257,19 @@ Deno.test("processing is not overridden by a stale open recovery session", () =>
   assertEquals(ui.show_payment_link, false);
 });
 
+Deno.test("pending saved-card state is processing without a payment link", () => {
+  const outcome = deriveAdminRecaptureOutcome({
+    saved_card_charged: true,
+    requires_customer_action: false,
+    checkout_url: "https://checkout.revolut.com/pay/recover-4",
+    saved_card_state: "PROCESSING",
+  });
+  assertEquals(outcome.saved_card_charged, true);
+  assertEquals(outcome.requires_customer_action, false);
+  assertEquals(outcome.show_payment_link, false);
+  assertEquals(outcome.status, TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
+});
+
 Deno.test("refresh after saved-card success is not forced to a payment link", () => {
   const ui = resolveRecaptureAttemptUi({
     attemptState: null,

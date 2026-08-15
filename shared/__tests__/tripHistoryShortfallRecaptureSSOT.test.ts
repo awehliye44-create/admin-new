@@ -193,6 +193,19 @@ describe("tripHistoryShortfallRecaptureSSOT", () => {
     expect(outcome.status).toBe(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED);
   });
 
+  it("pending saved-card state stays processing and never shows a payment link", () => {
+    const outcome = deriveAdminRecaptureOutcome({
+      saved_card_charged: true,
+      requires_customer_action: false,
+      checkout_url: "https://checkout.revolut.com/pay/recover-4",
+      saved_card_state: "AUTHORISED",
+    });
+    expect(outcome.saved_card_charged).toBe(true);
+    expect(outcome.requires_customer_action).toBe(false);
+    expect(outcome.show_payment_link).toBe(false);
+    expect(outcome.status).toBe(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
+  });
+
   it("processing is not overridden by a stale open recovery session", () => {
     const ui = resolveRecaptureAttemptUi({
       attemptState: TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING,

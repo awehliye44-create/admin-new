@@ -312,6 +312,7 @@ Deno.serve(async (req) => {
         saved_card_charged: reusedContract.saved_card_charged,
         saved_card_attempted: reusedContract.saved_card_attempted,
         saved_card_error: reusedContract.saved_card_error,
+        saved_card_state: reusedContract.saved_card_state,
         amount: chargePence,
         currency,
         reused: true,
@@ -432,6 +433,7 @@ Deno.serve(async (req) => {
             saved_card_charged: racedContract.saved_card_charged,
             saved_card_attempted: racedContract.saved_card_attempted,
             saved_card_error: racedContract.saved_card_error,
+            saved_card_state: racedContract.saved_card_state,
             amount: chargePence,
             currency,
             reused: true,
@@ -598,6 +600,7 @@ Deno.serve(async (req) => {
       saved_card_charged: savedCardAttempt.succeeded,
       saved_card_attempted: savedCardAttempt.attempted,
       saved_card_error: savedCardAttempt.error,
+      saved_card_state: savedCardAttempt.state,
       message: savedCardAttempt.succeeded
         ? "Saved card charged off-session — awaiting provider webhook confirmation."
         : (savedCardAttempt.attempted
