@@ -64,6 +64,9 @@ export function mergeDriverWalletEligibilityOverlay<T extends DriverWalletSsotBa
       : {}),
     ...(pending != null ? { pending_balance_pence: pending } : {}),
     ...(withdrawal != null ? { withdrawal_in_progress_pence: withdrawal } : {}),
+    ...(minor(overlay.live_balance_pence) != null
+      ? { wallet_balance_pence: minor(overlay.live_balance_pence) }
+      : {}),
     period_kpis: row.period_kpis
       ? {
           ...row.period_kpis,

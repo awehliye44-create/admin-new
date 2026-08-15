@@ -346,6 +346,60 @@ describe("driver wallet payout clearing lock", () => {
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING);
   });
 
+  it("each driver Pending is own completed captured unpaid earnings — not cancelled, not paid out", () => {
+    const mk0001Pending = uncleared({
+      trip_status: "completed",
+      ledger_entry_id: "mk1-a",
+      trip_id: "t-mk1-a",
+      amount_pence: 565,
+      canonical_driver_net_pence: 565,
+      captured_amount_pence: 650,
+    });
+    const mk0001Cancelled = uncleared({
+      trip_status: "cancelled",
+      ledger_entry_id: "mk1-cancel",
+      trip_id: "t-mk1-cancel",
+      amount_pence: 425,
+      canonical_driver_net_pence: 425,
+      captured_amount_pence: 500,
+    });
+    const mk0001PaidOut = uncleared({
+      trip_status: "completed",
+      ledger_entry_id: "mk1-paid",
+      trip_id: "t-mk1-paid",
+      amount_pence: 408,
+      canonical_driver_net_pence: 408,
+      captured_amount_pence: 480,
+      paid_in_batch_id: "batch-1",
+    });
+    const mk0001 = aggregateDriverPayoutEligibility({
+      live_balance_pence: 2239,
+      entries: [mk0001Pending, mk0001Cancelled, mk0001PaidOut],
+      clearing_policy: POLICY_48H,
+    });
+    const mk0002 = aggregateDriverPayoutEligibility({
+      live_balance_pence: 773,
+      entries: [
+        uncleared({
+          trip_status: "completed",
+          ledger_entry_id: "mk2-a",
+          trip_id: "t-mk2-a",
+          amount_pence: 391,
+          canonical_driver_net_pence: 391,
+          captured_amount_pence: 450,
+        }),
+      ],
+      clearing_policy: POLICY_48H,
+    });
+    expect(mk0001.pending_balance_pence).toBe(565);
+    expect(mk0002.pending_balance_pence).toBe(391);
+    expect(mk0001.pending_balance_pence).not.toBe(mk0002.pending_balance_pence);
+    expect(evaluateLedgerEntryEligibility(mk0001Cancelled, POLICY_48H).status)
+      .not.toBe(PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING);
+    expect(evaluateLedgerEntryEligibility(mk0001PaidOut, POLICY_48H).status)
+      .toBe(PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED);
+  });
+
   it("cancelled and uncaptured holds are not settlement Pending", () => {
     const capturedUncleared = [
       uncleared({ ledger_entry_id: "a", trip_id: "t1", amount_pence: 565, canonical_driver_net_pence: 565, captured_amount_pence: 650 }),

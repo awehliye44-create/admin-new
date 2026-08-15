@@ -184,6 +184,11 @@ export type LedgerEligibilityEvidence = {
   provider_state?: string | null;
   captured_at?: string | null;
   earning_credited_at?: string | null;
+  /** Trip workflow status. Pending/Available require completed, never cancelled. */
+  trip_status?: string | null;
+  trip_cancelled?: boolean | null;
+  completed_at?: string | null;
+  session_status?: string | null;
 };
 
 export type EligiblePayoutEntry = {
@@ -275,6 +280,31 @@ export function deriveTripFrStatusForPayoutEligibility(args: {
   return settled ? "BALANCED" : null;
 }
 
+export function isCancelledOrUncompletedEarning(entry: {
+  trip_status?: string | null;
+  trip_cancelled?: boolean | null;
+  completed_at?: string | null;
+  session_status?: string | null;
+  provider_state?: string | null;
+}): boolean {
+  if (entry.trip_cancelled === true) return true;
+  const trip = String(entry.trip_status ?? "").trim().toLowerCase();
+  const session = String(entry.session_status ?? "").trim().toLowerCase();
+  const state = String(entry.provider_state ?? "").trim().toLowerCase();
+  if (trip.includes("cancel")) return true;
+  if (
+    session.includes("cancel")
+    || session.includes("void")
+    || session.includes("fail")
+    || session === "released"
+  ) {
+    return true;
+  }
+  if (["cancelled", "canceled", "failed", "void"].includes(state)) return true;
+  if (trip && trip !== "completed" && !entry.completed_at) return true;
+  return false;
+}
+
 /**
  * Evaluate one balance-affecting earning credit.
  * Capture is necessary but not sufficient for PLATFORM_COLLECTED Available.
@@ -293,6 +323,10 @@ export function evaluateLedgerEntryEligibility(
 
   if (entry.paid_in_batch_id || entry.allocated_to_payout === true) {
     return { status: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED, payable_pence: 0 };
+  }
+
+  if (isCancelledOrUncompletedEarning(entry)) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
   }
 
   const allocated = Math.max(0, Math.round(Number(entry.allocated_amount_pence ?? 0)));

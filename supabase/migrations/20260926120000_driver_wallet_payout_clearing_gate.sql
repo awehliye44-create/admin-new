@@ -147,6 +147,9 @@ BEGIN
       t.payment_collection_model::text AS payment_collection_model,
       t.financial_model::text AS financial_model,
       t.payment_method AS trip_payment_method,
+      t.status::text AS trip_status,
+      t.cancelled_at AS trip_cancelled_at,
+      t.completed_at AS trip_completed_at,
       t.driver_net_pence,
       t.tip_pence,
       t.tip_amount_pence,
@@ -200,6 +203,21 @@ BEGIN
       COALESCE(r.allocated_amount_pence, 0)
     );
     IF v_allocated >= r.amount_pence THEN
+      CONTINUE;
+    END IF;
+
+    -- Only completed trips. Never cancelled. Never paid-out (handled above).
+    IF r.related_trip_id IS NULL THEN
+      CONTINUE;
+    END IF;
+    IF r.trip_cancelled_at IS NOT NULL THEN
+      CONTINUE;
+    END IF;
+    IF lower(COALESCE(r.trip_status, '')) LIKE '%cancel%' THEN
+      CONTINUE;
+    END IF;
+    IF lower(btrim(COALESCE(r.trip_status, ''))) <> 'completed'
+       AND r.trip_completed_at IS NULL THEN
       CONTINUE;
     END IF;
 

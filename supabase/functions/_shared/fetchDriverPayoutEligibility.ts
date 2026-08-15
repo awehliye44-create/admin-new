@@ -87,7 +87,7 @@ export async function fetchDriverPayoutEligibility(
         ? supabase
           .from("trips")
           .select(
-            "id, payment_session_id, driver_net_pence, tip_pence, tip_amount_pence, payment_status, payment_method, payment_provider, completed_at, settlement_formula_version, payment_collection_model, financial_model, provider_available_on",
+            "id, payment_session_id, driver_net_pence, tip_pence, tip_amount_pence, payment_status, payment_method, payment_provider, status, cancelled_at, completed_at, settlement_formula_version, payment_collection_model, financial_model, provider_available_on",
           )
           .in("id", tripIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
@@ -188,6 +188,10 @@ export async function fetchDriverPayoutEligibility(
       ledger_type: String(row.type ?? ""),
       amount_pence: Math.max(0, Number(row.amount_pence ?? 0)),
       trip_exists: Boolean(trip),
+      trip_status: trip?.status ? String(trip.status) : null,
+      trip_cancelled: Boolean(trip?.cancelled_at),
+      completed_at: trip?.completed_at ? String(trip.completed_at) : null,
+      session_status: session?.status ? String(session.status) : null,
       payment_session_id: psId || (session?.id ? String(session.id) : null),
       captured_amount_pence: capturedPence,
       canonical_driver_net_pence: canonicalNet,
