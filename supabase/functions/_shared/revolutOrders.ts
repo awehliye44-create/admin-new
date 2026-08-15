@@ -469,6 +469,24 @@ export function classifyIncrementCoverage(
   });
   const paymentCovering = (Array.isArray(order.payments) ? order.payments : [])
     .some((payment) => positiveMinorUnits(payment?.authorised_amount) >= target);
+  // MK-260815-020: increment POST 200 leaves incremental_authorisations
+  // state=processing and payments still on the original hold, while the
+  // card already shows new_amount. Order stays AUTHORISED. Treat covering
+  // processing/pending new_amount as the accepted TOTAL (never a delta).
+  let acceptedIncrementTotal = 0;
+  for (const increment of increments) {
+    const s = String(increment?.state ?? "").toLowerCase();
+    if (s === "declined" || s === "failed") continue;
+    if (
+      !isRevolutAuthorisedState(increment?.state)
+      && s !== "processing"
+      && s !== "pending"
+    ) {
+      continue;
+    }
+    const amount = positiveMinorUnits(increment?.new_amount ?? increment?.amount);
+    if (amount > acceptedIncrementTotal) acceptedIncrementTotal = amount;
+  }
 
   if (
     authorisedTotalPence >= target
@@ -479,6 +497,13 @@ export function classifyIncrementCoverage(
     )
   ) {
     return { class: "confirmed", authorisedTotalPence };
+  }
+
+  if (isRevolutAuthorisedState(state) && acceptedIncrementTotal >= target) {
+    return {
+      class: "confirmed",
+      authorisedTotalPence: Math.max(authorisedTotalPence, acceptedIncrementTotal),
+    };
   }
 
   if (state === "PROCESSING" || state === "PENDING" || incrementProcessing) {

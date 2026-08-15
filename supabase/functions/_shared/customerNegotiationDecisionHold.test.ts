@@ -97,6 +97,19 @@ Deno.test("abandoned in-flight hold uses the existing 90s stuck backstop", () =>
   );
 });
 
+Deno.test("SQL cron_sweep must skip in-flight responded_at holds", async () => {
+  const sql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260925120000_negotiation_decision_hold_sql_timeout.sql",
+      import.meta.url,
+    ),
+  );
+  assertEquals(sql.includes("expire_stale_negotiations"), true);
+  assertEquals(sql.includes("responded_at IS NULL"), true);
+  assertEquals(sql.includes("interval '90 seconds'"), true);
+  assertEquals(sql.includes("cron_sweep"), true);
+});
+
 Deno.test("expire-offers and sync skip in-flight responded_at holds", async () => {
   const expire = await Deno.readTextFile(new URL("../expire-offers/index.ts", import.meta.url));
   const sync = await Deno.readTextFile(

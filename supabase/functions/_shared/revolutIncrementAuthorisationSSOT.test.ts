@@ -103,6 +103,7 @@ Deno.test("ambiguous increment POST retrieves the same order and never POSTs a s
   assertEquals(secondIncrementCall, -1);
   assertEquals(retrieveAfterPost > incrementCall, true);
   assertEquals(src.includes("increment_post_retrieve_reconcile"), true);
+  assertEquals(src.includes("increment_post_retrieve_retry"), true);
   assertEquals(src.includes("hydrateOrderPayments"), true);
   const hydrateAfterRetrieve = src.indexOf("hydrateOrderPayments({", retrieveAfterPost);
   assertEquals(hydrateAfterRetrieve > retrieveAfterPost, true);

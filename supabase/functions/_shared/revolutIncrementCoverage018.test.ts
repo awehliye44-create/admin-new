@@ -108,6 +108,23 @@ Deno.test("E. GET still 495 after increment attempt → insufficient", () => {
   assertEquals(coverage.class, "insufficient");
 });
 
+Deno.test("020. AUTHORISED order + processing increment new_amount covers target", () => {
+  const mk020Shape: RevolutOrder = {
+    id: "6a807060-951e-abbb-8e5e-05061401655f",
+    state: "AUTHORISED",
+    amount: 450,
+    authorised_amount: undefined,
+    incremental_authorisations: [
+      { old_amount: 450, new_amount: 650, state: "processing" },
+    ],
+    payments: [{ authorised_amount: 450, amount: 450 }],
+  };
+  assertEquals(revolutProviderAuthorisedTotalPence(mk020Shape), 450);
+  const coverage = classifyIncrementCoverage(mk020Shape, 650);
+  assertEquals(coverage.class, "confirmed");
+  assertEquals(coverage.authorisedTotalPence, 650);
+});
+
 Deno.test("F. GET pending/processing → unknown/processing, not decline", () => {
   const processing: RevolutOrder = {
     id: "ord",

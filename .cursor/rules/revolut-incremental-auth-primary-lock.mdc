@@ -19,14 +19,15 @@ Example: hold 495p, final 595p → increment existing order to 595 → provider 
 - `executeSameOrderIncrement` persist **then** `POST /orders/{id}/increment-authorisation` with `{ amount: targetTotal }`
 - Persist is a **plain insert** keyed by `revolut_increment:{session}:{order}:{target}` — never upsert on a guessed unique target
 - `revolutProviderAuthorisedTotalPence` reads `payments[].authorised_amount` and authorised `incremental_authorisations[].new_amount` (current TOTAL, never a sum). `order.authorised_amount` may be null after increment (MK-260815-018)
-- Ambiguous increment POST → read-only GET the same order → reconcile. Never mark `authorised_total_not_increased` terminal before retrieve. Never POST a second increment
+- Ambiguous increment POST → read-only GET the same order → reconcile (short same-order retrieve retry if still processing). Never mark `authorised_total_not_increased` terminal before retrieve. Never POST a second increment
+- AUTHORISED order + covering `incremental_authorisations[].new_amount` (authorised **or** processing/pending) confirms that TOTAL — MK-260815-020 bank hold landed while increment state stayed processing and payments stayed on the original amount
 - A prior increment row for the same target (`FAILED_TERMINAL` included) is reconcile-only — MK-260815-018 left a false terminal row after a successful POST
 - `preferSameOrderIncrement: true` in `revolutCompletionCapture`
 - Safe/partial capture **only** for genuine `declined` / `unsupported` / `provider_limit` / `ineligible`
 - `persist_failed` / `INCREMENT_CONFIRM_PERSIST_FAILED` are **internal** — do **not** map them to `PAYMENT_AUTHORISATION_INSUFFICIENT`
 
 Lock tests: `supabase/functions/_shared/revolutIncrementAuthorisationSSOT.test.ts`  
-Coverage: `supabase/functions/_shared/revolutIncrementCoverage018.test.ts`  
+Coverage: `supabase/functions/_shared/revolutIncrementCoverage018.test.ts` (includes MK-260815-020 processing increment)  
 **If they fail, fix the code — never delete or soften the lock.**
 
 ## Do not
