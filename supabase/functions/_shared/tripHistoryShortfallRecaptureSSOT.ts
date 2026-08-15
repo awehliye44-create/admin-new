@@ -373,6 +373,51 @@ function asNonEmptyString(v: unknown): string | null {
   return s.length > 0 ? s : null;
 }
 
+export type SavedCardAttemptFromMetadata = {
+  attempted: boolean;
+  succeeded: boolean;
+  state: string | null;
+  error: string | null;
+};
+
+export function readSavedCardAttemptFromSessionMetadata(
+  metadata: unknown,
+): SavedCardAttemptFromMetadata {
+  const root = metadata && typeof metadata === "object"
+    ? metadata as Record<string, unknown>
+    : null;
+  const raw = root?.saved_card_attempt;
+  const attempt = raw && typeof raw === "object"
+    ? raw as Record<string, unknown>
+    : null;
+  return {
+    attempted: attempt?.attempted === true,
+    succeeded: attempt?.succeeded === true,
+    state: asNonEmptyString(attempt?.state),
+    error: asNonEmptyString(attempt?.error),
+  };
+}
+
+/** Reuse / open-session contract — never invent a charge, never drop a confirmed one. */
+export function buildReusedRecoveryContract(args: {
+  metadata?: unknown;
+  checkout_url?: unknown;
+  status?: unknown;
+}): {
+  saved_card_charged: boolean;
+  requires_customer_action: boolean;
+  saved_card_attempted: boolean;
+  saved_card_error: string | null;
+} {
+  const attempt = readSavedCardAttemptFromSessionMetadata(args.metadata);
+  return {
+    saved_card_charged: attempt.succeeded,
+    requires_customer_action: !attempt.succeeded,
+    saved_card_attempted: attempt.attempted,
+    saved_card_error: attempt.error,
+  };
+}
+
 export type AdminRecaptureRecoveryInput = {
   saved_card_charged?: unknown;
   requires_customer_action?: unknown;
@@ -381,6 +426,7 @@ export type AdminRecaptureRecoveryInput = {
   already_completed?: unknown;
   reused?: unknown;
   message?: unknown;
+  saved_card_error?: unknown;
 };
 
 export type AdminRecaptureOutcome = {
@@ -419,6 +465,9 @@ export function deriveAdminRecaptureOutcome(
           || recoveryStatus === "RECOVERY_CHECKOUT_CREATED"
         ));
 
+  const failedBlob = `${recoveryStatus ?? ""} ${asNonEmptyString(recovery.saved_card_error) ?? ""}`.toLowerCase();
+  const looksFailed = /fail|declin|void|expir|cancel/.test(failedBlob);
+
   let status: TripShortfallRecaptureUiState =
     TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING;
   if (alreadyCompleted) {
@@ -427,6 +476,8 @@ export function deriveAdminRecaptureOutcome(
     status = TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED;
   } else if (requiresCustomerAction) {
     status = TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED;
+  } else if (looksFailed) {
+    status = TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED;
   }
 
   return {
@@ -452,6 +503,7 @@ export function deriveAdminRecaptureOutcome(
 export function resolveRecaptureAttemptUi(args: {
   attemptState: TripShortfallRecaptureUiState | null;
   hasOpenRecoverySession: boolean;
+  openRecoverySavedCardCharged?: boolean;
   gateUiState: TripShortfallRecaptureUiState;
 }): {
   ui_state: TripShortfallRecaptureUiState;
@@ -475,6 +527,12 @@ export function resolveRecaptureAttemptUi(args: {
   }
   if (attempt === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED) {
     return { ui_state: attempt, show_payment_link: true };
+  }
+  if (args.openRecoverySavedCardCharged === true) {
+    return {
+      ui_state: TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED,
+      show_payment_link: false,
+    };
   }
   if (attempt == null && args.hasOpenRecoverySession) {
     return {

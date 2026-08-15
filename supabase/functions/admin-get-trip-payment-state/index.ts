@@ -19,6 +19,7 @@ import {
   resolveTripPaymentProvider,
   tripProviderOrderId,
 } from "../_shared/tripPaymentProviderSSOT.ts";
+import { readSavedCardAttemptFromSessionMetadata } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 
 const InputSchema = z.object({ trip_id: z.string().uuid() });
 
@@ -257,7 +258,7 @@ serve(async (req) => {
     const { data: openRecovery } = await gate.supabase
       .from("payment_sessions")
       .select(
-        "id, status, provider_checkout_url, provider_order_id, estimated_total_pence, captured_amount_pence, purpose",
+        "id, status, provider_checkout_url, provider_order_id, estimated_total_pence, captured_amount_pence, purpose, metadata",
       )
       .eq("trip_id", trip_id)
       .eq("purpose", "PAYMENT_RECOVERY")
@@ -281,6 +282,9 @@ serve(async (req) => {
           provider_order_id: openRecovery.provider_order_id ?? null,
           estimated_total_pence: openRecovery.estimated_total_pence ?? null,
           captured_amount_pence: openRecovery.captured_amount_pence ?? null,
+          saved_card_charged: readSavedCardAttemptFromSessionMetadata(
+            openRecovery.metadata,
+          ).succeeded,
         }
         : null,
       ssot_source: 'trip_financial_audit',

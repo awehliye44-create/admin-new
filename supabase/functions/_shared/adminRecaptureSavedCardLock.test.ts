@@ -4,6 +4,7 @@
  */
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  buildReusedRecoveryContract,
   deriveAdminRecaptureOutcome,
   recaptureAttemptBadgeLabel,
   resolveRecaptureAttemptUi,
@@ -55,9 +56,10 @@ Deno.test("B. saved-card hard failure is not reported as charged", () => {
     requires_customer_action: false,
     checkout_url: null,
     status: "failed",
+    saved_card_error: "declined",
   });
   assertEquals(outcome.saved_card_charged, false);
-  assertEquals(outcome.status, TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
+  assertEquals(outcome.status, TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED);
   assertEquals(outcome.show_payment_link, false);
 });
 
@@ -83,15 +85,50 @@ Deno.test("C. saved-card success is not overridden by leftover open recovery", (
 });
 
 Deno.test("D. reused open recovery does not invent a saved-card charge", () => {
+  const reused = buildReusedRecoveryContract({
+    metadata: { saved_card_attempt: { attempted: false, succeeded: false } },
+    checkout_url: "https://checkout.revolut.com/pay/reuse",
+  });
   const outcome = deriveAdminRecaptureOutcome({
-    saved_card_charged: false,
-    requires_customer_action: true,
+    ...reused,
     checkout_url: "https://checkout.revolut.com/pay/reuse",
     reused: true,
   });
   assertEquals(outcome.saved_card_charged, false);
   assertEquals(outcome.reused, true);
   assertEquals(outcome.requires_customer_action, true);
+});
+
+Deno.test("D. retry after £4 saved-card success forwards charged and does not show a link", () => {
+  const reused = buildReusedRecoveryContract({
+    metadata: {
+      saved_card_attempt: { attempted: true, succeeded: true, state: "COMPLETED" },
+    },
+    checkout_url: "https://checkout.revolut.com/pay/recover-4",
+    status: "RECOVERY_CHECKOUT_CREATED",
+  });
+  assertEquals(reused.saved_card_charged, true);
+  assertEquals(reused.requires_customer_action, false);
+  const outcome = deriveAdminRecaptureOutcome({
+    ...reused,
+    checkout_url: "https://checkout.revolut.com/pay/recover-4",
+    reused: true,
+  });
+  assertEquals(outcome.saved_card_charged, true);
+  assertEquals(outcome.requires_customer_action, false);
+  assertEquals(outcome.show_payment_link, false);
+  assertEquals(recaptureAttemptBadgeLabel(outcome.status), "Saved card charged");
+});
+
+Deno.test("refresh with leftover open recovery still shows Saved card charged", () => {
+  const ui = resolveRecaptureAttemptUi({
+    attemptState: null,
+    hasOpenRecoverySession: true,
+    openRecoverySavedCardCharged: true,
+    gateUiState: TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_AVAILABLE,
+  });
+  assertEquals(ui.ui_state, TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED);
+  assertEquals(ui.show_payment_link, false);
 });
 
 Deno.test("admin-recapture-trip-shortfall forwards saved_card_charged and uses SSOT", async () => {
@@ -119,4 +156,12 @@ Deno.test("create-payment-recovery reuse short-circuit prevents a second charge"
   assert(src.includes("reused: true"));
   assert(src.includes('in("status", ["RECOVERY_CHECKOUT_CREATED", "CUSTOMER_ACTION_REQUIRED"])'));
   assert(src.includes("saved_card_charged: savedCardAttempt.succeeded"));
+  assert(src.includes("buildReusedRecoveryContract"));
+  assert(src.includes("saved_card_charged: reusedContract.saved_card_charged"));
+});
+
+Deno.test("admin-get-trip-payment-state exposes saved_card_charged on open recovery", async () => {
+  const src = await Deno.readTextFile(`${ROOT}admin-get-trip-payment-state/index.ts`);
+  assert(src.includes("readSavedCardAttemptFromSessionMetadata"));
+  assert(src.includes("saved_card_charged:"));
 });

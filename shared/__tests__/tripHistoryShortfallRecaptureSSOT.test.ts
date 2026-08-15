@@ -183,13 +183,14 @@ describe("tripHistoryShortfallRecaptureSSOT", () => {
   });
 
   it("saved-card hard failure is not reported as charged", () => {
-    expect(
-      deriveAdminRecaptureOutcome({
-        saved_card_charged: false,
-        requires_customer_action: false,
-        checkout_url: null,
-      }).saved_card_charged,
-    ).toBe(false);
+    const outcome = deriveAdminRecaptureOutcome({
+      saved_card_charged: false,
+      requires_customer_action: false,
+      checkout_url: null,
+      status: "failed",
+    });
+    expect(outcome.saved_card_charged).toBe(false);
+    expect(outcome.status).toBe(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED);
   });
 
   it("processing is not overridden by a stale open recovery session", () => {

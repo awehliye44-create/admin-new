@@ -256,3 +256,14 @@ Deno.test("processing is not overridden by a stale open recovery session", () =>
   assertEquals(ui.ui_state, TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
   assertEquals(ui.show_payment_link, false);
 });
+
+Deno.test("refresh after saved-card success is not forced to a payment link", () => {
+  const ui = resolveRecaptureAttemptUi({
+    attemptState: null,
+    hasOpenRecoverySession: true,
+    openRecoverySavedCardCharged: true,
+    gateUiState: TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_AVAILABLE,
+  });
+  assertEquals(ui.ui_state, TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED);
+  assertEquals(ui.show_payment_link, false);
+});

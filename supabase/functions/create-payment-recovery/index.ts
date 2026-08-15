@@ -39,7 +39,12 @@ import {
   resolveCanonicalCustomerPayablePence,
   validateCollectOutstandingOrPaymentLinkAction,
 } from "../_shared/paymentSessionsCaptureConfirmationSSOT.ts";
-import { isDriverCollectedFinancialModel, sumVerifiedCapturedFromSessions, sumVerifiedRefundedFromSessions } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
+import {
+  buildReusedRecoveryContract,
+  isDriverCollectedFinancialModel,
+  sumVerifiedCapturedFromSessions,
+  sumVerifiedRefundedFromSessions,
+} from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
 
 Deno.serve(async (req) => {
@@ -267,7 +272,7 @@ Deno.serve(async (req) => {
     // --- Short-circuit: if an open recovery already exists, return its URL ---
     const { data: existingOpen } = await supabase
       .from("payment_sessions")
-      .select("id, provider_order_id, provider_checkout_url, status, captured_amount_pence, authorised_amount_pence")
+      .select("id, provider_order_id, provider_checkout_url, status, captured_amount_pence, authorised_amount_pence, metadata")
       .eq("trip_id", trip.id)
       .eq("purpose", "PAYMENT_RECOVERY")
       .in("status", ["RECOVERY_CHECKOUT_CREATED", "CUSTOMER_ACTION_REQUIRED"])
@@ -294,14 +299,26 @@ Deno.serve(async (req) => {
           console.warn("[create-payment-recovery] checkout url heal failed", healErr);
         }
       }
+      const reusedContract = buildReusedRecoveryContract({
+        metadata: existingOpen.metadata,
+        checkout_url: reusedUrl,
+        status: existingOpen.status,
+      });
       return successResponse({
         payment_session_id: existingOpen.id,
         provider_order_id: existingOpen.provider_order_id,
         checkout_url: reusedUrl,
-        requires_customer_action: true,
+        requires_customer_action: reusedContract.requires_customer_action,
+        saved_card_charged: reusedContract.saved_card_charged,
+        saved_card_attempted: reusedContract.saved_card_attempted,
+        saved_card_error: reusedContract.saved_card_error,
         amount: chargePence,
         currency,
         reused: true,
+        status: existingOpen.status,
+        message: reusedContract.saved_card_charged
+          ? "Saved card charged off-session — awaiting provider webhook confirmation."
+          : undefined,
       });
     }
 
@@ -396,19 +413,29 @@ Deno.serve(async (req) => {
         // Concurrent admin — return the existing open attempt instead of failing.
         const { data: racedOpen } = await supabase
           .from("payment_sessions")
-          .select("id, provider_order_id, provider_checkout_url, status, captured_amount_pence, authorised_amount_pence")
+          .select("id, provider_order_id, provider_checkout_url, status, captured_amount_pence, authorised_amount_pence, metadata")
           .eq("trip_id", trip.id)
           .eq("purpose", "PAYMENT_RECOVERY")
           .in("status", ["RECOVERY_CHECKOUT_CREATED", "CUSTOMER_ACTION_REQUIRED"])
           .maybeSingle();
         if (racedOpen) {
+          const racedContract = buildReusedRecoveryContract({
+            metadata: racedOpen.metadata,
+            checkout_url: racedOpen.provider_checkout_url,
+            status: racedOpen.status,
+          });
           return successResponse({
             payment_session_id: racedOpen.id,
             provider_order_id: racedOpen.provider_order_id,
             checkout_url: racedOpen.provider_checkout_url,
+            requires_customer_action: racedContract.requires_customer_action,
+            saved_card_charged: racedContract.saved_card_charged,
+            saved_card_attempted: racedContract.saved_card_attempted,
+            saved_card_error: racedContract.saved_card_error,
             amount: chargePence,
             currency,
             reused: true,
+            status: racedOpen.status,
           });
         }
       }

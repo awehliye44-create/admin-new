@@ -44,6 +44,7 @@ type OpenRecoverySession = {
   provider_order_id: string | null;
   estimated_total_pence: number | null;
   captured_amount_pence: number | null;
+  saved_card_charged?: boolean | null;
 };
 
 type Props = {
@@ -295,6 +296,7 @@ export function TripHistoryShortfallRecaptureAction({
   const resolvedUi = resolveRecaptureAttemptUi({
     attemptState,
     hasOpenRecoverySession: hasLiveOpenRecovery,
+    openRecoverySavedCardCharged: openRecovery?.saved_card_charged === true,
     gateUiState: gate.ui_state,
   });
   const effectiveUi = resolvedUi.ui_state;
