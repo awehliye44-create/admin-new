@@ -8,10 +8,14 @@ const src = await Deno.readTextFile(
   new URL("../search-onecab-locations/index.ts", import.meta.url),
 );
 
-Deno.test("uses locationBias instead of locationRestriction", () => {
+Deno.test("uses Autocomplete with origin + locationBias, not locationRestriction", () => {
+  assert(src.includes("places:autocomplete"));
   assert(src.includes("locationBias"));
+  assert(src.includes("origin"));
+  assert(src.includes("sessionToken"));
   assert(!src.includes("locationRestriction"));
-  assert(src.includes("Bias nearby first"));
+  assert(!src.includes("includedPrimaryTypes"));
+  assert(!src.includes("includedRegionCodes"));
 });
 
 Deno.test("does not drop Google rows beyond the bias radius", () => {

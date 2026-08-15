@@ -5,9 +5,9 @@
  *   1. Minimum query length (rollout config).
  *   2. Verified ONECAB landmarks first — exact match short-circuits Google entirely.
  *   3. Shared 14-day result cache keyed by service area + query + language + rounded centre.
- *   4. A single Places API (New) Text Search call with locationBias (not a
- *      hard locationRestriction). Nearby ranks first; valid places outside
- *      the service-area circle still return. Serviceability is post-select.
+ *   4. Places Autocomplete (New) with locationBias + origin (pickup/GPS).
+ *      Text Search is fallback when Autocomplete is empty (postcodes / full names).
+ *      Never locationRestriction. Serviceability is post-select.
  *
  * Country / language / bias radius are derived from the active service area
  * as ranking hints — nothing is hardcoded to one market.
@@ -28,6 +28,8 @@ import {
 } from "../_shared/onecabLocationSearchSSOT.ts";
 
 const PLACES_TEXT_SEARCH = "https://places.googleapis.com/v1/places:searchText";
+const PLACES_AUTOCOMPLETE = "https://places.googleapis.com/v1/places:autocomplete";
+const PLACES_DETAILS = "https://places.googleapis.com/v1/places";
 
 /** Bias circle only — Google Places (New) circle max is 50 km. */
 const MIN_RADIUS_M = 5_000;
@@ -107,8 +109,15 @@ Deno.serve(async (req) => {
     const language = typeof body?.language === "string" && body.language.length >= 2
       ? body.language.slice(0, 5)
       : "en";
-    const userLat = Number.isFinite(Number(body?.user_latitude)) ? Number(body.user_latitude) : null;
-    const userLng = Number.isFinite(Number(body?.user_longitude)) ? Number(body.user_longitude) : null;
+    const userLat = Number.isFinite(Number(body?.user_latitude ?? body?.lat ?? body?.latitude))
+      ? Number(body?.user_latitude ?? body?.lat ?? body?.latitude)
+      : null;
+    const userLng = Number.isFinite(Number(body?.user_longitude ?? body?.lng ?? body?.longitude))
+      ? Number(body?.user_longitude ?? body?.lng ?? body?.longitude)
+      : null;
+    const sessionToken = typeof body?.session_token === "string" && body.session_token.trim()
+      ? body.session_token.trim()
+      : undefined;
 
     // ---- Rollout config ----------------------------------------------------
     const { data: rollout } = await supabase
@@ -157,11 +166,9 @@ Deno.serve(async (req) => {
     }
 
     const radius = radiusFromBbox(centreLat, centreLng, bbox);
-    // Bias to the operator's live position when it is inside the area, else the area centre.
-    const useUserCentre = userLat != null && userLng != null
-      && haversineMetres(centreLat, centreLng, userLat, userLng) <= radius;
-    const searchLat = useUserCentre ? userLat! : centreLat;
-    const searchLng = useUserCentre ? userLng! : centreLng;
+    // Pickup / device coords are the primary bias. SA centre is fallback only.
+    const searchLat = userLat ?? centreLat;
+    const searchLng = userLng ?? centreLng;
 
     // ---- 1. Verified ONECAB landmarks (free) -------------------------------
     const like = `%${query.replace(/[%_]/g, "")}%`;
@@ -219,12 +226,12 @@ Deno.serve(async (req) => {
 
     // ---- 2. Cache lookup (free) -------------------------------------------
     const cacheKey = [
-      "bias-v2",
+      "ac-origin-v3",
       serviceAreaId,
       normaliseQuery(query),
       language,
-      searchLat.toFixed(2),
-      searchLng.toFixed(2),
+      searchLat.toFixed(3),
+      searchLng.toFixed(3),
       String(radius),
     ].join("|");
 
@@ -259,43 +266,105 @@ Deno.serve(async (req) => {
       });
     }
 
-    const mapGooglePlaces = (data: { places?: Record<string, unknown>[] }): OnecabLocationResult[] => {
-      const googleResults: OnecabLocationResult[] = [];
-      for (const p of (data?.places ?? []) as Record<string, any>[]) {
+    const toRow = (args: {
+      id: string;
+      name: string;
+      address: string;
+      lat: number;
+      lng: number;
+      category?: string | null;
+      distanceMetres?: number | null;
+    }): OnecabLocationResult => {
+      const distance = args.distanceMetres
+        ?? haversineMetres(searchLat, searchLng, args.lat, args.lng);
+      return {
+        id: args.id,
+        source: "GOOGLE_PLACES",
+        provider_place_id: args.id,
+        display_name: args.name || args.address,
+        short_name: args.name || args.address,
+        address_text: args.address || args.name,
+        latitude: args.lat,
+        longitude: args.lng,
+        category: args.category ?? null,
+        country_code: countryCode,
+        region_id: sa.region_id ?? null,
+        service_area_id: serviceAreaId,
+        inside_service_area: isInsideOrNearServiceArea({
+          lat: args.lat,
+          lng: args.lng,
+          centreLat,
+          centreLng,
+          bbox,
+        }).inside,
+        distance_from_search_centre_metres: distance,
+        is_verified_local_landmark: false,
+      };
+    };
+
+    const locationBias = {
+      circle: {
+        center: { latitude: searchLat, longitude: searchLng },
+        radius,
+      },
+    };
+    const origin = { latitude: searchLat, longitude: searchLng };
+
+    const fetchPlaceDetails = async (placeId: string) => {
+      const url = new URL(`${PLACES_DETAILS}/${encodeURIComponent(placeId)}`);
+      url.searchParams.set("languageCode", language);
+      if (sessionToken) url.searchParams.set("sessionToken", sessionToken);
+      const res = await fetch(url.toString(), {
+        headers: {
+          "X-Goog-Api-Key": key,
+          "X-Goog-FieldMask":
+            "id,displayName,formattedAddress,location,primaryType",
+        },
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    };
+
+    const mapTextSearchPlaces = (data: { places?: Record<string, any>[] }) => {
+      const rows: OnecabLocationResult[] = [];
+      for (const p of data?.places ?? []) {
         const lat = Number(p?.location?.latitude);
         const lng = Number(p?.location?.longitude);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-
-        const distance = haversineMetres(searchLat, searchLng, lat, lng);
         const name = String(p?.displayName?.text ?? "").trim();
         const address = String(p?.formattedAddress ?? "").trim();
         if (!name && !address) continue;
-
-        googleResults.push({
+        rows.push(toRow({
           id: String(p?.id ?? `${lat},${lng}`),
-          source: "GOOGLE_PLACES",
-          provider_place_id: p?.id ? String(p.id) : null,
-          display_name: name || address,
-          short_name: name || address,
-          address_text: address || name,
-          latitude: lat,
-          longitude: lng,
+          name,
+          address,
+          lat,
+          lng,
           category: p?.primaryType ? String(p.primaryType) : null,
-          country_code: countryCode,
-          region_id: sa.region_id ?? null,
-          service_area_id: serviceAreaId,
-          inside_service_area: isInsideOrNearServiceArea({
-            lat,
-            lng,
-            centreLat,
-            centreLng,
-            bbox,
-          }).inside,
-          distance_from_search_centre_metres: distance,
-          is_verified_local_landmark: false,
-        });
+        }));
       }
-      return googleResults;
+      return rows;
+    };
+
+    const callAutocomplete = async (input: string) => {
+      const body: Record<string, unknown> = {
+        input,
+        languageCode: language,
+        origin,
+        locationBias,
+      };
+      if (sessionToken) body.sessionToken = sessionToken;
+      if (countryCode) body.regionCode = countryCode;
+      return await fetch(PLACES_AUTOCOMPLETE, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": key,
+          "X-Goog-FieldMask":
+            "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.text,suggestions.placePrediction.distanceMeters,suggestions.placePrediction.types",
+        },
+        body: JSON.stringify(body),
+      });
     };
 
     const callTextSearch = async (textQuery: string) => {
@@ -303,18 +372,10 @@ Deno.serve(async (req) => {
         textQuery,
         languageCode: language,
         maxResultCount: limit,
-        // Bias nearby first. Do not use locationRestriction — that hid
-        // airports, compact postcodes, and valid places just outside the SA.
-        locationBias: {
-          circle: {
-            center: { latitude: searchLat, longitude: searchLng },
-            radius,
-          },
-        },
+        locationBias,
       };
       if (countryCode) placesBody.regionCode = countryCode;
-
-      const res = await fetch(PLACES_TEXT_SEARCH, {
+      return await fetch(PLACES_TEXT_SEARCH, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -324,30 +385,81 @@ Deno.serve(async (req) => {
         },
         body: JSON.stringify(placesBody),
       });
-      return res;
     };
 
-    let res = await callTextSearch(query);
-    if (!res.ok) {
-      const text = await res.text();
-      console.error(`[search-onecab-locations] Places HTTP ${res.status}: ${text}`);
+    const hydrateAutocomplete = async (data: {
+      suggestions?: Array<{ placePrediction?: Record<string, any> }>;
+    }) => {
+      const predictions = (data.suggestions ?? [])
+        .map((s) => s.placePrediction)
+        .filter((p): p is Record<string, any> => Boolean(p?.placeId))
+        .slice(0, limit);
+
+      const detailed = await Promise.all(predictions.map(async (prediction) => {
+        const placeId = String(prediction.placeId).replace(/^places\//, '');
+        const details = await fetchPlaceDetails(placeId);
+        const lat = Number(details?.location?.latitude);
+        const lng = Number(details?.location?.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const main = String(prediction?.structuredFormat?.mainText?.text ?? "").trim();
+        const secondary = String(prediction?.structuredFormat?.secondaryText?.text ?? "").trim();
+        const name = String(details?.displayName?.text ?? "").trim() || main;
+        const address = String(details?.formattedAddress ?? "").trim() || secondary;
+        const distanceFromOrigin = Number.isFinite(Number(prediction?.distanceMeters))
+          ? Number(prediction.distanceMeters)
+          : null;
+        return toRow({
+          id: placeId,
+          name,
+          address,
+          lat,
+          lng,
+          category: details?.primaryType ? String(details.primaryType) : null,
+          distanceMetres: distanceFromOrigin,
+        });
+      }));
+
+      return detailed.filter((row): row is OnecabLocationResult => row != null);
+    };
+
+    let googleResults: OnecabLocationResult[] = [];
+    let providerErrorStatus: number | null = null;
+
+    const acRes = await callAutocomplete(query);
+    if (acRes.ok) {
+      googleResults = await hydrateAutocomplete(await acRes.json());
+    } else {
+      providerErrorStatus = acRes.status;
+      console.error(
+        `[search-onecab-locations] Autocomplete HTTP ${acRes.status}: ${await acRes.text()}`,
+      );
+    }
+
+    if (googleResults.length === 0) {
+      let textRes = await callTextSearch(query);
+      if (!textRes.ok) {
+        providerErrorStatus = textRes.status;
+        console.error(
+          `[search-onecab-locations] Text Search HTTP ${textRes.status}: ${await textRes.text()}`,
+        );
+      } else {
+        googleResults = mapTextSearchPlaces(await textRes.json());
+      }
+      const compactRetry = supplementalCompactQuery(query);
+      if (googleResults.length === 0 && compactRetry) {
+        textRes = await callTextSearch(compactRetry);
+        if (textRes.ok) {
+          googleResults = mapTextSearchPlaces(await textRes.json());
+        }
+      }
+    }
+
+    if (googleResults.length === 0 && providerErrorStatus && landmarks.length === 0) {
       return json({
         success: false,
         message: SEARCH_UNAVAILABLE,
-        provider_status: res.status,
+        provider_status: providerErrorStatus,
       }, 502);
-    }
-
-    let data = await res.json();
-    let googleResults = mapGooglePlaces(data);
-
-    const compactRetry = supplementalCompactQuery(query);
-    if (googleResults.length === 0 && compactRetry) {
-      res = await callTextSearch(compactRetry);
-      if (res.ok) {
-        data = await res.json();
-        googleResults = mapGooglePlaces(data);
-      }
     }
 
     // ---- 4. Persist cache (best effort) — never cache an empty Google miss
@@ -371,8 +483,8 @@ Deno.serve(async (req) => {
       success: true,
       country_code: countryCode,
       service_area_id: serviceAreaId,
-      results: rankLocationSearchResults([...landmarks, ...googleResults], query).slice(0, limit),
-      source: "google_places",
+      results: [...rankLocationSearchResults(landmarks, query), ...googleResults].slice(0, limit),
+      source: googleResults.length > 0 ? "google_places" : "landmarks_only",
     });
   } catch (err) {
     console.error("[search-onecab-locations] error", err);
