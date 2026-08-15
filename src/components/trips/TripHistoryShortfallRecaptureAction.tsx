@@ -26,6 +26,8 @@ import { toast } from 'sonner';
 import {
   evaluateTripHistoryShortfallRecaptureEligibility,
   recaptureActionLabel,
+  recaptureAttemptBadgeLabel,
+  resolveRecaptureAttemptUi,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
   type TripShortfallRecaptureUiState,
 } from '../../../shared/tripHistoryShortfallRecaptureSSOT';
@@ -171,21 +173,21 @@ export function TripHistoryShortfallRecaptureAction({
       invalidate();
       setLastErrorCode(null);
       setAttemptRef(data.payment_session_id ?? data.provider_order_id ?? null);
-      if (data.checkout_url) setCheckoutUrl(data.checkout_url);
       if (data.already_completed) {
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID);
         setCheckoutUrl(null);
         toast.success('Shortfall already collected', {
           description: data.message ?? 'Recovery payment already completed for this trip.',
         });
-      } else if (data.saved_card_charged) {
-        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
+      } else if (data.saved_card_charged === true && data.requires_customer_action !== true) {
+        setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED);
         setCheckoutUrl(null);
         toast.success('Saved card charged', {
           description: data.message ?? 'Off-session charge accepted — waiting for provider confirmation.',
         });
-      } else if (data.requires_customer_action || data.checkout_url) {
+      } else if (data.requires_customer_action === true) {
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED);
+        if (data.checkout_url) setCheckoutUrl(data.checkout_url);
         toast.message('Customer action required', {
           description: data.checkout_url
             ? 'Payment link ready — send to the customer. Use Mark paid only after Revolut shows completed.'
@@ -194,11 +196,13 @@ export function TripHistoryShortfallRecaptureAction({
         if (data.checkout_url) void copyCheckoutUrl(data.checkout_url);
       } else if (data.reused) {
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
+        setCheckoutUrl(null);
         toast.message('Recapture already processing', {
           description: 'Returning the existing open recovery attempt — no duplicate charge created.',
         });
       } else {
         setAttemptState(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
+        setCheckoutUrl(null);
         toast.message('Recapture processing', {
           description: data.message
             ?? `Requested ${currencySymbol}${((data.charged_pence ?? outstanding) / 100).toFixed(2)}. Final capture waits for provider webhook.`,
@@ -288,34 +292,27 @@ export function TripHistoryShortfallRecaptureAction({
     },
   });
 
-  const showCustomerActionUi =
-    attemptState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED
-    || (hasLiveOpenRecovery && attemptState !== TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID
-      && attemptState !== TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED);
-
-  const effectiveUi =
-    attemptState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID
-      ? attemptState
-      : showCustomerActionUi
-        ? TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED
-        : (attemptState ?? gate.ui_state);
+  const resolvedUi = resolveRecaptureAttemptUi({
+    attemptState,
+    hasOpenRecoverySession: hasLiveOpenRecovery,
+    gateUiState: gate.ui_state,
+  });
+  const effectiveUi = resolvedUi.ui_state;
+  const showPaymentLink = resolvedUi.show_payment_link;
 
   if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID) {
     return (
       <Badge variant="outline" className="bg-green-500/10 text-green-700 border-green-500/30">
-        Fully paid
+        {recaptureAttemptBadgeLabel(effectiveUi)}
       </Badge>
     );
   }
 
-  if (
-    effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING
-    || mutation.isPending
-  ) {
+  if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED) {
     return (
       <div className="space-y-1">
-        <Badge variant="outline" className="bg-amber-500/10 text-amber-800 border-amber-500/40">
-          Recapture processing
+        <Badge variant="outline" className="bg-green-500/10 text-green-700 border-green-500/30">
+          {recaptureAttemptBadgeLabel(effectiveUi)}
         </Badge>
         {liveSessionId && (
           <div className="text-[10px] text-muted-foreground font-mono">
@@ -326,12 +323,30 @@ export function TripHistoryShortfallRecaptureAction({
     );
   }
 
-  if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED) {
+  if (
+    effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING
+    || mutation.isPending
+  ) {
+    return (
+      <div className="space-y-1">
+        <Badge variant="outline" className="bg-amber-500/10 text-amber-800 border-amber-500/40">
+          {recaptureAttemptBadgeLabel(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING)}
+        </Badge>
+        {liveSessionId && (
+          <div className="text-[10px] text-muted-foreground font-mono">
+            Ref: {liveSessionId.slice(0, 12)}…
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED && showPaymentLink) {
     const amountPence = openRecovery?.estimated_total_pence ?? outstanding;
     return (
       <div className="rounded-md border border-amber-400/60 bg-amber-500/5 p-3 space-y-2 text-sm">
         <Badge variant="outline" className="bg-amber-500/10 text-amber-800 border-amber-500/40">
-          Customer action required
+          {recaptureAttemptBadgeLabel(TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED)}
         </Badge>
         <div className="text-xs text-muted-foreground">
           Send the payment link to the customer. Mark paid only after Revolut shows the payment completed

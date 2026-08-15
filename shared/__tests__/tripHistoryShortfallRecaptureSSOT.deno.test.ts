@@ -5,12 +5,15 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   computeOutstandingShortfallPence,
+  deriveAdminRecaptureOutcome,
   evaluateTripHistoryShortfallRecaptureEligibility,
   isFullyPaidCapturedCoverage,
   paymentCoverageBadgeLabel,
   recaptureActionLabel,
+  recaptureAttemptBadgeLabel,
   recapturedAmountDisplayLabel,
   rejectClientChargeAmountFields,
+  resolveRecaptureAttemptUi,
   sumVerifiedCapturedFromSessions,
   sumVerifiedRefundedFromSessions,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
@@ -228,4 +231,28 @@ Deno.test("subsequent recovery after prior completed uses captured status", () =
   assertEquals(plan.recovery_session_patch.status, "captured");
   assertEquals(plan.outstanding_pence, 0);
   assertEquals(plan.total_captured_pence, 993);
+});
+
+Deno.test("£4 saved-card success with leftover checkout_url is not customer action", () => {
+  const outcome = deriveAdminRecaptureOutcome({
+    saved_card_charged: true,
+    requires_customer_action: false,
+    checkout_url: "https://checkout.revolut.com/pay/recover-4",
+    status: "RECOVERY_CHECKOUT_CREATED",
+  });
+  assertEquals(outcome.saved_card_charged, true);
+  assertEquals(outcome.requires_customer_action, false);
+  assertEquals(outcome.show_payment_link, false);
+  assertEquals(outcome.status, TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED);
+  assertEquals(recaptureAttemptBadgeLabel(outcome.status), "Saved card charged");
+});
+
+Deno.test("processing is not overridden by a stale open recovery session", () => {
+  const ui = resolveRecaptureAttemptUi({
+    attemptState: TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING,
+    hasOpenRecoverySession: true,
+    gateUiState: TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_AVAILABLE,
+  });
+  assertEquals(ui.ui_state, TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
+  assertEquals(ui.show_payment_link, false);
 });

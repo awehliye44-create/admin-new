@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   computeOutstandingShortfallPence,
+  deriveAdminRecaptureOutcome,
   evaluateTripHistoryShortfallRecaptureEligibility,
   isFullyPaidCapturedCoverage,
   paymentCoverageBadgeLabel,
   recaptureActionLabel,
+  recaptureAttemptBadgeLabel,
   recapturedAmountDisplayLabel,
   rejectClientChargeAmountFields,
+  resolveRecaptureAttemptUi,
   sumVerifiedCapturedFromSessions,
   sumVerifiedRefundedFromSessions,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
@@ -153,5 +156,49 @@ describe("tripHistoryShortfallRecaptureSSOT", () => {
         { purpose: "TRIP_AUTH", status: "canceled", captured_amount_pence: 793 },
       ]).total_verified_captured_pence,
     ).toBe(0);
+  });
+
+  it("£4 saved-card success with leftover checkout_url is not customer action", () => {
+    const outcome = deriveAdminRecaptureOutcome({
+      saved_card_charged: true,
+      requires_customer_action: false,
+      checkout_url: "https://checkout.revolut.com/pay/recover-4",
+      status: "RECOVERY_CHECKOUT_CREATED",
+    });
+    expect(outcome.saved_card_charged).toBe(true);
+    expect(outcome.requires_customer_action).toBe(false);
+    expect(outcome.show_payment_link).toBe(false);
+    expect(outcome.status).toBe(TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED);
+    expect(recaptureAttemptBadgeLabel(outcome.status)).toBe("Saved card charged");
+  });
+
+  it("genuine customer-action recovery still shows the payment link", () => {
+    const outcome = deriveAdminRecaptureOutcome({
+      saved_card_charged: false,
+      requires_customer_action: true,
+      checkout_url: "https://checkout.revolut.com/pay/link",
+    });
+    expect(outcome.show_payment_link).toBe(true);
+    expect(outcome.status).toBe(TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED);
+  });
+
+  it("saved-card hard failure is not reported as charged", () => {
+    expect(
+      deriveAdminRecaptureOutcome({
+        saved_card_charged: false,
+        requires_customer_action: false,
+        checkout_url: null,
+      }).saved_card_charged,
+    ).toBe(false);
+  });
+
+  it("processing is not overridden by a stale open recovery session", () => {
+    const ui = resolveRecaptureAttemptUi({
+      attemptState: TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING,
+      hasOpenRecoverySession: true,
+      gateUiState: TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_AVAILABLE,
+    });
+    expect(ui.ui_state).toBe(TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING);
+    expect(ui.show_payment_link).toBe(false);
   });
 });

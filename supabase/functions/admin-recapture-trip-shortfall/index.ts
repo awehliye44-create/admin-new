@@ -23,6 +23,7 @@ import {
   resolveCanonicalCustomerPayablePence,
 } from "../_shared/paymentSessionsCaptureConfirmationSSOT.ts";
 import {
+  deriveAdminRecaptureOutcome,
   evaluateTripHistoryShortfallRecaptureEligibility,
   isPlatformCollectedEligible,
   rejectClientChargeAmountFields,
@@ -251,6 +252,7 @@ Deno.serve(async (req) => {
         success: true,
         status: TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID,
         requires_customer_action: false,
+        saved_card_charged: false,
         checkout_url: null,
         payment_session_id: null,
         provider_order_id: null,
@@ -332,26 +334,23 @@ Deno.serve(async (req) => {
       },
     });
 
-    const requiresCustomerAction = !!(
-      recoveryJson.checkout_url
-      || recoveryJson.requires_customer_action
-      || recoveryJson.status === "CUSTOMER_ACTION_REQUIRED"
-      || recoveryJson.status === "RECOVERY_CHECKOUT_CREATED"
-    );
-
-    let status: string = "processing";
-    if (recoveryJson.already_completed) {
-      status = TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID;
-    } else if (requiresCustomerAction || recoveryJson.reused) {
-      status = requiresCustomerAction
-        ? TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED
-        : TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING;
-    }
+    const outcome = deriveAdminRecaptureOutcome({
+      saved_card_charged: recoveryJson.saved_card_charged,
+      requires_customer_action: recoveryJson.requires_customer_action,
+      checkout_url: recoveryJson.checkout_url,
+      status: recoveryJson.status,
+      already_completed: recoveryJson.already_completed,
+      reused: recoveryJson.reused === true || hasOpenRecovery,
+      message: recoveryJson.message,
+    });
 
     return jsonResponse({
       success: true,
-      status,
-      requires_customer_action: requiresCustomerAction,
+      status: outcome.status,
+      requires_customer_action: outcome.requires_customer_action,
+      saved_card_charged: outcome.saved_card_charged,
+      saved_card_attempted: recoveryJson.saved_card_attempted === true,
+      saved_card_error: recoveryJson.saved_card_error ?? null,
       checkout_url: recoveryJson.checkout_url ?? null,
       payment_session_id: recoveryJson.payment_session_id ?? null,
       provider_order_id: recoveryJson.provider_order_id ?? null,
@@ -360,12 +359,14 @@ Deno.serve(async (req) => {
       original_captured_pence: originalCaptured,
       recaptured_pence_before: recoveryCaptured,
       net_refunded_pence: netRefunded,
-      reused: !!recoveryJson.reused || hasOpenRecovery,
-      already_completed: !!recoveryJson.already_completed,
-      message: recoveryJson.message
-        ?? (requiresCustomerAction
-          ? "Recapture checkout created — awaiting customer action and provider webhook confirmation."
-          : "Recapture accepted for processing — provider webhook remains authoritative for capture success."),
+      reused: outcome.reused,
+      already_completed: outcome.already_completed,
+      message: outcome.message
+        ?? (outcome.saved_card_charged
+          ? "Saved card charged off-session — awaiting provider webhook confirmation."
+          : (outcome.requires_customer_action
+            ? "Recapture checkout created — awaiting customer action and provider webhook confirmation."
+            : "Recapture accepted for processing — provider webhook remains authoritative for capture success.")),
     });
   } catch (e) {
     console.error("[admin-recapture-trip-shortfall]", e);

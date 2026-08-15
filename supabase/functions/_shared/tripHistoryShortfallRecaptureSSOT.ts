@@ -14,6 +14,7 @@ export const TRIP_SHORTFALL_RECAPTURE_UI_STATE = {
   RECAPTURE_AVAILABLE: "recapture_available",
   RECAPTURE_PROCESSING: "recapture_processing",
   CUSTOMER_ACTION_REQUIRED: "customer_action_required",
+  SAVED_CARD_CHARGED: "saved_card_charged",
   RECAPTURE_SUCCEEDED: "recapture_succeeded",
   RECAPTURE_FAILED: "recapture_failed",
   PAYMENT_METHOD_UNAVAILABLE: "payment_method_unavailable",
@@ -364,6 +365,146 @@ export function evaluateTripHistoryShortfallRecaptureEligibility(args: {
     outstanding_shortfall_pence: outstanding,
     reject_reason: null,
   };
+}
+
+function asNonEmptyString(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  return s.length > 0 ? s : null;
+}
+
+export type AdminRecaptureRecoveryInput = {
+  saved_card_charged?: unknown;
+  requires_customer_action?: unknown;
+  checkout_url?: unknown;
+  status?: unknown;
+  already_completed?: unknown;
+  reused?: unknown;
+  message?: unknown;
+};
+
+export type AdminRecaptureOutcome = {
+  saved_card_charged: boolean;
+  requires_customer_action: boolean;
+  status: TripShortfallRecaptureUiState;
+  show_payment_link: boolean;
+  already_completed: boolean;
+  reused: boolean;
+  message: string | null;
+};
+
+/**
+ * Classify create-payment-recovery output for Trip History recapture.
+ * A leftover checkout_url must never override a confirmed saved-card charge.
+ */
+export function deriveAdminRecaptureOutcome(
+  recovery: AdminRecaptureRecoveryInput,
+): AdminRecaptureOutcome {
+  const alreadyCompleted = recovery.already_completed === true;
+  const savedCardCharged = recovery.saved_card_charged === true;
+  const reused = recovery.reused === true;
+  const checkoutUrl = asNonEmptyString(recovery.checkout_url);
+  const recoveryStatus = asNonEmptyString(recovery.status);
+  const explicitRequiresAction = recovery.requires_customer_action === true
+    || recoveryStatus === "CUSTOMER_ACTION_REQUIRED"
+    || recoveryStatus === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED;
+
+  const requiresCustomerAction = alreadyCompleted
+    ? false
+    : savedCardCharged && recovery.requires_customer_action !== true
+      ? false
+      : explicitRequiresAction
+        || (!savedCardCharged && (
+          Boolean(checkoutUrl)
+          || recoveryStatus === "RECOVERY_CHECKOUT_CREATED"
+        ));
+
+  let status: TripShortfallRecaptureUiState =
+    TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING;
+  if (alreadyCompleted) {
+    status = TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID;
+  } else if (savedCardCharged && !requiresCustomerAction) {
+    status = TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED;
+  } else if (requiresCustomerAction) {
+    status = TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED;
+  }
+
+  return {
+    saved_card_charged: savedCardCharged && !requiresCustomerAction,
+    requires_customer_action: requiresCustomerAction,
+    status,
+    show_payment_link: requiresCustomerAction,
+    already_completed: alreadyCompleted,
+    reused,
+    message: asNonEmptyString(recovery.message),
+  };
+}
+
+/**
+ * Trip History recapture UI priority:
+ * 1. Saved card charged
+ * 2. Processing / pending provider state
+ * 3. Customer action genuinely required
+ * 4. Hard failure
+ *
+ * An open recovery session must not override saved-card success or processing.
+ */
+export function resolveRecaptureAttemptUi(args: {
+  attemptState: TripShortfallRecaptureUiState | null;
+  hasOpenRecoverySession: boolean;
+  gateUiState: TripShortfallRecaptureUiState;
+}): {
+  ui_state: TripShortfallRecaptureUiState;
+  show_payment_link: boolean;
+} {
+  const attempt = args.attemptState;
+  if (attempt === TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID) {
+    return { ui_state: attempt, show_payment_link: false };
+  }
+  if (attempt === TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED) {
+    return { ui_state: attempt, show_payment_link: false };
+  }
+  if (attempt === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING) {
+    return { ui_state: attempt, show_payment_link: false };
+  }
+  if (attempt === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED) {
+    return { ui_state: attempt, show_payment_link: false };
+  }
+  if (attempt === TRIP_SHORTFALL_RECAPTURE_UI_STATE.PAYMENT_METHOD_UNAVAILABLE) {
+    return { ui_state: attempt, show_payment_link: false };
+  }
+  if (attempt === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED) {
+    return { ui_state: attempt, show_payment_link: true };
+  }
+  if (attempt == null && args.hasOpenRecoverySession) {
+    return {
+      ui_state: TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED,
+      show_payment_link: true,
+    };
+  }
+  return {
+    ui_state: attempt ?? args.gateUiState,
+    show_payment_link: false,
+  };
+}
+
+export function recaptureAttemptBadgeLabel(uiState: TripShortfallRecaptureUiState): string {
+  if (uiState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.SAVED_CARD_CHARGED) {
+    return "Saved card charged";
+  }
+  if (uiState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING) {
+    return "Recapture processing";
+  }
+  if (uiState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED) {
+    return "Customer action required";
+  }
+  if (uiState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_FAILED) {
+    return "Recapture failed";
+  }
+  if (uiState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID) {
+    return "Fully paid";
+  }
+  return uiState;
 }
 
 export function recaptureActionLabel(outstandingPence: number, currencySymbol = "£"): string {
