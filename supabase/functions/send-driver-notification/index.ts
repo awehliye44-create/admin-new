@@ -27,7 +27,13 @@ interface NotificationPayload {
   data?: Record<string, string>;
 }
 
-const VALID_NOTIFICATION_TYPES = ['RIDE_OFFER', 'RIDE_STOP', 'TRIP_UPDATE', 'SYSTEM_ALERT'];
+const VALID_NOTIFICATION_TYPES = [
+  'RIDE_OFFER',
+  'RIDE_STOP',
+  'TRIP_UPDATE',
+  'SYSTEM_ALERT',
+  'NEGOTIATION_UPDATE',
+];
 const RATE_LIMIT_CONFIG = { limit: 200, windowMs: 60000, keyPrefix: 'send-notification' };
 
 // ─── FCM v1 OAuth2 helpers ───
@@ -240,6 +246,7 @@ Deno.serve(async (req) => {
 
     const isRideOffer = payload.type === 'RIDE_OFFER';
     const isRideStop = payload.type === 'RIDE_STOP';
+    const isNegotiationUpdate = payload.type === 'NEGOTIATION_UPDATE';
 
     // ── RIDE_OFFER: revalidate committed offer + driver before every push ──
     // Never trust presence.app_state=foreground to skip OS notification.
@@ -430,10 +437,12 @@ Deno.serve(async (req) => {
               body: sanitizedBody,
             };
             message.android = {
-              priority: 'NORMAL',
-              ttl: '120s',
+              priority: isNegotiationUpdate ? 'HIGH' : 'NORMAL',
+              ttl: isNegotiationUpdate ? '30s' : '120s',
               notification: {
-                channel_id: 'default',
+                channel_id: isNegotiationUpdate
+                  ? 'onecab_driver_trip_updates_v1'
+                  : 'default',
                 sound: 'default',
               },
             };

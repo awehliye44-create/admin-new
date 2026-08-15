@@ -238,6 +238,15 @@ Deno.serve(async (req) => {
         offerTerminalStatus: "expired",
         offerNegotiationStatus: "timeout_customer",
       });
+      if (!rematch.success) {
+        console.error("[customer-fare-decision] TIMEOUT rematch failed:", rematch);
+        return errorResponse(
+          "REMATCH_FAILED",
+          "Could not return this trip to search",
+          500,
+          { trip_id: trip.id, detail: rematch.error ?? null },
+        );
+      }
 
       return errorResponse("TIMEOUT", "Response time expired — finding another driver", 410, {
         trip_id: rematch.trip_id ?? trip.id,

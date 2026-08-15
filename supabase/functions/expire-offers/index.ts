@@ -78,11 +78,12 @@ async function sendNegotiationExpiredPush(
         },
         body: JSON.stringify({
           driverId,
-          type: "negotiation_offer_expired",
+          type: "NEGOTIATION_UPDATE",
           title: "Fare offer expired",
           body: "The fare offer timed out.",
           data: {
-            type: "negotiation_offer_expired",
+            type: "NEGOTIATION_UPDATE",
+            notificationType: "negotiation_offer_expired",
             offer_id: offerId,
             trip_id: tripId,
             tripId,
@@ -424,7 +425,24 @@ Deno.serve(async (req) => {
           ]);
 
         if ((count ?? 0) === 0) {
-          // No active negotiation offers — unlock trip for rebroadcast
+          // Rematch trigger requires exclusion / negotiation_disabled evidence.
+          // Prefer the same finalize RPC as Decline / timeout so pre-hold stays intact.
+          if (t.negotiation_owner_driver_id) {
+            const rematch = await finalizeNegotiationFailureAndRebroadcast(supabase, {
+              tripId: t.id,
+              failedDriverId: t.negotiation_owner_driver_id,
+              offerId: null,
+              offerTerminalStatus: "expired",
+              offerNegotiationStatus: "timeout_customer",
+            });
+            console.log(
+              "[expire-offers] Stuck negotiating trip (no active offers) → finalize rematch",
+              t.id,
+              rematch,
+            );
+            continue;
+          }
+
           await supabase
             .from("trips")
             .update({
@@ -435,6 +453,7 @@ Deno.serve(async (req) => {
               negotiation_locked_until: null,
               current_negotiation_id: null,
               negotiation_status: "failed",
+              negotiation_disabled: true,
               updated_at: new Date().toISOString(),
             })
             .eq("id", t.id)

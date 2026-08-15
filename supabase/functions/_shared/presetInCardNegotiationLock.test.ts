@@ -302,6 +302,8 @@ Deno.test("expiry rematches and never auto-accepts", async () => {
   assertEquals(expire.includes("driver_respond_by"), true);
   assertEquals(expire.includes("waiting_customer"), true);
   assertEquals(expire.includes("waiting_driver_final"), true);
+  assertEquals(expire.includes("Stuck negotiating trip (no active offers) → finalize rematch"), true);
+  assertEquals(expire.includes("negotiation_disabled: true"), true);
 });
 
 Deno.test("£Y timeout rematches at original; £Z is committed before the driver window", async () => {
@@ -371,7 +373,14 @@ Deno.test("original Accept and negotiated Accept still assign immediately", asyn
   assertEquals(decision.includes('if (action === "ACCEPT")'), true);
   assertEquals(decision.includes("accept_ride_offer"), true);
   assertEquals(decision.includes("REMATCH_FAILED"), true);
+  assertEquals(decision.includes("TIMEOUT rematch failed"), true);
   assertEquals(final.includes("accept_ride_offer"), true);
+
+  const driverPush = await Deno.readTextFile(
+    new URL("../send-driver-notification/index.ts", import.meta.url),
+  );
+  assertEquals(driverPush.includes("'NEGOTIATION_UPDATE'"), true);
+  assertEquals(driverPush.includes("isNegotiationUpdate"), true);
 });
 
 Deno.test("excluded sources cannot enter negotiation on restore/redispatch", async () => {
