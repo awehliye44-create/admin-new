@@ -18,6 +18,13 @@ import {
   revokeRideOfferNonDriverFault,
 } from "../_shared/rideOfferDriverEligibility.ts";
 import { buildTokenDeactivatePatch } from "../_shared/driverPushToken.ts";
+import {
+  notificationChannelForPlatform,
+  recordFcmPushOutcomeBestEffort,
+  resolveBookingIdFromPushData,
+  resolveOfferIdFromPushData,
+  type FcmAttemptResult,
+} from "../_shared/fcmPushDeliveryInstrumentation.ts";
 
 interface NotificationPayload {
   driverId: string;
@@ -327,9 +334,13 @@ Deno.serve(async (req) => {
 
     console.log(`[send-driver-notification] Sending ${payload.type} to ${tokens.length} device(s) via FCM v1`);
 
+    const pushData = (payload.data ?? {}) as Record<string, unknown>;
+    const instrumentationBookingId = resolveBookingIdFromPushData(pushData);
+    const instrumentationOfferId = resolveOfferIdFromPushData(pushData);
+
     // Send to all registered devices
-    const results = await Promise.all(
-      tokens.map(async ({ token, platform }) => {
+    const results: FcmAttemptResult[] = await Promise.all(
+      tokens.map(async ({ token, platform }): Promise<FcmAttemptResult> => {
         const incomingData = payload.data ?? {};
 
         const offerId = incomingData.offerId || incomingData.offer_id || incomingData.requestId || incomingData.request_id || '';
@@ -572,7 +583,13 @@ Deno.serve(async (req) => {
             if (platform === 'ios' && isRideOffer) {
               console.log(`[send-driver-notification] ios_push_provider_success driver=${payload.driverId} fcm_name=${result.name}`);
             }
-            return { platform, success: true };
+            return {
+              platform,
+              success: true,
+              providerResponse: typeof result?.name === "string" ? result.name : null,
+              notificationChannel: notificationChannelForPlatform(platform, isRideOffer),
+              error: null,
+            };
           }
 
           const errBody = await response.json().catch(() => ({}));
@@ -598,16 +615,47 @@ Deno.serve(async (req) => {
               .eq("is_active", true);
           }
 
-          return { platform, success: false, error: errBody?.error?.message ?? String(errCode) };
+          return {
+            platform,
+            success: false,
+            error: errBody?.error?.message ?? String(errCode),
+            notificationChannel: notificationChannelForPlatform(platform, isRideOffer),
+            providerResponse: null,
+          };
         } catch (err) {
           console.error(`[send-driver-notification] Network error ${platform}:`, err);
-          return { platform, success: false, error: String(err) };
+          return {
+            platform,
+            success: false,
+            error: String(err),
+            notificationChannel: notificationChannelForPlatform(platform, isRideOffer),
+            providerResponse: null,
+          };
         }
       })
     );
 
     const successCount = results.filter(r => r.success).length;
     console.log(`[send-driver-notification] Done: ${successCount}/${tokens.length} sent`);
+
+    // Observability only — never block or retry FCM because metrics write failed.
+    // SQL idempotency on push_sent/push_failed (per offer) prevents reminder double-count.
+    await recordFcmPushOutcomeBestEffort(supabase, {
+      bookingId: instrumentationBookingId,
+      driverId: payload.driverId,
+      offerId: instrumentationOfferId,
+      notificationType:
+        String(pushData.type || pushData.notificationType || payload.type || "UNKNOWN"),
+      title: sanitizedTitle,
+      reminderIndex: (() => {
+        const raw = pushData.reminder_index ?? pushData.reminderIndex ?? pushData.ios_realert;
+        if (raw === true || raw === "true" || raw === "1") return 1;
+        if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+        if (typeof raw === "string" && /^\d+$/.test(raw)) return Number(raw);
+        return null;
+      })(),
+      results,
+    });
 
     return successResponse({
       success: successCount > 0,
