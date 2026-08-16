@@ -381,20 +381,37 @@ export function resolveTripInvoicePaymentState(args: {
     };
   }
 
-  if (netPaid + PAID_TOLERANCE_PENCE >= finalFarePence) {
-    const classification: TripInvoicePaymentClassification = refunded > 0 ? "PARTIALLY_REFUNDED" : "FULLY_PAID";
+  // ── Safety invariant: unexplained overpayment must never render as a clean "PAID" invoice ──
+  if (netPaid > finalFarePence + PAID_TOLERANCE_PENCE) {
     return {
       ...base,
       authoritativePaidPence: netPaid,
       refundedPence: refunded,
       outstandingPence: 0,
-      paymentClassification: classification,
+      paymentClassification: "RECONCILIATION_REQUIRED",
       evidenceSource,
       providerTransactionIds,
-      invoiceEligible: classification === "FULLY_PAID",
-      blockReason: classification === "FULLY_PAID" ? null : "Refund present — reconciliation policy review",
+      invoiceEligible: false,
+      blockReason:
+        `Collected ${netPaid}p exceeds final fare ${finalFarePence}p — reconciliation required before invoice delivery`,
     };
   }
+
+  if (netPaid + PAID_TOLERANCE_PENCE >= finalFarePence) {
+    // A refund that reconciles collection back to the final fare is a settled, fully paid trip.
+    return {
+      ...base,
+      authoritativePaidPence: netPaid,
+      refundedPence: refunded,
+      outstandingPence: 0,
+      paymentClassification: "FULLY_PAID",
+      evidenceSource,
+      providerTransactionIds,
+      invoiceEligible: true,
+      blockReason: null,
+    };
+  }
+
 
   return {
     ...base,
