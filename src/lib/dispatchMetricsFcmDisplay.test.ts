@@ -1,23 +1,24 @@
-/// <reference lib="deno.ns" />
 /**
- * Deno tests for FCM confirmation display gating.
- * Run: deno test src/lib/dispatchMetricsFcmDisplay.test.ts
+ * Vitest tests for FCM confirmation display gating.
+ * Run: bunx vitest run src/lib/dispatchMetricsFcmDisplay.test.ts
  */
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { describe, it, expect } from "vitest";
+
+const assertEquals = <T,>(actual: T, expected: T) => expect(actual).toEqual(expected);
 import {
   FCM_CONFIRMATION_COVERAGE_MIN,
   fcmConfirmationCoverage,
   fcmConfirmationSparse,
   fcmDisplaySuccessRate,
   fcmEligibleCount,
-} from "./dispatchMetricsFcmDisplay.ts";
+} from "./dispatchMetricsFcmDisplay";
 
-Deno.test("eligible = enqueued − skip_no_token", () => {
+it("eligible = enqueued − skip_no_token", () => {
   assertEquals(fcmEligibleCount({ pushEnqueued: 126, pushSkipNoToken: 0 }), 126);
   assertEquals(fcmEligibleCount({ pushEnqueued: 10, pushSkipNoToken: 3 }), 7);
 });
 
-Deno.test("1 confirmed of 126 is sparse — withhold misleading 0.79%", () => {
+it("1 confirmed of 126 is sparse — withhold misleading 0.79%", () => {
   assertEquals(
     Math.abs(fcmConfirmationCoverage({ pushSent: 1, pushFailed: 0, eligible: 126 }) - 1 / 126) < 1e-9,
     true,
@@ -43,7 +44,7 @@ Deno.test("1 confirmed of 126 is sparse — withhold misleading 0.79%", () => {
   );
 });
 
-Deno.test("coverage threshold gates display rate", () => {
+it("coverage threshold gates display rate", () => {
   assertEquals(FCM_CONFIRMATION_COVERAGE_MIN, 0.2);
   assertEquals(
     fcmDisplaySuccessRate({
@@ -65,7 +66,7 @@ Deno.test("coverage threshold gates display rate", () => {
   );
 });
 
-Deno.test("dense confirmation shows real rate", () => {
+it("dense confirmation shows real rate", () => {
   assertEquals(
     fcmDisplaySuccessRate({
       pushSent: 120,
