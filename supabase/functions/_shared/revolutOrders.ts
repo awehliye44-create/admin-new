@@ -35,6 +35,8 @@ export interface RevolutOrder {
   amount?: number;
   /** Provider-confirmed authorised total (minor units) for pre-auth / increment flows. */
   authorised_amount?: number;
+  /** Captured/completed amount after partial or full capture (minor units). */
+  completed_amount?: number;
   currency?: string;
   capture_mode?: string;
   /** Required for same-order incremental authorisation. */

@@ -129,9 +129,15 @@ Deno.serve(async (req) => {
     const lifecycleEligible = isCallableTripStatus(trip.status);
     const callingAvailable = Boolean(legacy.calling_available) && lifecycleEligible;
 
-    const voipAvailable = callingAvailable && legacy.voip_available !== false;
-    const maskingAvailable =
-      callingAvailable && legacy.call_masking_available === true;
+    // SSOT is legacy.methods from service_area_communication_settings.
+    // Do not gate on a missing legacy.call_masking_available boolean field —
+    // TripCommunicationConfigResponse only returns methods[], so that check left
+    // masking off while VoIP stayed on (undefined treated as enabled).
+    const methodNames = new Set(
+      (legacy.methods ?? []).map((m) => m.method),
+    );
+    const voipAvailable = callingAvailable && methodNames.has("voip");
+    const maskingAvailable = callingAvailable && methodNames.has("call_masking");
     const maskingReady = maskingAvailable && Boolean(runtime.maskingCallerId);
 
     const disabledMessage = callingAvailable

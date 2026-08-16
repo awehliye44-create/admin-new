@@ -859,7 +859,9 @@ async function resolveSavedCardPaymentOutcome(args: {
   | { kind: "failed"; reason?: string }
   | { kind: "in_flight"; paymentState?: string }
 > {
-  const pollDelaysMs = [0, 150, 300, 600, 1000, 2000, 3000];
+  // Uber/Bolt-class Book: do not burn ~7s of Edge sleep here. Client confirm
+  // ticks finish AUTHORISED / 3DS when settle is still in flight.
+  const pollDelaysMs = [0, 100, 250, 500];
   let latest = args.payment;
   for (const delayMs of pollDelaysMs) {
     if (delayMs > 0) {

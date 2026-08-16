@@ -164,4 +164,33 @@ Deno.test("LOCK: fold detection compares on the gross basis, never confirmed far
   assertEquals(src.includes("foldBasis >= lockedBase + modStored - 1"), true);
   // The reverted form that re-added a committed delta on every discounted trip.
   assertEquals(src.includes("confirmedFare >= lockedBase + modStored - 1"), false);
+  // Signed cumulative must not be coerced through nonNeg (MK-260816-004).
+  assertEquals(
+    src.includes(
+      "nonNeg(trip.customer_modification_charge_pence) || nonNeg(trip.modification_delta_pence)",
+    ),
+    false,
+  );
+  assertEquals(src.includes("resolveModificationStoredPence"), true);
+});
+
+/**
+ * MK-260816-004 after Work (−375) then MK9 (+266):
+ * cumulative charge −109, committed net 679, gross 766.
+ * Pre-fix nonNeg(−109) fell through to modification_delta 266 and
+ * re-added → 679+266=945 on the Customer card.
+ */
+Deno.test("MK-260816-004 signed cumulative: never re-add last positive delta", () => {
+  const preview = computeLiveTripFarePreview({
+    final_customer_fare_pence: 679,
+    final_fare_pence: 679,
+    locked_base_fare_pence: 875,
+    customer_modification_charge_pence: -109,
+    modification_delta_pence: 266,
+    gross_fare_pence: 766,
+  });
+
+  assertEquals(preview.approved_modification_delta_pence, 0);
+  assertEquals(preview.current_customer_total_pence, 679);
+  assertEquals(preview.current_customer_total_pence === 945, false);
 });

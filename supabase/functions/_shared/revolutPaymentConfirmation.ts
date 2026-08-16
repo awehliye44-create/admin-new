@@ -288,6 +288,23 @@ export async function verifyRevolutOrderConfirmedForBooking(
     await new Promise((r) => setTimeout(r, pollIntervalMs));
   }
 
+  // Book ticks send max_wait_ms: 0 — one retrieve already done above. Do not
+  // double-hit Merchant API on every in-flight poll (nested latency).
+  if (maxWaitMs <= 0 && lastOrder != null) {
+    if (isRevolutInFlightState(lastOrder.state)) {
+      return {
+        ok: false,
+        order: lastOrder,
+        reason: "Payment is still processing. Please wait a moment and try again.",
+      };
+    }
+    return {
+      ok: false,
+      order: lastOrder,
+      reason: `Payment not authorized. Status: ${lastOrder.state ?? "unknown"}`,
+    };
+  }
+
   try {
     lastOrder = await retrieveRevolutOrder(environment, secretKey, orderId);
     if (isRevolutWrongCaptureBeforeTripComplete(lastOrder.state)) {

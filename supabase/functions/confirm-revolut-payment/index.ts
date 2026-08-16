@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { resolveConfirmRevolutMaxWaitMs } from "../_shared/confirmRevolutPaymentWaitSSOT.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
 import { finalizeRevolutTokenCapture } from "../_shared/revolutSavedCardWalletLink.ts";
 import {
@@ -10,6 +11,8 @@ import {
 import { markPaymentSessionAuthorised, markCardSetupOrphaned } from "../_shared/paymentSessionSSOT.ts";
 import { retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
+
+declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -50,6 +53,7 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
     provider_error_message?: string | null;
     provider_error_type?: string | null;
     expect_saved_card_token?: boolean;
+    max_wait_ms?: number | null;
   };
 
   const orderId = String(body.order_id ?? body.payment_intent_id ?? "").trim();
@@ -58,15 +62,16 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
   try {
     const merchant = await resolveRevolutMerchantContext(supabase, "live");
 
-    const isSaveCardConfirm = body.expect_saved_card_token === true;
+    // Honour client max_wait_ms (Book sends 0 = one retrieve). Cap booking at 2s.
+    const wait = resolveConfirmRevolutMaxWaitMs(body);
     const confirmation = await verifyRevolutOrderConfirmedForBooking(
       supabase,
       merchant.environment,
       merchant.secretKey,
       orderId,
       {
-        maxWaitMs: isSaveCardConfirm ? 10_000 : 22_000,
-        pollIntervalMs: isSaveCardConfirm ? 250 : 500,
+        maxWaitMs: wait.maxWaitMs,
+        pollIntervalMs: wait.pollIntervalMs,
       },
     );
 
@@ -98,6 +103,62 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
           purpose: order.metadata?.purpose ?? null,
         });
       }
+
+      // Booking holds: mark authorised + return immediately. Token capture must not
+      // gate Finding (old poll ladder was ~82s). Post-commit / waitUntil finishes save.
+      if (!isSaveCardPurpose) {
+        await markPaymentSessionAuthorised(supabase, {
+          providerOrderId: order.id,
+          clientActionId: body.client_action_id ?? order.metadata?.client_action_id ?? null,
+        });
+        if (saveCardEligible) {
+          const captureTask = finalizeRevolutTokenCapture(supabase, {
+            environment: merchant.environment,
+            secretKey: merchant.secretKey,
+            orderId: order.id,
+            userId,
+            platformPaymentMethodId: platformPmId,
+            orderMetadata: order.metadata ?? undefined,
+            pollProfile: "booking",
+            markFailedOnMiss: false,
+          }).then((capture) => {
+            if (capture.captured) {
+              console.info("[confirm-revolut-payment] payment_method.provider_confirmed_deferred", {
+                order_id: order.id,
+                token_captured: true,
+              });
+            } else {
+              console.warn("[confirm-revolut-payment] payment_method.capture_deferred_miss", {
+                order_id: order.id,
+                has_platform_pm: Boolean(platformPmId),
+              });
+            }
+          }).catch((err) => {
+            console.warn("[confirm-revolut-payment] payment_method.capture_deferred_error", {
+              order_id: order.id,
+              error: String(err),
+            });
+          });
+          if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+            EdgeRuntime.waitUntil(captureTask);
+          } else {
+            void captureTask;
+          }
+        }
+        return json({
+          confirmed: true,
+          failed: false,
+          state: order.state ?? "AUTHORISED",
+          confirmed_via: confirmation.confirmed_via,
+          order_id: order.id,
+          token_captured: false,
+          token_capture_deferred: saveCardEligible,
+          tokenization_failed: false,
+          provider_reference: null,
+          platform_payment_method_id: platformPmId,
+        });
+      }
+
       const capture = await finalizeRevolutTokenCapture(supabase, {
         environment: merchant.environment,
         secretKey: merchant.secretKey,
@@ -105,8 +166,8 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
         userId,
         platformPaymentMethodId: platformPmId,
         orderMetadata: order.metadata ?? undefined,
-        markFailedOnMiss: isSaveCardPurpose
-          && body.expect_saved_card_token === true
+        pollProfile: "setup",
+        markFailedOnMiss: body.expect_saved_card_token === true
           && Boolean(platformPmId),
       });
       if (capture.captured) {
@@ -131,8 +192,7 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
       });
 
       if (
-        isSaveCardPurpose
-        && body.expect_saved_card_token === true
+        body.expect_saved_card_token === true
         && (capture.tokenizationFailed || !capture.captured)
       ) {
         await markCardSetupOrphaned(supabase, {

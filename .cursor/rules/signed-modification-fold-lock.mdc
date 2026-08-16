@@ -12,6 +12,8 @@ In `public.apply_trip_modification_to_trip`:
 - Gross = final net + existing discount (promotion applied exactly once).
 - `destination_change_adjustment_pence` stores the **signed** per-revision delta.
 - Waiting charges stay out of this fold.
+- Stamp **`driver_net_before_tip_pence = driver_net_pence`** on every fold update
+  (accept-era before_tip must not linger after a reduction).
 
 Pure arithmetic mirror + tests:
 `supabase/functions/_shared/foldTripModificationFare.ts`

@@ -44,6 +44,7 @@ export async function finalizeRevolutTokenCapture(
     orderMetadata?: Record<string, string | undefined> | null;
     platformPaymentMethodId?: string | null;
     markFailedOnMiss?: boolean;
+    pollProfile?: "booking" | "setup";
     /** @deprecated ignored — Stripe wallet link retired */
     stripe?: unknown;
     /** @deprecated ignored — Stripe wallet link retired */
@@ -63,6 +64,7 @@ export async function finalizeRevolutTokenCapture(
     platformPaymentMethodId: args.platformPaymentMethodId,
     orderMetadata: args.orderMetadata,
     markFailedOnMiss: args.markFailedOnMiss,
+    pollProfile: args.pollProfile,
   });
 }
 

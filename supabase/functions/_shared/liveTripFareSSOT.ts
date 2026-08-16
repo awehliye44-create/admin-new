@@ -42,6 +42,37 @@ function nonNeg(value: unknown): number {
   return Math.round(n);
 }
 
+/** Signed pence (mods may be negative after a shorter destination). */
+function signedPence(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n);
+}
+
+/**
+ * Prefer cumulative customer_modification_charge_pence (signed SSOT from apply).
+ * Never coerce negatives through nonNeg — that fell through to the last positive
+ * modification_delta_pence and re-added it on top of an already-folded final
+ * (MK-260816-004: 679 + 266 = 945).
+ */
+function resolveModificationStoredPence(trip: LiveTripFareInput): {
+  modStored: number;
+  cumulativePresent: boolean;
+} {
+  const cumulative = signedPence(trip.customer_modification_charge_pence);
+  if (
+    trip.customer_modification_charge_pence !== null &&
+    trip.customer_modification_charge_pence !== undefined &&
+    cumulative != null
+  ) {
+    return { modStored: cumulative, cumulativePresent: true };
+  }
+  return {
+    modStored: signedPence(trip.modification_delta_pence) ?? 0,
+    cumulativePresent: false,
+  };
+}
+
 function normalizeCommissionPercent(raw: number): number {
   if (!Number.isFinite(raw) || raw < 0) return 0;
   // Accept either 15 (percent) or 0.15 (fraction).
@@ -86,8 +117,7 @@ export function computeLiveTripFarePreview(trip: LiveTripFareInput): LiveTripFar
   const pickupWaiting = nonNeg(trip.pickup_waiting_charge_pence);
   const stopWaiting =
     nonNeg(trip.stop_waiting_charge_pence) || nonNeg(trip.stop_charge_total_pence);
-  const modStored =
-    nonNeg(trip.customer_modification_charge_pence) || nonNeg(trip.modification_delta_pence);
+  const { modStored } = resolveModificationStoredPence(trip);
   const lockedBase = nonNeg(trip.locked_base_fare_pence);
   const grossFare = nonNeg(trip.gross_fare_pence);
 
@@ -96,15 +126,20 @@ export function computeLiveTripFarePreview(trip: LiveTripFareInput): LiveTripFar
   // Compare on the gross (pre-discount) basis the fold wrote: confirmed fare is
   // net of offer/voucher discounts, so a discounted trip would otherwise never
   // clear the threshold and would re-add an already-committed delta forever.
+  // Use SIGNED cumulative charge (including negative). nonNeg() used to wipe
+  // negatives and fall through to the last positive modification_delta_pence,
+  // re-adding it on top of final (MK-260816-004: 679+266=945).
   const foldBasis = grossFare > 0 ? grossFare : confirmedFare;
   const modAlreadyInConfirmed =
-    modStored > 0 &&
+    modStored !== 0 &&
     lockedBase > 0 &&
     foldBasis >= lockedBase + modStored - 1;
   const approvedModificationDelta = modAlreadyInConfirmed ? 0 : modStored;
 
-  const currentCustomerTotalPence =
-    confirmedFare + pickupWaiting + stopWaiting + approvedModificationDelta;
+  const currentCustomerTotalPence = Math.max(
+    1,
+    confirmedFare + pickupWaiting + stopWaiting + approvedModificationDelta,
+  );
 
   const commissionPercent = resolveCommissionPercent(trip);
   const driverNetPreviewPence = Math.round(

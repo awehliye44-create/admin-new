@@ -246,6 +246,11 @@ export async function captureRevolutProviderTokenFromOrder(
     orderMetadata?: Record<string, string | undefined> | null;
     /** When true, mark tokenization_failed if no saved_payment_method.id after poll. */
     markFailedOnMiss?: boolean;
+    /**
+     * booking: short poll — never block Book→Finding (post-commit / waitUntil can finish).
+     * setup: dedicated save-card flow may wait longer (still capped, not ~82s).
+     */
+    pollProfile?: "booking" | "setup";
   },
 ): Promise<{
   captured: boolean;
@@ -270,7 +275,10 @@ export async function captureRevolutProviderTokenFromOrder(
     return { captured: false };
   }
 
-  const pollDelaysMs = [0, 400, 900, 1800, 3200, 6000, 10000, 15000, 20000, 25000];
+  // Sum of sleeps: booking ~0.85s; setup ~6.3s. Never reintroduce the old ~82s ladder.
+  const pollDelaysMs = args.pollProfile === "setup"
+    ? [0, 400, 900, 1800, 3200]
+    : [0, 100, 250, 500];
   for (const delayMs of pollDelaysMs) {
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
