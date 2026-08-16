@@ -6,7 +6,7 @@
 
 ## Product rule
 
-Saved payment methods are **provider-neutral ONECAB functionality**. In Revolut service areas, saved cards must use **Revolut tokenisation/vault only** — never provider SetupIntent / `list-saved-cards`.
+Saved payment methods are **provider-neutral ONECAB functionality**. In Revolut service areas, saved cards must use **Revolut tokenisation/vault only** — never legacy card-setup Edges.
 
 Until Revolut vault ships, admin readiness = **Not implemented for Revolut yet** (not “Provider unsupported”). Customer app hides saved-card UI.
 
@@ -26,11 +26,11 @@ Until Revolut vault ships, admin readiness = **Not implemented for Revolut yet**
 - [ ] `REVOLUT_SAVE_CARD_TOKENIZATION_READY` flipped to `true` in SSOT only after E2E proof
 - [ ] Admin saved card readiness → Live
 - [ ] Customer Wallet shows Revolut saved cards (max 2, same policy as provider)
-- [x] No `list-saved-cards` / `setup-card` calls in Revolut service areas
-- [x] Slice B (2026-08-13): undeployed dead Stripe Edges `setup-card`, `list-saved-cards`, `delete-saved-card` (Revolut trio live; no rewrite)
+- [x] No legacy `list-saved-cards` / `setup-card` callers in Revolut service areas
+- [x] Legacy card-setup Edges removed; Revolut saved-card trio is the live path
 
 ## References
 
 - `supabase/functions/_shared/paymentMethodSSOT.ts` — `resolveSavedCardMethodRow`
 - `src/lib/revolutSavedCards.ts` — customer gate
-- `supabase/functions/_shared/providerRetirementGuard.ts` — blocks provider paths in Revolut areas
+- Project lock rule under `.cursor/rules/` — retired card-acquiring provider must not return to active runtime
