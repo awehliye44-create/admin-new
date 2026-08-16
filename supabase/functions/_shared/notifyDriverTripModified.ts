@@ -54,12 +54,10 @@ export async function notifyDriverTripModified(
     screen: "active_trip",
   };
   if (changeRequestId) {
+    // Never put change_request_id into offer_id — booking_delivery_log.offer_id
+    // FKs ride_offers(id). Idempotency / audit use detail.change_request_id.
     data.change_request_id = changeRequestId;
     data.changeRequestId = changeRequestId;
-    // Reuse offer_id slot so send-driver-notification metrics idempotency
-    // keys per applied modification (not once-per-trip).
-    data.offer_id = changeRequestId;
-    data.offerId = changeRequestId;
   }
   if (types.length > 0) {
     // FCM data values must be strings — JSON array for the client parser.

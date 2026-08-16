@@ -326,7 +326,15 @@ Deno.serve(async (req) => {
 
     const pushDataEarly = (payload.data ?? {}) as Record<string, unknown>;
     const instrumentationBookingIdEarly = resolveBookingIdFromPushData(pushDataEarly);
-    const instrumentationOfferIdEarly = resolveOfferIdFromPushData(pushDataEarly);
+    // trip_modified must NOT write change_request_id into offer_id (ride_offers FK).
+    const instrumentationOfferIdEarly = isTripModified
+      ? null
+      : resolveOfferIdFromPushData(pushDataEarly);
+    const tripModifiedChangeRequestId = (() => {
+      const raw =
+        pushDataEarly.change_request_id ?? pushDataEarly.changeRequestId ?? null;
+      return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
+    })();
     const notificationTypeEarly = String(
       pushDataEarly.type || pushDataEarly.notification_type || payload.type || "UNKNOWN",
     );
@@ -343,13 +351,13 @@ Deno.serve(async (req) => {
         await recordBookingDeliveryPhaseBestEffort(supabase, {
           bookingId: instrumentationBookingIdEarly,
           driverId: payload.driverId,
-          offerId: instrumentationOfferIdEarly,
+          offerId: null,
           phase: "push_enqueued_skip_no_token",
           detail: {
             reason: "no_authoritative_push_token",
             notification_type: notificationTypeEarly,
             event_type: "trip_modified",
-            change_request_id: instrumentationOfferIdEarly,
+            change_request_id: tripModifiedChangeRequestId,
             modification_version:
               typeof pushDataEarly.modification_version === "string"
                 ? pushDataEarly.modification_version
@@ -365,12 +373,12 @@ Deno.serve(async (req) => {
       await recordBookingDeliveryPhaseBestEffort(supabase, {
         bookingId: instrumentationBookingIdEarly,
         driverId: payload.driverId,
-        offerId: instrumentationOfferIdEarly,
+        offerId: null,
         phase: "push_enqueued",
         detail: {
           notification_type: notificationTypeEarly,
           event_type: "trip_modified",
-          change_request_id: instrumentationOfferIdEarly,
+          change_request_id: tripModifiedChangeRequestId,
           modification_version:
             typeof pushDataEarly.modification_version === "string"
               ? pushDataEarly.modification_version
@@ -713,7 +721,7 @@ Deno.serve(async (req) => {
       })(),
       results,
       eventType: isTripModified ? "trip_modified" : null,
-      changeRequestId: isTripModified ? instrumentationOfferId : null,
+      changeRequestId: isTripModified ? tripModifiedChangeRequestId : null,
       modificationVersion:
         isTripModified && typeof pushData.modification_version === "string"
           ? pushData.modification_version

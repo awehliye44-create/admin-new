@@ -78,11 +78,12 @@ Deno.test("D/E: no-token and FCM outcome instrumentation stay best-effort", asyn
   assertEquals(send.includes("push_enqueued_skip_no_token"), true);
 });
 
-Deno.test("G: change_request_id used as metrics offer_id for per-mod idempotency", async () => {
+Deno.test("G: change_request_id in detail (not offer_id FK) for per-mod idempotency", async () => {
   const notify = await Deno.readTextFile(
     new URL("./notifyDriverTripModified.ts", import.meta.url),
   );
-  assertEquals(notify.includes("data.offer_id = changeRequestId"), true);
+  assertEquals(notify.includes("data.change_request_id = changeRequestId"), true);
+  assertEquals(notify.includes("data.offer_id = changeRequestId"), false);
   assertEquals(notify.includes("apikey: serviceKey"), true);
   const apply = await Deno.readTextFile(
     new URL("./tripModificationApply.ts", import.meta.url),
@@ -90,6 +91,7 @@ Deno.test("G: change_request_id used as metrics offer_id for per-mod idempotency
   assertEquals(apply.includes('.in("status", ["applied", "approved"])'), true);
   assertEquals(apply.includes("changeRequestId"), true);
   assertEquals(apply.includes("skip duplicate trip_modified notify"), true);
+  assertEquals(apply.includes('filter("detail->>change_request_id", "eq", changeRequestId)'), true);
   assertEquals(apply.includes("options?.changeRequestId"), true);
 });
 
@@ -100,6 +102,8 @@ Deno.test("metrics enqueue scoped to trip_modified only (not all trip pushes)", 
   assertEquals(send.includes("Scope new enqueue metrics to trip_modified"), true);
   assertEquals(send.includes("trip_modified only (ride offers use postgres trigger)"), true);
   assertEquals(send.includes("eventType: isTripModified ? \"trip_modified\" : null"), true);
+  assertEquals(send.includes("must NOT write change_request_id into offer_id"), true);
+  assertEquals(send.includes("changeRequestId: isTripModified ? tripModifiedChangeRequestId : null"), true);
 });
 
 Deno.test("I: notify targets confirmed_driver_id (assigned Driver only)", async () => {

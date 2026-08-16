@@ -248,17 +248,20 @@ export async function fetchTripAndBroadcastUpdated(
     }
 
     // One applied modification → one notify attempt (replay-safe).
+    // Key on detail.change_request_id (offer_id is ride_offers FK only).
     if (changeRequestId) {
       try {
         const { data: prior } = await supabase
           .from("booking_delivery_log")
           .select("id")
-          .eq("offer_id", changeRequestId)
+          .eq("booking_id", tripId)
+          .eq("driver_id", driverId)
           .in("phase", [
             "push_enqueued",
             "push_sent",
             "push_enqueued_skip_no_token",
           ])
+          .filter("detail->>change_request_id", "eq", changeRequestId)
           .limit(1)
           .maybeSingle();
         if (prior?.id) {
