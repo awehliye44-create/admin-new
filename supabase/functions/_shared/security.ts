@@ -198,9 +198,17 @@ export function sanitizeString(value: unknown, maxLength = 1000): string | null 
   // eslint-disable-next-line no-control-regex -- intentional strip of disallowed ASCII controls
   let sanitized = value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
   
+  // Escape HTML-significant characters so stored text can never render as markup
+  sanitized = sanitized
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
   // Trim and limit length
   sanitized = sanitized.trim().slice(0, maxLength);
-  
+
   return sanitized || null;
 }
 
