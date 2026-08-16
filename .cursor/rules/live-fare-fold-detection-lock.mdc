@@ -1,0 +1,45 @@
+---
+description: A modification delta already folded into the committed fare must never be re-added by the live fare projection.
+alwaysApply: true
+---
+
+# Live fare fold-detection lock
+
+## Canonical rule
+
+**A modification delta that has already been folded into the committed fare must NEVER be added again by the live fare projection. Discounts and vouchers must not break fold detection.**
+
+SSOT: `supabase/functions/_shared/liveTripFareSSOT.ts` → `computeLiveTripFarePreview`
+
+## Never remove or “simplify away”
+
+- Fold detection compares on the **gross (pre-discount) basis** the fold wrote:
+
+```ts
+const grossFare = nonNeg(trip.gross_fare_pence);
+const foldBasis = grossFare > 0 ? grossFare : confirmedFare;
+const modAlreadyInConfirmed =
+  modStored > 0 && lockedBase > 0 && foldBasis >= lockedBase + modStored - 1;
+```
+
+- Fallback to `confirmedFare` only when `gross_fare_pence` is absent
+- Every caller must pass `gross_fare_pence` into `computeLiveTripFarePreview` — the projection cannot detect the fold without it
+- `current_customer_total_pence` stays the single live-total SSOT for Customer card, Driver net preview, and modification previews. Do not patch individual callers.
+
+## Why
+
+`confirmedFare` is **net** of `offer_discount_pence` / `voucher_discount_pence`; `lockedBase + modStored` is **gross**. Comparing the two meant any discounted trip failed the guard and re-added its committed delta on every projection.
+
+MK-260816-002: base 749 + mod 364 = gross 1113, − 74 discount = committed 1039. Guard required `1039 >= 1112`, short by exactly 73 (74 discount − 1 tolerance) → `1039 + 364 = 1403` → Customer card showed **£14.03** instead of **£10.39**. It also inflated the Driver net preview and the base for the next modification quote.
+
+Lock tests: `supabase/functions/_shared/liveTripFareSSOT.test.ts`
+Client render: `/Users/admin/ONECAB/onecab-customer-native/src/features/booking/lib/resolveCustomerTripFare.test.ts`
+**If they fail, fix the code — never delete or soften the lock.**
+
+## Do not
+
+- Compare `confirmedFare` directly against `lockedBase + modStored`
+- Drop `gross_fare_pence` from a caller's trip select or preview input
+- Add a discount-shaped fudge factor instead of using the gross basis
+- Re-add the delta in a caller to “correct” a total the projection already returned
+- Change Revolut incremental authorisation, persisted final fare, or capture to compensate for a projection bug

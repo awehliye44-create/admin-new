@@ -89,13 +89,18 @@ export function computeLiveTripFarePreview(trip: LiveTripFareInput): LiveTripFar
   const modStored =
     nonNeg(trip.customer_modification_charge_pence) || nonNeg(trip.modification_delta_pence);
   const lockedBase = nonNeg(trip.locked_base_fare_pence);
+  const grossFare = nonNeg(trip.gross_fare_pence);
 
   // apply_trip_modification_to_trip folds mod into final_customer_fare_pence.
-  // Only add mod when confirmed fare still looks like pre-mod base.
+  // Only add mod when the fare still looks like pre-mod base.
+  // Compare on the gross (pre-discount) basis the fold wrote: confirmed fare is
+  // net of offer/voucher discounts, so a discounted trip would otherwise never
+  // clear the threshold and would re-add an already-committed delta forever.
+  const foldBasis = grossFare > 0 ? grossFare : confirmedFare;
   const modAlreadyInConfirmed =
     modStored > 0 &&
     lockedBase > 0 &&
-    confirmedFare >= lockedBase + modStored - 1;
+    foldBasis >= lockedBase + modStored - 1;
   const approvedModificationDelta = modAlreadyInConfirmed ? 0 : modStored;
 
   const currentCustomerTotalPence =
