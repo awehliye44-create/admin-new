@@ -21,6 +21,7 @@ CREATE INDEX IF NOT EXISTS idx_payout_audit_log_event_type
 
 ALTER TABLE public.payout_audit_log ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS payout_audit_log_service_role ON public.payout_audit_log;
 CREATE POLICY payout_audit_log_service_role
   ON public.payout_audit_log
   FOR ALL
