@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 /**
  * Deno tests for FCM confirmation display gating.
  * Run: deno test src/lib/dispatchMetricsFcmDisplay.test.ts
