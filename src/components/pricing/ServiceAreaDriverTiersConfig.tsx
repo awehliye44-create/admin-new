@@ -20,7 +20,6 @@ interface ServiceAreaDriverTier {
   service_area_id: string;
   tier_name: string;
   category_priority: number;
-  commission_percent: number;
   trip_target: number | null;
   is_active: boolean;
   display_order: number;
@@ -58,7 +57,6 @@ export function ServiceAreaDriverTiersConfig({
 
   const [formData, setFormData] = useState({
     category_priority: '',
-    commission_percent: '',
     trip_target: '',
     is_active: true,
     display_order: '',
@@ -93,7 +91,6 @@ export function ServiceAreaDriverTiersConfig({
     setSelectedTier(tier);
     setFormData({
       category_priority: tier.category_priority?.toString() || '10',
-      commission_percent: tier.commission_percent?.toString() || '',
       trip_target: tier.trip_target?.toString() || '',
       is_active: tier.is_active,
       display_order: tier.display_order?.toString() || '',
@@ -108,7 +105,6 @@ export function ServiceAreaDriverTiersConfig({
     try {
       const updateData = {
         category_priority: formData.category_priority ? parseInt(formData.category_priority, 10) : 10,
-        commission_percent: formData.commission_percent ? parseFloat(formData.commission_percent) : 0,
         trip_target: formData.trip_target ? parseInt(formData.trip_target, 10) : null,
         is_active: formData.is_active,
         display_order: formData.display_order
@@ -180,9 +176,6 @@ export function ServiceAreaDriverTiersConfig({
                 <strong>Trip Target</strong> triggers automatic tier promotion when a driver completes
                 enough trips — upgrades only, never demotions.
               </p>
-              <p className="mt-1 text-xs">
-                The Commission % column is legacy display only and is not used for offer or settlement math.
-              </p>
             </div>
           </div>
 
@@ -201,7 +194,6 @@ export function ServiceAreaDriverTiersConfig({
                 <TableRow>
                   <TableHead>Tier</TableHead>
                   <TableHead>Category Priority</TableHead>
-                  <TableHead>Commission %</TableHead>
                   <TableHead>Trip Target</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Order</TableHead>
@@ -228,11 +220,6 @@ export function ServiceAreaDriverTiersConfig({
                       <TableCell>
                         <Badge variant="outline" className="font-mono">
                           {tier.category_priority}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="font-mono">
-                          {tier.commission_percent}%
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -283,21 +270,6 @@ export function ServiceAreaDriverTiersConfig({
               />
               <p className="text-xs text-muted-foreground mt-1">
                 Higher value = higher ranking in dispatch scoring for this service area
-              </p>
-            </div>
-            <div>
-              <Label htmlFor="commission_percent">Commission %</Label>
-              <Input
-                id="commission_percent"
-                type="number"
-                step="0.5"
-                min="0"
-                max="100"
-                value={formData.commission_percent}
-                onChange={(e) => setFormData((prev) => ({ ...prev, commission_percent: e.target.value }))}
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Applied to commissionable subtotal on trip completion in this service area
               </p>
             </div>
             <div>
