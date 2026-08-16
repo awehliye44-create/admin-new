@@ -304,3 +304,45 @@ describe('capture mirror dedupe — payments row mirrors payment_sessions captur
     expect(b.authoritativePaidPence).toBe(450);
   });
 });
+
+describe('deterministic provider identity linking', () => {
+  it('payments.provider_order_id matching the session order id is one capture', () => {
+    const state = resolveTripInvoicePaymentState({
+      trip: cardTrip({ final_fare_pence: 716 }),
+      paymentSessions: [
+        {
+          trip_id: 'trip-a',
+          status: 'trip_created',
+          provider_state: 'COMPLETED',
+          captured_amount_pence: 982,
+          refunded_amount_pence: 266,
+          provider_order_id: '6a80b18b-ac52',
+        },
+      ],
+      payments: [
+        {
+          id: 'pay-1',
+          trip_id: 'trip-a',
+          status: 'partially_refunded',
+          captured_amount_pence: 982,
+          provider_order_id: '6a80b18b-ac52',
+        },
+      ],
+    });
+    expect(state.authoritativePaidPence).toBe(716);
+    expect(state.providerTransactionIds).toEqual(['6a80b18b-ac52']);
+  });
+
+  it('a different provider order id is treated as an independent capture', () => {
+    const state = resolveTripInvoicePaymentState({
+      trip: cardTrip({ final_fare_pence: 700 }),
+      paymentSessions: [
+        { trip_id: 'trip-a', status: 'captured', captured_amount_pence: 500, provider_order_id: 'ord-1' },
+      ],
+      payments: [
+        { id: 'p2', trip_id: 'trip-a', status: 'captured', captured_amount_pence: 200, provider_order_id: 'ord-2' },
+      ],
+    });
+    expect(state.authoritativePaidPence).toBe(700);
+  });
+});
