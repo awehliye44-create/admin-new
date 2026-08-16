@@ -85,6 +85,8 @@ export interface PaymentRowEvidence {
   refunded_amount_pence?: number | null;
   provider_payment_id?: string | null;
   provider_charge_id?: string | null;
+  /** Revolut order id mirrored from payment_sessions — deterministic dedupe link. */
+  provider_order_id?: string | null;
 }
 
 export interface TripInvoicePaymentState {
@@ -145,25 +147,52 @@ interface CaptureFact {
   capturedPence: number;
   refundedPence: number;
   source: string;
+  /** True when the fact carries a durable provider transaction identity. */
+  identified: boolean;
 }
 
-/** Dedupe by provider transaction id so duplicate webhooks/rows are never double counted. */
+/** All durable provider identities a session row can be recognised by. */
+function sessionProviderAliases(session: PaymentSessionEvidence): string[] {
+  return [session.provider_capture_id, session.provider_payment_id, session.provider_order_id]
+    .filter((v): v is string => Boolean(v))
+    .map(String);
+}
+
+/** All durable provider identities a payments row can be recognised by. */
+function paymentProviderAliases(payment: PaymentRowEvidence): string[] {
+  return [payment.provider_payment_id, payment.provider_charge_id, payment.provider_order_id]
+    .filter((v): v is string => Boolean(v))
+    .map(String);
+}
+
+/**
+ * Capture evidence collection.
+ *
+ * `payment_sessions` is the PRIMARY authoritative capture ledger for a trip.
+ * A `payments` row only adds money when it proves an INDEPENDENT provider transaction
+ * (its own provider identity, not already seen on this trip).
+ * A `payments` row that shares a provider identity with a session — or that carries no
+ * durable identity at all while session capture evidence exists — is a MIRROR of that
+ * capture and must never be summed.
+ */
 function collectCaptureFacts(
   tripId: string,
   sessions: PaymentSessionEvidence[],
   payments: PaymentRowEvidence[],
 ): CaptureFact[] {
-  const byKey = new Map<string, CaptureFact>();
+  const facts: CaptureFact[] = [];
+  const byAlias = new Map<string, CaptureFact>();
+  const sessionFacts: CaptureFact[] = [];
 
-  const push = (fact: CaptureFact) => {
-    const existing = byKey.get(fact.key);
-    if (!existing) {
-      byKey.set(fact.key, fact);
-      return;
-    }
+  const mergeInto = (fact: CaptureFact, capturedPence: number, refundedPence: number) => {
     // Same provider transaction seen twice — keep the larger confirmed evidence, never sum.
-    existing.capturedPence = Math.max(existing.capturedPence, fact.capturedPence);
-    existing.refundedPence = Math.max(existing.refundedPence, fact.refundedPence);
+    fact.capturedPence = Math.max(fact.capturedPence, capturedPence);
+    fact.refundedPence = Math.max(fact.refundedPence, refundedPence);
+  };
+
+  const register = (fact: CaptureFact, aliases: string[]) => {
+    facts.push(fact);
+    for (const alias of aliases) byAlias.set(alias, fact);
   };
 
   for (const session of sessions) {
@@ -171,20 +200,26 @@ function collectCaptureFacts(
     const captured = positive(session.captured_amount_pence);
     const status = String(session.status ?? "").toLowerCase();
     const providerState = String(session.provider_state ?? "").toLowerCase();
-    const statusCaptured = CAPTURED_SESSION_STATUSES.has(status) || providerState === "captured" || providerState === "completed";
+    const statusCaptured = CAPTURED_SESSION_STATUSES.has(status) || providerState === "captured" ||
+      providerState === "completed";
     if (captured <= 0) continue;
     if (!statusCaptured && looksFailed(status, providerState)) continue;
-    const key =
-      session.provider_capture_id
-        || session.provider_payment_id
-        || session.provider_order_id
-        || `session:${session.id ?? ""}`;
-    push({
-      key: String(key),
+    const aliases = sessionProviderAliases(session);
+    const known = aliases.map((a) => byAlias.get(a)).find(Boolean);
+    if (known) {
+      mergeInto(known, captured, positive(session.refunded_amount_pence));
+      for (const alias of aliases) byAlias.set(alias, known);
+      continue;
+    }
+    const fact: CaptureFact = {
+      key: aliases[0] ?? `session:${session.id ?? facts.length}`,
       capturedPence: captured,
       refundedPence: positive(session.refunded_amount_pence),
       source: "payment_sessions",
-    });
+      identified: aliases.length > 0,
+    };
+    register(fact, aliases);
+    sessionFacts.push(fact);
   }
 
   for (const payment of payments) {
@@ -197,17 +232,54 @@ function collectCaptureFacts(
     }
     if (captured <= 0) continue;
     if (looksFailed(status, providerStatus) && positive(payment.captured_amount_pence) <= 0) continue;
-    const key = payment.provider_payment_id || payment.provider_charge_id || `payment:${payment.id ?? ""}`;
-    push({
-      key: String(key),
+    const refunded = positive(payment.refunded_amount_pence);
+    const aliases = paymentProviderAliases(payment);
+
+    // Deterministic dedupe: same provider transaction already recorded for this trip.
+    const known = aliases.map((a) => byAlias.get(a)).find(Boolean);
+    if (known) {
+      mergeInto(known, captured, refunded);
+      for (const alias of aliases) byAlias.set(alias, known);
+      continue;
+    }
+
+    if (aliases.length > 0) {
+      // Independent provider transaction — a genuinely separate collection (recovery, split, extra capture).
+      register({
+        key: aliases[0],
+        capturedPence: captured,
+        refundedPence: refunded,
+        source: "payments",
+        identified: true,
+      }, aliases);
+      continue;
+    }
+
+    // No durable provider identity. If the trip already has session capture evidence,
+    // this row is a mirror of it — merge, never add a second capture.
+    if (sessionFacts.length > 0) {
+      const exact = sessionFacts.find((f) => f.capturedPence === captured);
+      const target = exact ??
+        sessionFacts.reduce((best, f) => (f.capturedPence > best.capturedPence ? f : best), sessionFacts[0]);
+      mergeInto(target, captured, refunded);
+      continue;
+    }
+
+    // No session evidence at all — the payments row is the only capture record for this trip.
+    register({
+      key: `payment:${payment.id ?? facts.length}`,
       capturedPence: captured,
-      refundedPence: positive(payment.refunded_amount_pence),
+      refundedPence: refunded,
       source: "payments",
-    });
+      identified: false,
+    }, []);
   }
 
-  return [...byKey.values()];
+  return facts;
 }
+
+
+
 
 export function resolveTripInvoicePaymentState(args: {
   trip: TripPaymentEvidenceTrip;
@@ -320,20 +392,37 @@ export function resolveTripInvoicePaymentState(args: {
     };
   }
 
-  if (netPaid + PAID_TOLERANCE_PENCE >= finalFarePence) {
-    const classification: TripInvoicePaymentClassification = refunded > 0 ? "PARTIALLY_REFUNDED" : "FULLY_PAID";
+  // ── Safety invariant: unexplained overpayment must never render as a clean "PAID" invoice ──
+  if (netPaid > finalFarePence + PAID_TOLERANCE_PENCE) {
     return {
       ...base,
       authoritativePaidPence: netPaid,
       refundedPence: refunded,
       outstandingPence: 0,
-      paymentClassification: classification,
+      paymentClassification: "RECONCILIATION_REQUIRED",
       evidenceSource,
       providerTransactionIds,
-      invoiceEligible: classification === "FULLY_PAID",
-      blockReason: classification === "FULLY_PAID" ? null : "Refund present — reconciliation policy review",
+      invoiceEligible: false,
+      blockReason:
+        `Collected ${netPaid}p exceeds final fare ${finalFarePence}p — reconciliation required before invoice delivery`,
     };
   }
+
+  if (netPaid + PAID_TOLERANCE_PENCE >= finalFarePence) {
+    // A refund that reconciles collection back to the final fare is a settled, fully paid trip.
+    return {
+      ...base,
+      authoritativePaidPence: netPaid,
+      refundedPence: refunded,
+      outstandingPence: 0,
+      paymentClassification: "FULLY_PAID",
+      evidenceSource,
+      providerTransactionIds,
+      invoiceEligible: true,
+      blockReason: null,
+    };
+  }
+
 
   return {
     ...base,

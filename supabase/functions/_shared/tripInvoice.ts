@@ -158,7 +158,7 @@ export async function loadTripInvoicePaymentState(
     supabase
       .from("payments")
       .select(
-        "id, trip_id, status, provider_status, amount_pence, captured_amount_pence, refunded_amount_pence, provider_payment_id, provider_charge_id",
+        "id, trip_id, status, provider_status, amount_pence, captured_amount_pence, refunded_amount_pence, provider_payment_id, provider_charge_id, provider_order_id",
       )
       .eq("trip_id", trip.id),
   ]);
