@@ -80,7 +80,6 @@ import {
 } from "../_shared/tripTerminalDispatch.ts";
 import {
   evaluateStackedDriverEligibility,
-  effectiveMaxStackedRides,
   loadStackedRideConfig,
   logStackedEligibilityCheck,
   logStackedGateAudit,
@@ -1394,6 +1393,23 @@ Deno.serve(async (req) => {
             continue;
           }
 
+          // Committed queue depth — Admin max_stacked_rides SSOT (1–3).
+          const { count: queuedStackedCount, error: queuedCountErr } = await supabase
+            .from("trips")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "queued")
+            .or(`driver_id.eq.${driver.id},confirmed_driver_id.eq.${driver.id}`);
+
+          if (queuedCountErr) {
+            logEligibility(driver.id, false, "stacked_queue_count_failed", {
+              stacked_gate: true,
+              error: queuedCountErr.message,
+            });
+            continue;
+          }
+
+          const queuedCount = queuedStackedCount ?? 0;
+
           const phaseEligibility = evaluateStackedDriverEligibility({
             config: stackedRideConfig,
             newTrip: {
@@ -1403,10 +1419,13 @@ Deno.serve(async (req) => {
               dispatch_mode: trip.dispatch_mode,
             },
             currentTrip,
+            queuedCount,
           });
           logStackedEligibilityCheck(driver.id, trip_id, phaseEligibility, {
             current_trip_id: currentTrip.id,
             current_trip_status: currentTrip.status,
+            queued_count: queuedCount,
+            max_stacked_rides: stackedMaxRides,
           });
           if (!phaseEligibility.eligible) {
             logEligibility(driver.id, false, phaseEligibility.reason, {
@@ -2026,7 +2045,7 @@ Deno.serve(async (req) => {
     waveDriverCap = waveDriverCapForRound(dispatchSettings as Record<string, unknown>, currentRound);
     const batchSize = Math.max(1, waveDriverCap);
 
-    const stackedCap = effectiveMaxStackedRides(stackedRideConfig.maxStackedRides);
+    const stackedCap = stackedRideConfig.maxStackedRides;
     const stackedSlice = eligibleStackedDrivers.slice(0, stackedCap);
     const idleSelected = eligibleIdleDrivers.slice(0, batchSize);
 

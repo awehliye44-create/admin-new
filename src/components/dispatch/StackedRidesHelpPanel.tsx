@@ -17,8 +17,9 @@ const REJECTION_REASONS: { code: string; meaning: string }[] = [
   { code: 'stacked_outside_search_radius', meaning: 'New pickup is too far from the driver AND from the active trip dropoff.' },
   { code: 'stacked_not_within_offer_window', meaning: 'Active trip has more remaining time than the Offer Window allows.' },
   { code: 'stacked_detour_too_long', meaning: 'Estimated drive from driver to new pickup exceeds Max Detour Time.' },
-  { code: 'stacked_already_has_queued_trip', meaning: 'Driver already has a queued stacked trip on the current ride.' },
-  { code: 'stacked_max_concurrent_reached', meaning: 'Driver already has the maximum pending stacked offers.' },
+  { code: 'stacked_queue_full', meaning: 'Driver already has the maximum queued stacked rides (Admin Max Stacked Rides, 1–3).' },
+  { code: 'stacked_already_has_queued_trip', meaning: 'Deprecated alias — replaced by stacked_queue_full when queue depth reaches Max Stacked Rides.' },
+  { code: 'stacked_max_concurrent_reached', meaning: 'Driver already has the maximum pending stacked offers (same Admin Max Stacked Rides).' },
   { code: 'stacked_driver_offline', meaning: 'Driver is not online or presence is stale.' },
   { code: 'stacked_heading_to_pickup_blocked', meaning: 'Current trip is still accepted (heading to pickup) — not yet in progress.' },
   { code: 'stacked_pickup_waiting_blocked', meaning: 'Driver is waiting at pickup and Stack During Pickup Waiting is off.' },
@@ -98,8 +99,9 @@ export function StackedRidesHelpPanel({
             the matching toggles on the Matching Rules tab are on (default off).
           </li>
           <li>
-            <span className="font-medium text-foreground">No existing queued trip</span> — driver cannot stack more than{' '}
-            <Badge variant="outline" className="text-xs align-middle">{maxStackedRides}</Badge> queued ride(s) on Trip A.
+            <span className="font-medium text-foreground">Queue depth</span> — driver cannot stack more than{' '}
+            <Badge variant="outline" className="text-xs align-middle">{maxStackedRides}</Badge> queued ride(s) on Trip A
+            (Admin Max Stacked Rides, 1–3).
           </li>
           <li>
             <span className="font-medium text-foreground">Active trip phase</span> — default: status must be{' '}

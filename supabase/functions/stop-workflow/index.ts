@@ -2795,8 +2795,14 @@ Deno.serve(async (req) => {
             .single(),
         ]);
 
-        // Check for a queued stacked trip before clearing current_trip_id
-        const hasStackedTrip = trip.stacked_trip_id != null;
+        // Queued stacked trips may exist even if stacked_trip_id link was cleared (max 2–3).
+        const { count: remainingQueuedCount } = await supabase
+          .from("trips")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "queued")
+          .or(`driver_id.eq.${driver_id},confirmed_driver_id.eq.${driver_id}`);
+        const hasStackedTrip =
+          trip.stacked_trip_id != null || (remainingQueuedCount ?? 0) > 0;
 
         if (!hasStackedTrip) {
           // No stacked trip — clear current_trip_id (fire-and-forget is fine here)
@@ -2805,7 +2811,14 @@ Deno.serve(async (req) => {
             .update({ current_trip_id: null, updated_at: now })
             .eq("id", driver_id);
         } else {
-          console.log("[stop-workflow] Stacked trip exists:", trip.stacked_trip_id, "- keeping current_trip_id for post-trip promotion");
+          console.log(
+            "[stop-workflow] Stacked queue present:",
+            {
+              stacked_trip_id: trip.stacked_trip_id,
+              remaining_queued: remainingQueuedCount ?? 0,
+            },
+            "- keeping current_trip_id for post-trip promotion",
+          );
         }
 
         // ── PHASE 2: SSOT fare + payment (P0: card → finalize-trip-and-capture) ──
@@ -2977,7 +2990,7 @@ Deno.serve(async (req) => {
                 payment_hold_status: "capture_failed",
                 updated_at: new Date().toISOString(),
               }).eq("id", trip_id);
-              if (hasStackedTrip && trip.stacked_trip_id) {
+              if (hasStackedTrip) {
                 await handleQueuedTripAfterPaymentFailure(supabase, {
                   currentTripId: trip_id,
                   driverId: driver_id,
@@ -3168,7 +3181,8 @@ Deno.serve(async (req) => {
         });
 
         // Server-side stacked promotion — do not wait for driver post-trip rating UI.
-        if (hasStackedTrip && trip.stacked_trip_id) {
+        // RPC falls back to stack_position when stacked_trip_id is null (Admin max 2–3).
+        if (hasStackedTrip) {
           const promotion = await tryPromoteStackedTripAfterCompletion(
             supabase,
             driver_id,
@@ -3177,6 +3191,7 @@ Deno.serve(async (req) => {
           console.log("[stop-workflow] STACKED_TRIP_PROMOTION_AFTER_COMPLETE", {
             completed_trip_id: trip_id,
             stacked_trip_id: trip.stacked_trip_id,
+            remaining_queued: remainingQueuedCount ?? 0,
             promoted: promotion.promoted,
             detail: promotion.detail ?? null,
           });

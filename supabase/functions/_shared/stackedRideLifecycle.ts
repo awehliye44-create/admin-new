@@ -241,8 +241,8 @@ async function cancelQueuedStackedTrip(
 }
 
 /**
- * Trip A failed — handle linked queued Trip B via trips.stacked_trip_id on Trip A.
- * Promote when driver should keep B; re-dispatch when driver fault on A.
+ * Trip A failed — handle all queued stacked trips for this driver (Admin max 1–3).
+ * Prefer stack_position order; fall back to trips.stacked_trip_id on Trip A.
  */
 export async function handleQueuedTripAfterCurrentTripFailure(
   supabase: SupabaseClient,
@@ -254,38 +254,35 @@ export async function handleQueuedTripAfterCurrentTripFailure(
 ): Promise<LifecycleResult> {
   const { currentTripId, driverId, failureReason } = params;
 
-  const { data: currentTrip } = await supabase
-    .from("trips")
-    .select("stacked_trip_id")
-    .eq("id", currentTripId)
-    .maybeSingle();
+  const queuedIds: string[] = [];
 
-  const queuedTripId = currentTrip?.stacked_trip_id as string | null | undefined;
-  if (!queuedTripId) {
-    return { handled: false, action: "skipped", detail: "no_stacked_trip_id" };
+  if (driverId) {
+    const { data: queuedRows } = await supabase
+      .from("trips")
+      .select("id, stack_position, created_at")
+      .eq("status", "queued")
+      .or(`driver_id.eq.${driverId},confirmed_driver_id.eq.${driverId}`)
+      .order("stack_position", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true });
+
+    for (const row of queuedRows ?? []) {
+      if (typeof row.id === "string" && row.id) queuedIds.push(row.id);
+    }
   }
 
-  const { data: queuedTrip } = await supabase
-    .from("trips")
-    .select("id, status, driver_id, confirmed_driver_id")
-    .eq("id", queuedTripId)
-    .maybeSingle();
+  if (queuedIds.length === 0) {
+    const { data: currentTrip } = await supabase
+      .from("trips")
+      .select("stacked_trip_id")
+      .eq("id", currentTripId)
+      .maybeSingle();
 
-  if (!queuedTrip || queuedTrip.status !== "queued") {
-    logLifecycle(STACKED_RIDE_ORPHAN_PREVENTED, {
-      current_trip_id: currentTripId,
-      queued_trip_id: queuedTripId,
-      failure_reason: failureReason,
-      queued_status: queuedTrip?.status ?? "missing",
-      action: "already_terminal_or_promoted",
-    });
-    await clearStackedTripLinks(supabase, {
-      parentTripId: currentTripId,
-      queuedTripId,
-      reason: "queued_not_active_unlink",
-      failureReason,
-    });
-    return { handled: true, queued_trip_id: queuedTripId, action: "unlinked" };
+    const linkedId = currentTrip?.stacked_trip_id as string | null | undefined;
+    if (linkedId) queuedIds.push(linkedId);
+  }
+
+  if (queuedIds.length === 0) {
+    return { handled: false, action: "skipped", detail: "no_stacked_trip_id" };
   }
 
   const promoteReasons: StackedCurrentTripFailureReason[] = [
@@ -299,23 +296,45 @@ export async function handleQueuedTripAfterCurrentTripFailure(
     "driver_offline",
   ];
 
+  // Promote path: promote head once (RPC re-links remaining queue onto new active).
   if (promoteReasons.includes(failureReason) && driverId) {
+    const headId = queuedIds[0]!;
     const result = await promoteQueuedStackedTrip(
       supabase,
       driverId,
       currentTripId,
-      queuedTripId,
+      headId,
       failureReason,
     );
     if (result.handled) return result;
-    return redispatchQueuedStackedTrip(supabase, currentTripId, queuedTripId, failureReason);
+    // Fall through: redispatch every remaining queued trip.
   }
 
-  if (redispatchReasons.includes(failureReason)) {
-    return redispatchQueuedStackedTrip(supabase, currentTripId, queuedTripId, failureReason);
+  let last: LifecycleResult = {
+    handled: false,
+    queued_trip_id: queuedIds[0],
+    action: "skipped",
+  };
+
+  for (const queuedTripId of queuedIds) {
+    if (redispatchReasons.includes(failureReason) || promoteReasons.includes(failureReason)) {
+      last = await redispatchQueuedStackedTrip(
+        supabase,
+        currentTripId,
+        queuedTripId,
+        failureReason,
+      );
+      continue;
+    }
+    last = await cancelQueuedStackedTrip(
+      supabase,
+      currentTripId,
+      queuedTripId,
+      failureReason,
+    );
   }
 
-  return cancelQueuedStackedTrip(supabase, currentTripId, queuedTripId, failureReason);
+  return last;
 }
 
 /**
@@ -331,7 +350,7 @@ export async function handleQueuedTripDriverCancel(
 
   const { data: parents } = await supabase
     .from("trips")
-    .select("id")
+    .select("id, driver_id, confirmed_driver_id")
     .eq("stacked_trip_id", queuedTripId);
 
   await clearStackedTripLinks(supabase, {
@@ -340,6 +359,13 @@ export async function handleQueuedTripDriverCancel(
     failureReason: "driver_cancel_queued",
   });
 
+  for (const parent of parents ?? []) {
+    const parentDriverId =
+      (typeof parent.driver_id === "string" && parent.driver_id) ||
+      (typeof parent.confirmed_driver_id === "string" && parent.confirmed_driver_id) ||
+      driverId;
+    await relinkParentToNextQueued(supabase, parent.id, parentDriverId, queuedTripId);
+  }
   const { data: queuedTrip } = await supabase
     .from("trips")
     .select("id, status, cancelled_driver_ids")
@@ -468,6 +494,8 @@ export async function tryPromoteStackedTripAfterCompletion(
 /**
  * Server-side stacked promotion after payment confirm (post-trip reliability).
  * Idempotent — safe if client also calls promote_stacked_trip at rating done.
+ * Always invoke RPC: prefers stacked_trip_id, else ORDER BY stack_position
+ * (required for Admin max 2–3 when the head link was cleared).
  */
 export async function attemptStackedTripPromotionAfterComplete(
   supabase: SupabaseClient,
@@ -480,9 +508,7 @@ export async function attemptStackedTripPromotionAfterComplete(
     .eq("id", completedTripId)
     .maybeSingle();
 
-  if (!completedTrip?.stacked_trip_id) {
-    return { handled: false, action: "skipped", detail: "no_stacked_trip_id" };
-  }
+  const linkedId = (completedTrip?.stacked_trip_id as string | null | undefined) ?? null;
 
   const { data, error } = await supabase.rpc("promote_stacked_trip", {
     p_driver_id: driverId,
@@ -492,7 +518,7 @@ export async function attemptStackedTripPromotionAfterComplete(
   if (error) {
     logLifecycle(STACKED_RIDE_ORPHAN_PREVENTED, {
       current_trip_id: completedTripId,
-      queued_trip_id: completedTrip.stacked_trip_id,
+      queued_trip_id: linkedId,
       driver_id: driverId,
       promote_error: error.message,
       source: "confirm_trip_payment",
@@ -501,37 +527,66 @@ export async function attemptStackedTripPromotionAfterComplete(
   }
 
   if (data?.promoted === true) {
+    const promotedId =
+      (typeof data.trip_id === "string" && data.trip_id) || linkedId || undefined;
     logLifecycle(STACKED_RIDE_PROMOTED, {
       current_trip_id: completedTripId,
-      queued_trip_id: completedTrip.stacked_trip_id,
+      queued_trip_id: promotedId ?? null,
       driver_id: driverId,
       source: "confirm_trip_payment",
       rpc_result: data,
     });
     return {
       handled: true,
-      queued_trip_id: completedTrip.stacked_trip_id as string,
+      queued_trip_id: promotedId,
       action: "promoted",
     };
   }
 
   return {
     handled: false,
-    queued_trip_id: completedTrip.stacked_trip_id as string,
+    queued_trip_id: linkedId ?? undefined,
     action: "skipped",
     detail: data?.reason ?? "not_promoted",
   };
 }
 
-/** Customer cancelled queued Trip B — unlink from parent Trip A. */
+/** Re-point parent.stacked_trip_id to next remaining queued trip (max 2–3). */
+async function relinkParentToNextQueued(
+  supabase: SupabaseClient,
+  parentTripId: string,
+  driverId: string | null,
+  excludeQueuedTripId: string,
+): Promise<string | null> {
+  if (!driverId) return null;
+  const { data: next } = await supabase
+    .from("trips")
+    .select("id")
+    .eq("status", "queued")
+    .or(`driver_id.eq.${driverId},confirmed_driver_id.eq.${driverId}`)
+    .neq("id", excludeQueuedTripId)
+    .order("stack_position", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  const nextId = typeof next?.id === "string" ? next.id : null;
+  const now = new Date().toISOString();
+  await supabase
+    .from("trips")
+    .update({ stacked_trip_id: nextId, updated_at: now })
+    .eq("id", parentTripId);
+  return nextId;
+}
+
+/** Customer cancelled queued Trip B — unlink from parent Trip A; keep remaining queue linked. */
 export async function handleQueuedTripCustomerCancel(
   supabase: SupabaseClient,
   queuedTripId: string,
 ): Promise<LifecycleResult> {
-  const now = new Date().toISOString();
   const { data: parents } = await supabase
     .from("trips")
-    .select("id")
+    .select("id, driver_id, confirmed_driver_id")
     .eq("stacked_trip_id", queuedTripId);
 
   if (!parents?.length) {
@@ -542,6 +597,14 @@ export async function handleQueuedTripCustomerCancel(
     queuedTripId,
     reason: "customer_cancel_queued_unlink",
   });
+
+  for (const parent of parents) {
+    const driverId =
+      (typeof parent.driver_id === "string" && parent.driver_id) ||
+      (typeof parent.confirmed_driver_id === "string" && parent.confirmed_driver_id) ||
+      null;
+    await relinkParentToNextQueued(supabase, parent.id, driverId, queuedTripId);
+  }
 
   logLifecycle(STACKED_RIDE_ORPHAN_PREVENTED, {
     queued_trip_id: queuedTripId,
@@ -596,42 +659,35 @@ export async function handleQueuedTripAfterPaymentFailure(
     .eq("id", params.currentTripId)
     .maybeSingle();
 
-  if (!currentTrip?.stacked_trip_id) {
-    return { handled: false, action: "skipped", detail: "no_stacked_trip_id" };
-  }
+  const linkedId = (currentTrip?.stacked_trip_id as string | null | undefined) ?? null;
 
-  if (String(currentTrip.status ?? "").toLowerCase() === "completed" && params.driverId) {
+  if (String(currentTrip?.status ?? "").toLowerCase() === "completed" && params.driverId) {
     const promo = await attemptStackedTripPromotionAfterComplete(
       supabase,
       params.driverId,
       params.currentTripId,
     );
-    if (promo.promoted) {
+    if (promo.handled && promo.action === "promoted") {
       return {
         handled: true,
-        queued_trip_id: currentTrip.stacked_trip_id as string,
+        queued_trip_id: promo.queued_trip_id ?? linkedId ?? undefined,
         action: "promoted",
       };
     }
     logStackedPromotionSkipped({
       current_trip_id: params.currentTripId,
-      queued_trip_id: currentTrip.stacked_trip_id,
+      queued_trip_id: linkedId,
       payment_status: params.paymentStatus ?? null,
       detail: promo.detail,
     });
-    return {
-      handled: false,
-      queued_trip_id: currentTrip.stacked_trip_id as string,
-      action: "skipped",
-      detail: promo.detail,
-    };
+    // Fall through to multi-queue failure handling when promote did not run.
   }
 
   logLifecycle(STACKED_RIDE_ORPHAN_PREVENTED, {
     current_trip_id: params.currentTripId,
     driver_id: params.driverId,
     payment_status: params.paymentStatus ?? null,
-    trip_status: currentTrip.status ?? null,
+    trip_status: currentTrip?.status ?? null,
     action: "payment_failure_lifecycle",
   });
 

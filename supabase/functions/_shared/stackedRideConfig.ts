@@ -8,13 +8,16 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 export const STACKED_RIDE_DISABLED_SAFE_GUARD = "STACKED_RIDE_DISABLED_SAFE_GUARD";
-/** Hard cap enforced by auto-dispatch regardless of admin max_stacked_rides (1â3). */
-export const STACKED_RIDES_EDGE_CAP = 2;
+/**
+ * Admin Auto-Dispatch Rules allows Max Stacked Rides 1–3.
+ * `global_dispatch_settings.max_stacked_rides` is SSOT — no lower hidden Edge cap.
+ */
+export const STACKED_RIDES_ADMIN_MAX = 3;
 
-/** Effective concurrent stacked queue depth â min(admin config, edge cap). */
+/** Effective queued depth — clamp Admin config to the documented 1–3 range. */
 export function effectiveMaxStackedRides(configMax: number): number {
   const parsed = parsePositiveInt(configMax, DEFAULTS.maxStackedRides);
-  return Math.min(parsed, STACKED_RIDES_EDGE_CAP);
+  return Math.min(Math.max(parsed, 1), STACKED_RIDES_ADMIN_MAX);
 }
 export const STACKED_RIDE_ELIGIBILITY_CHECK = "STACKED_RIDE_ELIGIBILITY_CHECK";
 export const STACKED_RIDE_BLOCKED_REASON = "STACKED_RIDE_BLOCKED_REASON";
@@ -247,11 +250,13 @@ export type StackedEligibilityResult =
   | { eligible: true }
   | { eligible: false; reason: string; details?: Record<string, unknown> };
 
-/** Phase 2 â safe stacked driver eligibility (current trip + new trip policy). */
+/** Phase 2 — safe stacked driver eligibility (current trip + new trip policy). */
 export function evaluateStackedDriverEligibility(input: {
   config: StackedRideConfig;
   newTrip: StackedNewTripContext;
   currentTrip: StackedCurrentTripContext;
+  /** Committed queued stacked trips for this driver (status=queued). */
+  queuedCount?: number;
   nowMs?: number;
 }): StackedEligibilityResult {
   const { config, newTrip, currentTrip } = input;
@@ -281,11 +286,15 @@ export function evaluateStackedDriverEligibility(input: {
     return { eligible: false, reason: "stacked_scheduled_blocked" };
   }
 
-  if (currentTrip.stacked_trip_id) {
+  const queuedCount = Math.max(0, Math.floor(Number(input.queuedCount ?? 0)));
+  if (queuedCount >= config.maxStackedRides) {
     return {
       eligible: false,
-      reason: "stacked_already_has_queued_trip",
-      details: { stacked_trip_id: currentTrip.stacked_trip_id },
+      reason: "stacked_queue_full",
+      details: {
+        queued_count: queuedCount,
+        max_stacked_rides: config.maxStackedRides,
+      },
     };
   }
 
