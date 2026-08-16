@@ -18,6 +18,7 @@ import {
   revokeRideOfferNonDriverFault,
 } from "../_shared/rideOfferDriverEligibility.ts";
 import { buildTokenDeactivatePatch } from "../_shared/driverPushToken.ts";
+import { resolveDriverAuthoritativeToken } from "../_shared/authoritativeDevicePush.ts";
 import {
   notificationChannelForPlatform,
   recordFcmPushOutcomeBestEffort,
@@ -309,9 +310,6 @@ Deno.serve(async (req) => {
     // ─── Resolve push token ───
     // Sole authoritative device only (driver_active_devices → matching push_tokens).
     // NEVER fan out to historical is_active tokens / presence hints alone.
-    const { resolveDriverAuthoritativeToken } = await import(
-      "../_shared/authoritativeDevicePush.ts"
-    );
     const authoritative = await resolveDriverAuthoritativeToken(
       supabase,
       payload.driverId,
