@@ -20,6 +20,11 @@ import { cn } from "@/lib/utils";
 import { useRegions } from "@/hooks/useRegions";
 import { useServiceAreas } from "@/hooks/useServiceAreas";
 import {
+  fcmConfirmationSparse,
+  fcmDisplaySuccessRate,
+  fcmEligibleCount,
+} from "@/lib/dispatchMetricsFcmDisplay";
+import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
 
@@ -156,22 +161,35 @@ function pushHealth(
   deliveryHealthState: Health,
 ): Health {
   if (!data || data.push_enqueued === 0) return "unknown";
-  const eligible = Math.max(data.push_enqueued - (data.push_skip_no_token ?? 0), 0);
+  const eligible = fcmEligibleCount({
+    pushEnqueued: data.push_enqueued,
+    pushSkipNoToken: data.push_skip_no_token,
+  });
   if (eligible === 0) return "unknown";
 
+  // Sparse confirmation logging (e.g. 1 smoke probe / 126 historical eligible)
+  // must not be scored as a 0.79% FCM delivery rate.
+  const displayRate = fcmDisplaySuccessRate({
+    pushSent: data.push_sent,
+    pushFailed: data.push_failed,
+    pushEnqueued: data.push_enqueued,
+    pushSkipNoToken: data.push_skip_no_token,
+    pushSuccessRate: data.push_success_rate,
+  });
+
   if (data.push_failed === 0 && socketHealth === "healthy") {
-    if (data.push_success_rate == null) {
+    if (displayRate == null) {
       return deliveryHealthState === "healthy" || deliveryHealthState === "warning" ? "warning" : "unknown";
     }
     if (
-      (data.push_success_rate ?? 0) < 95
+      displayRate < 95
       && (deliveryHealthState === "healthy" || deliveryHealthState === "warning")
     ) {
       return "warning";
     }
   }
 
-  return deliveryHealth(data.push_success_rate ?? null);
+  return deliveryHealth(displayRate);
 }
 
 const HEALTH_TEXT: Record<string, Record<Health, string>> = {
@@ -290,6 +308,29 @@ export default function DispatchMetrics() {
   const hFallback = fallbackHealth(data?.fallback_rate ?? null);
   const hNoEligible = noEligibleHealth(data?.no_eligible_rate ?? null);
   const hPush = pushHealth(data, hSocket, hDelivery);
+  const pushDisplayRate = data
+    ? fcmDisplaySuccessRate({
+        pushSent: data.push_sent,
+        pushFailed: data.push_failed,
+        pushEnqueued: data.push_enqueued,
+        pushSkipNoToken: data.push_skip_no_token,
+        pushSuccessRate: data.push_success_rate,
+      })
+    : null;
+  const pushSparse = data
+    ? fcmConfirmationSparse({
+        pushSent: data.push_sent,
+        pushFailed: data.push_failed,
+        pushEnqueued: data.push_enqueued,
+        pushSkipNoToken: data.push_skip_no_token,
+      })
+    : false;
+  const pushEligible = data
+    ? fcmEligibleCount({
+        pushEnqueued: data.push_enqueued,
+        pushSkipNoToken: data.push_skip_no_token,
+      })
+    : 0;
 
   const technicalDeliveryOk =
     hSocket !== "critical"
@@ -306,7 +347,11 @@ export default function DispatchMetrics() {
     if (hSocket === "healthy" && hPush === "critical") {
       hints.push("Socket/realtime delivery is healthy but FCM native alerts are failing — drivers may still see offers in-app.");
     }
-    if (hPush === "warning" && hSocket === "healthy") {
+    if (hPush === "warning" && hSocket === "healthy" && pushSparse) {
+      hints.push(
+        `FCM confirmation logging is catching up (${data.push_sent} of ${pushEligible} eligible logged). Older offers in this window were enqueued before outcome instrumentation — not a ${clampPct(data.push_success_rate)}% FCM failure rate.`,
+      );
+    } else if (hPush === "warning" && hSocket === "healthy") {
       hints.push("FCM confirmation is missing or partial, but realtime/socket delivery is healthy — headline delivery is not degraded.");
     }
     if ((data.reminder_scheduler_failed ?? 0) > 0) {
@@ -493,13 +538,19 @@ export default function DispatchMetrics() {
         <HealthCard
           title="FCM Push (native alert)"
           icon={<Send className="h-4 w-4 text-primary" />}
-          value={data?.push_success_rate != null ? `${clampPct(data.push_success_rate)}%` : "—"}
+          value={pushDisplayRate != null ? `${clampPct(pushDisplayRate)}%` : "—"}
           sub={data
-            ? `${data.push_sent} FCM confirmed · ${data.push_failed} FCM failed · ${Math.max(data.push_enqueued - (data.push_skip_no_token ?? 0), 0)} eligible`
+            ? pushSparse
+              ? `${data.push_sent} confirmed · ${data.push_failed} failed · ${pushEligible} eligible (rate withheld — confirmation logging catching up)`
+              : `${data.push_sent} FCM confirmed · ${data.push_failed} FCM failed · ${pushEligible} eligible`
             : undefined}
           health={hPush}
-          helpText={HEALTH_TEXT.push[hPush]}
-          why="push_sent / (push_enqueued − skip_no_token). Reminder-scheduler errors from auto-dispatch are excluded. If FCM is unlogged but socket delivery is healthy, status shows Warning — not Critical."
+          helpText={
+            pushSparse && hPush === "warning"
+              ? "Most eligible offers in this window have no FCM outcome row yet (instrumentation was restored recently). Socket/ACK health is the delivery signal until confirmation coverage rebuilds."
+              : HEALTH_TEXT.push[hPush]
+          }
+          why="Rate = push_sent / eligible only when ≥20% of eligible offers have push_sent or push_failed. Sparse confirmation (historical unlogged window) shows — instead of a misleading low %."
           loading={isLoading}
         />
       </div>
