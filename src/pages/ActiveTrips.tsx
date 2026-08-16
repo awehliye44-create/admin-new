@@ -514,15 +514,29 @@ export default function ActiveTrips() {
     try {
       const tripId = selectedTrip.id;
       const reason = cancelReason || 'cancelled_by_admin';
-      const { data: cancelResult, error } = await supabase.rpc('apply_terminal_trip_cancellation', {
-        p_trip_id: tripId,
-        p_cancelled_by: 'admin',
-        p_reason: reason,
+      // Must go through admin-trip-actions Edge so disposeTerminalTripPayment runs
+      // (same cancelRevolutOrder path as cancel-trip). Direct RPC left holds AUTHORISED.
+      const { data: cancelResult, error } = await supabase.functions.invoke('admin-trip-actions', {
+        body: {
+          action: 'cancel',
+          trip_id: tripId,
+          reason,
+        },
       });
 
       if (error) throw error;
-      if (cancelResult && typeof cancelResult === 'object' && (cancelResult as { success?: boolean }).success === false) {
-        throw new Error((cancelResult as { error?: string }).error || 'Failed to cancel trip');
+      if (cancelResult && typeof cancelResult === 'object') {
+        const body = cancelResult as {
+          success?: boolean;
+          error?: string;
+          result?: { success?: boolean; error?: string };
+        };
+        if (body.success === false || body.error) {
+          throw new Error(body.error || body.result?.error || 'Failed to cancel trip');
+        }
+        if (body.result && body.result.success === false) {
+          throw new Error(body.result.error || 'Failed to cancel trip');
+        }
       }
 
       // P0 (MK-260704-001): force customer + driver trip_updated so both apps leave

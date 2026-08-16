@@ -153,13 +153,10 @@ export function classifyTerminalHoldDisposition(args: {
   if (!TERMINAL_NON_COMPLETED.has(status)) {
     return { action: "skip", outcome: "SKIPPED_REMATCH_OR_ACTIVE", reason: `non_terminal=${status}` };
   }
-  if (args.startedAt) {
-    return {
-      action: "skip",
-      outcome: "SKIPPED_STARTED_MISSING_INTERRUPTED_POLICY",
-      reason: "started_at_set_missing_interrupted_trip_policy",
-    };
-  }
+  // started_at no longer blocks void/partial-fee: terminal cancel after Start Trip
+  // must release uncaptured auth when fee=0 (or partial-capture fee when fee>0).
+  // Mid-ride full settlement remains out of scope (completed path only).
+  void args.startedAt;
   if (!args.hasProviderOrder) {
     return { action: "skip", outcome: "SKIPPED_NO_ORDER", reason: "missing_provider_order" };
   }

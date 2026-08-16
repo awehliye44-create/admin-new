@@ -158,7 +158,9 @@ function parseMs(iso: string | null | undefined): number | null {
 
 function isCustomerInitiatedCancel(cancelledBy: string | null | undefined): boolean {
   const by = String(cancelledBy ?? "").toLowerCase();
-  return by === "rider" || by === "customer" || by === "passenger" || by === "admin";
+  // Admin terminal cancel is no-fee hold release (fee override only via cancel-trip
+  // forceFeePenceOverride when Admin uses that Edge). Never treat admin as rider.
+  return by === "rider" || by === "customer" || by === "passenger";
 }
 
 function isDriverInitiatedNonNoShow(
@@ -275,19 +277,10 @@ export function resolveTerminalPaymentDecision(args: {
     });
   }
 
-  // Start Trip occurred but trip is not completed — do not invent interrupted-trip policy.
-  if (evidence.started_at) {
-    return buildDecision({
-      reason: "SKIP_STARTED_MISSING_INTERRUPTED_POLICY",
-      feeType: "none",
-      feeAmount: 0,
-      evidence,
-      terminalReason: "started_at_set_missing_interrupted_trip_policy",
-      providerAction: "skip",
-      feePolicyId: args.feePolicyId,
-      extraEvidence: { started_at: evidence.started_at },
-    });
-  }
+  // Start Trip occurred but trip is terminal-cancelled (not completed):
+  // do NOT invent mid-ride settlement / full-fare capture. Fall through to the
+  // existing cancel/no-show fee precedence; when no approved fee applies,
+  // NO_FEE_FULL_RELEASE voids the uncaptured hold (prevents stranded AUTHORISED).
 
   if (!config) {
     return buildDecision({

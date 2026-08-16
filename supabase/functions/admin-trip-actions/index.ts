@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
+import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -75,14 +76,14 @@ Deno.serve(async (req) => {
 
     console.log(`[admin-trip-actions] Executing cancel: trip=${trip_id} admin=${userId}`);
 
-    // 3) Invoke RPC using service role client
+    // 3) Terminal trip state via existing RPC (same as prior Admin cancel).
     const { data: cancelResult, error: cancelErr } = await supabase.rpc(
       "apply_terminal_trip_cancellation",
       {
         p_trip_id: trip_id,
         p_cancelled_by: "admin",
         p_reason: reason || "Cancelled by admin",
-      }
+      },
     );
 
     if (cancelErr) {
@@ -90,7 +91,44 @@ Deno.serve(async (req) => {
       return json({ error: "Cancellation failed", details: cancelErr.message }, 500);
     }
 
-    return json({ success: true, result: cancelResult });
+    if (
+      cancelResult &&
+      typeof cancelResult === "object" &&
+      (cancelResult as { success?: boolean }).success === false
+    ) {
+      return json({
+        error: (cancelResult as { error?: string }).error || "Cancellation failed",
+        result: cancelResult,
+      }, 400);
+    }
+
+    // 4) SAME dispose path as cancel-trip — void/release current Revolut order.
+    // Admin cancel is no-fee full release (forceFeePenceOverride: 0). Idempotent
+    // via terminal_disposition_key on the payment session.
+    let holdDisposition: Awaited<ReturnType<typeof disposeTerminalTripPayment>> | null = null;
+    try {
+      holdDisposition = await disposeTerminalTripPayment(supabase, {
+        tripId: trip_id,
+        reason: "admin_cancel",
+        feePence: 0,
+        forceFeePenceOverride: true,
+      });
+      console.log("[PAYMENT_AUDIT] admin-trip-actions hold disposition", {
+        trip_id,
+        ...holdDisposition,
+      });
+    } catch (holdErr) {
+      console.error(
+        "[PAYMENT_AUDIT] admin-trip-actions hold disposition failed (non-fatal to trip cancel):",
+        holdErr,
+      );
+    }
+
+    return json({
+      success: true,
+      result: cancelResult,
+      hold_disposition: holdDisposition,
+    });
   } catch (err) {
     console.error("[admin-trip-actions] Unexpected error:", err);
     return json({ error: "Internal server error" }, 500);
