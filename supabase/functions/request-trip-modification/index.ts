@@ -15,6 +15,11 @@ import {
 } from "../_shared/units.ts";
 import { computeRequiresDriverApproval } from "../_shared/tripModificationApproval.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
+import {
+  type DriverLiveLocationRow,
+  resolveModificationRouteOrigin,
+} from "../_shared/modificationRouteOrigin.ts";
+import { computeModificationFareDelta } from "../_shared/tripModificationFareDelta.ts";
 
 const LOCKED_STOP_STATUSES = new Set(["completed", "skipped", "arrived"]);
 const PRE_PICKUP_STATUSES = new Set([
@@ -764,27 +769,56 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       });
     }
 
-    const navBeforeRemove = getCurrentNavStop(currentStops, String(trip.status ?? ""));
-    const originLat = PRE_PICKUP_STATUSES.has(String(trip.status ?? "").toLowerCase())
-      ? trip.pickup_latitude
-      : (
-        trip.driver_location_lat
-        ?? navBeforeRemove?.lat
-        ?? trip.pickup_latitude
+    const isPrePickup = PRE_PICKUP_STATUSES.has(String(trip.status ?? "").toLowerCase());
+
+    // In progress: price from where the Driver actually is. A pending dropoff is
+    // a destination, never an origin.
+    let driverLiveLocation: DriverLiveLocationRow | null = null;
+    if (!isPrePickup) {
+      const { data: liveRow } = await supabase
+        .from("trip_driver_live_location")
+        .select("latitude, longitude, gps_recorded_at")
+        .eq("trip_id", tripId)
+        .maybeSingle();
+      driverLiveLocation = (liveRow as DriverLiveLocationRow | null) ?? null;
+    }
+
+    // One frozen origin for BOTH the before and after leg of this request.
+    const origin = resolveModificationRouteOrigin({
+      isPrePickup,
+      pickupLat: trip.pickup_latitude as number | null,
+      pickupLng: trip.pickup_longitude as number | null,
+      liveLocation: driverLiveLocation,
+      nowMs: Date.now(),
+    });
+
+    if (!origin.ok) {
+      console.error("MODIFY_TRIP_ORIGIN_UNAVAILABLE", {
+        tripId,
+        changeType,
+        tripStatus: trip.status ?? null,
+        reason: origin.reason,
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Unable to recalculate the fare right now. Please try again.",
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
       );
-    const originLng = PRE_PICKUP_STATUSES.has(String(trip.status ?? "").toLowerCase())
-      ? trip.pickup_longitude
-      : (
-        trip.driver_location_lng
-        ?? navBeforeRemove?.lng
-        ?? trip.pickup_longitude
-      );
+    }
+
+    const originLat = origin.lat;
+    const originLng = origin.lng;
     const destinationLat = afterRouteSnapshot.dropoff?.lat;
     const destinationLng = afterRouteSnapshot.dropoff?.lng;
     const beforeDestinationLat = beforeRouteSnapshot.dropoff?.lat;
     const beforeDestinationLng = beforeRouteSnapshot.dropoff?.lng;
 
-    if (originLat == null || originLng == null || destinationLat == null || destinationLng == null) {
+    if (destinationLat == null || destinationLng == null) {
       return new Response(JSON.stringify({ error: "Unable to recalculate fare. Please try again." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -922,6 +956,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     // fare_delta = new_remaining_route_fare - old_remaining_route_fare
     // new_customer_total = current_confirmed_customer_total + fare_delta
     let oldRemainingRouteFarePence = currentConfirmedFarePence;
+    let pricedBeforeLeg = false;
     if (beforeRoute) {
       const beforeEstimate = await fetchModificationFareEstimate(
         supabaseUrl,
@@ -944,15 +979,41 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         );
         if (Number.isFinite(beforePence) && beforePence > 0) {
           oldRemainingRouteFarePence = beforePence;
+          pricedBeforeLeg = true;
         }
       }
     }
 
-    const remainingRouteDeltaPence = newRemainingRouteFarePence - oldRemainingRouteFarePence;
-    const fareDeltaPence = remainingRouteDeltaPence;
-    const newCustomerTotalPence = currentConfirmedCustomerTotalPence + fareDeltaPence;
+    // Mid-trip the committed fare prices the whole journey while the new leg
+    // prices only what is left, so falling back to it would subtract mismatched
+    // bases. Fail closed instead of quoting an approximation.
+    if (!isPrePickup && !pricedBeforeLeg) {
+      console.error("MODIFY_TRIP_BEFORE_LEG_UNPRICED", {
+        tripId,
+        changeType,
+        tripStatus: trip.status ?? null,
+        hasBeforeRoute: beforeRoute != null,
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Unable to recalculate the fare right now. Please try again.",
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
     // Persist payable trip total (confirmed fare + delta); waiting remains live-only.
-    const newFarePence = Math.max(1, currentConfirmedFarePence + fareDeltaPence);
+    const { fareDeltaPence, newFarePence } = computeModificationFareDelta({
+      currentConfirmedFarePence,
+      oldRemainingRouteFarePence,
+      newRemainingRouteFarePence,
+    });
+    const remainingRouteDeltaPence = fareDeltaPence;
+    const newCustomerTotalPence = currentConfirmedCustomerTotalPence + fareDeltaPence;
 
     const beforeDistanceMeters = beforeRoute?.distance != null
       ? Math.round(Number(beforeRoute.distance))
@@ -993,8 +1054,10 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     const currencySymbol = currencySymbolForCode(currencyCode);
     const updatedDurationMinutes = Math.ceil(newDuration / 60);
     const updatedDistance = Math.round(metersToDisplayDistance(newDistance, distanceUnit) * 100) / 100;
-    const currentFare = Math.round(currentConfirmedCustomerTotalPence) / 100;
-    const newFare = Math.round(newCustomerTotalPence) / 100;
+    // Review screen contract: one basis — the payable this modification changes.
+    // Waiting stays out of all three so newFare - currentFare === fareIncrease.
+    const currentFare = Math.round(currentConfirmedFarePence) / 100;
+    const newFare = Math.round(newFarePence) / 100;
     const fareIncrease = Math.round(fareDeltaPence) / 100;
 
     afterRouteSnapshot.estimated_distance_km = Math.round((newDistance / 1000) * 100) / 100;

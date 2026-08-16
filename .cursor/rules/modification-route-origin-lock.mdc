@@ -1,0 +1,41 @@
+---
+description: Mid-trip modification pricing must route from fresh Driver GPS, never from a destination, and must fail closed.
+alwaysApply: true
+---
+
+# Modification route origin lock
+
+## Canonical rule
+
+**A trip modification is priced as the delta between the remaining route to the old destination and the remaining route to the new one. Both legs must start from ONE frozen origin that is where the Driver actually is.**
+
+SSOT: `supabase/functions/_shared/modificationRouteOrigin.ts` → `resolveModificationRouteOrigin`
+Delta SSOT: `supabase/functions/_shared/tripModificationFareDelta.ts` → `computeModificationFareDelta`
+
+## Never remove or “simplify away”
+
+- **In progress** → origin is a fresh `trip_driver_live_location` sample (`latitude`, `longitude`, `gps_recorded_at`), bounded by `MODIFICATION_ORIGIN_GPS_MAX_AGE_SECONDS` via the shared `timestampFresh` helper
+- **Pre-pickup** → origin stays the trip pickup
+- **Never** use a pending stop or dropoff as an origin. A destination is not a position.
+- **Never** read `trips.driver_location_lat/lng` — those columns are never written
+- **Fail closed** when no fresh sample exists (`no_live_location` / `stale_live_location`): return "Unable to recalculate the fare right now. Please try again." and mutate no payment state. Do not substitute pickup, the old destination, or an approximation.
+- **One frozen origin** per request, resolved once and reused for both legs. Never fetch GPS twice mid-calculation.
+- Mid-trip, if the before leg cannot be priced, fail closed rather than falling back to the committed fare — the committed fare prices the whole journey while the new leg prices only what is left.
+- Negative deltas are legitimate. `paymentRequired = fareDeltaPence > 0`; a decrease takes no incremental authorisation, keeps the existing hold and captures lower at completion. Never clamp with `Math.max(0, …)` or `Math.abs(…)`.
+- Review screen uses **one basis** — the payable the modification changes: `newFare - previousFare === fareIncrease`. Never mix the waiting-inclusive live total with the committed fare.
+
+## Why
+
+`trips.driver_location_lat/lng` were always NULL, so the origin fell through to `navBeforeRemove`, the pending dropoff. Every in-progress modification then priced `old destination → new destination` and collapsed the before leg to 0 m, floored to the £5.00 minimum fare. The delta became `fare(detour leg) − £5.00`, which is structurally non-negative, so modifications could only ever increase the fare.
+
+MK-260816-002: real remaining route went from 13670 m to 2186 m — much shorter — yet the customer was quoted **+£5.76** where the honest delta was **−£7.24**, a £13.00 error on one modification. The same defect produced the earlier +£3.64.
+
+Lock tests: `modificationRouteOrigin.test.ts`, `tripModificationFareDelta.test.ts`
+**If they fail, fix the code — never delete or soften the lock.**
+
+## Do not
+
+- Reintroduce `trip.driver_location_lat ?? navBeforeRemove?.lat ?? trip.pickup_latitude`
+- Quote from the pickup mid-trip “as an approximation”
+- Clamp, floor or absolute the fare delta
+- Change Revolut increment, capture or idempotency to compensate for a routing bug
