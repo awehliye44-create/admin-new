@@ -94,11 +94,14 @@ serve(async (req) => {
       });
     }
 
+    // Customer "Remove" must hide the card from the Payment Methods sheet.
+    // tokenization_failed is reserved for verification failures (shown with Remove).
+    // removed = customer dismissed the method — excluded from usable + unusable lists.
     const now = new Date().toISOString();
     const { error: updateErr } = await supabase
       .from("customer_saved_payment_method_tokens")
       .update({
-        tokenization_status: "tokenization_failed",
+        tokenization_status: "removed",
         revolut_verified: false,
         updated_at: now,
       })

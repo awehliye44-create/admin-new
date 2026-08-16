@@ -84,7 +84,7 @@ serve(async (req) => {
     const cards = rows
       .filter((row) => {
         const status = String(row.tokenization_status ?? "");
-        if (status === "tokenization_failed") return false;
+        if (status === "tokenization_failed" || status === "removed") return false;
         const hasRef = Boolean(String(row.provider_payment_method_id ?? "").trim());
         if (!hasRef) return false;
         if (status === "active" || status === "verified") return true;
@@ -102,6 +102,7 @@ serve(async (req) => {
       .filter((row) => String(row.tokenization_status ?? "") === "tokenization_failed")
       .filter((row) => Boolean(String(row.last4 ?? "").trim()))
       .map((row) => ({
+        platform_payment_method_id: row.platform_payment_method_id,
         brand: row.brand,
         last4: row.last4,
         reason: "verification_failed" as const,
