@@ -56,7 +56,7 @@ serve(async (req) => {
   if (dryRun) {
     const { data: trip } = await supabase
       .from("trips")
-      .select("id, status, started_at, payment_provider, provider_order_id, stripe_payment_intent_id, cancellation_fee_pence, no_show_charge_pence")
+      .select("id, status, started_at, payment_provider, provider_order_id, cancellation_fee_pence, no_show_charge_pence")
       .eq("id", tripId)
       .maybeSingle();
     if (!trip) {

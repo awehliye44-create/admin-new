@@ -132,7 +132,8 @@ serve(async (req) => {
     const status = String(trip.status ?? "").toLowerCase();
     if (status === "completed") return false;
     if (!TERMINAL.has(status)) return false;
-    if (trip.started_at) return false;
+    // Terminal cancelled/expired/no_show after Start Trip must still void
+    // uncaptured auth (classifyTerminalHoldDisposition ignores started_at).
     return true;
   }).slice(0, limit);
 

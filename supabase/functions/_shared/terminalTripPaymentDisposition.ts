@@ -601,7 +601,12 @@ export async function disposeTerminalTripPayment(
   const authPence = Number(
     orderBefore.amount ?? trip.authorised_amount_pence ?? paymentSession?.authorised_amount_pence ?? 0,
   );
-  const completedAmt = Number(orderBefore.completed_amount ?? 0);
+  // Revolut may omit completed_amount on older COMPLETED orders — fall back to order amount.
+  const completedAmt = Number(
+    orderBefore.completed_amount ??
+      (stateBefore === "COMPLETED" ? orderBefore.amount : 0) ??
+      0,
+  );
 
   if (RELEASED_PROVIDER.has(stateBefore) && completedAmt === 0) {
     const ok = paymentSession?.id
