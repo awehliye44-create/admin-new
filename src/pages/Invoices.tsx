@@ -605,8 +605,8 @@ export default function Invoices() {
               </div>
               <p className="text-xs text-muted-foreground">
                 Annual uses the same invoice layout as monthly; only the date range (and total) changes.
-                Trip-level export:{" "}
-                <Link to="/annual-taxi-report" className="underline">Annual Taxi Report</Link>.
+                Yearly driver PDF:{" "}
+                <Link to="/annual-taxi-report" className="underline">Annual Driver Statement</Link>.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
