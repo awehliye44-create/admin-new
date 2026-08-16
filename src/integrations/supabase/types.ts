@@ -13478,6 +13478,135 @@ export type Database = {
         }
         Relationships: []
       }
+      onecab_assistant_config: {
+        Row: {
+          enabled: boolean
+          max_input_characters: number
+          max_output_tokens: number
+          max_output_words: number
+          max_questions_per_ip_hour: number
+          max_questions_per_session: number
+          model: string
+          monthly_budget_usd: number
+          monthly_warning_usd: number
+          platform: string
+          request_timeout_ms: number
+          updated_at: string
+        }
+        Insert: {
+          enabled?: boolean
+          max_input_characters?: number
+          max_output_tokens?: number
+          max_output_words?: number
+          max_questions_per_ip_hour?: number
+          max_questions_per_session?: number
+          model?: string
+          monthly_budget_usd?: number
+          monthly_warning_usd?: number
+          platform: string
+          request_timeout_ms?: number
+          updated_at?: string
+        }
+        Update: {
+          enabled?: boolean
+          max_input_characters?: number
+          max_output_tokens?: number
+          max_output_words?: number
+          max_questions_per_ip_hour?: number
+          max_questions_per_session?: number
+          model?: string
+          monthly_budget_usd?: number
+          monthly_warning_usd?: number
+          platform?: string
+          request_timeout_ms?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      onecab_assistant_events: {
+        Row: {
+          cached_input_tokens: number
+          cost_usd: number
+          created_at: string
+          id: string
+          input_tokens: number
+          ip_hash: string
+          model: string | null
+          outcome: string
+          output_tokens: number
+          platform: string
+          pricing_version: string | null
+          quick_action: string | null
+          rate_limit_outcome: string | null
+          safety_outcome: string | null
+          session_ref: string
+          success: boolean
+        }
+        Insert: {
+          cached_input_tokens?: number
+          cost_usd?: number
+          created_at?: string
+          id?: string
+          input_tokens?: number
+          ip_hash: string
+          model?: string | null
+          outcome: string
+          output_tokens?: number
+          platform: string
+          pricing_version?: string | null
+          quick_action?: string | null
+          rate_limit_outcome?: string | null
+          safety_outcome?: string | null
+          session_ref: string
+          success?: boolean
+        }
+        Update: {
+          cached_input_tokens?: number
+          cost_usd?: number
+          created_at?: string
+          id?: string
+          input_tokens?: number
+          ip_hash?: string
+          model?: string | null
+          outcome?: string
+          output_tokens?: number
+          platform?: string
+          pricing_version?: string | null
+          quick_action?: string | null
+          rate_limit_outcome?: string | null
+          safety_outcome?: string | null
+          session_ref?: string
+          success?: boolean
+        }
+        Relationships: []
+      }
+      onecab_assistant_rate_limits: {
+        Row: {
+          count: number
+          expires_at: string
+          key_hash: string
+          platform: string
+          scope: string
+          window_start: string
+        }
+        Insert: {
+          count?: number
+          expires_at: string
+          key_hash: string
+          platform: string
+          scope: string
+          window_start: string
+        }
+        Update: {
+          count?: number
+          expires_at?: string
+          key_hash?: string
+          platform?: string
+          scope?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
       onecab_document_activity_log: {
         Row: {
           action: string
@@ -26965,6 +27094,27 @@ export type Database = {
       notify_drivers_trip_cancelled: {
         Args: { p_reason: string; p_trip_id: string }
         Returns: undefined
+      }
+      onecab_assistant_cleanup: { Args: never; Returns: undefined }
+      onecab_assistant_consume_quota: {
+        Args: {
+          p_ip_hash: string
+          p_ip_hour_limit: number
+          p_platform: string
+          p_session_limit: number
+          p_session_ref: string
+        }
+        Returns: {
+          allowed: boolean
+          reason: string
+        }[]
+      }
+      onecab_assistant_usage: {
+        Args: never
+        Returns: {
+          day_usd: number
+          month_usd: number
+        }[]
       }
       ops_acknowledge_alert: {
         Args: { p_alert_id: string; p_user_id: string }
