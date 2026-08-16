@@ -9,7 +9,12 @@ import { ONECAB_PENDING_PLATFORM_PM_PREFIX } from "./revolutSavedCardWalletLink.
 
 export { ONECAB_PENDING_PLATFORM_PM_PREFIX };
 
-export type TokenizationStatus = "pending" | "verified" | "tokenization_failed";
+export type TokenizationStatus =
+  | "pending"
+  | "active"
+  | "verified"
+  | "tokenization_failed"
+  | "removed";
 
 export type SavedPaymentMethodTokenRow = {
   id: string;
