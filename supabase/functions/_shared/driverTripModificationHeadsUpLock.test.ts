@@ -83,11 +83,23 @@ Deno.test("G: change_request_id used as metrics offer_id for per-mod idempotency
     new URL("./notifyDriverTripModified.ts", import.meta.url),
   );
   assertEquals(notify.includes("data.offer_id = changeRequestId"), true);
+  assertEquals(notify.includes("apikey: serviceKey"), true);
   const apply = await Deno.readTextFile(
     new URL("./tripModificationApply.ts", import.meta.url),
   );
   assertEquals(apply.includes('.in("status", ["applied", "approved"])'), true);
   assertEquals(apply.includes("changeRequestId"), true);
+  assertEquals(apply.includes("skip duplicate trip_modified notify"), true);
+  assertEquals(apply.includes("options?.changeRequestId"), true);
+});
+
+Deno.test("metrics enqueue scoped to trip_modified only (not all trip pushes)", async () => {
+  const send = await Deno.readTextFile(
+    new URL("../send-driver-notification/index.ts", import.meta.url),
+  );
+  assertEquals(send.includes("Scope new enqueue metrics to trip_modified"), true);
+  assertEquals(send.includes("trip_modified only (ride offers use postgres trigger)"), true);
+  assertEquals(send.includes("eventType: isTripModified ? \"trip_modified\" : null"), true);
 });
 
 Deno.test("I: notify targets confirmed_driver_id (assigned Driver only)", async () => {

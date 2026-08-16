@@ -72,6 +72,7 @@ export async function notifyDriverTripModified(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${serviceKey}`,
+        apikey: serviceKey,
       },
       body: JSON.stringify({
         driverId,

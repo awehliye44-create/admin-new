@@ -267,7 +267,9 @@ serveWithEdgeTiming("respond-trip-modification", corsHeaders, async (req) => {
       const polyline =
         typeof farePreview?.polyline === "string" ? farePreview.polyline : null;
 
-      const broadcastResult = await fetchTripAndBroadcastUpdated(supabase, trip.id, polyline);
+      const broadcastResult = await fetchTripAndBroadcastUpdated(supabase, trip.id, polyline, {
+        changeRequestId: requestId,
+      });
       const updatedTrip = broadcastResult?.trip ?? null;
 
       if (updatedTrip) {

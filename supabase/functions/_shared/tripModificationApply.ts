@@ -135,6 +135,10 @@ export async function fetchTripAndBroadcastUpdated(
   supabase: SupabaseClient,
   tripId: string,
   routePolyline?: string | null,
+  options?: {
+    /** Applied trip_change_requests.id — preferred over latest-applied lookup. */
+    changeRequestId?: string | null;
+  },
 ): Promise<{ trip: Record<string, unknown>; payload: ReturnType<typeof normalizeTripUpdatedPayload> } | null> {
   const { data: trip, error } = await supabase
     .from("trips")
@@ -220,22 +224,56 @@ export async function fetchTripAndBroadcastUpdated(
         : null) ??
       Date.now();
 
-    // Latest applied change-request identity for metrics idempotency + client event id.
-    let changeRequestId: string | null = null;
-    try {
-      const { data: appliedRow } = await supabase
-        .from("trip_change_requests")
-        .select("id")
-        .eq("trip_id", tripId)
-        .in("status", ["applied", "approved"])
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (typeof appliedRow?.id === "string" && appliedRow.id) {
-        changeRequestId = appliedRow.id;
+    // Prefer caller-supplied applied change-request id (exact mod identity).
+    let changeRequestId =
+      typeof options?.changeRequestId === "string" && options.changeRequestId.trim().length > 0
+        ? options.changeRequestId.trim()
+        : null;
+    if (!changeRequestId) {
+      try {
+        const { data: appliedRow } = await supabase
+          .from("trip_change_requests")
+          .select("id")
+          .eq("trip_id", tripId)
+          .in("status", ["applied", "approved"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (typeof appliedRow?.id === "string" && appliedRow.id) {
+          changeRequestId = appliedRow.id;
+        }
+      } catch (e) {
+        console.warn("[tripModificationApply] applied change_request lookup failed:", e);
       }
-    } catch (e) {
-      console.warn("[tripModificationApply] applied change_request lookup failed:", e);
+    }
+
+    // One applied modification → one notify attempt (replay-safe).
+    if (changeRequestId) {
+      try {
+        const { data: prior } = await supabase
+          .from("booking_delivery_log")
+          .select("id")
+          .eq("offer_id", changeRequestId)
+          .in("phase", [
+            "push_enqueued",
+            "push_sent",
+            "push_enqueued_skip_no_token",
+          ])
+          .limit(1)
+          .maybeSingle();
+        if (prior?.id) {
+          console.log("[tripModificationApply] skip duplicate trip_modified notify", {
+            trip_id: tripId,
+            change_request_id: changeRequestId,
+          });
+          return {
+            trip: { ...(trip as Record<string, unknown>), trip_stops: tripStops },
+            payload,
+          };
+        }
+      } catch (e) {
+        console.warn("[tripModificationApply] duplicate-notify check failed (continuing):", e);
+      }
     }
 
     try {

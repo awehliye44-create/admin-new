@@ -260,6 +260,7 @@ Deno.serve(async (req) => {
         supabase,
         String(trip.id),
         polyline,
+        { changeRequestId: requestId },
       );
       updatedTrip = broadcastResult?.trip ?? null;
       tripUpdated = broadcastResult?.payload ?? null;

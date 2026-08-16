@@ -336,8 +336,10 @@ Deno.serve(async (req) => {
         "[send-driver-notification] No authoritative token for driver:",
         payload.driverId,
       );
-      // Observability only — modification/offer commit paths must not depend on this.
-      if (isTripModified || instrumentationBookingIdEarly) {
+      // Observability only — modification commit must not depend on this.
+      // Scope new enqueue metrics to trip_modified so ride-offer postgres
+      // push_enqueued is not double-written from this edge.
+      if (isTripModified) {
         await recordBookingDeliveryPhaseBestEffort(supabase, {
           bookingId: instrumentationBookingIdEarly,
           driverId: payload.driverId,
@@ -346,15 +348,20 @@ Deno.serve(async (req) => {
           detail: {
             reason: "no_authoritative_push_token",
             notification_type: notificationTypeEarly,
-            event_type: isTripModified ? "trip_modified" : notificationTypeEarly,
+            event_type: "trip_modified",
+            change_request_id: instrumentationOfferIdEarly,
+            modification_version:
+              typeof pushDataEarly.modification_version === "string"
+                ? pushDataEarly.modification_version
+                : null,
           },
         });
       }
       return errorResponse("NO_TOKENS", "No push tokens found", 404, { sent: 0 });
     }
 
-    // Enqueue metric before FCM provider call (trip_modified + any trip-scoped push).
-    if (instrumentationBookingIdEarly) {
+    // Enqueue metric before FCM — trip_modified only (ride offers use postgres trigger).
+    if (isTripModified && instrumentationBookingIdEarly) {
       await recordBookingDeliveryPhaseBestEffort(supabase, {
         bookingId: instrumentationBookingIdEarly,
         driverId: payload.driverId,
@@ -362,7 +369,12 @@ Deno.serve(async (req) => {
         phase: "push_enqueued",
         detail: {
           notification_type: notificationTypeEarly,
-          event_type: isTripModified ? "trip_modified" : notificationTypeEarly,
+          event_type: "trip_modified",
+          change_request_id: instrumentationOfferIdEarly,
+          modification_version:
+            typeof pushDataEarly.modification_version === "string"
+              ? pushDataEarly.modification_version
+              : null,
           platform: authoritative?.platform ?? null,
         },
       });
@@ -700,6 +712,12 @@ Deno.serve(async (req) => {
         return null;
       })(),
       results,
+      eventType: isTripModified ? "trip_modified" : null,
+      changeRequestId: isTripModified ? instrumentationOfferId : null,
+      modificationVersion:
+        isTripModified && typeof pushData.modification_version === "string"
+          ? pushData.modification_version
+          : null,
     });
 
     return successResponse({

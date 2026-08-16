@@ -25,6 +25,10 @@ export type FcmPushInstrumentationInput = {
   reminderIndex?: number | null;
   results: FcmAttemptResult[];
   atIso?: string;
+  /** Safe audit fields (no tokens / secrets). */
+  eventType?: string | null;
+  changeRequestId?: string | null;
+  modificationVersion?: string | null;
 };
 
 const UUID_RE =
@@ -139,6 +143,9 @@ export function buildFcmPushDeliveryDetail(
     title: input.title ?? null,
     total_tokens: results.length,
     edge: "send-driver-notification",
+    event_type: input.eventType ?? null,
+    change_request_id: input.changeRequestId ?? null,
+    modification_version: input.modificationVersion ?? null,
   };
 }
 

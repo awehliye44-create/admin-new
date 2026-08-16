@@ -1192,7 +1192,9 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
           ? (afterRouteSnapshot.fare_preview as Record<string, unknown>).polyline as string
           : null;
       try {
-        const result = await fetchTripAndBroadcastUpdated(supabase, tripId, polyline);
+        const result = await fetchTripAndBroadcastUpdated(supabase, tripId, polyline, {
+          changeRequestId: finalRequest.id,
+        });
         if (result?.trip) {
           await upsertTripRoutePolyline(supabase, tripId, polyline, result.trip);
         }
