@@ -26,7 +26,7 @@ export type PayoutEvent = {
   driver_id: string;
   amount_pence: number;
   paid_at: string;
-  stripe_transfer_id: string | null;
+  provider_transfer_id: string | null;
   confidence: "explicit" | "ledger_linked";
 };
 
@@ -156,7 +156,7 @@ export function buildPayoutEventsFromRows(args: {
     amount_pence: number;
     driver_amount_pence: number | null;
     ledger_entry_id: string | null;
-    stripe_transfer_id: string | null;
+    provider_transfer_id: string | null;
     completed_at: string | null;
     created_at: string;
   }>;
@@ -166,7 +166,7 @@ export function buildPayoutEventsFromRows(args: {
     type: string;
     amount_pence: number;
     created_at: string;
-    stripe_transfer_id: string | null;
+    provider_transfer_id: string | null;
   }>;
   linkedLedgerDebitIds: Set<string>;
 }): PayoutEvent[] {
@@ -185,7 +185,7 @@ export function buildPayoutEventsFromRows(args: {
       driver_id: item.driver_id,
       amount_pence: amount,
       paid_at: item.completed_at ?? item.created_at,
-      stripe_transfer_id: item.stripe_transfer_id,
+      provider_transfer_id: item.provider_transfer_id,
       confidence: item.ledger_entry_id ? "explicit" : "ledger_linked",
     });
   }
@@ -204,7 +204,7 @@ export function buildPayoutEventsFromRows(args: {
       driver_id: debit.driver_id,
       amount_pence: amount,
       paid_at: debit.created_at,
-      stripe_transfer_id: debit.stripe_transfer_id,
+      provider_transfer_id: debit.provider_transfer_id,
       confidence: "ledger_linked",
     });
   }

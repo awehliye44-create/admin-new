@@ -220,11 +220,10 @@ export async function handleRevolutPaymentInvariantViolation(
       await supabase.from("payments").update({
         status: "refunded",
         updated_at: new Date().toISOString(),
-      }).eq("trip_id", args.tripId).or(`provider_order_id.eq.${orderId},stripe_payment_intent_id.eq.${orderId}`);
+      }).eq("trip_id", args.tripId).eq("provider_order_id", orderId);
     }
 
     await supabase.from("orphan_payments").upsert({
-      stripe_payment_intent_id: orderId,
       provider_order_id: orderId,
       payment_provider: "revolut",
       amount_pence: amountPence,
@@ -240,7 +239,7 @@ export async function handleRevolutPaymentInvariantViolation(
         stage: args.stage,
       },
       updated_at: new Date().toISOString(),
-    }, { onConflict: "stripe_payment_intent_id" });
+    }, { onConflict: "provider_order_id" });
 
     await auditRevolutHoldAction(supabase, {
       action: "payment_invariant_violation",
@@ -285,7 +284,7 @@ async function updateTripPaymentReleased(
     captured_amount_pence: args.feeCapturedPence ?? null,
     provider_status: args.paymentStatus === "released" ? "CANCELLED" : undefined,
     updated_at: new Date().toISOString(),
-  }).eq("trip_id", args.tripId).or(`provider_order_id.eq.${args.providerOrderId},stripe_payment_intent_id.eq.${args.providerOrderId}`);
+  }).eq("trip_id", args.tripId).eq("provider_order_id", args.providerOrderId);
 
   if (args.paymentStatus === "released" || args.feeCapturedPence === 0) {
     await markPaymentSessionReleased(supabase, {
@@ -337,12 +336,6 @@ export function tripAllowsRevolutHoldRelease(tripStatus: string | undefined | nu
 }
 
 export function resolveRevolutOrderIdFromTrip(trip: Record<string, unknown>): string | null {
-  const provider = String(trip.payment_provider ?? "").toLowerCase();
   const providerOrderId = String(trip.provider_order_id ?? "").trim();
-  if (providerOrderId) return providerOrderId;
-  if (provider === "revolut") {
-    const legacy = String(trip.stripe_payment_intent_id ?? "").trim();
-    if (legacy && !legacy.startsWith("pi_")) return legacy;
-  }
-  return null;
+  return providerOrderId || null;
 }

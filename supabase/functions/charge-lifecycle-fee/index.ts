@@ -32,7 +32,7 @@ type FeeType =
  * Body: { trip_id, fee_type, amount_pence? (optional), description? }
  *
  * Revolut: same-order partial capture via releaseRevolutPreauthForTrip, then residual release.
- * Stripe: permanently retired — never restored.
+ * Non-Revolut card paths are unavailable.
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -262,16 +262,13 @@ Deno.serve(async (req) => {
       );
     }
 
-    // No Revolut order — Stripe permanently retired from the money path.
-    const { assertStripeMutationAllowed } = await import("../_shared/stripeRuntimeDisabled.ts");
-    const retired = assertStripeMutationAllowed(corsHeaders, "charge-lifecycle-fee:non_revolut");
-    if (retired) return retired;
-
+    // No Revolut order — cannot charge lifecycle fee.
     return new Response(
       JSON.stringify({
         success: false,
-        error: "No Revolut payment order on trip; Stripe lifecycle charging is retired",
+        error: "No Revolut payment order on trip",
         error_code: "PAYMENT_PROVIDER_UNAVAILABLE",
+        message: "No Revolut payment order on trip",
       }),
       { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

@@ -448,7 +448,7 @@ export async function listPaymentHoldsRequiringAttention(
   const { data: orphanRows } = await supabase
     .from("orphan_payments")
     .select(
-      "id, payment_provider, provider_order_id, stripe_payment_intent_id, amount_pence, currency, payment_status, client_action_id, user_id, customer_id, trip_id, failure_reason, reversal_status, created_at, resolved_at, metadata",
+      "id, payment_provider, provider_order_id, amount_pence, currency, payment_status, client_action_id, user_id, customer_id, trip_id, failure_reason, reversal_status, created_at, resolved_at, metadata",
     )
     .order("created_at", { ascending: false })
     .limit(Math.min(500, limit * 3));
@@ -480,7 +480,7 @@ export async function listPaymentHoldsRequiringAttention(
   // Attach orphan evidence ids onto existing session rows; close stale companions on refresh.
   for (const orphan of orphanRows ?? []) {
     const paymentProvider = String(orphan.payment_provider ?? "unknown");
-    const providerOrderId = String(orphan.provider_order_id ?? orphan.stripe_payment_intent_id ?? "");
+    const providerOrderId = String(orphan.provider_order_id ?? "");
     if (!providerOrderId) continue;
 
     if (seenOrderIds.has(providerOrderId)) {

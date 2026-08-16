@@ -140,7 +140,7 @@ Deno.serve(async (req) => {
 
     try {
       if (isCashPaymentMethod(trip.payment_method)) {
-        // Cash: mark increase only — no Stripe top-up.
+        // Cash: mark increase only — no card top-up.
         console.log("TRIP_MOD_PAYMENT_CASH_CONFIRMED", { requestId, tripId: trip.id, fareDelta });
       } else {
         const preauthResult = await invokePreauthUpdateOnModification(

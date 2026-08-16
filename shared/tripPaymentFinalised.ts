@@ -24,8 +24,6 @@ export type TripPaymentCaptureRow = TipWindowTrip & {
   status?: string | null;
   payment_method?: string | null;
   payment_status?: string | null;
-  /** Legacy alias — trips.stripe_payment_intent_id was dropped. */
-  stripe_payment_intent_id?: string | null;
   payment_intent_id?: string | null;
   provider_order_id?: string | null;
 };
@@ -90,7 +88,7 @@ export function needsServerTipWindowFareCapture(
   if (isCashTripPaymentMethod(trip.payment_method)) return false;
   if (isTripPaymentFinalised(trip.payment_status)) return false;
   const providerPaymentId = String(
-    trip.payment_intent_id ?? trip.provider_order_id ?? trip.stripe_payment_intent_id ?? "",
+    trip.payment_intent_id ?? trip.provider_order_id ?? "",
   ).trim();
   if (!providerPaymentId) return false;
   if (isTipWindowOpen(trip, nowMs)) return false;
@@ -120,7 +118,7 @@ export function derivePaymentCaptureStatus(
   return "requires_review";
 }
 
-/** Idempotency key prefix for final fare capture per trip (Stripe + ledger). */
+/** Idempotency key prefix for final fare capture per trip (provider + ledger). */
 export function buildFinalFareCaptureIdempotencyKey(tripId: string): string {
   return `final_fare_capture_${tripId}`;
 }

@@ -11,12 +11,6 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { maybeInvokeAutoTripInvoice } from "../_shared/tripInvoiceTrigger.ts";
 import { needsServerTipWindowFareCapture } from "../../../shared/tripPaymentFinalised.ts";
-import {
-  isStripeRuntimeDisabled,
-  emitStripeRetirementTelemetry,
-  STRIPE_RUNTIME_BLOCKED,
-} from "../_shared/stripeRuntimeDisabled.ts";
-import { looksLikeStripePaymentIntentId } from "../_shared/stripeRetirementGuard.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -76,24 +70,10 @@ Deno.serve(async (req) => {
 
     if (queryErr) throw new Error(`Trip query failed: ${queryErr.message}`);
 
-    const stripeOff = isStripeRuntimeDisabled();
     const eligible = (candidates ?? []).filter((row) => {
       if (!needsServerTipWindowFareCapture(row, Date.now())) return false;
-      const providerPaymentId = String(
-        row.payment_intent_id ?? row.provider_order_id ?? "",
-      ).trim() || null;
-      const isStripeTrip =
-        String(row.payment_provider ?? "").toLowerCase() === "stripe"
-        || looksLikeStripePaymentIntentId(providerPaymentId);
-      if (stripeOff && isStripeTrip) {
-        emitStripeRetirementTelemetry({
-          event: STRIPE_RUNTIME_BLOCKED,
-          function: "capture-expired-tip-windows",
-          operation: "skip_stripe_trip",
-          trip_id: row.id as string,
-        });
-        return false;
-      }
+      // Revolut-only capture path — skip any non-Revolut trip.
+      if (String(row.payment_provider ?? "").toLowerCase() !== "revolut") return false;
       return true;
     });
 

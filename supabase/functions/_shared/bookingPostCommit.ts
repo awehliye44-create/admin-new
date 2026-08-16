@@ -361,9 +361,13 @@ export function buildBookingPostCommitTasks(ctx: BookingPostCommitContext): Prom
         tripId: ctx.tripId,
         clientActionId: ctx.body.client_action_id,
       }),
-      stripePaymentIntentId: ctx.paymentRefId,
+      providerOrderId: ctx.paymentRefId,
       amountPence: ctx.preauthAmountPence,
       status: "succeeded",
+      metadata: {
+        provider: "revolut",
+        provider_order_id: ctx.paymentRefId,
+      },
     }).catch((e) => {
       ctx.log("post-commit auth ledger warning", { error: String(e) });
     }),

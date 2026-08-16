@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
       return validationErrorResponse({ trip_id: "Valid trip_id required" });
     }
 
-    // stripe_payment_intent_id intentionally omitted — column dropped; Revolut is SSOT.
+    // Legacy payment-intent column intentionally omitted — Revolut is SSOT.
     const tripSelectCols =
       "id, confirmed_driver_id, passenger_id, status, arrived_at, pickup_arrived_at, service_area_id, vehicle_type_id, pickup_latitude, pickup_longitude, driver_location_lat, driver_location_lng, payment_method, currency_code, no_show_charge_pence, completed_at";
 

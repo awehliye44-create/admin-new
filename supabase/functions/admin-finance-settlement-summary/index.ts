@@ -10,8 +10,8 @@ import {
   computeSafePayoutAmount,
   COUNTABLE_FINANCIAL_OUTCOMES,
   parseInsufficientFundsReason,
-  partitionStripePlatformCash,
-  reconcileStripeBalance,
+  partitionProviderPlatformCash,
+  reconcileProviderBalance,
   sumTripFinanceMetrics,
   type OnecabSettlementStatus,
   type PayoutFailureRow,
@@ -211,9 +211,9 @@ serve(async (req) => {
     );
     const pendingTransfers = pendingPayout + pendingCashout + reservedCashout;
 
-    let stripeAvailablePence = 0;
-    let stripePendingPence = 0;
-    let stripeBalanceError: string | null = null;
+    let providerAvailablePence = 0;
+    let providerPendingPence = 0;
+    let providerBalanceError: string | null = null;
 
     const financeScope = await resolveFinanceScopeProvider(supabase, {
       regionId: resolvedRegionId,
@@ -224,12 +224,12 @@ serve(async (req) => {
       environment: financeScope.environment,
       currency,
     });
-    stripeAvailablePence = providerBalance.available_pence;
-    stripePendingPence = providerBalance.pending_pence;
-    stripeBalanceError = providerBalance.error;
+    providerAvailablePence = providerBalance.available_pence;
+    providerPendingPence = providerBalance.pending_pence;
+    providerBalanceError = providerBalance.error;
 
-    const stripeCash = partitionStripePlatformCash({
-      stripeAvailablePence,
+    const providerCash = partitionProviderPlatformCash({
+      providerAvailablePence,
       driverPayoutLiabilityPence: availablePayout,
       pendingTransfersPence: pendingTransfers,
     });
@@ -237,14 +237,14 @@ serve(async (req) => {
     const settlementStatus: OnecabSettlementStatus = classifyOnecabSettlementStatus({
       calculatedOnecabNetPence: finance.onecab_net_pence,
       verifiedOnecabNetPence: finance.verified_onecab_net_pence,
-      stripeAvailablePence,
-      stripePendingPence,
+      providerAvailablePence,
+      providerPendingPence,
       verifiedTripCount: finance.verified_trip_count,
       tripCount: finance.tripCount,
     });
 
-    const reconciliation = reconcileStripeBalance({
-      stripeAvailablePence,
+    const reconciliation = reconcileProviderBalance({
+      providerAvailablePence,
       calculatedOnecabNetPence: finance.onecab_net_pence,
       availableDriverPayablePence: availablePayout,
       pendingTransfersPence: pendingTransfers,
@@ -256,8 +256,8 @@ serve(async (req) => {
       ? buildInsufficientFundsDiagnosis({
         failureReason: latestFailure.error_message,
         requestedPayoutPence: latestRequested,
-        stripeAvailablePence,
-        stripePendingPence,
+        providerAvailablePence,
+        providerPendingPence,
         calculatedOnecabNetPence: finance.onecab_net_pence,
         driverPendingSettlementPence: pendingTransfers,
       })
@@ -265,7 +265,7 @@ serve(async (req) => {
 
     const safePayout = computeSafePayoutAmount({
       driverAvailablePence: availablePayout,
-      stripeAvailablePence,
+      providerAvailablePence,
     });
 
     return new Response(JSON.stringify({
@@ -273,7 +273,7 @@ serve(async (req) => {
       currency_code: currency.toUpperCase(),
       accounting_rules: {
         onecab_gross_commission: "sum(trips.commission_pence) — 15% includes provider processing fee",
-        onecab_net: "onecab_gross_commission_pence - stripe_fee_pence (provider fee alias)",
+        onecab_net: "onecab_gross_commission_pence - provider_fee_pence",
         not_commission: [
           "Provider available platform balance",
           "Captured card revenue / customer revenue",
@@ -292,21 +292,21 @@ serve(async (req) => {
       },
       onecab_commission_summary: {
         onecab_gross_commission_pence: finance.onecab_gross_commission_pence,
-        stripe_fee_pence: finance.stripe_fee_pence,
+        provider_fee_pence: finance.provider_fee_pence,
         onecab_net_pence: finance.onecab_net_pence,
         max_commission_at_15_percent_pence: finance.max_commission_at_15_percent_pence,
         commission_exceeds_cap: finance.commission_exceeds_15_percent_cap,
         verified_onecab_net_pence: finance.verified_onecab_net_pence,
-        pending_stripe_settlement_pence: stripePendingPence,
+        pending_provider_settlement_pence: providerPendingPence,
         settlement_status: settlementStatus,
         settlement_status_label: settlementStatusLabel(settlementStatus),
         driver_payout_liability_pence: availablePayout,
       },
-      stripe_platform_summary: {
-        available_platform_balance_pence: stripeAvailablePence,
-        pending_platform_balance_pence: stripePendingPence,
-        unallocated_platform_cash_pence: stripeCash.unallocated_platform_cash_pence,
-        error: stripeBalanceError,
+      provider_platform_summary: {
+        available_platform_balance_pence: providerAvailablePence,
+        pending_platform_balance_pence: providerPendingPence,
+        unallocated_platform_cash_pence: providerCash.unallocated_platform_cash_pence,
+        error: providerBalanceError,
         note: "Platform balance is total provider cash — NOT ONECAB commission",
       },
       driver_payout_summary: {
@@ -322,7 +322,7 @@ serve(async (req) => {
         })),
         safe_payout_amount_pence: safePayout.payout_amount_pence,
         partial_payout_recommended: safePayout.partial,
-        waiting_for_stripe_funds: safePayout.waiting_for_stripe_funds,
+        waiting_for_provider_funds: safePayout.waiting_for_provider_funds,
       },
       reconciliation,
       insufficient_funds_insight: latestFailure
@@ -330,8 +330,8 @@ serve(async (req) => {
           reason: parseInsufficientFundsReason(latestFailure.error_message) ||
             latestFailure.error_message,
           requested_driver_payout_pence: latestRequested,
-          stripe_available_balance_at_review_pence: stripeAvailablePence,
-          stripe_pending_balance_at_review_pence: stripePendingPence,
+          provider_available_balance_at_review_pence: providerAvailablePence,
+          provider_pending_balance_at_review_pence: providerPendingPence,
           calculated_onecab_net_pence: finance.onecab_net_pence,
           driver_funds_pending_settlement_pence: pendingTransfers,
           diagnoses,
@@ -354,9 +354,9 @@ function settlementStatusLabel(status: OnecabSettlementStatus): string {
   switch (status) {
     case "calculated_only":
       return "Calculated only — not confirmed with payment provider";
-    case "pending_stripe_settlement":
+    case "pending_provider_settlement":
       return "Pending provider settlement";
-    case "available_in_stripe_balance":
+    case "available_in_provider_balance":
       return "ONECAB net available in provider balance (trip-verified)";
     case "paid_to_onecab_bank":
       return "Paid out to ONECAB bank";

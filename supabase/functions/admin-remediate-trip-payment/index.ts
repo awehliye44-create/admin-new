@@ -46,7 +46,7 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: "trip_not_found" }, 404);
     }
 
-    const orderId = String(trip.provider_order_id ?? trip.stripe_payment_intent_id ?? "").trim();
+    const orderId = String(trip.provider_order_id ?? "").trim();
     let providerState: string | null = null;
     let providerUnknown = false;
     let liveAmount: number | null = null;

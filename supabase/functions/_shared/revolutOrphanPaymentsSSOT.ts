@@ -86,7 +86,6 @@ export async function syncRevolutOrphanFromSession(
   if (!userId) return;
 
   await supabase.from("orphan_payments").upsert({
-    stripe_payment_intent_id: providerOrderId,
     provider_order_id: providerOrderId,
     payment_provider: "revolut",
     user_id: userId,
@@ -107,7 +106,7 @@ export async function syncRevolutOrphanFromSession(
       provider_order_state: state || null,
     },
     updated_at: new Date().toISOString(),
-  }, { onConflict: "stripe_payment_intent_id" });
+  }, { onConflict: "provider_order_id" });
 
   if (isOpen && session.status !== "payment_orphaned") {
     await supabase
@@ -265,7 +264,7 @@ export async function listRevolutOrphanReconciliationRows(
   }
 
   for (const orphan of orphanRows ?? []) {
-    const orderId = String(orphan.provider_order_id ?? orphan.stripe_payment_intent_id ?? "");
+    const orderId = String(orphan.provider_order_id ?? "");
     if (!orderId) continue;
     const userId = (orphan.user_id as string | null) ?? null;
     const customer =
@@ -361,13 +360,13 @@ export async function recoverRevolutOrphanPayment(
   const { data: orphanRow } = await supabase
     .from("orphan_payments")
     .select("*")
-    .eq("stripe_payment_intent_id", orderId)
+    .eq("provider_order_id", orderId)
     .maybeSingle();
 
   const { data: trip } = await supabase
     .from("trips")
     .select("id, trip_code")
-    .or(`provider_order_id.eq.${orderId},stripe_payment_intent_id.eq.${orderId}`)
+    .eq("provider_order_id", orderId)
     .maybeSingle();
 
   if (trip?.id) {
@@ -405,14 +404,13 @@ export async function recoverRevolutOrphanPayment(
     });
     if (finalize.tripId) {
       await supabase.from("orphan_payments").upsert({
-        stripe_payment_intent_id: orderId,
         provider_order_id: orderId,
         payment_provider: "revolut",
         reversal_status: "linked",
         trip_id: finalize.tripId,
         resolved_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      }, { onConflict: "stripe_payment_intent_id" });
+      }, { onConflict: "provider_order_id" });
       return { action: "linked", trip_id: finalize.tripId };
     }
     throw new Error(finalize.error ?? "link_failed");
@@ -437,7 +435,6 @@ export async function recoverRevolutOrphanPayment(
     }
 
     await supabase.from("orphan_payments").upsert({
-      stripe_payment_intent_id: orderId,
       provider_order_id: orderId,
       payment_provider: "revolut",
       user_id: (session?.user_id as string | null) ?? orphanRow?.user_id ?? null,
@@ -448,7 +445,7 @@ export async function recoverRevolutOrphanPayment(
       resolved_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       metadata: { provider: "revolut", recovered_by: args.adminUserId, release_status: release.status },
-    }, { onConflict: "stripe_payment_intent_id" });
+    }, { onConflict: "provider_order_id" });
 
     await supabase.from("admin_payment_audit").insert({
       action: "revolut_orphan_cancelled",
@@ -473,7 +470,6 @@ export async function recoverRevolutOrphanPayment(
       "admin_orphan_recovery",
     );
     await supabase.from("orphan_payments").upsert({
-      stripe_payment_intent_id: orderId,
       provider_order_id: orderId,
       payment_provider: "revolut",
       user_id: (session?.user_id as string | null) ?? orphanRow?.user_id ?? null,
@@ -488,7 +484,7 @@ export async function recoverRevolutOrphanPayment(
         recovered_by: args.adminUserId,
         revolut_refund_id: refund.id ?? null,
       },
-    }, { onConflict: "stripe_payment_intent_id" });
+    }, { onConflict: "provider_order_id" });
 
     await supabase.from("admin_payment_audit").insert({
       action: "revolut_orphan_refunded",

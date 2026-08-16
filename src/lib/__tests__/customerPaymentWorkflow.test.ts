@@ -3,14 +3,14 @@ import {
   catalogMethodsForProvider,
   isCustomerBookingAdapterLive,
   isMobileWalletCollectProvider,
-  isStripePreauthProvider,
+  isRetiredCardProvider,
   normalizeMobileWalletMethods,
   resolveProviderBookingAdapterStatus,
 } from '@/lib/customerPaymentWorkflow';
 
 describe('admin customerPaymentWorkflow', () => {
   it('identifies Provider vs mobile wallet gateways', () => {
-    expect(isStripePreauthProvider('stripe')).toBe(false);
+    expect(isRetiredCardProvider('stripe')).toBe(false);
     expect(isMobileWalletCollectProvider('sifalo_pay')).toBe(true);
     expect(isMobileWalletCollectProvider('intasend')).toBe(true);
   });

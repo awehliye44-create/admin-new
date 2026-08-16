@@ -117,7 +117,6 @@ export interface WalletPaymentRow {
   id?: string;
   trip_id: string;
   status: string | null;
-  stripe_payment_intent_id?: string | null;
   captured_amount_pence?: number | null;
 }
 

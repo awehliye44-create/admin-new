@@ -85,11 +85,11 @@ export type GatewayStatusSnapshot = {
     api_keys_configured: boolean;
     webhook_configured: boolean | null;
     webhook_healthy: boolean | null;
-    /** Stripe secret key present and connection test not in error. */
-    stripe_api_health: BookingPaymentHealth | null;
+    /** Provider API health (Revolut Merchant). */
+    provider_api_health: BookingPaymentHealth | null;
     /** Whether webhooks are being delivered/received recently. */
     webhook_delivery_health: BookingPaymentHealth | null;
-    /** Handler/processing outcome (internal errors ≠ Stripe outage). */
+    /** Handler/processing outcome (internal errors ≠ provider outage). */
     webhook_processing_health: BookingPaymentHealth | null;
     enabled: boolean;
     supports_role: boolean;
@@ -115,7 +115,7 @@ type ProviderRow = {
   webhook_endpoint_url: string | null;
 };
 
-const STRIPE_MONITORED_EVENTS = [
+const LEGACY_CARD_MONITORED_EVENTS = [
   "payment_intent.succeeded",
   "payment_intent.payment_failed",
   "charge.succeeded",
@@ -209,26 +209,26 @@ async function loadStripeWebhookHealth(
       supabase
         .from("processed_stripe_events")
         .select("processed_at")
-        .in("event_type", STRIPE_MONITORED_EVENTS)
+        .in("event_type", LEGACY_CARD_MONITORED_EVENTS)
         .order("processed_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
       supabase
         .from("processed_stripe_events")
         .select("id", { count: "exact", head: true })
-        .in("event_type", STRIPE_MONITORED_EVENTS)
+        .in("event_type", LEGACY_CARD_MONITORED_EVENTS)
         .eq("status", "processed")
         .gte("processed_at", since24h),
       supabase
         .from("processed_stripe_events")
         .select("id", { count: "exact", head: true })
-        .in("event_type", STRIPE_MONITORED_EVENTS)
+        .in("event_type", LEGACY_CARD_MONITORED_EVENTS)
         .in("status", ["failed_retry", "failed_non_retry"])
         .gte("processed_at", since24h),
       supabase
         .from("processed_stripe_events")
         .select("processed_at")
-        .in("event_type", STRIPE_MONITORED_EVENTS)
+        .in("event_type", LEGACY_CARD_MONITORED_EVENTS)
         .eq("status", "processed")
         .order("processed_at", { ascending: false })
         .limit(1)
@@ -236,7 +236,7 @@ async function loadStripeWebhookHealth(
       supabase
         .from("processed_stripe_events")
         .select("processed_at, error")
-        .in("event_type", STRIPE_MONITORED_EVENTS)
+        .in("event_type", LEGACY_CARD_MONITORED_EVENTS)
         .in("status", ["failed_retry", "failed_non_retry"])
         .order("processed_at", { ascending: false })
         .limit(1)
@@ -288,7 +288,7 @@ async function loadStripeWebhookHealth(
   };
 }
 
-/** Stripe retired — never read legacy Stripe Edge env secrets for test-mode inference. */
+/** Never read retired Edge env secrets for test-mode inference. */
 function secretLooksTestMode(_secretKeyPresent: boolean, _provider: string): boolean {
   return false;
 }
@@ -303,7 +303,7 @@ function buildSnapshot(
     webhookHealthy: boolean | null;
     lastWebhookAt: string | null;
     lastWebhookError?: string | null;
-    stripeApiHealth?: BookingPaymentHealth | null;
+    providerApiHealth?: BookingPaymentHealth | null;
     webhookDeliveryHealth?: BookingPaymentHealth | null;
     webhookProcessingHealth?: BookingPaymentHealth | null;
     bookingPaymentHealth?: BookingPaymentHealth;
@@ -373,7 +373,7 @@ function buildSnapshot(
       api_keys_configured: args.apiKeysConfigured,
       webhook_configured: args.webhookConfigured,
       webhook_healthy: args.webhookHealthy,
-      stripe_api_health: args.stripeApiHealth ?? null,
+      provider_api_health: args.providerApiHealth ?? null,
       webhook_delivery_health: args.webhookDeliveryHealth ?? null,
       webhook_processing_health: args.webhookProcessingHealth ?? null,
       enabled: config?.is_enabled === true,
@@ -479,7 +479,7 @@ export async function resolveProviderGatewayStatus(
       webhookHealthy,
       lastWebhookAt,
       lastWebhookError,
-      stripeApiHealth: "down",
+      providerApiHealth: "down",
       webhookDeliveryHealth,
       webhookProcessingHealth,
       bookingPaymentHealth: "down",
@@ -499,7 +499,7 @@ export async function resolveProviderGatewayStatus(
       webhookConfigured: webhookStored,
       webhookHealthy: null,
       lastWebhookAt: null,
-      stripeApiHealth: "healthy",
+      providerApiHealth: "healthy",
       bookingPaymentHealth: "down",
       providerHealth: "down",
       status: "TEST_MODE",
@@ -522,7 +522,7 @@ export async function resolveProviderGatewayStatus(
       webhookHealthy,
       lastWebhookAt,
       lastWebhookError,
-      stripeApiHealth: "down",
+      providerApiHealth: "down",
       webhookDeliveryHealth,
       webhookProcessingHealth,
       bookingPaymentHealth: "down",
@@ -540,7 +540,7 @@ export async function resolveProviderGatewayStatus(
       webhookHealthy,
       lastWebhookAt,
       lastWebhookError,
-      stripeApiHealth: "healthy",
+      providerApiHealth: "healthy",
       webhookDeliveryHealth,
       webhookProcessingHealth,
       // Missing webhook secret is a config issue for settlement, but PaymentIntent
@@ -564,7 +564,7 @@ export async function resolveProviderGatewayStatus(
       webhookHealthy,
       lastWebhookAt,
       lastWebhookError,
-      stripeApiHealth: "down",
+      providerApiHealth: "down",
       webhookDeliveryHealth,
       webhookProcessingHealth,
       bookingPaymentHealth: "down",
@@ -576,7 +576,7 @@ export async function resolveProviderGatewayStatus(
     }));
   }
 
-  const stripeApiHealth: BookingPaymentHealth = "healthy";
+  const providerApiHealth: BookingPaymentHealth = "healthy";
   const webhookWarning = providerId === "stripe" && webhookHealthy === false;
 
   const testMode = environment === "test"
@@ -590,7 +590,7 @@ export async function resolveProviderGatewayStatus(
       webhookHealthy,
       lastWebhookAt,
       lastWebhookError,
-      stripeApiHealth,
+      providerApiHealth,
       webhookDeliveryHealth,
       webhookProcessingHealth,
       bookingPaymentHealth: "healthy",
@@ -619,7 +619,7 @@ export async function resolveProviderGatewayStatus(
       webhookHealthy: false,
       lastWebhookAt,
       lastWebhookError,
-      stripeApiHealth,
+      providerApiHealth,
       webhookDeliveryHealth,
       webhookProcessingHealth: webhookProcessingHealth ?? "degraded",
       bookingPaymentHealth: "healthy",
@@ -638,7 +638,7 @@ export async function resolveProviderGatewayStatus(
     webhookHealthy,
     lastWebhookAt,
     lastWebhookError,
-    stripeApiHealth,
+    providerApiHealth,
     webhookDeliveryHealth,
     webhookProcessingHealth,
     bookingPaymentHealth: "healthy",

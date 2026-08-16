@@ -1,6 +1,6 @@
 /**
  * Provider-neutral digital card settlement helpers for stop-workflow.
- * Revolut is the only active card provider — do not gate on stripe_payment_intent_id.
+ * Revolut is the only active card provider — do not gate on legacy payment-intent columns.
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { recordCardCaptureFailure } from "./onecabFinanceLedger.ts";
@@ -26,7 +26,7 @@ export function isCardPaymentMethod(paymentMethod: string | null | undefined): b
 
 /**
  * Card trip that must settle via existing Revolut finalize/capture.
- * EXISTING CODE REPAIRED — replaces Stripe PI existence checks.
+ * EXISTING CODE REPAIRED — replaces legacy payment-intent existence checks.
  */
 export function requiresProviderSettlement(trip: TripProviderRow & {
   payment_method?: string | null;
@@ -39,9 +39,8 @@ export function requiresProviderSettlement(trip: TripProviderRow & {
 }
 
 /** @deprecated use requiresProviderSettlement */
-export function isDigitalStripeTrip(trip: {
+export function isDigitalCardTrip(trip: {
   payment_method?: string | null;
-  stripe_payment_intent_id?: string | null;
   provider_order_id?: string | null;
   payment_provider?: string | null;
   payment_session_id?: string | null;
@@ -58,7 +57,6 @@ export async function recordTripCaptureFailure(
   await recordCardCaptureFailure(supabase, {
     tripId,
     message,
-    stripePaymentIntentId: null,
   });
 }
 

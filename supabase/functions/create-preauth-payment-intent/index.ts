@@ -25,14 +25,6 @@ import {
   checkServiceAreaGateway,
   gatewayNotConfiguredResponse,
 } from "../_shared/paymentGatewayGuard.ts";
-import {
-  resolveTripServiceAreaProvider,
-  stripeRetiredResponse,
-} from "../_shared/stripeRetirementGuard.ts";
-import {
-  extractStripeErrorDetails,
-  humanizeStripePreauthCustomerError,
-} from "../_shared/stripePreauthCustomerError.ts";
 import { createRevolutPreauthResponse } from "../_shared/revolutPreauth.ts";
 
 const corsHeaders = {
@@ -244,11 +236,6 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       if (tripError || !trip) throw new Error(`Trip not found: ${tripError?.message}`);
       resolvedServiceAreaId = (trip as any).service_area_id ?? null;
 
-      const tripProvider = await resolveTripServiceAreaProvider(supabaseClient, tripId!);
-      if (tripProvider.provider === "revolut") {
-        return stripeRetiredResponse(corsHeaders, tripProvider.provider);
-      }
-
       // Validate ownership
       const { data: customer } = await supabaseClient
         .from("customers")
@@ -259,21 +246,6 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       const isOwner = trip.passenger_id === user.id ||
                       (customer && trip.passenger_id === customer.id);
       if (!isOwner) throw new Error("Unauthorized: You do not own this trip");
-
-      // Idempotency: legacy Stripe PI may exist — do not call Stripe APIs (P0 retired).
-      if (trip.stripe_payment_intent_id) {
-        const { assertStripeMutationAllowed } = await import("../_shared/stripeRuntimeDisabled.ts");
-        const blocked = assertStripeMutationAllowed(corsHeaders, "create-preauth-retrieve-existing-pi");
-        if (blocked) return blocked;
-        return new Response(JSON.stringify({
-          error: "Stripe is permanently retired from active ONECAB finance.",
-          error_code: "STRIPE_RETIRED",
-          legacy_payment_intent_id: trip.stripe_payment_intent_id,
-        }), {
-          status: 422,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
 
       estimatedTotalPence = resolveCustomerPreauthBasePence(trip as Record<string, unknown>);
       offerDiscountPenceForBuffer = Math.max(
@@ -425,7 +397,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       });
     }
 
-    // P0: quote-based Stripe PaymentIntent search permanently retired.
+    // Quote-based legacy PaymentIntent search is unavailable — Revolut only.
 
     // Calculate buffer using the admin Pre-Authorization Buffer config
     const { bufferPence, source: bufferSource } = await resolvePreauthBuffer(
@@ -516,39 +488,30 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
 
     if (!customerGatewayCheck?.ok) {
       return new Response(JSON.stringify({
-        error: "Payment provider temporarily unavailable. No payment has been created.",
+        error: "Card payments require Revolut.",
         error_code: "PAYMENT_PROVIDER_UNAVAILABLE",
+        message: "Card payments require Revolut.",
       }), {
-        status: 422,
+        status: 410,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // P0: Stripe permanently retired — never create PaymentIntents.
-    {
-      const { assertStripeMutationAllowed } = await import("../_shared/stripeRuntimeDisabled.ts");
-      const blocked = assertStripeMutationAllowed(corsHeaders, "create-preauth-payment-intent");
-      if (blocked) return blocked;
-    }
-
     return new Response(JSON.stringify({
-      error: "Payment provider temporarily unavailable. No payment has been created.",
+      error: "Card payments require Revolut.",
       error_code: "PAYMENT_PROVIDER_UNAVAILABLE",
+      message: "Card payments require Revolut.",
       payment_provider: customerGatewayCheck.provider,
     }), {
-      status: 422,
+      status: 410,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    const stripeDetails = extractStripeErrorDetails(error);
-    logStep("ERROR", {
-      message: stripeDetails.message,
-      stripe_type: stripeDetails.type,
-      stripe_code: stripeDetails.code,
-    });
+    const message = error instanceof Error ? error.message : String(error);
+    logStep("ERROR", { message });
     return new Response(JSON.stringify({
-      error: humanizeStripePreauthCustomerError(stripeDetails.message, stripeDetails.code),
-      code: stripeDetails.code || "PAYMENT_SETUP_FAILED",
+      error: message || "Payment setup failed. Please try again.",
+      code: "PAYMENT_SETUP_FAILED",
       charge_state: "no_charge",
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

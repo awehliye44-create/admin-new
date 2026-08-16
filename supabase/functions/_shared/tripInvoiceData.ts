@@ -6,7 +6,7 @@ import {
   type PaymentCaptureFields,
 } from "./tripSettlementFinanceSSOT.ts";
 import type { InvoiceLineItem, TripInvoicePayload } from "./tripInvoiceTypes.ts";
-import { computeNetPaidAfterRefund, resolveRefundStatus } from "../../../shared/stripeRefundSSOT.ts";
+import { computeNetPaidAfterRefund, resolveRefundStatus } from "../../../shared/providerRefundSSOT.ts";
 
 function formatPaymentMethod(method: string | null | undefined): string {
   const m = (method ?? "").trim().toLowerCase();
@@ -272,7 +272,7 @@ export function isTripReadyForInvoice(trip: Record<string, unknown>): boolean {
 
   if (pm === "cash") return true;
   if (["captured", "paid", "collected_cash", "refunded", "partially_refunded"].includes(ps)) return true;
-  if (!trip.stripe_payment_intent_id && ps === "paid") return true;
+  if (!trip.provider_order_id && !trip.payment_intent_id && ps === "paid") return true;
   return false;
 }
 

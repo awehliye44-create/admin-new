@@ -1,6 +1,6 @@
 /**
  * Revolut saved-card token capture / wallet link helpers.
- * Stripe wallet-card linking is retired — tokens stay on Revolut platform ids.
+ * Tokens stay on Revolut platform payment-method ids.
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
@@ -14,15 +14,11 @@ export function isPendingPlatformPaymentMethodId(id: string | null | undefined):
   return String(id ?? "").startsWith(ONECAB_PENDING_PLATFORM_PM_PREFIX);
 }
 
-/**
- * @deprecated Stripe wallet link retired. Returns the Revolut platform id unchanged.
- */
-export async function linkRevolutTokenToStripeWalletCard(
+/** Identity helper — returns the Revolut platform payment-method id unchanged. */
+export async function linkRevolutTokenToSavedWalletCard(
   _supabase: SupabaseClient,
-  _stripe: unknown,
   args: {
     userId: string;
-    stripeCustomerId?: string;
     platformPaymentMethodId: string;
     providerPaymentMethodId: string;
     brand?: string | null;
@@ -45,10 +41,6 @@ export async function finalizeRevolutTokenCapture(
     platformPaymentMethodId?: string | null;
     markFailedOnMiss?: boolean;
     pollProfile?: "booking" | "setup";
-    /** @deprecated ignored — Stripe wallet link retired */
-    stripe?: unknown;
-    /** @deprecated ignored — Stripe wallet link retired */
-    stripeCustomerId?: string | null;
   },
 ): Promise<{
   captured: boolean;

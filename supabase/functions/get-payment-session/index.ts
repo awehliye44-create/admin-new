@@ -94,14 +94,6 @@ serveWithEdgeTiming("get-payment-session", corsHeaders, async (req) => {
       .eq("provider_order_id", sessionProviderOrderId)
       .maybeSingle();
     orphanPayment = (orphan as Record<string, unknown> | null) ?? null;
-    if (!orphanPayment) {
-      const { data: orphanByPi } = await supabase
-        .from("orphan_payments")
-        .select("id, amount_pence, payment_status, reversal_status, failure_reason, metadata")
-        .eq("stripe_payment_intent_id", sessionProviderOrderId)
-        .maybeSingle();
-      orphanPayment = (orphanByPi as Record<string, unknown> | null) ?? null;
-    }
   }
 
   return json({

@@ -43,7 +43,7 @@ export async function isRevolutAuthLedgerConfirmed(
   const { data } = await supabase
     .from("payment_authorization_ledger")
     .select("status")
-    .eq("stripe_payment_intent_id", orderId)
+    .contains("metadata", { provider_order_id: orderId })
     .eq("operation", "initial_auth")
     .order("created_at", { ascending: false })
     .limit(1)
@@ -86,7 +86,7 @@ export async function markRevolutAuthLedgerConfirmed(
         webhook_event_id: args.webhookEventId ?? null,
       },
     })
-    .eq("stripe_payment_intent_id", args.orderId)
+    .contains("metadata", { provider_order_id: args.orderId })
     .eq("operation", "initial_auth");
 }
 
@@ -123,7 +123,7 @@ export async function markRevolutAuthLedgerFailed(
       metadata,
       updated_at: new Date().toISOString(),
     })
-    .eq("stripe_payment_intent_id", args.orderId)
+    .contains("metadata", { provider_order_id: args.orderId })
     .eq("operation", "initial_auth");
 
   if (args.clientActionId) {

@@ -70,7 +70,7 @@ export function computeDriverCommissionBreakdown(
     other_pass_through_charges_pence: 0,
     tips_pence: tipsPence,
     driver_tier_commission_percent: input.commissionPercent,
-    stripe_fee_pence: 0,
+    provider_fee_pence: 0,
   });
 
   return {

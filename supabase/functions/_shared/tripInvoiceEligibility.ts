@@ -50,7 +50,8 @@ type TripInvoiceGateRow = {
   financial_outcome?: string | null;
   payment_method?: string | null;
   payment_status?: string | null;
-  stripe_payment_intent_id?: string | null;
+  provider_order_id?: string | null;
+  payment_intent_id?: string | null;
   tip_window_closed_at?: string | null;
   tip_window_expires_at?: string | null;
   invoice_email_sent?: boolean | null;
@@ -94,7 +95,7 @@ export function isPaymentFinalisedForInvoice(trip: TripInvoiceGateRow): boolean 
 
   if (paymentMethod === "cash") return true;
   if (["captured", "paid", "collected_cash"].includes(paymentStatus)) return true;
-  if (!trip.stripe_payment_intent_id && paymentStatus === "paid") return true;
+  if (!trip.provider_order_id && !trip.payment_intent_id && paymentStatus === "paid") return true;
   return false;
 }
 

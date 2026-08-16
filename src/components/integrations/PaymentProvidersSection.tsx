@@ -238,10 +238,6 @@ function ProviderCard({
   onEditSecrets: () => void;
   isTesting: boolean;
 }) {
-  const isStripe = false;
-
-
-
   return (
     <Card className={provider.is_primary ? "border-primary/50 shadow-sm" : undefined}>
       <CardHeader className="pb-3">
@@ -287,10 +283,8 @@ function ProviderCard({
             <span>{provider.api_key_status === "added" ? "Added" : "Missing"}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">
-              {isStripe ? "Webhook health" : "Webhook secret"}
-            </span>
-            {isStripe ? webhookBadge(provider.webhook_status) : webhookSecretBadge(provider.webhook_secret_status)}
+            <span className="text-muted-foreground">Webhook secret</span>
+            {webhookSecretBadge(provider.webhook_secret_status)}
           </div>
           {provider.last_webhook_received && (
             <div className="flex justify-between md:col-span-2">
@@ -319,20 +313,7 @@ function ProviderCard({
           )}
         </div>
 
-        {isStripe && (
-          <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
-            <p className="font-medium flex items-center gap-2">
-              <Shield className="h-4 w-4" />
-              Archived provider (read-only)
-            </p>
-            <p className="text-muted-foreground">
-              Stripe credentials are retained for rollback and historical verification only.
-              API keys and webhook secrets are not shown.
-            </p>
-          </div>
-        )}
-
-        {!isStripe && provider.webhook_health && (
+        {provider.webhook_health && (
           <div className="rounded-lg border p-3 space-y-3">
             <p className="font-medium flex items-center gap-2 text-sm">
               <Webhook className="h-4 w-4" />
@@ -400,16 +381,6 @@ function ProviderCard({
         )}
 
         <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
-          {isStripe ? (
-            <div className="rounded-md border border-dashed p-3 text-sm space-y-1 w-full">
-              <p className="font-medium">Stripe — Archived Legacy</p>
-              <p className="text-muted-foreground">Status: Retired</p>
-              <p className="text-muted-foreground">New transactions: Disabled</p>
-              <p className="text-muted-foreground">Historical evidence: Preserved</p>
-              <p className="text-muted-foreground">Actions: None</p>
-            </div>
-          ) : (
-            <>
           <div className="flex items-center gap-2">
             <Switch
               checked={provider.is_primary}
@@ -432,11 +403,8 @@ function ProviderCard({
             />
             <Label className="text-sm">{provider.mode === "live" ? "Live" : "Test"}</Label>
           </div>
-            </>
-          )}
         </div>
 
-        {!isStripe && (
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={onEditSecrets}>
             Edit secrets
@@ -446,7 +414,6 @@ function ProviderCard({
             Test connection
           </Button>
         </div>
-        )}
       </CardContent>
     </Card>
   );
@@ -523,8 +490,7 @@ export function PaymentProvidersCardsGrid() {
   }
 
   const providers = data?.providers ?? [];
-  // Stripe is fully retired — provider list is already Revolut-only.
-  const activeProviders = providers;
+  const activeProviders = providers.filter((p) => p.provider !== "stripe");
   const archivedProviders: typeof providers = [];
 
   return (
@@ -533,8 +499,7 @@ export function PaymentProvidersCardsGrid() {
         <div>
           <h2 className="text-lg font-semibold">Payment Providers</h2>
           <p className="text-sm text-muted-foreground">
-            Active customer payments use Revolut only. Stripe is retired and is not offered as a
-            provider option.
+            Active customer payments use Revolut only.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()}>

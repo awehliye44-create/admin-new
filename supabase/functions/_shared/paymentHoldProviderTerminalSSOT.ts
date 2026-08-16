@@ -97,32 +97,6 @@ export async function closeCompanionOrphanPayments(
     if (!error) closed += 1;
   }
 
-  const { data: legacy } = await supabase
-    .from("orphan_payments")
-    .select("id, reversal_status, resolved_at, metadata")
-    .eq("stripe_payment_intent_id", args.providerOrderId)
-    .in("reversal_status", ["pending", "failed"]);
-
-  for (const orphan of legacy ?? []) {
-    if ((orphans ?? []).some((o) => o.id === orphan.id)) continue;
-    if (orphan.resolved_at && String(orphan.reversal_status) === "resolved") continue;
-    const metadata = orphan.metadata && typeof orphan.metadata === "object"
-      ? { ...(orphan.metadata as Record<string, unknown>) }
-      : {};
-    metadata.resolution_reason = args.resolutionReason;
-    metadata.resolution_source = args.source;
-    const { error } = await supabase.from("orphan_payments").update({
-      reversal_status: "resolved",
-      resolved_at: now,
-      resolution_reason: args.resolutionReason,
-      updated_at: now,
-      payment_provider: args.paymentProvider,
-      provider_order_id: args.providerOrderId,
-      metadata,
-    }).eq("id", orphan.id);
-    if (!error) closed += 1;
-  }
-
   return closed;
 }
 

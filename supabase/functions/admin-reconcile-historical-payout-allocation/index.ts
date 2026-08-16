@@ -132,7 +132,7 @@ async function runAllocation(
 ) {
   const { data: payoutItems, error: piErr } = await supabase
     .from("payout_items")
-    .select("id, driver_id, batch_id, status, amount_pence, driver_amount_pence, ledger_entry_id, stripe_transfer_id, completed_at, created_at, manual_review_required, excluded_from_auto_allocation, manual_review_reason");
+    .select("id, driver_id, batch_id, status, amount_pence, driver_amount_pence, ledger_entry_id, provider_transfer_id, completed_at, created_at, manual_review_required, excluded_from_auto_allocation, manual_review_reason");
   if (piErr) throw new Error(piErr.message);
 
   const excludedPayoutItemIds = new Set(
@@ -143,7 +143,7 @@ async function runAllocation(
 
   const { data: ledgerDebits, error: ldErr } = await supabase
     .from("driver_wallet_ledger")
-    .select("id, driver_id, type, amount_pence, created_at, stripe_transfer_id")
+    .select("id, driver_id, type, amount_pence, created_at, provider_transfer_id")
     .in("type", ["PAYOUT", "WEEKLY_PAYOUT", "MANUAL_PAYOUT", "EARLY_CASHOUT"])
     .lt("amount_pence", 0);
   if (ldErr) throw new Error(ldErr.message);

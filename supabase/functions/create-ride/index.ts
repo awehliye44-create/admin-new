@@ -578,7 +578,7 @@ Deno.serve(async (req) => {
       // §9 SSOT: scheduled trips start as 'available' for the public banner.
       // dispatch_status progresses: available → scheduled_committed (at cron commitment) → assigned.
       ...(isScheduled ? { dispatch_status: "available" } : {}),
-      // Deferred payment: long-advance bookings skip the upfront Stripe preauth.
+      // Deferred payment: long-advance bookings skip the upfront card preauth.
       // A cron job (scheduled-payment-reauth) creates a fresh PaymentIntent at T-24h.
       ...(payload.payment_deferred && payload.deferred_payment_method_id
         ? {

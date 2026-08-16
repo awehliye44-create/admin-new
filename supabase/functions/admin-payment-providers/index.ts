@@ -341,8 +341,8 @@ serve(async (req) => {
       if (provider === "stripe") {
         return new Response(
           JSON.stringify({
-            error: "STRIPE_RETIRED",
-            message: "Stripe cannot be enabled. Revolut is the live payment provider.",
+            error: "PAYMENT_PROVIDER_UNAVAILABLE",
+            message: "This provider cannot be enabled. Revolut is the live payment provider.",
           }),
           { status: 410, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );

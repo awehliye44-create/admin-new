@@ -105,16 +105,6 @@ export interface PaymentProviderAdapter {
   testConnection(): Promise<ConnectionTestResult>;
 }
 
-export const STRIPE_MONITORED_EVENTS = [
-  "payment_intent.succeeded",
-  "payment_intent.amount_capturable_updated",
-  "charge.succeeded",
-  "charge.refunded",
-  "balance.available",
-  "payout.paid",
-  "payout.failed",
-  "account.updated",
-] as const;
 
 export const PROVIDER_ENV_SECRET_MAP: Record<
   PaymentProviderId,

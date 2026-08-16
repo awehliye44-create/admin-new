@@ -4,7 +4,7 @@ import { hasAutoCustomerReceiptBeenSent } from "./invoiceEmailOutbox.ts";
 import { resolveCustomerUserId } from "./tripInvoiceData.ts";
 
 const AUTO_INVOICE_TRIP_SELECT =
-  "id, passenger_id, status, completed_at, financial_outcome, payment_method, payment_status, stripe_payment_intent_id, tip_window_closed_at, tip_window_expires_at, invoice_email_sent";
+  "id, passenger_id, status, completed_at, financial_outcome, payment_method, payment_status, provider_order_id, payment_intent_id, tip_window_closed_at, tip_window_expires_at, invoice_email_sent";
 
 export async function invokeTripInvoiceProcess(
   supabaseUrl: string,

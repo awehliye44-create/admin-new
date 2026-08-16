@@ -1167,7 +1167,7 @@ function isTipWindowOpen(trip: {
   return false;
 }
 
-/** Card trips must capture via finalize-trip-and-capture — never mark captured without Stripe. */
+/** Card trips must capture via finalize-trip-and-capture — never mark captured without provider capture. */
 async function invokeFinalizeTripCapture(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -2839,7 +2839,7 @@ Deno.serve(async (req) => {
         const tipAmountPence = fareTrip.tip_amount_pence || fareTrip.tip_pence || 0;
         const isCash = (fareTrip.payment_method ?? "").toLowerCase() === "cash";
         const isOperationalCash = isCash && Boolean(fareTrip.cash_authorized_at);
-        // EXISTING CODE REPAIRED — Revolut Payment Session / provider_order_id gate (never Stripe PI).
+        // EXISTING CODE REPAIRED — Revolut Payment Session / provider_order_id gate.
         const needsProviderSettlement = requiresProviderSettlement(fareTrip);
         const providerOrderId = tripProviderOrderId(fareTrip);
         const isCardPaymentMethodFlag = isCardPaymentMethod(fareTrip.payment_method);
@@ -3093,7 +3093,7 @@ Deno.serve(async (req) => {
           if (isOperationalCash) {
             tripFareUpdate.payment_status = "collected_cash";
           }
-          // Card payment_status is owned by finalize-trip-and-capture + stripe-webhook
+          // Card payment_status is owned by finalize-trip-and-capture + provider webhook
 
           parallelOps.push(
             supabase.from("trips").update(tripFareUpdate).eq("id", trip_id),

@@ -90,7 +90,7 @@ export type MinimalTripBuildInput = {
   regionId: string | null;
   regionCurrencyCode: string;
   regionDistanceUnit: string;
-  paymentProvider: "stripe" | "revolut";
+  paymentProvider: "revolut" | "legacy_unavailable";
   paymentRefId: string;
   preauthAmountPence: number;
   paymentSessionId?: string | null;
@@ -262,7 +262,7 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
       }
       : {
         // Stripe retired — keep payment_intent_id via buildTripPaymentSyncPatch only.
-        // Never write trips.stripe_payment_intent_id (column dropped).
+        // Never write legacy payment-intent columns.
       }),
     payment_intent_version: 1,
     fare_revision_number: 0,

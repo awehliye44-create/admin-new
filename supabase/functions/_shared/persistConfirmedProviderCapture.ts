@@ -190,7 +190,7 @@ export async function persistConfirmedProviderCapture(
     updated_at: now,
   }).eq("id", tripId);
 
-  // payments uses stripe_payment_intent_id as Revolut order id (legacy column).
+  // payments uses provider_order_id as Revolut order id.
   const paymentPatch: Record<string, unknown> = {
     status: "captured",
     captured_amount_pence: amount,
@@ -205,7 +205,7 @@ export async function persistConfirmedProviderCapture(
     .from("payments")
     .select("id, captured_amount_pence")
     .eq("trip_id", tripId)
-    .eq("stripe_payment_intent_id", orderId)
+    .eq("provider_order_id", orderId)
     .maybeSingle();
 
   if (existingPay?.id) {

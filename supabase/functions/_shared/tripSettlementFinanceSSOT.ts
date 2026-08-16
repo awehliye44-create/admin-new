@@ -4,7 +4,7 @@
  */
 
 import {
-  computeDriverStripeTransferAmountPence,
+  computeDriverProviderTransferAmountPence,
 } from "../../../shared/cardCaptureRecoveryTransferSSOT.ts";
 
 export type TripSettlementFields = {
@@ -140,13 +140,13 @@ export function getTripDebtRecoveredPence(ledger: LedgerEarningFields[] = []): n
   return total;
 }
 
-/** Stripe Connect net transfer after recovery debt offset on this trip. */
+/** Provider transfer net after recovery debt offset on this trip. */
 export function getTripAvailablePayoutCreatedPence(args: {
   driverNetPence: number | null;
   debtRecoveredPence: number;
 }): number | null {
   if (args.driverNetPence == null) return null;
-  return computeDriverStripeTransferAmountPence({
+  return computeDriverProviderTransferAmountPence({
     driverNetPence: args.driverNetPence,
     outstandingRecoveryDebtPence: args.debtRecoveredPence,
   });

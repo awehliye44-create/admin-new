@@ -30,8 +30,8 @@ export type PaymentAuthLedgerStatus = "pending" | "succeeded" | "failed" | "skip
 export type TripPaymentRow = TripFareRow & {
   id?: string;
   payment_method?: string | null;
-  stripe_payment_intent_id?: string | null;
   payment_intent_id?: string | null;
+  provider_order_id?: string | null;
   authorised_amount_pence?: number | null;
   authorized_amount_pence?: number | null;
   total_authorized_amount_pence?: number | null;
@@ -57,7 +57,7 @@ export function isCashPaymentMethod(paymentMethod: string | null | undefined): b
 }
 
 export function resolveBookingPaymentIntentId(trip: TripPaymentRow): string | null {
-  return trip.payment_intent_id ?? trip.stripe_payment_intent_id ?? null;
+  return trip.payment_intent_id ?? trip.provider_order_id ?? null;
 }
 
 export function resolveBookingIdempotencyKey(trip: TripPaymentRow): string | null {
@@ -169,20 +169,20 @@ export function computeCapturePlan(args: {
   walletAppliedPence?: number;
 }): {
   walletAppliedPence: number;
-  stripePayablePence: number;
+  cardPayablePence: number;
   captureAmountPence: number;
   outstandingBalancePence: number;
 } {
   const walletAppliedPence = nonNegInt(args.walletAppliedPence);
   const finalPayablePence = nonNegInt(args.finalPayablePence);
   const totalAuthorizedPence = nonNegInt(args.totalAuthorizedPence);
-  const stripePayablePence = Math.max(0, finalPayablePence - walletAppliedPence);
-  const captureAmountPence = Math.min(stripePayablePence, totalAuthorizedPence);
-  const outstandingBalancePence = Math.max(0, stripePayablePence - captureAmountPence);
+  const cardPayablePence = Math.max(0, finalPayablePence - walletAppliedPence);
+  const captureAmountPence = Math.min(cardPayablePence, totalAuthorizedPence);
+  const outstandingBalancePence = Math.max(0, cardPayablePence - captureAmountPence);
 
   return {
     walletAppliedPence,
-    stripePayablePence,
+    cardPayablePence,
     captureAmountPence,
     outstandingBalancePence,
   };
@@ -242,23 +242,29 @@ export async function recordPaymentAuthorizationEvent(
     fareRevisionNumber: number;
     operation: PaymentAuthOperation;
     idempotencyKey: string;
-    stripePaymentIntentId?: string | null;
+    providerOrderId?: string | null;
     amountPence: number;
     status: PaymentAuthLedgerStatus;
     errorMessage?: string | null;
     metadata?: Record<string, unknown>;
   },
 ): Promise<{ duplicate: boolean }> {
+  const metadata: Record<string, unknown> = {
+    ...(args.metadata ?? {}),
+  };
+  if (args.providerOrderId) {
+    metadata.provider_order_id = args.providerOrderId;
+  }
+
   const { error } = await supabase.from("payment_authorization_ledger").insert({
     trip_id: args.tripId,
     fare_revision_number: args.fareRevisionNumber,
     operation: args.operation,
     idempotency_key: args.idempotencyKey,
-    stripe_payment_intent_id: args.stripePaymentIntentId ?? null,
     amount_pence: args.amountPence,
     status: args.status,
     error_message: args.errorMessage ?? null,
-    metadata: args.metadata ?? {},
+    metadata,
     updated_at: new Date().toISOString(),
   });
 
@@ -301,8 +307,8 @@ export function buildTripPaymentSyncPatch(args: {
   const patch: Record<string, unknown> = {};
 
   if (args.paymentIntentId != null) {
-    // trips.stripe_payment_intent_id was dropped — Revolut SSOT uses provider_order_id /
-    // payment_intent_id only. Never write the legacy Stripe column onto trips.
+    // Never write legacy payment-intent columns — Revolut SSOT uses provider_order_id /
+    // payment_intent_id only.
     patch.payment_intent_id = args.paymentIntentId;
   }
   if (args.authorizedAmountPence != null) {

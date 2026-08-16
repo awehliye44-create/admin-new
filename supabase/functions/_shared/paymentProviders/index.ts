@@ -3,16 +3,17 @@ import { createPlaceholderAdapter } from "./placeholderAdapter.ts";
 import { createRevolutAdapter } from "./revolutAdapter.ts";
 import { getProviderSecrets } from "./secretManager.ts";
 import type { PaymentProviderAdapter, PaymentProviderId, ProviderEnvironment } from "./types.ts";
-import {
-  emitStripeRetirementTelemetry,
-  resolveActivePaymentProviderName,
-  PAYMENT_PROVIDER_UNAVAILABLE,
-  STRIPE_FALLBACK_PREVENTED,
-  STRIPE_RETIRED,
-} from "../stripeRuntimeDisabled.ts";
 
 export * from "./types.ts";
 export * from "./secretManager.ts";
+
+function resolveActivePaymentProviderName(
+  raw: string | null | undefined,
+): "revolut" | "unavailable" {
+  const p = String(raw ?? "").trim().toLowerCase();
+  if (p === "revolut") return "revolut";
+  return "unavailable";
+}
 
 export function getPaymentProviderAdapter(
   supabase: SupabaseClient,
@@ -21,13 +22,7 @@ export function getPaymentProviderAdapter(
   options?: { updatedBy?: string },
 ): PaymentProviderAdapter {
   if (provider === "stripe") {
-    // Do not import/create Stripe SDK — permanently retired (Slice A).
-    emitStripeRetirementTelemetry({
-      event: STRIPE_FALLBACK_PREVENTED,
-      function: "getPaymentProviderAdapter",
-      operation: "create_stripe_adapter",
-    });
-    throw new Error(STRIPE_RETIRED);
+    throw new Error("PAYMENT_PROVIDER_UNAVAILABLE");
   }
   switch (provider) {
     case "revolut":
@@ -56,10 +51,7 @@ export async function getActivePaymentProvider(
     return { provider: "revolut", environment };
   }
 
-  emitStripeRetirementTelemetry({
-    event: PAYMENT_PROVIDER_UNAVAILABLE,
-    function: "getActivePaymentProvider",
-    operation: "resolve_active_provider",
-  });
+  // Default to Revolut environment for callers that need a non-null adapter context;
+  // they must still check provider readiness before charging.
   return { provider: "revolut", environment };
 }

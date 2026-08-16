@@ -251,7 +251,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Stripe hold-release branch permanently removed (Slice A).
+    // Legacy non-Revolut hold-release branch permanently removed.
     // Revolut release above is the sole expire-trip hold path (MK-260813-003 baseline).
 
     // Revoke any pending ride offers for this trip

@@ -1,6 +1,6 @@
 /**
  * Driver auth → drivers row resolution SSOT (shared).
- * Recovered for driver-payout-settings Stripe Connect strip redeploy.
+ * Driver auth → drivers row resolution for payout setup.
  */
 
 export type DriverResolveErrorCode =
@@ -12,8 +12,8 @@ export type DriverResolveErrorCode =
   | "profile_mismatch"
   | "missing_driver_id"
   | "missing_email"
-  | "stripe_not_configured"
-  | "stripe_secret_missing";
+  | "provider_not_configured"
+  | "provider_secret_missing";
 
 export type ResolvedAuthenticatedDriver = {
   driver_id: string;
@@ -70,8 +70,8 @@ export function payoutSetupMessageForReason(
       return "Please sign in again to set up payouts.";
     case "missing_email":
       return "Add an email to your driver profile before setting up payouts.";
-    case "stripe_not_configured":
-    case "stripe_secret_missing":
+    case "provider_not_configured":
+    case "provider_secret_missing":
       return "Payout setup is temporarily unavailable. Please try again later.";
     default:
       return fallbackMessage;

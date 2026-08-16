@@ -1,9 +1,9 @@
 /**
- * Card capture → recovery debt → Stripe Connect transfer SSOT.
+ * Card capture → recovery debt → provider transfer SSOT.
  *
  * For card trips:
  *   Driver Net = final_fare_pence − commission_pence
- *   Driver Stripe Transfer (net portion) = MAX(0, Driver Net − Outstanding Recovery Debt)
+ *   Driver provider transfer (net portion) = MAX(0, Driver Net − Outstanding Recovery Debt)
  *   Remaining Recovery Debt = MAX(0, Outstanding Recovery Debt − Driver Net)
  *
  * Pass-through charges (airport, etc.) and tips are not reduced by recovery debt.
@@ -13,8 +13,8 @@ export type CardCaptureRecoveryTransferResult = {
   driver_net_pence: number;
   debt_recovery_pence: number;
   remaining_recovery_debt_pence: number;
-  driver_stripe_transfer_net_pence: number;
-  driver_stripe_transfer_total_pence: number;
+  driver_provider_transfer_net_pence: number;
+  driver_provider_transfer_total_pence: number;
 };
 
 export function computeCardDriverNetPence(
@@ -42,8 +42,8 @@ export function computeRemainingRecoveryDebtPence(args: {
   return Math.max(0, outstanding - driverNet);
 }
 
-/** Net card earnings transferred to Connect after recovery debt offset. */
-export function computeDriverStripeTransferAmountPence(args: {
+/** Net card earnings transferred after recovery debt offset. */
+export function computeDriverProviderTransferAmountPence(args: {
   driverNetPence: number;
   outstandingRecoveryDebtPence: number;
 }): number {
@@ -68,20 +68,20 @@ export function computeCardCaptureRecoveryTransfer(args: {
     outstandingRecoveryDebtPence: args.outstandingRecoveryDebtPence,
     driverNetPence,
   });
-  const driverStripeTransferNetPence = computeDriverStripeTransferAmountPence({
+  const driverProviderTransferNetPence = computeDriverProviderTransferAmountPence({
     driverNetPence,
     outstandingRecoveryDebtPence: args.outstandingRecoveryDebtPence,
   });
   const passThroughPence = Math.max(0, Math.round(args.passThroughPence ?? 0));
   const tipPence = Math.max(0, Math.round(args.tipPence ?? 0));
-  const driverStripeTransferTotalPence =
-    driverStripeTransferNetPence + passThroughPence + tipPence;
+  const driverProviderTransferTotalPence =
+    driverProviderTransferNetPence + passThroughPence + tipPence;
 
   return {
     driver_net_pence: driverNetPence,
     debt_recovery_pence: debtRecoveryPence,
     remaining_recovery_debt_pence: remainingRecoveryDebtPence,
-    driver_stripe_transfer_net_pence: driverStripeTransferNetPence,
-    driver_stripe_transfer_total_pence: driverStripeTransferTotalPence,
+    driver_provider_transfer_net_pence: driverProviderTransferNetPence,
+    driver_provider_transfer_total_pence: driverProviderTransferTotalPence,
   };
 }

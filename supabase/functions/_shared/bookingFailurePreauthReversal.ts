@@ -1,8 +1,9 @@
+/**
+ * Booking-failure preauth reversal — Revolut holds are cancelled via
+ * cancelRevolutOrder / holdRelease SSOT. Legacy PI helpers are no-ops.
+ */
+
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import {
-  assertStripeMutationAllowedOrThrow,
-  STRIPE_RETIRED,
-} from "./stripeRuntimeDisabled.ts";
 
 /** Customer-safe copy when booking fails after a hold was placed. */
 export const BOOKING_FAILED_NO_TRIP_MESSAGE =
@@ -17,36 +18,28 @@ export type PreauthReversalStatus =
   | "failed"
   | "skipped_trip_exists"
   | "skipped_not_authorized"
-  | "skipped_stripe_retired";
+  | "skipped_no_provider";
 
 export function isAuthorizedPreauthStatus(status: string): boolean {
   return AUTHORIZED_PREAUTH_STATUSES.has(status);
 }
 
-/**
- * Stripe PI reversal is permanently retired. Revolut holds are cancelled via
- * cancelRevolutOrder in create-trip-after-payment — do not call Stripe APIs.
- */
+/** No-op — Revolut holds must be reversed via Revolut SSOT helpers. */
 export async function reverseOpenPaymentIntent(
-  _stripe: unknown,
+  _unusedProviderClient: unknown,
   paymentIntent: { id?: string; status?: string },
 ): Promise<PreauthReversalStatus> {
-  assertStripeMutationAllowedOrThrow("bookingFailurePreauthReversal:reverseOpenPaymentIntent");
-  console.info("[BOOKING_PREAUTH_REVERSAL] Stripe reverse skipped — retired", {
+  console.info("[BOOKING_PREAUTH_REVERSAL] reverse skipped — no provider adapter", {
     payment_intent_id: paymentIntent?.id ?? null,
     status: paymentIntent?.status ?? null,
-    error_code: STRIPE_RETIRED,
   });
-  return "skipped_stripe_retired";
+  return "skipped_no_provider";
 }
 
-/**
- * Legacy Stripe booking-failure reversal — no live Stripe mutations.
- * Callers must reverse Revolut holds via Revolut SSOT helpers instead.
- */
+/** No-op — Revolut holds must be reversed via Revolut SSOT helpers. */
 export async function cancelPreauthWhenNoBooking(
   _supabase: SupabaseClient,
-  _stripe: unknown,
+  _unusedProviderClient: unknown,
   args: {
     paymentIntent: { id?: string; status?: string; amount?: number };
     userId: string;
@@ -58,14 +51,12 @@ export async function cancelPreauthWhenNoBooking(
     allowTerminalTrip?: boolean;
   },
 ): Promise<PreauthReversalStatus> {
-  assertStripeMutationAllowedOrThrow("bookingFailurePreauthReversal:cancelPreauthWhenNoBooking");
-  console.info("[BOOKING_PREAUTH_REVERSAL] Stripe cancel skipped — retired", {
+  console.info("[BOOKING_PREAUTH_REVERSAL] cancel skipped — no provider adapter", {
     payment_intent_id: args.paymentIntent?.id ?? null,
     failure_stage: args.failureStage,
     failure_reason: args.failureReason,
     client_action_id: args.clientActionId ?? null,
     user_id: args.userId,
-    error_code: STRIPE_RETIRED,
   });
-  return "skipped_stripe_retired";
+  return "skipped_no_provider";
 }

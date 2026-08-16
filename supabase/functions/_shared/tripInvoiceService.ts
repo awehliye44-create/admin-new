@@ -28,7 +28,7 @@ import {
 const BUCKET = "trip-invoices";
 
 const TRIP_SELECT = `
-  id, trip_code, status, financial_outcome, payment_method, payment_status, stripe_payment_intent_id,
+  id, trip_code, status, financial_outcome, payment_method, payment_status, provider_order_id, payment_intent_id,
   tip_window_closed_at, tip_window_expires_at,
   passenger_id, passenger_name, passenger_phone,
   pickup_address, dropoff_address, started_at, completed_at, created_at,

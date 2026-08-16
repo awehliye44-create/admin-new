@@ -20,14 +20,6 @@ import {
   gatewayNotConfiguredResponse,
 } from "../_shared/paymentGatewayGuard.ts";
 import {
-  looksLikeStripePaymentIntentId,
-} from "../_shared/stripeRetirementGuard.ts";
-import {
-  PAYMENT_PROVIDER_UNAVAILABLE,
-  STRIPE_RETIRED,
-  stripeRetiredHttpResponse,
-} from "../_shared/stripeRuntimeDisabled.ts";
-import {
   type RevolutOrder,
 } from "../_shared/revolutOrders.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
@@ -339,21 +331,28 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       return gatewayNotConfiguredResponse(customerGatewayCheck, corsHeaders);
     }
 
-    if (looksLikeStripePaymentIntentId(body.payment_intent_id)) {
-      log("REJECTED — Stripe PI retired", {
+    if (String(body.payment_intent_id ?? "").trim().startsWith("pi_")) {
+      log("REJECTED — invalid provider order id shape", {
         service_area_id: body.service_area_id,
-        payment_intent_id: body.payment_intent_id,
       });
-      return stripeRetiredHttpResponse(corsHeaders, "create-trip-after-payment", 410, {
-        error_code: STRIPE_RETIRED,
-        message: "Stripe payments are permanently retired. Use Revolut checkout.",
+      return new Response(JSON.stringify({
+        error: "Invalid payment order. Please complete Revolut checkout and try again.",
+        error_code: "INVALID_PROVIDER_ORDER",
+        message: "Invalid payment order. Please complete Revolut checkout and try again.",
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     if (customerGatewayCheck.provider !== "revolut") {
-      return stripeRetiredHttpResponse(corsHeaders, "create-trip-after-payment", 422, {
-        error_code: PAYMENT_PROVIDER_UNAVAILABLE,
-        message: "Payment provider temporarily unavailable. No payment has been created.",
+      return new Response(JSON.stringify({
+        error: "Card payments require Revolut.",
+        error_code: "PAYMENT_PROVIDER_UNAVAILABLE",
+        message: "Card payments require Revolut.",
+      }), {
+        status: 410,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -380,7 +379,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         .eq("client_action_id", body.client_action_id)
         .limit(1),
       // 3b. Idempotency by Revolut order — one payment → max one trip
-      // trips.stripe_payment_intent_id was dropped; do not query it (schema cache error).
+      // Never write legacy payment-intent columns; do not query them (schema cache error).
       supabase
         .from("trips")
         .select("id, trip_code, status")

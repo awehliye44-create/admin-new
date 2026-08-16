@@ -186,11 +186,11 @@ export async function createRevolutPreauthResponse(
   if (!existingOrderId && (clientActionId || tripId)) {
     const { data: ledgerRow } = await supabase
       .from("payment_authorization_ledger")
-      .select("stripe_payment_intent_id")
+      .select("metadata")
       .eq("idempotency_key", idempotencyKey)
       .maybeSingle();
 
-    existingOrderId = ledgerRow?.stripe_payment_intent_id as string | null;
+    existingOrderId = String((ledgerRow?.metadata as any)?.provider_order_id ?? "").trim() || null;
   }
 
   if (existingOrderId) {
@@ -567,7 +567,7 @@ export async function createRevolutPreauthResponse(
       fareRevisionNumber: 0,
       operation: "initial_auth",
       idempotencyKey,
-      stripePaymentIntentId: order.id,
+      providerOrderId: order.id,
       amountPence: authorisedAmountPence,
       status: isRevolutAuthorisedState(order.state) || isRevolutInFlightState(order.state)
         ? "pending"

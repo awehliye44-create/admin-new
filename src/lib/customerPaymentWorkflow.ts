@@ -32,13 +32,13 @@ export const PROVIDER_MOBILE_WALLET_CATALOG: Record<string, MobileWalletMethodId
 /** Providers with live customer booking adapters (card preauth or mobile collect). */
 export const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["revolut"]);
 
-/** Providers with live driver payout adapters. Stripe Connect is retired. */
+/** Providers with live driver payout adapters. */
 export const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["revolut"]);
 
 export const PROVIDER_NOT_IMPLEMENTED_CODE = "PROVIDER_NOT_IMPLEMENTED";
 
-/** @deprecated Stripe customer bookings retired — always false for active flows. */
-export function isStripePreauthProvider(_provider: string | null | undefined): boolean {
+/** @deprecated Retired card preauth detector — always false for active flows. */
+export function isRetiredCardProvider(_provider: string | null | undefined): boolean {
   return false;
 }
 
@@ -52,7 +52,7 @@ export function resolveBookingWorkflowLabel(
 ): string {
   switch (workflow) {
     case "stripe_preauth":
-      return "Retired Stripe preauth (not active)";
+      return "Retired card preauth (not active)";
     case "revolut_merchant":
       return "Revolut Merchant checkout";
     case "mobile_wallet_collect":

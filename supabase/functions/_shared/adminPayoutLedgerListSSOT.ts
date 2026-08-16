@@ -918,7 +918,7 @@ export async function listAdminPayoutLedger(
   let itemsQuery = supabase
     .from("payout_items")
     .select(
-      "id, created_at, driver_id, batch_id, amount_pence, status, execution_status, payout_type, stripe_method, stripe_payout_id, stripe_transfer_id, provider_reference, provider_status, failure_reason, error_message, ledger_entry_id, completed_at, failed_at, updated_at, gross_amount_pence, net_driver_payout_pence, onecab_fee_pence, stripe_fee_pence, trip_id",
+      "id, created_at, driver_id, batch_id, amount_pence, status, execution_status, payout_type, provider_payout_id, provider_transfer_id, provider_reference, provider_status, failure_reason, error_message, ledger_entry_id, completed_at, failed_at, updated_at, gross_amount_pence, net_driver_payout_pence, onecab_fee_pence, provider_fee_pence, trip_id",
     )
     .order("created_at", { ascending: false })
     .limit(limit * 2);
@@ -1061,7 +1061,7 @@ export async function listAdminPayoutLedger(
     const status = normaliseStatus(raw.status as string | null);
     if (!itemMatchesTab(String(raw.status ?? ""), tab)) continue;
     if (request.payout_type) {
-      const type = String(raw.payout_type ?? raw.stripe_method ?? "");
+      const type = String(raw.payout_type ?? "");
       if (type.toLowerCase() !== request.payout_type.toLowerCase()) continue;
     }
     if (request.service_area_id) {
@@ -1072,8 +1072,8 @@ export async function listAdminPayoutLedger(
     const amount = raw.amount_pence == null
       ? (raw.gross_amount_pence == null ? null : Number(raw.gross_amount_pence))
       : Number(raw.amount_pence);
-    const fees = raw.onecab_fee_pence != null || raw.stripe_fee_pence != null
-      ? Number(raw.onecab_fee_pence ?? 0) + Number(raw.stripe_fee_pence ?? 0)
+    const fees = raw.onecab_fee_pence != null || raw.provider_fee_pence != null
+      ? Number(raw.onecab_fee_pence ?? 0) + Number(raw.provider_fee_pence ?? 0)
       : null;
     const net = raw.net_driver_payout_pence == null ? amount : Number(raw.net_driver_payout_pence);
     const statusLower = String(raw.status ?? "").toLowerCase();
@@ -1110,15 +1110,15 @@ export async function listAdminPayoutLedger(
       driver_name: driverNameById.get(String(raw.driver_id)) ?? null,
       service_area_id: serviceAreaId,
       service_area_name: serviceAreaId ? (serviceAreaNameById.get(serviceAreaId) ?? null) : null,
-      payout_type: (raw.payout_type as string | null) ?? (raw.stripe_method as string | null) ?? null,
+      payout_type: (raw.payout_type as string | null) ?? null,
       batch_id: (raw.batch_id as string | null) ?? null,
       gross_wallet_debit_pence: amount,
       fees_pence: fees,
       net_bank_transfer_pence: net,
       currency: "GBP",
-      provider: raw.stripe_payout_id || raw.stripe_transfer_id ? "stripe" : "revolut_or_manual",
-      provider_payout_id: (raw.stripe_payout_id as string | null)
-        ?? (raw.stripe_transfer_id as string | null)
+      provider: "revolut_or_manual",
+      provider_payout_id: (raw.provider_payout_id as string | null)
+        ?? (raw.provider_transfer_id as string | null)
         ?? (raw.provider_reference as string | null)
         ?? null,
       bank_reference: (raw.provider_reference as string | null) ?? null,
