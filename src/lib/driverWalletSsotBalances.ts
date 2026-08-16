@@ -52,7 +52,7 @@ export type DriverWalletEligibilityOverlay = {
 export function mergeDriverWalletEligibilityOverlay<T extends DriverWalletSsotBalanceSource & { driver_id: string }>(
   row: T,
   overlay: DriverWalletEligibilityOverlay | null | undefined,
-): T {
+): T & DriverWalletSsotBalanceSource {
   if (!overlay) return row;
   const available = minor(overlay.available_balance_pence);
   const pending = minor(overlay.pending_balance_pence);

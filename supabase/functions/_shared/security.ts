@@ -227,6 +227,26 @@ export function isValidCoordinate(lat: unknown, lng: unknown): boolean {
   return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 }
 
+export function isValidLatitude(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= -90 && value <= 90;
+}
+
+export function isValidLongitude(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= -180 && value <= 180;
+}
+
+export function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+/** ONECAB is digital-only — cash is never a valid payment method. */
+export const VALID_PAYMENT_METHODS = ['CARD', 'WALLET', 'APPLE_PAY', 'GOOGLE_PAY'] as const;
+
+export function isValidPaymentMethod(value: unknown): value is string {
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  return (VALID_PAYMENT_METHODS as readonly string[]).includes(value.trim().toUpperCase());
+}
+
 // ==================== VALIDATION RESPONSE ====================
 
 export function validationErrorResponse(

@@ -168,7 +168,7 @@ export function deriveIneligibleReason(earning: EarningSettlementInput): string 
   return null;
 }
 
-export function sumStripeSettledUnpaidPence(
+export function sumClearedSettlementBatchPence(
   earnings: EarningSettlementInput[],
 ): number {
   return earnings.reduce((sum, row) => {
@@ -178,6 +178,9 @@ export function sumStripeSettledUnpaidPence(
     return sum + remainingPayablePence(row);
   }, 0);
 }
+
+/** @deprecated provider-neutral name is sumClearedSettlementBatchPence */
+export const sumStripeSettledUnpaidPence = sumClearedSettlementBatchPence;
 
 export function sumEligibleEarningPence(earnings: EarningSettlementInput[]): number {
   return earnings.reduce((sum, row) => {
