@@ -85,6 +85,8 @@ export interface PaymentRowEvidence {
   refunded_amount_pence?: number | null;
   provider_payment_id?: string | null;
   provider_charge_id?: string | null;
+  /** Revolut order id mirrored from payment_sessions — deterministic dedupe link. */
+  provider_order_id?: string | null;
 }
 
 export interface TripInvoicePaymentState {
@@ -149,38 +151,48 @@ interface CaptureFact {
   identified: boolean;
 }
 
-/** Durable provider identity for a session row, or null when the row has none. */
-function sessionProviderIdentity(session: PaymentSessionEvidence): string | null {
-  const id = session.provider_capture_id || session.provider_payment_id || session.provider_order_id;
-  return id ? String(id) : null;
+/** All durable provider identities a session row can be recognised by. */
+function sessionProviderAliases(session: PaymentSessionEvidence): string[] {
+  return [session.provider_capture_id, session.provider_payment_id, session.provider_order_id]
+    .filter((v): v is string => Boolean(v))
+    .map(String);
 }
 
-/** Durable provider identity for a payments row, or null when the row has none. */
-function paymentProviderIdentity(payment: PaymentRowEvidence): string | null {
-  const id = payment.provider_payment_id || payment.provider_charge_id;
-  return id ? String(id) : null;
+/** All durable provider identities a payments row can be recognised by. */
+function paymentProviderAliases(payment: PaymentRowEvidence): string[] {
+  return [payment.provider_payment_id, payment.provider_charge_id, payment.provider_order_id]
+    .filter((v): v is string => Boolean(v))
+    .map(String);
 }
 
 /**
  * Capture evidence collection.
  *
  * `payment_sessions` is the PRIMARY authoritative capture ledger for a trip.
- * A `payments` row only adds money when it proves an INDEPENDENT provider transaction.
- * A `payments` row with no durable provider identity, on a trip that already has session
- * capture evidence, is a MIRROR of that capture and must never be summed.
+ * A `payments` row only adds money when it proves an INDEPENDENT provider transaction
+ * (its own provider identity, not already seen on this trip).
+ * A `payments` row that shares a provider identity with a session — or that carries no
+ * durable identity at all while session capture evidence exists — is a MIRROR of that
+ * capture and must never be summed.
  */
 function collectCaptureFacts(
   tripId: string,
   sessions: PaymentSessionEvidence[],
   payments: PaymentRowEvidence[],
 ): CaptureFact[] {
-  const byKey = new Map<string, CaptureFact>();
+  const facts: CaptureFact[] = [];
+  const byAlias = new Map<string, CaptureFact>();
   const sessionFacts: CaptureFact[] = [];
 
   const mergeInto = (fact: CaptureFact, capturedPence: number, refundedPence: number) => {
     // Same provider transaction seen twice — keep the larger confirmed evidence, never sum.
     fact.capturedPence = Math.max(fact.capturedPence, capturedPence);
     fact.refundedPence = Math.max(fact.refundedPence, refundedPence);
+  };
+
+  const register = (fact: CaptureFact, aliases: string[]) => {
+    facts.push(fact);
+    for (const alias of aliases) byAlias.set(alias, fact);
   };
 
   for (const session of sessions) {
@@ -192,21 +204,21 @@ function collectCaptureFacts(
       providerState === "completed";
     if (captured <= 0) continue;
     if (!statusCaptured && looksFailed(status, providerState)) continue;
-    const identity = sessionProviderIdentity(session);
-    const key = identity ?? `session:${session.id ?? sessionFacts.length}`;
-    const existing = byKey.get(key);
-    if (existing) {
-      mergeInto(existing, captured, positive(session.refunded_amount_pence));
+    const aliases = sessionProviderAliases(session);
+    const known = aliases.map((a) => byAlias.get(a)).find(Boolean);
+    if (known) {
+      mergeInto(known, captured, positive(session.refunded_amount_pence));
+      for (const alias of aliases) byAlias.set(alias, known);
       continue;
     }
     const fact: CaptureFact = {
-      key,
+      key: aliases[0] ?? `session:${session.id ?? facts.length}`,
       capturedPence: captured,
       refundedPence: positive(session.refunded_amount_pence),
       source: "payment_sessions",
-      identified: identity != null,
+      identified: aliases.length > 0,
     };
-    byKey.set(key, fact);
+    register(fact, aliases);
     sessionFacts.push(fact);
   }
 
@@ -221,22 +233,25 @@ function collectCaptureFacts(
     if (captured <= 0) continue;
     if (looksFailed(status, providerStatus) && positive(payment.captured_amount_pence) <= 0) continue;
     const refunded = positive(payment.refunded_amount_pence);
-    const identity = paymentProviderIdentity(payment);
+    const aliases = paymentProviderAliases(payment);
 
-    if (identity) {
-      const existing = byKey.get(identity);
-      if (existing) {
-        mergeInto(existing, captured, refunded);
-      } else {
-        // Independent provider transaction — a genuinely separate collection (recovery, split, extra capture).
-        byKey.set(identity, {
-          key: identity,
-          capturedPence: captured,
-          refundedPence: refunded,
-          source: "payments",
-          identified: true,
-        });
-      }
+    // Deterministic dedupe: same provider transaction already recorded for this trip.
+    const known = aliases.map((a) => byAlias.get(a)).find(Boolean);
+    if (known) {
+      mergeInto(known, captured, refunded);
+      for (const alias of aliases) byAlias.set(alias, known);
+      continue;
+    }
+
+    if (aliases.length > 0) {
+      // Independent provider transaction — a genuinely separate collection (recovery, split, extra capture).
+      register({
+        key: aliases[0],
+        capturedPence: captured,
+        refundedPence: refunded,
+        source: "payments",
+        identified: true,
+      }, aliases);
       continue;
     }
 
@@ -251,20 +266,18 @@ function collectCaptureFacts(
     }
 
     // No session evidence at all — the payments row is the only capture record for this trip.
-    const key = `payment:${payment.id ?? byKey.size}`;
-    const existing = byKey.get(key);
-    if (existing) {
-      mergeInto(existing, captured, refunded);
-      continue;
-    }
-    byKey.set(key, {
-      key,
+    register({
+      key: `payment:${payment.id ?? facts.length}`,
       capturedPence: captured,
       refundedPence: refunded,
       source: "payments",
       identified: false,
-    });
+    }, []);
   }
+
+  return facts;
+}
+
 
   return [...byKey.values()];
 }
