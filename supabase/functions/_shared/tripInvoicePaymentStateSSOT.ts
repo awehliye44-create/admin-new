@@ -279,8 +279,6 @@ function collectCaptureFacts(
 }
 
 
-  return [...byKey.values()];
-}
 
 
 export function resolveTripInvoicePaymentState(args: {
