@@ -3,7 +3,7 @@
  * Revolut is the only active card provider.
  */
 
-export type TripPaymentProvider = "revolut" | "unknown" | "legacy_stripe";
+export type TripPaymentProvider = "revolut" | "unknown";
 
 export type TripProviderRow = {
   payment_provider?: string | null;
@@ -14,8 +14,8 @@ export type TripProviderRow = {
 export function resolveTripPaymentProvider(trip: TripProviderRow): TripPaymentProvider {
   const explicit = String(trip.payment_provider ?? "").trim().toLowerCase();
   if (explicit === "revolut") return "revolut";
-  // Legacy provider name — never treat as an active settlement provider.
-  if (explicit === "stripe") return "legacy_stripe";
+  // Unknown / retired provider ids are never a settlement path.
+  if (explicit && explicit !== "revolut") return "unknown";
 
   if (trip.provider_order_id) return "revolut";
   if (trip.payment_session_id) return "revolut";

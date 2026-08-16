@@ -267,6 +267,19 @@ serve(async (req) => {
       const provider = body.provider as PaymentProviderId;
       const environment = (body.environment as ProviderEnvironment) ?? "live";
 
+      if (provider !== "revolut") {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: "PAYMENT_PROVIDER_UNAVAILABLE",
+            message: "Live connection test is only available for Revolut.",
+            provider,
+            mode: environment,
+          }),
+          { status: 410, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       const adapter = getPaymentProviderAdapter(supabase, provider, environment, {
         updatedBy: auth.user.id,
       });
@@ -331,14 +344,14 @@ serve(async (req) => {
 
     if (req.method === "PATCH") {
       const body = await req.json();
-      const provider = body.provider as PaymentProviderId | "stripe";
+      const provider = body.provider as PaymentProviderId;
       if (!provider) {
         return new Response(JSON.stringify({ error: "provider is required" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (provider === "stripe") {
+      if (provider !== "revolut" && (body.is_enabled === true || body.is_primary === true)) {
         return new Response(
           JSON.stringify({
             error: "PAYMENT_PROVIDER_UNAVAILABLE",

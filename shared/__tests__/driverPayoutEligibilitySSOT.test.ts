@@ -69,7 +69,7 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
     expect(agg.available_balance_pence).toBe(408);
   });
 
-  it("4. Stripe Connect settlement fields are not required when payout-cleared", () => {
+  it("4. Connect settlement fields are not required when payout-cleared", () => {
     const r = evaluateLedgerEntryEligibility(
       revolutTripCredit({
         provider_available_on: "2020-01-01T00:00:00.000Z",

@@ -9,8 +9,8 @@ import {
 } from '@/lib/customerPaymentWorkflow';
 
 describe('admin customerPaymentWorkflow', () => {
-  it('identifies Provider vs mobile wallet gateways', () => {
-    expect(isRetiredCardProvider('stripe')).toBe(false);
+  it('identifies Revolut vs mobile wallet gateways', () => {
+    expect(isRetiredCardProvider('checkout_com')).toBe(false);
     expect(isMobileWalletCollectProvider('sifalo_pay')).toBe(true);
     expect(isMobileWalletCollectProvider('intasend')).toBe(true);
   });
@@ -25,10 +25,10 @@ describe('admin customerPaymentWorkflow', () => {
     expect(catalogMethodsForProvider('intasend')).toEqual(['mpesa']);
   });
 
-  it('flags non-Provider ready providers as not_implemented', () => {
+  it('flags non-Revolut ready providers as not_implemented', () => {
     expect(isCustomerBookingAdapterLive('sifalo_pay')).toBe(false);
     expect(resolveProviderBookingAdapterStatus('sifalo_pay', true)).toBe('not_implemented');
-    expect(resolveProviderBookingAdapterStatus('stripe', true)).toBe('not_implemented');
+    expect(resolveProviderBookingAdapterStatus('checkout_com', true)).toBe('not_implemented');
   });
 
   it('respects mobile wallet allowlist', () => {

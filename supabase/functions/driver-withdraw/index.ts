@@ -1,7 +1,7 @@
 /**
  * Driver-triggered Revolut Business Withdraw.
  * Reuses Slice 6/7 reservation + claim + relay /pay + completion SSOT.
- * No Stripe. Separate trigger from weekly admin payout.
+ * Revolut/bank payouts only. Separate trigger from weekly admin payout.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveAuthenticatedDriver } from "../_shared/resolveAuthenticatedDriver.ts";

@@ -1,7 +1,5 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { createPlaceholderAdapter } from "./placeholderAdapter.ts";
 import { createRevolutAdapter } from "./revolutAdapter.ts";
-import { getProviderSecrets } from "./secretManager.ts";
 import type { PaymentProviderAdapter, PaymentProviderId, ProviderEnvironment } from "./types.ts";
 
 export * from "./types.ts";
@@ -21,17 +19,10 @@ export function getPaymentProviderAdapter(
   environment: ProviderEnvironment,
   options?: { updatedBy?: string },
 ): PaymentProviderAdapter {
-  if (provider === "stripe") {
+  if (provider !== "revolut") {
     throw new Error("PAYMENT_PROVIDER_UNAVAILABLE");
   }
-  switch (provider) {
-    case "revolut":
-      return createRevolutAdapter(supabase, environment, options);
-    default:
-      return createPlaceholderAdapter(provider, () =>
-        getProviderSecrets(supabase, provider, environment)
-      );
-  }
+  return createRevolutAdapter(supabase, environment, options);
 }
 
 export async function getActivePaymentProvider(

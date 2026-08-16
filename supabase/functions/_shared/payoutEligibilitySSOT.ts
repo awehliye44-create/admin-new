@@ -162,8 +162,8 @@ export function deriveIneligibleReason(earning: EarningSettlementInput): string 
     && earning.settlement_status !== "settled"
   ) {
     return earning.settlement_status === "failed"
-      ? "stripe_settlement_failed"
-      : "awaiting_stripe_settlement";
+      ? "provider_settlement_failed"
+      : "awaiting_provider_settlement";
   }
   return null;
 }
@@ -182,8 +182,7 @@ export function sumClearedSettlementBatchPence(
   }, 0);
 }
 
-/** @deprecated provider-neutral name is sumClearedSettlementBatchPence */
-export const sumStripeSettledUnpaidPence = sumClearedSettlementBatchPence;
+export const sumProviderSettledUnpaidPence = sumClearedSettlementBatchPence;
 
 export function sumEligibleEarningPence(earnings: EarningSettlementInput[]): number {
   return earnings.reduce((sum, row) => {

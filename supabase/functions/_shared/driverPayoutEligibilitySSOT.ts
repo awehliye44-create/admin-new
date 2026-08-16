@@ -110,7 +110,7 @@ export type PayoutClearingEvidence = {
   payment_collection_model?: string | null;
   financial_model?: string | null;
   payment_method?: string | null;
-  /** Stripe-era / DES / payments column — strongest when present and reached. */
+  /** DES / payments column — strongest when present and reached. */
   provider_available_on?: string | null;
   settled_at?: string | null;
   des_settlement_status?: string | null;
@@ -308,7 +308,7 @@ export function isCancelledOrUncompletedEarning(entry: {
 /**
  * Evaluate one balance-affecting earning credit.
  * Capture is necessary but not sufficient for PLATFORM_COLLECTED Available.
- * Does not require DES. Does not require Stripe Connect settlement fields.
+ * Does not require DES. Does not require Connect settlement fields.
  */
 export function evaluateLedgerEntryEligibility(
   entry: LedgerEligibilityEvidence,

@@ -12,14 +12,23 @@ import { join } from "https://deno.land/std@0.224.0/path/join.ts";
 const FORBIDDEN = [
   "stripe_payment_intent_id",
   "stripe_account_id",
+  "stripe_refund_id",
+  "stripe_transfer_id",
+  "stripe_payout_id",
+  "processed_stripe_events",
   "STRIPE_SECRET_KEY",
   "api.stripe.com",
   "connect.stripe",
   "npm:stripe",
+  "new Stripe",
   "assertStripeMutationAllowed",
   "stripeRuntimeDisabled",
   "stripeRetirementGuard",
   "stripePreauthCustomerError",
+] as const;
+
+const FORBIDDEN_REGEX = [
+  /new\s+Stripe\b/,
 ] as const;
 
 /** admin-new repo root (…/supabase/functions/_shared → ../../..) */
@@ -27,6 +36,7 @@ const REPO_ROOT = fromFileUrl(new URL("../../..", import.meta.url));
 const SCAN_ROOTS = [
   join(REPO_ROOT, "supabase", "functions"),
   join(REPO_ROOT, "shared"),
+  join(REPO_ROOT, "src"),
 ];
 
 function isExcluded(path: string): boolean {
@@ -51,6 +61,11 @@ Deno.test("stripe absence lock — no live Stripe secrets/SDK/theater columns", 
       for (const needle of FORBIDDEN) {
         if (text.includes(needle)) {
           hits.push(`${entry.path}: contains ${needle}`);
+        }
+      }
+      for (const re of FORBIDDEN_REGEX) {
+        if (re.test(text)) {
+          hits.push(`${entry.path}: matches ${re}`);
         }
       }
     }

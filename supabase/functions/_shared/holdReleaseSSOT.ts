@@ -1,6 +1,6 @@
 /**
  * Hold release SSOT for terminal trips (Slice A recovery).
- * Revolut-only — Stripe hold paths removed. Preserves get-active-trip / expire callers.
+ * Revolut-only hold release. Preserves get-active-trip / expire callers.
  *
  * Session-only release (authorised + no trip) is required when create-trip-after-payment
  * never starts — CTAP's in-function reverse cannot run, and the 5-min trip sweep

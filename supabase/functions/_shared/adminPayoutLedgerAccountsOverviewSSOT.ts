@@ -266,9 +266,13 @@ export async function buildPayoutLedgerAccountsOverview(
         service_area: sa?.name ?? null,
         provider: (() => {
           const payoutGw = String(sa?.driver_payout_gateway ?? "").trim().toLowerCase();
-          if (payoutGw && payoutGw !== "stripe") return payoutGw;
+          if (payoutGw === "revolut" || payoutGw === "bank" || payoutGw === "uk_bank" || payoutGw === "manual_bank") {
+            return payoutGw;
+          }
           const pay = String(sa?.payment_provider ?? "").trim().toLowerCase();
-          if (pay && pay !== "stripe") return pay;
+          if (pay === "revolut" || pay === "bank" || pay === "uk_bank" || pay === "manual_bank") {
+            return pay;
+          }
           return "revolut";
         })(),
       });
@@ -359,7 +363,8 @@ export async function buildPayoutLedgerAccountsOverview(
 
     const saMeta = serviceAreaByDriver.get(String(d.id));
     const provider = saMeta?.provider ?? null;
-    const isRevolut = String(provider ?? "").toLowerCase() !== "stripe";
+    const normalizedProvider = String(provider ?? "").toLowerCase();
+    const isRevolut = !normalizedProvider || normalizedProvider === "revolut";
     const manualBank = true;
     // Connect account id retired from drivers — Revolut/manual bank has no Connect id.
     const connected: string | null = null;
@@ -377,7 +382,7 @@ export async function buildPayoutLedgerAccountsOverview(
       service_area_id: saMeta?.service_area_id ?? null,
       service_area: saMeta?.service_area ?? null,
       tier: tierName,
-      provider: isRevolut ? "revolut" : (provider && provider.toLowerCase() !== "stripe" ? provider : "revolut"),
+      provider: isRevolut ? "revolut" : (normalizedProvider || "revolut"),
       connected_account: connected,
       payout_destination: payoutDestinationLabel({
         provider: isRevolut ? "revolut" : provider,

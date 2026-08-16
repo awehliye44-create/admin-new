@@ -261,7 +261,7 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
         provider_order_id: input.paymentRefId,
       }
       : {
-        // Stripe retired — keep payment_intent_id via buildTripPaymentSyncPatch only.
+        // Keep payment_intent_id via buildTripPaymentSyncPatch only.
         // Never write legacy payment-intent columns.
       }),
     payment_intent_version: 1,

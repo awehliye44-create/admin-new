@@ -1,7 +1,7 @@
 /**
  * No-show fee settlement.
  *
- * CARD: apply configured no-show fee → capture via Stripe → ONECAB settlement.
+ * CARD: apply configured no-show fee → capture via provider → ONECAB settlement.
  * CASH:  terminal no_show with all financial amounts zero; payment_status = not_required.
  */
 

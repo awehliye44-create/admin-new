@@ -286,7 +286,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
 
       // ── Server-side offer resolution (Single Source of Truth) ─────────────
       // Apply the same discount the customer was previewed in SelectVehicle so
-      // that Stripe authorises the DISCOUNTED amount + buffer — not the gross
+      // that the provider authorises the DISCOUNTED amount + buffer — not the gross
       // fare. Never trust client-supplied discount values.
       let appliedOfferId: string | null = null;
       let appliedOfferCode: string | null = null;

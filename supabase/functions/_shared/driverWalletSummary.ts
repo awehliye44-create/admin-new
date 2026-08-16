@@ -79,7 +79,6 @@ export type CashOutBlockedReason =
   | 'no_available_digital_balance'
   | 'below_min_cashout'
   | 'provider_not_connected'
-  | 'stripe_not_connected' // legacy alias kept for older clients
   | 'payout_pending'
   | 'cashout_in_progress'
   | 'account_restricted'
@@ -95,7 +94,7 @@ export interface WalletInFlightCashout {
   requested_cashout_pence: number;
   early_cashout_fee_pence?: number | null;
   driver_receives_pence?: number | null;
-  stripe_payout_id?: string | null;
+  provider_payout_id?: string | null;
   payout_method?: string | null;
 }
 
@@ -126,11 +125,11 @@ export interface WalletPayoutItemRow {
   status: string;
   amount_pence: number;
   driver_amount_pence: number | null;
-  stripe_transfer_id: string | null;
-  /** Stripe balance_transaction.available_on unix seconds. */
+  provider_transfer_id: string | null;
+  /** Provider funds-available cutoff (unix seconds), when known. */
   available_on_epoch_seconds?: number | null;
-  /** Stripe balance transaction id (optional telemetry/diagnostic). */
-  stripe_balance_transaction_id?: string | null;
+  /** Provider balance transaction id (optional telemetry/diagnostic). */
+  provider_balance_transaction_id?: string | null;
   /** Captured amount from payments table fallback. */
   captured_amount_pence?: number | null;
 }
@@ -153,7 +152,7 @@ export interface DriverWalletSummaryInput {
   payoutItems: WalletPayoutItemRow[];
   /** Europe/London calendar date YYYY-MM-DD for "today". */
   todayDateStr: string;
-  /** Current unix seconds for Stripe available_on cutoff. Defaults to now. */
+  /** Current unix seconds for available_on cutoff. Defaults to now. */
   nowUnixSeconds?: number;
   cashoutFeePence?: number;
   /** Pending/processing early cash-outs that reserve wallet balance. */
@@ -644,7 +643,6 @@ export function cashOutBlockedReasonMessage(
       return EARLY_CASHOUT_SETTLEMENT_BLOCKED_MESSAGE;
     case 'no_available_digital_balance':
       return 'No card funds available to withdraw yet.';
-    case 'stripe_not_connected':
     case 'provider_not_connected':
       return 'Add a payout account before withdrawing funds.';
     case 'payout_pending':

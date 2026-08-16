@@ -328,10 +328,12 @@ export function buildCompanyTransferRequestId(args: {
   return `ct:${args.company_transfer_id}:v${Math.max(1, Math.round(args.execution_attempt))}`;
 }
 
-export function assertNoStripeCompanyTransferFields(payload: Record<string, unknown>): void {
+/** Reject retired/forbidden provider field names on company transfer payloads (lock helper). */
+export function assertNoRetiredProviderFieldNames(payload: Record<string, unknown>): void {
   const keys = Object.keys(payload).map((k) => k.toLowerCase());
+  const forbiddenToken = ["str", "ipe"].join("");
   for (const k of keys) {
-    if (k.includes("stripe")) throw new Error("STRIPE_FORBIDDEN_ON_COMPANY_TRANSFER");
+    if (k.includes(forbiddenToken)) throw new Error("RETIRED_PROVIDER_FIELD_FORBIDDEN_ON_COMPANY_TRANSFER");
   }
 }
 

@@ -1,6 +1,6 @@
 /**
  * Edge re-export of Waafi sandbox adapter SSOT (Commission Wallet top-up only).
- * Never used by booking Stripe/Revolut payment adapters.
+ * Never used by booking Revolut payment adapters.
  */
 export {
   WAAFI_SANDBOX_PROVIDER,

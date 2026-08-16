@@ -37,7 +37,7 @@ export const LIVE_DRIVER_PAYOUT_PROVIDERS = new Set<string>(["revolut"]);
 
 export const PROVIDER_NOT_IMPLEMENTED_CODE = "PROVIDER_NOT_IMPLEMENTED";
 
-/** @deprecated Retired card preauth detector — always false for active flows. */
+/** @deprecated Always false — no retired card preauth detectors in active flows. */
 export function isRetiredCardProvider(_provider: string | null | undefined): boolean {
   return false;
 }
@@ -51,8 +51,6 @@ export function resolveBookingWorkflowLabel(
   provider: string | null | undefined,
 ): string {
   switch (workflow) {
-    case "stripe_preauth":
-      return "Retired card preauth (not active)";
     case "revolut_merchant":
       return "Revolut Merchant checkout";
     case "mobile_wallet_collect":

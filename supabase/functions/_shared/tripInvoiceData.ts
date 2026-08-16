@@ -291,7 +291,7 @@ export async function buildTripInvoicePayload(
       .order("stop_index", { ascending: true }),
     supabase
       .from("payments")
-      .select("captured_amount_pence, amount_pence, status, refunded_amount_pence, refund_status, stripe_refund_id, refunded_at")
+      .select("captured_amount_pence, amount_pence, status, refunded_amount_pence, refund_status, provider_refund_id, refunded_at")
       .eq("trip_id", trip.id as string),
   ]);
 
@@ -308,7 +308,7 @@ export async function buildTripInvoicePayload(
     capturedPence,
     refundAmountPence,
   );
-  const stripeRefundId = (primaryPayment?.stripe_refund_id as string | null) ?? null;
+  const providerRefundId = (primaryPayment?.provider_refund_id as string | null) ?? null;
   const refundedAtIso = (trip.refunded_at as string | null)
     ?? (primaryPayment?.refunded_at as string | null)
     ?? null;
@@ -373,7 +373,7 @@ export async function buildTripInvoicePayload(
     netPaidAfterRefundPence,
     refundStatus: refundStatus === "none" ? null : refundStatus,
     refundedAt: refundedAtIso ? formatDateTime(refundedAtIso) : null,
-    stripeRefundId,
+    providerRefundId,
     company: { ...company, address: formatCompanyAddress(company) || company.address },
     branding,
   };

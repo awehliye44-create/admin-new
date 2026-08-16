@@ -1,5 +1,4 @@
 export type PaymentProviderId =
-  | "stripe"
   | "checkout_com"
   | "adyen"
   | "worldpay"
@@ -68,7 +67,7 @@ export interface ConnectionTestResult {
   endpoint_tested?: string;
   http_status?: number;
   http_status_label?: string;
-  /** Provider-native error code (Revolut code, Stripe code, etc.). */
+  /** Provider-native error code (provider code). */
   provider_error_code?: string | null;
   provider_error_message?: string | null;
   /** @deprecated use provider_error_code */
@@ -110,9 +109,6 @@ export const PROVIDER_ENV_SECRET_MAP: Record<
   PaymentProviderId,
   Partial<Record<keyof ProviderSecrets, string>>
 > = {
-  stripe: {
-    // Stripe retired — no Edge env secret bindings (Slice A).
-  },
   checkout_com: {
     publishable_key: "CHECKOUT_COM_PUBLIC_KEY",
     secret_key: "CHECKOUT_COM_SECRET_KEY",
@@ -208,7 +204,6 @@ export const PROVIDER_ENV_SECRET_FALLBACKS: Partial<
 
 /** Fields shown in admin secrets dialog per provider. */
 export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, (keyof ProviderSecrets)[]> = {
-  stripe: ["publishable_key", "secret_key", "webhook_secret"],
   checkout_com: ["publishable_key", "secret_key", "webhook_secret"],
   adyen: ["publishable_key", "secret_key", "webhook_secret"],
   worldpay: ["publishable_key", "secret_key", "webhook_secret"],
@@ -228,7 +223,6 @@ export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, (keyof ProviderSe
 
 /** P0 supported providers — Integrations → Payment Providers UI. */
 export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
-  "stripe",
   "sifalo_pay",
   "waafi_pay",
   "sahal_pay",
@@ -245,11 +239,6 @@ export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
 export type ProviderSecretFieldLabels = Partial<Record<keyof ProviderSecrets, string>>;
 
 export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSecretFieldLabels> = {
-  stripe: {
-    publishable_key: "Publishable key",
-    secret_key: "Secret key",
-    webhook_secret: "Webhook secret",
-  },
   checkout_com: {
     publishable_key: "Public key",
     secret_key: "Secret key",

@@ -490,7 +490,7 @@ export function PaymentProvidersCardsGrid() {
   }
 
   const providers = data?.providers ?? [];
-  const activeProviders = providers.filter((p) => p.provider !== "stripe");
+  const activeProviders = providers;
   const archivedProviders: typeof providers = [];
 
   return (

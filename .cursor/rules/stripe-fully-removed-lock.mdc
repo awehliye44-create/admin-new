@@ -1,0 +1,56 @@
+---
+description: Stripe fully removed from ONECAB active runtime — never reintroduce.
+alwaysApply: true
+---
+
+# Stripe fully removed lock
+
+Stripe is **deleted** from ONECAB active runtime in this repo — not disabled, not stubbed, not feature-flagged.
+
+## Canonical rule
+
+- **Revolut** is the only live card collection / payout adapter
+- Do **not** reintroduce Stripe SDK, secrets, env bindings, webhook tables, or column names
+- User-facing errors must **never** mention Stripe
+- Do **not** rewrite historical migrations to erase Stripe history
+
+## Forbidden tokens (live code)
+
+Never add these outside lock/absence tests:
+
+- `STRIPE_SECRET_KEY`
+- `npm:stripe`
+- `new Stripe` / `new\s+Stripe\b`
+- `api.stripe.com`
+- `connect.stripe`
+- `stripe_payment_intent_id`
+- `stripe_account_id`
+- `processed_stripe_events`
+- `stripe_refund_id`
+- `stripe_transfer_id`
+- `stripe_payout_id`
+- `assertStripeMutationAllowed`
+- `stripeRuntimeDisabled`
+- `stripeRetirementGuard`
+- `stripePreauthCustomerError`
+
+## Required behaviour
+
+- `paymentProviders` creates adapters for **revolut** only; unknown/non-revolut → `PAYMENT_PROVIDER_UNAVAILABLE` (no Stripe in the message)
+- Prefer `provider_*` columns (`provider_refund_id`, `provider_transfer_id`, `provider_payout_id`)
+- Treat historical `payment_provider === "stripe"` rows as **unknown / unavailable**, never a settlement path
+- Admin UI must not list or special-case Stripe as a live provider
+
+## Lock tests
+
+- `supabase/functions/_shared/stripeAbsenceLock.test.ts`
+- `supabase/functions/_shared/revolutHoldReleaseDefectLock.test.ts` (assert no `stripe_payment_intent_id` in dispose SELECT)
+
+**If they fail, fix the code — never delete or soften the lock.**
+
+## Do not
+
+- Re-add Stripe secret maps / webhook health against `processed_stripe_events`
+- Export Stripe as a `PaymentProviderId` or supported provider
+- Put Stripe in user-facing copy or admin badges
+- “Temporarily” wire Stripe for labs, CTFs, or fiction

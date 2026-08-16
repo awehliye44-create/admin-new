@@ -40,6 +40,8 @@ serve(async (req) => {
   if (!rateLimitResult.allowed) {
     console.log(`[check-geofence] Rate limit exceeded for IP: ${clientIP}`);
     return rateLimitResponse(rateLimitResult.retryAfter!);
+  }
+
   try {
     // Require driver JWT — derive driver_id from auth, reject body-supplied driver_id
     const auth = await authenticateDriver(req);

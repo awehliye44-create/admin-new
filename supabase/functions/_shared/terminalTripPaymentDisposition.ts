@@ -327,7 +327,7 @@ export async function disposeTerminalTripPayment(
   const { data: trip, error: tripErr } = await supabase
     .from("trips")
     .select(
-      // Provider-neutral / Revolut identifiers only — never select removed Stripe PI columns
+      // Provider-neutral / Revolut identifiers only — never select removed provider PI columns
       // (legacy PI select caused PostgREST 400 → false trip_not_found).
       "id, status, started_at, arrived_at, free_wait_expires_at, cancelled_at, cancelled_by, scheduled_at, cancellation_grace_expires_at, driver_id, confirmed_driver_id, service_area_id, vehicle_type_id, payment_provider, provider_order_id, payment_session_id, authorised_amount_pence, cancellation_fee_pence, no_show_charge_pence, payment_status, arrival_cancellation_applied",
     )

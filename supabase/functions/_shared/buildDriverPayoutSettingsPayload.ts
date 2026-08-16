@@ -1,8 +1,7 @@
 /**
  * Build driver payout settings payload — backend SSOT for driver wallet payout UI.
  *
- * Stripe Connect UI/runtime branch removed (Stripe retirement Batch 4).
- * UK-bank / Revolut / manual-bank destinations via driver_payout_destinations preserved.
+ * Revolut / UK-bank / manual-bank destinations via driver_payout_destinations.
  */
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
@@ -28,6 +27,15 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
   SOS: "Sh",
   ZAR: "R",
 };
+
+function isSupportedPayoutProvider(provider: string | null | undefined): boolean {
+  const p = String(provider ?? "").trim().toLowerCase();
+  if (!p) return false;
+  if (p === "revolut") return true;
+  // Bank-like destinations (manual UK bank, etc.) — not a card collection adapter id.
+  if (p === "bank" || p === "uk_bank" || p === "manual_bank") return true;
+  return false;
+}
 
 export async function buildDriverPayoutSettingsPayload(
   supabase: SupabaseClient,
@@ -93,8 +101,7 @@ export async function buildDriverPayoutSettingsPayload(
 
   const provider = (payoutGatewayPayload.provider as string | null) ?? serviceAreaDriverPayoutGateway;
 
-  // Stripe Connect payout UI retired — never expose Connect onboarding path.
-  if (provider === "stripe") {
+  if (provider && !isSupportedPayoutProvider(provider)) {
     return {
       service_area_id: resolvedServiceAreaId,
       region_id: regionId,
@@ -111,7 +118,7 @@ export async function buildDriverPayoutSettingsPayload(
       masked_destination: null,
       can_change_destination: false,
       reason_if_blocked:
-        "Stripe Connect payouts are retired. Ask admin to set a Revolut or bank payout gateway for this service area.",
+        "This payout provider is not supported. Ask admin to set a Revolut or bank payout gateway for this service area.",
       payout_destination_ui: "blocked",
     };
   }

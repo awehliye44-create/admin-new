@@ -39,7 +39,7 @@ export type TripInvoicePayload = {
   netPaidAfterRefundPence: number;
   refundStatus: string | null;
   refundedAt: string | null;
-  stripeRefundId: string | null;
+  providerRefundId: string | null;
   company: Record<string, unknown>;
   branding: Record<string, unknown>;
 };

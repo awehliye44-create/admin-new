@@ -147,7 +147,7 @@ export function computePaymentCoverageStatus(args: {
   return "authorization_insufficient";
 }
 
-/** Trip/payment status after primary Stripe capture — never treat under-capture as fully paid. */
+/** Trip/payment status after primary provider capture — never treat under-capture as fully paid. */
 export function resolvePaymentStatusAfterCapture(args: {
   outstandingBalancePence: number;
 }): { payment_status: string; payment_coverage_status: PaymentCoverageStatus } {

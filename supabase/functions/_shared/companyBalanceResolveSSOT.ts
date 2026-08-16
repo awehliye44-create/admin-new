@@ -1,6 +1,6 @@
 /**
  * Runtime company-balance resolution — Revolut Business /accounts only.
- * Never uses Driver Wallet, Stripe, merchant order stubs, or invented £0.
+ * Never uses Driver Wallet, merchant order stubs, or invented £0.
  * Source account comes only from Use-as-source persistence — never inferred.
  */
 // deno-lint-ignore no-explicit-any

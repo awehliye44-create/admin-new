@@ -27,15 +27,15 @@ function toDriverOption(row: AdminDriverRow): DriverOption {
 export function useAdminDriverOptions(args?: {
   regionId?: string | null;
   serviceAreaId?: string | null;
-  /** When true, only drivers with payouts enabled (legacy name: stripeConnectOnly). */
-  stripeConnectOnly?: boolean;
+  /** When true, only drivers with payouts enabled. */
+  payoutsEnabledOnly?: boolean;
 }) {
   const regionId = args?.regionId ?? null;
   const serviceAreaId = args?.serviceAreaId ?? null;
-  const stripeConnectOnly = args?.stripeConnectOnly ?? false;
+  const payoutsEnabledOnly = args?.payoutsEnabledOnly ?? false;
 
   return useQuery({
-    queryKey: ['admin-driver-options', regionId, serviceAreaId, stripeConnectOnly],
+    queryKey: ['admin-driver-options', regionId, serviceAreaId, payoutsEnabledOnly],
     queryFn: async (): Promise<DriverOption[]> => {
       const [{ data: drivers, error: driversError }, junctionRes] = await Promise.all([
         supabase.rpc('admin_list_drivers'),
@@ -55,8 +55,7 @@ export function useAdminDriverOptions(args?: {
       let list = ((drivers ?? []) as AdminDriverRow[]).filter((d) => {
         if (d.deleted_at) return false;
         if (d.approval_status && d.approval_status !== 'approved') return false;
-        // Stripe Connect retired — payouts_enabled is the active gate.
-        if (stripeConnectOnly && d.payouts_enabled === false) return false;
+        if (payoutsEnabledOnly && d.payouts_enabled === false) return false;
         return true;
       });
 

@@ -149,4 +149,4 @@ export async function encryptDestinationIdentifier(plaintext: string): Promise<s
   return btoa(String.fromCharCode(...combined));
 }
 
-/* Stripe Connect provider-status helper removed — Connect payout UI retired. */
+/* Connect provider-status helper removed — Connect payout UI retired. */

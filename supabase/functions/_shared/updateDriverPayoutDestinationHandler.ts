@@ -6,7 +6,6 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { resolveAuthenticatedDriver } from "./resolveAuthenticatedDriver.ts";
 import { resolveDriverServiceAreaId } from "./resolveDriverServiceAreaId.ts";
 import {
-  assertNonStripeDriverPayoutGateway,
   checkServiceAreaGateway,
   gatewayNotConfiguredResponse,
 } from "./paymentGatewayGuard.ts";
@@ -62,9 +61,7 @@ export async function handleUpdateDriverPayoutDestination(
     );
   }
 
-  const gatewayCheck = assertNonStripeDriverPayoutGateway(
-    await checkServiceAreaGateway(supabase, serviceAreaId, "driver"),
-  );
+  const gatewayCheck = await checkServiceAreaGateway(supabase, serviceAreaId, "driver");
   if (!gatewayCheck.ok) {
     return gatewayNotConfiguredResponse(gatewayCheck, corsHeaders);
   }
