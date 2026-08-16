@@ -21,6 +21,7 @@ import { buildTokenDeactivatePatch } from "../_shared/driverPushToken.ts";
 import { resolveDriverAuthoritativeToken } from "../_shared/authoritativeDevicePush.ts";
 import {
   notificationChannelForPlatform,
+  recordBookingDeliveryPhaseBestEffort,
   recordFcmPushOutcomeBestEffort,
   resolveBookingIdFromPushData,
   resolveOfferIdFromPushData,
@@ -255,6 +256,11 @@ Deno.serve(async (req) => {
     const isRideOffer = payload.type === 'RIDE_OFFER';
     const isRideStop = payload.type === 'RIDE_STOP';
     const isNegotiationUpdate = payload.type === 'NEGOTIATION_UPDATE';
+    const incomingDataType = String(
+      payload.data?.type || payload.data?.notification_type || "",
+    ).toLowerCase();
+    const isTripModified =
+      payload.type === 'TRIP_UPDATE' && incomingDataType === 'trip_modified';
 
     // ── RIDE_OFFER: revalidate committed offer + driver before every push ──
     // Never trust presence.app_state=foreground to skip OS notification.
@@ -318,12 +324,48 @@ Deno.serve(async (req) => {
       ? [{ token: authoritative.token, platform: authoritative.platform }]
       : [];
 
+    const pushDataEarly = (payload.data ?? {}) as Record<string, unknown>;
+    const instrumentationBookingIdEarly = resolveBookingIdFromPushData(pushDataEarly);
+    const instrumentationOfferIdEarly = resolveOfferIdFromPushData(pushDataEarly);
+    const notificationTypeEarly = String(
+      pushDataEarly.type || pushDataEarly.notification_type || payload.type || "UNKNOWN",
+    );
+
     if (tokens.length === 0) {
       console.log(
         "[send-driver-notification] No authoritative token for driver:",
         payload.driverId,
       );
+      // Observability only — modification/offer commit paths must not depend on this.
+      if (isTripModified || instrumentationBookingIdEarly) {
+        await recordBookingDeliveryPhaseBestEffort(supabase, {
+          bookingId: instrumentationBookingIdEarly,
+          driverId: payload.driverId,
+          offerId: instrumentationOfferIdEarly,
+          phase: "push_enqueued_skip_no_token",
+          detail: {
+            reason: "no_authoritative_push_token",
+            notification_type: notificationTypeEarly,
+            event_type: isTripModified ? "trip_modified" : notificationTypeEarly,
+          },
+        });
+      }
       return errorResponse("NO_TOKENS", "No push tokens found", 404, { sent: 0 });
+    }
+
+    // Enqueue metric before FCM provider call (trip_modified + any trip-scoped push).
+    if (instrumentationBookingIdEarly) {
+      await recordBookingDeliveryPhaseBestEffort(supabase, {
+        bookingId: instrumentationBookingIdEarly,
+        driverId: payload.driverId,
+        offerId: instrumentationOfferIdEarly,
+        phase: "push_enqueued",
+        detail: {
+          notification_type: notificationTypeEarly,
+          event_type: isTripModified ? "trip_modified" : notificationTypeEarly,
+          platform: authoritative?.platform ?? null,
+        },
+      });
     }
 
     // Get OAuth2 access token for FCM v1
@@ -332,9 +374,9 @@ Deno.serve(async (req) => {
 
     console.log(`[send-driver-notification] Sending ${payload.type} to ${tokens.length} device(s) via FCM v1`);
 
-    const pushData = (payload.data ?? {}) as Record<string, unknown>;
-    const instrumentationBookingId = resolveBookingIdFromPushData(pushData);
-    const instrumentationOfferId = resolveOfferIdFromPushData(pushData);
+    const pushData = pushDataEarly;
+    const instrumentationBookingId = instrumentationBookingIdEarly;
+    const instrumentationOfferId = instrumentationOfferIdEarly;
 
     // Send to all registered devices
     const results: FcmAttemptResult[] = await Promise.all(
@@ -381,10 +423,13 @@ Deno.serve(async (req) => {
             }
           : {
               ...incomingData,
-              type: payload.type,
+              // Preserve client routing type for trip_modified (Driver parseTripModifiedPushData).
+              // Envelope stays TRIP_UPDATE for the allow-list.
+              type: isTripModified ? 'trip_modified' : payload.type,
               notificationType:
                 incomingData.notificationType ||
                 incomingData.notification_type ||
+                (isTripModified ? 'trip_modified' : null) ||
                 incomingData.type ||
                 payload.type,
               ...(offerId ? { offerId, requestId: offerId, offer_id: offerId } : {}),
@@ -450,10 +495,12 @@ Deno.serve(async (req) => {
               body: sanitizedBody,
             };
             message.android = {
-              priority: isNegotiationUpdate ? 'HIGH' : 'NORMAL',
-              ttl: isNegotiationUpdate ? '30s' : '120s',
+              priority: isNegotiationUpdate || isTripModified ? 'HIGH' : 'NORMAL',
+              ttl: isNegotiationUpdate || isTripModified ? '30s' : '120s',
               notification: {
-                channel_id: isNegotiationUpdate
+                channel_id: isTripModified
+                  ? 'active_trip_updates'
+                  : isNegotiationUpdate
                   ? 'onecab_driver_trip_updates_v1'
                   : 'default',
                 sound: 'default',

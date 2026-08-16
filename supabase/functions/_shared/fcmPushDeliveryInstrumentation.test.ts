@@ -9,6 +9,7 @@ import {
 import {
   buildFcmPushDeliveryDetail,
   notificationChannelForPlatform,
+  recordBookingDeliveryPhaseBestEffort,
   recordFcmPushOutcomeBestEffort,
   resolveBookingIdFromPushData,
   resolveFcmTerminalPhase,
@@ -102,6 +103,10 @@ Deno.test("payload id resolution from historical keys", () => {
     resolveOfferIdFromPushData({ offerId: OFFER }),
     OFFER,
   );
+  assertEquals(
+    resolveOfferIdFromPushData({ change_request_id: OFFER }),
+    OFFER,
+  );
   assertEquals(resolveBookingIdFromPushData({ booking_id: "not-a-uuid" }), null);
 });
 
@@ -188,4 +193,34 @@ Deno.test("skip record when booking/driver missing (before FCM context)", () => 
     }),
     false,
   );
+});
+
+Deno.test("push_enqueued / skip_no_token phase writes are best-effort", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const supabase = {
+    rpc: async (_fn: string, args: Record<string, unknown>) => {
+      calls.push(args);
+      return { error: null };
+    },
+  };
+  const enq = await recordBookingDeliveryPhaseBestEffort(supabase, {
+    bookingId: BOOKING,
+    driverId: DRIVER,
+    offerId: OFFER,
+    phase: "push_enqueued",
+    detail: { event_type: "trip_modified" },
+  });
+  assertEquals(enq.recorded, true);
+  assertEquals(calls[0].p_phase, "push_enqueued");
+  assertEquals(calls[0].p_offer_id, OFFER);
+
+  const skip = await recordBookingDeliveryPhaseBestEffort(supabase, {
+    bookingId: BOOKING,
+    driverId: DRIVER,
+    offerId: OFFER,
+    phase: "push_enqueued_skip_no_token",
+    detail: { reason: "no_authoritative_push_token" },
+  });
+  assertEquals(skip.recorded, true);
+  assertEquals(calls[1].p_phase, "push_enqueued_skip_no_token");
 });

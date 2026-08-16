@@ -51,7 +51,17 @@ export function resolveOfferIdFromPushData(
   data: Record<string, unknown> | null | undefined,
 ): string | null {
   if (!data) return null;
-  const keys = ["offer_id", "offerId", "request_id", "requestId"];
+  const keys = [
+    "offer_id",
+    "offerId",
+    "request_id",
+    "requestId",
+    // Trip-modification idempotency key (applied trip_change_requests.id).
+    "change_request_id",
+    "changeRequestId",
+    "modification_id",
+    "modificationId",
+  ];
   for (const key of keys) {
     const raw = data[key];
     if (typeof raw === "string" && isUuid(raw)) return raw.trim();
@@ -130,6 +140,63 @@ export function buildFcmPushDeliveryDetail(
     total_tokens: results.length,
     edge: "send-driver-notification",
   };
+}
+
+export type BookingDeliveryPhaseWriteInput = {
+  bookingId: string | null | undefined;
+  driverId: string | null | undefined;
+  offerId?: string | null | undefined;
+  phase: string;
+  detail?: Record<string, unknown>;
+};
+
+/**
+ * Best-effort booking_delivery_log write for enqueue / skip phases.
+ * Never throws. Never implies FCM failure / resend.
+ */
+export async function recordBookingDeliveryPhaseBestEffort(
+  supabase: RpcClient,
+  input: BookingDeliveryPhaseWriteInput,
+): Promise<{ recorded: boolean }> {
+  if (!isUuid(input.bookingId) || !isUuid(input.driverId)) {
+    return { recorded: false };
+  }
+  if (input.offerId != null && input.offerId !== "" && !isUuid(input.offerId)) {
+    return { recorded: false };
+  }
+
+  try {
+    const { error } = await supabase.rpc("record_booking_delivery", {
+      p_booking_id: String(input.bookingId).trim(),
+      p_phase: input.phase,
+      p_driver_id: String(input.driverId).trim(),
+      p_offer_id: input.offerId && isUuid(input.offerId)
+        ? String(input.offerId).trim()
+        : null,
+      p_source: "edge",
+      p_detail: {
+        edge: "send-driver-notification",
+        at: new Date().toISOString(),
+        ...(input.detail ?? {}),
+      },
+    });
+    if (error) {
+      console.warn(
+        "[fcmPushDeliveryInstrumentation] record_booking_delivery phase failed (delivery unaffected):",
+        input.phase,
+        error.message ?? error,
+      );
+      return { recorded: false };
+    }
+    return { recorded: true };
+  } catch (err) {
+    console.warn(
+      "[fcmPushDeliveryInstrumentation] record_booking_delivery phase threw (delivery unaffected):",
+      input.phase,
+      err,
+    );
+    return { recorded: false };
+  }
 }
 
 export function shouldRecordFcmPushOutcome(

@@ -8,6 +8,7 @@ import {
   broadcastTripUpdated,
   normalizeTripUpdatedPayload,
 } from "./tripUpdatedBroadcast.ts";
+import { notifyDriverTripModified } from "./notifyDriverTripModified.ts";
 
 export type FarePreviewSnapshot = {
   new_fare_pence: number;
@@ -196,6 +197,59 @@ export async function fetchTripAndBroadcastUpdated(
   });
 
   await broadcastTripUpdated(supabase, payload);
+
+  // Heads-up / OS push when Realtime is missed (background, brief disconnect).
+  // Awaited (not void) so the Edge isolate cannot freeze before FCM enqueue.
+  // Failures are swallowed — committed modification must not roll back.
+  const driverId =
+    (typeof (trip as { confirmed_driver_id?: unknown }).confirmed_driver_id === "string"
+      ? (trip as { confirmed_driver_id: string }).confirmed_driver_id
+      : null) ||
+    (typeof (trip as { driver_id?: unknown }).driver_id === "string"
+      ? (trip as { driver_id: string }).driver_id
+      : null);
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (driverId && supabaseUrl && serviceKey) {
+    const version =
+      (typeof (trip as { trip_version?: unknown }).trip_version === "number"
+        ? (trip as { trip_version: number }).trip_version
+        : null) ??
+      (typeof (trip as { updated_at?: unknown }).updated_at === "string"
+        ? (trip as { updated_at: string }).updated_at
+        : null) ??
+      Date.now();
+
+    // Latest applied change-request identity for metrics idempotency + client event id.
+    let changeRequestId: string | null = null;
+    try {
+      const { data: appliedRow } = await supabase
+        .from("trip_change_requests")
+        .select("id")
+        .eq("trip_id", tripId)
+        .in("status", ["applied", "approved"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (typeof appliedRow?.id === "string" && appliedRow.id) {
+        changeRequestId = appliedRow.id;
+      }
+    } catch (e) {
+      console.warn("[tripModificationApply] applied change_request lookup failed:", e);
+    }
+
+    try {
+      await notifyDriverTripModified(supabaseUrl, serviceKey, driverId, {
+        tripId,
+        modificationVersion: version,
+        changeRequestId,
+        title: "Trip updated",
+        body: "Customer changed the trip.",
+      });
+    } catch (e) {
+      console.warn("[tripModificationApply] notifyDriverTripModified failed (mod intact):", e);
+    }
+  }
 
   return {
     trip: { ...(trip as Record<string, unknown>), trip_stops: tripStops },
