@@ -22103,6 +22103,27 @@ export type Database = {
           },
         ]
       }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_safety_contacts: {
         Row: {
           contact_name: string
@@ -22129,27 +22150,6 @@ export type Database = {
           id?: string
           phone_number?: string
           updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      user_roles: {
-        Row: {
-          created_at: string
-          id: string
-          role: Database["public"]["Enums"]["app_role"]
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          role: Database["public"]["Enums"]["app_role"]
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
         }
         Relationships: []
@@ -25182,6 +25182,16 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      admin_driver_wallet_eligibility_balances: {
+        Args: { p_driver_ids: string[] }
+        Returns: {
+          available_balance_pence: number
+          driver_id: string
+          live_balance_pence: number
+          pending_balance_pence: number
+          withdrawal_in_progress_pence: number
+        }[]
+      }
       admin_get_user_email: { Args: { _user_id: string }; Returns: string }
       admin_list_drivers: {
         Args: never
@@ -26042,6 +26052,17 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: number
       }
+      driver_wallet_eligibility_balances: {
+        Args: { p_driver_id: string }
+        Returns: {
+          available_balance_pence: number
+          eligible_earnings_pence: number
+          live_balance_pence: number
+          outstanding_debt_pence: number
+          pending_balance_pence: number
+          withdrawal_in_progress_pence: number
+        }[]
+      }
       driver_wallet_live_balance_pence: {
         Args: { p_driver_id: string }
         Returns: number
@@ -26049,6 +26070,14 @@ export type Database = {
       driver_wallet_other_holds_pence: {
         Args: { p_driver_id: string }
         Returns: number
+      }
+      driver_wallet_payout_clearing_delay_hours: {
+        Args: never
+        Returns: number
+      }
+      driver_wallet_provider_funds_cleared: {
+        Args: { p_state: string }
+        Returns: boolean
       }
       driver_wallet_summary_ssot: {
         Args: { p_driver_id: string; p_service_area_id?: string }
