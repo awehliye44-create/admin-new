@@ -145,25 +145,42 @@ interface CaptureFact {
   capturedPence: number;
   refundedPence: number;
   source: string;
+  /** True when the fact carries a durable provider transaction identity. */
+  identified: boolean;
 }
 
-/** Dedupe by provider transaction id so duplicate webhooks/rows are never double counted. */
+/** Durable provider identity for a session row, or null when the row has none. */
+function sessionProviderIdentity(session: PaymentSessionEvidence): string | null {
+  const id = session.provider_capture_id || session.provider_payment_id || session.provider_order_id;
+  return id ? String(id) : null;
+}
+
+/** Durable provider identity for a payments row, or null when the row has none. */
+function paymentProviderIdentity(payment: PaymentRowEvidence): string | null {
+  const id = payment.provider_payment_id || payment.provider_charge_id;
+  return id ? String(id) : null;
+}
+
+/**
+ * Capture evidence collection.
+ *
+ * `payment_sessions` is the PRIMARY authoritative capture ledger for a trip.
+ * A `payments` row only adds money when it proves an INDEPENDENT provider transaction.
+ * A `payments` row with no durable provider identity, on a trip that already has session
+ * capture evidence, is a MIRROR of that capture and must never be summed.
+ */
 function collectCaptureFacts(
   tripId: string,
   sessions: PaymentSessionEvidence[],
   payments: PaymentRowEvidence[],
 ): CaptureFact[] {
   const byKey = new Map<string, CaptureFact>();
+  const sessionFacts: CaptureFact[] = [];
 
-  const push = (fact: CaptureFact) => {
-    const existing = byKey.get(fact.key);
-    if (!existing) {
-      byKey.set(fact.key, fact);
-      return;
-    }
+  const mergeInto = (fact: CaptureFact, capturedPence: number, refundedPence: number) => {
     // Same provider transaction seen twice — keep the larger confirmed evidence, never sum.
-    existing.capturedPence = Math.max(existing.capturedPence, fact.capturedPence);
-    existing.refundedPence = Math.max(existing.refundedPence, fact.refundedPence);
+    fact.capturedPence = Math.max(fact.capturedPence, capturedPence);
+    fact.refundedPence = Math.max(fact.refundedPence, refundedPence);
   };
 
   for (const session of sessions) {
@@ -171,20 +188,26 @@ function collectCaptureFacts(
     const captured = positive(session.captured_amount_pence);
     const status = String(session.status ?? "").toLowerCase();
     const providerState = String(session.provider_state ?? "").toLowerCase();
-    const statusCaptured = CAPTURED_SESSION_STATUSES.has(status) || providerState === "captured" || providerState === "completed";
+    const statusCaptured = CAPTURED_SESSION_STATUSES.has(status) || providerState === "captured" ||
+      providerState === "completed";
     if (captured <= 0) continue;
     if (!statusCaptured && looksFailed(status, providerState)) continue;
-    const key =
-      session.provider_capture_id
-        || session.provider_payment_id
-        || session.provider_order_id
-        || `session:${session.id ?? ""}`;
-    push({
-      key: String(key),
+    const identity = sessionProviderIdentity(session);
+    const key = identity ?? `session:${session.id ?? sessionFacts.length}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      mergeInto(existing, captured, positive(session.refunded_amount_pence));
+      continue;
+    }
+    const fact: CaptureFact = {
+      key,
       capturedPence: captured,
       refundedPence: positive(session.refunded_amount_pence),
       source: "payment_sessions",
-    });
+      identified: identity != null,
+    };
+    byKey.set(key, fact);
+    sessionFacts.push(fact);
   }
 
   for (const payment of payments) {
@@ -197,17 +220,55 @@ function collectCaptureFacts(
     }
     if (captured <= 0) continue;
     if (looksFailed(status, providerStatus) && positive(payment.captured_amount_pence) <= 0) continue;
-    const key = payment.provider_payment_id || payment.provider_charge_id || `payment:${payment.id ?? ""}`;
-    push({
-      key: String(key),
+    const refunded = positive(payment.refunded_amount_pence);
+    const identity = paymentProviderIdentity(payment);
+
+    if (identity) {
+      const existing = byKey.get(identity);
+      if (existing) {
+        mergeInto(existing, captured, refunded);
+      } else {
+        // Independent provider transaction — a genuinely separate collection (recovery, split, extra capture).
+        byKey.set(identity, {
+          key: identity,
+          capturedPence: captured,
+          refundedPence: refunded,
+          source: "payments",
+          identified: true,
+        });
+      }
+      continue;
+    }
+
+    // No durable provider identity. If the trip already has session capture evidence,
+    // this row is a mirror of it — merge, never add a second capture.
+    if (sessionFacts.length > 0) {
+      const exact = sessionFacts.find((f) => f.capturedPence === captured);
+      const target = exact ??
+        sessionFacts.reduce((best, f) => (f.capturedPence > best.capturedPence ? f : best), sessionFacts[0]);
+      mergeInto(target, captured, refunded);
+      continue;
+    }
+
+    // No session evidence at all — the payments row is the only capture record for this trip.
+    const key = `payment:${payment.id ?? byKey.size}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      mergeInto(existing, captured, refunded);
+      continue;
+    }
+    byKey.set(key, {
+      key,
       capturedPence: captured,
-      refundedPence: positive(payment.refunded_amount_pence),
+      refundedPence: refunded,
       source: "payments",
+      identified: false,
     });
   }
 
   return [...byKey.values()];
 }
+
 
 export function resolveTripInvoicePaymentState(args: {
   trip: TripPaymentEvidenceTrip;
