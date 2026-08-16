@@ -144,7 +144,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
   const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState<string>('');
   const [configuredVtIds, setConfiguredVtIds] = useState<Set<string>>(new Set());
 
-  // Stop Waiting & Get Paid (from stop_waiting_settings)
+  // Stop Waiting (canonical: stop_waiting_settings; enable: dispatch_settings)
   const [stopWaiting, setStopWaiting] = useState({
     stopRadiusEnabled: false,
     stopRadiusMeters: 100,
@@ -153,6 +153,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
     stopWaitingGracePeriodMinutes: 1,
     stopWaitingRatePencePerMinute: 30,
     stopWaitingMaxMinutes: null as number | null,
+    enableStopWaitingCharge: true,
   });
   const [stopWaitingHasChanges, setStopWaitingHasChanges] = useState(false);
 
@@ -270,11 +271,26 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
   };
 
   const fetchStopWaitingSettings = async () => {
-    const { data } = await supabase
-      .from('stop_waiting_settings')
-      .select('stop_radius_enabled, stop_radius_meters, stop_waiting_charge_interval_seconds, stop_waiting_grace_period_seconds, stop_waiting_rate_pence_per_minute, stop_waiting_max_minutes')
-      .eq('service_area_id', serviceAreaId)
-      .maybeSingle();
+    const [{ data }, { data: dispatchRow }] = await Promise.all([
+      supabase
+        .from('stop_waiting_settings')
+        .select(
+          'stop_radius_enabled, stop_radius_meters, stop_waiting_charge_interval_seconds, stop_waiting_grace_period_seconds, stop_waiting_rate_pence_per_minute, stop_waiting_max_minutes',
+        )
+        .eq('service_area_id', serviceAreaId)
+        .maybeSingle(),
+      supabase
+        .from('dispatch_settings')
+        .select('enable_stop_waiting_charge')
+        .eq('service_area_id', serviceAreaId)
+        .maybeSingle(),
+    ]);
+
+    const enableStopWaitingCharge =
+      typeof (dispatchRow as { enable_stop_waiting_charge?: boolean } | null)?.enable_stop_waiting_charge ===
+      'boolean'
+        ? (dispatchRow as { enable_stop_waiting_charge: boolean }).enable_stop_waiting_charge
+        : true;
 
     if (data) {
       setStopWaiting({
@@ -291,14 +307,24 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             : 1,
         stopWaitingRatePencePerMinute: (data as any).stop_waiting_rate_pence_per_minute ?? 30,
         stopWaitingMaxMinutes: (data as any).stop_waiting_max_minutes ?? null,
+        enableStopWaitingCharge,
       });
+    } else {
+      setStopWaiting((prev) => ({ ...prev, enableStopWaitingCharge }));
     }
     setStopWaitingHasChanges(false);
   };
 
 
   const updateStopWaitingField = (key: string, value: number | boolean | null) => {
-    setStopWaiting(prev => ({ ...prev, [key]: value }));
+    setStopWaiting((prev) => {
+      let nextValue: number | boolean | null = value;
+      // Max Stop Waiting: 0 means uncapped (null in DB).
+      if (key === 'stopWaitingMaxMinutes' && typeof value === 'number' && value <= 0) {
+        nextValue = null;
+      }
+      return { ...prev, [key]: nextValue };
+    });
     setStopWaitingHasChanges(true);
     setHasChanges(true);
   };
@@ -438,18 +464,17 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             .insert(stopPayload);
         }
 
-        // Keep fare_pricing_settings stop columns in sync — customer app reads fare when stop_waiting_settings row missing.
-        if (settings?.id) {
-          await supabase
-            .from('fare_pricing_settings')
-            .update({
-              stop_waiting_grace_period_minutes: stopWaiting.stopWaitingGracePeriodMinutes,
-              stop_waiting_rate_pence_per_minute: stopWaiting.stopWaitingRatePencePerMinute,
-            })
-            .eq('id', settings.id);
-        }
+        // Keep ALL fare_pricing_settings stop columns in sync for this SA (every VT).
+        // Customer restore must never show a different grace than stop_waiting_settings.
+        await supabase
+          .from('fare_pricing_settings')
+          .update({
+            stop_waiting_grace_period_minutes: stopWaiting.stopWaitingGracePeriodMinutes,
+            stop_waiting_rate_pence_per_minute: stopWaiting.stopWaitingRatePencePerMinute,
+          })
+          .eq('service_area_id', serviceAreaId);
 
-        // Keep dispatch_settings in sync — stop-workflow reads both tables every check.
+        // Keep dispatch_settings projections + enable_stop_waiting_charge in sync.
         const dispatchRadiusPayload = {
           stop_radius_enabled: stopWaiting.stopRadiusEnabled,
           stop_radius_meters: stopWaiting.stopRadiusMeters,
@@ -457,6 +482,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
           stop_waiting_grace_period_seconds: Math.round(stopWaiting.stopWaitingGracePeriodMinutes * 60),
           stop_waiting_rate_pence_per_minute: stopWaiting.stopWaitingRatePencePerMinute,
           stop_waiting_max_minutes: stopWaiting.stopWaitingMaxMinutes,
+          enable_stop_waiting_charge: stopWaiting.enableStopWaitingCharge,
           updated_at: new Date().toISOString(),
         };
         const { data: dispatchExisting } = await supabase
@@ -477,6 +503,7 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
         console.log('WAITING_RADIUS_CACHE_INVALIDATED', {
           service_area_id: serviceAreaId,
           stop_radius_meters: stopWaiting.stopRadiusMeters,
+          enable_stop_waiting_charge: stopWaiting.enableStopWaitingCharge,
           source: 'admin_fare_engine_save',
         });
 
@@ -714,10 +741,13 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
             recalculateOnWaiting={settings.recalculate_on_waiting}
             currencySymbol={symbol}
             onUpdate={(key, value) => updateField(key as keyof FarePricingSettings, value as never)}
+            enableStopWaitingCharge={stopWaiting.enableStopWaitingCharge}
             stopWaitingChargeIntervalSeconds={stopWaiting.stopWaitingChargeIntervalSeconds}
             stopWaitingGracePeriodMinutes={stopWaiting.stopWaitingGracePeriodMinutes}
             stopWaitingRatePencePerMinute={stopWaiting.stopWaitingRatePencePerMinute}
             stopWaitingMaxMinutes={stopWaiting.stopWaitingMaxMinutes}
+            stopRadiusEnabled={stopWaiting.stopRadiusEnabled}
+            stopRadiusMeters={stopWaiting.stopRadiusMeters}
             onStopWaitingUpdate={updateStopWaitingField}
           />
 

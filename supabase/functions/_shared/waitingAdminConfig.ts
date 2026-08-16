@@ -1,14 +1,18 @@
 /**
  * Admin waiting / no-show settings SSOT — merges fare_pricing_settings + dispatch_settings + stop_waiting_settings.
  *
- * Precedence (P0 #2):
- * 1. Vehicle-specific fare_pricing_settings (free wait minutes, paid flag, rate)
- * 2. Service-area fare_pricing_settings (vehicle_type_id IS NULL)
- * 3. Service-area dispatch_settings / stop_waiting_settings for radius + charge interval
- * 4. NEVER silently fall back to global dispatch when service_area_id is known
+ * STOP WAITING (multi-stop intermediate) — ONE precedence for all knobs:
+ * 1. Trip frozen snapshot (if present)
+ * 2. stop_waiting_settings (canonical numeric SSOT: grace, rate, interval, radius, max)
+ * 3. dispatch_settings (compat projections + enable_stop_waiting_charge)
+ * 4. fare_pricing_settings stop columns (grace minutes / rate only — last resort)
  *
- * Charge interval: service-area dispatch_settings.stop_waiting_charge_interval_seconds
- * (shared Admin field today — no pickup-specific interval column). Documented as shared.
+ * Enable lives on dispatch_settings.enable_stop_waiting_charge (only existing column;
+ * Admin Fare Engine writes it). NEVER map stop enable from recalculate_on_waiting /
+ * pickup_paid_waiting_enabled.
+ *
+ * Charge interval: UI/tick cadence only for stop waiting — settlement on Drive to Next
+ * remains continuous prorate (production). Pickup waiting uses completed intervals.
  */
 
 export const DEFAULT_STOP_WAITING_GRACE_SECONDS = 60;
@@ -215,13 +219,14 @@ export function resolveWaitingChargeIntervalSeconds(
   dispatchRow: Record<string, unknown> | null,
   stopWaitingRow: Record<string, unknown> | null,
 ): { seconds: number; source: AdminWaitingConfigSnapshot["waiting_charge_interval_source"] } {
-  const fromDispatch = asNonNegInt(dispatchRow?.stop_waiting_charge_interval_seconds);
-  if (fromDispatch != null && fromDispatch > 0) {
-    return { seconds: fromDispatch, source: "dispatch_settings" };
-  }
+  // Canonical: stop_waiting_settings first (matches Admin primary write + stop-workflow merge).
   const fromStop = asNonNegInt(stopWaitingRow?.stop_waiting_charge_interval_seconds);
   if (fromStop != null && fromStop > 0) {
     return { seconds: fromStop, source: "stop_waiting_settings" };
+  }
+  const fromDispatch = asNonNegInt(dispatchRow?.stop_waiting_charge_interval_seconds);
+  if (fromDispatch != null && fromDispatch > 0) {
+    return { seconds: fromDispatch, source: "dispatch_settings" };
   }
   return { seconds: 0, source: "unavailable" };
 }
@@ -299,16 +304,36 @@ export function buildAdminWaitingConfigSnapshot(
   const pickupRate = fareRate ?? dispatchRate ?? 0;
 
   const stopRate =
+    asNonNegInt(stopWaitingRow?.stop_waiting_rate_pence_per_minute) ??
     asNonNegInt(dispatchRow?.stop_waiting_rate_pence_per_minute) ??
     asNonNegInt(fareRow?.stop_waiting_rate_pence_per_minute) ??
     0;
+
+  // Max minutes: stop_waiting_settings first, then dispatch projection.
+  const stopMaxMinutes =
+    (stopWaitingRow?.stop_waiting_max_minutes as number | null | undefined) ??
+    (dispatchRow?.stop_waiting_max_minutes as number | null | undefined) ??
+    null;
 
   // Max minutes: Admin dispatch only. Missing → uncapped (0 sentinel in compute).
   const maxMinutesRaw = asNonNegInt(dispatchRow?.pickup_waiting_max_minutes);
 
   const configAvailable =
     pickupGrace.source !== "unavailable" &&
-    (fareRow != null || dispatchRow != null);
+    (fareRow != null || dispatchRow != null || stopWaitingRow != null);
+
+  const stopRadiusEnabled =
+    asBool(stopWaitingRow?.stop_radius_enabled) ??
+    asBool(dispatchRow?.stop_radius_enabled) ??
+    true;
+  const stopRadiusMeters =
+    asNonNegInt(stopWaitingRow?.stop_radius_meters) ??
+    asNonNegInt(dispatchRow?.stop_radius_meters) ??
+    0;
+
+  // Enable: dispatch_settings only — never pickup recalculate_on_waiting.
+  const enableStopWaiting =
+    asBool(dispatchRow?.enable_stop_waiting_charge) ?? true;
 
   return {
     free_pickup_waiting_minutes: freeWaitMin,
@@ -325,13 +350,12 @@ export function buildAdminWaitingConfigSnapshot(
     waiting_charge_interval_source: interval.source,
     waiting_charge_rounding: "completed_intervals",
     stop_waiting_rate_pence_per_minute: stopRate,
-    stop_waiting_max_minutes:
-      (dispatchRow?.stop_waiting_max_minutes as number | null | undefined) ?? null,
-    enable_stop_waiting_charge: dispatchRow?.enable_stop_waiting_charge !== false,
+    stop_waiting_max_minutes: stopMaxMinutes,
+    enable_stop_waiting_charge: enableStopWaiting,
     pickup_radius_enabled: dispatchRow?.pickup_radius_enabled !== false,
     pickup_radius_meters: asNonNegInt(dispatchRow?.pickup_radius_meters) ?? 0,
-    stop_radius_enabled: dispatchRow?.stop_radius_enabled !== false,
-    stop_radius_meters: asNonNegInt(dispatchRow?.stop_radius_meters) ?? 0,
+    stop_radius_enabled: stopRadiusEnabled,
+    stop_radius_meters: stopRadiusMeters,
     no_show_fee_pence: Math.max(0, asNonNegInt(fareRow?.no_show_fee_pence) ?? 0),
     no_show_apply_after_arrival_only:
       asBool(fareRow?.no_show_apply_after_arrival_only) ?? true,

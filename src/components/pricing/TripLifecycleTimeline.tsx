@@ -39,11 +39,14 @@ interface TripLifecycleTimelineProps {
   recalculateOnWaiting: boolean;
   currencySymbol: string;
   onUpdate: (key: string, value: number | boolean | string) => void;
-  // Stop Waiting & Get Paid (from stop_waiting_settings)
+  // Stop Waiting (stop_waiting_settings SSOT + enable on dispatch_settings)
+  enableStopWaitingCharge: boolean;
   stopWaitingChargeIntervalSeconds: number | null;
   stopWaitingGracePeriodMinutes: number;
   stopWaitingRatePencePerMinute: number;
   stopWaitingMaxMinutes: number | null;
+  stopRadiusEnabled: boolean;
+  stopRadiusMeters: number;
   onStopWaitingUpdate: (key: string, value: number | boolean | null) => void;
 }
 
@@ -68,10 +71,13 @@ export function TripLifecycleTimeline({
   recalculateOnWaiting,
   currencySymbol,
   onUpdate,
-  
+  enableStopWaitingCharge,
   stopWaitingChargeIntervalSeconds,
   stopWaitingGracePeriodMinutes,
   stopWaitingRatePencePerMinute,
+  stopWaitingMaxMinutes,
+  stopRadiusEnabled,
+  stopRadiusMeters,
   onStopWaitingUpdate,
 }: TripLifecycleTimelineProps) {
   const penceToDisplay = (pence: number) => (pence > 0 ? (pence / 100).toFixed(2) : '');
@@ -191,7 +197,9 @@ export function TripLifecycleTimeline({
           <div className="flex items-start gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
             <Info className="h-3.5 w-3.5 text-blue-600 mt-0.5 shrink-0" />
             <p className="text-[11px] text-blue-700 dark:text-blue-400">
-              Applies only to intermediate stops during an active trip. Free stop waiting begins when the driver marks <strong>Arrived at Stop</strong>. After the free stop waiting time expires, waiting charges accumulate automatically at the configured charge interval until the driver continues the trip. GPS Radius Restriction is used to validate stop arrival location and may trigger a confirmation warning if the driver is too far from the stop.
+              Applies only to intermediate stops during an active trip. Free stop waiting begins when the driver marks <strong>Arrived at Stop</strong>.
+              After free time expires, paid waiting accrues continuously and settles when the driver taps <strong>Drive to Next</strong>.
+              GPS radius validates Arrived at Stop (may warn when too far).
             </p>
           </div>
 
@@ -201,21 +209,50 @@ export function TripLifecycleTimeline({
           </div>
 
           <ToggleRow
-            checked={recalculateOnWaiting}
-            field="recalculate_on_waiting"
+            checked={enableStopWaitingCharge}
+            field="enableStopWaitingCharge"
             label="Enable Stop Waiting Charge"
-            description="Apply per-minute charge after free stop waiting time expires"
+            description="Apply per-minute charge after free stop waiting time expires (does not control pickup waiting)"
+            onFieldUpdate={onStopWaitingUpdate}
           />
 
           <div className="flex flex-wrap items-end gap-3">
-            
             <NumberInput
               value={stopWaitingChargeIntervalSeconds ?? 0}
               field="stopWaitingChargeIntervalSeconds"
-              label="Charge Interval"
+              label="UI Refresh Interval"
               unit="sec"
               onFieldUpdate={onStopWaitingUpdate}
               min={1}
+            />
+            <NumberInput
+              value={stopWaitingMaxMinutes ?? 0}
+              field="stopWaitingMaxMinutes"
+              label="Max Stop Waiting"
+              unit="min"
+              onFieldUpdate={onStopWaitingUpdate}
+              min={0}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            UI refresh interval is for Customer/Driver countdown cadence only. Stop waiting is billed as continuous prorate and settles on Drive to Next (not per-interval). Set Max Stop Waiting to 0 for uncapped.
+          </p>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <ToggleRow
+              checked={stopRadiusEnabled}
+              field="stopRadiusEnabled"
+              label="Stop GPS Radius"
+              description="Require driver to be near the stop when marking Arrived at Stop"
+              onFieldUpdate={onStopWaitingUpdate}
+            />
+            <NumberInput
+              value={stopRadiusMeters}
+              field="stopRadiusMeters"
+              label="Stop Radius"
+              unit="m"
+              onFieldUpdate={onStopWaitingUpdate}
+              min={50}
             />
           </div>
         </div>

@@ -51,12 +51,12 @@ Deno.test("P0#2 vehicle fare rate + paid flag beat dispatch poison", () => {
   assert(snap.config_available);
 });
 
-Deno.test("P0#2 charge interval from SA dispatch (shared field)", () => {
+Deno.test("P0#2 charge interval prefers stop_waiting_settings over dispatch", () => {
   const i = resolveWaitingChargeIntervalSeconds(
     { stop_waiting_charge_interval_seconds: 15 },
     { stop_waiting_charge_interval_seconds: 10 },
   );
-  assertEquals(i, { seconds: 15, source: "dispatch_settings" });
+  assertEquals(i, { seconds: 10, source: "stop_waiting_settings" });
 });
 
 Deno.test("P0#2 free period charges zero", () => {

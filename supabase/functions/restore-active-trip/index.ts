@@ -90,8 +90,10 @@ async function buildCustomerActiveTrip(
     gracePeriodExpiredAt: trip.grace_period_expired_at ?? null,
     freeWaitExpiresAt: trip.free_wait_expires_at ?? null,
     pickupWaitingFreeExpiresAt: trip.free_wait_expires_at ?? null,
-    pickupWaitingAdminConfig: trip.pickup_waiting_admin_config ?? null,
-    adminWaitingConfigSnapshot: trip.pickup_waiting_admin_config ?? null,
+    pickupWaitingAdminConfig:
+      trip.admin_waiting_config_snapshot ?? trip.pickup_waiting_admin_config ?? null,
+    adminWaitingConfigSnapshot:
+      trip.admin_waiting_config_snapshot ?? trip.pickup_waiting_admin_config ?? null,
     pickupWaitingChargePence: trip.pickup_waiting_charge_pence ?? null,
     stopWaitingChargePence: liveFarePreview.stop_waiting_charge_pence,
     approvedModificationDeltaPence: liveFarePreview.approved_modification_delta_pence,
