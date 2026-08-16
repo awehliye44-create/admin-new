@@ -1,0 +1,34 @@
+# Signed trip-modification fold lock
+
+## Never remove or “simplify away”
+
+In `public.apply_trip_modification_to_trip`:
+
+- Cumulative modification adjustment is **signed**:
+  `customer_modification_charge_pence = prior + fare_delta`  
+  **Never** `GREATEST(0, prior + fare_delta)`.
+- Floor only the **final customer payable** (`GREATEST(1, …)`), never by zeroing the accumulator.
+- `p_new_fare_pence` from Edge is already **net** of the existing offer/voucher discount — do **not** subtract the discount again.
+- Gross = final net + existing discount (promotion applied exactly once).
+- `destination_change_adjustment_pence` stores the **signed** per-revision delta.
+- Waiting charges stay out of this fold.
+
+Pure arithmetic mirror + tests:
+`supabase/functions/_shared/foldTripModificationFare.ts`
+`supabase/functions/_shared/foldTripModificationFare.test.ts`
+
+## Why
+
+MK-260816-003: Edge correctly previewed 788 − 375 = 413 for a shorter destination, but the DB fold clamped cumulative mod at 0 so payable stayed 788 while destination became Work. Customer card then showed £8.42 (788 + 54 waiting).
+
+## Do not
+
+- Reintroduce `GREATEST(0, prior + delta)` on the cumulative modification charge
+- Clamp `destination_change_adjustment_pence` with `GREATEST(0, delta)`
+- Double-subtract `offer_discount_pence` from an already-net `p_new_fare_pence`
+- Fold waiting into the route-modification delta
+- Create a refund / lower the Revolut hold on negative delta (capture lower at completion)
+
+## Naming debt
+
+`customer_modification_charge_pence` can now be negative (signed cumulative adjustment). Invoice/finance readers that `nonNeg` it will omit a reduction line item — acceptable until a rename; do not invent a second column in this lock.
