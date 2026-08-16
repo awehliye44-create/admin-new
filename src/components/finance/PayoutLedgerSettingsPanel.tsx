@@ -628,7 +628,7 @@ export function PayoutLedgerSettingsPanel({
             onChange={setOverrideDriverId}
             regionId={serviceFilter.regionId}
             serviceAreaId={serviceFilter.serviceAreaId}
-            stripeConnectOnly={false}
+            
           />
           {overrideDriverId && (
             <div className="flex items-center justify-between gap-3 rounded-md border p-3">

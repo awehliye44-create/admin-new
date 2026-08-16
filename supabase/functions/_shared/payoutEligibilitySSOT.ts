@@ -168,16 +168,22 @@ export function deriveIneligibleReason(earning: EarningSettlementInput): string 
   return null;
 }
 
-export function sumStripeSettledUnpaidPence(
+/**
+ * Provider-neutral cleared settlement batch total.
+ * Rows carrying an explicit settlement_status only count when it is "settled".
+ */
+export function sumClearedSettlementBatchPence(
   earnings: EarningSettlementInput[],
 ): number {
   return earnings.reduce((sum, row) => {
-    if (!requiresStripeSettlement(row.payment_method, row.payment_provider)) return sum;
     if (!isEarningPayableForPayout(row)) return sum;
-    if (row.settlement_status !== "settled") return sum;
+    if (row.settlement_status != null && row.settlement_status !== "settled") return sum;
     return sum + remainingPayablePence(row);
   }, 0);
 }
+
+/** @deprecated provider-neutral name is sumClearedSettlementBatchPence */
+export const sumStripeSettledUnpaidPence = sumClearedSettlementBatchPence;
 
 export function sumEligibleEarningPence(earnings: EarningSettlementInput[]): number {
   return earnings.reduce((sum, row) => {

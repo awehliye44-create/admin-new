@@ -198,9 +198,17 @@ export function sanitizeString(value: unknown, maxLength = 1000): string | null 
   // eslint-disable-next-line no-control-regex -- intentional strip of disallowed ASCII controls
   let sanitized = value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
   
+  // Escape HTML-significant characters so stored text can never render as markup
+  sanitized = sanitized
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
   // Trim and limit length
   sanitized = sanitized.trim().slice(0, maxLength);
-  
+
   return sanitized || null;
 }
 
@@ -225,6 +233,26 @@ export function isPositiveNumber(value: unknown): value is number {
 export function isValidCoordinate(lat: unknown, lng: unknown): boolean {
   if (typeof lat !== 'number' || typeof lng !== 'number') return false;
   return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
+export function isValidLatitude(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= -90 && value <= 90;
+}
+
+export function isValidLongitude(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= -180 && value <= 180;
+}
+
+export function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+/** ONECAB is digital-only — cash is never a valid payment method. */
+export const VALID_PAYMENT_METHODS = ['CARD', 'WALLET', 'APPLE_PAY', 'GOOGLE_PAY'] as const;
+
+export function isValidPaymentMethod(value: unknown): value is string {
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  return (VALID_PAYMENT_METHODS as readonly string[]).includes(value.trim().toUpperCase());
 }
 
 // ==================== VALIDATION RESPONSE ====================

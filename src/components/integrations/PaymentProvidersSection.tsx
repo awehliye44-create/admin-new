@@ -523,8 +523,8 @@ export function PaymentProvidersCardsGrid() {
   }
 
   const providers = data?.providers ?? [];
-  // Stripe is fully retired — do not surface as an admin option or action card.
-  const activeProviders = providers.filter((p) => p.provider !== "stripe");
+  // Stripe is fully retired — provider list is already Revolut-only.
+  const activeProviders = providers;
   const archivedProviders: typeof providers = [];
 
   return (

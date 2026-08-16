@@ -40,8 +40,6 @@ interface TripLifecycleTimelineProps {
   currencySymbol: string;
   onUpdate: (key: string, value: number | boolean | string) => void;
   // Stop Waiting & Get Paid (from stop_waiting_settings)
-  stopRadiusEnabled: boolean;
-  stopRadiusMeters: number;
   stopWaitingChargeIntervalSeconds: number | null;
   stopWaitingGracePeriodMinutes: number;
   stopWaitingRatePencePerMinute: number;
@@ -70,7 +68,7 @@ export function TripLifecycleTimeline({
   recalculateOnWaiting,
   currencySymbol,
   onUpdate,
-  stopRadiusMeters,
+  
   stopWaitingChargeIntervalSeconds,
   stopWaitingGracePeriodMinutes,
   stopWaitingRatePencePerMinute,
@@ -210,7 +208,7 @@ export function TripLifecycleTimeline({
           />
 
           <div className="flex flex-wrap items-end gap-3">
-            <NumberInput value={stopRadiusMeters} field="stopRadiusMeters" label="GPS Radius Restriction" unit="m" onFieldUpdate={onStopWaitingUpdate} min={1} />
+            
             <NumberInput
               value={stopWaitingChargeIntervalSeconds ?? 0}
               field="stopWaitingChargeIntervalSeconds"

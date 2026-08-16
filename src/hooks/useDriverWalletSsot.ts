@@ -160,16 +160,18 @@ async function overlayDriverWalletEligibility(
     'admin_driver_wallet_eligibility_balances' as never,
     { p_driver_ids: ids } as never,
   );
-  if (!batch.error && Array.isArray(batch.data) && batch.data.length > 0) {
-    rows = batch.data as DriverWalletEligibilityOverlay[];
+  const batchRows = batch.data as unknown[] | null;
+  if (!batch.error && Array.isArray(batchRows) && batchRows.length > 0) {
+    rows = batchRows as DriverWalletEligibilityOverlay[];
   } else {
     const perDriver = await Promise.all(ids.map(async (id) => {
       const { data, error } = await supabase.rpc(
         'driver_wallet_eligibility_balances' as never,
         { p_driver_id: id } as never,
       );
-      if (error || !Array.isArray(data) || !data[0]) return null;
-      return { driver_id: id, ...(data[0] as object) } as DriverWalletEligibilityOverlay;
+      const singleRows = data as unknown[] | null;
+      if (error || !Array.isArray(singleRows) || !singleRows[0]) return null;
+      return { driver_id: id, ...(singleRows[0] as object) } as DriverWalletEligibilityOverlay;
     }));
     rows = perDriver.filter((row): row is DriverWalletEligibilityOverlay => Boolean(row));
   }
