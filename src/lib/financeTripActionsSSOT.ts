@@ -47,7 +47,8 @@ function enabled(): { enabled: true } {
 import { isDigitalPaymentMethod } from '../../shared/digitalFinanceSSOT';
 
 export function isDigitalTripPayment(method: string | null | undefined): boolean {
-  const m = String(method ?? '').toLowerCase();
+  const m = String(method ?? '').trim().toLowerCase();
+  if (m === 'cash') return false;
   return isDigitalPaymentMethod(method);
 }
 
