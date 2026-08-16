@@ -104,6 +104,10 @@ Deno.test("metrics enqueue scoped to trip_modified only (not all trip pushes)", 
   assertEquals(send.includes("eventType: isTripModified ? \"trip_modified\" : null"), true);
   assertEquals(send.includes("must NOT write change_request_id into offer_id"), true);
   assertEquals(send.includes("changeRequestId: isTripModified ? tripModifiedChangeRequestId : null"), true);
+  const instr = await Deno.readTextFile(
+    new URL("./fcmPushDeliveryInstrumentation.ts", import.meta.url),
+  );
+  assertEquals(instr.includes("Never map trip_change_requests.id / change_request_id"), true);
 });
 
 Deno.test("I: notify targets confirmed_driver_id (assigned Driver only)", async () => {

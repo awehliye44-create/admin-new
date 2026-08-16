@@ -103,9 +103,10 @@ Deno.test("payload id resolution from historical keys", () => {
     resolveOfferIdFromPushData({ offerId: OFFER }),
     OFFER,
   );
+  // change_request_id is NOT a ride_offers.id — must not resolve as offer_id.
   assertEquals(
     resolveOfferIdFromPushData({ change_request_id: OFFER }),
-    OFFER,
+    null,
   );
   assertEquals(resolveBookingIdFromPushData({ booking_id: "not-a-uuid" }), null);
 });

@@ -55,16 +55,13 @@ export function resolveOfferIdFromPushData(
   data: Record<string, unknown> | null | undefined,
 ): string | null {
   if (!data) return null;
+  // ride_offers.id only. Never map trip_change_requests.id / change_request_id —
+  // booking_delivery_log.offer_id FKs ride_offers(id).
   const keys = [
     "offer_id",
     "offerId",
     "request_id",
     "requestId",
-    // Trip-modification idempotency key (applied trip_change_requests.id).
-    "change_request_id",
-    "changeRequestId",
-    "modification_id",
-    "modificationId",
   ];
   for (const key of keys) {
     const raw = data[key];
