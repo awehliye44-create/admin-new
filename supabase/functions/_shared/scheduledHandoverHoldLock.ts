@@ -28,6 +28,8 @@ const SEARCH_EXPIRY_REASONS = new Set([
   "search_expired",
   "scheduled_expired",
   "sweep_fallback",
+  "no_driver_search_exhausted",
+  "no_driver_assigned",
 ]);
 
 const EXPLICIT_CANCEL_REASONS = new Set([

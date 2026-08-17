@@ -70,6 +70,14 @@ Deno.test("MK-260817-006: Admin 8m/15m convert; broadcast must not convert or ex
   );
   assertEquals(isScheduledInstantConversionPending(trip), true);
   assertEquals(isCustomerSearchWindowActive(trip, SETTINGS, atBroadcast), true);
+  assertEquals(
+    resolveCustomerSearchDeadlineMs(
+      { ...trip, searching_expires_at: "2026-08-17T12:01:53.000Z" },
+      SETTINGS,
+      atBroadcast,
+    ),
+    null,
+  );
   assertEquals(shouldExpireTripAfterWavesExhausted(trip, SETTINGS, atBroadcast), false);
   assertEquals(
     shouldBlockPrematureScheduledSearchHoldRelease({
@@ -85,7 +93,20 @@ Deno.test("MK-260817-006: Admin 8m/15m convert; broadcast must not convert or ex
     }),
     true,
   );
-
+  assertEquals(
+    shouldBlockPrematureScheduledSearchHoldRelease({
+      tripStatus: "offered",
+      cancelledBy: null,
+      cancellationReason: null,
+      dispatchMode: "scheduled",
+      scheduledStatus: "broadcasting",
+      isScheduled: true,
+      scheduledAt: trip.scheduled_at,
+      dispositionReason: "no_driver_search_exhausted",
+      feePence: 0,
+    }),
+    true,
+  );
   const atConvert = Date.parse("2026-08-17T12:10:00.000Z");
   const decision = shouldConvertScheduledToUrgent({
     trip,
@@ -157,6 +178,7 @@ Deno.test("D: conversion stamps searching_expires_at from instant-search start, 
   assertEquals(patch.scheduled_status, "converted_to_instant");
   assertEquals(patch.status, "searching");
   assertEquals(patch.searching_expires_at, "2026-08-17T12:16:00.000Z");
+  assertEquals(patch.current_broadcast_round, 0);
   assertEquals(patch.searching_expires_at === MK006.created_at, false);
 
   const converted = {
@@ -343,6 +365,7 @@ Deno.test("K/L: conversion patch keeps same-trip instant fields; no second trip/
   assertEquals("id" in patch, false);
   assertEquals("payment_session_id" in patch, false);
   assertEquals("provider_order_id" in patch, false);
+  assertEquals(patch.current_broadcast_round, 0);
   assertEquals(patch.dispatch_mode, "instant");
   assertEquals(patch.scheduled_status, "converted_to_instant");
 });
@@ -384,6 +407,34 @@ Deno.test("source lock: schedule-dispatch converts via Admin SSOT then auto-disp
   assertStringIncludes(src, "NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES");
   assertStringIncludes(src, "/functions/v1/auto-dispatch");
   assertEquals(src.includes("dispatch_trip_offers"), false);
+});
+
+Deno.test("source lock: SQL expire ignores stale searching_expires_at during scheduled handover", async () => {
+  const sql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260817161000_expire_ignore_stale_ttl_during_scheduled_handover.sql",
+      import.meta.url,
+    ),
+  );
+  const pendingIdx = sql.indexOf("IF v_scheduled_handover_pending THEN");
+  const expiresIdx = sql.indexOf("IF v_trip.searching_expires_at IS NOT NULL THEN");
+  assert(pendingIdx > 0);
+  assert(expiresIdx > pendingIdx);
+});
+
+Deno.test("source lock: expire-trip / expire-offers / holdRelease skip scheduled handover", async () => {
+  const expireTrip = await Deno.readTextFile(
+    new URL("../expire-trip/index.ts", import.meta.url),
+  );
+  const expireOffers = await Deno.readTextFile(
+    new URL("../expire-offers/index.ts", import.meta.url),
+  );
+  const holdRelease = await Deno.readTextFile(
+    new URL("./holdReleaseSSOT.ts", import.meta.url),
+  );
+  assertStringIncludes(expireTrip, "isScheduledInstantConversionPending");
+  assertStringIncludes(expireOffers, "isScheduledInstantConversionPending");
+  assertStringIncludes(holdRelease, "shouldBlockPrematureScheduledSearchHoldRelease");
 });
 
 Deno.test("source lock: SQL expire does not use created_at TTL for scheduled handover", async () => {

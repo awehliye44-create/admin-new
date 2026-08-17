@@ -27,6 +27,7 @@ import {
   isTripTerminalForDispatch,
 } from "../_shared/tripTerminalDispatch.ts";
 import { FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY } from "../_shared/negotiationPushCopy.ts";
+import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
 import {
   shouldTimeoutAbandonedDecisionHold,
   shouldTimeoutWaitingCustomer,
@@ -576,7 +577,7 @@ Deno.serve(async (req) => {
     // Scan & Go retired (trips.scan_go dropped 20260903121500) — do not SELECT or branch on it.
     const { data: staleTrips, error: tripsError } = await supabase
       .from("trips")
-      .select("id, current_broadcast_round, max_broadcast_rounds, broadcast_enabled, status, scheduled_status, dispatch_status")
+      .select("id, current_broadcast_round, max_broadcast_rounds, broadcast_enabled, status, scheduled_status, dispatch_status, dispatch_mode")
       .in("status", ["searching", "searching_new_driver", "offered", "pending", "broadcasting"])
       .eq("dispatch_status", "broadcasting");
 
@@ -617,22 +618,28 @@ Deno.serve(async (req) => {
         if (currentRound < maxRounds) {
           tripsToRebroadcast.push(trip.id);
         } else {
-          // SSOT: expire_trip_when_search_exhausted respects searching_expires_at + legacy created_at fallback.
-          const { data: expired, error: expireErr } = await supabase.rpc(
-            "expire_trip_when_search_exhausted",
-            { p_trip_id: trip.id },
-          );
-          if (expireErr) {
-            console.warn("[expire-offers] expire_trip_when_search_exhausted failed:", trip.id, expireErr);
-          } else if (expired === true) {
-            console.log("[expire-offers] trip_expired_after_final_wave", {
-              trip_id: trip.id,
-              current_broadcast_round: currentRound,
-              max_broadcast_rounds: maxRounds,
-            });
-          } else {
+          // SSOT: expire_trip_when_search_exhausted. Scheduled handover must not
+          // use instant created_at TTL even if waves look exhausted.
+          if (isScheduledInstantConversionPending(trip)) {
             searchWindowRecheckTripIds.push(trip.id);
-            console.log("[expire-offers] Max waves done; customer search window still active:", trip.id);
+            console.log("[expire-offers] Scheduled handover pending; skip expire:", trip.id);
+          } else {
+            const { data: expired, error: expireErr } = await supabase.rpc(
+              "expire_trip_when_search_exhausted",
+              { p_trip_id: trip.id },
+            );
+            if (expireErr) {
+              console.warn("[expire-offers] expire_trip_when_search_exhausted failed:", trip.id, expireErr);
+            } else if (expired === true) {
+              console.log("[expire-offers] trip_expired_after_final_wave", {
+                trip_id: trip.id,
+                current_broadcast_round: currentRound,
+                max_broadcast_rounds: maxRounds,
+              });
+            } else {
+              searchWindowRecheckTripIds.push(trip.id);
+              console.log("[expire-offers] Max waves done; customer search window still active:", trip.id);
+            }
           }
         }
       }

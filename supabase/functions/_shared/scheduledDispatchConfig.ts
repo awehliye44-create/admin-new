@@ -309,6 +309,7 @@ export function buildScheduledUrgentConversionPatch(input: {
   dispatch_status: "broadcasting";
   broadcast_enabled: true;
   searching_expires_at: string;
+  current_broadcast_round: 0;
   updated_at: string;
 } {
   return {
@@ -318,6 +319,7 @@ export function buildScheduledUrgentConversionPatch(input: {
     dispatch_status: "broadcasting",
     broadcast_enabled: true,
     searching_expires_at: input.searchingExpiresAtIso,
+    current_broadcast_round: 0,
     updated_at: input.nowIso,
   };
 }

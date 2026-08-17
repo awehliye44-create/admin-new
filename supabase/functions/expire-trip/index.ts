@@ -3,6 +3,7 @@ import {
   releaseRevolutPreauthForTrip,
   resolveRevolutOrderIdFromTrip,
 } from "../_shared/revolutPreauthReleaseSSOT.ts";
+import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -62,7 +63,7 @@ Deno.serve(async (req) => {
     // Scan & Go retired (trips.scan_go dropped 20260903121500) — do not SELECT it.
     const { data: trip, error: fetchError } = await supabase
       .from("trips")
-      .select("id, status, driver_id, passenger_id, provider_order_id, payment_provider, payment_status, service_area_id, broadcast_enabled, dispatch_mode, negotiation_owner_driver_id, negotiation_status, negotiation_disabled, searching_expires_at, current_broadcast_round, max_broadcast_rounds")
+      .select("id, status, driver_id, passenger_id, provider_order_id, payment_provider, payment_status, service_area_id, broadcast_enabled, dispatch_mode, scheduled_status, negotiation_owner_driver_id, negotiation_status, negotiation_disabled, searching_expires_at, current_broadcast_round, max_broadcast_rounds")
       .eq("id", tripId)
       .maybeSingle();
 
@@ -94,6 +95,26 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "Forbidden — you do not own this trip" }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (isScheduledInstantConversionPending(trip)) {
+      console.log(`[expire-trip] Refusing marketplace expire — scheduled handover pending`, {
+        tripId,
+        status: trip.status,
+        dispatch_mode: trip.dispatch_mode,
+        scheduled_status: trip.scheduled_status,
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          search_active: true,
+          message: "Scheduled handover pending; instant search TTL not started",
+          status: trip.status,
+          dispatch_mode: trip.dispatch_mode,
+          scheduled_status: trip.scheduled_status,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 

@@ -195,6 +195,9 @@ Deno.test("MK-260817-004: customer scheduled_status converts at check-in / urgen
     throw new Error("convert must set scheduled_status converted_to_instant");
   }
   if (patch.status !== "searching") throw new Error("convert must set status searching");
+  if (patch.current_broadcast_round !== 0) {
+    throw new Error("convert must reset current_broadcast_round so instant waves start at 1");
+  }
 
   const overdue = shouldConvertScheduledToUrgent({
     trip,

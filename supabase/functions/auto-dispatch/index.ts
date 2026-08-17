@@ -899,7 +899,10 @@ Deno.serve(async (req) => {
 
     if (currentRound > maxRounds) {
       console.log("[auto-dispatch] Max broadcast rounds reached:", currentRound);
-      if (shouldExpireTripAfterWavesExhausted(trip, dispatchSettings)) {
+      if (
+        !isScheduledInstantConversionPending(trip) &&
+        shouldExpireTripAfterWavesExhausted(trip, dispatchSettings)
+      ) {
         await supabase.rpc("expire_trip_when_search_exhausted", { p_trip_id: trip_id });
         abortDispatch("MAX_ROUNDS_EXCEEDED", { round: currentRound, max_rounds: maxRounds });
         return errorResponse(
@@ -2154,7 +2157,10 @@ Deno.serve(async (req) => {
       }
 
       if (currentRound >= maxRounds) {
-        if (shouldExpireTripAfterWavesExhausted(trip, dispatchSettings)) {
+        if (
+          !isScheduledInstantConversionPending(trip) &&
+          shouldExpireTripAfterWavesExhausted(trip, dispatchSettings)
+        ) {
           await supabase.rpc("expire_trip_when_search_exhausted", { p_trip_id: trip_id });
           abortDispatch("NO_DRIVERS_SEARCH_ENDED", {
             round: currentRound,

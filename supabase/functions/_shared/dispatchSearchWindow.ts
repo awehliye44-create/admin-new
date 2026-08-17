@@ -39,12 +39,14 @@ export function resolveCustomerSearchDeadlineMs(
   settings: DispatchSearchSettings,
   nowMs: number = Date.now(),
 ): number | null {
+  // Instant TTL is invalid until scheduled→instant conversion completes.
+  // Ignore any stale searching_expires_at stamp from booking/broadcast.
+  if (isScheduledInstantConversionPending(trip)) {
+    return null;
+  }
   if (trip.searching_expires_at) {
     const parsed = Date.parse(trip.searching_expires_at);
     if (Number.isFinite(parsed)) return parsed;
-  }
-  if (isScheduledInstantConversionPending(trip)) {
-    return null;
   }
   const findMinutes = findMinutesFromSettings(settings);
   if (trip.created_at) {

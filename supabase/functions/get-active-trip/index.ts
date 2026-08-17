@@ -7,6 +7,7 @@ import { computeLiveTripFarePreview } from "../_shared/liveTripFareSSOT.ts";
 import { getCurrencySymbol } from "../../../shared/currency.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { releaseHoldOnTripTerminal } from "../_shared/holdReleaseSSOT.ts";
+import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -257,7 +258,10 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
         const candidate = trips[0] as TripRow;
         if (isCustomerLiveTrip(candidate, nowMs)) {
           trip = candidate;
-        } else if (isSearchWindowExpiredForCustomer(candidate, nowMs)) {
+        } else if (
+          isSearchWindowExpiredForCustomer(candidate, nowMs) &&
+          !isScheduledInstantConversionPending(candidate)
+        ) {
           console.log("STALE_SEARCHING_TRIP_FOUND", {
             trip_id: candidate.id,
             status: candidate.status,

@@ -22,6 +22,7 @@ import {
   retrieveRevolutOrder,
 } from "./revolutOrders.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
+import { shouldBlockPrematureScheduledSearchHoldRelease } from "./scheduledHandoverHoldLock.ts";
 export {
   FORCE_SESSION_RELEASE_REASONS,
   sessionAgeMs,
@@ -82,7 +83,7 @@ export async function releaseHoldOnTripTerminal(
     const { data } = await supabase
       .from("trips")
       .select(
-        "id, status, trip_code, payment_provider, provider_order_id, payment_hold_status, payment_status, passenger_id",
+        "id, status, trip_code, payment_provider, provider_order_id, payment_hold_status, payment_status, passenger_id, cancelled_by, cancellation_reason, dispatch_mode, scheduled_status, is_scheduled, scheduled_at",
       )
       .eq("id", tripId)
       .maybeSingle();
@@ -98,6 +99,28 @@ export async function releaseHoldOnTripTerminal(
         skipped: true,
         status: "trip_completed_no_release",
         reason: "capture_only_after_completion",
+        idempotent: true,
+      };
+    }
+    if (
+      shouldBlockPrematureScheduledSearchHoldRelease({
+        tripStatus,
+        cancelledBy: trip.cancelled_by as string | null,
+        cancellationReason: trip.cancellation_reason as string | null,
+        dispatchMode: trip.dispatch_mode as string | null,
+        scheduledStatus: trip.scheduled_status as string | null,
+        isScheduled: trip.is_scheduled as boolean | null,
+        scheduledAt: trip.scheduled_at as string | null,
+        dispositionReason: args.terminalReason,
+        feePence: args.feePence ?? 0,
+      })
+    ) {
+      return {
+        ok: true,
+        released: false,
+        skipped: true,
+        status: "scheduled_handover_pending",
+        reason: "premature_scheduled_search_expiry",
         idempotent: true,
       };
     }
