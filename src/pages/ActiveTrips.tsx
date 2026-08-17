@@ -121,6 +121,7 @@ interface Trip {
   commission_pence?: number | null;
   gross_fare_pence?: number | null;
   offer_discount_pence?: number | null;
+  discount_pence?: number | null;
   estimated_total_pence?: number | null;
   capture_amount_pence?: number | null;
   fare_snapshot_json?: Record<string, unknown> | null;

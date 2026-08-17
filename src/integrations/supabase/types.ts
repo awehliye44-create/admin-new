@@ -27721,6 +27721,7 @@ export type Database = {
       }
       ride_offer_retry_unacked_push_deliveries: { Args: never; Returns: number }
       run_digital_finance_migration: { Args: never; Returns: Json }
+      scheduled_dispatch_sweep: { Args: never; Returns: undefined }
       search_onecab_location_landmarks: {
         Args: {
           p_country_code?: string
