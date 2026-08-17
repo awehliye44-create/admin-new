@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { completePayoutSettlementLifecycle } from "./settlementLifecycleSSOT.ts";
+import {
+  assertPayoutItemLedgerLineage,
+  PAYOUT_LINEAGE_MISSING,
+} from "./payoutItemLedgerAllocationWrite.ts";
 
 export const PAYOUT_LEDGER_TYPES = [
   "WEEKLY_PAYOUT",
@@ -163,6 +167,12 @@ export async function finalizePayoutAfterProviderSuccess(args: {
   const completedAt = new Date().toISOString();
   const walletBalanceAfter = args.walletBalanceBefore - args.payoutAmount;
 
+  await assertPayoutItemLedgerLineage({
+    supabase: args.supabase,
+    payout_item_id: args.payoutItemId,
+    expected_amount_pence: args.payoutAmount,
+  });
+
   await args.supabase.from("payout_items").update({
     status: "completed",
     provider_transfer_id: providerTransferId,
@@ -190,6 +200,10 @@ export async function finalizePayoutAfterProviderSuccess(args: {
       sourceLedgerDebitId: ledgerEntry.id,
     });
   } catch (lifecycleErr) {
+    const msg = lifecycleErr instanceof Error ? lifecycleErr.message : String(lifecycleErr);
+    if (msg.includes(PAYOUT_LINEAGE_MISSING) || msg.includes("PAYOUT_LINEAGE")) {
+      throw lifecycleErr;
+    }
     console.error("[payout] Settlement lifecycle sync failed:", lifecycleErr);
   }
 

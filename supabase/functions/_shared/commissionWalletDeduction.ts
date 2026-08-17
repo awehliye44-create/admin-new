@@ -4,7 +4,7 @@
  */
 // @ts-ignore Deno remote import
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import { tripUsesCommissionWalletDeduction } from "./commissionWalletSSOT.ts";
+import { tripUsesCommissionWalletDeduction, readTripFinancialModelStamp } from "./commissionWalletSSOT.ts";
 import {
   calculateTripSettlementFromTripRow,
   resolveTripTierPercent,
@@ -93,27 +93,11 @@ export async function tripBlocksDriverWalletLedgerPosting(
     .maybeSingle();
   if (!trip) return false;
 
-  if (trip.financial_model != null && trip.commission_wallet_enabled != null) {
-    return tripUsesCommissionWalletDeduction({
-      tripFinancialModel: trip.financial_model as string,
-      tripCommissionWalletEnabled: trip.commission_wallet_enabled as boolean,
-    });
-  }
-  if (!trip.service_area_id) return false;
-
-  const { data: sa } = await supabase
-    .from("service_areas")
-    .select("financial_model, commission_wallet_enabled")
-    .eq("id", trip.service_area_id)
-    .maybeSingle();
-
+  const model = readTripFinancialModelStamp(trip.financial_model as string | null);
+  if (!model) return true;
   return tripUsesCommissionWalletDeduction({
-    serviceAreaConfig: sa
-      ? {
-        financial_model: sa.financial_model,
-        commission_wallet_enabled: sa.commission_wallet_enabled,
-      }
-      : null,
+    tripFinancialModel: model,
+    tripCommissionWalletEnabled: trip.commission_wallet_enabled as boolean,
   });
 }
 
@@ -148,25 +132,9 @@ export async function ensureCommissionWalletDeductionForCompletedTrip(input: {
     return { ok: true, skipped: true, code: "NO_DRIVER", raw: { skipped: true } };
   }
 
-  let saConfig: { financial_model: unknown; commission_wallet_enabled: unknown } | null = null;
-  if (trip.service_area_id) {
-    const { data: sa } = await input.supabase
-      .from("service_areas")
-      .select("financial_model, commission_wallet_enabled")
-      .eq("id", trip.service_area_id)
-      .maybeSingle();
-    saConfig = sa;
-  }
-
   const usesCw = tripUsesCommissionWalletDeduction({
     tripFinancialModel: trip.financial_model as string | null,
     tripCommissionWalletEnabled: trip.commission_wallet_enabled as boolean | null,
-    serviceAreaConfig: saConfig
-      ? {
-        financial_model: saConfig.financial_model as string,
-        commission_wallet_enabled: saConfig.commission_wallet_enabled as boolean,
-      }
-      : null,
   });
 
   if (!usesCw) {

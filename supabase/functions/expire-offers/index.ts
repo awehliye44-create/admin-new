@@ -27,7 +27,10 @@ import {
   isTripTerminalForDispatch,
 } from "../_shared/tripTerminalDispatch.ts";
 import { FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY } from "../_shared/negotiationPushCopy.ts";
-import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
+import {
+  isScheduledInstantConversionPending,
+  isScheduledWorkflowOrigin,
+} from "../_shared/scheduledHandoverHoldLock.ts";
 import {
   shouldTimeoutAbandonedDecisionHold,
   shouldTimeoutWaitingCustomer,
@@ -109,7 +112,7 @@ async function loadDispatchTripContext(
 ): Promise<DispatchTripContext> {
   const { data } = await supabase
     .from("trips")
-    .select("id, trip_number, current_broadcast_round, searching_expires_at, expires_at")
+    .select("id, trip_number, current_broadcast_round, searching_expires_at, expires_at, dispatch_mode, scheduled_status, is_scheduled, scheduled_at")
     .eq("id", tripId)
     .maybeSingle();
   const row = data as {
@@ -117,12 +120,30 @@ async function loadDispatchTripContext(
     current_broadcast_round?: number | null;
     searching_expires_at?: string | null;
     expires_at?: string | null;
+    dispatch_mode?: string | null;
+    scheduled_status?: string | null;
+    is_scheduled?: boolean | null;
+    scheduled_at?: string | null;
   } | null;
+  const handoverPending = isScheduledInstantConversionPending({
+    dispatch_mode: row?.dispatch_mode,
+    scheduled_status: row?.scheduled_status,
+    is_scheduled: row?.is_scheduled,
+    scheduled_at: row?.scheduled_at,
+  });
+  const scheduledOrigin = isScheduledWorkflowOrigin({
+    dispatch_mode: row?.dispatch_mode,
+    scheduled_status: row?.scheduled_status,
+    is_scheduled: row?.is_scheduled,
+    scheduled_at: row?.scheduled_at,
+  });
   return {
     tripId,
     publicTripId: row?.trip_number ?? null,
     currentSequence: row?.current_broadcast_round ?? null,
-    ttlDeadline: row?.searching_expires_at ?? row?.expires_at ?? null,
+    ttlDeadline: handoverPending
+      ? null
+      : row?.searching_expires_at ?? (scheduledOrigin ? null : row?.expires_at) ?? null,
   };
 }
 
@@ -577,7 +598,7 @@ Deno.serve(async (req) => {
     // Scan & Go retired (trips.scan_go dropped 20260903121500) — do not SELECT or branch on it.
     const { data: staleTrips, error: tripsError } = await supabase
       .from("trips")
-      .select("id, current_broadcast_round, max_broadcast_rounds, broadcast_enabled, status, scheduled_status, dispatch_status, dispatch_mode")
+      .select("id, current_broadcast_round, max_broadcast_rounds, broadcast_enabled, status, scheduled_status, dispatch_status, dispatch_mode, is_scheduled, scheduled_at")
       .in("status", ["searching", "searching_new_driver", "offered", "pending", "broadcasting"])
       .eq("dispatch_status", "broadcasting");
 

@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
     // Scan & Go retired (trips.scan_go dropped 20260903121500) — do not SELECT it.
     const { data: trip, error: fetchError } = await supabase
       .from("trips")
-      .select("id, status, driver_id, passenger_id, provider_order_id, payment_provider, payment_status, service_area_id, broadcast_enabled, dispatch_mode, scheduled_status, negotiation_owner_driver_id, negotiation_status, negotiation_disabled, searching_expires_at, current_broadcast_round, max_broadcast_rounds")
+      .select("id, status, driver_id, passenger_id, provider_order_id, payment_provider, payment_status, service_area_id, broadcast_enabled, dispatch_mode, scheduled_status, is_scheduled, scheduled_at, negotiation_owner_driver_id, negotiation_status, negotiation_disabled, searching_expires_at, current_broadcast_round, max_broadcast_rounds")
       .eq("id", tripId)
       .maybeSingle();
 

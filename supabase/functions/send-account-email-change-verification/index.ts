@@ -1,6 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import {
-  resolveVerificationAppBaseUrl,
   resolveVerificationAppType,
   type VerificationAppType,
 } from "../_shared/accountEmailVerification.ts";
@@ -84,13 +83,6 @@ Deno.serve(async (req) => {
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
     const userAgent = req.headers.get("user-agent");
 
-    const appBaseUrl = resolveVerificationAppBaseUrl(appType, {
-      customerAppUrl: Deno.env.get("CUSTOMER_APP_URL"),
-      driverAppUrl: Deno.env.get("DRIVER_APP_URL"),
-      adminAppUrl: Deno.env.get("ADMIN_APP_URL"),
-      appUrl: Deno.env.get("APP_URL"),
-    });
-
     const firstName = await resolveEmailChangeFirstName(
       service,
       user.id,
@@ -110,7 +102,6 @@ Deno.serve(async (req) => {
       toEmail: guard.normalizedEmail,
       firstName,
       rawToken: tokenPrep.rawToken,
-      appBaseUrl,
     });
 
     if (!sent.ok) {

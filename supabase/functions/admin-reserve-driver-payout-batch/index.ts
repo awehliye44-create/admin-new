@@ -14,6 +14,10 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
+  assertPayoutItemLedgerLineage,
+  PAYOUT_LINEAGE_MISSING,
+} from "../_shared/payoutItemLedgerAllocationWrite.ts";
+import {
   ADMIN_FUNDS_RESERVED_LABEL,
   RESERVATION_ERROR,
   SLICE6_BATCH_STATUS,
@@ -192,6 +196,22 @@ Deno.serve(async (req) => {
 
   const results: Array<Record<string, unknown>> = [];
   for (const item of items ?? []) {
+    try {
+      await assertPayoutItemLedgerLineage({
+        supabase,
+        payout_item_id: String(item.id),
+        expected_amount_pence: Number(item.amount_pence ?? 0),
+      });
+    } catch (lineageErr) {
+      results.push({
+        payout_item_id: item.id,
+        driver_id: item.driver_id,
+        ok: false,
+        error: lineageErr instanceof Error ? lineageErr.message : PAYOUT_LINEAGE_MISSING,
+        error_code: PAYOUT_LINEAGE_MISSING,
+      });
+      continue;
+    }
     const { data: rpcResult, error: rpcErr } = await supabase.rpc(
       "reserve_driver_payout_item",
       { p_payout_item_id: item.id },

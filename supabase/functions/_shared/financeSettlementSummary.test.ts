@@ -710,3 +710,55 @@ Deno.test("FR audit: sessions map present with missing fee stays PENDING not zer
   assertEquals(row.processing_fee_pence, null);
   assertEquals(row.fee_status, "PENDING_PROVIDER_FEE");
 });
+
+Deno.test("FR: captured trip with persisted 637p driver net and no ledger is WALLET_MISMATCH", () => {
+  const tripId = "mk-260817-005";
+  const context = buildTripFinancialAuditContext({
+    payments: [],
+    payoutItems: [],
+    ledgerRows: [],
+    paymentSessions: [{
+      id: "ps-mk-005",
+      trip_id: tripId,
+      status: "captured",
+      captured_amount_pence: 699,
+      provider_processing_fee_pence: 27,
+      fee_status: "CONFIRMED",
+    }],
+  });
+  const row = mapTripToFinancialAuditRow({
+    id: tripId,
+    trip_code: "MK-260817-005",
+    status: "completed",
+    payment_method: "card",
+    payment_status: "captured",
+    commissionable_fare_pence: 749,
+    commission_pence: 112,
+    driver_net_pence: 637,
+    onecab_net_pence: 35,
+    capture_amount_pence: 699,
+    completed_at: "2026-08-17T10:00:00Z",
+  }, context);
+  assertEquals(row.driver_net_pence, 637);
+  assertEquals(row.wallet_credit_pence, 0);
+  assertEquals(row.wallet_variance_pence, -637);
+  assertEquals(row.wallet_reconciliation_status, "WALLET_CREDIT_MISSING");
+  assertEquals(row.fr_trip_audit_status, "WALLET_MISMATCH");
+  assertEquals(row.reconciliation_status?.label, "WALLET_MISMATCH");
+  assertEquals(row.warnings?.includes("WALLET_POSTING_MISSING"), false);
+});
+
+Deno.test("FR: stored negative ONECAB net is not clamped to zero", () => {
+  const row = sumTripFinanceMetrics([{
+    commission_pence: 22,
+    provider_fee_pence: 25,
+    onecab_net_pence: -57,
+    driver_net_pence: 527,
+    gross_fare_pence: 549,
+    final_fare_pence: 549,
+    commissionable_fare_pence: 549,
+    capture_amount_pence: 495,
+    payment_method: "card",
+  }]);
+  assertEquals(row.onecab_net_pence, -57);
+});

@@ -6,6 +6,11 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveAuthenticatedDriver } from "../_shared/resolveAuthenticatedDriver.ts";
 import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
+import { planPayoutItemFromEligibleEntries } from "../_shared/payoutLedgerHandoffSSOT.ts";
+import {
+  assertPayoutItemLedgerLineage,
+  persistPayoutItemLedgerAllocations,
+} from "../_shared/payoutItemLedgerAllocationWrite.ts";
 import {
   canonicalIdempotencyKey,
   canonicalProviderRequestId,
@@ -439,24 +444,39 @@ Deno.serve(async (req) => {
   }
 
   const eligibility = await fetchDriverPayoutEligibility(supabase, { driver_id: driverId });
-  const ssotAvailable = Math.max(0, Math.round(Number(eligibility.available_balance_pence ?? 0)));
-  const summaryRequested = Math.round(Number(summary.early_cash_out_requested_pence ?? 0));
-  const amountPence = Math.min(
-    Number.isFinite(summaryRequested) ? Math.max(0, summaryRequested) : 0,
-    ssotAvailable,
-  );
-  if (!Number.isFinite(amountPence) || amountPence <= 0 || ssotAvailable <= 0) {
+  const requestedPence = Math.max(0, Math.round(Number(eligibility.available_balance_pence ?? 0)));
+  if (!Number.isFinite(requestedPence) || requestedPence <= 0) {
     return json({
       ok: false,
       error: "NO_AVAILABLE_BALANCE",
       error_code: "NO_AVAILABLE_BALANCE",
       driver_message: "No balance available to withdraw.",
       live_balance_pence: eligibility.live_balance_pence,
-      available_balance_pence: ssotAvailable,
+      available_balance_pence: requestedPence,
       pending_balance_pence: eligibility.pending_balance_pence,
       withdrawal_in_progress_pence: eligibility.withdrawal_in_progress_pence,
     }, 409);
   }
+
+  let lineage: ReturnType<typeof planPayoutItemFromEligibleEntries> = null;
+  try {
+    lineage = planPayoutItemFromEligibleEntries({
+      eligible_entries: eligibility.eligible_entries,
+      available_balance_pence: requestedPence,
+    });
+  } catch {
+    lineage = null;
+  }
+  if (!lineage) {
+    return json({
+      ok: false,
+      error: "PAYOUT_LINEAGE_MISSING",
+      error_code: "PAYOUT_LINEAGE_MISSING",
+      driver_message: "No eligible Driver Wallet Ledger entries to withdraw.",
+      revolut_pay_called: false,
+    }, 409);
+  }
+  const amountPence = lineage.amount_pence;
 
   const feePence = Math.max(0, Math.round(Number(summary.early_cash_out_fee_pence ?? 0)));
   const receivesPence = Math.round(
@@ -571,7 +591,7 @@ Deno.serve(async (req) => {
         payout_type: "EARLY_CASHOUT",
         wallet_snapshot_available_pence: amountPence,
         eligibility_snapshot: {
-          source: "driver_wallet_summary_ssot",
+          source: "eligible_driver_wallet_ledger_entries",
           early_cash_out_block_reason: null,
           withdrawal_fee_pence: feePence,
           provider_transfer_pence: providerTransferPence,
@@ -599,6 +619,23 @@ Deno.serve(async (req) => {
     } else {
       payoutItemId = String(item.id);
     }
+  }
+
+  try {
+    await persistPayoutItemLedgerAllocations({
+      supabase,
+      payout_item_id: String(payoutItemId),
+      allocations: lineage.allocations,
+      amount_pence: lineage.amount_pence,
+    });
+  } catch (lineageErr) {
+    return json({
+      ok: false,
+      error: "PAYOUT_LINEAGE_MISSING",
+      error_code: "PAYOUT_LINEAGE_MISSING",
+      message: lineageErr instanceof Error ? lineageErr.message : "Could not allocate ledger entries",
+      revolut_pay_called: false,
+    }, 409);
   }
 
   const { data: reserveRaw, error: reserveErr } = await supabase.rpc(
@@ -798,6 +835,28 @@ Deno.serve(async (req) => {
       revolut_pay_called: false,
       reservation_kept_active: true,
     }, 503);
+  }
+
+  try {
+    await assertPayoutItemLedgerLineage({
+      supabase,
+      payout_item_id: String(payoutItemId),
+      expected_amount_pence: amountPence,
+    });
+  } catch (lineageErr) {
+    await supabase.rpc("abort_driver_payout_submission_claim", {
+      p_payout_item_id: payoutItemId,
+      p_claim_token: String(claim.claim_token),
+      p_failure_code: "PAYOUT_LINEAGE_MISSING",
+      p_failure_reason_safe: lineageErr instanceof Error ? lineageErr.message : "lineage missing",
+    });
+    return json({
+      ok: false,
+      error: "PAYOUT_LINEAGE_MISSING",
+      error_code: "PAYOUT_LINEAGE_MISSING",
+      driver_message: "Withdrawal cannot execute without ledger allocations.",
+      revolut_pay_called: false,
+    }, 409);
   }
 
   let timedOut = false;

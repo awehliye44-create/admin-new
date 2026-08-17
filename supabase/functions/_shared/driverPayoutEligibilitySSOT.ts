@@ -66,7 +66,8 @@ function parseTimeMs(iso: string | null | undefined): number | null {
 
 /**
  * Settlement-pending applies only where ONECAB collects the customer payment.
- * DRIVER_COLLECTED_COMMISSION_WALLET keeps its existing model (no DWL card-settlement hold).
+ * DRIVER_COLLECTED_COMMISSION_WALLET never uses Driver Wallet payout clearing.
+ * Those credits must not become Available (evaluateLedgerEntryEligibility zeros them).
  */
 export function requiresPlatformCollectedClearing(args: {
   payment_collection_model?: string | null;
@@ -74,9 +75,9 @@ export function requiresPlatformCollectedClearing(args: {
   payment_method?: string | null;
 }): boolean {
   const model = String(
-    args.payment_collection_model ?? args.financial_model ?? "PLATFORM_COLLECTED",
+    args.payment_collection_model ?? args.financial_model ?? "",
   ).trim().toUpperCase();
-  if (model.includes("DRIVER_COLLECTED")) return false;
+  if (!model || model.includes("DRIVER_COLLECTED")) return false;
   const method = String(args.payment_method ?? "").trim().toLowerCase();
   if (method === "cash" || method.includes("cash")) return false;
   return true;
@@ -319,6 +320,20 @@ export function evaluateLedgerEntryEligibility(
 
   if (!PAYOUT_ELIGIBLE_LEDGER_TYPES.has(type) || amount <= 0) {
     return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
+  }
+
+  const financialModel = String(entry.financial_model ?? entry.payment_collection_model ?? "")
+    .trim()
+    .toUpperCase();
+  if (financialModel.includes("DRIVER_COLLECTED")) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
+  }
+  if (entry.trip_id) {
+    const isPlatformCollected =
+      financialModel === "PLATFORM_COLLECTED" || financialModel === "PLATFORM_PREPAID";
+    if (!isPlatformCollected) {
+      return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
+    }
   }
 
   if (entry.paid_in_batch_id || entry.allocated_to_payout === true) {

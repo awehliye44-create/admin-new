@@ -6,6 +6,11 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 
 const INCOMING_CALL_TYPE = "incoming_call";
 
+/** Must match Customer `INCOMING_CALL_CHANNEL_ID` — never trip-updates / driver_assigned. */
+export const CUSTOMER_INCOMING_VOIP_ANDROID_CHANNEL = "onecab_incoming_voip_v2";
+/** Must match Driver `INCOMING_CALL_CHANNEL_ID`. */
+export const DRIVER_INCOMING_VOIP_ANDROID_CHANNEL = "onecab_incoming_voip_v1";
+
 export function pushTokenFingerprint(token: string): string {
   // Short non-reversible fingerprint for logs — never log full tokens.
   let hash = 0;
@@ -66,6 +71,8 @@ async function sendFcmAlert(opts: {
   title: string;
   body: string;
   data: Record<string, string>;
+  /** Android notification channel — incoming VoIP must NOT use trip-updates. */
+  androidChannelId: string;
 }): Promise<{ success: boolean }> {
   const message: Record<string, unknown> = {
     token: opts.token,
@@ -76,8 +83,9 @@ async function sendFcmAlert(opts: {
     message.android = {
       priority: "HIGH",
       notification: {
-        channel_id: "trip_updates",
+        channel_id: opts.androidChannelId,
         tag: opts.data.call_id,
+        notification_priority: "PRIORITY_MAX",
       },
     };
   } else if (opts.platform === "ios") {
@@ -89,6 +97,7 @@ async function sendFcmAlert(opts: {
           "thread-id": opts.data.trip_id,
           category: INCOMING_CALL_TYPE,
           sound: "default",
+          "interruption-level": "time-sensitive",
         },
       },
     };
@@ -213,6 +222,9 @@ export async function sendIncomingCallPush(
       title,
       body,
       data,
+      androidChannelId: input.initiatorRole === "customer"
+        ? DRIVER_INCOMING_VOIP_ANDROID_CHANNEL
+        : CUSTOMER_INCOMING_VOIP_ANDROID_CHANNEL,
     });
     if (result.success) {
       console.info("[incomingCallPush] sent", { call_id: input.callId, token_fp: fp });
@@ -265,14 +277,20 @@ export async function sendCallEndedPush(
     end_reason: input.endReason.slice(0, 64),
   };
 
-  type TokenRow = { token: string; platform: string | null };
+  type TokenRow = { token: string; platform: string | null; androidChannelId: string };
   const tokens: TokenRow[] = [];
   if (input.driverId) {
     const {
       resolveDriverAuthoritativeToken,
     } = await import("./authoritativeDevicePush.ts");
     const row = await resolveDriverAuthoritativeToken(client, input.driverId);
-    if (row) tokens.push({ token: row.token, platform: row.platform });
+    if (row) {
+      tokens.push({
+        token: row.token,
+        platform: row.platform,
+        androidChannelId: DRIVER_INCOMING_VOIP_ANDROID_CHANNEL,
+      });
+    }
   }
   if (input.customerUserId) {
     const {
@@ -282,7 +300,13 @@ export async function sendCallEndedPush(
       client,
       input.customerUserId,
     );
-    if (row) tokens.push({ token: row.token, platform: row.platform });
+    if (row) {
+      tokens.push({
+        token: row.token,
+        platform: row.platform,
+        androidChannelId: CUSTOMER_INCOMING_VOIP_ANDROID_CHANNEL,
+      });
+    }
   }
   if (!tokens.length) return { sent: 0 };
 
@@ -306,6 +330,7 @@ export async function sendCallEndedPush(
         title,
         body,
         data,
+        androidChannelId: row.androidChannelId,
       });
       if (result.success) {
         sent += 1;

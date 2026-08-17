@@ -74,13 +74,26 @@ serve(async (req) => {
       if (action === 'confirm_payment') {
         const { data: trip, error: tripErr } = await supabase
           .from('trips')
-          .select('id, status, payment_status, payment_method, gross_fare_pence, commission_pence, driver_net_pence, driver_id')
+          .select('id, status, payment_status, payment_method, financial_model, gross_fare_pence, commission_pence, driver_net_pence, driver_id')
           .eq('id', trip_id)
           .single();
 
         if (tripErr || !trip) {
           return new Response(JSON.stringify({ error: 'Trip not found' }), {
             status: 404,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (
+          String(trip.financial_model ?? "").toUpperCase()
+          === "DRIVER_COLLECTED_COMMISSION_WALLET"
+        ) {
+          return new Response(JSON.stringify({
+            error: "FINANCIAL_MODEL_VIOLATION: platform capture forbidden on DRIVER_COLLECTED_COMMISSION_WALLET",
+            error_code: "FINANCIAL_MODEL_VIOLATION",
+          }), {
+            status: 409,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }

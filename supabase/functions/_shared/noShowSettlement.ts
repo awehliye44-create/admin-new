@@ -51,6 +51,7 @@ export interface NoShowSettlementInput {
   driverId: string;
   passengerId: string | null;
   paymentMethod: string | null;
+  financialModel?: string | null;
   currencyCode: string | null;
   feePence: number;
   cardCharged: boolean;
@@ -178,13 +179,16 @@ export async function settleNoShowFee(
     driverId,
     passengerId,
     paymentMethod,
+    financialModel,
     currencyCode,
     feePence,
     cardCharged,
   } = input;
 
   const currency = (currencyCode ?? "GBP").toUpperCase();
-  const cash = isCashPayment(paymentMethod);
+  const driverCollected =
+    String(financialModel ?? "").toUpperCase() === "DRIVER_COLLECTED_COMMISSION_WALLET";
+  const cash = isCashPayment(paymentMethod) || driverCollected;
 
   if (cash) {
     await supabase

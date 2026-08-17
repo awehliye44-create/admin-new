@@ -126,7 +126,8 @@ export function FinancialReconciliationTripsTab({
     if (mode === 'wallet_mismatches') {
       return rows.filter((r) => {
         const status = String(r.wallet_reconciliation_status ?? '');
-        return status.includes('MISSING')
+        return String(r.reconciliation_status?.label ?? '') === 'WALLET_MISMATCH'
+          || status.includes('MISSING')
           || status.includes('OVER')
           || status.includes('UNDER')
           || status.includes('DUPLICATE')

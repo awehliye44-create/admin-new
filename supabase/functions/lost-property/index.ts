@@ -13,7 +13,7 @@ import {
 } from "../_shared/lostPropertyHelpers.ts";
 import {
   buildTripFinancialModelSnapshot,
-  isCommissionWalletWorkflowEnabled,
+  classifyServiceAreaFinancialPairing,
   shouldSkipPlatformPreauthForCommissionWallet,
   tripCashUpfrontPaymentFields,
   tripInsertFieldsFromFinancialModelSnapshot,
@@ -40,7 +40,8 @@ async function tripCwSnapshotFields(
       commission_wallet_currency: cwSa.commission_wallet_currency,
     }
     : null;
-  if (!isCommissionWalletWorkflowEnabled(cwConfig)) return {};
+  const pairing = classifyServiceAreaFinancialPairing(cwConfig);
+  if (!pairing.ok) return {};
   let commissionRateBps = 0;
   if (vehicleTypeId) {
     const { data: pricingRow } = await sb
@@ -57,13 +58,17 @@ async function tripCwSnapshotFields(
   const snap = buildTripFinancialModelSnapshot({
     serviceAreaId,
     regionId: cwSa?.region_id ?? null,
-    currency: String(cwSa?.commission_wallet_currency || "USD").toUpperCase(),
+    currency: String(cwSa?.commission_wallet_currency || "GBP").toUpperCase(),
     commissionRateBps,
     config: cwConfig!,
   });
   const fields: Record<string, unknown> = snap
     ? tripInsertFieldsFromFinancialModelSnapshot(snap)
-    : {};
+    : {
+      financial_model: pairing.financial_model,
+      payment_collection_model: pairing.customer_payment_policy,
+      commission_wallet_enabled: pairing.commission_wallet_enabled,
+    };
   if (shouldSkipPlatformPreauthForCommissionWallet(cwConfig)) {
     Object.assign(fields, tripCashUpfrontPaymentFields());
   }

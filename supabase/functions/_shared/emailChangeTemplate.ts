@@ -19,7 +19,6 @@ export interface RenderEmailChangeEmailArgs {
   appType: VerificationAppType;
   firstName: string;
   verifyUrl: string;
-  webVerifyUrl: string;
 }
 
 function escapeHtml(value: string): string {
@@ -38,7 +37,6 @@ function headerTitle(appType: VerificationAppType): string {
 function renderHtml(args: RenderEmailChangeEmailArgs): string {
   const safeFirstName = escapeHtml(args.firstName);
   const safeVerifyUrl = escapeHtml(args.verifyUrl);
-  const safeWebVerifyUrl = escapeHtml(args.webVerifyUrl);
   const title = headerTitle(args.appType);
 
   return `<!DOCTYPE html>
@@ -70,7 +68,6 @@ function renderHtml(args: RenderEmailChangeEmailArgs): string {
                   </td>
                 </tr>
               </table>
-              <p style="margin:0 0 16px;font-size:13px;line-height:20px;color:#B8B8B8;">If the app does not open automatically, <a href="${safeWebVerifyUrl}" style="color:${BRAND_YELLOW};text-decoration:underline;">continue in your browser</a>.</p>
               <p style="margin:0;font-size:13px;line-height:20px;color:#A8A8A8;">This link expires in ${EMAIL_VERIFICATION_EXPIRY_MINUTES} minutes. If you did not request this change, you can ignore this email.</p>
             </td>
           </tr>
@@ -100,9 +97,6 @@ You requested to change your ONECAB account email.
 
 Confirm Email Change:
 ${args.verifyUrl}
-
-If the app does not open automatically, continue in your browser:
-${args.webVerifyUrl}
 
 This link expires in ${EMAIL_VERIFICATION_EXPIRY_MINUTES} minutes. If you did not request this change, you can ignore this email.
 

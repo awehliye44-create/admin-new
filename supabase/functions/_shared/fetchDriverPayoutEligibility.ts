@@ -12,6 +12,7 @@ import {
   type DriverPayoutEligibilityResult,
   type LedgerEligibilityEvidence,
 } from "./driverPayoutEligibilitySSOT.ts";
+import { payoutItemStatusReleasesLedgerAllocation } from "./payoutAllocationEligibilitySSOT.ts";
 
 export type { DriverPayoutEligibilityResult };
 
@@ -110,7 +111,7 @@ export async function fetchDriverPayoutEligibility(
       ledgerIds.length > 0
         ? supabase
           .from("payout_item_ledger_allocations")
-          .select("ledger_entry_id, amount_pence")
+          .select("ledger_entry_id, amount_pence, payout_item_id")
           .in("ledger_entry_id", ledgerIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
     ]);
@@ -150,7 +151,28 @@ export async function fetchDriverPayoutEligibility(
       desByLedgerId.set(String(d.ledger_entry_id), d as Record<string, unknown>);
     }
 
+    const allocItemIds = [...new Set(
+      (allocRes.data ?? [])
+        .map((a) => String((a as { payout_item_id?: string | null }).payout_item_id ?? ""))
+        .filter(Boolean),
+    )];
+    const allocItemById = new Map<string, { status?: string; execution_status?: string | null }>();
+    if (allocItemIds.length > 0) {
+      const { data: allocItems } = await supabase
+        .from("payout_items")
+        .select("id, status, execution_status")
+        .in("id", allocItemIds);
+      for (const it of allocItems ?? []) {
+        allocItemById.set(String(it.id), it as { status?: string; execution_status?: string | null });
+      }
+    }
+
     for (const a of allocRes.data ?? []) {
+      const itemId = String((a as { payout_item_id?: string | null }).payout_item_id ?? "");
+      const item = itemId ? allocItemById.get(itemId) : null;
+      if (item && payoutItemStatusReleasesLedgerAllocation(item.status, item.execution_status)) {
+        continue;
+      }
       const lid = String(a.ledger_entry_id);
       allocatedByLedgerId.set(
         lid,

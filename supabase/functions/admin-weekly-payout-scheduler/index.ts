@@ -17,7 +17,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { loadPayoutControlCentreSettings } from "../_shared/payoutControlCentreSettingsSSOT.ts";
-import { computeLedgerWalletBalancePence } from "../_shared/onecabFinanceLedger.ts";
+import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
+import { planPayoutItemFromEligibleEntries, type PlannedLedgerAllocation } from "../_shared/payoutLedgerHandoffSSOT.ts";
+import { persistPayoutItemLedgerAllocations } from "../_shared/payoutItemLedgerAllocationWrite.ts";
 import {
   ADMIN_EXECUTION_DISABLED_LABEL,
   CONFLICTING_ACTIVE_ITEM_STATUSES,
@@ -314,22 +316,6 @@ serve(async (req) => {
 
     const driverIds = (drivers ?? []).map((d) => String(d.id));
 
-    // DWL balances (ledger only — no payment sessions / Revolut / company).
-    const ledgerByDriver = new Map<string, Array<{ type: string; amount_pence: number }>>();
-    if (driverIds.length > 0) {
-      const { data: ledgerRows, error: ledgerError } = await supabase
-        .from("driver_wallet_ledger")
-        .select("driver_id, type, amount_pence")
-        .in("driver_id", driverIds);
-      if (ledgerError) throw ledgerError;
-      for (const row of ledgerRows ?? []) {
-        const id = String(row.driver_id);
-        const list = ledgerByDriver.get(id) ?? [];
-        list.push({ type: String(row.type ?? ""), amount_pence: Number(row.amount_pence ?? 0) });
-        ledgerByDriver.set(id, list);
-      }
-    }
-
     // Active destinations (provider-linked).
     const destByDriver = new Map<string, Record<string, unknown>>();
     if (driverIds.length > 0) {
@@ -372,6 +358,7 @@ serve(async (req) => {
       driver_id: string;
       driver_name: string | null;
       amount_pence: number;
+      allocations: PlannedLedgerAllocation[];
       payout_destination_id: string;
       provider_counterparty_id: string;
       provider_recipient_account_id: string;
@@ -386,17 +373,28 @@ serve(async (req) => {
 
     for (const driver of drivers ?? []) {
       const driverId = String(driver.id);
-      const ledger = ledgerByDriver.get(driverId) ?? [];
-      const balance = computeLedgerWalletBalancePence(ledger);
-      const available = Math.max(0, balance);
       const dest = destByDriver.get(driverId) ?? null;
       const driverStatus = String(driver.driver_status ?? "").toLowerCase();
       const held = ["suspended", "blocked", "banned", "held"].includes(driverStatus);
+      const eligibility = await fetchDriverPayoutEligibility(supabase, { driver_id: driverId });
+      let lineage: ReturnType<typeof planPayoutItemFromEligibleEntries> = null;
+      try {
+        lineage = planPayoutItemFromEligibleEntries({
+          eligible_entries: eligibility.eligible_entries,
+          available_balance_pence: eligibility.available_balance_pence,
+        });
+      } catch {
+        lineage = null;
+      }
+      if (!lineage) {
+        ineligible.push({ driver_id: driverId, reasons: ["NO_ELIGIBLE_LEDGER_ALLOCATION"] });
+        continue;
+      }
 
       const decision = evaluateDriverBatchEligibility({
         driver_id: driverId,
-        wallet_balance_pence: balance,
-        available_payout_pence: available,
+        wallet_balance_pence: eligibility.live_balance_pence,
+        available_payout_pence: lineage.amount_pence,
         payouts_enabled: driver.payouts_enabled !== false,
         driver_held_or_blocked: held,
         currency: serviceAreaCurrency,
@@ -423,13 +421,18 @@ serve(async (req) => {
       planned.push({
         driver_id: driverId,
         driver_name: `${driver.first_name ?? ""} ${driver.last_name ?? ""}`.trim() || null,
-        amount_pence: decision.amount_pence,
+        amount_pence: lineage.amount_pence,
+        allocations: lineage.allocations,
         payout_destination_id: decision.payout_destination_id,
         provider_counterparty_id: decision.provider_counterparty_id,
         provider_recipient_account_id: decision.provider_recipient_account_id,
         wallet_snapshot_balance_pence: decision.wallet_snapshot_balance_pence,
-        wallet_snapshot_available_pence: decision.wallet_snapshot_available_pence,
-        eligibility_snapshot: decision.eligibility_snapshot,
+        wallet_snapshot_available_pence: lineage.amount_pence,
+        eligibility_snapshot: {
+          ...decision.eligibility_snapshot,
+          source: "eligible_driver_wallet_ledger_entries",
+          ledger_allocation_ids: lineage.allocations.map((a) => a.ledger_entry_id),
+        },
         currency: serviceAreaCurrency,
       });
     }
@@ -564,7 +567,10 @@ serve(async (req) => {
     }));
 
     if (itemRows.length > 0) {
-      const { error: itemsError } = await supabase.from("payout_items").insert(itemRows);
+      const { data: insertedItems, error: itemsError } = await supabase
+        .from("payout_items")
+        .insert(itemRows)
+        .select("id, driver_id");
       if (itemsError) {
         await supabase
           .from("payout_batches")
@@ -575,6 +581,17 @@ serve(async (req) => {
           })
           .eq("id", batchId);
         throw itemsError;
+      }
+      const plannedByDriver = new Map(planned.map((p) => [p.driver_id, p]));
+      for (const it of insertedItems ?? []) {
+        const plannedItem = plannedByDriver.get(String(it.driver_id));
+        if (!plannedItem) continue;
+        await persistPayoutItemLedgerAllocations({
+          supabase,
+          payout_item_id: String(it.id),
+          allocations: plannedItem.allocations,
+          amount_pence: plannedItem.amount_pence,
+        });
       }
     }
 

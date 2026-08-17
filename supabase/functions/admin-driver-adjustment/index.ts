@@ -74,6 +74,32 @@ serve(async (req) => {
       });
     }
 
+    if (trip_id) {
+      const { data: linkedTrip, error: linkedTripErr } = await supabase
+        .from('trips')
+        .select('id, financial_model')
+        .eq('id', trip_id)
+        .maybeSingle();
+      if (linkedTripErr || !linkedTrip) {
+        return new Response(JSON.stringify({ error: 'Trip not found', error_code: 'TRIP_NOT_FOUND' }), {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if (
+        String(linkedTrip.financial_model ?? '').toUpperCase()
+        === 'DRIVER_COLLECTED_COMMISSION_WALLET'
+      ) {
+        return new Response(JSON.stringify({
+          error: 'FINANCIAL_MODEL_VIOLATION: Driver Wallet adjustment forbidden on DRIVER_COLLECTED_COMMISSION_WALLET',
+          error_code: 'FINANCIAL_MODEL_VIOLATION',
+        }), {
+          status: 409,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // Verify driver exists
     const { data: driver, error: driverError } = await supabase
       .from('drivers')

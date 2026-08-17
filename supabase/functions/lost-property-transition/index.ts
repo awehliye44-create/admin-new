@@ -243,15 +243,31 @@ serve(async (req: Request) => {
       try {
         const { data: origTrip } = await admin
           .from("trips")
-          .select("pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, service_area_id, customer_id")
+          .select("pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, service_area_id, customer_id, financial_model, commission_wallet_enabled, customer_payment_policy")
           .eq("id", lpCase.trip_id)
           .single();
 
         if (origTrip) {
+          let financialModel = origTrip.financial_model ?? null;
+          let commissionWalletEnabled = origTrip.commission_wallet_enabled ?? null;
+          let customerPaymentPolicy = origTrip.customer_payment_policy ?? null;
+          if (!financialModel && origTrip.service_area_id) {
+            const { data: sa } = await admin
+              .from("service_areas")
+              .select("financial_model, commission_wallet_enabled, customer_payment_policy")
+              .eq("id", origTrip.service_area_id)
+              .maybeSingle();
+            financialModel = sa?.financial_model ?? null;
+            commissionWalletEnabled = sa?.commission_wallet_enabled ?? null;
+            customerPaymentPolicy = sa?.customer_payment_policy ?? null;
+          }
           const { data: returnTrip } = await admin.from("trips").insert({
             customer_id: origTrip.customer_id,
             driver_id: driver.id,
             service_area_id: origTrip.service_area_id,
+            financial_model: financialModel,
+            commission_wallet_enabled: commissionWalletEnabled,
+            customer_payment_policy: customerPaymentPolicy,
             pickup_address: origTrip.dropoff_address ?? "Item location",
             pickup_lat: origTrip.dropoff_lat,
             pickup_lng: origTrip.dropoff_lng,

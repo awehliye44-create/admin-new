@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import {
   accountEmailChangeBridgeUrl,
-  accountEmailChangeWebUrl,
   type VerificationAppType,
 } from "./accountEmailVerification.ts";
 import type { EmailChangeAccountType } from "./emailChangePolicy.ts";
@@ -97,17 +96,14 @@ export async function sendEmailChangeVerification(
     toEmail: string;
     firstName: string;
     rawToken: string;
-    appBaseUrl: string;
   },
 ): Promise<{ ok: true; resendId?: string } | { ok: false; message: string }> {
   const verifyUrl = accountEmailChangeBridgeUrl(args.supabaseUrl, args.appType, args.rawToken);
-  const webVerifyUrl = accountEmailChangeWebUrl(args.appBaseUrl, args.appType, args.rawToken);
 
   const emailContent = renderEmailChangeEmail({
     appType: args.appType,
     firstName: args.firstName,
     verifyUrl,
-    webVerifyUrl,
   });
 
   const sent = await sendResendEmail({

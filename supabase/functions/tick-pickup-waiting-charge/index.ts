@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
     }
 
     const tripSelectCols =
-      "id, driver_id, confirmed_driver_id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, service_area_id, vehicle_type_id, pickup_latitude, pickup_longitude, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, grace_period_expired_at, no_show_charge_pence, late_cancel_fee_pence, pickup_waiting_admin_config, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, free_wait_expires_at, final_customer_fare_pence, final_fare_pence, locked_base_fare_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, accepted_commission_percent, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence";
+      "id, driver_id, confirmed_driver_id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, service_area_id, vehicle_type_id, pickup_latitude, pickup_longitude, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, grace_period_expired_at, no_show_charge_pence, late_cancel_fee_pence, pickup_waiting_admin_config, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, free_wait_expires_at, final_customer_fare_pence, final_fare_pence, locked_base_fare_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, accepted_commission_percent, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence";
 
     const liveFareFields = (row: Record<string, unknown>, pickupChargeOverride?: number) => {
       const preview = computeLiveTripFarePreview({
@@ -87,8 +87,10 @@ Deno.serve(async (req) => {
         driver_tier_commission_percent: row.driver_tier_commission_percent as number | null,
         commission_pct: row.commission_pct as number | null,
         commission_pence: row.commission_pence as number | null,
-        gross_fare_pence: row.gross_fare_pence as number | null,
-      });
+      gross_fare_pence: row.gross_fare_pence as number | null,
+      offer_discount_pence: row.offer_discount_pence as number | null,
+      discount_pence: row.discount_pence as number | null,
+    });
       return {
         final_customer_fare_pence: preview.final_customer_fare_pence,
         pickup_waiting_charge_pence: preview.pickup_waiting_charge_pence,

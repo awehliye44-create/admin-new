@@ -27,6 +27,10 @@ import {
   relayProbePayBlocked,
 } from "../_shared/revolutBusinessRelayClient.ts";
 import { ensureFreshRevolutBusinessAccessToken } from "../_shared/revolutBusinessAccessTokenRefresh.ts";
+import {
+  assertPayoutItemLedgerLineage,
+  PAYOUT_LINEAGE_MISSING,
+} from "../_shared/payoutItemLedgerAllocationWrite.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -111,6 +115,23 @@ Deno.serve(async (req) => {
       message: "payout item not found",
       revolut_pay_called: false,
     }, 404);
+  }
+
+  try {
+    await assertPayoutItemLedgerLineage({
+      supabase,
+      payout_item_id: payoutItemId,
+      expected_amount_pence: Number(item.amount_pence ?? 0),
+    });
+  } catch (lineageErr) {
+    return json({
+      ok: false,
+      error: PAYOUT_LINEAGE_MISSING,
+      message: lineageErr instanceof Error ? lineageErr.message : PAYOUT_LINEAGE_MISSING,
+      revolut_pay_called: false,
+      wallet_debited: false,
+      reservation_consumed: false,
+    }, 409);
   }
 
   if (String(item.driver_id) === SLICE8_PROOF_DRIVERS.AHMED_ID) {

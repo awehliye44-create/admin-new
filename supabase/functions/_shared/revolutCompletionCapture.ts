@@ -19,6 +19,8 @@ import {
 } from "./paymentSessionFinancialLockSSOT.ts";
 import { decideCaptureAfterRetrieve } from "./revolutCaptureIdempotencySSOT.ts";
 import { applyCanonicalSettlementAfterCapture } from "./applyCanonicalSettlementAfterCapture.ts";
+import { FINANCIAL_MODEL_VIOLATION, SERVICE_AREA_FINANCIAL_MODEL } from "./commissionWalletSSOT.ts";
+import { recordPaymentSessionPersistFailureMetadata } from "./walletPostingMismatchSSOT.ts";
 import {
   markPaymentSessionCaptured,
   markPaymentSessionCaptureResidualRelease,
@@ -124,6 +126,15 @@ export async function executeRevolutTripCompletionCapture(args: {
   trip: Record<string, unknown>;
   tipPence?: number;
 }): Promise<FinalizeRevolutCaptureResult> {
+  if (
+    String(args.trip.financial_model ?? "").toUpperCase()
+    === SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET
+  ) {
+    throw new Error(
+      `${FINANCIAL_MODEL_VIOLATION}: platform capture forbidden on DRIVER_COLLECTED_COMMISSION_WALLET`,
+    );
+  }
+
   const tripId = String(args.trip.id);
   const tripStatus = String(args.trip.status ?? "").toLowerCase();
   const orderId = String(args.trip.provider_order_id ?? "").trim();
@@ -181,6 +192,7 @@ export async function executeRevolutTripCompletionCapture(args: {
     );
     const now = new Date().toISOString();
     let residualMsg = "";
+    let paymentSessionPersisted = false;
     try {
       await args.supabase.from("trips").update({
         payment_status: "captured",
@@ -205,6 +217,7 @@ export async function executeRevolutTripCompletionCapture(args: {
           orderBefore as unknown as Record<string, unknown>,
         ),
       });
+      paymentSessionPersisted = true;
       const residual = await persistPostCaptureResidualReleaseEvidence({
         supabase: args.supabase,
         clientActionId,
@@ -219,38 +232,46 @@ export async function executeRevolutTripCompletionCapture(args: {
       residualMsg = residual.messageSuffix;
     } catch (persistErr) {
       console.error("[revolutCompletionCapture] already_captured persist failed", persistErr);
+      if (!paymentSessionPersisted) {
+        await recordPaymentSessionPersistFailureMetadata(args.supabase, {
+          tripId,
+          tripCode: args.trip.trip_code ? String(args.trip.trip_code) : null,
+          errorMessage: persistErr instanceof Error ? persistErr.message : String(persistErr),
+        });
+      }
     }
-    // Settlement must not be skipped when session/residual reconcile throws.
-    try {
-      const { data: tripFresh } = await args.supabase
-        .from("trips")
-        .select("*")
-        .eq("id", tripId)
-        .maybeSingle();
-      await applyCanonicalSettlementAfterCapture({
-        supabase: args.supabase,
-        tripId,
-        trip: {
-          ...(tripFresh ?? args.trip),
-          ...resolvedFare,
-          final_fare_pence: resolvedFare.final_fare_pence,
-          pickup_waiting_charge_pence: resolvedFare.arrival_waiting_charge_pence,
-          stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
-          // Prefer persisted settlement columns from stop-workflow / prior writers.
-          driver_net_pence: (tripFresh ?? args.trip).driver_net_pence
-            ?? args.trip.driver_net_pence,
-          accepted_commission_percent: (tripFresh ?? args.trip).accepted_commission_percent
-            ?? args.trip.accepted_commission_percent,
-          driver_tier_commission_percent: (tripFresh ?? args.trip).driver_tier_commission_percent
-            ?? args.trip.driver_tier_commission_percent,
-          commission_pct: (tripFresh ?? args.trip).commission_pct
-            ?? args.trip.commission_pct,
-        },
-        captureAmountPence,
-        tipPence: safeTipPence,
-      });
-    } catch (ledgerErr) {
-      console.error("[revolutCompletionCapture] already_captured settlement failed", ledgerErr);
+    if (paymentSessionPersisted) {
+      try {
+        const { data: tripFresh } = await args.supabase
+          .from("trips")
+          .select("*")
+          .eq("id", tripId)
+          .maybeSingle();
+        await applyCanonicalSettlementAfterCapture({
+          supabase: args.supabase,
+          tripId,
+          mode: "recovery",
+          trip: {
+            ...(tripFresh ?? args.trip),
+            ...resolvedFare,
+            final_fare_pence: resolvedFare.final_fare_pence,
+            pickup_waiting_charge_pence: resolvedFare.arrival_waiting_charge_pence,
+            stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
+            driver_net_pence: (tripFresh ?? args.trip).driver_net_pence
+              ?? args.trip.driver_net_pence,
+            accepted_commission_percent: (tripFresh ?? args.trip).accepted_commission_percent
+              ?? args.trip.accepted_commission_percent,
+            driver_tier_commission_percent: (tripFresh ?? args.trip).driver_tier_commission_percent
+              ?? args.trip.driver_tier_commission_percent,
+            commission_pct: (tripFresh ?? args.trip).commission_pct
+              ?? args.trip.commission_pct,
+          },
+          captureAmountPence,
+          tipPence: safeTipPence,
+        });
+      } catch (ledgerErr) {
+        console.error("[revolutCompletionCapture] already_captured settlement failed", ledgerErr);
+      }
     }
     return {
       success: true,
@@ -370,16 +391,65 @@ export async function executeRevolutTripCompletionCapture(args: {
           safe.capturePence,
         );
         const nowSafe = new Date().toISOString();
-        await markPaymentSessionCaptured(args.supabase, {
-          clientActionId,
-          providerOrderId: orderId,
-          tripId,
-          captureAmountPence: safe.capturePence,
-          capturedAt: nowSafe,
-          providerCaptureId: extractProviderCaptureId(
-            capturedSafe as unknown as Record<string, unknown>,
-          ),
-        });
+        try {
+          await markPaymentSessionCaptured(args.supabase, {
+            clientActionId,
+            providerOrderId: orderId,
+            tripId,
+            captureAmountPence: safe.capturePence,
+            capturedAt: nowSafe,
+            providerCaptureId: extractProviderCaptureId(
+              capturedSafe as unknown as Record<string, unknown>,
+            ),
+          });
+        } catch (psErr) {
+          console.error("[revolutCompletionCapture] Payment Sessions persist failed after provider capture", psErr);
+          await recordPaymentSessionPersistFailureMetadata(args.supabase, {
+            tripId,
+            tripCode: args.trip.trip_code ? String(args.trip.trip_code) : null,
+            errorMessage: psErr instanceof Error ? psErr.message : String(psErr),
+          });
+          return {
+            success: true,
+            status: safe.shortfallPence > 0 ? "PARTIAL_CAPTURE_ONLY" : "captured",
+            capture_amount_pence: safe.capturePence,
+            provider_order_id: orderId,
+            message: "Provider captured; Payment Sessions persist failed — wallet not posted",
+          };
+        }
+        try {
+          const { data: tripFresh } = await args.supabase
+            .from("trips")
+            .select("*")
+            .eq("id", tripId)
+            .maybeSingle();
+          await applyCanonicalSettlementAfterCapture({
+            supabase: args.supabase,
+            tripId,
+            mode: "fresh_capture",
+            trip: {
+              ...(tripFresh ?? args.trip),
+              final_fare_pence: resolvedFare.final_fare_pence,
+              pickup_waiting_charge_pence: resolvedFare.arrival_waiting_charge_pence,
+              stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
+              airport_charge_pence: resolvedFare.airport_charge_pence,
+              tip_pence: safeTipPence,
+              tip_amount_pence: safeTipPence,
+              driver_net_pence: (tripFresh ?? args.trip).driver_net_pence
+                ?? args.trip.driver_net_pence,
+              accepted_commission_percent: (tripFresh ?? args.trip).accepted_commission_percent
+                ?? args.trip.accepted_commission_percent,
+              driver_tier_commission_percent: (tripFresh ?? args.trip).driver_tier_commission_percent
+                ?? args.trip.driver_tier_commission_percent,
+              commission_pct: (tripFresh ?? args.trip).commission_pct
+                ?? args.trip.commission_pct,
+            },
+            captureAmountPence: safe.capturePence,
+            tipPence: safeTipPence,
+          });
+        } catch (ledgerErr) {
+          console.error("[revolutCompletionCapture] increment safe-capture settlement failed", ledgerErr);
+        }
         if (safe.shortfallPence > 0) {
           await markPaymentSessionPaymentShortfall(args.supabase, {
             clientActionId,
@@ -476,6 +546,7 @@ export async function executeRevolutTripCompletionCapture(args: {
       await applyCanonicalSettlementAfterCapture({
         supabase: args.supabase,
         tripId,
+        mode: "fresh_capture",
         trip: {
           ...(tripFresh ?? args.trip),
           final_fare_pence: resolvedFare.final_fare_pence,
@@ -641,22 +712,44 @@ export async function executeRevolutTripCompletionCapture(args: {
         updated_at: nowLocked,
       }).eq("provider_order_id", orderId);
 
-      await markPaymentSessionCaptured(args.supabase, {
-        clientActionId,
-        providerOrderId: orderId,
-        tripId,
-        captureAmountPence: decision.captureAmountPence,
-        authorisedAmountPence: authorisedHoldPence,
-        totalAuthorisedAmountPence: authorisedHoldPence,
-        resolutionFields: buildPaymentResolutionPersistPatch(fareAuthPlan, {
-          captured_pence_override: decision.captureAmountPence,
-          released_pence_override: fareAuthPlan.release_remainder_pence,
-        }),
-        capturedAt: nowLocked,
-        providerCaptureId: extractProviderCaptureId(
-          capturedLocked as unknown as Record<string, unknown>,
-        ),
-      });
+      try {
+        await markPaymentSessionCaptured(args.supabase, {
+          clientActionId,
+          providerOrderId: orderId,
+          tripId,
+          captureAmountPence: decision.captureAmountPence,
+          authorisedAmountPence: authorisedHoldPence,
+          totalAuthorisedAmountPence: authorisedHoldPence,
+          resolutionFields: buildPaymentResolutionPersistPatch(fareAuthPlan, {
+            captured_pence_override: decision.captureAmountPence,
+            released_pence_override: fareAuthPlan.release_remainder_pence,
+          }),
+          capturedAt: nowLocked,
+          providerCaptureId: extractProviderCaptureId(
+            capturedLocked as unknown as Record<string, unknown>,
+          ),
+        });
+      } catch (psErr) {
+        console.error("[revolutCompletionCapture] Payment Sessions persist failed after provider capture", psErr);
+        await recordPaymentSessionPersistFailureMetadata(args.supabase, {
+          tripId,
+          tripCode: args.trip.trip_code ? String(args.trip.trip_code) : null,
+          errorMessage: psErr instanceof Error ? psErr.message : String(psErr),
+        });
+        await releasePaymentSessionFinancialLock(args.supabase, {
+          paymentSessionId: captureSessionId,
+          owner: captureOwner,
+          nextState: "CAPTURED",
+        });
+        capturedOk = true;
+        return {
+          success: true,
+          status: paymentStatusLocked,
+          capture_amount_pence: decision.captureAmountPence,
+          provider_order_id: orderId,
+          message: "Provider captured; Payment Sessions persist failed — wallet not posted",
+        };
+      }
 
       await releasePaymentSessionFinancialLock(args.supabase, {
         paymentSessionId: captureSessionId,
@@ -714,18 +807,35 @@ export async function executeRevolutTripCompletionCapture(args: {
     updated_at: now,
   }).eq("provider_order_id", orderId);
 
-  await markPaymentSessionCaptured(args.supabase, {
-    clientActionId,
-    providerOrderId: orderId,
-    tripId,
-    captureAmountPence: amountToCapture,
-    authorisedAmountPence: authorisedHoldPence,
-    totalAuthorisedAmountPence: authorisedHoldPence,
-    resolutionFields: buildPaymentResolutionPersistPatch(fareAuthPlan, {
-      captured_pence_override: amountToCapture,
-      released_pence_override: fareAuthPlan.release_remainder_pence,
-    }),
-  });
+  try {
+    await markPaymentSessionCaptured(args.supabase, {
+      clientActionId,
+      providerOrderId: orderId,
+      tripId,
+      captureAmountPence: amountToCapture,
+      authorisedAmountPence: authorisedHoldPence,
+      totalAuthorisedAmountPence: authorisedHoldPence,
+      resolutionFields: buildPaymentResolutionPersistPatch(fareAuthPlan, {
+        captured_pence_override: amountToCapture,
+        released_pence_override: fareAuthPlan.release_remainder_pence,
+      }),
+      capturedAt: now,
+    });
+  } catch (psErr) {
+    console.error("[revolutCompletionCapture] Payment Sessions persist failed after provider capture", psErr);
+    await recordPaymentSessionPersistFailureMetadata(args.supabase, {
+      tripId,
+      tripCode: args.trip.trip_code ? String(args.trip.trip_code) : null,
+      errorMessage: psErr instanceof Error ? psErr.message : String(psErr),
+    });
+    return {
+      success: true,
+      status: paymentStatus,
+      capture_amount_pence: amountToCapture,
+      provider_order_id: orderId,
+      message: "Provider captured; Payment Sessions persist failed — wallet not posted",
+    };
+  }
 
   const residual = await persistPostCaptureResidualReleaseEvidence({
     supabase: args.supabase,
@@ -749,6 +859,7 @@ export async function executeRevolutTripCompletionCapture(args: {
       await applyCanonicalSettlementAfterCapture({
         supabase: args.supabase,
         tripId,
+        mode: "fresh_capture",
         trip: {
           ...(tripFresh ?? args.trip),
           final_fare_pence: resolvedFare.final_fare_pence,

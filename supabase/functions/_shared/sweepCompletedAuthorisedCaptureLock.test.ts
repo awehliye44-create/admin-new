@@ -43,4 +43,5 @@ Deno.test("sweep and complete_trip statically import capture modules", async () 
   assertEquals(stop.includes('from "../_shared/digitalPaymentCapture.ts"'), true);
   assertEquals(sweep.includes('from "../_shared/revolutOrders.ts"'), true);
   assertEquals(sweep.includes('from "../_shared/applyCanonicalSettlementAfterCapture.ts"'), true);
+  assertEquals(sweep.includes('mode: "recovery"'), true);
 });

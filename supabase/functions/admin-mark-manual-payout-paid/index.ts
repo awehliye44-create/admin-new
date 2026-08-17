@@ -12,6 +12,10 @@ import {
   resolveRegionPayoutProvider,
 } from "../_shared/manualProviderPayoutSSOT.ts";
 import { isPayoutVerificationMode } from "../_shared/payoutExecutionGate.ts";
+import {
+  assertPayoutItemLedgerLineage,
+  PAYOUT_LINEAGE_MISSING,
+} from "../_shared/payoutItemLedgerAllocationWrite.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -250,6 +254,22 @@ serve(async (req) => {
     }
 
     const currencyCode = await resolveCurrencyFromDriver(supabase, payoutItem.driver_id);
+
+    try {
+      await assertPayoutItemLedgerLineage({
+        supabase,
+        payout_item_id: payoutItemId,
+        expected_amount_pence: payoutAmount,
+      });
+    } catch (lineageErr) {
+      return new Response(JSON.stringify({
+        error: lineageErr instanceof Error ? lineageErr.message : PAYOUT_LINEAGE_MISSING,
+        error_code: PAYOUT_LINEAGE_MISSING,
+      }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (!batchId) {
       return new Response(JSON.stringify({

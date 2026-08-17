@@ -361,7 +361,7 @@ export function deriveTripReconciliationBadge(args: {
     || walletStatus === "WALLET_UNDER_CREDIT"
     || walletStatus === "DUPLICATE_WALLET_CREDIT"
   ) {
-    return { label: "Wallet Mismatch", tone: "red" };
+    return { label: "WALLET_MISMATCH", tone: "red" };
   }
   if (
     payoutStatus === "PAYOUT_MISMATCH"

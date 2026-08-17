@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, passenger_id, service_area_id, vehicle_type_id, currency_code, arrived_at, created_at, scheduled_at, payment_method, payment_provider, provider_order_id, status",
+        "id, passenger_id, service_area_id, vehicle_type_id, currency_code, arrived_at, created_at, scheduled_at, payment_method, payment_provider, provider_order_id, status, financial_model",
       )
       .eq("id", trip_id)
       .single();
@@ -100,6 +100,21 @@ Deno.serve(async (req) => {
     if (tripErr || !trip) {
       return new Response(JSON.stringify({ error: "Trip not found" }), {
         status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (
+      String(trip.financial_model ?? "").toUpperCase()
+      === "DRIVER_COLLECTED_COMMISSION_WALLET"
+    ) {
+      log("Rejected — DRIVER_COLLECTED trips cannot use platform lifecycle capture");
+      return new Response(JSON.stringify({
+        success: false,
+        error: "FINANCIAL_MODEL_VIOLATION: platform capture forbidden on DRIVER_COLLECTED_COMMISSION_WALLET",
+        error_code: "FINANCIAL_MODEL_VIOLATION",
+      }), {
+        status: 409,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

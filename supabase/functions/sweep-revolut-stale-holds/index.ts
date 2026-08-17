@@ -288,6 +288,7 @@ serve(async (req) => {
           trip: trip as Record<string, unknown>,
           captureAmountPence: amountMinor,
           tipPence: Math.max(0, Math.round(Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0))),
+          mode: "recovery",
         });
       }
       healResults.push({ trip_id: tripId, outcome: "HEALED_COMPLETED_CAPTURE", amount_pence: amountMinor });

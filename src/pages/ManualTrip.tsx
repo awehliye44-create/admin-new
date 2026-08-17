@@ -29,8 +29,9 @@ import { useGeoLocation } from '@/hooks/useGeoLocation';
 import { ALL_PAYMENT_METHODS, PaymentMethodType } from '@/hooks/useServiceAreaPaymentMethods';
 import {
   buildTripFinancialModelSnapshot,
-  isCommissionWalletWorkflowEnabled,
+  classifyServiceAreaFinancialPairing,
   shouldSkipPlatformPreauthForCommissionWallet,
+  tripCashUpfrontPaymentFields,
   tripInsertFieldsFromFinancialModelSnapshot,
 } from '../../shared/commissionWalletSSOT';
 
@@ -584,7 +585,15 @@ export default function ManualTrip() {
               commission_wallet_currency: cwSa.commission_wallet_currency,
             }
           : null;
-        if (isCommissionWalletWorkflowEnabled(cwConfig)) {
+          if (!cwConfig) {
+            toast.error('Service area financial configuration is missing');
+            return;
+          }
+          const pairing = classifyServiceAreaFinancialPairing(cwConfig);
+          if (!pairing.ok) {
+            toast.error(pairing.error);
+            return;
+          }
           let commissionRateBps = 0;
           if (selectedVehicleTypeId) {
             const { data: pricingRow } = await supabase
@@ -603,12 +612,14 @@ export default function ManualTrip() {
             regionId: cwSa?.region_id ?? null,
             currency: String(cwSa?.commission_wallet_currency || currencyCode || 'USD').toUpperCase(),
             commissionRateBps,
-            config: cwConfig!,
+            config: cwConfig,
           });
-          if (snap) Object.assign(tripData, tripInsertFieldsFromFinancialModelSnapshot(snap));
-          // Banadir / DRIVER_COLLECTS_UPFRONT: do not force payment_method=cash.
-          // Passenger cash is retired — digital (customer app) or wallet/corporate only.
-        }
+          if (snap) {
+            Object.assign(tripData, tripInsertFieldsFromFinancialModelSnapshot(snap));
+            if (shouldSkipPlatformPreauthForCommissionWallet(cwConfig)) {
+              Object.assign(tripData, tripCashUpfrontPaymentFields());
+            }
+          }
       }
 
       const { error } = await supabase

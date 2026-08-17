@@ -134,6 +134,9 @@ verify_jwt = false
 [functions.schedule-dispatch]
 verify_jwt = false
 
+[functions.scheduled-dispatch]
+verify_jwt = false
+
 [functions.ops-seed]
 verify_jwt = false
 

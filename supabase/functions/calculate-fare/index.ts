@@ -8,7 +8,11 @@ import {
   type ZoneRow,
   type LatLng,
 } from "../_shared/pricing-engine.ts";
-import { corsHeaders } from "../_shared/corsHeaders.ts";
+import {
+  classifyServiceAreaFinancialPairing,
+  shouldSkipPlatformPreauthForCommissionWallet,
+  type ServiceAreaCommissionWalletConfig,
+} from "../_shared/commissionWalletSSOT.ts";
 import {
   compareVehicleByDisplayOrder,
   resolveVehicleDisplayOrder,
@@ -103,7 +107,7 @@ Deno.serve(async (req) => {
 
     const { data: saRow, error: saErr } = await supabase
       .from("service_areas")
-      .select("id, name, region_id, regions!inner(id, name, currency_code, distance_unit)")
+      .select("id, name, region_id, financial_model, commission_wallet_enabled, customer_payment_policy, regions!inner(id, name, currency_code, distance_unit)")
       .eq("id", service_area_id)
       .maybeSingle();
     if (saErr) throw new Error(saErr.message);
@@ -114,6 +118,16 @@ Deno.serve(async (req) => {
     const joinedRegion = saRow.regions as unknown;
     const region = (Array.isArray(joinedRegion) ? joinedRegion[0] : joinedRegion) as Record<string, unknown> | undefined;
     const currencyCode = region?.currency_code as string;
+    const saConfig: ServiceAreaCommissionWalletConfig = {
+      financial_model: (saRow as { financial_model?: string | null }).financial_model,
+      commission_wallet_enabled: (saRow as { commission_wallet_enabled?: boolean | null })
+        .commission_wallet_enabled,
+      customer_payment_policy: (saRow as { customer_payment_policy?: string | null })
+        .customer_payment_policy,
+    };
+    const saPairing = classifyServiceAreaFinancialPairing(saConfig);
+    const skipPlatformPreauth = shouldSkipPlatformPreauthForCommissionWallet(saConfig);
+    const financialModel = saPairing.ok ? saPairing.financial_model : null;
     const distanceUnit = region?.distance_unit as string;
     if (!currencyCode || !distanceUnit) {
       return respond(200, {
@@ -357,6 +371,8 @@ Deno.serve(async (req) => {
       serviceAreaName: saRow.name,
       currencyCode,
       distanceUnit,
+      financial_model: financialModel,
+      skip_platform_preauth: skipPlatformPreauth,
       vehicleFares,
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error: unknown) {

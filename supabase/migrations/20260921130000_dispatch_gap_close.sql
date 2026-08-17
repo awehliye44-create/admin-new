@@ -955,6 +955,11 @@ BEGIN
     RETURN;
   END IF;
 
+  IF lower(COALESCE(v_trip.dispatch_mode, '')) = 'scheduled'
+     AND lower(COALESCE(v_trip.scheduled_status, '')) IS DISTINCT FROM 'converted_to_instant' THEN
+    RETURN;
+  END IF;
+
   IF v_trip.driver_id IS NOT NULL THEN
     RETURN;
   END IF;
@@ -1141,6 +1146,11 @@ BEGIN
   FOR UPDATE;
 
   IF NOT FOUND THEN
+    RETURN;
+  END IF;
+
+  IF lower(COALESCE(v_trip.dispatch_mode, '')) = 'scheduled'
+     AND lower(COALESCE(v_trip.scheduled_status, '')) IS DISTINCT FROM 'converted_to_instant' THEN
     RETURN;
   END IF;
 
@@ -1376,6 +1386,21 @@ BEGIN
       'candidate_count', 0, 'eligible_count', 0,
       'wave_cap', NULL, 'search_radius_meters', NULL,
       'reason', 'trip_not_found'
+    );
+  END IF;
+
+  -- MK-260817-006: instant TTL has not started. Do not use created_at.
+  IF lower(COALESCE(v_trip.dispatch_mode, '')) = 'scheduled'
+     AND lower(COALESCE(v_trip.scheduled_status, '')) IS DISTINCT FROM 'converted_to_instant' THEN
+    RETURN jsonb_build_object(
+      'trip_id', p_trip_id, 'trip_code', v_trip.trip_code,
+      'round', COALESCE(v_trip.current_broadcast_round, 0),
+      'status', 'skipped',
+      'offers_created', 0, 'offer_ids', '[]'::jsonb,
+      'selected_driver_ids', '[]'::jsonb, 'skipped_driver_ids', '[]'::jsonb,
+      'candidate_count', 0, 'eligible_count', 0,
+      'wave_cap', NULL, 'search_radius_meters', NULL,
+      'reason', 'scheduled_handover_pending'
     );
   END IF;
 

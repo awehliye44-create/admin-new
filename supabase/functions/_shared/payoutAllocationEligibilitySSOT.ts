@@ -9,15 +9,29 @@ export const PAYOUT_ALLOCATION_EXCLUDED_TYPES = new Set([
   "PROVIDER_FEE_REVERSAL",
 ]);
 
+/**
+ * Payout Ledger may consume only these Driver Wallet Ledger credits.
+ * Must stay aligned with PAYOUT_ELIGIBLE_LEDGER_TYPES.
+ * CASH_TRIP_EARNING / BONUS / ADJUSTMENT are never bank-transfer source rows.
+ */
 export const PAYOUT_ALLOCATION_ELIGIBLE_CREDIT_TYPES = new Set([
   "TRIP_EARNING_NET",
-  "TRIP_CREDIT",
-  "CASH_TRIP_EARNING",
-  "BONUS",
-  "PROMOTION",
-  "MANUAL_CREDIT",
-  "ADJUSTMENT",
   "DRIVER_TIP_CREDIT",
+  "TIP_CREDIT",
+]);
+
+/** Allocations on these payout items stay on disk (audit) but no longer reserve the ledger. */
+export const PAYOUT_ALLOCATION_RELEASED_ITEM_STATUSES = new Set([
+  "CANCELLED",
+  "RELEASED",
+  "INELIGIBLE",
+  "FAILED",
+  "REVERSED",
+  "RETURNED",
+  "INVALID_ORPHANED",
+  "LEDGER_SYNC_FAILED",
+  "FAILED_RETRYABLE",
+  "FAILED_PERMANENT",
 ]);
 
 export type PayoutAllocation = {
@@ -53,6 +67,16 @@ export function isAllocatableWalletLedgerType(type: unknown): boolean {
   if (PAYOUT_ALLOCATION_EXCLUDED_TYPES.has(normalized)) return false;
   if (PAYOUT_ALLOCATION_EXCLUDED_PREFIXES.some((prefix) => normalized.startsWith(prefix))) return false;
   return PAYOUT_ALLOCATION_ELIGIBLE_CREDIT_TYPES.has(normalized);
+}
+
+export function payoutItemStatusReleasesLedgerAllocation(
+  status: unknown,
+  executionStatus?: unknown,
+): boolean {
+  const st = String(status ?? "").trim().toUpperCase();
+  const ex = String(executionStatus ?? "").trim().toUpperCase();
+  return PAYOUT_ALLOCATION_RELEASED_ITEM_STATUSES.has(st)
+    || PAYOUT_ALLOCATION_RELEASED_ITEM_STATUSES.has(ex);
 }
 
 export function assertAllocationEqualsAmount(

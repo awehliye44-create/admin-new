@@ -31,6 +31,7 @@ import {
   sumVerifiedRefundedFromSessions,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
 } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
+import { readTripFinancialModelStamp } from "../_shared/commissionWalletSSOT.ts";
 
 async function authorizeTripShortfallRecapture(
   gate: GateResult,
@@ -98,14 +99,14 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Trip not found", code: "TRIP_NOT_FOUND" }, 404);
     }
 
-    let financialModel = trip.financial_model ?? null;
-    if (!financialModel && trip.service_area_id) {
-      const { data: sa } = await gate.supabase
-        .from("service_areas")
-        .select("financial_model")
-        .eq("id", trip.service_area_id)
-        .maybeSingle();
-      financialModel = sa?.financial_model ?? null;
+    const financialModel = readTripFinancialModelStamp(
+      trip.financial_model as string | null,
+    );
+    if (!financialModel) {
+      return jsonResponse({
+        error: "Trip financial_model is missing",
+        code: "FINANCIAL_MODEL_VIOLATION",
+      }, 409);
     }
 
     if (!isPlatformCollectedEligible(financialModel)) {

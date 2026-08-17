@@ -298,7 +298,7 @@ describe("driver wallet payout clearing lock", () => {
     expect(agg.eligible_entries).toHaveLength(0);
   });
 
-  it("DRIVER_COLLECTED_COMMISSION_WALLET is not settlement-pending after capture", () => {
+  it("DRIVER_COLLECTED_COMMISSION_WALLET credits never become payout-eligible", () => {
     expect(requiresPlatformCollectedClearing({
       financial_model: "DRIVER_COLLECTED_COMMISSION_WALLET",
       payment_method: "cash",
@@ -311,7 +311,8 @@ describe("driver wallet payout clearing lock", () => {
       }),
       POLICY_27H,
     );
-    expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE);
+    expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR);
+    expect(r.payable_pence).toBe(0);
   });
 
   it("capture timestamp alone is not sufficient; delay fallback is backend-owned", () => {

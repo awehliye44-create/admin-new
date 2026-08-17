@@ -26,6 +26,14 @@ import {
   gatewayNotConfiguredResponse,
 } from "../_shared/paymentGatewayGuard.ts";
 import { createRevolutPreauthResponse } from "../_shared/revolutPreauth.ts";
+import {
+  classifyServiceAreaFinancialPairing,
+  FINANCIAL_MODEL_VIOLATION,
+  INVALID_CONFIGURATION,
+  SERVICE_AREA_FINANCIAL_MODEL,
+  shouldSkipPlatformPreauthForCommissionWallet,
+  type ServiceAreaCommissionWalletConfig,
+} from "../_shared/commissionWalletSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -216,6 +224,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     // ------------------------------------------------------------------
     let estimatedTotalPence: number;
     let tripId: string | null = null;
+    let tripFinancialModel: string | null = null;
     let idempotencyKeySuffix: string;
     let metadataExtra: Record<string, string> = {};
     let resolvedServiceAreaId: string | null = null;
@@ -235,6 +244,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
 
       if (tripError || !trip) throw new Error(`Trip not found: ${tripError?.message}`);
       resolvedServiceAreaId = (trip as any).service_area_id ?? null;
+      tripFinancialModel = String((trip as any).financial_model ?? "").trim() || null;
 
       // Validate ownership
       const { data: customer } = await supabaseClient
@@ -371,6 +381,57 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     }
 
     logStep("Estimated total", { estimatedTotalPence, service_area_id: resolvedServiceAreaId });
+
+    if (
+      String(tripFinancialModel ?? "").toUpperCase()
+      === SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET
+    ) {
+      return new Response(JSON.stringify({
+        error: "Payment Session is forbidden for DRIVER_COLLECTED_COMMISSION_WALLET",
+        error_code: FINANCIAL_MODEL_VIOLATION,
+        code: FINANCIAL_MODEL_VIOLATION,
+      }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (resolvedServiceAreaId && !tripFinancialModel) {
+      const { data: saFinancialRow, error: saFinancialErr } = await supabaseClient
+        .from("service_areas")
+        .select("financial_model, commission_wallet_enabled, customer_payment_policy")
+        .eq("id", resolvedServiceAreaId)
+        .maybeSingle();
+      if (saFinancialErr) {
+        throw new Error(`Service area financial config failed: ${saFinancialErr.message}`);
+      }
+      const saFinancialConfig: ServiceAreaCommissionWalletConfig = {
+        financial_model: saFinancialRow?.financial_model,
+        commission_wallet_enabled: saFinancialRow?.commission_wallet_enabled,
+        customer_payment_policy: saFinancialRow?.customer_payment_policy,
+      };
+      const saPairing = classifyServiceAreaFinancialPairing(saFinancialConfig);
+      if (!saPairing.ok) {
+        return new Response(JSON.stringify({
+          error: saPairing.error,
+          error_code: INVALID_CONFIGURATION,
+          code: INVALID_CONFIGURATION,
+        }), {
+          status: 422,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (shouldSkipPlatformPreauthForCommissionWallet(saFinancialConfig)) {
+        return new Response(JSON.stringify({
+          error: "Payment Session is forbidden for DRIVER_COLLECTED_COMMISSION_WALLET",
+          error_code: FINANCIAL_MODEL_VIOLATION,
+          code: FINANCIAL_MODEL_VIOLATION,
+        }), {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     if (!tripId && !resolvedServiceAreaId) {
       return new Response(JSON.stringify({

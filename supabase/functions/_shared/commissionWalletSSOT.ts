@@ -35,6 +35,7 @@ export const COMMISSION_WALLET_ENTRY_TYPE = {
   COMMISSION_RESERVE_RELEASE: "COMMISSION_RESERVE_RELEASE",
   COMMISSION_DEDUCTION: "COMMISSION_DEDUCTION",
   COMMISSION_DEDUCTION_REVERSAL: "COMMISSION_DEDUCTION_REVERSAL",
+  COMMISSION_SUBSIDY_CREDIT: "COMMISSION_SUBSIDY_CREDIT",
   TOP_UP_REVERSAL: "TOP_UP_REVERSAL",
   ADMIN_CORRECTION: "ADMIN_CORRECTION",
 } as const;
@@ -86,18 +87,129 @@ export function isCommissionWalletWorkflowEnabled(
   );
 }
 
+export const FINANCIAL_MODEL_VIOLATION = "FINANCIAL_MODEL_VIOLATION" as const;
+export const INVALID_CONFIGURATION = "INVALID_CONFIGURATION" as const;
+
+/**
+ * Deploy sequence flag only. Step A booking writers stamp financial_model while
+ * the column is still nullable. Completion / capture / recovery / payout (step D)
+ * must fail-close when financial_model is missing — never treat null as
+ * PLATFORM_COLLECTED on money paths (Banadir unstamped trips would look UK).
+ * Flip to false in step F after 80100 NOT NULL and every writer is confirmed.
+ */
+export const TRANSITIONAL_NULL_FINANCIAL_MODEL_IS_PLATFORM = true;
+
+/** Read the stored stamp. Empty means missing — callers must fail-close. */
+export function readTripFinancialModelStamp(
+  financialModel: string | null | undefined,
+): string {
+  return String(financialModel ?? "").trim().toUpperCase();
+}
+
+/**
+ * Do not use on recovery / recapture / DWL / payout paths.
+ * Kept so step F can flip the flag without hunting call sites on booking writers.
+ */
+export function resolveTripFinancialModelOrTransitionalPlatform(
+  financialModel: string | null | undefined,
+): string {
+  const model = readTripFinancialModelStamp(financialModel);
+  if (model) return model;
+  if (TRANSITIONAL_NULL_FINANCIAL_MODEL_IS_PLATFORM) {
+    return SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED;
+  }
+  return "";
+}
+
+export type ServiceAreaFinancialPairing =
+  | {
+    ok: true;
+    financial_model: typeof SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED;
+    customer_payment_policy: typeof CUSTOMER_PAYMENT_POLICY.PLATFORM_PREPAID;
+    commission_wallet_enabled: false;
+  }
+  | {
+    ok: true;
+    financial_model: typeof SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET;
+    customer_payment_policy: typeof CUSTOMER_PAYMENT_POLICY.DRIVER_COLLECTS_UPFRONT;
+    commission_wallet_enabled: true;
+  }
+  | {
+    ok: false;
+    code: typeof INVALID_CONFIGURATION;
+    error: string;
+  };
+
+/** Service area may enable exactly one pipeline. Never both. */
+export function classifyServiceAreaFinancialPairing(
+  config: ServiceAreaCommissionWalletConfig | null | undefined,
+): ServiceAreaFinancialPairing {
+  if (!config) {
+    return {
+      ok: false,
+      code: INVALID_CONFIGURATION,
+      error: "Service area financial configuration is missing",
+    };
+  }
+  const model = String(config.financial_model ?? "").toUpperCase();
+  const policy = String(config.customer_payment_policy ?? "").toUpperCase();
+  const cw = config.commission_wallet_enabled === true;
+  const platformPolicyOk = policy === "" || policy === CUSTOMER_PAYMENT_POLICY.PLATFORM_PREPAID;
+  if (
+    model === SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED
+    && platformPolicyOk
+    && !cw
+  ) {
+    return {
+      ok: true,
+      financial_model: SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      customer_payment_policy: CUSTOMER_PAYMENT_POLICY.PLATFORM_PREPAID,
+      commission_wallet_enabled: false,
+    };
+  }
+  if (
+    model === SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET
+    && policy === CUSTOMER_PAYMENT_POLICY.DRIVER_COLLECTS_UPFRONT
+    && cw
+  ) {
+    return {
+      ok: true,
+      financial_model: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+      customer_payment_policy: CUSTOMER_PAYMENT_POLICY.DRIVER_COLLECTS_UPFRONT,
+      commission_wallet_enabled: true,
+    };
+  }
+  return {
+    ok: false,
+    code: INVALID_CONFIGURATION,
+    error:
+      "A service area must be PLATFORM_COLLECTED + PLATFORM_PREPAID + CW off, "
+      + "or DRIVER_COLLECTED_COMMISSION_WALLET + DRIVER_COLLECTS_UPFRONT + CW on",
+  };
+}
+
+export function tripFinancialStampFromServiceArea(
+  config: ServiceAreaCommissionWalletConfig | null | undefined,
+): {
+  financial_model: ServiceAreaFinancialModel;
+  payment_collection_model: CustomerPaymentPolicy;
+  commission_wallet_enabled: boolean;
+} | null {
+  const pairing = classifyServiceAreaFinancialPairing(config);
+  if (!pairing.ok) return null;
+  return {
+    financial_model: pairing.financial_model,
+    payment_collection_model: pairing.customer_payment_policy,
+    commission_wallet_enabled: pairing.commission_wallet_enabled,
+  };
+}
+
 /** True when SA must keep existing UK/EU PLATFORM_COLLECTED behaviour. */
 export function isPlatformCollectedFinancialModel(
   config: ServiceAreaCommissionWalletConfig | null | undefined,
 ): boolean {
-  if (!config) return true;
-  if (isCommissionWalletWorkflowEnabled(config)) return false;
-  const model = String(config.financial_model ?? "").toUpperCase();
-  return (
-    model === ""
-    || model === SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED
-    || config.commission_wallet_enabled !== true
-  );
+  const pairing = classifyServiceAreaFinancialPairing(config);
+  return pairing.ok && pairing.financial_model === SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED;
 }
 
 /** Driver App Commission Wallet visibility — Service Area SSOT only. */
@@ -175,15 +287,12 @@ export function buildTripFinancialModelSnapshot(input: {
   commissionRateBps: number;
   config: ServiceAreaCommissionWalletConfig;
 }): TripFinancialModelSnapshot | null {
-  if (!isCommissionWalletWorkflowEnabled(input.config)) return null;
+  const stamp = tripFinancialStampFromServiceArea(input.config);
+  if (!stamp) return null;
   return {
-    financial_model: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
-    payment_collection_model:
-      (String(input.config.customer_payment_policy ?? "")
-        === CUSTOMER_PAYMENT_POLICY.DRIVER_COLLECTS_UPFRONT
-        ? CUSTOMER_PAYMENT_POLICY.DRIVER_COLLECTS_UPFRONT
-        : CUSTOMER_PAYMENT_POLICY.DRIVER_COLLECTS_UPFRONT),
-    commission_wallet_enabled: true,
+    financial_model: stamp.financial_model,
+    payment_collection_model: stamp.payment_collection_model,
+    commission_wallet_enabled: stamp.commission_wallet_enabled,
     commission_rate_bps: Math.max(0, Math.round(Number(input.commissionRateBps) || 0)),
     currency: String(input.currency || input.config.commission_wallet_currency || "").toUpperCase(),
     service_area_id: input.serviceAreaId,
@@ -228,6 +337,56 @@ export function onecabCommissionDeductionMinor(input: {
   return Math.round((fare * bps) / 10_000);
 }
 
+/**
+ * Customer `global_offer` promotion on a Driver-Collected trip.
+ * Never uses Admin Commission Wallet credit as the locked promotion.
+ * gross = pre-promotion commissionable × rate; effect = gross − locked promo.
+ */
+export function planCommissionWalletTripPromotion(input: {
+  prePromotionCommissionableMinor: number;
+  lockedCustomerPromotionMinor: number;
+  commissionRateBps: number;
+}): {
+  customer_pays_minor: number;
+  gross_commission_minor: number;
+  locked_customer_promotion_minor: number;
+  commission_wallet_effect_minor: number;
+  outcome: "deduction" | "zero" | "subsidy";
+} {
+  const prePromo = Math.max(0, Math.round(Number(input.prePromotionCommissionableMinor) || 0));
+  const promo = Math.max(0, Math.round(Number(input.lockedCustomerPromotionMinor) || 0));
+  const gross = onecabCommissionDeductionMinor({
+    commissionableFareMinor: prePromo,
+    commissionRateBps: input.commissionRateBps,
+  });
+  const effect = gross - promo;
+  return {
+    customer_pays_minor: Math.max(0, prePromo - promo),
+    gross_commission_minor: gross,
+    locked_customer_promotion_minor: promo,
+    commission_wallet_effect_minor: effect,
+    outcome: effect < 0 ? "subsidy" : effect === 0 ? "zero" : "deduction",
+  };
+}
+
+/** ADMIN_CREDIT / trip-independent CW credit is never a customer fare promotion. */
+export function isAdminCommissionWalletCreditCustomerFarePromotion(row: {
+  entry_type?: string | null;
+  trip_id?: string | null;
+}): boolean {
+  void row;
+  return false;
+}
+
+export function isPreservedAdminCommissionWalletCredit(row: {
+  entry_type?: string | null;
+  trip_id?: string | null;
+}): boolean {
+  const type = String(row.entry_type ?? "").toUpperCase();
+  const tripId = row.trip_id == null ? "" : String(row.trip_id).trim();
+  return type === COMMISSION_WALLET_ENTRY_TYPE.ADMIN_CREDIT && tripId === "";
+}
+
 /** Prefer promotional then purchased when consuming commission. */
 export function splitCommissionConsumption(input: {
   deductionMinor: number;
@@ -262,19 +421,17 @@ export type CommissionWalletDerivedBalances = {
 export function deriveCommissionWalletBalances(input: {
   purchasedBalanceMinor: number;
   promotionalBalanceMinor: number;
-  /** Ignored — historical reserves are excluded from live SSOT. */
-  reservedBalanceMinor?: number;
+  reservedBalanceMinor?: number | null;
 }): CommissionWalletDerivedBalances {
   const purchased = Math.round(Number(input.purchasedBalanceMinor) || 0);
   const promotional = Math.round(Number(input.promotionalBalanceMinor) || 0);
-  // Live SSOT: credits − confirmed deductions only. May be negative after overdraft.
+  const reserved = Math.max(0, Math.round(Number(input.reservedBalanceMinor) || 0));
   const commissionWalletBalance = purchased + promotional;
   return {
     purchased_balance_minor: purchased,
     promotional_balance_minor: promotional,
-    reserved_balance_minor: 0,
-    // Alias of current balance for dispatch eligibility (non-locking).
-    usable_commission_balance_minor: commissionWalletBalance,
+    reserved_balance_minor: reserved,
+    usable_commission_balance_minor: commissionWalletBalance - reserved,
     commission_wallet_balance_minor: commissionWalletBalance,
     withdrawable_balance_minor: 0,
     payout_due_minor: 0,
@@ -830,6 +987,7 @@ export function deriveBalancesFromCommissionLedgerEntries(
 ): CommissionWalletDerivedBalances {
   let purchased = 0;
   let promotional = 0;
+  let reserved = 0;
 
   for (const row of rows) {
     const amount = Math.max(0, Math.round(Number(row.amount_minor) || 0));
@@ -849,6 +1007,7 @@ export function deriveBalancesFromCommissionLedgerEntries(
       type === COMMISSION_WALLET_ENTRY_TYPE.WELCOME_CREDIT
       || type === COMMISSION_WALLET_ENTRY_TYPE.PROMOTIONAL_CREDIT
       || type === COMMISSION_WALLET_ENTRY_TYPE.ADMIN_CREDIT
+      || type === COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_SUBSIDY_CREDIT
     ) {
       promotional += amount * (sign > 0 ? 1 : -1);
       continue;
@@ -857,11 +1016,12 @@ export function deriveBalancesFromCommissionLedgerEntries(
       promotional += amount * sign;
       continue;
     }
-    if (
-      type === COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE
-      || type === COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE_RELEASE
-    ) {
-      // Historical audit only — excluded from live balance SSOT.
+    if (type === COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE) {
+      reserved += amount;
+      continue;
+    }
+    if (type === COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE_RELEASE) {
+      reserved = Math.max(0, reserved - amount);
       continue;
     }
     if (type === COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_DEDUCTION) {
@@ -892,7 +1052,7 @@ export function deriveBalancesFromCommissionLedgerEntries(
   return deriveCommissionWalletBalances({
     purchasedBalanceMinor: purchased,
     promotionalBalanceMinor: promotional,
-    reservedBalanceMinor: 0,
+    reservedBalanceMinor: reserved,
   });
 }
 
@@ -1716,11 +1876,34 @@ export function planCommissionWalletReserve(input: {
   fixedPlatformChargeMinor?: number | null;
   includeFixedPlatformCharge?: boolean;
 }): CommissionWalletReservePlan {
-  void input;
+  if (!input.gateApplies) {
+    return { ok: false, code: "GATE_OFF", error: "Commission Wallet reservation does not apply" };
+  }
+  if (input.alreadyHasActiveReserve) {
+    return { ok: false, code: "ALREADY_RESERVED", error: "Trip already has an active Commission Wallet reservation" };
+  }
+  const amount = requiredCommissionReserveMinor({
+    estimatedFinalFareMinor: input.estimatedFinalFareMinor,
+    commissionRateBps: input.commissionRateBps,
+    fixedPlatformChargeMinor: input.fixedPlatformChargeMinor,
+    includeFixedPlatformCharge: input.includeFixedPlatformCharge,
+  });
+  if (amount <= 0) {
+    return { ok: false, code: "INVALID_AMOUNT", error: "Estimated commission reserve is zero" };
+  }
+  if (Math.round(Number(input.usableCommissionBalanceMinor) || 0) < amount) {
+    return {
+      ok: false,
+      code: "INSUFFICIENT_BALANCE",
+      error: "Commission Wallet usable balance is insufficient for atomic reservation",
+    };
+  }
   return {
-    ok: false,
-    code: "GATE_OFF",
-    error: "Pre-trip Commission Wallet reservation is disabled",
+    ok: true,
+    amount_minor: amount,
+    entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE,
+    direction: "debit",
+    ledger_idempotency_key: buildCommissionWalletReserveIdempotencyKey(input.driverId, input.tripId),
   };
 }
 
@@ -1744,8 +1927,23 @@ export function planCommissionWalletReserveRelease(input: {
   tripId: string;
   alreadyReleased?: boolean;
 }): CommissionWalletReserveReleasePlan {
-  void input;
-  return { ok: false, code: "NO_ACTIVE_RESERVE", error: "Pre-trip reservation is disabled" };
+  if (input.alreadyReleased) {
+    return { ok: false, code: "ALREADY_RELEASED", error: "Commission Wallet reservation already released" };
+  }
+  const amount = Math.max(0, Math.round(Number(input.activeReserveAmountMinor) || 0));
+  if (amount <= 0) {
+    return { ok: false, code: "NO_ACTIVE_RESERVE", error: "No active Commission Wallet reservation" };
+  }
+  return {
+    ok: true,
+    amount_minor: amount,
+    entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE_RELEASE,
+    direction: "credit",
+    ledger_idempotency_key: buildCommissionWalletReserveReleaseIdempotencyKey(
+      input.driverId,
+      input.tripId,
+    ),
+  };
 }
 
 // ── Phase 7 — Completed-trip commission deduction + Finance reporting ────────
@@ -1761,25 +1959,21 @@ export function buildCommissionWalletReserveConvertReleaseIdempotencyKey(
 }
 
 /**
- * Trip uses Commission Wallet completion path when SA (or trip snapshot) has CW on.
- * Prefer explicit trip snapshot when both financial_model + commission_wallet_enabled are set.
+ * Trip uses Commission Wallet completion path from the immutable trip stamp only.
+ * Live service-area config is ignored — SA cannot reclassify an existing trip.
  */
 export function tripUsesCommissionWalletDeduction(input: {
   tripFinancialModel?: string | null;
   tripCommissionWalletEnabled?: boolean | null;
+  /** Ignored. Kept so callers compile; never used for financial writes. */
   serviceAreaConfig?: ServiceAreaCommissionWalletConfig | null;
 }): boolean {
-  const hasTripSnapshot =
-    input.tripFinancialModel != null
-    && input.tripFinancialModel !== ""
-    && input.tripCommissionWalletEnabled != null;
-  if (hasTripSnapshot) {
-    return isCommissionWalletWorkflowEnabled({
-      financial_model: input.tripFinancialModel,
-      commission_wallet_enabled: input.tripCommissionWalletEnabled,
-    });
-  }
-  return isCommissionWalletWorkflowEnabled(input.serviceAreaConfig);
+  void input.serviceAreaConfig;
+  return (
+    String(input.tripFinancialModel ?? "").toUpperCase()
+      === SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET
+    && input.tripCommissionWalletEnabled === true
+  );
 }
 
 /**
@@ -1804,13 +1998,33 @@ export type CommissionWalletDeductionPlan =
   | {
     ok: true;
     skipped: false;
+    outcome: "deduction";
     commission_earned_minor: number;
     amount_minor: number;
     shortfall_minor: number;
     promotional_portion_minor: number;
     purchased_portion_minor: number;
+    gross_commission_minor: number;
+    locked_customer_promotion_minor: number;
     entry_type: typeof COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_DEDUCTION;
     direction: "debit";
+    ledger_idempotency_key: string;
+    convert_active_reserve: boolean;
+    revenue_source: typeof REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION;
+  }
+  | {
+    ok: true;
+    skipped: false;
+    outcome: "subsidy";
+    commission_earned_minor: number;
+    amount_minor: 0;
+    subsidy_minor: number;
+    gross_commission_minor: number;
+    locked_customer_promotion_minor: number;
+    promotional_portion_minor: number;
+    purchased_portion_minor: 0;
+    entry_type: typeof COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_SUBSIDY_CREDIT;
+    direction: "credit";
     ledger_idempotency_key: string;
     convert_active_reserve: boolean;
     revenue_source: typeof REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION;
@@ -1822,16 +2036,19 @@ export type CommissionWalletDeductionPlan =
   };
 
 /**
- * Plan completion deduction: promo-first consumption, one row per trip.
- * Always deducts full confirmed commission (balance may go negative).
- * Pre-trip reserves are not converted.
+ * Plan completion deduction: customer promotion reduces CW effect, never driver entitlement.
+ * Promo-first bucket consumption. One deduction (or subsidy credit) per trip.
+ * Converts an active assignment reservation.
  */
 export function planCommissionWalletDeduction(input: {
   gateApplies: boolean;
+  /** Pre-promotion commissionable fare. */
   commissionableFareMinor: number;
   commissionRateBps: number;
-  /** When set, used instead of recomputing fare × bps (must match settlement SSOT). */
+  /** Ignored when lockedCustomerPromotionMinor is set — never post-promo settlement commission. */
   commissionEarnedMinor?: number | null;
+  /** Locked customer `global_offer` pence. Never Admin Commission Wallet credit. */
+  lockedCustomerPromotionMinor?: number | null;
   promotionalBalanceMinor: number;
   purchasedBalanceMinor: number;
   /** Current balance (may be negative). Alias kept for callers. */
@@ -1847,24 +2064,53 @@ export function planCommissionWalletDeduction(input: {
   if (input.alreadyDeducted) {
     return { ok: true, skipped: true, code: "ALREADY_DEDUCTED" };
   }
+
+  const lockedPromo = Math.max(0, Math.round(Number(input.lockedCustomerPromotionMinor) || 0));
+  const promotion = planCommissionWalletTripPromotion({
+    prePromotionCommissionableMinor: input.commissionableFareMinor,
+    lockedCustomerPromotionMinor: lockedPromo,
+    commissionRateBps: input.commissionRateBps,
+  });
   const earnedExplicit = input.commissionEarnedMinor;
-  const earned = earnedExplicit != null && Number.isFinite(Number(earnedExplicit))
-    ? Math.max(0, Math.round(Number(earnedExplicit)))
-    : onecabCommissionDeductionMinor({
-      commissionableFareMinor: input.commissionableFareMinor,
-      commissionRateBps: input.commissionRateBps,
-    });
-  if (!Number.isFinite(earned) || earned < 0) {
+  const gross = lockedPromo > 0
+    ? promotion.gross_commission_minor
+    : (earnedExplicit != null && Number.isFinite(Number(earnedExplicit))
+      ? Math.max(0, Math.round(Number(earnedExplicit)))
+      : promotion.gross_commission_minor);
+  const effect = gross - lockedPromo;
+  if (!Number.isFinite(gross) || gross < 0) {
     return { ok: false, code: "INVALID_AMOUNT", error: "Invalid commission amount" };
   }
-  if (earned === 0) {
+  if (effect === 0) {
     return { ok: true, skipped: true, code: "ZERO_COMMISSION" };
+  }
+
+  const convertReserve = input.hasActiveReserve === true;
+
+  if (effect < 0) {
+    return {
+      ok: true,
+      skipped: false,
+      outcome: "subsidy",
+      commission_earned_minor: gross,
+      amount_minor: 0,
+      subsidy_minor: -effect,
+      gross_commission_minor: gross,
+      locked_customer_promotion_minor: lockedPromo,
+      promotional_portion_minor: -effect,
+      purchased_portion_minor: 0,
+      entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_SUBSIDY_CREDIT,
+      direction: "credit",
+      ledger_idempotency_key: `cw_subsidy_${String(input.tripId).trim()}`.slice(0, 180),
+      convert_active_reserve: convertReserve,
+      revenue_source: REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
+    };
   }
 
   const promo = Math.round(Number(input.promotionalBalanceMinor) || 0);
   const purchased = Math.round(Number(input.purchasedBalanceMinor) || 0);
-  const fromPromo = Math.min(earned, Math.max(0, promo));
-  const fromPurchased = earned - fromPromo;
+  const fromPromo = Math.min(effect, Math.max(0, promo));
+  const fromPurchased = effect - fromPromo;
   const balanceBefore = Math.round(
     Number(
       input.commissionWalletBalanceMinor
@@ -1876,15 +2122,18 @@ export function planCommissionWalletDeduction(input: {
   return {
     ok: true,
     skipped: false,
-    commission_earned_minor: earned,
-    amount_minor: earned,
-    shortfall_minor: Math.max(0, earned - Math.max(balanceBefore, 0)),
+    outcome: "deduction",
+    commission_earned_minor: gross,
+    amount_minor: effect,
+    shortfall_minor: Math.max(0, effect - Math.max(balanceBefore, 0)),
     promotional_portion_minor: fromPromo,
     purchased_portion_minor: fromPurchased,
+    gross_commission_minor: gross,
+    locked_customer_promotion_minor: lockedPromo,
     entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_DEDUCTION,
     direction: "debit",
     ledger_idempotency_key: buildCommissionWalletDeductionIdempotencyKey(input.tripId),
-    convert_active_reserve: false,
+    convert_active_reserve: convertReserve,
     revenue_source: REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
   };
 }
@@ -2031,11 +2280,9 @@ export function aggregateCommissionWalletFinanceReport(
 export function shouldSkipPlatformPreauthForCommissionWallet(
   config: ServiceAreaCommissionWalletConfig | null | undefined,
 ): boolean {
-  if (!isCommissionWalletWorkflowEnabled(config)) return false;
-  return (
-    String(config?.customer_payment_policy ?? "").toUpperCase()
-    === CUSTOMER_PAYMENT_POLICY.DRIVER_COLLECTS_UPFRONT
-  );
+  const pairing = classifyServiceAreaFinancialPairing(config);
+  return pairing.ok
+    && pairing.financial_model === SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET;
 }
 
 /**

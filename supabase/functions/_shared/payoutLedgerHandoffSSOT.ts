@@ -28,6 +28,26 @@ function allocatedMap(
 }
 
 /**
+ * Amount + FIFO allocations from eligibility-proven DWL credits only.
+ * Never uses trip totals or driver summary balances as the money source.
+ */
+export function planPayoutItemFromEligibleEntries(args: {
+  eligible_entries: EligibleLedgerCredit[];
+  available_balance_pence: number;
+  already_allocated_by_ledger?: Map<string, number> | Record<string, number> | null;
+}): { amount_pence: number; allocations: PlannedLedgerAllocation[] } | null {
+  const amount = Math.max(0, Math.round(Number(args.available_balance_pence ?? 0)));
+  if (amount <= 0) return null;
+  const allocations = planEligibleLedgerAllocations({
+    eligible_entries: args.eligible_entries,
+    already_allocated_by_ledger: args.already_allocated_by_ledger,
+    amount_pence: amount,
+  });
+  if (allocations.length === 0) return null;
+  return { amount_pence: amount, allocations };
+}
+
+/**
  * FIFO allocate payout amount across eligibility-proven ledger credits only.
  * Respects prior allocations so one wallet entry cannot be double-paid.
  */

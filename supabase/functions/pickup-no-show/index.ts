@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
 
     // Legacy payment-intent column intentionally omitted — Revolut is SSOT.
     const tripSelectCols =
-      "id, confirmed_driver_id, passenger_id, status, arrived_at, pickup_arrived_at, service_area_id, vehicle_type_id, pickup_latitude, pickup_longitude, driver_location_lat, driver_location_lng, payment_method, currency_code, no_show_charge_pence, completed_at";
+      "id, confirmed_driver_id, passenger_id, status, arrived_at, pickup_arrived_at, service_area_id, vehicle_type_id, pickup_latitude, pickup_longitude, driver_location_lat, driver_location_lng, payment_method, financial_model, currency_code, no_show_charge_pence, completed_at";
 
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
@@ -171,7 +171,9 @@ Deno.serve(async (req) => {
     }
 
     const configuredNoShowFeePence = pricing.noShowFeePence;
-    const cashTrip = isCashPayment(trip.payment_method);
+    const driverCollected =
+      String(trip.financial_model ?? "").toUpperCase() === "DRIVER_COLLECTED_COMMISSION_WALLET";
+    const cashTrip = isCashPayment(trip.payment_method) || driverCollected;
     const effectiveNoShowFeePence = cashTrip ? 0 : configuredNoShowFeePence;
     const now = new Date().toISOString();
 
@@ -293,6 +295,7 @@ Deno.serve(async (req) => {
         driverId: driver.id,
         passengerId: trip.passenger_id ?? null,
         paymentMethod: trip.payment_method,
+        financialModel: trip.financial_model ?? null,
         currencyCode: trip.currency_code,
         feePence: effectiveNoShowFeePence,
         cardCharged,

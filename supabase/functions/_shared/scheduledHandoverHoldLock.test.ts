@@ -9,6 +9,7 @@ import {
   assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  isScheduledHandoverOpenJobStatus,
   isScheduledInstantConversionPending,
   shouldBlockPrematureScheduledSearchHoldRelease,
 } from "./scheduledHandoverHoldLock.ts";
@@ -165,6 +166,19 @@ Deno.test("C: no scheduled accept — conversion pending until converted_to_inst
     }),
     false,
   );
+  assertEquals(
+    isScheduledInstantConversionPending({
+      is_scheduled: true,
+      scheduled_at: MK006.created_at,
+    }),
+    true,
+  );
+});
+
+Deno.test("C2: fare-offer negotiating stays an open scheduled job", () => {
+  assertEquals(isScheduledHandoverOpenJobStatus("negotiating"), true);
+  assertEquals(isScheduledHandoverOpenJobStatus("dispatching"), true);
+  assertEquals(isScheduledHandoverOpenJobStatus("en_route_to_pickup"), false);
 });
 
 Deno.test("D: conversion stamps searching_expires_at from instant-search start, not created_at", () => {
@@ -196,6 +210,27 @@ Deno.test("D: conversion stamps searching_expires_at from instant-search start, 
   assertEquals(
     isCustomerSearchWindowActive(converted, SETTINGS, Date.parse(ttl) + 1),
     false,
+  );
+});
+
+Deno.test("D2: converted job missing stamp does not use booking created_at TTL", () => {
+  const afterCreatedTtl = Date.parse(MK006.created_at) + 6 * 60_000 + 1_000;
+  const convertedMissingStamp = {
+    created_at: MK006.created_at,
+    dispatch_mode: "instant" as const,
+    scheduled_status: "converted_to_instant",
+    is_scheduled: true,
+    searching_expires_at: null as string | null,
+  };
+  const deadline = resolveCustomerSearchDeadlineMs(
+    convertedMissingStamp,
+    SETTINGS,
+    afterCreatedTtl,
+  );
+  assert(deadline != null && deadline > afterCreatedTtl);
+  assertEquals(
+    isCustomerSearchWindowActive(convertedMissingStamp, SETTINGS, afterCreatedTtl),
+    true,
   );
 });
 
@@ -409,17 +444,105 @@ Deno.test("source lock: schedule-dispatch converts via Admin SSOT then auto-disp
   assertEquals(src.includes("dispatch_trip_offers"), false);
 });
 
-Deno.test("source lock: SQL expire ignores stale searching_expires_at during scheduled handover", async () => {
-  const sql = await Deno.readTextFile(
+Deno.test("source lock: later expire replacements keep scheduled handover pending", async () => {
+  const later = await Deno.readTextFile(
     new URL(
-      "../../migrations/20260817161000_expire_ignore_stale_ttl_during_scheduled_handover.sql",
+      "../../migrations/20260916120000_retire_scan_go_dispatch_hotfix.sql",
       import.meta.url,
     ),
   );
-  const pendingIdx = sql.indexOf("IF v_scheduled_handover_pending THEN");
-  const expiresIdx = sql.indexOf("IF v_trip.searching_expires_at IS NOT NULL THEN");
-  assert(pendingIdx > 0);
-  assert(expiresIdx > pendingIdx);
+  const lock = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260921140000_scheduled_handover_expire_ttl_lock.sql",
+      import.meta.url,
+    ),
+  );
+  const jsMatch = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260921142000_scheduled_handover_pending_matches_js.sql",
+      import.meta.url,
+    ),
+  );
+  const rematch = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260921143000_scheduled_handover_pending_ignores_rematch_actor.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(later, "v_scheduled_handover_pending");
+  assert(
+    later.indexOf("IF v_scheduled_handover_pending THEN") <
+      later.indexOf("v_trip.created_at + make_interval"),
+  );
+  assertStringIncludes(lock, "v_scheduled_handover_pending");
+  assertStringIncludes(lock, "trg_scheduled_handover_block_premature_search_ttl");
+  assert(
+    lock.indexOf("IF v_scheduled_handover_pending THEN") <
+      lock.indexOf("IF v_trip.searching_expires_at IS NOT NULL THEN"),
+  );
+  assertStringIncludes(jsMatch, "is_scheduled_instant_conversion_pending");
+  assertStringIncludes(jsMatch, "p_is_scheduled boolean");
+  assertStringIncludes(jsMatch, "p_scheduled_at timestamptz");
+  assert(
+    jsMatch.indexOf("public.is_scheduled_instant_conversion_pending(") <
+      jsMatch.indexOf("IF v_scheduled_handover_pending THEN"),
+  );
+  assertStringIncludes(rematch, "searching_new_driver rematch");
+  assertEquals(
+    rematch.includes("AND COALESCE(NULLIF(trim(COALESCE(v_trip.cancelled_by, '')), ''), '') = ''"),
+    false,
+  );
+  assertEquals(
+    rematch.includes("AND COALESCE(NULLIF(trim(COALESCE(NEW.cancelled_by, '')), ''), '') = ''"),
+    false,
+  );
+  const rematchStatus = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260921143100_scheduled_handover_pending_keeps_driver_cancelled_rematch.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(rematchStatus, "status=driver_cancelled");
+  assertEquals(
+    rematchStatus.includes("'driver_cancelled', 'no_show'"),
+    false,
+  );
+  assertStringIncludes(
+    rematchStatus,
+    "'cancelled', 'canceled', 'customer_cancelled', 'no_show'",
+  );
+});
+
+Deno.test("source lock: dispatch_trip_offers skips created_at TTL during scheduled handover", async () => {
+  const sql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260921130000_dispatch_gap_close.sql",
+      import.meta.url,
+    ),
+  );
+  const later = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260921141000_dispatch_trip_offers_scheduled_handover_skip.sql",
+      import.meta.url,
+    ),
+  );
+  const jsMatch = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260921142100_dispatch_trip_offers_pending_matches_js.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(sql, "scheduled_handover_pending");
+  assert(
+    sql.indexOf("reason', 'scheduled_handover_pending'") <
+      sql.indexOf("v_trip.created_at + make_interval"),
+  );
+  assertStringIncludes(later, "scheduled_handover_pending");
+  assertStringIncludes(jsMatch, "is_scheduled_instant_conversion_pending");
+  assertEquals(
+    jsMatch.split("public.is_scheduled_instant_conversion_pending(").length - 1,
+    3,
+  );
 });
 
 Deno.test("source lock: expire-trip / expire-offers / holdRelease skip scheduled handover", async () => {
@@ -434,7 +557,25 @@ Deno.test("source lock: expire-trip / expire-offers / holdRelease skip scheduled
   );
   assertStringIncludes(expireTrip, "isScheduledInstantConversionPending");
   assertStringIncludes(expireOffers, "isScheduledInstantConversionPending");
+  assertStringIncludes(expireOffers, "isScheduledWorkflowOrigin");
   assertStringIncludes(holdRelease, "shouldBlockPrematureScheduledSearchHoldRelease");
+  const driverCancel = await Deno.readTextFile(
+    new URL("../driver-cancel-before-pickup/index.ts", import.meta.url),
+  );
+  assertStringIncludes(driverCancel, "isScheduledInstantConversionPending");
+  assertStringIncludes(driverCancel, "handoverPending");
+  const customerResume = await Deno.readTextFile(
+    new URL("../customer-resume-driver-search/index.ts", import.meta.url),
+  );
+  assertStringIncludes(customerResume, "isScheduledInstantConversionPending");
+  assertStringIncludes(customerResume, "handoverPending");
+  assertStringIncludes(customerResume, "isScheduledWorkflowOrigin(trip)");
+  const scheduledRideAction = await Deno.readTextFile(
+    new URL("../scheduled-ride-action/index.ts", import.meta.url),
+  );
+  assertStringIncludes(scheduledRideAction, "buildScheduledUrgentConversionPatch");
+  assertStringIncludes(scheduledRideAction, "searchingExpiresAtIso");
+  assertEquals(scheduledRideAction.includes("is_scheduled: false"), false);
 });
 
 Deno.test("source lock: SQL expire does not use created_at TTL for scheduled handover", async () => {
@@ -448,6 +589,37 @@ Deno.test("source lock: SQL expire does not use created_at TTL for scheduled han
   assertStringIncludes(sql, "converted_to_instant");
   assertStringIncludes(sql, "premature scheduled system expiry must not void the hold");
   assertStringIncludes(sql, "trg_trips_terminal_payment_disposition");
+});
+
+Deno.test("source lock: restore / get-active-trip ignore stale TTL during scheduled handover", async () => {
+  const restore = await Deno.readTextFile(
+    new URL("./activeTripRestoreCore.ts", import.meta.url),
+  );
+  const getActive = await Deno.readTextFile(
+    new URL("../get-active-trip/index.ts", import.meta.url),
+  );
+  assertStringIncludes(restore, "isScheduledHandoverOpenJobStatus");
+  assertStringIncludes(restore, "isScheduledWorkflowOrigin(row)");
+  assert(
+    restore.indexOf("SEARCHING_STATUSES.has(status) && !isScheduledInstantConversionPending(row)") >
+      0,
+  );
+  assertStringIncludes(getActive, "isScheduledInstantConversionPending(row)");
+  assertStringIncludes(getActive, "isScheduledHandoverOpenJobStatus");
+  assertStringIncludes(getActive, "isScheduledWorkflowOrigin(row)");
+  assertStringIncludes(getActive, "converted_to_instant");
+  assertStringIncludes(getActive, "SEARCH_WINDOW_STILL_ACTIVE_KEEP_LIVE");
+  assert(
+    getActive.split("if (isScheduledWorkflowOrigin(row)) return false;").length - 1 >= 2,
+  );
+  assert(
+    restore.indexOf(
+      "isScheduledInstantConversionPending(row) &&",
+    ) > 0,
+  );
+  assertStringIncludes(restore, ".limit(10)");
+  assertStringIncludes(restore, "isCustomerRestoreCandidate(candidate, nowMs)");
+  assertStringIncludes(getActive, "isCustomerLiveTrip(candidate as TripRow, nowMs)");
 });
 
 Deno.test("source lock: dispose selects scheduled lifecycle fields, not payment_status as cancel actor", async () => {

@@ -2839,6 +2839,9 @@ Deno.serve(async (req) => {
         const tipAmountPence = fareTrip.tip_amount_pence || fareTrip.tip_pence || 0;
         const isCash = (fareTrip.payment_method ?? "").toLowerCase() === "cash";
         const isOperationalCash = isCash && Boolean(fareTrip.cash_authorized_at);
+        const tripFinancialModel =
+          String(fareTrip.financial_model ?? "").trim().toUpperCase();
+        const mayPostDriverWalletLedger = tripFinancialModel === "PLATFORM_COLLECTED";
         // EXISTING CODE REPAIRED — Revolut Payment Session / provider_order_id gate.
         const needsProviderSettlement = requiresProviderSettlement(fareTrip);
         const providerOrderId = tripProviderOrderId(fareTrip);
@@ -3045,7 +3048,7 @@ Deno.serve(async (req) => {
         }
 
         const skipCardLedgerInStopWorkflow = needsProviderSettlement;
-        if ((commissionableFarePence > 0 || tipAmountPence > 0) && !skipCardLedgerInStopWorkflow) {
+        if ((commissionableFarePence > 0 || tipAmountPence > 0) && !skipCardLedgerInStopWorkflow && mayPostDriverWalletLedger) {
           if (isCash && !isOperationalCash) {
             // Historical legacy cash trips — fare snapshot only; no cash settlement ledger.
             await Promise.all([

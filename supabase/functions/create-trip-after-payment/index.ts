@@ -38,6 +38,13 @@ import { isAuthorisedHoldSessionStatus } from "../../../shared/revolutPaymentHol
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { createBookingWaterfallCollector } from "../_shared/bookingWaterfallTelemetry.ts";
 import { releaseHoldForPaymentSession } from "../_shared/holdReleaseSSOT.ts";
+import {
+  buildTripFinancialModelSnapshot,
+  classifyServiceAreaFinancialPairing,
+  INVALID_CONFIGURATION,
+  shouldSkipPlatformPreauthForCommissionWallet,
+  type ServiceAreaCommissionWalletConfig,
+} from "../_shared/commissionWalletSSOT.ts";
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
@@ -285,11 +292,6 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       return passengerNotEligibleResponse(bookingEligibility, corsHeaders);
     }
 
-    if (!body.payment_intent_id) {
-      return new Response(JSON.stringify({ error: "payment_intent_id is required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
     if (!body.client_action_id) {
       return new Response(JSON.stringify({ error: "client_action_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -324,36 +326,92 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       });
     }
 
-    const customerGatewayCheck = assertGatewayExecutable(
-      await checkServiceAreaGateway(supabase, body.service_area_id, "customer"),
-    );
-    if (!customerGatewayCheck.ok) {
-      return gatewayNotConfiguredResponse(customerGatewayCheck, corsHeaders);
-    }
-
-    if (String(body.payment_intent_id ?? "").trim().startsWith("pi_")) {
-      log("REJECTED — invalid provider order id shape", {
-        service_area_id: body.service_area_id,
+    const { data: saFinancialRow, error: saFinancialErr } = await supabase
+      .from("service_areas")
+      .select(
+        "id, financial_model, commission_wallet_enabled, customer_payment_policy, commission_wallet_currency, region_id",
+      )
+      .eq("id", body.service_area_id)
+      .maybeSingle();
+    if (saFinancialErr) {
+      return new Response(JSON.stringify({ error: saFinancialErr.message }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+    const saFinancialConfig: ServiceAreaCommissionWalletConfig = {
+      financial_model: saFinancialRow?.financial_model,
+      commission_wallet_enabled: saFinancialRow?.commission_wallet_enabled,
+      customer_payment_policy: saFinancialRow?.customer_payment_policy,
+      commission_wallet_currency: saFinancialRow?.commission_wallet_currency,
+    };
+    const saPairing = classifyServiceAreaFinancialPairing(saFinancialConfig);
+    if (!saPairing.ok) {
       return new Response(JSON.stringify({
-        error: "Invalid payment order. Please complete Revolut checkout and try again.",
-        error_code: "INVALID_PROVIDER_ORDER",
-        message: "Invalid payment order. Please complete Revolut checkout and try again.",
+        error: saPairing.error,
+        error_code: INVALID_CONFIGURATION,
+        code: INVALID_CONFIGURATION,
       }), {
-        status: 400,
+        status: 422,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const skipPlatformPreauth = shouldSkipPlatformPreauthForCommissionWallet(saFinancialConfig);
+    const financialModelSnapshot = buildTripFinancialModelSnapshot({
+      serviceAreaId: body.service_area_id,
+      regionId: saFinancialRow?.region_id ?? null,
+      currency: String(saFinancialRow?.commission_wallet_currency || "GBP").toUpperCase(),
+      commissionRateBps: 0,
+      config: saFinancialConfig,
+    });
+    if (skipPlatformPreauth && body.payment_intent_id) {
+      return new Response(JSON.stringify({
+        error: "Payment Session is forbidden for DRIVER_COLLECTED_COMMISSION_WALLET",
+        error_code: "FINANCIAL_MODEL_VIOLATION",
+        code: "FINANCIAL_MODEL_VIOLATION",
+      }), {
+        status: 409,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    if (customerGatewayCheck.provider !== "revolut") {
-      return new Response(JSON.stringify({
-        error: "Card payments require Revolut.",
-        error_code: "PAYMENT_PROVIDER_UNAVAILABLE",
-        message: "Card payments require Revolut.",
-      }), {
-        status: 410,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    if (!skipPlatformPreauth && !body.payment_intent_id) {
+      return new Response(JSON.stringify({ error: "payment_intent_id is required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    if (!skipPlatformPreauth) {
+      const customerGatewayCheck = assertGatewayExecutable(
+        await checkServiceAreaGateway(supabase, body.service_area_id, "customer"),
+      );
+      if (!customerGatewayCheck.ok) {
+        return gatewayNotConfiguredResponse(customerGatewayCheck, corsHeaders);
+      }
+
+      if (String(body.payment_intent_id ?? "").trim().startsWith("pi_")) {
+        log("REJECTED — invalid provider order id shape", {
+          service_area_id: body.service_area_id,
+        });
+        return new Response(JSON.stringify({
+          error: "Invalid payment order. Please complete Revolut checkout and try again.",
+          error_code: "INVALID_PROVIDER_ORDER",
+          message: "Invalid payment order. Please complete Revolut checkout and try again.",
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (customerGatewayCheck.provider !== "revolut") {
+        return new Response(JSON.stringify({
+          error: "Card payments require Revolut.",
+          error_code: "PAYMENT_PROVIDER_UNAVAILABLE",
+          message: "Card payments require Revolut.",
+        }), {
+          status: 410,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const ctapStartedAt = Date.now();
@@ -366,31 +424,33 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       metadata: { phase: "ctap_start" },
     });
 
-    const paymentSessionPromise = body.client_action_id
-      ? loadPaymentSession(supabase, { clientActionId: body.client_action_id })
-      : Promise.resolve(null);
+    const paymentSessionPromise = skipPlatformPreauth
+      ? Promise.resolve(null)
+      : (body.client_action_id
+        ? loadPaymentSession(supabase, { clientActionId: body.client_action_id })
+        : Promise.resolve(null));
 
     const [existingTripsRes, existingTripByPaymentRes, paymentRes, customerRowsRes, saRpcRes, paymentSessionRes] =
       await Promise.allSettled([
-      // 3a. Idempotency by client_action_id
       supabase
         .from("trips")
         .select("id, trip_code, status")
         .eq("client_action_id", body.client_action_id)
         .limit(1),
-      // 3b. Idempotency by Revolut order — one payment → max one trip
-      // Never write legacy payment-intent columns; do not query them (schema cache error).
-      supabase
-        .from("trips")
-        .select("id, trip_code, status")
-        .eq("provider_order_id", body.payment_intent_id)
-        .limit(1),
-      // 4. Payment verify (Revolut hold — one session load shared with gate below)
-      paymentSessionPromise.then((session) => verifyRevolutHoldForTripCreateFast(supabase, {
-        orderId: body.payment_intent_id,
-        clientActionId: body.client_action_id,
-        preloadedSession: session,
-      })),
+      skipPlatformPreauth || !body.payment_intent_id
+        ? Promise.resolve({ data: [] as { id: string; trip_code: string; status: string }[] })
+        : supabase
+          .from("trips")
+          .select("id, trip_code, status")
+          .eq("provider_order_id", body.payment_intent_id)
+          .limit(1),
+      skipPlatformPreauth
+        ? Promise.resolve({ ok: true as const, skipped: true as const, order: null, reason: null })
+        : paymentSessionPromise.then((session) => verifyRevolutHoldForTripCreateFast(supabase, {
+          orderId: body.payment_intent_id!,
+          clientActionId: body.client_action_id,
+          preloadedSession: session,
+        })),
       // 8. Customer record
       supabase.from("customers").select("id, first_name, last_name, phone").eq("user_id", user.id).limit(1),
       // 9. Service area RPC
@@ -422,6 +482,19 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    reversalContext = {
+      userId: user.id,
+      customerId: null,
+      clientActionId: body.client_action_id ?? null,
+      serviceAreaId: body.service_area_id ?? null,
+    };
+
+    let preauthAmount = 0;
+    let preauthMetadata: Record<string, string> = {};
+    let paymentSessionId: string | null = null;
+    let paymentRefId = "";
+
+    if (!skipPlatformPreauth) {
     // 4. Payment validation
     if (paymentRes.status === "rejected") {
       log("REJECTED — payment retrieve failed", { error: String(paymentRes.reason) });
@@ -429,9 +502,6 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    let preauthAmount = 0;
-    let preauthMetadata: Record<string, string> = {};
 
     const confirmation = paymentRes.value as Awaited<
       ReturnType<typeof verifyRevolutHoldForTripCreateFast>
@@ -486,14 +556,6 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
     verifiedRevolutOrder = order;
     preauthAmount = Number(order.amount ?? 0);
     preauthMetadata = (order.metadata ?? {}) as Record<string, string>;
-
-    // Authorised payment from here — any booking failure must cancel the hold (P0 SSOT).
-    reversalContext = {
-      userId: user.id,
-      customerId: null,
-      clientActionId: body.client_action_id ?? null,
-      serviceAreaId: body.service_area_id ?? null,
-    };
 
     // 7. Verify hold covers payable fare (post-discount). Prefer session fare_snapshot.
     const sessionSnapForGate = (preloadedSession?.fare_snapshot &&
@@ -550,11 +612,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       session_payable_pence: sessionPayablePence || null,
     });
 
-    let paymentSessionId: string | null = null;
     if (body.client_action_id) {
-      const preloadedSession = paymentSessionRes.status === "fulfilled"
-        ? paymentSessionRes.value
-        : null;
       const sessionGate = gatePaymentSessionForTripCreate(preloadedSession);
       if (!sessionGate.ok) {
         log("REJECTED — no authorised payment session for trip create", sessionGate);
@@ -589,7 +647,10 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       paymentSessionId = sessionGate.sessionId;
     }
 
-    const paymentRefId = verifiedRevolutOrder!.id;
+    paymentRefId = verifiedRevolutOrder!.id;
+    } else {
+      log("Driver-Collected — skip Payment Session and platform capture");
+    }
 
     // 8. Customer record — trips.passenger_id FK references customers.id (not auth.users.id).
     let customerRow =
@@ -607,9 +668,9 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
     }
     if (!customerId) {
       log("REJECTED — customer profile missing for trip insert", { userId: user.id });
-      return failBookingAfterAuthorizedRevolutOrder(
+      return failBookingAfterAuthorizedPayment(
         supabase,
-        verifiedRevolutOrder!,
+        verifiedRevolutOrder,
         {
           ...reversalContext!,
           failureStage: "customer_profile_missing",
@@ -800,7 +861,11 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
           google_pay: pmConfig.google_pay_enabled ?? digitalFlags.googlePay,
         };
         const selected = body.payment_method;
-        if (selected in methodAllowed && !methodAllowed[selected]) {
+        if (
+          selected in methodAllowed
+          && !methodAllowed[selected]
+          && !(skipPlatformPreauth && (selected === "cash" || selected === "card"))
+        ) {
           log("REJECTED — payment method not allowed for service area", { selected, serviceAreaId });
           return failBookingAfterAuthorizedPayment(
             supabase,
@@ -901,14 +966,15 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       regionId,
       regionCurrencyCode,
       regionDistanceUnit,
-      paymentProvider: "revolut",
+      paymentProvider: skipPlatformPreauth ? "driver_collected" : "revolut",
       paymentRefId,
       preauthAmountPence: preauthAmount,
-      paymentSessionId,
+      paymentSessionId: skipPlatformPreauth ? null : paymentSessionId,
       sessionFareSnapshot,
       requestReferer: req.headers.get("referer") ?? req.headers.get("referrer"),
       requestOrigin: req.headers.get("origin"),
       scheduledDispatchConfig,
+      financialModelSnapshot,
     });
 
     if (preAssignedDriverId) {
@@ -1060,11 +1126,13 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
 
     EdgeRuntime.waitUntil(Promise.allSettled(postInsertTasks));
 
-    await markPaymentSessionTripCreated(supabase, {
-      clientActionId: body.client_action_id,
-      tripId: trip.id,
-      providerOrderId: paymentRefId,
-    });
+    if (!skipPlatformPreauth) {
+      await markPaymentSessionTripCreated(supabase, {
+        clientActionId: body.client_action_id,
+        tripId: trip.id,
+        providerOrderId: paymentRefId,
+      });
+    }
 
     const bookingMilestones = {
       ctap_start_ms: ctapStartedAt,

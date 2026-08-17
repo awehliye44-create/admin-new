@@ -77,7 +77,7 @@ export function isPlatformCollectedEligible(
 ): boolean {
   if (isDriverCollectedFinancialModel(financialModel)) return false;
   const m = upper(financialModel);
-  if (!m) return true;
+  if (!m) return false;
   return m === "PLATFORM_COLLECTED";
 }
 

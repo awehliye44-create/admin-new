@@ -8,13 +8,18 @@
  */
 
 import { coercePositiveInt } from "./dispatch-settings.ts";
-import { isScheduledInstantConversionPending } from "./scheduledHandoverHoldLock.ts";
+import {
+  isScheduledInstantConversionPending,
+  isScheduledWorkflowOrigin,
+} from "./scheduledHandoverHoldLock.ts";
 
 export type TripSearchTiming = {
   searching_expires_at?: string | null;
   created_at?: string | null;
   dispatch_mode?: string | null;
   scheduled_status?: string | null;
+  is_scheduled?: boolean | null;
+  scheduled_at?: string | null;
 };
 
 export type DispatchSearchSettings = {
@@ -49,6 +54,11 @@ export function resolveCustomerSearchDeadlineMs(
     if (Number.isFinite(parsed)) return parsed;
   }
   const findMinutes = findMinutesFromSettings(settings);
+  // Converted / scheduled-origin jobs without a stamped window must not fall
+  // back to booking created_at — that is the MK-006 instant-TTL defect.
+  if (isScheduledWorkflowOrigin(trip)) {
+    return nowMs + findMinutes * 60_000;
+  }
   if (trip.created_at) {
     const created = Date.parse(trip.created_at);
     if (Number.isFinite(created)) return created + findMinutes * 60_000;

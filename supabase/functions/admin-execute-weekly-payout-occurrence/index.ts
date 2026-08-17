@@ -10,8 +10,13 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { loadPayoutControlCentreSettings } from "../_shared/payoutControlCentreSettingsSSOT.ts";
-import { computeLedgerWalletBalancePence } from "../_shared/onecabFinanceLedger.ts";
 import { resolveLiveCompanyBalanceSnapshot } from "../_shared/companyBalanceResolveSSOT.ts";
+import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
+import { planPayoutItemFromEligibleEntries, type PlannedLedgerAllocation } from "../_shared/payoutLedgerHandoffSSOT.ts";
+import {
+  assertPayoutItemLedgerLineage,
+  persistPayoutItemLedgerAllocations,
+} from "../_shared/payoutItemLedgerAllocationWrite.ts";
 import {
   CONFLICTING_ACTIVE_ITEM_STATUSES,
   WEEKLY_PAYOUT_BATCH_KIND,
@@ -266,20 +271,6 @@ Deno.serve(async (req) => {
   if (driversError) return json({ success: false, error: driversError.message }, 500);
 
   const driverIds = (drivers ?? []).map((d) => String(d.id));
-  const ledgerByDriver = new Map<string, Array<{ type: string; amount_pence: number }>>();
-  if (driverIds.length > 0) {
-    const { data: ledgerRows, error: ledgerError } = await supabase
-      .from("driver_wallet_ledger")
-      .select("driver_id, type, amount_pence")
-      .in("driver_id", driverIds);
-    if (ledgerError) return json({ success: false, error: ledgerError.message }, 500);
-    for (const row of ledgerRows ?? []) {
-      const id = String(row.driver_id);
-      const list = ledgerByDriver.get(id) ?? [];
-      list.push({ type: String(row.type ?? ""), amount_pence: Number(row.amount_pence ?? 0) });
-      ledgerByDriver.set(id, list);
-    }
-  }
 
   const destByDriver = new Map<string, Record<string, unknown>>();
   if (driverIds.length > 0) {
@@ -315,6 +306,7 @@ Deno.serve(async (req) => {
     driver_id: string;
     driver_name: string | null;
     amount_pence: number;
+    allocations: PlannedLedgerAllocation[];
     payout_destination_id: string;
     provider_counterparty_id: string;
     provider_recipient_account_id: string;
@@ -326,16 +318,24 @@ Deno.serve(async (req) => {
   const planned: Planned[] = [];
   for (const driver of drivers ?? []) {
     const driverId = String(driver.id);
-    const ledger = ledgerByDriver.get(driverId) ?? [];
-    const balance = computeLedgerWalletBalancePence(ledger);
-    const available = Math.max(0, balance);
     const dest = destByDriver.get(driverId) ?? null;
     const driverStatus = String(driver.driver_status ?? "").toLowerCase();
     const held = ["suspended", "blocked", "banned", "held"].includes(driverStatus);
+    const eligibility = await fetchDriverPayoutEligibility(supabase, { driver_id: driverId });
+    let lineage: ReturnType<typeof planPayoutItemFromEligibleEntries> = null;
+    try {
+      lineage = planPayoutItemFromEligibleEntries({
+        eligible_entries: eligibility.eligible_entries,
+        available_balance_pence: eligibility.available_balance_pence,
+      });
+    } catch {
+      lineage = null;
+    }
+    if (!lineage) continue;
     const decision = evaluateDriverBatchEligibility({
       driver_id: driverId,
-      wallet_balance_pence: balance,
-      available_payout_pence: available,
+      wallet_balance_pence: eligibility.live_balance_pence,
+      available_payout_pence: lineage.amount_pence,
       payouts_enabled: driver.payouts_enabled !== false,
       driver_held_or_blocked: held,
       currency: serviceAreaCurrency,
@@ -357,13 +357,18 @@ Deno.serve(async (req) => {
     planned.push({
       driver_id: driverId,
       driver_name: `${driver.first_name ?? ""} ${driver.last_name ?? ""}`.trim() || null,
-      amount_pence: decision.amount_pence,
+      amount_pence: lineage.amount_pence,
+      allocations: lineage.allocations,
       payout_destination_id: decision.payout_destination_id,
       provider_counterparty_id: decision.provider_counterparty_id,
       provider_recipient_account_id: decision.provider_recipient_account_id,
       wallet_snapshot_balance_pence: decision.wallet_snapshot_balance_pence,
-      wallet_snapshot_available_pence: decision.wallet_snapshot_available_pence,
-      eligibility_snapshot: decision.eligibility_snapshot,
+      wallet_snapshot_available_pence: lineage.amount_pence,
+      eligibility_snapshot: {
+        ...decision.eligibility_snapshot,
+        source: "eligible_driver_wallet_ledger_entries",
+        ledger_allocation_ids: lineage.allocations.map((a) => a.ledger_entry_id),
+      },
       destination_verified: true,
     });
   }
@@ -538,6 +543,15 @@ Deno.serve(async (req) => {
           provider_request_id: requestId,
           updated_at: new Date().toISOString(),
         }).eq("id", itemId);
+        const plannedItem = planned.find((p) => p.driver_id === String(it.driver_id));
+        if (plannedItem) {
+          await persistPayoutItemLedgerAllocations({
+            supabase,
+            payout_item_id: itemId,
+            allocations: plannedItem.allocations,
+            amount_pence: plannedItem.amount_pence,
+          });
+        }
       }
     }
     await supabase.from("payout_batches").update({
@@ -1104,6 +1118,28 @@ Deno.serve(async (req) => {
         status: ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
         error: ORCHESTRATOR_BLOCKER.PROVIDER_UNAVAILABLE,
         reservation_kept_active: true,
+      });
+      continue;
+    }
+
+    try {
+      await assertPayoutItemLedgerLineage({
+        supabase,
+        payout_item_id: payoutItemId,
+        expected_amount_pence: p.amount_pence,
+      });
+    } catch (lineageErr) {
+      await supabase.rpc("abort_driver_payout_submission_claim", {
+        p_payout_item_id: payoutItemId,
+        p_claim_token: String(claimSub.claim_token),
+        p_failure_code: "PAYOUT_LINEAGE_MISSING",
+        p_failure_reason_safe: lineageErr instanceof Error ? lineageErr.message : "lineage missing",
+      });
+      itemOutcomes.push({
+        driver_id: p.driver_id,
+        payout_item_id: payoutItemId,
+        status: ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
+        error: "PAYOUT_LINEAGE_MISSING",
       });
       continue;
     }

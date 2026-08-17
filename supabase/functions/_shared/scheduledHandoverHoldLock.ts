@@ -10,6 +10,23 @@
 
 export const SCHEDULED_CONVERT_STATUS = "converted_to_instant";
 
+/** Open-job statuses that stay live during scheduled handover (not instant TTL). */
+export const SCHEDULED_HANDOVER_OPEN_JOB_STATUSES = new Set([
+  "pending",
+  "searching",
+  "offered",
+  "offering",
+  "broadcasting",
+  "searching_new_driver",
+  "driver_cancelled",
+  "negotiating",
+  "dispatching",
+]);
+
+export function isScheduledHandoverOpenJobStatus(status: string | null | undefined): boolean {
+  return SCHEDULED_HANDOVER_OPEN_JOB_STATUSES.has(norm(status));
+}
+
 const CUSTOMER_CANCEL_ACTORS = new Set([
   "customer",
   "passenger",
@@ -83,12 +100,17 @@ export function isAuthoritativeNoShowOrFeeTerminal(input: {
 export function isScheduledInstantConversionPending(trip: {
   dispatch_mode?: string | null;
   scheduled_status?: string | null;
+  is_scheduled?: boolean | null;
+  scheduled_at?: string | null;
 }): boolean {
-  const mode = norm(trip.dispatch_mode);
   const scheduledStatus = norm(trip.scheduled_status);
   if (scheduledStatus === SCHEDULED_CONVERT_STATUS) return false;
+  const mode = norm(trip.dispatch_mode);
   if (mode === "instant") return false;
-  return mode === "scheduled";
+  if (mode === "scheduled") return true;
+  // Thin restore / Book-seed rows may omit dispatch_mode.
+  if (trip.is_scheduled === true) return true;
+  return Boolean(String(trip.scheduled_at ?? "").trim());
 }
 
 export function isScheduledWorkflowOrigin(trip: {

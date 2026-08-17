@@ -180,24 +180,10 @@ Deno.serve(async (req) => {
           .eq("current_trip_id", tripId);
 
         // Phase 7: CW completion deduction (no driver_wallet_ledger / payout liability).
-        let usesCw = false;
-        if (trip.service_area_id) {
-          const { data: cwSa } = await gate.supabase
-            .from("service_areas")
-            .select("financial_model, commission_wallet_enabled")
-            .eq("id", trip.service_area_id)
-            .maybeSingle();
-          usesCw = tripUsesCommissionWalletDeduction({
-            tripFinancialModel: trip.financial_model,
-            tripCommissionWalletEnabled: trip.commission_wallet_enabled,
-            serviceAreaConfig: cwSa
-              ? {
-                financial_model: cwSa.financial_model,
-                commission_wallet_enabled: cwSa.commission_wallet_enabled,
-              }
-              : null,
-          });
-        }
+        const usesCw = tripUsesCommissionWalletDeduction({
+          tripFinancialModel: trip.financial_model,
+          tripCommissionWalletEnabled: trip.commission_wallet_enabled,
+        });
         if (usesCw) {
           const cwDeduction = await convertCommissionWalletOnTripComplete({
             supabase: gate.supabase,

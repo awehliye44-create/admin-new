@@ -68,6 +68,21 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (
+      String(trip.financial_model ?? "").toUpperCase()
+      === "DRIVER_COLLECTED_COMMISSION_WALLET"
+    ) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "FINANCIAL_MODEL_VIOLATION: platform capture forbidden on DRIVER_COLLECTED_COMMISSION_WALLET",
+        error_code: "FINANCIAL_MODEL_VIOLATION",
+        status: "financial_model_violation",
+      }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (String(trip.status ?? "").toLowerCase() !== "completed") {
       return new Response(JSON.stringify({
         success: false,

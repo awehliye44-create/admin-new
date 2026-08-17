@@ -31,7 +31,14 @@ export function isCardPaymentMethod(paymentMethod: string | null | undefined): b
 export function requiresProviderSettlement(trip: TripProviderRow & {
   payment_method?: string | null;
   payment_session_id?: string | null;
+  financial_model?: string | null;
 }): boolean {
+  if (
+    String(trip.financial_model ?? "").toUpperCase()
+    === "DRIVER_COLLECTED_COMMISSION_WALLET"
+  ) {
+    return false;
+  }
   if (!isCardPaymentMethod(trip.payment_method)) return false;
   const provider = resolveTripPaymentProvider(trip);
   if (provider !== "revolut") return false;

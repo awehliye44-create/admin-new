@@ -147,7 +147,11 @@ Deno.serve(async (req) => {
     return handleCORSPreflight();
   }
 
-  // Rate limiting
+  return errorResponse(
+    "USE_CREATE_TRIP_AFTER_PAYMENT",
+    "create-ride is retired. Use create-trip-after-payment for all paid bookings.",
+    410,
+  );
   const clientIP = getClientIP(req);
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
   if (!rateLimitResult.allowed) {

@@ -5,6 +5,9 @@ import {
   COMMISSION_WALLET_ENTRY_TYPE,
   COMMISSION_WALLET_FORBIDDEN_ACTIONS,
   SERVICE_AREA_FINANCIAL_MODEL,
+  classifyServiceAreaFinancialPairing,
+  FINANCIAL_MODEL_VIOLATION,
+  INVALID_CONFIGURATION,
   assertCommissionWalletDoesNotTouchDriverWalletLedger,
   buildTripFinancialModelSnapshot,
   commissionableFareMinor,
@@ -48,6 +51,9 @@ import {
   planCommissionWalletReserve,
   planCommissionWalletReserveRelease,
   planCommissionWalletDeduction,
+  planCommissionWalletTripPromotion,
+  isAdminCommissionWalletCreditCustomerFarePromotion,
+  isPreservedAdminCommissionWalletCredit,
   tripUsesCommissionWalletDeduction,
   buildCommissionWalletDriverRosterRow,
   isCommissionWalletOfferEligibleFromBalances,
@@ -87,7 +93,11 @@ describe("commissionWalletSSOT isolation", () => {
       currency: "GBP",
       commissionRateBps: 1500,
       config: mkPlatform,
-    })).toBeNull();
+    })).toMatchObject({
+      financial_model: SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      commission_wallet_enabled: false,
+      payment_collection_model: "PLATFORM_PREPAID",
+    });
   });
 
   it("2: Commission Wallet invisible when disabled even if model string set", () => {
@@ -185,9 +195,9 @@ describe("commissionWalletSSOT isolation", () => {
       promotionalBalanceMinor: 100,
       reservedBalanceMinor: 50,
     });
-    expect(bal.usable_commission_balance_minor).toBe(600);
+    expect(bal.usable_commission_balance_minor).toBe(550);
     expect(bal.commission_wallet_balance_minor).toBe(600);
-    expect(bal.reserved_balance_minor).toBe(0);
+    expect(bal.reserved_balance_minor).toBe(50);
     expect(bal.withdrawable_balance_minor).toBe(0);
     expect(bal.payout_due_minor).toBe(0);
     expect(commissionWalletDisplayBalanceMinor(bal)).toBe(600);
@@ -933,7 +943,7 @@ describe("commissionWalletSSOT Phase 6 dispatch reserve", () => {
     });
   });
 
-  it("pre-trip reserve/release plans are permanently disabled", () => {
+  it("atomic assignment reserve plans lock usable balance", () => {
     expect(planCommissionWalletReserve({
       gateApplies: true,
       estimatedFinalFareMinor: 2000,
@@ -941,7 +951,19 @@ describe("commissionWalletSSOT Phase 6 dispatch reserve", () => {
       usableCommissionBalanceMinor: 500,
       driverId: "drv-a",
       tripId: "trip-b",
-    })).toMatchObject({ ok: false, code: "GATE_OFF" });
+    })).toMatchObject({
+      ok: true,
+      amount_minor: 300,
+      entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE,
+    });
+    expect(planCommissionWalletReserve({
+      gateApplies: true,
+      estimatedFinalFareMinor: 2000,
+      commissionRateBps: 1500,
+      usableCommissionBalanceMinor: 299,
+      driverId: "drv-a",
+      tripId: "trip-b",
+    })).toMatchObject({ ok: false, code: "INSUFFICIENT_BALANCE" });
     expect(planCommissionWalletReserve({
       gateApplies: true,
       estimatedFinalFareMinor: 4000,
@@ -951,12 +973,16 @@ describe("commissionWalletSSOT Phase 6 dispatch reserve", () => {
       tripId: "trip-b",
       alreadyHasActiveReserve: true,
       currentReserveAmountMinor: 300,
-    })).toMatchObject({ ok: false, code: "GATE_OFF" });
+    })).toMatchObject({ ok: false, code: "ALREADY_RESERVED" });
     expect(planCommissionWalletReserveRelease({
       activeReserveAmountMinor: 300,
       driverId: "drv-a",
       tripId: "trip-b",
-    })).toMatchObject({ ok: false, code: "NO_ACTIVE_RESERVE" });
+    })).toMatchObject({
+      ok: true,
+      amount_minor: 300,
+      entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_RESERVE_RELEASE,
+    });
   });
 
   it("fare source prefers final then estimated; percent→bps", () => {
@@ -970,14 +996,14 @@ describe("commissionWalletSSOT Phase 6 dispatch reserve", () => {
     })).toBe(1250);
   });
 
-  it("historical reserve ledger entries are ignored by live balance SSOT", () => {
+  it("active reserve ledger entries reduce usable but not display balance", () => {
     const afterReserve = deriveBalancesFromCommissionLedgerEntries([
       { entry_type: "TOP_UP_CREDIT", amount_minor: 1000, direction: "credit" },
       { entry_type: "COMMISSION_RESERVE", amount_minor: 300, direction: "debit" },
     ]);
-    expect(afterReserve.usable_commission_balance_minor).toBe(1000);
+    expect(afterReserve.usable_commission_balance_minor).toBe(700);
     expect(afterReserve.commission_wallet_balance_minor).toBe(1000);
-    expect(afterReserve.reserved_balance_minor).toBe(0);
+    expect(afterReserve.reserved_balance_minor).toBe(300);
     const afterRelease = deriveBalancesFromCommissionLedgerEntries([
       { entry_type: "TOP_UP_CREDIT", amount_minor: 1000, direction: "credit" },
       { entry_type: "COMMISSION_RESERVE", amount_minor: 300, direction: "debit" },
@@ -1040,7 +1066,7 @@ describe("commissionWalletSSOT Phase 7 completion deduction + finance", () => {
       promotional_portion_minor: 100,
       purchased_portion_minor: 200,
       entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_DEDUCTION,
-      convert_active_reserve: false,
+      convert_active_reserve: true,
       revenue_source: REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
       ledger_idempotency_key: buildCommissionWalletDeductionIdempotencyKey("trip-deduct-1"),
     });
@@ -1067,7 +1093,7 @@ describe("commissionWalletSSOT Phase 7 completion deduction + finance", () => {
     });
   });
 
-  it("tripUsesCommissionWalletDeduction prefers trip snapshot then SA", () => {
+  it("tripUsesCommissionWalletDeduction uses the immutable trip stamp only", () => {
     expect(tripUsesCommissionWalletDeduction({
       tripFinancialModel: SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,
       tripCommissionWalletEnabled: false,
@@ -1075,10 +1101,11 @@ describe("commissionWalletSSOT Phase 7 completion deduction + finance", () => {
     })).toBe(false);
     expect(tripUsesCommissionWalletDeduction({
       serviceAreaConfig: mkAfrica,
-    })).toBe(true);
+    })).toBe(false);
     expect(tripUsesCommissionWalletDeduction({
       tripFinancialModel: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
       tripCommissionWalletEnabled: true,
+      serviceAreaConfig: mkPlatform,
     })).toBe(true);
   });
 
@@ -1177,5 +1204,118 @@ describe("Commission Wallet account roster / SA move", () => {
       requiresAuditedMigration: true,
       code: "CROSS_CURRENCY_TRANSFER_PROHIBITED",
     });
+  });
+});
+
+describe("financial model isolation — two pipelines", () => {
+  it("rejects invalid service-area pairings including Kampala prepaid+CW", () => {
+    expect(classifyServiceAreaFinancialPairing({
+      financial_model: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+      commission_wallet_enabled: true,
+      customer_payment_policy: "PLATFORM_PREPAID",
+    })).toMatchObject({ ok: false, code: INVALID_CONFIGURATION });
+    expect(classifyServiceAreaFinancialPairing({
+      financial_model: SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      commission_wallet_enabled: true,
+      customer_payment_policy: "PLATFORM_PREPAID",
+    })).toMatchObject({ ok: false, code: INVALID_CONFIGURATION });
+    expect(classifyServiceAreaFinancialPairing(null)).toMatchObject({
+      ok: false,
+      code: INVALID_CONFIGURATION,
+    });
+  });
+
+  it("customer promotion 500/50/15% deducts 25p; excess promo creates CW subsidy", () => {
+    expect(planCommissionWalletTripPromotion({
+      prePromotionCommissionableMinor: 500,
+      lockedCustomerPromotionMinor: 50,
+      commissionRateBps: 1500,
+    })).toEqual({
+      customer_pays_minor: 450,
+      gross_commission_minor: 75,
+      locked_customer_promotion_minor: 50,
+      commission_wallet_effect_minor: 25,
+      outcome: "deduction",
+    });
+    expect(planCommissionWalletDeduction({
+      gateApplies: true,
+      commissionableFareMinor: 500,
+      commissionRateBps: 1500,
+      lockedCustomerPromotionMinor: 50,
+      promotionalBalanceMinor: 1000,
+      purchasedBalanceMinor: 1000,
+      tripId: "promo-25",
+    })).toMatchObject({
+      ok: true,
+      skipped: false,
+      outcome: "deduction",
+      amount_minor: 25,
+      gross_commission_minor: 75,
+      locked_customer_promotion_minor: 50,
+    });
+    expect(planCommissionWalletDeduction({
+      gateApplies: true,
+      commissionableFareMinor: 500,
+      commissionRateBps: 1500,
+      lockedCustomerPromotionMinor: 90,
+      promotionalBalanceMinor: 0,
+      purchasedBalanceMinor: 0,
+      tripId: "promo-subsidy",
+    })).toMatchObject({
+      ok: true,
+      skipped: false,
+      outcome: "subsidy",
+      subsidy_minor: 15,
+      amount_minor: 0,
+      entry_type: COMMISSION_WALLET_ENTRY_TYPE.COMMISSION_SUBSIDY_CREDIT,
+    });
+  });
+
+  it("Admin Commission Wallet credit is never a customer fare promotion", () => {
+    expect(isAdminCommissionWalletCreditCustomerFarePromotion({
+      entry_type: "ADMIN_CREDIT",
+      trip_id: null,
+    })).toBe(false);
+    expect(isPreservedAdminCommissionWalletCredit({
+      entry_type: "ADMIN_CREDIT",
+      trip_id: null,
+    })).toBe(true);
+    expect(isPreservedAdminCommissionWalletCredit({
+      entry_type: "COMMISSION_DEDUCTION",
+      trip_id: "trip-1",
+    })).toBe(false);
+    const promo = planCommissionWalletTripPromotion({
+      prePromotionCommissionableMinor: 500,
+      lockedCustomerPromotionMinor: 0,
+      commissionRateBps: 1500,
+    });
+    expect(promo.gross_commission_minor).toBe(75);
+    expect(promo.commission_wallet_effect_minor).toBe(75);
+  });
+
+  it("concurrent reservation planning cannot overspend the same usable balance", () => {
+    const first = planCommissionWalletReserve({
+      gateApplies: true,
+      estimatedFinalFareMinor: 2000,
+      commissionRateBps: 1500,
+      usableCommissionBalanceMinor: 300,
+      driverId: "d1",
+      tripId: "t-a",
+    });
+    expect(first).toMatchObject({ ok: true, amount_minor: 300 });
+    const remaining = first.ok ? 300 - first.amount_minor : 0;
+    expect(planCommissionWalletReserve({
+      gateApplies: true,
+      estimatedFinalFareMinor: 2000,
+      commissionRateBps: 1500,
+      usableCommissionBalanceMinor: remaining,
+      driverId: "d1",
+      tripId: "t-b",
+    })).toMatchObject({ ok: false, code: "INSUFFICIENT_BALANCE" });
+  });
+
+  it("FINANCIAL_MODEL_VIOLATION is the cross-model reject code", () => {
+    expect(FINANCIAL_MODEL_VIOLATION).toBe("FINANCIAL_MODEL_VIOLATION");
+    expect(assertCommissionWalletDoesNotTouchDriverWalletLedger()).toBe(true);
   });
 });

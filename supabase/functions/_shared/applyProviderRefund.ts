@@ -7,6 +7,7 @@ import {
   resolveRefundStatus,
   resolveTripPaymentStatusFromRefund,
 } from "./providerRefundSSOT.ts";
+import { FINANCIAL_MODEL_VIOLATION, SERVICE_AREA_FINANCIAL_MODEL } from "./commissionWalletSSOT.ts";
 
 export type ApplyProviderRefundArgs = {
   tripId: string;
@@ -84,7 +85,7 @@ export async function applyProviderRefundToOnecab(
   const { data: trip, error: tripErr } = await supabase
     .from("trips")
     .select(`
-      id, driver_id, payment_status, payment_method,
+      id, driver_id, payment_status, payment_method, financial_model,
       final_fare_pence, final_customer_fare_pence, capture_amount_pence,
       commission_pence, driver_net_pence, refund_amount_pence,
       provider_payment_id, provider_charge_id
@@ -92,6 +93,15 @@ export async function applyProviderRefundToOnecab(
     .eq("id", tripId)
     .single();
   if (tripErr || !trip) throw new Error(`Trip not found: ${tripId}`);
+
+  if (
+    String(trip.financial_model ?? "").toUpperCase()
+    === SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET
+  ) {
+    throw new Error(
+      `${FINANCIAL_MODEL_VIOLATION}: platform refund forbidden on DRIVER_COLLECTED_COMMISSION_WALLET`,
+    );
+  }
 
   const { data: paymentRows } = await supabase
     .from("payments")

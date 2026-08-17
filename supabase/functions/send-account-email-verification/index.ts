@@ -1,8 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import {
   accountEmailVerificationBridgeUrl,
-  accountEmailVerificationWebUrl,
-  resolveVerificationAppBaseUrl,
   resolveVerificationAppType,
   type VerificationAppType,
 } from "../_shared/accountEmailVerification.ts";
@@ -132,12 +130,6 @@ Deno.serve(async (req) => {
       });
     }
     const isResend = body.resend === true;
-    const redirectBase = resolveVerificationAppBaseUrl(appType, {
-      customerAppUrl: Deno.env.get("CUSTOMER_APP_URL"),
-      driverAppUrl: Deno.env.get("DRIVER_APP_URL"),
-      adminAppUrl: Deno.env.get("ADMIN_APP_URL"),
-      appUrl: Deno.env.get("APP_URL"),
-    });
 
     const service = createClient(supabaseUrl, serviceKey);
 
@@ -175,22 +167,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    await invalidateUnusedVerificationTokens(service, user.id, appType);
-
     const rawToken = generateVerificationToken();
     const hash = await hashVerificationToken(rawToken);
     const expiresAt = verificationExpiresAt();
 
-    const { error: insertError } = await service.from("account_email_verifications").insert({
-      user_id: user.id,
-      email: user.email,
-      app_type: appType,
-      token_hash: hash,
-      expires_at: expiresAt,
-    });
-    if (insertError) throw insertError;
-
-    const webVerifyUrl = accountEmailVerificationWebUrl(redirectBase, appType, rawToken);
     const verifyUrl = accountEmailVerificationBridgeUrl(supabaseUrl, appType, rawToken);
     const profileFirstName = await resolveProfileFirstName(service, user.id, appType);
     const firstName = resolveVerificationFirstName(user.user_metadata, profileFirstName);
@@ -199,14 +179,16 @@ Deno.serve(async (req) => {
       appType: appType === "admin" ? "customer" : appType,
       firstName,
       verifyUrl,
-      webVerifyUrl,
     });
 
+    // Send first. Invalidating unused tokens before Resend succeeds leaves the
+    // inbox with a dead previous link and no replacement email.
     const sent = await sendResendEmail({
       to: user.email,
       subject: emailContent.subject,
       html: emailContent.html,
       text: emailContent.text,
+      tag: "account_email_verification",
     });
 
     if (!sent.ok) {
@@ -222,6 +204,17 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    await invalidateUnusedVerificationTokens(service, user.id, appType);
+
+    const { error: insertError } = await service.from("account_email_verifications").insert({
+      user_id: user.id,
+      email: user.email,
+      app_type: appType,
+      token_hash: hash,
+      expires_at: expiresAt,
+    });
+    if (insertError) throw insertError;
 
     logVerificationAudit(
       isResend ? EMAIL_VERIFICATION_AUDIT.RESENT : EMAIL_VERIFICATION_AUDIT.SENT,

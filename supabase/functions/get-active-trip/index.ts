@@ -7,7 +7,11 @@ import { computeLiveTripFarePreview } from "../_shared/liveTripFareSSOT.ts";
 import { getCurrencySymbol } from "../../../shared/currency.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { releaseHoldOnTripTerminal } from "../_shared/holdReleaseSSOT.ts";
-import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
+import {
+  isScheduledHandoverOpenJobStatus,
+  isScheduledInstantConversionPending,
+  isScheduledWorkflowOrigin,
+} from "../_shared/scheduledHandoverHoldLock.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -133,6 +137,7 @@ function isActiveDriverCancelRematchDespiteStatus(row: TripRow, nowMs: number): 
 }
 
 function isSearchWindowExpiredForCustomer(row: TripRow, nowMs: number): boolean {
+  if (isScheduledInstantConversionPending(row)) return false;
   const status = String(row.status ?? "").toLowerCase();
   if (!SEARCHING_TRIP_STATUSES.has(status)) return false;
   if (row.driver_id || row.confirmed_driver_id) return false;
@@ -140,8 +145,16 @@ function isSearchWindowExpiredForCustomer(row: TripRow, nowMs: number): boolean 
   const expiresRaw = (row as { searching_expires_at?: string | null }).searching_expires_at;
   if (expiresRaw) {
     const expiresMs = new Date(expiresRaw).getTime();
-    return Number.isFinite(expiresMs) && nowMs >= expiresMs;
+    if (!(Number.isFinite(expiresMs) && nowMs >= expiresMs)) return false;
+    // Past stamp on scheduled-origin jobs is expire-RPC SSOT — do not Home
+    // locally (live offers / stale booking stamp after convert).
+    if (isScheduledWorkflowOrigin(row)) return false;
+    return true;
   }
+
+  // Converted scheduled rematch without a stamped window must not be treated
+  // as already expired — that is the MK-006 created_at TTL class.
+  if (isScheduledWorkflowOrigin(row)) return false;
 
   if (status === "searching_new_driver" || status === "driver_cancelled") {
     return true;
@@ -162,6 +175,26 @@ function isCustomerLiveTrip(row: TripRow, nowMs: number): boolean {
 
   if (SEARCHING_TRIP_STATUSES.has(status)) {
     if (isSearchWindowExpiredForCustomer(row, nowMs)) return false;
+  }
+  // Scheduled broadcast / fare-offer / rematch is live before pickup.
+  // Do not drop negotiating/dispatching just because they are outside the
+  // instant searching TTL set (MK-260817-006).
+  if (
+    isScheduledInstantConversionPending(row) &&
+    isScheduledHandoverOpenJobStatus(status)
+  ) {
+    return true;
+  }
+
+  const dispatchMode = String(row.dispatch_mode ?? "").trim().toLowerCase();
+  const scheduledStatus = String(row.scheduled_status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  // Same-trip conversion is on the instant nearby-card path even while
+  // is_scheduled remains true (historical booking type).
+  if (dispatchMode === "instant" || scheduledStatus === "converted_to_instant") {
+    return true;
   }
 
   if (!isScheduledTrip(row)) return true;
@@ -273,6 +306,7 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
           );
           if (expireErr) {
             console.warn("SEARCH_CYCLE_EXPIRED_BACKEND expire RPC failed:", candidate.id, expireErr);
+            trip = candidate;
           } else if (expiredByServer === true) {
             console.log("TRIP_MARKED_EXPIRED_NO_DRIVER", { trip_id: candidate.id });
             console.log("CUSTOMER_EXPIRED_FROM_BACKEND", { trip_id: candidate.id });
@@ -288,11 +322,15 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
             } catch (holdErr) {
               console.error("HOLD_RELEASE_AFTER_EXPIRE failed (non-fatal):", candidate.id, holdErr);
             }
+            await supabase
+              .from("customers")
+              .update({ active_trip_id: null })
+              .eq("user_id", userId);
+          } else {
+            // SQL search window still open (live offers / converted missing stamp).
+            console.log("SEARCH_WINDOW_STILL_ACTIVE_KEEP_LIVE", { trip_id: candidate.id });
+            trip = candidate;
           }
-          await supabase
-            .from("customers")
-            .update({ active_trip_id: null })
-            .eq("user_id", userId);
         } else {
           console.log("Trip is not live for customer yet:", candidate.id, "status:", candidate.status, "scheduled:", candidate.is_scheduled);
           if (TERMINAL_TRIP_STATUSES.has(String(candidate.status ?? "").toLowerCase())) {
@@ -314,12 +352,11 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
 
     // Fallback: check for any active trip that may not have active_trip_id set yet
     // passenger_id in trips = customer.id, not auth user_id
-    // IMPORTANT: For scheduled trips (is_scheduled=true), only return as "active"
-    // if a driver has been assigned (driver_id IS NOT NULL). Pre-assignment states
-    // like searching/broadcasting/offering should remain in the UpcomingTrips UI,
-    // not hijack the main active-trip detection.
+    // Scheduled searching/broadcasting is live before pickup (MK-260817-006).
+    // Pre-broadcast `status=scheduled` stays on the Scheduled list until the
+    // dispatch window / offered status. Scan a few rows so a newer non-live
+    // trip cannot hide an older live handover.
     if (!trip && customer) {
-      // First try: non-scheduled instant trips in any active state
       const { data: instantTrips } = await supabase
         .from("trips")
         .select("*")
@@ -327,18 +364,27 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
         .in("status", activeStates)
         .or("is_scheduled.is.null,is_scheduled.eq.false")
         .order("created_at", { ascending: false })
-        .limit(1);
+        .limit(10);
+      const instantTrip = (instantTrips ?? []).find((candidate) =>
+        isCustomerLiveTrip(candidate as TripRow, nowMs)
+      ) ?? null;
 
-      // Second try: scheduled trips only once dispatch has started and a driver
-      // is in a customer-live state. Early pre-confirmation stays upcoming.
       let scheduledTrip = null;
-      if (!instantTrips?.[0]) {
+      if (!instantTrip) {
         const { data: scheduledCandidates } = await supabase
           .from("trips")
           .select("*")
           .eq("passenger_id", customer.id)
           .eq("is_scheduled", true)
-          .in("status", SCHEDULED_LIVE_STATES)
+          .in("status", [
+            ...SCHEDULED_LIVE_STATES,
+            "searching",
+            "offered",
+            "offering",
+            "broadcasting",
+            "searching_new_driver",
+            "pending",
+          ])
           .order("created_at", { ascending: false })
           .limit(10);
         scheduledTrip = (scheduledCandidates ?? []).find((candidate) =>
@@ -346,7 +392,7 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
         ) || null;
       }
 
-      const activatedTrips = instantTrips?.[0] ? instantTrips : (scheduledTrip ? [scheduledTrip] : null);
+      const activatedTrips = instantTrip ? [instantTrip] : (scheduledTrip ? [scheduledTrip] : null);
 
       if (activatedTrips?.[0]) {
         trip = activatedTrips[0];

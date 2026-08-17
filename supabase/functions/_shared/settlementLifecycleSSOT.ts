@@ -4,6 +4,7 @@
  * Does not alter wallet balance math — tracks settlement ↔ payout linkage only.
  */
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { PAYOUT_LINEAGE_MISSING } from "./payoutItemLedgerAllocationWrite.ts";
 
 export const SETTLEMENT_LIFECYCLE = {
   CREATED: "CREATED",
@@ -71,6 +72,7 @@ export async function writePayoutAllocationLine(args: {
   sourceLedgerDebitId?: string | null;
   line: PayoutAllocationLine;
   paidAt: string;
+  skipAllocationInsert?: boolean;
 }): Promise<{ fully_allocated: boolean }> {
   const { data: row, error: fetchErr } = await args.supabase
     .from("driver_earning_settlement")
@@ -87,7 +89,9 @@ export async function writePayoutAllocationLine(args: {
   );
   const fullAmount = Math.max(0, Number(ledger.amount_pence));
   const prevAllocated = Number(row.allocated_amount_pence ?? 0);
-  const newAllocated = prevAllocated + args.line.amount_pence;
+  const newAllocated = args.skipAllocationInsert
+    ? Math.max(prevAllocated, args.line.amount_pence)
+    : prevAllocated + args.line.amount_pence;
   const fullyAllocated = fullAmount <= 0 || newAllocated >= fullAmount;
 
   const lifecycle = fullyAllocated
@@ -109,6 +113,10 @@ export async function writePayoutAllocationLine(args: {
     .eq("id", args.line.settlement_id);
 
   if (updErr) throw new Error(`Settlement update failed: ${updErr.message}`);
+
+  if (args.skipAllocationInsert) {
+    return { fully_allocated: fullyAllocated };
+  }
 
   const allocInsert: Record<string, unknown> = {
     ledger_entry_id: args.line.ledger_entry_id,
@@ -132,50 +140,12 @@ export async function writePayoutAllocationLine(args: {
   return { fully_allocated: fullyAllocated };
 }
 
-type SettlementCandidate = {
+export type SettlementCandidate = {
   settlement_id: string;
   ledger_entry_id: string;
   amount_pence: number;
   ledger_created_at: string;
 };
-
-async function fetchUnsettledSettlementCandidates(
-  supabase: SupabaseClient,
-  driverId: string,
-): Promise<SettlementCandidate[]> {
-  const { data, error } = await supabase
-    .from("driver_earning_settlement")
-    .select(`
-      id,
-      ledger_entry_id,
-      allocated_amount_pence,
-      paid_in_payout_item_id,
-      driver_wallet_ledger!inner (amount_pence, created_at)
-    `)
-    .eq("driver_id", driverId)
-    .is("paid_in_payout_item_id", null)
-    .neq("settlement_lifecycle_status", SETTLEMENT_LIFECYCLE.PAID);
-
-  if (error) throw new Error(`Settlement pool fetch failed: ${error.message}`);
-
-  return (data ?? []).map((row) => {
-    const ledger = unwrapLedgerJoin(
-      row.driver_wallet_ledger as LedgerJoinRow | LedgerJoinRow[] | null,
-    );
-    const full = Math.max(0, Number(ledger.amount_pence));
-    const allocated = Math.max(0, Number(row.allocated_amount_pence ?? 0));
-    const remaining = Math.max(0, full - allocated);
-    return {
-      settlement_id: row.id as string,
-      ledger_entry_id: row.ledger_entry_id as string,
-      amount_pence: remaining,
-      ledger_created_at: String(ledger.created_at),
-    };
-  }).filter((r) => r.amount_pence > 0)
-    .sort((a, b) =>
-      new Date(a.ledger_created_at).getTime() - new Date(b.ledger_created_at).getTime()
-    );
-}
 
 export function buildFifoSettlementAllocations(
   candidates: SettlementCandidate[],
@@ -200,7 +170,7 @@ export function buildFifoSettlementAllocations(
   return lines;
 }
 
-/** After a successful payout debit, link ledger credits → payout item and advance lifecycle to PAID. */
+/** After a successful payout debit, link DES to existing pre-execute allocations. */
 export async function completePayoutSettlementLifecycle(args: {
   supabase: SupabaseClient;
   payoutItemId: string;
@@ -210,21 +180,48 @@ export async function completePayoutSettlementLifecycle(args: {
   paidAt: string;
   sourceLedgerDebitId?: string | null;
 }): Promise<{ allocations_written: number; lines: PayoutAllocationLine[] }> {
-  const candidates = await fetchUnsettledSettlementCandidates(args.supabase, args.driverId);
-  const lines = buildFifoSettlementAllocations(candidates, args.payoutAmountPence);
+  const { data: existingAllocs, error: existingErr } = await args.supabase
+    .from("payout_item_ledger_allocations")
+    .select("ledger_entry_id, amount_pence")
+    .eq("payout_item_id", args.payoutItemId);
+  if (existingErr) throw new Error(existingErr.message);
 
-  let written = 0;
-  for (const line of lines) {
-    await writePayoutAllocationLine({
-      supabase: args.supabase,
-      batchId: args.batchId,
-      payoutItemId: args.payoutItemId,
-      sourceLedgerDebitId: args.sourceLedgerDebitId,
-      line,
-      paidAt: args.paidAt,
-    });
-    written += 1;
+  if ((existingAllocs ?? []).length > 0) {
+    const { data: desRows } = await args.supabase
+      .from("driver_earning_settlement")
+      .select("id, ledger_entry_id")
+      .in(
+        "ledger_entry_id",
+        (existingAllocs ?? []).map((row) => String(row.ledger_entry_id)),
+      );
+    const desByLedger = new Map(
+      (desRows ?? []).map((row) => [String(row.ledger_entry_id), String(row.id)]),
+    );
+    let written = 0;
+    const lines: PayoutAllocationLine[] = [];
+    for (const row of existingAllocs ?? []) {
+      const ledgerId = String(row.ledger_entry_id);
+      const settlementId = desByLedger.get(ledgerId);
+      if (!settlementId) continue;
+      const line: PayoutAllocationLine = {
+        settlement_id: settlementId,
+        ledger_entry_id: ledgerId,
+        amount_pence: Math.max(0, Number(row.amount_pence ?? 0)),
+      };
+      lines.push(line);
+      await writePayoutAllocationLine({
+        supabase: args.supabase,
+        batchId: args.batchId,
+        payoutItemId: args.payoutItemId,
+        sourceLedgerDebitId: args.sourceLedgerDebitId,
+        line,
+        paidAt: args.paidAt,
+        skipAllocationInsert: true,
+      });
+      written += 1;
+    }
+    return { allocations_written: written, lines };
   }
 
-  return { allocations_written: written, lines };
+  throw new Error(PAYOUT_LINEAGE_MISSING);
 }

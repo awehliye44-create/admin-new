@@ -62,7 +62,11 @@ Deno.serve(async (req) => {
     return handleCORSPreflight();
   }
 
-  const clientIP = getClientIP(req);
+  return errorResponse(
+    "USE_CREATE_TRIP_AFTER_PAYMENT",
+    "create-trip-request is retired. Use create-trip-after-payment for all paid bookings.",
+    410,
+  );
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
   if (!rateLimitResult.allowed) {
     console.warn("[create-trip-request] Rate limit exceeded for IP:", clientIP);

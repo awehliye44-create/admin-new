@@ -1,8 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import {
-  accountEmailVerificationDeepLink,
-  accountEmailVerificationWebUrl,
-  resolveVerificationAppBaseUrl,
+  nativeAppHandoffLocation,
   resolveVerificationAppType,
   type VerificationAppType,
 } from "../_shared/accountEmailVerification.ts";
@@ -28,6 +26,21 @@ function redirectResponse(location: string, status = 302): Response {
       "Cache-Control": "no-store",
     },
   });
+}
+
+function nativeAppHandoffResponse(
+  req: Request,
+  appType: VerificationAppType,
+  token: string,
+  error?: string,
+): Response {
+  return redirectResponse(nativeAppHandoffLocation({
+    appType,
+    path: "auth/verify-email",
+    token,
+    error,
+    userAgent: req.headers.get("user-agent"),
+  }));
 }
 
 type LinkValidation =
@@ -79,24 +92,6 @@ const NON_RECOVERABLE_LINK_REASONS = new Set([
   "expired_token",
 ]);
 
-function webFallbackUrl(
-  appBaseUrl: string,
-  appType: VerificationAppType,
-  token: string | null,
-  reason?: string,
-): string {
-  const base = appBaseUrl.replace(/\/+$/, "");
-  const params = new URLSearchParams({ app: appType });
-  const stripToken = reason != null && NON_RECOVERABLE_LINK_REASONS.has(reason);
-  if (token && !stripToken) params.set("token", token);
-  if (reason === "already_verified") {
-    params.set("status", "already_verified");
-  } else if (reason) {
-    params.set("error", reason);
-  }
-  return `${base}/auth/verify-email?${params.toString()}`;
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -105,12 +100,6 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const token = String(url.searchParams.get("token") ?? "").trim();
   const appType = resolveVerificationAppType(url.searchParams.get("app"));
-  const appBaseUrl = resolveVerificationAppBaseUrl(appType, {
-    customerAppUrl: Deno.env.get("CUSTOMER_APP_URL"),
-    driverAppUrl: Deno.env.get("DRIVER_APP_URL"),
-    adminAppUrl: Deno.env.get("ADMIN_APP_URL"),
-    appUrl: Deno.env.get("APP_URL"),
-  });
 
   if (!token) {
     logVerificationAudit(EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN, {
@@ -118,7 +107,7 @@ Deno.serve(async (req) => {
       phase: "verify_link",
       reason: "missing_token",
     });
-    return redirectResponse(webFallbackUrl(appBaseUrl, appType, null, "missing_token"));
+    return nativeAppHandoffResponse(req, appType, "", "missing_token");
   }
 
   const validation = await validateVerificationLink(token, appType);
@@ -133,15 +122,9 @@ Deno.serve(async (req) => {
       phase: "verify_link",
       reason: validation.reason,
     });
-    return redirectResponse(
-      webFallbackUrl(appBaseUrl, appType, token, validation.reason),
-    );
+    const openToken = NON_RECOVERABLE_LINK_REASONS.has(validation.reason) ? "" : token;
+    return nativeAppHandoffResponse(req, appType, openToken, validation.reason);
   }
 
-  const deepLink = accountEmailVerificationDeepLink(appType, token);
-  if (req.method === "GET" || req.method === "HEAD") {
-    return redirectResponse(deepLink);
-  }
-
-  return redirectResponse(deepLink);
+  return nativeAppHandoffResponse(req, appType, token);
 });

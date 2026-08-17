@@ -1,0 +1,48 @@
+---
+description: Two hard-separated financial pipelines — never mix, never add a third.
+alwaysApply: true
+---
+
+# Financial model isolation lock
+
+Exactly **two** pipelines. Do not create a third.
+
+## PIPELINE 1 — PLATFORM_COLLECTED
+
+Customer Payment → Payment Sessions → Financial Reconciliation (audit only) → Driver Wallet Ledger → eligible balance → Payout Ledger → bank transfer.
+
+## PIPELINE 2 — DRIVER_COLLECTED_COMMISSION_WALLET
+
+Driver collects customer payment → Commission Wallet atomic reservation → assignment → completion → Commission Wallet deduction/subsidy → Commission Wallet history.
+
+## Never mix
+
+| Operation | PLATFORM_COLLECTED | DRIVER_COLLECTED |
+|-----------|--------------------|------------------|
+| Payment Session / platform capture | Required | Forbidden |
+| Financial Reconciliation | Audit only | Not used |
+| TRIP_EARNING_NET / Driver Wallet / Payout Ledger | Allowed | Forbidden |
+| Commission Wallet reserve/deduction/subsidy | Forbidden | Allowed |
+
+Reject wrong-model writes with `FINANCIAL_MODEL_VIOLATION`. Never silently drop.
+
+## Stamp
+
+- SA pairing selects the model **only before trip insert**
+- `trips.financial_model` is NOT NULL, one of the two values, immutable after insert
+- No live SA fallback on financial write paths
+
+Valid SA pairings:
+
+- PLATFORM_COLLECTED + PLATFORM_PREPAID + CW off
+- DRIVER_COLLECTED_COMMISSION_WALLET + DRIVER_COLLECTS_UPFRONT + CW on
+
+## Admin Commission Wallet credit
+
+`ADMIN_CREDIT` / promotional / top-up / `trip_id = null` stays Commission Wallet only. Never a customer fare promotion, TEN, or Payout Ledger.
+
+Customer `global_offer`: `gross = pre-promo fare × rate`; `effect = gross − locked promo`. Negative effect → `COMMISSION_SUBSIDY_CREDIT`, never Driver Wallet.
+
+Lock tests: `shared/__tests__/commissionWalletSSOT.test.ts` + `supabase/functions/_shared/financialModelIsolationLock.test.ts`
+
+**If they fail, fix the code — never delete or soften the lock.**

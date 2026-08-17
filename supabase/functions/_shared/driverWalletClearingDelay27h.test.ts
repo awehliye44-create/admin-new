@@ -103,6 +103,20 @@ Deno.test("uncleared PLATFORM_COLLECTED → SETTLEMENT_PENDING", () => {
   assertEquals(agg.available_balance_pence, 0);
 });
 
+Deno.test("DRIVER_COLLECTED TRIP_EARNING_NET is never payout-eligible", () => {
+  const r = evaluateLedgerEntryEligibility(
+    earning({
+      payment_collection_model: "DRIVER_COLLECTED_COMMISSION_WALLET",
+      financial_model: "DRIVER_COLLECTED_COMMISSION_WALLET",
+      payment_method: "cash",
+      provider_available_on: CLEARED_AT,
+    }),
+    POLICY_27H,
+  );
+  assertEquals(r.status, PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR);
+  assertEquals(r.payable_pence, 0);
+});
+
 Deno.test("provider available_on clears immediately even under 27h", () => {
   const r = evaluateLedgerEntryEligibility(
     earning({ provider_available_on: CLEARED_AT, captured_at: FRESH_CAPTURE }),

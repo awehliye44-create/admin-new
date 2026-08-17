@@ -6,6 +6,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { tripBlocksDriverWalletLedgerPosting } from "./commissionWalletDeduction.ts";
+import { FINANCIAL_MODEL_VIOLATION } from "./commissionWalletSSOT.ts";
 
 export const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
 
@@ -258,10 +259,9 @@ export async function creditCapturedCardTripLedger(
   },
 ): Promise<{ credited: boolean; recovery_pence: number }> {
   if (await tripBlocksDriverWalletLedgerPosting(supabase, args.tripId)) {
-    console.log("[onecabFinanceLedger] skip DWL credit — commission wallet trip", {
-      trip_id: args.tripId,
-    });
-    return { credited: false, recovery_pence: 0 };
+    throw new Error(
+      `${FINANCIAL_MODEL_VIOLATION}: TRIP_EARNING_NET forbidden on DRIVER_COLLECTED_COMMISSION_WALLET`,
+    );
   }
 
   const currency = args.currency ?? "GBP";

@@ -46,6 +46,7 @@ import {
   sumVerifiedRefundedFromSessions,
 } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
+import { readTripFinancialModelStamp } from "../_shared/commissionWalletSSOT.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -77,14 +78,16 @@ Deno.serve(async (req) => {
       );
     }
 
-    let financialModel = trip.financial_model ?? null;
-    if (!financialModel && trip.service_area_id) {
-      const { data: sa } = await supabase
-        .from("service_areas")
-        .select("financial_model")
-        .eq("id", trip.service_area_id)
-        .maybeSingle();
-      financialModel = sa?.financial_model ?? null;
+    const financialModel = readTripFinancialModelStamp(
+      trip.financial_model as string | null,
+    );
+    if (!financialModel) {
+      return errorResponse(
+        "Trip financial_model is missing",
+        409,
+        undefined,
+        "FINANCIAL_MODEL_VIOLATION",
+      );
     }
     if (isDriverCollectedFinancialModel(financialModel)) {
       return errorResponse(

@@ -1,8 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import {
-  accountEmailChangeDeepLink,
-  accountEmailChangeWebUrl,
-  resolveVerificationAppBaseUrl,
+  nativeAppHandoffLocation,
   resolveVerificationAppType,
   type VerificationAppType,
 } from "../_shared/accountEmailVerification.ts";
@@ -26,6 +24,21 @@ function redirectResponse(location: string, status = 302): Response {
       "Cache-Control": "no-store",
     },
   });
+}
+
+function nativeAppHandoffResponse(
+  req: Request,
+  appType: VerificationAppType,
+  token: string,
+  error?: string,
+): Response {
+  return redirectResponse(nativeAppHandoffLocation({
+    appType,
+    path: "auth/verify-email-change",
+    token,
+    error,
+    userAgent: req.headers.get("user-agent"),
+  }));
 }
 
 type LinkValidation =
@@ -72,27 +85,6 @@ async function validateEmailChangeLink(
   return { ok: true };
 }
 
-function webFallbackUrl(
-  appBaseUrl: string,
-  appType: VerificationAppType,
-  token: string | null,
-  reason?: string,
-): string {
-  const base = appBaseUrl.replace(/\/+$/, "");
-  const params = new URLSearchParams({ app: appType });
-  if (token && reason !== "missing_token" && reason !== "invalid_token" && reason !== "expired_token") {
-    params.set("token", token);
-  }
-  if (reason === "already_used") {
-    params.set("error", "already_used");
-  } else if (reason === "expired_token") {
-    params.set("error", "expired_token");
-  } else if (reason) {
-    params.set("error", reason);
-  }
-  return `${base}/auth/verify-email-change?${params.toString()}`;
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -101,23 +93,21 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const token = String(url.searchParams.get("token") ?? "").trim();
   const appType = resolveVerificationAppType(url.searchParams.get("app"));
-  const appBaseUrl = resolveVerificationAppBaseUrl(appType, {
-    customerAppUrl: Deno.env.get("CUSTOMER_APP_URL"),
-    driverAppUrl: Deno.env.get("DRIVER_APP_URL"),
-    adminAppUrl: Deno.env.get("ADMIN_APP_URL"),
-    appUrl: Deno.env.get("APP_URL"),
-  });
 
   if (!token) {
-    return redirectResponse(webFallbackUrl(appBaseUrl, appType, null, "missing_token"));
+    return nativeAppHandoffResponse(req, appType, "", "missing_token");
   }
 
   const validation = await validateEmailChangeLink(token, appType);
   if (!validation.ok) {
-    return redirectResponse(
-      webFallbackUrl(appBaseUrl, appType, token, validation.reason),
-    );
+    const openToken =
+      validation.reason === "missing_token" ||
+      validation.reason === "invalid_token" ||
+      validation.reason === "expired_token"
+        ? ""
+        : token;
+    return nativeAppHandoffResponse(req, appType, openToken, validation.reason);
   }
 
-  return redirectResponse(accountEmailChangeDeepLink(appType, token));
+  return nativeAppHandoffResponse(req, appType, token);
 });

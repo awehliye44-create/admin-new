@@ -28150,6 +28150,7 @@ export type Database = {
         | "COMMISSION_RESERVE_RELEASE"
         | "COMMISSION_DEDUCTION"
         | "COMMISSION_DEDUCTION_REVERSAL"
+        | "COMMISSION_SUBSIDY_CREDIT"
         | "TOP_UP_REVERSAL"
         | "ADMIN_CORRECTION"
       communication_default_method: "voip" | "call_masking"
@@ -28413,6 +28414,7 @@ export const Constants = {
         "COMMISSION_RESERVE_RELEASE",
         "COMMISSION_DEDUCTION",
         "COMMISSION_DEDUCTION_REVERSAL",
+        "COMMISSION_SUBSIDY_CREDIT",
         "TOP_UP_REVERSAL",
         "ADMIN_CORRECTION",
       ],

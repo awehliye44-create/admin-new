@@ -22,6 +22,7 @@ import {
   DEFAULT_CASH_UPFRONT_POLICY_NOTICE,
   PHASE4_SUPPORTED_TOPUP_PROVIDERS,
   SERVICE_AREA_FINANCIAL_MODEL,
+  classifyServiceAreaFinancialPairing,
   isCommissionWalletWorkflowEnabled,
   planCommissionWalletServiceAreaEnablement,
   type CommissionWalletRolloutState,
@@ -218,6 +219,15 @@ export function ServiceAreaCommissionWalletConfig({
       }
       if (value.commission_wallet_topup_enabled && !provider) {
         toast.error('Enable a valid top-up provider before turning on driver Top Up.');
+        return;
+      }
+      const pairing = classifyServiceAreaFinancialPairing({
+        financial_model: value.financial_model,
+        commission_wallet_enabled: value.commission_wallet_enabled,
+        customer_payment_policy: value.customer_payment_policy,
+      });
+      if (!pairing.ok) {
+        toast.error(pairing.error);
         return;
       }
       const payload = {

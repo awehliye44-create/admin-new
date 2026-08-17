@@ -10,6 +10,11 @@
  *   Non-commissionable ONLY: airport charges + driver tips
  *   tips are usually outside final_fare and added to driver_total only
  *
+ * global_offer (this feature, no waiting in this path):
+ *   commissionable = fare_snapshot_json.gross_fare_pence|locked_base_fare_pence
+ *                  + customer_modification_charge_pence
+ *   gross commission on that base; locked offer_discount_pence deducted from ONECAB only
+ *
  * Explicit component API + golden fixtures: shared/canonicalSettlementSSOT.ts
  * Identity: captured = driver_net + gross_commission + airport + tips
  * Provider fee reduces ONECAB net only (never driver_net).
@@ -32,20 +37,34 @@ export type TripSettlementInput = {
   tips_pence?: number;
   driver_tier_commission_percent: number;
   provider_fee_pence?: number;
+  /** When false, ONECAB net is PENDING even if a fee number is present. */
+  provider_fee_confirmed?: boolean;
+  /** Locked global_offer amount (`offer_discount_pence`). Deducted from ONECAB only. */
+  locked_promotion_pence?: number;
+  /**
+   * Pre-promotion commissionable base. When set, used instead of final_fare − airport.
+   * Must be original ride + full-price modifications — never snapshot+gross double-count.
+   */
+  pre_promotion_commissionable_fare_pence?: number;
 };
 
 export type TripSettlementResult = {
   final_fare_pence: number;
   commissionable_fare_pence: number;
   commission_pence: number;
+  locked_promotion_pence: number;
+  commission_after_promotion_pence: number;
   driver_net_pence: number;
   driver_total_earnings_pence: number;
   airport_charge_pence: number;
   other_pass_through_charges_pence: number;
   tips_pence: number;
   provider_fee_pence: number;
+  provider_fee_confirmed: boolean;
   platform_gross_revenue_pence: number;
   platform_net_revenue_pence: number;
+  /** Null when provider fee is unconfirmed — never invent £0. Negative nets are preserved. */
+  onecab_net_pence: number | null;
   tier_percent_used: number;
   formula_version: string;
 };
@@ -62,12 +81,16 @@ export type TripSettlementTripRow = {
   other_pass_through_charges_pence?: number | null;
   tip_pence?: number | null;
   tip_amount_pence?: number | null;
-  /** Preferred: snapshotted at offer accept (wave commission). */
   accepted_commission_percent?: number | null;
   driver_tier_commission_percent?: number | null;
   commission_pct?: number | null;
   driver_net_pence?: number | null;
   provider_fee_pence?: number | null;
+  fare_snapshot_json?: Record<string, unknown> | null;
+  locked_base_fare_pence?: number | null;
+  offer_discount_pence?: number | null;
+  discount_source?: string | null;
+  customer_modification_charge_pence?: number | null;
 };
 
 function nonNegInt(value: unknown): number {
@@ -82,6 +105,37 @@ export function capTierCommissionPercent(percent: number): number {
   return Math.min(MAX_COMMISSION_PERCENT, n);
 }
 
+/** Locked ONECAB-funded promotion — existing `offer_discount_pence` when source is global_offer. */
+export function resolveLockedPromotionPence(trip: TripSettlementTripRow): number {
+  const src = typeof trip.discount_source === "string" ? trip.discount_source : "";
+  if (src !== "global_offer") return 0;
+  return nonNegInt(trip.offer_discount_pence);
+}
+
+function snapshotGrossFarePence(trip: TripSettlementTripRow): number {
+  const snap = trip.fare_snapshot_json;
+  if (!snap || typeof snap !== "object") return 0;
+  return nonNegInt(snap.gross_fare_pence);
+}
+
+/**
+ * Original pre-promotion ride fare from the booking snapshot, else locked_base.
+ * Never uses trips.gross_fare_pence (may already include modifications).
+ */
+export function resolveOriginalPrePromotionRideFarePence(trip: TripSettlementTripRow): number {
+  return snapshotGrossFarePence(trip) || nonNegInt(trip.locked_base_fare_pence);
+}
+
+/**
+ * global_offer commissionable base: original ride + full-price modifications.
+ * Does not add waiting (separate workflow). Does not add gross_fare_pence.
+ */
+export function resolvePrePromotionCommissionableFarePence(trip: TripSettlementTripRow): number {
+  const original = resolveOriginalPrePromotionRideFarePence(trip);
+  if (original <= 0) return 0;
+  return original + nonNegInt(trip.customer_modification_charge_pence);
+}
+
 /**
  * Resolve the fare base that must include waiting when present.
  * Prefer capture → final_fare → final_customer + waiting.
@@ -89,7 +143,6 @@ export function capTierCommissionPercent(percent: number): number {
 export function resolveSettlementFinalFarePence(trip: TripSettlementTripRow): number {
   const capture = nonNegInt(trip.capture_amount_pence);
   const tips = nonNegInt(trip.tip_pence ?? trip.tip_amount_pence);
-  // Capture may include tips — strip tips for fare settlement base when tips are separate.
   const captureFare = capture > 0 ? Math.max(0, capture - tips) : 0;
   const finalFare = nonNegInt(trip.final_fare_pence);
   const waiting =
@@ -103,39 +156,52 @@ export function resolveSettlementFinalFarePence(trip: TripSettlementTripRow): nu
 
 /**
  * Canonical settlement formula owner (v2).
- * Waiting must already be inside final_fare_pence (or resolved via resolveSettlementFinalFarePence).
+ * Waiting must already be inside final_fare_pence (or resolved via resolveSettlementFinalFarePence)
+ * unless pre_promotion_commissionable_fare_pence is supplied (global_offer path — no waiting).
  */
 export function calculateTripSettlement(input: TripSettlementInput): TripSettlementResult {
   const finalFarePence = nonNegInt(input.final_fare_pence);
   const airportChargePence = nonNegInt(input.airport_charge_pence);
-  // v2: pass-through is commissionable when present in final_fare — do not strip.
   const otherPassThroughChargesPence = 0;
   const tipsPence = nonNegInt(input.tips_pence);
-  const providerFeePence = nonNegInt(input.provider_fee_pence);
+  const feePending = input.provider_fee_confirmed === false;
+  const providerFeePence = feePending ? 0 : nonNegInt(input.provider_fee_pence);
+  const providerFeeConfirmed = !feePending
+    && (input.provider_fee_confirmed === true || providerFeePence > 0);
   const tierPercentUsed = capTierCommissionPercent(input.driver_tier_commission_percent);
+  const lockedPromotionPence = nonNegInt(input.locked_promotion_pence);
 
-  // Non-commissionable ONLY: airport (tips sit outside final_fare).
-  const commissionableFarePence = Math.max(0, finalFarePence - airportChargePence);
+  const commissionableFarePence = input.pre_promotion_commissionable_fare_pence != null
+    ? Math.max(0, nonNegInt(input.pre_promotion_commissionable_fare_pence))
+    : Math.max(0, finalFarePence - airportChargePence);
 
   const commissionPence = Math.round((commissionableFarePence * tierPercentUsed) / 100);
   const driverNetPence = Math.max(0, commissionableFarePence - commissionPence);
   const driverTotalEarningsPence = driverNetPence + airportChargePence + tipsPence;
+  const commissionAfterPromotionPence = commissionPence - lockedPromotionPence;
+  const onecabNetPence = feePending
+    ? null
+    : commissionAfterPromotionPence - providerFeePence;
 
   const platformGrossRevenuePence = commissionPence;
-  const platformNetRevenuePence = Math.max(0, commissionPence - providerFeePence);
+  const platformNetRevenuePence = onecabNetPence ?? 0;
 
   return {
     final_fare_pence: finalFarePence,
     commissionable_fare_pence: commissionableFarePence,
     commission_pence: commissionPence,
+    locked_promotion_pence: lockedPromotionPence,
+    commission_after_promotion_pence: commissionAfterPromotionPence,
     driver_net_pence: driverNetPence,
     driver_total_earnings_pence: driverTotalEarningsPence,
     airport_charge_pence: airportChargePence,
     other_pass_through_charges_pence: otherPassThroughChargesPence,
     tips_pence: tipsPence,
     provider_fee_pence: providerFeePence,
+    provider_fee_confirmed: providerFeeConfirmed,
     platform_gross_revenue_pence: platformGrossRevenuePence,
     platform_net_revenue_pence: platformNetRevenuePence,
+    onecab_net_pence: onecabNetPence,
     tier_percent_used: tierPercentUsed,
     formula_version: SETTLEMENT_FORMULA_VERSION,
   };
@@ -206,9 +272,6 @@ export function buildSettlementTripRow(args: {
 /**
  * Card wallet TRIP_EARNING_NET = commissionable net + airport.
  * Tips stay on DRIVER_TIP_CREDIT. Provider fee never enters this amount.
- *
- * Also returns `settlement` so callers can persist the same stamp columns
- * (commissionable / commission / driver_net) that produced the wallet credit.
  */
 export function resolveCapturedTripEarningNetPence(args: {
   trip: TripSettlementTripRow & { provider_fee_pence?: number | null };
@@ -245,11 +308,29 @@ export function resolveCapturedTripEarningNetPence(args: {
   };
 }
 
-/** Settlement from persisted trip fare columns (webhook recovery, backfill, capture). */
+/** Settlement from persisted trip fare columns (webhook recovery, capture). */
 export function calculateTripSettlementFromTripRow(
   trip: TripSettlementTripRow,
   providerFeePence = 0,
+  options?: { provider_fee_confirmed?: boolean },
 ): TripSettlementResult | null {
+  const lockedPromotionPence = resolveLockedPromotionPence(trip);
+  const prePromotionCommissionable = resolvePrePromotionCommissionableFarePence(trip);
+
+  if (lockedPromotionPence > 0 && prePromotionCommissionable > 0) {
+    const airport = nonNegInt(trip.airport_charge_pence);
+    return calculateTripSettlement({
+      final_fare_pence: prePromotionCommissionable + airport,
+      pre_promotion_commissionable_fare_pence: prePromotionCommissionable,
+      locked_promotion_pence: lockedPromotionPence,
+      airport_charge_pence: airport,
+      tips_pence: trip.tip_pence ?? trip.tip_amount_pence ?? 0,
+      driver_tier_commission_percent: resolveTripTierPercent(trip),
+      provider_fee_pence: providerFeePence || nonNegInt(trip.provider_fee_pence),
+      provider_fee_confirmed: options?.provider_fee_confirmed,
+    });
+  }
+
   const finalFarePence = resolveSettlementFinalFarePence(trip);
   if (finalFarePence <= 0) return null;
 
@@ -259,10 +340,11 @@ export function calculateTripSettlementFromTripRow(
     tips_pence: trip.tip_pence ?? trip.tip_amount_pence ?? 0,
     driver_tier_commission_percent: resolveTripTierPercent(trip),
     provider_fee_pence: providerFeePence,
+    provider_fee_confirmed: options?.provider_fee_confirmed,
   });
 }
 
-/** DB columns to persist when settlement is finalized. */
+/** DB columns to persist when settlement is finalized. Existing columns only. */
 export function tripSettlementDbColumns(
   settlement: TripSettlementResult,
 ): Record<string, number | string | null> {
@@ -279,11 +361,11 @@ export function tripSettlementDbColumns(
     commission_pct: settlement.tier_percent_used,
     driver_tier_commission_percent: settlement.tier_percent_used,
     gross_fare_pence: settlement.commissionable_fare_pence,
-    provider_fee_pence: settlement.provider_fee_pence,
-    provider_fee_amount: settlement.provider_fee_pence,
-    onecab_net_pence: settlement.platform_net_revenue_pence,
+    provider_fee_pence: settlement.provider_fee_confirmed ? settlement.provider_fee_pence : null,
+    provider_fee_amount: settlement.provider_fee_confirmed ? settlement.provider_fee_pence : null,
+    onecab_net_pence: settlement.onecab_net_pence,
     platform_gross_revenue_pence: settlement.platform_gross_revenue_pence,
-    platform_net_revenue_pence: settlement.platform_net_revenue_pence,
+    platform_net_revenue_pence: settlement.onecab_net_pence,
     settlement_formula_version: settlement.formula_version,
   };
 }
@@ -291,16 +373,19 @@ export function tripSettlementDbColumns(
 /** fare_snapshot_json settlement keys (never drop values when columns missing). */
 export function tripSettlementSnapshotJson(
   settlement: TripSettlementResult,
-): Record<string, number | string> {
+): Record<string, number | string | null> {
   return {
     settlement_formula_version: settlement.formula_version,
     commissionable_fare_pence: settlement.commissionable_fare_pence,
     commission_pence: settlement.commission_pence,
+    locked_promotion_pence: settlement.locked_promotion_pence,
+    commission_after_promotion_pence: settlement.commission_after_promotion_pence,
     driver_net_pence: settlement.driver_net_pence,
     driver_total_earnings_pence: settlement.driver_total_earnings_pence,
     platform_gross_revenue_pence: settlement.platform_gross_revenue_pence,
     platform_net_revenue_pence: settlement.platform_net_revenue_pence,
-    provider_fee_pence: settlement.provider_fee_pence,
+    onecab_net_pence: settlement.onecab_net_pence,
+    provider_fee_pence: settlement.provider_fee_confirmed ? settlement.provider_fee_pence : null,
     tier_percent_used: settlement.tier_percent_used,
   };
 }

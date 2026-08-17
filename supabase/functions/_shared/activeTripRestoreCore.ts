@@ -1,3 +1,8 @@
+import {
+  isScheduledHandoverOpenJobStatus,
+  isScheduledInstantConversionPending,
+  isScheduledWorkflowOrigin,
+} from "./scheduledHandoverHoldLock.ts";
 import { type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   isRestoreActiveTripStatus,
@@ -70,12 +75,20 @@ function scheduledDispatchWindowReached(row: TripRow, nowMs: number): boolean {
 function isCustomerRestoreCandidate(row: TripRow, nowMs: number): boolean {
   const status = normalizeRestoreTripStatus(String(row.status ?? ""));
   if (!status || isRestoreTerminalTripStatus(status)) return false;
-  if (SEARCHING_STATUSES.has(status)) {
+  if (SEARCHING_STATUSES.has(status) && !isScheduledInstantConversionPending(row)) {
     const expires = row.searching_expires_at;
     if (typeof expires === "string") {
       const ms = new Date(expires).getTime();
-      if (Number.isFinite(ms) && nowMs >= ms) return false;
+      if (Number.isFinite(ms) && nowMs >= ms && !isScheduledWorkflowOrigin(row)) {
+        return false;
+      }
     }
+  }
+  if (
+    isScheduledInstantConversionPending(row) &&
+    isScheduledHandoverOpenJobStatus(status)
+  ) {
+    return true;
   }
   if (!isRestoreActiveTripStatus(status, "customer")) return false;
   if (!isScheduledTrip(row)) return true;
@@ -149,10 +162,11 @@ export async function findCustomerActiveTrip(
       .in("status", activeStates)
       .or("is_scheduled.is.null,is_scheduled.eq.false")
       .order("created_at", { ascending: false })
-      .limit(1);
-    if (instantTrips?.[0] && isCustomerRestoreCandidate(instantTrips[0] as TripRow, nowMs)) {
-      trip = instantTrips[0] as TripRow;
-    }
+      .limit(10);
+    trip =
+      ((instantTrips ?? []) as TripRow[]).find((candidate) =>
+        isCustomerRestoreCandidate(candidate, nowMs)
+      ) ?? null;
     if (!trip) {
       const { data: scheduledTrips } = await supabase
         .from("trips")
@@ -161,10 +175,11 @@ export async function findCustomerActiveTrip(
         .eq("is_scheduled", true)
         .in("status", activeStates)
         .order("created_at", { ascending: false })
-        .limit(1);
-      if (scheduledTrips?.[0] && isCustomerRestoreCandidate(scheduledTrips[0] as TripRow, nowMs)) {
-        trip = scheduledTrips[0] as TripRow;
-      }
+        .limit(10);
+      trip =
+        ((scheduledTrips ?? []) as TripRow[]).find((candidate) =>
+          isCustomerRestoreCandidate(candidate, nowMs)
+        ) ?? null;
     }
   }
 

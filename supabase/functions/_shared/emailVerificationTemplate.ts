@@ -19,7 +19,6 @@ export interface RenderVerificationEmailArgs {
   appType: VerificationAppType;
   firstName: string;
   verifyUrl: string;
-  webVerifyUrl: string;
 }
 
 function escapeHtml(value: string): string {
@@ -64,7 +63,6 @@ function footerText(): string {
 function renderHtml(args: RenderVerificationEmailArgs): string {
   const safeFirstName = escapeHtml(args.firstName);
   const safeVerifyUrl = escapeHtml(args.verifyUrl);
-  const safeWebVerifyUrl = escapeHtml(args.webVerifyUrl);
   const copy = variantCopy(args.appType);
   const subtitleBlock = copy.headerSubtitle
     ? `<p style="margin:8px 0 0;font-size:14px;line-height:20px;color:#E5E5E5;font-weight:400;">${copy.headerSubtitle}</p>`
@@ -99,7 +97,6 @@ function renderHtml(args: RenderVerificationEmailArgs): string {
                   </td>
                 </tr>
               </table>
-              <p style="margin:0 0 16px;font-size:13px;line-height:20px;color:#B8B8B8;">If the app does not open automatically, <a href="${safeWebVerifyUrl}" style="color:${BRAND_YELLOW};text-decoration:underline;">continue in your browser</a>.</p>
               <p style="margin:0;font-size:13px;line-height:20px;color:#A8A8A8;">${securityCopy()}</p>
             </td>
           </tr>
@@ -132,9 +129,6 @@ ${copy.body}
 
 Verify your email:
 ${args.verifyUrl}
-
-If the app does not open automatically, continue in your browser:
-${args.webVerifyUrl}
 
 ${securityCopy()}
 

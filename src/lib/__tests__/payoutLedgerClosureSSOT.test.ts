@@ -16,10 +16,14 @@ describe("payout ledger closure SSOT", () => {
     })).toBe(1_000);
   });
 
-  it("isAllocatableWalletLedgerType rejects commission and provider fee rows", () => {
+  it("isAllocatableWalletLedgerType rejects commission, cash mix, and bonus rows", () => {
     expect(isAllocatableWalletLedgerType("PLATFORM_COMMISSION")).toBe(false);
     expect(isAllocatableWalletLedgerType("PAYMENT_PROVIDER_FEE")).toBe(false);
+    expect(isAllocatableWalletLedgerType("CASH_TRIP_EARNING")).toBe(false);
+    expect(isAllocatableWalletLedgerType("CASH_COMMISSION_DEBT")).toBe(false);
+    expect(isAllocatableWalletLedgerType("BONUS")).toBe(false);
     expect(isAllocatableWalletLedgerType("TRIP_EARNING_NET")).toBe(true);
+    expect(isAllocatableWalletLedgerType("DRIVER_TIP_CREDIT")).toBe(true);
   });
 
   it("normalizes legacy payout item statuses", () => {

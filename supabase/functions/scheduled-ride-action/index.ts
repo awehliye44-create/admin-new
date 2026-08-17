@@ -14,6 +14,10 @@ import {
   isValidCoordinate,
   validationErrorResponse,
 } from "../_shared/security.ts";
+import {
+  buildScheduledUrgentConversionPatch,
+  resolveScheduledDispatchConfig,
+} from "../_shared/scheduledDispatchConfig.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -650,16 +654,21 @@ Deno.serve(async (req) => {
 
       // If check-in window is open, convert to instant and trigger auto-dispatch immediately
       if (isCheckinOpen) {
+        const { data: globalCfg } = await supabase
+          .from("global_dispatch_settings")
+          .select("max_driver_find_time_minutes")
+          .eq("singleton", true)
+          .maybeSingle();
+        const maxFindDriverMinutes = resolveScheduledDispatchConfig(globalCfg ?? {}).maxFindDriverMinutes;
+        const convertNow = new Date();
         await supabase
           .from("trips")
-          .update({
-            dispatch_mode: "instant",
-            dispatch_status: "pending",
-            status: "searching",
-            scheduled_status: "converted_to_instant",
-            is_scheduled: false,
-            updated_at: new Date().toISOString(),
-          })
+          .update(buildScheduledUrgentConversionPatch({
+            nowIso: convertNow.toISOString(),
+            searchingExpiresAtIso: new Date(
+              convertNow.getTime() + maxFindDriverMinutes * 60_000,
+            ).toISOString(),
+          }))
           .eq("id", trip_id);
 
         // Trigger auto-dispatch immediately — don't wait for expire-offers sweep

@@ -591,6 +591,8 @@ DECLARE
   v_live_offer_count int := 0;
   v_round int := 0;
   v_max_rounds int := 3;
+  v_scheduled_handover_pending boolean := false;
+  v_scheduled_origin boolean := false;
 BEGIN
   SELECT * INTO v_trip
   FROM public.trips
@@ -625,11 +627,36 @@ BEGIN
     3
   );
 
-  v_search_deadline := COALESCE(
-    v_trip.searching_expires_at,
-    v_trip.created_at + make_interval(mins => v_find_minutes),
-    v_now + make_interval(mins => v_find_minutes)
-  );
+  v_scheduled_handover_pending :=
+    lower(COALESCE(v_trip.dispatch_mode, '')) = 'scheduled'
+    AND lower(COALESCE(v_trip.scheduled_status, '')) IS DISTINCT FROM 'converted_to_instant'
+    AND COALESCE(NULLIF(trim(COALESCE(v_trip.cancelled_by, '')), ''), '') = ''
+    AND lower(COALESCE(v_trip.status, '')) NOT IN (
+      'cancelled', 'canceled', 'customer_cancelled', 'driver_cancelled', 'no_show'
+    );
+
+  v_scheduled_origin :=
+    COALESCE(v_trip.is_scheduled, false) = true
+    OR lower(COALESCE(v_trip.dispatch_mode, '')) = 'scheduled'
+    OR v_trip.scheduled_at IS NOT NULL
+    OR COALESCE(v_trip.scheduled_status, '') <> '';
+
+  -- Instant TTL has not started. Ignore any stale searching_expires_at stamp.
+  IF v_scheduled_handover_pending THEN
+    RETURN false;
+  END IF;
+
+  IF v_trip.searching_expires_at IS NOT NULL THEN
+    v_search_deadline := v_trip.searching_expires_at;
+  ELSIF v_scheduled_origin THEN
+    -- Converted scheduled trip missing stamp: do not use booking created_at.
+    v_search_deadline := v_now + make_interval(mins => v_find_minutes);
+  ELSE
+    v_search_deadline := COALESCE(
+      v_trip.created_at + make_interval(mins => v_find_minutes),
+      v_now + make_interval(mins => v_find_minutes)
+    );
+  END IF;
 
   -- Search window elapsed: terminal immediately (do not wait for remaining broadcast rounds).
   IF v_search_deadline <= v_now THEN

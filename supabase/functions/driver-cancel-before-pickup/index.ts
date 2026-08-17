@@ -5,6 +5,7 @@ import {
   loadDispatchSettings,
 } from "../_shared/dispatch-settings.ts";
 import { rebroadcastTripViaAutoDispatch } from "../_shared/dispatchOrchestrator.ts";
+import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
 import { handleQueuedTripAfterCurrentTripFailure } from "../_shared/stackedRideLifecycle.ts";
 import {
   buildClearTripAssignmentPatch,
@@ -197,8 +198,11 @@ Deno.serve(async (req) => {
       : [];
     const nextExcluded = [...new Set([...prevExcluded, ...nextCancelled])];
 
-    const searchingExpiresAt = customerSearchExpiresAtIso(dispatchSettings);
-    const searchWindowMs = customerSearchWindowMs(dispatchSettings);
+    const handoverPending = isScheduledInstantConversionPending(trip);
+    const searchingExpiresAt = handoverPending
+      ? null
+      : customerSearchExpiresAtIso(dispatchSettings);
+    const searchWindowMs = handoverPending ? 0 : customerSearchWindowMs(dispatchSettings);
     const rawStatus = String(trip.status ?? "").trim().toLowerCase();
     const arrivedBeforeStartStatuses = new Set([
       "arrived",

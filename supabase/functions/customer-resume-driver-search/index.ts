@@ -6,6 +6,10 @@ import {
 } from "../_shared/dispatch-settings.ts";
 import { rebroadcastTripViaAutoDispatch } from "../_shared/dispatchOrchestrator.ts";
 import {
+  isScheduledInstantConversionPending,
+  isScheduledWorkflowOrigin,
+} from "../_shared/scheduledHandoverHoldLock.ts";
+import {
   buildClearTripAssignmentPatch,
   resolveNextRematchBroadcastRound,
   getTripAssignedDriverId,
@@ -133,7 +137,10 @@ Deno.serve(async (req) => {
     }
 
     const dispatchSettings = await loadDispatchSettings(supabase, trip.service_area_id);
-    const defaultSearchingExpiresAt = customerSearchExpiresAtIso(dispatchSettings);
+    const handoverPending = isScheduledInstantConversionPending(trip);
+    const defaultSearchingExpiresAt = handoverPending
+      ? null
+      : customerSearchExpiresAtIso(dispatchSettings);
 
     const isExpiredRetry =
       body.retry === true &&
@@ -216,7 +223,7 @@ Deno.serve(async (req) => {
     }
 
     if (trip.status === "searching_new_driver") {
-      if (!trip.searching_expires_at) {
+      if (!trip.searching_expires_at && !isScheduledWorkflowOrigin(trip)) {
         console.error("[customer-resume-driver-search] FAKE_SEARCH_CYCLE_BLOCKED", {
           trip_id: body.tripId,
           status: trip.status,

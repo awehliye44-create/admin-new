@@ -130,8 +130,8 @@ export function tripProviderFeePence(row: TripFinanceRow): number {
 }
 
 export function tripOnecabNetPence(row: TripFinanceRow): number | null {
-  // Consume stored net only — never invent gross − fee when unknown.
-  if (row.onecab_net_pence != null) return Math.max(0, row.onecab_net_pence);
+  // Consume stored net only — never invent gross − fee when unknown. Do not clamp negatives.
+  if (row.onecab_net_pence != null) return row.onecab_net_pence;
   return null;
 }
 
@@ -564,6 +564,8 @@ export type TripFinancialAuditRow = {
     capture_classification: string;
   } | null;
   settlement_identity_balanced?: boolean | null;
+  /** Authoritative consume-only trip audit status. WALLET_MISMATCH is displayed/filtered. */
+  fr_trip_audit_status?: string | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
@@ -928,9 +930,6 @@ export function mapTripToFinancialAuditRow(
   const rideFareForCapture = psCaptureBreakdown?.ride_fare_pence ?? null;
   // Customer capture variance is PS-owned only — never settlement_total − captured.
   const variancePence = captureVariance;
-  const walletVariancePence = expectedDriverNet == null || walletCredit == null
-    ? null
-    : walletCredit - expectedDriverNet;
 
   const provider_state = session?.provider_state ?? null;
   const provider_verified_at = session?.provider_state_verified_at ?? null;
@@ -975,6 +974,12 @@ export function mapTripToFinancialAuditRow(
     refunded_pence: refunded,
   });
   const walletEvidenceAvailable = context.ledgerByTripId != null;
+  const displayedWalletCredit = walletEvidenceAvailable
+    ? (walletCredit ?? 0)
+    : walletCredit;
+  const walletVariancePence = expectedDriverNet == null || !walletEvidenceAvailable
+    ? null
+    : displayedWalletCredit! - expectedDriverNet;
   const wallet_reconciliation_status = classifyWalletReconciliation({
     walletEvidenceAvailable,
     expected_driver_net_pence: expectedDriverNet,
@@ -1013,7 +1018,6 @@ export function mapTripToFinancialAuditRow(
   if (psCaptureBreakdown == null && !isCash && payment_evidence_status === "PAYMENT_SESSIONS") {
     warnings.push("PAYMENT_SESSION_CAPTURE_BREAKDOWN_PENDING");
   }
-
   // Capture mismatch is PS classification only — never trip settlement vs capture.
   const captureMismatchResolved = isCash
     ? false
@@ -1047,7 +1051,14 @@ export function mapTripToFinancialAuditRow(
     tips_pence: tipPence,
   });
   const settlementIdentityBalanced = settlementIdentity.balanced;
-  if (settlementIdentity.evaluable && !settlementIdentityBalanced) {
+  const walletMismatchDiagnostic =
+    wallet_reconciliation_status === "WALLET_CREDIT_MISSING"
+    || wallet_reconciliation_status === "WALLET_OVER_CREDIT"
+    || wallet_reconciliation_status === "WALLET_UNDER_CREDIT"
+    || wallet_reconciliation_status === "DUPLICATE_WALLET_CREDIT";
+  // WALLET_MISMATCH is the authoritative displayed status. Do not replace it with a
+  // competing SETTLEMENT_MISMATCH when the wallet diagnostic already fired.
+  if (settlementIdentity.evaluable && !settlementIdentityBalanced && !walletMismatchDiagnostic) {
     reconciliation_status = {
       ...reconciliation_status,
       label: "SETTLEMENT_MISMATCH",
@@ -1107,7 +1118,7 @@ export function mapTripToFinancialAuditRow(
     authorised_pence: authorisedPence,
     released_pence: releasedPence,
     fee_status,
-    wallet_credit_pence: walletCredit,
+    wallet_credit_pence: displayedWalletCredit,
     variance_pence: variancePence,
     capture_variance_pence: captureVariance,
     wallet_variance_pence: walletVariancePence,

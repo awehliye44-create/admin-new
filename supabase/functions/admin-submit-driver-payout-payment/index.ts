@@ -36,6 +36,10 @@ import {
 } from "../_shared/revolutBusinessRelayClient.ts";
 import { resolveLiveCompanyBalanceSnapshot } from "../_shared/companyBalanceResolveSSOT.ts";
 import { ensureFreshRevolutBusinessAccessToken } from "../_shared/revolutBusinessAccessTokenRefresh.ts";
+import {
+  assertPayoutItemLedgerLineage,
+  PAYOUT_LINEAGE_MISSING,
+} from "../_shared/payoutItemLedgerAllocationWrite.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -387,6 +391,30 @@ Deno.serve(async (req) => {
       wallet_debited: false,
       reservation_kept_active: true,
     }, 503);
+  }
+
+  try {
+    await assertPayoutItemLedgerLineage({
+      supabase,
+      payout_item_id: String(validated.normalized.payout_item_id),
+      expected_amount_pence: Number(validated.normalized.amount_pence),
+    });
+  } catch (lineageErr) {
+    await supabase.rpc("abort_driver_payout_submission_claim", {
+      p_payout_item_id: payoutItemId,
+      p_claim_token: String(claim.claim_token),
+      p_failure_code: PAYOUT_LINEAGE_MISSING,
+      p_failure_reason_safe: lineageErr instanceof Error
+        ? lineageErr.message
+        : PAYOUT_LINEAGE_MISSING,
+    });
+    return json({
+      ok: false,
+      error: PAYOUT_LINEAGE_MISSING,
+      message: lineageErr instanceof Error ? lineageErr.message : PAYOUT_LINEAGE_MISSING,
+      revolut_pay_called: false,
+      wallet_debited: false,
+    }, 409);
   }
 
   const relayStarted = Date.now();

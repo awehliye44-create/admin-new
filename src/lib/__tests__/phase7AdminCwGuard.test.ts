@@ -3,12 +3,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 describe("Phase 7 admin CW isolation guards", () => {
-  it("admin-payment-detail skips DWL for CW trips", () => {
+  it("admin-payment-detail rejects DWL confirm on CW trips", () => {
     const src = readFileSync(
       resolve(__dirname, "../../../supabase/functions/admin-payment-detail/index.ts"),
       "utf8",
     );
     expect(src).toContain("tripBlocksDriverWalletLedgerPosting");
+    expect(src).toContain("FINANCIAL_MODEL_VIOLATION");
   });
 
   it("record-financial-outcome skips DWL for CW trips", () => {
@@ -17,7 +18,7 @@ describe("Phase 7 admin CW isolation guards", () => {
       "utf8",
     );
     expect(src).toContain("tripBlocksDriverWalletLedgerPosting");
-    expect(src).toContain("COMMISSION_WALLET_TRIP");
+    expect(src).toContain("FINANCIAL_MODEL_VIOLATION");
   });
 
   it("FR and settlement-summary exclude CW financial_model", () => {

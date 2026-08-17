@@ -147,21 +147,20 @@ serve(async (req) => {
 
     // Phase 7: CW trips never create UK DWL earnings / PLATFORM_COMMISSION.
     if (await tripBlocksDriverWalletLedgerPosting(supabase, trip_id)) {
-      console.log(`[record-financial-outcome] skip DWL — commission wallet trip ${trip_id}`);
+      console.log(`[record-financial-outcome] FINANCIAL_MODEL_VIOLATION — DWL forbidden ${trip_id}`);
       await supabase
         .from('drivers')
         .update({ current_trip_id: null })
         .eq('id', driver_id);
       return new Response(
         JSON.stringify({
-          success: true,
+          success: false,
           trip_id,
           outcome,
-          skipped_driver_wallet_ledger: true,
-          reason: 'COMMISSION_WALLET_TRIP',
-          fee_pence,
+          error: "FINANCIAL_MODEL_VIOLATION: driver_wallet_ledger forbidden on DRIVER_COLLECTED_COMMISSION_WALLET",
+          error_code: "FINANCIAL_MODEL_VIOLATION",
         }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

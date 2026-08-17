@@ -15,6 +15,12 @@ import {
   applyBookingFinancialSnapshotToTripData,
   type DiscountSource,
 } from "./tripDisplayFareSSOT.ts";
+import {
+  SERVICE_AREA_FINANCIAL_MODEL,
+  tripCashUpfrontPaymentFields,
+  tripInsertFieldsFromFinancialModelSnapshot,
+  type TripFinancialModelSnapshot,
+} from "./commissionWalletSSOT.ts";
 
 export type BookingLocation = {
   address: string;
@@ -23,7 +29,7 @@ export type BookingLocation = {
 };
 
 export type BookingCommitBody = {
-  payment_intent_id: string;
+  payment_intent_id?: string;
   client_action_id: string;
   pickup: BookingLocation;
   dropoff: BookingLocation;
@@ -90,13 +96,15 @@ export type MinimalTripBuildInput = {
   regionId: string | null;
   regionCurrencyCode: string;
   regionDistanceUnit: string;
-  paymentProvider: "revolut" | "legacy_unavailable";
+  paymentProvider: "revolut" | "legacy_unavailable" | "driver_collected";
   paymentRefId: string;
   preauthAmountPence: number;
   paymentSessionId?: string | null;
   sessionFareSnapshot?: Record<string, unknown> | null;
   requestReferer?: string | null;
   requestOrigin?: string | null;
+  /** Immutable pipeline stamp selected from SA before insert. */
+  financialModelSnapshot?: TripFinancialModelSnapshot | null;
   /** Admin Scheduled Rides Dispatch tab — required for correct broadcast/convert anchors. */
   scheduledDispatchConfig?: ScheduledDispatchConfig | null;
   /** Wall clock for anchor math (tests). Defaults to Date.now(). */
@@ -218,6 +226,9 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
 
   const defaultSearchExpiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
   const requestedMethod = body.payment_method || "card";
+  const snap = input.financialModelSnapshot ?? null;
+  const isDriverCollected = snap?.financial_model
+    === SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET;
 
   const { passenger_name, passenger_phone } = resolveTripPassengerIdentity({
     bodyName: body.passenger_name,
@@ -244,18 +255,26 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     scheduled_convert_at: scheduledConvertAt,
     client_action_id: body.client_action_id,
     trip_code: tripCode,
-    authorised_amount_pence: input.preauthAmountPence,
-    preauth_buffer_pence: Math.max(0, input.preauthAmountPence - finalFarePence),
-    payment_hold_status: input.paymentProvider === "revolut" ? "authorised_hold" : null,
-    ...(input.paymentSessionId ? { payment_session_id: input.paymentSessionId } : {}),
+    authorised_amount_pence: isDriverCollected ? 0 : input.preauthAmountPence,
+    preauth_buffer_pence: isDriverCollected
+      ? 0
+      : Math.max(0, input.preauthAmountPence - finalFarePence),
+    payment_hold_status: isDriverCollected
+      ? null
+      : (input.paymentProvider === "revolut" ? "authorised_hold" : null),
+    ...(isDriverCollected || !input.paymentSessionId
+      ? {}
+      : { payment_session_id: input.paymentSessionId }),
     estimated_distance_km: body.estimated_distance || 0,
     estimated_duration_minutes: body.estimated_duration || 0,
     payment_method: requestedMethod,
     payment_type: requestedMethod,
-    payment_status: "preauth_authorized",
+    payment_status: isDriverCollected ? "driver_collects_upfront" : "preauth_authorized",
     payment_state: "booking_created",
     original_payment_method: requestedMethod,
-    ...(input.paymentProvider === "revolut"
+    ...(isDriverCollected
+      ? {}
+      : input.paymentProvider === "revolut"
       ? {
         payment_provider: "revolut",
         provider_order_id: input.paymentRefId,
@@ -266,14 +285,16 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
       }),
     payment_intent_version: 1,
     fare_revision_number: 0,
-    ...buildTripPaymentSyncPatch({
-      paymentIntentId: input.paymentRefId,
-      authorizedAmountPence: input.preauthAmountPence,
-      totalAuthorizedAmountPence: input.preauthAmountPence,
-      idempotencyKey: body.client_action_id,
-      paymentCoverageStatus: "authorized",
-      outstandingBalancePence: 0,
-    }),
+    ...(isDriverCollected
+      ? {}
+      : buildTripPaymentSyncPatch({
+        paymentIntentId: input.paymentRefId,
+        authorizedAmountPence: input.preauthAmountPence,
+        totalAuthorizedAmountPence: input.preauthAmountPence,
+        idempotencyKey: body.client_action_id,
+        paymentCoverageStatus: "authorized",
+        outstandingBalancePence: 0,
+      })),
     trip_type: isScheduled ? "scheduled" : "immediate",
     currency: input.regionCurrencyCode.toUpperCase(),
     currency_code: input.regionCurrencyCode.toLowerCase(),
@@ -318,6 +339,13 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
       pricingSource: "booking_ssot_minimal_commit",
     },
   );
+
+  if (snap) {
+    Object.assign(tripData, tripInsertFieldsFromFinancialModelSnapshot(snap));
+  }
+  if (isDriverCollected) {
+    Object.assign(tripData, tripCashUpfrontPaymentFields());
+  }
 
   applyBookingTypeFieldsToTrip(tripData, body);
   return tripData;
