@@ -421,21 +421,6 @@ async function renderPdfLibFallback(data: TripInvoiceHtmlData): Promise<Uint8Arr
   page.drawText("TOTAL", { x: cols[4], y, size: 12, font: bold, color: ink });
   page.drawText(data.total, { x: cols[5], y, size: 12, font: bold, color: ink });
 
-  if (data.paid) {
-    y -= 18;
-    page.drawText(data.paidLabel || "PAID", { x: cols[4], y, size: 9.5, font, color: grey });
-    page.drawText(data.paid, { x: cols[5], y, size: 9.5, font, color: ink });
-  }
-  if (data.showOutstanding && data.outstanding) {
-    y -= 14;
-    page.drawText("OUTSTANDING", { x: cols[4], y, size: 9.5, font: bold, color: rgb(0.69, 0, 0.13) });
-    page.drawText(data.outstanding, { x: cols[5], y, size: 9.5, font: bold, color: rgb(0.69, 0, 0.13) });
-  }
-  if (data.paymentStatusLabel) {
-    y -= 14;
-    page.drawText("PAYMENT STATUS", { x: cols[4], y, size: 9.5, font, color: grey });
-    page.drawText(data.paymentStatusLabel.toUpperCase(), { x: cols[5], y, size: 9.5, font: bold, color: ink });
-  }
 
   y -= 36;
   page.drawText(data.footerHeadline, { x: left, y, size: 11, font: bold, color: ink });
