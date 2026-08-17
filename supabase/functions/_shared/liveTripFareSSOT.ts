@@ -24,6 +24,8 @@ export type LiveTripFareInput = {
   commission_pct?: number | null;
   commission_pence?: number | null;
   gross_fare_pence?: number | null;
+  offer_discount_pence?: number | null;
+  discount_pence?: number | null;
 };
 
 export type LiveTripFarePreview = {
@@ -109,6 +111,62 @@ export function resolveConfirmedCustomerFarePence(trip: LiveTripFareInput): numb
 }
 
 /**
+ * Mod delta may be added to live preview only with positive pre-fold proof.
+ * When a canonical committed fare is present, stored modification is audit history
+ * unless the payable is still at/below locked ride base (mod not yet folded).
+ */
+export function resolveApprovedModificationDeltaPence(args: {
+  confirmedFare: number;
+  modStored: number;
+  lockedBase: number;
+  grossFare: number;
+  discountPence: number;
+}): number {
+  const { confirmedFare, modStored, lockedBase, grossFare, discountPence } = args;
+
+  if (modStored === 0) return 0;
+  if (confirmedFare <= 0) return modStored;
+
+  // Pre-fold: positive mod pending while payable remains at/below locked ride base.
+  if (modStored > 0 && lockedBase > 0 && confirmedFare <= lockedBase) {
+    return modStored;
+  }
+
+  // Metadata-backed fold proof when committed fare exceeds locked base.
+  if (lockedBase > 0) {
+    let foldBasis = grossFare > 0 ? grossFare : confirmedFare;
+    // Net-only gross after fold (MK-260817-005): reconstruct pre-discount once for detection.
+    if (
+      discountPence > 0 &&
+      foldBasis > 0 &&
+      foldBasis < lockedBase + modStored - 1 &&
+      foldBasis + discountPence >= lockedBase + modStored - 1
+    ) {
+      foldBasis = foldBasis + discountPence;
+    }
+    if (foldBasis >= lockedBase + modStored - 1) {
+      return 0;
+    }
+    if (
+      discountPence > 0 &&
+      confirmedFare >= lockedBase + modStored - discountPence - 1
+    ) {
+      return 0;
+    }
+    if (
+      grossFare > 0 &&
+      grossFare === confirmedFare &&
+      confirmedFare > lockedBase
+    ) {
+      return 0;
+    }
+  }
+
+  // Committed canonical fare — modification is audit-only (never default final + mod).
+  return 0;
+}
+
+/**
  * Live customer total + driver net preview for active / uncaptured trips.
  * Does not mutate settlement columns or capture amounts.
  */
@@ -120,21 +178,16 @@ export function computeLiveTripFarePreview(trip: LiveTripFareInput): LiveTripFar
   const { modStored } = resolveModificationStoredPence(trip);
   const lockedBase = nonNeg(trip.locked_base_fare_pence);
   const grossFare = nonNeg(trip.gross_fare_pence);
+  const discountPence =
+    nonNeg(trip.offer_discount_pence) || nonNeg(trip.discount_pence);
 
-  // apply_trip_modification_to_trip folds mod into final_customer_fare_pence.
-  // Only add mod when the fare still looks like pre-mod base.
-  // Compare on the gross (pre-discount) basis the fold wrote: confirmed fare is
-  // net of offer/voucher discounts, so a discounted trip would otherwise never
-  // clear the threshold and would re-add an already-committed delta forever.
-  // Use SIGNED cumulative charge (including negative). nonNeg() used to wipe
-  // negatives and fall through to the last positive modification_delta_pence,
-  // re-adding it on top of final (MK-260816-004: 679+266=945).
-  const foldBasis = grossFare > 0 ? grossFare : confirmedFare;
-  const modAlreadyInConfirmed =
-    modStored !== 0 &&
-    lockedBase > 0 &&
-    foldBasis >= lockedBase + modStored - 1;
-  const approvedModificationDelta = modAlreadyInConfirmed ? 0 : modStored;
+  const approvedModificationDelta = resolveApprovedModificationDeltaPence({
+    confirmedFare,
+    modStored,
+    lockedBase,
+    grossFare,
+    discountPence,
+  });
 
   const currentCustomerTotalPence = Math.max(
     1,

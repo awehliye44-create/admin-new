@@ -66,6 +66,9 @@ import {
   type CriticalButtonAction,
 } from '@/lib/criticalButtonTimeout';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
+import {
+  formatAdminCommittedCustomerFare,
+} from '@/lib/adminTripCommittedFareDisplay';
 
 interface ScheduledTrip {
   id: string;
@@ -83,6 +86,11 @@ interface ScheduledTrip {
   dropoff_latitude: number | null;
   dropoff_longitude: number | null;
   estimated_fare: number | null;
+  fare: number | null;
+  final_fare_pence: number | null;
+  final_customer_fare_pence: number | null;
+  estimated_total_pence: number | null;
+  gross_fare_pence: number | null;
   estimated_distance_km: number | null;
   estimated_duration_minutes: number | null;
   currency_code: string | null;
@@ -173,6 +181,11 @@ export default function ScheduledRides() {
             dropoff_latitude,
             dropoff_longitude,
             estimated_fare,
+            fare,
+            final_fare_pence,
+            final_customer_fare_pence,
+            estimated_total_pence,
+            gross_fare_pence,
             estimated_distance_km,
             estimated_duration_minutes,
             currency_code,
@@ -676,8 +689,10 @@ export default function ScheduledRides() {
                       </TableCell>
                       <TableCell className="font-medium">
                         <div>
-                          {getCurrencySymbol(resolveTripCurrency(trip))}
-                          {(trip.estimated_fare || 0).toFixed(2)}
+                          {formatAdminCommittedCustomerFare(
+                            trip,
+                            getCurrencySymbol(resolveTripCurrency(trip)),
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-right">

@@ -41,6 +41,10 @@ import { getTripDisplayId } from '@/lib/tripUtils';
 import { fetchPassengerDirectory, hydratePassengerIdentity } from '@/lib/tripPassengerDisplay';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
+import {
+  formatAdminCommittedCustomerFare,
+  resolveAdminCommittedCustomerFarePence,
+} from '@/lib/adminTripCommittedFareDisplay';
 
 interface CancelledTrip {
   id: string;
@@ -54,6 +58,10 @@ interface CancelledTrip {
   dropoff_address: string;
   estimated_fare: number | null;
   fare: number | null;
+  final_fare_pence: number | null;
+  final_customer_fare_pence: number | null;
+  estimated_total_pence: number | null;
+  gross_fare_pence: number | null;
   currency_code: string | null;
   created_at: string;
   completed_at: string | null;
@@ -129,7 +137,9 @@ export default function MissedCancelled() {
         .from('trips')
         .select(`
           id, trip_number, trip_code, status, passenger_id, passenger_name, passenger_phone,
-          pickup_address, dropoff_address, estimated_fare, fare, currency_code,
+          pickup_address, dropoff_address, estimated_fare, fare,
+          final_fare_pence, final_customer_fare_pence, estimated_total_pence, gross_fare_pence,
+          currency_code,
           created_at, completed_at, special_instructions, driver_id, service_area_id,
           arrived_at, pickup_waiting_started_at, cancelled_at, cancellation_reason,
           arrival_cancellation_applied, arrival_cancellation_fee, arrival_cancellation_applied_at, arrival_cancellation_reason,
@@ -214,13 +224,13 @@ export default function MissedCancelled() {
 
   const cancelledCount = trips.filter(t => t.status === 'cancelled').length;
   const noShowCount = trips.filter(t => t.status === 'no_show').length;
-  const lostRevenue = trips.reduce((sum, t) => sum + (t.estimated_fare || 0), 0);
+  const lostRevenueMajor = trips.reduce(
+    (sum, t) => sum + resolveAdminCommittedCustomerFarePence(t) / 100,
+    0,
+  );
 
-  /** Format a pence-or-pounds fare value with the trip's resolved currency */
-  const formatTripFare = (trip: CancelledTrip) => {
-    const cc = resolveTripCurrency(trip);
-    return `${getCurrencySymbol(cc)}${(trip.estimated_fare || 0).toFixed(2)}`;
-  };
+  const formatTripFare = (trip: CancelledTrip) =>
+    formatAdminCommittedCustomerFare(trip, getCurrencySymbol(resolveTripCurrency(trip)));
 
   return (
     <AdminLayout 
@@ -279,12 +289,15 @@ export default function MissedCancelled() {
                 <p className="text-sm text-muted-foreground">Lost Revenue</p>
                 {isMixedCurrency ? (
                   <CurrencyGroupedStats
-                    items={trips.map(t => ({ currency_code: resolveTripCurrency(t) || '???', amount: Math.round((t.estimated_fare || 0) * 100) }))}
+                    items={trips.map(t => ({
+                      currency_code: resolveTripCurrency(t) || '???',
+                      amount: resolveAdminCommittedCustomerFarePence(t),
+                    }))}
                     className="text-lg font-bold text-amber-600"
                   />
                 ) : (
                   <p className="text-2xl font-bold text-amber-600">
-                    {getCurrencySymbol(resolvedCurrency)}{lostRevenue.toFixed(2)}
+                    {getCurrencySymbol(resolvedCurrency)}{lostRevenueMajor.toFixed(2)}
                   </p>
                 )}
               </div>

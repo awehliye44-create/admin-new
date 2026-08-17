@@ -35,6 +35,23 @@ Deno.test("A. MK-260816-002 discounted post-fold: committed delta is not re-adde
   assertEquals(preview.current_customer_total_pence === 1403, false);
 });
 
+Deno.test("A2. MK-260816-002 post-fold with gross=null and discount missing: stays 1039", () => {
+  const preview = computeLiveTripFarePreview({
+    final_customer_fare_pence: 1039,
+    final_fare_pence: 1039,
+    locked_base_fare_pence: 749,
+    customer_modification_charge_pence: 364,
+    modification_delta_pence: 364,
+    gross_fare_pence: null,
+    pickup_waiting_charge_pence: 0,
+    stop_waiting_charge_pence: 0,
+  });
+
+  assertEquals(preview.approved_modification_delta_pence, 0);
+  assertEquals(preview.current_customer_total_pence, 1039);
+  assertEquals(preview.current_customer_total_pence === 1403, false);
+});
+
 Deno.test("B. undiscounted post-fold: total is gross, delta not re-added", () => {
   const preview = computeLiveTripFarePreview({
     final_customer_fare_pence: 1113,
@@ -156,14 +173,13 @@ Deno.test("unmodified trip is unaffected", () => {
   assertEquals(preview.current_customer_total_pence, 675);
 });
 
-Deno.test("LOCK: fold detection compares on the gross basis, never confirmed fare alone", async () => {
+Deno.test("LOCK: committed fare defaults folded; pre-fold requires locked-base proof", async () => {
   const src = await Deno.readTextFile(new URL("./liveTripFareSSOT.ts", import.meta.url));
 
-  assertEquals(src.includes("const grossFare = nonNeg(trip.gross_fare_pence);"), true);
-  assertEquals(src.includes("const foldBasis = grossFare > 0 ? grossFare : confirmedFare;"), true);
-  assertEquals(src.includes("foldBasis >= lockedBase + modStored - 1"), true);
-  // The reverted form that re-added a committed delta on every discounted trip.
-  assertEquals(src.includes("confirmedFare >= lockedBase + modStored - 1"), false);
+  assertEquals(src.includes("resolveApprovedModificationDeltaPence"), true);
+  assertEquals(src.includes("confirmedFare <= lockedBase"), true);
+  assertEquals(src.includes("Committed canonical fare — modification is audit-only"), true);
+  assertEquals(src.includes("offer_discount_pence"), true);
   // Signed cumulative must not be coerced through nonNeg (MK-260816-004).
   assertEquals(
     src.includes(
@@ -172,6 +188,19 @@ Deno.test("LOCK: fold detection compares on the gross basis, never confirmed far
     false,
   );
   assertEquals(src.includes("resolveModificationStoredPence"), true);
+});
+
+Deno.test("C-negative. shorter destination −375 + final 413 stays 413", () => {
+  const preview = computeLiveTripFarePreview({
+    final_customer_fare_pence: 413,
+    final_fare_pence: 413,
+    locked_base_fare_pence: 788,
+    customer_modification_charge_pence: -375,
+    gross_fare_pence: 413,
+  });
+
+  assertEquals(preview.approved_modification_delta_pence, 0);
+  assertEquals(preview.current_customer_total_pence, 413);
 });
 
 /**
@@ -193,4 +222,41 @@ Deno.test("MK-260816-004 signed cumulative: never re-add last positive delta", (
   assertEquals(preview.approved_modification_delta_pence, 0);
   assertEquals(preview.current_customer_total_pence, 679);
   assertEquals(preview.current_customer_total_pence === 945, false);
+});
+
+/**
+ * MK-260817-005: £4.50 booked (locked preauth 500, −50 offer) → dropoff mod → £6.99.
+ * When gross persisted net-only (699) fold must still detect — never 699+249=948.
+ */
+Deno.test("MK-260817-005 post-mod: net-only gross must not re-add modification delta", () => {
+  const preview = computeLiveTripFarePreview({
+    final_customer_fare_pence: 699,
+    final_fare_pence: 699,
+    locked_base_fare_pence: 500,
+    customer_modification_charge_pence: 249,
+    modification_delta_pence: 249,
+    gross_fare_pence: 699,
+    offer_discount_pence: 50,
+    pickup_waiting_charge_pence: 0,
+  });
+
+  assertEquals(preview.approved_modification_delta_pence, 0);
+  assertEquals(preview.current_customer_total_pence, 699);
+  assertEquals(preview.current_customer_total_pence === 948, false);
+});
+
+Deno.test("MK-260817-005 pre-mod baseline unchanged: still projects additive delta", () => {
+  const preview = computeLiveTripFarePreview({
+    final_customer_fare_pence: 450,
+    final_fare_pence: 450,
+    locked_base_fare_pence: 500,
+    customer_modification_charge_pence: 249,
+    modification_delta_pence: 249,
+    gross_fare_pence: 500,
+    offer_discount_pence: 50,
+    pickup_waiting_charge_pence: 0,
+  });
+
+  assertEquals(preview.approved_modification_delta_pence, 249);
+  assertEquals(preview.current_customer_total_pence, 699);
 });

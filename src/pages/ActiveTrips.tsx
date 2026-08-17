@@ -339,6 +339,8 @@ export default function ActiveTrips() {
           commission_pct: trip.commission_pct ?? null,
           commission_pence: trip.commission_pence ?? null,
           gross_fare_pence: trip.gross_fare_pence ?? null,
+          offer_discount_pence: trip.offer_discount_pence ?? null,
+          discount_pence: trip.discount_pence ?? null,
         });
         const stops = stopsByTrip.get(trip.id) ?? [];
         const dropoffStop = stops.find((s) => s.type === "dropoff");

@@ -19,10 +19,13 @@ export type LiveTripFareInput = {
   stop_charge_total_pence?: number | null;
   customer_modification_charge_pence?: number | null;
   modification_delta_pence?: number | null;
+  accepted_commission_percent?: number | null;
   driver_tier_commission_percent?: number | null;
   commission_pct?: number | null;
   commission_pence?: number | null;
   gross_fare_pence?: number | null;
+  offer_discount_pence?: number | null;
+  discount_pence?: number | null;
 };
 
 export type LiveTripFarePreview = {
@@ -41,6 +44,37 @@ function nonNeg(value: unknown): number {
   return Math.round(n);
 }
 
+/** Signed pence (mods may be negative after a shorter destination). */
+function signedPence(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n);
+}
+
+/**
+ * Prefer cumulative customer_modification_charge_pence (signed SSOT from apply).
+ * Never coerce negatives through nonNeg — that fell through to the last positive
+ * modification_delta_pence and re-added it on top of an already-folded final
+ * (MK-260816-004: 679 + 266 = 945).
+ */
+function resolveModificationStoredPence(trip: LiveTripFareInput): {
+  modStored: number;
+  cumulativePresent: boolean;
+} {
+  const cumulative = signedPence(trip.customer_modification_charge_pence);
+  if (
+    trip.customer_modification_charge_pence !== null &&
+    trip.customer_modification_charge_pence !== undefined &&
+    cumulative != null
+  ) {
+    return { modStored: cumulative, cumulativePresent: true };
+  }
+  return {
+    modStored: signedPence(trip.modification_delta_pence) ?? 0,
+    cumulativePresent: false,
+  };
+}
+
 function normalizeCommissionPercent(raw: number): number {
   if (!Number.isFinite(raw) || raw < 0) return 0;
   // Accept either 15 (percent) or 0.15 (fraction).
@@ -49,6 +83,9 @@ function normalizeCommissionPercent(raw: number): number {
 }
 
 function resolveCommissionPercent(trip: LiveTripFareInput): number {
+  const accepted = Number(trip.accepted_commission_percent);
+  if (Number.isFinite(accepted) && accepted >= 0) return normalizeCommissionPercent(accepted);
+
   const tier = Number(trip.driver_tier_commission_percent);
   if (Number.isFinite(tier) && tier >= 0) return normalizeCommissionPercent(tier);
 
@@ -74,6 +111,62 @@ export function resolveConfirmedCustomerFarePence(trip: LiveTripFareInput): numb
 }
 
 /**
+ * Mod delta may be added to live preview only with positive pre-fold proof.
+ * When a canonical committed fare is present, stored modification is audit history
+ * unless the payable is still at/below locked ride base (mod not yet folded).
+ */
+export function resolveApprovedModificationDeltaPence(args: {
+  confirmedFare: number;
+  modStored: number;
+  lockedBase: number;
+  grossFare: number;
+  discountPence: number;
+}): number {
+  const { confirmedFare, modStored, lockedBase, grossFare, discountPence } = args;
+
+  if (modStored === 0) return 0;
+  if (confirmedFare <= 0) return modStored;
+
+  // Pre-fold: positive mod pending while payable remains at/below locked ride base.
+  if (modStored > 0 && lockedBase > 0 && confirmedFare <= lockedBase) {
+    return modStored;
+  }
+
+  // Metadata-backed fold proof when committed fare exceeds locked base.
+  if (lockedBase > 0) {
+    let foldBasis = grossFare > 0 ? grossFare : confirmedFare;
+    // Net-only gross after fold (MK-260817-005): reconstruct pre-discount once for detection.
+    if (
+      discountPence > 0 &&
+      foldBasis > 0 &&
+      foldBasis < lockedBase + modStored - 1 &&
+      foldBasis + discountPence >= lockedBase + modStored - 1
+    ) {
+      foldBasis = foldBasis + discountPence;
+    }
+    if (foldBasis >= lockedBase + modStored - 1) {
+      return 0;
+    }
+    if (
+      discountPence > 0 &&
+      confirmedFare >= lockedBase + modStored - discountPence - 1
+    ) {
+      return 0;
+    }
+    if (
+      grossFare > 0 &&
+      grossFare === confirmedFare &&
+      confirmedFare > lockedBase
+    ) {
+      return 0;
+    }
+  }
+
+  // Committed canonical fare — modification is audit-only (never default final + mod).
+  return 0;
+}
+
+/**
  * Live customer total + driver net preview for active / uncaptured trips.
  * Does not mutate settlement columns or capture amounts.
  */
@@ -82,20 +175,24 @@ export function computeLiveTripFarePreview(trip: LiveTripFareInput): LiveTripFar
   const pickupWaiting = nonNeg(trip.pickup_waiting_charge_pence);
   const stopWaiting =
     nonNeg(trip.stop_waiting_charge_pence) || nonNeg(trip.stop_charge_total_pence);
-  const modStored =
-    nonNeg(trip.customer_modification_charge_pence) || nonNeg(trip.modification_delta_pence);
+  const { modStored } = resolveModificationStoredPence(trip);
   const lockedBase = nonNeg(trip.locked_base_fare_pence);
+  const grossFare = nonNeg(trip.gross_fare_pence);
+  const discountPence =
+    nonNeg(trip.offer_discount_pence) || nonNeg(trip.discount_pence);
 
-  // apply_trip_modification_to_trip folds mod into final_customer_fare_pence.
-  // Only add mod when confirmed fare still looks like pre-mod base.
-  const modAlreadyInConfirmed =
-    modStored > 0 &&
-    lockedBase > 0 &&
-    confirmedFare >= lockedBase + modStored - 1;
-  const approvedModificationDelta = modAlreadyInConfirmed ? 0 : modStored;
+  const approvedModificationDelta = resolveApprovedModificationDeltaPence({
+    confirmedFare,
+    modStored,
+    lockedBase,
+    grossFare,
+    discountPence,
+  });
 
-  const currentCustomerTotalPence =
-    confirmedFare + pickupWaiting + stopWaiting + approvedModificationDelta;
+  const currentCustomerTotalPence = Math.max(
+    1,
+    confirmedFare + pickupWaiting + stopWaiting + approvedModificationDelta,
+  );
 
   const commissionPercent = resolveCommissionPercent(trip);
   const driverNetPreviewPence = Math.round(
