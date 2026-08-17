@@ -118,8 +118,11 @@ Deno.test("financial model isolation lock", async () => {
   assert(!lostProperty.includes("if (!isCommissionWalletWorkflowEnabled(cwConfig)) return {};"));
   const createRide = await read("supabase/functions/create-ride/index.ts");
   const createTripRequest = await read("supabase/functions/create-trip-request/index.ts");
+  const calculateFare = await read("supabase/functions/calculate-fare/index.ts");
   assert(createRide.includes("USE_CREATE_TRIP_AFTER_PAYMENT"));
   assert(createTripRequest.includes("USE_CREATE_TRIP_AFTER_PAYMENT"));
+  assert(calculateFare.includes('import { corsHeaders } from "../_shared/corsHeaders.ts"'));
+  assert(calculateFare.includes("skip_platform_preauth"));
   assert(migration.includes("LEDGER_REVERSAL"));
   assert(migration.includes("FROM public.service_areas WHERE id = NEW.service_area_id"));
 

@@ -295,6 +295,13 @@ Deno.serve(async (req) => {
         if (msg.includes("already_has_stacked_trip")) return businessFailureResponse("ALREADY_HAS_STACKED_TRIP","Current trip already has a queued stacked ride");
         if (msg.includes("queued_trip_assign_failed"))return businessFailureResponse("DATABASE_ERROR",          "Failed to assign queued trip");
         if (msg.includes("link_failed"))              return businessFailureResponse("DATABASE_ERROR",          "Failed to link stacked trip to active trip");
+        if (msg.includes("stacked_offer_net_missing")) return businessFailureResponse("STACKED_OFFER_NET_MISSING", "Stacked offer is missing driver net");
+        if (msg.includes("stacked_offer_commission_missing")) {
+          return businessFailureResponse("STACKED_OFFER_COMMISSION_MISSING", "Stacked offer is missing commission");
+        }
+        if (msg.includes("stacked_fare_snapshot_failed")) {
+          return businessFailureResponse("STACKED_FARE_SNAPSHOT_FAILED", "Could not lock stacked driver fare");
+        }
 
         return businessFailureResponse("DATABASE_ERROR", msg);
       }
@@ -347,11 +354,11 @@ Deno.serve(async (req) => {
       }
 
       console.log("[accept-offer] Stacked ride accepted (atomic):", acceptedTripId);
-      console.log("STACKED_RIDE_FARE_ISOLATION_CHECK", {
+      console.log("STACKED_RIDE_FARE_SNAPSHOT_APPLIED", {
         trip_id: acceptedTripId,
         current_trip_id: effectiveCurrentTripId,
-        fare_source: "stacked_ride",
-        note: "fare/wallet unchanged — observability stub only",
+        fare_source: "snapshot_accepted_wave_commission",
+        note: "accept_stacked_ride persists accepted offer net via snapshot_accepted_wave_commission",
       });
 
       const offer = pendingOffer;

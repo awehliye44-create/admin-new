@@ -8,6 +8,7 @@ import {
   type ZoneRow,
   type LatLng,
 } from "../_shared/pricing-engine.ts";
+import { corsHeaders } from "../_shared/corsHeaders.ts";
 import {
   classifyServiceAreaFinancialPairing,
   shouldSkipPlatformPreauthForCommissionWallet,
