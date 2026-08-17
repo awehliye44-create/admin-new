@@ -202,7 +202,14 @@ export function shouldConvertScheduledToUrgent(input: {
     return { convert: false };
   }
   // Confirmed / locked driver → Commitment Policy path (not fixed urgent waves).
-  if (trip.driver_id || hasAcceptedOffer) {
+  if (
+    trip.driver_id ||
+    liveAcceptedOfferBlocksConvert({
+      driverId: trip.driver_id,
+      confirmedDriverId: trip.confirmed_driver_id,
+      hasAcceptedOffer,
+    })
+  ) {
     return { convert: false };
   }
   if (
@@ -253,6 +260,132 @@ export function shouldConvertScheduledToUrgent(input: {
   }
 
   return { convert: false };
+}
+
+/**
+ * Heat-map open-job statuses. Once a scheduled trip is in one of these,
+ * Driver must show the nearby ride-offer card (not divert to Scheduled Jobs).
+ */
+export const SCHEDULED_OPEN_JOB_TRIP_STATUSES = [
+  "searching",
+  "searching_new_driver",
+  "offered",
+  "offering",
+  "broadcasting",
+  "negotiating",
+  "pending",
+] as const;
+
+/**
+ * Customer bookings stamp `scheduled_status: scheduled` (not `pending`).
+ * Convert must still pick them up once check-in / urgent fallback is due.
+ */
+export const NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES = [
+  "scheduled",
+  "pending",
+  "broadcasting",
+  "dispatching",
+  "awaiting_confirmation",
+  "stale",
+] as const;
+
+export function isNoPreconfirmedConvertScheduledStatus(
+  scheduledStatus: string | null | undefined,
+): boolean {
+  const status = String(scheduledStatus ?? "").toLowerCase();
+  return (NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES as readonly string[]).includes(
+    status,
+  );
+}
+
+/** Patch that flips a no-accept scheduled job onto the instant nearby-card path. */
+export function buildScheduledUrgentConversionPatch(input: {
+  nowIso: string;
+  searchingExpiresAtIso: string;
+}): {
+  dispatch_mode: "instant";
+  scheduled_status: "converted_to_instant";
+  status: "searching";
+  dispatch_status: "broadcasting";
+  broadcast_enabled: true;
+  searching_expires_at: string;
+  updated_at: string;
+} {
+  return {
+    dispatch_mode: "instant",
+    scheduled_status: "converted_to_instant",
+    status: "searching",
+    dispatch_status: "broadcasting",
+    broadcast_enabled: true,
+    searching_expires_at: input.searchingExpiresAtIso,
+    updated_at: input.nowIso,
+  };
+}
+
+/**
+ * An `accepted` offer only blocks convert while assignment is still in flight.
+ * Historical accepted rows after cancel/release must not freeze the trip as scheduled.
+ */
+export function liveAcceptedOfferBlocksConvert(input: {
+  driverId: string | null | undefined;
+  confirmedDriverId: string | null | undefined;
+  hasAcceptedOffer: boolean;
+}): boolean {
+  if (!input.hasAcceptedOffer) return false;
+  if (typeof input.driverId === "string" && input.driverId.trim().length > 0) {
+    return true;
+  }
+  if (
+    typeof input.confirmedDriverId === "string" &&
+    input.confirmedDriverId.trim().length > 0
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * True when auto-dispatch / Driver should treat this as an instant nearby offer.
+ * Covers Scheduled → Urgent conversion AND broadcasting open jobs (heatmap).
+ */
+export function isOpenJobInstantRideOffer(trip: {
+  dispatch_mode?: string | null;
+  scheduled_status?: string | null;
+  status?: string | null;
+}): boolean {
+  const mode = String(trip.dispatch_mode ?? "").toLowerCase();
+  const scheduledStatus = String(trip.scheduled_status ?? "").toLowerCase();
+  const status = String(trip.status ?? "").toLowerCase();
+  if (mode === "instant" || scheduledStatus === "converted_to_instant") return true;
+  return (SCHEDULED_OPEN_JOB_TRIP_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * Do not stomp scheduled marketplace rows to `searching` — that makes the
+ * heat-map count an "open job" while Driver still diverts to Scheduled Jobs.
+ */
+export function nextAutoDispatchTripStatus(trip: {
+  status?: string | null;
+  dispatch_mode?: string | null;
+  scheduled_status?: string | null;
+}): string {
+  if (String(trip.status ?? "") === "searching_new_driver") return "searching_new_driver";
+  const scheduledMarketplace =
+    String(trip.dispatch_mode ?? "") === "scheduled" &&
+    String(trip.scheduled_status ?? "") !== "converted_to_instant";
+  if (scheduledMarketplace) {
+    const current = String(trip.status ?? "").toLowerCase();
+    if (
+      current === "offered" ||
+      current === "broadcasting" ||
+      current === "offering" ||
+      current === "negotiating"
+    ) {
+      return current;
+    }
+    return "offered";
+  }
+  return "searching";
 }
 
 // ─── Commitment mode helpers ──────────────────────────────────────────────────

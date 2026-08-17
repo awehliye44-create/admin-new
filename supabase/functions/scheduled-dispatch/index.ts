@@ -13,6 +13,8 @@ import { recordDispatchWaveSnapshot } from "../_shared/recordDispatchWaveSnapsho
 import {
   resolveScheduledDispatchConfig,
   shouldConvertScheduledToUrgent,
+  buildScheduledUrgentConversionPatch,
+  NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES,
   estimateEtaMinutes,
   computeCommitmentTime,
   predictedArrivalMs,
@@ -892,7 +894,7 @@ Deno.serve(async (req) => {
         "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, driver_id, confirmed_driver_id, scheduled_status, status, dispatch_status, dispatch_mode",
       )
       .eq("dispatch_mode", "scheduled")
-      .in("scheduled_status", ["broadcasting", "dispatching"])
+      .in("scheduled_status", [...NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES])
       .is("driver_id", null)
       .is("confirmed_driver_id", null);
 
@@ -930,20 +932,16 @@ Deno.serve(async (req) => {
         if (!decision.convert) continue;
 
         const searchingExpiresAt = new Date(nowMs + maxFindDriverMinutes * 60_000).toISOString();
+        const conversionPatch = buildScheduledUrgentConversionPatch({
+          nowIso: now.toISOString(),
+          searchingExpiresAtIso: searchingExpiresAt,
+        });
 
         const { error: updateError } = await supabase
           .from("trips")
-          .update({
-            dispatch_mode: "instant",
-            scheduled_status: "converted_to_instant",
-            status: "searching",
-            dispatch_status: "broadcasting",
-            broadcast_enabled: true,
-            searching_expires_at: searchingExpiresAt,
-            updated_at: now.toISOString(),
-          })
+          .update(conversionPatch)
           .eq("id", trip.id)
-          .in("scheduled_status", ["broadcasting", "dispatching"])
+          .in("scheduled_status", [...NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES])
           .is("driver_id", null);
 
         if (updateError) {

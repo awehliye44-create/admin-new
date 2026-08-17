@@ -18,19 +18,11 @@ import {
   shouldExpireTripAfterWavesExhausted,
 } from "./dispatchSearchWindow.ts";
 import { classifyTerminalHoldDisposition } from "./terminalTripPaymentDisposition.ts";
-
-/** Same-trip conversion fields used by scheduled-dispatch (no new trip/order). */
-function conversionPatch(nowIso: string, searchingExpiresAtIso: string) {
-  return {
-    dispatch_mode: "instant" as const,
-    scheduled_status: "converted_to_instant" as const,
-    status: "searching" as const,
-    dispatch_status: "broadcasting" as const,
-    broadcast_enabled: true as const,
-    searching_expires_at: searchingExpiresAtIso,
-    updated_at: nowIso,
-  };
-}
+import {
+  buildScheduledUrgentConversionPatch,
+  resolveScheduledDispatchConfig,
+  shouldConvertScheduledToUrgent,
+} from "./scheduledDispatchConfig.ts";
 
 const SETTINGS = { max_driver_find_time_minutes: 6 };
 
@@ -40,6 +32,71 @@ const MK006 = {
   scheduled_status: "broadcasting",
   searching_expires_at: null as string | null,
 };
+
+Deno.test("MK-260817-006: Admin 8m/15m convert; broadcast must not convert or expire", () => {
+  const cfg = resolveScheduledDispatchConfig({
+    enable_scheduled_to_urgent_conversion: true,
+    scheduled_response_window_minutes: 8,
+    urgent_dispatch_trigger_minutes_before_pickup: 15,
+    max_driver_find_time_minutes: 6,
+  });
+  assertEquals(cfg.responseWindowMinutes, 8);
+  assertEquals(cfg.urgentTriggerMinutesBeforePickup, 15);
+  assertEquals(cfg.maxFindDriverMinutes, 6);
+  assertEquals(cfg.enableScheduledToUrgentConversion, true);
+
+  const trip = {
+    id: "82cbd6a4-d933-43d3-811c-92296436c99d",
+    created_at: MK006.created_at,
+    scheduled_at: "2026-08-17T12:25:00.000Z",
+    scheduled_broadcast_at: "2026-08-17T12:02:00.000Z",
+    scheduled_convert_at: "2026-08-17T12:10:00.000Z",
+    driver_id: null as string | null,
+    confirmed_driver_id: null as string | null,
+    dispatch_mode: "scheduled",
+    scheduled_status: "broadcasting",
+    searching_expires_at: null as string | null,
+  };
+
+  const atBroadcast = Date.parse("2026-08-17T12:02:02.000Z");
+  assertEquals(
+    shouldConvertScheduledToUrgent({
+      trip,
+      config: cfg,
+      nowMs: atBroadcast,
+      hasAcceptedOffer: false,
+    }).convert,
+    false,
+  );
+  assertEquals(isScheduledInstantConversionPending(trip), true);
+  assertEquals(isCustomerSearchWindowActive(trip, SETTINGS, atBroadcast), true);
+  assertEquals(shouldExpireTripAfterWavesExhausted(trip, SETTINGS, atBroadcast), false);
+  assertEquals(
+    shouldBlockPrematureScheduledSearchHoldRelease({
+      tripStatus: "expired",
+      cancelledBy: null,
+      cancellationReason: null,
+      dispatchMode: "scheduled",
+      scheduledStatus: "broadcasting",
+      isScheduled: true,
+      scheduledAt: trip.scheduled_at,
+      dispositionReason: "search_expired",
+      feePence: 0,
+    }),
+    true,
+  );
+
+  const atConvert = Date.parse("2026-08-17T12:10:00.000Z");
+  const decision = shouldConvertScheduledToUrgent({
+    trip,
+    config: cfg,
+    nowMs: atConvert,
+    hasAcceptedOffer: false,
+  });
+  assertEquals(decision.convert, true);
+  const ttl = new Date(atConvert + cfg.maxFindDriverMinutes * 60_000).toISOString();
+  assertEquals(ttl, "2026-08-17T12:16:00.000Z");
+});
 
 Deno.test("A: scheduled booking 30 min before pickup does not expire after created_at + 6 min", () => {
   const created = Date.parse(MK006.created_at);
@@ -92,7 +149,10 @@ Deno.test("C: no scheduled accept — conversion pending until converted_to_inst
 Deno.test("D: conversion stamps searching_expires_at from instant-search start, not created_at", () => {
   const convertAt = "2026-08-17T12:10:00.000Z";
   const ttl = new Date(Date.parse(convertAt) + 6 * 60_000).toISOString();
-  const patch = conversionPatch(convertAt, ttl);
+  const patch = buildScheduledUrgentConversionPatch({
+    nowIso: convertAt,
+    searchingExpiresAtIso: ttl,
+  });
   assertEquals(patch.dispatch_mode, "instant");
   assertEquals(patch.scheduled_status, "converted_to_instant");
   assertEquals(patch.status, "searching");
@@ -276,7 +336,10 @@ Deno.test("J: converted instant search exhaustion allows terminal release", () =
 });
 
 Deno.test("K/L: conversion patch keeps same-trip instant fields; no second trip/order invented", () => {
-  const patch = conversionPatch("2026-08-17T12:10:00.000Z", "2026-08-17T12:16:00.000Z");
+  const patch = buildScheduledUrgentConversionPatch({
+    nowIso: "2026-08-17T12:10:00.000Z",
+    searchingExpiresAtIso: "2026-08-17T12:16:00.000Z",
+  });
   assertEquals("id" in patch, false);
   assertEquals("payment_session_id" in patch, false);
   assertEquals("provider_order_id" in patch, false);
@@ -302,11 +365,25 @@ Deno.test("source lock: scheduled-dispatch Step 4 only expires converted_to_inst
   );
   assertStringIncludes(src, '.eq("scheduled_status", "converted_to_instant")');
   assertEquals(src.includes('.in("scheduled_status", ["broadcasting", "dispatching", "converted_to_instant"])'), false);
-  assertStringIncludes(src, "searching_expires_at: searchingExpiresAt");
+  assertStringIncludes(src, "buildScheduledUrgentConversionPatch");
+  assertStringIncludes(src, "NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES");
+  assertStringIncludes(src, "searchingExpiresAtIso: searchingExpiresAt");
   assertStringIncludes(
     src,
     "new Date(nowMs + maxFindDriverMinutes * 60_000).toISOString()",
   );
+  assertStringIncludes(src, "triggerReason: `scheduled_convert_to_instant:");
+});
+
+Deno.test("source lock: schedule-dispatch converts via Admin SSOT then auto-dispatch", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../schedule-dispatch/index.ts", import.meta.url),
+  );
+  assertStringIncludes(src, "shouldConvertScheduledToUrgent");
+  assertStringIncludes(src, "buildScheduledUrgentConversionPatch");
+  assertStringIncludes(src, "NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES");
+  assertStringIncludes(src, "/functions/v1/auto-dispatch");
+  assertEquals(src.includes("dispatch_trip_offers"), false);
 });
 
 Deno.test("source lock: SQL expire does not use created_at TTL for scheduled handover", async () => {
