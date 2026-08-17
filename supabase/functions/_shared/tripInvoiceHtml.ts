@@ -29,11 +29,6 @@ export interface TripInvoiceHtmlData {
   taxLabel: string;
   tax: string;
   total: string;
-  paymentStatusLabel?: string;
-  paidLabel?: string;
-  paid?: string;
-  outstanding?: string;
-  showOutstanding?: boolean;
   company: { name: string; email: string; phone: string; website: string; address: string };
   tagline: string;
   footerHeadline: string;
