@@ -171,9 +171,6 @@ export function DriverWalletDriverList({
                   <TableCell className="text-xs">{row.service_area_name ?? '—'}</TableCell>
                   <TableCell>{row.driver_tier_name ?? '—'}</TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {row.commission_percent != null ? `${row.commission_percent}%` : '—'}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
                     {formatNullablePence(balances.livePence, currencyCode)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
