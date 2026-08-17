@@ -1032,7 +1032,7 @@ Deno.serve(async (req) => {
       .select("id, status, scheduled_status, dispatch_status, dispatch_mode, updated_at, searching_expires_at, passenger_id")
       .in("status", ["searching", "searching_new_driver", "offered", "broadcasting"])
       .is("driver_id", null)
-      .in("scheduled_status", ["broadcasting", "dispatching", "converted_to_instant"]);
+      .eq("scheduled_status", "converted_to_instant");
 
     if (expireError) {
       console.error("[scheduled-dispatch] Error fetching rides to expire:", expireError);
@@ -1040,10 +1040,9 @@ Deno.serve(async (req) => {
       for (const trip of expireCandidates as ScheduledTrip[]) {
         if (isTripTerminalForDispatch(trip)) continue;
 
-        const searchDeadlineMs = trip.searching_expires_at
-          ? new Date(trip.searching_expires_at).getTime()
-          : new Date(trip.updated_at ?? 0).getTime() + maxFindDriverMinutes * 60_000;
-        if (searchDeadlineMs > nowMs) continue;
+        if (!trip.searching_expires_at) continue;
+        const searchDeadlineMs = new Date(trip.searching_expires_at).getTime();
+        if (!Number.isFinite(searchDeadlineMs) || searchDeadlineMs > nowMs) continue;
 
         const { data: didExpire, error: rpcError } = await supabase.rpc(
           "expire_trip_when_search_exhausted",

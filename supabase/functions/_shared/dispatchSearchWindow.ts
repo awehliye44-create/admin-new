@@ -1,13 +1,20 @@
 /**
  * Customer search window SSOT (searching_expires_at).
  * Waves may exhaust before the window ends; trips stay searchable until the deadline.
+ *
+ * Instant TTL must not start at scheduled booking created_at (MK-260817-006).
+ * While scheduled→instant conversion is still pending, there is no instant
+ * search deadline — conversion stamps searching_expires_at.
  */
 
 import { coercePositiveInt } from "./dispatch-settings.ts";
+import { isScheduledInstantConversionPending } from "./scheduledHandoverHoldLock.ts";
 
 export type TripSearchTiming = {
   searching_expires_at?: string | null;
   created_at?: string | null;
+  dispatch_mode?: string | null;
+  scheduled_status?: string | null;
 };
 
 export type DispatchSearchSettings = {
@@ -15,19 +22,31 @@ export type DispatchSearchSettings = {
   global_timeout_minutes?: unknown;
 };
 
+function findMinutesFromSettings(settings: DispatchSearchSettings): number {
+  return (
+    coercePositiveInt(settings.max_driver_find_time_minutes) ??
+    coercePositiveInt(settings.global_timeout_minutes) ??
+    3
+  );
+}
+
+/**
+ * Instant search deadline, or null while scheduled handover has not converted.
+ * Never uses scheduled booking created_at as the instant TTL origin.
+ */
 export function resolveCustomerSearchDeadlineMs(
   trip: TripSearchTiming,
   settings: DispatchSearchSettings,
   nowMs: number = Date.now(),
-): number {
+): number | null {
   if (trip.searching_expires_at) {
     const parsed = Date.parse(trip.searching_expires_at);
     if (Number.isFinite(parsed)) return parsed;
   }
-  const findMinutes =
-    coercePositiveInt(settings.max_driver_find_time_minutes) ??
-    coercePositiveInt(settings.global_timeout_minutes) ??
-    3;
+  if (isScheduledInstantConversionPending(trip)) {
+    return null;
+  }
+  const findMinutes = findMinutesFromSettings(settings);
   if (trip.created_at) {
     const created = Date.parse(trip.created_at);
     if (Number.isFinite(created)) return created + findMinutes * 60_000;
@@ -40,7 +59,9 @@ export function isCustomerSearchWindowActive(
   settings: DispatchSearchSettings,
   nowMs: number = Date.now(),
 ): boolean {
-  return resolveCustomerSearchDeadlineMs(trip, settings, nowMs) > nowMs;
+  const deadlineMs = resolveCustomerSearchDeadlineMs(trip, settings, nowMs);
+  if (deadlineMs == null) return true;
+  return deadlineMs > nowMs;
 }
 
 /** True when waves are exhausted and the customer search window has ended. */

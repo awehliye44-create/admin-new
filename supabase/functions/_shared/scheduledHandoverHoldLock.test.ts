@@ -1,0 +1,332 @@
+/**
+ * MK-260817-006 scheduled handover lock — instant TTL + hold-release exclusion.
+ *
+ * Run: deno test --allow-read supabase/functions/_shared/scheduledHandoverHoldLock.test.ts
+ */
+import {
+  assertEquals,
+  assert,
+  assertStringIncludes,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  isScheduledInstantConversionPending,
+  shouldBlockPrematureScheduledSearchHoldRelease,
+} from "./scheduledHandoverHoldLock.ts";
+import {
+  isCustomerSearchWindowActive,
+  resolveCustomerSearchDeadlineMs,
+  shouldExpireTripAfterWavesExhausted,
+} from "./dispatchSearchWindow.ts";
+import { classifyTerminalHoldDisposition } from "./terminalTripPaymentDisposition.ts";
+
+/** Same-trip conversion fields used by scheduled-dispatch (no new trip/order). */
+function conversionPatch(nowIso: string, searchingExpiresAtIso: string) {
+  return {
+    dispatch_mode: "instant" as const,
+    scheduled_status: "converted_to_instant" as const,
+    status: "searching" as const,
+    dispatch_status: "broadcasting" as const,
+    broadcast_enabled: true as const,
+    searching_expires_at: searchingExpiresAtIso,
+    updated_at: nowIso,
+  };
+}
+
+const SETTINGS = { max_driver_find_time_minutes: 6 };
+
+const MK006 = {
+  created_at: "2026-08-17T11:55:53.134Z",
+  dispatch_mode: "scheduled",
+  scheduled_status: "broadcasting",
+  searching_expires_at: null as string | null,
+};
+
+Deno.test("A: scheduled booking 30 min before pickup does not expire after created_at + 6 min", () => {
+  const created = Date.parse(MK006.created_at);
+  const sixMinLater = created + 6 * 60_000;
+  assertEquals(
+    resolveCustomerSearchDeadlineMs(MK006, SETTINGS, sixMinLater + 1_000),
+    null,
+  );
+  assertEquals(
+    isCustomerSearchWindowActive(MK006, SETTINGS, sixMinLater + 1_000),
+    true,
+  );
+  assertEquals(
+    shouldExpireTripAfterWavesExhausted(MK006, SETTINGS, sixMinLater + 1_000),
+    false,
+  );
+});
+
+Deno.test("B: scheduled broadcast before conversion is not SEARCH_WINDOW_ENDED", () => {
+  const broadcastMs = Date.parse("2026-08-17T12:02:02.000Z");
+  assert(isScheduledInstantConversionPending(MK006));
+  assertEquals(isCustomerSearchWindowActive(MK006, SETTINGS, broadcastMs), true);
+  assertEquals(shouldExpireTripAfterWavesExhausted(MK006, SETTINGS, broadcastMs), false);
+});
+
+Deno.test("C: no scheduled accept — conversion pending until converted_to_instant", () => {
+  assertEquals(
+    isScheduledInstantConversionPending({
+      dispatch_mode: "scheduled",
+      scheduled_status: "scheduled",
+    }),
+    true,
+  );
+  assertEquals(
+    isScheduledInstantConversionPending({
+      dispatch_mode: "scheduled",
+      scheduled_status: "broadcasting",
+    }),
+    true,
+  );
+  assertEquals(
+    isScheduledInstantConversionPending({
+      dispatch_mode: "instant",
+      scheduled_status: "converted_to_instant",
+    }),
+    false,
+  );
+});
+
+Deno.test("D: conversion stamps searching_expires_at from instant-search start, not created_at", () => {
+  const convertAt = "2026-08-17T12:10:00.000Z";
+  const ttl = new Date(Date.parse(convertAt) + 6 * 60_000).toISOString();
+  const patch = conversionPatch(convertAt, ttl);
+  assertEquals(patch.dispatch_mode, "instant");
+  assertEquals(patch.scheduled_status, "converted_to_instant");
+  assertEquals(patch.status, "searching");
+  assertEquals(patch.searching_expires_at, "2026-08-17T12:16:00.000Z");
+  assertEquals(patch.searching_expires_at === MK006.created_at, false);
+
+  const converted = {
+    created_at: MK006.created_at,
+    dispatch_mode: patch.dispatch_mode,
+    scheduled_status: patch.scheduled_status,
+    searching_expires_at: patch.searching_expires_at,
+  };
+  const convertMs = Date.parse(convertAt);
+  assertEquals(
+    resolveCustomerSearchDeadlineMs(converted, SETTINGS, convertMs),
+    Date.parse(ttl),
+  );
+  assertEquals(isCustomerSearchWindowActive(converted, SETTINGS, convertMs), true);
+  assertEquals(
+    isCustomerSearchWindowActive(converted, SETTINGS, Date.parse(ttl) + 1),
+    false,
+  );
+});
+
+Deno.test("E/F: premature scheduled no-driver expiry must not classify hold release", () => {
+  const blocked = shouldBlockPrematureScheduledSearchHoldRelease({
+    tripStatus: "expired",
+    cancelledBy: null,
+    cancellationReason: null,
+    dispatchMode: "scheduled",
+    scheduledStatus: "no_driver_found",
+    isScheduled: true,
+    scheduledAt: "2026-08-17T12:25:00.000Z",
+    dispositionReason: "search_expired",
+    feePence: 0,
+  });
+  assertEquals(blocked, true);
+
+  const classified = classifyTerminalHoldDisposition({
+    tripStatus: "expired",
+    startedAt: null,
+    feePence: 0,
+    hasProviderOrder: true,
+    provider: "revolut",
+    cancelledBy: null,
+    cancellationReason: null,
+    dispatchMode: "scheduled",
+    scheduledStatus: "broadcasting",
+    isScheduled: true,
+    scheduledAt: "2026-08-17T12:25:00.000Z",
+    dispositionReason: "search_expired",
+  });
+  assertEquals(classified.action, "skip");
+  assertEquals(classified.outcome, "SKIPPED_SCHEDULED_HANDOVER_PENDING");
+});
+
+Deno.test("E: do not infer customer cancel from expired / payment cancelled", () => {
+  assertEquals(
+    shouldBlockPrematureScheduledSearchHoldRelease({
+      tripStatus: "expired",
+      cancelledBy: null,
+      cancellationReason: null,
+      dispatchMode: "scheduled",
+      scheduledStatus: "no_driver_found",
+      isScheduled: true,
+      dispositionReason: "search_expired",
+    }),
+    true,
+  );
+});
+
+Deno.test("G: customer explicit cancel still voids hold", () => {
+  assertEquals(
+    shouldBlockPrematureScheduledSearchHoldRelease({
+      tripStatus: "cancelled",
+      cancelledBy: "customer",
+      cancellationReason: "customer_cancelled",
+      dispatchMode: "scheduled",
+      scheduledStatus: "scheduled",
+      isScheduled: true,
+      dispositionReason: "customer_cancel",
+      feePence: 0,
+    }),
+    false,
+  );
+  assertEquals(
+    classifyTerminalHoldDisposition({
+      tripStatus: "cancelled",
+      feePence: 0,
+      hasProviderOrder: true,
+      provider: "revolut",
+      cancelledBy: "customer",
+      dispositionReason: "customer_cancel",
+      dispatchMode: "scheduled",
+      scheduledStatus: "scheduled",
+      isScheduled: true,
+    }).action,
+    "void_full",
+  );
+});
+
+Deno.test("H: admin explicit cancel still voids hold", () => {
+  assertEquals(
+    shouldBlockPrematureScheduledSearchHoldRelease({
+      tripStatus: "cancelled",
+      cancelledBy: "admin",
+      dispatchMode: "scheduled",
+      scheduledStatus: "scheduled",
+      isScheduled: true,
+      dispositionReason: "admin_cancel",
+      feePence: 0,
+    }),
+    false,
+  );
+  assertEquals(
+    classifyTerminalHoldDisposition({
+      tripStatus: "cancelled",
+      feePence: 0,
+      hasProviderOrder: true,
+      provider: "revolut",
+      cancelledBy: "admin",
+      dispositionReason: "admin_cancel",
+      dispatchMode: "scheduled",
+      isScheduled: true,
+    }).action,
+    "void_full",
+  );
+});
+
+Deno.test("I: no-show / fee cancellation policy unchanged", () => {
+  assertEquals(
+    shouldBlockPrematureScheduledSearchHoldRelease({
+      tripStatus: "no_show",
+      cancelledBy: null,
+      dispatchMode: "scheduled",
+      scheduledStatus: "scheduled",
+      isScheduled: true,
+      feePence: 800,
+    }),
+    false,
+  );
+  assertEquals(
+    classifyTerminalHoldDisposition({
+      tripStatus: "no_show",
+      feePence: 800,
+      hasProviderOrder: true,
+      provider: "revolut",
+      dispatchMode: "scheduled",
+      isScheduled: true,
+    }).action,
+    "partial_capture_fee",
+  );
+});
+
+Deno.test("J: converted instant search exhaustion allows terminal release", () => {
+  assertEquals(
+    shouldBlockPrematureScheduledSearchHoldRelease({
+      tripStatus: "expired",
+      cancelledBy: null,
+      dispatchMode: "instant",
+      scheduledStatus: "converted_to_instant",
+      isScheduled: true,
+      dispositionReason: "search_expired",
+      feePence: 0,
+    }),
+    false,
+  );
+  assertEquals(
+    classifyTerminalHoldDisposition({
+      tripStatus: "expired",
+      feePence: 0,
+      hasProviderOrder: true,
+      provider: "revolut",
+      dispatchMode: "instant",
+      scheduledStatus: "converted_to_instant",
+      isScheduled: true,
+      dispositionReason: "search_expired",
+    }).action,
+    "void_full",
+  );
+});
+
+Deno.test("K/L: conversion patch keeps same-trip instant fields; no second trip/order invented", () => {
+  const patch = conversionPatch("2026-08-17T12:10:00.000Z", "2026-08-17T12:16:00.000Z");
+  assertEquals("id" in patch, false);
+  assertEquals("payment_session_id" in patch, false);
+  assertEquals("provider_order_id" in patch, false);
+  assertEquals(patch.dispatch_mode, "instant");
+  assertEquals(patch.scheduled_status, "converted_to_instant");
+});
+
+Deno.test("source lock: auto-dispatch skips expire while scheduled handover pending", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../auto-dispatch/index.ts", import.meta.url),
+  );
+  assertStringIncludes(src, "isScheduledInstantConversionPending");
+  assertStringIncludes(src, "SCHEDULED_HANDOVER_PENDING");
+  assert(
+    src.indexOf("isScheduledInstantConversionPending(trip)") <
+      src.indexOf('rpc("expire_trip_when_search_exhausted"'),
+  );
+});
+
+Deno.test("source lock: scheduled-dispatch Step 4 only expires converted_to_instant", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../scheduled-dispatch/index.ts", import.meta.url),
+  );
+  assertStringIncludes(src, '.eq("scheduled_status", "converted_to_instant")');
+  assertEquals(src.includes('.in("scheduled_status", ["broadcasting", "dispatching", "converted_to_instant"])'), false);
+  assertStringIncludes(src, "searching_expires_at: searchingExpiresAt");
+  assertStringIncludes(
+    src,
+    "new Date(nowMs + maxFindDriverMinutes * 60_000).toISOString()",
+  );
+});
+
+Deno.test("source lock: SQL expire does not use created_at TTL for scheduled handover", async () => {
+  const sql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20260817152000_scheduled_handover_search_ttl_hold_lock.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(sql, "v_scheduled_handover_pending");
+  assertStringIncludes(sql, "converted_to_instant");
+  assertStringIncludes(sql, "premature scheduled system expiry must not void the hold");
+  assertStringIncludes(sql, "trg_trips_terminal_payment_disposition");
+});
+
+Deno.test("source lock: dispose selects scheduled lifecycle fields, not payment_status as cancel actor", async () => {
+  const src = await Deno.readTextFile(
+    new URL("./terminalTripPaymentDisposition.ts", import.meta.url),
+  );
+  assertStringIncludes(src, "shouldBlockPrematureScheduledSearchHoldRelease");
+  assertStringIncludes(src, "dispatch_mode, scheduled_status, is_scheduled");
+  assertStringIncludes(src, "SKIPPED_SCHEDULED_HANDOVER_PENDING");
+});

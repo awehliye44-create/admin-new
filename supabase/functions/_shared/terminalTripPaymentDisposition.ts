@@ -34,6 +34,7 @@ import {
   type FarePricingFeeConfig,
   type TerminalPaymentDecision,
 } from "./terminalFeeDecisionSSOT.ts";
+import { shouldBlockPrematureScheduledSearchHoldRelease } from "./scheduledHandoverHoldLock.ts";
 
 export type { TerminalPaymentDecision, FarePricingFeeConfig } from "./terminalFeeDecisionSSOT.ts";
 export { resolveTerminalPaymentDecision } from "./terminalFeeDecisionSSOT.ts";
@@ -106,7 +107,8 @@ export type TerminalDispositionOutcome =
   | "PROVIDER_PENDING_RECONCILIATION"
   | "PROVIDER_FAILED"
   | "LOCAL_RECONCILIATION_FAILED_AFTER_PROVIDER_SUCCESS"
-  | "HOLD_PROTECTED";
+  | "HOLD_PROTECTED"
+  | "SKIPPED_SCHEDULED_HANDOVER_PENDING";
 
 export type TerminalDispositionResult = {
   outcome: TerminalDispositionOutcome;
@@ -138,6 +140,13 @@ export function classifyTerminalHoldDisposition(args: {
   feePence?: number | null;
   hasProviderOrder: boolean;
   provider?: string | null;
+  cancelledBy?: string | null;
+  cancellationReason?: string | null;
+  dispatchMode?: string | null;
+  scheduledStatus?: string | null;
+  isScheduled?: boolean | null;
+  scheduledAt?: string | null;
+  dispositionReason?: TerminalDispositionReason | string | null;
 }): {
   action: "void_full" | "partial_capture_fee" | "skip";
   outcome?: TerminalDispositionOutcome;
@@ -146,6 +155,25 @@ export function classifyTerminalHoldDisposition(args: {
   const status = normalizeStatus(args.tripStatus);
   if (status === "completed") {
     return { action: "skip", outcome: "SKIPPED_COMPLETED", reason: "completed_trip" };
+  }
+  if (
+    shouldBlockPrematureScheduledSearchHoldRelease({
+      tripStatus: args.tripStatus,
+      cancelledBy: args.cancelledBy,
+      cancellationReason: args.cancellationReason,
+      dispatchMode: args.dispatchMode,
+      scheduledStatus: args.scheduledStatus,
+      isScheduled: args.isScheduled,
+      scheduledAt: args.scheduledAt,
+      dispositionReason: args.dispositionReason,
+      feePence: args.feePence,
+    })
+  ) {
+    return {
+      action: "skip",
+      outcome: "SKIPPED_SCHEDULED_HANDOVER_PENDING",
+      reason: "premature_scheduled_search_expiry",
+    };
   }
   if (KEEP_AUTH_STATUSES.has(status) && !TERMINAL_NON_COMPLETED.has(status)) {
     return { action: "skip", outcome: "SKIPPED_REMATCH_OR_ACTIVE", reason: `status=${status}` };
@@ -329,7 +357,7 @@ export async function disposeTerminalTripPayment(
     .select(
       // Provider-neutral / Revolut identifiers only — never select removed provider PI columns
       // (legacy PI select caused PostgREST 400 → false trip_not_found).
-      "id, status, started_at, arrived_at, free_wait_expires_at, cancelled_at, cancelled_by, scheduled_at, cancellation_grace_expires_at, driver_id, confirmed_driver_id, service_area_id, vehicle_type_id, payment_provider, provider_order_id, payment_session_id, authorised_amount_pence, cancellation_fee_pence, no_show_charge_pence, payment_status, arrival_cancellation_applied",
+      "id, status, started_at, arrived_at, free_wait_expires_at, cancelled_at, cancelled_by, cancellation_reason, scheduled_at, cancellation_grace_expires_at, driver_id, confirmed_driver_id, service_area_id, vehicle_type_id, payment_provider, provider_order_id, payment_session_id, authorised_amount_pence, cancellation_fee_pence, no_show_charge_pence, payment_status, arrival_cancellation_applied, dispatch_mode, scheduled_status, is_scheduled",
     )
     .eq("id", args.tripId)
     .maybeSingle();
@@ -492,6 +520,13 @@ export async function disposeTerminalTripPayment(
     feePence,
     hasProviderOrder: !!orderId,
     provider,
+    cancelledBy: trip.cancelled_by as string | null,
+    cancellationReason: trip.cancellation_reason as string | null,
+    dispatchMode: trip.dispatch_mode as string | null,
+    scheduledStatus: trip.scheduled_status as string | null,
+    isScheduled: trip.is_scheduled as boolean | null,
+    scheduledAt: trip.scheduled_at as string | null,
+    dispositionReason: args.reason,
   });
 
   if (classified.action === "skip") {

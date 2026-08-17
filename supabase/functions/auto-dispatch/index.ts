@@ -74,6 +74,7 @@ import {
   shouldExpireTripAfterWavesExhausted,
   WAVE3_NO_ELIGIBLE_LOG_TOKEN,
 } from "../_shared/dispatchSearchWindow.ts";
+import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
 import {
   blockedTerminalTripLogPayload,
   isTripTerminalForDispatch,
@@ -742,7 +743,9 @@ Deno.serve(async (req) => {
           .max_wave_commission_reduction_percent ?? 0,
       });
       const deadlineMs = resolveCustomerSearchDeadlineMs(trip, dispatchSettings);
-      const remainingTtlSec = Math.max(0, Math.floor((deadlineMs - Date.now()) / 1000));
+      const remainingTtlSec = deadlineMs == null
+        ? Number.MAX_SAFE_INTEGER
+        : Math.max(0, Math.floor((deadlineMs - Date.now()) / 1000));
       offerExpirySecondsResolved = effectiveOfferExpirySeconds({
         settings: dispatchSettings,
         sequence: currentRound,
@@ -866,6 +869,21 @@ Deno.serve(async (req) => {
     // (broadcast sequence already calculated above for radius / wave economics)
 
     if (offerExpirySecondsResolved <= 0 || !searchWindowActive) {
+      if (isScheduledInstantConversionPending(trip)) {
+        abortDispatch("SCHEDULED_HANDOVER_PENDING", {
+          sequence: currentRound,
+          searching_expires_at: trip.searching_expires_at ?? null,
+          dispatch_mode: trip.dispatch_mode ?? null,
+          scheduled_status: trip.scheduled_status ?? null,
+        });
+        return successResponse({
+          success: false,
+          error: "Scheduled handover pending; instant search TTL not started",
+          trip_id,
+          dispatch_aborted: true,
+          scheduled_handover_pending: true,
+        });
+      }
       await supabase.rpc("expire_trip_when_search_exhausted", { p_trip_id: trip_id });
       abortDispatch("SEARCH_WINDOW_ENDED", {
         sequence: currentRound,
