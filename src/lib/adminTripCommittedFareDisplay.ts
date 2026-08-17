@@ -18,6 +18,10 @@ import {
   computeLiveTripFarePreview,
   type LiveTripFareInput,
 } from './liveTripFareSSOT';
+import {
+  resolveCanonicalFinalPayablePence,
+  type TripEconomicsStampInput,
+} from '../../shared/paymentSessionsCanonicalReadAdapterSSOT';
 
 export type AdminCommittedFareTripRow = FareDisplayTripRow;
 
@@ -113,4 +117,15 @@ export function resolveAdminCommittedCustomerFareSource(
   if (nonNeg(trip.final_customer_fare_pence) > 0) return 'final_customer_fare_pence';
   if (nonNeg(trip.final_fare_pence) > 0) return 'final_fare_pence';
   return resolveTripDisplayFare(trip).source;
+}
+
+/**
+ * Trip History completed customer payable — canonical final stamp incl. stamped waiting.
+ * Delegates to paymentSessionsCanonicalReadAdapterSSOT (unchanged arithmetic).
+ */
+export function resolveAdminCompletedTripCustomerPayablePence(
+  trip: (AdminCommittedFareTripRow & TripEconomicsStampInput) | null | undefined,
+): number {
+  if (!trip) return 0;
+  return resolveCanonicalFinalPayablePence(trip) ?? resolveAdminCommittedCustomerFarePence(trip);
 }

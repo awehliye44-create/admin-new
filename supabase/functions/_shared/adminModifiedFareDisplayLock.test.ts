@@ -33,12 +33,17 @@ Deno.test("LOCK E. promo + modification — payable once", () => {
   assertEquals(preview.approved_modification_delta_pence, 0);
 });
 
-Deno.test("LOCK: pages import shared adminTripCommittedFareDisplay", async () => {
-  for (const page of ["ActiveTrips", "MissedCancelled", "ScheduledRides"]) {
+Deno.test("LOCK: all four Admin list surfaces import adminTripCommittedFareDisplay", async () => {
+  for (const page of ["ActiveTrips", "MissedCancelled", "ScheduledRides", "TripHistory"]) {
     const src = await Deno.readTextFile(
       new URL(`../../../src/pages/${page}.tsx`, import.meta.url),
     );
     assertEquals(src.includes("adminTripCommittedFareDisplay"), true, page);
+  }
+  for (const page of ["ActiveTrips", "MissedCancelled", "ScheduledRides"]) {
+    const src = await Deno.readTextFile(
+      new URL(`../../../src/pages/${page}.tsx`, import.meta.url),
+    );
     assertEquals(
       src.includes("estimated_fare.toFixed") || src.includes("trip.estimated_fare ?? 0)"),
       false,

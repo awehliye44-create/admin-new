@@ -52,8 +52,8 @@ import { TripHistoryRowActions } from '@/components/trips/TripHistoryRowActions'
 import { getTripDisplayId } from '@/lib/tripUtils';
 import {
   buildCanonicalTripEconomicsRead,
-  resolveCanonicalFinalPayablePence,
 } from '../../shared/paymentSessionsCanonicalReadAdapterSSOT';
+import { resolveAdminCompletedTripCustomerPayablePence } from '@/lib/adminTripCommittedFareDisplay';
 import {
   isCardTrip,
   summarizeTripPayments,
@@ -762,7 +762,7 @@ export default function TripHistory() {
    * Final customer payable — Trip Fare stamp only (no page-local reconstruction).
    */
   const getTripCustomerPayablePence = (trip: CompletedTrip): number =>
-    resolveCanonicalFinalPayablePence(trip) ?? 0;
+    resolveAdminCompletedTripCustomerPayablePence(trip);
 
   /**
    * Provider actual captured amount — Payment Sessions SSOT only.

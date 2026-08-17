@@ -9,6 +9,7 @@ import {
   resolveAdminActiveTripLiveFarePence,
   resolveAdminCommittedCustomerFarePence,
   resolveAdminCommittedCustomerFareSource,
+  resolveAdminCompletedTripCustomerPayablePence,
   toLiveTripFarePreviewInput,
 } from "./adminTripCommittedFareDisplay.ts";
 import { computeLiveTripFarePreview } from "./liveTripFareSSOT.ts";
@@ -44,22 +45,22 @@ Deno.test("I. pre-commit scheduled trip falls back to estimated_fare", () => {
   assertEquals(resolveAdminCommittedCustomerFareSource(trip), "fare_column");
 });
 
-Deno.test("J. active live fare uses shared enrich input + matches committed when no waiting", () => {
+Deno.test("LOCK J. four Admin surfaces — same committed ride fare (Trip History when stamps align)", () => {
   const trip = {
     final_customer_fare_pence: 1039,
     final_fare_pence: 1039,
     locked_base_fare_pence: 749,
     customer_modification_charge_pence: 364,
-    gross_fare_pence: null,
-    offer_discount_pence: null,
-    modification_delta_pence: 364,
+    gross_fare_pence: null as number | null,
+    pickup_waiting_charge_pence: 0,
+    stop_waiting_charge_pence: 0,
   };
   const committed = resolveAdminCommittedCustomerFarePence(trip);
+  const history = resolveAdminCompletedTripCustomerPayablePence(trip);
   const live = resolveAdminActiveTripLiveFarePence(trip);
-  const preview = computeLiveTripFarePreview(toLiveTripFarePreviewInput(trip));
   assertEquals(committed, 1039);
+  assertEquals(history, 1039);
   assertEquals(live, 1039);
-  assertEquals(preview.current_customer_total_pence, 1039);
 });
 
 Deno.test("E. promo + modification — committed fare once, live preview not inflated", () => {

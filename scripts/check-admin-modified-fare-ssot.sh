@@ -47,11 +47,14 @@ if grep -q "resolvePayableFarePence" "$AT"; then
 fi
 
 TH="$ROOT/src/pages/TripHistory.tsx"
+if ! grep -q "adminTripCommittedFareDisplay" "$TH"; then
+  say_fail "TripHistory must resolve payable via adminTripCommittedFareDisplay SSOT entry"
+fi
 if grep -nE 'estimated_fare.*toFixed|trip\.estimated_fare\s*\*' "$TH" >/dev/null 2>&1; then
   say_fail "TripHistory must not display raw estimated_fare for payable"
 fi
-if ! grep -q "resolveCanonicalFinalPayablePence" "$TH"; then
-  say_fail "TripHistory must keep resolveCanonicalFinalPayablePence (completed payable incl. stamped waiting)"
+if grep -q "resolveCanonicalFinalPayablePence" "$TH"; then
+  say_fail "TripHistory must not call resolveCanonicalFinalPayablePence directly — use adminTripCommittedFareDisplay"
 fi
 
 SSOT="$ROOT/src/lib/liveTripFareSSOT.ts"
