@@ -141,7 +141,7 @@ export function DriverWalletDriverList({
             <TableBody>
               {rows.length === 0 && !isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
                     No drivers with connected payout accounts in this region.
                   </TableCell>
                 </TableRow>
