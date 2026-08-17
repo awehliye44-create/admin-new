@@ -126,7 +126,7 @@ export function DriverWalletDriverList({
                 <TableHead>Driver Code / ID</TableHead>
                 <TableHead>Service Area</TableHead>
                 <TableHead>Driver Tier</TableHead>
-                <TableHead className="text-right">Commission %</TableHead>
+                
                 <TableHead className="text-right">Live Wallet Balance</TableHead>
                 <TableHead className="text-right">Available Balance</TableHead>
                 <TableHead className="text-right">Pending Balance</TableHead>
@@ -141,7 +141,7 @@ export function DriverWalletDriverList({
             <TableBody>
               {rows.length === 0 && !isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
                     No drivers with connected payout accounts in this region.
                   </TableCell>
                 </TableRow>
@@ -170,9 +170,6 @@ export function DriverWalletDriverList({
                   </TableCell>
                   <TableCell className="text-xs">{row.service_area_name ?? '—'}</TableCell>
                   <TableCell>{row.driver_tier_name ?? '—'}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {row.commission_percent != null ? `${row.commission_percent}%` : '—'}
-                  </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatNullablePence(balances.livePence, currencyCode)}
                   </TableCell>
