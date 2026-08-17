@@ -70,7 +70,11 @@ import {
   type CriticalButtonAction,
 } from '@/lib/criticalButtonTimeout';
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
-import { resolvePayableFarePence } from '@/lib/fareDisplaySSOT';
+import {
+  resolveAdminCommittedCustomerFarePence,
+  resolveAdminActiveTripLiveFarePence,
+  toLiveTripFarePreviewInput,
+} from '@/lib/adminTripCommittedFareDisplay';
 import { computeLiveTripFarePreview } from '@/lib/liveTripFareSSOT';
 
 interface Trip {
@@ -182,9 +186,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }>
 
 /** Live active-trip fare — includes waiting / mod charges (not settlement). */
 function resolveActiveTripLiveFarePence(trip: Trip): number {
-  const live = computeLiveTripFarePreview(trip);
-  if (live.current_customer_total_pence > 0) return live.current_customer_total_pence;
-  return resolvePayableFarePence(trip);
+  return resolveAdminActiveTripLiveFarePence(trip);
 }
 
 export default function ActiveTrips() {
@@ -324,24 +326,8 @@ export default function ActiveTrips() {
       }
 
       const enriched = baseTrips.map((trip) => {
-        const live = computeLiveTripFarePreview({
-          final_customer_fare_pence: trip.final_customer_fare_pence ?? null,
-          final_fare_pence: trip.final_fare_pence ?? null,
-          locked_base_fare_pence: trip.locked_base_fare_pence ?? null,
-          pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? null,
-          stop_waiting_charge_pence: trip.stop_waiting_charge_pence ?? null,
-          stop_charge_total_pence: trip.stop_charge_total_pence ?? null,
-          customer_modification_charge_pence:
-            trip.customer_modification_charge_pence ?? null,
-          modification_delta_pence: trip.modification_delta_pence ?? null,
-          driver_tier_commission_percent:
-            trip.driver_tier_commission_percent ?? null,
-          commission_pct: trip.commission_pct ?? null,
-          commission_pence: trip.commission_pence ?? null,
-          gross_fare_pence: trip.gross_fare_pence ?? null,
-          offer_discount_pence: trip.offer_discount_pence ?? null,
-          discount_pence: trip.discount_pence ?? null,
-        });
+        const liveInput = toLiveTripFarePreviewInput(trip);
+        const live = computeLiveTripFarePreview(liveInput);
         const stops = stopsByTrip.get(trip.id) ?? [];
         const dropoffStop = stops.find((s) => s.type === "dropoff");
         const displayDropoff =
@@ -354,11 +340,13 @@ export default function ActiveTrips() {
         ) {
           snapshotMismatch = "Dropoff address differs between trip row and trip_stops";
         }
-        const payable = resolvePayableFarePence({
+        const payable = resolveAdminCommittedCustomerFarePence({
           final_customer_fare_pence: trip.final_customer_fare_pence,
           final_fare_pence: trip.final_fare_pence,
           estimated_total_pence: trip.estimated_total_pence,
           gross_fare_pence: trip.gross_fare_pence,
+          offer_discount_pence: trip.offer_discount_pence,
+          discount_pence: trip.discount_pence,
           fare: trip.fare,
           estimated_fare: trip.estimated_fare,
         });

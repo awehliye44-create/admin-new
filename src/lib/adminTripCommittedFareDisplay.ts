@@ -14,8 +14,59 @@ import {
   resolveTripDisplayFare,
   type FareDisplayTripRow,
 } from './fareDisplaySSOT';
+import {
+  computeLiveTripFarePreview,
+  type LiveTripFareInput,
+} from './liveTripFareSSOT';
 
 export type AdminCommittedFareTripRow = FareDisplayTripRow;
+
+/** Map list/detail trip rows into live preview input (Active Trips enrich SSOT). */
+export function toLiveTripFarePreviewInput(
+  trip: AdminCommittedFareTripRow & {
+    locked_base_fare_pence?: number | null;
+    pickup_waiting_charge_pence?: number | null;
+    stop_waiting_charge_pence?: number | null;
+    stop_charge_total_pence?: number | null;
+    customer_modification_charge_pence?: number | null;
+    modification_delta_pence?: number | null;
+    driver_tier_commission_percent?: number | null;
+    commission_pct?: number | null;
+    commission_pence?: number | null;
+    accepted_commission_percent?: number | null;
+  },
+): LiveTripFareInput {
+  return {
+    final_customer_fare_pence: trip.final_customer_fare_pence ?? null,
+    final_fare_pence: trip.final_fare_pence ?? null,
+    locked_base_fare_pence: trip.locked_base_fare_pence ?? null,
+    pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? null,
+    stop_waiting_charge_pence: trip.stop_waiting_charge_pence ?? null,
+    stop_charge_total_pence: trip.stop_charge_total_pence ?? null,
+    customer_modification_charge_pence: trip.customer_modification_charge_pence ?? null,
+    modification_delta_pence: trip.modification_delta_pence ?? null,
+    driver_tier_commission_percent: trip.driver_tier_commission_percent ?? null,
+    commission_pct: trip.commission_pct ?? null,
+    commission_pence: trip.commission_pence ?? null,
+    accepted_commission_percent: trip.accepted_commission_percent ?? null,
+    gross_fare_pence: trip.gross_fare_pence ?? null,
+    offer_discount_pence: trip.offer_discount_pence ?? null,
+    discount_pence: trip.discount_pence ?? null,
+  };
+}
+
+/**
+ * Active Trips live customer total = committed fare + legitimate waiting (+ pre-fold mod only).
+ * Falls back to committed resolver when preview is empty.
+ */
+export function resolveAdminActiveTripLiveFarePence(
+  trip: Parameters<typeof toLiveTripFarePreviewInput>[0] | null | undefined,
+): number {
+  if (!trip) return 0;
+  const live = computeLiveTripFarePreview(toLiveTripFarePreviewInput(trip));
+  if (live.current_customer_total_pence > 0) return live.current_customer_total_pence;
+  return resolveAdminCommittedCustomerFarePence(trip);
+}
 
 function nonNeg(value: unknown): number {
   const n = Number(value);

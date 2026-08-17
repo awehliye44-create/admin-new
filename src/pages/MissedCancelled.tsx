@@ -62,6 +62,9 @@ interface CancelledTrip {
   final_customer_fare_pence: number | null;
   estimated_total_pence: number | null;
   gross_fare_pence: number | null;
+  offer_discount_pence?: number | null;
+  discount_pence?: number | null;
+  customer_modification_charge_pence?: number | null;
   currency_code: string | null;
   created_at: string;
   completed_at: string | null;
@@ -139,6 +142,7 @@ export default function MissedCancelled() {
           id, trip_number, trip_code, status, passenger_id, passenger_name, passenger_phone,
           pickup_address, dropoff_address, estimated_fare, fare,
           final_fare_pence, final_customer_fare_pence, estimated_total_pence, gross_fare_pence,
+          offer_discount_pence, discount_pence, customer_modification_charge_pence,
           currency_code,
           created_at, completed_at, special_instructions, driver_id, service_area_id,
           arrived_at, pickup_waiting_started_at, cancelled_at, cancellation_reason,

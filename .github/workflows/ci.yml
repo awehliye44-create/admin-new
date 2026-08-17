@@ -28,6 +28,9 @@ jobs:
       - name: Finance payout SSOT parity guard
         run: bash scripts/check-finance-payout-ssot-parity.sh
 
+      - name: Admin modified-fare SSOT guard
+        run: bash scripts/check-admin-modified-fare-ssot.sh
+
       - name: SSOT unit tests
         run: npx vitest run src/lib/__tests__/digitalFinanceSSOT.test.ts src/lib/__tests__/tripCaptureStatus.test.ts
 

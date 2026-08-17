@@ -91,6 +91,9 @@ interface ScheduledTrip {
   final_customer_fare_pence: number | null;
   estimated_total_pence: number | null;
   gross_fare_pence: number | null;
+  offer_discount_pence?: number | null;
+  discount_pence?: number | null;
+  customer_modification_charge_pence?: number | null;
   estimated_distance_km: number | null;
   estimated_duration_minutes: number | null;
   currency_code: string | null;
@@ -186,6 +189,9 @@ export default function ScheduledRides() {
             final_customer_fare_pence,
             estimated_total_pence,
             gross_fare_pence,
+            offer_discount_pence,
+            discount_pence,
+            customer_modification_charge_pence,
             estimated_distance_km,
             estimated_duration_minutes,
             currency_code,
@@ -807,8 +813,8 @@ export default function ScheduledRides() {
 
               <Separator />
 
-              {/* Vehicle & Payment Section */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Vehicle, Fare & Payment Section */}
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label className="text-xs text-muted-foreground flex items-center gap-1">
                     <Car className="h-3 w-3" />
@@ -816,6 +822,15 @@ export default function ScheduledRides() {
                   </Label>
                   <p className="font-medium text-sm mt-1">
                     {selectedTrip.vehicle_type || 'Any Available'}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Fare</Label>
+                  <p className="font-medium text-sm mt-1">
+                    {formatAdminCommittedCustomerFare(
+                      selectedTrip,
+                      getCurrencySymbol(resolveTripCurrency(selectedTrip)),
+                    )}
                   </p>
                 </div>
                 <div>

@@ -1,13 +1,15 @@
 /// <reference lib="deno.ns" />
 /**
  * Admin committed fare display + live preview parity locks.
- * Run: deno test --allow-read src/lib/adminTripCommittedFareDisplay.deno.test.ts
+ * Run: deno test --no-check --allow-read src/lib/adminTripCommittedFareDisplay.deno.test.ts
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   formatAdminCommittedCustomerFare,
+  resolveAdminActiveTripLiveFarePence,
   resolveAdminCommittedCustomerFarePence,
   resolveAdminCommittedCustomerFareSource,
+  toLiveTripFarePreviewInput,
 } from "./adminTripCommittedFareDisplay.ts";
 import { computeLiveTripFarePreview } from "./liveTripFareSSOT.ts";
 
@@ -42,7 +44,7 @@ Deno.test("I. pre-commit scheduled trip falls back to estimated_fare", () => {
   assertEquals(resolveAdminCommittedCustomerFareSource(trip), "fare_column");
 });
 
-Deno.test("J. same modified trip matches committed fare on list surfaces", () => {
+Deno.test("J. active live fare uses shared enrich input + matches committed when no waiting", () => {
   const trip = {
     final_customer_fare_pence: 1039,
     final_fare_pence: 1039,
@@ -50,14 +52,14 @@ Deno.test("J. same modified trip matches committed fare on list surfaces", () =>
     customer_modification_charge_pence: 364,
     gross_fare_pence: null,
     offer_discount_pence: null,
+    modification_delta_pence: 364,
   };
   const committed = resolveAdminCommittedCustomerFarePence(trip);
-  const live = computeLiveTripFarePreview({
-    ...trip,
-    modification_delta_pence: 364,
-  });
+  const live = resolveAdminActiveTripLiveFarePence(trip);
+  const preview = computeLiveTripFarePreview(toLiveTripFarePreviewInput(trip));
   assertEquals(committed, 1039);
-  assertEquals(live.current_customer_total_pence, 1039);
+  assertEquals(live, 1039);
+  assertEquals(preview.current_customer_total_pence, 1039);
 });
 
 Deno.test("E. promo + modification — committed fare once, live preview not inflated", () => {
