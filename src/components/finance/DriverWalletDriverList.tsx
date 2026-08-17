@@ -126,7 +126,7 @@ export function DriverWalletDriverList({
                 <TableHead>Driver Code / ID</TableHead>
                 <TableHead>Service Area</TableHead>
                 <TableHead>Driver Tier</TableHead>
-                <TableHead className="text-right">Commission %</TableHead>
+                
                 <TableHead className="text-right">Live Wallet Balance</TableHead>
                 <TableHead className="text-right">Available Balance</TableHead>
                 <TableHead className="text-right">Pending Balance</TableHead>
