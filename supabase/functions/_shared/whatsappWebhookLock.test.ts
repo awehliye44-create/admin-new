@@ -254,3 +254,8 @@ Deno.test("passenger_phone index migration exists for WhatsApp trip lookup", () 
   assert(migration.includes("trips_passenger_phone_idx"));
   assert(migration.includes("passenger_phone"));
 });
+
+Deno.test("continuation token signing warns when WHATSAPP_WEBHOOK_VERIFY_TOKEN is absent", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes("continuation token signing is degraded"));
+});

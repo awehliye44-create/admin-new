@@ -206,6 +206,9 @@ async function sendBookContinuation(
   creds: NonNullable<ReturnType<typeof readWhatsAppSendCredentials>>,
 ): Promise<string> {
   const verifyToken = Deno.env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN")?.trim() ?? "";
+  if (!verifyToken) {
+    console.warn("[whatsapp-webhook] WHATSAPP_WEBHOOK_VERIFY_TOKEN missing — continuation token signing is degraded");
+  }
   const signingMaterial = buildWhatsAppContinuationSigningMaterial({
     verifyToken,
     phoneNumberId: creds.phoneNumberId,
@@ -232,6 +235,9 @@ async function sendTrackContinuation(
 ): Promise<string> {
   const activeTrip = await findActiveTripForWaId(client, waId);
   const verifyToken = Deno.env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN")?.trim() ?? "";
+  if (!verifyToken) {
+    console.warn("[whatsapp-webhook] WHATSAPP_WEBHOOK_VERIFY_TOKEN missing — continuation token signing is degraded");
+  }
   const signingMaterial = buildWhatsAppContinuationSigningMaterial({
     verifyToken,
     phoneNumberId: creds.phoneNumberId,
