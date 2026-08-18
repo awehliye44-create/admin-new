@@ -259,3 +259,41 @@ Deno.test("continuation token signing warns when WHATSAPP_WEBHOOK_VERIFY_TOKEN i
   const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
   assert(workflow.includes("continuation token signing is degraded"));
 });
+
+Deno.test("track lookup uses narrow trackable-trip statuses, not invoice-gate statuses", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  // Must define a local TRACKABLE_TRIP_STATUSES set — not import isActiveTripStatusForInvoice
+  assert(workflow.includes("TRACKABLE_TRIP_STATUSES"));
+  assert(workflow.includes("isTrackableTripStatus"));
+  // isActiveTripStatusForInvoice must not be called (may appear in comments but not as a call)
+  assert(!workflow.includes("isActiveTripStatusForInvoice("));
+  // Must include on-trip statuses
+  assert(workflow.includes('"driver_assigned"'));
+  assert(workflow.includes('"on_trip"'));
+  // The TRACKABLE set must not include pre-driver dispatch states
+  assert(!workflow.includes('"searching",'));
+  assert(!workflow.includes('"broadcasting",'));
+});
+
+Deno.test("raw_payload stores per-message value block, not the full batch payload", () => {
+  const index = readSrc("supabase/functions/whatsapp-webhook/index.ts");
+  // Must use message.valueBlock — not the outer `payload` variable
+  assert(index.includes("raw_payload: message.valueBlock"));
+  assert(!index.includes("raw_payload: payload"));
+  const parse = readSrc("supabase/functions/_shared/whatsappInboundParse.ts");
+  // WhatsAppInboundMessage must carry valueBlock
+  assert(parse.includes("valueBlock"));
+  assert(parse.includes("valueBlock: valueNode"));
+});
+
+Deno.test("send failures in book/track/support do not advance workflow state", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  // Each sender must check .ok before calling markConversationOutbound
+  assert(workflow.includes('"book_link_send_failed"'));
+  assert(workflow.includes('"track_link_send_failed"'));
+  assert(workflow.includes('"support_send_failed"'));
+  // Must not mark state unconditionally (verify no await markConversation before ok check)
+  assert(workflow.includes("if (!sent.ok) return \"book_link_send_failed\""));
+  assert(workflow.includes("if (!trackSent.ok) return \"track_link_send_failed\""));
+  assert(workflow.includes("if (!sent.ok) return \"support_send_failed\""));
+});

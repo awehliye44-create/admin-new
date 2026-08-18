@@ -4,7 +4,35 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 
-import { isActiveTripStatusForInvoice } from "./tripInvoiceEligibility.ts";
+/**
+ * Statuses where the customer has a driver actively in motion or on-trip.
+ * Narrower than isActiveTripStatusForInvoice (which covers pre-driver states like
+ * searching/broadcasting that are useless to track). We only want trips where a
+ * position is meaningful to show the customer.
+ */
+const TRACKABLE_TRIP_STATUSES = new Set([
+  "confirmed",
+  "accepted",
+  "driver_assigned",
+  "en_route",
+  "en_route_to_pickup",
+  "driver_en_route",
+  "driver_arriving",
+  "arrived",
+  "arrived_pickup",
+  "arrived_at_pickup",
+  "at_pickup",
+  "pickup_waiting",
+  "waiting",
+  "in_progress",
+  "on_trip",
+  "started",
+  "completing",
+]);
+
+function isTrackableTripStatus(status: string): boolean {
+  return TRACKABLE_TRIP_STATUSES.has(status.trim().toLowerCase());
+}
 import {
   buildWhatsAppContinuationSigningMaterial,
   buildWhatsAppContinuationUrl,
@@ -121,7 +149,7 @@ async function findActiveTripForWaId(
     const phone = typeof row.passenger_phone === "string" ? row.passenger_phone : "";
     const status = typeof row.status === "string" ? row.status : "";
     if (!phonesLooselyMatch(waId, phone)) continue;
-    if (!isActiveTripStatusForInvoice(status)) continue;
+    if (!isTrackableTripStatus(status)) continue;
     return {
       id: String(row.id),
       trip_number: typeof row.trip_number === "string" ? row.trip_number : null,
@@ -218,12 +246,13 @@ async function sendBookContinuation(
     signingMaterial,
   );
   const url = buildWhatsAppContinuationUrl(readWhatsAppPublicOrigin(), "book", token);
-  await sendWhatsAppTextMessage(
+  const sent = await sendWhatsAppTextMessage(
     creds,
     waId,
     `Book your ONECAB ride here:\n${url}\n\nThis secure link continues your WhatsApp booking.`,
     { previewUrl: true },
   );
+  if (!sent.ok) return "book_link_send_failed";
   await markConversationOutbound(client, waId, { workflow_state: "book" });
   return "book_link_sent";
 }
@@ -253,22 +282,24 @@ async function sendTrackContinuation(
   );
   const url = buildWhatsAppContinuationUrl(readWhatsAppPublicOrigin(), "track", token);
 
+  let trackSent;
   if (activeTrip) {
     const ref = activeTrip.trip_number ? ` (${activeTrip.trip_number})` : "";
-    await sendWhatsAppTextMessage(
+    trackSent = await sendWhatsAppTextMessage(
       creds,
       waId,
       `Track your live ONECAB booking${ref} here:\n${url}\n\nThis secure link opens live tracking.`,
       { previewUrl: true },
     );
   } else {
-    await sendWhatsAppTextMessage(
+    trackSent = await sendWhatsAppTextMessage(
       creds,
       waId,
       `Open secure ONECAB tracking here:\n${url}\n\nIf you do not see your booking, reply with your booking reference and our team will help.`,
       { previewUrl: true },
     );
   }
+  if (!trackSent.ok) return "track_link_send_failed";
 
   await markConversationOutbound(client, waId, {
     workflow_state: "track",
@@ -283,7 +314,8 @@ async function openSupportState(
   creds: NonNullable<ReturnType<typeof readWhatsAppSendCredentials>>,
   alreadyOpen: boolean,
 ): Promise<string> {
-  await sendWhatsAppTextMessage(creds, waId, alreadyOpen ? SUPPORT_FOLLOW_UP : SUPPORT_ACK);
+  const sent = await sendWhatsAppTextMessage(creds, waId, alreadyOpen ? SUPPORT_FOLLOW_UP : SUPPORT_ACK);
+  if (!sent.ok) return "support_send_failed";
   await markConversationOutbound(client, waId, {
     workflow_state: "support",
     ...(alreadyOpen ? {} : { support_opened_at: new Date().toISOString() }),

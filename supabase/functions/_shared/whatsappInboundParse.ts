@@ -11,6 +11,8 @@ export type WhatsAppInboundMessage = {
   textBody: string | null;
   interactiveId: string | null;
   timestamp: string | null;
+  /** The `value` block from the change that contained this message — stored as raw_payload per row. */
+  valueBlock: Record<string, unknown>;
 };
 
 export type WhatsAppWebhookParseResult = {
@@ -102,6 +104,7 @@ export function parseWhatsAppWebhookPayload(payload: unknown): WhatsAppWebhookPa
           textBody: readTextBody(message),
           interactiveId: readInteractiveId(message),
           timestamp: readString(message.timestamp),
+          valueBlock: valueNode,
         });
       }
     }

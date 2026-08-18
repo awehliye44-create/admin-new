@@ -10,7 +10,7 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 
-import { parseWhatsAppWebhookPayload } from "../_shared/whatsappInboundParse.ts";
+import { parseWhatsAppWebhookPayload, type WhatsAppInboundMessage } from "../_shared/whatsappInboundParse.ts";
 import {
   readWhatsAppHubVerifyQuery,
   verifyWhatsAppHubChallenge,
@@ -59,16 +59,7 @@ async function markInboundProcessed(
 
 async function processAcceptedMessages(
   client: ReturnType<typeof createClient>,
-  messages: Array<{
-    metaMessageId: string;
-    waId: string;
-    messageType: string;
-    textBody: string | null;
-    interactiveId: string | null;
-    phoneNumberId: string | null;
-    displayName: string | null;
-    timestamp: string | null;
-  }>,
+  messages: WhatsAppInboundMessage[],
 ): Promise<void> {
   for (const message of messages) {
     try {
@@ -153,16 +144,7 @@ Deno.serve(async (req) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const client = createClient(supabaseUrl, serviceKey);
 
-  const acceptedMessages: Array<{
-    metaMessageId: string;
-    waId: string;
-    messageType: string;
-    textBody: string | null;
-    interactiveId: string | null;
-    phoneNumberId: string | null;
-    displayName: string | null;
-    timestamp: string | null;
-  }> = [];
+  const acceptedMessages: WhatsAppInboundMessage[] = [];
 
   for (const message of parsed.messages) {
     const { error } = await client.from("whatsapp_inbound_messages").insert({
@@ -171,7 +153,7 @@ Deno.serve(async (req) => {
       message_type: message.messageType,
       inbound_text: message.textBody,
       phone_number_id: message.phoneNumberId,
-      raw_payload: payload as Record<string, unknown>,
+      raw_payload: message.valueBlock,
     });
     if (error) {
       if (error.code === "23505") {
