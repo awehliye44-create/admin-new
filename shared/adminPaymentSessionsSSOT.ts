@@ -32,6 +32,8 @@ export type AdminPaymentSessionsListRequest = {
   tab?: AdminPaymentSessionsTab;
   refresh_provider_state?: boolean;
   service_area_id?: string | null;
+  /** Financial-model scope (PLATFORM_COLLECTED service areas only). Backend-set, never client-set. */
+  allowed_service_area_ids?: string[] | null;
   provider?: string | null;
   payment_method?: string | null;
   purpose?: PaymentSessionPurpose | null;

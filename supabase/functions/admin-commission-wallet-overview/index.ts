@@ -18,6 +18,7 @@ import {
   resolveCommissionWalletBalanceStatus,
   REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
 } from "../_shared/commissionWalletSSOT.ts";
+import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 
 const PAGE_SLUG = "commission-wallet";
 const PAGE_SIZE = 1000;
@@ -67,6 +68,16 @@ serve(async (req) => {
     const currencyFilter = body.currency ? String(body.currency).trim().toUpperCase() : null;
     const limit = Math.min(200, Math.max(1, Math.round(Number(body.limit) || 50)));
 
+    // PIPELINE 2 isolation — Commission Wallet is DRIVER_COLLECTED_COMMISSION_WALLET only.
+    const modelScope = await resolveServiceAreaFinancialScope(
+      gate.supabase,
+      FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+      serviceAreaId,
+    );
+    if (!modelScope.ok) {
+      return json({ success: false, error: modelScope.error, error_code: modelScope.code, code: modelScope.code }, 400);
+    }
+
     let saQuery = gate.supabase
       .from("service_areas")
       .select(
@@ -75,7 +86,8 @@ serve(async (req) => {
       .order("name");
 
     if (regionId) saQuery = saQuery.eq("region_id", regionId);
-    if (serviceAreaId) saQuery = saQuery.eq("id", serviceAreaId);
+    // "All Services" = all Driver-Collected areas only; never platform areas.
+    saQuery = saQuery.in("id", modelScope.allowedServiceAreaIds.length ? modelScope.allowedServiceAreaIds : ["00000000-0000-0000-0000-000000000000"]);
 
     const { data: areas, error: saErr } = await saQuery;
     if (saErr) {
@@ -103,6 +115,7 @@ serve(async (req) => {
       .limit(limit);
 
     if (serviceAreaId) ledgerQuery = ledgerQuery.eq("service_area_id", serviceAreaId);
+    else ledgerQuery = ledgerQuery.in("service_area_id", modelScope.allowedServiceAreaIds.length ? modelScope.allowedServiceAreaIds : ["00000000-0000-0000-0000-000000000000"]);
     if (regionId) ledgerQuery = ledgerQuery.eq("region_id", regionId);
     if (driverId) ledgerQuery = ledgerQuery.eq("driver_id", driverId);
     if (currencyFilter) ledgerQuery = ledgerQuery.eq("currency", currencyFilter);

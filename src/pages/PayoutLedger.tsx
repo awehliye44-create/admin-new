@@ -437,6 +437,7 @@ export default function PayoutLedger() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <ServiceAreaFinanceFilter
+              financialModel="PLATFORM_COLLECTED"
               value={serviceFilter}
               onChange={setServiceFilter}
               // Do not auto-pick Banadir/Jateng alphabetically — that scopes liability/reserved to £0

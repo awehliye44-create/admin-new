@@ -18,6 +18,7 @@ import {
   tripCodeOrFilter,
 } from "../_shared/tripAdminSearch.ts";
 import { getLondonDayBounds, normalizeFinancePeriodParam } from "../_shared/financeLondonDay.ts";
+import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 import { fetchRegionPlatformKpis } from "../_shared/platformReconciliationKpis.ts";
 import { buildDriverStatementPeriodTotals } from "../_shared/driverStatementPeriodTotals.ts";
 import {
@@ -449,6 +450,21 @@ serve(async (req) => {
       url.searchParams.get("audit_limit"),
       statementTotalsOnly ? "statement" : profitSsotOnly || summaryOnly ? "summary" : "full",
     );
+
+    // PIPELINE 1 isolation — Financial Reconciliation is PLATFORM_COLLECTED only.
+    const modelScope = await resolveServiceAreaFinancialScope(
+      supabase,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      serviceAreaId,
+    );
+    if (!modelScope.ok) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: modelScope.error,
+        error_code: modelScope.code,
+        code: modelScope.code,
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     let resolvedRegionId = regionId;
     if (!resolvedRegionId && serviceAreaId) {

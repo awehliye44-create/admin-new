@@ -243,7 +243,7 @@ export default function MissedCancelled() {
     >
       {/* Service Area Filter */}
       <div className="flex items-center gap-3 mb-6">
-        <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
+        <ServiceAreaFinanceFilter financialModel="ALL_OPERATIONAL" value={serviceFilter} onChange={setServiceFilter} />
         {isMixedCurrency && (
           <Badge variant="outline" className="text-amber-600 border-amber-300">
             <AlertTriangle className="h-3 w-3 mr-1" /> Mixed currencies — select a service for totals
