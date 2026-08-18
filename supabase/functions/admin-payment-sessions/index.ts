@@ -88,7 +88,20 @@ serve(async (req) => {
       }
     }
 
-    const result = await listAdminPaymentSessions(gate.supabase, parsed.data);
+    // PIPELINE 1 isolation — Payment Sessions is PLATFORM_COLLECTED only.
+    const scope = await resolveServiceAreaFinancialScope(
+      gate.supabase,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      parsed.data.service_area_id ?? null,
+    );
+    if (!scope.ok) {
+      return jsonResponse({ success: false, error: scope.error, error_code: scope.code, code: scope.code }, 400);
+    }
+
+    const result = await listAdminPaymentSessions(gate.supabase, {
+      ...parsed.data,
+      allowed_service_area_ids: scope.allowedServiceAreaIds,
+    });
     return jsonResponse(result);
   } catch (err) {
     console.error("[admin-payment-sessions]", err);
