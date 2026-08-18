@@ -269,7 +269,7 @@ function FinancialReconciliationPage() {
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <FinanceSSOTBadge badge="UNAVAILABLE" />
-            <ServiceAreaFinanceFilter value={filter} onChange={setFilter} autoSelectFirstArea={false} />
+            <ServiceAreaFinanceFilter financialModel="PLATFORM_COLLECTED" value={filter} onChange={setFilter} autoSelectFirstArea={false} />
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-[150px]" />
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-[150px]" />
           </div>
@@ -349,7 +349,7 @@ function FinancialReconciliationPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <ServiceAreaFinanceFilter value={filter} onChange={setFilter} autoSelectFirstArea={false} />
+            <ServiceAreaFinanceFilter financialModel="PLATFORM_COLLECTED" value={filter} onChange={setFilter} autoSelectFirstArea={false} />
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-[150px]" />
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-[150px]" />
             <Button variant="outline" size="sm" onClick={() => void handleRefreshFinance()} disabled={isFinanceRefreshing}>

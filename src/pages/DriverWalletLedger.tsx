@@ -276,7 +276,7 @@ export default function DriverWalletLedger() {
             </Link>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <ServiceAreaFinanceFilter value={serviceFilter} onChange={setServiceFilter} />
+            <ServiceAreaFinanceFilter financialModel="PLATFORM_COLLECTED" value={serviceFilter} onChange={setServiceFilter} />
             {driverId ? (
               <Button variant="outline" size="sm" onClick={() => setDriver(null)}>
                 Back to driver list

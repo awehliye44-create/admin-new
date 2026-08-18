@@ -943,6 +943,7 @@ export default function PaymentSessions() {
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Service area</Label>
             <ServiceAreaFinanceFilter
+              financialModel="PLATFORM_COLLECTED"
               value={serviceFilter}
               onChange={setServiceFilter}
               autoSelectFirstArea={false}
