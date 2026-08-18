@@ -234,3 +234,23 @@ Deno.test("continuation link messages use preview_url true, plain text messages 
   // Book and track continuation callers must opt in
   assert(workflow.includes("{ previewUrl: true }"));
 });
+
+Deno.test("GET verify token comparison is timing-safe", () => {
+  const verify = readSrc("supabase/functions/_shared/whatsappWebhookVerify.ts");
+  assert(verify.includes("timingSafeEqual(query.verifyToken, expectedVerifyToken)"));
+  assert(!verify.includes("query.verifyToken !== expectedVerifyToken"));
+  assert(!verify.includes("query.verifyToken === expectedVerifyToken"));
+});
+
+Deno.test("markConversationOutbound logs errors — silent failure causes duplicate welcomes", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes("markConversationOutbound failed"));
+});
+
+Deno.test("passenger_phone index migration exists for WhatsApp trip lookup", () => {
+  const migration = readSrc(
+    "supabase/migrations/20260928140000_whatsapp_passenger_phone_idx.sql",
+  );
+  assert(migration.includes("trips_passenger_phone_idx"));
+  assert(migration.includes("passenger_phone"));
+});

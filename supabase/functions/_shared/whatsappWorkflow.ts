@@ -183,7 +183,7 @@ async function markConversationOutbound(
   }>,
 ): Promise<void> {
   const nowIso = new Date().toISOString();
-  await client
+  const { error } = await client
     .from("whatsapp_conversations")
     .update({
       ...patch,
@@ -191,6 +191,13 @@ async function markConversationOutbound(
       updated_at: nowIso,
     })
     .eq("wa_id", waId);
+  if (error) {
+    console.error("[whatsapp-webhook] markConversationOutbound failed", {
+      wa_id_suffix: waId.slice(-6),
+      patch_keys: Object.keys(patch),
+      error: error.message,
+    });
+  }
 }
 
 async function sendBookContinuation(

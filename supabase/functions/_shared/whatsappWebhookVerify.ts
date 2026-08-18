@@ -50,8 +50,23 @@ export function verifyWhatsAppHubChallenge(
 ): { ok: true; challenge: string } | { ok: false } {
   if (query.mode !== "subscribe") return { ok: false };
   if (!query.verifyToken || !query.challenge) return { ok: false };
-  if (query.verifyToken !== expectedVerifyToken) return { ok: false };
+  // Timing-safe compare to prevent brute-force timing attacks on the verify token.
+  if (!timingSafeEqual(query.verifyToken, expectedVerifyToken)) return { ok: false };
   return { ok: true, challenge: query.challenge };
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  const ab = new TextEncoder().encode(a);
+  const bb = new TextEncoder().encode(b);
+  if (ab.length !== bb.length) {
+    // Still do a dummy comparison to avoid early-return timing leak on length.
+    let dummy = 0;
+    for (let i = 0; i < ab.length; i++) dummy |= ab[i]!;
+    return false;
+  }
+  let mismatch = 0;
+  for (let i = 0; i < ab.length; i++) mismatch |= ab[i]! ^ bb[i]!;
+  return mismatch === 0;
 }
 
 /** Meta X-Hub-Signature-256: sha256=<hex-hmac of raw body with App Secret>. */
