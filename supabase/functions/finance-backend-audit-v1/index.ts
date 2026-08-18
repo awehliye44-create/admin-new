@@ -139,7 +139,7 @@ serve(async (req) => {
         payment_method,
         payment_status,
         financial_outcome,
-        provider_settlement_verified,
+        
         driver_tier_commission_percent,
         commission_pct,
         completed_at,
