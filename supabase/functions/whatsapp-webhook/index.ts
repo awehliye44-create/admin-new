@@ -59,38 +59,27 @@ async function markInboundProcessed(
 
 async function processAcceptedMessages(
   client: ReturnType<typeof createClient>,
-  metaMessageIds: string[],
+  messages: Array<{
+    metaMessageId: string;
+    waId: string;
+    messageType: string;
+    textBody: string | null;
+    interactiveId: string | null;
+    phoneNumberId: string | null;
+    displayName: string | null;
+    timestamp: string | null;
+  }>,
 ): Promise<void> {
-  for (const metaMessageId of metaMessageIds) {
-    const { data, error } = await client
-      .from("whatsapp_inbound_messages")
-      .select("meta_message_id, wa_id, message_type, inbound_text, phone_number_id, raw_payload")
-      .eq("meta_message_id", metaMessageId)
-      .maybeSingle();
-    if (error || !data) {
-      console.error("[whatsapp-webhook] reload inbound row failed", metaMessageId, error?.message);
-      continue;
-    }
-
-    const payload = data.raw_payload && typeof data.raw_payload === "object"
-      ? data.raw_payload as Record<string, unknown>
-      : {};
-    const parsed = parseWhatsAppWebhookPayload(payload);
-    const message = parsed.messages.find((row) => row.metaMessageId === metaMessageId);
-    if (!message) {
-      await markInboundProcessed(client, metaMessageId, "parse_miss");
-      continue;
-    }
-
+  for (const message of messages) {
     try {
       const action = await processWhatsAppInboundMessage(client, message);
-      await markInboundProcessed(client, metaMessageId, action);
+      await markInboundProcessed(client, message.metaMessageId, action);
     } catch (error) {
       console.error("[whatsapp-webhook] workflow failed", {
-        meta_message_id_prefix: metaMessageId.slice(0, 24),
+        meta_message_id_prefix: message.metaMessageId.slice(0, 24),
         error: String(error),
       });
-      await markInboundProcessed(client, metaMessageId, "workflow_error");
+      await markInboundProcessed(client, message.metaMessageId, "workflow_error");
     }
   }
 }
@@ -164,7 +153,17 @@ Deno.serve(async (req) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const client = createClient(supabaseUrl, serviceKey);
 
-  const acceptedIds: string[] = [];
+  const acceptedMessages: Array<{
+    metaMessageId: string;
+    waId: string;
+    messageType: string;
+    textBody: string | null;
+    interactiveId: string | null;
+    phoneNumberId: string | null;
+    displayName: string | null;
+    timestamp: string | null;
+  }> = [];
+
   for (const message of parsed.messages) {
     const { error } = await client.from("whatsapp_inbound_messages").insert({
       meta_message_id: message.metaMessageId,
@@ -176,17 +175,18 @@ Deno.serve(async (req) => {
     });
     if (error) {
       if (error.code === "23505") {
+        // Duplicate — already processed or in-flight; skip silently.
         continue;
       }
       console.error("[whatsapp-webhook] dedupe insert failed", error.message);
       return json(500, { error: "dedupe_failed" });
     }
-    acceptedIds.push(message.metaMessageId);
+    acceptedMessages.push(message);
   }
 
-  if (acceptedIds.length > 0) {
-    scheduleBackground(processAcceptedMessages(client, acceptedIds));
+  if (acceptedMessages.length > 0) {
+    scheduleBackground(processAcceptedMessages(client, acceptedMessages));
   }
 
-  return json(200, { ok: true, accepted: acceptedIds.length });
+  return json(200, { ok: true, accepted: acceptedMessages.length });
 });

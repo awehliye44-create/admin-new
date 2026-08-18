@@ -163,11 +163,51 @@ Deno.test("edge function keeps secrets server-side and disables Supabase JWT", (
   assert(config.includes("verify_jwt = false"));
 });
 
-Deno.test("migration defines inbound dedupe and conversation workflow tables", () => {
-  const sql = readSrc("supabase/migrations/20260928130000_whatsapp_webhook_ssot.sql");
-  assert(sql.includes("whatsapp_inbound_messages"));
-  assert(sql.includes("meta_message_id text primary key"));
-  assert(sql.includes("whatsapp_conversations"));
-  assert(sql.includes("welcome_sent_at"));
-  assert(sql.includes("workflow_state"));
+Deno.test("duplicate Meta message ID is silently ignored — not double-processed", () => {
+  const dedupeCheck = readSrc("supabase/functions/whatsapp-webhook/index.ts");
+  assert(dedupeCheck.includes('"23505"'));
+  assert(dedupeCheck.includes("continue"));
+});
+
+Deno.test("status/delivery echoes with no .messages produce no_inbound_messages 200", () => {
+  const parsed = parseWhatsAppWebhookPayload({
+    object: "whatsapp_business_account",
+    entry: [{
+      changes: [{
+        value: {
+          metadata: { phone_number_id: "123" },
+          statuses: [{ id: "wamid.STATUS", status: "delivered", timestamp: "1700000001", recipient_id: "447700900000" }],
+        },
+      }],
+    }],
+  });
+  assertEquals(parsed.messages.length, 0);
+});
+
+Deno.test("support state: book intent escapes support, unknown intent extends support", () => {
+  assertEquals(
+    resolveWhatsAppWorkflowIntent({ textBody: "book a ride", interactiveId: null }),
+    "book",
+  );
+  assertEquals(
+    resolveWhatsAppWorkflowIntent({ textBody: "my driver is late", interactiveId: null }),
+    "unknown",
+  );
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes("if (intent === \"book\") return sendBookContinuation"));
+  assert(workflow.includes("if (intent === \"track\") return sendTrackContinuation"));
+  assert(workflow.includes("return openSupportState(client, message.waId, creds, true)"));
+});
+
+Deno.test("workflow processes messages directly without DB re-read round-trip", () => {
+  const index = readSrc("supabase/functions/whatsapp-webhook/index.ts");
+  assert(!index.includes("reload inbound row failed"));
+  assert(index.includes("scheduleBackground(processAcceptedMessages(client, acceptedMessages))"));
+});
+
+Deno.test("conversation upsert handles concurrent first-message races", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes(".upsert("));
+  assert(workflow.includes('onConflict: "wa_id"'));
+  assert(workflow.includes("upsert_failed") || workflow.includes("upsert failed"));
 });

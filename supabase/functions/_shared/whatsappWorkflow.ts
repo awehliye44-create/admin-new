@@ -127,40 +127,40 @@ async function upsertConversationTouch(
   message: WhatsAppInboundMessage,
 ): Promise<ConversationRow> {
   const nowIso = new Date().toISOString();
-  const { data: existing } = await client
-    .from("whatsapp_conversations")
-    .select("wa_id, display_name, workflow_state, welcome_sent_at, support_opened_at, active_trip_id")
-    .eq("wa_id", message.waId)
-    .maybeSingle();
 
-  if (existing) {
-    await client
-      .from("whatsapp_conversations")
-      .update({
-        display_name: message.displayName ?? existing.display_name,
+  // Upsert on the primary key: handles concurrent first-message races without
+  // a separate read+insert sequence.
+  const { data: upserted, error } = await client
+    .from("whatsapp_conversations")
+    .upsert(
+      {
+        wa_id: message.waId,
+        display_name: message.displayName,
         last_inbound_at: nowIso,
         updated_at: nowIso,
-      })
-      .eq("wa_id", message.waId);
-    return existing as ConversationRow;
-  }
-
-  const insertRow = {
-    wa_id: message.waId,
-    display_name: message.displayName,
-    workflow_state: "new" as const,
-    last_inbound_at: nowIso,
-    updated_at: nowIso,
-  };
-  const { data: created, error } = await client
-    .from("whatsapp_conversations")
-    .insert(insertRow)
+      },
+      {
+        onConflict: "wa_id",
+        ignoreDuplicates: false,
+      },
+    )
     .select("wa_id, display_name, workflow_state, welcome_sent_at, support_opened_at, active_trip_id")
     .single();
-  if (error || !created) {
-    throw new Error(`conversation_insert_failed:${error?.message ?? "unknown"}`);
+
+  if (error || !upserted) {
+    // Upsert can still fail for non-conflict reasons — fall back to read.
+    const { data: fallback, error: readError } = await client
+      .from("whatsapp_conversations")
+      .select("wa_id, display_name, workflow_state, welcome_sent_at, support_opened_at, active_trip_id")
+      .eq("wa_id", message.waId)
+      .single();
+    if (readError || !fallback) {
+      throw new Error(`conversation_upsert_failed:${error?.message ?? readError?.message ?? "unknown"}`);
+    }
+    return fallback as ConversationRow;
   }
-  return created as ConversationRow;
+
+  return upserted as ConversationRow;
 }
 
 async function markConversationOutbound(
@@ -305,14 +305,18 @@ export async function processWhatsAppInboundMessage(
     return "welcome_sent";
   }
 
-  if (conversation.workflow_state === "support") {
-    return openSupportState(client, message.waId, creds, true);
-  }
-
   const intent = resolveWhatsAppWorkflowIntent({
     textBody: message.textBody,
     interactiveId: message.interactiveId,
   });
+
+  // While in support state, explicit book/track intents override and exit support.
+  // Anything else (including unknown text) extends the support conversation.
+  if (conversation.workflow_state === "support") {
+    if (intent === "book") return sendBookContinuation(client, message.waId, creds);
+    if (intent === "track") return sendTrackContinuation(client, message.waId, creds);
+    return openSupportState(client, message.waId, creds, true);
+  }
 
   switch (intent) {
     case "book":
