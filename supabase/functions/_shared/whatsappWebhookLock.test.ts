@@ -14,6 +14,11 @@ import {
 } from "./whatsappContinuationToken.ts";
 import { parseWhatsAppWebhookPayload } from "./whatsappInboundParse.ts";
 import {
+  WHATSAPP_WELCOME_BUTTONS,
+  WHATSAPP_WELCOME_TEXT,
+  readWhatsAppWelcomeHeaderImageUrl,
+} from "./whatsappOutbound.ts";
+import {
   readWhatsAppHubVerifyQuery,
   verifyWhatsAppHubChallenge,
   verifyWhatsAppWebhookSignature,
@@ -357,4 +362,60 @@ Deno.test("outbound fetch has AbortSignal timeout — hung Meta API cannot orpha
   assert(outbound.includes("signal: controller.signal"));
   assert(outbound.includes("WHATSAPP_OUTBOUND_TIMEOUT_MS"));
   assert(outbound.includes('"send_timeout"'));
+});
+
+Deno.test("welcome is two Cloud API messages: greeting text then image-header buttons", () => {
+  const outbound = readSrc("supabase/functions/_shared/whatsappOutbound.ts");
+  assert(outbound.includes("Welcome to *ONECAB*. 👋"));
+  assert(outbound.includes("Choose an option below to continue."));
+  assert(outbound.includes("*Reliable. Safe. Always On Time.*"));
+  assert(outbound.includes("type: \"button\""));
+  assert(outbound.includes('header'));
+  assert(outbound.includes("image: { link: headerImageUrl }"));
+  assert(outbound.includes('id: "book_ride"'));
+  assert(outbound.includes('id: "track_booking"'));
+  assert(outbound.includes('id: "customer_support"'));
+  assert(outbound.includes("🚕 Book a ride"));
+  assert(outbound.includes("📍 Track my booking"));
+  assert(outbound.includes("🎧 Customer support"));
+  // List messages cannot carry an image header — do not use them for welcome.
+  assert(!outbound.includes('type: "list"'));
+});
+
+Deno.test("welcome header image uses public storage URL, not a secret", () => {
+  const outbound = readSrc("supabase/functions/_shared/whatsappOutbound.ts");
+  const migration = readSrc("supabase/migrations/20260928160000_whatsapp_welcome_header_asset.sql");
+  assert(outbound.includes("whatsapp-public/welcome-header.jpg"));
+  assert(migration.includes("whatsapp-public"));
+  assert(migration.includes("public"));
+});
+
+Deno.test("outbound Graph errors log Meta code, subcode, type, message, fbtrace_id", () => {
+  const outbound = readSrc("supabase/functions/_shared/whatsappOutbound.ts");
+  assert(outbound.includes("error_subcode"));
+  assert(outbound.includes("fbtrace_id"));
+});
+
+Deno.test("welcome button titles fit Cloud API 20-character limit and keep stable IDs", () => {
+  const ids = WHATSAPP_WELCOME_BUTTONS.map((b) => b.reply.id);
+  assertEquals(ids, ["book_ride", "track_booking", "customer_support"]);
+  for (const button of WHATSAPP_WELCOME_BUTTONS) {
+    assert(button.reply.title.length <= 20, `${button.reply.title} exceeds 20 chars`);
+  }
+  assert(WHATSAPP_WELCOME_TEXT.includes("Welcome to *ONECAB*. 👋"));
+});
+
+Deno.test("welcome header image URL is built from SUPABASE_URL public storage", () => {
+  const previous = Deno.env.get("SUPABASE_URL");
+  Deno.env.set("SUPABASE_URL", "https://example.supabase.co");
+  Deno.env.delete("WHATSAPP_WELCOME_HEADER_IMAGE_URL");
+  try {
+    assertEquals(
+      readWhatsAppWelcomeHeaderImageUrl(),
+      "https://example.supabase.co/storage/v1/object/public/whatsapp-public/welcome-header.jpg",
+    );
+  } finally {
+    if (previous === undefined) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", previous);
+  }
 });
