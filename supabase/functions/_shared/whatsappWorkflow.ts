@@ -4,11 +4,24 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 
+import {
+  buildWhatsAppContinuationSigningMaterial,
+  buildWhatsAppContinuationUrl,
+  createWhatsAppContinuationToken,
+} from "./whatsappContinuationToken.ts";
+import type { WhatsAppInboundMessage } from "./whatsappInboundParse.ts";
+import {
+  readWhatsAppSendCredentials,
+  sendWhatsAppCompactMenuHint,
+  sendWhatsAppTextMessage,
+  sendWhatsAppWelcomeMenu,
+} from "./whatsappOutbound.ts";
+
 /**
  * Statuses where the customer has a driver actively in motion or on-trip.
- * Narrower than isActiveTripStatusForInvoice (which covers pre-driver states like
+ * Narrower than the invoice-gate status set (which covers pre-driver states like
  * searching/broadcasting that are useless to track). We only want trips where a
- * position is meaningful to show the customer.
+ * driver position is meaningful to show the customer.
  */
 const TRACKABLE_TRIP_STATUSES = new Set([
   "confirmed",
@@ -33,18 +46,6 @@ const TRACKABLE_TRIP_STATUSES = new Set([
 function isTrackableTripStatus(status: string): boolean {
   return TRACKABLE_TRIP_STATUSES.has(status.trim().toLowerCase());
 }
-import {
-  buildWhatsAppContinuationSigningMaterial,
-  buildWhatsAppContinuationUrl,
-  createWhatsAppContinuationToken,
-} from "./whatsappContinuationToken.ts";
-import type { WhatsAppInboundMessage } from "./whatsappInboundParse.ts";
-import {
-  readWhatsAppSendCredentials,
-  sendWhatsAppCompactMenuHint,
-  sendWhatsAppTextMessage,
-  sendWhatsAppWelcomeMenu,
-} from "./whatsappOutbound.ts";
 
 export type WhatsAppWorkflowState = "new" | "idle" | "book" | "track" | "support";
 
@@ -382,10 +383,12 @@ export async function processWhatsAppInboundMessage(
       return sendTrackContinuation(client, message.waId, creds);
     case "support":
       return openSupportState(client, message.waId, creds, false);
-    case "menu":
-      await sendWhatsAppCompactMenuHint(creds, message.waId);
+    case "menu": {
+      const menuSent = await sendWhatsAppCompactMenuHint(creds, message.waId);
+      if (!menuSent.ok) return "menu_hint_send_failed";
       await markConversationOutbound(client, message.waId, { workflow_state: "idle" });
       return "menu_hint_sent";
+    }
     default:
       if (conversation.workflow_state === "book") {
         return sendBookContinuation(client, message.waId, creds);
@@ -393,7 +396,10 @@ export async function processWhatsAppInboundMessage(
       if (conversation.workflow_state === "track") {
         return sendTrackContinuation(client, message.waId, creds);
       }
-      await sendWhatsAppCompactMenuHint(creds, message.waId);
+      {
+        const unknownSent = await sendWhatsAppCompactMenuHint(creds, message.waId);
+        if (!unknownSent.ok) return "unknown_menu_hint_send_failed";
+      }
       return "unknown_menu_hint";
   }
 }

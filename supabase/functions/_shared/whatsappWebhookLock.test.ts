@@ -297,3 +297,36 @@ Deno.test("send failures in book/track/support do not advance workflow state", (
   assert(workflow.includes("if (!trackSent.ok) return \"track_link_send_failed\""));
   assert(workflow.includes("if (!sent.ok) return \"support_send_failed\""));
 });
+
+Deno.test("imports are all at top of module — no imports after executable code", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  const lines = workflow.split("\n");
+  // Find last import line and earliest const/function/export (non-import) executable line
+  let lastImportLine = -1;
+  let firstExecLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i]!.trim();
+    if (trimmed.startsWith("import ") || trimmed.startsWith("import{") || trimmed.startsWith("import type")) {
+      lastImportLine = i;
+    } else if (
+      firstExecLine === -1 &&
+      (trimmed.startsWith("const ") || trimmed.startsWith("function ") ||
+        trimmed.startsWith("export ") || trimmed.startsWith("export type ") ||
+        trimmed.startsWith("export async ") || trimmed.startsWith("type "))
+    ) {
+      firstExecLine = i;
+    }
+  }
+  assert(lastImportLine !== -1, "no imports found");
+  assert(firstExecLine !== -1, "no executable lines found");
+  assert(
+    lastImportLine < firstExecLine,
+    `import on line ${lastImportLine + 1} appears after executable code on line ${firstExecLine + 1}`,
+  );
+});
+
+Deno.test("menu and unknown send failures do not advance workflow state", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes('"menu_hint_send_failed"'));
+  assert(workflow.includes('"unknown_menu_hint_send_failed"'));
+});
