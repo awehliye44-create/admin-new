@@ -590,8 +590,8 @@ export default function ManualTrip() {
             return;
           }
           const pairing = classifyServiceAreaFinancialPairing(cwConfig);
-          if (!pairing.ok) {
-            toast.error(pairing.error);
+          if (pairing.ok !== true) {
+            toast.error('error' in pairing ? pairing.error : 'Invalid service area financial configuration');
             return;
           }
           let commissionRateBps = 0;
