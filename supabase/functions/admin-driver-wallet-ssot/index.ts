@@ -5,6 +5,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
 import { fetchDriverWalletSummary } from "../_shared/fetchDriverWalletSummary.ts";
+import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,6 +70,18 @@ Deno.serve(async (req) => {
     const periodFrom = body.from ?? url.searchParams.get("from");
     const periodTo = body.to ?? url.searchParams.get("to");
     const serviceAreaId = body.service_area_id ?? url.searchParams.get("service_area_id");
+
+    // PIPELINE 1 isolation — Driver Wallet Ledger is PLATFORM_COLLECTED only.
+    const modelScope = await resolveServiceAreaFinancialScope(
+      supabase,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      serviceAreaId ?? null,
+    );
+    if (!modelScope.ok) {
+      return new Response(JSON.stringify({ error: modelScope.error, error_code: modelScope.code }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     const limit = Math.min(
       MAX_PAGE_SIZE,
       Math.max(1, Number(body.limit ?? url.searchParams.get("limit") ?? DEFAULT_PAGE_SIZE)),
