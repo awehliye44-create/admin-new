@@ -130,20 +130,20 @@ async function upsertConversationTouch(
 
   // Upsert on the primary key: handles concurrent first-message races without
   // a separate read+insert sequence.
+  // Only include display_name when non-null — never overwrite a stored name with null.
+  const touchPatch: Record<string, unknown> = {
+    wa_id: message.waId,
+    last_inbound_at: nowIso,
+    updated_at: nowIso,
+  };
+  if (message.displayName) touchPatch.display_name = message.displayName;
+
   const { data: upserted, error } = await client
     .from("whatsapp_conversations")
-    .upsert(
-      {
-        wa_id: message.waId,
-        display_name: message.displayName,
-        last_inbound_at: nowIso,
-        updated_at: nowIso,
-      },
-      {
-        onConflict: "wa_id",
-        ignoreDuplicates: false,
-      },
-    )
+    .upsert(touchPatch, {
+      onConflict: "wa_id",
+      ignoreDuplicates: false,
+    })
     .select("wa_id, display_name, workflow_state, welcome_sent_at, support_opened_at, active_trip_id")
     .single();
 

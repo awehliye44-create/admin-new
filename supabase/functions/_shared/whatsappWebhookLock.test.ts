@@ -211,3 +211,9 @@ Deno.test("conversation upsert handles concurrent first-message races", () => {
   assert(workflow.includes('onConflict: "wa_id"'));
   assert(workflow.includes("upsert_failed") || workflow.includes("upsert failed"));
 });
+
+Deno.test("display_name null never overwrites a stored name", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes("if (message.displayName) touchPatch.display_name"));
+  assert(!workflow.includes("display_name: message.displayName"));
+});
