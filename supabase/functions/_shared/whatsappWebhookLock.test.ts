@@ -350,3 +350,11 @@ Deno.test("SUPABASE_URL and SERVICE_ROLE_KEY are guarded — missing keys return
   assert(!index.includes('Deno.env.get("SUPABASE_URL")!'));
   assert(!index.includes('Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!'));
 });
+
+Deno.test("outbound fetch has AbortSignal timeout — hung Meta API cannot orphan messages", () => {
+  const outbound = readSrc("supabase/functions/_shared/whatsappOutbound.ts");
+  assert(outbound.includes("AbortController"));
+  assert(outbound.includes("signal: controller.signal"));
+  assert(outbound.includes("WHATSAPP_OUTBOUND_TIMEOUT_MS"));
+  assert(outbound.includes('"send_timeout"'));
+});

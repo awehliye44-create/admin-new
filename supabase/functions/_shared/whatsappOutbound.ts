@@ -18,19 +18,37 @@ export function readWhatsAppSendCredentials(): WhatsAppCredentials | null {
   return { accessToken, phoneNumberId };
 }
 
+// 20 s is generous for a single WhatsApp Cloud API call; prevents indefinite hangs
+// inside EdgeRuntime.waitUntil that would orphan processed messages.
+const WHATSAPP_OUTBOUND_TIMEOUT_MS = 20_000;
+
 async function postWhatsAppMessage(
   creds: WhatsAppCredentials,
   body: Record<string, unknown>,
 ): Promise<WhatsAppSendResult> {
   const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WHATSAPP_OUTBOUND_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    console.error("[whatsapp-webhook] outbound fetch failed", {
+      reason: isTimeout ? "timeout" : String(err),
+    });
+    return { ok: false, status: 0, error: isTimeout ? "send_timeout" : "send_fetch_failed" };
+  }
+  clearTimeout(timer);
   const raw = await response.text();
   if (!response.ok) {
     console.error("[whatsapp-webhook] outbound failed", {
