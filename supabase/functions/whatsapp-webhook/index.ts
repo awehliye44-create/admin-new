@@ -8,7 +8,8 @@
  * - WHATSAPP_PHONE_NUMBER_ID
  * - WHATSAPP_BUSINESS_ACCOUNT_ID (validated when present)
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+// deno-lint-ignore-file no-explicit-any
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 
 import { parseWhatsAppWebhookPayload, type WhatsAppInboundMessage } from "../_shared/whatsappInboundParse.ts";
 import {
@@ -43,8 +44,9 @@ function scheduleBackground(task: Promise<unknown>): void {
   });
 }
 
+// deno-lint-ignore no-explicit-any
 async function markInboundProcessed(
-  client: ReturnType<typeof createClient>,
+  client: SupabaseClient<any>,
   metaMessageId: string,
   workflowAction: string,
 ): Promise<void> {
@@ -57,8 +59,9 @@ async function markInboundProcessed(
     .eq("meta_message_id", metaMessageId);
 }
 
+// deno-lint-ignore no-explicit-any
 async function processAcceptedMessages(
-  client: ReturnType<typeof createClient>,
+  client: SupabaseClient<any>,
   messages: WhatsAppInboundMessage[],
 ): Promise<void> {
   for (const message of messages) {

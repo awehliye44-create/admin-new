@@ -330,3 +330,10 @@ Deno.test("menu and unknown send failures do not advance workflow state", () => 
   assert(workflow.includes('"menu_hint_send_failed"'));
   assert(workflow.includes('"unknown_menu_hint_send_failed"'));
 });
+
+Deno.test("index.ts uses typed SupabaseClient<any> — no ReturnType<typeof createClient> TS errors", () => {
+  const index = readSrc("supabase/functions/whatsapp-webhook/index.ts");
+  // Must import SupabaseClient and use it for typed DB helpers — not ReturnType<typeof createClient>
+  assert(index.includes("type SupabaseClient") || index.includes("SupabaseClient<any>"));
+  assert(!index.includes("ReturnType<typeof createClient>"));
+});
