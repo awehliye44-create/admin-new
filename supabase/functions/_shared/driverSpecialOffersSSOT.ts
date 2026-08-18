@@ -171,14 +171,63 @@ export interface DriverOffersBanner {
   offer_id: string;
 }
 
-/** Banner is only returned when a banner-eligible live offer exists — otherwise hide it entirely. */
+/**
+ * Home gold banner:
+ * - Prefer a live offer with `show_in_home_banner` (Admin headline / CTA).
+ * - If only list offers exist, still return a default banner so Home can open the list.
+ * - Hide entirely when nothing eligible is live.
+ */
 export function buildDriverOffersBanner(eligible: DriverSpecialOfferRow[]): DriverOffersBanner | null {
   const banner = eligible.find((o) => o.show_in_home_banner);
-  if (!banner) return null;
+  const listEntry = eligible.find((o) => o.show_in_offer_list);
+  const source = banner ?? listEntry;
+  if (!source) return null;
   return {
-    headline: banner.banner_headline?.trim() || 'Special offers just for you!',
-    button_label: banner.banner_button_label?.trim() || DEFAULT_BANNER_BUTTON_LABEL,
-    offer_id: banner.id,
+    headline: source.banner_headline?.trim() || 'Special offers just for you!',
+    button_label: source.banner_button_label?.trim() || DEFAULT_BANNER_BUTTON_LABEL,
+    offer_id: source.id,
+  };
+}
+
+/**
+ * Customer geo context — driver-only rules are stripped on customer rows,
+ * so eligibility reduces to live window + geographic scope.
+ */
+export function customerEligibilityContext(geo: {
+  service_area_id: string | null;
+  service_area_active: boolean;
+  region_id: string | null;
+}): DriverEligibilityContext {
+  return {
+    service_area_id: geo.service_area_id,
+    service_area_active: geo.service_area_active,
+    region_id: geo.region_id,
+    total_trips: 0,
+    tier_name: null,
+    created_at: null,
+  };
+}
+
+/** Fields the Expo apps may render. Never includes audience, eligibility, or admin-only columns. */
+export function sanitiseOfferForApp(o: DriverSpecialOfferRow) {
+  return {
+    id: o.id,
+    title: o.title,
+    partner_name: o.partner_name,
+    short_description: o.short_description,
+    full_details: o.full_details,
+    badge_label: o.badge_label,
+    image_path: o.image_path,
+    website_url: o.website_url,
+    phone_number: o.phone_number,
+    email_address: o.email_address,
+    promo_code: o.promo_code,
+    internal_route: o.internal_route,
+    website_button_label: o.website_button_label ?? 'Website',
+    phone_button_label: o.phone_button_label ?? 'Phone',
+    email_button_label: o.email_button_label ?? 'Email',
+    is_featured: o.is_featured,
+    display_order: o.display_order,
   };
 }
 
@@ -192,6 +241,43 @@ export function buildDriverOffersPayload(
   const list = eligible.filter((o) => o.show_in_offer_list);
   return {
     banner: buildDriverOffersBanner(eligible),
+    offers: list,
+    empty: list.length === 0,
+    empty_copy: SPECIAL_OFFERS_EMPTY_COPY,
+  };
+}
+
+/** Customer feed: live window + geographic scope only (never driver tiers / trip counts). */
+export function selectCustomerOffers(
+  offers: DriverSpecialOfferRow[],
+  areaMap: OfferAreaMap,
+  customer: DriverEligibilityContext,
+  now: Date = new Date(),
+): DriverSpecialOfferRow[] {
+  return sortOffers(
+    offers.filter(
+      (o) => isOfferLive(o, now) && matchesOfferScope(o, customer, areaMap[o.id] ?? []),
+    ),
+  );
+}
+
+export function buildCustomerOffersBanner(eligible: DriverSpecialOfferRow[]): DriverOffersBanner | null {
+  const banner = buildDriverOffersBanner(eligible);
+  if (!banner) return null;
+  // Customer Home CTA is product chrome — never replace "View offers" with Admin button copy.
+  return { ...banner, button_label: DEFAULT_BANNER_BUTTON_LABEL };
+}
+
+export function buildCustomerOffersPayload(
+  offers: DriverSpecialOfferRow[],
+  areaMap: OfferAreaMap,
+  customer: DriverEligibilityContext,
+  now: Date = new Date(),
+) {
+  const eligible = selectCustomerOffers(offers, areaMap, customer, now);
+  const list = eligible.filter((o) => o.show_in_offer_list);
+  return {
+    banner: buildCustomerOffersBanner(eligible),
     offers: list,
     empty: list.length === 0,
     empty_copy: SPECIAL_OFFERS_EMPTY_COPY,

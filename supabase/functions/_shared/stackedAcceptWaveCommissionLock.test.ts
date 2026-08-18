@@ -13,7 +13,7 @@ const stackedSqlPath = new URL(
   import.meta.url,
 );
 const snapshotSqlPath = new URL(
-  "../../migrations/20260924160000_accept_snapshot_wave_commission_ssot.sql",
+  "../../migrations/20260928150000_canonical_promotion_settlement_ssot.sql",
   import.meta.url,
 );
 const acceptOfferPath = new URL("../accept-offer/index.ts", import.meta.url);

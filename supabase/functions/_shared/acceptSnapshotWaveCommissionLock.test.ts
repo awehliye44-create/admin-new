@@ -7,7 +7,7 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 const sqlPath = new URL(
-  "../../migrations/20260924160000_accept_snapshot_wave_commission_ssot.sql",
+  "../../migrations/20260928150000_canonical_promotion_settlement_ssot.sql",
   import.meta.url,
 );
 

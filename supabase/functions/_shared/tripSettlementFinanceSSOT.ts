@@ -156,11 +156,13 @@ export function getTripAvailablePayoutCreatedPence(args: {
 export function getTripCapturedPenceForAudit(args: {
   paymentCapturedPence?: number | null;
   tripCaptureAmountPence?: number | null;
-}): number {
+}): number | null {
+  // Finance isolation rule: never invent customer capture from trips.capture_amount_pence.
+  // Only Payment Sessions capture evidence may populate "captured" for audit.
   if (args.paymentCapturedPence != null && args.paymentCapturedPence > 0) {
     return args.paymentCapturedPence;
   }
-  return Math.max(0, args.tripCaptureAmountPence ?? 0);
+  return null;
 }
 
 export function customerPaidLabel(trip: { payment_method?: string | null }): "Customer Paid" | "Cash Collected" {

@@ -7,6 +7,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { tripBlocksDriverWalletLedgerPosting } from "./commissionWalletDeduction.ts";
 import { FINANCIAL_MODEL_VIOLATION } from "./commissionWalletSSOT.ts";
+import { readTripEarningNetLedgerState } from "./tripEarningNetLedgerReadback.ts";
 
 export const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
 
@@ -266,14 +267,33 @@ export async function creditCapturedCardTripLedger(
 
   const currency = args.currency ?? "GBP";
 
-  const { data: existingNet } = await supabase
-    .from("driver_wallet_ledger")
-    .select("id")
-    .eq("related_trip_id", args.tripId)
-    .eq("type", "TRIP_EARNING_NET")
-    .maybeSingle();
+  const readbackBefore = await readTripEarningNetLedgerState(supabase, args.tripId);
+  if (readbackBefore.count === 1) {
+    if (args.driverNetPence > 0 && readbackBefore.totalPence !== args.driverNetPence) {
+      throw Object.assign(
+        new Error(
+          `TRIP_EARNING_NET amount mismatch: expected ${args.driverNetPence}p, found ${readbackBefore.totalPence}p`,
+        ),
+        { code: "WALLET_AMOUNT_MISMATCH" },
+      );
+    }
+    const recovery = await applyCardDebtRecoveryOnCapture(supabase, {
+      driverId: args.driverId,
+      tripId: args.tripId,
+      paymentId: args.paymentId,
+      cardDriverCreditPence: args.driverNetPence + args.tipPence,
+      currency,
+    });
+    return { credited: true, recovery_pence: recovery.recovery_pence };
+  }
+  if (readbackBefore.count > 1) {
+    throw Object.assign(
+      new Error(`duplicate TRIP_EARNING_NET rows for trip ${args.tripId}`),
+      { code: "DUPLICATE_WALLET_CREDIT" },
+    );
+  }
 
-  if (!existingNet && args.driverNetPence > 0) {
+  if (args.driverNetPence > 0) {
     const { error } = await supabase.from("driver_wallet_ledger").insert({
       driver_id: args.driverId,
       related_trip_id: args.tripId,
@@ -285,6 +305,28 @@ export async function creditCapturedCardTripLedger(
         : "Trip earning (net of commission)",
     });
     if (error && error.code !== "23505") throw error;
+
+    const readbackAfter = await readTripEarningNetLedgerState(supabase, args.tripId);
+    if (readbackAfter.count === 0) {
+      throw Object.assign(
+        new Error("TRIP_EARNING_NET insert returned no error but ledger readback is empty"),
+        { code: "WALLET_CREDIT_MISSING" },
+      );
+    }
+    if (readbackAfter.count > 1) {
+      throw Object.assign(
+        new Error(`duplicate TRIP_EARNING_NET rows after insert for trip ${args.tripId}`),
+        { code: "DUPLICATE_WALLET_CREDIT" },
+      );
+    }
+    if (readbackAfter.totalPence !== args.driverNetPence) {
+      throw Object.assign(
+        new Error(
+          `TRIP_EARNING_NET amount mismatch after insert: expected ${args.driverNetPence}p, found ${readbackAfter.totalPence}p`,
+        ),
+        { code: "WALLET_AMOUNT_MISMATCH" },
+      );
+    }
   }
 
   if (args.tipPence > 0) {

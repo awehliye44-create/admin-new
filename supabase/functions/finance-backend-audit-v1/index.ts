@@ -1,6 +1,6 @@
-// v1.0.2 — resolve finance scope provider before platform balance fetch
+// v1.0.4 — never 5xx (Lovable blank-screen overlay); bound wallet ledger to period drivers
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import {
   fetchProviderPlatformBalance,
@@ -17,6 +17,7 @@ import {
   COUNTABLE_FINANCIAL_OUTCOMES,
   type TripAuditSourceRow,
 } from "../_shared/financeSettlementSummary.ts";
+import { getLondonDayBounds, normalizeFinancePeriodParam } from "../_shared/financeLondonDay.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,16 +25,63 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-region-id, x-service-area-id",
 };
 
-function startOfTodayUtc(): string {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  return d.toISOString();
+const MAX_LEDGER_DRIVER_IN = 150;
+const LEDGER_PAGE_SIZE = 1000;
+const MAX_LEDGER_PAGES_PER_CHUNK = 5;
+const PROVIDER_SECTION_TIMEOUT_MS = 25_000;
+
+type WalletLedgerRow = { driver_id: string; type: string; amount_pence: number };
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
-function endOfTodayUtc(): string {
-  const d = new Date();
-  d.setUTCHours(23, 59, 59, 999);
-  return d.toISOString();
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
+}
+
+async function withTimeout<T>(
+  label: string,
+  ms: number,
+  promise: Promise<T>,
+): Promise<T | { __timeout: true; label: string }> {
+  return await Promise.race<T | { __timeout: true; label: string }>([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve({ __timeout: true, label }), ms)),
+  ]);
+}
+
+async function fetchAllTimeWalletLedgerRows(
+  supabase: SupabaseClient,
+  driverIds: string[],
+): Promise<WalletLedgerRow[]> {
+  if (driverIds.length === 0) return [];
+
+  const rows: WalletLedgerRow[] = [];
+  for (let i = 0; i < driverIds.length; i += MAX_LEDGER_DRIVER_IN) {
+    const chunk = driverIds.slice(i, i + MAX_LEDGER_DRIVER_IN);
+    for (let page = 0; page < MAX_LEDGER_PAGES_PER_CHUNK; page++) {
+      const offset = page * LEDGER_PAGE_SIZE;
+      const { data, error } = await supabase
+        .from("driver_wallet_ledger")
+        .select("driver_id, type, amount_pence")
+        .in("driver_id", chunk)
+        .order("created_at", { ascending: true })
+        .range(offset, offset + LEDGER_PAGE_SIZE - 1);
+      if (error) throw error;
+      const batch = (data ?? []) as WalletLedgerRow[];
+      rows.push(...batch);
+      if (batch.length < LEDGER_PAGE_SIZE) break;
+    }
+  }
+  return rows;
 }
 
 serve(async (req) => {
@@ -49,19 +97,13 @@ serve(async (req) => {
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return json({ error: "Unauthorized", finance_backend_audit_v1: null });
     }
 
     const token = authHeader.replace("Bearer ", "");
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return json({ error: "Unauthorized", finance_backend_audit_v1: null });
     }
 
     const { data: roleData } = await supabase
@@ -72,18 +114,30 @@ serve(async (req) => {
       .maybeSingle();
 
     if (!roleData) {
-      return new Response(JSON.stringify({ error: "Admin access required" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      const { data: staffRow } = await supabase
+        .from("staff_profiles")
+        .select("id, role")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!staffRow) {
+        return json({
+          error: "Admin access required",
+          finance_backend_audit_v1: null,
+        });
+      }
     }
 
     const url = new URL(req.url);
     const regionId = url.searchParams.get("region_id") || req.headers.get("x-region-id");
     const serviceAreaId = url.searchParams.get("service_area_id") || req.headers.get("x-service-area-id");
     const driverId = url.searchParams.get("driver_id");
-    const periodFrom = url.searchParams.get("from") || startOfTodayUtc();
-    const periodTo = url.searchParams.get("to") || endOfTodayUtc();
+    const periodFrom =
+      normalizeFinancePeriodParam(url.searchParams.get("from"), "start")
+      || getLondonDayBounds().start.toISOString();
+    const periodTo =
+      normalizeFinancePeriodParam(url.searchParams.get("to"), "end")
+      || getLondonDayBounds().end.toISOString();
     const auditLimit = Math.min(Number(url.searchParams.get("audit_limit") || 500), 2000);
 
     let resolvedRegionId = regionId;
@@ -163,7 +217,6 @@ serve(async (req) => {
       .lte("created_at", periodTo)
       .order("created_at", { ascending: false })
       .limit(5000);
-
     if (driverId) ledgerQuery = ledgerQuery.eq("driver_id", driverId);
 
     let payoutQuery = supabase
@@ -187,7 +240,6 @@ serve(async (req) => {
       .lte("created_at", periodTo)
       .order("created_at", { ascending: false })
       .limit(auditLimit);
-
     if (driverId) payoutQuery = payoutQuery.eq("driver_id", driverId);
 
     let cashoutQuery = supabase
@@ -208,50 +260,61 @@ serve(async (req) => {
       .lte("created_at", periodTo)
       .order("created_at", { ascending: false })
       .limit(auditLimit);
-
     if (driverId) cashoutQuery = cashoutQuery.eq("driver_id", driverId);
 
-    let walletQuery = supabase
-      .from("driver_wallets")
-      .select("driver_id, available_pence");
-
-    if (driverId) walletQuery = walletQuery.eq("driver_id", driverId);
-
-    let driversQuery = supabase.from("drivers").select("id, first_name, last_name").limit(5000);
-    if (driverId) driversQuery = driversQuery.eq("id", driverId);
-
-    let walletLedgerQuery = supabase
-      .from("driver_wallet_ledger")
-      .select("driver_id, type, amount_pence");
-    if (driverId) walletLedgerQuery = walletLedgerQuery.eq("driver_id", driverId);
-
-    const [
-      tripResult,
-      ledgerResult,
-      payoutResult,
-      cashoutResult,
-      walletResult,
-      driversResult,
-      walletLedgerResult,
-    ] = await Promise.all([
+    const [tripResult, ledgerResult, payoutResult, cashoutResult] = await Promise.all([
       tripQuery,
       ledgerQuery,
       payoutQuery,
       cashoutQuery,
-      walletQuery,
-      driversQuery,
-      walletLedgerQuery,
     ]);
 
     if (tripResult.error) throw tripResult.error;
     if (ledgerResult.error) throw ledgerResult.error;
     if (payoutResult.error) throw payoutResult.error;
     if (cashoutResult.error) throw cashoutResult.error;
-    if (walletResult.error) throw walletResult.error;
-    if (driversResult.error) throw driversResult.error;
-    if (walletLedgerResult.error) throw walletLedgerResult.error;
 
     const trips = (tripResult.data || []) as TripAuditSourceRow[];
+    const payoutItems = ((payoutResult.data || []) as Array<PayoutItemRow & {
+      payout_batches?: { kind?: string | null } | null;
+    }>).map((item) => ({
+      ...item,
+      batch: item.payout_batches ?? item.batch ?? null,
+    })) as PayoutItemRow[];
+    const earlyCashouts = (cashoutResult.data || []) as EarlyCashoutRow[];
+    const ledgerRows = (ledgerResult.data || []) as LedgerRow[];
+
+    const periodDriverIds = driverId
+      ? [driverId]
+      : Array.from(new Set([
+        ...trips.map((t) => t.driver_id).filter(Boolean) as string[],
+        ...payoutItems.map((p) => p.driver_id).filter(Boolean),
+        ...earlyCashouts.map((c) => c.driver_id).filter(Boolean),
+      ]));
+
+    let drivers: Array<{ id: string; first_name?: string | null; last_name?: string | null }> = [];
+    let walletRows: Array<{ driver_id: string; available_pence: number | null }> = [];
+    let walletLedgerRows: WalletLedgerRow[] = [];
+
+    if (periodDriverIds.length > 0) {
+      const driverNameRows: Array<{ id: string; first_name?: string | null; last_name?: string | null }> = [];
+      const walletAcc: Array<{ driver_id: string; available_pence: number | null }> = [];
+      for (let i = 0; i < periodDriverIds.length; i += MAX_LEDGER_DRIVER_IN) {
+        const chunk = periodDriverIds.slice(i, i + MAX_LEDGER_DRIVER_IN);
+        const [dRes, wRes] = await Promise.all([
+          supabase.from("drivers").select("id, first_name, last_name").in("id", chunk),
+          supabase.from("driver_wallets").select("driver_id, available_pence").in("driver_id", chunk),
+        ]);
+        if (dRes.error) throw dRes.error;
+        if (wRes.error) throw wRes.error;
+        driverNameRows.push(...(dRes.data ?? []));
+        walletAcc.push(...(wRes.data ?? []));
+      }
+      drivers = driverNameRows;
+      walletRows = walletAcc;
+      walletLedgerRows = await fetchAllTimeWalletLedgerRows(supabase, periodDriverIds);
+    }
+
     const tripIds = trips.map((t) => t.id);
     let paymentRows: Array<{
       trip_id: string | null;
@@ -267,35 +330,15 @@ serve(async (req) => {
       paymentRows = payments ?? [];
     }
 
-    const ledgerRows = (ledgerResult.data || []) as LedgerRow[];
-    const payoutItems = ((payoutResult.data || []) as Array<PayoutItemRow & {
-      payout_batches?: { kind?: string | null } | null;
-    }>).map((item) => ({
-      ...item,
-      batch: item.payout_batches ?? item.batch ?? null,
-    })) as PayoutItemRow[];
-    const earlyCashouts = (cashoutResult.data || []) as EarlyCashoutRow[];
-
     const walletByDriver = new Map<string, number>();
-    for (const w of walletResult.data || []) {
+    for (const w of walletRows) {
       walletByDriver.set(w.driver_id, Number(w.available_pence || 0));
     }
-
-    const ledgerWalletSumByDriver = sumLedgerWalletBalanceByDriver(
-      walletLedgerResult.data || [],
-    );
+    const ledgerWalletSumByDriver = sumLedgerWalletBalanceByDriver(walletLedgerRows);
 
     let providerAvailablePence = 0;
     let providerPendingPence = 0;
-    let providerPlatformPayoutsPence = 0;
-    let providerPlatformPaidTodayPence = 0;
-    let providerPlatformPayoutDetails: Array<{
-      id: string;
-      amount_pence: number;
-      status: string;
-      arrival_date: string | null;
-      created_at: string;
-    }> = [];
+    const providerPlatformPayoutsPence = 0;
     let providerBalanceError: string | null = null;
 
     const financeScopeProvider = await resolveFinanceScopeProvider(supabase, {
@@ -303,14 +346,23 @@ serve(async (req) => {
       serviceAreaId: serviceAreaId ?? null,
     });
 
-    const providerBalance = await fetchProviderPlatformBalance(supabase, {
-      provider: financeScopeProvider.provider,
-      environment: financeScopeProvider.environment,
-      currency,
-    });
-    providerAvailablePence = providerBalance.available_pence;
-    providerPendingPence = providerBalance.pending_pence;
-    providerBalanceError = providerBalance.error;
+    const providerBalanceResult = await withTimeout(
+      "provider_platform_balance",
+      PROVIDER_SECTION_TIMEOUT_MS,
+      fetchProviderPlatformBalance(supabase, {
+        provider: financeScopeProvider.provider,
+        environment: financeScopeProvider.environment,
+        currency,
+      }),
+    );
+
+    if (providerBalanceResult && "__timeout" in providerBalanceResult) {
+      providerBalanceError = `${providerBalanceResult.label} timed out after ${PROVIDER_SECTION_TIMEOUT_MS}ms`;
+    } else {
+      providerAvailablePence = providerBalanceResult.available_pence;
+      providerPendingPence = providerBalanceResult.pending_pence;
+      providerBalanceError = providerBalanceResult.error;
+    }
 
     if (!providerSecretKey) {
       providerBalanceError = providerBalanceError ?? "REVOLUT_SECRET_KEY not configured";
@@ -326,30 +378,29 @@ serve(async (req) => {
       earlyCashouts,
       walletByDriver,
       ledgerWalletSumByDriver,
-      drivers: driversResult.data || [],
+      drivers,
       providerAvailablePence,
       providerPendingPence,
       providerPlatformPayoutsPence,
       providerBalanceError,
     });
 
-    return new Response(JSON.stringify({
+    return json({
       finance_backend_audit_v1,
       provider_platform_payouts: {
-        paid_today_pence: providerPlatformPaidTodayPence,
-        paid_all_time_pence: providerPlatformPayoutsPence,
-        recent: providerPlatformPayoutDetails.slice(0, 20),
+        paid_today_pence: 0,
+        paid_all_time_pence: 0,
+        recent: [],
         note:
           "provider automatic platform payouts to ONECAB business bank — not the same as admin commission-sweep batches.",
       },
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
     console.error("[finance-backend-audit-v1]", error);
-    return new Response(JSON.stringify({ error: (error as Error).message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // HTTP 200 so the admin overlay does not blank the whole Financial Reconciliation page.
+    return json({
+      error: errorMessage(error),
+      finance_backend_audit_v1: null,
     });
   }
 });

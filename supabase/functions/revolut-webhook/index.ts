@@ -28,6 +28,7 @@ import {
   isRevolutProviderStateRegression,
   revolutProviderStateRank,
 } from "../_shared/revolutProviderStateRankSSOT.ts";
+import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
 
 /**
  * Extract provider processing fee (minor units) from a Revolut order payload.
@@ -70,6 +71,7 @@ const corsHeaders = {
 };
 
 const MAX_TIMESTAMP_SKEW_MS = 5 * 60 * 1000; // 5 min
+const PROVIDER_AUTHORISED_STATES = new Set(["AUTHORISED", "AUTHORIZED"]);
 
 function hexFromBytes(bytes: ArrayBuffer): string {
   const view = new Uint8Array(bytes);
@@ -455,7 +457,9 @@ Deno.serve(async (req) => {
     if (orderId) {
       const { data: session } = await supabase
         .from("payment_sessions")
-        .select("id, trip_id, status, authorised_amount_pence, provider_state, failure_reason, metadata")
+        .select(
+          "id, trip_id, status, authorised_amount_pence, captured_amount_pence, provider_state, failure_reason, metadata, financial_operation_state, financial_model, purpose, refunded_amount_pence, hold_release_state, provider_capture_id, provider_order_id",
+        )
         .eq("provider_order_id", orderId)
         .eq("purpose", "RIDE_BOOKING")
         .maybeSingle();
@@ -464,63 +468,126 @@ Deno.serve(async (req) => {
         if (!tripId && session.trip_id) tripId = session.trip_id;
 
         const nowIso = new Date().toISOString();
-        const sessionUpdate: Record<string, unknown> = {
+        const sessionMeta =
+          session.metadata && typeof session.metadata === "object"
+            ? session.metadata as Record<string, unknown>
+            : {};
+
+        const eventCaptured = numericMinor(
+          (event.data as { captured_amount?: unknown; amount?: unknown } | undefined)?.captured_amount,
+          (event.data as { captured_amount?: unknown; amount?: unknown } | undefined)?.amount,
+        );
+
+        // Stronger terminal provider states must not be overwritten by weaker/stale events.
+        const priorProvider = String(session.provider_state ?? "").toUpperCase();
+        const priorRank = revolutProviderStateRank;
+        const incomingIsRegression = isRevolutProviderStateRegression(priorProvider, stateUpper);
+
+        const providerEvidencePatch: Record<string, unknown> = {
           provider_state: stateUpper || null,
           provider_state_verified_at: nowIso,
           provider_state_verified_by: "webhook",
-          updated_at: nowIso,
           metadata: {
-            ...((session.metadata && typeof session.metadata === "object") ? session.metadata : {}),
+            ...sessionMeta,
             revolut_last_webhook_event: eventName,
             revolut_last_webhook_state: stateUpper || null,
             revolut_last_webhook_at: nowIso,
           },
         };
 
-        // Stronger terminal provider states must not be overwritten by weaker/stale events.
-        const priorProvider = String(
-          (session as { provider_state?: string | null }).provider_state ?? "",
-        ).toUpperCase();
-        const priorRank = revolutProviderStateRank;
-        const incomingIsRegression = isRevolutProviderStateRegression(priorProvider, stateUpper);
+        let statusAdvanceExtras: Record<string, unknown> = {};
 
-        let applySessionUpdate = true;
         if (incomingIsRegression) {
-          applySessionUpdate = false;
+          // Do not regress provider_state — still log structured lifecycle skip below.
+          delete providerEvidencePatch.provider_state;
           console.warn(
             `[revolut-webhook] ignoring regressive provider_state ${stateUpper} after ${priorProvider} for session ${session.id}`,
           );
         } else if (["AUTHORISED", "AUTHORIZED", "COMPLETED", "CAPTURED"].includes(stateUpper)) {
           const authorisedAmount = await resolveAuthorisedAmountMinor(orderId, event.data);
           if (authorisedAmount != null && authorisedAmount > 0) {
-            sessionUpdate.authorised_amount_pence = authorisedAmount;
-            sessionUpdate.total_authorised_amount_pence = authorisedAmount;
+            statusAdvanceExtras.authorised_amount_pence = authorisedAmount;
+            statusAdvanceExtras.total_authorised_amount_pence = authorisedAmount;
           }
-          sessionUpdate.authorised_at = nowIso;
-          sessionUpdate.status = session.trip_id ? "trip_created" : "payment_authorised";
-          // Clear stale incompatible failure reasons on successful usable auth.
-          sessionUpdate.failure_reason = null;
+          if (PROVIDER_AUTHORISED_STATES.has(stateUpper)) {
+            statusAdvanceExtras.authorised_at = nowIso;
+            statusAdvanceExtras.failure_reason = null;
+          }
+          if (["COMPLETED", "CAPTURED"].includes(stateUpper)) {
+            const captureAmt = eventCaptured ?? (
+              Number(session.captured_amount_pence ?? 0) > 0
+                ? Math.round(Number(session.captured_amount_pence))
+                : null
+            );
+            if (captureAmt != null && captureAmt > 0) {
+              statusAdvanceExtras.captured_amount_pence = captureAmt;
+              statusAdvanceExtras.captured_at = nowIso;
+            }
+          }
         } else if (["CANCELLED", "FAILED"].includes(stateUpper)) {
-          // Do not cancel an already-authorised usable session on a late CANCELLED event.
           if (priorRank(priorProvider) >= 40) {
-            applySessionUpdate = false;
             console.warn(
               `[revolut-webhook] ignoring ${stateUpper} after ${priorProvider} for session ${session.id}`,
             );
+            providerEvidencePatch.provider_state = priorProvider || providerEvidencePatch.provider_state;
           } else {
-            sessionUpdate.status = stateUpper === "CANCELLED" ? "cancelled" : "failed";
-            sessionUpdate.failure_reason = `REVOLUT_${stateUpper}`;
+            statusAdvanceExtras.failure_reason = `REVOLUT_${stateUpper}`;
           }
         }
 
-        if (applySessionUpdate) {
-          const { error: sessionUpdateError } = await supabase
-            .from("payment_sessions")
-            .update(sessionUpdate)
-            .eq("id", session.id);
-          if (sessionUpdateError) {
-            console.error(`[revolut-webhook] payment_session update failed for ${session.id}:`, sessionUpdateError.message);
-          }
+        const lifecycleResult = await applyPaymentSessionWebhookLifecycleUpdate({
+          supabase,
+          context: {
+            sessionId: session.id,
+            tripId: session.trip_id,
+            providerOrderId: orderId,
+            currentStatus: String(session.status ?? ""),
+            financialOperationState: session.financial_operation_state,
+            financialModel: session.financial_model,
+            purpose: session.purpose,
+            storedCapturedAmountPence: session.captured_amount_pence,
+            refundedAmountPence: session.refunded_amount_pence,
+            holdReleaseState: session.hold_release_state,
+            storedProviderCaptureId: session.provider_capture_id,
+            storedProviderOrderId: session.provider_order_id,
+            priorProviderState: priorProvider,
+          },
+          providerState: stateUpper,
+          incomingCapturedAmountPence: eventCaptured,
+          providerEvidencePatch: incomingIsRegression
+            ? {
+              provider_state_verified_at: nowIso,
+              provider_state_verified_by: "webhook",
+              updated_at: nowIso,
+              metadata: providerEvidencePatch.metadata,
+            }
+            : providerEvidencePatch,
+          statusAdvanceExtras,
+        });
+
+        if (lifecycleResult.error_message) {
+          console.error("[revolut-webhook] payment_session lifecycle update failed", {
+            session_id: lifecycleResult.session_id,
+            trip_id: lifecycleResult.trip_id,
+            provider_order_id: lifecycleResult.provider_order_id,
+            provider_capture_id: lifecycleResult.provider_capture_id,
+            previous_status: lifecycleResult.previous_status,
+            attempted_status: lifecycleResult.attempted_status,
+            provider_state: lifecycleResult.provider_state,
+            error_code: lifecycleResult.error_code ?? null,
+            error_message: lifecycleResult.error_message,
+            decision: lifecycleResult.decision,
+          });
+        } else if (lifecycleResult.lifecycle_conflict) {
+          console.warn("[revolut-webhook] payment_session lifecycle conflict", {
+            session_id: lifecycleResult.session_id,
+            trip_id: lifecycleResult.trip_id,
+            previous_status: lifecycleResult.previous_status,
+            attempted_status: lifecycleResult.attempted_status,
+            provider_state: lifecycleResult.provider_state,
+            decision: lifecycleResult.decision,
+            reason: lifecycleResult.reason,
+          });
         }
 
         // P0: never auto-finalise superseded / orphaned / already-trip sessions.

@@ -12,6 +12,11 @@ export type FinalizeRevolutCaptureResult = {
   message?: string;
   error?: string;
   shortfall_pence?: number;
+  provider_capture_status?: "CAPTURED";
+  settlement_status?: "SUCCEEDED" | "FAILED";
+  wallet_posting_status?: "SUCCEEDED" | "FAILED";
+  reconciliation_status?: "BALANCED" | "WALLET_MISMATCH";
+  retry_provider_capture?: false;
 };
 
 export async function finalizeRevolutTripCapture(args: {

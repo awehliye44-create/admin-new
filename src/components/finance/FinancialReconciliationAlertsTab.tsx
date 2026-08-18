@@ -38,12 +38,14 @@ export function buildFinanceMismatchAlertItems(
 export function FinancialReconciliationAlertsTab({
   ssot,
   backendAudit,
+  backendAuditError = null,
   money,
   readOnly: _readOnly = false,
   mode = 'all',
 }: {
   ssot: FinancialReconciliationSSOTResult;
   backendAudit?: FinanceBackendAuditV1 | null;
+  backendAuditError?: Error | null;
   regionId?: string | null;
   money: FinanceMoneyFormat;
   readOnly?: boolean;
@@ -52,6 +54,7 @@ export function FinancialReconciliationAlertsTab({
 }) {
   const fmt = (p: number) => money.fmt(p) ?? '—';
   const summary = ssot.summary;
+  const frMeta = ssot.response?.meta;
   const check = summary ? safeReconciliationCheck(summary) : null;
   const mm = summary?.money_movement;
   const mismatches = mm?.mismatches ?? [];
@@ -103,12 +106,24 @@ export function FinancialReconciliationAlertsTab({
       }
     }
 
-    if (summary?.provider_money?.provider_health_status === 'failing') {
+    if (
+      summary?.provider_money?.provider_health_status === 'failing'
+      && frMeta?.provider_balance_not_queried_by_fr !== true
+    ) {
       alertItems.push({
         id: 'webhook-health',
         label: 'Webhook failure',
         detail: `Provider health: ${summary.provider_money.provider_health_status}`,
         severity: 'destructive',
+      });
+    }
+
+    if (frMeta?.provider_balance_not_queried_by_fr === true) {
+      alertItems.push({
+        id: 'provider-balance-scope',
+        label: 'Provider balance scope',
+        detail: 'Provider balance is not queried by Financial Reconciliation.',
+        severity: 'default',
       });
     }
   }
@@ -117,7 +132,12 @@ export function FinancialReconciliationAlertsTab({
 
   return (
     <div className="space-y-4">
-      
+      {!mismatchOnly && backendAuditError && (
+        <Alert>
+          <AlertTitle>Backend wallet audit unavailable</AlertTitle>
+          <AlertDescription>{backendAuditError.message}</AlertDescription>
+        </Alert>
+      )}
 
       {uniqueAlerts.length === 0 ? (
         <Alert>

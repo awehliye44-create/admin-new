@@ -29,6 +29,10 @@ export function createAssistantDb(url: string, serviceRoleKey: string): Assistan
         p_platform: args.platform,
         p_session_limit: args.sessionLimit,
         p_ip_hour_limit: args.ipHourLimit,
+        p_identity_ref: args.identityHash ?? null,
+        p_identity_limit: args.identityLimit ?? null,
+        p_device_ref: args.deviceHash ?? null,
+        p_device_limit: args.deviceLimit ?? null,
       });
       if (error) throw new Error("quota_unavailable");
       const row = Array.isArray(data) ? data[0] : data;
@@ -42,8 +46,10 @@ export function createAssistantDb(url: string, serviceRoleKey: string): Assistan
       await admin.from("onecab_assistant_events").insert(row);
     },
 
-    async usage() {
-      const { data, error } = await admin.rpc("onecab_assistant_usage");
+    async usage(platform: Platform) {
+      const { data, error } = await admin.rpc("onecab_assistant_usage_for_platform", {
+        p_platform: platform,
+      });
       if (error) throw new Error("usage_unavailable");
       const row = Array.isArray(data) ? data[0] : data;
       return {

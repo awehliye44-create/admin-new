@@ -29,10 +29,20 @@ function makeDb(overrides: Partial<AssistantDb> = {}) {
   const db: AssistantDb = {
     loadConfig: async () => ({}),
     /** Mirrors the SQL function: increment-then-compare under a single lock. */
-    consumeQuota: async ({ sessionHash, ipHash, sessionLimit, ipHourLimit }) => {
+    consumeQuota: async ({ sessionHash, ipHash, sessionLimit, ipHourLimit, identityHash, identityLimit, deviceHash, deviceLimit }) => {
       const s = (counters.get(`s:${sessionHash}`) ?? 0) + 1;
       if (s > sessionLimit) return { allowed: false, reason: "session" as const };
       counters.set(`s:${sessionHash}`, s);
+      if (identityHash && identityLimit) {
+        const idn = (counters.get(`id:${identityHash}`) ?? 0) + 1;
+        if (idn > identityLimit) return { allowed: false, reason: "session" as const };
+        counters.set(`id:${identityHash}`, idn);
+      }
+      if (deviceHash && deviceLimit) {
+        const d = (counters.get(`d:${deviceHash}`) ?? 0) + 1;
+        if (d > deviceLimit) return { allowed: false, reason: "session" as const };
+        counters.set(`d:${deviceHash}`, d);
+      }
       const i = (counters.get(`i:${ipHash}`) ?? 0) + 1;
       if (i > ipHourLimit) return { allowed: false, reason: "ip" as const };
       counters.set(`i:${ipHash}`, i);
@@ -105,13 +115,11 @@ describe("platform contract", () => {
     expect((await res.json()).error).toBe("Unsupported platform");
   });
 
-  it("accepts the contract but blocks not-yet-enabled platforms", async () => {
+  it("accepts the contract but blocks corporate_portal", async () => {
     const handler = createHandler({ env: env(), fetch: vi.fn(), db: makeDb().db });
-    for (const platform of ["customer_app", "driver_app", "corporate_portal"]) {
-      const res = await handler(ask({ platform, action: "session" }));
-      expect(res.status).toBe(403);
-      expect((await res.json()).error).toBe("Platform not enabled");
-    }
+    const res = await handler(ask({ platform: "corporate_portal", action: "session" }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("Platform not enabled");
   });
 });
 

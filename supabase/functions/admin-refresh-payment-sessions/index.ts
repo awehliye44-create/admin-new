@@ -15,6 +15,7 @@ import {
   planRecoveryCaptureCompletion,
   isRecoveryCompletionIdempotent,
 } from "../_shared/paymentSessionsRecoveryCompletionSSOT.ts";
+import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
 
 const ACTIVE_STATUSES = [
   "pending_payment",
@@ -51,7 +52,7 @@ serve(async (req) => {
     const query = gate.supabase
       .from("payment_sessions")
       .select(
-        "id, provider_order_id, status, provider_state, authorised_amount_pence, trip_id, purpose, metadata, parent_session_id, captured_amount_pence",
+        "id, provider_order_id, provider_capture_id, status, provider_state, authorised_amount_pence, trip_id, purpose, metadata, parent_session_id, captured_amount_pence, refunded_amount_pence, hold_release_state, financial_operation_state, financial_model",
       )
       .eq("payment_provider", "revolut")
       .not("provider_order_id", "is", null);
@@ -253,30 +254,53 @@ serve(async (req) => {
           continue;
         }
 
-        const update: Record<string, unknown> = {
+        const providerEvidencePatch: Record<string, unknown> = {
           provider_state: stateUpper || null,
           provider_state_verified_at: nowIso,
           provider_state_verified_by: "admin_refresh",
           updated_at: nowIso,
         };
+        const statusAdvanceExtras: Record<string, unknown> = {};
 
         if (["CANCELLED", "FAILED"].includes(stateUpper)) {
-          update.status = stateUpper === "CANCELLED" ? "cancelled" : "failed";
-          update.failure_reason = `REVOLUT_${stateUpper}`;
-        } else if (stateUpper === "COMPLETED" && purpose !== "PAYMENT_RECOVERY") {
-          update.status = "captured";
-          if (amountMinor != null && amountMinor > 0) {
-            update.captured_amount_pence = amountMinor;
-            update.captured_at = nowIso;
+          statusAdvanceExtras.failure_reason = `REVOLUT_${stateUpper}`;
+        } else if (["AUTHORISED", "AUTHORIZED"].includes(stateUpper)) {
+          if (s.authorised_amount_pence != null && Number(s.authorised_amount_pence) > 0) {
+            statusAdvanceExtras.authorised_amount_pence = Math.round(Number(s.authorised_amount_pence));
+            statusAdvanceExtras.total_authorised_amount_pence = Math.round(Number(s.authorised_amount_pence));
           }
-        } else if (stateUpper === "AUTHORISED" && s.status === "pending_payment") {
-          update.status = s.trip_id ? "trip_created" : "payment_authorised";
+          statusAdvanceExtras.authorised_at = nowIso;
+          statusAdvanceExtras.failure_reason = null;
+        } else if (["COMPLETED", "CAPTURED"].includes(stateUpper)) {
+          if (amountMinor != null && amountMinor > 0) {
+            statusAdvanceExtras.captured_amount_pence = amountMinor;
+            statusAdvanceExtras.captured_at = nowIso;
+          }
         }
 
-        const { error: updErr } = await gate.supabase
-          .from("payment_sessions")
-          .update(update)
-          .eq("id", s.id);
+        const lifecycleResult = await applyPaymentSessionWebhookLifecycleUpdate({
+          supabase: gate.supabase,
+          context: {
+            sessionId: s.id,
+            tripId: s.trip_id,
+            providerOrderId: s.provider_order_id,
+            providerCaptureId: s.provider_capture_id,
+            currentStatus: String(s.status ?? ""),
+            financialOperationState: s.financial_operation_state,
+            financialModel: s.financial_model,
+            purpose: s.purpose,
+            storedCapturedAmountPence: s.captured_amount_pence,
+            refundedAmountPence: s.refunded_amount_pence,
+            holdReleaseState: s.hold_release_state,
+            storedProviderCaptureId: s.provider_capture_id,
+            storedProviderOrderId: s.provider_order_id,
+            priorProviderState: s.provider_state,
+          },
+          providerState: stateUpper,
+          incomingCapturedAmountPence: amountMinor,
+          providerEvidencePatch,
+          statusAdvanceExtras,
+        });
 
         results.push({
           session_id: s.id,
@@ -284,8 +308,10 @@ serve(async (req) => {
           previous_state: s.provider_state,
           new_state: stateUpper,
           previous_status: s.status,
-          new_status: update.status ?? s.status,
-          error: updErr?.message ?? null,
+          new_status: lifecycleResult.attempted_status ?? s.status,
+          decision: lifecycleResult.decision,
+          reason: lifecycleResult.reason,
+          error: lifecycleResult.error_message ?? null,
         });
       } catch (e) {
         results.push({

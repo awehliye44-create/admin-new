@@ -21,8 +21,8 @@ Deno.test("This Week style summary — platform commission from trip snapshot", 
     periodFrom: "2026-07-07T00:00:00.000Z",
     periodTo: "2026-07-13T23:59:59.999Z",
     ledger: [
-      { type: "TRIP_EARNING_NET", amount_pence: 500, related_trip_id: "t1", created_at: "2026-07-08T10:00:00Z" },
-      { type: "TRIP_EARNING_NET", amount_pence: 486, related_trip_id: "t2", created_at: "2026-07-09T10:00:00Z" },
+      { type: "TRIP_EARNING_NET", amount_pence: 500, related_trip_id: "t1", created_at: "2026-07-08T10:00:00Z", economic_earned_at: "2026-07-08T10:00:00Z" },
+      { type: "TRIP_EARNING_NET", amount_pence: 486, related_trip_id: "t2", created_at: "2026-07-09T10:00:00Z", economic_earned_at: "2026-07-09T10:00:00Z" },
       { type: "PLATFORM_COMMISSION", amount_pence: 999, related_trip_id: "t1", created_at: "2026-07-08T10:00:00Z" },
       { type: "WEEKLY_PAYOUT", amount_pence: 0, created_at: "2026-07-08T12:00:00Z" },
     ],
@@ -65,7 +65,7 @@ Deno.test("provider fee must not reduce driver net", () => {
     periodFrom: "2026-07-10T00:00:00.000Z",
     periodTo: "2026-07-10T23:59:59.999Z",
     ledger: [
-      { type: "TRIP_EARNING_NET", amount_pence: 408, related_trip_id: "t1", created_at: "2026-07-10T12:00:00Z" },
+      { type: "TRIP_EARNING_NET", amount_pence: 408, related_trip_id: "t1", created_at: "2026-07-10T12:00:00Z", economic_earned_at: "2026-07-10T12:00:00Z" },
       { type: "PAYMENT_PROVIDER_FEE", amount_pence: -27, created_at: "2026-07-10T12:00:00Z" },
     ],
     tripCommissionSnapshots: [
@@ -91,7 +91,7 @@ Deno.test("live update after completed trip credit", () => {
       outstanding_debt_pence: 0,
     },
     ledger: [
-      { type: "TRIP_EARNING_NET", amount_pence: 572, related_trip_id: "t0", created_at: "2026-07-08T10:00:00Z" },
+      { type: "TRIP_EARNING_NET", amount_pence: 572, related_trip_id: "t0", created_at: "2026-07-08T10:00:00Z", economic_earned_at: "2026-07-08T10:00:00Z" },
     ],
   });
   const after = buildDriverWalletSummaryResponse({
@@ -105,8 +105,8 @@ Deno.test("live update after completed trip credit", () => {
       outstanding_debt_pence: 0,
     },
     ledger: [
-      { type: "TRIP_EARNING_NET", amount_pence: 572, related_trip_id: "t0", created_at: "2026-07-08T10:00:00Z" },
-      { type: "TRIP_EARNING_NET", amount_pence: 486, related_trip_id: "t1", created_at: "2026-07-10T12:00:00Z" },
+      { type: "TRIP_EARNING_NET", amount_pence: 572, related_trip_id: "t0", created_at: "2026-07-08T10:00:00Z", economic_earned_at: "2026-07-08T10:00:00Z" },
+      { type: "TRIP_EARNING_NET", amount_pence: 486, related_trip_id: "t1", created_at: "2026-07-10T12:00:00Z", economic_earned_at: "2026-07-10T12:00:00Z" },
     ],
     tripCommissionSnapshots: [
       { trip_id: "t1", completed_at: "2026-07-10T11:00:00Z", commission_pence: 86 },
@@ -116,4 +116,16 @@ Deno.test("live update after completed trip credit", () => {
   assertEquals(after.summary.trip_credit_pence, 1058);
   assertEquals(after.account.live_balance_pence, 1058);
   assertEquals(after.summary.net_wallet_movement_pence - before.summary.net_wallet_movement_pence, 486);
+});
+
+Deno.test("TEN without economic_earned_at is excluded from trip credits but still posts to net movement", () => {
+  const summary = buildDriverWalletPeriodSummary({
+    periodFrom: "2026-07-10T00:00:00.000Z",
+    periodTo: "2026-07-10T23:59:59.999Z",
+    ledger: [
+      { type: "TRIP_EARNING_NET", amount_pence: 408, related_trip_id: "unresolved", created_at: "2026-07-10T12:00:00Z" },
+    ],
+  });
+  assertEquals(summary.trip_credit_pence, 0);
+  assertEquals(summary.net_wallet_movement_pence, 408);
 });

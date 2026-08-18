@@ -10,6 +10,8 @@ export type LedgerWidgetRow = {
   related_trip_id?: string | null;
   trip_id?: string | null;
   created_at?: string | null;
+  /** Canonical capture clock for PLATFORM_COLLECTED TRIP_EARNING_NET. */
+  economic_earned_at?: string | null;
 };
 
 export type TripCommissionSnapshotRow = {
@@ -90,6 +92,7 @@ const PAYOUT_TYPES = new Set([
 
 /** Reporting-only — excluded from Net Wallet Movement / live balance (Slice 6 SSOT). */
 import { BALANCE_EXCLUDED_LEDGER_TYPES } from "./onecabFinanceLedger.ts";
+import { earningsAttributionInstant } from "./economicEarnedAtSSOT.ts";
 
 const BALANCE_EXCLUDED_TYPES = new Set<string>(BALANCE_EXCLUDED_LEDGER_TYPES);
 
@@ -127,11 +130,22 @@ export function buildDriverWalletPeriodSummary(args: {
   const tripIds = new Set<string>();
 
   for (const row of args.ledger) {
-    if (!isLedgerRowInPeriod(row.created_at, args.periodFrom, args.periodTo)) continue;
     const type = String(row.type ?? "").toUpperCase();
     const amount = Number(row.amount_pence ?? 0);
-    if (!BALANCE_EXCLUDED_TYPES.has(type)) {
+    const postingInPeriod = isLedgerRowInPeriod(row.created_at, args.periodFrom, args.periodTo);
+    if (postingInPeriod && !BALANCE_EXCLUDED_TYPES.has(type)) {
       netMovement += amount;
+    }
+    const earningIso = earningsAttributionInstant(row);
+    if (!isLedgerRowInPeriod(earningIso, args.periodFrom, args.periodTo)) {
+      if (postingInPeriod) {
+        if (BONUS_TYPES.has(type) && amount > 0) bonuses += amount;
+        if (ADJUSTMENT_TYPES.has(type)) adjustments += amount;
+        if (DEBT_RECOVERY_TYPES.has(type)) debtRecovered += Math.abs(amount);
+        if (REFUND_TYPES.has(type) && amount < 0) refundDebits += Math.abs(amount);
+        if (PAYOUT_TYPES.has(type) && amount < 0) payoutDebits += Math.abs(amount);
+      }
+      continue;
     }
     if (TRIP_CREDIT_TYPES.has(type) && amount > 0) {
       tripCredits += amount;

@@ -100,3 +100,10 @@ describe("output limits", () => {
     expect(trimToWords("short answer", 150)).toBe("short answer");
   });
 });
+
+describe("website knowledge stays isolated from driver_app", () => {
+  it("still answers public website booking questions", () => {
+    expect(matchFaq("how do i book a taxi please")?.id).toBe("faq-book");
+    expect(selectTopics("airports").map((t) => t.id)).toContain("airports");
+  });
+});

@@ -118,6 +118,7 @@ export type PaymentSessionMoneyRow = {
   payment_method?: string | null;
   /** May include capture_breakdown owned by Payment Sessions. */
   metadata?: Record<string, unknown> | null;
+  purpose?: string | null;
 };
 
 export type PaymentSessionMoneyByTrip = {

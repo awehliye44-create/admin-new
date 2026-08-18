@@ -42,3 +42,7 @@ secrets/revolut-business/*_private.key
 !**/public*.cer
 !**/public*.crt
 .tmp/
+
+# Local rollback / recovery snapshots — never source
+.rollback-*/
+.recovery-*/

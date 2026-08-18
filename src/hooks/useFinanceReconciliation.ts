@@ -501,6 +501,7 @@ export interface FinanceReconciliationResponse {
     audit_row_count?: number;
     driver_count?: number;
     provider_balance_error?: string | null;
+    provider_balance_not_queried_by_fr?: boolean;
     ssot_version?: string;
     data_source_badge?: string;
     accounting_rules?: Record<string, string>;

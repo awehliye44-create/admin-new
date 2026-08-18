@@ -200,6 +200,7 @@ Deno.test("overview KPIs: MK-260708-008 waiting is not OVERCAPTURE; fare = PS ex
       released_pence: 82,
       refunded_pence: 0,
       processing_fee_pence: 27,
+      confirmed_provider_fee_pence: 27,
       capture_variance_pence: 0,
       capture_classification: "CAPTURED_WITH_WAITING_TIME",
       capture_reconciliation_status: "MATCHED",

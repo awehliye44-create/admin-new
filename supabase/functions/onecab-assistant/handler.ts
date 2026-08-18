@@ -7,6 +7,34 @@
  * Edge Function secret. No AI gateway is involved.
  */
 
+import type { AuthenticateCustomer } from "./customerAuth.ts";
+import {
+  customerAuthErrorBody,
+  customerAuthHttpStatus,
+} from "./customerAuth.ts";
+import {
+  buildCustomerSystemPrompt,
+  CUSTOMER_INJECTION_REPLY,
+  CUSTOMER_NO_CONFIRMED_ANSWER,
+  CUSTOMER_PRIVATE_DATA_REPLY,
+  matchCustomerFaq,
+  selectCustomerTopics,
+} from "./customerKnowledge.ts";
+import type { AuthenticateDriver } from "./driverAuth.ts";
+import {
+  driverAuthErrorBody,
+  driverAuthHttpStatus,
+  readBearerToken,
+} from "./driverAuth.ts";
+import {
+  buildDriverSystemPrompt,
+  DRIVER_INJECTION_REPLY,
+  DRIVER_NO_CONFIRMED_ANSWER,
+  DRIVER_PRIVATE_DATA_REPLY,
+  DRIVER_SENSITIVE_WARNING,
+  matchDriverFaq,
+  selectDriverTopics,
+} from "./driverKnowledge.ts";
 import {
   asksForPrivateData,
   buildSystemPrompt,
@@ -29,8 +57,8 @@ import {
 
 export const SUPPORTED_PLATFORMS = ["website", "customer_app", "driver_app", "corporate_portal"] as const;
 export type Platform = (typeof SUPPORTED_PLATFORMS)[number];
-/** Phase 1: only the public website policy is implemented. */
-export const ENABLED_PLATFORMS: Platform[] = ["website"];
+/** Website + authenticated Driver and Customer apps. Corporate stays disabled. */
+export const ENABLED_PLATFORMS: Platform[] = ["website", "driver_app", "customer_app"];
 
 /* ── origins ──────────────────────────────────────────────────────────────── */
 
@@ -55,7 +83,8 @@ export function isAllowedOrigin(origin: string | null): boolean {
 
 export const corsHeaders = (origin: string | null) => ({
   "Access-Control-Allow-Origin": isAllowedOrigin(origin) ? (origin as string) : "https://onecab.net",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-onecab-device-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   Vary: "Origin",
 });
@@ -138,7 +167,9 @@ export type Outcome =
   | "disabled"
   | "invalid_request"
   | "misconfigured"
-  | "ai_error";
+  | "ai_error"
+  | "unauthorized"
+  | "busy_workflow";
 
 export interface EventRow {
   session_ref: string;
@@ -166,15 +197,21 @@ export interface AssistantDb {
     platform: Platform;
     sessionLimit: number;
     ipHourLimit: number;
+    identityHash?: string | null;
+    identityLimit?: number | null;
+    deviceHash?: string | null;
+    deviceLimit?: number | null;
   }): Promise<{ allowed: boolean; reason: "session" | "ip" | null }>;
   logEvent(row: EventRow): Promise<void>;
-  usage(): Promise<{ day_usd: number; month_usd: number }>;
+  usage(platform: Platform): Promise<{ day_usd: number; month_usd: number }>;
 }
 
 export interface AssistantDeps {
   env: (key: string) => string | undefined;
   fetch: typeof fetch;
   db: AssistantDb;
+  authenticateDriver?: AuthenticateDriver;
+  authenticateCustomer?: AuthenticateCustomer;
 }
 
 /* ── session tokens (server-issued, HMAC-signed) ──────────────────────────── */
@@ -329,16 +366,26 @@ const jsonResponse = (body: unknown, status: number, origin: string | null) =>
     headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
   });
 
+export function originAllowedForPlatform(origin: string | null, platform: Platform | null): boolean {
+  if (platform === "driver_app" || platform === "customer_app") {
+    if (!origin) return true;
+    return isAllowedOrigin(origin);
+  }
+  return isAllowedOrigin(origin);
+}
+
 export function createHandler(deps: AssistantDeps) {
   return async function handle(req: Request): Promise<Response> {
     const origin = req.headers.get("origin");
     if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders(origin) });
     if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405, origin);
-    if (!isAllowedOrigin(origin)) return jsonResponse({ error: "Origin not allowed" }, 403, origin);
 
     const sessionSecret = deps.env("ONECAB_ASSISTANT_SESSION_SECRET") ?? deps.env("SUPABASE_SERVICE_ROLE_KEY");
     const apiKey = deps.env("OPENAI_API_KEY");
     if (!sessionSecret) {
+      if (!isAllowedOrigin(origin) && origin) {
+        return jsonResponse({ error: "Origin not allowed" }, 403, origin);
+      }
       return jsonResponse({ error: "assistant_unconfigured", reply: null, handoff: true }, 503, origin);
     }
 
@@ -346,38 +393,136 @@ export function createHandler(deps: AssistantDeps) {
     try {
       payload = (await req.json()) as Record<string, unknown>;
     } catch {
+      if (!isAllowedOrigin(origin)) return jsonResponse({ error: "Origin not allowed" }, 403, origin);
       return jsonResponse({ error: "Invalid request" }, 400, origin);
     }
 
     const platformRaw = String(payload.platform ?? "");
     const action = String(payload.action ?? "ask");
+    const platformOrNull = SUPPORTED_PLATFORMS.includes(platformRaw as Platform)
+      ? (platformRaw as Platform)
+      : null;
 
-    if (!SUPPORTED_PLATFORMS.includes(platformRaw as Platform)) {
+    if (!originAllowedForPlatform(origin, platformOrNull)) {
+      return jsonResponse({ error: "Origin not allowed" }, 403, origin);
+    }
+
+    if (!platformOrNull) {
       return jsonResponse({ error: "Unsupported platform" }, 400, origin);
     }
-    const platform = platformRaw as Platform;
+    const platform = platformOrNull;
     if (!ENABLED_PLATFORMS.includes(platform)) {
       return jsonResponse({ error: "Platform not enabled" }, 403, origin);
     }
 
-    /* Session issue: the ONLY way to obtain a usable session reference. */
+    /* Website session issue. Native apps authenticate with the user JWT instead. */
     if (action === "session") {
+      if (platform === "driver_app" || platform === "customer_app") {
+        return jsonResponse({ error: "invalid_session" }, 401, origin);
+      }
       return jsonResponse({ sessionToken: await issueSessionToken(sessionSecret) }, 200, origin);
     }
     if (action !== "ask") return jsonResponse({ error: "Invalid request" }, 400, origin);
-
-    const token = typeof payload.sessionToken === "string" ? payload.sessionToken : "";
-    const sessionId = await verifySessionToken(sessionSecret, token);
-    if (!sessionId) return jsonResponse({ error: "invalid_session" }, 401, origin);
 
     const rawMessage = typeof payload.message === "string" ? payload.message : "";
     const quickActionRaw = payload.quickAction;
     const quickAction = (typeof quickActionRaw === "string" ? quickActionRaw.slice(0, 32) : null) as QuickAction | null;
     const honeypot = typeof payload.company_website === "string" ? payload.company_website : "";
+    const driverPlatform = platform === "driver_app";
+    const customerPlatform = platform === "customer_app";
+
+    let sessionHash: string;
+    let identityHash: string | null = null;
+    let deviceHash: string | null = null;
+
+    if (driverPlatform) {
+      if (!deps.authenticateDriver) {
+        return jsonResponse({ error: "assistant_unconfigured", reply: null, handoff: true }, 503, origin);
+      }
+      const auth = await deps.authenticateDriver({
+        jwt: readBearerToken(req.headers.get("authorization")),
+        installationId: payload.installationId ?? payload.installation_id,
+        clientDriverId: payload.driverId ?? payload.driver_id,
+        clientRole: payload.role,
+        clientStatus: payload.status,
+        clientDeviceOwner: payload.deviceOwner ?? payload.device_owner,
+      });
+      if (!auth.ok) {
+        const outcome: Outcome = auth.reason === "busy_workflow" ? "busy_workflow" : "unauthorized";
+        await deps.db
+          .logEvent({
+            session_ref: "unauth",
+            ip_hash: await hashIp(sessionSecret, clientIp(req.headers)),
+            platform,
+            outcome,
+            success: false,
+            quick_action: quickAction,
+            model: null,
+            input_tokens: 0,
+            cached_input_tokens: 0,
+            output_tokens: 0,
+            cost_usd: 0,
+            pricing_version: null,
+            safety_outcome: auth.reason,
+            rate_limit_outcome: null,
+          })
+          .catch(() => undefined);
+        return jsonResponse(driverAuthErrorBody(auth.reason), driverAuthHttpStatus(auth.reason), origin);
+      }
+      sessionHash = (await hmac(sessionSecret, `driver:${auth.identity.authUserId}`)).slice(0, 32);
+      identityHash = sessionHash;
+      deviceHash = (await hmac(sessionSecret, `driver-device:${auth.identity.installationId}`)).slice(0, 32);
+    } else if (customerPlatform) {
+      if (!deps.authenticateCustomer) {
+        return jsonResponse({ error: "assistant_unconfigured", reply: null, handoff: true }, 503, origin);
+      }
+      const installationId =
+        payload.installationId ??
+        payload.installation_id ??
+        req.headers.get("x-onecab-device-id");
+      const auth = await deps.authenticateCustomer({
+        jwt: readBearerToken(req.headers.get("authorization")),
+        installationId,
+        clientCustomerId: payload.customerId ?? payload.customer_id,
+        clientRole: payload.role,
+        clientEmail: payload.email,
+        clientPhone: payload.phone,
+        clientDeviceOwner: payload.deviceOwner ?? payload.device_owner,
+      });
+      if (!auth.ok) {
+        const outcome: Outcome = auth.reason === "busy_workflow" ? "busy_workflow" : "unauthorized";
+        await deps.db
+          .logEvent({
+            session_ref: "unauth",
+            ip_hash: await hashIp(sessionSecret, clientIp(req.headers)),
+            platform,
+            outcome,
+            success: false,
+            quick_action: quickAction,
+            model: null,
+            input_tokens: 0,
+            cached_input_tokens: 0,
+            output_tokens: 0,
+            cost_usd: 0,
+            pricing_version: null,
+            safety_outcome: auth.reason,
+            rate_limit_outcome: null,
+          })
+          .catch(() => undefined);
+        return jsonResponse(customerAuthErrorBody(auth.reason), customerAuthHttpStatus(auth.reason), origin);
+      }
+      sessionHash = (await hmac(sessionSecret, `customer:${auth.identity.authUserId}`)).slice(0, 32);
+      identityHash = sessionHash;
+      deviceHash = (await hmac(sessionSecret, `customer-device:${auth.identity.installationId}`)).slice(0, 32);
+    } else {
+      const token = typeof payload.sessionToken === "string" ? payload.sessionToken : "";
+      const sessionId = await verifySessionToken(sessionSecret, token);
+      if (!sessionId) return jsonResponse({ error: "invalid_session" }, 401, origin);
+      sessionHash = (await hmac(sessionSecret, `session:${sessionId}`)).slice(0, 32);
+    }
 
     const ip = clientIp(req.headers);
     const ipHash = await hashIp(sessionSecret, ip);
-    const sessionHash = (await hmac(sessionSecret, `session:${sessionId}`)).slice(0, 32);
 
     const log = (outcome: Outcome, extra: Partial<EventRow> = {}) =>
       deps.db
@@ -436,18 +581,38 @@ export function createHandler(deps: AssistantDeps) {
     }
     if (containsSensitiveData(message)) {
       await log("sensitive_input", { safety_outcome: "sensitive_input" });
-      return jsonResponse({ reply: SENSITIVE_WARNING, source: "safety" }, 200, origin);
+      return jsonResponse(
+        { reply: customerPlatform ? SENSITIVE_WARNING : driverPlatform ? DRIVER_SENSITIVE_WARNING : SENSITIVE_WARNING, source: "safety" },
+        200,
+        origin,
+      );
     }
     if (isPromptInjection(message)) {
       await log("blocked_injection", { safety_outcome: "injection" });
-      return jsonResponse({ reply: INJECTION_REPLY, source: "safety" }, 200, origin);
+      return jsonResponse(
+        { reply: customerPlatform ? CUSTOMER_INJECTION_REPLY : driverPlatform ? DRIVER_INJECTION_REPLY : INJECTION_REPLY, source: "safety" },
+        200,
+        origin,
+      );
     }
     if (asksForPrivateData(message)) {
       await log("blocked_private_data", { safety_outcome: "private_data" });
-      return jsonResponse({ reply: PRIVATE_DATA_REPLY, handoff: true, source: "safety" }, 200, origin);
+      return jsonResponse(
+        {
+          reply: customerPlatform
+            ? CUSTOMER_PRIVATE_DATA_REPLY
+            : driverPlatform
+              ? DRIVER_PRIVATE_DATA_REPLY
+              : PRIVATE_DATA_REPLY,
+          handoff: true,
+          source: "safety",
+        },
+        200,
+        origin,
+      );
     }
 
-    /* ── atomic rate limits (session + trusted IP) ─────────────────────── */
+    /* ── atomic rate limits (session + identity/device + trusted IP) ───── */
     let quota: { allowed: boolean; reason: "session" | "ip" | null };
     try {
       quota = await deps.db.consumeQuota({
@@ -456,6 +621,10 @@ export function createHandler(deps: AssistantDeps) {
         platform,
         sessionLimit: config.max_questions_per_session,
         ipHourLimit: config.max_questions_per_ip_hour,
+        identityHash,
+        identityLimit: identityHash ? config.max_questions_per_session : null,
+        deviceHash,
+        deviceLimit: deviceHash ? config.max_questions_per_session : null,
       });
     } catch {
       await log("misconfigured", { success: false });
@@ -466,8 +635,9 @@ export function createHandler(deps: AssistantDeps) {
       await log("rate_limited_session", { rate_limit_outcome: "session" });
       return jsonResponse(
         {
-          reply:
-            "We've reached the limit for this chat. ONECAB Support can carry on helping you by phone, WhatsApp or email.",
+          reply: driverPlatform
+            ? "We've reached the limit for this chat. Please contact ONECAB Driver Support."
+            : "We've reached the limit for this chat. ONECAB Support can carry on helping you by phone, WhatsApp or email.",
           handoff: true,
           limitReached: "session",
         },
@@ -479,8 +649,9 @@ export function createHandler(deps: AssistantDeps) {
       await log("rate_limited_ip", { rate_limit_outcome: "ip" });
       return jsonResponse(
         {
-          reply:
-            "There have been a lot of requests from your connection. Please try again later, or contact ONECAB Support.",
+          reply: driverPlatform
+            ? "There have been a lot of requests from your connection. Please try again later, or contact ONECAB Driver Support."
+            : "There have been a lot of requests from your connection. Please try again later, or contact ONECAB Support.",
           handoff: true,
           limitReached: "ip",
         },
@@ -490,16 +661,20 @@ export function createHandler(deps: AssistantDeps) {
     }
 
     /* ── approved FAQ cache first (no AI cost) ─────────────────────────── */
-    const faq = matchFaq(message, quickAction);
+    const faq = customerPlatform
+      ? matchCustomerFaq(message, quickAction)
+      : driverPlatform
+        ? matchDriverFaq(message, quickAction)
+        : matchFaq(message, quickAction);
     if (faq) {
       await log("faq_cache", { rate_limit_outcome: "allowed" });
       return jsonResponse({ reply: faq.answer, source: "faq" }, 200, origin);
     }
 
-    /* ── budget: monthly hard cap + kill switch ────────────────────────── */
+    /* ── budget: monthly hard cap + kill switch (per platform) ─────────── */
     let usage: { day_usd: number; month_usd: number };
     try {
-      usage = await deps.db.usage();
+      usage = await deps.db.usage(platform);
     } catch {
       await log("misconfigured", { success: false });
       return jsonResponse({ error: "assistant_unavailable", reply: null, handoff: true }, 503, origin);
@@ -518,10 +693,21 @@ export function createHandler(deps: AssistantDeps) {
       return jsonResponse({ error: "assistant_unconfigured", reply: null, handoff: true }, 503, origin);
     }
 
+    const unknownAnswer = customerPlatform
+      ? CUSTOMER_NO_CONFIRMED_ANSWER
+      : driverPlatform
+        ? DRIVER_NO_CONFIRMED_ANSWER
+        : NO_CONFIRMED_ANSWER;
+    const instructions = customerPlatform
+      ? buildCustomerSystemPrompt(selectCustomerTopics(message), config.max_output_words)
+      : driverPlatform
+        ? buildDriverSystemPrompt(selectDriverTopics(message), config.max_output_words)
+        : buildSystemPrompt(selectTopics(message), config.max_output_words);
+
     const ai = await callOpenAi(deps, {
       apiKey,
       model: config.model,
-      instructions: buildSystemPrompt(selectTopics(message), config.max_output_words),
+      instructions,
       message: redact(message),
       maxOutputTokens: config.max_output_tokens,
       timeoutMs: config.request_timeout_ms,
@@ -530,7 +716,7 @@ export function createHandler(deps: AssistantDeps) {
     if (!ai.ok) {
       await log("ai_error", { success: false, model: config.model });
       return jsonResponse(
-        { reply: NO_CONFIRMED_ANSWER, handoff: true, error: ai.errorKind === "busy" ? "busy" : "unavailable" },
+        { reply: unknownAnswer, handoff: true, error: ai.errorKind === "busy" ? "busy" : "unavailable" },
         200,
         origin,
       );
@@ -549,6 +735,6 @@ export function createHandler(deps: AssistantDeps) {
       safety_outcome: "clean",
     });
 
-    return jsonResponse({ reply, source: "ai", handoff: reply === NO_CONFIRMED_ANSWER }, 200, origin);
+    return jsonResponse({ reply, source: "ai", handoff: reply === unknownAnswer }, 200, origin);
   };
 }

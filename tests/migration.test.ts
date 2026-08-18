@@ -10,7 +10,18 @@ const sql = readFileSync(
   "supabase/migrations/20260816130000_onecab_assistant.sql",
   "utf8",
 );
-const handler = readFileSync("supabase/functions/onecab-assistant/handler.ts", "utf8");
+const handler = readFileSync(
+  "supabase/functions/onecab-assistant/handler.ts",
+  "utf8",
+);
+const driverSql = readFileSync(
+  "supabase/migrations/20260927220000_onecab_assistant_driver_app.sql",
+  "utf8",
+);
+const customerSql = readFileSync(
+  "supabase/migrations/20260928120000_onecab_assistant_customer_app.sql",
+  "utf8",
+);
 
 const TABLES = [
   "public.onecab_assistant_config",
@@ -71,6 +82,8 @@ describe("no AI gateway, no keys in the browser", () => {
     expect(handler).not.toContain("gateway.lovable.dev");
     expect(handler).not.toContain("LOVABLE_API_KEY");
     expect(handler).toContain('"gpt-5.6-luna"');
+    expect(handler).toContain('"customer_app"');
+    expect(handler).toContain('ENABLED_PLATFORMS');
     expect(handler).not.toContain("openai/gpt-5.6-luna");
   });
 
@@ -93,5 +106,34 @@ describe("migration: scheduled cleanup", () => {
   it("falls back with a clear notice when pg_cron is unavailable", () => {
     expect(sql).toContain("pg_cron unavailable");
     expect(sql).toContain("where extname = 'pg_cron'");
+  });
+});
+
+describe("customer_app configuration migration", () => {
+  it("enables customer_app without flipping website or driver_app", () => {
+    expect(customerSql).toContain("'customer_app'");
+    expect(customerSql).toContain("'customer-v1'");
+    expect(customerSql).toContain("enabled");
+    expect(customerSql).not.toMatch(/update public\.onecab_assistant_config[\s\S]*set enabled = false[\s\S]*website/);
+    expect(customerSql).not.toMatch(/platform = 'driver_app'/);
+    expect(customerSql).toContain("'corporate_portal'");
+    expect(customerSql).toContain("revoke all on public.onecab_assistant_config from anon, authenticated");
+  });
+});
+
+describe("driver_app configuration migration", () => {
+  it("enables driver_app without flipping website enabled", () => {
+    expect(driverSql).toContain("'driver_app'");
+    expect(driverSql).toContain("knowledge_version");
+    expect(driverSql).toContain("'driver-v1'");
+    expect(driverSql).toMatch(/where platform in \('customer_app', 'corporate_portal'\)/);
+    expect(driverSql).toContain("onecab_assistant_usage_for_platform");
+  });
+
+  it("keeps RLS service_role-only grants", () => {
+    expect(driverSql).toContain("revoke all on public.onecab_assistant_config from anon, authenticated");
+    expect(driverSql).toContain("grant all on public.onecab_assistant_config to service_role");
+    expect(driverSql).toContain("identity");
+    expect(driverSql).toContain("device");
   });
 });

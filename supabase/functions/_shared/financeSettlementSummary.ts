@@ -9,7 +9,6 @@
  */
 
 import {
-  buildPaymentSessionMoneyByTrip,
   buildReconciliationCheck,
   buildSplitReconciliationCheck,
   confirmedCapturePence,
@@ -18,6 +17,7 @@ import {
   type SSOTComputedMetrics,
   SSOT_VERSION,
 } from "./financialReconciliationSSOT.ts";
+import { resolveLockedPromotionPence } from "./tripSettlement.ts";
 import { excludeTripFromPlatformCollectedFinance } from "./commissionWalletSSOT.ts";
 import {
   classifyPayoutReconciliation,
@@ -29,6 +29,7 @@ import {
   onecabNetFromSessionFee,
   resolveFrTripAuditStatus,
   sumTripWalletEarningCreditPence,
+  type CaptureReconciliationStatus,
 } from "./frTripAuditComparisonSSOT.ts";
 import {
   captureClassificationToMatchStatus,
@@ -54,6 +55,13 @@ import {
   getTripDriverNetPence,
   getTripSettlementFarePence,
 } from "./tripSettlementFinanceSSOT.ts";
+import {
+  classifyFrProviderFeeFromSession,
+  resolveCanonicalPaymentSessionMoneyByTrip,
+  resolveTripCommissionAfterPromotionPence,
+  resolveTripPrePromotionCommissionableFarePence,
+  type CanonicalPaymentSessionMoney,
+} from "./frPerTripAuditSSOT.ts";
 
 export { SSOT_VERSION, type FinanceDataSourceBadge };
 
@@ -798,6 +806,8 @@ export function mapTripToFinancialAuditRow(
   const ledger = context.ledgerByTripId.get(row.id) ?? [];
   const sessionsMapPresent = context.paymentSessionByTripId != null;
   const session = context.paymentSessionByTripId?.get(row.id) ?? null;
+  const sessionAmbiguous = (session as CanonicalPaymentSessionMoney | null)?.session_resolution_status
+    === "PAYMENT_SESSION_AMBIGUOUS";
 
   // Hard ownership: customer capture ONLY from Payment Sessions.
   // Never invent from legacy payments or trips.capture_amount_pence.
@@ -881,32 +891,36 @@ export function mapTripToFinancialAuditRow(
     tripPayments.find((p) => p.provider_payment_id)?.provider_payment_id ??
     null;
 
-  // Provider fee: Payment Sessions only — never trip fee invent.
-  const sessionFee = session?.provider_processing_fee_pence;
-  const processingFeePence = sessionsMapPresent
-    ? (sessionFee == null ? null : Math.max(0, Number(sessionFee)))
-    : null;
-  const sessionFeeStatusRaw = String(session?.fee_status ?? "").toUpperCase();
-  const fee_status = !sessionsMapPresent || session == null
+  const grossCommission = tripGrossCommissionPence(row);
+  const commissionAfterPromotion = resolveTripCommissionAfterPromotionPence(row);
+  const lockedPromotionPence = resolveLockedPromotionPence(row);
+  const prePromotionCommissionable = resolveTripPrePromotionCommissionableFarePence(row);
+  const feeClass = classifyFrProviderFeeFromSession({
+    provider_processing_fee_pence: session?.provider_processing_fee_pence,
+    fee_status: session?.fee_status,
+    sessionsMapPresent: sessionsMapPresent && session != null && !sessionAmbiguous,
+    fee_confirmed_at: session?.provider_state_verified_at ?? null,
+  });
+  const processingFeePence = feeClass.confirmed_provider_fee_pence;
+  const fee_status = !sessionsMapPresent || session == null || sessionAmbiguous
     ? null
-    : (processingFeePence == null
-      || sessionFeeStatusRaw === "PENDING"
-      || sessionFeeStatusRaw === "UNAVAILABLE"
-      || sessionFeeStatusRaw === "PENDING_PROVIDER_FEE"
+    : (feeClass.fee_status === "PENDING" || feeClass.fee_status === "UNAVAILABLE"
       ? "PENDING_PROVIDER_FEE" as const
       : "CONFIRMED" as const);
+  const onecabNet = feeClass.confirmed_provider_fee_pence != null
+    ? onecabNetFromSessionFee({
+      gross_commission_pence: grossCommission,
+      provider_processing_fee_pence: feeClass.confirmed_provider_fee_pence,
+      sessionsMapPresent: sessionsMapPresent && session != null && !sessionAmbiguous,
+    })
+    : null;
+
   const authorisedPence = session?.authorised_amount_pence != null
     ? Math.max(0, session.authorised_amount_pence)
     : null;
   const releasedPence = session?.released_amount_pence != null
     ? Math.max(0, session.released_amount_pence)
     : null;
-  const grossCommission = tripGrossCommissionPence(row);
-  const onecabNet = onecabNetFromSessionFee({
-    gross_commission_pence: grossCommission,
-    provider_processing_fee_pence: processingFeePence,
-    sessionsMapPresent,
-  });
 
   // Payment Sessions owns expected capture / variance / classification.
   // FR consume-only: read persisted metadata.capture_breakdown — never rebuild from trip fare.
@@ -945,6 +959,8 @@ export function mapTripToFinancialAuditRow(
     : null;
   const capture_reconciliation_status = isCash
     ? "MATCHED"
+    : sessionAmbiguous
+    ? "PAYMENT_SESSION_AMBIGUOUS" as CaptureReconciliationStatus
     : payment_evidence_status === "PAYMENT_EVIDENCE_UNAVAILABLE"
     ? "PAYMENT_EVIDENCE_UNAVAILABLE"
     : payment_evidence_status === "NO_PAYMENT_SESSION"
@@ -1015,6 +1031,7 @@ export function mapTripToFinancialAuditRow(
   if (!walletEvidenceAvailable) warnings.push("WALLET_EVIDENCE_UNAVAILABLE");
   if (!payoutEvidenceAvailable) warnings.push("PAYOUT_EVIDENCE_UNAVAILABLE");
   if (fee_status === "PENDING_PROVIDER_FEE") warnings.push("PROVIDER_FEE_PENDING");
+  if (sessionAmbiguous) warnings.push("PAYMENT_SESSION_AMBIGUOUS");
   if (psCaptureBreakdown == null && !isCash && payment_evidence_status === "PAYMENT_SESSIONS") {
     warnings.push("PAYMENT_SESSION_CAPTURE_BREAKDOWN_PENDING");
   }
@@ -1024,6 +1041,7 @@ export function mapTripToFinancialAuditRow(
     : capture_reconciliation_status === "OVERCAPTURE"
       || capture_reconciliation_status === "CAPTURE_SHORTFALL"
       || capture_reconciliation_status === "PAYMENT_SESSION_CAPTURE_MISMATCH"
+      || capture_reconciliation_status === "PAYMENT_SESSION_AMBIGUOUS"
       || capture_reconciliation_status === "NO_PAYMENT_SESSION"
       || (captured == null && payment_evidence_status === "PAYMENT_SESSIONS");
 
@@ -1047,12 +1065,16 @@ export function mapTripToFinancialAuditRow(
     captured_pence: captured,
     driver_net_pence: expectedDriverNet,
     commission_pence: grossCommission,
+    commission_after_promotion_pence: commissionAfterPromotion,
     airport_charge_pence: airportPence,
     tips_pence: tipPence,
   });
   const settlementIdentityBalanced = settlementIdentity.balanced;
   const walletMismatchDiagnostic =
     wallet_reconciliation_status === "WALLET_CREDIT_MISSING"
+    || wallet_reconciliation_status === "WALLET_OVER_CREDITED"
+    || wallet_reconciliation_status === "WALLET_UNDER_CREDITED"
+    || wallet_reconciliation_status === "WALLET_DUPLICATE"
     || wallet_reconciliation_status === "WALLET_OVER_CREDIT"
     || wallet_reconciliation_status === "WALLET_UNDER_CREDIT"
     || wallet_reconciliation_status === "DUPLICATE_WALLET_CREDIT";
@@ -1081,6 +1103,18 @@ export function mapTripToFinancialAuditRow(
     service_area_id: row.service_area_id ?? null,
     provider_payment_id: paymentIntentId,
     payment_session_id: session?.payment_session_id ?? null,
+    canonical_payment_session_ids: (session as CanonicalPaymentSessionMoney | null)
+      ?.canonical_payment_session_ids ?? (session?.payment_session_id ? [session.payment_session_id] : []),
+    payment_session_resolution_status: (session as CanonicalPaymentSessionMoney | null)
+      ?.session_resolution_status ?? "RESOLVED",
+    financial_model: row.financial_model ?? null,
+    locked_promotion_pence: lockedPromotionPence,
+    commission_after_promotion_pence: commissionAfterPromotion,
+    pre_promotion_commissionable_fare_pence: prePromotionCommissionable,
+    confirmed_provider_fee_pence: feeClass.confirmed_provider_fee_pence,
+    pending_provider_fee_pence: feeClass.pending_provider_fee_pence,
+    provider_fee_status: feeClass.fee_status,
+    provider_fee_source: feeClass.fee_source,
     customer_paid_pence: customerPaid,
     gross_fare_pence: grossFarePence,
     discount_pence: discountPence,
@@ -1250,7 +1284,7 @@ export function buildTripFinancialAuditContext(args: {
   }
 
   const paymentSessionByTripId = args.paymentSessions
-    ? buildPaymentSessionMoneyByTrip(args.paymentSessions)
+    ? resolveCanonicalPaymentSessionMoneyByTrip(args.paymentSessions)
     : undefined;
 
   return {

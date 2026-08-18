@@ -68,3 +68,31 @@ Deno.test("post-capture settlement persists stamp columns with wallet credit", a
   assertEquals(src.includes("tripSettlementDbColumns"), true);
   assertEquals(src.includes("credit.settlement"), true);
 });
+
+Deno.test("complete_trip card path delegates wallet posting to finalize-trip-and-capture", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../stop-workflow/index.ts", import.meta.url),
+  );
+  const settlement = await Deno.readTextFile(
+    new URL("./tripSettlement.ts", import.meta.url),
+  );
+  const invoke = await Deno.readTextFile(
+    new URL("./invokeFinalizeTripCapture.ts", import.meta.url),
+  );
+  assertEquals(src.includes("tripSettlementDbColumns"), true);
+  assertEquals(src.includes('from "../_shared/tripSettlement.ts"'), true);
+  assertEquals(src.includes("const skipCardLedgerInStopWorkflow = needsProviderSettlement"), true);
+  assertEquals(src.includes("&& !skipCardLedgerInStopWorkflow && mayPostDriverWalletLedger"), true);
+  assertEquals(src.includes('tripFinancialModel === "PLATFORM_COLLECTED"'), true);
+  assertEquals(src.includes("invokeFinalizeTripCapture"), true);
+  assertEquals(src.includes("/functions/v1/finalize-trip-and-capture"), false);
+  assertEquals(invoke.includes("/functions/v1/finalize-trip-and-capture"), true);
+  assertEquals(src.includes('from "../_shared/applyCanonicalSettlementAfterCapture.ts"'), false);
+  assertEquals(src.includes('from "../_shared/capturedTripWalletRecovery.ts"'), false);
+  assertEquals(src.includes("provider_fee_amount"), false);
+  const dbStart = settlement.indexOf("export function tripSettlementDbColumns");
+  const dbEnd = settlement.indexOf("export function mergeFareSnapshotSettlementJson", dbStart);
+  const dbColumns = settlement.slice(dbStart, dbEnd);
+  assertEquals(dbColumns.includes("provider_fee_pence"), true);
+  assertEquals(dbColumns.includes("provider_fee_amount"), false);
+});

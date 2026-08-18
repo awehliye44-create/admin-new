@@ -93,6 +93,7 @@ describe("driver wallet payout clearing lock", () => {
         amount_pence: 2239,
         related_trip_id: "trip-2239",
         created_at: FRESH_CAPTURE,
+        economic_earned_at: FRESH_CAPTURE,
       },
     ];
     const pendingAgg = aggregateDriverPayoutEligibility({

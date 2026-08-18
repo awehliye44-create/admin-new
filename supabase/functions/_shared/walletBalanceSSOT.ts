@@ -9,10 +9,15 @@ import {
 
 export { BALANCE_EXCLUDED_LEDGER_TYPES, computeLedgerWalletBalancePence };
 
-/** Reporting-only types excluded from wallet balance (same as BALANCE_EXCLUDED_LEDGER_TYPES). */
-export const WALLET_BALANCE_EXCLUDED_LEDGER_TYPES = new Set<string>(
-  BALANCE_EXCLUDED_LEDGER_TYPES,
-);
+/**
+ * Ledger types excluded from wallet balance (driver liability calculation).
+ * Ownership model: wallet balance should exclude only platform commission and
+ * cash-trip earnings; other audit rows are included in driver liability math.
+ */
+export const WALLET_BALANCE_EXCLUDED_LEDGER_TYPES = new Set<string>([
+  "PLATFORM_COMMISSION",
+  "CASH_TRIP_EARNING",
+]);
 
 export type WalletBalanceLedgerRow = {
   driver_id?: string | null;

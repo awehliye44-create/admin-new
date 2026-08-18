@@ -92,7 +92,8 @@ export type FinanceBackendAuditV1 = {
 };
 
 export type FinanceBackendAuditResponse = {
-  finance_backend_audit_v1: FinanceBackendAuditV1;
+  finance_backend_audit_v1: FinanceBackendAuditV1 | null;
+  error?: string;
   provider_platform_payouts?: {
     paid_today_pence: number;
     paid_all_time_pence: number;
@@ -139,5 +140,7 @@ export function useFinanceBackendAudit(args?: {
       ),
     enabled,
     staleTime: 30_000,
+    retry: 1,
+    meta: { suppressErrorToast: true },
   });
 }

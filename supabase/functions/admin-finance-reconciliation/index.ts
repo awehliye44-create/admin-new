@@ -32,9 +32,11 @@ import {
 } from "../_shared/providerPlatformBalanceSSOT.ts";
 import { computeLedgerWalletBalancePence } from "../_shared/onecabFinanceLedger.ts";
 import {
-  buildFrAuditOverviewKpis,
-  buildFrCustomerMoneyKpisFromPaymentSessions,
-} from "../_shared/frTripAuditComparisonSSOT.ts";
+  aggregateFrOverviewFromPerTripRecords,
+  buildFrPerTripAuditRecord,
+  buildFrPeriodAuditSummary,
+  resolveCanonicalPaymentSessionMoneyByTrip,
+} from "../_shared/frPerTripAuditSSOT.ts";
 import {
   applyFinanceReconciliationTripLocationFilter,
   buildFinanceReconciliationTripQuery,
@@ -42,7 +44,7 @@ import {
 } from "../_shared/financeReconciliationTripQuery.ts";
 
 const PAYMENT_SESSION_MONEY_SELECT =
-  "id, trip_id, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at, release_evidence_status, release_evidence_source, release_verified_at, metadata";
+  "id, trip_id, purpose, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at, release_evidence_status, release_evidence_source, release_verified_at, metadata";
 
 const TRIP_AUDIT_SELECT = `
         id,
@@ -232,6 +234,10 @@ function computeProviderHealthStatus(args: {
   connectBundleExpected: boolean;
   connectBundleLoaded: boolean;
 }): "healthy" | "degraded" | "failing" {
+  // FR intentionally does not query provider balance — not a webhook/provider failure.
+  if (args.providerBalanceError === "PROVIDER_BALANCE_NOT_QUERIED_BY_FR") {
+    return "healthy";
+  }
   if (args.providerBalanceError) {
     return args.providerBalanceError === "connect_money_movement_timeout" ? "degraded" : "failing";
   }
@@ -955,6 +961,7 @@ serve(async (req) => {
       let todayTripQuery = supabase
         .from("trips")
         .select("id, completed_at, payment_method")
+        .eq("financial_model", "PLATFORM_COLLECTED")
         .gte("completed_at", londonStart.toISOString())
         .lte("completed_at", londonEnd.toISOString())
         .not("completed_at", "is", null)
@@ -1097,23 +1104,18 @@ serve(async (req) => {
       payoutsDownstream,
     ].some((s) => s === "UNAVAILABLE");
     const pageStatus = anyDownstreamUnavailable ? "PARTIAL" : "LIVE";
-    const auditRowOverview = buildFrAuditOverviewKpis(trip_financial_audit);
-    const psCustomerMoney = buildFrCustomerMoneyKpisFromPaymentSessions(paymentSessionRows);
-    // Customer money widgets = Payment Sessions only (never FR trip-fare rollup).
-    const audit_overview_kpis = {
-      ...auditRowOverview,
-      completed_trip_fare_total_pence: psCustomerMoney.completed_trip_fare_total_pence,
-      confirmed_provider_captured_total_pence: psCustomerMoney.confirmed_provider_captured_total_pence,
-      refunded_total_pence: psCustomerMoney.refunded_total_pence,
-      released_total_pence: psCustomerMoney.released_total_pence,
-      provider_fee_total_pence: psCustomerMoney.provider_fee_total_pence,
-      capture_shortfall_pence: psCustomerMoney.capture_shortfall_pence,
-      overcapture_pence: psCustomerMoney.overcapture_pence,
-      missing_captures_count: psCustomerMoney.missing_captures_count,
-      missing_releases_count: psCustomerMoney.missing_releases_count,
-      airport_charges_total_pence: psCustomerMoney.airport_charges_total_pence,
-      driver_tips_total_pence: psCustomerMoney.driver_tips_total_pence,
-    };
+    const canonicalSessionsByTrip = resolveCanonicalPaymentSessionMoneyByTrip(paymentSessionRows);
+    const fr_per_trip_audit = trip_financial_audit.map((row) =>
+      buildFrPerTripAuditRecord({
+        row: row as unknown as Record<string, unknown>,
+        session: canonicalSessionsByTrip.get(row.trip_id) ?? null,
+      }),
+    );
+    const fr_period_audit = buildFrPeriodAuditSummary(fr_per_trip_audit);
+    const audit_overview_kpis = aggregateFrOverviewFromPerTripRecords(
+      fr_per_trip_audit,
+      trip_financial_audit as unknown as Array<Record<string, unknown>>,
+    );
 
     return new Response(JSON.stringify({
       success: true,
@@ -1130,6 +1132,8 @@ serve(async (req) => {
       finance_reconciliation_summary,
       platform_kpis,
       audit_overview_kpis,
+      fr_per_trip_audit,
+      fr_period_audit,
       trip_financial_audit,
       trips: trip_financial_audit,
       drivers: undefined,
@@ -1160,6 +1164,7 @@ serve(async (req) => {
         payment_provider_environment: financeScopeProvider.environment,
         manual_provider_payout: financeScopeProvider.manual_provider_payout,
         provider_balance_error: providerBalanceError,
+        provider_balance_not_queried_by_fr: providerBalanceError === "PROVIDER_BALANCE_NOT_QUERIED_BY_FR",
         provider_balance_is_not_payment_truth: true,
         ssot_version: SSOT_VERSION,
         data_source_badge: pageStatus,

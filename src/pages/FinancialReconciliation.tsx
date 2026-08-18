@@ -164,6 +164,8 @@ function FinancialReconciliationPage() {
 
   const {
     data: backendAuditData,
+    error: backendAuditError,
+    isError: backendAuditIsError,
   } = useFinanceBackendAudit({
     filter,
     from: from || undefined,
@@ -419,6 +421,17 @@ function FinancialReconciliationPage() {
             </AlertDescription>
           </Alert>
         )}
+        {backendAuditIsError && (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Backend wallet audit unavailable</AlertTitle>
+            <AlertDescription>
+              Trip and wallet SSOT tabs still load. Alerts may omit ledger/payout integrity rows until{' '}
+              <code>finance-backend-audit-v1</code> recovers.
+              {backendAuditError instanceof Error ? ` ${backendAuditError.message}` : null}
+            </AlertDescription>
+          </Alert>
+        )}
 
         <DigitalFinanceEraPanel />
 
@@ -501,6 +514,7 @@ function FinancialReconciliationPage() {
                 <FinancialReconciliationAlertsTab
                   ssot={ssot}
                   backendAudit={backendAudit}
+                  backendAuditError={backendAuditIsError && backendAuditError instanceof Error ? backendAuditError : null}
                   money={money}
                   readOnly={readOnly}
                 />

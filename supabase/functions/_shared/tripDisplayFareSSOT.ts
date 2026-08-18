@@ -322,6 +322,7 @@ export function buildBookingFinancialSnapshot(
   const fare_snapshot_json: Record<string, unknown> = {
     ...(fareSnapshotJson ?? {}),
     gross_fare_pence: gross,
+    original_fare_pence: gross,
     locked_base_fare_pence: gross,
     final_payable_fare_pence: payable,
     canonical_payable_fare_pence: payable,

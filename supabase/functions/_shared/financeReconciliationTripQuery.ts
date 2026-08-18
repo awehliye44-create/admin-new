@@ -5,6 +5,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { COUNTABLE_FINANCIAL_OUTCOMES } from "./financeSettlementSummary.ts";
+import { SERVICE_AREA_FINANCIAL_MODEL } from "./commissionWalletSSOT.ts";
 
 export const FINANCE_RECONCILIATION_TRIP_AUDIT_LIMIT_DEFAULT = 10_000;
 export const FINANCE_RECONCILIATION_TRIP_AUDIT_LIMIT_MAX = 10_000;
@@ -52,6 +53,9 @@ export async function applyFinanceReconciliationTripLocationFilter<T extends {
   return query;
 }
 
+export const FINANCE_RECONCILIATION_TRIP_FINANCIAL_MODEL =
+  SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED;
+
 export function buildFinanceReconciliationTripQuery(
   supabase: SupabaseClient,
   args: {
@@ -64,6 +68,7 @@ export function buildFinanceReconciliationTripQuery(
   return supabase
     .from("trips")
     .select(args.select)
+    .eq("financial_model", FINANCE_RECONCILIATION_TRIP_FINANCIAL_MODEL)
     .gte("completed_at", args.periodFrom)
     .lte("completed_at", args.periodTo)
     .or(FINANCE_RECONCILIATION_TRIP_TERMINAL_OR)

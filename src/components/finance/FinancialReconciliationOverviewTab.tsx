@@ -60,6 +60,12 @@ export function FinancialReconciliationOverviewTab({
     commissionable_fare_total_pence?: number;
     settlement_identity_variance_pence?: number | null;
     settlement_identity_balanced?: boolean;
+    settlement_identity_evaluable_trip_count?: number;
+    settlement_identity_pending_trip_count?: number;
+    evaluated_trip_count?: number;
+    pending_trip_count?: number;
+    matched_trip_count?: number;
+    mismatched_trip_count?: number;
     unallocated_pence?: number | null;
     capture_shortfall_pence: number;
     overcapture_pence: number;
@@ -99,6 +105,8 @@ export function FinancialReconciliationOverviewTab({
       ? '—'
       : o.settlement_identity_balanced === true
       ? 'BALANCED'
+      : o.settlement_identity_variance_pence == null && (o.settlement_identity_pending_trip_count ?? 0) > 0
+      ? `PENDING (${o.settlement_identity_pending_trip_count} trips)`
       : o.settlement_identity_variance_pence == null
       ? 'PENDING_SYNC'
       : `MISMATCH ${fmt(o.settlement_identity_variance_pence)}`;
@@ -204,7 +212,7 @@ export function FinancialReconciliationOverviewTab({
         <KpiCard
           label="Settlement identity"
           value={settlementLabel}
-          subtitle="Captured = net + commission + airport + tips"
+          subtitle="Captured = driver + commission after promotion + airport + tips"
         />
         <KpiCard
           label="Driver audit status"
@@ -213,10 +221,10 @@ export function FinancialReconciliationOverviewTab({
         />
         <KpiCard label="Missing Captures" value={o?.missing_captures_count ?? '—'} />
         <KpiCard label="Missing Releases" value={o?.missing_releases_count ?? '—'} />
-        <KpiCard label="Wallet Mismatches" value={o?.wallet_mismatches_count ?? '—'} />
+        <KpiCard label="Trips with wallet mismatches" value={o?.wallet_mismatches_count ?? '—'} />
         <KpiCard label="Payout Mismatches" value={o?.payout_mismatches_count ?? '—'} />
         <KpiCard label="Balanced trips" value={o?.balanced_trips_count ?? '—'} />
-        <KpiCard label="Unresolved mismatches" value={o?.unresolved_mismatches_count ?? '—'} />
+        <KpiCard label="Trips with unresolved mismatches" value={o?.unresolved_mismatches_count ?? '—'} />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">

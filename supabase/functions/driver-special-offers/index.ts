@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   buildDriverOffersPayload,
+  sanitiseOfferForApp,
   type DriverEligibilityContext,
   type DriverSpecialOfferRow,
   type OfferAreaMap,
@@ -76,20 +77,21 @@ Deno.serve(async (req) => {
     const { data: offers, error: offersErr } = await admin
       .from("driver_special_offers")
       .select("*")
+      .eq("audience", "driver")
       .eq("status", "published")
       .eq("is_active", true);
     if (offersErr) throw offersErr;
 
     const offerIds = (offers ?? []).map((o: { id: string }) => o.id);
     const areaMap: OfferAreaMap = {};
+    // Join table has no FK to service_areas, so PostgREST cannot embed
+    // `service_areas!inner(...)`. The driver's area is already confirmed active above.
     if (offerIds.length && driver.service_area_id && areaActive) {
-      // Only ACTIVE service-area assignments count.
       const { data: links, error: linkErr } = await admin
         .from("driver_special_offer_service_areas")
-        .select("offer_id, service_area_id, service_areas!inner(is_active)")
+        .select("offer_id, service_area_id")
         .in("offer_id", offerIds)
-        .eq("service_area_id", driver.service_area_id)
-        .eq("service_areas.is_active", true);
+        .eq("service_area_id", driver.service_area_id);
       if (linkErr) throw linkErr;
       for (const l of (links ?? []) as Array<{ offer_id: string; service_area_id: string }>) {
         (areaMap[l.offer_id] ??= []).push(l.service_area_id);
@@ -111,26 +113,7 @@ Deno.serve(async (req) => {
       context,
     );
 
-    // Strip internal-only fields before returning to the app.
-    const sanitised = payload.offers.map((o) => ({
-      id: o.id,
-      title: o.title,
-      partner_name: o.partner_name,
-      short_description: o.short_description,
-      full_details: o.full_details,
-      badge_label: o.badge_label,
-      image_path: o.image_path,
-      website_url: o.website_url,
-      phone_number: o.phone_number,
-      email_address: o.email_address,
-      promo_code: o.promo_code,
-      internal_route: o.internal_route,
-      website_button_label: o.website_button_label ?? "Website",
-      phone_button_label: o.phone_button_label ?? "Phone",
-      email_button_label: o.email_button_label ?? "Email",
-      is_featured: o.is_featured,
-      display_order: o.display_order,
-    }));
+    const sanitised = payload.offers.map(sanitiseOfferForApp);
 
     return json({
       banner: payload.banner,

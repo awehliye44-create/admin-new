@@ -64,6 +64,8 @@ export type DriverWalletPayoutSnapshot = {
   scheduled_payout_display_pence: number | null;
   local_only_failed_payout_pence: number;
   failed_payout_stuck_processing_pence: number;
+  /** Legacy field: Connect audit status (NOT FR reconciliation). */
+  provider_connect_audit_status: ProviderConnectAuditStatus;
   reconciliation_status: ReconciliationStatus;
   reconciliation_reasons: string[];
   wallet_balance_pence: number;
@@ -77,7 +79,15 @@ export type ReconciliationStatus =
   | "MISMATCH"
   | "LOCAL_ONLY"
   | "PROVIDER_ONLY"
-  | "PROVIDER_NEGATIVE";
+  | "PROVIDER_NEGATIVE"
+  | "PROVIDER_BALANCE_UNAVAILABLE";
+
+export type ProviderConnectAuditStatus =
+  | "OK"
+  | "MISMATCH"
+  | "LOCAL_ONLY"
+  | "UNAVAILABLE"
+  | "NOT_APPLICABLE";
 
 const ACTIVE_BATCH_STATUSES = new Set(["pending", "processing"]);
 
@@ -235,6 +245,12 @@ export function computeDriverWalletPayoutSnapshot(
     reasons.push("provider platform available balance is negative");
   }
 
+  // If provider physical cash availability is unknown, treat as unavailable.
+  if (!manualBank && providerAvailable == null) {
+    status = "PROVIDER_BALANCE_UNAVAILABLE";
+    reasons.push("provider available evidence missing (null)");
+  }
+
   const providerWithoutLedger = Math.max(0, input.provider_payout_without_ledger_debit_pence ?? 0);
   const ledgerWithoutProvider = Math.max(0, input.ledger_debit_without_provider_payout_pence ?? 0);
   const localFailed = Math.max(0, input.local_only_failed_payout_pence ?? 0);
@@ -270,6 +286,18 @@ export function computeDriverWalletPayoutSnapshot(
     || (!manualBank && status !== "BALANCED");
   const cashoutLimit = freezeAutomaticPayout ? 0 : cashoutLimitRaw;
 
+  const providerConnectAuditStatus: ProviderConnectAuditStatus = manualBank
+    ? "NOT_APPLICABLE"
+    : status === "PROVIDER_BALANCE_UNAVAILABLE"
+      ? "UNAVAILABLE"
+      : status === "LOCAL_ONLY"
+        ? "LOCAL_ONLY"
+        : status === "MISMATCH"
+          ? "MISMATCH"
+          : status === "BALANCED"
+            ? "OK"
+            : "OK";
+
   return {
     current_onecab_wallet_owed_pence: walletOwed,
     finance_cleared_amount_pence: financeCleared,
@@ -282,6 +310,7 @@ export function computeDriverWalletPayoutSnapshot(
     scheduled_payout_display_pence: scheduledDisplay,
     local_only_failed_payout_pence: localFailed,
     failed_payout_stuck_processing_pence: stuckProcessing,
+    provider_connect_audit_status: providerConnectAuditStatus,
     reconciliation_status: status,
     reconciliation_reasons: reasons,
     wallet_balance_pence: walletSigned,

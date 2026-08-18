@@ -37,6 +37,23 @@ Deno.test("FR trip audit status includes WALLET_MISMATCH and does not own postin
   assertEquals(FR_TRIP_AUDIT_STATUS.WALLET_MISMATCH, "WALLET_MISMATCH");
 });
 
+Deno.test("FR contains no captured-trip wallet recovery / money write path", async () => {
+  const files = [
+    "../financial-ssot-monitor/index.ts",
+    "./frPerTripAuditSSOT.ts",
+    "./frConsumeOnlySSOT.ts",
+    "./frTripAuditComparisonSSOT.ts",
+    "../admin-finance-reconciliation/index.ts",
+  ];
+  for (const rel of files) {
+    const src = await Deno.readTextFile(new URL(rel, import.meta.url));
+    assertEquals(src.includes("recoverCapturedTripWallet"), false, rel);
+    assertEquals(src.includes("capturedTripWalletRecovery"), false, rel);
+    assertEquals(src.includes("creditCapturedCardTripLedger"), false, rel);
+    assertEquals(src.includes('from("driver_wallet_ledger").insert'), false, rel);
+  }
+});
+
 Deno.test("activation gates recovery only — never fresh_capture", async () => {
   const src = await Deno.readTextFile(
     new URL("./applyCanonicalSettlementAfterCapture.ts", import.meta.url),
@@ -44,10 +61,10 @@ Deno.test("activation gates recovery only — never fresh_capture", async () => 
   assertEquals((src.match(/mayRetryWalletPosting/g) ?? []).length, 2);
   const recoveryGate = src.slice(
     src.indexOf('if (mode === "recovery") {'),
-    src.indexOf("const session = await loadPaymentSessionCaptureGate"),
+    src.indexOf("let gateLoad = await loadPaymentSessionCaptureGate"),
   );
   assertEquals(recoveryGate.includes("mayRetryWalletPosting"), true);
-  const afterGate = src.slice(src.indexOf("const session = await loadPaymentSessionCaptureGate"));
+  const afterGate = src.slice(src.indexOf("let gateLoad = await loadPaymentSessionCaptureGate"));
   assertEquals(afterGate.includes("mayRetryWalletPosting"), false);
 });
 
@@ -66,7 +83,7 @@ Deno.test("recovery saved-stamp helper source never calls tripSettlement calcula
     new URL("./applyCanonicalSettlementAfterCapture.ts", import.meta.url),
   );
   const start = src.indexOf("export function recoveryWalletCreditFromSavedStamps");
-  const end = src.indexOf("async function loadPaymentSessionCaptureGate");
+  const end = src.indexOf("function supabaseErrorParts");
   const fn = src.slice(start, end);
   assertEquals(fn.includes("calculateTripSettlement"), false);
   assertEquals(fn.includes("resolveCapturedTripEarningNetPence"), false);

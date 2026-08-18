@@ -1,13 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildCustomerOffersPayload,
   buildDriverOffersBanner,
   buildDriverOffersPayload,
+  customerEligibilityContext,
   describeOfferScope,
   formatUkPhoneForDisplay,
   isDriverEligible,
   isOfferLive,
   matchesOfferScope,
   normaliseUkPhone,
+  selectCustomerOffers,
   selectDriverOffers,
   validateOfferScope,
   validateSpecialOfferDraft,
@@ -235,6 +238,62 @@ describe('Home banner', () => {
     const banner = buildDriverOffersBanner(selectDriverOffers([a, b], {}, driver(), NOW));
     expect(banner?.offer_id).toBe('b');
     expect(banner?.button_label).toBe(DEFAULT_BANNER_BUTTON_LABEL);
+  });
+
+  it('still opens Home when only list offers are live (Admin default banner toggle off)', () => {
+    const listOnly = offer({ id: 'list', show_in_home_banner: false, show_in_offer_list: true, scope_type: 'global' });
+    const payload = buildDriverOffersPayload([listOnly], {}, driver(), NOW);
+    expect(payload.banner?.offer_id).toBe('list');
+    expect(payload.banner?.headline).toBe('Special offers just for you!');
+    expect(payload.offers).toHaveLength(1);
+  });
+
+  it('uses Admin banner headline on a list-only live offer', () => {
+    const listOnly = offer({
+      id: 'list',
+      show_in_home_banner: false,
+      show_in_offer_list: true,
+      scope_type: 'global',
+      banner_headline: 'onecab park',
+    });
+    const payload = buildDriverOffersPayload([listOnly], {}, driver(), NOW);
+    expect(payload.banner?.headline).toBe('onecab park');
+  });
+
+  it('Customer Home never replaces View offers with Admin button copy', () => {
+    const live = offer({
+      id: 'list',
+      show_in_home_banner: false,
+      show_in_offer_list: true,
+      scope_type: 'global',
+      banner_headline: 'onecab park',
+      banner_button_label: 'onecab WZ',
+    });
+    const payload = buildCustomerOffersPayload([live], {}, customerEligibilityContext({
+      service_area_id: MK,
+      service_area_active: true,
+      region_id: UK1,
+    }), NOW);
+    expect(payload.banner?.headline).toBe('onecab park');
+    expect(payload.banner?.button_label).toBe('View offers');
+  });
+
+  it('customer geo context never applies driver-only eligibility gates', () => {
+    const mkOffer = offer({
+      id: 'mk',
+      scope_type: 'selected_service_areas',
+      minimum_completed_trips: 999,
+      new_drivers_only: true,
+      eligible_driver_tiers: ['Gold'],
+    });
+    const customer = customerEligibilityContext({
+      service_area_id: MK,
+      service_area_active: true,
+      region_id: UK1,
+    });
+    expect(selectCustomerOffers([mkOffer], { mk: [MK] }, customer, NOW)).toHaveLength(1);
+    expect(selectDriverOffers([mkOffer], { mk: [MK] }, customer, NOW)).toHaveLength(0);
+    expect(buildCustomerOffersPayload([mkOffer], { mk: [MK] }, customer, NOW).offers).toHaveLength(1);
   });
 });
 

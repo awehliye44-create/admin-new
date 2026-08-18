@@ -233,3 +233,20 @@ verify_jwt = false
 # Meta WhatsApp Cloud API — hub.verify_token + X-Hub-Signature-256 (no Supabase JWT).
 [functions.whatsapp-webhook]
 verify_jwt = false
+
+# Special Offers feeds — JWT validated inside the function (driver vs customer audience).
+[functions.driver-special-offers]
+verify_jwt = false
+
+[functions.customer-special-offers]
+verify_jwt = false
+
+# Captured-trip wallet recovery — JWT checked inside (Super Admin / service-role).
+# Do not deploy until explicitly approved. Dry-run defaults to true.
+[functions.admin-recover-captured-trip-wallet]
+verify_jwt = false
+
+# Temporary Step 4F.1 MK-007/MK-009 dry-run recovery — JWT checked inside.
+# Live execution is disabled. Do not deploy until auth/schema/recovery tests pass.
+[functions.admin-recover-mk007-mk009-wallet]
+verify_jwt = false

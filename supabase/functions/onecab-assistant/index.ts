@@ -13,6 +13,9 @@
 
 import { createHandler, corsHeaders } from "./handler.ts";
 import { createAssistantDb } from "./db.ts";
+import { createCustomerAuthenticator } from "./customerAssistantRuntime.ts";
+import { createDriverAuthenticator } from "./driverAssistantRuntime.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const url = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -27,10 +30,13 @@ Deno.serve(async (req) => {
     });
   }
 
+  const admin = createClient(url, serviceRoleKey, { auth: { persistSession: false } });
   const handler = createHandler({
     env: (key) => Deno.env.get(key),
     fetch: globalThis.fetch,
     db: createAssistantDb(url, serviceRoleKey),
+    authenticateDriver: createDriverAuthenticator(admin),
+    authenticateCustomer: createCustomerAuthenticator(admin),
   });
 
   return handler(req);

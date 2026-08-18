@@ -15,6 +15,12 @@ export const FR_TRIP_AUDIT_STATUS = {
   PROVIDER_EVIDENCE_PENDING: "PROVIDER_EVIDENCE_PENDING",
   UNAVAILABLE: "UNAVAILABLE",
   PENDING_SYNC: "PENDING_SYNC",
+  /**
+   * Settlement was calculated on the post-discount fare base instead of the
+   * original pre-promotion fare.  Driver entitlement was under-calculated at booking time.
+   * FR reports this defect — it does not repair settlement stamps or wallet entries.
+   */
+  SETTLEMENT_BASE_DEFECT: "SETTLEMENT_BASE_DEFECT",
 } as const;
 
 export type FrTripAuditStatus =
@@ -28,6 +34,8 @@ export function evaluateFrSettlementCaptureIdentity(args: {
   captured_pence: number | null | undefined;
   driver_net_pence: number | null | undefined;
   commission_pence: number | null | undefined;
+  /** When set, promotion identity uses commission after locked ONECAB promotion — not gross. */
+  commission_after_promotion_pence?: number | null | undefined;
   airport_charge_pence: number | null | undefined;
   tips_pence: number | null | undefined;
 }): {
@@ -41,9 +49,12 @@ export function evaluateFrSettlementCaptureIdentity(args: {
   if (args.driver_net_pence == null || args.commission_pence == null) {
     return { balanced: false, variance_pence: null, evaluable: false };
   }
+  const commissionForIdentity = args.commission_after_promotion_pence != null
+    ? Math.round(Number(args.commission_after_promotion_pence))
+    : Math.round(Number(args.commission_pence));
   const rhs =
     Math.max(0, Math.round(Number(args.driver_net_pence)))
-    + Math.max(0, Math.round(Number(args.commission_pence)))
+    + commissionForIdentity
     + Math.max(0, Math.round(Number(args.airport_charge_pence ?? 0)))
     + Math.max(0, Math.round(Number(args.tips_pence ?? 0)));
   const variance = Math.round(Number(args.captured_pence)) - rhs;
@@ -101,6 +112,8 @@ export function resolveFrTripAuditStatus(args: {
   fee_status?: string | null;
   settlement_identity_balanced?: boolean | null;
   payment_evidence_status?: string | null;
+  /** Pass "SETTLEMENT_BASE_DEFECT" to surface the settlement-base defect status. */
+  promotion_application_status?: string | null;
 }): FrTripAuditStatus {
   const capture = String(args.capture_reconciliation_status ?? "");
   const release = String(args.release_reconciliation_status ?? "");
@@ -127,8 +140,15 @@ export function resolveFrTripAuditStatus(args: {
     return FR_TRIP_AUDIT_STATUS.CAPTURE_MISMATCH;
   }
 
+  if (String(args.promotion_application_status ?? "") === "SETTLEMENT_BASE_DEFECT") {
+    return FR_TRIP_AUDIT_STATUS.SETTLEMENT_BASE_DEFECT;
+  }
+
   if (
     wallet === "WALLET_CREDIT_MISSING"
+    || wallet === "WALLET_OVER_CREDITED"
+    || wallet === "WALLET_UNDER_CREDITED"
+    || wallet === "WALLET_DUPLICATE"
     || wallet === "WALLET_OVER_CREDIT"
     || wallet === "WALLET_UNDER_CREDIT"
     || wallet === "DUPLICATE_WALLET_CREDIT"
@@ -168,7 +188,8 @@ export function resolveFrTripAuditStatus(args: {
   }
 
   if (
-    wallet === "WALLET_CREDIT_PENDING"
+    wallet === "WALLET_PENDING"
+    || wallet === "WALLET_CREDIT_PENDING"
     || wallet === "WALLET_EVIDENCE_UNAVAILABLE"
     || payout === "PAYOUT_EVIDENCE_UNAVAILABLE"
     || args.settlement_identity_balanced == null

@@ -3,14 +3,20 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 /**
  * Operational posting-failure breadcrumb on existing financial_ssot_mismatches.
  * Not a money SSOT. Financial Reconciliation still compares stamps vs Driver Wallet Ledger.
+ * Never inserts wallet money, recaptures, or invokes recovery.
  */
 export async function recordWalletPostingFailureMetadata(
   supabase: SupabaseClient,
   args: {
     tripId: string;
     tripCode?: string | null;
+    driverId?: string | null;
+    paymentSessionId?: string | null;
+    providerCaptureId?: string | null;
     expectedDriverCreditPence: number;
     postedDriverCreditPence?: number;
+    failureStage?: string | null;
+    errorCode?: string | null;
     errorMessage?: string | null;
   },
 ): Promise<void> {
@@ -26,7 +32,12 @@ export async function recordWalletPostingFailureMetadata(
       actual_pence: posted,
       details: {
         status: "WALLET_MISMATCH",
+        driver_id: args.driverId ?? null,
+        payment_session_id: args.paymentSessionId ?? null,
+        provider_capture_id: args.providerCaptureId ?? null,
+        failure_stage: args.failureStage ?? "wallet_insert",
         error: args.errorMessage ?? null,
+        error_code: args.errorCode ?? null,
         difference_pence: expected - posted,
         operational: true,
       },
@@ -74,4 +85,3 @@ export async function recordPaymentSessionPersistFailureMetadata(
     });
   }
 }
-

@@ -357,6 +357,9 @@ export function deriveTripReconciliationBadge(args: {
   }
   if (
     walletStatus === "WALLET_CREDIT_MISSING"
+    ||     walletStatus === "WALLET_OVER_CREDITED"
+    || walletStatus === "WALLET_UNDER_CREDITED"
+    || walletStatus === "WALLET_DUPLICATE"
     || walletStatus === "WALLET_OVER_CREDIT"
     || walletStatus === "WALLET_UNDER_CREDIT"
     || walletStatus === "DUPLICATE_WALLET_CREDIT"

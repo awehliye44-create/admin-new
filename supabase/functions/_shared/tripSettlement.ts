@@ -53,6 +53,19 @@ export type TripSettlementResult = {
   commissionable_fare_pence: number;
   commission_pence: number;
   locked_promotion_pence: number;
+  /**
+   * Promotion absorbed by ONECAB (deducted from commission).
+   * Equals locked_promotion_pence when applied; 0 when the promotion reduces the customer fare
+   * instead of being absorbed by ONECAB commission.
+   * In the canonical formula, applied_customer_promotion_pence = locked_promotion_pence always
+   * because ONECAB funds the global_offer discount from commission.
+   */
+  applied_customer_promotion_pence: number;
+  /**
+   * Gross commission minus applied customer promotion.
+   * May be negative when promotion exceeds commission — preserved as explicit ONECAB subsidy.
+   * Never reduces driver_net_pence.
+   */
   commission_after_promotion_pence: number;
   driver_net_pence: number;
   driver_total_earnings_pence: number;
@@ -91,6 +104,8 @@ export type TripSettlementTripRow = {
   offer_discount_pence?: number | null;
   discount_source?: string | null;
   customer_modification_charge_pence?: number | null;
+  locked_offer_type?: string | null;
+  accepted_driver_offer_fare_pence?: number | null;
 };
 
 function nonNegInt(value: unknown): number {
@@ -105,16 +120,48 @@ export function capTierCommissionPercent(percent: number): number {
   return Math.min(MAX_COMMISSION_PERCENT, n);
 }
 
+/** Prior global_offer is audit-only after driver/customer negotiated fare acceptance. */
+export function isPromotionSupersededByNegotiation(trip: TripSettlementTripRow): boolean {
+  if (trip.locked_offer_type === "negotiated_offer") return true;
+  const snap = trip.fare_snapshot_json;
+  if (!snap || typeof snap !== "object") return false;
+  if (snap.promotion_application_status === "SUPERSEDED_BY_NEGOTIATION") return true;
+  const fareSource = snap.fare_source;
+  return fareSource === "negotiated" || fareSource === "negotiated_offer";
+}
+
 /** Locked ONECAB-funded promotion — existing `offer_discount_pence` when source is global_offer. */
 export function resolveLockedPromotionPence(trip: TripSettlementTripRow): number {
+  if (isPromotionSupersededByNegotiation(trip)) return 0;
   const src = typeof trip.discount_source === "string" ? trip.discount_source : "";
   if (src !== "global_offer") return 0;
   return nonNegInt(trip.offer_discount_pence);
 }
 
+/** Audit-only prior promotion when negotiation superseded global_offer. */
+export function resolvePreviousLockedPromotionPence(trip: TripSettlementTripRow): number {
+  const snap = trip.fare_snapshot_json;
+  if (snap && typeof snap === "object") {
+    const fromSnap = nonNegInt(snap.previous_locked_promotion_pence);
+    if (fromSnap > 0) return fromSnap;
+  }
+  const src = typeof trip.discount_source === "string" ? trip.discount_source : "";
+  if (src !== "global_offer") return 0;
+  return nonNegInt(trip.offer_discount_pence);
+}
+
+/**
+ * Original pre-promotion fare from snapshot.
+ * Prefers the explicit `original_fare_pence` stamp (most semantically precise),
+ * then `gross_fare_pence` (pre-modification fare at booking lock time).
+ * Never uses `final_fare_pence` from snapshot (post-discount).
+ */
 function snapshotGrossFarePence(trip: TripSettlementTripRow): number {
   const snap = trip.fare_snapshot_json;
   if (!snap || typeof snap !== "object") return 0;
+  // original_fare_pence is the authoritative pre-promotion original ride price.
+  const original = nonNegInt(snap.original_fare_pence);
+  if (original > 0) return original;
   return nonNegInt(snap.gross_fare_pence);
 }
 
@@ -130,10 +177,32 @@ export function resolveOriginalPrePromotionRideFarePence(trip: TripSettlementTri
  * global_offer commissionable base: original ride + full-price modifications.
  * Does not add waiting (separate workflow). Does not add gross_fare_pence.
  */
+export function resolveNegotiatedCommissionableFarePence(trip: TripSettlementTripRow): number {
+  const snap = trip.fare_snapshot_json;
+  const negotiated = nonNegInt(snap?.negotiated_commissionable_fare_pence)
+    || nonNegInt(trip.accepted_driver_offer_fare_pence)
+    || nonNegInt(snap?.negotiated_fare_pence)
+    || nonNegInt(trip.final_fare_pence);
+  if (negotiated <= 0) return 0;
+  return negotiated + nonNegInt(trip.customer_modification_charge_pence);
+}
+
 export function resolvePrePromotionCommissionableFarePence(trip: TripSettlementTripRow): number {
+  if (isPromotionSupersededByNegotiation(trip)) {
+    return resolveNegotiatedCommissionableFarePence(trip);
+  }
   const original = resolveOriginalPrePromotionRideFarePence(trip);
   if (original <= 0) return 0;
   return original + nonNegInt(trip.customer_modification_charge_pence);
+}
+
+/** True when global_offer exists but authoritative pre-promotion evidence is absent. */
+export function isPrePromotionFareEvidenceMissing(trip: TripSettlementTripRow): boolean {
+  if (isPromotionSupersededByNegotiation(trip)) return false;
+  const src = typeof trip.discount_source === "string" ? trip.discount_source : "";
+  if (src !== "global_offer") return false;
+  if (nonNegInt(trip.offer_discount_pence) <= 0) return false;
+  return resolveOriginalPrePromotionRideFarePence(trip) <= 0;
 }
 
 /**
@@ -178,7 +247,12 @@ export function calculateTripSettlement(input: TripSettlementInput): TripSettlem
   const commissionPence = Math.round((commissionableFarePence * tierPercentUsed) / 100);
   const driverNetPence = Math.max(0, commissionableFarePence - commissionPence);
   const driverTotalEarningsPence = driverNetPence + airportChargePence + tipsPence;
-  const commissionAfterPromotionPence = commissionPence - lockedPromotionPence;
+  // The applied customer promotion is always the full locked promotion (ONECAB funds it from commission).
+  // Customer modifications are full-price and receive no promotion.
+  const appliedCustomerPromotionPence = lockedPromotionPence;
+  // commission_after_promotion may be negative (explicit ONECAB subsidy) — never clamped.
+  // driver_net is never reduced by the promotion.
+  const commissionAfterPromotionPence = commissionPence - appliedCustomerPromotionPence;
   const onecabNetPence = feePending
     ? null
     : commissionAfterPromotionPence - providerFeePence;
@@ -191,6 +265,7 @@ export function calculateTripSettlement(input: TripSettlementInput): TripSettlem
     commissionable_fare_pence: commissionableFarePence,
     commission_pence: commissionPence,
     locked_promotion_pence: lockedPromotionPence,
+    applied_customer_promotion_pence: appliedCustomerPromotionPence,
     commission_after_promotion_pence: commissionAfterPromotionPence,
     driver_net_pence: driverNetPence,
     driver_total_earnings_pence: driverTotalEarningsPence,
@@ -314,6 +389,10 @@ export function calculateTripSettlementFromTripRow(
   providerFeePence = 0,
   options?: { provider_fee_confirmed?: boolean },
 ): TripSettlementResult | null {
+  if (isPrePromotionFareEvidenceMissing(trip)) {
+    return null;
+  }
+
   const lockedPromotionPence = resolveLockedPromotionPence(trip);
   const prePromotionCommissionable = resolvePrePromotionCommissionableFarePence(trip);
 
@@ -362,11 +441,21 @@ export function tripSettlementDbColumns(
     driver_tier_commission_percent: settlement.tier_percent_used,
     gross_fare_pence: settlement.commissionable_fare_pence,
     provider_fee_pence: settlement.provider_fee_confirmed ? settlement.provider_fee_pence : null,
-    provider_fee_amount: settlement.provider_fee_confirmed ? settlement.provider_fee_pence : null,
     onecab_net_pence: settlement.onecab_net_pence,
     platform_gross_revenue_pence: settlement.platform_gross_revenue_pence,
     platform_net_revenue_pence: settlement.onecab_net_pence,
     settlement_formula_version: settlement.formula_version,
+  };
+}
+
+/** Merge settlement snapshot keys onto an existing fare_snapshot_json object. */
+export function mergeFareSnapshotSettlementJson(
+  existing: Record<string, unknown> | null | undefined,
+  settlement: TripSettlementResult,
+): Record<string, unknown> {
+  return {
+    ...(existing && typeof existing === "object" ? existing : {}),
+    ...tripSettlementSnapshotJson(settlement),
   };
 }
 
@@ -379,6 +468,7 @@ export function tripSettlementSnapshotJson(
     commissionable_fare_pence: settlement.commissionable_fare_pence,
     commission_pence: settlement.commission_pence,
     locked_promotion_pence: settlement.locked_promotion_pence,
+    applied_customer_promotion_pence: settlement.applied_customer_promotion_pence,
     commission_after_promotion_pence: settlement.commission_after_promotion_pence,
     driver_net_pence: settlement.driver_net_pence,
     driver_total_earnings_pence: settlement.driver_total_earnings_pence,

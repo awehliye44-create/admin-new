@@ -12,8 +12,8 @@ describe('driverWalletPeriodWidgetsSSOT (backend DTO parity)', () => {
       periodFrom: '2026-07-10T00:00:00.000Z',
       periodTo: '2026-07-10T23:59:59.999Z',
       ledger: [
-        { type: 'TRIP_EARNING_NET', amount_pence: 408, related_trip_id: 't1', created_at: '2026-07-10T12:00:00Z' },
-        { type: 'TRIP_EARNING_NET', amount_pence: 500, related_trip_id: 't2', created_at: '2026-07-10T13:00:00Z' },
+        { type: 'TRIP_EARNING_NET', amount_pence: 408, related_trip_id: 't1', created_at: '2026-07-10T12:00:00Z', economic_earned_at: '2026-07-10T12:00:00Z' },
+        { type: 'TRIP_EARNING_NET', amount_pence: 500, related_trip_id: 't2', created_at: '2026-07-10T13:00:00Z', economic_earned_at: '2026-07-10T13:00:00Z' },
         { type: 'PLATFORM_COMMISSION', amount_pence: 102, related_trip_id: 't1', created_at: '2026-07-10T12:00:00Z' },
         { type: 'BONUS', amount_pence: 50, created_at: '2026-07-10T14:00:00Z' },
         { type: 'WEEKLY_PAYOUT', amount_pence: -200, created_at: '2026-07-10T15:00:00Z' },
@@ -61,7 +61,7 @@ describe('driverWalletPeriodWidgetsSSOT (backend DTO parity)', () => {
       periodFrom: '2026-07-10T00:00:00.000Z',
       periodTo: '2026-07-10T23:59:59.999Z',
       ledger: [
-        { type: 'TRIP_EARNING_NET', amount_pence: 408, related_trip_id: 't1', created_at: '2026-07-10T12:00:00Z' },
+        { type: 'TRIP_EARNING_NET', amount_pence: 408, related_trip_id: 't1', created_at: '2026-07-10T12:00:00Z', economic_earned_at: '2026-07-10T12:00:00Z' },
         { type: 'PAYMENT_PROVIDER_FEE', amount_pence: -27, created_at: '2026-07-10T12:00:00Z' },
       ],
       tripCommissionSnapshots: [
@@ -82,7 +82,7 @@ describe('driverWalletPeriodWidgetsSSOT (backend DTO parity)', () => {
       annual_driver_earnings_pence: 0,
     };
     const ledgerBefore = [
-      { type: 'TRIP_EARNING_NET', amount_pence: 572, related_trip_id: 't0', created_at: '2026-07-08T10:00:00Z' },
+      { type: 'TRIP_EARNING_NET', amount_pence: 572, related_trip_id: 't0', created_at: '2026-07-08T10:00:00Z', economic_earned_at: '2026-07-08T10:00:00Z' },
     ];
     const before = buildDriverWalletSummaryResponse({
       periodKey: 'week',
@@ -108,7 +108,7 @@ describe('driverWalletPeriodWidgetsSSOT (backend DTO parity)', () => {
       },
       ledger: [
         ...ledgerBefore,
-        { type: 'TRIP_EARNING_NET', amount_pence: 486, related_trip_id: 't1', created_at: '2026-07-10T12:00:00Z' },
+        { type: 'TRIP_EARNING_NET', amount_pence: 486, related_trip_id: 't1', created_at: '2026-07-10T12:00:00Z', economic_earned_at: '2026-07-10T12:00:00Z' },
       ],
       tripCommissionSnapshots: [
         { trip_id: 't0', completed_at: '2026-07-08T09:00:00Z', commission_pence: 100 },
@@ -170,7 +170,7 @@ describe('finance period / timezone (Europe/London)', () => {
       periodTo: '2026-07-13T23:59:59.999Z',
       account,
       ledger: [
-        { type: 'TRIP_EARNING_NET', amount_pence: 986, related_trip_id: 't1', created_at: '2026-07-08T10:00:00Z' },
+        { type: 'TRIP_EARNING_NET', amount_pence: 986, related_trip_id: 't1', created_at: '2026-07-08T10:00:00Z', economic_earned_at: '2026-07-08T10:00:00Z' },
       ],
     });
     expect(today.account.live_balance_pence).toBe(week.account.live_balance_pence);

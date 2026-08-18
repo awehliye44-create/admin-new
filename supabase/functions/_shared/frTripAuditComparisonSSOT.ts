@@ -28,6 +28,7 @@ export type CaptureReconciliationStatus =
   | "NO_PAYMENT_SESSION"
   | "PROVIDER_VERIFICATION_PENDING"
   | "PAYMENT_SESSION_CAPTURE_MISMATCH"
+  | "PAYMENT_SESSION_AMBIGUOUS"
   | "CAPTURE_MISMATCH"
   | "PAYMENT_EVIDENCE_UNAVAILABLE";
 
@@ -49,12 +50,20 @@ export type RefundReconciliationStatus =
 
 export type WalletReconciliationStatus =
   | "WALLET_MATCHED"
-  | "WALLET_CREDIT_PENDING"
+  | "WALLET_PENDING"
   | "WALLET_CREDIT_MISSING"
+  | "WALLET_OVER_CREDITED"
+  | "WALLET_UNDER_CREDITED"
+  | "WALLET_DUPLICATE"
+  | "WALLET_EVIDENCE_UNAVAILABLE"
+  /** @deprecated Use WALLET_OVER_CREDITED */
   | "WALLET_OVER_CREDIT"
+  /** @deprecated Use WALLET_UNDER_CREDITED */
   | "WALLET_UNDER_CREDIT"
+  /** @deprecated Use WALLET_DUPLICATE */
   | "DUPLICATE_WALLET_CREDIT"
-  | "WALLET_EVIDENCE_UNAVAILABLE";
+  /** @deprecated Use WALLET_PENDING */
+  | "WALLET_CREDIT_PENDING";
 
 export type PayoutReconciliationStatus =
   | "PAYOUT_NOT_DUE"
@@ -201,18 +210,18 @@ export function classifyWalletReconciliation(args: {
   duplicate_wallet_credit?: boolean;
 }): WalletReconciliationStatus {
   if (!args.walletEvidenceAvailable) return "WALLET_EVIDENCE_UNAVAILABLE";
-  if (args.duplicate_wallet_credit) return "DUPLICATE_WALLET_CREDIT";
+  if (args.duplicate_wallet_credit) return "WALLET_DUPLICATE";
   if (args.actual_wallet_credit_pence == null) {
     if (args.expected_driver_net_pence != null && args.expected_driver_net_pence > 0) {
       return "WALLET_CREDIT_MISSING";
     }
-    return "WALLET_CREDIT_PENDING";
+    return "WALLET_PENDING";
   }
-  if (args.expected_driver_net_pence == null) return "WALLET_CREDIT_PENDING";
+  if (args.expected_driver_net_pence == null) return "WALLET_PENDING";
   const variance = args.actual_wallet_credit_pence - args.expected_driver_net_pence;
   if (Math.abs(variance) <= TOLERANCE_PENCE) return "WALLET_MATCHED";
-  if (variance > 0) return "WALLET_OVER_CREDIT";
-  return "WALLET_UNDER_CREDIT";
+  if (variance > 0) return "WALLET_OVER_CREDITED";
+  return "WALLET_UNDER_CREDITED";
 }
 
 export function classifyPayoutReconciliation(args: {
@@ -385,6 +394,8 @@ export function buildFrAuditOverviewKpis(
     tip_pence?: number | null;
     tips_pence?: number | null;
     commissionable_fare_pence?: number | null;
+    commission_after_promotion_pence?: number | null;
+    confirmed_provider_fee_pence?: number | null;
     pickup_waiting_charge_pence?: number | null;
     stop_waiting_charge_pence?: number | null;
     capture_variance_pence?: number | null;
@@ -428,7 +439,8 @@ export function buildFrAuditOverviewKpis(
   let balanced = 0;
   let unresolved = 0;
   let identityVariance = 0;
-  let identityEvaluable = true;
+  let identityEvaluableCount = 0;
+  let identityPendingCount = 0;
 
   for (const row of rows) {
     if (row.ps_expected_capture_pence != null) {
@@ -445,7 +457,14 @@ export function buildFrAuditOverviewKpis(
     }
     if (row.refunded_pence != null) refunded += Math.max(0, row.refunded_pence);
     if (row.released_pence != null) released += Math.max(0, row.released_pence);
-    if (row.processing_fee_pence != null) fees += Math.max(0, row.processing_fee_pence);
+    if (row.confirmed_provider_fee_pence != null) {
+      fees += Math.max(0, row.confirmed_provider_fee_pence);
+    } else if (row.processing_fee_pence != null && (
+      String(row.fee_status ?? "").toUpperCase() === "ACTUAL"
+      || String(row.fee_status ?? "").toUpperCase() === "CONFIRMED"
+    )) {
+      fees += Math.max(0, row.processing_fee_pence);
+    }
     if (row.onecab_gross_commission_pence != null) {
       gross += Math.max(0, row.onecab_gross_commission_pence);
     }
@@ -470,11 +489,16 @@ export function buildFrAuditOverviewKpis(
       captured_pence: row.captured_pence,
       driver_net_pence: row.driver_net_pence,
       commission_pence: row.onecab_gross_commission_pence,
+      commission_after_promotion_pence: row.commission_after_promotion_pence,
       airport_charge_pence: row.airport_charge_pence,
       tips_pence: tip,
     });
-    if (!identity.evaluable || identity.variance_pence == null) identityEvaluable = false;
-    else identityVariance += identity.variance_pence;
+    if (identity.variance_pence == null) {
+      identityPendingCount += 1;
+    } else {
+      identityEvaluableCount += 1;
+      identityVariance += identity.variance_pence;
+    }
 
     const cv = row.capture_variance_pence;
     if (isPsCaptureShortfall(row) && cv != null && cv < 0) shortfall += Math.abs(cv);
@@ -487,6 +511,9 @@ export function buildFrAuditOverviewKpis(
     if (row.wallet_reconciliation_status === "WALLET_CREDIT_MISSING") missingWallet += 1;
     if (
       row.wallet_reconciliation_status === "WALLET_CREDIT_MISSING"
+      || row.wallet_reconciliation_status === "WALLET_OVER_CREDITED"
+      || row.wallet_reconciliation_status === "WALLET_UNDER_CREDITED"
+      || row.wallet_reconciliation_status === "WALLET_DUPLICATE"
       || row.wallet_reconciliation_status === "WALLET_OVER_CREDIT"
       || row.wallet_reconciliation_status === "WALLET_UNDER_CREDIT"
       || row.wallet_reconciliation_status === "DUPLICATE_WALLET_CREDIT"
@@ -528,7 +555,7 @@ export function buildFrAuditOverviewKpis(
     }
   }
 
-  const identityBalanced = identityEvaluable && identityVariance === 0 && rows.length > 0;
+  const identityBalanced = identityEvaluableCount > 0 && identityVariance === 0;
 
   return {
     completed_trip_fare_total_pence: fare,
@@ -548,9 +575,9 @@ export function buildFrAuditOverviewKpis(
     airport_charges_total_pence: airportTotal,
     driver_tips_total_pence: tipsTotal,
     commissionable_fare_total_pence: commissionableTotal,
-    settlement_identity_variance_pence: identityEvaluable ? identityVariance : null,
+    settlement_identity_variance_pence: identityEvaluableCount > 0 ? identityVariance : null,
     settlement_identity_balanced: identityBalanced,
-    unallocated_pence: identityEvaluable ? identityVariance : null,
+    unallocated_pence: identityEvaluableCount > 0 ? identityVariance : null,
     capture_shortfall_pence: shortfall,
     overcapture_pence: overcapture,
     missing_captures_count: missingCaptures,

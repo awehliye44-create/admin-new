@@ -200,7 +200,7 @@ Deno.test("Financial Reconciliation audit: driver_net from trip settlement; wall
   assertEquals(row.driver_net_pence, 435);
   assertEquals(row.wallet_credit_pence, 999);
   assertEquals(row.wallet_variance_pence, 999 - 435);
-  assertEquals(row.wallet_reconciliation_status, "WALLET_OVER_CREDIT");
+  assertEquals(row.wallet_reconciliation_status, "WALLET_OVER_CREDITED");
   assertEquals(row.capture_reconciliation_status, "MATCHED");
 });
 
@@ -431,7 +431,7 @@ Deno.test("FR audit: Payment Sessions capture wins over trips.capture_amount_pen
   assertEquals(row.provider_state, "CAPTURED");
   assertEquals(row.provider_verification_status, "VERIFIED");
   assertEquals(row.onecab_net_pence, 47); // 72 gross - 25 fee
-  assertEquals(row.reconciliation_status?.label, "Balanced");
+  assertEquals(row.reconciliation_status?.label, "BALANCED");
   assertEquals(row.reconciliation_status?.tone, "green");
 });
 
@@ -650,7 +650,7 @@ Deno.test("FR audit: PS captured £0 stays RED PAYMENT_SESSION_CAPTURE_MISMATCH"
   assertEquals(row.captured_pence, null);
   assertEquals(row.capture_reconciliation_status, "PAYMENT_SESSION_CAPTURE_MISMATCH");
   assertEquals(row.reconciliation_status?.tone, "red");
-  assertEquals(row.reconciliation_status?.label, "PAYMENT_SESSION_CAPTURE_MISMATCH");
+  assertEquals(row.reconciliation_status?.label, "CAPTURE_MISMATCH");
 });
 
 Deno.test("FR audit: never invents capture from trips.capture_amount_pence", () => {
