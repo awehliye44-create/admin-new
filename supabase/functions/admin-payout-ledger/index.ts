@@ -5,6 +5,7 @@ import { listAdminPayoutLedger } from "../_shared/adminPayoutLedgerListSSOT.ts";
 import { buildPayoutLedgerAccountsOverview } from "../_shared/adminPayoutLedgerAccountsOverviewSSOT.ts";
 import { buildPayoutLedgerOverview } from "../_shared/adminPayoutLedgerOverviewSSOT.ts";
 import { PAYOUT_LEDGER_ERROR } from "../../../shared/payoutLedgerOverviewSSOT.ts";
+import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 
 function livePayoutFlag(): boolean {
   return (Deno.env.get("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "false").trim().toLowerCase() === "true";
@@ -101,6 +102,31 @@ serve(async (req) => {
           total_paid_month_pence: null,
           total_paid_year_pence: null,
         },
+      }, 200);
+    }
+
+    // PIPELINE 1 isolation — Payout Ledger is PLATFORM_COLLECTED only.
+    // Driver-Collected service areas have no payout workflow.
+    const scope = await resolveServiceAreaFinancialScope(
+      gate.supabase,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      parsed.data.service_area_id ?? null,
+    );
+    if (!scope.ok) {
+      return jsonResponse({
+        success: true,
+        ok: false,
+        error: scope.error,
+        error_code: scope.code,
+        page_status: "DEGRADED",
+        tab: parsed.data.tab,
+        items: [],
+        batches: [],
+        accounts: [],
+        company_transfers: [],
+        company_batches: [],
+        company_audit_rows: [],
+        company_transfers_read_only: true,
       }, 200);
     }
 
