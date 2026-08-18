@@ -115,6 +115,7 @@ serve(async (req) => {
       .limit(limit);
 
     if (serviceAreaId) ledgerQuery = ledgerQuery.eq("service_area_id", serviceAreaId);
+    else ledgerQuery = ledgerQuery.in("service_area_id", modelScope.allowedServiceAreaIds.length ? modelScope.allowedServiceAreaIds : ["00000000-0000-0000-0000-000000000000"]);
     if (regionId) ledgerQuery = ledgerQuery.eq("region_id", regionId);
     if (driverId) ledgerQuery = ledgerQuery.eq("driver_id", driverId);
     if (currencyFilter) ledgerQuery = ledgerQuery.eq("currency", currencyFilter);
