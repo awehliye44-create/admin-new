@@ -337,3 +337,16 @@ Deno.test("index.ts uses typed SupabaseClient<any> — no ReturnType<typeof crea
   assert(index.includes("type SupabaseClient") || index.includes("SupabaseClient<any>"));
   assert(!index.includes("ReturnType<typeof createClient>"));
 });
+
+Deno.test("body read failure returns 400 — not an unhandled crash", () => {
+  const index = readSrc("supabase/functions/whatsapp-webhook/index.ts");
+  assert(index.includes('"body_read_failed"'));
+  assert(index.includes("rawBody = await req.text()"));
+});
+
+Deno.test("SUPABASE_URL and SERVICE_ROLE_KEY are guarded — missing keys return 503 not undefined crash", () => {
+  const index = readSrc("supabase/functions/whatsapp-webhook/index.ts");
+  assert(index.includes('"db_unconfigured"'));
+  assert(!index.includes('Deno.env.get("SUPABASE_URL")!'));
+  assert(!index.includes('Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!'));
+});

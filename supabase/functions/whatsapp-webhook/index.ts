@@ -107,7 +107,12 @@ Deno.serve(async (req) => {
     return json(503, { error: "signature_unconfigured" });
   }
 
-  const rawBody = await req.text();
+  let rawBody: string;
+  try {
+    rawBody = await req.text();
+  } catch {
+    return json(400, { error: "body_read_failed" });
+  }
   const signatureHeader = req.headers.get("X-Hub-Signature-256") ??
     req.headers.get("x-hub-signature-256");
 
@@ -143,8 +148,12 @@ Deno.serve(async (req) => {
     return json(200, { ok: true, ignored: true, reason: "no_inbound_messages" });
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")?.trim() ?? "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim() ?? "";
+  if (!supabaseUrl || !serviceKey) {
+    console.error("[whatsapp-webhook] SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing");
+    return json(503, { error: "db_unconfigured" });
+  }
   const client = createClient(supabaseUrl, serviceKey);
 
   const acceptedMessages: WhatsAppInboundMessage[] = [];
