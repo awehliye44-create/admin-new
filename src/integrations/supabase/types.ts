@@ -20970,9 +20970,7 @@ export type Database = {
           final_customer_fare_pence: number | null
           final_fare_pence: number | null
           final_payout_pence: number | null
-          financial_model:
-            | Database["public"]["Enums"]["service_area_financial_model"]
-            | null
+          financial_model: Database["public"]["Enums"]["service_area_financial_model"]
           financial_outcome: string | null
           free_wait_expires_at: string | null
           grace_period_expired_at: string | null
@@ -21262,9 +21260,7 @@ export type Database = {
           final_customer_fare_pence?: number | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
-          financial_model?:
-            | Database["public"]["Enums"]["service_area_financial_model"]
-            | null
+          financial_model: Database["public"]["Enums"]["service_area_financial_model"]
           financial_outcome?: string | null
           free_wait_expires_at?: string | null
           grace_period_expired_at?: string | null
@@ -21554,9 +21550,7 @@ export type Database = {
           final_customer_fare_pence?: number | null
           final_fare_pence?: number | null
           final_payout_pence?: number | null
-          financial_model?:
-            | Database["public"]["Enums"]["service_area_financial_model"]
-            | null
+          financial_model?: Database["public"]["Enums"]["service_area_financial_model"]
           financial_outcome?: string | null
           free_wait_expires_at?: string | null
           grace_period_expired_at?: string | null
@@ -25569,6 +25563,10 @@ export type Database = {
         Returns: boolean
       }
       assert_payment_gate: { Args: { p_trip_id: string }; Returns: undefined }
+      assert_payout_item_ledger_lineage: {
+        Args: { p_payout_item_id: string }
+        Returns: undefined
+      }
       assign_trip_number: {
         Args: { p_service_area_id: string; p_trip_id: string }
         Returns: Json
@@ -26283,6 +26281,24 @@ export type Database = {
         Args: { p_cashout_id: string }
         Returns: Json
       }
+      finalize_driver_onboarding_registration: {
+        Args: {
+          p_city: string
+          p_country: string
+          p_first_name: string
+          p_last_name: string
+          p_license_plate: string
+          p_postcode: string
+          p_region_id: string
+          p_residential_address: string
+          p_service_area_ids: string[]
+          p_vehicle_color: string
+          p_vehicle_make: string
+          p_vehicle_model: string
+          p_vehicle_year: number
+        }
+        Returns: Json
+      }
       finalize_driver_payout_completion: {
         Args: {
           p_evidence_redacted?: Json
@@ -26413,6 +26429,7 @@ export type Database = {
           updated_at: string
         }[]
       }
+      get_customer_pending_trip_rating: { Args: never; Returns: Json }
       get_customer_trip_stats: {
         Args: { _passenger_id: string }
         Returns: {
@@ -26926,6 +26943,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_scheduled_instant_conversion_pending: {
+        Args: {
+          p_dispatch_mode: string
+          p_is_scheduled: boolean
+          p_scheduled_at: string
+          p_scheduled_status: string
+        }
+        Returns: boolean
+      }
       is_stale_unverified_email_identity: {
         Args: {
           p_auth_email: string
@@ -27306,6 +27332,14 @@ export type Database = {
       payout_batch_kind_to_ledger_type: {
         Args: { p_kind: string }
         Returns: string
+      }
+      payout_item_status_releases_ledger_allocation: {
+        Args: { p_execution_status: string; p_status: string }
+        Returns: boolean
+      }
+      payout_ledger_type_is_payout_eligible: {
+        Args: { p_type: string }
+        Returns: boolean
       }
       phone_is_pending_reserved: {
         Args: { p_exclude_user_id?: string; p_phone_digits: string }
@@ -27721,6 +27755,7 @@ export type Database = {
       }
       ride_offer_retry_unacked_push_deliveries: { Args: never; Returns: number }
       run_digital_finance_migration: { Args: never; Returns: Json }
+      schedule_dispatch_sweep: { Args: never; Returns: undefined }
       scheduled_dispatch_sweep: { Args: never; Returns: undefined }
       search_onecab_location_landmarks: {
         Args: {
@@ -28150,9 +28185,9 @@ export type Database = {
         | "COMMISSION_RESERVE_RELEASE"
         | "COMMISSION_DEDUCTION"
         | "COMMISSION_DEDUCTION_REVERSAL"
-        | "COMMISSION_SUBSIDY_CREDIT"
         | "TOP_UP_REVERSAL"
         | "ADMIN_CORRECTION"
+        | "COMMISSION_SUBSIDY_CREDIT"
       communication_default_method: "voip" | "call_masking"
       content_status: "draft" | "published"
       customer_payment_policy: "PLATFORM_PREPAID" | "DRIVER_COLLECTS_UPFRONT"
@@ -28414,9 +28449,9 @@ export const Constants = {
         "COMMISSION_RESERVE_RELEASE",
         "COMMISSION_DEDUCTION",
         "COMMISSION_DEDUCTION_REVERSAL",
-        "COMMISSION_SUBSIDY_CREDIT",
         "TOP_UP_REVERSAL",
         "ADMIN_CORRECTION",
+        "COMMISSION_SUBSIDY_CREDIT",
       ],
       communication_default_method: ["voip", "call_masking"],
       content_status: ["draft", "published"],

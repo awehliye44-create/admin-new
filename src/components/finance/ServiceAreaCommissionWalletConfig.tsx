@@ -226,8 +226,8 @@ export function ServiceAreaCommissionWalletConfig({
         commission_wallet_enabled: value.commission_wallet_enabled,
         customer_payment_policy: value.customer_payment_policy,
       });
-      if (!pairing.ok) {
-        toast.error(pairing.error);
+      if (pairing.ok !== true) {
+        toast.error('error' in pairing ? pairing.error : 'Invalid service area financial configuration');
         return;
       }
       const payload = {
