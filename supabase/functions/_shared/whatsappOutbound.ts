@@ -51,13 +51,14 @@ export async function sendWhatsAppTextMessage(
   creds: WhatsAppCredentials,
   toWaId: string,
   text: string,
+  opts: { previewUrl?: boolean } = {},
 ): Promise<WhatsAppSendResult> {
   return postWhatsAppMessage(creds, {
     messaging_product: "whatsapp",
     recipient_type: "individual",
     to: toWaId,
     type: "text",
-    text: { preview_url: true, body: text },
+    text: { preview_url: opts.previewUrl === true, body: text },
   });
 }
 

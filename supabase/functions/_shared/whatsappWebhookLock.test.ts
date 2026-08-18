@@ -217,3 +217,20 @@ Deno.test("display_name null never overwrites a stored name", () => {
   assert(workflow.includes("if (message.displayName) touchPatch.display_name"));
   assert(!workflow.includes("display_name: message.displayName"));
 });
+
+Deno.test("active trip lookup filters by passenger phone in SQL — not global 25-row scan", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  // Must filter in SQL using ilike on phoneSuffix, not load all trips then scan in JS
+  assert(workflow.includes(".ilike(\"passenger_phone\", `%${phoneSuffix}`)"));
+  assert(!workflow.includes(".limit(25)"));
+});
+
+Deno.test("continuation link messages use preview_url true, plain text messages do not", () => {
+  const outbound = readSrc("supabase/functions/_shared/whatsappOutbound.ts");
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  // Default is false — only callers with { previewUrl: true } get link previews
+  assert(outbound.includes("preview_url: opts.previewUrl === true"));
+  assert(!outbound.includes("preview_url: true,"));
+  // Book and track continuation callers must opt in
+  assert(workflow.includes("{ previewUrl: true }"));
+});

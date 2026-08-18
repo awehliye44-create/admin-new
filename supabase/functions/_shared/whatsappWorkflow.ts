@@ -96,12 +96,21 @@ async function findActiveTripForWaId(
   client: SupabaseClient,
   waId: string,
 ): Promise<{ id: string; trip_number: string | null; status: string } | null> {
+  // Normalise to digits-only for a loose suffix match against stored passenger_phone values.
+  const digits = normalizeWhatsAppWaId(waId);
+  if (!digits) return null;
+
+  // Query trips where passenger_phone ends with the last 10 digits of the WA number.
+  // This handles country-code prefix differences (e.g. 07700900000 vs 447700900000).
+  const phoneSuffix = digits.slice(-10);
+
   const { data, error } = await client
     .from("trips")
     .select("id, trip_number, status, passenger_phone, created_at")
     .not("passenger_phone", "is", null)
+    .ilike("passenger_phone", `%${phoneSuffix}`)
     .order("created_at", { ascending: false })
-    .limit(25);
+    .limit(10);
 
   if (error) {
     console.error("[whatsapp-webhook] active trip lookup failed", error.message);
@@ -203,6 +212,7 @@ async function sendBookContinuation(
     creds,
     waId,
     `Book your ONECAB ride here:\n${url}\n\nThis secure link continues your WhatsApp booking.`,
+    { previewUrl: true },
   );
   await markConversationOutbound(client, waId, { workflow_state: "book" });
   return "book_link_sent";
@@ -236,12 +246,14 @@ async function sendTrackContinuation(
       creds,
       waId,
       `Track your live ONECAB booking${ref} here:\n${url}\n\nThis secure link opens live tracking.`,
+      { previewUrl: true },
     );
   } else {
     await sendWhatsAppTextMessage(
       creds,
       waId,
       `Open secure ONECAB tracking here:\n${url}\n\nIf you do not see your booking, reply with your booking reference and our team will help.`,
+      { previewUrl: true },
     );
   }
 
