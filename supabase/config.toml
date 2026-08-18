@@ -229,3 +229,7 @@ verify_jwt = false
 
 [functions.ops-p0-release-duplicate-holds]
 verify_jwt = false
+
+# Meta WhatsApp Cloud API — hub.verify_token + X-Hub-Signature-256 (no Supabase JWT).
+[functions.whatsapp-webhook]
+verify_jwt = false
