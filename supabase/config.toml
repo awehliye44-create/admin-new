@@ -234,6 +234,18 @@ verify_jwt = false
 [functions.whatsapp-webhook]
 verify_jwt = false
 
+# WhatsApp admin reply — Admin JWT checked inside; never exposes Meta token to browser.
+[functions.whatsapp-reply]
+verify_jwt = false
+
+# WhatsApp support resolution — Admin JWT checked inside.
+[functions.whatsapp-resolve]
+verify_jwt = false
+
+# WhatsApp booking-session expiry sweep — service-role Bearer checked inside.
+[functions.whatsapp-session-expire]
+verify_jwt = false
+
 # Special Offers feeds — JWT validated inside the function (driver vs customer audience).
 [functions.driver-special-offers]
 verify_jwt = false
@@ -246,7 +258,13 @@ verify_jwt = false
 [functions.admin-recover-captured-trip-wallet]
 verify_jwt = false
 
-# Temporary Step 4F.1 MK-007/MK-009 dry-run recovery — JWT checked inside.
-# Live execution is disabled. Do not deploy until auth/schema/recovery tests pass.
+# Temporary Step 4F.2 MK-007/MK-009 recovery — JWT checked inside.
+# Live execution requires dry_run:false + CREDIT_SAVED_TRIP_EARNING_NET + exact allow-list.
 [functions.admin-recover-mk007-mk009-wallet]
+verify_jwt = false
+
+# Scheduled poller: reconcile SUBMITTED EARLY_CASHOUT payout items.
+# Requires service-role bearer. JWT checked inside handler.
+# Schedule: do NOT add a pg_cron job until production deployment is approved.
+[functions.reconcile-submitted-driver-withdrawals]
 verify_jwt = false

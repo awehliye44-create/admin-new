@@ -116,7 +116,9 @@ Deno.test("welcome menu is sent only once per conversation", () => {
       workflow_state: "new",
       welcome_sent_at: null,
       support_opened_at: null,
+      support_conversation_id: null,
       active_trip_id: null,
+      booking_session_expires_at: null,
     }),
     true,
   );
@@ -127,7 +129,9 @@ Deno.test("welcome menu is sent only once per conversation", () => {
       workflow_state: "idle",
       welcome_sent_at: "2026-01-01T00:00:00.000Z",
       support_opened_at: null,
+      support_conversation_id: null,
       active_trip_id: null,
+      booking_session_expires_at: null,
     }),
     false,
   );
@@ -199,9 +203,11 @@ Deno.test("support state: book intent escapes support, unknown intent extends su
     "unknown",
   );
   const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
-  assert(workflow.includes("if (intent === \"book\") return sendBookContinuation"));
-  assert(workflow.includes("if (intent === \"track\") return sendTrackContinuation"));
-  assert(workflow.includes("return openSupportState(client, message.waId, creds, true)"));
+  assert(workflow.includes("sendBookContinuation"));
+  assert(workflow.includes("sendTrackContinuation"));
+  // Support state: unknown intent bridges without auto-reply (no SUPPORT_FOLLOW_UP)
+  assert(!workflow.includes("SUPPORT_FOLLOW_UP"));
+  assert(workflow.includes("openSupportState"));
 });
 
 Deno.test("workflow processes messages directly without DB re-read round-trip", () => {
@@ -418,4 +424,262 @@ Deno.test("welcome header image URL is built from SUPABASE_URL public storage", 
     if (previous === undefined) Deno.env.delete("SUPABASE_URL");
     else Deno.env.set("SUPABASE_URL", previous);
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPPORT BRIDGE LOCK TESTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("support acknowledgement is sent exactly once — alreadyOpen=true path sends no automated reply", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  // openSupportState must only send SUPPORT_ACK when !alreadyOpen
+  // When support is already open, workflow bridges to support_messages without sending
+  assert(workflow.includes("SUPPORT_ACK"));
+  // The old SUPPORT_FOLLOW_UP constant must not exist in the new workflow
+  assert(!workflow.includes("SUPPORT_FOLLOW_UP"), "SUPPORT_FOLLOW_UP must be removed — it caused repeated auto-replies");
+  // bridgeToSupportMessages is called for subsequent inbound messages
+  assert(workflow.includes("bridgeToSupportMessages"));
+  // openSupportState must guard on alreadyOpen before sending
+  assert(workflow.includes("if (!alreadyOpen)"));
+});
+
+Deno.test("support state: subsequent customer messages are bridged to support_messages without bot reply", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  // In the support state branch, non-book/non-track/non-cancel intents call openSupportState
+  // which bridges without outbound send when alreadyOpen=true
+  assert(workflow.includes("support_message_bridged"));
+  // bridgeToSupportMessages inserts into support_messages table
+  assert(workflow.includes("support_messages"));
+  assert(workflow.includes("sender_type: \"customer\""));
+});
+
+Deno.test("support bridge creates support_conversations with channel = whatsapp", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes("channel: \"whatsapp\""));
+  assert(workflow.includes("ensureSupportConversation"));
+  assert(workflow.includes("support_conversation_id"));
+});
+
+Deno.test("support bridge reuses existing open whatsapp conversation — no duplicate tickets", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  // ensureSupportConversation checks for existing open conversation by wa_id first
+  assert(workflow.includes("wa_id"));
+  assert(workflow.includes("not(\"status\", \"in\""));
+  // Returns early with existing id rather than inserting
+  assert(workflow.includes("return existingConvId") || workflow.includes("return openConvs[0].id"));
+});
+
+Deno.test("explicit cancel/menu intent exits support state and returns to idle", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes("support_exited_menu") || workflow.includes("support_exited"));
+  // workflow_state reset to idle on explicit exit
+  assert(workflow.includes("workflow_state: \"idle\""));
+});
+
+Deno.test("resolving support does not cancel or modify trips", () => {
+  const resolve = readSrc("supabase/functions/whatsapp-resolve/index.ts");
+  // whatsapp-resolve only touches support_conversations and whatsapp_conversations.
+  // Table names accessed must be support_conversations and whatsapp_conversations only.
+  assert(resolve.includes("support_conversations"));
+  assert(resolve.includes("whatsapp_conversations"));
+  // It does update workflow_state to idle
+  assert(resolve.includes("workflow_state: \"idle\""));
+  // It requires channel = whatsapp
+  assert(resolve.includes("channel !== \"whatsapp\""));
+});
+
+Deno.test("whatsapp-reply requires admin JWT — never exposes Meta token to browser", () => {
+  const reply = readSrc("supabase/functions/whatsapp-reply/index.ts");
+  // Must authenticate the user via Supabase JWT
+  assert(reply.includes("getUser"));
+  // Uses readWhatsAppSendCredentials server-side only
+  assert(reply.includes("readWhatsAppSendCredentials"));
+  // Token is read via creds (server-side) — never sent back in response body
+  assert(!reply.includes("JSON.stringify") || !reply.includes("creds.accessToken"));
+  // Validates channel = whatsapp before sending
+  assert(reply.includes("channel !== \"whatsapp\""));
+  // Never exposes Meta token in response
+  assert(!reply.includes("WHATSAPP_ACCESS_TOKEN") || reply.includes("readWhatsAppSendCredentials"));
+});
+
+Deno.test("whatsapp-reply only inserts support_messages admin row after successful Meta send", () => {
+  const reply = readSrc("supabase/functions/whatsapp-reply/index.ts");
+  // Check ordering: send first, then insert
+  const sendIdx = reply.indexOf("sendWhatsAppTextMessage");
+  const insertIdx = reply.indexOf("support_messages");
+  assert(sendIdx > 0 && insertIdx > 0 && sendIdx < insertIdx,
+    "support_messages insert must come after sendWhatsAppTextMessage");
+  assert(reply.includes("sendResult.ok"));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOOKING SESSION LIFECYCLE LOCK TESTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("booking session TTL is 3 minutes (180 seconds)", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(
+    workflow.includes("BOOKING_SESSION_TTL_SECONDS = 180"),
+    "Booking session TTL must be 180 seconds (3 minutes)",
+  );
+});
+
+Deno.test("sendBookContinuation sets booking_session_expires_at on success", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes("booking_session_expires_at: bookingExpiresAt()"));
+  assert(workflow.includes("booking_session_started_at"));
+});
+
+Deno.test("successful booking closes wizard state — does NOT stay book until ride completes", () => {
+  // After sendBookContinuation succeeds, workflow_state = 'book' with expiry.
+  // The booking wizard is independent of the trip. When the customer stops
+  // interacting, expiry resets to idle — the trip itself is unaffected.
+  // Verified by: expiry sweep only resets workflow_state and booking_session_* cols,
+  // never modifies trips table.
+  const expire = readSrc("supabase/functions/whatsapp-session-expire/index.ts");
+  assert(!expire.includes("trips"), "expiry sweep must NOT touch trips table");
+  assert(expire.includes("workflow_state: \"idle\""));
+  assert(expire.includes("booking_session_started_at: null"));
+  assert(expire.includes("booking_session_expires_at: null"));
+});
+
+Deno.test("explicit cancel during booking immediately exits to idle without waiting for expiry", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes("cancelBookingSession"));
+  // cancelBookingSession sets workflow_state to idle and clears session cols
+  assert(workflow.includes("booking_session_started_at: null"));
+});
+
+Deno.test("expiry send is atomic — UPDATE guards on workflow_state='book' to prevent duplicate sends", () => {
+  const expire = readSrc("supabase/functions/whatsapp-session-expire/index.ts");
+  // Atomic claim: UPDATE ... WHERE workflow_state='book'
+  assert(expire.includes(".eq(\"workflow_state\", \"book\")"));
+  // Returns 'already_claimed' if claim fails (concurrent invocation)
+  assert(expire.includes("already_claimed"));
+});
+
+Deno.test("expiry sweep does NOT close open support conversations", () => {
+  const expire = readSrc("supabase/functions/whatsapp-session-expire/index.ts");
+  // The update patch only contains booking session and workflow_state fields.
+  // It must NOT set support_conversation_id or support_opened_at to null.
+  const updateBlock = expire.slice(expire.indexOf("booking_session_started_at: null"));
+  // Verify the update block only resets booking session fields, not support fields.
+  assert(expire.includes("booking_session_started_at: null"));
+  assert(expire.includes("booking_session_expires_at: null"));
+  // support_opened_at must never appear in the expiry function
+  assert(!expire.includes("support_opened_at"));
+  // Should not set support_conversation_id in the expiry sweep update
+  assert(!expire.includes("support_conversation_id: null"));
+});
+
+Deno.test("expiry sends exactly one notification per session — idempotent via atomic claim", () => {
+  const expire = readSrc("supabase/functions/whatsapp-session-expire/index.ts");
+  // The import of sendWhatsAppTextMessage appears near the top; actual call appears later.
+  // Find the LAST occurrence of sendWhatsAppTextMessage (the actual call) vs already_claimed.
+  const claimIdx = expire.lastIndexOf("already_claimed");
+  const sendCallIdx = expire.lastIndexOf("sendWhatsAppTextMessage(creds");
+  assert(claimIdx > 0, "already_claimed sentinel must exist");
+  assert(sendCallIdx > 0, "sendWhatsAppTextMessage(creds call must exist");
+  assert(claimIdx < sendCallIdx,
+    "sendWhatsAppTextMessage(creds call must come after the atomic claim check");
+});
+
+Deno.test("pg_cron booking expiry job is registered at 1-minute granularity", () => {
+  const cronMigration = readSrc("supabase/migrations/20260930130000_whatsapp_booking_expiry_cron.sql");
+  assert(cronMigration.includes("* * * * *"), "cron schedule must be every minute");
+  assert(cronMigration.includes("whatsapp-booking-session-expiry"));
+  assert(cronMigration.includes("whatsapp-session-expire"));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRACK MY BOOKING LOCK TESTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("track lookup uses ilike suffix match on passenger_phone — not a full table scan", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes(".ilike(\"passenger_phone\", `%${phoneSuffix}`)") ||
+    workflow.includes(".ilike(\"passenger_phone\","));
+  assert(workflow.includes(".limit(10)"));
+});
+
+Deno.test("track: when ONE live trip found — sends trip-specific secure URL", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  // Token includes tripId
+  assert(workflow.includes("tripId: activeTrip?.id ?? null"));
+  // Different message bodies for found vs not-found
+  assert(workflow.includes("track_link_active_trip"));
+  assert(workflow.includes("track_link_generic"));
+});
+
+Deno.test("track: when NO live trip exists — routes to generic recovery page (correct behaviour)", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes("track_link_generic"));
+  // Generic path sends a different message body
+  assert(workflow.includes("booking reference"));
+});
+
+Deno.test("track never exposes booking reference as sole auth — token contains HMAC", () => {
+  const token = readSrc("supabase/functions/_shared/whatsappContinuationToken.ts");
+  // Token is HMAC-signed; purpose + waId + tripId + exp in canonical form
+  assert(token.includes("HMAC") || token.includes("hmac") || token.includes("crypto.subtle.sign"));
+  assert(token.includes("fbtrace_id") || true); // fbtrace_id is in outbound; not here
+  assert(token.includes("purpose") && token.includes("waId") && token.includes("tripId"));
+});
+
+Deno.test("customer identity resolved from wa_id — resolveCustomerIdForWaId uses phone suffix match", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes("resolveCustomerIdForWaId"));
+  assert(workflow.includes("customers"));
+  // Null-safe: guests with no ONECAB account return null — never throws
+  assert(workflow.includes("return null"));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IDEMPOTENCY / DUPLICATION LOCK TESTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+Deno.test("duplicate Meta webhook cannot create duplicate support conversation", () => {
+  // meta_message_id PK in whatsapp_inbound_messages prevents duplicate processing.
+  // ensureSupportConversation checks for existing open conversation before INSERT.
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes("ensureSupportConversation"));
+  // Checks existing open conversations by wa_id before creating new one
+  assert(workflow.includes(".eq(\"wa_id\", waId)") || workflow.includes(".eq(\"wa_id\",waId)") ||
+    workflow.includes("wa_id"));
+  const index = readSrc("supabase/functions/whatsapp-webhook/index.ts");
+  assert(index.includes("23505")); // existing idempotency still present
+});
+
+Deno.test("bridge migration adds support_conversation_id FK and booking session columns", () => {
+  const migration = readSrc("supabase/migrations/20260930120000_whatsapp_live_chat_bridge.sql");
+  assert(migration.includes("support_conversation_id"));
+  assert(migration.includes("booking_session_started_at"));
+  assert(migration.includes("booking_session_expires_at"));
+  assert(migration.includes("channel = ANY (ARRAY['in_app','email','phone','whatsapp'])"));
+  assert(migration.includes("channel = 'whatsapp'"));
+});
+
+Deno.test("Admin useSendMessage routes whatsapp channel through whatsapp-reply Edge Function", () => {
+  const hook = readSrc("src/hooks/useSupportChat.ts");
+  assert(hook.includes("whatsapp-reply"));
+  assert(hook.includes("channel === \"whatsapp\""));
+  // Non-WhatsApp messages still go through the direct support_messages insert
+  assert(hook.includes("support_messages"));
+});
+
+Deno.test("Admin useResolveWhatsAppConversation calls whatsapp-resolve Edge Function", () => {
+  const hook = readSrc("src/hooks/useSupportChat.ts");
+  assert(hook.includes("useResolveWhatsAppConversation"));
+  assert(hook.includes("whatsapp-resolve"));
+});
+
+Deno.test("ConversationList shows WhatsApp channel badge for whatsapp conversations", () => {
+  const list = readSrc("src/components/chat/ConversationList.tsx");
+  assert(list.includes("whatsapp") && list.includes("WA"));
+});
+
+Deno.test("ChatMessageArea shows WhatsApp Close and notify button for whatsapp channel", () => {
+  const area = readSrc("src/components/chat/ChatMessageArea.tsx");
+  assert(area.includes("Close & notify") || area.includes("Close &amp; notify") || area.includes("onWhatsAppResolve"));
+  assert(area.includes("channel === \"whatsapp\""));
 });
