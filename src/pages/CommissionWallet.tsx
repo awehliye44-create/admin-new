@@ -536,6 +536,24 @@ export default function CommissionWallet() {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Filter — Period</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <FinancePeriodFilter
+              period={period}
+              onPeriodChange={setPeriod}
+              customFrom={customDateFrom}
+              customTo={customDateTo}
+              onCustomFromChange={setCustomDateFrom}
+              onCustomToChange={setCustomDateTo}
+            />
+            <p className="text-xs text-muted-foreground">{periodBounds.label}</p>
+          </CardContent>
+        </Card>
+
+
 
         {driverId.trim() && (
           <Card>
