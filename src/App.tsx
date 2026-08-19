@@ -91,7 +91,7 @@ import StaffWorkPatterns from "./pages/StaffWorkPatterns";
 import LostProperty from "./pages/LostProperty";
 import LostPropertyDetail from "./pages/LostPropertyDetail";
 import { AdminTelemetryProvider } from "@/lib/telemetry/adminBootstrap";
-import { AdminTabActivityHost } from "@/hooks/useAdminTabActivity";
+import { AdminTabActivityHost, AdminSupportPresenceHost } from "@/hooks/useAdminTabActivity";
 const queryClient = createAppQueryClient();
 
 const App = () => (
@@ -105,6 +105,7 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <AdminTabActivityHost />
+          <AdminSupportPresenceHost />
           <AdminTelemetryProvider />
           <Routes>
             {/* Public Auth Routes */}
