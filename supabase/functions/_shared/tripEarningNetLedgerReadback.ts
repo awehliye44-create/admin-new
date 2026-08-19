@@ -1,7 +1,11 @@
 /**
  * Authoritative TRIP_EARNING_NET readback for post-capture wallet reconciliation.
  */
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+// Minimal structural client type — avoids remote type imports in shared builds.
+// deno-lint-ignore no-explicit-any
+type SupabaseClient = { from: (table: string) => any };
+
+
 import {
   postingBalanced,
   postingWalletMismatch,

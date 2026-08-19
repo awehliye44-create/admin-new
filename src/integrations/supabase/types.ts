@@ -11353,6 +11353,48 @@ export type Database = {
         }
         Relationships: []
       }
+      historical_settlement_correction_audit: {
+        Row: {
+          actor: string
+          after_stamps: Json
+          before_stamps: Json
+          created_at: string
+          evidence: Json
+          id: string
+          payment_session_id: string
+          payment_session_md5_before: string
+          reason: string
+          trip_code: string
+          trip_id: string
+        }
+        Insert: {
+          actor: string
+          after_stamps: Json
+          before_stamps: Json
+          created_at?: string
+          evidence: Json
+          id?: string
+          payment_session_id: string
+          payment_session_md5_before: string
+          reason: string
+          trip_code: string
+          trip_id: string
+        }
+        Update: {
+          actor?: string
+          after_stamps?: Json
+          before_stamps?: Json
+          created_at?: string
+          evidence?: Json
+          id?: string
+          payment_session_id?: string
+          payment_session_md5_before?: string
+          reason?: string
+          trip_code?: string
+          trip_id?: string
+        }
+        Relationships: []
+      }
       id_sequences: {
         Row: {
           created_at: string
@@ -13481,6 +13523,7 @@ export type Database = {
       onecab_assistant_config: {
         Row: {
           enabled: boolean
+          knowledge_version: string
           max_input_characters: number
           max_output_tokens: number
           max_output_words: number
@@ -13495,6 +13538,7 @@ export type Database = {
         }
         Insert: {
           enabled?: boolean
+          knowledge_version?: string
           max_input_characters?: number
           max_output_tokens?: number
           max_output_words?: number
@@ -13509,6 +13553,7 @@ export type Database = {
         }
         Update: {
           enabled?: boolean
+          knowledge_version?: string
           max_input_characters?: number
           max_output_tokens?: number
           max_output_words?: number
@@ -22805,6 +22850,113 @@ export type Database = {
           },
         ]
       }
+      whatsapp_conversations: {
+        Row: {
+          active_trip_id: string | null
+          created_at: string
+          display_name: string | null
+          last_inbound_at: string | null
+          last_outbound_at: string | null
+          metadata: Json
+          support_opened_at: string | null
+          updated_at: string
+          wa_id: string
+          welcome_sent_at: string | null
+          workflow_state: string
+        }
+        Insert: {
+          active_trip_id?: string | null
+          created_at?: string
+          display_name?: string | null
+          last_inbound_at?: string | null
+          last_outbound_at?: string | null
+          metadata?: Json
+          support_opened_at?: string | null
+          updated_at?: string
+          wa_id: string
+          welcome_sent_at?: string | null
+          workflow_state?: string
+        }
+        Update: {
+          active_trip_id?: string | null
+          created_at?: string
+          display_name?: string | null
+          last_inbound_at?: string | null
+          last_outbound_at?: string | null
+          metadata?: Json
+          support_opened_at?: string | null
+          updated_at?: string
+          wa_id?: string
+          welcome_sent_at?: string | null
+          workflow_state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_conversations_active_trip_id_fkey"
+            columns: ["active_trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversations_active_trip_id_fkey"
+            columns: ["active_trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversations_active_trip_id_fkey"
+            columns: ["active_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversations_active_trip_id_fkey"
+            columns: ["active_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      whatsapp_inbound_messages: {
+        Row: {
+          inbound_text: string | null
+          message_type: string
+          meta_message_id: string
+          phone_number_id: string | null
+          processed_at: string | null
+          raw_payload: Json
+          received_at: string
+          wa_id: string
+          workflow_action: string | null
+        }
+        Insert: {
+          inbound_text?: string | null
+          message_type: string
+          meta_message_id: string
+          phone_number_id?: string | null
+          processed_at?: string | null
+          raw_payload?: Json
+          received_at?: string
+          wa_id: string
+          workflow_action?: string | null
+        }
+        Update: {
+          inbound_text?: string | null
+          message_type?: string
+          meta_message_id?: string
+          phone_number_id?: string | null
+          processed_at?: string | null
+          raw_payload?: Json
+          received_at?: string
+          wa_id?: string
+          workflow_action?: string | null
+        }
+        Relationships: []
+      }
       zone_pricing_rules: {
         Row: {
           applies_to: string
@@ -26190,6 +26342,22 @@ export type Database = {
           withdrawal_in_progress_pence: number
         }[]
       }
+      driver_wallet_jwt_role: { Args: never; Returns: string }
+      driver_wallet_ledger_economic_fields: {
+        Args: { p_driver_id: string }
+        Returns: {
+          amount_pence: number
+          captured_at: string
+          clearing_status: string
+          economic_date_status: string
+          economic_earned_at: string
+          eligible_at: string
+          ledger_entry_id: string
+          posting_created_at: string
+          related_trip_id: string
+          type: string
+        }[]
+      }
       driver_wallet_live_balance_pence: {
         Args: { p_driver_id: string }
         Returns: number
@@ -26206,9 +26374,28 @@ export type Database = {
         Args: { p_state: string }
         Returns: boolean
       }
+      driver_wallet_resolve_economic_date: {
+        Args: {
+          p_created_at: string
+          p_related_trip_id: string
+          p_type: string
+        }
+        Returns: {
+          captured_at: string
+          clearing_status: string
+          economic_date_status: string
+          economic_earned_at: string
+          eligible_at: string
+          posting_created_at: string
+        }[]
+      }
       driver_wallet_summary_ssot: {
         Args: { p_driver_id: string; p_service_area_id?: string }
         Returns: Json
+      }
+      driver_wallet_trip_earnings_in_range_pence: {
+        Args: { p_driver_id: string; p_end: string; p_start: string }
+        Returns: number
       }
       enrich_ride_offer_presets: { Args: { p_trip_id: string }; Returns: Json }
       ensure_driver_commission_wallet_account: {
@@ -26614,6 +26801,22 @@ export type Database = {
         Returns: Json
       }
       get_driver_own_towards_destination: { Args: never; Returns: Json }
+      get_driver_own_wallet_earning_rows: {
+        Args: { p_end: string; p_start: string }
+        Returns: {
+          amount_pence: number
+          captured_at: string
+          clearing_status: string
+          description: string
+          economic_date_status: string
+          economic_earned_at: string
+          eligible_at: string
+          ledger_entry_id: string
+          posting_created_at: string
+          related_trip_id: string
+          type: string
+        }[]
+      }
       get_driver_own_wallet_summary: {
         Args: { p_service_area_id?: string }
         Returns: Json
@@ -27124,6 +27327,10 @@ export type Database = {
       onecab_assistant_cleanup: { Args: never; Returns: undefined }
       onecab_assistant_consume_quota: {
         Args: {
+          p_device_limit?: number
+          p_device_ref?: string
+          p_identity_limit?: number
+          p_identity_ref?: string
           p_ip_hash: string
           p_ip_hour_limit: number
           p_platform: string
@@ -27137,6 +27344,13 @@ export type Database = {
       }
       onecab_assistant_usage: {
         Args: never
+        Returns: {
+          day_usd: number
+          month_usd: number
+        }[]
+      }
+      onecab_assistant_usage_for_platform: {
+        Args: { p_platform: string }
         Returns: {
           day_usd: number
           month_usd: number
@@ -27690,6 +27904,30 @@ export type Database = {
         Args: { p_service_area_id: string }
         Returns: string
       }
+      resolve_trip_commissionable_fare_pence: {
+        Args: {
+          p_airport_pence?: number
+          p_committed_fare_pence: number
+          p_pass_through_pence?: number
+          p_trip: Database["public"]["Tables"]["trips"]["Row"]
+        }
+        Returns: number
+      }
+      resolve_trip_locked_promotion_pence: {
+        Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: number
+      }
+      resolve_trip_negotiated_commissionable_fare_pence: {
+        Args: {
+          p_negotiated_ride_fare_pence?: number
+          p_trip: Database["public"]["Tables"]["trips"]["Row"]
+        }
+        Returns: number
+      }
+      resolve_trip_pre_promotion_ride_fare_pence: {
+        Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: number
+      }
       resolve_trip_service_area_from_pickup: {
         Args: {
           p_pickup_lat: number
@@ -28020,6 +28258,10 @@ export type Database = {
       }
       trip_pickup_coordinates_valid: {
         Args: { p_lat: number; p_lng: number }
+        Returns: boolean
+      }
+      trip_promotion_superseded_by_negotiation: {
+        Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
         Returns: boolean
       }
       trip_row_is_commission_wallet_driver_collected: {
