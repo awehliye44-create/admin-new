@@ -19504,6 +19504,7 @@ export type Database = {
           trip_id: string | null
           updated_at: string
           user_type: string
+          wa_id: string | null
         }
         Insert: {
           assigned_admin_id?: string | null
@@ -19523,6 +19524,7 @@ export type Database = {
           trip_id?: string | null
           updated_at?: string
           user_type: string
+          wa_id?: string | null
         }
         Update: {
           assigned_admin_id?: string | null
@@ -19542,6 +19544,7 @@ export type Database = {
           trip_id?: string | null
           updated_at?: string
           user_type?: string
+          wa_id?: string | null
         }
         Relationships: [
           {

@@ -97,7 +97,7 @@ export default function Tickets() {
     user_name: '',
   });
 
-  // Fetch conversations
+  // Fetch conversations — exclude channel='whatsapp' (those belong to Live Chat only)
   const { data: tickets = [], isLoading, refetch } = useQuery({
     queryKey: ['support-tickets'],
     queryFn: async () => {
@@ -108,6 +108,7 @@ export default function Tickets() {
           customer:customers(first_name, last_name),
           driver:drivers(first_name, last_name, driver_code)
         `)
+        .neq('channel', 'whatsapp')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
