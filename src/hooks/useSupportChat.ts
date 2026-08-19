@@ -18,6 +18,7 @@ export interface SupportConversation {
   category: string | null;
   tags: string[];
   trip_id: string | null;
+  wa_id: string | null;
   last_message_at: string;
   resolved_at: string | null;
   created_at: string;
@@ -56,8 +57,39 @@ export interface CannedResponse {
   created_at: string;
 }
 
-// Fetch all conversations
+// Fetch all conversations + subscribe to Realtime so new WhatsApp (and any
+// channel) conversations appear immediately without waiting for the poll cycle.
 export function useSupportConversations(statusFilter?: string) {
+  const queryClient = useQueryClient();
+
+  // Realtime: invalidate on any INSERT or UPDATE to support_conversations or
+  // support_messages so the list and unread badges refresh live.
+  useEffect(() => {
+    const convChannel = supabase
+      .channel("support-conversations-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "support_conversations" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["support-conversations"] });
+          queryClient.invalidateQueries({ queryKey: ["support-unread-count"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "support_messages" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["support-conversations"] });
+          queryClient.invalidateQueries({ queryKey: ["support-unread-count"] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(convChannel);
+    };
+  }, [queryClient]);
+
   return useQuery({
     queryKey: ["support-conversations", statusFilter],
     queryFn: async () => {
@@ -155,7 +187,8 @@ export function useSupportMessages(conversationId: string | null) {
   });
 }
 
-// Send a message
+// Send a message — routes WhatsApp conversations through the protected
+// whatsapp-reply Edge Function so the Meta token never reaches the browser.
 export function useSendMessage() {
   const queryClient = useQueryClient();
 
@@ -167,6 +200,7 @@ export function useSendMessage() {
       fileUrl,
       fileName,
       fileSize,
+      channel,
     }: {
       conversationId: string;
       content: string;
@@ -174,10 +208,37 @@ export function useSendMessage() {
       fileUrl?: string;
       fileName?: string;
       fileSize?: number;
+      channel?: string;
     }) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      const { data: { user }, error: authErr } = await supabase.auth.getUser();
+      if (!user || authErr) throw new Error("Not authenticated");
 
+      if (channel === "whatsapp") {
+        // Route through protected Edge Function — token stays server-side.
+        const { data: { session } } = await supabase.auth.getSession();
+        const accessToken = session?.access_token;
+        if (!accessToken) throw new Error("No session token");
+
+        const supabaseUrl = (supabase as unknown as { supabaseUrl?: string }).supabaseUrl
+          ?? `https://${window.location.hostname.replace(/^[^.]+/, "thazislrdkjpvvghtvzo")}.supabase.co`;
+
+        const res = await fetch(`${supabaseUrl}/functions/v1/whatsapp-reply`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ support_conversation_id: conversationId, content }),
+        });
+
+        const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+        if (!res.ok || !json.ok) {
+          throw new Error(json.error || "WhatsApp send failed");
+        }
+        return json;
+      }
+
+      // Standard in-app / non-WhatsApp send.
       const { data, error } = await supabase
         .from("support_messages")
         .insert({
@@ -202,6 +263,46 @@ export function useSendMessage() {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to send message");
+    },
+  });
+}
+
+// Resolve a WhatsApp support conversation — sends the closure message via
+// the protected whatsapp-resolve Edge Function, then resets WhatsApp state.
+export function useResolveWhatsAppConversation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+      if (!accessToken) throw new Error("No session token");
+
+      const supabaseUrl = (supabase as unknown as { supabaseUrl?: string }).supabaseUrl
+        ?? `https://thazislrdkjpvvghtvzo.supabase.co`;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/whatsapp-resolve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ support_conversation_id: conversationId }),
+      });
+
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || "WhatsApp resolve failed");
+      }
+      return json;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["support-conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["support-messages"] });
+      toast.success("Support conversation closed and customer notified");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to close conversation");
     },
   });
 }

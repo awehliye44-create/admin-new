@@ -14,6 +14,7 @@ import {
   useUpdateConversation,
   useMarkMessagesRead,
   useCannedResponses,
+  useResolveWhatsAppConversation,
 } from "@/hooks/useSupportChat";
 import { Plus, Search, MessageSquare, Settings2, RefreshCw } from "lucide-react";
 
@@ -29,6 +30,7 @@ export default function LiveChat() {
   const sendMessage = useSendMessage();
   const updateConv = useUpdateConversation();
   const markRead = useMarkMessagesRead();
+  const resolveWhatsApp = useResolveWhatsAppConversation();
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId) || null;
 
@@ -54,10 +56,19 @@ export default function LiveChat() {
   const handleSend = useCallback(
     (content: string) => {
       if (!selectedConvId) return;
-      sendMessage.mutate({ conversationId: selectedConvId, content });
+      sendMessage.mutate({
+        conversationId: selectedConvId,
+        content,
+        channel: selectedConv?.channel,
+      });
     },
-    [selectedConvId, sendMessage]
+    [selectedConvId, selectedConv, sendMessage]
   );
+
+  const handleWhatsAppResolve = useCallback(() => {
+    if (!selectedConvId) return;
+    resolveWhatsApp.mutate(selectedConvId);
+  }, [selectedConvId, resolveWhatsApp]);
 
   const handleStatusChange = useCallback(
     (status: string) => {
@@ -165,10 +176,12 @@ export default function LiveChat() {
                 messages={messages}
                 isLoading={msgsLoading}
                 isSending={sendMessage.isPending}
+                isResolving={resolveWhatsApp.isPending}
                 cannedResponses={cannedResponses}
                 onSend={handleSend}
                 onStatusChange={handleStatusChange}
                 onPriorityChange={handlePriorityChange}
+                onWhatsAppResolve={selectedConv?.channel === "whatsapp" ? handleWhatsAppResolve : undefined}
               />
             </div>
           </div>

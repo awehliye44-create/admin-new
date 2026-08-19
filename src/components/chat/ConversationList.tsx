@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDistanceToNow } from "date-fns";
-import { User, Car, MessageSquare } from "lucide-react";
+import { User, Car, MessageSquare, MessageCircle } from "lucide-react";
 import type { SupportConversation } from "@/hooks/useSupportChat";
 
 interface Props {
@@ -34,6 +34,8 @@ function getUserName(conv: SupportConversation) {
   if (conv.user_type === "driver" && conv.driver) {
     return `${conv.driver.first_name} ${conv.driver.last_name}`.trim() || conv.driver.email;
   }
+  // WhatsApp guest: no registered customer — show wa_id from subject
+  if (conv.channel === "whatsapp") return conv.subject.replace(/^WhatsApp support — /, "") || "WhatsApp Customer";
   return conv.user_type === "customer" ? "Customer" : "Driver";
 }
 
@@ -77,6 +79,12 @@ export const ConversationList = memo(function ConversationList({ conversations, 
                 <div className="flex items-center gap-2 mt-1">
                   <span className={cn("h-2 w-2 rounded-full", statusColors[conv.status] || "bg-muted")} />
                   <span className="text-xs capitalize text-muted-foreground">{conv.status}</span>
+                  {conv.channel === "whatsapp" && (
+                    <span className="flex items-center gap-0.5 text-[10px] text-green-600">
+                      <MessageCircle className="h-2.5 w-2.5" />
+                      WA
+                    </span>
+                  )}
                   {conv.priority !== "normal" && (
                     <span className={cn("text-xs font-medium capitalize", priorityColors[conv.priority])}>
                       {conv.priority}

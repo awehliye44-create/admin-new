@@ -17,8 +17,7 @@ import {
   Loader2,
   Zap,
   CheckCircle,
-  Clock,
-  XCircle,
+  MessageCircle,
   User,
   Car,
   Shield,
@@ -32,10 +31,12 @@ interface Props {
   messages: SupportMessage[];
   isLoading: boolean;
   isSending: boolean;
+  isResolving?: boolean;
   cannedResponses: CannedResponse[];
   onSend: (content: string) => void;
   onStatusChange: (status: string) => void;
   onPriorityChange: (priority: string) => void;
+  onWhatsAppResolve?: () => void;
 }
 
 const senderIcons: Record<string, React.ReactNode> = {
@@ -57,10 +58,12 @@ export const ChatMessageArea = memo(function ChatMessageArea({
   messages,
   isLoading,
   isSending,
+  isResolving = false,
   cannedResponses,
   onSend,
   onStatusChange,
   onPriorityChange,
+  onWhatsAppResolve,
 }: Props) {
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -124,11 +127,34 @@ export const ChatMessageArea = memo(function ChatMessageArea({
             {conversation.user_type === "driver" ? <Car className="h-4 w-4" /> : <User className="h-4 w-4" />}
           </div>
           <div>
-            <h3 className="font-semibold text-sm">{getUserName()}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-sm">{getUserName()}</h3>
+              {conversation.channel === "whatsapp" && (
+                <Badge variant="outline" className="h-5 px-1.5 text-[10px] gap-1 border-green-400 text-green-700">
+                  <MessageCircle className="h-2.5 w-2.5" />
+                  WhatsApp
+                </Badge>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">{conversation.subject}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {conversation.channel === "whatsapp" &&
+            conversation.status !== "resolved" &&
+            conversation.status !== "closed" &&
+            onWhatsAppResolve && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs text-green-700 border-green-400 hover:bg-green-50"
+                onClick={onWhatsAppResolve}
+                disabled={isResolving}
+              >
+                {isResolving ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <MessageCircle className="h-3 w-3 mr-1" />}
+                Close & notify
+              </Button>
+            )}
           <Select value={conversation.priority} onValueChange={onPriorityChange}>
             <SelectTrigger className="w-28 h-8 text-xs">
               <SelectValue />
@@ -140,17 +166,24 @@ export const ChatMessageArea = memo(function ChatMessageArea({
               <SelectItem value="urgent">Urgent</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={conversation.status} onValueChange={onStatusChange}>
-            <SelectTrigger className="w-28 h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="open">Open</SelectItem>
-              <SelectItem value="waiting">Waiting</SelectItem>
-              <SelectItem value="resolved">Resolved</SelectItem>
-              <SelectItem value="closed">Closed</SelectItem>
-            </SelectContent>
-          </Select>
+          {conversation.channel !== "whatsapp" && (
+            <Select value={conversation.status} onValueChange={onStatusChange}>
+              <SelectTrigger className="w-28 h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open">Open</SelectItem>
+                <SelectItem value="waiting">Waiting</SelectItem>
+                <SelectItem value="resolved">Resolved</SelectItem>
+                <SelectItem value="closed">Closed</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          {conversation.channel === "whatsapp" && (
+            <Badge variant={conversation.status === "resolved" ? "secondary" : "default"} className="h-8 px-3 text-xs">
+              {conversation.status}
+            </Badge>
+          )}
         </div>
       </div>
 
