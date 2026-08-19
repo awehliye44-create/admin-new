@@ -82,11 +82,20 @@ Deno.serve(async (req) => {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    // Row-level pipeline scope: only drivers in PLATFORM_COLLECTED service areas
+    // (legacy NULL service_area_id is PLATFORM_COLLECTED by definition).
+    const allowedAreaIds = modelScope.allowedServiceAreaIds;
+    const scopeDrivers = <T extends { in: (c: string, v: string[]) => T; or: (f: string) => T }>(q: T): T => {
+      if (serviceAreaId) return q.in("service_area_id", [String(serviceAreaId)]);
+      if (allowedAreaIds.length === 0) return q.or("service_area_id.is.null");
+      return q.or(`service_area_id.is.null,service_area_id.in.(${allowedAreaIds.join(",")})`);
+    };
     const limit = Math.min(
       MAX_PAGE_SIZE,
       Math.max(1, Number(body.limit ?? url.searchParams.get("limit") ?? DEFAULT_PAGE_SIZE)),
     );
     const offset = Math.max(0, Number(body.offset ?? url.searchParams.get("offset") ?? 0));
+
 
     if (driverId && mode === "wallet_summary") {
       if (!periodFrom || !periodTo) {
