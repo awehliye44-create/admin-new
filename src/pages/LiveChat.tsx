@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,23 @@ export default function LiveChat() {
   const resolveWhatsApp = useResolveWhatsAppConversation();
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId) || null;
+
+  // Auto-select the most recent open conversation on first load so the right pane
+  // is never blank when there is data. Only runs once per filter change / initial load.
+  const autoSelectedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (conversations.length === 0) return;
+    // If the currently selected conversation is still in the list, keep it.
+    if (selectedConvId && conversations.some((c) => c.id === selectedConvId)) return;
+    // Auto-select: prefer open conversations, fall back to first in list.
+    const first =
+      conversations.find((c) => c.status === "open") ?? conversations[0];
+    if (first && first.id !== autoSelectedRef.current) {
+      autoSelectedRef.current = first.id;
+      setSelectedConvId(first.id);
+      markRead.mutate(first.id);
+    }
+  }, [conversations, selectedConvId, markRead]);
 
   const filteredConversations = searchQuery
     ? conversations.filter((c) => {
@@ -96,7 +113,7 @@ export default function LiveChat() {
 
   return (
     <AdminLayout title="Live Chat" description="Real-time support conversations with customers and drivers">
-      <Tabs defaultValue="chat" className="space-y-4">
+      <Tabs defaultValue="chat" className="flex flex-col" style={{ height: "calc(100vh - 200px)", minHeight: 480 }}>
         <div className="flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="chat" className="gap-2">
@@ -125,8 +142,8 @@ export default function LiveChat() {
           </div>
         </div>
 
-        <TabsContent value="chat" className="mt-0">
-          <div className="border rounded-lg flex h-[calc(100vh-220px)] overflow-hidden bg-background">
+        <TabsContent value="chat" className="mt-0 flex-1 min-h-0">
+          <div className="border rounded-lg flex h-full overflow-hidden bg-background">
             {/* Left sidebar */}
             <div className="w-80 border-r flex flex-col shrink-0">
               {/* Search + filters */}

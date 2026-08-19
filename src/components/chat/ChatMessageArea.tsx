@@ -106,8 +106,11 @@ export const ChatMessageArea = memo(function ChatMessageArea({
   }
 
   const getUserName = () => {
+    if (conversation.channel === "whatsapp") {
+      return conversation.subject.replace(/^WhatsApp support — /, "") || conversation.wa_id || "WhatsApp Customer";
+    }
     if (conversation.user_type === "customer" && conversation.customer) {
-      return [conversation.customer.first_name, conversation.customer.last_name].filter(Boolean).join(" ") || "Customer";
+      return [conversation.customer.first_name, conversation.customer.last_name].filter(Boolean).join(" ") || conversation.customer.phone || "Customer";
     }
     if (conversation.user_type === "driver" && conversation.driver) {
       return `${conversation.driver.first_name} ${conversation.driver.last_name}`.trim();
