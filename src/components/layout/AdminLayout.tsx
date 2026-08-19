@@ -4,6 +4,9 @@ interface AdminLayoutProps {
   children: ReactNode;
   title: string;
   description?: string;
+  /** When true, the layout fills the available height and does not scroll.
+   *  Use for full-height panels like Live Chat. */
+  fullHeight?: boolean;
 }
 
 /**
@@ -11,9 +14,25 @@ interface AdminLayoutProps {
  * The sidebar shell is handled by AdminShell at the route level.
  * This prevents re-mounting the sidebar on every page change.
  */
-export function AdminLayout({ children, title, description }: AdminLayoutProps) {
+export function AdminLayout({ children, title, description, fullHeight }: AdminLayoutProps) {
+  if (fullHeight) {
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        <div className="px-8 pt-8 pb-4 shrink-0">
+          <h1 className="text-3xl font-bold text-foreground">{title}</h1>
+          {description && (
+            <p className="mt-1 text-muted-foreground">{description}</p>
+          )}
+        </div>
+        <div className="flex-1 min-h-0 px-8 pb-8 overflow-hidden">
+          {children}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-8 min-h-full">
+    <div className="p-8 min-h-full overflow-y-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground">{title}</h1>
         {description && (

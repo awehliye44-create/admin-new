@@ -112,8 +112,8 @@ export default function LiveChat() {
   const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
 
   return (
-    <AdminLayout title="Live Chat" description="Real-time support conversations with customers and drivers">
-      <Tabs defaultValue="chat" className="flex flex-col" style={{ height: "calc(100vh - 200px)", minHeight: 480 }}>
+    <AdminLayout title="Live Chat" description="Real-time support conversations with customers and drivers" fullHeight>
+      <Tabs defaultValue="chat" className="flex flex-col h-full">
         <div className="flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="chat" className="gap-2">

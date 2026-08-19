@@ -13,7 +13,7 @@ export function AdminShell() {
       <AdminSidebar />
       
       {/* Main content area - only this changes on route */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 min-h-0 flex flex-col">
         <Outlet />
       </main>
     </div>
