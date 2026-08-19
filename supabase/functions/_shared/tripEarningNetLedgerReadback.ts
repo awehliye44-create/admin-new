@@ -2,15 +2,9 @@
  * Authoritative TRIP_EARNING_NET readback for post-capture wallet reconciliation.
  */
 // Minimal structural client type — avoids remote type imports in shared builds.
-type SupabaseClient = {
-  from: (table: string) => {
-    select: (cols: string) => {
-      eq: (col: string, val: string) => {
-        eq: (col: string, val: string) => Promise<{ data: unknown; error: unknown }>;
-      };
-    };
-  };
-};
+// deno-lint-ignore no-explicit-any
+type SupabaseClient = { from: (table: string) => any };
+
 
 import {
   postingBalanced,
