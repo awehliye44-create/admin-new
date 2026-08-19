@@ -7,6 +7,12 @@ import {
   type ServiceAreaFinanceSelection,
 } from '@/components/finance/ServiceAreaFinanceFilter';
 import { CommissionWalletCreditDriverPicker } from '@/components/finance/CommissionWalletCreditDriverPicker';
+import { FinancePeriodFilter } from '@/components/finance/FinancePeriodFilter';
+import {
+  resolveFinancePeriodBounds,
+  isTimestampInPeriod,
+  type FinancePeriod,
+} from '@/lib/financePeriodFilter';
 import { useRegions } from '@/hooks/useRegions';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
