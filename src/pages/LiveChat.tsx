@@ -24,7 +24,7 @@ export default function LiveChat() {
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [isNewOpen, setIsNewOpen] = useState(false);
 
-  const { data: conversations = [], isLoading: convsLoading, refetch } = useSupportConversations(statusFilter);
+  const { data: conversations = [], isLoading: convsLoading, refetch, error: convsError } = useSupportConversations(statusFilter);
   const { data: messages = [], isLoading: msgsLoading } = useSupportMessages(selectedConvId);
   const { data: cannedResponses = [] } = useCannedResponses();
   const sendMessage = useSendMessage();
@@ -114,6 +114,11 @@ export default function LiveChat() {
   return (
     <AdminLayout title="Live Chat" description="Real-time support conversations with customers and drivers" fullHeight>
       <Tabs defaultValue="chat" className="flex flex-col h-full">
+        {convsError && (
+          <div className="mb-2 shrink-0 rounded-md bg-destructive/10 border border-destructive/30 px-4 py-2 text-sm text-destructive">
+            Failed to load conversations: {String((convsError as Error)?.message ?? convsError)}
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="chat" className="gap-2">
