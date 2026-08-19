@@ -1316,7 +1316,7 @@ export default function CommissionWallet() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(overviewQuery.data?.recent_topups ?? []).map((row) => (
+                {(overviewQuery.data?.recent_topups ?? []).filter((r) => inPeriod(r.created_at)).map((row) => (
                   <TableRow key={String(row.id)}>
                     <TableCell className="text-xs whitespace-nowrap">
                       {row.created_at ? new Date(String(row.created_at)).toLocaleString() : '—'}
@@ -1330,7 +1330,7 @@ export default function CommissionWallet() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {(overviewQuery.data?.recent_topups ?? []).length === 0 && (
+                {(overviewQuery.data?.recent_topups ?? []).filter((r) => inPeriod(r.created_at)).length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="text-muted-foreground text-sm">
                       No provider top-ups yet.
@@ -1363,7 +1363,7 @@ export default function CommissionWallet() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(overviewQuery.data?.recent_ledger ?? []).map((row) => {
+                {(overviewQuery.data?.recent_ledger ?? []).filter((r) => inPeriod(r.created_at)).map((row) => {
                   const meta = row.metadata && typeof row.metadata === 'object'
                     ? row.metadata as Record<string, unknown>
                     : null;
@@ -1435,7 +1435,7 @@ export default function CommissionWallet() {
                   </TableRow>
                   );
                 })}
-                {(overviewQuery.data?.recent_ledger ?? []).length === 0 && (
+                {(overviewQuery.data?.recent_ledger ?? []).filter((r) => inPeriod(r.created_at)).length === 0 && (
                   <TableRow>
                     <TableCell colSpan={10} className="text-muted-foreground text-sm">
                       No recent ledger entries.
@@ -1465,7 +1465,7 @@ export default function CommissionWallet() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(overviewQuery.data?.recent_admin_audit ?? []).map((row) => (
+                {(overviewQuery.data?.recent_admin_audit ?? []).filter((r) => inPeriod(r.created_at)).map((row) => (
                   <TableRow key={String(row.id)}>
                     <TableCell className="text-xs whitespace-nowrap">
                       {row.created_at ? new Date(String(row.created_at)).toLocaleString() : '—'}
@@ -1489,7 +1489,7 @@ export default function CommissionWallet() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {(overviewQuery.data?.recent_admin_audit ?? []).length === 0 && (
+                {(overviewQuery.data?.recent_admin_audit ?? []).filter((r) => inPeriod(r.created_at)).length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} className="text-muted-foreground text-sm">
                       No admin audit rows yet.
