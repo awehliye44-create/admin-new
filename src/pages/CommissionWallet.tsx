@@ -110,6 +110,25 @@ export default function CommissionWallet() {
   const [campaignId, setCampaignId] = useState('');
   const [confirmCreditOpen, setConfirmCreditOpen] = useState(false);
 
+  const [period, setPeriod] = useState<FinancePeriod>('week');
+  const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
+  const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
+  const periodBounds = useMemo(() => {
+    if (period === 'custom' && (!customDateFrom || !customDateTo)) {
+      return {
+        period,
+        from: '',
+        to: '',
+        label: 'Custom — select From / To and Apply',
+      };
+    }
+    return resolveFinancePeriodBounds(period, customDateFrom, customDateTo);
+  }, [period, customDateFrom, customDateTo]);
+  const inPeriod = (value: unknown): boolean => {
+    if (!periodBounds.from || !periodBounds.to) return true;
+    return isTimestampInPeriod(value ? String(value) : null, periodBounds.from, periodBounds.to);
+  };
+
   const [testAccess, setTestAccess] = useState<boolean | null>(null);
   const [testAccessLoading, setTestAccessLoading] = useState(false);
   const [testAccessError, setTestAccessError] = useState<string | null>(null);
