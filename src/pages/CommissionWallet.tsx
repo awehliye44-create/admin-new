@@ -7,6 +7,12 @@ import {
   type ServiceAreaFinanceSelection,
 } from '@/components/finance/ServiceAreaFinanceFilter';
 import { CommissionWalletCreditDriverPicker } from '@/components/finance/CommissionWalletCreditDriverPicker';
+import { FinancePeriodFilter } from '@/components/finance/FinancePeriodFilter';
+import {
+  resolveFinancePeriodBounds,
+  isTimestampInPeriod,
+  type FinancePeriod,
+} from '@/lib/financePeriodFilter';
 import { useRegions } from '@/hooks/useRegions';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -103,6 +109,25 @@ export default function CommissionWallet() {
   const [correctionDirection, setCorrectionDirection] = useState<'credit' | 'debit'>('credit');
   const [campaignId, setCampaignId] = useState('');
   const [confirmCreditOpen, setConfirmCreditOpen] = useState(false);
+
+  const [period, setPeriod] = useState<FinancePeriod>('week');
+  const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
+  const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
+  const periodBounds = useMemo(() => {
+    if (period === 'custom' && (!customDateFrom || !customDateTo)) {
+      return {
+        period,
+        from: '',
+        to: '',
+        label: 'Custom — select From / To and Apply',
+      };
+    }
+    return resolveFinancePeriodBounds(period, customDateFrom, customDateTo);
+  }, [period, customDateFrom, customDateTo]);
+  const inPeriod = (value: unknown): boolean => {
+    if (!periodBounds.from || !periodBounds.to) return true;
+    return isTimestampInPeriod(value ? String(value) : null, periodBounds.from, periodBounds.to);
+  };
 
   const [testAccess, setTestAccess] = useState<boolean | null>(null);
   const [testAccessLoading, setTestAccessLoading] = useState(false);
@@ -535,6 +560,24 @@ export default function CommissionWallet() {
             </div>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Filter — Period</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <FinancePeriodFilter
+              period={period}
+              onPeriodChange={setPeriod}
+              customFrom={customDateFrom}
+              customTo={customDateTo}
+              onCustomFromChange={setCustomDateFrom}
+              onCustomToChange={setCustomDateTo}
+            />
+            <p className="text-xs text-muted-foreground">{periodBounds.label}</p>
+          </CardContent>
+        </Card>
+
 
 
         {driverId.trim() && (
@@ -1273,7 +1316,7 @@ export default function CommissionWallet() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(overviewQuery.data?.recent_topups ?? []).map((row) => (
+                {(overviewQuery.data?.recent_topups ?? []).filter((r) => inPeriod(r.created_at)).map((row) => (
                   <TableRow key={String(row.id)}>
                     <TableCell className="text-xs whitespace-nowrap">
                       {row.created_at ? new Date(String(row.created_at)).toLocaleString() : '—'}
@@ -1287,7 +1330,7 @@ export default function CommissionWallet() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {(overviewQuery.data?.recent_topups ?? []).length === 0 && (
+                {(overviewQuery.data?.recent_topups ?? []).filter((r) => inPeriod(r.created_at)).length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="text-muted-foreground text-sm">
                       No provider top-ups yet.
@@ -1320,7 +1363,7 @@ export default function CommissionWallet() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(overviewQuery.data?.recent_ledger ?? []).map((row) => {
+                {(overviewQuery.data?.recent_ledger ?? []).filter((r) => inPeriod(r.created_at)).map((row) => {
                   const meta = row.metadata && typeof row.metadata === 'object'
                     ? row.metadata as Record<string, unknown>
                     : null;
@@ -1392,7 +1435,7 @@ export default function CommissionWallet() {
                   </TableRow>
                   );
                 })}
-                {(overviewQuery.data?.recent_ledger ?? []).length === 0 && (
+                {(overviewQuery.data?.recent_ledger ?? []).filter((r) => inPeriod(r.created_at)).length === 0 && (
                   <TableRow>
                     <TableCell colSpan={10} className="text-muted-foreground text-sm">
                       No recent ledger entries.
@@ -1422,7 +1465,7 @@ export default function CommissionWallet() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(overviewQuery.data?.recent_admin_audit ?? []).map((row) => (
+                {(overviewQuery.data?.recent_admin_audit ?? []).filter((r) => inPeriod(r.created_at)).map((row) => (
                   <TableRow key={String(row.id)}>
                     <TableCell className="text-xs whitespace-nowrap">
                       {row.created_at ? new Date(String(row.created_at)).toLocaleString() : '—'}
@@ -1446,7 +1489,7 @@ export default function CommissionWallet() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {(overviewQuery.data?.recent_admin_audit ?? []).length === 0 && (
+                {(overviewQuery.data?.recent_admin_audit ?? []).filter((r) => inPeriod(r.created_at)).length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} className="text-muted-foreground text-sm">
                       No admin audit rows yet.

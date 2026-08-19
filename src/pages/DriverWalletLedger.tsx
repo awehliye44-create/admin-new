@@ -289,6 +289,17 @@ export default function DriverWalletLedger() {
 
         {showDriverList ? (
           <div className="space-y-6">
+            <div className="space-y-2">
+              <FinancePeriodFilter
+                period={period}
+                onPeriodChange={setPeriod}
+                customFrom={customDateFrom}
+                customTo={customDateTo}
+                onCustomFromChange={setCustomDateFrom}
+                onCustomToChange={setCustomDateTo}
+              />
+              <p className="text-xs text-muted-foreground">{periodBounds.label}</p>
+            </div>
             <DriverWalletFleetOverviewCards
               regionId={serviceFilter.regionId}
               currencyCode={currencyCode}
