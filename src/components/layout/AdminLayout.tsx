@@ -17,14 +17,14 @@ interface AdminLayoutProps {
 export function AdminLayout({ children, title, description, fullHeight }: AdminLayoutProps) {
   if (fullHeight) {
     return (
-      <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
         <div className="px-8 pt-8 pb-4 shrink-0">
           <h1 className="text-3xl font-bold text-foreground">{title}</h1>
           {description && (
             <p className="mt-1 text-muted-foreground">{description}</p>
           )}
         </div>
-        <div className="flex-1 min-h-0 px-8 pb-8 overflow-hidden">
+        <div className="flex flex-1 min-h-0 flex-col px-8 pb-8 overflow-hidden">
           {children}
         </div>
       </div>
@@ -32,7 +32,7 @@ export function AdminLayout({ children, title, description, fullHeight }: AdminL
   }
 
   return (
-    <div className="p-8 min-h-full overflow-y-auto">
+    <div className="flex-1 overflow-y-auto p-8 min-h-full">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground">{title}</h1>
         {description && (

@@ -113,13 +113,13 @@ export default function LiveChat() {
 
   return (
     <AdminLayout title="Live Chat" description="Real-time support conversations with customers and drivers" fullHeight>
-      <Tabs defaultValue="chat" className="flex flex-col h-full">
+      <Tabs defaultValue="chat" className="flex flex-1 min-h-0 flex-col">
         {convsError && (
           <div className="mb-2 shrink-0 rounded-md bg-destructive/10 border border-destructive/30 px-4 py-2 text-sm text-destructive">
             Failed to load conversations: {String((convsError as Error)?.message ?? convsError)}
           </div>
         )}
-        <div className="flex items-center justify-between">
+        <div className="mb-3 flex shrink-0 items-center justify-between">
           <TabsList>
             <TabsTrigger value="chat" className="gap-2">
               <MessageSquare className="h-4 w-4" />
@@ -147,10 +147,10 @@ export default function LiveChat() {
           </div>
         </div>
 
-        <TabsContent value="chat" className="mt-0 flex-1 min-h-0">
-          <div className="border rounded-lg flex h-full overflow-hidden bg-background">
+        <TabsContent value="chat" className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden">
+          <div className="flex flex-1 min-h-0 overflow-hidden rounded-lg border bg-background">
             {/* Left sidebar */}
-            <div className="w-80 border-r flex flex-col shrink-0">
+            <div className="flex w-80 shrink-0 flex-col border-r">
               {/* Search + filters */}
               <div className="p-3 border-b space-y-2 shrink-0">
                 <div className="relative">
@@ -182,17 +182,24 @@ export default function LiveChat() {
                 </div>
               </div>
               {/* Conversation list */}
-              <div className="flex-1 overflow-hidden">
-                <ConversationList
-                  conversations={filteredConversations}
-                  selectedId={selectedConvId}
-                  onSelect={handleSelectConv}
-                />
+              <div className="min-h-0 flex-1 overflow-hidden">
+                {convsLoading ? (
+                  <div className="flex items-center justify-center py-12 text-muted-foreground">
+                    <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
+                    Loading conversations…
+                  </div>
+                ) : (
+                  <ConversationList
+                    conversations={filteredConversations}
+                    selectedId={selectedConvId}
+                    onSelect={handleSelectConv}
+                  />
+                )}
               </div>
             </div>
 
             {/* Right chat area */}
-            <div className="flex-1 min-w-0">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <ChatMessageArea
                 conversation={selectedConv}
                 messages={messages}
