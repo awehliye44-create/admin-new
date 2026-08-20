@@ -268,3 +268,11 @@ verify_jwt = false
 # Schedule: do NOT add a pg_cron job until production deployment is approved.
 [functions.reconcile-submitted-driver-withdrawals]
 verify_jwt = false
+
+# Public website support widget — availability polling (anon, no JWT).
+[functions.admin-support-status]
+verify_jwt = false
+
+# Public website support widget — guest live chat into Admin Live Chat (anon, no JWT).
+[functions.website-support-chat]
+verify_jwt = false

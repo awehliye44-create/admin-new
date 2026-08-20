@@ -19544,6 +19544,9 @@ export type Database = {
           created_at: string
           customer_id: string | null
           driver_id: string | null
+          guest_email: string | null
+          guest_name: string | null
+          guest_session_token: string | null
           id: string
           initiated_by: string
           last_message_at: string | null
@@ -19564,6 +19567,9 @@ export type Database = {
           created_at?: string
           customer_id?: string | null
           driver_id?: string | null
+          guest_email?: string | null
+          guest_name?: string | null
+          guest_session_token?: string | null
           id?: string
           initiated_by?: string
           last_message_at?: string | null
@@ -19584,6 +19590,9 @@ export type Database = {
           created_at?: string
           customer_id?: string | null
           driver_id?: string | null
+          guest_email?: string | null
+          guest_name?: string | null
+          guest_session_token?: string | null
           id?: string
           initiated_by?: string
           last_message_at?: string | null
