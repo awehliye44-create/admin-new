@@ -242,6 +242,27 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_support_availability: {
+        Row: {
+          admin_user_id: string | null
+          id: string
+          last_heartbeat_at: string
+          updated_at: string
+        }
+        Insert: {
+          admin_user_id?: string | null
+          id?: string
+          last_heartbeat_at?: string
+          updated_at?: string
+        }
+        Update: {
+          admin_user_id?: string | null
+          id?: string
+          last_heartbeat_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ai_credit_packages: {
         Row: {
           active: boolean
@@ -8641,6 +8662,10 @@ export type Database = {
           id: string
           idempotency_key: string
           last_provider_sync_at: string | null
+          last_reconcile_at: string | null
+          last_reconcile_error: string | null
+          last_reconcile_provider_state: string | null
+          next_reconcile_at: string | null
           payment_reference: string | null
           payout_destination_id: string
           payout_item_id: string
@@ -8654,6 +8679,10 @@ export type Database = {
           provider_recipient_account_id: string
           provider_request_id: string
           provider_state: string | null
+          reconcile_attempt_count: number
+          reconcile_claim_expires_at: string | null
+          reconcile_claim_token: string | null
+          reconcile_claimed_at: string | null
           request_fingerprint: string
           source_account_id: string
           submission_evidence_redacted: Json
@@ -8673,6 +8702,10 @@ export type Database = {
           id?: string
           idempotency_key: string
           last_provider_sync_at?: string | null
+          last_reconcile_at?: string | null
+          last_reconcile_error?: string | null
+          last_reconcile_provider_state?: string | null
+          next_reconcile_at?: string | null
           payment_reference?: string | null
           payout_destination_id: string
           payout_item_id: string
@@ -8686,6 +8719,10 @@ export type Database = {
           provider_recipient_account_id: string
           provider_request_id: string
           provider_state?: string | null
+          reconcile_attempt_count?: number
+          reconcile_claim_expires_at?: string | null
+          reconcile_claim_token?: string | null
+          reconcile_claimed_at?: string | null
           request_fingerprint: string
           source_account_id: string
           submission_evidence_redacted?: Json
@@ -8705,6 +8742,10 @@ export type Database = {
           id?: string
           idempotency_key?: string
           last_provider_sync_at?: string | null
+          last_reconcile_at?: string | null
+          last_reconcile_error?: string | null
+          last_reconcile_provider_state?: string | null
+          next_reconcile_at?: string | null
           payment_reference?: string | null
           payout_destination_id?: string
           payout_item_id?: string
@@ -8718,6 +8759,10 @@ export type Database = {
           provider_recipient_account_id?: string
           provider_request_id?: string
           provider_state?: string | null
+          reconcile_attempt_count?: number
+          reconcile_claim_expires_at?: string | null
+          reconcile_claim_token?: string | null
+          reconcile_claimed_at?: string | null
           request_fingerprint?: string
           source_account_id?: string
           submission_evidence_redacted?: Json
@@ -9840,7 +9885,9 @@ export type Database = {
           description: string | null
           driver_id: string
           id: string
+          payment_provider: string | null
           provider_payout_id: string | null
+          provider_refund_id: string | null
           provider_transfer_id: string | null
           related_trip_id: string | null
           service_area_id: string | null
@@ -9853,7 +9900,9 @@ export type Database = {
           description?: string | null
           driver_id: string
           id?: string
+          payment_provider?: string | null
           provider_payout_id?: string | null
+          provider_refund_id?: string | null
           provider_transfer_id?: string | null
           related_trip_id?: string | null
           service_area_id?: string | null
@@ -9866,7 +9915,9 @@ export type Database = {
           description?: string | null
           driver_id?: string
           id?: string
+          payment_provider?: string | null
           provider_payout_id?: string | null
+          provider_refund_id?: string | null
           provider_transfer_id?: string | null
           related_trip_id?: string | null
           service_area_id?: string | null
@@ -22856,11 +22907,14 @@ export type Database = {
       whatsapp_conversations: {
         Row: {
           active_trip_id: string | null
+          booking_session_expires_at: string | null
+          booking_session_started_at: string | null
           created_at: string
           display_name: string | null
           last_inbound_at: string | null
           last_outbound_at: string | null
           metadata: Json
+          support_conversation_id: string | null
           support_opened_at: string | null
           updated_at: string
           wa_id: string
@@ -22869,11 +22923,14 @@ export type Database = {
         }
         Insert: {
           active_trip_id?: string | null
+          booking_session_expires_at?: string | null
+          booking_session_started_at?: string | null
           created_at?: string
           display_name?: string | null
           last_inbound_at?: string | null
           last_outbound_at?: string | null
           metadata?: Json
+          support_conversation_id?: string | null
           support_opened_at?: string | null
           updated_at?: string
           wa_id: string
@@ -22882,11 +22939,14 @@ export type Database = {
         }
         Update: {
           active_trip_id?: string | null
+          booking_session_expires_at?: string | null
+          booking_session_started_at?: string | null
           created_at?: string
           display_name?: string | null
           last_inbound_at?: string | null
           last_outbound_at?: string | null
           metadata?: Json
+          support_conversation_id?: string | null
           support_opened_at?: string | null
           updated_at?: string
           wa_id?: string
@@ -22921,6 +22981,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_payment_lifecycle_audit"
             referencedColumns: ["trip_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversations_support_conversation_id_fkey"
+            columns: ["support_conversation_id"]
+            isOneToOne: false
+            referencedRelation: "support_conversations"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -25679,6 +25746,21 @@ export type Database = {
         }
         Returns: undefined
       }
+      apply_confirmed_provider_refund_atomic: {
+        Args: {
+          p_cumulative_refunded_pence: number
+          p_event_refund_amount_pence: number
+          p_payment_provider: string
+          p_provider_order_id?: string
+          p_provider_payment_id?: string
+          p_provider_refund_id: string
+          p_refund_reason?: string
+          p_skip_driver_wallet_reversal?: boolean
+          p_source?: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
       apply_customer_decline_grace: {
         Args: { p_offer_id: string; p_reason?: string }
         Returns: Json
@@ -25839,6 +25921,23 @@ export type Database = {
           p_source_account_id: string
         }
         Returns: Json
+      }
+      claim_reconcile_payout_items: {
+        Args: {
+          p_claim_token: string
+          p_claim_ttl_seconds?: number
+          p_limit?: number
+          p_min_age_interval?: string
+        }
+        Returns: {
+          driver_id: string
+          intent_id: string
+          payout_item_id: string
+          provider_created_at: string
+          provider_payment_id: string
+          provider_state: string
+          reconcile_attempt_count: number
+        }[]
       }
       claim_trip_negotiation: {
         Args: { p_driver_id: string; p_trip_id: string }
@@ -26823,6 +26922,42 @@ export type Database = {
       get_driver_own_wallet_summary: {
         Args: { p_service_area_id?: string }
         Returns: Json
+      }
+      get_driver_own_withdrawal: {
+        Args: { p_withdrawal_id: string }
+        Returns: {
+          amount_pence: number
+          batch_kind: string
+          completed_at: string
+          created_at: string
+          error_message: string
+          failed_at: string
+          failure_code: string
+          failure_reason: string
+          financially_applied_at: string
+          id: string
+          net_driver_payout_pence: number
+          onecab_fee_pence: number
+          provider_state: string
+          status: string
+        }[]
+      }
+      get_driver_own_withdrawals: {
+        Args: { p_filter?: string }
+        Returns: {
+          amount_pence: number
+          batch_kind: string
+          completed_at: string
+          created_at: string
+          error_message: string
+          failed_at: string
+          failure_code: string
+          failure_reason: string
+          id: string
+          net_driver_payout_pence: number
+          onecab_fee_pence: number
+          status: string
+        }[]
       }
       get_driver_pending_ride_offers: { Args: never; Returns: Json }
       get_driver_queued_trips: { Args: never; Returns: Json }
@@ -28284,6 +28419,18 @@ export type Database = {
           p_speed?: number
         }
         Returns: Json
+      }
+      update_reconcile_attempt_meta: {
+        Args: {
+          p_attempt_count: number
+          p_claim_token: string
+          p_error: string
+          p_financially_applied: boolean
+          p_intent_id: string
+          p_next_reconcile_at: string
+          p_provider_state: string
+        }
+        Returns: boolean
       }
       upsert_customer_live_location: {
         Args: {
