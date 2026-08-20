@@ -97,22 +97,35 @@ export default function Tickets() {
     user_name: '',
   });
 
-  // Fetch conversations — exclude channel='whatsapp' (those belong to Live Chat only)
+  // Fetch conversations — exclude Live Chat channels (whatsapp / website).
   const { data: tickets = [], isLoading, refetch } = useQuery({
     queryKey: ['support-tickets'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('support_conversations')
-        .select(`
-          *,
-          customer:customers(first_name, last_name),
-          driver:drivers(first_name, last_name, driver_code)
-        `)
-        .neq('channel', 'whatsapp')
+        .select('*')
+        .not('channel', 'in', '(whatsapp,website)')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return (data || []) as SupportConversation[];
+      const rows = (data || []) as SupportConversation[];
+      const customerIds = [...new Set(rows.map((r) => r.customer_id).filter((id): id is string => !!id))];
+      const customerMap: Record<string, { first_name: string | null; last_name: string | null }> = {};
+      if (customerIds.length > 0) {
+        const { data: customers, error: customerErr } = await supabase
+          .from('customers')
+          .select('id, first_name, last_name')
+          .in('id', customerIds);
+        if (!customerErr) {
+          (customers || []).forEach((c) => {
+            customerMap[c.id] = c;
+          });
+        }
+      }
+      return rows.map((r) => ({
+        ...r,
+        customer: r.customer_id ? customerMap[r.customer_id] : undefined,
+      }));
     },
   });
 

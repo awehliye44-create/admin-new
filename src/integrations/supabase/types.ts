@@ -25623,6 +25623,16 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      admin_live_chat_driver_identity: {
+        Args: { p_ids: string[] }
+        Returns: {
+          driver_code: string | null
+          first_name: string
+          id: string
+          last_name: string
+          phone: string | null
+        }[]
+      }
       admin_remove_staff_member: {
         Args: { _correlation_id?: string; _staff_id: string }
         Returns: string

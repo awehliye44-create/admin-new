@@ -27,18 +27,22 @@ const priorityColors: Record<string, string> = {
 };
 
 function getUserName(conv: SupportConversation) {
+  if (conv.channel === "whatsapp") {
+    if (conv.customer) {
+      const name = [conv.customer.first_name, conv.customer.last_name].filter(Boolean).join(" ");
+      if (name) return name;
+    }
+    return conv.subject.replace(/^WhatsApp support — /, "") || conv.wa_id || "WhatsApp Customer";
+  }
+  if (conv.channel === "website") {
+    return conv.guest_name || conv.guest_email || conv.subject.replace(/^Website chat — /, "") || "Website visitor";
+  }
   if (conv.user_type === "customer" && conv.customer) {
     const name = [conv.customer.first_name, conv.customer.last_name].filter(Boolean).join(" ");
     return name || conv.customer.phone || "Customer";
   }
   if (conv.user_type === "driver" && conv.driver) {
-    return `${conv.driver.first_name} ${conv.driver.last_name}`.trim() || conv.driver.email;
-  }
-  // WhatsApp guest: no registered customer — show wa_id from subject
-  if (conv.channel === "whatsapp") return conv.subject.replace(/^WhatsApp support — /, "") || "WhatsApp Customer";
-  // Website guest: no registered customer — show supplied name/email
-  if (conv.channel === "website") {
-    return conv.guest_name || conv.guest_email || "Website Visitor";
+    return `${conv.driver.first_name} ${conv.driver.last_name}`.trim() || conv.driver.email || "Driver";
   }
   return conv.user_type === "customer" ? "Customer" : "Driver";
 }
@@ -90,10 +94,10 @@ export const ConversationList = memo(function ConversationList({ conversations, 
                     </span>
                   )}
                   {conv.channel === "website" && (
-                    <span className="flex items-center gap-0.5 text-[10px] text-primary">
+                    <Badge variant="outline" className="h-5 px-1.5 text-[10px] gap-1">
                       <MessageCircle className="h-2.5 w-2.5" />
-                      WEB
-                    </span>
+                      Website
+                    </Badge>
                   )}
                   {conv.priority !== "normal" && (
                     <span className={cn("text-xs font-medium capitalize", priorityColors[conv.priority])}>

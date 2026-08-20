@@ -26,7 +26,7 @@ export interface SupportConversation {
   created_at: string;
   updated_at: string;
   customer?: { id: string; first_name: string | null; last_name: string | null; phone: string | null };
-  driver?: { id: string; first_name: string; last_name: string; email: string; phone: string | null };
+  driver?: { id: string; first_name: string; last_name: string; email?: string | null; phone: string | null; driver_code?: string | null };
   latest_message?: SupportMessage;
   unread_count?: number;
 }
@@ -57,6 +57,71 @@ export interface CannedResponse {
   is_active: boolean;
   usage_count: number;
   created_at: string;
+}
+
+type LiveChatDriverIdentity = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  driver_code: string | null;
+  phone: string | null;
+};
+
+/**
+ * Optional identity enrichment. Failures here MUST NOT fail the inbox.
+ * WhatsApp/website conversations do not need drivers at all.
+ */
+async function enrichSupportIdentities(rows: SupportConversation[]): Promise<SupportConversation[]> {
+  if (rows.length === 0) return rows;
+
+  const customerIds = [...new Set(rows.map((r) => r.customer_id).filter((id): id is string => !!id))];
+  const driverIds = [...new Set(rows.map((r) => r.driver_id).filter((id): id is string => !!id))];
+
+  const customerMap: Record<string, NonNullable<SupportConversation["customer"]>> = {};
+  const driverMap: Record<string, NonNullable<SupportConversation["driver"]>> = {};
+
+  if (customerIds.length > 0) {
+    try {
+      const { data, error } = await supabase
+        .from("customers")
+        .select("id, first_name, last_name, phone")
+        .in("id", customerIds);
+      if (!error) {
+        (data || []).forEach((c) => {
+          customerMap[c.id] = c;
+        });
+      }
+    } catch {
+      /* keep the conversation list without customer names */
+    }
+  }
+
+  if (driverIds.length > 0) {
+    try {
+      const { data, error } = await supabase.rpc("admin_live_chat_driver_identity", {
+        p_ids: driverIds,
+      });
+      if (!error) {
+        ((data || []) as LiveChatDriverIdentity[]).forEach((d) => {
+          driverMap[d.id] = {
+            id: d.id,
+            first_name: d.first_name,
+            last_name: d.last_name,
+            phone: d.phone,
+            driver_code: d.driver_code,
+          };
+        });
+      }
+    } catch {
+      /* keep the conversation list without driver names */
+    }
+  }
+
+  return rows.map((r) => ({
+    ...r,
+    customer: r.customer_id ? customerMap[r.customer_id] : undefined,
+    driver: r.driver_id ? driverMap[r.driver_id] : undefined,
+  }));
 }
 
 // Fetch all conversations + subscribe to Realtime so new WhatsApp (and any
@@ -95,13 +160,14 @@ export function useSupportConversations(statusFilter?: string) {
   return useQuery({
     queryKey: ["support-conversations", statusFilter],
     queryFn: async () => {
+      // Base query MUST NOT embed the drivers table. Production `authenticated`
+      // has no SELECT on public.drivers, so PostgREST relation expansion of
+      // that FK fails the entire inbox with:
+      //   permission denied for table drivers
+      // even for WhatsApp/website rows that have driver_id = null.
       let query = supabase
         .from("support_conversations")
-        .select(`
-          *,
-          customer:customers(id, first_name, last_name, phone),
-          driver:drivers(id, first_name, last_name, email, phone)
-        `)
+        .select("*")
         .order("last_message_at", { ascending: false });
 
       if (statusFilter && statusFilter !== "all") {
@@ -111,8 +177,9 @@ export function useSupportConversations(statusFilter?: string) {
       const { data, error } = await query;
       if (error) throw error;
 
-      // Get unread counts for each conversation
-      const convIds = (data || []).map((c: any) => c.id);
+      const rows = await enrichSupportIdentities((data || []) as SupportConversation[]);
+
+      const convIds = rows.map((c) => c.id);
       if (convIds.length > 0) {
         const { data: unreadData } = await supabase
           .from("support_messages")
@@ -122,17 +189,17 @@ export function useSupportConversations(statusFilter?: string) {
           .neq("sender_type", "admin");
 
         const unreadMap: Record<string, number> = {};
-        (unreadData || []).forEach((m: any) => {
+        (unreadData || []).forEach((m: { conversation_id: string }) => {
           unreadMap[m.conversation_id] = (unreadMap[m.conversation_id] || 0) + 1;
         });
 
-        return (data || []).map((c: any) => ({
+        return rows.map((c) => ({
           ...c,
           unread_count: unreadMap[c.id] || 0,
-        })) as SupportConversation[];
+        }));
       }
 
-      return (data || []) as SupportConversation[];
+      return rows;
     },
     refetchInterval: () => {
       if (!isAdminPageLiveActive()) return false;

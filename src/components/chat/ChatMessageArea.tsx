@@ -109,6 +109,9 @@ export const ChatMessageArea = memo(function ChatMessageArea({
     if (conversation.channel === "whatsapp") {
       return conversation.subject.replace(/^WhatsApp support — /, "") || conversation.wa_id || "WhatsApp Customer";
     }
+    if (conversation.channel === "website") {
+      return conversation.guest_name || conversation.guest_email || conversation.subject.replace(/^Website chat — /, "") || "Website visitor";
+    }
     if (conversation.user_type === "customer" && conversation.customer) {
       return [conversation.customer.first_name, conversation.customer.last_name].filter(Boolean).join(" ") || conversation.customer.phone || "Customer";
     }
@@ -136,6 +139,12 @@ export const ChatMessageArea = memo(function ChatMessageArea({
                 <Badge variant="outline" className="h-5 px-1.5 text-[10px] gap-1 border-green-400 text-green-700">
                   <MessageCircle className="h-2.5 w-2.5" />
                   WhatsApp
+                </Badge>
+              )}
+              {conversation.channel === "website" && (
+                <Badge variant="outline" className="h-5 px-1.5 text-[10px] gap-1">
+                  <MessageCircle className="h-2.5 w-2.5" />
+                  Website
                 </Badge>
               )}
             </div>

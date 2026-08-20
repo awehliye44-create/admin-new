@@ -290,6 +290,18 @@ Deno.test("useSupportChat: WhatsApp channel sends via whatsapp-reply Edge Functi
   assert(!waBlock.includes('.from("support_messages").insert'), "must not insert directly for whatsapp channel");
 });
 
+Deno.test("useSupportChat: conversation list must not embed drivers (permission denied)", () => {
+  const src = readSrc("hooks/useSupportChat.ts");
+  const start = src.indexOf("export function useSupportConversations");
+  const end = src.indexOf("export function useSupportMessages");
+  assert(start >= 0 && end > start, "must find useSupportConversations");
+  const block = src.slice(start, end);
+  assert(block.includes('.select("*")'), "base list query must select support_conversations only");
+  assert(!block.includes("driver:drivers"), "must not PostgREST-embed drivers on the inbox query");
+  assert(src.includes("admin_live_chat_driver_identity"), "driver names must come from the narrow admin identity RPC");
+  assert(src.includes("enrichSupportIdentities"), "identity enrichment must be isolated from the base query");
+});
+
 Deno.test("useSupportChat: WhatsApp resolve routes through whatsapp-resolve Edge Function", () => {
   const src = readSrc("hooks/useSupportChat.ts");
   assert(src.includes("whatsapp-resolve"), "must call whatsapp-resolve Edge Function");
