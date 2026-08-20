@@ -36,6 +36,10 @@ function getUserName(conv: SupportConversation) {
   }
   // WhatsApp guest: no registered customer — show wa_id from subject
   if (conv.channel === "whatsapp") return conv.subject.replace(/^WhatsApp support — /, "") || "WhatsApp Customer";
+  // Website guest: no registered customer — show supplied name/email
+  if (conv.channel === "website") {
+    return conv.guest_name || conv.guest_email || "Website Visitor";
+  }
   return conv.user_type === "customer" ? "Customer" : "Driver";
 }
 
