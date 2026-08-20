@@ -51,8 +51,8 @@ Deno.serve(async (req) => {
 
   if (error) {
     console.error("[admin-support-status] query error:", error.message);
-    // Fail open — don't hide the widget on transient DB errors.
-    return json({ available: true, error: "status_check_failed" });
+    // Fail closed — never advertise support when availability is unknown.
+    return json({ available: false, error: "status_check_failed" });
   }
 
   if (!data) {
