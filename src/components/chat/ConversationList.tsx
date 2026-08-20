@@ -89,6 +89,12 @@ export const ConversationList = memo(function ConversationList({ conversations, 
                       WA
                     </span>
                   )}
+                  {conv.channel === "website" && (
+                    <span className="flex items-center gap-0.5 text-[10px] text-primary">
+                      <MessageCircle className="h-2.5 w-2.5" />
+                      WEB
+                    </span>
+                  )}
                   {conv.priority !== "normal" && (
                     <span className={cn("text-xs font-medium capitalize", priorityColors[conv.priority])}>
                       {conv.priority}
