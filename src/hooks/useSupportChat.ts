@@ -19,6 +19,8 @@ export interface SupportConversation {
   tags: string[];
   trip_id: string | null;
   wa_id: string | null;
+  guest_name?: string | null;
+  guest_email?: string | null;
   last_message_at: string;
   resolved_at: string | null;
   created_at: string;
