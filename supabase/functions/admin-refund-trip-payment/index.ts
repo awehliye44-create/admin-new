@@ -8,7 +8,7 @@ import {
   getRevolutMerchantConfig,
 } from "../_shared/revolutOrders.ts";
 import { applyProviderRefundToOnecab } from "../_shared/applyProviderRefund.ts";
-import { resolveTripPaymentProvider, tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
+import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -17,6 +17,28 @@ const InputSchema = z.object({
   /** Skip proportional wallet REFUND_DEBIT when wallet is corrected separately. */
   skip_driver_wallet_reversal: z.boolean().optional(),
 });
+
+type ProviderRefundOutcome = {
+  id: string;
+  amount?: number;
+};
+
+function extractExistingRevolutRefund(
+  order: Record<string, unknown>,
+  refundAmountPence: number,
+): ProviderRefundOutcome | null {
+  const refunds = Array.isArray(order.refunds) ? order.refunds : [];
+  const match = refunds.find((row) => {
+    if (!row || typeof row !== "object") return false;
+    const amount = Math.round(Number((row as Record<string, unknown>).amount ?? 0));
+    const id = String((row as Record<string, unknown>).id ?? "").trim();
+    return id.length > 0 && amount === refundAmountPence;
+  });
+  if (!match || typeof match !== "object") return null;
+  const id = String((match as Record<string, unknown>).id ?? "").trim();
+  if (!id) return null;
+  return { id, amount: refundAmountPence };
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -76,9 +98,36 @@ serve(async (req) => {
       return jsonResponse({ error: `amount_pence (${refundAmount}) exceeds refundable (${refundable})` }, 400);
     }
 
-    const refund = await refundRevolutOrder(environment, secretKey, orderId, refundAmount, reason);
+    let providerRefund: ProviderRefundOutcome;
+    let providerRefundCreated = false;
+    try {
+      providerRefund = await refundRevolutOrder(environment, secretKey, orderId, refundAmount, reason);
+      providerRefundCreated = true;
+    } catch (providerErr) {
+      const orderAfterFail = await retrieveRevolutOrder(environment, secretKey, orderId);
+      const existing = extractExistingRevolutRefund(
+        orderAfterFail as unknown as Record<string, unknown>,
+        refundAmount,
+      );
+      if (!existing?.id) {
+        return jsonResponse({
+          error: (providerErr as Error).message ?? String(providerErr),
+          failure_stage: "provider_refund",
+          retry_provider_refund: true,
+        }, 502);
+      }
+      providerRefund = existing;
+    }
 
-    // Persist capture baseline when trip.capture_amount_pence was never written (common for Revolut).
+    const providerRefundId = String(providerRefund.id ?? "").trim();
+    if (!providerRefundId) {
+      return jsonResponse({
+        error: "Provider refund succeeded but provider_refund_id missing",
+        failure_stage: "provider_refund",
+        retry_provider_refund: true,
+      }, 502);
+    }
+
     if (trip.capture_amount_pence == null && captured > 0) {
       await gate.supabase
         .from("trips")
@@ -86,40 +135,65 @@ serve(async (req) => {
         .eq("id", trip_id);
     }
 
-    await applyProviderRefundToOnecab(gate.supabase, {
-      tripId: trip_id,
-      amountRefundedPence: alreadyRefunded + refundAmount,
-      provider: "revolut",
-      providerRefundId: refund.id ?? null,
-      providerOrderId: orderId,
-      source: "admin_refund",
-      refundReason: reason,
-      skipDriverWalletReversal: skip_driver_wallet_reversal === true,
-    });
+    try {
+      const localResult = await applyProviderRefundToOnecab(gate.supabase, {
+        tripId: trip_id,
+        amountRefundedPence: alreadyRefunded + refundAmount,
+        thisRefundAmountPence: refundAmount,
+        provider: "revolut",
+        providerRefundId,
+        providerOrderId: orderId,
+        source: "admin_refund",
+        refundReason: reason,
+        skipDriverWalletReversal: skip_driver_wallet_reversal === true,
+      });
 
-    await gate.supabase.from("admin_payment_audit").insert({
-      trip_id,
-      admin_user_id: gate.userId,
-      action: "refund",
-      reason,
-      amount_pence_before: alreadyRefunded,
-      amount_pence_after: alreadyRefunded + refundAmount,
-      delta_pence: refundAmount,
-      provider: "revolut",
-      provider_payment_id: orderId,
-      metadata: { captured_total: captured, refundable_before: refundable, revolut_refund_id: refund.id },
-    });
+      await gate.supabase.from("admin_payment_audit").insert({
+        trip_id,
+        admin_user_id: gate.userId,
+        action: "refund",
+        reason,
+        amount_pence_before: alreadyRefunded,
+        amount_pence_after: alreadyRefunded + refundAmount,
+        delta_pence: refundAmount,
+        provider: "revolut",
+        provider_payment_id: orderId,
+        metadata: {
+          captured_total: captured,
+          refundable_before: refundable,
+          revolut_refund_id: providerRefundId,
+          provider_refund_created: providerRefundCreated,
+          local_rpc_status: localResult.rpc_status,
+        },
+      });
 
-    return jsonResponse({
-      success: true,
-      provider: "revolut",
-      provider_order_id: orderId,
-      refunded_pence: refundAmount,
-      total_refunded_pence: alreadyRefunded + refundAmount,
-      message: `Refunded ${(refundAmount / 100).toFixed(2)} successfully`,
-    });
+      return jsonResponse({
+        success: true,
+        provider: "revolut",
+        provider_order_id: orderId,
+        provider_refund_id: providerRefundId,
+        refunded_pence: refundAmount,
+        total_refunded_pence: alreadyRefunded + refundAmount,
+        already_applied: localResult.already_applied,
+        retry_provider_refund: false,
+        message: `Refunded ${(refundAmount / 100).toFixed(2)} successfully`,
+      });
+    } catch (localErr) {
+      console.error("[admin-refund-trip-payment] Local application failed after provider success:", localErr);
+      return jsonResponse({
+        error: (localErr as Error).message ?? String(localErr),
+        failure_stage: "local_application",
+        provider_refund_id: providerRefundId,
+        retry_provider_refund: false,
+        provider_refund_created: providerRefundCreated,
+      }, 500);
+    }
   } catch (e) {
     console.error("[admin-refund-trip-payment] Error:", e);
-    return jsonResponse({ error: (e as Error).message ?? String(e) }, 500);
+    return jsonResponse({
+      error: (e as Error).message ?? String(e),
+      failure_stage: "unknown",
+      retry_provider_refund: true,
+    }, 500);
   }
 });

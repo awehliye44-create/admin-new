@@ -41,16 +41,11 @@ export type PaymentSessionStatus =
 export const PAYMENT_ORPHANED_CUSTOMER_MESSAGE =
   "Payment received. We're recovering your booking.";
 
-/**
- * Internal update helper.
- * For financial lifecycle fields (status, provider_state, captured_amount_pence),
- * callers MUST check the returned error — never swallow.
- */
 async function patchPaymentSession(
   supabase: SupabaseClient,
   filter: { clientActionId?: string | null; providerOrderId?: string | null; sessionId?: string | null },
   patch: Record<string, unknown>,
-): Promise<{ error: { message: string; code?: string } | null }> {
+): Promise<void> {
   let query = supabase.from("payment_sessions").update({
     ...patch,
     updated_at: new Date().toISOString(),
@@ -62,17 +57,12 @@ async function patchPaymentSession(
   } else if (filter.providerOrderId) {
     query = query.eq("provider_order_id", filter.providerOrderId);
   } else {
-    return { error: null };
+    return;
   }
   const { error } = await query;
   if (error) {
-    // Do NOT silence financial lifecycle errors — caller is responsible for handling.
-    console.error("[paymentSessionSSOT] patch failed", error.message, {
-      filter_keys: Object.keys(filter).filter((k) => !!filter[k as keyof typeof filter]),
-      patch_keys: Object.keys(patch),
-    });
+    console.warn("[paymentSessionSSOT] patch failed", error.message, patch);
   }
-  return { error: error ?? null };
 }
 
 export async function markPaymentSessionStatus(
@@ -80,8 +70,8 @@ export async function markPaymentSessionStatus(
   status: RevolutPaymentSessionStatus,
   filter: { clientActionId?: string | null; providerOrderId?: string | null; sessionId?: string | null },
   extra?: Record<string, unknown>,
-): Promise<{ error: { message: string; code?: string } | null }> {
-  return patchPaymentSession(supabase, filter, {
+): Promise<void> {
+  await patchPaymentSession(supabase, filter, {
     status: toDbPaymentSessionStatus(status),
     ...extra,
   });
@@ -459,7 +449,7 @@ export async function markPaymentSessionCaptured(
     totalAuthorisedAmountPence?: number | null;
     authorisedAmountPence?: number | null;
   },
-): Promise<{ error: { message: string; code?: string } | null }> {
+): Promise<void> {
   const session = await loadPaymentSession(supabase, {
     clientActionId: args.clientActionId,
     providerOrderId: args.providerOrderId,
@@ -507,19 +497,7 @@ export async function markPaymentSessionCaptured(
   if (args.providerCaptureId) {
     patch.provider_capture_id = args.providerCaptureId;
   }
-  const result = await markPaymentSessionStatus(supabase, "captured", args, patch);
-  if (result.error) {
-    console.error(
-      "[paymentSessionSSOT] markPaymentSessionCaptured: status persist failed — wallet posting will be blocked",
-      {
-        trip_id: args.tripId,
-        provider_order_id: args.providerOrderId,
-        error_message: result.error.message,
-        error_code: (result.error as Record<string, unknown>).code ?? null,
-      },
-    );
-  }
-  return result;
+  await markPaymentSessionStatus(supabase, "captured", args, patch);
 }
 
 export async function markPaymentSessionPaymentShortfall(

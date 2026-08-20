@@ -22,6 +22,7 @@ import {
 } from "./postCaptureSettlementResult.ts";
 import {
   loadPaymentSessionCaptureGate,
+  PAYMENT_SESSION_GATE_STATUS,
   type PaymentSessionGateRow,
 } from "./paymentSessionCaptureGateSSOT.ts";
 import {
@@ -157,7 +158,13 @@ async function handlePaymentSessionGateQueryFailure(args: {
   });
 }
 
-function gateFailureStageForSession(session: PaymentSessionGateRow | null): string {
+function gateFailureStageForSession(
+  session: PaymentSessionGateRow | null,
+  gateStatus?: string,
+): string {
+  if (gateStatus === PAYMENT_SESSION_GATE_STATUS.CAPTURE_AMBIGUOUS) {
+    return "CAPTURE_AMBIGUOUS";
+  }
   if (!session) return "PAYMENT_SESSION_MISSING";
   return "PAYMENT_SESSION_CAPTURE_UNVERIFIED";
 }
@@ -242,6 +249,26 @@ export async function applyCanonicalSettlementAfterCapture(args: {
       error: gateLoad.error,
     });
   }
+  if (
+    gateLoad.gate_status === PAYMENT_SESSION_GATE_STATUS.PAYMENT_SESSION_MISSING
+    || gateLoad.gate_status === PAYMENT_SESSION_GATE_STATUS.CAPTURE_AMBIGUOUS
+  ) {
+    const posted = (await readTripEarningNetLedgerState(args.supabase, tripId).catch(() => ({
+      count: 0,
+      totalPence: 0,
+      rows: [],
+    }))).totalPence;
+    return recordGateFailureAndReturn({
+      supabase: args.supabase,
+      tripId,
+      trip: args.trip,
+      driverId,
+      expectedPence: entitlementPreview.expectedCredit,
+      postedPence: posted,
+      failureStage: gateFailureStageForSession(null, gateLoad.gate_status),
+      settlementStatus: "FAILED",
+    });
+  }
   let session = gateLoad.session;
 
   if (isPaymentSessionLifecycleMismatch(session)) {
@@ -274,6 +301,26 @@ export async function applyCanonicalSettlementAfterCapture(args: {
           driverId,
           expectedPence: entitlementPreview.expectedCredit,
           error: gateLoad.error,
+        });
+      }
+      if (
+        gateLoad.gate_status === PAYMENT_SESSION_GATE_STATUS.PAYMENT_SESSION_MISSING
+        || gateLoad.gate_status === PAYMENT_SESSION_GATE_STATUS.CAPTURE_AMBIGUOUS
+      ) {
+        const posted = (await readTripEarningNetLedgerState(args.supabase, tripId).catch(() => ({
+          count: 0,
+          totalPence: 0,
+          rows: [],
+        }))).totalPence;
+        return recordGateFailureAndReturn({
+          supabase: args.supabase,
+          tripId,
+          trip: args.trip,
+          driverId,
+          expectedPence: entitlementPreview.expectedCredit,
+          postedPence: posted,
+          failureStage: gateFailureStageForSession(null, gateLoad.gate_status),
+          settlementStatus: "FAILED",
         });
       }
       session = gateLoad.session;
@@ -322,7 +369,7 @@ export async function applyCanonicalSettlementAfterCapture(args: {
       driverId,
       expectedPence: entitlementPreview.expectedCredit,
       postedPence: posted,
-      failureStage: gateFailureStageForSession(session),
+      failureStage: gateFailureStageForSession(session, gateLoad.gate_status),
       paymentSessionId: session?.id ? String(session.id) : null,
       providerCaptureId: session?.provider_capture_id
         ? String(session.provider_capture_id)

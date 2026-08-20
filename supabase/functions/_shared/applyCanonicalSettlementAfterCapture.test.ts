@@ -27,7 +27,7 @@ const CONFIRMED_PS = {
   provider_state: "COMPLETED",
   captured_amount_pence: 699,
   provider_state_verified_at: "2026-08-17T10:00:00.000Z",
-  purpose: "TRIP",
+  purpose: "RIDE_BOOKING",
 };
 
 type OpLog = { table: string; op: string; payload: Record<string, unknown> };
@@ -46,6 +46,47 @@ type Scenario =
   | "ps_refunded"
   | "ps_released"
   | "ps_recovery";
+
+function resolvePaymentSessionGateMock(scenario: Scenario): {
+  single: { data: unknown; error: { code?: string; message: string } | null };
+  list: { data: unknown[] | null; error: { code?: string; message: string } | null };
+} {
+  if (scenario === "ps_query_error") {
+    const error = {
+      code: "42703",
+      message: "column payment_sessions.financial_model does not exist",
+    };
+    return { single: { data: null, error }, list: { data: null, error } };
+  }
+  if (scenario === "ps_missing" || scenario === "ps_recovery") {
+    return { single: { data: null, error: null }, list: { data: [], error: null } };
+  }
+  if (scenario === "ps_unverified") {
+    const row = { ...CONFIRMED_PS, provider_state_verified_at: null, id: "ps-1", provider_capture_id: "cap-1" };
+    return { single: { data: row, error: null }, list: { data: [row], error: null } };
+  }
+  if (scenario === "ps_refunded") {
+    const row = { ...CONFIRMED_PS, refunded_amount_pence: 480, id: "ps-1", provider_capture_id: "cap-1" };
+    return { single: { data: row, error: null }, list: { data: [row], error: null } };
+  }
+  if (scenario === "ps_released") {
+    const row = {
+      ...CONFIRMED_PS,
+      released_amount_pence: 480,
+      hold_release_state: "RELEASED",
+      hold_terminal_reason: "provider_released",
+      id: "ps-1",
+      provider_capture_id: "cap-1",
+    };
+    return { single: { data: row, error: null }, list: { data: [row], error: null } };
+  }
+  const row = {
+    ...CONFIRMED_PS,
+    id: "ps-1",
+    provider_capture_id: "cap-1",
+  };
+  return { single: { data: row, error: null }, list: { data: [row], error: null } };
+}
 
 function mockSupabase(scenario: Scenario, tripId = "trip-mk-005") {
   const ops: OpLog[] = [];
@@ -90,55 +131,8 @@ function mockSupabase(scenario: Scenario, tripId = "trip-mk-005") {
         order() { return chain; },
         limit() { return chain; },
         maybeSingle: async () => {
-          if (table === "payment_sessions") {
-            if (scenario === "ps_query_error") {
-              return {
-                data: null,
-                error: {
-                  code: "42703",
-                  message: "column payment_sessions.financial_model does not exist",
-                },
-              };
-            }
-            if (scenario === "ps_missing") return { data: null, error: null };
-            if (scenario === "ps_unverified") {
-              return {
-                data: { ...CONFIRMED_PS, provider_state_verified_at: null },
-                error: null,
-              };
-            }
-            if (scenario === "ps_refunded") {
-              return {
-                data: { ...CONFIRMED_PS, refunded_amount_pence: 480 },
-                error: null,
-              };
-            }
-            if (scenario === "ps_released") {
-              return {
-                data: {
-                  ...CONFIRMED_PS,
-                  released_amount_pence: 480,
-                  hold_release_state: "RELEASED",
-                  hold_terminal_reason: "provider_released",
-                },
-                error: null,
-              };
-            }
-            if (scenario === "ps_recovery") {
-              return {
-                data: { ...CONFIRMED_PS, purpose: "PAYMENT_RECOVERY" },
-                error: null,
-              };
-            }
-            return {
-              data: {
-                ...CONFIRMED_PS,
-                id: "ps-1",
-                provider_capture_id: "cap-1",
-              },
-              error: null,
-            };
-          }
+          const resolved = resolvePaymentSessionGateMock(scenario);
+          if (table === "payment_sessions") return resolved.single;
           if (table === "driver_wallet_ledger" && state.filters.type === "TRIP_EARNING_NET") {
             const hit = ledgerRows.find((r) =>
               r.related_trip_id === state.filters.related_trip_id && r.type === "TRIP_EARNING_NET");
@@ -155,7 +149,10 @@ function mockSupabase(scenario: Scenario, tripId = "trip-mk-005") {
           }
           return { data: null, error: null };
         },
-        then(onFulfilled: (v: { data: unknown; error: null }) => unknown) {
+        then(onFulfilled: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "payment_sessions") {
+            return Promise.resolve(resolvePaymentSessionGateMock(scenario).list).then(onFulfilled);
+          }
           const rows = table === "driver_wallet_ledger"
             ? ledgerRows
               .filter((r) => r.related_trip_id === state.filters.related_trip_id)
@@ -399,9 +396,28 @@ Deno.test("MK-007/008/009 pattern: trip_created status with COMPLETED provider_s
             return { data: null, error: null };
           },
           then(onFulfilled: (v: { data: unknown; error: null }) => unknown) {
+            if (table === "payment_sessions") {
+              const row = {
+                id: "ps-mk-007",
+                status: psFinalized ? "captured" : "trip_created",
+                provider_state: "COMPLETED",
+                captured_amount_pence: 480,
+                provider_state_verified_at: "2026-08-17T18:50:46.979Z",
+                purpose: "RIDE_BOOKING",
+                provider_order_id: "rev-order-007",
+                provider_capture_id: "rev-cap-007",
+                refunded_amount_pence: null,
+                hold_release_state: null,
+                hold_terminal_reason: null,
+                metadata: { capture_amount_pence: 480 },
+                financial_operation_state: "CAPTURING",
+                financial_operation_owner: null,
+              };
+              return Promise.resolve({ data: [row], error: null }).then(onFulfilled);
+            }
             const rows = table === "driver_wallet_ledger"
               ? ledgerRows.filter((r) => r.related_trip_id === state.filters.related_trip_id)
-              : (table === "payment_sessions" ? [{ id: "ps-mk-007" }] : []);
+              : [];
             return Promise.resolve({ data: rows, error: null }).then(onFulfilled);
           },
           insert(payload: Record<string, unknown>) {

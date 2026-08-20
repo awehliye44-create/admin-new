@@ -78,6 +78,15 @@ Deno.test("fresh capture persists Payment Sessions before wallet posting", async
   assertEquals(src.includes("recordPaymentSessionPersistFailureMetadata"), true);
 });
 
+Deno.test("admin capture delegates wallet posting to applyCanonicalSettlementAfterCapture", async () => {
+  const src = await Deno.readTextFile(
+    new URL("./adminCaptureTripPaymentSSOT.ts", import.meta.url),
+  );
+  assertEquals(src.includes("applyCanonicalSettlementAfterCapture"), true);
+  assertEquals(src.includes("creditCapturedCardTripLedger"), false);
+  assertEquals(src.includes('from("driver_wallet_ledger").insert'), false);
+});
+
 Deno.test("recovery saved-stamp helper source never calls tripSettlement calculator", async () => {
   const src = await Deno.readTextFile(
     new URL("./applyCanonicalSettlementAfterCapture.ts", import.meta.url),

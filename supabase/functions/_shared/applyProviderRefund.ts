@@ -1,5 +1,6 @@
 /**
- * Apply provider refund state to ONECAB SSOT — trips, payments, trip_finance, driver ledger.
+ * Apply provider refund state to ONECAB SSOT via atomic DB RPC.
+ * Never inserts REFUND_DEBIT directly — apply_confirmed_provider_refund_atomic only.
  */
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
@@ -12,20 +13,16 @@ import { FINANCIAL_MODEL_VIOLATION, SERVICE_AREA_FINANCIAL_MODEL } from "./commi
 export type ApplyProviderRefundArgs = {
   tripId: string;
   amountRefundedPence: number;
-  providerRefundId?: string | null;
+  providerRefundId: string;
   providerChargeId?: string | null;
   providerPaymentIntentId?: string | null;
-  /** Revolut admin refunds pass the merchant order id here. */
   providerOrderId?: string | null;
   provider?: "revolut" | "provider" | string | null;
   source: "webhook" | "admin_sync" | "admin_refund";
   refundReason?: string | null;
-  /**
-   * When true, skip proportional REFUND_DEBIT on driver_wallet_ledger.
-   * Use for overcapture remediations where wallet is corrected separately
-   * to canonical driver_net (e.g. MK-260815-029 settlement correction).
-   */
   skipDriverWalletReversal?: boolean;
+  /** Single refund event amount (delta, not cumulative). */
+  thisRefundAmountPence: number;
 };
 
 export type ApplyProviderRefundResult = {
@@ -37,9 +34,25 @@ export type ApplyProviderRefundResult = {
   driver_reversal_pence: number;
   commission_reversal_pence: number;
   ledger_reversal_inserted: boolean;
+  already_applied: boolean;
+  rpc_status: "applied" | "already_applied";
 };
 
-const REFUND_DEBIT_TYPE = "REFUND_DEBIT";
+type AtomicRpcResult = {
+  status: "applied" | "already_applied";
+  trip_id?: string;
+  payment_session_id?: string;
+  provider_refund_id?: string;
+  refund_child_id?: string;
+  ledger_debit_id?: string | null;
+  cumulative_refunded_pence?: number;
+  target_driver_reversal_pence?: number;
+  authoritative_debit_sum_pence?: number;
+  inserted_debit_pence?: number;
+  payment_status?: string;
+  refund_status?: string;
+  error_code?: string;
+};
 
 async function findTripId(
   supabase: SupabaseClient,
@@ -72,6 +85,17 @@ async function findTripId(
   return null;
 }
 
+function mapRpcError(message: string): Error {
+  const code = String(message ?? "").split(":")[0]?.trim() ?? message;
+  if (code === "PAYMENT_SESSION_MISSING" || code === "CAPTURE_AMBIGUOUS") {
+    return new Error(code);
+  }
+  if (code === "HISTORICAL_REFUND_DEBIT_REQUIRES_MANUAL_RECONCILIATION") {
+    return new Error(code);
+  }
+  return new Error(message);
+}
+
 export async function applyProviderRefundToOnecab(
   supabase: SupabaseClient,
   args: ApplyProviderRefundArgs,
@@ -79,16 +103,27 @@ export async function applyProviderRefundToOnecab(
   const tripId = await findTripId(supabase, args);
   if (!tripId) throw new Error("Trip not found for refund");
 
-  const refundedPence = Math.max(0, Math.round(args.amountRefundedPence));
-  if (refundedPence <= 0) throw new Error("amountRefundedPence must be > 0");
+  const providerRefundId = String(args.providerRefundId ?? "").trim();
+  if (!providerRefundId) {
+    throw new Error("provider_refund_id_required");
+  }
+
+  const eventRefundPence = Math.max(0, Math.round(args.thisRefundAmountPence));
+  if (eventRefundPence <= 0) {
+    throw new Error("thisRefundAmountPence must be > 0");
+  }
+
+  const cumulativeRefundedPence = Math.max(0, Math.round(args.amountRefundedPence));
+  if (cumulativeRefundedPence <= 0) {
+    throw new Error("amountRefundedPence must be > 0");
+  }
 
   const { data: trip, error: tripErr } = await supabase
     .from("trips")
     .select(`
-      id, driver_id, payment_status, payment_method, financial_model,
+      id, driver_id, payment_status, financial_model,
       final_fare_pence, final_customer_fare_pence, capture_amount_pence,
-      commission_pence, driver_net_pence, refund_amount_pence,
-      provider_payment_id, provider_charge_id
+      commission_pence, driver_net_pence, refund_amount_pence
     `)
     .eq("id", tripId)
     .single();
@@ -103,189 +138,85 @@ export async function applyProviderRefundToOnecab(
     );
   }
 
-  const { data: paymentRows } = await supabase
-    .from("payments")
-    .select("id, captured_amount_pence, amount_pence, status, provider_payment_id")
-    .eq("trip_id", tripId)
-    .order("created_at", { ascending: false });
+  const paymentProvider = String(args.provider ?? "revolut").trim().toLowerCase() || "revolut";
 
-  const primaryPayment = (paymentRows ?? [])[0] ?? null;
-  const capturedPence = Math.max(
-    0,
-    primaryPayment?.captured_amount_pence
-      ?? trip.capture_amount_pence
-      ?? trip.final_customer_fare_pence
-      ?? trip.final_fare_pence
-      ?? primaryPayment?.amount_pence
-      ?? 0,
+  const { data: rpcData, error: rpcErr } = await supabase.rpc(
+    "apply_confirmed_provider_refund_atomic",
+    {
+      p_trip_id: tripId,
+      p_payment_provider: paymentProvider,
+      p_provider_refund_id: providerRefundId,
+      p_event_refund_amount_pence: eventRefundPence,
+      p_cumulative_refunded_pence: cumulativeRefundedPence,
+      p_provider_order_id: args.providerOrderId ?? null,
+      p_provider_payment_id: args.providerPaymentIntentId ?? args.providerOrderId ?? null,
+      p_refund_reason: args.refundReason ?? null,
+      p_source: args.source,
+      p_skip_driver_wallet_reversal: args.skipDriverWalletReversal === true,
+    },
   );
 
+  if (rpcErr) {
+    throw mapRpcError(rpcErr.message);
+  }
+
+  const rpc = (rpcData ?? {}) as AtomicRpcResult;
+  const rpcStatus = rpc.status === "already_applied" ? "already_applied" : "applied";
+
+  const capturedPence = Math.max(
+    0,
+    trip.capture_amount_pence
+      ?? trip.final_customer_fare_pence
+      ?? trip.final_fare_pence
+      ?? 0,
+  );
   const customerPaidPence = Math.max(
     0,
     trip.final_customer_fare_pence ?? trip.final_fare_pence ?? capturedPence,
   );
-
-  const paymentStatus = resolveTripPaymentStatusFromRefund(capturedPence, refundedPence)
-    ?? (trip.payment_status as string | null)
-    ?? "refunded";
-  const refundStatus = resolveRefundStatus(capturedPence, refundedPence);
-  const now = new Date().toISOString();
-
   const commissionPence = Math.max(0, trip.commission_pence ?? 0);
   const driverNetPence = Math.max(0, trip.driver_net_pence ?? 0);
+
+  const paymentStatus = rpc.payment_status
+    ?? resolveTripPaymentStatusFromRefund(capturedPence, cumulativeRefundedPence)
+    ?? "refunded";
+  const refundStatus = rpc.refund_status
+    ?? resolveRefundStatus(capturedPence, cumulativeRefundedPence);
   const adjusted = applyRefundToTripAmounts({
     capturedPence,
-    refundPence: refundedPence,
+    refundPence: cumulativeRefundedPence,
     commissionPence,
     driverNetPence,
   });
-
-  const netPaidPence = Math.max(0, customerPaidPence - refundedPence);
-
-  const tripUpdate: Record<string, unknown> = {
-    payment_status: paymentStatus,
-    refund_amount_pence: refundedPence,
-    refunded_at: now,
-    updated_at: now,
-  };
-  if (args.refundReason) tripUpdate.refund_reason = args.refundReason;
-  if (args.providerChargeId) tripUpdate.provider_charge_id = args.providerChargeId;
-
-  const { error: tripUpdateErr } = await supabase.from("trips").update(tripUpdate).eq("id", tripId);
-  if (tripUpdateErr) throw new Error(`trips refund update failed: ${tripUpdateErr.message}`);
-
-  for (const payment of paymentRows ?? []) {
-    const payStatus = paymentStatus === "partially_refunded" ? "partially_refunded" : "refunded";
-    const paymentPatch: Record<string, unknown> = {
-      status: payStatus,
-      refunded_amount_pence: refundedPence,
-      refund_status: refundStatus,
-      refunded_at: now,
-      updated_at: now,
-      last_error: args.providerRefundId
-        ? `provider_refund:${args.providerRefundId}:${refundedPence}`
-        : `${args.source}:${refundedPence}`,
-    };
-    if (args.providerRefundId) paymentPatch.provider_refund_id = args.providerRefundId;
-
-    const { error: payErr } = await supabase
-      .from("payments")
-      .update(paymentPatch)
-      .eq("id", payment.id);
-    if (payErr) {
-      console.warn("[applyProviderRefund] payments update failed (column may be missing)", payErr.message);
-      const { error: fallbackErr } = await supabase
-        .from("payments")
-        .update({
-          status: payStatus,
-          updated_at: now,
-          last_error: paymentPatch.last_error,
-        })
-        .eq("id", payment.id);
-      if (fallbackErr) throw new Error(`payments refund update failed: ${fallbackErr.message}`);
-    }
-  }
-
-  const financePatch: Record<string, unknown> = {
-    refund_amount_pence: refundedPence,
-    refund_status: refundStatus,
-    net_card_revenue_after_refund_pence: adjusted.net_captured_pence,
-    driver_wallet_reversal_pence: adjusted.driver_reversal_pence,
-    commission_reversal_pence: adjusted.commission_reversal_pence,
-    financial_status: refundStatus === "refunded" ? "REFUNDED" : "PARTIALLY_REFUNDED",
-    updated_at: now,
-  };
-
-  const { error: financeErr } = await supabase
-    .from("trip_finance")
-    .update(financePatch)
-    .eq("trip_id", tripId);
-  if (financeErr) {
-    console.warn("[applyProviderRefund] trip_finance update skipped", financeErr.message);
-  }
-
-  let ledgerReversalInserted = false;
-  const driverId = trip.driver_id as string | null;
-  if (driverId && adjusted.driver_reversal_pence > 0 && !args.skipDriverWalletReversal) {
-    const { data: existingDebit } = await supabase
-      .from("driver_wallet_ledger")
-      .select("id")
-      .eq("related_trip_id", tripId)
-      .eq("type", REFUND_DEBIT_TYPE)
-      .maybeSingle();
-
-    if (!existingDebit) {
-      const { data: earningRows } = await supabase
-        .from("driver_wallet_ledger")
-        .select("id, type, amount_pence")
-        .eq("driver_id", driverId)
-        .eq("related_trip_id", tripId)
-        .in("type", ["TRIP_EARNING_NET", "DRIVER_TIP_CREDIT"]);
-
-      const creditedPence = (earningRows ?? []).reduce(
-        (sum, row) => sum + Math.max(0, Number(row.amount_pence ?? 0)),
-        0,
-      );
-
-      const reversalPence = creditedPence > 0
-        ? Math.min(creditedPence, adjusted.driver_reversal_pence)
-        : adjusted.driver_reversal_pence;
-
-      if (reversalPence > 0) {
-        const { error: ledgerErr } = await supabase.from("driver_wallet_ledger").insert({
-          driver_id: driverId,
-          related_trip_id: tripId,
-          type: REFUND_DEBIT_TYPE,
-          amount_pence: -reversalPence,
-          currency: "GBP",
-          description: args.providerRefundId
-            ? `provider refund reversal (${args.providerRefundId}) — ${args.source}`
-            : `provider refund reversal — ${args.source}`,
-        });
-        if (!ledgerErr) ledgerReversalInserted = true;
-        else console.warn("[applyProviderRefund] REFUND_DEBIT insert failed", ledgerErr.message);
-      }
-    }
-  }
 
   try {
     await supabase.rpc("log_audit_event", {
       p_event_type: "provider_refund_applied",
       p_trip_id: tripId,
-      p_driver_id: driverId,
+      p_driver_id: trip.driver_id,
       p_details: {
         source: args.source,
-        refund_amount_pence: refundedPence,
-        provider_refund_id: args.providerRefundId ?? null,
+        refund_amount_pence: cumulativeRefundedPence,
+        provider_refund_id: providerRefundId,
         payment_status: paymentStatus,
-        driver_reversal_pence: adjusted.driver_reversal_pence,
+        driver_reversal_pence: rpc.target_driver_reversal_pence ?? adjusted.driver_reversal_pence,
+        rpc_status: rpcStatus,
       },
     });
   } catch {
     /* optional audit */
   }
 
-  // Keep payment_sessions in sync for Payment Sessions overcapture UI.
-  const { error: psErr } = await supabase
-    .from("payment_sessions")
-    .update({
-      refunded_amount_pence: refundedPence,
-      updated_at: now,
-    })
-    .eq("trip_id", tripId)
-    .not("captured_amount_pence", "is", null);
-  if (psErr) {
-    console.warn("[applyProviderRefund] payment_sessions update skipped", psErr.message);
-  }
-
   return {
     trip_id: tripId,
     payment_status: paymentStatus,
     refund_status: refundStatus,
-    refund_amount_pence: refundedPence,
-    net_paid_pence: netPaidPence,
-    driver_reversal_pence: adjusted.driver_reversal_pence,
+    refund_amount_pence: cumulativeRefundedPence,
+    net_paid_pence: Math.max(0, customerPaidPence - cumulativeRefundedPence),
+    driver_reversal_pence: rpc.target_driver_reversal_pence ?? adjusted.driver_reversal_pence,
     commission_reversal_pence: adjusted.commission_reversal_pence,
-    ledger_reversal_inserted: ledgerReversalInserted,
+    ledger_reversal_inserted: (rpc.inserted_debit_pence ?? 0) > 0,
+    already_applied: rpcStatus === "already_applied",
+    rpc_status: rpcStatus,
   };
 }

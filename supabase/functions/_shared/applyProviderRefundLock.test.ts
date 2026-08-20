@@ -10,23 +10,24 @@ Deno.test("applyProviderRefundToOnecab is declared exactly once", async () => {
   const src = await Deno.readTextFile(`${ROOT}_shared/applyProviderRefund.ts`);
   const declarations = src.match(/export async function applyProviderRefundToOnecab/g) ?? [];
   assertEquals(declarations.length, 1);
-  assert(!/const result = await applyProviderRefundToOnecab\(/.test(src));
 });
 
-Deno.test("single helper still updates payment_sessions and keeps ledger idempotent", async () => {
+Deno.test("single helper delegates to atomic RPC only", async () => {
   const src = await Deno.readTextFile(`${ROOT}_shared/applyProviderRefund.ts`);
-  assert(src.includes('from("payment_sessions")'));
-  assert(src.includes("refunded_amount_pence"));
-  assert(src.includes("REFUND_DEBIT"));
-  assert(src.includes("existingDebit"));
-  assert(src.includes("providerOrderId"));
+  assert(src.includes("apply_confirmed_provider_refund_atomic"));
+  assert(!src.includes("upsertPaymentSessionRefund"));
+  assert(!src.includes('.from("driver_wallet_ledger").insert'));
+  assert(!src.includes("loadRideBookingPaymentSessions"));
+  assert(src.includes("thisRefundAmountPence"));
+  assert(src.includes("provider_refund_id_required"));
 });
 
-Deno.test("admin-refund-trip-payment still uses the same helper contract", async () => {
+Deno.test("admin-refund-trip-payment uses atomic helper with provider/local failure split", async () => {
   const src = await Deno.readTextFile(`${ROOT}admin-refund-trip-payment/index.ts`);
   assert(src.includes("applyProviderRefundToOnecab"));
   assert(src.includes("provider: \"revolut\""));
-  assert(src.includes("providerOrderId: orderId"));
-  assert(src.includes("source: \"admin_refund\""));
-  assert(src.includes("amountRefundedPence: alreadyRefunded + refundAmount"));
+  assert(src.includes("providerRefundId"));
+  assert(src.includes("thisRefundAmountPence: refundAmount"));
+  assert(src.includes("retry_provider_refund: false"));
+  assert(src.includes("failure_stage: \"local_application\""));
 });

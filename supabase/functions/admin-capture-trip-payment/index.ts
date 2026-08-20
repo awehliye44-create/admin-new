@@ -1,20 +1,23 @@
-// Admin: capture trip payment (Revolut).
+// Admin: capture trip payment (Revolut) — canonical Payment Session ownership.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
-import {
-  captureRevolutOrder,
-  retrieveRevolutOrder,
-  getRevolutMerchantConfig,
-  mapRevolutStateToPaymentStatus,
-} from "../_shared/revolutOrders.ts";
-import { resolveTripPaymentProvider, tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
+import { executeAdminCaptureTripPayment } from "../_shared/adminCaptureTripPaymentSSOT.ts";
+import { ADMIN_CAPTURE_PRECONDITION } from "../_shared/adminCaptureTripPaymentPreconditions.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
   amount_pence: z.number().int().positive().optional(),
   reason: z.string().trim().min(5).max(1000),
 });
+
+function httpStatusForErrorCode(code?: string): number {
+  if (code === "CAPTURE_BLOCKED_NEVER_CAPTURE") return 409;
+  if (code === ADMIN_CAPTURE_PRECONDITION.TRIP_NOT_COMPLETED) return 409;
+  if (code === ADMIN_CAPTURE_PRECONDITION.FINANCIAL_MODEL_VIOLATION) return 409;
+  if (code === "CAPTURE_BUSY") return 409;
+  return 400;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -30,85 +33,67 @@ serve(async (req) => {
 
     const { data: trip, error: tripErr } = await gate.supabase
       .from("trips")
-      .select("id, payment_provider, provider_order_id, provider_payment_id, capture_amount_pence, authorised_amount_pence, payment_status, currency_code, currency")
+      .select("*")
       .eq("id", trip_id)
       .single();
     if (tripErr || !trip) return jsonResponse({ error: "Trip not found" }, 404);
 
-    const orderId = tripProviderOrderId(trip);
-    if (!orderId) return jsonResponse({ error: "Trip has no Revolut order" }, 400);
-
-    // Temporary P0 guard: never capture sessions explicitly flagged never_capture
-    // (duplicate-trip incident holds / orphaned authorisations).
-    const { data: paySession } = await gate.supabase
-      .from("payment_sessions")
-      .select("id, metadata, status")
-      .eq("provider_order_id", orderId)
-      .eq("purpose", "RIDE_BOOKING")
-      .maybeSingle();
-    const meta =
-      paySession?.metadata && typeof paySession.metadata === "object"
-        ? (paySession.metadata as Record<string, unknown>)
-        : {};
-    if (meta.never_capture === true) {
-      return jsonResponse({
-        error: "Capture blocked — payment session is flagged never_capture",
-        error_code: "CAPTURE_BLOCKED_NEVER_CAPTURE",
-        payment_session_id: paySession?.id ?? null,
-      }, 409);
-    }
-
-    const { secretKey, environment } = getRevolutMerchantConfig();
-    const orderBefore = await retrieveRevolutOrder(environment, secretKey, orderId);
-    const state = (orderBefore.state ?? "").toUpperCase();
-    if (state !== "AUTHORISED") {
-      return jsonResponse({ error: `Cannot capture — Revolut order state is "${state}"` }, 400);
-    }
-
-    const authorisedTotal = Number(orderBefore.amount ?? trip.authorised_amount_pence ?? 0);
-    const captureAmount = amount_pence ?? authorisedTotal;
-    if (captureAmount <= 0) return jsonResponse({ error: "amount_pence must be > 0" }, 400);
-    if (captureAmount > authorisedTotal) {
-      return jsonResponse({ error: `amount_pence (${captureAmount}) exceeds authorised (${authorisedTotal})` }, 400);
-    }
-
     const before = trip.capture_amount_pence ?? 0;
-    const captured = await captureRevolutOrder(environment, secretKey, orderId, captureAmount);
-
-    await gate.supabase.from("trips").update({
-      payment_status: mapRevolutStateToPaymentStatus(captured.state) ?? "captured",
-      capture_amount_pence: captureAmount,
-      provider_charge_id: captured.id ?? orderId,
-      updated_at: new Date().toISOString(),
-    }).eq("id", trip_id);
-
-    await gate.supabase.from("admin_payment_audit").insert({
-      trip_id,
-      admin_user_id: gate.userId,
-      action: "capture",
-      reason,
-      amount_pence_before: before,
-      amount_pence_after: captureAmount,
-      delta_pence: captureAmount - before,
-      provider: "revolut",
-      provider_payment_id: orderId,
-      metadata: {
-        authorised_total: authorisedTotal,
-        requested_amount: amount_pence ?? null,
-        revolut_state: captured.state,
-      },
+    const result = await executeAdminCaptureTripPayment({
+      supabase: gate.supabase,
+      trip: trip as Record<string, unknown>,
+      amountPence: amount_pence,
     });
+
+    if (result.success && result.capture_amount_pence != null) {
+      await gate.supabase.from("admin_payment_audit").insert({
+        trip_id,
+        admin_user_id: gate.userId,
+        action: "capture",
+        reason,
+        amount_pence_before: before,
+        amount_pence_after: result.capture_amount_pence,
+        delta_pence: result.capture_amount_pence - before,
+        provider: "revolut",
+        provider_payment_id: result.provider_order_id ?? null,
+        metadata: {
+          payment_session_id: result.payment_session_id ?? null,
+          revolut_state: result.revolut_state ?? null,
+          settlement_status: result.settlement_status ?? null,
+          wallet_posting_status: result.wallet_posting_status ?? null,
+          reconciliation_status: result.reconciliation_status ?? null,
+          degraded: result.degraded ?? false,
+        },
+      });
+    }
+
+    if (!result.success) {
+      return jsonResponse({
+        success: false,
+        error: result.error,
+        error_code: result.error_code,
+        payment_session_id: result.payment_session_id ?? null,
+        retry_provider_capture: false,
+      }, httpStatusForErrorCode(result.error_code));
+    }
 
     return jsonResponse({
       success: true,
       provider: "revolut",
-      provider_order_id: orderId,
-      captured_pence: captureAmount,
-      state: captured.state,
-      message: `Captured ${(captureAmount / 100).toFixed(2)} successfully`,
+      provider_order_id: result.provider_order_id,
+      payment_session_id: result.payment_session_id,
+      captured_pence: result.capture_amount_pence,
+      state: result.revolut_state,
+      provider_capture_status: result.provider_capture_status,
+      settlement_status: result.settlement_status,
+      wallet_posting_status: result.wallet_posting_status,
+      reconciliation_status: result.reconciliation_status,
+      retry_provider_capture: false,
+      degraded: result.degraded ?? false,
+      message: result.message,
     });
   } catch (e) {
     console.error("[admin-capture-trip-payment] Error:", e);
-    return jsonResponse({ error: (e as Error).message ?? String(e) }, 500);
+    return jsonResponse({ error: (e as Error).message ?? String(e), retry_provider_capture: false }, 500);
   }
 });

@@ -184,24 +184,33 @@ Deno.test("recovery trip/ledger selects omit provider_fee_amount and payment_ses
   assertEquals(tripCols.includes("driver_net_pence"), true);
 });
 
+Deno.test("capture gate queries purpose=RIDE_BOOKING only — no limit(1).maybeSingle", async () => {
+  const gateSrc = await readSharedSource("./paymentSessionCaptureGateSSOT.ts");
+  assertEquals(gateSrc.includes('.eq("purpose", PAYMENT_SESSION_PURPOSE_RIDE_BOOKING)'), true);
+  assertEquals(gateSrc.includes(".limit(1)"), false);
+  assertEquals(gateSrc.includes(".maybeSingle()"), false);
+  assertEquals(gateSrc.includes("CAPTURE_AMBIGUOUS"), true);
+  assertEquals(gateSrc.includes("classifyRideBookingPaymentSessions"), true);
+});
+
 Deno.test("PostgREST 42703 on gate load returns error — never silent session=null success", async () => {
   const client = {
     from(table: string) {
       const chain = {
         select(_cols: string) { return chain; },
         eq() { return chain; },
-        neq() { return chain; },
-        order() { return chain; },
-        limit() { return chain; },
-        maybeSingle: async () => {
-          if (table !== "payment_sessions") return { data: null, error: null };
-          return {
+        async then(resolve: (v: unknown) => void) {
+          if (table !== "payment_sessions") {
+            resolve({ data: [], error: null });
+            return;
+          }
+          resolve({
             data: null,
             error: {
               code: "42703",
               message: "column payment_sessions.financial_model does not exist",
             },
-          };
+          });
         },
       };
       return chain;
@@ -210,5 +219,50 @@ Deno.test("PostgREST 42703 on gate load returns error — never silent session=n
   const result = await loadPaymentSessionCaptureGate(client as never, "trip-id");
   assertEquals(result.session, null);
   assertEquals(result.error?.code, "42703");
-  assertEquals(Boolean(result.error?.message), true);
+  assertEquals(result.gate_status, "PAYMENT_SESSION_GATE_QUERY");
+});
+
+Deno.test("zero RIDE_BOOKING rows → PAYMENT_SESSION_MISSING", async () => {
+  const client = {
+    from() {
+      return {
+        select() {
+          return {
+            eq() {
+              return {
+                eq: async () => ({ data: [], error: null }),
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+  const result = await loadPaymentSessionCaptureGate(client as never, "trip-id");
+  assertEquals(result.gate_status, "PAYMENT_SESSION_MISSING");
+  assertEquals(result.session, null);
+});
+
+Deno.test("two RIDE_BOOKING rows → CAPTURE_AMBIGUOUS", async () => {
+  const client = {
+    from() {
+      return {
+        select() {
+          return {
+            eq() {
+              return {
+                eq: async () => ({
+                  data: [{ id: "a", purpose: "RIDE_BOOKING" }, { id: "b", purpose: "RIDE_BOOKING" }],
+                  error: null,
+                }),
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+  const result = await loadPaymentSessionCaptureGate(client as never, "trip-id");
+  assertEquals(result.gate_status, "CAPTURE_AMBIGUOUS");
+  assertEquals(result.session, null);
 });
