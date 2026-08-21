@@ -25626,11 +25626,11 @@ export type Database = {
       admin_live_chat_driver_identity: {
         Args: { p_ids: string[] }
         Returns: {
-          driver_code: string | null
+          driver_code: string
           first_name: string
           id: string
           last_name: string
-          phone: string | null
+          phone: string
         }[]
       }
       admin_remove_staff_member: {
