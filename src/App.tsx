@@ -83,7 +83,6 @@ import LiveChat from "./pages/LiveChat";
 import OnecabDocuments from "./pages/OnecabDocuments";
 import AlertSounds from "./pages/AlertSounds";
 import UserDirectory from "./pages/UserDirectory";
-import QrBookingControl from "./pages/QrBookingControl";
 
 import DispatchMetrics from "./pages/DispatchMetrics";
 import DriverDemandZones from "./pages/DriverDemandZones";
@@ -129,7 +128,6 @@ const App = () => (
               <Route path="trip-history" element={<TripHistory />} />
               <Route path="manual-trip" element={<ManualTrip />} />
               <Route path="dispatch" element={<Dispatch />} />
-              <Route path="qr-booking" element={<QrBookingControl />} />
               <Route path="dispatch-metrics" element={<DispatchMetrics />} />
               <Route path="driver-demand-zones" element={<DriverDemandZones />} />
               <Route path="staff-work-patterns" element={<StaffWorkPatterns />} />
