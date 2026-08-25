@@ -46,3 +46,10 @@ secrets/revolut-business/*_private.key
 # Local rollback / recovery snapshots — never source
 .rollback-*/
 .recovery-*/
+
+# Step audit/rollback (never commit)
+.audit-step*/
+.rollback-step*/
+.deploy-step*/
+.audit-fr-*/
+.worktrees/
