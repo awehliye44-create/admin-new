@@ -1,0 +1,18 @@
+--TestBoundaryStep82A5
+Content-Disposition: form-data; name="metadata"
+Content-Type: text/plain
+
+{"deployment_id":"test","original_size":1}
+--TestBoundaryStep82A5
+Content-Disposition: form-data; name="file"; filename="source/supabase/functions/demo/index.ts"
+Content-Type: text/plain
+
+export {};
+
+--TestBoundaryStep82A5
+Content-Disposition: form-data; name="file"; filename="shared/demo.ts"
+Content-Type: text/plain
+
+export const x = 1;
+
+--TestBoundaryStep82A5--
