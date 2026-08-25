@@ -1,20 +1,20 @@
 import { Outlet } from 'react-router-dom';
 import { AdminSidebar } from './AdminSidebar';
+import { AdminPageAccessGate } from './AdminPageAccessGate';
 
 /**
  * Persistent admin shell layout.
- * Sidebar + header remain mounted; only the content area changes via <Outlet>.
- * This prevents layout jumps and sidebar re-renders on navigation.
+ * Sidebar stays mounted outside <Outlet>; only main content swaps on route change.
+ * Page permission denials replace main content only — never the sidebar.
  */
 export function AdminShell() {
   return (
-    <div className="flex h-screen w-full bg-background overflow-hidden">
-      {/* Sidebar - always mounted, fixed width */}
+    <div className="admin-shell flex h-screen w-full bg-background overflow-hidden">
       <AdminSidebar />
-      
-      {/* Main content area - only this changes on route */}
-      <main className="flex flex-1 min-h-0 flex-col overflow-hidden">
-        <Outlet />
+      <main className="admin-main flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <AdminPageAccessGate>
+          <Outlet />
+        </AdminPageAccessGate>
       </main>
     </div>
   );

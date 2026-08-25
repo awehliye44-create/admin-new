@@ -98,3 +98,60 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Admin shell — layout stability (sidebar jump on route click) */
+@layer utilities {
+  .scrollbar-gutter-stable {
+    scrollbar-gutter: stable;
+  }
+}
+
+.admin-sidebar {
+  flex-shrink: 0;
+}
+
+.admin-sidebar-nav {
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+}
+
+.admin-sidebar-item,
+.admin-sidebar-section {
+  height: 44px;
+  min-height: 44px;
+  max-height: 44px;
+  box-sizing: border-box;
+  border-left: 3px solid transparent;
+}
+
+.admin-sidebar-item[data-active="true"] {
+  border-left-color: hsl(var(--sidebar-primary));
+}
+
+.admin-sidebar-icon {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.admin-sidebar-icon > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.admin-sidebar-badge-slot {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.admin-main {
+  min-width: 0;
+}
