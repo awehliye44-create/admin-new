@@ -1459,7 +1459,7 @@ export default function PaymentSessions() {
                   </Table>
                 </div>
               )}
-              {(rows.length > 0 || completedTripRows.length > 0 || matchingRows.length > 0) && (
+              {(rows.length > 0) && (
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                   <span>
                     Showing {pageStart}–{pageEnd} of {filteredTotal}

@@ -75,6 +75,13 @@ describe('Payment Sessions page ownership', () => {
     expect(page).not.toMatch(/>[\s\n]*legacy_evidence[\s\n]*</);
   });
 
+  it('does not reference removed FR tab row collections (runtime crash lock)', () => {
+    expect(page).not.toContain('completedTripRows');
+    expect(page).not.toContain('matchingRows');
+    expect(page).not.toContain('PaymentSessionsCompletedTripsTable');
+    expect(page).not.toContain('PaymentSessionsMatchingTable');
+  });
+
   it('keeps PS lifecycle filters', () => {
     expect(page).toContain('active_hold');
     expect(page).toContain('provider_fees_pending');
