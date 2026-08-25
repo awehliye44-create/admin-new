@@ -22,7 +22,7 @@ describe('admin finance four-page routes', () => {
   });
 });
 
-describe('admin finance permission slugs', () => {
+describe('admin finance four-page ownership boundary', () => {
   const REQUIRED = [
     'payment-sessions',
     'financial-reconciliation',
@@ -32,5 +32,14 @@ describe('admin finance permission slugs', () => {
 
   it('keeps the four SSOT permission slugs distinct', () => {
     expect(new Set(REQUIRED).size).toBe(4);
+  });
+
+  it('documents page ownership (PS ≠ FR ≠ wallet ≠ payout)', () => {
+    expect(REQUIRED).toEqual([
+      'payment-sessions',
+      'financial-reconciliation',
+      'driver-wallet-ledger',
+      'payout-ledger',
+    ]);
   });
 });

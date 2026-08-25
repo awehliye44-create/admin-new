@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
@@ -63,18 +63,14 @@ import {
   type ServiceAreaFinanceSelection,
 } from '@/components/finance/ServiceAreaFinanceFilter';
 import { PaymentSessionsKpiStrip, type PaymentSessionsKpiDrill } from '@/components/finance/PaymentSessionsKpiStrip';
-import { PaymentSessionsCompletedTripsTable } from '@/components/finance/PaymentSessionsCompletedTripsTable';
-import { PaymentSessionsMatchingTable } from '@/components/finance/PaymentSessionsMatchingTable';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import type { PaymentTripMatchStatus } from '../../shared/paymentSessionsTripMatchSSOT';
 
 
+/** PS-owned lifecycle tabs only. Trip matching / settlement conclusions live on Financial Reconciliation. */
 const TABS: Array<{ id: AdminPaymentSessionsTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'provider_payments', label: 'Provider Payments' },
-  { id: 'completed_trips_paid', label: 'Completed Trips — Payment Status' },
-  { id: 'payment_matching', label: 'Payment Matching' },
   { id: 'active_holds', label: 'Active Holds' },
   { id: 'captured', label: 'Captured — Provider Confirmed' },
   { id: 'released', label: 'Released' },
@@ -82,6 +78,11 @@ const TABS: Array<{ id: AdminPaymentSessionsTab; label: string }> = [
   { id: 'failed_recovery', label: 'Recovery' },
   { id: 'history', label: 'History' },
 ];
+
+const FR_OWNED_TABS = new Set<AdminPaymentSessionsTab>([
+  'completed_trips_paid',
+  'payment_matching',
+]);
 
 const PURPOSES: PaymentSessionPurpose[] = [
   'RIDE_BOOKING',
@@ -93,6 +94,10 @@ const PURPOSES: PaymentSessionPurpose[] = [
 type TriState = 'all' | 'true' | 'false';
 
 function parseTab(raw: string | null): AdminPaymentSessionsTab {
+  if (raw && FR_OWNED_TABS.has(raw as AdminPaymentSessionsTab)) {
+    // Trip-match / settlement views moved to Financial Reconciliation.
+    return 'overview';
+  }
   if (raw && TABS.some((t) => t.id === raw)) return raw as AdminPaymentSessionsTab;
   return 'overview';
 }
@@ -319,7 +324,6 @@ function SessionActions({
 
 export default function PaymentSessions() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const tab = parseTab(searchParams.get('tab'));
   const paymentSessionId = searchParams.get('paymentSessionId');
   const providerOrderId = searchParams.get('providerOrderId');
@@ -346,11 +350,6 @@ export default function PaymentSessions() {
     searchParams.get('providerFeesPending') === '1',
   );
   const [captureFailed, setCaptureFailed] = useState(searchParams.get('captureFailed') === '1');
-  const [moneyAtRisk, setMoneyAtRisk] = useState(searchParams.get('moneyAtRisk') === '1');
-  const [matchStatus, setMatchStatus] = useState<PaymentTripMatchStatus | ''>(
-    (searchParams.get('matchStatus') as PaymentTripMatchStatus | null) ?? '',
-  );
-  const [legacyEvidence, setLegacyEvidence] = useState(false);
   const [refreshProviderState, setRefreshProviderState] = useState(false);
   const [listOffset, setListOffset] = useState(0);
 
@@ -392,9 +391,6 @@ export default function PaymentSessions() {
     recoveryPending,
     providerFeesPending,
     captureFailed,
-    moneyAtRisk,
-    matchStatus,
-    legacyEvidence,
   ]);
 
   const pageLimit = tab === 'history' || tab === 'overview' ? 100 : 100;
@@ -422,9 +418,6 @@ export default function PaymentSessions() {
       recovery_pending: recoveryPending ? true : null,
       provider_fees_pending: providerFeesPending ? true : null,
       capture_failed: captureFailed ? true : null,
-      money_at_risk: moneyAtRisk ? true : null,
-      match_status: matchStatus || null,
-      legacy_evidence: legacyEvidence ? true : null,
       ...(refreshProviderState ? { refresh_provider_state: true as const } : {}),
     }),
     [
@@ -449,9 +442,6 @@ export default function PaymentSessions() {
       recoveryPending,
       providerFeesPending,
       captureFailed,
-      moneyAtRisk,
-      matchStatus,
-      legacyEvidence,
       refreshProviderState,
     ],
   );
@@ -481,17 +471,10 @@ export default function PaymentSessions() {
   };
 
   const applyKpiDrill = (drill: PaymentSessionsKpiDrill) => {
-    // FR-owned chips do not invent PS amount filters — open Financial Reconciliation.
-    if (drill.open_financial_reconciliation) {
-      navigate('/financial-reconciliation?tab=trips');
-      return;
-    }
     setProviderFeesPending(Boolean(drill.provider_fees_pending));
     setCaptureFailed(Boolean(drill.capture_failed));
     setRecoveryPending(Boolean(drill.recovery_pending));
     setReleaseFailed(Boolean(drill.release_failed));
-    setMoneyAtRisk(Boolean(drill.money_at_risk));
-    setMatchStatus(drill.match_status ?? '');
     setListOffset(0);
     const params = new URLSearchParams(searchParams);
     params.set('tab', drill.tab);
@@ -503,10 +486,8 @@ export default function PaymentSessions() {
     else params.delete('recoveryPending');
     if (drill.release_failed) params.set('releaseFailed', '1');
     else params.delete('releaseFailed');
-    if (drill.money_at_risk) params.set('moneyAtRisk', '1');
-    else params.delete('moneyAtRisk');
-    if (drill.match_status) params.set('matchStatus', drill.match_status);
-    else params.delete('matchStatus');
+    params.delete('moneyAtRisk');
+    params.delete('matchStatus');
     setSearchParams(params, { replace: true });
   };
 
@@ -527,9 +508,6 @@ export default function PaymentSessions() {
     setRecoveryPending(false);
     setProviderFeesPending(false);
     setCaptureFailed(false);
-    setMoneyAtRisk(false);
-    setMatchStatus('');
-    setLegacyEvidence(false);
     setListOffset(0);
     const params = new URLSearchParams(searchParams);
     params.delete('customerId');
@@ -559,10 +537,7 @@ export default function PaymentSessions() {
     || releaseFailed
     || recoveryPending
     || providerFeesPending
-    || captureFailed
-    || moneyAtRisk
-    || !!matchStatus
-    || legacyEvidence;
+    || captureFailed;
 
   const runAction = useCallback(
     async (
@@ -818,24 +793,11 @@ export default function PaymentSessions() {
   );
 
   const rows = data?.rows ?? [];
-  const completedTripRows = data?.completed_trip_rows ?? [];
-  const matchingRows = data?.matching_rows ?? [];
   const summary = data?.summary;
-  const filteredTotal = data?.filtered_total
-    ?? (tab === 'completed_trips_paid'
-      ? completedTripRows.length
-      : tab === 'payment_matching'
-      ? matchingRows.length
-      : rows.length);
+  const filteredTotal = data?.filtered_total ?? rows.length;
   const hasMore = Boolean(data?.has_more);
   const pageStart = filteredTotal === 0 ? 0 : listOffset + 1;
-  const pageEnd = listOffset + (
-    tab === 'completed_trips_paid'
-      ? completedTripRows.length
-      : tab === 'payment_matching'
-      ? matchingRows.length
-      : rows.length
-  );
+  const pageEnd = listOffset + rows.length;
 
   return (
     <AdminLayout title="Payment Sessions (SSOT)">
@@ -843,8 +805,7 @@ export default function PaymentSessions() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="space-y-1">
             <p className="text-sm text-muted-foreground">
-              ONECAB Payments — canonical source for every customer payment lifecycle.
-              Financial Reconciliation audits these values; it never invents them.
+              Canonical source for customer payment lifecycle: authorisation, capture, release, refund, provider fee, and provider state.
             </p>
             <div className="flex flex-wrap gap-2">
               <Badge variant={pageStatusVariant(data?.page_status ?? 'PARTIAL')}>
@@ -867,15 +828,9 @@ export default function PaymentSessions() {
                   <Badge variant="outline">
                     Test/Sandbox: {summary.test_sandbox_count ?? 0}
                   </Badge>
-                  <Badge variant="outline">
-                    Historical Evidence: {summary.historical_evidence_count ?? 0}
-                  </Badge>
                   <Badge variant="outline">Active holds: {summary.active_hold_count}</Badge>
                   <Badge variant="destructive">
                     RED: {summary.active_action_required_count ?? summary.red}
-                  </Badge>
-                  <Badge variant="secondary">
-                    At risk: {formatNullablePence(summary.money_at_risk_pence)}
                   </Badge>
                 </>
               )}
@@ -1055,14 +1010,6 @@ export default function PaymentSessions() {
               <Checkbox checked={captureFailed} onCheckedChange={(v) => setCaptureFailed(v === true)} />
               capture_failed
             </label>
-            <label className="flex items-center gap-2 text-xs">
-              <Checkbox checked={moneyAtRisk} onCheckedChange={(v) => setMoneyAtRisk(v === true)} />
-              money_at_risk
-            </label>
-            <label className="flex items-center gap-2 text-xs">
-              <Checkbox checked={legacyEvidence} onCheckedChange={(v) => setLegacyEvidence(v === true)} />
-              legacy_evidence
-            </label>
           </div>
           {hasLocalFilters && (
             <Button variant="ghost" size="sm" onClick={clearLocalFilters}>
@@ -1113,26 +1060,14 @@ export default function PaymentSessions() {
             <TabsContent key={t.id} value={t.id} className="space-y-3">
               {t.id === 'overview' && (
                 <p className="text-sm text-muted-foreground">
-                  Payment Sessions owns customer provider money. Trip Fare / Settlement stamps supply
-                  expected payable and commission. Tabs filter the same canonical read adapter.
-                  Match / shortfall / overcapture chips open Financial Reconciliation (FR owns audit conclusions).
+                  Payment Sessions owns customer payment lifecycle: authorisation, capture, release, refund,
+                  provider fee, and provider state. Trip fare settlement, wallet credits, and reconciliation
+                  conclusions live on Financial Reconciliation / Driver Wallet Ledger / Payout Ledger.
                 </p>
               )}
               {t.id === 'provider_payments' && (
                 <p className="text-sm text-muted-foreground">
                   Authoritative provider lifecycle. Never shows trip fare or authorised amount as captured.
-                </p>
-              )}
-              {t.id === 'completed_trips_paid' && (
-                <p className="text-sm text-muted-foreground">
-                  Trip Fare + Settlement stamps beside Payment Sessions capture. Formatting/filter only —
-                  does not rebuild fare or classify FR audit status.
-                </p>
-              )}
-              {t.id === 'payment_matching' && (
-                <p className="text-sm text-muted-foreground">
-                  Side-by-side owned fields: Trip Fare expected vs Payment Sessions captured/refunded.
-                  Amount reconciliation conclusions are FR-owned — use Open FR (not calculated here).
                 </p>
               )}
               {t.id === 'captured' && (
@@ -1168,30 +1103,6 @@ export default function PaymentSessions() {
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" /> Loading…
                 </div>
-              ) : t.id === 'completed_trips_paid' ? (
-                <PaymentSessionsCompletedTripsTable
-                  rows={completedTripRows}
-                  currencyCode={serviceFilter.currencyCode ?? 'GBP'}
-                />
-              ) : t.id === 'payment_matching' ? (
-                <PaymentSessionsMatchingTable
-                  rows={matchingRows}
-                  currencyCode={serviceFilter.currencyCode ?? 'GBP'}
-                  onInspectProvider={(orderId) => {
-                    void (async () => {
-                      setInspectingId(orderId);
-                      try {
-                        const snap = await inspectProvider.mutateAsync(orderId);
-                        setInspectSnapshots((prev) => ({ ...prev, [orderId]: snap }));
-                        toast.success('Provider evidence loaded');
-                      } catch (err) {
-                        toast.error(err instanceof Error ? err.message : 'Inspect failed');
-                      } finally {
-                        setInspectingId(null);
-                      }
-                    })();
-                  }}
-                />
               ) : rows.length === 0 ? (
                 <Alert>
                   <AlertTitle>No payment attempts match the selected filters.</AlertTitle>
@@ -1350,7 +1261,7 @@ export default function PaymentSessions() {
                                         ? financeReconciliationTripUrl(row.trip_id, row.trip_code)
                                         : '/financial-reconciliation'}
                                     >
-                                      Open FR
+                                      Financial Reconciliation
                                     </Link>
                                   )}
                               </TableCell>

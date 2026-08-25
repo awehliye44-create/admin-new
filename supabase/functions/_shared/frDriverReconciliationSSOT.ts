@@ -6,6 +6,13 @@
  * - Provider Account Balance is reference-only (never reconciliation truth).
  * - No cross-driver netting.
  * - Unknown is never zero for classification / display of provider balance.
+ *
+ * Same-scope rules (FR must not invent mismatches):
+ * - Period payable variance = period TEN credits − period expected stamps.
+ *   Payout / cashout debits are excluded from that variance.
+ * - Live wallet balance / available / pending are informational (Wallet / Payout pages).
+ *   They must never drive DRIVER_WALLET_MISMATCH by themselves.
+ * - Pending 27h credits and post-payout TEN rows are not payout mismatches.
  */
 
 import {
@@ -230,6 +237,23 @@ export function sumCompletedPayoutLedgerPence(items: FrDriverPayoutLedgerItem[])
 }
 
 /**
+ * Same-scope period payable variance.
+ * Payout / cashout / fee debits must not enter this comparison.
+ */
+export function periodPayableVariancePence(args: {
+  expected_payable_pence: number | null;
+  actual_ten_credits_pence: number | null;
+}): number | null {
+  if (args.expected_payable_pence == null || args.actual_ten_credits_pence == null) return null;
+  return Math.round(args.actual_ten_credits_pence) - Math.round(args.expected_payable_pence);
+}
+
+/** Live wallet balance is never the FR reconciliation-status input. */
+export function frReconciliationStatusIgnoresLiveWalletBalance(): true {
+  return true;
+}
+
+/**
  * Classify one driver independently. Never nets across drivers.
  * Provider Connect balance is never compared to expected payable.
  */
@@ -322,7 +346,12 @@ export function computeFrDriverReconciliation(
   const walletBalance = computeLedgerWalletBalancePence(toLedgerRows(input.ledger));
   const completedPayoutLedger = sumCompletedPayoutLedgerPence(input.completedPayoutItems);
 
-  const walletVariance = expected == null ? null : actualCredits - expected;
+  // Same-scope: TEN credits vs expected stamps only — never live balance vs period payable,
+  // and never subtract payout debits from this variance.
+  const walletVariance = periodPayableVariancePence({
+    expected_payable_pence: expected,
+    actual_ten_credits_pence: actualCredits,
+  });
   const payoutVariance = payoutsDebited - completedPayoutLedger;
 
   const recovery = Math.max(0, Math.round(input.recovery_debt_pence ?? debtRecovery));
@@ -367,8 +396,16 @@ export function computeFrDriverReconciliation(
 
   const walletMismatch = expected == null || walletVariance == null || walletVariance !== 0;
   // Payout evidence required when either side has activity.
+  // Post-payout TEN that still matches expected stamps is not a payout mismatch.
   const payoutActivity = payoutsDebited > 0 || completedPayoutLedger > 0;
   const payoutMismatch = payoutActivity && payoutVariance !== 0;
+
+  // Pending 27h / available split is informational — never flip wallet mismatch alone.
+  if ((input.pending_balance_pence ?? 0) > 0 && walletVariance === 0) {
+    reasons.push(
+      "Pending 27h credits and post-payout credits are not payout mismatches.",
+    );
+  }
 
   if (expected == null) {
     return {

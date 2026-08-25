@@ -142,15 +142,33 @@ export function DriverWalletSsotPanel({
                   <TableHead>Driver</TableHead>
                   <TableHead>Driver Code</TableHead>
                   <TableHead>Service Area</TableHead>
-                  <TableHead className="text-right">Expected Driver Payable</TableHead>
-                  <TableHead className="text-right">Actual Wallet Trip Credits</TableHead>
+                  <TableHead className="text-right" title="Same-scope: settled trip stamps in audit window">
+                    Period Expected Driver Payable
+                  </TableHead>
+                  <TableHead className="text-right" title="Same-scope: TRIP_EARNING_NET credits (payouts excluded)">
+                    Period TEN Credits
+                  </TableHead>
                   <TableHead className="text-right">Wallet Adjustments</TableHead>
                   <TableHead className="text-right">Debt Recovery</TableHead>
                   <TableHead className="text-right">Payouts Debited</TableHead>
-                  <TableHead className="text-right">Current Wallet Balance</TableHead>
-                  <TableHead className="text-right">Available for Payout</TableHead>
-                  <TableHead className="text-right">Pending Balance</TableHead>
-                  <TableHead className="text-right">Wallet Variance</TableHead>
+                  <TableHead className="text-right" title="Live balance — owned by Driver Wallet Ledger (not period payable)">
+                    Live Wallet Balance
+                  </TableHead>
+                  <TableHead className="text-right" title="Live eligibility — owned by Payout Ledger / wallet clearing">
+                    Live Available for Payout
+                  </TableHead>
+                  <TableHead
+                    className="text-right"
+                    title="Pending 27h credits and post-payout credits are not payout mismatches."
+                  >
+                    Pending Balance
+                  </TableHead>
+                  <TableHead
+                    className="text-right"
+                    title="Period TEN − period expected stamps only. Payout debits excluded."
+                  >
+                    Period Payable Variance
+                  </TableHead>
                   <TableHead className="text-right">Payout Variance</TableHead>
                   <TableHead>Reconciliation Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -204,7 +222,12 @@ export function DriverWalletSsotPanel({
                     <TableCell>
                       <Badge
                         variant={statusVariant(row.reconciliation_status)}
-                        title={row.reconciliation_reasons?.length ? row.reconciliation_reasons.join(' · ') : undefined}
+                        title={
+                          [
+                            ...(row.reconciliation_reasons ?? []),
+                            'Pending 27h credits and post-payout credits are not payout mismatches.',
+                          ].join(' · ')
+                        }
                       >
                         {row.reconciliation_status}
                       </Badge>

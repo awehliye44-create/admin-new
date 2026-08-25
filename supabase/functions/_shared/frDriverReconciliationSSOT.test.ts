@@ -5,6 +5,8 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   aggregateFrDriverAuditOverview,
   computeFrDriverReconciliation,
+  frReconciliationStatusIgnoresLiveWalletBalance,
+  periodPayableVariancePence,
   sumActualWalletTripCreditsPence,
   sumExpectedPayablePence,
 } from "./frDriverReconciliationSSOT.ts";
@@ -271,4 +273,117 @@ Deno.test("12. Provider Account Balance remains reference-only", () => {
   });
   assertEquals(row.provider_balance_is_reference_only, true);
   assertEquals(row.provider_account_balance_pence !== row.current_wallet_balance_pence, true);
+});
+
+Deno.test("lock: payout debits excluded from period payable variance", () => {
+  const row = computeFrDriverReconciliation({
+    ledger: [
+      { type: "TRIP_EARNING_NET", amount_pence: 1000 },
+      { type: "WEEKLY_PAYOUT", amount_pence: -900 },
+    ],
+    settledTrips: [{ trip_id: "t1", driver_net_pence: 1000 }],
+    completedPayoutItems: [{ status: "COMPLETED", amount_pence: 900 }],
+    walletEvidenceAvailable: true,
+    settlementEvidenceAvailable: true,
+    identityMappingValid: true,
+    accountVerified: true,
+    finance_cleared_pence: 100,
+    provider_account_balance_pence: null,
+    provider_account_balance_status: "NOT_APPLICABLE",
+    payout_provider: "revolut",
+  });
+  // Payable variance is TEN vs stamps only — payout must not create wallet mismatch.
+  assertEquals(row.wallet_variance_pence, 0);
+  assertEquals(row.payouts_debited_pence, 900);
+  assertEquals(row.current_wallet_balance_pence, 100);
+  assertEquals(row.reconciliation_status, "BALANCED");
+});
+
+Deno.test("lock: live wallet balance is not FR reconciliation status input", () => {
+  const row = computeFrDriverReconciliation({
+    ledger: [
+      { type: "TRIP_EARNING_NET", amount_pence: 500 },
+      { type: "WEEKLY_PAYOUT", amount_pence: -500 },
+    ],
+    settledTrips: [{ trip_id: "t1", driver_net_pence: 500 }],
+    completedPayoutItems: [{ status: "completed", net_driver_payout_pence: 500 }],
+    walletEvidenceAvailable: true,
+    settlementEvidenceAvailable: true,
+    identityMappingValid: true,
+    accountVerified: true,
+    finance_cleared_pence: 0,
+    pending_balance_pence: 0,
+    provider_account_balance_pence: null,
+    provider_account_balance_status: "NOT_APPLICABLE",
+    payout_provider: "revolut",
+  });
+  // Live balance 0 != period payable 500, but same-scope TEN vs stamp is balanced.
+  assertEquals(row.expected_payable_pence, 500);
+  assertEquals(row.current_wallet_balance_pence, 0);
+  assertEquals(row.wallet_variance_pence, 0);
+  assertEquals(row.reconciliation_status, "BALANCED");
+  assertEquals(frReconciliationStatusIgnoresLiveWalletBalance(), true);
+});
+
+Deno.test("lock: pending 27h TEN is not a payout mismatch when stamps match", () => {
+  const row = computeFrDriverReconciliation({
+    ledger: [{ type: "TRIP_EARNING_NET", amount_pence: 376 }],
+    settledTrips: [{ trip_id: "phase5", driver_net_pence: 376 }],
+    completedPayoutItems: [],
+    walletEvidenceAvailable: true,
+    settlementEvidenceAvailable: true,
+    identityMappingValid: true,
+    accountVerified: true,
+    finance_cleared_pence: 0,
+    pending_balance_pence: 376,
+    provider_account_balance_pence: null,
+    provider_account_balance_status: "NOT_APPLICABLE",
+    payout_provider: "revolut",
+  });
+  assertEquals(row.wallet_variance_pence, 0);
+  assertEquals(row.reconciliation_status, "BALANCED");
+  assertEquals(
+    (row.reconciliation_reasons ?? []).some((r) =>
+      r.includes("Pending 27h credits and post-payout credits are not payout mismatches")
+    ),
+    true,
+  );
+});
+
+Deno.test("lock: post-payout TEN matching stamps is not payout mismatch", () => {
+  const row = computeFrDriverReconciliation({
+    ledger: [
+      { type: "TRIP_EARNING_NET", amount_pence: 1000 },
+      { type: "WEEKLY_PAYOUT", amount_pence: -1000 },
+      { type: "TRIP_EARNING_NET", amount_pence: 376 }, // post-payout Phase-5 style credit
+    ],
+    settledTrips: [
+      { trip_id: "pre", driver_net_pence: 1000 },
+      { trip_id: "post", driver_net_pence: 376 },
+    ],
+    completedPayoutItems: [{ status: "COMPLETED", net_driver_payout_pence: 1000 }],
+    walletEvidenceAvailable: true,
+    settlementEvidenceAvailable: true,
+    identityMappingValid: true,
+    accountVerified: true,
+    finance_cleared_pence: 0,
+    pending_balance_pence: 376,
+    provider_account_balance_pence: null,
+    provider_account_balance_status: "NOT_APPLICABLE",
+    payout_provider: "revolut",
+  });
+  assertEquals(row.wallet_variance_pence, 0);
+  assertEquals(row.payout_variance_pence, 0);
+  assertEquals(row.reconciliation_status, "BALANCED");
+});
+
+Deno.test("lock: periodPayableVariancePence helper matches TEN − expected", () => {
+  assertEquals(periodPayableVariancePence({
+    expected_payable_pence: 400,
+    actual_ten_credits_pence: 376,
+  }), -24);
+  assertEquals(periodPayableVariancePence({
+    expected_payable_pence: null,
+    actual_ten_credits_pence: 376,
+  }), null);
 });

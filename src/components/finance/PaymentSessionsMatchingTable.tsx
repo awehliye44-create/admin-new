@@ -1,3 +1,7 @@
+/**
+ * Payment Sessions matching table — PS amounts only.
+ * Amount reconciliation conclusions are owned by Financial Reconciliation.
+ */
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,12 +16,10 @@ import {
 import type { AdminPaymentSessionsMatchingRow } from '../../../shared/adminPaymentSessionsSSOT';
 import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
 import { isPaymentSessionsAmountsOnFrStatus } from '../../../shared/paymentSessionsTripMatchSSOT';
-import {
-  financeReconciliationTripUrl,
-  tripSettlementRecoverUrl,
-} from '@/lib/financialReconciliationRoutes';
+import { financeReconciliationTripUrl } from '@/lib/financialReconciliationRoutes';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 
+/** @deprecated Prefer Financial Reconciliation for match conclusions. Kept for deep-link compatibility. */
 export function PaymentSessionsMatchingTable({
   rows,
   currencyCode = 'GBP',
@@ -34,8 +36,8 @@ export function PaymentSessionsMatchingTable({
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        Expected = Trip Fare stamp. Actual / Refunded / Authorised / Released = Payment Sessions.
-        Amount reconciliation: Open FR (not calculated here).
+        Actual / Refunded / Authorised / Released = Payment Sessions.
+        Amount reconciliation conclusions belong on Financial Reconciliation.
       </p>
       <div className="overflow-x-auto rounded-md border">
       <Table>
@@ -44,13 +46,11 @@ export function PaymentSessionsMatchingTable({
             <TableHead>Trip</TableHead>
             <TableHead>Payment Session</TableHead>
             <TableHead>Customer</TableHead>
-            <TableHead>Expected Capture</TableHead>
             <TableHead>Actual Capture</TableHead>
             <TableHead>Refunded</TableHead>
             <TableHead>Authorised</TableHead>
             <TableHead>Released</TableHead>
             <TableHead>Presence</TableHead>
-            <TableHead>Reconciliation</TableHead>
             <TableHead>Provider State</TableHead>
             <TableHead>Verification</TableHead>
             <TableHead>Actions</TableHead>
@@ -66,7 +66,6 @@ export function PaymentSessionsMatchingTable({
                 {row.payment_session_id ? row.payment_session_id.slice(0, 8) : '—'}
               </TableCell>
               <TableCell className="text-xs">{row.customer_name ?? '—'}</TableCell>
-              <TableCell className="text-xs tabular-nums">{formatNullablePence(row.expected_capture_pence, currencyCode)}</TableCell>
               <TableCell className="text-xs tabular-nums">{formatNullablePence(row.actual_capture_pence, currencyCode)}</TableCell>
               <TableCell className="text-xs tabular-nums">
                 {formatNullablePence(row.refunded_amount_pence, currencyCode)}
@@ -80,18 +79,6 @@ export function PaymentSessionsMatchingTable({
                   <span className="text-xs text-muted-foreground">—</span>
                 )}
               </TableCell>
-              <TableCell className="text-xs">
-                {row.trip_id ? (
-                  <Link
-                    className="underline text-muted-foreground"
-                    to={financeReconciliationTripUrl(row.trip_id, row.trip_code)}
-                  >
-                    Open FR
-                  </Link>
-                ) : (
-                  '—'
-                )}
-              </TableCell>
               <TableCell className="text-xs">{row.provider_state ?? '—'}</TableCell>
               <TableCell className="text-xs">
                 {row.provider_verification_status === 'STALE'
@@ -102,7 +89,9 @@ export function PaymentSessionsMatchingTable({
                 <div className="flex flex-wrap gap-1">
                   {row.trip_id && (
                     <Button asChild size="sm" variant="outline">
-                      <Link to={tripSettlementRecoverUrl(row.trip_id, row.trip_code)}>Open Trip</Link>
+                      <Link to={financeReconciliationTripUrl(row.trip_id, row.trip_code)}>
+                        Financial Reconciliation
+                      </Link>
                     </Button>
                   )}
                   {row.payment_session_id && (

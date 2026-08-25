@@ -198,8 +198,12 @@ export function FinancialReconciliationOverviewTab({
           label="ONECAB Net"
           value={o?.onecab_net_commission_pence == null ? 'Pending fee' : fmt(o.onecab_net_commission_pence)}
         />
-        <KpiCard label="Driver Net" value={o ? fmt(o.driver_net_total_pence) : '—'} />
-        <KpiCard label="Wallet Credits" value={o ? fmt(o.wallet_credits_total_pence) : '—'} />
+        <KpiCard label="Driver Net (period stamps)" value={o ? fmt(o.driver_net_total_pence) : '—'} />
+        <KpiCard
+          label="Period TEN Credits"
+          value={o ? fmt(o.wallet_credits_total_pence) : '—'}
+          subtitle="Trip earning credits in audit window"
+        />
         <KpiCard
           label="Unallocated"
           value={
@@ -207,7 +211,7 @@ export function FinancialReconciliationOverviewTab({
               ? '—'
               : fmt(o.unallocated_pence)
           }
-          subtitle="Settlement identity variance"
+          subtitle="Settlement identity variance (same-scope capture vs stamps)"
         />
         <KpiCard
           label="Settlement identity"
@@ -217,11 +221,32 @@ export function FinancialReconciliationOverviewTab({
         <KpiCard
           label="Driver audit status"
           value={combinedOverviewStatus}
-          subtitle="Per-driver wallet vs payable (no cross-driver netting)"
+          subtitle="Per-driver period TEN vs period stamps (not live balance)"
+        />
+        <KpiCard
+          label="Matched Trips"
+          value={o?.matched_trip_count ?? '—'}
+          subtitle="FR audit conclusion"
+        />
+        <KpiCard
+          label="Capture Shortfall"
+          value={o ? fmt(o.capture_shortfall_pence) : '—'}
+          subtitle="FR audit conclusion"
+        />
+        <KpiCard
+          label="Gross Overcapture"
+          value={o ? fmt(o.overcapture_pence) : '—'}
+          subtitle="FR audit conclusion"
+        />
+        <KpiCard
+          label="Missing Payment Sessions"
+          value={o?.missing_captures_count ?? '—'}
+          subtitle="Completed trips without PS capture evidence"
         />
         <KpiCard label="Missing Captures" value={o?.missing_captures_count ?? '—'} />
         <KpiCard label="Missing Releases" value={o?.missing_releases_count ?? '—'} />
         <KpiCard label="Trips with wallet mismatches" value={o?.wallet_mismatches_count ?? '—'} />
+        <KpiCard label="Commission / provider mismatches" value={o?.mismatched_trip_count ?? '—'} />
         <KpiCard label="Payout Mismatches" value={o?.payout_mismatches_count ?? '—'} />
         <KpiCard label="Balanced trips" value={o?.balanced_trips_count ?? '—'} />
         <KpiCard label="Trips with unresolved mismatches" value={o?.unresolved_mismatches_count ?? '—'} />
@@ -253,11 +278,12 @@ export function FinancialReconciliationOverviewTab({
         <KpiCard
           label="Period driver payable (SSOT)"
           value={fmt(ssot.summary?.driver_money?.card_driver_payable_pence)}
+          subtitle="Period trip stamps — not live wallet"
         />
         <KpiCard
-          label="Ledger wallet balance"
+          label="Ledger wallet balance (live)"
           value={fmt(ssot.summary?.driver_money?.driver_wallet_balance_pence)}
-          subtitle="From driver_wallet_ledger"
+          subtitle="Driver Wallet Ledger live SSOT — not compared to period payable for status"
         />
       </div>
 
