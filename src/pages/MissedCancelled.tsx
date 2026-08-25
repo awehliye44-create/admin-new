@@ -32,7 +32,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { 
   XCircle, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
-  Eye, AlertTriangle, Ban, UserX, TrendingDown,
+  Eye, AlertTriangle, Ban, TrendingDown,
 } from 'lucide-react';
 import { subDays, startOfDay, endOfDay } from 'date-fns';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
@@ -45,6 +45,10 @@ import {
   formatAdminCommittedCustomerFare,
   resolveAdminCommittedCustomerFarePence,
 } from '@/lib/adminTripCommittedFareDisplay';
+import {
+  MISSED_CANCELLED_STATUSES,
+  belongsInMissedCancelled,
+} from '@/lib/adminTripNoShowClassification';
 
 interface CancelledTrip {
   id: string;
@@ -79,6 +83,8 @@ interface CancelledTrip {
   arrival_cancellation_fee: number | null;
   arrival_cancellation_applied_at: string | null;
   arrival_cancellation_reason: string | null;
+  financial_outcome?: string | null;
+  no_show_charge_pence?: number | null;
   driver?: {
     id: string;
     first_name: string;
@@ -143,14 +149,14 @@ export default function MissedCancelled() {
           pickup_address, dropoff_address, estimated_fare, fare,
           final_fare_pence, final_customer_fare_pence, estimated_total_pence, gross_fare_pence,
           offer_discount_pence, discount_pence, customer_modification_charge_pence,
-          currency_code,
+          currency_code, financial_outcome, no_show_charge_pence,
           created_at, completed_at, special_instructions, driver_id, service_area_id,
           arrived_at, pickup_waiting_started_at, cancelled_at, cancellation_reason,
           arrival_cancellation_applied, arrival_cancellation_fee, arrival_cancellation_applied_at, arrival_cancellation_reason,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, region_id),
           service_area:service_areas!trips_service_area_id_fkey(id, name, region_id, region:regions(currency_code))
         `)
-        .in('status', ['cancelled', 'customer_cancelled', 'no_show', 'missed', 'expired'])
+        .in('status', [...MISSED_CANCELLED_STATUSES])
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString())
         .order('created_at', { ascending: false });
@@ -158,7 +164,8 @@ export default function MissedCancelled() {
       if (error) throw error;
       const rows = (data || []) as unknown as CancelledTrip[];
       const directory = await fetchPassengerDirectory(rows.map((row) => row.passenger_id));
-      return hydratePassengerIdentity(rows, directory);
+      // Defense in depth: never surface no-show outcomes here (Trip History owns them).
+      return hydratePassengerIdentity(rows, directory).filter((row) => belongsInMissedCancelled(row));
 
     },
     staleTime: 30_000,
@@ -183,9 +190,8 @@ export default function MissedCancelled() {
   const getStatusConfig = (status: string | null) => {
     switch (status) {
       case 'cancelled':
+      case 'customer_cancelled':
         return { label: 'Cancelled', color: 'bg-red-100 text-red-700', icon: XCircle };
-      case 'no_show':
-        return { label: 'No Show', color: 'bg-orange-100 text-orange-700', icon: UserX };
       case 'missed':
         return { label: 'Missed', color: 'bg-yellow-100 text-yellow-700', icon: AlertTriangle };
       case 'expired':
@@ -226,8 +232,10 @@ export default function MissedCancelled() {
     return matchesSearch && trip.status === statusFilter;
   });
 
-  const cancelledCount = trips.filter(t => t.status === 'cancelled').length;
-  const noShowCount = trips.filter(t => t.status === 'no_show').length;
+  const cancelledCount = trips.filter(
+    (t) => t.status === 'cancelled' || t.status === 'customer_cancelled',
+  ).length;
+  const missedCount = trips.filter((t) => t.status === 'missed' || t.status === 'expired').length;
   const lostRevenueMajor = trips.reduce(
     (sum, t) => sum + resolveAdminCommittedCustomerFarePence(t) / 100,
     0,
@@ -239,7 +247,7 @@ export default function MissedCancelled() {
   return (
     <AdminLayout 
       title="Missed & Cancelled" 
-      description="Review cancelled, missed, and no-show trips"
+      description="Review cancelled, missed, and expired trips (no-shows live in Trip History)"
     >
       {/* Service Area Filter */}
       <div className="flex items-center gap-3 mb-6">
@@ -279,10 +287,10 @@ export default function MissedCancelled() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">No Shows</p>
-                <p className="text-2xl font-bold text-orange-600">{noShowCount}</p>
+                <p className="text-sm text-muted-foreground">Missed / Expired</p>
+                <p className="text-2xl font-bold text-orange-600">{missedCount}</p>
               </div>
-              <UserX className="h-8 w-8 text-orange-500" />
+              <AlertTriangle className="h-8 w-8 text-orange-500" />
             </div>
           </CardContent>
         </Card>
@@ -339,7 +347,7 @@ export default function MissedCancelled() {
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="cancelled">Cancelled</SelectItem>
-                <SelectItem value="no_show">No Show</SelectItem>
+                <SelectItem value="customer_cancelled">Customer Cancelled</SelectItem>
                 <SelectItem value="missed">Missed</SelectItem>
                 <SelectItem value="expired">Expired</SelectItem>
               </SelectContent>

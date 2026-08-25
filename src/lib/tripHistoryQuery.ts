@@ -14,18 +14,35 @@ export function tripHistoryTerminalOrFilter(): string {
   return `financial_outcome.in.(${TRIP_HISTORY_FINANCIAL_OUTCOMES.join(',')}),status.in.(${TRIP_HISTORY_STATUSES.join(',')})`;
 }
 
+/**
+ * Date window for Trip History.
+ * Primary: completed_at in range.
+ * No-show often has completed_at NULL — include via cancelled_at (then created_at).
+ */
+export function tripHistoryDateOrFilter(start: Date, end: Date): string {
+  const s = start.toISOString();
+  const e = end.toISOString();
+  return [
+    `and(completed_at.gte.${s},completed_at.lte.${e})`,
+    `and(completed_at.is.null,status.eq.no_show,cancelled_at.gte.${s},cancelled_at.lte.${e})`,
+    `and(completed_at.is.null,financial_outcome.eq.NO_SHOW,cancelled_at.gte.${s},cancelled_at.lte.${e})`,
+    `and(completed_at.is.null,cancelled_at.is.null,status.eq.no_show,created_at.gte.${s},created_at.lte.${e})`,
+    `and(completed_at.is.null,cancelled_at.is.null,financial_outcome.eq.NO_SHOW,created_at.gte.${s},created_at.lte.${e})`,
+  ].join(',');
+}
+
 const TRIP_HISTORY_SELECT_BASE = `
   id, trip_code, trip_number, status, financial_outcome, passenger_id, passenger_name, passenger_phone,
   pickup_address, pickup_latitude, pickup_longitude, dropoff_address, dropoff_latitude, dropoff_longitude,
   estimated_fare, fare, gross_fare_pence, commission_pence, driver_net_pence, final_fare_pence,
-  final_customer_fare_pence, capture_amount_pence, commissionable_fare_pence,
+  final_customer_fare_pence, capture_amount_pence, commissionable_fare_pence, no_show_charge_pence,
   locked_base_fare_pence, accepted_preset_offer_fare_pence, accepted_driver_offer_fare_pence,
   customer_modification_charge_pence, destination_change_adjustment_pence,
   provider_fee_pence, onecab_net_pence,
   payment_status, payment_method, payment_provider, provider_order_id, provider_payment_id,
   currency_code, estimated_distance_km, estimated_duration_minutes,
   refund_amount_pence, refunded_at,
-  total_stops, created_at, started_at, completed_at, surge_multiplier, driver_id,
+  total_stops, created_at, started_at, completed_at, cancelled_at, surge_multiplier, driver_id,
   driver_location_lat, driver_location_lng, stacked_trip_id,
   corporate_account_id, region_id, service_area_id,
   pricing_mode, fare_locked, vehicle_type_id, vehicle_type, fare_engine_config_id,
@@ -35,7 +52,6 @@ const TRIP_HISTORY_SELECT_BASE = `
   driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
   service_area_join:service_areas!trips_service_area_id_fkey(region_id, region:regions(currency_code, distance_unit))
 `;
-
 const TRIP_HISTORY_SELECT_INVOICE = `
   invoice_no, invoice_pdf_url, invoice_generated_at, invoice_email_sent,
   invoice_email_sent_at, invoice_email_status, invoice_email_error,
@@ -102,10 +118,8 @@ export async function fetchTripHistoryRows(args: {
       .from('trips')
       .select(select)
       .or(tripHistoryTerminalOrFilter())
-      .not('completed_at', 'is', null)
-      .gte('completed_at', args.start.toISOString())
-      .lte('completed_at', args.end.toISOString())
-      .order('completed_at', { ascending: false })
+      .or(tripHistoryDateOrFilter(args.start, args.end))
+      .order('completed_at', { ascending: false, nullsFirst: false })
       .limit(2000);
 
     query = await applyTripHistoryLocationFilter(query, args);

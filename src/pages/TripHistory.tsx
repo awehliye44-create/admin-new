@@ -66,6 +66,12 @@ import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
 import { fetchTripHistoryRows } from '@/lib/tripHistoryQuery';
 import { fetchTripsCaptureSsot } from '@/hooks/financeReconciliationApi';
+import {
+  adminNoShowPaymentLabel,
+  adminNoShowStatusLabel,
+  adminTripHistoryDisplayAt,
+  isAdminNoShowTrip,
+} from '@/lib/adminTripNoShowClassification';
 
 function getTripMapCenter(trip: CompletedTrip): [number, number] {
   const lng = trip.pickup_longitude ?? trip.dropoff_longitude ?? -0.7594;
@@ -155,6 +161,8 @@ interface CompletedTrip {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+  cancelled_at?: string | null;
+  no_show_charge_pence?: number | null;
   surge_multiplier: number | null;
   driver_id: string | null;
   driver_location_lat: number | null;
@@ -799,6 +807,8 @@ export default function TripHistory() {
 
   /** Lifecycle label from payment_status / PS amounts — no local expected vs capture FR. */
   const getTripPaymentLifecycleLabel = (trip: CompletedTrip): string => {
+    const noShowPay = adminNoShowPaymentLabel(trip, getTripProviderCapturedPence(trip));
+    if (noShowPay) return noShowPay;
     const refunded = getTripProviderRefundedPence(trip);
     if (refunded != null && refunded > 0) {
       return refunded >= (getTripProviderCapturedPence(trip) ?? 0) ? 'Refunded' : 'Partially refunded';
@@ -814,7 +824,8 @@ export default function TripHistory() {
   };
 
   const getTripStatusLabel = (trip: CompletedTrip): string => {
-    if (trip.status === 'no_show') return 'No Show';
+    const noShow = adminNoShowStatusLabel(trip);
+    if (noShow) return noShow;
     if (trip.status === 'cancelled') return 'Cancelled';
     if (trip.financial_outcome === 'LATE_PASSENGER_CANCELLATION') return 'Late cancellation';
     return 'Completed';
@@ -1215,6 +1226,14 @@ export default function TripHistory() {
                       <div className="font-mono text-sm font-medium text-primary">
                         {getTripDisplayId(trip)}
                       </div>
+                      {isAdminNoShowTrip(trip) ? (
+                        <Badge
+                          variant="outline"
+                          className="mt-1 text-[10px] w-fit bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                        >
+                          {getTripStatusLabel(trip)}
+                        </Badge>
+                      ) : null}
                     </TableCell>
                     <TableCell>
                       {trip.corporate_account_id ? (
@@ -1346,9 +1365,12 @@ export default function TripHistory() {
                       <TripInvoiceStatusBadge trip={trip} />
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
-                      {trip.completed_at 
-                        ? formatFinanceDateSafe(trip.completed_at, 'MMM d, HH:mm')
-                        : 'N/A'}
+                      {(() => {
+                        const displayAt = adminTripHistoryDisplayAt(trip);
+                        return displayAt
+                          ? formatFinanceDateSafe(displayAt, 'MMM d, HH:mm')
+                          : 'N/A';
+                      })()}
                     </TableCell>
                     <TableCell className="text-right">
                       <TripHistoryRowActions
@@ -1381,7 +1403,7 @@ export default function TripHistory() {
               {/* Status Badges Row */}
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className={
-                  selectedTrip.status === 'no_show'
+                  isAdminNoShowTrip(selectedTrip)
                     ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                     : selectedTrip.status === 'cancelled'
                       ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
