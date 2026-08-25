@@ -393,7 +393,7 @@ export function AdminSidebar() {
             <PermissionNavItem canAccess={canAccessPage} pageSlug="payment-sessions" to="/payment-sessions" icon={<CreditCard className="h-4 w-4" />} label="Payment Sessions (SSOT)" active={currentPath === '/payment-sessions'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="financial-reconciliation" to="/financial-reconciliation" icon={<Calculator className="h-4 w-4" />} label="Financial Reconciliation (SSOT)" active={currentPath === '/financial-reconciliation'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="driver-wallet-ledger" to="/driver-wallet-ledger" icon={<Wallet className="h-4 w-4" />} label="Driver Wallet Ledger (SSOT)" active={currentPath === '/driver-wallet-ledger'} collapsed={isCollapsed} />
-            <PermissionNavItem canAccess={canAccessPage} pageSlug="commission-wallet" to="/commission-wallet" icon={<CircleDollarSign className="h-4 w-4" />} label="Commission Wallet" active={currentPath === '/commission-wallet'} collapsed={isCollapsed} />
+            <PermissionNavItem canAccess={canAccessPage} pageSlug="commission-wallet" to="/commission-wallet" icon={<CircleDollarSign className="h-4 w-4" />} label="Commission Wallet (Driver-Collected)" active={currentPath === '/commission-wallet'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="payout-ledger" to="/payout-ledger" icon={<Coins className="h-4 w-4" />} label="Payout Ledger (SSOT)" active={currentPath === '/payout-ledger'} collapsed={isCollapsed} />
           </PermissionSection>
 

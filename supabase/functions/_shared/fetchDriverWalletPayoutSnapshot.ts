@@ -196,7 +196,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       supabase
         .from("trips")
         .select(
-          "id, trip_code, completed_at, passenger_name, payment_status, final_customer_fare_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, payment_session_id, provider_payment_id, service_area_id",
+          "id, trip_code, completed_at, passenger_name, payment_status, final_customer_fare_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
         )
         .in("id", tripIdsForFr),
       supabase
@@ -207,6 +207,9 @@ export async function fetchDriverWalletPayoutSnapshot(
         .in("trip_id", tripIdsForFr),
     ]);
     for (const t of tripRowsRes.data ?? []) {
+      // Driver Wallet is PLATFORM_COLLECTED only — never surface CW trip revenue here.
+      const model = String((t as { financial_model?: string | null }).financial_model ?? "").toUpperCase();
+      if (model === "DRIVER_COLLECTED_COMMISSION_WALLET") continue;
       tripMetaById.set(String(t.id), {
         payment_method: (t.payment_method as string | null) ?? null,
         payment_provider: (t.payment_provider as string | null) ?? null,

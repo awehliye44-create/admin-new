@@ -97,3 +97,111 @@ export function tripRowMatchesFinancialModel(
 ): boolean {
   return normaliseServiceAreaFinancialModel(tripFinancialModel) === requiredModel;
 }
+
+export function isDriverCollectedFinancialModel(value: unknown): boolean {
+  return String(value ?? '').toUpperCase() === FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET;
+}
+
+/**
+ * Explicit safe legacy bucket — NULL trip stamps are PLATFORM_COLLECTED only when
+ * there is no Driver-Collected evidence (`commission_wallet_enabled === true`).
+ * Never silently mix unknown/null Driver-Collected rows onto PLATFORM pages.
+ */
+export const LEGACY_NULL_AS_PLATFORM_COLLECTED = 'LEGACY_NULL_AS_PLATFORM_COLLECTED' as const;
+
+export type TripPlatformAdminClassification =
+  | {
+    includeOnPlatformPage: true;
+    model: typeof FINANCIAL_MODEL.PLATFORM_COLLECTED;
+    bucket: typeof LEGACY_NULL_AS_PLATFORM_COLLECTED | null;
+  }
+  | {
+    includeOnPlatformPage: false;
+    model: typeof FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET | 'UNKNOWN_EXCLUDED';
+    bucket: null;
+  };
+
+export function classifyTripForPlatformCollectedAdminPage(trip: {
+  financial_model?: unknown;
+  commission_wallet_enabled?: unknown;
+}): TripPlatformAdminClassification {
+  if (isDriverCollectedFinancialModel(trip.financial_model)) {
+    return {
+      includeOnPlatformPage: false,
+      model: FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+      bucket: null,
+    };
+  }
+  const stampMissing = trip.financial_model == null || trip.financial_model === '';
+  if (stampMissing && trip.commission_wallet_enabled === true) {
+    return { includeOnPlatformPage: false, model: 'UNKNOWN_EXCLUDED', bucket: null };
+  }
+  if (stampMissing) {
+    return {
+      includeOnPlatformPage: true,
+      model: FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      bucket: LEGACY_NULL_AS_PLATFORM_COLLECTED,
+    };
+  }
+  if (String(trip.financial_model).toUpperCase() === FINANCIAL_MODEL.PLATFORM_COLLECTED) {
+    return {
+      includeOnPlatformPage: true,
+      model: FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      bucket: null,
+    };
+  }
+  return { includeOnPlatformPage: false, model: 'UNKNOWN_EXCLUDED', bucket: null };
+}
+
+export function filterTripsForPlatformCollectedAdminPage<
+  T extends { financial_model?: unknown; commission_wallet_enabled?: unknown },
+>(rows: readonly T[]): T[] {
+  return rows.filter((row) => classifyTripForPlatformCollectedAdminPage(row).includeOnPlatformPage);
+}
+
+export function filterTripsForCommissionWalletAdminPage<
+  T extends { financial_model?: unknown },
+>(rows: readonly T[]): T[] {
+  return rows.filter((row) => isDriverCollectedFinancialModel(row.financial_model));
+}
+
+/**
+ * Payment Sessions isolation: null `service_area_id` is excluded unless the linked
+ * trip is explicitly classified into PLATFORM (including the safe legacy-null bucket).
+ */
+export function paymentSessionIncludedOnPlatformCollectedAdminPage(
+  row: {
+    service_area_id?: string | null;
+    trip_financial_model?: unknown;
+    trip_commission_wallet_enabled?: unknown;
+  },
+  allowedServiceAreaIds: readonly string[],
+): boolean {
+  if (row.service_area_id) {
+    if (!allowedServiceAreaIds.includes(row.service_area_id)) return false;
+    if (row.trip_financial_model !== undefined || row.trip_commission_wallet_enabled !== undefined) {
+      return classifyTripForPlatformCollectedAdminPage({
+        financial_model: row.trip_financial_model,
+        commission_wallet_enabled: row.trip_commission_wallet_enabled,
+      }).includeOnPlatformPage;
+    }
+    return true;
+  }
+  // Null SA: require explicit trip classification evidence — never silent mix.
+  if (row.trip_financial_model === undefined && row.trip_commission_wallet_enabled === undefined) {
+    return false;
+  }
+  return classifyTripForPlatformCollectedAdminPage({
+    financial_model: row.trip_financial_model,
+    commission_wallet_enabled: row.trip_commission_wallet_enabled,
+  }).includeOnPlatformPage;
+}
+
+/** Effective PLATFORM SA id list for All-Services vs single-SA requests. */
+export function resolvePlatformCollectedServiceAreaFilter(args: {
+  serviceAreaId?: string | null;
+  allowedServiceAreaIds: readonly string[];
+}): string[] {
+  if (args.serviceAreaId) return [args.serviceAreaId];
+  return [...args.allowedServiceAreaIds];
+}

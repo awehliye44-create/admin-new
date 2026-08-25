@@ -444,12 +444,12 @@ export default function CommissionWallet() {
 
   return (
     <AdminLayout
-      title="Commission Wallet"
-      description="Africa Driver Commission Wallet — separate from Driver Wallet Ledger. Phase 7: completion deduction + Finance COMMISSION_WALLET_DEDUCTION."
+      title="Commission Wallet (Driver-Collected)"
+      description="Driver-Collected commission wallet only — separate from PLATFORM_COLLECTED Payment Sessions, Financial Reconciliation, Driver Wallet Ledger, and Payout Ledger. Owns commission due, balance, debt/recovery, and CW adjustments."
     >
       <div className="space-y-6">
         <div className="flex flex-wrap items-center gap-3">
-          <Badge variant="outline">Commission Wallet SSOT</Badge>
+          <Badge variant="outline">Commission Wallet (Driver-Collected)</Badge>
           <Badge variant="outline">Phase 5 — campaigns</Badge>
           <Badge variant="outline">Phase 6 — dispatch reserve</Badge>
           <Badge variant="outline">Phase 7 — completion deduction</Badge>

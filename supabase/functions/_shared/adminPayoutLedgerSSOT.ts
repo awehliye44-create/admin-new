@@ -65,6 +65,8 @@ export type AdminPayoutLedgerListRequest = {
   tab?: AdminPayoutLedgerTab;
   driver_id?: string | null;
   service_area_id?: string | null;
+  /** PLATFORM_COLLECTED SA ids for All-Services isolation (never includes DRIVER_COLLECTED). */
+  allowed_service_area_ids?: string[] | null;
   status?: string | null;
   payout_type?: string | null;
   batch_id?: string | null;

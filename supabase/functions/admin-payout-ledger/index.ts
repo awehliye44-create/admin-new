@@ -130,9 +130,16 @@ serve(async (req) => {
       }, 200);
     }
 
+    const scopedRequest = {
+      ...parsed.data,
+      service_area_id: scope.serviceAreaId,
+      allowed_service_area_ids: scope.allowedServiceAreaIds,
+    };
+
     if (parsed.data.mode === "accounts_overview") {
       const overview = await buildPayoutLedgerAccountsOverview(gate.supabase, {
-        service_area_id: parsed.data.service_area_id ?? null,
+        service_area_id: scopedRequest.service_area_id ?? null,
+        allowed_service_area_ids: scopedRequest.allowed_service_area_ids,
         limit: parsed.data.limit,
       });
       return jsonResponse(overview);
@@ -141,13 +148,14 @@ serve(async (req) => {
     // Explicit Overview route — never fall through to list without overview_summary.
     if (parsed.data.mode === "ledger_overview") {
       const overview = await buildPayoutLedgerOverview(gate.supabase, {
-        service_area_id: parsed.data.service_area_id ?? null,
+        service_area_id: scopedRequest.service_area_id ?? null,
+        allowed_service_area_ids: scopedRequest.allowed_service_area_ids,
         limit: parsed.data.limit,
       });
       return jsonResponse(overview);
     }
 
-    const result = await listAdminPayoutLedger(gate.supabase, parsed.data);
+    const result = await listAdminPayoutLedger(gate.supabase, scopedRequest);
     return jsonResponse(result);
   } catch (err) {
     console.error("[admin-payout-ledger]", err);

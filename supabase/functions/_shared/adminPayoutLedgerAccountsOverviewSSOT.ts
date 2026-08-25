@@ -15,6 +15,7 @@ import { fetchDriverPayoutEligibility } from "./fetchDriverPayoutEligibility.ts"
 import { shouldBlockZeroValuePayoutBatch } from "../../../shared/driverPayoutEligibilitySSOT.ts";
 import { loadPayoutControlCentreSettings } from "./payoutControlCentreSettingsSSOT.ts";
 import { buildPayoutScheduleDto } from "./payoutScheduleSSOT.ts";
+import { resolvePlatformCollectedDriverIds } from "./platformCollectedDriverScope.ts";
 
 function emptySummary(): AdminPayoutLedgerListResponse["summary"] {
   return {
@@ -147,7 +148,11 @@ async function loadPayoutItemStatusTotals(supabase: AnySupabase): Promise<{
 
 export async function buildPayoutLedgerAccountsOverview(
   supabase: AnySupabase,
-  args?: { service_area_id?: string | null; limit?: number },
+  args?: {
+    service_area_id?: string | null;
+    allowed_service_area_ids?: readonly string[] | null;
+    limit?: number;
+  },
 ): Promise<AdminPayoutLedgerListResponse> {
   let driverQuery = supabase
     .from("drivers")
@@ -155,12 +160,11 @@ export async function buildPayoutLedgerAccountsOverview(
     .eq("approval_status", "approved")
     .limit(Math.min(200, Math.max(1, args?.limit ?? 100)));
 
-  if (args?.service_area_id) {
-    const { data: links } = await supabase
-      .from("driver_service_areas")
-      .select("driver_id")
-      .eq("service_area_id", args.service_area_id);
-    const ids = [...new Set((links ?? []).map((r: { driver_id: string }) => String(r.driver_id)).filter(Boolean))];
+  if (args?.service_area_id || args?.allowed_service_area_ids) {
+    const ids = await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id: args?.service_area_id ?? null,
+      allowed_service_area_ids: args?.allowed_service_area_ids ?? [],
+    });
     if (ids.length === 0) {
       return {
         success: true,

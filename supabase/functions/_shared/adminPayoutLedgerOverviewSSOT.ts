@@ -21,6 +21,7 @@ import {
   buildCompanyFundingAuditRows,
   PAYMENT_SESSIONS_NET_COMMISSION_SOURCE,
 } from "../../../shared/payoutLedgerCompanyFundingSSOT.ts";
+import { resolvePlatformCollectedDriverIds } from "./platformCollectedDriverScope.ts";
 
 export { resolveLiveCompanyBalanceSnapshot } from "./companyBalanceResolveSSOT.ts";
 
@@ -115,7 +116,10 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
  */
 async function loadDriverOverviewSection(
   supabase: AnySupabase,
-  args: { service_area_id: string | null },
+  args: {
+    service_area_id: string | null;
+    allowed_service_area_ids?: readonly string[] | null;
+  },
 ): Promise<{
   driver_wallet_total_pence: number;
   driver_available_pence: number;
@@ -131,13 +135,26 @@ async function loadDriverOverviewSection(
     .select("id, payouts_enabled")
     .order("created_at", { ascending: false })
     .limit(500);
-  if (args.service_area_id) {
-    const { data: links } = await supabase
-      .from("driver_service_areas")
-      .select("driver_id")
-      .eq("service_area_id", args.service_area_id);
-    const ids = [...new Set((links ?? []).map((r: { driver_id: string }) => String(r.driver_id)).filter(Boolean))];
-    if (ids.length === 0) {
+
+  const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
+    service_area_id: args.service_area_id,
+    allowed_service_area_ids: args.allowed_service_area_ids ?? [],
+  });
+  // All-Services without PLATFORM SAs → empty. Never fall through to global drivers.
+  if (!args.service_area_id && (args.allowed_service_area_ids?.length ?? 0) === 0) {
+    return {
+      driver_wallet_total_pence: 0,
+      driver_available_pence: 0,
+      driver_pending_pence: 0,
+      driver_debt_pence: 0,
+      eligible_driver_count: 0,
+      held_driver_count: 0,
+      next_driver_batch_amount_pence: 0,
+      next_driver_batch_count: 0,
+    };
+  }
+  if (args.service_area_id || (args.allowed_service_area_ids && args.allowed_service_area_ids.length > 0)) {
+    if (platformDriverIds.length === 0) {
       return {
         driver_wallet_total_pence: 0,
         driver_available_pence: 0,
@@ -149,7 +166,7 @@ async function loadDriverOverviewSection(
         next_driver_batch_count: 0,
       };
     }
-    driverQuery = driverQuery.in("id", ids);
+    driverQuery = driverQuery.in("id", platformDriverIds);
   }
 
   const { data: drivers, error } = await driverQuery;
@@ -243,6 +260,7 @@ async function loadDriverOverviewSection(
 async function loadActiveReservedDriverPayoutPence(
   supabase: AnySupabase,
   service_area_id: string | null,
+  allowed_service_area_ids?: readonly string[] | null,
 ): Promise<number> {
   let query = supabase
     .from("driver_payout_reservations")
@@ -252,14 +270,12 @@ async function loadActiveReservedDriverPayoutPence(
   const { data: rows, error } = await query;
   if (error) throw error;
   let reservedRows = rows ?? [];
-  if (service_area_id && reservedRows.length > 0) {
-    const ids = [...new Set(reservedRows.map((r: { driver_id: string }) => String(r.driver_id)).filter(Boolean))];
-    const { data: links } = await supabase
-      .from("driver_service_areas")
-      .select("driver_id")
-      .eq("service_area_id", service_area_id)
-      .in("driver_id", ids);
-    const allowed = new Set((links ?? []).map((r: { driver_id: string }) => String(r.driver_id)));
+  if ((service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length >= 0)) && reservedRows.length > 0) {
+    const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id,
+      allowed_service_area_ids: allowed_service_area_ids ?? [],
+    });
+    const allowed = new Set(platformDriverIds);
     reservedRows = reservedRows.filter((r: { driver_id: string }) => allowed.has(String(r.driver_id)));
   }
   let reserved = 0;
@@ -269,7 +285,11 @@ async function loadActiveReservedDriverPayoutPence(
   return reserved;
 }
 
-async function loadPayoutItemSection(supabase: AnySupabase, service_area_id: string | null): Promise<{
+async function loadPayoutItemSection(
+  supabase: AnySupabase,
+  service_area_id: string | null,
+  allowed_service_area_ids?: readonly string[] | null,
+): Promise<{
   payout_scheduled_pence: number;
   payout_processing_pence: number;
   payout_paid_today_pence: number;
@@ -287,11 +307,13 @@ async function loadPayoutItemSection(supabase: AnySupabase, service_area_id: str
   if (itemsErr) throw itemsErr;
 
   let rows = items ?? [];
-  if (service_area_id && rows.length > 0) {
-    const ids = [...new Set(rows.map((r) => String(r.driver_id)).filter(Boolean))];
-    const { data: drivers } = await supabase.from("drivers").select("id, service_area_id").in("id", ids);
-    const sa = new Map((drivers ?? []).map((d: { id: string; service_area_id: string | null }) => [String(d.id), d.service_area_id ?? null]));
-    rows = rows.filter((r) => (sa.get(String(r.driver_id)) ?? null) === service_area_id);
+  if (service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length >= 0)) {
+    const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id,
+      allowed_service_area_ids: allowed_service_area_ids ?? [],
+    });
+    const allowed = new Set(platformDriverIds);
+    rows = rows.filter((r) => allowed.has(String(r.driver_id)));
   }
 
   const dayStart = londonDayStartIso();
@@ -335,12 +357,14 @@ export async function buildPayoutLedgerOverview(
   supabase: AnySupabase,
   args?: {
     service_area_id?: string | null;
+    allowed_service_area_ids?: readonly string[] | null;
     limit?: number;
     currency?: string | null;
   },
 ): Promise<AdminPayoutLedgerListResponse> {
   void args?.limit;
   const service_area_id = args?.service_area_id ?? null;
+  const allowed_service_area_ids = args?.allowed_service_area_ids ?? null;
   const currency = String(args?.currency ?? "GBP").toUpperCase();
   let dto = emptyPayoutLedgerOverviewDto({
     service_area_id,
@@ -355,7 +379,7 @@ export async function buildPayoutLedgerOverview(
   // --- Driver wallet (fast path + hard budget — never blank the page) ---
   try {
     const driverSection = await withTimeout(
-      loadDriverOverviewSection(supabase, { service_area_id }),
+      loadDriverOverviewSection(supabase, { service_area_id, allowed_service_area_ids }),
       DRIVER_SECTION_BUDGET_MS,
       "DRIVER_OVERVIEW",
     );
@@ -370,7 +394,11 @@ export async function buildPayoutLedgerOverview(
     // Reservations are reported separately from settlement Pending.
     let reserved = 0;
     try {
-      reserved = await loadActiveReservedDriverPayoutPence(supabase, service_area_id);
+      reserved = await loadActiveReservedDriverPayoutPence(
+        supabase,
+        service_area_id,
+        allowed_service_area_ids,
+      );
       dto.driver_reserved_pence = reserved;
     } catch (resErr) {
       console.warn("[admin-payout-ledger] reserved overview failed", resErr);
@@ -385,7 +413,11 @@ export async function buildPayoutLedgerOverview(
   }
 
   try {
-    const payoutSection = await loadPayoutItemSection(supabase, service_area_id);
+    const payoutSection = await loadPayoutItemSection(
+      supabase,
+      service_area_id,
+      allowed_service_area_ids,
+    );
     dto.payout_scheduled_pence = payoutSection.payout_scheduled_pence;
     dto.payout_processing_pence = payoutSection.payout_processing_pence;
     dto.payout_paid_today_pence = payoutSection.payout_paid_today_pence;
@@ -439,7 +471,13 @@ export async function buildPayoutLedgerOverview(
       .select("status, amount_pence, execution_at, updated_at, created_at, service_area_id")
       .order("created_at", { ascending: false })
       .limit(2000);
-    if (service_area_id) companyQuery = companyQuery.eq("service_area_id", service_area_id);
+    if (service_area_id) {
+      companyQuery = companyQuery.eq("service_area_id", service_area_id);
+    } else if (allowed_service_area_ids && allowed_service_area_ids.length > 0) {
+      companyQuery = companyQuery.in("service_area_id", allowed_service_area_ids);
+    } else if (allowed_service_area_ids && allowed_service_area_ids.length === 0) {
+      companyQuery = companyQuery.eq("service_area_id", "00000000-0000-0000-0000-000000000000");
+    }
     const { data: companyRows, error: companyErr } = await companyQuery;
     if (companyErr) {
       console.warn("[admin-payout-ledger] company transfers overview failed", companyErr.message);

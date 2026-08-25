@@ -22,6 +22,7 @@ import {
   resolveDriverPayoutItemDisplayPresentation,
 } from "../../../shared/driverPayoutBatchDisplaySSOT.ts";
 import { orchestratorBlockerLabel } from "../../../shared/weeklyPayoutOrchestratorSSOT.ts";
+import { resolvePlatformCollectedDriverIds } from "./platformCollectedDriverScope.ts";
 
 const PROCESSING = new Set(["processing", "in_progress", "submitted", "pending_provider"]);
 const SCHEDULED = new Set(["pending", "scheduled", "queued", "on_hold"]);
@@ -116,22 +117,18 @@ function mapCompanyTransfer(row: Record<string, unknown>): CompanyOutgoingTransf
 async function loadProtectedDriverLiabilityPence(
   supabase: SupabaseClient,
   service_area_id?: string | null,
+  allowed_service_area_ids?: readonly string[] | null,
 ): Promise<{ amount_pence: number | null; error_code: string | null }> {
   try {
     let driverQuery = supabase
       .from("drivers")
       .select("id")
       .limit(500);
-    // Match overview SSOT: membership via driver_service_areas (not primary drivers.service_area_id only).
-    if (service_area_id) {
-      const { data: links, error: linkErr } = await supabase
-        .from("driver_service_areas")
-        .select("driver_id")
-        .eq("service_area_id", service_area_id);
-      if (linkErr) {
-        return { amount_pence: null, error_code: "DRIVER_LIABILITY_QUERY_FAILED" };
-      }
-      const ids = [...new Set((links ?? []).map((r) => String(r.driver_id)).filter(Boolean))];
+    if (service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length >= 0)) {
+      const ids = await resolvePlatformCollectedDriverIds(supabase, {
+        service_area_id: service_area_id ?? null,
+        allowed_service_area_ids: allowed_service_area_ids ?? [],
+      });
       if (ids.length === 0) return { amount_pence: 0, error_code: null };
       driverQuery = driverQuery.in("id", ids);
     }
@@ -172,6 +169,7 @@ async function loadProtectedDriverLiabilityPence(
 async function loadReservedDriverPayoutPence(
   supabase: SupabaseClient,
   service_area_id?: string | null,
+  allowed_service_area_ids?: readonly string[] | null,
 ): Promise<{ amount_pence: number | null; error_code: string | null }> {
   try {
     // Slice 6 SSOT: ACTIVE rows on driver_payout_reservations (not payout_item status heuristics).
@@ -184,14 +182,11 @@ async function loadReservedDriverPayoutPence(
       return { amount_pence: null, error_code: "RESERVED_DRIVER_PAYOUTS_QUERY_FAILED" };
     }
     let reservedRows = rows ?? [];
-    if (service_area_id && reservedRows.length > 0) {
-      const ids = [...new Set(reservedRows.map((r) => String(r.driver_id)).filter(Boolean))];
-      const { data: links } = await supabase
-        .from("driver_service_areas")
-        .select("driver_id")
-        .eq("service_area_id", service_area_id)
-        .in("driver_id", ids);
-      const allowed = new Set((links ?? []).map((r) => String(r.driver_id)));
+    if (service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length >= 0)) {
+      const allowed = new Set(await resolvePlatformCollectedDriverIds(supabase, {
+        service_area_id: service_area_id ?? null,
+        allowed_service_area_ids: allowed_service_area_ids ?? [],
+      }));
       reservedRows = reservedRows.filter((r) => allowed.has(String(r.driver_id)));
     }
     let reserved = 0;
@@ -212,6 +207,7 @@ async function loadReservedDriverPayoutPence(
 async function loadCompletedDriverPayoutMonthPence(
   supabase: SupabaseClient,
   service_area_id?: string | null,
+  allowed_service_area_ids?: readonly string[] | null,
 ): Promise<number> {
   const monthStart = londonMonthStartIso();
   const executions: Array<{
@@ -270,14 +266,11 @@ async function loadCompletedDriverPayoutMonthPence(
   }
 
   let scoped = executions;
-  if (service_area_id && executions.length > 0) {
-    const ids = [...new Set(executions.map((e) => e.driver_id).filter(Boolean))];
-    const { data: links } = await supabase
-      .from("driver_service_areas")
-      .select("driver_id")
-      .eq("service_area_id", service_area_id)
-      .in("driver_id", ids);
-    const allowed = new Set((links ?? []).map((r) => String(r.driver_id)));
+  if (service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length >= 0)) {
+    const allowed = new Set(await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id: service_area_id ?? null,
+      allowed_service_area_ids: allowed_service_area_ids ?? [],
+    }));
     scoped = executions.filter((e) => allowed.has(e.driver_id));
   }
 
@@ -461,7 +454,13 @@ async function listCompanyTransfers(
     .limit(limit);
   if (failedOnly) query = query.eq("status", "FAILED");
   if (request.status) query = query.eq("status", request.status);
-  if (request.service_area_id) query = query.eq("service_area_id", request.service_area_id);
+  if (request.service_area_id) {
+    query = query.eq("service_area_id", request.service_area_id);
+  } else if (request.allowed_service_area_ids && request.allowed_service_area_ids.length > 0) {
+    query = query.in("service_area_id", request.allowed_service_area_ids);
+  } else if (request.allowed_service_area_ids && request.allowed_service_area_ids.length === 0) {
+    query = query.eq("service_area_id", "00000000-0000-0000-0000-000000000000");
+  }
   if (request.batch_id) query = query.eq("batch_id", request.batch_id);
 
   const { data, error: transfersError } = await query;
@@ -498,9 +497,21 @@ async function listCompanyTransfers(
   // Load independent sections — provider failure must not wipe liabilities / payables / reserves.
   const [liability, reserved, completed_driver_payouts_month_pence] =
     await Promise.all([
-      loadProtectedDriverLiabilityPence(supabase, request.service_area_id ?? null),
-      loadReservedDriverPayoutPence(supabase, request.service_area_id ?? null),
-      loadCompletedDriverPayoutMonthPence(supabase, request.service_area_id ?? null),
+      loadProtectedDriverLiabilityPence(
+        supabase,
+        request.service_area_id ?? null,
+        request.allowed_service_area_ids ?? null,
+      ),
+      loadReservedDriverPayoutPence(
+        supabase,
+        request.service_area_id ?? null,
+        request.allowed_service_area_ids ?? null,
+      ),
+      loadCompletedDriverPayoutMonthPence(
+        supabase,
+        request.service_area_id ?? null,
+        request.allowed_service_area_ids ?? null,
+      ),
     ]);
 
   let companyBalance;
@@ -867,6 +878,7 @@ async function listCompanyAudit(
   try {
     const overviewBundle = await buildPayoutLedgerOverview(supabase, {
       service_area_id: request.service_area_id ?? null,
+      allowed_service_area_ids: request.allowed_service_area_ids ?? null,
       limit: 1,
     });
     company_funding_audit = overviewBundle.overview_summary?.company_funding_audit ?? [];
@@ -902,6 +914,7 @@ export async function listAdminPayoutLedger(
   if (mode === "ledger_overview") {
     return buildPayoutLedgerOverview(supabase, {
       service_area_id: request.service_area_id ?? null,
+      allowed_service_area_ids: request.allowed_service_area_ids ?? null,
       limit: request.limit,
     });
   }
@@ -1056,6 +1069,14 @@ export async function listAdminPayoutLedger(
     }
   }
 
+  const platformDriverIds = (request.service_area_id || request.allowed_service_area_ids)
+    ? await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id: request.service_area_id ?? null,
+      allowed_service_area_ids: request.allowed_service_area_ids ?? [],
+    })
+    : null;
+  const platformDriverSet = platformDriverIds ? new Set(platformDriverIds) : null;
+
   const items: AdminPayoutLedgerItemRow[] = [];
   for (const raw of rawItems ?? []) {
     const status = normaliseStatus(raw.status as string | null);
@@ -1064,7 +1085,8 @@ export async function listAdminPayoutLedger(
       const type = String(raw.payout_type ?? "");
       if (type.toLowerCase() !== request.payout_type.toLowerCase()) continue;
     }
-    if (request.service_area_id) {
+    if (platformDriverSet && !platformDriverSet.has(String(raw.driver_id))) continue;
+    else if (request.service_area_id) {
       const sa = driverServiceAreaById.get(String(raw.driver_id)) ?? null;
       if (sa !== request.service_area_id) continue;
     }
@@ -1189,6 +1211,7 @@ export async function listAdminPayoutLedger(
   }
 
   const kpiRows = (kpiRaw ?? []).filter((r) => {
+    if (platformDriverSet) return platformDriverSet.has(String(r.driver_id));
     if (!request.service_area_id) return true;
     return (kpiDriverSa.get(String(r.driver_id)) ?? null) === request.service_area_id;
   });

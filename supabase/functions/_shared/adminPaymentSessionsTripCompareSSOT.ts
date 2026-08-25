@@ -28,6 +28,7 @@ import {
   resolveTripGrossCommissionPence,
 } from "../../../shared/paymentSessionsCommissionWidgetsSSOT.ts";
 import type { CommissionFeeSessionInput } from "../../../shared/driverWalletCommissionFeeSSOT.ts";
+import { FINANCIAL_MODEL } from "../../../shared/financialModelScopeSSOT.ts";
 
 export { sumReleasedBufferTotalPence };
 
@@ -91,14 +92,23 @@ export async function buildPaymentSessionsTripCompare(
   let tripQuery = supabase
     .from("trips")
     .select(
-      "id, trip_code, status, completed_at, passenger_id, driver_id, service_area_id, payment_method, payment_provider, final_fare_pence, final_customer_fare_pence, commissionable_fare_pence, gross_fare_pence, locked_base_fare_pence, airport_charge_pence, tip_pence, tip_amount_pence, refund_amount_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, total_waiting_charge_pence, waiting_charge_pence, no_show_charge_pence, customer_modification_charge_pence, destination_change_adjustment_pence, extras_pence, other_pass_through_charges_pence, discount_pence, commission_pence, platform_commission_amount, driver_net_pence, provider_fee_pence, accepted_commission_percent, driver_tier_commission_percent, provider_payment_id, accepted_preset_offer_fare_pence, accepted_driver_offer_fare_pence, locked_offer_type",
+      "id, trip_code, status, completed_at, passenger_id, driver_id, service_area_id, financial_model, commission_wallet_enabled, payment_method, payment_provider, final_fare_pence, final_customer_fare_pence, commissionable_fare_pence, gross_fare_pence, locked_base_fare_pence, airport_charge_pence, tip_pence, tip_amount_pence, refund_amount_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, total_waiting_charge_pence, waiting_charge_pence, no_show_charge_pence, customer_modification_charge_pence, destination_change_adjustment_pence, extras_pence, other_pass_through_charges_pence, discount_pence, commission_pence, platform_commission_amount, driver_net_pence, provider_fee_pence, accepted_commission_percent, driver_tier_commission_percent, provider_payment_id, accepted_preset_offer_fare_pence, accepted_driver_offer_fare_pence, locked_offer_type",
     )
+    // PIPELINE 1 — Payment Sessions never loads DRIVER_COLLECTED_COMMISSION_WALLET trips.
+    .eq("financial_model", FINANCIAL_MODEL.PLATFORM_COLLECTED)
     .eq("status", "completed")
     .not("completed_at", "is", null)
     .order("completed_at", { ascending: false })
     .limit(fetchLimit);
 
-  if (request.service_area_id) tripQuery = tripQuery.eq("service_area_id", request.service_area_id);
+  if (request.service_area_id) {
+    tripQuery = tripQuery.eq("service_area_id", request.service_area_id);
+  } else if (request.allowed_service_area_ids && request.allowed_service_area_ids.length > 0) {
+    tripQuery = tripQuery.in("service_area_id", request.allowed_service_area_ids);
+  } else if (request.allowed_service_area_ids && request.allowed_service_area_ids.length === 0) {
+    // No PLATFORM service areas configured — return empty compare universe.
+    tripQuery = tripQuery.eq("service_area_id", "00000000-0000-0000-0000-000000000000");
+  }
   if (request.trip_id) tripQuery = tripQuery.eq("id", request.trip_id);
   if (request.customer_id) tripQuery = tripQuery.eq("passenger_id", request.customer_id);
   if (request.date_from) tripQuery = tripQuery.gte("completed_at", request.date_from);

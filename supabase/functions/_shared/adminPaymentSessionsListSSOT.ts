@@ -710,12 +710,12 @@ export async function listAdminPaymentSessions(
       if (row.classification === "GREEN") continue;
     }
     if (request.service_area_id && row.service_area_id !== request.service_area_id) continue;
-    // Financial-model isolation: never surface rows stamped to a wrong-model service area.
-    if (
-      request.allowed_service_area_ids
-      && row.service_area_id
-      && !request.allowed_service_area_ids.includes(row.service_area_id)
-    ) continue;
+    // Financial-model isolation: never surface wrong-model SA rows OR null-SA rows
+    // without PLATFORM ownership (null SA is not silently mixed into PLATFORM pages).
+    if (request.allowed_service_area_ids) {
+      if (!row.service_area_id) continue;
+      if (!request.allowed_service_area_ids.includes(row.service_area_id)) continue;
+    }
     if (request.payment_method && row.payment_method !== request.payment_method) continue;
     if (request.provider_state && row.provider_state !== request.provider_state) continue;
     if (request.date_from && row.created_at < request.date_from) continue;

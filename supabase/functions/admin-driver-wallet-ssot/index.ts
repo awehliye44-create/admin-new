@@ -1,11 +1,13 @@
 /**
  * Admin Driver Wallet SSOT — per-driver snapshot from distinct sources.
  * Drivers listed without provider_account_id filter.
+ * PIPELINE 1 only: PLATFORM_COLLECTED service-area membership.
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
 import { fetchDriverWalletSummary } from "../_shared/fetchDriverWalletSummary.ts";
 import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
+import { resolvePlatformCollectedDriverIds } from "../_shared/platformCollectedDriverScope.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -82,24 +84,30 @@ Deno.serve(async (req) => {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    // Row-level pipeline scope: only drivers in PLATFORM_COLLECTED service areas
-    // (legacy NULL service_area_id is PLATFORM_COLLECTED by definition).
-    const allowedAreaIds = modelScope.allowedServiceAreaIds;
-    const scopeDrivers = <T extends { in: (c: string, v: string[]) => T; or: (f: string) => T }>(q: T): T => {
-      if (serviceAreaId) return q.in("service_area_id", [String(serviceAreaId)]);
-      if (allowedAreaIds.length === 0) return q.or("service_area_id.is.null");
-      return q.or(`service_area_id.is.null,service_area_id.in.(${allowedAreaIds.join(",")})`);
-    };
+
+    const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id: serviceAreaId ? String(serviceAreaId) : null,
+      allowed_service_area_ids: modelScope.allowedServiceAreaIds,
+    });
+    const platformDriverIdSet = new Set(platformDriverIds);
+
     const limit = Math.min(
       MAX_PAGE_SIZE,
       Math.max(1, Number(body.limit ?? url.searchParams.get("limit") ?? DEFAULT_PAGE_SIZE)),
     );
     const offset = Math.max(0, Number(body.offset ?? url.searchParams.get("offset") ?? 0));
 
-
     if (driverId && mode === "wallet_summary") {
       if (!periodFrom || !periodTo) {
         return new Response(JSON.stringify({ error: "from and to required for wallet_summary" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!platformDriverIdSet.has(String(driverId))) {
+        return new Response(JSON.stringify({
+          error: "Driver is outside PLATFORM_COLLECTED Driver Wallet scope",
+          error_code: "FINANCIAL_MODEL_VIOLATION",
+        }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -116,6 +124,14 @@ Deno.serve(async (req) => {
     }
 
     if (driverId) {
+      if (!platformDriverIdSet.has(String(driverId))) {
+        return new Response(JSON.stringify({
+          error: "Driver is outside PLATFORM_COLLECTED Driver Wallet scope",
+          error_code: "FINANCIAL_MODEL_VIOLATION",
+        }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       const detail = await fetchDriverWalletPayoutSnapshot(supabase, {
         driverId: String(driverId),
       });
@@ -124,18 +140,33 @@ Deno.serve(async (req) => {
       });
     }
 
-    // P0: list drivers with wallet activity OR active payout destination — not provider_account_id.
+    if (platformDriverIds.length === 0) {
+      return new Response(JSON.stringify({
+        success: true,
+        drivers: [],
+        total: 0,
+        limit,
+        offset,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // P0: list drivers with wallet activity OR active payout destination — PLATFORM SA membership only.
     let countQuery = supabase
       .from("drivers")
       .select("id", { count: "exact", head: true })
-      .eq("is_active", true);
+      .eq("is_active", true)
+      .in("id", platformDriverIds);
 
     if (regionId) countQuery = countQuery.eq("region_id", regionId);
 
     const { count: totalCount, error: countErr } = await countQuery;
     if (countErr) {
-      // Fallback if is_active missing: list all in region without Connect filter.
-      let fallbackCount = supabase.from("drivers").select("id", { count: "exact", head: true });
+      let fallbackCount = supabase
+        .from("drivers")
+        .select("id", { count: "exact", head: true })
+        .in("id", platformDriverIds);
       if (regionId) fallbackCount = fallbackCount.eq("region_id", regionId);
       const fb = await fallbackCount;
       if (fb.error) throw countErr;
@@ -143,6 +174,7 @@ Deno.serve(async (req) => {
       let driversQuery = supabase
         .from("drivers")
         .select("id, driver_code, user_id, region_id")
+        .in("id", platformDriverIds)
         .order("driver_code", { ascending: true })
         .range(offset, offset + limit - 1);
       if (regionId) driversQuery = driversQuery.eq("region_id", regionId);
@@ -169,6 +201,7 @@ Deno.serve(async (req) => {
       .from("drivers")
       .select("id, driver_code, user_id, region_id")
       .eq("is_active", true)
+      .in("id", platformDriverIds)
       .order("driver_code", { ascending: true })
       .range(offset, offset + limit - 1);
 

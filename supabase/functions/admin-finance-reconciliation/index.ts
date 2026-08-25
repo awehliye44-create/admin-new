@@ -19,6 +19,7 @@ import {
 } from "../_shared/tripAdminSearch.ts";
 import { getLondonDayBounds, normalizeFinancePeriodParam } from "../_shared/financeLondonDay.ts";
 import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
+import { resolvePlatformCollectedDriverIds } from "../_shared/platformCollectedDriverScope.ts";
 import { fetchRegionPlatformKpis } from "../_shared/platformReconciliationKpis.ts";
 import { buildDriverStatementPeriodTotals } from "../_shared/driverStatementPeriodTotals.ts";
 import {
@@ -529,7 +530,15 @@ serve(async (req) => {
       walletDownstream = "UNAVAILABLE";
     }
 
-    const financialRows = financialResult.error ? [] : (financialResult.data ?? []);
+    // PIPELINE 1 — never roll CW-region drivers into FR wallet/payout panels.
+    const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id: serviceAreaId ?? null,
+      allowed_service_area_ids: modelScope.allowedServiceAreaIds,
+    });
+    const platformDriverSet = new Set(platformDriverIds);
+
+    const financialRows = (financialResult.error ? [] : (financialResult.data ?? []))
+      .filter((d) => platformDriverSet.has(String(d.driver_id)));
     const driverIds = financialRows.map((d) => d.driver_id);
 
     const [
@@ -547,11 +556,20 @@ serve(async (req) => {
         statementTotalsOnly && statementDriverIds.length > 0 ? statementDriverIds : driverIds,
         statementTotalsOnly ? currency.toUpperCase() : null,
       ),
-      supabase.from("payout_items").select("amount_pence").in("status", ["pending", "processing"]),
-      supabase
-        .from("driver_early_cashouts")
-        .select("requested_cashout_pence, driver_receives_pence")
-        .in("status", ["processing", "pending", "transfer_created"]),
+      platformDriverIds.length > 0
+        ? supabase
+          .from("payout_items")
+          .select("amount_pence, driver_id")
+          .in("status", ["pending", "processing"])
+          .in("driver_id", platformDriverIds)
+        : Promise.resolve({ data: [], error: null }),
+      platformDriverIds.length > 0
+        ? supabase
+          .from("driver_early_cashouts")
+          .select("requested_cashout_pence, driver_receives_pence, driver_id")
+          .in("status", ["processing", "pending", "transfer_created"])
+          .in("driver_id", platformDriverIds)
+        : Promise.resolve({ data: [], error: null }),
       fetchLegacyManualReviewItems(supabase),
     ]);
 
