@@ -17259,6 +17259,51 @@ export type Database = {
         }
         Relationships: []
       }
+      revolut_business_oauth_refresh_coord: {
+        Row: {
+          access_token_expires_at: string | null
+          created_at: string
+          credential_generation: number
+          environment: string
+          last_refresh_attempt_at: string | null
+          last_refresh_error_code: string | null
+          last_refresh_success_at: string | null
+          provider: string
+          refresh_claim_expires_at: string | null
+          refresh_claim_token: string | null
+          refresh_claimed_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_token_expires_at?: string | null
+          created_at?: string
+          credential_generation?: number
+          environment: string
+          last_refresh_attempt_at?: string | null
+          last_refresh_error_code?: string | null
+          last_refresh_success_at?: string | null
+          provider: string
+          refresh_claim_expires_at?: string | null
+          refresh_claim_token?: string | null
+          refresh_claimed_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_token_expires_at?: string | null
+          created_at?: string
+          credential_generation?: number
+          environment?: string
+          last_refresh_attempt_at?: string | null
+          last_refresh_error_code?: string | null
+          last_refresh_success_at?: string | null
+          provider?: string
+          refresh_claim_expires_at?: string | null
+          refresh_claim_token?: string | null
+          refresh_claimed_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       revolut_business_source_accounts: {
         Row: {
           account_name: string | null
@@ -25958,6 +26003,15 @@ export type Database = {
           reconcile_attempt_count: number
         }[]
       }
+      claim_revolut_business_oauth_refresh: {
+        Args: {
+          p_claim_ttl_seconds?: number
+          p_environment?: string
+          p_provider?: string
+          p_skew_seconds?: number
+        }
+        Returns: Json
+      }
       claim_trip_negotiation: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
@@ -26015,6 +26069,19 @@ export type Database = {
       complete_phone_change_driver: {
         Args: { _user_id: string }
         Returns: undefined
+      }
+      complete_revolut_business_oauth_refresh: {
+        Args: {
+          p_access_token: string
+          p_claim_token: string
+          p_environment?: string
+          p_expected_generation: number
+          p_expires_at: string
+          p_provider?: string
+          p_refresh_token?: string
+          p_scopes_granted?: string
+        }
+        Returns: Json
       }
       complete_trip_and_promote_next: {
         Args: {
@@ -26555,6 +26622,15 @@ export type Database = {
       expire_trip_when_search_exhausted: {
         Args: { p_trip_id: string }
         Returns: boolean
+      }
+      fail_revolut_business_oauth_refresh: {
+        Args: {
+          p_claim_token: string
+          p_environment?: string
+          p_error_code: string
+          p_provider?: string
+        }
+        Returns: Json
       }
       finalize_company_transfer_completion: {
         Args: {
@@ -28178,6 +28254,10 @@ export type Database = {
           service_area_id: string
           tags: string[]
         }[]
+      }
+      set_corporate_account_service_area: {
+        Args: { p_corporate_account_id: string; p_service_area_id: string }
+        Returns: undefined
       }
       set_driver_own_towards_destination: {
         Args: {
