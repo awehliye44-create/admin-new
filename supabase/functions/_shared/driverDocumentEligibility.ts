@@ -18,6 +18,7 @@ export type DocumentRowSnapshot = {
   rejection_reason?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  is_current?: boolean | null;
 };
 
 export type RequiredDocumentRule = {
@@ -65,13 +66,16 @@ function isExpired(expiryDate: string | null | undefined, now: Date): boolean {
   return isDocumentExpiredLondon(expiryDate, now);
 }
 
-/** Match SQL get_driver_document_eligibility: prefer approved, then newest updated_at. */
+/** Match SQL get_driver_document_eligibility: current row first, then approved, then newest updated_at. */
 function pickBestDocumentForSlug(
   documents: DocumentRowSnapshot[],
   slug: string,
 ): DocumentRowSnapshot | undefined {
   const candidates = documents.filter((doc) => doc.document_type === slug);
   if (candidates.length === 0) return undefined;
+
+  const current = candidates.filter((doc) => doc.is_current === true);
+  const pool = current.length > 0 ? current : candidates;
 
   const rank = (doc: DocumentRowSnapshot): [number, number] => {
     const status = normalizeDocumentStatus(doc.status);
@@ -84,7 +88,7 @@ function pickBestDocumentForSlug(
     return [approvedRank, -updatedMs];
   };
 
-  return [...candidates].sort((a, b) => {
+  return [...pool].sort((a, b) => {
     const [approvedA, updatedA] = rank(a);
     const [approvedB, updatedB] = rank(b);
     if (approvedA !== approvedB) return approvedA - approvedB;

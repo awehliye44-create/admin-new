@@ -1,4 +1,3 @@
-
 -- Drop ALL conflicting functions first
 DROP FUNCTION IF EXISTS public.ops_detect_payment_gaps();
 DROP FUNCTION IF EXISTS public.ops_detect_commission_gaps();

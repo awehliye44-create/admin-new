@@ -4,6 +4,7 @@
  * Precedence (exactly one winner):
  *   CUSTOMER_NO_SHOW
  *   > ARRIVAL_CANCELLATION_FEE
+ *   > AIRPORT_PROTECTION_CANCELLATION
  *   > LATE_PASSENGER_CANCELLATION
  *   > OTHER_CANCELLATION_FEE  (existing grace-based cancellation_fee_pence)
  *   > NO_FEE_FULL_RELEASE
@@ -12,10 +13,12 @@
  * Amounts and thresholds come only from fare_pricing_settings / trip evidence.
  * Nothing is hard-coded here.
  */
+import { resolveAirportProtectionCancelFee } from "./chargedTerminalFeeWalletSSOT.ts";
 
 export type TerminalFeeDispositionReason =
   | "CUSTOMER_NO_SHOW"
   | "ARRIVAL_CANCELLATION_FEE"
+  | "AIRPORT_PROTECTION_CANCELLATION"
   | "LATE_PASSENGER_CANCELLATION"
   | "OTHER_CANCELLATION_FEE"
   | "NO_FEE_FULL_RELEASE"
@@ -28,6 +31,7 @@ export type FeeType =
   | "none"
   | "customer_no_show"
   | "arrival_cancellation"
+  | "airport_protection"
   | "late_passenger_cancellation"
   | "cancellation";
 
@@ -47,6 +51,11 @@ export type FarePricingFeeConfig = {
   arrival_cancellation_apply_after_free_waiting_expired: boolean | null;
   arrival_cancellation_after_arrival_only: boolean | null;
   free_waiting_minutes: number | null;
+  late_cancel_airport_protection_enabled?: boolean | null;
+  late_cancel_airport_fare_threshold_pence?: number | null;
+  late_cancel_airport_fee_type?: string | null;
+  late_cancel_airport_fee_percentage?: number | null;
+  late_cancel_airport_protection_trigger?: string | null;
 };
 
 export type TerminalTripEvidence = {
@@ -61,6 +70,8 @@ export type TerminalTripEvidence = {
   cancellation_grace_expires_at: string | null;
   driver_id: string | null;
   confirmed_driver_id: string | null;
+  driver_started_journey_to_pickup_at?: string | null;
+  estimated_fare_pence?: number | null;
   /** Backend-authoritative: trip.status === 'no_show' or writer-confirmed flag. */
   no_show_recorded: boolean;
   authorised_amount_pence: number;
@@ -400,7 +411,34 @@ export function resolveTerminalPaymentDecision(args: {
     }
   }
 
-  // ── 3. LATE_PASSENGER_CANCELLATION ────────────────────────────────
+  // ── 3. AIRPORT_PROTECTION_CANCELLATION (pre-arrival, journey started) ──
+  if (customerCancel) {
+    const airport = resolveAirportProtectionCancelFee({
+      config,
+      driverStartedJourneyToPickupAt: evidence.driver_started_journey_to_pickup_at,
+      estimatedFarePence: evidence.estimated_fare_pence,
+      arrivedAt: evidence.arrived_at,
+    });
+    if (airport.applies && airport.feePence > 0) {
+      return buildDecision({
+        reason: "AIRPORT_PROTECTION_CANCELLATION",
+        feeType: "airport_protection",
+        feeAmount: airport.feePence,
+        evidence,
+        terminalReason: "airport_protection_cancellation",
+        providerAction: "partial_capture_fee",
+        feePolicyId: args.feePolicyId,
+        extraEvidence: {
+          driver_started_journey_to_pickup_at: evidence.driver_started_journey_to_pickup_at,
+          estimated_fare_pence: evidence.estimated_fare_pence,
+          airport_fee_percentage: airport.percentage,
+          airport_fee_pence: airport.feePence,
+        },
+      });
+    }
+  }
+
+  // ── 4. LATE_PASSENGER_CANCELLATION ────────────────────────────────
   if (
     customerCancel &&
     config.late_cancel_enabled === true &&
@@ -435,7 +473,7 @@ export function resolveTerminalPaymentDecision(args: {
     }
   }
 
-  // ── 4. OTHER_CANCELLATION_FEE (existing grace-based cancellation) ─
+  // ── 5. OTHER_CANCELLATION_FEE (existing grace-based cancellation) ─
   if (customerCancel && (status === "cancelled" || status === "canceled" || status === "customer_cancelled")) {
     const cancelFee = pence(config.cancellation_fee_pence);
     const applyAfterArrivalOnly = config.cancellation_apply_after_arrival_only === true;

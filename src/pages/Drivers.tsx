@@ -168,6 +168,9 @@ export default function Drivers() {
   const [selectedRegionFilter, setSelectedRegionFilter] = useState<string>('all');
   const [selectedServiceAreaFilter, setSelectedServiceAreaFilter] = useState<string>('all');
   const [driverServiceAreasMap, setDriverServiceAreasMap] = useState<Record<string, string[]>>({});
+  const [expiredDocumentDriverIds, setExpiredDocumentDriverIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const [newDriver, setNewDriver] = useState({
     first_name: '',
@@ -214,7 +217,7 @@ export default function Drivers() {
       // Fetch vehicles and service area assignments for all drivers
       if (data && data.length > 0) {
         const driverIds = data.map(d => d.id);
-        const [vehiclesRes, driverServiceAreasRes] = await Promise.all([
+        const [vehiclesRes, driverServiceAreasRes, expiredSsotRes] = await Promise.all([
           supabase
             .from('vehicles')
             .select('id, driver_id, make, model, year, license_plate, color, approval_status, is_primary, capacity, vehicle_type_id, rejection_reason')
@@ -223,6 +226,12 @@ export default function Drivers() {
             .from('driver_service_areas')
             .select('driver_id, service_area_id')
             .in('driver_id', driverIds),
+          supabase
+            .from('driver_document_compliance_ssot')
+            .select('driver_id')
+            .in('driver_id', driverIds)
+            .eq('expiry_status', 'expired')
+            .eq('is_required', true),
         ]);
         
         if (vehiclesRes.data) {
@@ -238,6 +247,12 @@ export default function Drivers() {
           });
           setVehicles(vehiclesMap);
         }
+
+        const expiredIds = new Set<string>();
+        for (const row of expiredSsotRes.data ?? []) {
+          if (typeof row.driver_id === 'string') expiredIds.add(row.driver_id);
+        }
+        setExpiredDocumentDriverIds(expiredIds);
 
         // Build driver -> service areas map
         if (driverServiceAreasRes.data) {
@@ -1017,12 +1032,18 @@ export default function Drivers() {
                       <Badge
                         variant="secondary"
                         className={
-                          driver.documents_approved
+                          expiredDocumentDriverIds.has(driver.id)
+                            ? 'bg-red-500/10 text-red-600'
+                            : driver.documents_approved
                             ? 'bg-green-500/10 text-green-600'
                             : 'bg-orange-500/10 text-orange-600'
                         }
                       >
-                        {driver.documents_approved ? 'Approved' : 'Pending'}
+                        {expiredDocumentDriverIds.has(driver.id)
+                          ? 'Expired'
+                          : driver.documents_approved
+                            ? 'Approved'
+                            : 'Pending'}
                       </Badge>
                     </TableCell>
                     <TableCell>

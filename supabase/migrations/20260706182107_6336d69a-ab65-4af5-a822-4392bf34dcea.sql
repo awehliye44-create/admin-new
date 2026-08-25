@@ -18,12 +18,10 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_trips_digital_only ON public.trips;
 CREATE TRIGGER trg_trips_digital_only
   BEFORE INSERT ON public.trips
   FOR EACH ROW EXECUTE FUNCTION public.enforce_digital_only_payment_method();
-
 -- Also block cash on UPDATE if someone tries to switch a live trip to cash.
 DROP TRIGGER IF EXISTS trg_trips_digital_only_update ON public.trips;
 CREATE TRIGGER trg_trips_digital_only_update

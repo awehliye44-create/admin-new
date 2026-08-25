@@ -1,9 +1,10 @@
 /**
  * Admin: sync Revolut Business counterparty + recipient linkage for verified UK bank destinations.
- * Slice 2 â provider linkage only. Never calls /pay. Never mutates wallets.
+ * Slice 2 — provider linkage only. Never calls /pay. Never mutates wallets.
  *
- * POST { driver_ids?: string[] }
- * Defaults to Ahmed + Bosteyo production IDs when omitted.
+ * POST { driver_ids: string[], dry_run?: boolean }
+ * - driver_ids required (non-empty)
+ * - dry_run:true → auth + local already-linked read only (no decrypt, no OAuth, no provider, no DB write)
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -41,11 +42,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
   "Content-Type": "application/json",
 };
-
-const DEFAULT_DRIVER_IDS = [
-  "5ed232c3-8bb5-4085-95d6-73e48e6c5e28", // Ahmed
-  "cd8bae4c-3827-4b90-98c6-10be70eb0e52", // Bosteyo
-];
 
 type DestRow = {
   id: string;
@@ -155,11 +151,95 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
-    const driverIds = Array.isArray(body.driver_ids)
-      ? (body.driver_ids as unknown[]).filter((v): v is string => typeof v === "string")
-      : DEFAULT_DRIVER_IDS;
+    // Ignore body-supplied role/actor — auth already established from bearer.
+    void body.role;
+    void body.actor;
+    void body.actor_user_id;
+    void body.user_id;
 
-    // Vault (post Connect exchange) â SCOPES_GRANTED secret â READ default. Never fakes WRITE.
+    const driverIds = Array.isArray(body.driver_ids)
+      ? (body.driver_ids as unknown[])
+        .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+        .map((v) => v.trim())
+      : [];
+    if (driverIds.length === 0) {
+      return new Response(JSON.stringify({
+        error: "VALIDATION_FAILED",
+        message: "driver_ids must be a non-empty string array",
+        revolut_pay_called: false,
+        provider_payee_creation_calls: 0,
+      }), { status: 400, headers: corsHeaders });
+    }
+
+    const dryRun = body.dry_run === true;
+
+    // Zero-write existing-link / plan probe — no decrypt, OAuth, provider, or DB mutation.
+    if (dryRun) {
+      const results: Record<string, unknown>[] = [];
+      for (const driverId of driverIds) {
+        const { data: dest, error: destErr } = await supabase
+          .from("driver_payout_destinations")
+          .select(
+            "id, driver_id, destination_type, destination_label, verification_status, provider_counterparty_id, provider_recipient_account_id, provider_link_status, is_active",
+          )
+          .eq("driver_id", driverId)
+          .eq("is_active", true)
+          .is("archived_at", null)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (destErr || !dest) {
+          results.push({
+            driver_id: driverId,
+            dry_run: true,
+            outcome: "NOT_FOUND",
+            reason: LINKAGE_ERROR.DESTINATION_NOT_FOUND,
+            revolut_pay_called: false,
+            provider_payee_creation_calls: 0,
+            database_write: false,
+          });
+          continue;
+        }
+        const verification = normalizeDestinationVerificationStatus(
+          (dest as DestRow).verification_status,
+        );
+        const linked = Boolean(
+          (dest as DestRow).provider_counterparty_id &&
+            (dest as DestRow).provider_recipient_account_id,
+        );
+        results.push({
+          driver_id: driverId,
+          destination_id: (dest as DestRow).id,
+          dry_run: true,
+          outcome: linked ? "ALREADY_LINKED" : "NOT_LINKED",
+          linkage_confirmed: linked,
+          verification_status: verification,
+          provider_link_status: (dest as DestRow).provider_link_status,
+          masked_destination: (dest as DestRow).destination_label,
+          provider_counterparty_id_masked: maskProviderId(
+            (dest as DestRow).provider_counterparty_id,
+          ),
+          provider_recipient_account_id_masked: maskProviderId(
+            (dest as DestRow).provider_recipient_account_id,
+          ),
+          revolut_pay_called: false,
+          provider_payee_creation_calls: 0,
+          database_write: false,
+          wallet_mutated: false,
+        });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        dry_run: true,
+        results,
+        revolut_pay_called: false,
+        provider_payee_creation_calls: 0,
+        database_write: false,
+      }), { status: 200, headers: corsHeaders });
+    }
+
+    // Vault (post Connect exchange) → SCOPES_GRANTED secret → READ default. Never fakes WRITE.
     const grantedScopes = await resolveGrantedRevolutBusinessScopes(supabase);
     const caps = resolveRevolutLinkageCapabilities(grantedScopes);
     const livePayout = (Deno.env.get("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "false").toLowerCase() === "true";
@@ -225,7 +305,43 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Decrypt server-side only â never return plaintext.
+      const idemKey = counterpartyIdempotencyKey(driverId, row.id);
+      const now = new Date().toISOString();
+
+      // Idempotent reuse of existing mapping — before decrypt / provider mutation.
+      if (row.provider_counterparty_id && row.provider_recipient_account_id) {
+        await supabase.from("driver_payout_destinations").update({
+          provider_link_status: PROVIDER_LINK_STATUS.PROVIDER_VERIFIED,
+          provider_sync_status: "synced",
+          provider_synced_at: now,
+          provider_last_checked_at: now,
+          provider_idempotency_key: idemKey,
+          provider_error_code: null,
+          provider_error_message_safe: null,
+          updated_at: now,
+        }).eq("id", row.id);
+
+        results.push({
+          driver_id: driverId,
+          destination_id: row.id,
+          skipped: false,
+          outcome: "ALREADY_LINKED",
+          verification_status: verification,
+          provider_link_status: PROVIDER_LINK_STATUS.PROVIDER_VERIFIED,
+          masked_destination: row.destination_label,
+          matching_counterparty_existed: true,
+          provider_counterparty_id_masked: maskProviderId(row.provider_counterparty_id),
+          provider_recipient_account_id_masked: maskProviderId(row.provider_recipient_account_id),
+          provider_synced_at: now,
+          blocking_reason: null,
+          revolut_pay_called: false,
+          provider_payee_creation_calls: 0,
+          wallet_mutated: false,
+        });
+        continue;
+      }
+
+      // Decrypt server-side only — never return plaintext.
       let sortCode = "";
       let accountNumber = "";
       try {
@@ -262,40 +378,6 @@ Deno.serve(async (req) => {
         currency: "GBP",
         country: "GB",
       });
-      const idemKey = counterpartyIdempotencyKey(driverId, row.id);
-      const now = new Date().toISOString();
-
-      // Idempotent reuse of existing mapping
-      if (row.provider_counterparty_id && row.provider_recipient_account_id) {
-        await supabase.from("driver_payout_destinations").update({
-          provider_link_status: PROVIDER_LINK_STATUS.PROVIDER_VERIFIED,
-          provider_sync_status: "synced",
-          provider_synced_at: now,
-          provider_last_checked_at: now,
-          provider_idempotency_key: idemKey,
-          destination_fingerprint: fingerprint,
-          provider_error_code: null,
-          provider_error_message_safe: null,
-          updated_at: now,
-        }).eq("id", row.id);
-
-        results.push({
-          driver_id: driverId,
-          destination_id: row.id,
-          skipped: false,
-          verification_status: verification,
-          provider_link_status: PROVIDER_LINK_STATUS.PROVIDER_VERIFIED,
-          masked_destination: row.destination_label,
-          matching_counterparty_existed: true,
-          provider_counterparty_id_masked: maskProviderId(row.provider_counterparty_id),
-          provider_recipient_account_id_masked: maskProviderId(row.provider_recipient_account_id),
-          provider_synced_at: now,
-          blocking_reason: null,
-          revolut_pay_called: false,
-          wallet_mutated: false,
-        });
-        continue;
-      }
 
       // READ-scope discovery: match existing counterparties via HTTPS relay only.
       let matchStatus: "none" | "unique" | "conflict" | "discovery_unavailable" = "discovery_unavailable";

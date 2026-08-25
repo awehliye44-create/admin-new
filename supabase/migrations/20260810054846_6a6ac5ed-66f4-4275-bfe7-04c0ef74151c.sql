@@ -19,4 +19,4 @@ WHERE t.id = c.trip_id
   AND t.status = 'completed'
   AND c.paid_pence >= COALESCE(t.final_customer_fare_pence, t.final_fare_pence, t.estimated_total_pence, 0)
   AND COALESCE(t.final_customer_fare_pence, t.final_fare_pence, t.estimated_total_pence, 0) > 0
-  AND (COALESCE(t.capture_amount_pence,0) <> c.paid_pence OR t.payment_status IS DISTINCT FROM 'captured');
+  AND (COALESCE(t.capture_amount_pence,0) <> c.paid_pence OR t.payment_status IS DISTINCT FROM 'captured');;

@@ -44,7 +44,6 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-
 -- Defense in depth: revoke any client-facing write access to user_roles.
 -- (RLS already restricts it; this makes the intent explicit at the GRANT layer.)
 REVOKE INSERT, UPDATE, DELETE ON public.user_roles FROM anon, authenticated;

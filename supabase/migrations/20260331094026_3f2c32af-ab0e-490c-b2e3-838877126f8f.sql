@@ -1,10 +1,7 @@
-
 -- 1. Add is_synthetic column
 ALTER TABLE app_performance_events ADD COLUMN IF NOT EXISTS is_synthetic boolean NOT NULL DEFAULT false;
-
 -- 2. Tag all existing demo data as synthetic
 UPDATE app_performance_events SET is_synthetic = true WHERE session_id LIKE 'demo-%';
-
 -- 3. Recreate app_health_summary view to exclude synthetic data
 CREATE OR REPLACE VIEW app_health_summary AS
 SELECT
@@ -23,7 +20,6 @@ FROM app_performance_events
 WHERE created_at >= (now() - interval '1 hour')
   AND is_synthetic = false
 GROUP BY app_name, screen_name, metric_name;
-
 -- 4. Update ALL 5 detection functions to exclude synthetic data
 
 CREATE OR REPLACE FUNCTION ops_detect_customer_app_issues() RETURNS jsonb LANGUAGE plpgsql AS $$
@@ -53,7 +49,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('customer_app_issues', 0, 'note', 'table not found');
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION ops_detect_driver_app_issues() RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_count int := 0; rec record;
 BEGIN
@@ -81,7 +76,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('driver_app_issues', 0, 'note', 'table not found');
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION ops_detect_admin_panel_issues() RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_count int := 0; rec record;
 BEGIN
@@ -109,7 +103,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('admin_panel_issues', 0, 'note', 'table not found');
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION ops_detect_guest_booking_failures() RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_count int := 0; rec record;
 BEGIN
@@ -137,7 +130,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('guest_booking_issues', 0, 'note', 'table not found');
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION ops_detect_corporate_web_issues() RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_count int := 0; rec record;
 BEGIN
@@ -165,7 +157,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('corporate_web_issues', 0, 'note', 'table not found');
 END;
 $$;
-
 -- 5. Add index for the is_synthetic filter
 CREATE INDEX IF NOT EXISTS idx_perf_events_not_synthetic 
 ON app_performance_events (app_name, created_at) 

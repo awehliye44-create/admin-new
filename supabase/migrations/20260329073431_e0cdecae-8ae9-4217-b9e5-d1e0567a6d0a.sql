@@ -15,7 +15,6 @@ WHERE t.status = 'completed'
   AND t.commission_pence IS NOT NULL
   AND t.commission_pence > 0
 ON CONFLICT DO NOTHING;
-
 INSERT INTO driver_ledger (driver_id, trip_id, entry_type, amount_pence, currency_code, description)
 SELECT 
   t.driver_id,

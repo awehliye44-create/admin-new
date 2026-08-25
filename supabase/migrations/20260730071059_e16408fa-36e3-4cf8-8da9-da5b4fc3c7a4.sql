@@ -108,3 +108,4 @@ DROP TRIGGER IF EXISTS trg_validate_driver_special_offer_area_link ON public.dri
 CREATE TRIGGER trg_validate_driver_special_offer_area_link
   BEFORE INSERT OR UPDATE ON public.driver_special_offer_service_areas
   FOR EACH ROW EXECUTE FUNCTION public.validate_driver_special_offer_area_link();
+;

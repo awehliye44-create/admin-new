@@ -1,4 +1,3 @@
-
 -- 1. Payment gaps
 CREATE OR REPLACE FUNCTION public.ops_detect_payment_gaps()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -19,7 +18,6 @@ BEGIN
   RETURN jsonb_build_object('payment_gaps', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('payment_gaps', 0, 'note', 'table not found');
 END; $$;
-
 -- 2. Commission gaps
 CREATE OR REPLACE FUNCTION public.ops_detect_commission_gaps()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -40,7 +38,6 @@ BEGIN
   RETURN jsonb_build_object('commission_gaps', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('commission_gaps', 0, 'note', 'table not found');
 END; $$;
-
 -- 3. Earning gaps
 CREATE OR REPLACE FUNCTION public.ops_detect_earning_gaps()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -62,7 +59,6 @@ BEGIN
   RETURN jsonb_build_object('earning_gaps', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('earning_gaps', 0, 'note', 'table not found');
 END; $$;
-
 -- 4. Payout failures
 CREATE OR REPLACE FUNCTION public.ops_detect_payout_failures()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -80,7 +76,6 @@ BEGIN
   RETURN jsonb_build_object('payout_failures', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('payout_failures', 0, 'note', 'table not found');
 END; $$;
-
 -- 5. Stuck dispatch
 CREATE OR REPLACE FUNCTION public.ops_detect_stuck_dispatch()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -98,7 +93,6 @@ BEGIN
   RETURN jsonb_build_object('stuck_dispatch', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('stuck_dispatch', 0, 'note', 'table not found');
 END; $$;
-
 -- 6. Guest booking failures
 CREATE OR REPLACE FUNCTION public.ops_detect_guest_booking_failures()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -118,7 +112,6 @@ BEGIN
   RETURN jsonb_build_object('guest_booking_failures', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('guest_booking_failures', 0, 'note', 'table not found');
 END; $$;
-
 -- 7. Log anomalies
 CREATE OR REPLACE FUNCTION public.ops_detect_log_anomalies()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -155,7 +148,6 @@ BEGIN
   RETURN jsonb_build_object('log_anomalies', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('log_anomalies', 0, 'note', 'table not found');
 END; $$;
-
 -- 8. Duplicate payments
 CREATE OR REPLACE FUNCTION public.ops_detect_duplicate_payments()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -171,7 +163,6 @@ BEGIN
   RETURN jsonb_build_object('duplicate_payments', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('duplicate_payments', 0, 'note', 'table not found');
 END; $$;
-
 -- 9. Duplicate bookings
 CREATE OR REPLACE FUNCTION public.ops_detect_duplicate_bookings()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -187,7 +178,6 @@ BEGIN
   RETURN jsonb_build_object('duplicate_bookings', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('duplicate_bookings', 0, 'note', 'table not found');
 END; $$;
-
 -- 10. Duplicate payouts
 CREATE OR REPLACE FUNCTION public.ops_detect_duplicate_payouts()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -203,7 +193,6 @@ BEGIN
   RETURN jsonb_build_object('duplicate_payouts', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('duplicate_payouts', 0, 'note', 'table not found');
 END; $$;
-
 -- 11. Duplicate dispatch
 CREATE OR REPLACE FUNCTION public.ops_detect_duplicate_dispatch()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$

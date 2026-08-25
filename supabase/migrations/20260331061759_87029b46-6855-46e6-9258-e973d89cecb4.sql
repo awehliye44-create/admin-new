@@ -1,4 +1,3 @@
-
 -- ============================================================
 -- APP PERFORMANCE EVENTS TABLE
 -- Stores telemetry from customer app, driver app, guest web
@@ -19,31 +18,25 @@ CREATE TABLE public.app_performance_events (
   metadata jsonb DEFAULT '{}',
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 -- Indexes for query patterns
 CREATE INDEX idx_ape_app_screen ON public.app_performance_events(app_name, screen_name);
 CREATE INDEX idx_ape_created ON public.app_performance_events(created_at DESC);
 CREATE INDEX idx_ape_metric ON public.app_performance_events(metric_name);
 CREATE INDEX idx_ape_app_version ON public.app_performance_events(app_name, app_version);
-
 -- RLS
 ALTER TABLE public.app_performance_events ENABLE ROW LEVEL SECURITY;
-
 -- Allow edge function (service role) to insert
 CREATE POLICY "Service role can manage performance events"
   ON public.app_performance_events FOR ALL
   TO service_role USING (true) WITH CHECK (true);
-
 -- Allow authenticated admins to read
 CREATE POLICY "Authenticated users can read performance events"
   ON public.app_performance_events FOR SELECT
   TO authenticated USING (true);
-
 -- Allow anon to insert (for guest_web telemetry)
 CREATE POLICY "Anon can insert performance events"
   ON public.app_performance_events FOR INSERT
   TO anon WITH CHECK (true);
-
 -- ============================================================
 -- APP PERFORMANCE THRESHOLDS TABLE
 -- Configurable thresholds for alerting
@@ -59,13 +52,10 @@ CREATE TABLE public.app_performance_thresholds (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 ALTER TABLE public.app_performance_thresholds ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Authenticated users can manage thresholds"
   ON public.app_performance_thresholds FOR ALL
   TO authenticated USING (true) WITH CHECK (true);
-
 -- Seed default thresholds
 INSERT INTO public.app_performance_thresholds (app_name, screen_name, metric_name, warning_threshold, critical_threshold) VALUES
   ('customer_app', 'PaymentScreen', 'screen_load_time', 3000, 8000),
@@ -78,7 +68,6 @@ INSERT INTO public.app_performance_thresholds (app_name, screen_name, metric_nam
   ('driver_app', NULL, 'api_latency', 2000, 5000),
   ('guest_web', 'CheckoutPage', 'screen_load_time', 3000, 8000),
   ('guest_web', 'QuotePage', 'screen_load_time', 2000, 5000);
-
 -- ============================================================
 -- DETECTION FUNCTION: Slow screens
 -- ============================================================
@@ -137,7 +126,6 @@ BEGIN
   RETURN jsonb_build_object('slow_screens_detected', v_count);
 END;
 $$;
-
 -- ============================================================
 -- DETECTION FUNCTION: Payment/money screen delays
 -- ============================================================
@@ -191,7 +179,6 @@ BEGIN
   RETURN jsonb_build_object('money_delays_detected', v_count);
 END;
 $$;
-
 -- ============================================================
 -- DETECTION FUNCTION: API latency spikes by app
 -- ============================================================
@@ -230,7 +217,6 @@ BEGIN
   RETURN jsonb_build_object('api_latency_spikes_detected', v_count);
 END;
 $$;
-
 -- ============================================================
 -- DETECTION FUNCTION: Version-specific performance issues
 -- ============================================================
@@ -289,7 +275,6 @@ BEGIN
   RETURN jsonb_build_object('version_issues_detected', v_count);
 END;
 $$;
-
 -- ============================================================
 -- Update master detection orchestrator
 -- ============================================================
@@ -320,7 +305,6 @@ BEGIN
   RETURN results;
 END;
 $$;
-
 -- ============================================================
 -- Materialized view for app health summary (fast dashboard queries)
 -- ============================================================

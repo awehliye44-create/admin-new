@@ -33,7 +33,6 @@ BEGIN
   RETURN 'UNK';
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.generate_driver_code()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -92,7 +91,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 -- Prod one-off: UNK004 (bookings@onecab.net) → MK0001, first driver in Milton Keynes.
 DO $$
 DECLARE

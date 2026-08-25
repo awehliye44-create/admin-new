@@ -14,13 +14,11 @@ FROM (
   WHERE service_area_id = '39ca8fbc-6ede-4553-bc87-346921d5abb5'
 ) sub
 WHERE trips.id = sub.tid;
-
 -- Update MK sequence counter to reflect the new total
 UPDATE service_area_sequences
 SET current_value = 280, updated_at = now()
 WHERE service_area_id = 'cb58f1bd-8b6f-45b9-ad31-b3140309892c'
   AND sequence_type = 'trip';
-
 -- Delete the NAI sequence since it's no longer valid
 DELETE FROM service_area_sequences
 WHERE service_area_id = '39ca8fbc-6ede-4553-bc87-346921d5abb5';

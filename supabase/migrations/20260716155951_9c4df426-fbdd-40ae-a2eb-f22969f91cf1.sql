@@ -189,7 +189,6 @@ BEGIN
   RETURN v_trip_id;
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.recover_authorised_paid_booking_sessions(p_limit integer DEFAULT 25)
  RETURNS TABLE(payment_session_id uuid, provider_order_id text, result text, trip_id uuid, error text)
  LANGUAGE plpgsql

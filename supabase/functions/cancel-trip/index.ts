@@ -11,6 +11,14 @@ import {
 } from "../_shared/security.ts";
 import { requireUser } from "../_shared/internalAuth.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
+import { notifyCustomerActiveTripEvent } from "../_shared/notifyCustomerActiveTripEvent.ts";
+import {
+  disposeOutcomeIndicatesFeeCapture,
+  mapFeeTypeToChargedOutcome,
+  postChargedFeeTenViaRfo,
+  resolveAirportProtectionCancelFee,
+  resolveAssignedDriverId,
+} from "../_shared/chargedTerminalFeeWalletSSOT.ts";
 
 
 /**
@@ -75,7 +83,7 @@ serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at"
+        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, driver_started_journey_to_pickup_at, estimated_total_pence, final_customer_fare_pence, locked_base_fare_pence, authorised_amount_pence"
       )
       .eq("id", trip_id)
       .maybeSingle();
@@ -139,7 +147,7 @@ serve(async (req) => {
     const fpsQuery = supabase
       .from("fare_pricing_settings")
       .select(
-        "cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence"
+        "cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence, late_cancel_airport_protection_enabled, late_cancel_airport_fare_threshold_pence, late_cancel_airport_fee_type, late_cancel_airport_fee_percentage, late_cancel_airport_protection_trigger"
       )
       .eq("service_area_id", trip.service_area_id);
 
@@ -215,16 +223,46 @@ serve(async (req) => {
     // CANCELLATION PATH (rider or admin)
     // ══════════════════════════════════════════
     else if (cancelled_by === "rider" || cancelled_by === "admin") {
-      const driverAssigned = !!trip.driver_id;
+      const driverAssigned = !!(trip.driver_id || trip.confirmed_driver_id);
       const driverArrived = !!trip.arrived_at;
 
+      // ── AIRPORT / LONG-DISTANCE PROTECTION (pre-arrival, journey started) ──
+      // Percentage of estimated fare; takes precedence over flat late-cancel when active.
+      let airportProtectionApplied = false;
+      const estimatedFarePence = Math.max(
+        0,
+        Math.round(
+          Number(
+            trip.estimated_total_pence ??
+              trip.final_customer_fare_pence ??
+              trip.locked_base_fare_pence ??
+              trip.authorised_amount_pence ??
+              0,
+          ) || 0,
+        ),
+      );
+      const airportFee = resolveAirportProtectionCancelFee({
+        config: fps,
+        driverStartedJourneyToPickupAt: trip.driver_started_journey_to_pickup_at,
+        estimatedFarePence,
+        arrivedAt: trip.arrived_at,
+      });
+      if (airportFee.applies && airportFee.feePence > 0) {
+        appliedFee = airportFee.feePence;
+        feeType = "airport_protection";
+        cancellationReasonFinal = reason || "airport_protection_cancellation";
+        financialOutcome = "AIRPORT_PROTECTION_CANCELLATION";
+        airportProtectionApplied = true;
+        console.log(
+          `[cancel-trip] AIRPORT_PROTECTION APPLIED: trip=${trip_id}, fee=${airportFee.feePence}p ` +
+            `(${airportFee.percentage}% of ${estimatedFarePence}p)`,
+        );
+      }
+
       // ── LATE PASSENGER CANCELLATION CHECK (scheduled trips) ──
-      // Evaluated first: if the trip has a scheduled_at time and late_cancel is enabled,
-      // check if we're within the threshold window before pickup.
-      // For immediate trips (no scheduled_at), this block is skipped entirely.
       let lateCancelApplied = false;
 
-      if (lateCancelEnabled && trip.scheduled_at) {
+      if (!airportProtectionApplied && lateCancelEnabled && trip.scheduled_at) {
         const scheduledPickup = new Date(trip.scheduled_at);
         const timeToPickupMinutes = (scheduledPickup.getTime() - now.getTime()) / 60000;
 
@@ -235,11 +273,10 @@ serve(async (req) => {
         );
 
         if (timeToPickupMinutes <= lateCancelThresholdMinutes) {
-          // Within threshold → apply late cancellation fee
           appliedFee = lateCancelFeePence;
           feeType = "late_cancellation";
           cancellationReasonFinal = reason || "late_passenger_cancellation";
-          financialOutcome = "CANCELLED_WITH_FEE";
+          financialOutcome = "LATE_PASSENGER_CANCELLATION";
           lateCancelApplied = true;
 
           console.log(
@@ -252,15 +289,14 @@ serve(async (req) => {
             `time_to_pickup=${timeToPickupMinutes.toFixed(1)}min > threshold=${lateCancelThresholdMinutes}min — no fee`
           );
         }
-      } else if (lateCancelEnabled && !trip.scheduled_at) {
-        // Immediate trip with late_cancel enabled — not applicable
+      } else if (!airportProtectionApplied && lateCancelEnabled && !trip.scheduled_at) {
         console.log(
           `[cancel-trip] LATE_CANCEL N/A: trip=${trip_id} is immediate (no scheduled_at), skipping late cancel check`
         );
       }
 
-      // If late cancel was applied, skip the standard grace/cancellation logic
-      if (!lateCancelApplied) {
+      // If airport protection or late cancel was applied, skip the standard grace/cancellation logic
+      if (!airportProtectionApplied && !lateCancelApplied) {
         // PHASE A: Post-booking, pre-arrival cancellation
         if (driverAssigned && !driverArrived) {
           if (cancellationApplyAfterArrivalOnly) {
@@ -342,6 +378,17 @@ serve(async (req) => {
       dispatch_status: "cancelled",
       updated_at: now.toISOString(),
     };
+    // Charged terminal fee is non-commissionable — clear stale ride commission stamps early.
+    if (appliedFee > 0) {
+      tripUpdate.commission_pence = 0;
+      tripUpdate.commission_pct = 0;
+      tripUpdate.driver_net_pence = appliedFee;
+      tripUpdate.driver_net_before_tip_pence = appliedFee;
+      tripUpdate.gross_fare_pence = appliedFee;
+      if (feeType === "no_show") {
+        tripUpdate.no_show_charge_pence = appliedFee;
+      }
+    }
 
 
     const { error: updateErr } = await supabase
@@ -393,10 +440,11 @@ serve(async (req) => {
       .update({ active_trip_id: null, updated_at: now.toISOString() })
       .eq("active_trip_id", trip_id);
 
-    // Release Revolut preauth after terminal cancel is committed.
+    // Release / fee-capture Revolut preauth after terminal cancel is committed.
     // Fee ordering: use cancel-trip's already-computed appliedFee —
     // fee > 0 → disposer partial-captures then releases remainder;
     // fee = 0 → void full unused authorisation. Do not invent a second fee policy.
+    let holdDisposition: Awaited<ReturnType<typeof disposeTerminalTripPayment>> | null = null;
     try {
       const dispositionReason =
         cancelled_by === "admin"
@@ -404,7 +452,7 @@ serve(async (req) => {
           : cancelled_by === "driver"
           ? "driver_cancel_terminal" as const
           : "customer_cancel" as const;
-      const holdDisposition = await disposeTerminalTripPayment(supabase, {
+      holdDisposition = await disposeTerminalTripPayment(supabase, {
         tripId: trip_id,
         reason: dispositionReason,
         feePence: appliedFee,
@@ -418,36 +466,95 @@ serve(async (req) => {
       });
     } catch (holdErr) {
       console.error(
-        "[PAYMENT_AUDIT] cancel-trip hold disposition failed (non-fatal):",
+        "[PAYMENT_AUDIT] cancel-trip hold disposition failed (non-fatal for zero-fee; fatal when fee expected):",
         holdErr,
       );
+      if (appliedFee > 0) {
+        return errorResponse(
+          "Fee capture disposition failed after terminal trip update. No second capture attempted.",
+          502,
+        );
+      }
     }
 
-    // Record financial outcome if fee > 0
-    if (appliedFee > 0 && trip.driver_id) {
-      const outcomeType = feeType === "no_show" ? "NO_SHOW" 
-        : feeType === "late_cancellation" ? "LATE_PASSENGER_CANCELLATION" 
-        : "LATE_PASSENGER_CANCELLATION";
+    // Charged fee → Driver Wallet TEN via record-financial-outcome (fee-net, commission 0).
+    // Prefer confirmed_driver_id when driver_id is null.
+    const settlementDriverId = resolveAssignedDriverId({
+      driver_id: trip.driver_id,
+      confirmed_driver_id: trip.confirmed_driver_id,
+    });
+    let walletSettlementStatus: "NOT_REQUIRED" | "SUCCEEDED" | "FAILED" | "SKIPPED_NO_DRIVER" =
+      "NOT_REQUIRED";
+    let walletSettlementError: string | null = null;
 
-      try {
-        const fnUrl = `${supabaseUrl}/functions/v1/record-financial-outcome`;
-        await fetch(fnUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${supabaseKey}`,
-          },
-          body: JSON.stringify({
-            trip_id,
-            driver_id: trip.driver_id,
-            outcome: outcomeType,
-            fee_pence: appliedFee,
-            payment_method: trip.payment_method || "unknown",
-          }),
+    const feeCaptured = appliedFee > 0 && disposeOutcomeIndicatesFeeCapture(holdDisposition);
+    // Only post wallet when provider fee capture is proven — never TEN without capture.
+    if (feeCaptured) {
+      const outcomeType = mapFeeTypeToChargedOutcome(feeType) ??
+        (financialOutcome && financialOutcome !== "CANCELLED_NO_FEE"
+          ? financialOutcome
+          : "CANCELLED_WITH_FEE");
+      const wallet = await postChargedFeeTenViaRfo({
+        supabaseUrl,
+        serviceRoleKey: supabaseKey,
+        tripId: trip_id,
+        driverId: settlementDriverId,
+        outcome: outcomeType,
+        feePence: Math.round(Number(holdDisposition?.captured_fee_pence) || appliedFee),
+        paymentMethod: trip.payment_method || "unknown",
+        disposition: holdDisposition,
+      });
+      walletSettlementStatus = wallet.status;
+      walletSettlementError = wallet.error ?? null;
+      if (wallet.status !== "SUCCEEDED") {
+        console.error("[cancel-trip] WALLET_SETTLEMENT_FAILED_AFTER_FEE_CAPTURE", {
+          trip_id,
+          appliedFee,
+          feeType,
+          wallet,
         });
-      } catch (finErr) {
-        console.error("[cancel-trip] record-financial-outcome error:", finErr);
       }
+    }
+
+    // Provider fee captured but wallet posting failed → surface local settlement failure.
+    // Do not attempt a second provider capture; do not pretend this was a free cancel.
+    if (feeCaptured && walletSettlementStatus !== "SUCCEEDED") {
+      await logAuditEvent(supabase, "trip_cancelled_wallet_settlement_failed", {
+        driverId: settlementDriverId || trip.driver_id || undefined,
+        tripId: trip_id,
+        details: {
+          cancelled_by,
+          fee_type: feeType,
+          fee_pence: appliedFee,
+          wallet_settlement_status: walletSettlementStatus,
+          wallet_settlement_error: walletSettlementError,
+          hold_disposition_outcome: holdDisposition?.outcome ?? null,
+        },
+        ipAddress: clientIP,
+        userAgent,
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          trip_id,
+          status: tripStatus,
+          fee_type: feeType,
+          fee_pence: appliedFee,
+          financial_outcome: financialOutcome,
+          cancelled_by,
+          reason: cancellationReasonFinal,
+          wallet_settlement_status: walletSettlementStatus,
+          wallet_settlement_error: walletSettlementError,
+          error_code: "WALLET_SETTLEMENT_FAILED_AFTER_FEE_CAPTURE",
+          error:
+            "No-show/cancellation fee was captured but Driver Wallet settlement failed. No second capture.",
+          provider_recapture: false,
+        }),
+        {
+          status: 502,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     await logAuditEvent(supabase, "trip_cancelled", {
@@ -491,7 +598,16 @@ serve(async (req) => {
     } else if (feeType === "late_cancellation") {
       riderMessage = `Trip cancelled — late cancellation fee of ${appliedFee}p applied`;
       driverMessage = "Rider cancelled late — late cancellation fee applied";
+    } else if (feeType === "airport_protection") {
+      riderMessage = `Trip cancelled — airport protection fee of ${appliedFee}p applied`;
+      driverMessage = "Rider cancelled after journey start — airport protection fee applied";
     }
+
+    // Customer active-trip high-priority cancel notification (deduped tripId:trip_cancelled).
+    void notifyCustomerActiveTripEvent(supabase, {
+      tripId: trip_id,
+      event: "trip_cancelled",
+    });
 
     return successResponse({
       trip_id,
@@ -503,6 +619,8 @@ serve(async (req) => {
       reason: cancellationReasonFinal,
       rider_message: riderMessage,
       driver_message: driverMessage,
+      wallet_settlement_status: walletSettlementStatus,
+      wallet_settlement_error: walletSettlementError,
     });
   } catch (err) {
     console.error("[cancel-trip] Error:", err);

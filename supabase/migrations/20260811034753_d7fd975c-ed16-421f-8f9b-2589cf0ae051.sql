@@ -21,4 +21,4 @@ USING (
       AND d.deleted_at IS NULL
       AND d.service_area_id = service_area_identity_verification_settings.service_area_id
   )
-);
+);;

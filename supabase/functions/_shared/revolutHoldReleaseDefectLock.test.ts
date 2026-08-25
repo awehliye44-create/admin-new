@@ -20,14 +20,14 @@ Deno.test("H: disposeTerminalTripPayment must not SELECT stripe_payment_intent_i
   const m = src.match(
     /disposeTerminalTripPayment[\s\S]*?\.from\("trips"\)\s*\.select\(\s*(?:\/\/[^\n]*\n\s*)*"([^"]+stripe[^"]*|[^"]+)"/,
   );
-  // Prefer direct assertion on known select content
-  assertStringIncludes(
-    src,
-    '"id, status, started_at, arrived_at, free_wait_expires_at, cancelled_at, cancelled_by, cancellation_reason, scheduled_at, cancellation_grace_expires_at, driver_id, confirmed_driver_id, service_area_id, vehicle_type_id, payment_provider, provider_order_id, payment_session_id, authorised_amount_pence, cancellation_fee_pence, no_show_charge_pence, payment_status, arrival_cancellation_applied, dispatch_mode, scheduled_status, is_scheduled"',
-  );
+  // Required provider-neutral columns (airport evidence appended — never Stripe PI).
+  assertStringIncludes(src, "provider_order_id, payment_session_id, authorised_amount_pence");
+  assertStringIncludes(src, "driver_started_journey_to_pickup_at");
+  assertStringIncludes(src, "estimated_total_pence");
+  assertStringIncludes(src, "financial_outcome");
   assertEquals(src.includes("provider_order_id, stripe_payment_intent_id"), false);
   assertEquals(src.includes("stripe_payment_intent_id, authorised_amount_pence"), false);
-  void m;
+  assertEquals(/stripe_payment_intent_id/.test(m?.[1] ?? ""), false);
 });
 
 Deno.test("K: no Stripe runtime reintroduced in dispose/cancel", async () => {

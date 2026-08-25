@@ -1,4 +1,3 @@
-
 -- Force recalculate all driver wallets to sync cached balances
 -- This runs recalculate_driver_wallet for every driver that has ledger entries
 DO $$

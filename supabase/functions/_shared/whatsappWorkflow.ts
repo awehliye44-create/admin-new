@@ -1,6 +1,12 @@
 /**
  * ONECAB WhatsApp customer workflow — welcome once, route book/track/support.
  *
+ * Ownership rule (single transient owner):
+ *   idle | book | track | support
+ * Entering one option atomically clears the others' transient fields.
+ * Historical support_conversations rows may remain open for Admin; only the
+ * WhatsApp linkage (support_conversation_id) must not stay stale across options.
+ *
  * Support bridge: when customer selects Customer Support, one support_conversations
  * row (channel='whatsapp') is created/reused and linked via
  * whatsapp_conversations.support_conversation_id. Subsequent support messages
@@ -10,6 +16,9 @@
  * Booking session: 3-minute inactivity TTL. Explicit intent transitions
  * (cancel/menu/track/support/start-again) escape immediately. Expiry sends
  * one notification and resets to idle; it does NOT touch real trips.
+ *
+ * Generic track (no live trip): send recovery link then return to idle so the
+ * next arbitrary free text gets the normal 1/2/3 menu (not sticky track).
  */
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
@@ -21,11 +30,31 @@ import {
 } from "./whatsappContinuationToken.ts";
 import type { WhatsAppInboundMessage } from "./whatsappInboundParse.ts";
 import {
+  buildActiveTrackOwnershipPatch,
+  buildBookOwnershipPatch,
+  buildGenericTrackIdleOwnershipPatch,
+  buildIdleOwnershipPatch,
+  buildSupportOwnershipPatch,
+} from "./whatsappOptionOwnership.ts";
+import type {
+  ConversationOwnershipPatch,
+  WhatsAppWorkflowState,
+} from "./whatsappOptionOwnership.ts";
+import {
   readWhatsAppSendCredentials,
   sendWhatsAppCompactMenuHint,
   sendWhatsAppTextMessage,
   sendWhatsAppWelcomeMenu,
 } from "./whatsappOutbound.ts";
+
+export type { WhatsAppWorkflowState } from "./whatsappOptionOwnership.ts";
+export {
+  buildActiveTrackOwnershipPatch,
+  buildBookOwnershipPatch,
+  buildGenericTrackIdleOwnershipPatch,
+  buildIdleOwnershipPatch,
+  buildSupportOwnershipPatch,
+} from "./whatsappOptionOwnership.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -66,8 +95,6 @@ const SUPPORT_ACK =
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
-
-export type WhatsAppWorkflowState = "new" | "idle" | "book" | "track" | "support";
 
 export type WhatsAppWorkflowIntent =
   | "book"
@@ -273,15 +300,7 @@ async function upsertConversationTouch(
 async function markConversationOutbound(
   client: SupabaseClient,
   waId: string,
-  patch: Partial<{
-    workflow_state: WhatsAppWorkflowState;
-    welcome_sent_at: string;
-    support_opened_at: string | null;
-    support_conversation_id: string | null;
-    active_trip_id: string | null;
-    booking_session_started_at: string | null;
-    booking_session_expires_at: string | null;
-  }>,
+  patch: ConversationOwnershipPatch,
 ): Promise<void> {
   const nowIso = new Date().toISOString();
   const { error } = await client
@@ -453,12 +472,18 @@ async function sendBookContinuation(
   );
   if (!sent.ok) return "book_link_send_failed";
 
+  // Preserve genuine live-trip identity; clear stale track-mode ownership otherwise.
+  const genuineTrip = await findActiveTripForWaId(client, waId);
   const nowIso = new Date().toISOString();
-  await markConversationOutbound(client, waId, {
-    workflow_state: "book",
-    booking_session_started_at: nowIso,
-    booking_session_expires_at: bookingExpiresAt(),
-  });
+  await markConversationOutbound(
+    client,
+    waId,
+    buildBookOwnershipPatch({
+      nowIso,
+      expiresAt: bookingExpiresAt(),
+      activeTripId: genuineTrip?.id ?? null,
+    }),
+  );
   return "book_link_sent";
 }
 
@@ -507,11 +532,22 @@ async function sendTrackContinuation(
   }
   if (!trackSent.ok) return "track_link_send_failed";
 
-  await markConversationOutbound(client, waId, {
-    workflow_state: "track",
-    active_trip_id: activeTrip?.id ?? null,
-  });
-  return activeTrip ? "track_link_active_trip" : "track_link_generic";
+  if (activeTrip) {
+    await markConversationOutbound(
+      client,
+      waId,
+      buildActiveTrackOwnershipPatch(activeTrip.id),
+    );
+    return "track_link_active_trip";
+  }
+
+  // Generic / no live trip: send recovery once, then idle so next free text → menu.
+  await markConversationOutbound(
+    client,
+    waId,
+    buildGenericTrackIdleOwnershipPatch(),
+  );
+  return "track_link_generic";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -543,16 +579,21 @@ async function openSupportState(
     if (!sent.ok) return "support_send_failed";
 
     const nowIso = new Date().toISOString();
-    await markConversationOutbound(client, waId, {
-      workflow_state: "support",
-      support_opened_at: nowIso,
-      support_conversation_id: supportConvId,
-    });
+    await markConversationOutbound(
+      client,
+      waId,
+      buildSupportOwnershipPatch({
+        nowIso,
+        supportConversationId: supportConvId,
+      }),
+    );
   } else {
     // Support already open: just update the link (no outbound message to customer).
     if (supportConvId && supportConvId !== conversation.support_conversation_id) {
       await markConversationOutbound(client, waId, {
         support_conversation_id: supportConvId,
+        booking_session_started_at: null,
+        booking_session_expires_at: null,
       });
     }
   }
@@ -580,13 +621,13 @@ async function cancelBookingSession(
   waId: string,
   creds: NonNullable<ReturnType<typeof readWhatsAppSendCredentials>>,
 ): Promise<string> {
-  const sent = await sendWhatsAppCompactMenuHint(creds, waId);
-  await markConversationOutbound(client, waId, {
-    workflow_state: "idle",
-    booking_session_started_at: null,
-    booking_session_expires_at: null,
-  });
-  return sent.ok ? "booking_cancelled_menu" : "booking_cancelled";
+  const sent = await sendWhatsAppWelcomeMenu(creds, waId);
+  const ok = sent.ok
+    ? true
+    : (await sendWhatsAppCompactMenuHint(creds, waId)).ok;
+  // Recoverable idle even if menu send fails — do not claim menu delivered via action name.
+  await markConversationOutbound(client, waId, buildIdleOwnershipPatch());
+  return ok ? "booking_cancelled_menu" : "booking_cancelled";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -611,7 +652,7 @@ export async function processWhatsAppInboundMessage(
     const sent = await sendWhatsAppWelcomeMenu(creds, message.waId);
     if (!sent.ok) return "welcome_send_failed";
     await markConversationOutbound(client, message.waId, {
-      workflow_state: "idle",
+      ...buildIdleOwnershipPatch(),
       welcome_sent_at: new Date().toISOString(),
     });
 
@@ -652,14 +693,14 @@ export async function processWhatsAppInboundMessage(
     if (intent === "book") return sendBookContinuation(client, message.waId, creds);
     if (intent === "track") return sendTrackContinuation(client, message.waId, creds);
     if (intent === "cancel" || intent === "menu") {
-      // Customer explicitly wants to leave support — let them.
-      await markConversationOutbound(client, message.waId, {
-        workflow_state: "idle",
-        support_opened_at: null,
-        support_conversation_id: null,
-      });
-      const sent = await sendWhatsAppCompactMenuHint(creds, message.waId);
-      return sent.ok ? "support_exited_menu" : "support_exited";
+      // Customer explicitly wants to leave support — full idle ownership.
+      await markConversationOutbound(client, message.waId, buildIdleOwnershipPatch());
+      const sent = await sendWhatsAppWelcomeMenu(creds, message.waId);
+      if (!sent.ok) {
+        const compact = await sendWhatsAppCompactMenuHint(creds, message.waId);
+        return compact.ok ? "support_exited_menu" : "support_exited";
+      }
+      return "support_exited_menu";
     }
     // Everything else: bridge silently, no automated reply.
     return openSupportState(
@@ -689,8 +730,9 @@ export async function processWhatsAppInboundMessage(
         receivedAt,
       );
     }
-    if (intent === "book") {
-      // Re-send book link and refresh TTL.
+    // Book re-entry / null-expiry hygiene: always issue a fresh link + TTL.
+    // Never leave the customer waiting on a timer — real trip state gates eligibility elsewhere.
+    if (intent === "book" || conversation.booking_session_expires_at == null) {
       return sendBookContinuation(client, message.waId, creds);
     }
     // Unknown text during booking: refresh TTL, resend link.
@@ -717,18 +759,36 @@ export async function processWhatsAppInboundMessage(
       );
     case "cancel":
     case "menu": {
-      const menuSent = await sendWhatsAppCompactMenuHint(creds, message.waId);
-      if (!menuSent.ok) return "menu_hint_send_failed";
-      await markConversationOutbound(client, message.waId, { workflow_state: "idle" });
+      // Normal ONECAB menu SSOT (interactive buttons) — same surface as first welcome.
+      // Compact text is fallback only if interactive send fails.
+      const menuSent = await sendWhatsAppWelcomeMenu(creds, message.waId);
+      if (!menuSent.ok) {
+        const compact = await sendWhatsAppCompactMenuHint(creds, message.waId);
+        if (!compact.ok) return "menu_hint_send_failed";
+        await markConversationOutbound(client, message.waId, buildIdleOwnershipPatch());
+        return "menu_hint_sent_compact_fallback";
+      }
+      await markConversationOutbound(client, message.waId, buildIdleOwnershipPatch());
       return "menu_hint_sent";
     }
     default:
-      if (conversation.workflow_state === "track") {
+      // Live track only: refresh tracking link. Generic track already returned to idle.
+      if (
+        conversation.workflow_state === "track" &&
+        conversation.active_trip_id != null
+      ) {
         return sendTrackContinuation(client, message.waId, creds);
       }
       {
-        const unknownSent = await sendWhatsAppCompactMenuHint(creds, message.waId);
-        if (!unknownSent.ok) return "unknown_menu_hint_send_failed";
+        // Idle/unknown: re-offer the normal menu — never silent.
+        const unknownSent = await sendWhatsAppWelcomeMenu(creds, message.waId);
+        if (!unknownSent.ok) {
+          const compact = await sendWhatsAppCompactMenuHint(creds, message.waId);
+          if (!compact.ok) return "unknown_menu_hint_send_failed";
+          await markConversationOutbound(client, message.waId, buildIdleOwnershipPatch());
+          return "unknown_menu_hint_compact_fallback";
+        }
+        await markConversationOutbound(client, message.waId, buildIdleOwnershipPatch());
       }
       return "unknown_menu_hint";
   }

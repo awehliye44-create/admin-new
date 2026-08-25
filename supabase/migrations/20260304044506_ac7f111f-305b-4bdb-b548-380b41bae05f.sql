@@ -1,4 +1,3 @@
-
 UPDATE content_items SET content_html = '<h1>About OneCab</h1>
 <p>OneCab is a modern ride-hailing service connecting passengers with professional licensed drivers across the UK. We are committed to providing safe, reliable, and affordable transportation.</p>
 <h2>Our Mission</h2>
@@ -14,7 +13,6 @@ UPDATE content_items SET content_html = '<h1>About OneCab</h1>
 <h2>Contact Us</h2>
 <p>Phone: 01908 831211<br/>WhatsApp: 07919 111062<br/>Email: support@onecab.co.uk</p>'
 WHERE app_scope = 'customer' AND slug = 'about_us';
-
 UPDATE content_items SET content_html = '<h1>OneCab Customer Terms & Conditions</h1>
 <p><strong>Last updated: March 2026</strong></p>
 <h2>1. Acceptance of Terms</h2>
@@ -34,7 +32,6 @@ UPDATE content_items SET content_html = '<h1>OneCab Customer Terms & Conditions<
 <h2>8. Data Protection</h2>
 <p>Your personal data is processed in accordance with our Privacy Policy and applicable UK data protection legislation including UK GDPR.</p>'
 WHERE app_scope = 'customer' AND slug = 'terms';
-
 UPDATE content_items SET content_html = '<h1>OneCab Customer Privacy Policy</h1>
 <p><strong>Effective: March 2026</strong></p>
 <h2>1. Data Controller</h2>
@@ -56,7 +53,6 @@ UPDATE content_items SET content_html = '<h1>OneCab Customer Privacy Policy</h1>
 <h2>6. Your Rights</h2>
 <p>Under UK GDPR, you have the right to access, rectify, erase, and port your data. Contact us at support@onecab.co.uk to exercise these rights.</p>'
 WHERE app_scope = 'customer' AND slug = 'privacy_policy';
-
 UPDATE content_items SET content_html = '<h1>About OneCab — Driver Partner</h1>
 <p>Join the OneCab network and grow your private hire business with the support of cutting-edge technology and a dedicated driver support team.</p>
 <h2>Why Drive with OneCab?</h2>
@@ -73,7 +69,6 @@ UPDATE content_items SET content_html = '<h1>About OneCab — Driver Partner</h1
 <h2>Support</h2>
 <p>Phone: 01908 831211<br/>WhatsApp: 07919 111062<br/>Email: support@onecab.co.uk</p>'
 WHERE app_scope = 'driver' AND slug = 'about_us';
-
 UPDATE content_items SET content_html = '<h1>OneCab Driver Terms & Conditions</h1>
 <p><strong>Last updated: March 2026</strong></p>
 <h2>1. Driver Agreement</h2>
@@ -93,7 +88,6 @@ UPDATE content_items SET content_html = '<h1>OneCab Driver Terms & Conditions</h
 <h2>8. Cash Trips</h2>
 <p>For cash trips, the driver collects the full fare from the passenger. OneCab commission is deducted from the driver wallet balance.</p>'
 WHERE app_scope = 'driver' AND slug = 'terms';
-
 UPDATE content_items SET content_html = '<h1>OneCab Driver Privacy Policy</h1>
 <p><strong>Effective: March 2026</strong></p>
 <h2>1. Data Controller</h2>
@@ -116,7 +110,6 @@ UPDATE content_items SET content_html = '<h1>OneCab Driver Privacy Policy</h1>
 <h2>6. Your Rights</h2>
 <p>You have the right to access, correct, and request deletion of your data under UK GDPR. Contact support@onecab.co.uk.</p>'
 WHERE app_scope = 'driver' AND slug = 'privacy_policy';
-
 UPDATE content_items SET content_html = '<h1>OneCab Corporate Travel Solutions</h1>
 <p>Streamline your business travel with OneCab''s corporate account platform. Manage employee rides, control spend, and access detailed reporting — all from one dashboard.</p>
 <h2>Features</h2>

@@ -1,4 +1,3 @@
-
 -- Create a view for drivers to see only their assigned vehicle types
 CREATE OR REPLACE VIEW public.driver_assigned_vehicle_types
 WITH (security_invoker = on) AS

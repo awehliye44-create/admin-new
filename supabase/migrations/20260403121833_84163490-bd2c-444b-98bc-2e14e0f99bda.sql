@@ -1,12 +1,9 @@
-
 -- 1. Create enum
 CREATE TYPE public.driver_status AS ENUM ('active', 'disabled', 'deleted');
-
 -- 2. Add columns
 ALTER TABLE public.drivers
   ADD COLUMN driver_status public.driver_status NOT NULL DEFAULT 'active',
   ADD COLUMN deleted_at timestamptz;
-
 -- 3. Trigger: force offline when disabled/deleted
 CREATE OR REPLACE FUNCTION public.tr_driver_status_enforce()
 RETURNS TRIGGER
@@ -39,12 +36,10 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE TRIGGER tr_driver_status_enforce
   BEFORE UPDATE ON public.drivers
   FOR EACH ROW
   EXECUTE FUNCTION public.tr_driver_status_enforce();
-
 -- 4. Prevent going online if not active
 CREATE OR REPLACE FUNCTION public.tr_block_online_if_not_active()
 RETURNS TRIGGER
@@ -58,13 +53,11 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE TRIGGER tr_block_online_if_not_active
   BEFORE UPDATE ON public.drivers
   FOR EACH ROW
   WHEN (NEW.is_online = true AND OLD.is_online = false)
   EXECUTE FUNCTION public.tr_block_online_if_not_active();
-
 -- 5. Recreate dispatchable_drivers view to include driver_status check
 CREATE OR REPLACE VIEW public.dispatchable_drivers AS
 SELECT

@@ -541,7 +541,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // If this was a scheduled urgent offer, update scheduled_status
+    // Scheduled-origin accepts: keep scheduled_status in sync with live assignment.
     const tripId = data.trip_id;
     if (tripId && offerRow?.is_urgent_dispatch) {
       console.log("[accept-offer] Scheduled urgent offer accepted — updating scheduled_status");
@@ -553,6 +553,24 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         })
         .eq("id", tripId);
+    } else if (tripId) {
+      // Marketplace accept during scheduled broadcast — leave "broadcasting" behind.
+      // Do NOT match pre-activation `scheduled` (reserved-before-window stays on Scheduled list).
+      const { error: scheduledAssignErr } = await supabase
+        .from("trips")
+        .update({
+          scheduled_status: "driver_assigned",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", tripId)
+        .eq("is_scheduled", true)
+        .in("scheduled_status", ["broadcasting", "dispatching"]);
+      if (scheduledAssignErr) {
+        console.warn(
+          "[accept-offer] scheduled_status driver_assigned stamp failed:",
+          scheduledAssignErr,
+        );
+      }
     }
 
     // Fetch full trip data to return to client (eliminates post-accept fetch)

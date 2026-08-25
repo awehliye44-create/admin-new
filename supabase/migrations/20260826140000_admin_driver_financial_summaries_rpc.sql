@@ -29,10 +29,8 @@ BEGIN
   ORDER BY dfs.last_name NULLS LAST, dfs.first_name NULLS LAST;
 END;
 $$;
-
 REVOKE ALL ON FUNCTION public.admin_driver_financial_summaries(uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.admin_driver_financial_summaries(uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_driver_financial_summaries(uuid, uuid) TO service_role;
-
 COMMENT ON FUNCTION public.admin_driver_financial_summaries(uuid, uuid) IS
   'Admin-only driver_financial_summary rows including PII columns revoked from direct authenticated SELECT on drivers.';

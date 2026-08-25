@@ -1,4 +1,3 @@
-
 -- Update check_driver_documents_approved to use document_types table dynamically
 -- and check for expiry dates
 CREATE OR REPLACE FUNCTION public.check_driver_documents_approved(p_driver_id uuid)

@@ -152,4 +152,4 @@ BEGIN
     RAISE LOG '[delivery] push_enqueue_failed offer_id=% sqlerrm=%', ro.id, SQLERRM;
   END;
 END;
-$function$;
+$function$;;

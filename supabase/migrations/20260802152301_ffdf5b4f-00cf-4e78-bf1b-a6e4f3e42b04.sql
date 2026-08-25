@@ -498,3 +498,4 @@ CREATE POLICY "Staff profiles viewable by staff or self"
     auth.uid() = user_id
     OR public.has_role(auth.uid(), 'admin'::public.app_role)
   );
+;

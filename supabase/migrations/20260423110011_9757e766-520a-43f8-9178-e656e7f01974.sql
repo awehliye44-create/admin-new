@@ -1,4 +1,3 @@
-
 -- 1. Replace handle_new_customer with role-gated, name-safe version
 CREATE OR REPLACE FUNCTION public.handle_new_customer()
 RETURNS trigger
@@ -27,10 +26,8 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-
 -- 2. Remove redundant duplicate UNIQUE constraint on customers.user_id
 ALTER TABLE public.customers DROP CONSTRAINT IF EXISTS customers_user_id_unique;
-
 -- 3. Clean up duplicate / overlapping RLS policies on customers
 DROP POLICY IF EXISTS "Users can read own profile" ON public.customers;
 DROP POLICY IF EXISTS "Users can update own profile" ON public.customers;
@@ -39,18 +36,15 @@ DROP POLICY IF EXISTS "Users can view their own customer record" ON public.custo
 DROP POLICY IF EXISTS "Admins can read all customers" ON public.customers;
 DROP POLICY IF EXISTS "Admins can update customers" ON public.customers;
 DROP POLICY IF EXISTS "Admins can delete customers" ON public.customers;
-
 DROP POLICY IF EXISTS "Users can create own customer record" ON public.customers;
 CREATE POLICY "Users can create own customer record"
 ON public.customers
 FOR INSERT
 TO authenticated
 WITH CHECK (auth.uid() = user_id);
-
 -- 4. Clean up duplicate driver INSERT and SELECT policies
 DROP POLICY IF EXISTS "Users can create their own driver profile" ON public.drivers;
 DROP POLICY IF EXISTS "Drivers can view own profile" ON public.drivers;
-
 -- 5. Allow service role full management of drivers (needed for admin-delete-account edge fn)
 DROP POLICY IF EXISTS "Service role can manage drivers" ON public.drivers;
 CREATE POLICY "Service role can manage drivers"
@@ -59,7 +53,6 @@ FOR ALL
 TO public
 USING (auth.role() = 'service_role')
 WITH CHECK (auth.role() = 'service_role');
-
 -- 6. Allow admins to DELETE drivers
 DROP POLICY IF EXISTS "Admins can delete drivers" ON public.drivers;
 CREATE POLICY "Admins can delete drivers"

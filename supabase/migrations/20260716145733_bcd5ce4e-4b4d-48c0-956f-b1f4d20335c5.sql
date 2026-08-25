@@ -1,4 +1,3 @@
-
 -- Extend allowed ledger types to include the operational-expense compensation entry
 ALTER TABLE public.driver_wallet_ledger DROP CONSTRAINT IF EXISTS driver_wallet_ledger_type_check;
 ALTER TABLE public.driver_wallet_ledger ADD CONSTRAINT driver_wallet_ledger_type_check
@@ -9,7 +8,6 @@ CHECK (type = ANY (ARRAY[
   'LEDGER_REVERSAL','PAYOUT_FAILED_RETURN','PAYOUT_RESERVATION_HOLD','PAYOUT_RESERVATION_RELEASE',
   'OPS_DRIVER_COMPENSATION'
 ]));
-
 -- 1. assert_payment_gate(trip_id)
 CREATE OR REPLACE FUNCTION public.assert_payment_gate(p_trip_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -36,7 +34,6 @@ BEGIN
   END IF;
 END; $$;
 GRANT EXECUTE ON FUNCTION public.assert_payment_gate(uuid) TO authenticated, service_role;
-
 -- 2. finalize_paid_booking_session
 CREATE OR REPLACE FUNCTION public.finalize_paid_booking_session(p_payment_session_id uuid)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -125,7 +122,6 @@ BEGIN
   RETURN v_trip_id;
 END; $$;
 GRANT EXECUTE ON FUNCTION public.finalize_paid_booking_session(uuid) TO authenticated, service_role;
-
 -- 3. Historical audit
 CREATE OR REPLACE FUNCTION public.payment_gate_historical_audit()
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
@@ -156,7 +152,6 @@ BEGIN
   RETURN r;
 END; $$;
 GRANT EXECUTE ON FUNCTION public.payment_gate_historical_audit() TO authenticated, service_role;
-
 -- 4. OPS_DRIVER_COMPENSATION for MK-260716-005 (idempotent)
 DO $$
 DECLARE
@@ -193,7 +188,6 @@ BEGIN
       'note','Not customer capture, not commission, not provider fee. Operational incident expense.'),
     now());
 END $$;
-
 -- 5. Guard payment_sessions authoritative writes
 CREATE OR REPLACE FUNCTION public.enforce_payment_session_authority()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$

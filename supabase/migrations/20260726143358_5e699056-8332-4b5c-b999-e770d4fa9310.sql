@@ -15,9 +15,7 @@ FROM (VALUES
   ('b1dd4656-5dda-4cb1-8170-62ced6117dee.mp3', 312426)
 ) AS v(path, size)
 WHERE a.storage_path = v.path;
-
 ALTER TABLE public.alert_sounds ALTER COLUMN mime_type SET DEFAULT 'audio/wav';
-
 ALTER TABLE public.alert_sounds
   ADD CONSTRAINT alert_sounds_wav_only_check
   CHECK (mime_type IN ('audio/wav', 'audio/x-wav', 'audio/wave')

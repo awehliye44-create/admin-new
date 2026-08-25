@@ -6,13 +6,11 @@ BEGIN
   PERFORM cron.unschedule('expire-offers-sweep');
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
-
 SELECT cron.schedule(
   'expire-offers-sweep',
   '10 seconds',
   $$SELECT public.expire_stale_offers();$$
 );
-
 -- ============================================================
 -- P1 FIX 4: Remove duplicate broken scheduled-dispatch cron (404 typo)
 -- ============================================================
@@ -21,30 +19,25 @@ BEGIN
   PERFORM cron.unschedule('scheduled-dispatch-every-minute');
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
-
 -- ============================================================
 -- P1 FIX 3: Tighten dispatch_round_advance_log idempotency key
 -- From (trip_id, previous_round, trigger_reason) -> (trip_id, previous_round)
 -- ============================================================
 ALTER TABLE public.dispatch_round_advance_log
   DROP CONSTRAINT IF EXISTS dispatch_round_advance_log_pkey;
-
 -- Deduplicate any existing rows that would violate the new PK
 DELETE FROM public.dispatch_round_advance_log a
 USING public.dispatch_round_advance_log b
 WHERE a.ctid < b.ctid
   AND a.trip_id = b.trip_id
   AND a.previous_round = b.previous_round;
-
 ALTER TABLE public.dispatch_round_advance_log
   ADD CONSTRAINT dispatch_round_advance_log_pkey
   PRIMARY KEY (trip_id, previous_round);
-
 -- ============================================================
 -- P0 FIX 2: dispatch_trip_offers returns jsonb (structured result)
 -- ============================================================
 DROP FUNCTION IF EXISTS public.dispatch_trip_offers(uuid, text);
-
 CREATE OR REPLACE FUNCTION public.dispatch_trip_offers(
   p_trip_id uuid,
   p_trigger_reason text DEFAULT 'auto'

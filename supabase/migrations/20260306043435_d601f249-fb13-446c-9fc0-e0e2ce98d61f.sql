@@ -1,4 +1,3 @@
-
 -- Upsert driver live location RPC (used by edge function)
 CREATE OR REPLACE FUNCTION public.upsert_driver_live_location(
   p_driver_id uuid,

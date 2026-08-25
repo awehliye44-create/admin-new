@@ -5,6 +5,13 @@
  * CASH:  terminal no_show with all financial amounts zero; payment_status = not_required.
  */
 
+import {
+  buildChargedFeeTenLedgerInsert,
+  readKnownProviderFeePence,
+  resolveChargedTerminalFeeEntitlement,
+} from "./chargedTerminalFeeWalletSSOT.ts";
+import { tripBlocksDriverWalletLedgerPosting } from "./commissionWalletDeduction.ts";
+
 export type NoShowPaymentStatus =
   | "not_required"
   | "no_show_waived"
@@ -42,8 +49,9 @@ export const CASH_NO_SHOW_ZERO_FINANCIAL_PATCH = {
   estimated_total_pence: 0,
 } as const;
 
+const LEDGER_TEN = "TRIP_EARNING_NET";
+/** Legacy company-comp rows (debt path only — not captured card fee). */
 const LEDGER_DRIVER_COMPENSATION = "DRIVER_COMPENSATION_CREDIT";
-const LEDGER_NO_SHOW_FEE = "NO_SHOW_FEE";
 
 export interface NoShowSettlementInput {
   supabase: any;
@@ -86,7 +94,117 @@ async function ledgerExists(
 }
 
 // deno-lint-ignore no-explicit-any
-async function recordDriverCompensation(
+async function resolveAuthoritativeCapturedFeeSession(
+  supabase: any,
+  tripId: string,
+  fallbackFeePence: number,
+): Promise<{
+  capturedFeePence: number;
+  providerFeePence: number | null;
+  feeStatus: string | null;
+}> {
+  const { data: psRows } = await supabase
+    .from("payment_sessions")
+    .select(
+      "id, captured_amount_pence, provider_processing_fee_pence, fee_status, status, provider_state",
+    )
+    .eq("trip_id", tripId)
+    .eq("purpose", "RIDE_BOOKING")
+    .order("created_at", { ascending: true })
+    .limit(2);
+  const ps = Array.isArray(psRows) && psRows.length === 1 ? psRows[0] : null;
+  const psCaptured = Math.max(0, Math.round(Number(ps?.captured_amount_pence) || 0));
+  const capturedFeePence = psCaptured > 0
+    ? psCaptured
+    : Math.max(0, Math.round(Number(fallbackFeePence) || 0));
+  return {
+    capturedFeePence,
+    providerFeePence: readKnownProviderFeePence(ps?.provider_processing_fee_pence),
+    feeStatus: (ps?.fee_status as string | null) ?? null,
+  };
+}
+
+// deno-lint-ignore no-explicit-any
+async function recordCapturedNoShowTen(
+  supabase: any,
+  input: {
+    driverId: string;
+    tripId: string;
+    feePence: number;
+    currency: string;
+  },
+): Promise<{ ok: boolean; driverNetPence: number | null; capturedFeePence: number }> {
+  const { driverId, tripId, currency } = input;
+  const session = await resolveAuthoritativeCapturedFeeSession(
+    supabase,
+    tripId,
+    input.feePence,
+  );
+  const entitlement = resolveChargedTerminalFeeEntitlement({
+    outcome: "NO_SHOW",
+    feePence: session.capturedFeePence,
+    providerFeePence: session.providerFeePence,
+    feeStatus: session.feeStatus,
+  });
+  if (!entitlement.ok) {
+    console.error("[settleNoShowFee] entitlement rejected", entitlement.reason, {
+      tripId,
+      captured: session.capturedFeePence,
+      providerFee: session.providerFeePence,
+    });
+    return {
+      ok: false,
+      driverNetPence: null,
+      capturedFeePence: session.capturedFeePence,
+    };
+  }
+
+  if (await tripBlocksDriverWalletLedgerPosting(supabase, tripId)) {
+    console.error("[settleNoShowFee] FINANCIAL_MODEL_VIOLATION — DWL forbidden", tripId);
+    return {
+      ok: false,
+      driverNetPence: entitlement.driver_net_pence,
+      capturedFeePence: entitlement.captured_fee_pence,
+    };
+  }
+
+  if (await ledgerExists(supabase, tripId, LEDGER_TEN)) {
+    return {
+      ok: true,
+      driverNetPence: entitlement.driver_net_pence,
+      capturedFeePence: entitlement.captured_fee_pence,
+    };
+  }
+
+  const { error } = await supabase.from("driver_wallet_ledger").insert(
+    buildChargedFeeTenLedgerInsert({
+      driverId,
+      tripId,
+      feePence: entitlement.driver_net_pence,
+      currency: currency.toUpperCase(),
+      outcome: "NO_SHOW",
+      capturedFeePence: entitlement.captured_fee_pence,
+      providerFeePence: entitlement.provider_fee_pence,
+    }),
+  );
+  if (error && error.code !== "23505") {
+    console.error("[settleNoShowFee] TEN insert failed", error);
+    return {
+      ok: false,
+      driverNetPence: entitlement.driver_net_pence,
+      capturedFeePence: entitlement.captured_fee_pence,
+    };
+  }
+  const ok = await ledgerExists(supabase, tripId, LEDGER_TEN);
+  return {
+    ok,
+    driverNetPence: entitlement.driver_net_pence,
+    capturedFeePence: entitlement.captured_fee_pence,
+  };
+}
+
+// deno-lint-ignore no-explicit-any
+async function recordCompanyCompDebtPath(
   supabase: any,
   input: {
     driverId: string;
@@ -98,6 +216,10 @@ async function recordDriverCompensation(
   const { driverId, tripId, feePence, currency } = input;
   if (feePence <= 0) return false;
 
+  // Prefer TEN if already posted (idempotent with cancel-trip / RFO path).
+  if (await ledgerExists(supabase, tripId, LEDGER_TEN)) {
+    return true;
+  }
   if (await ledgerExists(supabase, tripId, LEDGER_DRIVER_COMPENSATION)) {
     return true;
   }
@@ -111,21 +233,10 @@ async function recordDriverCompensation(
     type: LEDGER_DRIVER_COMPENSATION,
     amount_pence: feePence,
     currency: cs,
-    description: `No-show compensation (ONECAB) — ${cs} ${major}`,
+    description: `No-show company compensation (uncaptured debt path) — ${cs} ${major}`,
   });
 
-  if (!(await ledgerExists(supabase, tripId, LEDGER_NO_SHOW_FEE))) {
-    await supabase.from("driver_wallet_ledger").insert({
-      driver_id: driverId,
-      related_trip_id: tripId,
-      type: LEDGER_NO_SHOW_FEE,
-      amount_pence: feePence,
-      currency: cs,
-      description: `No-show fee — ${cs} ${major}`,
-    });
-  }
-
-  return true;
+  return await ledgerExists(supabase, tripId, LEDGER_DRIVER_COMPENSATION);
 }
 
 // deno-lint-ignore no-explicit-any
@@ -232,18 +343,31 @@ export async function settleNoShowFee(
   let customerDebtPence = 0;
   let driverCompensated = false;
 
+  // Card path: TEN / trip stamps use PS captured − known provider fee.
+  const feeSession = cardCharged
+    ? await resolveAuthoritativeCapturedFeeSession(supabase, tripId, feePence)
+    : {
+      capturedFeePence: feePence,
+      providerFeePence: null as number | null,
+      feeStatus: null as string | null,
+    };
+  const authoritativeFeePence = feeSession.capturedFeePence;
+
+  let cardDriverNet: number | null = null;
   if (cardCharged) {
     paymentStatus = "fee_charged";
-    driverCompensated = await recordDriverCompensation(supabase, {
+    const tenResult = await recordCapturedNoShowTen(supabase, {
       driverId,
       tripId,
-      feePence,
+      feePence: authoritativeFeePence,
       currency,
     });
+    driverCompensated = tenResult.ok;
+    cardDriverNet = tenResult.driverNetPence;
   } else {
     paymentStatus = "no_show_customer_debt";
     customerDebtPence = feePence;
-    driverCompensated = await recordDriverCompensation(supabase, {
+    driverCompensated = await recordCompanyCompDebtPath(supabase, {
       driverId,
       tripId,
       feePence,
@@ -261,16 +385,29 @@ export async function settleNoShowFee(
     }
   }
 
+  const tripUpdate: Record<string, unknown> = {
+    payment_status: paymentStatus,
+    financial_outcome: "NO_SHOW",
+    debt_recovery_pence: customerDebtPence,
+    no_show_charge_pence: cardCharged ? authoritativeFeePence : feePence,
+    updated_at: new Date().toISOString(),
+  };
+  if (cardCharged) {
+    tripUpdate.gross_fare_pence = authoritativeFeePence;
+    tripUpdate.commission_pence = 0;
+    tripUpdate.commission_pct = 0;
+    // Only stamp driver_net when fee-net TEN was computed (known provider fee).
+    if (cardDriverNet != null && cardDriverNet > 0) {
+      tripUpdate.driver_net_pence = cardDriverNet;
+      tripUpdate.driver_net_before_tip_pence = cardDriverNet;
+    }
+  } else {
+    tripUpdate.gross_fare_pence = 0;
+  }
+
   await supabase
     .from("trips")
-    .update({
-      payment_status: paymentStatus,
-      financial_outcome: "NO_SHOW",
-      debt_recovery_pence: customerDebtPence,
-      gross_fare_pence: 0,
-      no_show_charge_pence: feePence,
-      updated_at: new Date().toISOString(),
-    })
+    .update(tripUpdate)
     .eq("id", tripId);
 
   return {

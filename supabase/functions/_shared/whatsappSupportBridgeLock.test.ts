@@ -205,9 +205,17 @@ Deno.test("whatsapp-resolve: resets whatsapp_conversations to idle and clears su
   assert(src.includes("support_conversation_id: null"), "must clear support_conversation_id");
 });
 
-Deno.test("whatsapp-resolve: guard prevents reset if workflow_state is not support", () => {
+Deno.test("whatsapp-resolve: clears support linkage by support_conversation_id (not only support state)", () => {
   const src = readFunction("whatsapp-resolve");
-  assert(src.includes('.eq("workflow_state", "support")'), "must only reset if workflow_state=support");
+  assert(
+    src.includes('.eq("support_conversation_id", convId)'),
+    "must clear WA support fields by matching support_conversation_id",
+  );
+  // Must still idle a row that remains in support ownership after linkage clear.
+  assert(
+    src.includes('.eq("workflow_state", "support")'),
+    "must still idle rows that remain in support ownership",
+  );
 });
 
 Deno.test("whatsapp-resolve: inserts system support_messages closure record", () => {

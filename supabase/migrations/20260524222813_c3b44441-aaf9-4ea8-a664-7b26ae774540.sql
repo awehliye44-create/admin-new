@@ -8,10 +8,8 @@ ALTER TABLE public.global_dispatch_settings
   DROP COLUMN IF EXISTS stacked_show_eta_to_driver,
   DROP COLUMN IF EXISTS stacked_allow_rider_opt_out,
   DROP COLUMN IF EXISTS stacked_priority_mode;
-
 ALTER TABLE public.global_dispatch_settings
   ADD COLUMN IF NOT EXISTS stacked_same_direction_only boolean NOT NULL DEFAULT true;
-
 -- Bearing helper (degrees, 0..360). Uses numeric mod to avoid double-precision % issues.
 CREATE OR REPLACE FUNCTION public.bearing_deg(
   lat1 double precision, lng1 double precision,
@@ -23,7 +21,6 @@ CREATE OR REPLACE FUNCTION public.bearing_deg(
               - sin(radians(lat1))*cos(radians(lat2))*cos(radians(lng2-lng1))
           )) + 360.0)::numeric, 360.0))::double precision;
 $$;
-
 CREATE OR REPLACE FUNCTION public.dispatch_trip_offers(
   p_trip_id uuid,
   p_trigger_reason text DEFAULT 'auto'::text

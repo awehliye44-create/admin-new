@@ -1,4 +1,3 @@
-
 -- When document_types toggles change (is_active or is_required),
 -- recalculate documents_approved for ALL drivers automatically.
 CREATE OR REPLACE FUNCTION public.recalculate_all_drivers_doc_status()
@@ -33,14 +32,11 @@ BEGIN
   RETURN COALESCE(NEW, OLD);
 END;
 $function$;
-
 DROP TRIGGER IF EXISTS tr_recalc_drivers_on_doctype_change ON public.document_types;
-
 CREATE TRIGGER tr_recalc_drivers_on_doctype_change
   AFTER INSERT OR UPDATE OR DELETE ON public.document_types
   FOR EACH ROW
   EXECUTE FUNCTION public.recalculate_all_drivers_doc_status();
-
 -- Re-evaluate all drivers RIGHT NOW to fix any stale state
 UPDATE public.drivers
 SET 

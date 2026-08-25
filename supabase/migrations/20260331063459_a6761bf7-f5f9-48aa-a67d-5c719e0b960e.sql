@@ -1,4 +1,3 @@
-
 -- Add thresholds for all critical customer_app screens
 INSERT INTO public.app_performance_thresholds (app_name, screen_name, metric_name, warning_threshold, critical_threshold, is_active)
 VALUES

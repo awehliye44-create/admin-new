@@ -116,3 +116,4 @@ $$;
 
 REVOKE ALL ON FUNCTION public.admin_save_driver_special_offer(jsonb, uuid[]) FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.admin_save_driver_special_offer(jsonb, uuid[]) TO authenticated;
+;

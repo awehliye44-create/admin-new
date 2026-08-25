@@ -54,6 +54,7 @@ function eligibleRow(tripId: string): RecoveryResult {
     payment_session_status: "trip_created",
     payment_session_lifecycle_mismatch: true,
     payment_session_finalization_required_before_credit: true,
+    proposed_lifecycle_action: { from_status: "trip_created", to_status: "captured" },
     provider_state: "COMPLETED",
     provider_state_verified_at: "2026-08-17T18:50:46.198Z",
     captured_amount_pence: is007 ? 480 : 798,
@@ -171,11 +172,77 @@ Deno.test("HTTP: default dry run when dry_run omitted", async () => {
   assertEquals(body.dry_run, true);
 });
 
-Deno.test("HTTP: dry_run false is LIVE_EXECUTION_DISABLED even with a confirmation phrase", async () => {
+Deno.test("HTTP: dry_run false without confirmation is blocked and recover is not called", async () => {
   let recoverCalls = 0;
   const res = await handleAdminRecoverMk007Mk009Wallet(
     jsonRequest({
       trip_ids: [MK007_ID, MK009_ID],
+      dry_run: false,
+    }),
+    {
+      authorize: async () => allowGate(),
+      recover: async (_sb, tripId) => {
+        recoverCalls += 1;
+        return eligibleRow(tripId);
+      },
+    },
+  );
+  assertEquals(res.status, 400);
+  const body = await res.json();
+  assertEquals(body.code, "EXECUTE_CONFIRMATION_REQUIRED");
+  assertEquals(recoverCalls, 0);
+});
+
+Deno.test("HTTP: dry_run false with wrong confirmation is blocked", async () => {
+  let recoverCalls = 0;
+  const res = await handleAdminRecoverMk007Mk009Wallet(
+    jsonRequest({
+      trip_ids: [MK007_ID, MK009_ID],
+      dry_run: false,
+      confirm_execute: "YES",
+    }),
+    {
+      authorize: async () => allowGate(),
+      recover: async (_sb, tripId) => {
+        recoverCalls += 1;
+        return eligibleRow(tripId);
+      },
+    },
+  );
+  assertEquals(res.status, 403);
+  const body = await res.json();
+  assertEquals(body.code, "LIVE_EXECUTION_CONFIRMATION_INVALID");
+  assertEquals(recoverCalls, 0);
+});
+
+Deno.test("HTTP: confirmation phrase on dry-run does not execute", async () => {
+  const dryRunFlags: boolean[] = [];
+  const res = await handleAdminRecoverMk007Mk009Wallet(
+    jsonRequest({
+      trip_ids: [MK007_ID, MK009_ID],
+      dry_run: true,
+      confirm_execute: "CREDIT_SAVED_TRIP_EARNING_NET",
+    }),
+    {
+      authorize: async () => allowGate(),
+      recover: async (_sb, tripId, options) => {
+        dryRunFlags.push(options?.dryRun !== false);
+        return eligibleRow(tripId);
+      },
+    },
+  );
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.dry_run, true);
+  assertEquals(body.credited_total_pence, 0);
+  assertEquals(dryRunFlags, [true, true]);
+});
+
+Deno.test("HTTP: live execution requires exactly both allow-list UUIDs", async () => {
+  let recoverCalls = 0;
+  const res = await handleAdminRecoverMk007Mk009Wallet(
+    jsonRequest({
+      trip_ids: [MK007_ID],
       dry_run: false,
       confirm_execute: "CREDIT_SAVED_TRIP_EARNING_NET",
     }),
@@ -187,32 +254,62 @@ Deno.test("HTTP: dry_run false is LIVE_EXECUTION_DISABLED even with a confirmati
       },
     },
   );
-  assertEquals(res.status, 403);
+  assertEquals(res.status, 400);
   const body = await res.json();
-  assertEquals(body.code, "LIVE_EXECUTION_DISABLED");
+  assertEquals(body.code, "EXACT_ALLOW_LIST_REQUIRED");
   assertEquals(recoverCalls, 0);
 });
 
-Deno.test("HTTP: confirmation phrase alone is LIVE_EXECUTION_DISABLED", async () => {
-  let recoverCalls = 0;
+function creditedRow(tripId: string): RecoveryResult {
+  const is007 = tripId === MK007_ID;
+  return {
+    status: "CREDITED",
+    tripId,
+    tripCode: is007 ? "MK-260817-007" : "MK-260817-009",
+    dryRun: false,
+    credited_pence: is007 ? 425 : 706,
+    payment_session_id: `ps-${tripId}`,
+    payment_session_status: "captured",
+    payment_session_lifecycle_finalized: true,
+    provider_state: "COMPLETED",
+    captured_amount_pence: is007 ? 480 : 798,
+    captured_at: "2026-08-17T18:50:46.198Z",
+    provider_order_id: `ord-${tripId}`,
+    provider_capture_id: `cap-${tripId}`,
+    existing_wallet_count: 1,
+    economic_earned_at: "2026-08-17T18:50:46.198Z",
+    eligible_at: "2026-08-18T21:50:46.198Z",
+    eligibility_origin: "captured_at_plus_27h",
+    provider_operation_required: false,
+    settlement_recalculation_required: false,
+    driver_id: "cd8bae4c-3827-4b90-98c6-10be70eb0e52",
+  };
+}
+
+Deno.test("HTTP: dry_run false + confirmation + exact allow-list calls recover with dryRun false", async () => {
+  const flags: Array<{ tripId: string; dryRun: boolean }> = [];
   const res = await handleAdminRecoverMk007Mk009Wallet(
     jsonRequest({
       trip_ids: [MK007_ID, MK009_ID],
-      dry_run: true,
+      dry_run: false,
       confirm_execute: "CREDIT_SAVED_TRIP_EARNING_NET",
     }),
     {
       authorize: async () => allowGate(),
-      recover: async (_sb, tripId) => {
-        recoverCalls += 1;
-        return eligibleRow(tripId);
+      recover: async (_sb, tripId, options) => {
+        flags.push({ tripId, dryRun: options?.dryRun !== false });
+        return creditedRow(tripId);
       },
     },
   );
-  assertEquals(res.status, 403);
+  assertEquals(res.status, 200);
   const body = await res.json();
-  assertEquals(body.code, "LIVE_EXECUTION_DISABLED");
-  assertEquals(recoverCalls, 0);
+  assertEquals(body.dry_run, false);
+  assertEquals(body.credited_total_pence, 1131);
+  assertEquals(flags, [
+    { tripId: MK007_ID, dryRun: false },
+    { tripId: MK009_ID, dryRun: false },
+  ]);
 });
 
 Deno.test("HTTP: unknown UUID blocked", async () => {
@@ -280,6 +377,8 @@ Deno.test("HTTP: exactly two approved dry-run rows total 1131p", async () => {
   assertEquals(body.results[0].proposed_amount_pence, 425);
   assertEquals(body.results[1].proposed_amount_pence, 706);
   assertEquals(body.proposed_total_pence, 1131);
+  assertEquals(body.credited_total_pence, 0);
+  assertEquals(body.lifecycle_action_proposed, "trip_created → captured");
   assertEquals(body.provider_operation_required, false);
   assertEquals(body.settlement_recalculation_required, false);
 });
@@ -326,15 +425,17 @@ Deno.test("allow-list is exactly the two approved UUIDs", () => {
   assertEquals([...APPROVED_MK007_MK009_TRIP_IDS], [MK007_ID, MK009_ID]);
 });
 
-Deno.test("handler source: live execution disabled; crypto auth; no confirmation phrase", async () => {
+Deno.test("handler source: confirmation-gated execution; crypto auth; no provider/FR writes", async () => {
   const src = await Deno.readTextFile(new URL("./handler.ts", import.meta.url));
   assertEquals(src.includes("revolutOrders"), false);
   assertEquals(src.includes("retrieveRevolutOrder"), false);
   assertEquals(src.includes("calculateTripSettlementFromTripRow"), false);
   assertEquals(src.includes("frPerTripAuditSSOT"), false);
   assertEquals(src.includes("from(\"driver_wallet_ledger\").insert"), false);
-  assertEquals(src.includes("CREDIT_SAVED_TRIP_EARNING_NET"), false);
-  assert(src.includes("LIVE_EXECUTION_DISABLED"));
+  assert(src.includes("CREDIT_SAVED_TRIP_EARNING_NET"));
+  assert(src.includes("EXECUTE_CONFIRMATION_REQUIRED"));
+  assert(src.includes("EXACT_ALLOW_LIST_REQUIRED"));
+  assertEquals(src.includes("LIVE_EXECUTION_DISABLED"), false);
   assert(src.includes("super_admin"));
   assertEquals(src.includes("isServiceRoleJwt"), false);
   assert(src.includes("authenticateRecoverBearer"));

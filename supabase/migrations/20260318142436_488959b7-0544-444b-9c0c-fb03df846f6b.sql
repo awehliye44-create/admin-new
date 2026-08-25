@@ -1,8 +1,6 @@
-
 -- Drop old functions with GBP default parameter, then recreate without defaults
 DROP FUNCTION IF EXISTS public.record_cash_trip_completion(uuid, uuid, integer, integer, text);
 DROP FUNCTION IF EXISTS public.record_digital_trip_payment(uuid, uuid, integer, integer, text, text);
-
 -- Recreate record_cash_trip_completion: currency_code is mandatory, no GBP default
 CREATE OR REPLACE FUNCTION public.record_cash_trip_completion(
   p_trip_id uuid,
@@ -41,7 +39,6 @@ BEGIN
   RETURN v_ledger_id;
 END;
 $function$;
-
 -- Recreate record_digital_trip_payment: currency_code is mandatory, no GBP default
 CREATE OR REPLACE FUNCTION public.record_digital_trip_payment(
   p_trip_id uuid,

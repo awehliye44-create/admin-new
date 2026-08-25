@@ -182,7 +182,6 @@ BEGIN
   );
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.tr_stamp_offer_presets_fn()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -240,7 +239,6 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-
 UPDATE public.ride_offers ro
 SET offer_options = NULL,
     offer_snapshot = (COALESCE(ro.offer_snapshot,'{}'::jsonb) - 'preset_options' - 'presetFareOffers')

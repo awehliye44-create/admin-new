@@ -25,12 +25,22 @@ import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
 import { shouldBlockPrematureScheduledSearchHoldRelease } from "./scheduledHandoverHoldLock.ts";
 export {
   FORCE_SESSION_RELEASE_REASONS,
+  classifyLocalHoldTerminal,
+  classifyProviderHoldDecision,
+  localReleasedNeedsProviderReconcile,
   sessionAgeMs,
   shouldForceAuthorisedSessionRelease,
+  summarizeHoldSweepItemOutcomes,
   TRIPLESS_AUTHORISED_HOLD_SWEEP_MIN_AGE_MS,
 } from "./holdReleasePure.ts";
+import {
+  classifyLocalHoldTerminal,
+  classifyProviderHoldDecision,
+  localReleasedNeedsProviderReconcile,
+  PROVIDER_HOLD_CANCELABLE_STATES,
+} from "./holdReleasePure.ts";
 
-const CANCELABLE_HOLD_STATES = new Set(["AUTHORISED", "AUTHORIZED", "PROCESSING", "PENDING"]);
+const CANCELABLE_HOLD_STATES = PROVIDER_HOLD_CANCELABLE_STATES;
 
 const TERMINAL_TRIP_STATUSES = new Set([
   "completed",
@@ -50,13 +60,17 @@ export type HoldReleaseResult = {
   error?: string;
   idempotent?: boolean;
   fee_captured_pence?: number;
+  reconciled?: boolean;
 };
 
 function sessionAlreadyTerminal(session: Record<string, unknown> | null | undefined): boolean {
   if (!session) return false;
-  if (session.released_at || session.captured_at) return true;
-  const hold = String(session.hold_release_state ?? "").toLowerCase();
-  return hold === "released" || hold === "captured";
+  if (classifyLocalHoldTerminal(session) === "captured") return true;
+  if (classifyLocalHoldTerminal(session) === "released") {
+    // False local release: still looks open at provider_state — must retrieve.
+    return !localReleasedNeedsProviderReconcile(session);
+  }
+  return false;
 }
 
 /**
@@ -279,13 +293,18 @@ export async function releaseHoldForPaymentSession(
       ok: true,
       released: false,
       skipped: true,
-      status: String(session?.released_at ? "released" : "captured"),
+      status: String(
+        classifyLocalHoldTerminal(session) === "captured" ? "captured" : "released",
+      ),
       idempotent: true,
     };
   }
 
   const tripId = session?.trip_id ? String(session.trip_id) : null;
-  if (tripId) {
+  // False-local-release / provider_state drift is session-order scoped: retrieve
+  // the order even when a trip_id exists so we do not skip via trip terminal path.
+  const forceOrderReconcile = localReleasedNeedsProviderReconcile(session);
+  if (tripId && !forceOrderReconcile) {
     return releaseHoldOnTripTerminal(supabase, {
       tripId,
       terminalReason: args.terminalReason,
@@ -329,8 +348,12 @@ export async function releaseHoldForPaymentSession(
     );
     const state = String(order.state ?? "").toUpperCase();
     const authorisedPence = Math.max(0, Number(order.amount ?? session?.authorised_amount_pence ?? 0));
+    const completedPence = Math.max(0, Number((order as { completed_amount?: number }).completed_amount ?? 0));
+    const refundedPence = Math.max(0, Number((order as { refunded_amount?: number }).refunded_amount ?? 0));
 
-    if (state === "COMPLETED") {
+    // Tripless COMPLETED is a wrong-capture invariant (refund), not hold-cancel.
+    // Completed with positive captured amount must never enter cancel/release.
+    if (state === "COMPLETED" && completedPence <= 0 && !session?.trip_id) {
       await handleRevolutPaymentInvariantViolation(supabase, {
         providerOrderId,
         tripId: null,
@@ -354,7 +377,25 @@ export async function releaseHoldForPaymentSession(
       return { ok: true, released: true, skipped: false, status: "refunded_wrong_capture" };
     }
 
-    if (state === "CANCELLED" || state === "FAILED") {
+    const decision = classifyProviderHoldDecision({
+      providerState: state,
+      completedAmountPence: completedPence,
+      refundedAmountPence: refundedPence,
+      localTerminal: classifyLocalHoldTerminal(session),
+    });
+
+    if (decision === "NEVER_RELEASE_CAPTURED" || decision === "NEVER_RELEASE_REFUNDED") {
+      return {
+        ok: true,
+        released: false,
+        skipped: true,
+        status: decision === "NEVER_RELEASE_REFUNDED" ? "refunded_no_hold_release" : "captured_no_release",
+        reason: state.toLowerCase() || undefined,
+        idempotent: true,
+      };
+    }
+
+    if (decision === "RECONCILE_LOCAL_ONLY" || decision === "IDEMPOTENT_ALREADY_RELEASED") {
       const persist = await persistTriplessSessionReleased(supabase, {
         sessionId,
         providerOrderId,
@@ -362,15 +403,22 @@ export async function releaseHoldForPaymentSession(
         terminalReason: args.terminalReason,
         idempotencyKey: args.idempotencyKey,
         authorisedPence,
-        providerState: state,
+        providerState: state === "CANCELED" ? "CANCELLED" : state,
       });
       if (!persist.ok) {
         return { ok: false, released: false, skipped: false, status: "local_persist_failed", error: persist.error };
       }
-      return { ok: true, released: false, skipped: true, status: "released", idempotent: true };
+      return {
+        ok: true,
+        released: false,
+        skipped: true,
+        status: "released",
+        idempotent: true,
+        reconciled: true,
+      };
     }
 
-    if (!CANCELABLE_HOLD_STATES.has(state)) {
+    if (decision !== "RELEASE_ONCE" || !CANCELABLE_HOLD_STATES.has(state)) {
       return {
         ok: false,
         released: false,

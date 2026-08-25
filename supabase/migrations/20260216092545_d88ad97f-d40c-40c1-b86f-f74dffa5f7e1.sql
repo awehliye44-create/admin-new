@@ -1,4 +1,3 @@
-
 -- Create preset offers configuration table per service area
 CREATE TABLE public.preset_offer_configs (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -12,7 +11,6 @@ CREATE TABLE public.preset_offer_configs (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(service_area_id)
 );
-
 -- Create individual preset offer options
 CREATE TABLE public.preset_offers (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -35,41 +33,34 @@ CREATE TABLE public.preset_offers (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(config_id, offer_key)
 );
-
 -- Enable RLS
 ALTER TABLE public.preset_offer_configs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.preset_offers ENABLE ROW LEVEL SECURITY;
-
 -- Admin read/write policies
 CREATE POLICY "Admins can manage preset offer configs"
 ON public.preset_offer_configs
 FOR ALL
 USING (public.has_role(auth.uid(), 'admin'))
 WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Admins can manage preset offers"
 ON public.preset_offers
 FOR ALL
 USING (public.has_role(auth.uid(), 'admin'))
 WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 -- Public read for driver/customer apps (anon can read enabled configs)
 CREATE POLICY "Anyone can read enabled preset offer configs"
 ON public.preset_offer_configs
 FOR SELECT
 USING (true);
-
 CREATE POLICY "Anyone can read preset offers"
 ON public.preset_offers
 FOR SELECT
 USING (true);
-
 -- Triggers for updated_at
 CREATE TRIGGER update_preset_offer_configs_updated_at
 BEFORE UPDATE ON public.preset_offer_configs
 FOR EACH ROW
 EXECUTE FUNCTION public.update_updated_at_column();
-
 CREATE TRIGGER update_preset_offers_updated_at
 BEFORE UPDATE ON public.preset_offers
 FOR EACH ROW

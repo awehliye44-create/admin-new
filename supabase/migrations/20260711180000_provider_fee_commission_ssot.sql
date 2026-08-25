@@ -23,13 +23,10 @@ CREATE TABLE IF NOT EXISTS public.provider_fee_configurations (
   notes text,
   UNIQUE (service_area_id, currency_code, collection_provider, payment_method, version)
 );
-
 CREATE INDEX IF NOT EXISTS provider_fee_configurations_active_idx
   ON public.provider_fee_configurations (service_area_id, collection_provider, payment_method, is_active, effective_from DESC);
-
 COMMENT ON TABLE public.provider_fee_configurations IS
   'Versioned payment-provider acquiring fee schedules. Historical payment snapshots must never be rewritten when config changes.';
-
 -- Immutable fee snapshot columns on Payment Sessions (SSOT for customer payment fees).
 ALTER TABLE public.payment_sessions
   ADD COLUMN IF NOT EXISTS provider_fee_percentage_snapshot_pence integer,
@@ -40,10 +37,8 @@ ALTER TABLE public.payment_sessions
   ADD COLUMN IF NOT EXISTS provider_fee_source text,
   ADD COLUMN IF NOT EXISTS provider_fee_confirmed_at timestamptz,
   ADD COLUMN IF NOT EXISTS provider_name_snapshot text;
-
 COMMENT ON COLUMN public.payment_sessions.provider_fee_total_snapshot_pence IS
   'Immutable provider fee total (pence) captured at process/reconcile time. Never recalculate from later config.';
-
 -- Append-only fee adjustments (estimated → confirmed delta). Never overwrite history.
 CREATE TABLE IF NOT EXISTS public.provider_fee_adjustments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -59,13 +54,10 @@ CREATE TABLE IF NOT EXISTS public.provider_fee_adjustments (
   created_at timestamptz NOT NULL DEFAULT now(),
   created_by uuid
 );
-
 CREATE INDEX IF NOT EXISTS provider_fee_adjustments_session_idx
   ON public.provider_fee_adjustments (payment_session_id, created_at DESC);
-
 COMMENT ON TABLE public.provider_fee_adjustments IS
   'Append-only provider fee corrections. Do not silently overwrite payment_sessions fee history.';
-
 -- Expand wallet ledger allowed types for commission/fee separation (future writers).
 -- Keep existing PLATFORM_COMMISSION for backward compatibility (gross mirror).
 DO $$
@@ -79,7 +71,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN
   NULL;
 END $$;
-
 DO $$
 BEGIN
   ALTER TABLE public.driver_wallet_ledger
@@ -127,10 +118,8 @@ EXCEPTION
   WHEN undefined_table THEN NULL;
   WHEN duplicate_object THEN NULL;
 END $$;
-
 ALTER TABLE public.provider_fee_configurations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.provider_fee_adjustments ENABLE ROW LEVEL SECURITY;
-
 DO $$
 BEGIN
   CREATE POLICY provider_fee_configurations_admin_all
@@ -159,7 +148,6 @@ BEGIN
     );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-
 DO $$
 BEGIN
   CREATE POLICY provider_fee_adjustments_admin_all
@@ -188,7 +176,6 @@ BEGIN
     );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-
 -- Seed a default Revolut GB card fee version if none exists (1.00% + £0.20).
 INSERT INTO public.provider_fee_configurations (
   service_area_id,

@@ -1,14 +1,10 @@
-
 ALTER TABLE public.documents
   ADD COLUMN IF NOT EXISTS is_current boolean NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS superseded_by uuid NULL REFERENCES public.documents(id) ON DELETE SET NULL;
-
 CREATE INDEX IF NOT EXISTS idx_documents_driver_type_current
   ON public.documents(driver_id, document_type) WHERE is_current;
-
 -- Backfill with user triggers off so enforce_document_lock() does not fire
 ALTER TABLE public.documents DISABLE TRIGGER USER;
-
 WITH ranked AS (
   SELECT id,
          row_number() OVER (
@@ -22,7 +18,6 @@ UPDATE public.documents d
 SET is_current = (r.rn = 1)
 FROM ranked r
 WHERE d.id = r.id;
-
 WITH current_rows AS (
   SELECT driver_id, document_type, id AS current_id
   FROM public.documents
@@ -36,9 +31,7 @@ WHERE d.driver_id = c.driver_id
   AND d.is_current = false
   AND d.superseded_by IS NULL
   AND d.id <> c.current_id;
-
 ALTER TABLE public.documents ENABLE TRIGGER USER;
-
 -- Supersession trigger
 CREATE OR REPLACE FUNCTION public.trg_documents_mark_superseded()
 RETURNS trigger
@@ -70,14 +63,12 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_documents_supersede ON public.documents;
 CREATE TRIGGER trg_documents_supersede
   AFTER INSERT OR UPDATE OF driver_id, document_type, is_current
   ON public.documents
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_documents_mark_superseded();
-
 -- Canonical compliance view
 DROP VIEW IF EXISTS public.driver_document_compliance_ssot CASCADE;
 CREATE VIEW public.driver_document_compliance_ssot
@@ -135,9 +126,7 @@ LEFT JOIN current_docs cd
   ON cd.driver_id = dr.id AND cd.document_type = dt.slug
 WHERE dt.is_active = true
   AND (dt.is_required = true OR cd.document_id IS NOT NULL);
-
 GRANT SELECT ON public.driver_document_compliance_ssot TO authenticated;
-
 -- RPC
 CREATE OR REPLACE FUNCTION public.get_driver_document_compliance(_driver_id uuid DEFAULT NULL)
 RETURNS SETOF public.driver_document_compliance_ssot
@@ -190,6 +179,5 @@ BEGIN
     display_name;
 END;
 $$;
-
 REVOKE ALL ON FUNCTION public.get_driver_document_compliance(uuid) FROM public;
 GRANT EXECUTE ON FUNCTION public.get_driver_document_compliance(uuid) TO authenticated;

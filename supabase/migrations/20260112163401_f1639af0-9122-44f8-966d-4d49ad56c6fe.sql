@@ -1,7 +1,6 @@
 -- Add documents_approved column to drivers table to track if all required documents are approved
 ALTER TABLE public.drivers 
 ADD COLUMN IF NOT EXISTS documents_approved boolean NOT NULL DEFAULT false;
-
 -- Create a function to check if all required documents for a driver are approved
 CREATE OR REPLACE FUNCTION public.check_driver_documents_approved(p_driver_id uuid)
 RETURNS boolean
@@ -36,7 +35,6 @@ BEGIN
   RETURN approved_count >= array_length(required_docs, 1);
 END;
 $$;
-
 -- Create a function to update driver document approval status
 CREATE OR REPLACE FUNCTION public.update_driver_document_status()
 RETURNS trigger
@@ -55,14 +53,12 @@ BEGIN
   RETURN COALESCE(NEW, OLD);
 END;
 $$;
-
 -- Create trigger to auto-update driver document status when documents change
 DROP TRIGGER IF EXISTS update_driver_docs_status ON public.documents;
 CREATE TRIGGER update_driver_docs_status
   AFTER INSERT OR UPDATE OR DELETE ON public.documents
   FOR EACH ROW
   EXECUTE FUNCTION public.update_driver_document_status();
-
 -- Create a view to see driver document completion status
 CREATE OR REPLACE VIEW public.driver_document_status AS
 SELECT 

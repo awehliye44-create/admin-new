@@ -1,9 +1,7 @@
-
 -- ============================================================
 -- FIX 1: user_directory — restrict to admins only
 -- ============================================================
 DROP VIEW IF EXISTS public.user_directory;
-
 CREATE OR REPLACE VIEW public.user_directory
 WITH (security_barrier = true, security_invoker = on) AS
 SELECT p.user_id,
@@ -36,12 +34,10 @@ FROM profiles p
     LEFT JOIN customers c ON c.user_id = p.user_id AND p.role = 'customer'::app_user_role
     LEFT JOIN corporate_users cu ON cu.user_id = p.user_id AND p.role = 'corporate'::app_user_role
 WHERE has_role(auth.uid(), 'admin'::app_role);
-
 -- ============================================================
 -- FIX 2: driver_document_status — restrict to admins + own driver
 -- ============================================================
 DROP VIEW IF EXISTS public.driver_document_status;
-
 CREATE OR REPLACE VIEW public.driver_document_status
 WITH (security_barrier = true, security_invoker = on) AS
 SELECT d.id AS driver_id,
@@ -58,7 +54,6 @@ FROM drivers d
 WHERE has_role(auth.uid(), 'admin'::app_role)
    OR d.user_id = auth.uid()
 GROUP BY d.id, d.first_name, d.last_name, d.documents_approved, d.approval_status;
-
 -- ============================================================
 -- FIX 3: Fix passenger RLS policies (passenger_id != auth.uid())
 -- ============================================================
@@ -73,7 +68,6 @@ FOR SELECT USING (
       AND t.passenger_id IN (SELECT id FROM customers WHERE user_id = auth.uid())
   )
 );
-
 -- trip_stops: Passengers can create stops for pending trips
 DROP POLICY IF EXISTS "Passengers can create stops for pending trips" ON public.trip_stops;
 CREATE POLICY "Passengers can create stops for pending trips" ON public.trip_stops
@@ -84,7 +78,6 @@ FOR INSERT WITH CHECK (
       AND trips.status = ANY (ARRAY['pending','searching'])
   )
 );
-
 -- trip_stops: Passengers can modify stops for pending trips
 DROP POLICY IF EXISTS "Passengers can modify stops for pending trips" ON public.trip_stops;
 CREATE POLICY "Passengers can modify stops for pending trips" ON public.trip_stops
@@ -95,7 +88,6 @@ FOR UPDATE USING (
       AND trips.status = ANY (ARRAY['pending','searching'])
   )
 );
-
 -- trip_stops: Passengers can delete stops for pending trips
 DROP POLICY IF EXISTS "Passengers can delete stops for pending trips" ON public.trip_stops;
 CREATE POLICY "Passengers can delete stops for pending trips" ON public.trip_stops
@@ -106,7 +98,6 @@ FOR DELETE USING (
       AND trips.status = ANY (ARRAY['pending','searching'])
   )
 );
-
 -- trip_stop_waiting: Customers can read waiting for their trips
 DROP POLICY IF EXISTS "Customers can read waiting for their trips" ON public.trip_stop_waiting;
 CREATE POLICY "Customers can read waiting for their trips" ON public.trip_stop_waiting
@@ -117,7 +108,6 @@ FOR SELECT USING (
       AND t.passenger_id IN (SELECT id FROM customers WHERE user_id = auth.uid())
   )
 );
-
 -- trip_change_requests: Customers can create modification requests
 DROP POLICY IF EXISTS "Customers can create modification requests" ON public.trip_change_requests;
 CREATE POLICY "Customers can create modification requests" ON public.trip_change_requests
@@ -129,7 +119,6 @@ FOR INSERT WITH CHECK (
       AND t.status = ANY (ARRAY['accepted','en_route_to_pickup','arrived','in_progress'])
   )
 );
-
 -- trip_change_requests: Customers can view their trip modification requests
 DROP POLICY IF EXISTS "Customers can view their trip modification requests" ON public.trip_change_requests;
 CREATE POLICY "Customers can view their trip modification requests" ON public.trip_change_requests
@@ -140,7 +129,6 @@ FOR SELECT USING (
       AND t.passenger_id IN (SELECT id FROM customers WHERE user_id = auth.uid())
   )
 );
-
 -- trip_offers: Customers can view offers on own trips
 DROP POLICY IF EXISTS "Customers can view offers on own trips" ON public.trip_offers;
 CREATE POLICY "Customers can view offers on own trips" ON public.trip_offers
@@ -151,7 +139,6 @@ FOR SELECT USING (
       AND t.passenger_id IN (SELECT id FROM customers WHERE user_id = auth.uid())
   )
 );
-
 -- fare_audit_logs: Users can read own trip fare audit logs
 DROP POLICY IF EXISTS "Users can read own trip fare audit logs" ON public.fare_audit_logs;
 CREATE POLICY "Users can read own trip fare audit logs" ON public.fare_audit_logs
@@ -166,7 +153,6 @@ FOR SELECT USING (
       )
   )
 );
-
 -- payments: Users can view their own trip payments
 DROP POLICY IF EXISTS "Users can view their own trip payments" ON public.payments;
 CREATE POLICY "Users can view their own trip payments" ON public.payments
@@ -177,7 +163,6 @@ FOR SELECT USING (
       AND t.passenger_id IN (SELECT id FROM customers WHERE user_id = auth.uid())
   )
 );
-
 -- ============================================================
 -- FIX 4: Call masking — create restricted view, remove driver base table access
 -- ============================================================
@@ -195,6 +180,5 @@ SELECT
 FROM call_masking_sessions cms
 WHERE cms.driver_id IN (SELECT id FROM drivers WHERE user_id = auth.uid())
   AND cms.status = 'active';
-
 -- Remove direct driver access to the base table
 DROP POLICY IF EXISTS "Drivers can view own active sessions" ON public.call_masking_sessions;

@@ -6,7 +6,6 @@
 
 DROP POLICY IF EXISTS "Call masking provider configs readable by authenticated"
   ON public.call_masking_provider_configs;
-
 CREATE POLICY "Call masking provider configs readable by authenticated"
   ON public.call_masking_provider_configs
   FOR SELECT

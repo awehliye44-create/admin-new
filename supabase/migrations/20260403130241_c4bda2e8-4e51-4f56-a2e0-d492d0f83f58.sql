@@ -1,16 +1,12 @@
-
 -- Add rider_status and deleted_at to customers
 ALTER TABLE public.customers
   ADD COLUMN IF NOT EXISTS rider_status TEXT NOT NULL DEFAULT 'active',
   ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL;
-
 -- Add constraint for valid statuses
 ALTER TABLE public.customers
   ADD CONSTRAINT chk_rider_status CHECK (rider_status IN ('active', 'disabled', 'suspended', 'deleted'));
-
 -- Index for filtering
 CREATE INDEX IF NOT EXISTS idx_customers_rider_status ON public.customers (rider_status);
-
 -- Trigger: block disable/delete if rider has active trip, auto-set deleted_at
 CREATE OR REPLACE FUNCTION public.fn_rider_status_enforce()
 RETURNS TRIGGER
@@ -39,7 +35,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE TRIGGER tr_rider_status_enforce
   BEFORE UPDATE ON public.customers
   FOR EACH ROW

@@ -38,7 +38,6 @@ BEGIN
   RETURN 'UNK';
 END;
 $$;
-
 -- 2) Replace generate_driver_code() to use service area code and prevent duplicates
 CREATE OR REPLACE FUNCTION public.generate_driver_code()
 RETURNS trigger
@@ -110,7 +109,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 -- 3) Recreate trigger (BEFORE INSERT, only when driver_code is null)
 DROP TRIGGER IF EXISTS generate_driver_code_trigger ON public.drivers;
 CREATE TRIGGER generate_driver_code_trigger
@@ -118,7 +116,6 @@ CREATE TRIGGER generate_driver_code_trigger
   FOR EACH ROW
   WHEN (NEW.driver_code IS NULL)
   EXECUTE FUNCTION public.generate_driver_code();
-
 -- 4) Backfill: renumber every existing driver by current service_area_id (created_at order).
 DO $$
 DECLARE

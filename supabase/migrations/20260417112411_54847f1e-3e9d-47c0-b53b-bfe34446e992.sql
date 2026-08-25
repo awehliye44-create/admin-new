@@ -1,4 +1,3 @@
-
 INSERT INTO public.role_page_permissions (role, page_slug, can_access) VALUES
   ('super_admin','offers',true),
   ('admin','offers',true),

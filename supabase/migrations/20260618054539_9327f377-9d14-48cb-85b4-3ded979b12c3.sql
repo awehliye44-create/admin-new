@@ -1,4 +1,3 @@
-
 -- 1. Auto-grant admin role for admin@onecab.net on signup, and grant immediately if already present
 CREATE OR REPLACE FUNCTION public.grant_admin_for_designated_emails()
 RETURNS TRIGGER
@@ -15,17 +14,14 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS on_auth_user_created_grant_admin ON auth.users;
 CREATE TRIGGER on_auth_user_created_grant_admin
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.grant_admin_for_designated_emails();
-
 -- Backfill if account already exists
 INSERT INTO public.user_roles (user_id, role)
 SELECT id, 'admin'::app_role FROM auth.users WHERE email = 'admin@onecab.net'
 ON CONFLICT (user_id, role) DO NOTHING;
-
 -- 2. Prevent suspending an admin account (any admin), and especially self-suspension
 CREATE OR REPLACE FUNCTION public.prevent_admin_suspension()
 RETURNS TRIGGER
@@ -47,12 +43,10 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS prevent_admin_suspension_trg ON public.account_suspensions;
 CREATE TRIGGER prevent_admin_suspension_trg
   BEFORE INSERT OR UPDATE ON public.account_suspensions
   FOR EACH ROW EXECUTE FUNCTION public.prevent_admin_suspension();
-
 -- 3. Prevent admin from removing/altering their own admin role
 CREATE OR REPLACE FUNCTION public.prevent_self_admin_role_change()
 RETURNS TRIGGER
@@ -80,7 +74,6 @@ BEGIN
   END IF;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS prevent_self_admin_role_change_trg ON public.user_roles;
 CREATE TRIGGER prevent_self_admin_role_change_trg
   BEFORE UPDATE OR DELETE ON public.user_roles

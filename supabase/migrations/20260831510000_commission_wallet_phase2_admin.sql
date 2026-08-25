@@ -16,15 +16,11 @@ CREATE TABLE IF NOT EXISTS public.commission_wallet_admin_audit (
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS commission_wallet_admin_audit_driver_idx
   ON public.commission_wallet_admin_audit (driver_id, created_at DESC);
-
 CREATE INDEX IF NOT EXISTS commission_wallet_admin_audit_sa_idx
   ON public.commission_wallet_admin_audit (service_area_id, created_at DESC);
-
 ALTER TABLE public.commission_wallet_admin_audit ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS commission_wallet_admin_audit_admin_read ON public.commission_wallet_admin_audit;
 CREATE POLICY commission_wallet_admin_audit_admin_read
   ON public.commission_wallet_admin_audit
@@ -36,7 +32,6 @@ CREATE POLICY commission_wallet_admin_audit_admin_read
       WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
     )
   );
-
 -- RBAC for Commission Wallet admin page
 INSERT INTO public.role_page_permissions (role, page_slug, can_access)
 VALUES

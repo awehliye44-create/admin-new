@@ -1,6 +1,5 @@
 -- Drop old view that was inconsistent
 DROP VIEW IF EXISTS public.driver_wallet_balance;
-
 -- Create unified financial summary view: single source of truth
 CREATE OR REPLACE VIEW public.driver_financial_summary AS
 WITH trip_totals AS (
@@ -101,6 +100,5 @@ FROM drivers d
 LEFT JOIN trip_totals tt ON tt.driver_id = d.id
 LEFT JOIN ledger_totals lt ON lt.driver_id = d.id
 LEFT JOIN payout_totals pt ON pt.driver_id = d.id;
-
 GRANT SELECT ON public.driver_financial_summary TO authenticated;
 GRANT SELECT ON public.driver_financial_summary TO anon;

@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
+import { notifyCustomerActiveTripEvent } from "../_shared/notifyCustomerActiveTripEvent.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -123,6 +124,12 @@ Deno.serve(async (req) => {
         holdErr,
       );
     }
+
+    // Customer active-trip high-priority cancel (deduped tripId:trip_cancelled).
+    void notifyCustomerActiveTripEvent(supabase, {
+      tripId: trip_id,
+      event: "trip_cancelled",
+    });
 
     return json({
       success: true,

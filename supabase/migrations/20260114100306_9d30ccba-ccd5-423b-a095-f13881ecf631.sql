@@ -39,13 +39,11 @@ ADD COLUMN IF NOT EXISTS simulate_mode boolean NOT NULL DEFAULT false,
 ADD COLUMN IF NOT EXISTS block_multiple_active_rides boolean NOT NULL DEFAULT false,
 ADD COLUMN IF NOT EXISTS cancel_protection boolean NOT NULL DEFAULT false,
 ADD COLUMN IF NOT EXISTS driver_fare_display text NOT NULL DEFAULT 'net_earnings';
-
 -- Add check constraints for valid values
 ALTER TABLE public.dispatch_settings 
 ADD CONSTRAINT batch_mode_check CHECK (batch_mode IN ('parallel', 'cascade')),
 ADD CONSTRAINT priority_order_check CHECK (priority_order IN ('nearest', 'rating', 'acceptance', 'waiting')),
 ADD CONSTRAINT stacked_priority_mode_check CHECK (stacked_priority_mode IN ('same_direction', 'nearest', 'highest_fare')),
 ADD CONSTRAINT driver_fare_display_check CHECK (driver_fare_display IN ('net_earnings', 'full_breakdown'));
-
 -- Add comment to table
 COMMENT ON TABLE public.dispatch_settings IS 'Stores auto-dispatch configuration settings per service area or global';

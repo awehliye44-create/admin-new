@@ -1,5 +1,4 @@
 DROP VIEW IF EXISTS public.admin_riders_with_trip_stats;
-
 CREATE VIEW public.admin_riders_with_trip_stats
 WITH (security_invoker = on) AS
 SELECT
@@ -27,6 +26,5 @@ LEFT JOIN (
   GROUP BY t.passenger_id
 ) ts ON ts.passenger_id = c.id
 WHERE c.deleted_at IS NULL;
-
 GRANT SELECT ON public.admin_riders_with_trip_stats TO authenticated;
 GRANT ALL ON public.admin_riders_with_trip_stats TO service_role;

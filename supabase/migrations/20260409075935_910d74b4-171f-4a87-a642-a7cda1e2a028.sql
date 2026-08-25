@@ -18,16 +18,13 @@ CREATE TABLE public.trip_route_cache (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(trip_id, leg)
 );
-
 -- Enable RLS - only service role access (edge functions)
 ALTER TABLE public.trip_route_cache ENABLE ROW LEVEL SECURITY;
-
 -- No public policies = only service_role can access (edge functions)
 
 -- Index for fast lookup
 CREATE INDEX idx_trip_route_cache_trip_id ON public.trip_route_cache(trip_id);
 CREATE INDEX idx_trip_route_cache_expires ON public.trip_route_cache(expires_at);
-
 -- Auto-update timestamps
 CREATE TRIGGER update_trip_route_cache_updated_at
   BEFORE UPDATE ON public.trip_route_cache

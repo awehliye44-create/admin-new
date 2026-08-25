@@ -34,12 +34,10 @@ BEGIN
   END IF;
   RETURN NEW;
 END; $$;
-
 DROP TRIGGER IF EXISTS trg_protect_authorised_hold ON public.payment_sessions;
 CREATE TRIGGER trg_protect_authorised_hold
 BEFORE UPDATE OF provider_state, status ON public.payment_sessions
 FOR EACH ROW EXECUTE FUNCTION public.trg_protect_authorised_hold();
-
 CREATE OR REPLACE VIEW public.v_payment_lifecycle_audit
 WITH (security_invoker = on) AS
 SELECT
@@ -62,5 +60,4 @@ LEFT JOIN LATERAL (
   SELECT * FROM public.payment_sessions s WHERE s.trip_id = t.id AND s.purpose = 'PAYMENT_RECOVERY'
   ORDER BY s.created_at DESC LIMIT 1
 ) recovery ON true;
-
 GRANT SELECT ON public.v_payment_lifecycle_audit TO authenticated, service_role;

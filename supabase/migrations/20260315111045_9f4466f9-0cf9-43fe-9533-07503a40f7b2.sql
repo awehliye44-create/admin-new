@@ -23,49 +23,38 @@ CREATE TABLE public.complaints (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 -- Add unique constraint on complaint_number
 ALTER TABLE public.complaints ADD CONSTRAINT complaints_number_unique UNIQUE (complaint_number);
-
 -- Enable RLS
 ALTER TABLE public.complaints ENABLE ROW LEVEL SECURITY;
-
 -- Admin-only policies
 CREATE POLICY "Admins can read complaints" ON public.complaints
   FOR SELECT TO authenticated
   USING (has_role(auth.uid(), 'admin'::app_role));
-
 CREATE POLICY "Admins can insert complaints" ON public.complaints
   FOR INSERT TO authenticated
   WITH CHECK (has_role(auth.uid(), 'admin'::app_role));
-
 CREATE POLICY "Admins can update complaints" ON public.complaints
   FOR UPDATE TO authenticated
   USING (has_role(auth.uid(), 'admin'::app_role));
-
 CREATE POLICY "Admins can delete complaints" ON public.complaints
   FOR DELETE TO authenticated
   USING (has_role(auth.uid(), 'admin'::app_role));
-
 -- Auto-update updated_at
 CREATE TRIGGER update_complaints_updated_at
   BEFORE UPDATE ON public.complaints
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
-
 -- Sequence for complaint numbers
 CREATE TABLE IF NOT EXISTS public.complaint_sequences (
   service_area_id uuid PRIMARY KEY REFERENCES public.service_areas(id),
   current_value integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 ALTER TABLE public.complaint_sequences ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Admins manage complaint sequences" ON public.complaint_sequences
   FOR ALL TO authenticated
   USING (has_role(auth.uid(), 'admin'::app_role));
-
 -- Function to generate complaint number
 CREATE OR REPLACE FUNCTION public.generate_complaint_number()
   RETURNS trigger
@@ -88,7 +77,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE TRIGGER tr_generate_complaint_number
   BEFORE INSERT ON public.complaints
   FOR EACH ROW

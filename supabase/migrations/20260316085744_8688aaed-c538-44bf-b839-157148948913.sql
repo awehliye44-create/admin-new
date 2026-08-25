@@ -1,4 +1,3 @@
-
 -- ===========================
 -- 1. FARE PRICING SETTINGS TABLE (per service area)
 -- ===========================
@@ -42,22 +41,18 @@ CREATE TABLE public.fare_pricing_settings (
   
   UNIQUE(service_area_id)
 );
-
 ALTER TABLE public.fare_pricing_settings ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Admins can manage fare pricing settings"
 ON public.fare_pricing_settings
 FOR ALL
 TO authenticated
 USING (public.has_role(auth.uid(), 'admin'))
 WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Authenticated users can read fare pricing settings"
 ON public.fare_pricing_settings
 FOR SELECT
 TO authenticated
 USING (true);
-
 -- ===========================
 -- 2. FARE AUDIT LOG TABLE
 -- ===========================
@@ -72,22 +67,18 @@ CREATE TABLE public.fare_audit_logs (
   metadata jsonb DEFAULT '{}',
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 ALTER TABLE public.fare_audit_logs ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Admins can manage fare audit logs"
 ON public.fare_audit_logs
 FOR ALL
 TO authenticated
 USING (public.has_role(auth.uid(), 'admin'))
 WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Authenticated read fare audit logs"
 ON public.fare_audit_logs
 FOR SELECT
 TO authenticated
 USING (true);
-
 -- ===========================
 -- 3. ADD FARE TRACKING COLUMNS TO TRIPS
 -- ===========================
@@ -99,7 +90,6 @@ ALTER TABLE public.trips
   ADD COLUMN IF NOT EXISTS stop_charge_total_pence integer DEFAULT 0,
   ADD COLUMN IF NOT EXISTS destination_change_adjustment_pence integer DEFAULT 0,
   ADD COLUMN IF NOT EXISTS fare_breakdown jsonb DEFAULT '{}';
-
 -- ===========================
 -- 4. TRIGGERS
 -- ===========================

@@ -1,4 +1,4 @@
--- Mirror of onecab-comfy-ride admin finance four-page RBAC
+-- P0 Admin Finance SSOT — four-page RBAC
 INSERT INTO public.role_page_permissions (role, page_slug, can_access)
 VALUES
   ('super_admin', 'payment-sessions', true),

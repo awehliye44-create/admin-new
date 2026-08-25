@@ -423,7 +423,7 @@ BEGIN
   );
 
   IF v_inserted = 0 THEN
-    PERFORM public.maybe_advance_dispatch_after_offer_resolution(p_trip_id, NULL);
+    PERFORM public.maybe_advance_dispatch_after_offer_resolution(p_trip_id, NULL, 'no_eligible_drivers');
   END IF;
 
   RETURN jsonb_build_object(
@@ -441,7 +441,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- ========== 2) compute_ride_offer_preset_options ==========
 CREATE OR REPLACE FUNCTION public.compute_ride_offer_preset_options(p_trip trips)
  RETURNS jsonb
@@ -574,7 +573,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- ========== 3) expire_trip_when_search_exhausted (comment cleanup only) ==========
 CREATE OR REPLACE FUNCTION public.expire_trip_when_search_exhausted(p_trip_id uuid)
  RETURNS boolean
@@ -591,8 +589,6 @@ DECLARE
   v_live_offer_count int := 0;
   v_round int := 0;
   v_max_rounds int := 3;
-  v_scheduled_handover_pending boolean := false;
-  v_scheduled_origin boolean := false;
 BEGIN
   SELECT * INTO v_trip
   FROM public.trips
@@ -627,36 +623,11 @@ BEGIN
     3
   );
 
-  v_scheduled_handover_pending :=
-    lower(COALESCE(v_trip.dispatch_mode, '')) = 'scheduled'
-    AND lower(COALESCE(v_trip.scheduled_status, '')) IS DISTINCT FROM 'converted_to_instant'
-    AND COALESCE(NULLIF(trim(COALESCE(v_trip.cancelled_by, '')), ''), '') = ''
-    AND lower(COALESCE(v_trip.status, '')) NOT IN (
-      'cancelled', 'canceled', 'customer_cancelled', 'driver_cancelled', 'no_show'
-    );
-
-  v_scheduled_origin :=
-    COALESCE(v_trip.is_scheduled, false) = true
-    OR lower(COALESCE(v_trip.dispatch_mode, '')) = 'scheduled'
-    OR v_trip.scheduled_at IS NOT NULL
-    OR COALESCE(v_trip.scheduled_status, '') <> '';
-
-  -- Instant TTL has not started. Ignore any stale searching_expires_at stamp.
-  IF v_scheduled_handover_pending THEN
-    RETURN false;
-  END IF;
-
-  IF v_trip.searching_expires_at IS NOT NULL THEN
-    v_search_deadline := v_trip.searching_expires_at;
-  ELSIF v_scheduled_origin THEN
-    -- Converted scheduled trip missing stamp: do not use booking created_at.
-    v_search_deadline := v_now + make_interval(mins => v_find_minutes);
-  ELSE
-    v_search_deadline := COALESCE(
-      v_trip.created_at + make_interval(mins => v_find_minutes),
-      v_now + make_interval(mins => v_find_minutes)
-    );
-  END IF;
+  v_search_deadline := COALESCE(
+    v_trip.searching_expires_at,
+    v_trip.created_at + make_interval(mins => v_find_minutes),
+    v_now + make_interval(mins => v_find_minutes)
+  );
 
   -- Search window elapsed: terminal immediately (do not wait for remaining broadcast rounds).
   IF v_search_deadline <= v_now THEN
@@ -734,7 +705,6 @@ BEGIN
   RETURN false;
 END;
 $function$;
-
 -- ========== 4) finalize_negotiation_failure (comment cleanup only) ==========
 CREATE OR REPLACE FUNCTION public.finalize_negotiation_failure(p_trip_id uuid, p_failed_driver_id uuid, p_offer_id uuid DEFAULT NULL::uuid, p_offer_terminal_status text DEFAULT 'expired'::text, p_offer_negotiation_status text DEFAULT 'failed'::text)
  RETURNS jsonb
@@ -886,7 +856,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- ========== 5) maybe_advance_dispatch_after_offer_resolution (comment cleanup only) ==========
 CREATE OR REPLACE FUNCTION public.maybe_advance_dispatch_after_offer_resolution(p_trip_id uuid, p_resolved_driver_id uuid DEFAULT NULL::uuid)
  RETURNS void
@@ -993,7 +962,6 @@ BEGIN
     );
 END;
 $function$;
-
 -- ========== 6) tr_dispatch_trip_offers failure observability ==========
 CREATE OR REPLACE FUNCTION public.tr_dispatch_trip_offers()
  RETURNS trigger
@@ -1085,7 +1053,6 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-
 -- ========== 7) Prove no live function body references retired ScanGo ==========
 DO $$
 DECLARE

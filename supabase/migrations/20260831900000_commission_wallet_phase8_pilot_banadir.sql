@@ -11,19 +11,15 @@ CREATE TABLE IF NOT EXISTS public.commission_wallet_rollout (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 COMMENT ON TABLE public.commission_wallet_rollout IS
   'Phase 8 Commission Wallet rollout lock. multi_sa_unlocked=false → only pilot_service_area_id may have commission_wallet_enabled.';
-
 ALTER TABLE public.commission_wallet_rollout ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS commission_wallet_rollout_admin_read ON public.commission_wallet_rollout;
 CREATE POLICY commission_wallet_rollout_admin_read
   ON public.commission_wallet_rollout
   FOR SELECT
   TO authenticated
   USING (true);
-
 -- Banadir (Mogadishu region) — sole Phase 8 pilot.
 UPDATE public.service_areas
 SET
@@ -40,7 +36,6 @@ SET
   updated_at = now()
 WHERE id = '29259edf-80eb-4c08-9089-352b8a305b81'
   AND name = 'Banadir';
-
 INSERT INTO public.commission_wallet_rollout (
   id,
   pilot_service_area_id,
@@ -59,7 +54,6 @@ SET
   multi_sa_unlocked = false,
   unlocked_note = EXCLUDED.unlocked_note,
   updated_at = now();
-
 -- Ensure no non-pilot SA is enabled (idempotent safety).
 UPDATE public.service_areas
 SET
@@ -73,7 +67,6 @@ WHERE id <> '29259edf-80eb-4c08-9089-352b8a305b81'
     commission_wallet_enabled IS TRUE
     OR financial_model = 'DRIVER_COLLECTED_COMMISSION_WALLET'
   );
-
 CREATE OR REPLACE FUNCTION public.enforce_commission_wallet_pilot_lock()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -130,7 +123,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_enforce_commission_wallet_pilot_lock ON public.service_areas;
 CREATE TRIGGER trg_enforce_commission_wallet_pilot_lock
   BEFORE INSERT OR UPDATE OF commission_wallet_enabled, financial_model

@@ -363,7 +363,7 @@ export function adminCompanyTransferSubmissionDisplay(args: {
 } {
   const status = String(args.transfer_status ?? "").toUpperCase();
   const holdActive = String(args.hold_status ?? "").toUpperCase() === "ACTIVE";
-  let providerStatus = ADMIN_SLICE12_LABELS.READY;
+  let providerStatus: string = ADMIN_SLICE12_LABELS.READY;
   if (status === "PROCESSING" || status === "SUBMITTED") {
     providerStatus = String(args.provider_state ?? "").toLowerCase() === "pending"
       ? ADMIN_SLICE12_LABELS.PROVIDER_PENDING

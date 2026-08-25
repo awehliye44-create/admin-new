@@ -13,7 +13,6 @@
 --   - delete or repair schema_migrations history
 
 BEGIN;
-
 CREATE OR REPLACE FUNCTION public.driver_wallet_resolve_economic_date(
   p_type text,
   p_related_trip_id uuid,
@@ -196,10 +195,8 @@ BEGIN
   RETURN NEXT;
 END;
 $$;
-
 COMMENT ON FUNCTION public.driver_wallet_resolve_economic_date(text, uuid, timestamptz) IS
   'Canonical economic earning timestamp. Exactly one RIDE_BOOKING payment_sessions row is required for PLATFORM_COLLECTED TRIP_EARNING_NET. Two RIDE_BOOKING rows always CAPTURE_AMBIGUOUS, including identical duplicates. PAYMENT_RECOVERY is excluded. Never mutates created_at. Payout remains captured_at+27h elsewhere.';
-
 CREATE OR REPLACE FUNCTION public.driver_wallet_trip_earnings_in_range_pence(
   p_driver_id uuid,
   p_start timestamptz,
@@ -229,7 +226,6 @@ AS $$
   WHERE r.economic_earned_at >= p_start
     AND r.economic_earned_at < p_end;
 $$;
-
 CREATE OR REPLACE FUNCTION public.driver_wallet_jwt_role()
 RETURNS text
 LANGUAGE sql
@@ -238,7 +234,6 @@ SET search_path TO 'pg_catalog'
 AS $$
   SELECT lower(coalesce(auth.jwt() ->> 'role', ''));
 $$;
-
 CREATE OR REPLACE FUNCTION public.driver_wallet_ledger_economic_fields(p_driver_id uuid)
 RETURNS TABLE (
   ledger_entry_id uuid,
@@ -291,7 +286,6 @@ BEGIN
   WHERE dwl.driver_id = p_driver_id;
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.get_driver_own_wallet_earning_rows(
   p_start timestamptz,
   p_end timestamptz
@@ -351,10 +345,8 @@ BEGIN
     AND dwl.created_at < (p_end + v_pad);
 END;
 $$;
-
 COMMENT ON FUNCTION public.get_driver_own_wallet_earning_rows(timestamptz, timestamptz) IS
   'Authenticated driver-only earning rows with backend-resolved economic_earned_at. Identity from auth.uid()/current_driver_id(). Caller cannot supply another driver UUID.';
-
 -- Today KPI uses economic date. Cycle earnings remain posting-based.
 -- Body copied from 20260926120000 with today CTE replaced; grants tightened in 4C.
 CREATE OR REPLACE FUNCTION public.driver_wallet_summary_ssot(p_driver_id uuid, p_service_area_id uuid DEFAULT NULL::uuid)
@@ -580,19 +572,16 @@ BEGIN
   );
 END;
 $function$;
-
 REVOKE ALL ON FUNCTION public.driver_wallet_resolve_economic_date(text, uuid, timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.driver_wallet_trip_earnings_in_range_pence(uuid, timestamptz, timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.driver_wallet_ledger_economic_fields(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.get_driver_own_wallet_earning_rows(timestamptz, timestamptz) FROM PUBLIC, anon, service_role;
 REVOKE ALL ON FUNCTION public.driver_wallet_jwt_role() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.driver_wallet_summary_ssot(uuid, uuid) FROM PUBLIC, anon, authenticated;
-
 GRANT EXECUTE ON FUNCTION public.driver_wallet_resolve_economic_date(text, uuid, timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.driver_wallet_trip_earnings_in_range_pence(uuid, timestamptz, timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.driver_wallet_ledger_economic_fields(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_driver_own_wallet_earning_rows(timestamptz, timestamptz) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.driver_wallet_summary_ssot(uuid, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.get_driver_own_wallet_summary(uuid) TO authenticated, service_role;
-
 COMMIT;

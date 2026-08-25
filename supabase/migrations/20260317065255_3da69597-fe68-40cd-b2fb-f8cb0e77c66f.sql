@@ -1,4 +1,3 @@
-
 -- 1. Trigger: When driver is approved AND documents_approved, assign Bronze tier if no tier set
 CREATE OR REPLACE FUNCTION public.assign_bronze_tier_on_approval()
 RETURNS trigger
@@ -27,13 +26,11 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS tr_assign_bronze_tier ON public.drivers;
 CREATE TRIGGER tr_assign_bronze_tier
   BEFORE UPDATE ON public.drivers
   FOR EACH ROW
   EXECUTE FUNCTION public.assign_bronze_tier_on_approval();
-
 -- 2. Trigger: Prevent driver going online unless approved + documents_approved
 CREATE OR REPLACE FUNCTION public.enforce_online_eligibility()
 RETURNS trigger
@@ -57,13 +54,11 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS tr_enforce_online_eligibility ON public.drivers;
 CREATE TRIGGER tr_enforce_online_eligibility
   BEFORE UPDATE ON public.drivers
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_online_eligibility();
-
 -- 3. Also enforce on INSERT (new drivers must be offline)
 CREATE OR REPLACE FUNCTION public.enforce_new_driver_offline()
 RETURNS trigger
@@ -76,13 +71,11 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS tr_enforce_new_driver_offline ON public.drivers;
 CREATE TRIGGER tr_enforce_new_driver_offline
   BEFORE INSERT ON public.drivers
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_new_driver_offline();
-
 -- 4. Function: Auto-promote driver tier after trip completion
 CREATE OR REPLACE FUNCTION public.auto_promote_driver_tier()
 RETURNS trigger
@@ -136,7 +129,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS tr_auto_promote_driver_tier ON public.trips;
 CREATE TRIGGER tr_auto_promote_driver_tier
   AFTER UPDATE ON public.trips

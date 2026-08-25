@@ -19,6 +19,7 @@ import {
 import { isCashPayment, settleNoShowFee } from "../_shared/noShowSettlement.ts";
 import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
 import { handleQueuedTripAfterCurrentTripFailure } from "../_shared/stackedRideLifecycle.ts";
+import { notifyCustomerActiveTripEvent } from "../_shared/notifyCustomerActiveTripEvent.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 10,
@@ -257,6 +258,7 @@ Deno.serve(async (req) => {
     }
 
     let cardCharged = false;
+    let capturedFeePence = 0;
     if (effectiveNoShowFeePence > 0 && !cashTrip && trip.payment_method !== "wallet") {
       const noShowCapture = computeCaptureAmount(
         { ...trip, no_show_charge_pence: effectiveNoShowFeePence },
@@ -278,14 +280,25 @@ Deno.serve(async (req) => {
           }),
         });
         const chargeResult = await chargeRes.json();
+        // Capture proof is charged/already_charged — not HTTP success alone
+        // (charge-lifecycle may return 502 after capture if TEN post fails).
         cardCharged =
-          chargeResult?.success === true &&
-          (chargeResult?.charged === true || chargeResult?.already_charged === true);
+          chargeResult?.charged === true ||
+          chargeResult?.already_charged === true;
+        capturedFeePence = Math.max(
+          0,
+          Math.round(Number(chargeResult?.amount_pence) || 0),
+        );
         console.log("[pickup-no-show] charge-lifecycle-fee:", JSON.stringify(chargeResult));
       } catch (chargeErr) {
         console.error("[pickup-no-show] charge-lifecycle-fee failed (non-fatal):", chargeErr);
       }
     }
+
+    // Prefer provider-reported capture; fall back to configured fee only when charged without amount.
+    const settleFeePence = cardCharged
+      ? (capturedFeePence > 0 ? capturedFeePence : effectiveNoShowFeePence)
+      : effectiveNoShowFeePence;
 
     let settlement: Awaited<ReturnType<typeof settleNoShowFee>>;
     try {
@@ -297,7 +310,7 @@ Deno.serve(async (req) => {
         paymentMethod: trip.payment_method,
         financialModel: trip.financial_model ?? null,
         currencyCode: trip.currency_code,
-        feePence: effectiveNoShowFeePence,
+        feePence: settleFeePence,
         cardCharged,
         serviceRoleKey,
         supabaseUrl,
@@ -312,10 +325,31 @@ Deno.serve(async (req) => {
         driverMessage: "No-show recorded. Fee will be handled by ONECAB.",
       };
     }
+
+    // Provider fee captured but wallet TEN missing → surface local settlement failure (no second capture).
+    if (cardCharged && settleFeePence > 0 && !settlement.driverCompensated) {
+      console.error("[pickup-no-show] WALLET_SETTLEMENT_FAILED_AFTER_FEE_CAPTURE", {
+        trip_id,
+        fee_pence: settleFeePence,
+        captured_fee_pence: capturedFeePence,
+      });
+      return errorResponse(
+        "WALLET_SETTLEMENT_FAILED_AFTER_FEE_CAPTURE",
+        "No-show fee was captured but Driver Wallet settlement failed. No second capture.",
+        502,
+      );
+    }
+
     console.log("NO_SHOW_REMATCH_BLOCKED", JSON.stringify({
       trip_id,
       reason: "no_show_is_terminal",
     }));
+
+    // Terminal no-show → same customer active-trip cancel push (deduped tripId:trip_cancelled).
+    void notifyCustomerActiveTripEvent(supabase, {
+      tripId: trip_id,
+      event: "trip_cancelled",
+    });
 
     return successResponse({
       success: true,
@@ -328,6 +362,7 @@ Deno.serve(async (req) => {
       driver_compensated: settlement.driverCompensated,
       customer_debt_pence: settlement.customerDebtPence,
       message: settlement.driverMessage,
+      provider_recapture: false,
     });
   } catch (err) {
     console.error("[pickup-no-show] Error:", err);

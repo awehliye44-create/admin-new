@@ -227,6 +227,10 @@ verify_jwt = false
 [functions.create-payment-recovery]
 verify_jwt = false
 
+# WhatsApp web guest Revolut checkout — anon/public; financial-model gate enforced inside.
+[functions.create-guest-payment-intent]
+verify_jwt = false
+
 [functions.ops-p0-release-duplicate-holds]
 verify_jwt = false
 
@@ -244,6 +248,10 @@ verify_jwt = false
 
 # WhatsApp booking-session expiry sweep — service-role Bearer checked inside.
 [functions.whatsapp-session-expire]
+verify_jwt = false
+
+# WhatsApp web guest trip status — continuation token verified inside.
+[functions.guest-trip-status]
 verify_jwt = false
 
 # Special Offers feeds — JWT validated inside the function (driver vs customer audience).

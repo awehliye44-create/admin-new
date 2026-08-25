@@ -1,4 +1,3 @@
-
 -- Indexes for booking_delivery_log
 CREATE INDEX IF NOT EXISTS idx_bdl_booking_id ON public.booking_delivery_log(booking_id);
 CREATE INDEX IF NOT EXISTS idx_bdl_driver_id ON public.booking_delivery_log(driver_id);
@@ -6,7 +5,6 @@ CREATE INDEX IF NOT EXISTS idx_bdl_offer_id ON public.booking_delivery_log(offer
 CREATE INDEX IF NOT EXISTS idx_bdl_phase ON public.booking_delivery_log(phase);
 CREATE INDEX IF NOT EXISTS idx_bdl_created_at ON public.booking_delivery_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ride_offers_offered_at ON public.ride_offers(offered_at DESC);
-
 -- Aggregated metrics RPC
 CREATE OR REPLACE FUNCTION public.get_dispatch_metrics(
   p_start timestamptz,
@@ -151,6 +149,5 @@ BEGIN
   );
 END;
 $$;
-
 REVOKE ALL ON FUNCTION public.get_dispatch_metrics(timestamptz, timestamptz, uuid, uuid, uuid) FROM public;
 GRANT EXECUTE ON FUNCTION public.get_dispatch_metrics(timestamptz, timestamptz, uuid, uuid, uuid) TO authenticated;

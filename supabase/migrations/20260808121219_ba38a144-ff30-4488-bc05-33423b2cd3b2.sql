@@ -8,4 +8,4 @@ FROM (VALUES
   ('customer_support', false),
   ('compliance_officer', false)
 ) AS r(role, can_access)
-ON CONFLICT (role, page_slug) DO UPDATE SET can_access = EXCLUDED.can_access;
+ON CONFLICT (role, page_slug) DO UPDATE SET can_access = EXCLUDED.can_access;;

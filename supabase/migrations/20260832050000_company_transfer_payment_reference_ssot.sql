@@ -3,17 +3,13 @@
 
 ALTER TABLE public.company_outgoing_transfers
   ADD COLUMN IF NOT EXISTS statement_reference text;
-
 COMMENT ON COLUMN public.company_outgoing_transfers.payment_reference IS
   'Immutable SSOT payment reference (ONECAB-CT|CERT-YYMMDD-######). Backend-generated at create. Never invented by admin.';
-
 COMMENT ON COLUMN public.company_outgoing_transfers.statement_reference IS
   'Optional custom statement label for internal ops. Does not replace payment_reference. Never sent as a substitute for the SSOT ref.';
-
 CREATE UNIQUE INDEX IF NOT EXISTS uq_company_outgoing_transfers_payment_reference
   ON public.company_outgoing_transfers (payment_reference)
   WHERE payment_reference IS NOT NULL AND btrim(payment_reference) <> '';
-
 CREATE TABLE IF NOT EXISTS public.company_transfer_payment_reference_counters (
   ref_day date NOT NULL,
   kind text NOT NULL CHECK (kind IN ('CT', 'CERT')),
@@ -21,10 +17,8 @@ CREATE TABLE IF NOT EXISTS public.company_transfer_payment_reference_counters (
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (ref_day, kind)
 );
-
 COMMENT ON TABLE public.company_transfer_payment_reference_counters IS
   'Daily sequential counters for company transfer payment references (Europe/London calendar day).';
-
 CREATE OR REPLACE FUNCTION public.allocate_company_transfer_payment_reference(
   p_kind text DEFAULT 'CT',
   p_at timestamptz DEFAULT now()
@@ -66,9 +60,7 @@ BEGIN
   RETURN v_ref;
 END;
 $$;
-
 REVOKE ALL ON FUNCTION public.allocate_company_transfer_payment_reference(text, timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.allocate_company_transfer_payment_reference(text, timestamptz) TO service_role;
-
 COMMENT ON FUNCTION public.allocate_company_transfer_payment_reference(text, timestamptz) IS
   'Atomically allocates the next ONECAB-CT|CERT-YYMMDD-###### payment reference for company transfers.';

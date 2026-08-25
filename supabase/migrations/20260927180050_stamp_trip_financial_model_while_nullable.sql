@@ -51,7 +51,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_stamp_trip_financial_model_on_insert ON public.trips;
 DROP TRIGGER IF EXISTS trg_00_stamp_trip_financial_model_on_insert ON public.trips;
 CREATE TRIGGER trg_00_stamp_trip_financial_model_on_insert

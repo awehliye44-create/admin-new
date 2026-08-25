@@ -29,4 +29,4 @@ CREATE INDEX idx_website_enquiries_ip_hash_created_at
 
 CREATE TRIGGER update_website_enquiries_updated_at
 BEFORE UPDATE ON public.website_enquiries
-FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();;

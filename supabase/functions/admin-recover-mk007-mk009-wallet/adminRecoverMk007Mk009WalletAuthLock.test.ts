@@ -248,6 +248,7 @@ Deno.test("method A: exact service-role env secret is accepted", async () => {
           payment_session_status: "trip_created",
           payment_session_lifecycle_mismatch: true,
           payment_session_finalization_required_before_credit: true,
+          proposed_lifecycle_action: { from_status: "trip_created", to_status: "captured" },
           provider_state: "COMPLETED",
           provider_state_verified_at: "2026-08-17T18:50:46.198Z",
           captured_amount_pence: tripId === MK007_ID ? 480 : 798,

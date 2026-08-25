@@ -1,4 +1,3 @@
-
 -- Add missing dispatch columns to global_dispatch_settings (singleton)
 ALTER TABLE public.global_dispatch_settings
   ADD COLUMN IF NOT EXISTS shortlist_limit integer NOT NULL DEFAULT 100,
@@ -45,7 +44,6 @@ ALTER TABLE public.global_dispatch_settings
   ADD COLUMN IF NOT EXISTS driver_fare_display text NOT NULL DEFAULT 'smart_display',
   -- Stacked min stacked_rides count (alias of max_active_rides_per_driver - 1, kept for backend usage)
   ADD COLUMN IF NOT EXISTS max_stacked_rides integer NOT NULL DEFAULT 1;
-
 -- Backfill from existing global dispatch_settings row (service_area_id IS NULL), converting km→meters
 UPDATE public.global_dispatch_settings g
 SET
@@ -101,7 +99,6 @@ SET
   updated_at                      = now()
 FROM (SELECT * FROM public.dispatch_settings WHERE service_area_id IS NULL LIMIT 1) d
 WHERE g.singleton = true;
-
 -- Ensure singleton row exists
 INSERT INTO public.global_dispatch_settings (singleton)
 SELECT true

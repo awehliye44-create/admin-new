@@ -1,4 +1,3 @@
-
 CREATE OR REPLACE VIEW public.dispatchable_drivers AS
 SELECT d.id AS driver_id,
     d.first_name,

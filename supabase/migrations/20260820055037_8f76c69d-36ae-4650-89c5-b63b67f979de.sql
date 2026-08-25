@@ -19,4 +19,4 @@ ALTER TABLE public.support_conversations
      OR (user_type = 'customer' AND channel = 'whatsapp' AND driver_id IS NULL)
      OR (user_type = 'customer' AND channel = 'website' AND driver_id IS NULL)
      OR (user_type = 'driver' AND driver_id IS NOT NULL AND customer_id IS NULL))
-  );
+  );;

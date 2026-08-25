@@ -34,7 +34,6 @@ BEGIN
   RETURN v_cycles * 3;
 END;
 $function$;
-
 -- 2) commit_dispatch_wave: persist wave economics + bump monotonic floor
 CREATE OR REPLACE FUNCTION public.commit_dispatch_wave(
   p_trip_id uuid,
@@ -270,7 +269,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- 3) Repoint expire-offers-sweep cron → Edge expire-offers (keeps 10s cadence)
 CREATE OR REPLACE FUNCTION public.expire_offers_sweep()
 RETURNS void
@@ -336,27 +334,23 @@ BEGIN
   END;
 END;
 $function$;
-
 DO $$
 BEGIN
   PERFORM cron.unschedule('expire-offers-sweep');
 EXCEPTION WHEN OTHERS THEN
   NULL;
 END $$;
-
 SELECT cron.schedule(
   'expire-offers-sweep',
   '10 seconds',
   $$SELECT public.expire_offers_sweep();$$
 );
-
 -- Ensure wave commission columns exist (idempotent; already added 20260813)
 ALTER TABLE public.global_dispatch_settings
   ADD COLUMN IF NOT EXISTS base_driver_commission_percent numeric NOT NULL DEFAULT 15,
   ADD COLUMN IF NOT EXISTS wave1_commission_reduction_percent numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS wave2_commission_reduction_percent numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS wave3_commission_reduction_percent numeric NOT NULL DEFAULT 0;
-
 ALTER TABLE public.ride_offers
   ADD COLUMN IF NOT EXISTS dispatch_wave integer,
   ADD COLUMN IF NOT EXISTS dispatch_round integer,
@@ -364,13 +358,11 @@ ALTER TABLE public.ride_offers
   ADD COLUMN IF NOT EXISTS wave_commission_reduction_percent numeric,
   ADD COLUMN IF NOT EXISTS effective_commission_percent numeric,
   ADD COLUMN IF NOT EXISTS offered_driver_net_pence integer;
-
 ALTER TABLE public.trips
   ADD COLUMN IF NOT EXISTS accepted_dispatch_wave integer,
   ADD COLUMN IF NOT EXISTS accepted_dispatch_round integer,
   ADD COLUMN IF NOT EXISTS accepted_commission_percent numeric,
   ADD COLUMN IF NOT EXISTS max_wave_commission_reduction_percent numeric NOT NULL DEFAULT 0;
-
 -- 4) Legacy composite overload: Max Dispatch Rounds = full cycles × 3
 CREATE OR REPLACE FUNCTION public.dispatch_max_broadcast_rounds(
   p_settings dispatch_settings,

@@ -248,10 +248,8 @@ EXCEPTION
     );
 END;
 $function$;
-
 COMMENT ON FUNCTION public.convert_driver_commission_wallet_on_trip_complete(uuid, uuid, integer, integer, integer) IS
   'Idempotent CW commission deduction. Trip snapshot preferred over current SA config.';
-
 CREATE OR REPLACE FUNCTION public.trg_commission_wallet_on_trip_complete()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -291,13 +289,11 @@ EXCEPTION WHEN OTHERS THEN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_commission_wallet_on_trip_complete ON public.trips;
 CREATE TRIGGER trg_commission_wallet_on_trip_complete
   AFTER INSERT OR UPDATE OF status ON public.trips
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_commission_wallet_on_trip_complete();
-
 CREATE OR REPLACE FUNCTION public.prevent_platform_wallet_ledger_on_cw_trip()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -333,7 +329,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_prevent_platform_wallet_ledger_on_cw_trip ON public.driver_wallet_ledger;
 CREATE TRIGGER trg_prevent_platform_wallet_ledger_on_cw_trip
   BEFORE INSERT ON public.driver_wallet_ledger

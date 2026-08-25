@@ -1,4 +1,3 @@
-
 CREATE OR REPLACE FUNCTION public.enforce_digital_payment_gate()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -71,30 +70,24 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_enforce_digital_payment_gate_ins ON public.trips;
 DROP TRIGGER IF EXISTS trg_enforce_digital_payment_gate_upd ON public.trips;
-
 CREATE TRIGGER trg_enforce_digital_payment_gate_ins
 BEFORE INSERT ON public.trips
 FOR EACH ROW EXECUTE FUNCTION public.enforce_digital_payment_gate();
-
 CREATE TRIGGER trg_enforce_digital_payment_gate_upd
 BEFORE UPDATE OF status ON public.trips
 FOR EACH ROW
 WHEN (OLD.status IS DISTINCT FROM NEW.status)
 EXECUTE FUNCTION public.enforce_digital_payment_gate();
-
 COMMENT ON FUNCTION public.enforce_digital_payment_gate() IS
   'P0 payment gate: digital-payment trips cannot enter dispatch-visible states unless their payment_sessions row shows provider_state AUTHORISED/COMPLETED with matching currency and positive authorised amount.';
-
 UPDATE public.payment_sessions
    SET status = 'payment_orphaned',
        failure_reason = COALESCE(failure_reason, 'PAYMENT_GATE_BREACH_NO_CAPTURE — provider_state remained PENDING, no ORDER_AUTHORISED webhook received'),
        updated_at = now()
  WHERE id = 'e19425a1-0ee4-4907-b84b-61e5e98b7af8'
    AND UPPER(COALESCE(provider_state,'')) = 'PENDING';
-
 INSERT INTO public.audit_logs (event_type, trip_id, details, created_at)
 VALUES (
   'PAYMENT_GATE_BREACH_NO_CAPTURE',

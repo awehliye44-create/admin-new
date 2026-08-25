@@ -407,5 +407,177 @@ export async function relayApprovedDriverPayoutPaymentStatus(args: {
   }
 }
 
+/**
+ * Slice 12 approved company-transfer payment op.
+ * Pass accessToken when REVOLUT_PAYMENT_TRANSPORT_ENABLED=true;
+ * relay forwards validated body to Revolut POST /pay (never raw Edge /pay).
+ * Must not reuse driver-payout-payment path — company transfers are isolated.
+ */
+export async function relayApprovedCompanyTransferPayment(args: {
+  body: Record<string, unknown>;
+  idempotencyKey: string;
+  accessToken?: string;
+  timeoutMs?: number;
+}): Promise<{
+  status: number;
+  error: string | null;
+  revolut_pay_called: boolean;
+  provider_payment_id: string | null;
+  provider_state: string | null;
+  json: Record<string, unknown>;
+}> {
+  const base = getRevolutBusinessRelayBaseUrl();
+  const secret = (Deno.env.get("REVOLUT_BUSINESS_RELAY_SHARED_SECRET") ?? "").trim();
+  if (!base || !secret) {
+    return {
+      status: 0,
+      error: "relay_not_configured",
+      revolut_pay_called: false,
+      provider_payment_id: null,
+      provider_state: null,
+      json: {},
+    };
+  }
+  const path = "/v1/revolut/company-transfer-payment";
+  const raw = JSON.stringify(args.body);
+  const headers = await signedHeaders({
+    method: "POST",
+    path,
+    body: raw,
+    secret,
+    idempotencyKey: args.idempotencyKey,
+  });
+  headers["Content-Type"] = "application/json";
+  if (args.accessToken) headers["x-revolut-access-token"] = args.accessToken;
+  try {
+    const res = await fetchWithTimeout(
+      `${base}${path}`,
+      { method: "POST", headers, body: raw },
+      args.timeoutMs ?? 10_000,
+    );
+    const json = await res.json().catch(() => ({})) as Record<string, unknown>;
+    const err = typeof json?.error === "string"
+      ? json.error
+      : (typeof json?.code === "string" ? json.code : null);
+    const providerPaymentId = typeof json?.provider_payment_id === "string"
+      ? json.provider_payment_id
+      : (typeof json?.id === "string" ? json.id : null);
+    const providerState = typeof json?.provider_state === "string"
+      ? json.provider_state
+      : (typeof json?.state === "string" ? json.state : null);
+    return {
+      status: res.status,
+      error: err,
+      revolut_pay_called: json?.revolut_pay_called === true,
+      provider_payment_id: providerPaymentId,
+      provider_state: providerState,
+      json,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "relay_unreachable";
+    const timedOut = /abort|timeout|unreachable/i.test(msg);
+    return {
+      status: 0,
+      error: timedOut ? "relay_timeout" : "relay_unreachable",
+      revolut_pay_called: Boolean(args.accessToken),
+      provider_payment_id: null,
+      provider_state: null,
+      json: {},
+    };
+  }
+}
+
+/**
+ * Slice 12 read-only company-transfer status: POST relay → Revolut GET /transaction/:id.
+ * Never calls /pay. Never forges completed — returns provider state as-is.
+ */
+export async function relayCompanyTransferPaymentStatus(args: {
+  providerPaymentId: string;
+  transferId?: string;
+  accessToken: string;
+  timeoutMs?: number;
+}): Promise<{
+  status: number;
+  error: string | null;
+  revolut_pay_called: false;
+  provider_payment_id: string | null;
+  provider_state: string | null;
+  completed_at: string | null;
+  created_at: string | null;
+  json: Record<string, unknown>;
+}> {
+  const base = getRevolutBusinessRelayBaseUrl();
+  const secret = (Deno.env.get("REVOLUT_BUSINESS_RELAY_SHARED_SECRET") ?? "").trim();
+  if (!base || !secret) {
+    return {
+      status: 0,
+      error: "relay_not_configured",
+      revolut_pay_called: false,
+      provider_payment_id: null,
+      provider_state: null,
+      completed_at: null,
+      created_at: null,
+      json: {},
+    };
+  }
+  const path = "/v1/revolut/company-transfer-payment-status";
+  const bodyObj: Record<string, unknown> = {
+    provider_payment_id: args.providerPaymentId,
+  };
+  if (args.transferId) bodyObj.transfer_id = args.transferId;
+  const raw = JSON.stringify(bodyObj);
+  const headers = await signedHeaders({
+    method: "POST",
+    path,
+    body: raw,
+    secret,
+    idempotencyKey: `ct-status:${args.providerPaymentId}`,
+  });
+  headers["Content-Type"] = "application/json";
+  headers["x-revolut-access-token"] = args.accessToken;
+  try {
+    const res = await fetchWithTimeout(
+      `${base}${path}`,
+      { method: "POST", headers, body: raw },
+      args.timeoutMs ?? 15_000,
+    );
+    const json = await res.json().catch(() => ({})) as Record<string, unknown>;
+    const err = typeof json?.error === "string"
+      ? json.error
+      : (typeof json?.code === "string" ? json.code : null);
+    const providerPaymentId = typeof json?.provider_payment_id === "string"
+      ? json.provider_payment_id
+      : (typeof json?.id === "string" ? json.id : args.providerPaymentId);
+    const providerState = typeof json?.provider_state === "string"
+      ? json.provider_state
+      : (typeof json?.state === "string" ? json.state : null);
+    const completedAt = typeof json?.completed_at === "string" ? json.completed_at : null;
+    const createdAt = typeof json?.created_at === "string" ? json.created_at : null;
+    return {
+      status: res.status,
+      error: err,
+      revolut_pay_called: false,
+      provider_payment_id: providerPaymentId,
+      provider_state: providerState,
+      completed_at: completedAt,
+      created_at: createdAt,
+      json,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "relay_unreachable";
+    const timedOut = /abort|timeout|unreachable/i.test(msg);
+    return {
+      status: 0,
+      error: timedOut ? "relay_timeout" : "relay_unreachable",
+      revolut_pay_called: false,
+      provider_payment_id: args.providerPaymentId,
+      provider_state: null,
+      completed_at: null,
+      created_at: null,
+      json: {},
+    };
+  }
+}
+
 // silence unused in typecheck contexts
 void timingSafeEqual;

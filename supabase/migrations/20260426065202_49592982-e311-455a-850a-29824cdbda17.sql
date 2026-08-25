@@ -12,12 +12,9 @@ CREATE TABLE public.admin_payment_audit (
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 CREATE INDEX idx_admin_payment_audit_trip_id ON public.admin_payment_audit(trip_id);
 CREATE INDEX idx_admin_payment_audit_created_at ON public.admin_payment_audit(created_at DESC);
-
 ALTER TABLE public.admin_payment_audit ENABLE ROW LEVEL SECURITY;
-
 -- Only admins can read. No insert/update/delete policies => writes only via service role.
 CREATE POLICY "Admins can view payment audit"
 ON public.admin_payment_audit

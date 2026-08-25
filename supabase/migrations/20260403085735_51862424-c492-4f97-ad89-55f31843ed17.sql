@@ -1,4 +1,3 @@
-
 -- Fix driver_financial_summary to use driver_wallet_ledger for wallet balance
 -- matching the Driver App's recalculate_driver_wallet formula exactly:
 -- wallet_balance = SUM(amount_pence) WHERE type NOT IN ('PLATFORM_COMMISSION', 'CASH_TRIP_EARNING')

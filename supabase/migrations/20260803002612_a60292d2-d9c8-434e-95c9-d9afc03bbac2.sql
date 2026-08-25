@@ -211,4 +211,4 @@ AS $$
 $$;
 
 REVOKE ALL ON FUNCTION public.log_demand_zone_event(uuid, uuid, text, jsonb, jsonb, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.log_demand_zone_event(uuid, uuid, text, jsonb, jsonb, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.log_demand_zone_event(uuid, uuid, text, jsonb, jsonb, text) TO service_role;;

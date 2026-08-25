@@ -68,4 +68,4 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS "Admins can read %s" ON public.%I', t, t);
     EXECUTE format('CREATE POLICY "Admins can read %s" ON public.%I FOR SELECT TO authenticated USING (public.has_role(auth.uid(), ''admin''::app_role))', t, t);
   END LOOP;
-END $$;
+END $$;;

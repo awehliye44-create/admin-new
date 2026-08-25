@@ -56,7 +56,6 @@ BEGIN
   RETURN v_account_id;
 END;
 $$;
-
 -- RPC: Suspend a corporate account request
 CREATE OR REPLACE FUNCTION public.suspend_corporate_request(p_request_id uuid, p_reviewed_by text DEFAULT 'Admin')
 RETURNS void
@@ -79,7 +78,6 @@ BEGIN
   END IF;
 END;
 $$;
-
 -- RPC: Suspend a corporate account
 CREATE OR REPLACE FUNCTION public.suspend_corporate_account(p_account_id uuid)
 RETURNS void
@@ -97,7 +95,6 @@ BEGIN
   END IF;
 END;
 $$;
-
 -- RPC: Reactivate a corporate account
 CREATE OR REPLACE FUNCTION public.reactivate_corporate_account(p_account_id uuid)
 RETURNS void

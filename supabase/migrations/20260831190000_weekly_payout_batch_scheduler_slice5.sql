@@ -3,7 +3,6 @@
 -- LIVE_PAYOUT_EXECUTION_ENABLED / REVOLUT_PAYMENT_TRANSPORT_ENABLED stay false.
 
 BEGIN;
-
 -- Retire Monday-only kind constraint; add WEEKLY_SCHEDULED.
 ALTER TABLE public.payout_batches DROP CONSTRAINT IF EXISTS payout_batches_kind_check;
 ALTER TABLE public.payout_batches
@@ -14,7 +13,6 @@ ALTER TABLE public.payout_batches
     'EARLY_CASHOUT'::text,
     'MANUAL_ADMIN'::text
   ]));
-
 ALTER TABLE public.payout_batches
   ADD COLUMN IF NOT EXISTS service_area_id UUID,
   ADD COLUMN IF NOT EXISTS schedule_id TEXT,
@@ -25,16 +23,13 @@ ALTER TABLE public.payout_batches
   ADD COLUMN IF NOT EXISTS timezone TEXT,
   ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GBP',
   ADD COLUMN IF NOT EXISTS eligible_driver_count INTEGER DEFAULT 0;
-
 -- Unique occurrence — retries cannot duplicate a batch.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payout_batches_schedule_occurrence_key
   ON public.payout_batches (schedule_occurrence_key)
   WHERE schedule_occurrence_key IS NOT NULL;
-
 CREATE INDEX IF NOT EXISTS idx_payout_batches_service_area_id
   ON public.payout_batches (service_area_id)
   WHERE service_area_id IS NOT NULL;
-
 -- Widen batch status for Slice 5 lifecycle (keep legacy values).
 ALTER TABLE public.payout_batches DROP CONSTRAINT IF EXISTS payout_batches_status_check;
 ALTER TABLE public.payout_batches ADD CONSTRAINT payout_batches_status_check
@@ -45,7 +40,6 @@ ALTER TABLE public.payout_batches ADD CONSTRAINT payout_batches_status_check
     'COMPLETED', 'FAILED', 'CANCELLED',
     'ELIGIBILITY_SNAPSHOTTED', 'ITEMS_CREATED', 'BLOCKED_EXECUTION_DISABLED'
   ]));
-
 -- Payout item Slice 5 columns.
 ALTER TABLE public.payout_items
   ADD COLUMN IF NOT EXISTS payout_destination_id UUID,
@@ -58,7 +52,6 @@ ALTER TABLE public.payout_items
   ADD COLUMN IF NOT EXISTS execution_status TEXT,
   ADD COLUMN IF NOT EXISTS provider_request_id TEXT,
   ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
-
 ALTER TABLE public.payout_items DROP CONSTRAINT IF EXISTS payout_items_status_check;
 ALTER TABLE public.payout_items ADD CONSTRAINT payout_items_status_check
   CHECK (status = ANY (ARRAY[
@@ -66,20 +59,16 @@ ALTER TABLE public.payout_items ADD CONSTRAINT payout_items_status_check
     'CREATED', 'READY', 'BLOCKED', 'SENT', 'PAID', 'FAILED', 'RETURNED', 'INVALID_ORPHANED',
     'VALIDATED', 'BLOCKED_EXECUTION_DISABLED', 'INELIGIBLE'
   ]));
-
 -- One item per batch+driver.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payout_items_batch_driver_unique
   ON public.payout_items (batch_id, driver_id)
   WHERE batch_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payout_items_provider_request_id
   ON public.payout_items (provider_request_id)
   WHERE provider_request_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payout_items_idempotency_key
   ON public.payout_items (idempotency_key)
   WHERE idempotency_key IS NOT NULL;
-
 -- Seed/update canonical Tuesday 12:00 Europe/London settings (no Monday/01:00).
 INSERT INTO public.admin_settings (setting_key, setting_value, description)
 VALUES
@@ -92,7 +81,6 @@ ON CONFLICT (setting_key) DO UPDATE
 SET
   setting_value = EXCLUDED.setting_value,
   description = COALESCE(EXCLUDED.description, admin_settings.description);
-
 -- Point cron at canonical Slice 5 scheduler (day-agnostic; settings-driven).
 CREATE OR REPLACE FUNCTION public.invoke_weekly_payout_scheduler()
 RETURNS void
@@ -143,10 +131,8 @@ BEGIN
   END;
 END;
 $fn$;
-
 COMMENT ON FUNCTION public.invoke_weekly_payout_scheduler() IS
   'pg_cron: invoke admin-weekly-payout-scheduler (Slice 5). Settings-driven day/time; soft-skips off-schedule.';
-
 -- Ensure job exists at */15 (idempotent re-schedule).
 DO $$
 BEGIN
@@ -154,11 +140,9 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   NULL;
 END $$;
-
 SELECT cron.schedule(
   'weekly-payout-scheduler',
   '*/15 * * * *',
   $$SELECT public.invoke_weekly_payout_scheduler();$$
 );
-
 COMMIT;

@@ -16,10 +16,8 @@ CREATE TABLE IF NOT EXISTS public.user_safety_contacts (
   CONSTRAINT user_safety_contacts_name_not_blank CHECK (length(btrim(contact_name)) > 0),
   CONSTRAINT user_safety_contacts_phone_not_blank CHECK (length(btrim(phone_number)) > 0)
 );
-
 CREATE INDEX IF NOT EXISTS idx_user_safety_contacts_user_id
   ON public.user_safety_contacts (user_id);
-
 CREATE OR REPLACE FUNCTION public.set_user_safety_contacts_updated_at()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -30,13 +28,11 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_user_safety_contacts_updated_at ON public.user_safety_contacts;
 CREATE TRIGGER trg_user_safety_contacts_updated_at
   BEFORE UPDATE ON public.user_safety_contacts
   FOR EACH ROW
   EXECUTE FUNCTION public.set_user_safety_contacts_updated_at();
-
 CREATE OR REPLACE FUNCTION public.enforce_user_safety_contacts_cap()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -54,40 +50,32 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_user_safety_contacts_cap ON public.user_safety_contacts;
 CREATE TRIGGER trg_user_safety_contacts_cap
   BEFORE INSERT ON public.user_safety_contacts
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_user_safety_contacts_cap();
-
 ALTER TABLE public.user_safety_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_safety_contacts FORCE ROW LEVEL SECURITY;
-
 CREATE POLICY "Users select own safety contacts"
   ON public.user_safety_contacts FOR SELECT
   TO authenticated
   USING (auth.uid() = user_id);
-
 CREATE POLICY "Users insert own safety contacts"
   ON public.user_safety_contacts FOR INSERT
   TO authenticated
   WITH CHECK (auth.uid() = user_id);
-
 CREATE POLICY "Users update own safety contacts"
   ON public.user_safety_contacts FOR UPDATE
   TO authenticated
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
-
 CREATE POLICY "Users delete own safety contacts"
   ON public.user_safety_contacts FOR DELETE
   TO authenticated
   USING (auth.uid() = user_id);
-
 REVOKE ALL ON TABLE public.user_safety_contacts FROM PUBLIC;
 REVOKE ALL ON TABLE public.user_safety_contacts FROM anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.user_safety_contacts TO authenticated;
-
 COMMENT ON TABLE public.user_safety_contacts IS
   'User-owned emergency/safety contacts. Owner-only RLS via auth.uid(). Personal data only.';

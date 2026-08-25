@@ -4,7 +4,6 @@
 
 alter table public.onecab_assistant_config
   add column if not exists knowledge_version text not null default 'website-v1';
-
 insert into public.onecab_assistant_config (
   platform,
   enabled,
@@ -38,30 +37,24 @@ on conflict (platform) do update
       max_questions_per_session = excluded.max_questions_per_session,
       max_questions_per_ip_hour = excluded.max_questions_per_ip_hour,
       updated_at = now();
-
 -- Keep website knowledge version labelled; do not flip website.enabled.
 update public.onecab_assistant_config
   set knowledge_version = coalesce(nullif(knowledge_version, ''), 'website-v1')
   where platform = 'website';
-
 update public.onecab_assistant_config
   set enabled = false
   where platform in ('customer_app', 'corporate_portal');
-
 insert into public.onecab_assistant_config (platform, enabled, knowledge_version)
 values
   ('customer_app', false, 'disabled'),
   ('corporate_portal', false, 'disabled')
 on conflict (platform) do update
   set enabled = false;
-
 alter table public.onecab_assistant_rate_limits
   drop constraint if exists onecab_assistant_rate_limits_scope_check;
-
 alter table public.onecab_assistant_rate_limits
   add constraint onecab_assistant_rate_limits_scope_check
   check (scope in ('session', 'ip', 'identity', 'device'));
-
 -- Platform-scoped usage so website and driver_app budgets stay separate.
 create or replace function public.onecab_assistant_usage_for_platform(p_platform text)
 returns table (day_usd numeric, month_usd numeric)
@@ -76,10 +69,8 @@ as $$
   from public.onecab_assistant_events
   where platform = p_platform;
 $$;
-
 revoke all on function public.onecab_assistant_usage_for_platform(text) from public, anon, authenticated;
 grant execute on function public.onecab_assistant_usage_for_platform(text) to service_role;
-
 -- Existing no-arg usage stays website-only so mixed events cannot share the website cap.
 create or replace function public.onecab_assistant_usage()
 returns table (day_usd numeric, month_usd numeric)
@@ -94,10 +85,8 @@ as $$
   from public.onecab_assistant_events
   where platform = 'website';
 $$;
-
 -- Recreate quota RPC with optional identity + device scopes (backward compatible defaults).
 drop function if exists public.onecab_assistant_consume_quota(text, text, text, integer, integer);
-
 create or replace function public.onecab_assistant_consume_quota(
   p_session_ref text,
   p_ip_hash text,
@@ -182,20 +171,16 @@ begin
   return query select true, null::text;
 end;
 $$;
-
 revoke all on function public.onecab_assistant_consume_quota(text, text, text, integer, integer, text, integer, text, integer)
   from public, anon, authenticated;
 grant execute on function public.onecab_assistant_consume_quota(text, text, text, integer, integer, text, integer, text, integer)
   to service_role;
-
 revoke all on public.onecab_assistant_config from anon, authenticated;
 grant all on public.onecab_assistant_config to service_role;
 alter table public.onecab_assistant_config enable row level security;
-
 revoke all on public.onecab_assistant_events from anon, authenticated;
 grant all on public.onecab_assistant_events to service_role;
 alter table public.onecab_assistant_events enable row level security;
-
 revoke all on public.onecab_assistant_rate_limits from anon, authenticated;
 grant all on public.onecab_assistant_rate_limits to service_role;
 alter table public.onecab_assistant_rate_limits enable row level security;

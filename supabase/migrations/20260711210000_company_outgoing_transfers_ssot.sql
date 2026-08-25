@@ -47,7 +47,6 @@ CREATE TABLE IF NOT EXISTS public.company_outgoing_transfers (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_company_outgoing_transfers_status_created
   ON public.company_outgoing_transfers (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_company_outgoing_transfers_category
@@ -55,7 +54,6 @@ CREATE INDEX IF NOT EXISTS idx_company_outgoing_transfers_category
 CREATE INDEX IF NOT EXISTS idx_company_outgoing_transfers_batch
   ON public.company_outgoing_transfers (batch_id)
   WHERE batch_id IS NOT NULL;
-
 CREATE TABLE IF NOT EXISTS public.company_outgoing_transfer_approvals (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   transfer_id uuid NOT NULL REFERENCES public.company_outgoing_transfers(id) ON DELETE CASCADE,
@@ -65,7 +63,6 @@ CREATE TABLE IF NOT EXISTS public.company_outgoing_transfer_approvals (
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (transfer_id, approver_id)
 );
-
 CREATE TABLE IF NOT EXISTS public.company_outgoing_transfer_audit (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   transfer_id uuid NOT NULL REFERENCES public.company_outgoing_transfers(id) ON DELETE CASCADE,
@@ -82,10 +79,8 @@ CREATE TABLE IF NOT EXISTS public.company_outgoing_transfer_audit (
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_company_outgoing_transfer_audit_transfer
   ON public.company_outgoing_transfer_audit (transfer_id, created_at DESC);
-
 CREATE TABLE IF NOT EXISTS public.company_outgoing_batches (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   batch_ref text NOT NULL UNIQUE,
@@ -110,18 +105,15 @@ CREATE TABLE IF NOT EXISTS public.company_outgoing_batches (
   created_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 ALTER TABLE public.company_outgoing_transfers
   DROP CONSTRAINT IF EXISTS company_outgoing_transfers_batch_id_fkey;
 ALTER TABLE public.company_outgoing_transfers
   ADD CONSTRAINT company_outgoing_transfers_batch_id_fkey
   FOREIGN KEY (batch_id) REFERENCES public.company_outgoing_batches(id) ON DELETE SET NULL;
-
 ALTER TABLE public.company_outgoing_transfers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.company_outgoing_transfer_approvals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.company_outgoing_transfer_audit ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.company_outgoing_batches ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY company_outgoing_transfers_service_role
   ON public.company_outgoing_transfers FOR ALL TO service_role
   USING (true) WITH CHECK (true);
@@ -129,7 +121,6 @@ CREATE POLICY company_outgoing_transfers_admin_all
   ON public.company_outgoing_transfers FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'::public.app_role))
   WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role));
-
 CREATE POLICY company_outgoing_approvals_service_role
   ON public.company_outgoing_transfer_approvals FOR ALL TO service_role
   USING (true) WITH CHECK (true);
@@ -137,7 +128,6 @@ CREATE POLICY company_outgoing_approvals_admin_all
   ON public.company_outgoing_transfer_approvals FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'::public.app_role))
   WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role));
-
 CREATE POLICY company_outgoing_audit_service_role
   ON public.company_outgoing_transfer_audit FOR ALL TO service_role
   USING (true) WITH CHECK (true);
@@ -153,12 +143,10 @@ CREATE POLICY company_outgoing_batches_admin_all
   ON public.company_outgoing_batches FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'::public.app_role))
   WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role));
-
 COMMENT ON TABLE public.company_outgoing_transfers IS
   'Payout Ledger SSOT — company outgoing money only. Never driver wallet or payment sessions.';
 COMMENT ON TABLE public.company_outgoing_transfer_audit IS
   'Append-only audit for company outgoing transfers. Never delete.';
-
 INSERT INTO public.admin_settings (setting_key, setting_value, description)
 VALUES
   ('company_transfer_approval_single_max_pence', '25000', 'Single approval max (inclusive) for company transfers'),

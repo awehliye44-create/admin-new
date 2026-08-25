@@ -3,6 +3,11 @@ import {
   releaseRevolutPreauthForTrip,
   resolveRevolutOrderIdFromTrip,
 } from "../_shared/revolutPreauthReleaseSSOT.ts";
+import {
+  mapFeeTypeToChargedOutcome,
+  postChargedFeeTenViaRfo,
+  resolveAssignedDriverId,
+} from "../_shared/chargedTerminalFeeWalletSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -92,7 +97,7 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, passenger_id, service_area_id, vehicle_type_id, currency_code, arrived_at, created_at, scheduled_at, payment_method, payment_provider, provider_order_id, status, financial_model",
+        "id, passenger_id, driver_id, confirmed_driver_id, service_area_id, vehicle_type_id, currency_code, arrived_at, created_at, scheduled_at, payment_method, payment_provider, provider_order_id, status, financial_model",
       )
       .eq("id", trip_id)
       .single();
@@ -226,14 +231,16 @@ Deno.serve(async (req) => {
         revolutRelease.status === "captured";
 
       const currency = trip.currency_code?.toLowerCase() || "gbp";
+      let walletSettlementStatus: string = "NOT_REQUIRED";
       if (charged) {
+        const captured = feeCaptured || amount_pence;
         await supabase.from("payments").insert({
           trip_id,
           fee_type,
           payment_provider: "revolut",
           provider_order_id: revolutOrderId,
           status: "captured",
-          amount_pence: feeCaptured || amount_pence,
+          amount_pence: captured,
           currency,
           capture_method: "revolut_partial_capture",
           metadata: {
@@ -251,11 +258,67 @@ Deno.serve(async (req) => {
           arrival_cancellation: "arrival_cancellation_fee",
         };
         const col = feeColumn[fee_type];
-        if (col) {
-          await supabase
-            .from("trips")
-            .update({ [col]: feeCaptured || amount_pence })
-            .eq("id", trip_id);
+        const tripPatch: Record<string, unknown> = {};
+        if (col) tripPatch[col] = captured;
+        if (fee_type === "late_cancel") {
+          tripPatch.late_cancel_fee_pence = captured;
+        }
+        // Terminal cancellation/protection fees are non-commissionable driver compensation.
+        let chargedOutcome: string | null = null;
+        if (fee_type !== "waiting_surcharge" && captured > 0) {
+          chargedOutcome = mapFeeTypeToChargedOutcome(fee_type) ?? "CANCELLED_WITH_FEE";
+          tripPatch.financial_outcome = chargedOutcome;
+          tripPatch.commission_pence = 0;
+          tripPatch.commission_pct = 0;
+          tripPatch.driver_net_pence = captured;
+          tripPatch.driver_net_before_tip_pence = captured;
+          tripPatch.gross_fare_pence = captured;
+        }
+        if (Object.keys(tripPatch).length > 0) {
+          tripPatch.updated_at = new Date().toISOString();
+          await supabase.from("trips").update(tripPatch).eq("id", trip_id);
+        }
+
+        // Post TEN after proven capture (idempotent with pickup-no-show settle / RFO).
+        if (chargedOutcome && captured > 0) {
+          const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+          const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+          const wallet = await postChargedFeeTenViaRfo({
+            supabaseUrl,
+            serviceRoleKey,
+            tripId: trip_id,
+            driverId: resolveAssignedDriverId({
+              driver_id: trip.driver_id,
+              confirmed_driver_id: trip.confirmed_driver_id,
+            }),
+            outcome: chargedOutcome,
+            feePence: captured,
+            paymentMethod: trip.payment_method ?? null,
+            disposition: { captured_fee_pence: captured },
+          });
+          walletSettlementStatus = wallet.status;
+          if (wallet.status !== "SUCCEEDED") {
+            console.error("[CHARGE-LIFECYCLE-FEE] WALLET_SETTLEMENT_FAILED_AFTER_FEE_CAPTURE", {
+              trip_id,
+              fee_type,
+              captured,
+              wallet,
+            });
+            return new Response(
+              JSON.stringify({
+                success: false,
+                charged: true,
+                amount_pence: captured,
+                fee_type,
+                error_code: "WALLET_SETTLEMENT_FAILED_AFTER_FEE_CAPTURE",
+                wallet_settlement_status: wallet.status,
+                wallet_settlement_error: wallet.error ?? null,
+                message:
+                  "Fee was captured but Driver Wallet settlement failed. No second capture.",
+              }),
+              { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
         }
       }
 
@@ -271,6 +334,7 @@ Deno.serve(async (req) => {
           fee_type,
           revolut_status: revolutRelease.status,
           released: revolutRelease.released,
+          wallet_settlement_status: walletSettlementStatus,
           error: revolutRelease.error,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },

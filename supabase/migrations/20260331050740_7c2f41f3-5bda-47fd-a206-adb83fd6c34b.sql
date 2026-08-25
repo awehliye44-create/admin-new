@@ -1,4 +1,3 @@
-
 -- ============================================================
 -- ONECAB Ops Intelligence - Phase 1: Foundation Tables
 -- ============================================================
@@ -32,18 +31,15 @@ CREATE TABLE IF NOT EXISTS public.ops_alerts (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 -- Unique constraint on fingerprint to enable upsert dedup
 CREATE UNIQUE INDEX IF NOT EXISTS ops_alerts_fingerprint_open_idx 
   ON public.ops_alerts (fingerprint) WHERE status IN ('open', 'acknowledged');
-
 CREATE INDEX IF NOT EXISTS ops_alerts_category_idx ON public.ops_alerts (category);
 CREATE INDEX IF NOT EXISTS ops_alerts_severity_idx ON public.ops_alerts (severity);
 CREATE INDEX IF NOT EXISTS ops_alerts_status_idx ON public.ops_alerts (status);
 CREATE INDEX IF NOT EXISTS ops_alerts_last_detected_idx ON public.ops_alerts (last_detected_at DESC);
 CREATE INDEX IF NOT EXISTS ops_alerts_source_idx ON public.ops_alerts (source);
 CREATE INDEX IF NOT EXISTS ops_alerts_app_idx ON public.ops_alerts (app);
-
 -- 2. SYSTEM LOGS - Structured operational logs
 CREATE TABLE IF NOT EXISTS public.ops_logs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -61,14 +57,12 @@ CREATE TABLE IF NOT EXISTS public.ops_logs (
   metadata jsonb DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS ops_logs_level_idx ON public.ops_logs (level);
 CREATE INDEX IF NOT EXISTS ops_logs_source_idx ON public.ops_logs (source);
 CREATE INDEX IF NOT EXISTS ops_logs_app_idx ON public.ops_logs (app);
 CREATE INDEX IF NOT EXISTS ops_logs_created_at_idx ON public.ops_logs (created_at DESC);
 CREATE INDEX IF NOT EXISTS ops_logs_trip_id_idx ON public.ops_logs (trip_id) WHERE trip_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ops_logs_error_code_idx ON public.ops_logs (error_code) WHERE error_code IS NOT NULL;
-
 -- 3. OPS EVENTS - Unified event stream for financial and operational events
 -- Replaces separate payment_events, commission_events, etc. with a single polymorphic table
 CREATE TABLE IF NOT EXISTS public.ops_events (
@@ -92,7 +86,6 @@ CREATE TABLE IF NOT EXISTS public.ops_events (
   alert_id uuid REFERENCES public.ops_alerts(id),
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS ops_events_type_idx ON public.ops_events (event_type);
 CREATE INDEX IF NOT EXISTS ops_events_category_idx ON public.ops_events (category);
 CREATE INDEX IF NOT EXISTS ops_events_severity_idx ON public.ops_events (severity);
@@ -101,7 +94,6 @@ CREATE INDEX IF NOT EXISTS ops_events_trip_id_idx ON public.ops_events (trip_id)
 CREATE INDEX IF NOT EXISTS ops_events_driver_id_idx ON public.ops_events (driver_id) WHERE driver_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ops_events_alert_id_idx ON public.ops_events (alert_id) WHERE alert_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ops_events_resolved_idx ON public.ops_events (resolved) WHERE resolved = false;
-
 -- 4. ALERT RULES - Configurable rules for alert generation
 CREATE TABLE IF NOT EXISTS public.ops_alert_rules (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -119,7 +111,6 @@ CREATE TABLE IF NOT EXISTS public.ops_alert_rules (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 -- 5. AI INCIDENT SUMMARIES
 CREATE TABLE IF NOT EXISTS public.ops_ai_summaries (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -132,9 +123,7 @@ CREATE TABLE IF NOT EXISTS public.ops_ai_summaries (
   generated_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS ops_ai_summaries_alert_id_idx ON public.ops_ai_summaries (alert_id);
-
 -- 6. updated_at triggers
 CREATE OR REPLACE FUNCTION public.ops_set_updated_at()
 RETURNS trigger
@@ -146,43 +135,34 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE TRIGGER ops_alerts_updated_at
   BEFORE UPDATE ON public.ops_alerts
   FOR EACH ROW EXECUTE FUNCTION public.ops_set_updated_at();
-
 CREATE TRIGGER ops_alert_rules_updated_at
   BEFORE UPDATE ON public.ops_alert_rules
   FOR EACH ROW EXECUTE FUNCTION public.ops_set_updated_at();
-
 -- 7. Enable RLS (admin-only access)
 ALTER TABLE public.ops_alerts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ops_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ops_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ops_alert_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ops_ai_summaries ENABLE ROW LEVEL SECURITY;
-
 -- RLS Policies: authenticated users with admin role can access
 CREATE POLICY "Admins can manage ops_alerts"
   ON public.ops_alerts FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Admins can manage ops_logs"
   ON public.ops_logs FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Admins can manage ops_events"
   ON public.ops_events FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Admins can manage ops_alert_rules"
   ON public.ops_alert_rules FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Admins can manage ops_ai_summaries"
   ON public.ops_ai_summaries FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
-
 -- 8. Seed default alert rules
 INSERT INTO public.ops_alert_rules (name, category, event_type, severity, threshold_count, threshold_window_minutes, cooldown_minutes) VALUES
   ('Failed Payment Alert', 'payment', 'payment_failed', 'critical', 1, 5, 15),
@@ -203,6 +183,5 @@ INSERT INTO public.ops_alert_rules (name, category, event_type, severity, thresh
   ('Booking Drop-off', 'dispatch', 'booking_dropped', 'warning', 3, 30, 60),
   ('High Error Log Rate', 'logs', 'error_spike', 'critical', 10, 5, 15),
   ('Latency Spike', 'api', 'latency_spike', 'warning', 5, 10, 20);
-
 -- 9. Enable realtime for ops_alerts
 ALTER PUBLICATION supabase_realtime ADD TABLE public.ops_alerts;

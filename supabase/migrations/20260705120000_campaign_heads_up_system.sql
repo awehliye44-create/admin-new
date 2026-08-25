@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS public.campaign_heads_up_templates (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE TABLE IF NOT EXISTS public.campaign_heads_up_campaigns (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   template_id uuid REFERENCES public.campaign_heads_up_templates(id) ON DELETE SET NULL,
@@ -64,7 +63,6 @@ CREATE TABLE IF NOT EXISTS public.campaign_heads_up_campaigns (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE TABLE IF NOT EXISTS public.campaign_heads_up_deliveries (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   campaign_id uuid NOT NULL REFERENCES public.campaign_heads_up_campaigns(id) ON DELETE CASCADE,
@@ -81,54 +79,44 @@ CREATE TABLE IF NOT EXISTS public.campaign_heads_up_deliveries (
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (campaign_id, user_id, user_app)
 );
-
 CREATE INDEX IF NOT EXISTS idx_campaign_heads_up_campaigns_status ON public.campaign_heads_up_campaigns(status);
 CREATE INDEX IF NOT EXISTS idx_campaign_heads_up_campaigns_scheduled_at ON public.campaign_heads_up_campaigns(scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_campaign_heads_up_deliveries_campaign ON public.campaign_heads_up_deliveries(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_campaign_heads_up_deliveries_user ON public.campaign_heads_up_deliveries(user_id);
-
 ALTER TABLE public.campaign_heads_up_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.campaign_heads_up_campaigns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.campaign_heads_up_deliveries ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Staff read campaign templates"
   ON public.campaign_heads_up_templates FOR SELECT
   TO authenticated
   USING (true);
-
 CREATE POLICY "Staff manage campaign templates"
   ON public.campaign_heads_up_templates FOR ALL
   TO authenticated
   USING (true)
   WITH CHECK (true);
-
 CREATE POLICY "Staff read campaigns"
   ON public.campaign_heads_up_campaigns FOR SELECT
   TO authenticated
   USING (true);
-
 CREATE POLICY "Staff manage campaigns"
   ON public.campaign_heads_up_campaigns FOR ALL
   TO authenticated
   USING (true)
   WITH CHECK (true);
-
 CREATE POLICY "Users read own campaign deliveries"
   ON public.campaign_heads_up_deliveries FOR SELECT
   TO authenticated
   USING (auth.uid() = user_id);
-
 CREATE POLICY "Staff read all campaign deliveries"
   ON public.campaign_heads_up_deliveries FOR SELECT
   TO authenticated
   USING (true);
-
 CREATE POLICY "Users update own campaign deliveries"
   ON public.campaign_heads_up_deliveries FOR UPDATE
   TO authenticated
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
-
 CREATE OR REPLACE FUNCTION public.bump_campaign_heads_up_delivery_counts()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -150,13 +138,11 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_bump_campaign_heads_up_delivery_counts ON public.campaign_heads_up_deliveries;
 CREATE TRIGGER trg_bump_campaign_heads_up_delivery_counts
   AFTER UPDATE OF status ON public.campaign_heads_up_deliveries
   FOR EACH ROW
   EXECUTE FUNCTION public.bump_campaign_heads_up_delivery_counts();
-
 INSERT INTO public.campaign_heads_up_templates (
   slug, category, name, title, subtitle, emoji, accent_color, gradient_from, gradient_to,
   cta_label, cta_url, deep_link, default_target_app

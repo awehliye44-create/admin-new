@@ -1,7 +1,5 @@
-
 -- Enable PostGIS
 CREATE EXTENSION IF NOT EXISTS postgis SCHEMA extensions;
-
 -- Create driver_live_locations table
 CREATE TABLE IF NOT EXISTS public.driver_live_locations (
   driver_id uuid PRIMARY KEY REFERENCES public.drivers(id) ON DELETE CASCADE,
@@ -13,18 +11,14 @@ CREATE TABLE IF NOT EXISTS public.driver_live_locations (
   heading real NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_dll_loc ON public.driver_live_locations USING GIST (loc);
 CREATE INDEX IF NOT EXISTS idx_dll_geohash6 ON public.driver_live_locations (geohash6);
 CREATE INDEX IF NOT EXISTS idx_dll_updated_at ON public.driver_live_locations (updated_at);
-
 ALTER TABLE public.driver_live_locations ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Admin full access to driver_live_locations"
   ON public.driver_live_locations FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'))
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 -- Add columns to drivers
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='drivers' AND column_name='last_offer_at') THEN
@@ -37,14 +31,12 @@ DO $$ BEGIN
     ALTER TABLE public.drivers ADD COLUMN online_since timestamptz NULL;
   END IF;
 END $$;
-
 -- Add dispatch_weight to driver_categories
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='driver_categories' AND column_name='dispatch_weight') THEN
     ALTER TABLE public.driver_categories ADD COLUMN dispatch_weight integer NOT NULL DEFAULT 10;
   END IF;
 END $$;
-
 -- Add new dispatch settings columns
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='dispatch_settings' AND column_name='search_radius_start_km') THEN
@@ -62,7 +54,6 @@ DO $$ BEGIN
     ALTER TABLE public.dispatch_settings ADD COLUMN fairness_boost_score real NOT NULL DEFAULT 10;
   END IF;
 END $$;
-
 -- Dispatch candidates log
 CREATE TABLE IF NOT EXISTS public.dispatch_candidates_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -77,11 +68,8 @@ CREATE TABLE IF NOT EXISTS public.dispatch_candidates_log (
   offer_result text NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_dcl_trip ON public.dispatch_candidates_log (trip_id);
-
 ALTER TABLE public.dispatch_candidates_log ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Admin access dispatch_candidates_log"
   ON public.dispatch_candidates_log FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'))

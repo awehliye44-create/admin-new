@@ -1,4 +1,3 @@
-
 -- Fix admin panel detection to use 'admin_panel' category instead of 'system'
 CREATE OR REPLACE FUNCTION ops_detect_admin_panel_issues() RETURNS jsonb LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;
@@ -26,7 +25,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('admin_panel_issues', 0, 'note', 'table not found');
 END;
 $$;
-
 -- Also add corporate_web to the health cards category list
 -- Update existing admin_panel alerts from 'system' to 'admin_panel' category
 UPDATE ops_alerts SET category = 'admin_panel' WHERE app = 'admin_panel' AND category = 'system';

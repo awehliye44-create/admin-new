@@ -1,4 +1,3 @@
-
 -- Fix search_path on generate_invoice_number
 CREATE OR REPLACE FUNCTION public.generate_invoice_number()
 RETURNS TEXT

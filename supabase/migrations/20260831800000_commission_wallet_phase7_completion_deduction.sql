@@ -105,10 +105,8 @@ BEGIN
   RETURN NEXT;
 END;
 $$;
-
 COMMENT ON FUNCTION public.driver_commission_wallet_balance_parts(uuid, uuid) IS
   'Phase 7: purchased / promotional / reserved / usable from immutable CW ledger.';
-
 CREATE OR REPLACE FUNCTION public.convert_driver_commission_wallet_on_trip_complete(
   p_driver_id uuid,
   p_trip_id uuid,
@@ -446,10 +444,8 @@ EXCEPTION
     );
 END;
 $$;
-
 COMMENT ON FUNCTION public.convert_driver_commission_wallet_on_trip_complete(uuid, uuid, integer, integer, integer) IS
   'Phase 7: convert active CW reserve and write one COMMISSION_DEDUCTION per trip. No-op when CW gate off.';
-
 GRANT EXECUTE ON FUNCTION public.driver_commission_wallet_balance_parts(uuid, uuid)
   TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.convert_driver_commission_wallet_on_trip_complete(uuid, uuid, integer, integer, integer)

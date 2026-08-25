@@ -56,12 +56,9 @@ BEGIN
   RETURN v_usable >= v_required;
 END;
 $$;
-
 COMMENT ON FUNCTION public.driver_passes_commission_wallet_dispatch_gate(uuid, uuid) IS
   'Phase 6: true when CW reserve gate is off or driver usable balance covers estimated commission reserve.';
-
 GRANT EXECUTE ON FUNCTION public.driver_passes_commission_wallet_dispatch_gate(uuid, uuid) TO authenticated, service_role;
-
 -- 2) Patch SQL dispatch_trip_offers with CW soft gate (Scan & Go + emergency waves).
 CREATE OR REPLACE FUNCTION public.dispatch_trip_offers(p_trip_id uuid, p_internal boolean DEFAULT false)
 RETURNS void
@@ -364,10 +361,8 @@ BEGIN
 END;
 
 $function$;
-
 COMMENT ON FUNCTION public.dispatch_trip_offers(uuid, boolean) IS
   'SQL dispatch (Scan & Go / emergency). Phase 6: filters drivers via driver_passes_commission_wallet_dispatch_gate when CW reserve enabled.';
-
 -- 3) Reserve on INSERT assignment as well as UPDATE OF driver_id.
 CREATE OR REPLACE FUNCTION public.trg_commission_wallet_on_trip_assignment()
 RETURNS trigger
@@ -415,13 +410,11 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_commission_wallet_on_trip_assignment ON public.trips;
 CREATE TRIGGER trg_commission_wallet_on_trip_assignment
   AFTER INSERT OR UPDATE OF driver_id ON public.trips
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_commission_wallet_on_trip_assignment();
-
 -- 4) Tighten SA consistency: reserve cannot be on unless wallet is enabled.
 UPDATE public.service_areas
 SET commission_reserve_enabled = false
@@ -430,7 +423,6 @@ WHERE commission_reserve_enabled = true
     financial_model <> 'DRIVER_COLLECTED_COMMISSION_WALLET'
     OR commission_wallet_enabled IS NOT TRUE
   );
-
 ALTER TABLE public.service_areas
   DROP CONSTRAINT IF EXISTS service_areas_commission_wallet_model_consistency;
 ALTER TABLE public.service_areas

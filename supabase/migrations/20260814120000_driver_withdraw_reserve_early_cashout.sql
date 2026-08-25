@@ -4,7 +4,6 @@
 -- Isolated migration — do not bundle with unrelated finance WIP.
 
 BEGIN;
-
 CREATE OR REPLACE FUNCTION public.reserve_driver_payout_item(p_payout_item_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -393,7 +392,6 @@ EXCEPTION
     RETURN jsonb_build_object('ok', false, 'error_code', 'ACTIVE_RESERVATION_EXISTS');
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.finalize_driver_payout_completion(p_payout_item_id uuid, p_provider_payment_id text, p_provider_state text, p_provider_completed_at timestamp with time zone DEFAULT NULL::timestamp with time zone, p_evidence_redacted jsonb DEFAULT '{}'::jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -806,7 +804,6 @@ BEGIN
   );
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.driver_wallet_summary_ssot(p_driver_id uuid, p_service_area_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -1026,5 +1023,4 @@ BEGIN
   );
 END;
 $function$;
-
 COMMIT;

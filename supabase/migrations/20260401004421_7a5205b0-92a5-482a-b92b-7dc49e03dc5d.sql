@@ -1,4 +1,3 @@
-
 -- Auto-resolve stale alerts function
 -- Resolves alerts that are older than a configurable window (default 6 hours)
 -- and auto-resolves performance alerts when P95 metrics are now healthy

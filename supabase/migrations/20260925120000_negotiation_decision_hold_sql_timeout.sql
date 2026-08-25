@@ -40,7 +40,6 @@ AS $function$
     LIMIT 1
   );
 $function$;
-
 CREATE OR REPLACE FUNCTION public.expire_stale_negotiations()
 RETURNS jsonb
 LANGUAGE plpgsql

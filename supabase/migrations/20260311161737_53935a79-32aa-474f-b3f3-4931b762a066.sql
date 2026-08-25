@@ -1,19 +1,15 @@
-
 -- Create staff role enum
 CREATE TYPE public.staff_role AS ENUM (
   'super_admin', 'admin', 'operator', 'finance_manager', 'customer_support', 'compliance_officer'
 );
-
 -- Staff ID sequences per role prefix
 CREATE TABLE public.staff_id_sequences (
   role_prefix TEXT PRIMARY KEY,
   current_value INTEGER NOT NULL DEFAULT 0,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 INSERT INTO public.staff_id_sequences (role_prefix) VALUES 
   ('SA'), ('AD'), ('OP'), ('FM'), ('CS'), ('CO');
-
 -- Staff profiles with auto-generated human-friendly IDs
 CREATE TABLE public.staff_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -27,21 +23,15 @@ CREATE TABLE public.staff_profiles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 ALTER TABLE public.staff_profiles ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Staff profiles viewable by authenticated" ON public.staff_profiles
   FOR SELECT TO authenticated USING (true);
-
 CREATE POLICY "Staff profiles insert by admin" ON public.staff_profiles
   FOR INSERT TO authenticated WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Staff profiles update by admin" ON public.staff_profiles
   FOR UPDATE TO authenticated USING (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Staff profiles delete by admin" ON public.staff_profiles
   FOR DELETE TO authenticated USING (public.has_role(auth.uid(), 'admin'));
-
 -- Staff service area assignments
 CREATE TABLE public.staff_service_areas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -50,21 +40,15 @@ CREATE TABLE public.staff_service_areas (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(staff_id, service_area_id)
 );
-
 ALTER TABLE public.staff_service_areas ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Staff service areas viewable by authenticated" ON public.staff_service_areas
   FOR SELECT TO authenticated USING (true);
-
 CREATE POLICY "Staff service areas insert by admin" ON public.staff_service_areas
   FOR INSERT TO authenticated WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Staff service areas update by admin" ON public.staff_service_areas
   FOR UPDATE TO authenticated USING (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Staff service areas delete by admin" ON public.staff_service_areas
   FOR DELETE TO authenticated USING (public.has_role(auth.uid(), 'admin'));
-
 -- Role page permissions (defines which roles can access which pages)
 CREATE TABLE public.role_page_permissions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -75,21 +59,15 @@ CREATE TABLE public.role_page_permissions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(role, page_slug)
 );
-
 ALTER TABLE public.role_page_permissions ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Role permissions viewable by authenticated" ON public.role_page_permissions
   FOR SELECT TO authenticated USING (true);
-
 CREATE POLICY "Role permissions insert by admin" ON public.role_page_permissions
   FOR INSERT TO authenticated WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Role permissions update by admin" ON public.role_page_permissions
   FOR UPDATE TO authenticated USING (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Role permissions delete by admin" ON public.role_page_permissions
   FOR DELETE TO authenticated USING (public.has_role(auth.uid(), 'admin'));
-
 -- Function to get role prefix from staff_role
 CREATE OR REPLACE FUNCTION public.get_staff_role_prefix(p_role staff_role)
 RETURNS TEXT
@@ -106,7 +84,6 @@ AS $$
     WHEN 'compliance_officer' THEN 'CO'
   END;
 $$;
-
 -- Auto-generate staff_role_id on INSERT
 CREATE OR REPLACE FUNCTION public.generate_staff_role_id()
 RETURNS TRIGGER
@@ -130,12 +107,10 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE TRIGGER tr_generate_staff_role_id
   BEFORE INSERT ON public.staff_profiles
   FOR EACH ROW
   EXECUTE FUNCTION public.generate_staff_role_id();
-
 -- Re-generate staff_role_id when role changes
 CREATE OR REPLACE FUNCTION public.update_staff_role_id_on_change()
 RETURNS TRIGGER
@@ -161,19 +136,16 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE TRIGGER tr_update_staff_role_id
   BEFORE UPDATE ON public.staff_profiles
   FOR EACH ROW
   WHEN (NEW.role IS DISTINCT FROM OLD.role)
   EXECUTE FUNCTION public.update_staff_role_id_on_change();
-
 -- updated_at trigger
 CREATE TRIGGER tr_staff_profiles_updated_at
   BEFORE UPDATE ON public.staff_profiles
   FOR EACH ROW
   EXECUTE FUNCTION public.update_updated_at_column();
-
 -- Sync staff to user_roles for RLS compatibility (all staff get admin role)
 CREATE OR REPLACE FUNCTION public.sync_staff_user_role()
 RETURNS TRIGGER
@@ -188,12 +160,10 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE TRIGGER tr_sync_staff_user_role
   AFTER INSERT ON public.staff_profiles
   FOR EACH ROW
   EXECUTE FUNCTION public.sync_staff_user_role();
-
 -- Seed default role page permissions
 DO $$
 DECLARE

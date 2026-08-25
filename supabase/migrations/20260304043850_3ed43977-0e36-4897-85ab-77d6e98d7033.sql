@@ -1,10 +1,7 @@
-
 -- Create app_scope enum
 CREATE TYPE public.app_scope AS ENUM ('customer', 'driver', 'corporate', 'shared');
-
 -- Create content_status enum
 CREATE TYPE public.content_status AS ENUM ('draft', 'published');
-
 -- Create content_items table
 CREATE TABLE public.content_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -22,21 +19,17 @@ CREATE TABLE public.content_items (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (app_scope, slug, version)
 );
-
 -- Enable RLS
 ALTER TABLE public.content_items ENABLE ROW LEVEL SECURITY;
-
 -- Admin can do everything
 CREATE POLICY "Admins can manage content"
 ON public.content_items FOR ALL TO authenticated
 USING (public.has_role(auth.uid(), 'admin'))
 WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 -- Public read for published content (for apps/website)
 CREATE POLICY "Anyone can read published content"
 ON public.content_items FOR SELECT TO anon, authenticated
 USING (status = 'published');
-
 -- Create content_audit_log table
 CREATE TABLE public.content_audit_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -46,14 +39,11 @@ CREATE TABLE public.content_audit_log (
   details JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 ALTER TABLE public.content_audit_log ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Admins can manage content audit log"
 ON public.content_audit_log FOR ALL TO authenticated
 USING (public.has_role(auth.uid(), 'admin'))
 WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 -- Seed initial content slugs
 INSERT INTO public.content_items (app_scope, slug, title, content_html, status, version) VALUES
   ('shared', 'company_name', 'Company Name', 'OneCab', 'published', 1),

@@ -7,7 +7,6 @@
 -- ---------------------------------------------------------------------------
 ALTER TABLE public.company_outgoing_transfers
   DROP CONSTRAINT IF EXISTS company_outgoing_transfers_status_check;
-
 ALTER TABLE public.company_outgoing_transfers
   ADD CONSTRAINT company_outgoing_transfers_status_check
   CHECK (status IN (
@@ -25,7 +24,6 @@ ALTER TABLE public.company_outgoing_transfers
     'REVERTED',
     'FUNDING_UNAVAILABLE'
   ));
-
 ALTER TABLE public.company_outgoing_transfers
   ADD COLUMN IF NOT EXISTS payee_id uuid,
   ADD COLUMN IF NOT EXISTS approved_amount_pence integer,
@@ -45,12 +43,10 @@ ALTER TABLE public.company_outgoing_transfers
   ADD COLUMN IF NOT EXISTS execution_attempt integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS schedule_id uuid,
   ADD COLUMN IF NOT EXISTS schedule_period_key text;
-
 CREATE UNIQUE INDEX IF NOT EXISTS uq_company_outgoing_transfers_schedule_period
   ON public.company_outgoing_transfers (schedule_id, schedule_period_key)
   WHERE schedule_id IS NOT NULL AND schedule_period_key IS NOT NULL
     AND status NOT IN ('CANCELLED', 'DECLINED', 'REJECTED');
-
 -- ---------------------------------------------------------------------------
 -- 2) Company payees
 -- ---------------------------------------------------------------------------
@@ -100,18 +96,15 @@ CREATE TABLE IF NOT EXISTS public.company_payees (
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT uq_company_payees_fingerprint UNIQUE (account_fingerprint, currency)
 );
-
 CREATE INDEX IF NOT EXISTS idx_company_payees_type_active
   ON public.company_payees (payee_type, active, paused);
 CREATE INDEX IF NOT EXISTS idx_company_payees_verification
   ON public.company_payees (account_verification_status);
-
 ALTER TABLE public.company_outgoing_transfers
   DROP CONSTRAINT IF EXISTS company_outgoing_transfers_payee_id_fkey;
 ALTER TABLE public.company_outgoing_transfers
   ADD CONSTRAINT company_outgoing_transfers_payee_id_fkey
   FOREIGN KEY (payee_id) REFERENCES public.company_payees(id) ON DELETE SET NULL;
-
 -- ---------------------------------------------------------------------------
 -- 3) Automatic payment schedules per payee
 -- ---------------------------------------------------------------------------
@@ -148,23 +141,19 @@ CREATE TABLE IF NOT EXISTS public.company_payee_schedules (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_company_payee_schedules_next_run
   ON public.company_payee_schedules (automatic_enabled, paused, next_run_at)
   WHERE automatic_enabled = true AND paused = false;
-
 ALTER TABLE public.company_outgoing_transfers
   DROP CONSTRAINT IF EXISTS company_outgoing_transfers_schedule_id_fkey;
 ALTER TABLE public.company_outgoing_transfers
   ADD CONSTRAINT company_outgoing_transfers_schedule_id_fkey
   FOREIGN KEY (schedule_id) REFERENCES public.company_payee_schedules(id) ON DELETE SET NULL;
-
 -- ---------------------------------------------------------------------------
 -- 4) RLS — service role / edge only (admin gate in edge functions)
 -- ---------------------------------------------------------------------------
 ALTER TABLE public.company_payees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.company_payee_schedules ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS company_payees_admin_select ON public.company_payees;
 CREATE POLICY company_payees_admin_select ON public.company_payees
   FOR SELECT TO authenticated
@@ -175,7 +164,6 @@ CREATE POLICY company_payees_admin_select ON public.company_payees
         AND ur.role IN ('admin', 'moderator')
     )
   );
-
 DROP POLICY IF EXISTS company_payee_schedules_admin_select ON public.company_payee_schedules;
 CREATE POLICY company_payee_schedules_admin_select ON public.company_payee_schedules
   FOR SELECT TO authenticated
@@ -186,7 +174,6 @@ CREATE POLICY company_payee_schedules_admin_select ON public.company_payee_sched
         AND ur.role IN ('admin', 'moderator')
     )
   );
-
 -- Writes go through service-role edge functions only (no INSERT/UPDATE/DELETE policies for authenticated).
 
 COMMENT ON TABLE public.company_payees IS

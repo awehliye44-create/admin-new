@@ -11,6 +11,9 @@ import {
   toDbPaymentSessionStatus,
   type RevolutPaymentSessionStatus,
 } from "../../../shared/revolutPaymentHoldSSOT.ts";
+
+/** Re-export for abandon-payment-session / hold callers (bundle import closure). */
+export { isAuthorisedHoldSessionStatus };
 import {
   buildResidualReleaseIdempotencyKey,
   classifyPostCaptureResidualReleaseEvidence,
@@ -273,10 +276,18 @@ export async function markPaymentSessionReleased(
   }
 
   // prevent_authorised_session_client_cancel uses OLD.provider_state.
-  // Flip AUTHORISED/COMPLETED first, then set status cancelled.
+  // Flip open hold states (incl. PAYMENT_AUTHENTICATED) first, then set status cancelled.
   const sessionId = session?.id ? String(session.id) : null;
   const oldState = String(session?.provider_state ?? "").toUpperCase();
-  if (sessionId && (oldState === "AUTHORISED" || oldState === "AUTHORIZED" || oldState === "COMPLETED")) {
+  const openHoldStates = new Set([
+    "AUTHORISED",
+    "AUTHORIZED",
+    "PAYMENT_AUTHENTICATED",
+    "PENDING",
+    "PROCESSING",
+    "COMPLETED",
+  ]);
+  if (sessionId && openHoldStates.has(oldState)) {
     const { error: flipErr } = await supabase
       .from("payment_sessions")
       .update({

@@ -12,7 +12,6 @@ WHERE sar.doc_type_id = dt_legacy.id
   AND sar_dvla.doc_type_id = dt_dvla.id
   AND sar_dvla.is_active = true
   AND sar_dvla.mandatory = true;
-
 -- Recalc compliance cache.
 UPDATE public.drivers d
 SET

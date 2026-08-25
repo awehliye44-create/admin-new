@@ -1,4 +1,3 @@
-
 -- 1) accept_ride_offer: also populate accepted_preset_offer_fare_pence
 CREATE OR REPLACE FUNCTION public.accept_ride_offer(p_offer_id uuid, p_driver_id uuid, p_allow_customer_counter boolean DEFAULT false)
  RETURNS jsonb
@@ -258,7 +257,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- 2) apply_terminal_trip_cancellation: preserve terminal negotiation audit state
 CREATE OR REPLACE FUNCTION public.apply_terminal_trip_cancellation(p_trip_id uuid, p_cancelled_by text DEFAULT 'admin'::text, p_reason text DEFAULT NULL::text)
  RETURNS jsonb

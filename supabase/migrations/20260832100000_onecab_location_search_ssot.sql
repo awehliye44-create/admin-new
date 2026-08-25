@@ -29,29 +29,22 @@ CREATE TABLE IF NOT EXISTS public.onecab_location_landmarks (
   CONSTRAINT onecab_location_landmarks_lng_chk
     CHECK (longitude BETWEEN -180 AND 180)
 );
-
 CREATE INDEX IF NOT EXISTS idx_onecab_landmarks_sa_enabled
   ON public.onecab_location_landmarks (service_area_id)
   WHERE enabled = true AND is_verified = true;
-
 CREATE INDEX IF NOT EXISTS idx_onecab_landmarks_country_enabled
   ON public.onecab_location_landmarks (country_code)
   WHERE enabled = true AND is_verified = true;
-
 CREATE INDEX IF NOT EXISTS idx_onecab_landmarks_name_trgm_ready
   ON public.onecab_location_landmarks (lower(canonical_name));
-
 COMMENT ON TABLE public.onecab_location_landmarks IS
   'ONECAB verified local landmarks for global location-search SSOT (supplements Google Places).';
-
 ALTER TABLE public.onecab_location_landmarks ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS "Anyone can read enabled verified landmarks" ON public.onecab_location_landmarks;
 CREATE POLICY "Anyone can read enabled verified landmarks"
   ON public.onecab_location_landmarks
   FOR SELECT
   USING (enabled = true AND is_verified = true);
-
 DROP POLICY IF EXISTS "Admins manage landmarks" ON public.onecab_location_landmarks;
 CREATE POLICY "Admins manage landmarks"
   ON public.onecab_location_landmarks
@@ -59,7 +52,6 @@ CREATE POLICY "Admins manage landmarks"
   TO authenticated
   USING (public.has_role(auth.uid(), 'admin'::public.app_role))
   WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role));
-
 -- ---------------------------------------------------------------------------
 -- 2. Rollout / feature flag (staged; UK/EU protected until Phase 4)
 -- ---------------------------------------------------------------------------
@@ -73,13 +65,11 @@ CREATE TABLE IF NOT EXISTS public.location_search_rollout (
   max_results integer NOT NULL DEFAULT 8,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 INSERT INTO public.location_search_rollout (
   id, global_enabled, google_places_enabled, enabled_service_area_ids
 )
 VALUES (true, false, true, ARRAY[]::uuid[])
 ON CONFLICT (id) DO NOTHING;
-
 -- Phase 2 seed: enable Banadir for African pilot when SA exists
 UPDATE public.location_search_rollout
 SET enabled_service_area_ids = ARRAY(
@@ -96,15 +86,12 @@ SET enabled_service_area_ids = ARRAY(
 ),
 updated_at = now()
 WHERE id = true;
-
 ALTER TABLE public.location_search_rollout ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS "Anyone can read location search rollout" ON public.location_search_rollout;
 CREATE POLICY "Anyone can read location search rollout"
   ON public.location_search_rollout
   FOR SELECT
   USING (true);
-
 DROP POLICY IF EXISTS "Admins update location search rollout" ON public.location_search_rollout;
 CREATE POLICY "Admins update location search rollout"
   ON public.location_search_rollout
@@ -112,7 +99,6 @@ CREATE POLICY "Admins update location search rollout"
   TO authenticated
   USING (public.has_role(auth.uid(), 'admin'::public.app_role))
   WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role));
-
 -- ---------------------------------------------------------------------------
 -- 3. Landmark search RPC (SECURITY DEFINER — public fields only)
 -- ---------------------------------------------------------------------------
@@ -200,10 +186,8 @@ BEGIN
   RETURN COALESCE(v_out, '[]'::jsonb);
 END;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.search_onecab_location_landmarks(text, uuid, text, uuid, integer)
   TO anon, authenticated, service_role;
-
 CREATE OR REPLACE FUNCTION public.is_location_search_ssot_enabled(p_service_area_id uuid)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -227,10 +211,8 @@ BEGIN
   RETURN p_service_area_id = ANY (COALESCE(v_row.enabled_service_area_ids, '{}'::uuid[]));
 END;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.is_location_search_ssot_enabled(uuid)
   TO anon, authenticated, service_role;
-
 -- ---------------------------------------------------------------------------
 -- 4. Seed Banadir verified landmarks (examples from brief)
 -- ---------------------------------------------------------------------------

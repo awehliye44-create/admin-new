@@ -10,7 +10,9 @@
  *  2. Load support_conversations; require channel = 'whatsapp'.
  *  3. Send closure message to customer via existing sendWhatsAppTextMessage().
  *  4. Mark support_conversations resolved.
- *  5. Reset whatsapp_conversations: workflow_state='idle', clear support columns.
+ *  5. Clear whatsapp_conversations support linkage by support_conversation_id
+ *     (not gated on workflow_state='support' — orphan book/track linkage must clear).
+ *     If still in support ownership, also set workflow_state='idle'.
  *  6. Does NOT cancel trips; does NOT close independent booking sessions.
  */
 
@@ -117,19 +119,29 @@ Deno.serve(async (req) => {
     })
     .eq("id", convId);
 
-  // ── Reset WhatsApp conversation state to idle.
-  //    Only clears support ownership; does NOT touch booking_session columns.
+  // ── Reset WhatsApp support linkage by support_conversation_id.
+  //    Do NOT require workflow_state='support' — audit proved orphan Live Chat
+  //    linkage can remain after WA already moved to book/track.
   await svcClient
     .from("whatsapp_conversations")
     .update({
-      workflow_state: "idle",
       support_opened_at: null,
       support_conversation_id: null,
       last_outbound_at: nowIso,
       updated_at: nowIso,
     })
+    .eq("support_conversation_id", convId);
+
+  // If the WA row is still in support ownership, return it to idle.
+  await svcClient
+    .from("whatsapp_conversations")
+    .update({
+      workflow_state: "idle",
+      last_outbound_at: nowIso,
+      updated_at: nowIso,
+    })
     .eq("wa_id", waId)
-    .eq("workflow_state", "support"); // guard: only reset if still in support state
+    .eq("workflow_state", "support");
 
   return json({ ok: true, closure_sent: sendResult.ok });
 });

@@ -16,7 +16,6 @@ WHERE des.allocated_amount_pence > 0
     SELECT 1 FROM public.payout_item_ledger_allocations pila
     WHERE pila.ledger_entry_id = des.ledger_entry_id
   );
-
 UPDATE public.driver_earning_settlement des
 SET
   paid_in_payout_item_id = sub.payout_item_id,
@@ -44,7 +43,6 @@ FROM (
 ) sub
 WHERE des.id = sub.id
   AND des.settlement_lifecycle_status <> 'PAID';
-
 UPDATE public.driver_earning_settlement des
 SET
   allocated_amount_pence = sub.total_allocated,

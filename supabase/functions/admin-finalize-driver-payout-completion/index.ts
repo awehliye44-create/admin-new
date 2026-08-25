@@ -23,7 +23,7 @@ import {
 } from "../_shared/driverPayoutCompletionSSOT.ts";
 import {
   isRevolutBusinessRelayConfigured,
-  relayDriverPayoutPaymentStatus,
+  relayApprovedDriverPayoutPaymentStatus,
   relayProbePayBlocked,
 } from "../_shared/revolutBusinessRelayClient.ts";
 import { ensureFreshRevolutBusinessAccessToken } from "../_shared/revolutBusinessAccessTokenRefresh.ts";
@@ -269,7 +269,7 @@ Deno.serve(async (req) => {
     }, 503);
   }
 
-  const statusResult = await relayDriverPayoutPaymentStatus({
+  const statusResult = await relayApprovedDriverPayoutPaymentStatus({
     providerPaymentId: String(intent.provider_payment_id),
     accessToken,
     payoutItemId,

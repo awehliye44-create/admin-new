@@ -3,12 +3,10 @@
 -- No Revolut /pay, no provider_payment_id, no permanent debit.
 
 BEGIN;
-
 -- Ensure batch failure columns used by Slice 5/6 status gates exist.
 ALTER TABLE public.payout_batches
   ADD COLUMN IF NOT EXISTS failure_code TEXT,
   ADD COLUMN IF NOT EXISTS failure_reason TEXT;
-
 -- ---------------------------------------------------------------------------
 -- Ledger hold types (excluded from live balance)
 -- ---------------------------------------------------------------------------
@@ -37,7 +35,6 @@ ALTER TABLE public.driver_wallet_ledger ADD CONSTRAINT driver_wallet_ledger_type
     'PAYOUT_RESERVATION_HOLD'::text,
     'PAYOUT_RESERVATION_RELEASE'::text
   ]));
-
 -- ---------------------------------------------------------------------------
 -- Status widen — Slice 6 lifecycle
 -- ---------------------------------------------------------------------------
@@ -52,7 +49,6 @@ ALTER TABLE public.payout_batches ADD CONSTRAINT payout_batches_status_check
     'FUNDS_RESERVED_EXECUTION_DISABLED',
     'RESERVING', 'RESERVED'
   ]));
-
 ALTER TABLE public.payout_items DROP CONSTRAINT IF EXISTS payout_items_status_check;
 ALTER TABLE public.payout_items ADD CONSTRAINT payout_items_status_check
   CHECK (status = ANY (ARRAY[
@@ -62,7 +58,6 @@ ALTER TABLE public.payout_items ADD CONSTRAINT payout_items_status_check
     'RESERVING', 'RESERVED', 'SUBMITTING', 'SUBMITTED', 'COMPLETED',
     'RELEASED', 'REVERSED', 'CANCELLED'
   ]));
-
 -- ---------------------------------------------------------------------------
 -- Canonical reservation table
 -- ---------------------------------------------------------------------------
@@ -92,30 +87,22 @@ CREATE TABLE IF NOT EXISTS public.driver_payout_reservations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 COMMENT ON TABLE public.driver_payout_reservations IS
   'Slice 6 wallet fund reservations (holds). ACTIVE reduces available; live balance unchanged. Not a debit or payment.';
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_driver_payout_reservations_idempotency_key
   ON public.driver_payout_reservations (idempotency_key);
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_driver_payout_reservations_fingerprint
   ON public.driver_payout_reservations (reservation_fingerprint);
-
 -- One ACTIVE reservation per payout item
 CREATE UNIQUE INDEX IF NOT EXISTS idx_driver_payout_reservations_active_item
   ON public.driver_payout_reservations (payout_item_id)
   WHERE status = 'ACTIVE';
-
 CREATE INDEX IF NOT EXISTS idx_driver_payout_reservations_driver_active
   ON public.driver_payout_reservations (driver_id)
   WHERE status = 'ACTIVE';
-
 CREATE INDEX IF NOT EXISTS idx_driver_payout_reservations_batch
   ON public.driver_payout_reservations (payout_batch_id);
-
 ALTER TABLE public.driver_payout_reservations ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS driver_payout_reservations_service_role_all
   ON public.driver_payout_reservations;
 CREATE POLICY driver_payout_reservations_service_role_all
@@ -124,7 +111,6 @@ CREATE POLICY driver_payout_reservations_service_role_all
   TO service_role
   USING (true)
   WITH CHECK (true);
-
 DROP POLICY IF EXISTS driver_payout_reservations_admin_select
   ON public.driver_payout_reservations;
 CREATE POLICY driver_payout_reservations_admin_select
@@ -137,7 +123,6 @@ CREATE POLICY driver_payout_reservations_admin_select
       WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
     )
   );
-
 DROP POLICY IF EXISTS driver_payout_reservations_driver_select
   ON public.driver_payout_reservations;
 CREATE POLICY driver_payout_reservations_driver_select
@@ -151,7 +136,6 @@ CREATE POLICY driver_payout_reservations_driver_select
         AND d.user_id = auth.uid()
     )
   );
-
 -- ---------------------------------------------------------------------------
 -- Helpers: live / reserved / available
 -- ---------------------------------------------------------------------------
@@ -172,7 +156,6 @@ AS $$
       'PAYOUT_RESERVATION_RELEASE'
     );
 $$;
-
 CREATE OR REPLACE FUNCTION public.driver_wallet_active_reservation_pence(p_driver_id uuid)
 RETURNS bigint
 LANGUAGE sql
@@ -185,7 +168,6 @@ AS $$
   WHERE driver_id = p_driver_id
     AND status = 'ACTIVE';
 $$;
-
 CREATE OR REPLACE FUNCTION public.driver_wallet_other_holds_pence(p_driver_id uuid)
 RETURNS bigint
 LANGUAGE sql
@@ -198,7 +180,6 @@ AS $$
   WHERE driver_id = p_driver_id
     AND status IN ('pending', 'processing');
 $$;
-
 CREATE OR REPLACE FUNCTION public.driver_wallet_available_for_payout_pence(p_driver_id uuid)
 RETURNS bigint
 LANGUAGE sql
@@ -213,7 +194,6 @@ AS $$
       - public.driver_wallet_other_holds_pence(p_driver_id)
   )::bigint;
 $$;
-
 -- Refresh cache: available_pence = live (liability), pending_pence = active reservations
 CREATE OR REPLACE FUNCTION public.refresh_driver_wallet_reservation_cache(p_driver_id uuid)
 RETURNS void
@@ -252,7 +232,6 @@ BEGIN
     updated_at = now();
 END;
 $$;
-
 -- ---------------------------------------------------------------------------
 -- Atomic reserve RPC
 -- ---------------------------------------------------------------------------
@@ -645,10 +624,8 @@ EXCEPTION
     RETURN jsonb_build_object('ok', false, 'error_code', 'ACTIVE_RESERVATION_EXISTS');
 END;
 $$;
-
 COMMENT ON FUNCTION public.reserve_driver_payout_item(uuid) IS
   'Slice 6: atomically reserve wallet funds for a payout item (ACTIVE hold). Idempotent. No permanent debit.';
-
 -- ---------------------------------------------------------------------------
 -- Atomic release RPC (idempotent)
 -- ---------------------------------------------------------------------------
@@ -775,16 +752,13 @@ BEGIN
   );
 END;
 $$;
-
 COMMENT ON FUNCTION public.release_driver_payout_reservation(uuid, uuid, text) IS
   'Slice 6: atomically release an ACTIVE reservation. Idempotent second call is no-op.';
-
 GRANT EXECUTE ON FUNCTION public.reserve_driver_payout_item(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.release_driver_payout_reservation(uuid, uuid, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.driver_wallet_live_balance_pence(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.driver_wallet_active_reservation_pence(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.driver_wallet_available_for_payout_pence(uuid) TO authenticated, service_role;
-
 -- ---------------------------------------------------------------------------
 -- Financial summary: CREATE OR REPLACE (same columns) — subtract reservations
 -- ---------------------------------------------------------------------------
@@ -937,10 +911,8 @@ FROM drivers d
   LEFT JOIN balance_totals bt ON bt.driver_id = d.id
   LEFT JOIN reserved_cashout_totals rc ON rc.driver_id = d.id
   LEFT JOIN reserved_payout_totals rp ON rp.driver_id = d.id;
-
 COMMENT ON VIEW public.driver_financial_summary IS
   'Slice 6: live wallet_balance (HOLD excluded). net_available = live - early cashout - ACTIVE payout reservations. reserved_cashout_pence includes both hold types.';
-
 -- Update recalculate to exclude hold ledger types; pending = ACTIVE reservations
 CREATE OR REPLACE FUNCTION public.recalculate_driver_wallet(p_driver_id uuid)
 RETURNS void
@@ -952,7 +924,6 @@ BEGIN
   PERFORM public.refresh_driver_wallet_reservation_cache(p_driver_id);
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.trigger_recalculate_wallet()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -975,5 +946,4 @@ BEGIN
   END IF;
 END;
 $function$;
-
 COMMIT;

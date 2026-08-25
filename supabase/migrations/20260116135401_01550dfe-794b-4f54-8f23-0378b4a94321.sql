@@ -1,6 +1,5 @@
 -- Drop and recreate the view without SECURITY DEFINER
 DROP VIEW IF EXISTS public.driver_wallet_balance;
-
 -- Recreate as a regular view (SECURITY INVOKER is default)
 CREATE VIEW public.driver_wallet_balance AS
 SELECT 

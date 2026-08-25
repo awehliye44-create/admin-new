@@ -22,7 +22,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('commission_gaps', 0, 'note', 'table not found');
 END;
 $$;
-
 -- Also fix duplicate_payouts to handle missing table gracefully
 CREATE OR REPLACE FUNCTION ops_detect_duplicate_payouts() RETURNS jsonb LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;
@@ -48,7 +47,6 @@ EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('duplicate_payouts
           WHEN undefined_column THEN RETURN jsonb_build_object('duplicate_payouts', 0, 'note', 'column mismatch');
 END;
 $$;
-
 -- Fix duplicate_payments similarly  
 CREATE OR REPLACE FUNCTION ops_detect_duplicate_payments() RETURNS jsonb LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;

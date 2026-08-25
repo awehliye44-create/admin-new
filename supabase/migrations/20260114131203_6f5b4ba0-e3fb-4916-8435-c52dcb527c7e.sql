@@ -23,19 +23,15 @@ CREATE TABLE public.corporate_accounts (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
-
 -- Enable RLS
 ALTER TABLE public.corporate_accounts ENABLE ROW LEVEL SECURITY;
-
 -- RLS policies
 CREATE POLICY "Admins can manage corporate accounts"
     ON public.corporate_accounts FOR ALL
     USING (has_role(auth.uid(), 'admin'::app_role));
-
 CREATE POLICY "Public can read active corporate accounts"
     ON public.corporate_accounts FOR SELECT
     USING (status = 'active');
-
 -- Create corporate_invoices table
 CREATE TABLE public.corporate_invoices (
     id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -56,15 +52,12 @@ CREATE TABLE public.corporate_invoices (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
-
 -- Enable RLS
 ALTER TABLE public.corporate_invoices ENABLE ROW LEVEL SECURITY;
-
 -- RLS policies
 CREATE POLICY "Admins can manage corporate invoices"
     ON public.corporate_invoices FOR ALL
     USING (has_role(auth.uid(), 'admin'::app_role));
-
 -- Create corporate_account_requests table
 CREATE TABLE public.corporate_account_requests (
     id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -88,19 +81,15 @@ CREATE TABLE public.corporate_account_requests (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
-
 -- Enable RLS
 ALTER TABLE public.corporate_account_requests ENABLE ROW LEVEL SECURITY;
-
 -- RLS policies
 CREATE POLICY "Admins can manage account requests"
     ON public.corporate_account_requests FOR ALL
     USING (has_role(auth.uid(), 'admin'::app_role));
-
 CREATE POLICY "Anyone can submit account requests"
     ON public.corporate_account_requests FOR INSERT
     WITH CHECK (true);
-
 -- Create indexes
 CREATE INDEX idx_corporate_accounts_region ON public.corporate_accounts(region_id);
 CREATE INDEX idx_corporate_accounts_service_area ON public.corporate_accounts(service_area_id);
@@ -108,18 +97,15 @@ CREATE INDEX idx_corporate_accounts_status ON public.corporate_accounts(status);
 CREATE INDEX idx_corporate_invoices_account ON public.corporate_invoices(corporate_account_id);
 CREATE INDEX idx_corporate_invoices_status ON public.corporate_invoices(status);
 CREATE INDEX idx_corporate_account_requests_status ON public.corporate_account_requests(status);
-
 -- Triggers for updated_at
 CREATE TRIGGER update_corporate_accounts_updated_at
 BEFORE UPDATE ON public.corporate_accounts
 FOR EACH ROW
 EXECUTE FUNCTION public.update_updated_at_column();
-
 CREATE TRIGGER update_corporate_invoices_updated_at
 BEFORE UPDATE ON public.corporate_invoices
 FOR EACH ROW
 EXECUTE FUNCTION public.update_updated_at_column();
-
 CREATE TRIGGER update_corporate_account_requests_updated_at
 BEFORE UPDATE ON public.corporate_account_requests
 FOR EACH ROW

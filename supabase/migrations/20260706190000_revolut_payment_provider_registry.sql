@@ -22,7 +22,6 @@ ON CONFLICT (provider) DO UPDATE SET
   display_name = EXCLUDED.display_name,
   supports_customer_payments = true,
   supports_driver_payouts = true;
-
 UPDATE public.payment_provider_configs
 SET
   supports_customer_payments = true,

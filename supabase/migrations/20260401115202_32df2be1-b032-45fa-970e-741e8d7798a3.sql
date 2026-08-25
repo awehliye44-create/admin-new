@@ -1,4 +1,3 @@
-
 UPDATE ops_alerts
 SET status = 'resolved', updated_at = now()
 WHERE status = 'open'

@@ -20,35 +20,26 @@ ALTER TABLE public.global_dispatch_settings
   ADD COLUMN IF NOT EXISTS expected_stop_waiting_minutes integer NOT NULL DEFAULT 5,
   ADD COLUMN IF NOT EXISTS eta_risk_tolerance_minutes integer NOT NULL DEFAULT 5,
   ADD COLUMN IF NOT EXISTS pickup_access_allowance_minutes integer NOT NULL DEFAULT 0;
-
 -- Align new response timeout with legacy locked_driver_response_minutes where present
 UPDATE public.global_dispatch_settings
 SET driver_response_timeout_minutes = COALESCE(locked_driver_response_minutes, driver_response_timeout_minutes)
 WHERE singleton = true;
-
 COMMENT ON COLUMN public.global_dispatch_settings.urgent_dispatch_trigger_minutes_before_pickup IS
   'Fallback only for scheduled bookings with NO pre-confirmed driver. Confirmed drivers use dynamic commitment policy knobs (check-in / leave-by / start journey / risk / rescue), not this fixed pickup-minus trigger.';
-
 COMMENT ON COLUMN public.global_dispatch_settings.check_in_min_lead_minutes IS
   'Policy knob: minimum lead before pickup when check-in may open. Runtime calculates actual check-in from live ETA + workload.';
-
 COMMENT ON COLUMN public.global_dispatch_settings.pickup_access_allowance_minutes IS
   'System default pickup access allowance (airports/stations/venues). Location overrides may add access time without separate workflows.';
-
 -- Optional SA-level commitment overrides (NULL / empty = inherit global)
 ALTER TABLE public.dispatch_settings
   ADD COLUMN IF NOT EXISTS scheduled_commitment_policy jsonb;
-
 COMMENT ON COLUMN public.dispatch_settings.scheduled_commitment_policy IS
   'Optional service-area overrides for scheduled commitment policy knobs. NULL or {} inherits global_dispatch_settings. Does not create a separate workflow.';
-
 -- Location-specific access time (any zone type — not airport-only)
 ALTER TABLE public.custom_zones
   ADD COLUMN IF NOT EXISTS access_allowance_minutes integer;
-
 COMMENT ON COLUMN public.custom_zones.access_allowance_minutes IS
   'Optional pickup-zone/location access allowance minutes added to scheduled commitment policy. NULL inherits SA/global default. Applies to airports, stations, venues, restricted zones alike.';
-
 -- Non-negative guards (idempotent)
 DO $$
 BEGIN
@@ -76,7 +67,6 @@ BEGIN
       );
   END IF;
 END $$;
-
 DO $$
 BEGIN
   IF NOT EXISTS (

@@ -270,6 +270,41 @@ serve(async (req) => {
           continue;
         }
 
+        // Customer active-trip SSOT: conversion starts Finding Drivers restore.
+        if (trip.passenger_id) {
+          const { error: activePtrErr } = await supabase
+            .from("customers")
+            .update({ active_trip_id: trip.id, updated_at: now.toISOString() })
+            .eq("id", trip.passenger_id)
+            .is("active_trip_id", null);
+          if (activePtrErr) {
+            console.warn(
+              `[schedule-dispatch] active_trip_id backfill failed for trip ${trip.id}:`,
+              activePtrErr,
+            );
+          }
+        }
+
+        if (trip.passenger_id) {
+          try {
+            await supabase.functions.invoke("send-customer-notification", {
+              body: {
+                // customers.id — Edge resolves to auth user id for token lookup.
+                customer_id: trip.passenger_id,
+                type: "SCHEDULED_CONVERTED_TO_INSTANT",
+                title: "Finding your driver",
+                body: "Your scheduled ride is now live — we're matching you with a nearby driver.",
+                data: {
+                  trip_id: trip.id,
+                  type: "scheduled_converted_to_instant",
+                },
+              },
+            });
+          } catch (notifErr) {
+            console.warn("[schedule-dispatch] convert customer push failed:", notifErr);
+          }
+        }
+
         await supabase
           .from("ride_offers")
           .update({ is_urgent_dispatch: true })

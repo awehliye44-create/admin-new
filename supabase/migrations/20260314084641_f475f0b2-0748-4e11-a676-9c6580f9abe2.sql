@@ -1,4 +1,3 @@
-
 ALTER TABLE public.dispatch_settings
   ADD COLUMN IF NOT EXISTS scheduled_response_window_minutes integer NOT NULL DEFAULT 10,
   ADD COLUMN IF NOT EXISTS urgent_dispatch_trigger_minutes_before_pickup integer NOT NULL DEFAULT 5,

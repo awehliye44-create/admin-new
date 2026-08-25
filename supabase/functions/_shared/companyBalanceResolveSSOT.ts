@@ -13,10 +13,7 @@ import {
   type CompanyBalanceStatusCode,
 } from "./companyBalanceSSOT.ts";
 import { listRevolutAccounts, type RevolutAccount } from "./revolutApi.ts";
-import {
-  persistRevolutBusinessTokens,
-  refreshRevolutBusinessAccessToken,
-} from "./revolutBusinessOAuthSSOT.ts";
+import { ensureFreshRevolutBusinessAccessToken } from "./revolutBusinessAccessTokenRefresh.ts";
 import {
   isRevolutBusinessRelayConfigured,
   relayRevolutAccounts,
@@ -119,19 +116,10 @@ async function ensureBusinessAccessToken(args: {
   refresh_token: string | null;
   expires_at: string | null;
 }): Promise<string | null> {
-  const expiresMs = args.expires_at ? Date.parse(args.expires_at) : NaN;
-  const expired = !args.access_token
-    || !Number.isFinite(expiresMs)
-    || expiresMs <= Date.now() + 60_000;
-  if (!expired && args.access_token) return args.access_token;
-  if (!args.refresh_token) return args.access_token;
+  // Canonical Model B owner — never refresh vault independently here.
   try {
-    const refreshed = await refreshRevolutBusinessAccessToken(args.refresh_token);
-    await persistRevolutBusinessTokens({
-      supabase: args.supabase,
-      tokens: refreshed,
-    });
-    return refreshed.access_token;
+    const fresh = await ensureFreshRevolutBusinessAccessToken(args.supabase);
+    return fresh.accessToken;
   } catch (err) {
     console.warn(
       "[company-balance] business token refresh failed",

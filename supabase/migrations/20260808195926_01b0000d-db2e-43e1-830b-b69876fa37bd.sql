@@ -1,1 +1,1 @@
-ALTER TYPE public.app_scope ADD VALUE IF NOT EXISTS 'website';
+ALTER TYPE public.app_scope ADD VALUE IF NOT EXISTS 'website';;

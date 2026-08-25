@@ -63,7 +63,6 @@ BEGIN
   RETURN v_row;
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.ride_offer_dispatch_push_delivery(
   p_offer_id uuid,
   p_skip_notifications_insert boolean DEFAULT false

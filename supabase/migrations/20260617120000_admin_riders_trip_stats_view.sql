@@ -27,9 +27,7 @@ LEFT JOIN (
   GROUP BY t.passenger_id
 ) ts ON ts.passenger_id = c.id
 WHERE c.deleted_at IS NULL;
-
 COMMENT ON VIEW public.admin_riders_with_trip_stats IS
   'Admin riders list with trip_count/last_trip_at keyed by customers.id = trips.passenger_id.';
-
 GRANT SELECT ON public.admin_riders_with_trip_stats TO authenticated;
 GRANT SELECT ON public.admin_riders_with_trip_stats TO service_role;

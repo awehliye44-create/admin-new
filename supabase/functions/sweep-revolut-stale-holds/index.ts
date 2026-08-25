@@ -21,11 +21,18 @@ import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDispos
 import {
   releaseHoldForPaymentSession,
   sessionAgeMs,
+  summarizeHoldSweepItemOutcomes,
   TRIPLESS_AUTHORISED_HOLD_SWEEP_MIN_AGE_MS,
 } from "../_shared/holdReleaseSSOT.ts";
 import { applyCanonicalSettlementAfterCapture } from "../_shared/applyCanonicalSettlementAfterCapture.ts";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
+import {
+  disposeOutcomeIndicatesFeeCapture,
+  isChargedFeeOutcome,
+  postChargedFeeTenViaRfo,
+  resolveAssignedDriverId,
+} from "../_shared/chargedTerminalFeeWalletSSOT.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -78,10 +85,9 @@ serve(async (req) => {
   const dryRun = body.dry_run === true;
   const limit = Math.min(50, Math.max(1, Number(body.limit ?? 20)));
 
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
 
   const { data: sessions, error } = await supabase
     .from("payment_sessions")
@@ -172,7 +178,44 @@ serve(async (req) => {
         tripId,
         reason: "sweep_fallback",
       });
-      results.push(result as unknown as Record<string, unknown>);
+      const sweepRow: Record<string, unknown> = { ...(result as unknown as Record<string, unknown>) };
+
+      // Fee captured during sweep → post TEN (idempotent). Closes capture-without-wallet gap.
+      if (disposeOutcomeIndicatesFeeCapture(result)) {
+        const { data: feeTrip } = await supabase
+          .from("trips")
+          .select(
+            "id, driver_id, confirmed_driver_id, financial_outcome, payment_method",
+          )
+          .eq("id", tripId)
+          .maybeSingle();
+        const stamped = String(feeTrip?.financial_outcome ?? "").trim().toUpperCase();
+        const outcome = isChargedFeeOutcome(stamped) ? stamped : "CANCELLED_WITH_FEE";
+        const wallet = await postChargedFeeTenViaRfo({
+          supabaseUrl,
+          serviceRoleKey,
+          tripId,
+          driverId: resolveAssignedDriverId({
+            driver_id: feeTrip?.driver_id,
+            confirmed_driver_id: feeTrip?.confirmed_driver_id,
+          }),
+          outcome,
+          feePence: Math.round(Number(result.captured_fee_pence) || 0),
+          paymentMethod: feeTrip?.payment_method ?? null,
+          disposition: result,
+        });
+        sweepRow.wallet_settlement_status = wallet.status;
+        sweepRow.wallet_settlement_error = wallet.error ?? null;
+        if (wallet.status !== "SUCCEEDED") {
+          console.error("[sweep-revolut-stale-holds] WALLET_SETTLEMENT_FAILED_AFTER_FEE_CAPTURE", {
+            trip_id: tripId,
+            wallet,
+            captured_fee_pence: result.captured_fee_pence,
+          });
+        }
+      }
+
+      results.push(sweepRow);
 
       if (
         result.outcome === "PROVIDER_PENDING_RECONCILIATION" ||
@@ -418,11 +461,26 @@ serve(async (req) => {
   const { data: triplessSessions } = await supabase
     .from("payment_sessions")
     .select(
-      "id, trip_id, provider_order_id, client_action_id, authorised_amount_pence, provider_state, status, created_at, authorised_at, released_at, captured_at, hold_release_state",
+      "id, trip_id, provider_order_id, client_action_id, authorised_amount_pence, provider_state, status, created_at, authorised_at, released_at, captured_at, hold_release_state, captured_amount_pence",
     )
     .in("provider_state", ["AUTHORISED", "AUTHORIZED"])
     .in("status", ["payment_authorised", "pending_payment", "payment_orphaned"])
     .is("trip_id", null)
+    .not("provider_order_id", "is", null)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  // Local released / cancelled while provider_state still looks open — retrieve +
+  // reconcile or retry release. Sweep previously skipped these via sessionAlreadyTerminal.
+  const { data: falseReleaseDrift } = await supabase
+    .from("payment_sessions")
+    .select(
+      "id, trip_id, provider_order_id, client_action_id, authorised_amount_pence, provider_state, status, created_at, authorised_at, released_at, captured_at, hold_release_state, captured_amount_pence",
+    )
+    .eq("purpose", "RIDE_BOOKING")
+    .in("provider_state", ["AUTHORISED", "AUTHORIZED", "PAYMENT_AUTHENTICATED", "PENDING", "PROCESSING"])
+    .eq("hold_release_state", "released")
+    .is("captured_at", null)
     .not("provider_order_id", "is", null)
     .order("created_at", { ascending: true })
     .limit(limit);
@@ -517,21 +575,141 @@ serve(async (req) => {
     } catch (e) {
       orphanResults.push({
         payment_session_id: row.id,
+        ok: false,
         outcome: "PROVIDER_FAILED",
         message: e instanceof Error ? e.message : String(e),
       });
     }
   }
 
+  const falseReleaseResults: Array<Record<string, unknown>> = [];
+  for (const row of falseReleaseDrift ?? []) {
+    if (dryRun) {
+      // Read-only Merchant GET — classify only; never cancel/release/write.
+      try {
+        const { secretKey, environment } = getRevolutMerchantConfig();
+        const order = await retrieveRevolutOrder(
+          environment,
+          secretKey,
+          String(row.provider_order_id),
+        );
+        const providerState = String(order.state ?? "").toUpperCase();
+        const completed = Math.max(0, Number((order as { completed_amount?: number }).completed_amount ?? 0));
+        let classification = "UNKNOWN_PROVIDER_STATE";
+        let providerReleaseCandidate = false;
+        if (completed > 0 || providerState === "COMPLETED" || providerState === "CAPTURED") {
+          classification = "PROVIDER_CAPTURED_EXCLUDE_FROM_HOLD_RELEASE";
+        } else if (
+          providerState === "CANCELLED" ||
+          providerState === "CANCELED" ||
+          providerState === "FAILED"
+        ) {
+          classification = "PROVIDER_ALREADY_CANCELLED_LOCAL_RECONCILIATION_REQUIRED";
+        } else if (
+          providerState === "AUTHORISED" ||
+          providerState === "AUTHORIZED" ||
+          providerState === "PENDING" ||
+          providerState === "PROCESSING"
+        ) {
+          classification = "ACTIVE_PROVIDER_HOLD_RELEASE_CANDIDATE";
+          providerReleaseCandidate = true;
+        }
+        falseReleaseResults.push({
+          payment_session_id: row.id,
+          dry_run: true,
+          action: "classify_false_local_release",
+          classification,
+          provider_release_candidate: providerReleaseCandidate,
+          local_provider_state: row.provider_state,
+          merchant_provider_state: providerState,
+          completed_amount: completed,
+          auth_pence: row.authorised_amount_pence,
+          order_mask: String(row.provider_order_id).slice(0, 8) + "…",
+          provider_release_calls: 0,
+          database_writes: 0,
+        });
+      } catch (e) {
+        falseReleaseResults.push({
+          payment_session_id: row.id,
+          dry_run: true,
+          ok: false,
+          classification: "PROVIDER_GET_FAILED",
+          outcome: "PROVIDER_FAILED",
+          message: e instanceof Error ? e.message : String(e),
+          provider_release_calls: 0,
+          database_writes: 0,
+        });
+      }
+      continue;
+    }
+    try {
+      const release = await releaseHoldForPaymentSession(supabase, {
+        providerOrderId: String(row.provider_order_id),
+        clientActionId: (row.client_action_id as string | null) ?? null,
+        terminalReason: "sweep_false_local_release_reconcile",
+        source: "sweep-revolut-stale-holds",
+        idempotencyKey: `sweep_false_release_${row.id}`,
+        session: row as Record<string, unknown>,
+      });
+      falseReleaseResults.push({
+        payment_session_id: row.id,
+        ...release,
+        // Live reconcile path must not POST cancel when provider already cancelled
+        // (releaseHoldForPaymentSession → RECONCILE_LOCAL_ONLY).
+        classification: release.reconciled
+          ? "PROVIDER_ALREADY_CANCELLED_LOCAL_RECONCILED"
+          : (release.status ?? null),
+      });
+    } catch (e) {
+      falseReleaseResults.push({
+        payment_session_id: row.id,
+        ok: false,
+        outcome: "PROVIDER_FAILED",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  const itemOutcomes = summarizeHoldSweepItemOutcomes([
+    ...results.map((r) => ({
+      ok: r.ok as boolean | undefined,
+      outcome: String(r.outcome ?? r.status ?? ""),
+      status: String(r.status ?? ""),
+    })),
+    ...orphanResults.map((r) => ({
+      ok: r.ok as boolean | undefined,
+      outcome: String(r.outcome ?? r.status ?? ""),
+      status: String(r.status ?? ""),
+    })),
+    ...falseReleaseResults.map((r) => ({
+      ok: r.ok as boolean | undefined,
+      outcome: String(r.outcome ?? r.status ?? ""),
+      status: String(r.status ?? ""),
+    })),
+    ...healResults.map((r) => ({
+      ok: r.ok as boolean | undefined,
+      outcome: String(r.outcome ?? ""),
+      status: String(r.action ?? ""),
+    })),
+    ...retryResults.map((r) => ({
+      ok: r.ok as boolean | undefined,
+      outcome: String(r.outcome ?? ""),
+      status: String(r.action ?? ""),
+    })),
+  ]);
+
   return new Response(JSON.stringify({
-    success: true,
+    success: itemOutcomes.overall_ok,
+    http_ok: true,
     dry_run: dryRun,
     scanned_sessions: sessionRows.length,
     eligible: candidates.length,
     results,
     tripless_holds: orphanResults,
+    false_local_release_reconcile: falseReleaseResults,
     completed_capture_heals: healResults,
     completed_authorised_retries: retryResults,
+    item_outcomes: itemOutcomes,
     watchdog: {
       unresolved_count: watchdog.length,
       by_currency: byCurrency,

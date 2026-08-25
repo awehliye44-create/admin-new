@@ -1,4 +1,3 @@
-
 ALTER TABLE public.corporate_accounts
   ADD COLUMN IF NOT EXISTS payment_cash_enabled boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS payment_card_enabled boolean NOT NULL DEFAULT true,
@@ -6,7 +5,6 @@ ALTER TABLE public.corporate_accounts
   ADD COLUMN IF NOT EXISTS payment_google_pay_enabled boolean NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS payment_invoice_enabled boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS payment_wallet_enabled boolean NOT NULL DEFAULT true;
-
 CREATE OR REPLACE FUNCTION public.get_corporate_allowed_payment_methods(p_account_id uuid)
 RETURNS text[]
 LANGUAGE plpgsql
@@ -36,9 +34,7 @@ BEGIN
   RETURN methods;
 END;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.get_corporate_allowed_payment_methods(uuid) TO authenticated, service_role;
-
 CREATE OR REPLACE FUNCTION public.enforce_corporate_payment_methods()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -68,7 +64,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS enforce_corporate_payment_methods_trg ON public.trips;
 CREATE TRIGGER enforce_corporate_payment_methods_trg
   BEFORE INSERT OR UPDATE OF payment_method, corporate_account_id ON public.trips

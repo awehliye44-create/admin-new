@@ -117,7 +117,6 @@ BEGIN
   RETURN 'eligible';
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.driver_effective_online_reason(p_driver_id uuid, p_max_heartbeat_age_seconds integer DEFAULT 45, p_max_location_age_seconds integer DEFAULT 45, p_max_realtime_age_seconds integer DEFAULT 90, p_require_push_token boolean DEFAULT true)
  RETURNS text
  LANGUAGE plpgsql
@@ -198,7 +197,6 @@ BEGIN
   RETURN v_freshness;
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.driver_freshness_reason(p_driver_id uuid, p_max_heartbeat_age_seconds integer DEFAULT 45, p_max_location_age_seconds integer DEFAULT 45, p_max_realtime_age_seconds integer DEFAULT 90, p_require_push_token boolean DEFAULT true)
  RETURNS text
  LANGUAGE plpgsql
@@ -276,7 +274,6 @@ BEGIN
   RETURN 'fresh';
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.driver_effective_online_snapshot(p_driver_id uuid, p_max_heartbeat_age_seconds integer DEFAULT 45, p_max_location_age_seconds integer DEFAULT 45, p_max_realtime_age_seconds integer DEFAULT 90, p_require_push_token boolean DEFAULT true)
  RETURNS TABLE(driver_id uuid, effective_online boolean, effective_online_reason text, freshness_ok boolean, freshness_reason text, dispatchable boolean, dispatchable_reason text, heartbeat_age_seconds integer, location_age_seconds integer, realtime_age_seconds integer, has_registered_push_token boolean, socket_connected boolean, presence_status text, app_state text, platform text)
  LANGUAGE plpgsql
@@ -361,4 +358,3 @@ BEGIN
     dp_row.platform::text;
 END;
 $function$;
-

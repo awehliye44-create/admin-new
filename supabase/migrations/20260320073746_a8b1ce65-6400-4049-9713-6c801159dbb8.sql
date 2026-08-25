@@ -1,4 +1,3 @@
-
 -- QR Booking Config - single-row config table
 CREATE TABLE public.qr_booking_config (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -12,14 +11,11 @@ CREATE TABLE public.qr_booking_config (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 -- Ensure only one row
 CREATE UNIQUE INDEX qr_booking_config_singleton ON public.qr_booking_config ((true));
-
 -- Seed initial row
 INSERT INTO public.qr_booking_config (pickup_name, pickup_address, pickup_lat, pickup_lng, status)
 VALUES ('', '', 0, 0, 'disabled');
-
 -- Audit log for QR config changes
 CREATE TABLE public.qr_booking_audit_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -29,27 +25,21 @@ CREATE TABLE public.qr_booking_audit_log (
   new_values jsonb NOT NULL DEFAULT '{}',
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 -- RLS
 ALTER TABLE public.qr_booking_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.qr_booking_audit_log ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Admins can read qr_booking_config"
   ON public.qr_booking_config FOR SELECT TO authenticated
   USING (true);
-
 CREATE POLICY "Admins can update qr_booking_config"
   ON public.qr_booking_config FOR UPDATE TO authenticated
   USING (true) WITH CHECK (true);
-
 CREATE POLICY "Admins can read qr_booking_audit_log"
   ON public.qr_booking_audit_log FOR SELECT TO authenticated
   USING (true);
-
 CREATE POLICY "Admins can insert qr_booking_audit_log"
   ON public.qr_booking_audit_log FOR INSERT TO authenticated
   WITH CHECK (true);
-
 -- Auto-update updated_at
 CREATE TRIGGER update_qr_booking_config_updated_at
   BEFORE UPDATE ON public.qr_booking_config

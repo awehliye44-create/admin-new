@@ -33,7 +33,6 @@ CREATE TABLE IF NOT EXISTS public.company_operational_refund_reserves (
   ),
   CONSTRAINT company_operational_refund_reserves_currency_len CHECK (char_length(currency) = 3)
 );
-
 -- At most one ACTIVE policy per (service_area_id, currency). NULL service_area = fleet-wide.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_company_ops_reserve_active_sa_ccy
   ON public.company_operational_refund_reserves (
@@ -41,10 +40,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_company_ops_reserve_active_sa_ccy
     upper(currency)
   )
   WHERE status = 'ACTIVE';
-
 CREATE INDEX IF NOT EXISTS idx_company_ops_reserve_sa_status
   ON public.company_operational_refund_reserves (service_area_id, status, currency);
-
 CREATE TABLE IF NOT EXISTS public.company_operational_reserve_audit (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   reserve_id uuid NULL REFERENCES public.company_operational_refund_reserves(id) ON DELETE SET NULL,
@@ -61,47 +58,38 @@ CREATE TABLE IF NOT EXISTS public.company_operational_reserve_audit (
   money_moved boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_company_ops_reserve_audit_reserve_created
   ON public.company_operational_reserve_audit (reserve_id, created_at DESC);
-
 ALTER TABLE public.company_operational_refund_reserves ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.company_operational_reserve_audit ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS company_ops_reserve_admin_all ON public.company_operational_refund_reserves;
 CREATE POLICY company_ops_reserve_admin_all
   ON public.company_operational_refund_reserves
   FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'::public.app_role))
   WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role));
-
 DROP POLICY IF EXISTS company_ops_reserve_service_role ON public.company_operational_refund_reserves;
 CREATE POLICY company_ops_reserve_service_role
   ON public.company_operational_refund_reserves
   FOR ALL TO service_role
   USING (true)
   WITH CHECK (true);
-
 DROP POLICY IF EXISTS company_ops_reserve_audit_admin_all ON public.company_operational_reserve_audit;
 CREATE POLICY company_ops_reserve_audit_admin_all
   ON public.company_operational_reserve_audit
   FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'::public.app_role))
   WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role));
-
 DROP POLICY IF EXISTS company_ops_reserve_audit_service_role ON public.company_operational_reserve_audit;
 CREATE POLICY company_ops_reserve_audit_service_role
   ON public.company_operational_reserve_audit
   FOR ALL TO service_role
   USING (true)
   WITH CHECK (true);
-
 COMMENT ON TABLE public.company_operational_refund_reserves IS
   'Slice 10 Operational/Refund Reserve SSOT. Only ACTIVE rows unlock final_company_available. Config does not move money. Absence of ACTIVE = OPERATIONAL_RESERVE_NOT_CONFIGURED (fail-closed; never invent £0).';
-
 COMMENT ON TABLE public.company_operational_reserve_audit IS
   'Activation/disable/draft audit for operational reserves. money_moved always false.';
-
 -- Resolve ACTIVE reserve policy for a service area + currency (backend SSOT only).
 CREATE OR REPLACE FUNCTION public.resolve_active_company_operational_reserve(
   p_service_area_id uuid DEFAULT NULL,
@@ -170,11 +158,9 @@ BEGIN
   LIMIT 1;
 END;
 $$;
-
 REVOKE ALL ON FUNCTION public.resolve_active_company_operational_reserve(uuid, text, timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.resolve_active_company_operational_reserve(uuid, text, timestamptz)
   TO authenticated, service_role;
-
 -- Prefer SA-specific ACTIVE; fall back to fleet-wide (NULL SA) for same currency.
 CREATE OR REPLACE FUNCTION public.resolve_active_company_operational_reserve_prefer_sa(
   p_service_area_id uuid DEFAULT NULL,
@@ -222,7 +208,6 @@ BEGIN
   RETURN;
 END;
 $$;
-
 REVOKE ALL ON FUNCTION public.resolve_active_company_operational_reserve_prefer_sa(uuid, text, timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.resolve_active_company_operational_reserve_prefer_sa(uuid, text, timestamptz)
   TO authenticated, service_role;

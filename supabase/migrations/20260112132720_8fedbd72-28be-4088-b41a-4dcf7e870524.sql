@@ -14,7 +14,6 @@ CREATE TABLE public.documents (
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
-
 -- Create driver_categories table
 CREATE TABLE public.driver_categories (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -30,7 +29,6 @@ CREATE TABLE public.driver_categories (
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
-
 -- Create promo_codes table
 CREATE TABLE public.promo_codes (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -50,59 +48,47 @@ CREATE TABLE public.promo_codes (
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
-
 -- Enable RLS on all tables
 ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.driver_categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.promo_codes ENABLE ROW LEVEL SECURITY;
-
 -- Documents policies
 CREATE POLICY "Admins can manage all documents" 
 ON public.documents FOR ALL 
 USING (has_role(auth.uid(), 'admin'::app_role));
-
 CREATE POLICY "Drivers can view own documents" 
 ON public.documents FOR SELECT 
 USING (driver_id IN (SELECT id FROM drivers WHERE user_id = auth.uid()));
-
 CREATE POLICY "Drivers can upload own documents" 
 ON public.documents FOR INSERT 
 WITH CHECK (driver_id IN (SELECT id FROM drivers WHERE user_id = auth.uid()));
-
 -- Driver categories policies
 CREATE POLICY "Admins can manage driver categories" 
 ON public.driver_categories FOR ALL 
 USING (has_role(auth.uid(), 'admin'::app_role));
-
 CREATE POLICY "Anyone can read active driver categories" 
 ON public.driver_categories FOR SELECT 
 USING (is_active = true);
-
 -- Promo codes policies
 CREATE POLICY "Admins can manage promo codes" 
 ON public.promo_codes FOR ALL 
 USING (has_role(auth.uid(), 'admin'::app_role));
-
 CREATE POLICY "Anyone can read active promo codes" 
 ON public.promo_codes FOR SELECT 
 USING (is_active = true AND (valid_until IS NULL OR valid_until > now()));
-
 -- Add triggers for updated_at
 CREATE TRIGGER update_documents_updated_at
 BEFORE UPDATE ON public.documents
 FOR EACH ROW
 EXECUTE FUNCTION public.update_updated_at_column();
-
 CREATE TRIGGER update_driver_categories_updated_at
 BEFORE UPDATE ON public.driver_categories
 FOR EACH ROW
 EXECUTE FUNCTION public.update_updated_at_column();
-
 CREATE TRIGGER update_promo_codes_updated_at
 BEFORE UPDATE ON public.promo_codes
 FOR EACH ROW
 EXECUTE FUNCTION public.update_updated_at_column();
-
 -- Insert default driver categories
 INSERT INTO public.driver_categories (name, description, icon, color, requirements, display_order) VALUES
 ('Standard', 'Regular drivers meeting basic requirements', 'car', '#6B7280', ARRAY['Valid license', 'Background check'], 1),

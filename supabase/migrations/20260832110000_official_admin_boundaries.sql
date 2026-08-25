@@ -18,13 +18,10 @@ CREATE TABLE IF NOT EXISTS public.official_admin_boundaries (
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT uq_official_admin_boundaries_osm UNIQUE (osm_type, osm_id)
 );
-
 CREATE INDEX IF NOT EXISTS idx_official_admin_boundaries_country_level
   ON public.official_admin_boundaries (country_code, admin_level)
   WHERE is_active;
-
 ALTER TABLE public.official_admin_boundaries ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS "Admins can read official_admin_boundaries" ON public.official_admin_boundaries;
 CREATE POLICY "Admins can read official_admin_boundaries"
   ON public.official_admin_boundaries FOR SELECT TO authenticated
@@ -35,12 +32,10 @@ CREATE POLICY "Admins can read official_admin_boundaries"
         AND ur.role = 'admin'
     )
   );
-
 DROP POLICY IF EXISTS "Service role full access official_admin_boundaries" ON public.official_admin_boundaries;
 CREATE POLICY "Service role full access official_admin_boundaries"
   ON public.official_admin_boundaries FOR ALL TO service_role
   USING (true) WITH CHECK (true);
-
 INSERT INTO public.official_admin_boundaries (
   country_code, country_name, admin_level, name, display_name,
   osm_type, osm_id, geojson, bbox, point_count, is_active

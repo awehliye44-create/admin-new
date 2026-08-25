@@ -1,4 +1,3 @@
-
 SELECT cron.schedule(
   'lost-property-photo-cleanup',
   '0 4 * * *',

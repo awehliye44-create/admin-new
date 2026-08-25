@@ -2,14 +2,12 @@
 -- Config only. Does not mutate customer payments, trip earnings, or payouts.
 
 BEGIN;
-
 UPDATE public.admin_settings
 SET
   setting_value = '27'::jsonb,
   description = 'Backend-owned PLATFORM_COLLECTED payout-clearing fallback (hours). Used only when Revolut has not exposed a merchant-clearing event. Never a Driver-app timer.',
   updated_at = now()
 WHERE setting_key = 'payout_clearing_delay_hours';
-
 INSERT INTO public.admin_settings (setting_key, setting_value, description)
 VALUES (
   'payout_clearing_delay_hours',
@@ -21,7 +19,6 @@ SET
   setting_value = EXCLUDED.setting_value,
   description = EXCLUDED.description,
   updated_at = now();
-
 CREATE OR REPLACE FUNCTION public.driver_wallet_payout_clearing_delay_hours()
 RETURNS numeric
 LANGUAGE plpgsql
@@ -58,5 +55,4 @@ BEGIN
   RETURN v_hours;
 END;
 $$;
-
 COMMIT;

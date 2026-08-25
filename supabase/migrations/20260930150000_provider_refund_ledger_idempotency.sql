@@ -15,12 +15,10 @@
 ALTER TABLE public.driver_wallet_ledger
   ADD COLUMN IF NOT EXISTS provider_refund_id text,
   ADD COLUMN IF NOT EXISTS payment_provider text;
-
 COMMENT ON COLUMN public.driver_wallet_ledger.provider_refund_id IS
   'Authoritative provider refund identity for REFUND_DEBIT rows. NULL on historical rows only.';
 COMMENT ON COLUMN public.driver_wallet_ledger.payment_provider IS
   'Payment provider namespace for REFUND_DEBIT lineage (e.g. revolut).';
-
 -- ── 2. Preflight: production rows must satisfy singleton-per-trip contract ──
 
 DO $$
@@ -60,45 +58,35 @@ BEGIN
       v_dup_count;
   END IF;
 END $$;
-
 -- ── 3. Replacement partial singleton indexes (before dropping broad unique) ─
 
 CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_cash_trip_earning_unique
   ON public.driver_wallet_ledger (related_trip_id)
   WHERE type = 'CASH_TRIP_EARNING' AND related_trip_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_platform_commission_unique
   ON public.driver_wallet_ledger (related_trip_id)
   WHERE type = 'PLATFORM_COMMISSION' AND related_trip_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_driver_tip_credit_unique
   ON public.driver_wallet_ledger (related_trip_id)
   WHERE type = 'DRIVER_TIP_CREDIT' AND related_trip_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_tip_credit_unique
   ON public.driver_wallet_ledger (related_trip_id)
   WHERE type = 'TIP_CREDIT' AND related_trip_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_ledger_reversal_unique
   ON public.driver_wallet_ledger (related_trip_id)
   WHERE type = 'LEDGER_REVERSAL' AND related_trip_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_commission_recovered_unique
   ON public.driver_wallet_ledger (related_trip_id)
   WHERE type = 'COMMISSION_RECOVERED' AND related_trip_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_ops_driver_compensation_unique
   ON public.driver_wallet_ledger (related_trip_id)
   WHERE type = 'OPS_DRIVER_COMPENSATION' AND related_trip_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_trip_adjustment_unique
   ON public.driver_wallet_ledger (related_trip_id)
   WHERE type = 'ADJUSTMENT' AND related_trip_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_debt_recovery_trip_unique
   ON public.driver_wallet_ledger (related_trip_id)
   WHERE type = 'DEBT_RECOVERY' AND related_trip_id IS NOT NULL;
-
 -- TRIP_EARNING_NET + CASH_COMMISSION_DEBT already have dedicated partial indexes.
 -- Preserve at most one historical NULL-lineage REFUND_DEBIT per trip (no backfill).
 CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_refund_debit_null_lineage_trip_unique
@@ -106,13 +94,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_refund_debit_null_lineage
   WHERE type = 'REFUND_DEBIT'
     AND provider_refund_id IS NULL
     AND related_trip_id IS NOT NULL;
-
 -- Provider-refund lineage idempotency (multiple REFUND_DEBIT per trip allowed).
 CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_refund_debit_provider_refund_unique
   ON public.driver_wallet_ledger (payment_provider, provider_refund_id, driver_id)
   WHERE type = 'REFUND_DEBIT'
     AND provider_refund_id IS NOT NULL;
-
 -- Fail closed if production index exists with wrong definition (name-only IF NOT EXISTS is insufficient).
 DO $$
 DECLARE
@@ -178,17 +164,13 @@ BEGIN
       v_dup_count;
   END IF;
 END $$;
-
 CREATE UNIQUE INDEX IF NOT EXISTS payment_session_refunds_provider_refund_unique
   ON public.payment_session_refunds (payment_provider, provider_refund_id);
-
 -- ── 4. Drop broad (related_trip_id, type) uniqueness — REFUND_DEBIT incompatible ─
 
 ALTER TABLE public.driver_wallet_ledger
   DROP CONSTRAINT IF EXISTS unique_trip_ledger_entry;
-
 DROP INDEX IF EXISTS public.unique_trip_ledger_entry;
-
 -- ── 5. Atomic local application RPC ─────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION public.apply_confirmed_provider_refund_atomic(
@@ -533,18 +515,14 @@ EXCEPTION
     RAISE;
 END;
 $$;
-
 REVOKE ALL ON FUNCTION public.apply_confirmed_provider_refund_atomic(
   uuid, text, text, integer, integer, text, text, text, text, boolean
 ) FROM PUBLIC, anon, authenticated;
-
 GRANT EXECUTE ON FUNCTION public.apply_confirmed_provider_refund_atomic(
   uuid, text, text, integer, integer, text, text, text, text, boolean
 ) TO service_role;
-
 COMMENT ON FUNCTION public.apply_confirmed_provider_refund_atomic IS
   'Atomically applies a confirmed provider refund. Never calls Revolut.';
-
 -- ── 6. Verification ─────────────────────────────────────────────────────────
 
 DO $$

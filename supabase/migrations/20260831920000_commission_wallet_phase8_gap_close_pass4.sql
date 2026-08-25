@@ -41,24 +41,20 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_auto_grant_cw_pilot_test_access ON public.drivers;
 CREATE TRIGGER trg_auto_grant_cw_pilot_test_access
   BEFORE INSERT OR UPDATE OF service_area_id
   ON public.drivers
   FOR EACH ROW
   EXECUTE FUNCTION public.auto_grant_commission_wallet_pilot_test_access();
-
 COMMENT ON FUNCTION public.auto_grant_commission_wallet_pilot_test_access() IS
   'Phase 8: auto-grant commission_wallet_test_access while driver is on the locked pilot SA.';
-
 -- Idempotent re-grant for existing Banadir pilot drivers.
 SELECT set_config('onecab.commission_wallet_test_access_admin', '1', true);
 UPDATE public.drivers
 SET commission_wallet_test_access = true
 WHERE service_area_id = '29259edf-80eb-4c08-9089-352b8a305b81'
   AND commission_wallet_test_access IS DISTINCT FROM true;
-
 -- Banadir is cash-upfront only — clear digital collection gateway.
 -- commission_topup_provider (waafi_pay) is separate and unchanged.
 UPDATE public.service_areas
@@ -68,7 +64,6 @@ SET
   driver_payout_gateway = NULL,
   updated_at = now()
 WHERE id = '29259edf-80eb-4c08-9089-352b8a305b81';
-
 UPDATE public.service_area_payment_methods
 SET
   cash_enabled = true,
@@ -78,7 +73,6 @@ SET
   google_pay_enabled = false,
   updated_at = now()
 WHERE service_area_id = '29259edf-80eb-4c08-9089-352b8a305b81';
-
 UPDATE public.commission_wallet_rollout
 SET
   unlocked_note = 'Phase 8 gap-close pass 4: Banadir pilot only; auto test_access + no digital gateway',

@@ -1,4 +1,3 @@
-
 -- ============================================================
 -- MERCHANT MANAGEMENT (Marketplace) schema
 -- ============================================================
@@ -7,7 +6,6 @@
 CREATE TYPE public.merchant_category AS ENUM ('food','grocery','retail','pharmacy','parcel');
 CREATE TYPE public.merchant_status AS ENUM ('pending','approved','rejected','suspended','closed');
 CREATE TYPE public.merchant_image_source AS ENUM ('uploaded','ai_generated');
-
 -- 1) Global merchant category enabled flags (singleton-ish: one row per category)
 CREATE TABLE public.merchant_categories (
   category public.merchant_category PRIMARY KEY,
@@ -25,14 +23,12 @@ CREATE POLICY "Admins manage merchant categories"
   ON public.merchant_categories FOR ALL TO authenticated
   USING (public.has_role(auth.uid(),'admin'))
   WITH CHECK (public.has_role(auth.uid(),'admin'));
-
 INSERT INTO public.merchant_categories (category, enabled, display_name) VALUES
   ('food', true, 'Food'),
   ('grocery', true, 'Grocery'),
   ('retail', true, 'Retail'),
   ('pharmacy', true, 'Pharmacy'),
   ('parcel', true, 'Parcel');
-
 -- 2) Per-service-area merchant settings
 CREATE TABLE public.service_area_merchant_settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -54,7 +50,6 @@ CREATE POLICY "Admins manage sa merchant settings"
   ON public.service_area_merchant_settings FOR ALL TO authenticated
   USING (public.has_role(auth.uid(),'admin'))
   WITH CHECK (public.has_role(auth.uid(),'admin'));
-
 -- 3) Merchants
 CREATE TABLE public.merchants (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -97,7 +92,6 @@ CREATE POLICY "Admins manage merchants"
   ON public.merchants FOR ALL TO authenticated
   USING (public.has_role(auth.uid(),'admin'))
   WITH CHECK (public.has_role(auth.uid(),'admin'));
-
 -- 4) Product categories (per merchant)
 CREATE TABLE public.merchant_product_categories (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -117,7 +111,6 @@ CREATE POLICY "Admins manage product categories"
   ON public.merchant_product_categories FOR ALL TO authenticated
   USING (public.has_role(auth.uid(),'admin'))
   WITH CHECK (public.has_role(auth.uid(),'admin'));
-
 -- 5) Products / menu items
 CREATE TABLE public.merchant_products (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -148,7 +141,6 @@ CREATE POLICY "Admins manage products"
   ON public.merchant_products FOR ALL TO authenticated
   USING (public.has_role(auth.uid(),'admin'))
   WITH CHECK (public.has_role(auth.uid(),'admin'));
-
 -- 6) AI credits (per merchant)
 CREATE TABLE public.merchant_ai_credits (
   merchant_id uuid PRIMARY KEY REFERENCES public.merchants(id) ON DELETE CASCADE,
@@ -162,7 +154,6 @@ CREATE POLICY "Admins manage ai credits"
   ON public.merchant_ai_credits FOR ALL TO authenticated
   USING (public.has_role(auth.uid(),'admin'))
   WITH CHECK (public.has_role(auth.uid(),'admin'));
-
 -- 7) AI generation history
 CREATE TABLE public.merchant_ai_generations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -182,13 +173,11 @@ CREATE POLICY "Admins manage ai generations"
   ON public.merchant_ai_generations FOR ALL TO authenticated
   USING (public.has_role(auth.uid(),'admin'))
   WITH CHECK (public.has_role(auth.uid(),'admin'));
-
 -- updated_at trigger reuse
 CREATE TRIGGER trg_merchants_updated_at BEFORE UPDATE ON public.merchants
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER trg_merchant_products_updated_at BEFORE UPDATE ON public.merchant_products
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
 -- ============================================================
 -- Storage buckets (public read; admin writes via storage RLS)
 -- ============================================================
@@ -197,25 +186,21 @@ INSERT INTO storage.buckets (id, name, public) VALUES
   ('merchant-banners','merchant-banners', true),
   ('merchant-products','merchant-products', true)
 ON CONFLICT (id) DO NOTHING;
-
 CREATE POLICY "Public read merchant assets"
   ON storage.objects FOR SELECT
   USING (bucket_id IN ('merchant-logos','merchant-banners','merchant-products'));
-
 CREATE POLICY "Admins write merchant assets"
   ON storage.objects FOR INSERT TO authenticated
   WITH CHECK (
     bucket_id IN ('merchant-logos','merchant-banners','merchant-products')
     AND public.has_role(auth.uid(),'admin')
   );
-
 CREATE POLICY "Admins update merchant assets"
   ON storage.objects FOR UPDATE TO authenticated
   USING (
     bucket_id IN ('merchant-logos','merchant-banners','merchant-products')
     AND public.has_role(auth.uid(),'admin')
   );
-
 CREATE POLICY "Admins delete merchant assets"
   ON storage.objects FOR DELETE TO authenticated
   USING (

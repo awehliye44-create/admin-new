@@ -22,6 +22,7 @@ export type RevolutHoldReconciliationStatus =
   | "authorised_hold"
   | "released_hold"
   | "captured_after_completion"
+  | "captured_terminal_fee"
   | "refunded_wrong_capture"
   | "orphan_authorisation";
 
@@ -257,7 +258,7 @@ export async function listRevolutOrphanReconciliationRows(
       payment_invariant_violation: holdStatus === "refunded_wrong_capture",
       is_provider_only: true,
       can_cancel: isRevolutAuthorisedState(state) || state === "PROCESSING",
-      can_refund: state === "COMPLETED",
+      can_refund: state === "COMPLETED" && holdStatus === "refunded_wrong_capture",
       can_link: hasBookingSnapshot,
       has_booking_snapshot: hasBookingSnapshot,
     });
@@ -325,7 +326,7 @@ export async function listRevolutOrphanReconciliationRows(
       payment_invariant_violation: paymentInvariantViolation,
       is_provider_only: !(orphan.trip_id as string | null),
       can_cancel: isRevolutAuthorisedState(state) || state === "PROCESSING",
-      can_refund: state === "COMPLETED",
+      can_refund: state === "COMPLETED" && holdStatus === "refunded_wrong_capture",
       can_link: hasBookingSnapshot,
       has_booking_snapshot: hasBookingSnapshot,
     });

@@ -55,16 +55,19 @@ interface SendTripNotificationRequest {
 // ── Notification copy (mirrors frontend tripNotificationTypes.ts) ──────────
 
 const NOTIFICATION_COPY: Record<string, { title: string; body: string }> = {
-  trip_accepted:      { title: 'ONECAB DRIVER ASSIGNED',    body: 'Your driver is on the way.' },
+  trip_accepted:      { title: 'ONECAB', body: 'Driver assigned' },
+  driver_assigned:    { title: 'ONECAB', body: 'Driver assigned' },
   driver_approaching: { title: 'ONECAB DRIVER ARRIVING',      body: 'Your driver is arriving soon.' },
-  driver_arrived:     { title: 'ONECAB DRIVER ARRIVED',     body: 'Your driver has arrived.' },
+  driver_arrived:     { title: 'ONECAB', body: 'Driver arrived' },
   waiting_started:    { title: 'Waiting Time',       body: 'Waiting time charges may apply soon.' },
   trip_started:       { title: 'ONECAB TRIP STARTED',       body: 'Your trip has started.' },
   traffic_delay:      { title: 'Traffic Update',     body: 'Traffic detected — arrival may be slightly delayed.' },
   route_changed:      { title: 'Route Changed',      body: 'Your route has changed. Tap to review.' },
   safety_reminder:    { title: 'Safety Reminder',    body: 'Share your live trip for extra safety.' },
   fare_updated:       { title: 'Fare Updated',       body: 'Your fare was updated due to trip changes.' },
-  trip_completed:     { title: 'ONECAB TRIP COMPLETED',       body: "You've arrived. Thanks for riding with ONECAB." },
+  trip_completed:     { title: 'ONECAB', body: 'Trip completed' },
+  trip_cancelled:     { title: 'ONECAB', body: 'Trip cancelled' },
+  payment_action_required: { title: 'ONECAB', body: 'Payment action needed' },
   rating_request:     { title: 'Rate Your Trip',     body: 'How was your trip? Rate your ride.' },
   payment_success:    { title: 'Payment Successful', body: 'Payment successful.' },
   payment_failed:     { title: 'Payment Failed',     body: 'Payment failed. Please update your payment method.' },
@@ -85,9 +88,9 @@ const NOTIFICATION_COPY: Record<string, { title: string; body: string }> = {
     title: 'ONECAB FARE OFFER EXPIRED',
     body: 'The fare offer timed out. Waiting for the next update.',
   },
-  new_driver_assigned: {
-    title: 'ONECAB NEW DRIVER ASSIGNED',
-    body: 'A new driver has been assigned to your trip.',
+  new_new_driver_assigned: {
+    title: 'ONECAB',
+    body: 'Driver assigned',
   },
   driver_cancelled: {
     title: 'ONECAB DRIVER CANCELLED',
@@ -103,19 +106,43 @@ const NOTIFICATION_COPY: Record<string, { title: string; body: string }> = {
   },
 };
 
+
+// Active-trip high-priority channel (Customer app creates onecab_active_trip).
+const ACTIVE_TRIP_CHANNEL = 'onecab_active_trip';
+const ACTIVE_TRIP_EVENTS = new Set([
+  'driver_assigned',
+  'trip_accepted',
+  'new_driver_assigned',
+  'driver_arrived',
+  'trip_cancelled',
+  'trip_completed',
+  'payment_action_required',
+]);
+const ACTIVE_TRIP_TIME_SENSITIVE = new Set([
+  'driver_arrived',
+  'trip_cancelled',
+  'payment_action_required',
+]);
+const EVENT_ALIASES: Record<string, string> = {
+  trip_accepted: 'driver_assigned',
+  new_driver_assigned: 'driver_assigned',
+  rating_request: 'trip_completed',
+  payment_failed: 'payment_action_required',
+};
+
 // ── Event → Android channel mapping ────────────────────────────────────────
 
 const EVENT_CHANNEL: Record<string, string> = {
-  trip_accepted: 'trip_updates',
+  trip_accepted: 'onecab_active_trip',
   driver_approaching: 'trip_updates',
-  driver_arrived: 'critical_alerts',
+  driver_arrived: 'onecab_active_trip',
   waiting_started: 'critical_alerts',
   trip_started: 'critical_alerts',
   traffic_delay: 'trip_updates',
   route_changed: 'trip_updates',
   safety_reminder: 'critical_alerts',
   fare_updated: 'payment_alerts',
-  trip_completed: 'trip_updates',
+  trip_completed: 'onecab_active_trip',
   rating_request: 'post_trip',
   payment_success: 'payment_alerts',
   payment_failed: 'critical_alerts',
@@ -124,10 +151,13 @@ const EVENT_CHANNEL: Record<string, string> = {
   driver_accepted_counter: 'critical_alerts',
   finding_another_driver_updated_fare: 'trip_updates',
   negotiation_offer_expired: 'trip_updates',
-  new_driver_assigned: 'trip_updates',
+  new_driver_assigned: 'onecab_active_trip',
   driver_cancelled: 'critical_alerts',
   customer_new_message: 'trip_updates',
   high_demand: 'trip_updates',
+  driver_assigned: 'onecab_active_trip',
+  trip_cancelled: 'onecab_active_trip',
+  payment_action_required: 'onecab_active_trip',
 };
 
 // ── Event → priority ───────────────────────────────────────────────────────
@@ -155,22 +185,25 @@ const EVENT_PRIORITY: Record<string, 'high' | 'normal'> = {
   driver_cancelled: 'high',
   customer_new_message: 'high',
   high_demand: 'high',
+  driver_assigned: 'high',
+  trip_cancelled: 'high',
+  payment_action_required: 'high',
 };
 
 // ── Event → deep link screen ───────────────────────────────────────────────
 
 const EVENT_SCREEN: Record<string, string> = {
-  trip_accepted: '/ride-tracking',
+  trip_accepted: '/booking/driver-accepted',
   driver_approaching: '/ride-tracking',
-  driver_arrived: '/ride-tracking',
+  driver_arrived: '/booking/driver-accepted',
   waiting_started: '/ride-tracking',
   trip_started: '/ride-tracking',
   traffic_delay: '/ride-tracking',
   route_changed: '/ride-tracking',
   safety_reminder: '/ride-tracking',
   fare_updated: '/ride-tracking',
-  trip_completed: '/rate-driver',
-  rating_request: '/rate-driver',
+  trip_completed: '/booking/rate-trip',
+  rating_request: '/booking/rate-trip',
   payment_success: '/wallet',
   payment_failed: '/wallet',
   lost_item_followup: '/lost-property',
@@ -178,10 +211,13 @@ const EVENT_SCREEN: Record<string, string> = {
   driver_accepted_counter: '/booking/driver-accepted',
   finding_another_driver_updated_fare: '/booking/finding-drivers',
   negotiation_offer_expired: '/booking/finding-drivers',
-  new_driver_assigned: '/ride-tracking',
+  new_driver_assigned: '/booking/driver-accepted',
   driver_cancelled: '/ride-tracking',
   customer_new_message: '/ride-tracking',
   high_demand: '/book-ride',
+  driver_assigned: '/booking/driver-accepted',
+  trip_cancelled: '/',
+  payment_action_required: '/booking/payment-recovery',
 };
 
 // ============================================================================
@@ -294,9 +330,12 @@ async function sendFCMv1(
       'mutable-content': 1, // Allows notification service extension
       category: data.type, // Maps to UNNotificationCategory
     };
-    if (priority === 'high') {
+    const interruption = data.iosInterruptionLevel || (priority === 'high' ? 'time-sensitive' : 'active');
+    if (interruption === 'time-sensitive') {
       // iOS 15+ Focus: pairs with com.apple.developer.usernotifications.time-sensitive entitlement.
       apsPayload['interruption-level'] = 'time-sensitive';
+    } else {
+      apsPayload['interruption-level'] = 'active';
     }
     (message as any).apns = {
       headers: {
@@ -376,8 +415,11 @@ serve(async (req) => {
       });
     }
 
+    // Canonicalize active-trip aliases (trip_accepted → driver_assigned, etc.)
+    const canonicalEvent = EVENT_ALIASES[event] || event;
+
     // Resolve notification content
-    const copy = NOTIFICATION_COPY[event];
+    const copy = NOTIFICATION_COPY[canonicalEvent] || NOTIFICATION_COPY[event];
     if (!copy) {
       return new Response(JSON.stringify({ error: `Unknown event type: ${event}` }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -389,21 +431,42 @@ serve(async (req) => {
     if (driverName) notifBody = notifBody.replace('{driverName}', driverName);
     if (fareDisplay) notifBody = notifBody.replace('{fare}', fareDisplay);
 
-    const notificationId = body.notificationId || `${event}-${tripId}-${Date.now()}`;
-    const channelId = EVENT_CHANNEL[event] || 'trip_updates';
-    const priority = EVENT_PRIORITY[event] || 'normal';
-    const screen = EVENT_SCREEN[event] || '/ride-tracking';
+    // One notification per trip_id + event_type (stable FCM tag / local id).
+    const notificationId = body.notificationId || `${tripId}:${canonicalEvent}`;
+    const channelId = ACTIVE_TRIP_EVENTS.has(canonicalEvent)
+      ? ACTIVE_TRIP_CHANNEL
+      : (EVENT_CHANNEL[canonicalEvent] || EVENT_CHANNEL[event] || 'trip_updates');
+    const priority = EVENT_PRIORITY[canonicalEvent] || EVENT_PRIORITY[event] || 'normal';
+    const screen = EVENT_SCREEN[canonicalEvent] || EVENT_SCREEN[event] || '/booking/driver-accepted';
+    const iosInterruptionLevel = ACTIVE_TRIP_TIME_SENSITIVE.has(canonicalEvent)
+      ? 'time-sensitive'
+      : (ACTIVE_TRIP_EVENTS.has(canonicalEvent) ? 'active' : (priority === 'high' ? 'time-sensitive' : 'active'));
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    // public_trip_id is derived (not a trips column) — use trip_number.
+    const { data: tripMeta } = await supabase
+      .from('trips')
+      .select('trip_number')
+      .eq('id', tripId)
+      .maybeSingle();
+    const publicTripId = (tripMeta?.trip_number ? String(tripMeta.trip_number) : '') || '';
 
     // Data payload for the app
     const dataPayload: Record<string, string> = {
-      type: event,
+      type: canonicalEvent,
+      event_type: canonicalEvent,
       tripId,
       trip_id: tripId,
+      public_trip_id: publicTripId,
+      publicTripId,
+      target_screen: screen,
       screen,
       path: screen,
       channelId,
+      channel_id: channelId,
       notificationId,
       priority,
+      iosInterruptionLevel,
       timestamp: new Date().toISOString(),
     };
     if (driverName) dataPayload.driverName = driverName;
@@ -416,7 +479,7 @@ serve(async (req) => {
       dataPayload.expiresAt = negotiationDeadline;
     }
 
-    const alertSoundEvent = TRIP_EVENT_SOUND_MAP[event] ?? null;
+    const alertSoundEvent = TRIP_EVENT_SOUND_MAP[canonicalEvent] ?? TRIP_EVENT_SOUND_MAP[event] ?? null;
     if (alertSoundEvent) {
       const resolved = await resolveAlertSound(
         createClient(supabaseUrl, supabaseServiceKey),
@@ -432,7 +495,7 @@ serve(async (req) => {
     }
 
     // Get customer's push tokens (passenger_id or auth user id)
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    // supabase client already created above for trip meta
     const { resolveCustomerAuthUserId } = await import("../_shared/authoritativeDevicePush.ts");
     const authUserId = await resolveCustomerAuthUserId(supabase, userId);
     const { data: tokens, error: tokenError } = await supabase

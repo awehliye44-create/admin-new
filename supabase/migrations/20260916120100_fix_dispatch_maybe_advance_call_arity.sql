@@ -436,7 +436,6 @@ BEGIN
   );
 END;
 $function$;
-
 DO $$
 DECLARE
   v_bad text;

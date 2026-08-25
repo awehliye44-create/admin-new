@@ -1,6 +1,5 @@
 -- Phase 1: Add is_synthetic column to ops_logs
 ALTER TABLE public.ops_logs ADD COLUMN IF NOT EXISTS is_synthetic boolean NOT NULL DEFAULT false;
-
 -- Mark existing seed data as synthetic using known patterns
 UPDATE public.ops_logs 
 SET is_synthetic = true 
@@ -12,7 +11,6 @@ WHERE message LIKE '%attempt %'
    OR message LIKE '%Slow screen render%'
    OR message LIKE '%connection reset%'
    OR message LIKE '%demo%';
-
 -- Phase 2: Update detection functions to exclude synthetic data
 CREATE OR REPLACE FUNCTION public.ops_detect_log_anomalies()
 RETURNS jsonb
@@ -45,7 +43,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('log_anomalies', 0, 'note', 'table not found');
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_detect_fatal_logs()
 RETURNS int
 LANGUAGE plpgsql
@@ -81,7 +78,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- Phase 3: Auto-resolve the phantom alerts caused by synthetic data
 UPDATE public.ops_alerts 
 SET status = 'resolved', resolved_at = now()

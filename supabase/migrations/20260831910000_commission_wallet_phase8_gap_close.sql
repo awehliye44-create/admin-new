@@ -78,14 +78,12 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_enforce_commission_wallet_pilot_lock ON public.service_areas;
 CREATE TRIGGER trg_enforce_commission_wallet_pilot_lock
   BEFORE INSERT OR UPDATE OF commission_wallet_enabled, financial_model
   ON public.service_areas
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_commission_wallet_pilot_lock();
-
 -- Banadir by id only.
 UPDATE public.service_areas
 SET
@@ -101,7 +99,6 @@ SET
   ),
   updated_at = now()
 WHERE id = '29259edf-80eb-4c08-9089-352b8a305b81';
-
 UPDATE public.commission_wallet_rollout
 SET
   pilot_service_area_id = '29259edf-80eb-4c08-9089-352b8a305b81',
@@ -109,7 +106,6 @@ SET
   unlocked_note = 'Phase 8 gap-close: Banadir pilot only until reconciliation passes',
   updated_at = now()
 WHERE id IS TRUE;
-
 -- Pilot drivers in Banadir need test access for CW page / Waafi sandbox top-up.
 -- Session flag required: login-role SQL is not service_role.
 SELECT set_config('onecab.commission_wallet_test_access_admin', '1', true);

@@ -129,13 +129,14 @@ export async function finalizeRideAssignmentSideEffects(
         body: {
           userId,
           tripId,
-          event: "trip_accepted",
+          event: "driver_assigned",
+          notificationId: `${tripId}:driver_assigned`,
           fareDisplay,
         },
       });
       console.log("[ride-assignment] RIDE_ASSIGNED_BROADCASTED", {
         trip_id: tripId,
-        event: "trip_accepted",
+        event: "driver_assigned",
         user_id: userId,
       });
     }

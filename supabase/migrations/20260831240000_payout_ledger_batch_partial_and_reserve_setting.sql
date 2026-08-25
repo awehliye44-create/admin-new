@@ -8,7 +8,6 @@
 
 ALTER TABLE public.payout_batches
   DROP CONSTRAINT IF EXISTS payout_batches_status_check;
-
 ALTER TABLE public.payout_batches
   ADD CONSTRAINT payout_batches_status_check
   CHECK (
@@ -26,7 +25,6 @@ ALTER TABLE public.payout_batches
       'PROVIDER_SUBMISSION_IN_PROGRESS', 'PROVIDER_SUBMISSION_PARTIAL'
     ]::text[])
   );
-
 -- Correct existing mixed batches (e.g. Bosteyo COMPLETED + Ahmed RESERVED).
 -- Display-layer SSOT also derives PARTIALLY_COMPLETED; this persists canonical aggregate.
 UPDATE public.payout_batches b
@@ -63,7 +61,6 @@ AND b.status IN (
   'partial',
   'PARTIAL_SETTLEMENT'
 );
-
 CREATE OR REPLACE FUNCTION public.refresh_driver_payout_batch_aggregate_status()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -111,12 +108,10 @@ BEGIN
   RETURN COALESCE(NEW, OLD);
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_refresh_driver_payout_batch_aggregate_status ON public.payout_items;
 CREATE TRIGGER trg_refresh_driver_payout_batch_aggregate_status
 AFTER INSERT OR UPDATE OF status, execution_status ON public.payout_items
 FOR EACH ROW
 EXECUTE FUNCTION public.refresh_driver_payout_batch_aggregate_status();
-
 COMMENT ON TABLE public.admin_settings IS
   'Admin configuration. company_operational_refund_reserve JSON (configured/amount_pence/currency/service_area_id/effective_from) enables final ONECAB available funds. Absence of reserve row = OPERATIONAL_RESERVE_NOT_CONFIGURED (fail-closed; never invent £0).';

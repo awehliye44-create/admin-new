@@ -19,7 +19,6 @@ WHERE name = 'Kampala'
     OR commission_wallet_enabled IS DISTINCT FROM true
     OR financial_model IS DISTINCT FROM 'DRIVER_COLLECTED_COMMISSION_WALLET'
   );
-
 -- ── 2) Valid SA pairing CHECK ───────────────────────────────────────────────
 -- Normalize live SA rows to the two legal pairings before tightening CHECK.
 UPDATE public.service_areas
@@ -34,7 +33,6 @@ WHERE financial_model = 'PLATFORM_COLLECTED'
     OR commission_wallet_enabled IS DISTINCT FROM false
     OR commission_reserve_enabled IS DISTINCT FROM false
   );
-
 UPDATE public.service_areas
 SET
   customer_payment_policy = 'DRIVER_COLLECTS_UPFRONT',
@@ -45,10 +43,8 @@ WHERE financial_model = 'DRIVER_COLLECTED_COMMISSION_WALLET'
     customer_payment_policy IS DISTINCT FROM 'DRIVER_COLLECTS_UPFRONT'
     OR commission_wallet_enabled IS DISTINCT FROM true
   );
-
 ALTER TABLE public.service_areas
   DROP CONSTRAINT IF EXISTS service_areas_commission_wallet_model_consistency;
-
 ALTER TABLE public.service_areas
   ADD CONSTRAINT service_areas_commission_wallet_model_consistency
   CHECK (
@@ -64,7 +60,6 @@ ALTER TABLE public.service_areas
       AND commission_wallet_enabled = true
     )
   );
-
 -- ── 3) Backfill development/test trips from SA at this moment ───────────────
 UPDATE public.trips t
 SET
@@ -75,7 +70,6 @@ SET
 FROM public.service_areas sa
 WHERE t.service_area_id = sa.id
   AND t.financial_model IS NULL;
-
 DO $$
 DECLARE
   v_null integer;
@@ -85,10 +79,8 @@ BEGIN
     RAISE EXCEPTION 'financial_model backfill left % trips null', v_null;
   END IF;
 END $$;
-
 ALTER TABLE public.trips
   ALTER COLUMN financial_model SET NOT NULL;
-
 ALTER TABLE public.trips
   DROP CONSTRAINT IF EXISTS trips_financial_model_valid_chk;
 ALTER TABLE public.trips
@@ -99,10 +91,8 @@ ALTER TABLE public.trips
       'DRIVER_COLLECTED_COMMISSION_WALLET'
     )
   );
-
 COMMENT ON COLUMN public.trips.financial_model IS
   'Immutable pipeline stamp at trip insert. PLATFORM_COLLECTED | DRIVER_COLLECTED_COMMISSION_WALLET. Never null. Never derived later from live SA.';
-
 -- ── 4) Insert stamp + immutability ──────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.stamp_trip_financial_model_on_insert()
 RETURNS trigger
@@ -151,7 +141,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 -- Alphabetical BEFORE INSERT order: stamp (00) must run before reserve (10).
 DROP TRIGGER IF EXISTS trg_stamp_trip_financial_model_on_insert ON public.trips;
 DROP TRIGGER IF EXISTS trg_00_stamp_trip_financial_model_on_insert ON public.trips;
@@ -159,7 +148,6 @@ CREATE TRIGGER trg_00_stamp_trip_financial_model_on_insert
   BEFORE INSERT ON public.trips
   FOR EACH ROW
   EXECUTE FUNCTION public.stamp_trip_financial_model_on_insert();
-
 CREATE OR REPLACE FUNCTION public.enforce_trip_financial_model_immutable()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -176,7 +164,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_enforce_trip_cw_snapshot_immutable ON public.trips;
 DROP TRIGGER IF EXISTS trg_enforce_trip_financial_model_immutable ON public.trips;
 CREATE TRIGGER trg_enforce_trip_financial_model_immutable
@@ -184,7 +171,6 @@ CREATE TRIGGER trg_enforce_trip_financial_model_immutable
   ON public.trips
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_trip_financial_model_immutable();
-
 -- Snapshot-only classifier. Never reads live service_areas.
 CREATE OR REPLACE FUNCTION public.trip_row_is_commission_wallet_driver_collected(p_row trips)
 RETURNS boolean
@@ -196,7 +182,6 @@ AS $$
   SELECT COALESCE(p_row.financial_model::text, '') = 'DRIVER_COLLECTED_COMMISSION_WALLET'
      AND COALESCE(p_row.commission_wallet_enabled, false) IS TRUE;
 $$;
-
 -- ── 5) Balance parts: reserves reduce usable; subsidy is promotional credit ─
 CREATE OR REPLACE FUNCTION public.driver_commission_wallet_balance_parts(
   p_driver_id uuid,
@@ -294,20 +279,16 @@ BEGIN
   RETURN NEXT;
 END;
 $$;
-
 -- ── 6) Atomic reservation ───────────────────────────────────────────────────
 CREATE UNIQUE INDEX IF NOT EXISTS driver_commission_wallet_reserves_active_trip_uidx
   ON public.driver_commission_wallet_reserves (trip_id)
   WHERE status = 'active';
-
 CREATE UNIQUE INDEX IF NOT EXISTS driver_commission_wallet_ledger_trip_reserve_uidx
   ON public.driver_commission_wallet_ledger (trip_id)
   WHERE entry_type = 'COMMISSION_RESERVE' AND trip_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS driver_commission_wallet_ledger_trip_deduction_uidx
   ON public.driver_commission_wallet_ledger (trip_id)
   WHERE entry_type = 'COMMISSION_DEDUCTION' AND trip_id IS NOT NULL;
-
 CREATE OR REPLACE FUNCTION public.is_commission_wallet_reserve_enabled(p_service_area_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -325,7 +306,6 @@ AS $$
       AND sa.customer_payment_policy = 'DRIVER_COLLECTS_UPFRONT'
   );
 $$;
-
 CREATE OR REPLACE FUNCTION public.reserve_driver_commission_wallet(
   p_driver_id uuid,
   p_trip_id uuid
@@ -471,7 +451,6 @@ BEGIN
   );
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.release_driver_commission_wallet(
   p_driver_id uuid,
   p_trip_id uuid,
@@ -533,7 +512,6 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'amount_minor', v_reserve.reserved_amount_minor);
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.trg_commission_wallet_on_trip_assignment()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -561,7 +539,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_commission_wallet_on_trip_assignment ON public.trips;
 DROP TRIGGER IF EXISTS trg_10_commission_wallet_on_trip_assignment ON public.trips;
 CREATE TRIGGER trg_10_commission_wallet_on_trip_assignment
@@ -569,7 +546,6 @@ CREATE TRIGGER trg_10_commission_wallet_on_trip_assignment
   ON public.trips
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_commission_wallet_on_trip_assignment();
-
 -- ── 7) Completion: convert reserve → one deduction or subsidy. No swallow. ──
 CREATE OR REPLACE FUNCTION public.convert_driver_commission_wallet_on_trip_complete(
   p_driver_id uuid,
@@ -751,7 +727,6 @@ BEGIN
   );
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.trg_commission_wallet_on_trip_complete()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -790,13 +765,11 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_commission_wallet_on_trip_complete ON public.trips;
 CREATE TRIGGER trg_commission_wallet_on_trip_complete
   AFTER UPDATE OF status ON public.trips
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_commission_wallet_on_trip_complete();
-
 CREATE OR REPLACE FUNCTION public.trg_commission_wallet_release_on_cancel()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -823,19 +796,16 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_commission_wallet_on_trip_complete ON public.trips;
 CREATE TRIGGER trg_commission_wallet_on_trip_complete
   AFTER UPDATE OF status ON public.trips
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_commission_wallet_on_trip_complete();
-
 DROP TRIGGER IF EXISTS trg_commission_wallet_release_on_cancel ON public.trips;
 CREATE TRIGGER trg_commission_wallet_release_on_cancel
   AFTER UPDATE OF status ON public.trips
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_commission_wallet_release_on_cancel();
-
 -- ── 8) FINANCIAL_MODEL_VIOLATION guards — never silent drop ─────────────────
 CREATE OR REPLACE FUNCTION public.prevent_platform_wallet_ledger_on_cw_trip()
 RETURNS trigger
@@ -860,7 +830,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.enforce_payment_session_financial_model()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -892,13 +861,11 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_enforce_payment_session_financial_model ON public.payment_sessions;
 CREATE TRIGGER trg_enforce_payment_session_financial_model
   BEFORE INSERT OR UPDATE ON public.payment_sessions
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_payment_session_financial_model();
-
 CREATE OR REPLACE FUNCTION public.enforce_payout_item_financial_model()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -919,13 +886,11 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_enforce_payout_item_financial_model ON public.payout_items;
 CREATE TRIGGER trg_enforce_payout_item_financial_model
   BEFORE INSERT OR UPDATE ON public.payout_items
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_payout_item_financial_model();
-
 CREATE OR REPLACE FUNCTION public.enforce_commission_wallet_ledger_financial_model()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -959,14 +924,12 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_enforce_commission_wallet_ledger_financial_model
   ON public.driver_commission_wallet_ledger;
 CREATE TRIGGER trg_enforce_commission_wallet_ledger_financial_model
   BEFORE INSERT ON public.driver_commission_wallet_ledger
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_commission_wallet_ledger_financial_model();
-
 -- ── 9) Dispatch gate uses trip stamp, not live SA ───────────────────────────
 CREATE OR REPLACE FUNCTION public.driver_passes_commission_wallet_dispatch_gate(
   p_driver_id uuid,
@@ -1014,7 +977,6 @@ BEGIN
   RETURN v_balance >= v_required;
 END;
 $$;
-
 -- ── 10) Payment gate: Driver-Collected trips do not require a Payment Session ─
 CREATE OR REPLACE FUNCTION public.payment_authorisation_valid(p_trip_id uuid)
 RETURNS boolean
@@ -1113,7 +1075,6 @@ BEGIN
   RETURN v_authorised >= v_required;
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.assert_payment_gate(p_trip_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -1223,7 +1184,6 @@ BEGIN
   END IF;
 END;
 $function$;
-
 -- ── 11) Dev reversal of Banadir Driver Wallet mix (append-only). No deletes.
 -- CASH_COMMISSION_DEBT is the live-wallet mix on these trips; reporting-only
 -- CASH_TRIP_EARNING / PLATFORM_COMMISSION stay as historical evidence.

@@ -1,4 +1,12 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { notifyCustomerActiveTripEvent } from "../_shared/notifyCustomerActiveTripEvent.ts";
+import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
+import {
+  disposeOutcomeIndicatesFeeCapture,
+  mapFeeTypeToChargedOutcome,
+  postChargedFeeTenViaRfo,
+  resolveAssignedDriverId,
+} from "../_shared/chargedTerminalFeeWalletSSOT.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -50,7 +58,7 @@ Deno.serve(async (req) => {
     // 1. Fetch the trip
     const { data: trip, error: tripError } = await supabase
       .from('trips')
-      .select('id, status, driver_id, service_area_id, arrived_at, created_at, scheduled_at, final_fare_pence, estimated_fare')
+      .select('id, status, driver_id, confirmed_driver_id, service_area_id, arrived_at, created_at, scheduled_at, final_fare_pence, estimated_fare, payment_method, payment_provider, provider_order_id')
       .eq('id', trip_id)
       .single();
 
@@ -147,7 +155,19 @@ Deno.serve(async (req) => {
       .eq('trip_id', trip_id)
       .eq('status', 'active');
 
-    // 6. Update trip status
+    // 6. Update trip status (+ charged-fee stamps when fee applies)
+    const feeType =
+      cancellation_type === 'late_cancellation'
+        ? 'late_cancellation'
+        : cancellation_type.includes('arrival')
+        ? 'cancellation'
+        : cancellation_fee_pence > 0
+        ? 'cancellation'
+        : 'none';
+    const financialOutcome = cancellation_fee_pence > 0
+      ? (mapFeeTypeToChargedOutcome(feeType) ?? 'CANCELLED_WITH_FEE')
+      : 'CANCELLED_NO_FEE';
+
     const updatePayload: Record<string, any> = {
       status: 'cancelled',
       cancellation_reason: reason,
@@ -155,11 +175,22 @@ Deno.serve(async (req) => {
       cancelled_by: user.id,
       cancelled_by_role: cancelled_by_role || 'corporate',
       cancelled_at: now.toISOString(),
+      financial_outcome: financialOutcome,
+      updated_at: now.toISOString(),
     };
 
-    // If there's a fee, set it as the final fare
+    // If there's a fee, stamp non-commissionable driver compensation fields.
     if (cancellation_fee_pence > 0) {
       updatePayload.final_fare_pence = cancellation_fee_pence;
+      updatePayload.cancellation_fee_pence = cancellation_fee_pence;
+      if (feeType === 'late_cancellation') {
+        updatePayload.late_cancel_fee_pence = cancellation_fee_pence;
+      }
+      updatePayload.commission_pence = 0;
+      updatePayload.commission_pct = 0;
+      updatePayload.driver_net_pence = cancellation_fee_pence;
+      updatePayload.driver_net_before_tip_pence = cancellation_fee_pence;
+      updatePayload.gross_fare_pence = cancellation_fee_pence;
     }
 
     const { error: updateError } = await supabase
@@ -176,19 +207,89 @@ Deno.serve(async (req) => {
     }
 
     // 7. Clear driver's current_trip_id if assigned
-    if (trip.driver_id) {
+    const settlementDriverId = resolveAssignedDriverId({
+      driver_id: trip.driver_id,
+      confirmed_driver_id: trip.confirmed_driver_id,
+    });
+    if (settlementDriverId) {
       await supabase
         .from('drivers')
         .update({ current_trip_id: null, updated_at: now.toISOString() })
-        .eq('id', trip.driver_id)
+        .eq('id', settlementDriverId)
         .eq('current_trip_id', trip_id);
     }
+
+    // 8. Dispose Revolut hold / capture fee; post TEN only after proven capture.
+    let holdDisposition: Awaited<ReturnType<typeof disposeTerminalTripPayment>> | null = null;
+    let walletSettlementStatus: string = 'NOT_REQUIRED';
+    try {
+      holdDisposition = await disposeTerminalTripPayment(supabase, {
+        tripId: trip_id,
+        reason: 'customer_cancel',
+        feePence: cancellation_fee_pence,
+        forceFeePenceOverride: true,
+      });
+    } catch (e) {
+      console.error('[cancel-corporate-trip] dispose failed', e);
+      if (cancellation_fee_pence > 0) {
+        return new Response(JSON.stringify({
+          success: false,
+          error_code: 'FEE_DISPOSITION_FAILED',
+          error: 'Fee capture disposition failed after terminal trip update. No second capture attempted.',
+        }), {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    const feeCaptured =
+      cancellation_fee_pence > 0 && disposeOutcomeIndicatesFeeCapture(holdDisposition);
+    if (feeCaptured) {
+      const wallet = await postChargedFeeTenViaRfo({
+        supabaseUrl,
+        serviceRoleKey: supabaseServiceKey,
+        tripId: trip_id,
+        driverId: settlementDriverId,
+        outcome: financialOutcome,
+        feePence: Math.round(Number(holdDisposition?.captured_fee_pence) || cancellation_fee_pence),
+        paymentMethod: trip.payment_method ?? null,
+        disposition: holdDisposition,
+      });
+      walletSettlementStatus = wallet.status;
+      if (wallet.status !== 'SUCCEEDED') {
+        console.error('[cancel-corporate-trip] WALLET_SETTLEMENT_FAILED_AFTER_FEE_CAPTURE', {
+          trip_id,
+          wallet,
+        });
+        return new Response(JSON.stringify({
+          success: false,
+          error_code: 'WALLET_SETTLEMENT_FAILED_AFTER_FEE_CAPTURE',
+          cancellation_type,
+          cancellation_fee_pence,
+          wallet_settlement_status: wallet.status,
+          error: 'Fee was captured but Driver Wallet settlement failed. No second capture.',
+        }), {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // Customer active-trip high-priority cancel (deduped tripId:trip_cancelled).
+    void notifyCustomerActiveTripEvent(supabase, {
+      tripId: trip_id,
+      event: "trip_cancelled",
+    });
 
     return new Response(
       JSON.stringify({
         success: true,
         cancellation_type,
         cancellation_fee_pence,
+        financial_outcome: financialOutcome,
+        hold_disposition_outcome: holdDisposition?.outcome ?? null,
+        wallet_settlement_status: walletSettlementStatus,
         message: cancellation_fee_pence > 0
           ? `Trip cancelled with a ${(cancellation_fee_pence / 100).toFixed(2)} fee.`
           : 'Trip cancelled successfully.',

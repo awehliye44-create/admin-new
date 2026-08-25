@@ -4,7 +4,6 @@
 -- Failed/reversed items keep allocation rows (append-only). Retry cannot double-pay.
 
 BEGIN;
-
 CREATE OR REPLACE FUNCTION public.payout_item_status_releases_ledger_allocation(
   p_status text,
   p_execution_status text
@@ -24,7 +23,6 @@ AS $$
         'LEDGER_SYNC_FAILED', 'FAILED_RETRYABLE', 'FAILED_PERMANENT'
       );
 $$;
-
 CREATE OR REPLACE FUNCTION public.payout_ledger_type_is_payout_eligible(p_type text)
 RETURNS boolean
 LANGUAGE sql
@@ -36,7 +34,6 @@ AS $$
     'TIP_CREDIT'
   );
 $$;
-
 CREATE OR REPLACE FUNCTION public.assert_payout_item_ledger_lineage(p_payout_item_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -150,7 +147,6 @@ BEGIN
   END LOOP;
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.trg_payout_item_require_lineage_before_execute()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -174,13 +170,11 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-
 DROP TRIGGER IF EXISTS trg_payout_item_require_lineage_before_execute ON public.payout_items;
 CREATE TRIGGER trg_payout_item_require_lineage_before_execute
   BEFORE INSERT OR UPDATE OF status, execution_status ON public.payout_items
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_payout_item_require_lineage_before_execute();
-
 CREATE OR REPLACE FUNCTION public.trg_payout_item_ledger_allocations_validate()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -260,13 +254,11 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-
 DROP TRIGGER IF EXISTS trg_payout_item_ledger_allocations_validate ON public.payout_item_ledger_allocations;
 CREATE TRIGGER trg_payout_item_ledger_allocations_validate
   BEFORE INSERT ON public.payout_item_ledger_allocations
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_payout_item_ledger_allocations_validate();
-
 CREATE OR REPLACE FUNCTION public.trg_payout_item_ledger_allocations_immutable()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -276,26 +268,20 @@ BEGIN
     USING ERRCODE = 'check_violation';
 END;
 $function$;
-
 DROP TRIGGER IF EXISTS trg_payout_item_ledger_allocations_no_update ON public.payout_item_ledger_allocations;
 CREATE TRIGGER trg_payout_item_ledger_allocations_no_update
   BEFORE UPDATE ON public.payout_item_ledger_allocations
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_payout_item_ledger_allocations_immutable();
-
 DROP TRIGGER IF EXISTS trg_payout_item_ledger_allocations_no_delete ON public.payout_item_ledger_allocations;
 CREATE TRIGGER trg_payout_item_ledger_allocations_no_delete
   BEFORE DELETE ON public.payout_item_ledger_allocations
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_payout_item_ledger_allocations_immutable();
-
 REVOKE ALL ON FUNCTION public.assert_payout_item_ledger_lineage(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.assert_payout_item_ledger_lineage(uuid) TO service_role;
-
 REVOKE ALL ON FUNCTION public.payout_item_status_releases_ledger_allocation(text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.payout_item_status_releases_ledger_allocation(text, text) TO service_role;
-
 REVOKE ALL ON FUNCTION public.payout_ledger_type_is_payout_eligible(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.payout_ledger_type_is_payout_eligible(text) TO service_role;
-
 COMMIT;

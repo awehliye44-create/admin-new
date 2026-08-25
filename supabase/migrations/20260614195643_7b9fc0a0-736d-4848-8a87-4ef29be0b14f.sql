@@ -1,4 +1,3 @@
-
 -- Phase 2: Sync staff_profiles changes into public.user_roles atomically.
 -- Staff (any role) implies app_role='admin' for backend authorization.
 
@@ -48,10 +47,8 @@ BEGIN
   END IF;
 END;
 $$;
-
 REVOKE ALL ON FUNCTION public.sync_staff_user_role(uuid, text) FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.sync_staff_user_role(uuid, text) TO authenticated;
-
 -- Backfill: every active staff_profile should have an 'admin' user_roles entry.
 INSERT INTO public.user_roles (user_id, role)
 SELECT DISTINCT sp.user_id, 'admin'::public.app_role

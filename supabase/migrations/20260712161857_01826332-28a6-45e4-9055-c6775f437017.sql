@@ -1,14 +1,11 @@
-
 -- 1) Add columns
 ALTER TABLE public.service_areas
   ADD COLUMN IF NOT EXISTS trip_id_prefix text,
   ADD COLUMN IF NOT EXISTS driver_id_prefix text;
-
 -- 2) Backfill from existing code
 UPDATE public.service_areas
 SET trip_id_prefix = COALESCE(NULLIF(UPPER(TRIM(trip_id_prefix)), ''), UPPER(TRIM(code)), 'XX'),
     driver_id_prefix = COALESCE(NULLIF(UPPER(TRIM(driver_id_prefix)), ''), UPPER(TRIM(code)), 'XX');
-
 -- 3) Normalize + validate via trigger (uppercase, trim, no spaces, safe charset)
 CREATE OR REPLACE FUNCTION public.service_areas_normalize_prefixes()
 RETURNS trigger
@@ -36,23 +33,19 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_service_areas_normalize_prefixes ON public.service_areas;
 CREATE TRIGGER trg_service_areas_normalize_prefixes
 BEFORE INSERT OR UPDATE ON public.service_areas
 FOR EACH ROW EXECUTE FUNCTION public.service_areas_normalize_prefixes();
-
 -- 4) Enforce NOT NULL after backfill
 ALTER TABLE public.service_areas
   ALTER COLUMN trip_id_prefix SET NOT NULL,
   ALTER COLUMN driver_id_prefix SET NOT NULL;
-
 -- 5) Case-insensitive uniqueness per prefix
 CREATE UNIQUE INDEX IF NOT EXISTS service_areas_trip_id_prefix_uniq
   ON public.service_areas (UPPER(trip_id_prefix));
 CREATE UNIQUE INDEX IF NOT EXISTS service_areas_driver_id_prefix_uniq
   ON public.service_areas (UPPER(driver_id_prefix));
-
 -- 6) Update trip code generator to use trip_id_prefix SSOT
 CREATE OR REPLACE FUNCTION public.generate_trip_code()
 RETURNS trigger
@@ -100,7 +93,6 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-
 -- 7) Update service-area code resolver used by driver code trigger to prefer driver_id_prefix
 CREATE OR REPLACE FUNCTION public.get_service_area_code(p_service_area_id uuid)
 RETURNS text

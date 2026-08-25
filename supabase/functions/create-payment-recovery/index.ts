@@ -47,6 +47,7 @@ import {
 } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
 import { readTripFinancialModelStamp } from "../_shared/commissionWalletSSOT.ts";
+import { notifyCustomerActiveTripEvent } from "../_shared/notifyCustomerActiveTripEvent.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -589,6 +590,14 @@ Deno.serve(async (req) => {
         saved_card_attempt: savedCardAttempt,
       },
     });
+
+    
+    if (sessionStatus === "CUSTOMER_ACTION_REQUIRED" || !savedCardAttempt.succeeded) {
+      void notifyCustomerActiveTripEvent(supabase, {
+        tripId: trip.id,
+        event: "payment_action_required",
+      });
+    }
 
     return successResponse({
       payment_session_id: session.id,

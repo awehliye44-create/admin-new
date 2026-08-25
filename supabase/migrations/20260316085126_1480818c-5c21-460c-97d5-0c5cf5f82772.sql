@@ -1,14 +1,11 @@
-
 -- Add is_default and driver_controllable columns to vehicle_types
 ALTER TABLE public.vehicle_types
   ADD COLUMN IF NOT EXISTS is_default boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS driver_controllable boolean NOT NULL DEFAULT false;
-
 -- Mark ONECAB as the default category (match by slug)
 UPDATE public.vehicle_types
 SET is_default = true
 WHERE slug = 'onecab';
-
 -- Recreate the driver_assigned_vehicle_types view
 -- Logic: ONECAB (is_default) always visible + admin-assigned categories
 CREATE OR REPLACE VIEW public.driver_assigned_vehicle_types

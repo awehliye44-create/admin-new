@@ -29,7 +29,6 @@ DROP POLICY IF EXISTS "wave_snapshots_deny_all" ON public.dispatch_wave_snapshot
 CREATE POLICY "wave_snapshots_deny_all"
   ON public.dispatch_wave_snapshots FOR ALL
   USING (false) WITH CHECK (false);
-
 -- 2. Round-advance idempotency table
 CREATE TABLE IF NOT EXISTS public.dispatch_round_advance_log (
   trip_id uuid NOT NULL,
@@ -43,7 +42,6 @@ DROP POLICY IF EXISTS "round_advance_log_deny_all" ON public.dispatch_round_adva
 CREATE POLICY "round_advance_log_deny_all"
   ON public.dispatch_round_advance_log FOR ALL
   USING (false) WITH CHECK (false);
-
 -- 3. dispatch_trip_offers — full rewrite using global_dispatch_settings
 CREATE OR REPLACE FUNCTION public.dispatch_trip_offers(
   p_trip_id uuid,
@@ -461,7 +459,6 @@ BEGIN
   END IF;
 END;
 $function$;
-
 -- 4. maybe_advance_dispatch_after_offer_resolution — add trigger_reason
 CREATE OR REPLACE FUNCTION public.maybe_advance_dispatch_after_offer_resolution(
   p_trip_id uuid,
@@ -542,7 +539,6 @@ BEGIN
   PERFORM public.dispatch_trip_offers(p_trip_id, COALESCE(p_trigger_reason, 'resolution'));
 END;
 $function$;
-
 -- 5. expire_stale_offers — pass 'offer_expired' trigger reason
 CREATE OR REPLACE FUNCTION public.expire_stale_offers()
 RETURNS jsonb
@@ -581,7 +577,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- 6. accept_ride_offer — enforce max_stacked_rides (both overloads)
 CREATE OR REPLACE FUNCTION public.accept_ride_offer(p_offer_id uuid, p_driver_id uuid)
 RETURNS jsonb
@@ -770,7 +765,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- The 3-arg overload also gets stacked enforcement
 CREATE OR REPLACE FUNCTION public.accept_ride_offer(
   p_offer_id uuid, p_driver_id uuid, p_allow_customer_counter boolean DEFAULT false

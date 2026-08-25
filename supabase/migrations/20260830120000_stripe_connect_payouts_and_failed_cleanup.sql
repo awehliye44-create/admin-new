@@ -20,16 +20,12 @@ CREATE TABLE IF NOT EXISTS public.stripe_connect_payouts (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_stripe_connect_payouts_driver
   ON public.stripe_connect_payouts (driver_id, initiated_at DESC);
-
 CREATE INDEX IF NOT EXISTS idx_stripe_connect_payouts_acct
   ON public.stripe_connect_payouts (connected_account_id, initiated_at DESC);
-
 COMMENT ON TABLE public.stripe_connect_payouts IS
   'Mirror of Stripe Connect payout objects — physical bank payouts only (not platform transfers).';
-
 -- Repair stale failed payout_items: settlement must not stay PROCESSING/READY without Stripe evidence.
 UPDATE public.payout_items
 SET

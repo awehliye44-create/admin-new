@@ -3,6 +3,5 @@
 
 ALTER TABLE public.drivers
   ADD COLUMN IF NOT EXISTS commission_wallet_test_access boolean NOT NULL DEFAULT false;
-
 COMMENT ON COLUMN public.drivers.commission_wallet_test_access IS
   'Phase 3: when true AND service-area Commission Wallet workflow is enabled, driver may open the read-only Commission Wallet page. Never infer from country.';

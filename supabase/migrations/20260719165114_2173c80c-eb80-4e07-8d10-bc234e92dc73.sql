@@ -1,9 +1,7 @@
-
 -- 1) Convert column type from int4[] to jsonb
 ALTER TABLE public.ride_offers
   ALTER COLUMN offer_options TYPE jsonb
   USING CASE WHEN offer_options IS NULL THEN NULL ELSE to_jsonb(offer_options) END;
-
 -- 2) Update driver_send_preset_offer to write jsonb
 CREATE OR REPLACE FUNCTION public.driver_send_preset_offer(
   p_offer_id uuid,
@@ -95,7 +93,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- 3) Update enrich_ride_offer_presets to write jsonb
 CREATE OR REPLACE FUNCTION public.enrich_ride_offer_presets(p_trip_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
@@ -163,7 +160,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- 4) Update tr_stamp_offer_presets_fn trigger to write jsonb
 CREATE OR REPLACE FUNCTION public.tr_stamp_offer_presets_fn()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'

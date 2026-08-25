@@ -5,4 +5,4 @@ ALTER TABLE public.trips
   ADD COLUMN IF NOT EXISTS invoice_delivery_eligible BOOLEAN,
   ADD COLUMN IF NOT EXISTS invoice_payment_evidence_source TEXT,
   ADD COLUMN IF NOT EXISTS invoice_payment_evidence_ids TEXT[],
-  ADD COLUMN IF NOT EXISTS invoice_payment_resolved_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS invoice_payment_resolved_at TIMESTAMPTZ;;

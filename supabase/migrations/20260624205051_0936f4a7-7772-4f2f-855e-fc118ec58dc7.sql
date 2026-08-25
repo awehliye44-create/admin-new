@@ -1,6 +1,4 @@
-
 DROP VIEW IF EXISTS public.merchants_public;
-
 CREATE VIEW public.merchants_public
 WITH (security_invoker = false) AS
 SELECT
@@ -10,5 +8,4 @@ SELECT
   status, created_at, updated_at
 FROM public.merchants
 WHERE status = 'approved'::merchant_status;
-
 GRANT SELECT ON public.merchants_public TO anon, authenticated;

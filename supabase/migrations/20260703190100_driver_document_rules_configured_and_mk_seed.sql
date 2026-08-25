@@ -235,7 +235,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- Seed SA rules only where none exist (MK historically relied on global is_required).
 INSERT INTO public.service_area_document_rules (
   service_area_id,
@@ -264,7 +263,6 @@ WHERE dt.is_active = true
     WHERE sar.service_area_id = sa.id
   )
 ON CONFLICT (service_area_id, doc_type_id) DO NOTHING;
-
 -- Recalc after seed.
 UPDATE public.drivers d
 SET

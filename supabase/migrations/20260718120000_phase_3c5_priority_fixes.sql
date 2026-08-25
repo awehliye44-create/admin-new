@@ -8,7 +8,6 @@
 -- 1) Wallet SSOT alignment (Phase 3C.4 / 3C.03F)
 -- =============================================================================
 DROP VIEW IF EXISTS public.driver_financial_summary;
-
 CREATE VIEW public.driver_financial_summary AS
 WITH trip_flags AS (
   SELECT
@@ -137,14 +136,11 @@ FROM drivers d
   LEFT JOIN trip_totals tt ON tt.driver_id = d.id
   LEFT JOIN balance_totals bt ON bt.driver_id = d.id
   LEFT JOIN reserved_cashout_totals rc ON rc.driver_id = d.id;
-
 ALTER VIEW public.driver_financial_summary SET (security_invoker = on);
 GRANT SELECT ON public.driver_financial_summary TO authenticated;
 GRANT SELECT ON public.driver_financial_summary TO anon;
-
 COMMENT ON VIEW public.driver_financial_summary IS
   'Phase 3A.4 wallet_balance = ledger liability SSOT (includes COMMISSION_RECOVERED; excludes PLATFORM_COMMISSION, CASH_TRIP_EARNING only).';
-
 CREATE OR REPLACE FUNCTION public.recalculate_driver_wallet(p_driver_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -177,7 +173,6 @@ BEGIN
     updated_at = now();
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.trigger_recalculate_wallet()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -223,10 +218,8 @@ BEGIN
   END IF;
 END;
 $function$;
-
 COMMENT ON FUNCTION public.recalculate_driver_wallet(uuid) IS
   'Rebuild driver_wallets from Phase 3A.4 ledger wallet SSOT — excludes PLATFORM_COMMISSION and CASH_TRIP_EARNING only.';
-
 DO $$
 DECLARE
   r RECORD;
@@ -236,21 +229,18 @@ BEGIN
     PERFORM recalculate_driver_wallet(r.driver_id);
   END LOOP;
 END $$;
-
 -- =============================================================================
 -- 2) payout_items — FAILED_DUPLICATE status + fix ledger_entry_id FK (wallet SSOT table)
 -- =============================================================================
 ALTER TABLE public.payout_items DROP CONSTRAINT IF EXISTS payout_items_ledger_entry_id_fkey;
 ALTER TABLE public.payout_items ADD CONSTRAINT payout_items_ledger_entry_id_fkey
   FOREIGN KEY (ledger_entry_id) REFERENCES public.driver_wallet_ledger(id);
-
 ALTER TABLE public.payout_items DROP CONSTRAINT IF EXISTS payout_items_status_check;
 ALTER TABLE public.payout_items ADD CONSTRAINT payout_items_status_check
   CHECK (status = ANY (ARRAY[
     'pending', 'processing', 'completed', 'failed', 'ledger_sync_failed', 'FAILED_DUPLICATE',
     'CREATED', 'READY', 'BLOCKED', 'SENT', 'PAID', 'FAILED', 'RETURNED', 'INVALID_ORPHANED'
   ]));
-
 -- Link real manual payout item to existing ledger debit
 UPDATE public.payout_items SET
   ledger_entry_id = '3448df70-8f1e-4bcf-9062-dfb2fcc3f8ef',
@@ -266,7 +256,6 @@ UPDATE public.payout_items SET
   updated_at = now()
 WHERE id = '2c50b7df-dcae-40be-9888-f89f061e0f4b'
   AND driver_id = '5ed232c3-8bb5-4085-95d6-73e48e6c5e28';
-
 -- Mark duplicate weekly item — zero liability, no pending contribution
 UPDATE public.payout_items SET
   status = 'FAILED_DUPLICATE',
@@ -282,7 +271,6 @@ UPDATE public.payout_items SET
   updated_at = now()
 WHERE id = 'c5bcd2f7-36f6-44ba-a36d-9822ac32ed44'
   AND driver_id = '5ed232c3-8bb5-4085-95d6-73e48e6c5e28';
-
 -- =============================================================================
 -- 3) MK0001 orphan auto-sweep backfill (po_1TjTPX £16.93)
 -- =============================================================================
@@ -296,5 +284,4 @@ SELECT insert_payout_ledger_debit_if_missing(
   p_stripe_payout_id := 'po_1TjTPXEXTz9Ab5IcE2GFPiaq',
   p_paid_at := '2026-06-18T00:02:23Z'::timestamptz
 );
-
 SELECT recalculate_driver_wallet('5ed232c3-8bb5-4085-95d6-73e48e6c5e28');

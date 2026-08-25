@@ -27,4 +27,4 @@ ALTER FUNCTION public.driver_location_state(boolean, timestamp with time zone, t
 ALTER FUNCTION public.driver_location_thresholds() SET search_path = public;
 ALTER FUNCTION public.enforce_scheduled_trip_lifecycle() SET search_path = public;
 ALTER FUNCTION public.tg_driver_identity_verifications_updated_at() SET search_path = public;
-ALTER FUNCTION public.trip_status_is_live_trackable(text) SET search_path = public;
+ALTER FUNCTION public.trip_status_is_live_trackable(text) SET search_path = public;;

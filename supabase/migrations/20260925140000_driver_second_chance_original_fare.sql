@@ -87,7 +87,6 @@ BEGIN
   );
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.expire_stale_negotiations()
 RETURNS jsonb
 LANGUAGE plpgsql

@@ -82,7 +82,6 @@ BEGIN
   WHERE id = p_trip_id;
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.commit_negotiation_fare(p_trip_id uuid, p_committed_fare_pence integer, p_fare_source text, p_ride_offer_id uuid DEFAULT NULL::uuid, p_driver_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
  LANGUAGE plpgsql

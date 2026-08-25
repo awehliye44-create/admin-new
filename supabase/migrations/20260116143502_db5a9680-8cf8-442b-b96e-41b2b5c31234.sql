@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS public.payout_batches (
   completed_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 -- Create payout_items table for individual payouts within a batch
 CREATE TABLE IF NOT EXISTS public.payout_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -30,7 +29,6 @@ CREATE TABLE IF NOT EXISTS public.payout_items (
   completed_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 -- Add additional fields to trips table if they don't exist
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'trips' AND column_name = 'extras_pence') THEN
@@ -58,7 +56,6 @@ DO $$ BEGIN
     ALTER TABLE public.trips ADD COLUMN refunded_at TIMESTAMPTZ;
   END IF;
 END $$;
-
 -- Insert default commission settings into admin_settings if not exists
 INSERT INTO public.admin_settings (setting_key, setting_value, description)
 VALUES 
@@ -71,37 +68,29 @@ VALUES
   ('preauth_max_buffer_pence', '2000', 'Maximum pre-auth buffer in pence'),
   ('payouts_enabled', 'true', 'Whether driver payouts are enabled globally')
 ON CONFLICT (setting_key) DO NOTHING;
-
 -- Enable RLS on new tables
 ALTER TABLE public.payout_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payout_items ENABLE ROW LEVEL SECURITY;
-
 -- RLS policies for payout_batches (admin only)
 CREATE POLICY "Admins can view all payout batches"
   ON public.payout_batches FOR SELECT
   USING (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Admins can create payout batches"
   ON public.payout_batches FOR INSERT
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Admins can update payout batches"
   ON public.payout_batches FOR UPDATE
   USING (public.has_role(auth.uid(), 'admin'));
-
 -- RLS policies for payout_items (admin only)
 CREATE POLICY "Admins can view all payout items"
   ON public.payout_items FOR SELECT
   USING (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Admins can create payout items"
   ON public.payout_items FOR INSERT
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Admins can update payout items"
   ON public.payout_items FOR UPDATE
   USING (public.has_role(auth.uid(), 'admin'));
-
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_payout_batches_status ON public.payout_batches(status);
 CREATE INDEX IF NOT EXISTS idx_payout_batches_run_date ON public.payout_batches(run_date);
@@ -112,13 +101,11 @@ CREATE INDEX IF NOT EXISTS idx_payout_items_status ON public.payout_items(status
 CREATE INDEX IF NOT EXISTS idx_trips_payment_status ON public.trips(payment_status);
 CREATE INDEX IF NOT EXISTS idx_trips_payment_method ON public.trips(payment_method);
 CREATE INDEX IF NOT EXISTS idx_trips_completed_at ON public.trips(completed_at);
-
 -- Create trigger for updated_at on payout tables
 CREATE OR REPLACE TRIGGER update_payout_batches_updated_at
   BEFORE UPDATE ON public.payout_batches
   FOR EACH ROW
   EXECUTE FUNCTION public.update_updated_at_column();
-
 CREATE OR REPLACE TRIGGER update_payout_items_updated_at
   BEFORE UPDATE ON public.payout_items
   FOR EACH ROW

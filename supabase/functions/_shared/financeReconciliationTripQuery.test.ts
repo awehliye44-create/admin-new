@@ -7,7 +7,7 @@ import {
 Deno.test("terminal filter matches Trip History SSOT", () => {
   assertEquals(
     FINANCE_RECONCILIATION_TRIP_TERMINAL_OR,
-    "financial_outcome.in.(COMPLETED,NO_SHOW,LATE_PASSENGER_CANCELLATION),status.in.(completed,no_show)",
+    "financial_outcome.in.(COMPLETED,NO_SHOW,LATE_PASSENGER_CANCELLATION,AIRPORT_PROTECTION_CANCELLATION,CANCELLED_WITH_FEE),status.in.(completed,no_show)",
   );
 });
 

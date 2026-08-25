@@ -296,6 +296,5 @@ EXCEPTION
     );
 END;
 $$;
-
 COMMENT ON FUNCTION public.convert_driver_commission_wallet_on_trip_complete(uuid, uuid, integer, integer, integer) IS
   'Phase 7 (+gap-close): convert active CW reserve and always write COMMISSION_DEDUCTION when earned > 0.';

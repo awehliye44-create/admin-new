@@ -234,10 +234,8 @@ BEGIN
   );
 END;
 $function$;
-
 COMMENT ON FUNCTION public.get_driver_document_eligibility(uuid) IS
   'SSOT document eligibility for assigned service area only. No global/MK fallback.';
-
 CREATE OR REPLACE FUNCTION public.check_driver_documents_approved(p_driver_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -247,10 +245,8 @@ SET search_path TO 'public'
 AS $function$
   SELECT COALESCE((public.get_driver_document_eligibility(p_driver_id) ->> 'approved')::boolean, false);
 $function$;
-
 COMMENT ON FUNCTION public.check_driver_documents_approved(uuid) IS
   'True only when assigned-service-area mandatory documents are approved (no global fallback).';
-
 -- Recalc all drivers so documents_approved reflects assigned-SA rules.
 UPDATE public.drivers d
 SET
@@ -265,7 +261,6 @@ WHERE d.documents_approved IS DISTINCT FROM public.check_driver_documents_approv
      d.is_online = true
      AND public.check_driver_documents_approved(d.id) = false
    );
-
 -- Recalc when SA rules change: include drivers assigned via drivers.service_area_id.
 CREATE OR REPLACE FUNCTION public.recalc_drivers_on_sa_rule_change()
 RETURNS trigger

@@ -66,4 +66,4 @@ END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.get_trip_passenger_details(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.get_trip_passenger_details(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_trip_passenger_details(uuid) TO authenticated, service_role;;

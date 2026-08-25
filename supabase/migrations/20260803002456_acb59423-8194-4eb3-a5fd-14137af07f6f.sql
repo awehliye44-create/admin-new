@@ -137,4 +137,4 @@ CREATE POLICY "Admins read demand zone audit log"
   USING (public.has_role(auth.uid(), 'admin'::public.app_role));
 
 CREATE INDEX IF NOT EXISTS idx_demand_zone_audit_sa_created
-  ON public.demand_zone_audit_log (service_area_id, created_at DESC);
+  ON public.demand_zone_audit_log (service_area_id, created_at DESC);;

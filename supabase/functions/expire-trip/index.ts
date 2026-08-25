@@ -4,6 +4,7 @@ import {
   resolveRevolutOrderIdFromTrip,
 } from "../_shared/revolutPreauthReleaseSSOT.ts";
 import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
+import { notifyWhatsAppNoDriverForTrip } from "../_shared/whatsappNoDriverNotify.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -301,6 +302,15 @@ Deno.serve(async (req) => {
     console.log("SEARCH_CYCLE_EXPIRED_BACKEND", { trip_id: tripId });
     console.log("TRIP_MARKED_EXPIRED_NO_DRIVER", { trip_id: tripId });
     console.log(`Trip ${tripId} expired successfully - no driver available`);
+
+    // Thin WhatsApp bridge — notify + idle reset only for whatsapp_booking trips.
+    // Does not alter financial state beyond the Revolut release above.
+    try {
+      const waNotify = await notifyWhatsAppNoDriverForTrip(supabase, tripId);
+      console.log("[expire-trip] whatsapp no-driver notify", { trip_id: tripId, ...waNotify });
+    } catch (waErr) {
+      console.warn("[expire-trip] whatsapp no-driver notify failed (non-fatal):", waErr);
+    }
 
     return new Response(
       JSON.stringify({ 

@@ -32,4 +32,4 @@ CREATE INDEX IF NOT EXISTS idx_location_search_cache_expires
 UPDATE public.location_search_rollout
    SET global_enabled = true,
        updated_at = now()
- WHERE id = true;
+ WHERE id = true;;

@@ -196,6 +196,15 @@ function isCustomerLiveTrip(row: TripRow, nowMs: number): boolean {
   if (dispatchMode === "instant" || scheduledStatus === "converted_to_instant") {
     return true;
   }
+  // Activated scheduled search (no driver yet) must restore to Finding —
+  // do not require hasDriver (that only gates reserved pre-pickup live states).
+  if (
+    scheduledStatus === "broadcasting" ||
+    scheduledStatus === "dispatching" ||
+    scheduledStatus === "scheduled_committed"
+  ) {
+    return true;
+  }
 
   if (!isScheduledTrip(row)) return true;
 

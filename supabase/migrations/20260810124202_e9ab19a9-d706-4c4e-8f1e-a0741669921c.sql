@@ -101,4 +101,4 @@ AS $function$
 $function$;
 
 REVOKE ALL ON FUNCTION public.get_my_last_trip_driver_details() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.get_my_last_trip_driver_details() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_my_last_trip_driver_details() TO authenticated;;

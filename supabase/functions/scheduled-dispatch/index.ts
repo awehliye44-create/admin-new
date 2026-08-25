@@ -121,9 +121,10 @@ async function sendCustomerPush(
   args: { passengerId: string; type: string; title: string; body: string; data?: Record<string, string> },
 ) {
   try {
+    // customer_id accepts customers.id (passenger_id) or auth uid — Edge resolves.
     await supabase.functions.invoke("send-customer-notification", {
       body: {
-        passengerId: args.passengerId,
+        customer_id: args.passengerId,
         type: args.type,
         title: args.title,
         body: args.body,
@@ -435,6 +436,21 @@ Deno.serve(async (req) => {
         if (commitError) {
           console.error(`[scheduled-dispatch] Commit update failed for trip ${trip.id}:`, commitError);
           continue;
+        }
+
+        // Customer active-trip SSOT: commitment starts the live trip.
+        if (trip.passenger_id) {
+          const { error: activePtrErr } = await supabase
+            .from("customers")
+            .update({ active_trip_id: trip.id, updated_at: now.toISOString() })
+            .eq("id", trip.passenger_id)
+            .is("active_trip_id", null);
+          if (activePtrErr) {
+            console.warn(
+              `[scheduled-dispatch] active_trip_id backfill failed for trip ${trip.id}:`,
+              activePtrErr,
+            );
+          }
         }
 
         await logSnapshot(supabase, {
@@ -757,6 +773,38 @@ Deno.serve(async (req) => {
           metadata: { trigger_reason: "scheduled_broadcast_no_locked_driver" },
         });
 
+        // Customer active-trip SSOT: broadcast window starts the live customer path.
+        if (trip.passenger_id) {
+          const { error: activePtrErr } = await supabase
+            .from("customers")
+            .update({ active_trip_id: trip.id, updated_at: now.toISOString() })
+            .eq("id", trip.passenger_id)
+            .is("active_trip_id", null);
+          if (activePtrErr) {
+            console.warn(
+              `[scheduled-dispatch] active_trip_id backfill failed for trip ${trip.id}:`,
+              activePtrErr,
+            );
+          }
+        }
+
+
+        // Tell the customer the scheduled ride is now live (Finding).
+        if (trip.passenger_id) {
+          queueBackground(
+            sendCustomerPush(supabase, {
+              passengerId: trip.passenger_id,
+              type: "SCHEDULED_DISPATCH_STARTED",
+              title: "Finding your driver",
+              body: "Your scheduled ride is starting — we're finding your driver now.",
+              data: {
+                trip_id: trip.id,
+                type: "scheduled_dispatch_started",
+              },
+            }),
+          );
+        }
+
         // §13 — Escalation by minutes_to_pickup
         const minutesToPickup = (Date.parse(trip.scheduled_at) - nowMs) / 60_000;
         const mtp = Math.round(minutesToPickup);
@@ -962,6 +1010,37 @@ Deno.serve(async (req) => {
           action: "convert_to_instant",
           metadata: { convert_reason: decision.reason },
         });
+
+        if (trip.passenger_id) {
+          const { error: activePtrErr } = await supabase
+            .from("customers")
+            .update({ active_trip_id: trip.id, updated_at: now.toISOString() })
+            .eq("id", trip.passenger_id)
+            .is("active_trip_id", null);
+          if (activePtrErr) {
+            console.warn(
+              `[scheduled-dispatch] active_trip_id backfill failed for trip ${trip.id}:`,
+              activePtrErr,
+            );
+          }
+        }
+
+        // Customer: scheduled job converted to live Finding Drivers search.
+        if (trip.passenger_id) {
+          queueBackground(
+            sendCustomerPush(supabase, {
+              passengerId: trip.passenger_id,
+              type: "SCHEDULED_CONVERTED_TO_INSTANT",
+              title: "Finding your driver",
+              body: "Your scheduled ride is now live — we're matching you with a nearby driver.",
+              data: {
+                trip_id: trip.id,
+                type: "scheduled_converted_to_instant",
+              },
+            }),
+          );
+        }
+
         await triggerAutoDispatch({
           supabaseUrl,
           supabaseServiceKey,

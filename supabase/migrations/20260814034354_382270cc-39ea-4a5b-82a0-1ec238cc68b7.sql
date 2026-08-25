@@ -576,4 +576,4 @@ BEGIN
     'accepted_via', 'accept_ride_offer'
   );
 END;
-$function$;
+$function$;;

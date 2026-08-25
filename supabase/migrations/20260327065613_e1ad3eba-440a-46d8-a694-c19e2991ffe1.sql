@@ -1,5 +1,4 @@
 DROP VIEW IF EXISTS public.driver_financial_summary;
-
 CREATE VIEW public.driver_financial_summary AS
 WITH trip_totals AS (
   SELECT t.driver_id,

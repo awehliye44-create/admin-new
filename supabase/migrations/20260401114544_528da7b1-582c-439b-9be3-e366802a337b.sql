@@ -1,4 +1,3 @@
-
 -- These are seeded logs with identical messages that weren't properly tagged
 UPDATE ops_logs
 SET is_synthetic = true

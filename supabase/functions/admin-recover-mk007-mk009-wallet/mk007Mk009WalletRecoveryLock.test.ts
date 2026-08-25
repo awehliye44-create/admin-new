@@ -18,6 +18,7 @@ import {
   evaluateMk007Mk009DryRun,
   londonCivilDateKey,
   recoverMk007Mk009WalletDryRun,
+  recoverMk007Mk009Wallet,
   stampMatchesExpected,
 } from "./mk007Mk009WalletRecovery.ts";
 
@@ -82,6 +83,8 @@ function mockPs(id: string, overrides: Record<string, unknown> = {}) {
     provider_refund_id: null,
     released_at: null,
     refunded_at: null,
+    hold_terminal_reason: null,
+    metadata: {},
     ...overrides,
   };
 }
@@ -208,6 +211,9 @@ Deno.test("MK-007 dry-run eligible 425p with 17 Aug economic date", () => {
   assertEquals(result.eligibility_origin, "captured_at_plus_27h");
   assertEquals(result.payment_session_lifecycle_mismatch, true);
   assertEquals(result.payment_session_status, "trip_created");
+  assertEquals(result.proposed_lifecycle_action, { from_status: "trip_created", to_status: "captured" });
+  assertEquals(result.payment_session_finalization_required_before_credit, true);
+  assertEquals(result.provider_operation_required, false);
 });
 
 Deno.test("MK-009 dry-run eligible 706p with 17 Aug economic date", () => {
@@ -364,7 +370,7 @@ Deno.test("async recover: wrong ledger type is isolation-blocked", async () => {
   assertEquals(result.status, "MODEL_ISOLATION_BLOCKED");
 });
 
-Deno.test("schema lock: no provider/FR/payout writer/settlement calc/wallet write", async () => {
+Deno.test("schema lock: no provider/FR/payout writer/settlement calc; canonical finalizer before TEN insert", async () => {
   const files = [
     "index.ts",
     "handler.ts",
@@ -379,15 +385,22 @@ Deno.test("schema lock: no provider/FR/payout writer/settlement calc/wallet writ
     assertEquals(src.includes("creditCapturedCardTripLedger"), false, name);
     assertEquals(src.includes("calculateTripSettlementFromTripRow"), false, name);
     assertEquals(src.includes("classifyFrPromotionApplication"), false, name);
-    assertEquals(src.includes("finalizePaymentSessionLifecycleMismatch"), false, name);
     assertEquals(src.includes("capturedTripWalletRecovery"), false, name);
     assertEquals(src.includes("frPerTripAuditSSOT"), false, name);
     assertEquals(src.includes("applyCanonicalSettlementAfterCapture"), false, name);
-    assertEquals(src.includes(".insert("), false, name);
-    assertEquals(src.includes(".update("), false, name);
     assertEquals(src.includes(".delete("), false, name);
-    assertEquals(src.includes("CREDIT_SAVED_TRIP_EARNING_NET"), false, name);
   }
+  const recovery = await Deno.readTextFile(new URL("./mk007Mk009WalletRecovery.ts", import.meta.url));
+  assert(recovery.includes('from "../_shared/paymentSessionLifecycleFinalizer.ts"'));
+  assert(recovery.includes("finalizePaymentSessionLifecycleMismatch"));
+  assert(recovery.includes("checkPsLifecycleFinalizerPreconditions"));
+  const exec = recovery.slice(recovery.indexOf("async function executeSavedStampCredit"));
+  const finalizeCall = exec.indexOf("await finalize(");
+  const tenInsert = exec.indexOf('type: "TRIP_EARNING_NET"');
+  assert(finalizeCall >= 0 && tenInsert > finalizeCall, "lifecycle finalization must occur before wallet insert");
+  const handler = await Deno.readTextFile(new URL("./handler.ts", import.meta.url));
+  assert(handler.includes("CREDIT_SAVED_TRIP_EARNING_NET"));
+  assertEquals(handler.includes("LIVE_EXECUTION_DISABLED"), false);
 });
 
 Deno.test("schema lock: unique TEN index migration remains", async () => {
@@ -422,3 +435,225 @@ Deno.test("schema lock: Driver app still uses get_driver_own_wallet_earning_rows
   );
   assert(src.includes("get_driver_own_wallet_earning_rows"));
 });
+
+function thenableResult(result: unknown) {
+  const p = Promise.resolve(result);
+  const chain: Record<string, unknown> = {
+    eq: () => chain,
+    neq: () => p,
+    maybeSingle: () => p,
+    then: p.then.bind(p),
+    catch: p.catch.bind(p),
+    finally: p.finally.bind(p),
+  };
+  return chain;
+}
+
+function buildExecuteMock(options: {
+  tripId: string;
+  tripOverrides?: Record<string, unknown>;
+  sessionOverrides?: Record<string, unknown>;
+  ledger?: Array<{ amount_pence?: number; type?: string }>;
+  casMiss?: boolean;
+  finalizeDbError?: boolean;
+  insertError?: { message?: string; code?: string } | null;
+}) {
+  const session = mockPs(options.tripId, options.sessionOverrides);
+  const trip = mockTrip(options.tripId, options.tripOverrides);
+  const ledger = [...(options.ledger ?? [])];
+  const events: string[] = [];
+  let updates = 0;
+  let inserts = 0;
+  return {
+    session,
+    ledger,
+    events,
+    writes: () => updates + inserts,
+    inserts: () => inserts,
+    updates: () => updates,
+    from: (table: string) => {
+      if (table === "trips") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: () => Promise.resolve({ data: trip, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "payment_sessions") {
+        return {
+          select: (columns: string) => ({
+            eq: (column: string, _value: string) => {
+              if (columns === "id") {
+                return {
+                  neq: () => Promise.resolve({ data: [{ id: session.id }], error: null }),
+                  eq: () => thenableResult({ data: [{ id: session.id }], error: null }),
+                };
+              }
+              if (column === "id") {
+                return thenableResult({ data: { ...session }, error: null });
+              }
+              return thenableResult({ data: [{ ...session }], error: null });
+            },
+          }),
+          update: (patch: Record<string, unknown>) => {
+            const predicates: Array<[string, string, unknown]> = [];
+            const chain = {
+              eq: (column: string, value: unknown) => {
+                predicates.push(["eq", column, value]);
+                return chain;
+              },
+              neq: (_column: string, _value: unknown) => {
+                updates += 1;
+                events.push("ps_update");
+                if (options.finalizeDbError) {
+                  return Promise.resolve({ error: { message: "connection timeout", code: "57P01" } });
+                }
+                const statusPred = predicates.find((row) => row[0] === "eq" && row[1] === "status");
+                if (!options.casMiss && statusPred && statusPred[2] === session.status) {
+                  Object.assign(session, patch);
+                  session.status = "captured";
+                  session.financial_operation_state = "CAPTURED";
+                  events.push("ps_finalized");
+                }
+                return Promise.resolve({ error: null });
+              },
+            };
+            return chain;
+          },
+        };
+      }
+      if (table === "driver_wallet_ledger") {
+        return {
+          select: () => thenableResult({
+            data: ledger.map((row) => ({ amount_pence: row.amount_pence, type: row.type ?? "TRIP_EARNING_NET" })),
+            error: null,
+          }),
+          insert: (row: Record<string, unknown>) => {
+            inserts += 1;
+            events.push("ten_insert");
+            if (options.insertError) {
+              return Promise.resolve({ error: options.insertError });
+            }
+            ledger.push({
+              amount_pence: Number(row.amount_pence),
+              type: String(row.type ?? "TRIP_EARNING_NET"),
+            });
+            return Promise.resolve({ error: null });
+          },
+        };
+      }
+      if (table === "driver_commission_wallet_ledger" || table === "payout_items") {
+        return {
+          select: () => thenableResult({ data: [], count: 0, error: null }),
+        };
+      }
+      return {
+        select: () => thenableResult({ data: [], count: 0, error: null }),
+        insert: () => {
+          inserts += 1;
+          return Promise.resolve({ error: new Error("unexpected insert") });
+        },
+        update: () => {
+          updates += 1;
+          return { eq: () => Promise.resolve({ error: new Error("unexpected update") }) };
+        },
+      };
+    },
+  };
+}
+
+Deno.test("execute: trip_created + verified COMPLETED capture is finalized through CAS before TEN insert", async () => {
+  const mock = buildExecuteMock({ tripId: MK007_ID });
+  const result = await recoverMk007Mk009Wallet(mock as never, MK007_ID, { dryRun: false });
+  assertEquals(result.status, "CREDITED");
+  if (result.status !== "CREDITED") return;
+  assertEquals(result.credited_pence, 425);
+  assertEquals(result.payment_session_status, "captured");
+  assertEquals(mock.session.status, "captured");
+  assertEquals(mock.inserts(), 1);
+  assertEquals(mock.events.indexOf("ps_update") >= 0, true);
+  assertEquals(mock.events.indexOf("ten_insert") > mock.events.indexOf("ps_update"), true);
+  assertEquals(londonCivilDateKey(result.economic_earned_at), "2026-08-17");
+});
+
+Deno.test("execute: CAS miss creates no TEN and reports LIFECYCLE_CONFLICT", async () => {
+  const mock = buildExecuteMock({ tripId: MK007_ID, casMiss: true });
+  const result = await recoverMk007Mk009Wallet(mock as never, MK007_ID, { dryRun: false });
+  assertEquals(result.status, "LIFECYCLE_CONFLICT");
+  assertEquals(mock.inserts(), 0);
+  assertEquals(mock.ledger.length, 0);
+  assertEquals(mock.session.status, "trip_created");
+});
+
+Deno.test("execute: finalization DB error creates no TEN and reports LIFECYCLE_FINALIZATION_FAILED", async () => {
+  const mock = buildExecuteMock({ tripId: MK007_ID, finalizeDbError: true });
+  const result = await recoverMk007Mk009Wallet(mock as never, MK007_ID, { dryRun: false });
+  assertEquals(result.status, "LIFECYCLE_FINALIZATION_FAILED");
+  assertEquals(mock.inserts(), 0);
+  assertEquals(mock.ledger.length, 0);
+});
+
+Deno.test("execute: refund creates no TEN", async () => {
+  const mock = buildExecuteMock({
+    tripId: MK007_ID,
+    sessionOverrides: { refunded_amount_pence: 10 },
+  });
+  const result = await recoverMk007Mk009Wallet(mock as never, MK007_ID, { dryRun: false });
+  assertEquals(result.status, "PAYMENT_SESSION_BLOCKED");
+  assertEquals(mock.inserts(), 0);
+  assertEquals(mock.updates(), 0);
+});
+
+Deno.test("execute: release creates no TEN", async () => {
+  const mock = buildExecuteMock({
+    tripId: MK007_ID,
+    sessionOverrides: { hold_release_state: "RELEASED" },
+  });
+  const result = await recoverMk007Mk009Wallet(mock as never, MK007_ID, { dryRun: false });
+  assertEquals(result.status, "PAYMENT_SESSION_BLOCKED");
+  assertEquals(mock.inserts(), 0);
+});
+
+Deno.test("execute: incorrect stamps create no TEN", async () => {
+  const mock = buildExecuteMock({
+    tripId: MK007_ID,
+    tripOverrides: { driver_net_pence: 408 },
+  });
+  const result = await recoverMk007Mk009Wallet(mock as never, MK007_ID, { dryRun: false });
+  assertEquals(result.status, "SETTLEMENT_STAMP_MISMATCH");
+  assertEquals(mock.inserts(), 0);
+  assertEquals(mock.updates(), 0);
+});
+
+Deno.test("execute: correct simulation posts 425p + 706p once; retry does not duplicate", async () => {
+  const mock007 = buildExecuteMock({ tripId: MK007_ID });
+  const mock009 = buildExecuteMock({ tripId: MK009_ID });
+  const a = await recoverMk007Mk009Wallet(mock007 as never, MK007_ID, { dryRun: false });
+  const b = await recoverMk007Mk009Wallet(mock009 as never, MK009_ID, { dryRun: false });
+  assertEquals(a.status, "CREDITED");
+  assertEquals(b.status, "CREDITED");
+  const total = (a.status === "CREDITED" ? a.credited_pence : 0)
+    + (b.status === "CREDITED" ? b.credited_pence : 0);
+  assertEquals(total, 1131);
+  assertEquals(mock007.inserts(), 1);
+  assertEquals(mock009.inserts(), 1);
+  assertEquals(londonCivilDateKey(a.status === "CREDITED" ? a.economic_earned_at : null), "2026-08-17");
+  assertEquals(londonCivilDateKey(b.status === "CREDITED" ? b.economic_earned_at : null), "2026-08-17");
+  assertEquals(londonCivilDateKey(a.status === "CREDITED" ? a.economic_earned_at : null) === "2026-08-18", false);
+
+  const retry = await recoverMk007Mk009Wallet(mock007 as never, MK007_ID, { dryRun: false });
+  assertEquals(retry.status, "ALREADY_CREDITED");
+  assertEquals(mock007.inserts(), 1);
+});
+
+Deno.test("dry-run remains zero-write on an execution-capable client", async () => {
+  const mock = buildExecuteMock({ tripId: MK007_ID });
+  const result = await recoverMk007Mk009Wallet(mock as never, MK007_ID, { dryRun: true });
+  assertEquals(result.status, "DRY_RUN_ELIGIBLE");
+  assertEquals(mock.writes(), 0);
+  assertEquals(mock.session.status, "trip_created");
+  assertEquals(mock.ledger.length, 0);
+});
+

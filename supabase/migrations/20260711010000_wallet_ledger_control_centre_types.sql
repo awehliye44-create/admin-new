@@ -11,7 +11,6 @@ ALTER TABLE public.driver_wallet_ledger ADD CONSTRAINT driver_wallet_ledger_type
     'BONUS', 'PROMOTION', 'DEBT_RECOVERY', 'PAYOUT_FAILED_RETURN', 'PAYOUT_REVERSAL',
     'LEDGER_REVERSAL', 'CORRECTION', 'COMMISSION_RECOVERED'
   ]));
-
 -- Append-only: block DELETE on driver_wallet_ledger (corrections must insert new rows).
 CREATE OR REPLACE FUNCTION public.prevent_driver_wallet_ledger_delete()
 RETURNS trigger
@@ -21,7 +20,6 @@ BEGIN
   RAISE EXCEPTION 'driver_wallet_ledger is append-only; corrections must insert new entries';
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_prevent_driver_wallet_ledger_delete ON public.driver_wallet_ledger;
 CREATE TRIGGER trg_prevent_driver_wallet_ledger_delete
   BEFORE DELETE ON public.driver_wallet_ledger

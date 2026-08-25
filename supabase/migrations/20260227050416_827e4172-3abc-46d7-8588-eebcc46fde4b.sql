@@ -1,4 +1,3 @@
-
 -- Service Area Document Rules table
 CREATE TABLE public.service_area_document_rules (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -14,15 +13,12 @@ CREATE TABLE public.service_area_document_rules (
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   UNIQUE(service_area_id, doc_type_id)
 );
-
 -- Enable RLS
 ALTER TABLE public.service_area_document_rules ENABLE ROW LEVEL SECURITY;
-
 -- Admin full access
 CREATE POLICY "Admins can manage service area document rules"
   ON public.service_area_document_rules FOR ALL
   USING (public.has_role(auth.uid(), 'admin'));
-
 -- Drivers can read rules for their service area
 CREATE POLICY "Drivers can read document rules for their service area"
   ON public.service_area_document_rules FOR SELECT
@@ -33,7 +29,6 @@ CREATE POLICY "Drivers can read document rules for their service area"
         AND dsa.driver_id = public.current_driver_id()
     )
   );
-
 -- Trigger for updated_at
 CREATE TRIGGER update_service_area_document_rules_updated_at
   BEFORE UPDATE ON public.service_area_document_rules

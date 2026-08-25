@@ -222,13 +222,25 @@ Deno.serve(async (req) => {
       pickup_lng: trip.pickup_longitude,
     });
 
+    if (trip.passenger_id) {
+      const { error: activePtrErr } = await supabase
+        .from("customers")
+        .update({ active_trip_id: trip_id, updated_at: now.toISOString() })
+        .eq("id", trip.passenger_id)
+        .is("active_trip_id", null);
+      if (activePtrErr) {
+        console.warn("[scheduled-checkin] active_trip_id backfill failed:", activePtrErr);
+      }
+    }
+
     // Notify customer: driver is on the way
     if (trip.passenger_id) {
       try {
         const driverName = driverRow.first_name?.trim() ?? "Your driver";
         await supabase.functions.invoke("send-customer-notification", {
           body: {
-            passengerId: trip.passenger_id,
+            // customers.id — Edge resolves to auth user id for token lookup.
+            customer_id: trip.passenger_id,
             type: "DRIVER_EN_ROUTE",
             title: "Your driver is on the way",
             body: `${driverName} is heading to your pickup at ${trip.pickup_address ?? "your location"}.`,

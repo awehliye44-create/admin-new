@@ -213,7 +213,9 @@ Deno.test("support state: book intent escapes support, unknown intent extends su
 Deno.test("workflow processes messages directly without DB re-read round-trip", () => {
   const index = readSrc("supabase/functions/whatsapp-webhook/index.ts");
   assert(!index.includes("reload inbound row failed"));
-  assert(index.includes("scheduleBackground(processAcceptedMessages(client, acceptedMessages))"));
+  assert(index.includes("scheduleBackground(work)"));
+  assert(index.includes("await work"));
+  assert(index.includes("waba_id mismatch — processing inbound anyway"));
 });
 
 Deno.test("conversation upsert handles concurrent first-message races", () => {
@@ -472,8 +474,8 @@ Deno.test("support bridge reuses existing open whatsapp conversation — no dupl
 Deno.test("explicit cancel/menu intent exits support state and returns to idle", () => {
   const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
   assert(workflow.includes("support_exited_menu") || workflow.includes("support_exited"));
-  // workflow_state reset to idle on explicit exit
-  assert(workflow.includes("workflow_state: \"idle\""));
+  // Full idle ownership on explicit support exit (clears support + booking + track ownership)
+  assert(workflow.includes("buildIdleOwnershipPatch()"));
 });
 
 Deno.test("resolving support does not cancel or modify trips", () => {
@@ -533,14 +535,16 @@ Deno.test("sendBookContinuation sets booking_session_expires_at on success", () 
 Deno.test("successful booking closes wizard state — does NOT stay book until ride completes", () => {
   // After sendBookContinuation succeeds, workflow_state = 'book' with expiry.
   // The booking wizard is independent of the trip. When the customer stops
-  // interacting, expiry resets to idle — the trip itself is unaffected.
-  // Verified by: expiry sweep only resets workflow_state and booking_session_* cols,
-  // never modifies trips table.
+  // interacting, expiry resets to idle — the trip itself is unaffected by Phase A.
+  // Phase B may expire whatsapp_booking searching trips via existing SSOT — that is
+  // trip search exhaust, not booking-session wizard state.
   const expire = readSrc("supabase/functions/whatsapp-session-expire/index.ts");
-  assert(!expire.includes("trips"), "expiry sweep must NOT touch trips table");
   assert(expire.includes("workflow_state: \"idle\""));
   assert(expire.includes("booking_session_started_at: null"));
   assert(expire.includes("booking_session_expires_at: null"));
+  assert(expire.includes('phase: "session"'));
+  // Phase A booking-session claim must not clear support fields.
+  assert(!expire.includes("support_opened_at"));
 });
 
 Deno.test("explicit cancel during booking immediately exits to idle without waiting for expiry", () => {
@@ -560,10 +564,6 @@ Deno.test("expiry send is atomic — UPDATE guards on workflow_state='book' to p
 
 Deno.test("expiry sweep does NOT close open support conversations", () => {
   const expire = readSrc("supabase/functions/whatsapp-session-expire/index.ts");
-  // The update patch only contains booking session and workflow_state fields.
-  // It must NOT set support_conversation_id or support_opened_at to null.
-  const updateBlock = expire.slice(expire.indexOf("booking_session_started_at: null"));
-  // Verify the update block only resets booking session fields, not support fields.
   assert(expire.includes("booking_session_started_at: null"));
   assert(expire.includes("booking_session_expires_at: null"));
   // support_opened_at must never appear in the expiry function
@@ -574,14 +574,14 @@ Deno.test("expiry sweep does NOT close open support conversations", () => {
 
 Deno.test("expiry sends exactly one notification per session — idempotent via atomic claim", () => {
   const expire = readSrc("supabase/functions/whatsapp-session-expire/index.ts");
-  // The import of sendWhatsAppTextMessage appears near the top; actual call appears later.
-  // Find the LAST occurrence of sendWhatsAppTextMessage (the actual call) vs already_claimed.
-  const claimIdx = expire.lastIndexOf("already_claimed");
-  const sendCallIdx = expire.lastIndexOf("sendWhatsAppTextMessage(creds");
+  // Phase A booking-session expiry: claim then notify.
+  const claimIdx = expire.indexOf("already_claimed");
+  const sendCallIdx = expire.indexOf("sendWhatsAppTextMessage(creds", claimIdx > 0 ? claimIdx : 0);
   assert(claimIdx > 0, "already_claimed sentinel must exist");
-  assert(sendCallIdx > 0, "sendWhatsAppTextMessage(creds call must exist");
+  assert(sendCallIdx > 0, "sendWhatsAppTextMessage(creds call must exist after claim");
   assert(claimIdx < sendCallIdx,
     "sendWhatsAppTextMessage(creds call must come after the atomic claim check");
+  assert(expire.includes('phase: "session"'));
 });
 
 Deno.test("pg_cron booking expiry job is registered at 1-minute granularity", () => {

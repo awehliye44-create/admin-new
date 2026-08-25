@@ -69,6 +69,8 @@ export async function resolveAlertSound(
 /** Trip push events → admin customer alert_sound_mappings event_type. */
 export const TRIP_EVENT_SOUND_MAP: Record<string, string> = {
   trip_accepted: "driver_assigned",
+  driver_assigned: "driver_assigned",
+  new_driver_assigned: "driver_assigned",
   driver_approaching: "driver_assigned",
   driver_arrived: "driver_arrived",
   waiting_started: "driver_arrived",
@@ -81,6 +83,7 @@ export const TRIP_EVENT_SOUND_MAP: Record<string, string> = {
   rating_request: "general_notification",
   payment_success: "payment_status",
   payment_failed: "payment_status",
+  payment_action_required: "payment_status",
   lost_item_followup: "general_notification",
   customer_new_fare_offer: "general_notification",
   driver_accepted_counter: "general_notification",

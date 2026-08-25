@@ -1,4 +1,3 @@
-
 -- ============================================================
 -- ONECAB Ops Intelligence - Phase 2: Detection & Alert Engine
 -- ============================================================
@@ -58,7 +57,6 @@ BEGIN
   RETURN v_alert_id;
 END;
 $$;
-
 -- 2. Record an ops event and optionally create an alert
 CREATE OR REPLACE FUNCTION public.ops_record_event(
   p_event_type text,
@@ -123,7 +121,6 @@ BEGIN
   RETURN v_event_id;
 END;
 $$;
-
 -- 3. Alert actions: acknowledge, resolve, suppress
 CREATE OR REPLACE FUNCTION public.ops_acknowledge_alert(p_alert_id uuid, p_user_id uuid)
 RETURNS void
@@ -137,7 +134,6 @@ BEGIN
   WHERE id = p_alert_id AND status = 'open';
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_resolve_alert(p_alert_id uuid, p_user_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -155,7 +151,6 @@ BEGIN
   WHERE alert_id = p_alert_id AND resolved = false;
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_suppress_alert(p_alert_id uuid, p_until timestamptz)
 RETURNS void
 LANGUAGE plpgsql
@@ -168,7 +163,6 @@ BEGIN
   WHERE id = p_alert_id;
 END;
 $$;
-
 -- 4. Detection: Scan for missing commissions on completed trips
 CREATE OR REPLACE FUNCTION public.ops_detect_missing_commissions()
 RETURNS int
@@ -205,7 +199,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 5. Detection: Scan for missing driver earnings
 CREATE OR REPLACE FUNCTION public.ops_detect_missing_earnings()
 RETURNS int
@@ -244,7 +237,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 6. Detection: Failed payments
 CREATE OR REPLACE FUNCTION public.ops_detect_failed_payments()
 RETURNS int
@@ -278,7 +270,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 7. Detection: Failed payouts
 CREATE OR REPLACE FUNCTION public.ops_detect_failed_payouts()
 RETURNS int
@@ -312,7 +303,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 8. Detection: Stuck dispatch (trips searching for > 15 min)
 CREATE OR REPLACE FUNCTION public.ops_detect_stuck_dispatch()
 RETURNS int
@@ -347,7 +337,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 9. Detection: Duplicate payments (same trip, multiple successful payments)
 CREATE OR REPLACE FUNCTION public.ops_detect_duplicate_payments()
 RETURNS int
@@ -385,7 +374,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 10. Detection: Duplicate commissions (same trip, multiple commission ledger entries)
 CREATE OR REPLACE FUNCTION public.ops_detect_duplicate_commissions()
 RETURNS int
@@ -422,7 +410,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 11. Master scan function that runs all detections
 CREATE OR REPLACE FUNCTION public.ops_run_all_detections()
 RETURNS jsonb
@@ -443,7 +430,6 @@ BEGIN
   RETURN v_results;
 END;
 $$;
-
 -- 12. Summary view for dashboard health cards
 CREATE OR REPLACE VIEW public.ops_health_summary AS
 SELECT

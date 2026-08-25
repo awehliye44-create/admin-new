@@ -12,15 +12,11 @@ CREATE TABLE IF NOT EXISTS public.payout_audit_log (
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_payout_audit_log_driver_created
   ON public.payout_audit_log(driver_id, created_at DESC);
-
 CREATE INDEX IF NOT EXISTS idx_payout_audit_log_event_type
   ON public.payout_audit_log(event_type, created_at DESC);
-
 ALTER TABLE public.payout_audit_log ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS payout_audit_log_service_role ON public.payout_audit_log;
 CREATE POLICY payout_audit_log_service_role
   ON public.payout_audit_log
@@ -28,6 +24,5 @@ CREATE POLICY payout_audit_log_service_role
   TO service_role
   USING (true)
   WITH CHECK (true);
-
 COMMENT ON TABLE public.payout_audit_log IS
   'Diagnostics for payout validation failures (min amount, provider balance, Stripe errors).';

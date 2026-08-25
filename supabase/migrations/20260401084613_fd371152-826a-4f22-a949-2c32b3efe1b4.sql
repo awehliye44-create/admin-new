@@ -1,10 +1,7 @@
-
 -- Fix 1: Make the lost-property-photos bucket private
 UPDATE storage.buckets SET public = false WHERE id = 'lost-property-photos';
-
 -- Drop any existing overly permissive policies
 DROP POLICY IF EXISTS "Lost property photos are publicly accessible" ON storage.objects;
-
 -- Authenticated users can read photos for their cases (customer or driver)
 CREATE POLICY "LP photos viewable by case participants"
 ON storage.objects FOR SELECT
@@ -21,7 +18,6 @@ USING (
       )
   )
 );
-
 -- Users can upload photos to their own folder
 CREATE POLICY "LP users can upload photos"
 ON storage.objects FOR INSERT
@@ -30,7 +26,6 @@ WITH CHECK (
   bucket_id = 'lost-property-photos'
   AND (storage.foldername(name))[1] = auth.uid()::text
 );
-
 -- Fix 2: Function to expire chats and insert system messages
 CREATE OR REPLACE FUNCTION public.lost_property_expire_chats()
 RETURNS integer

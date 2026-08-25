@@ -13,7 +13,6 @@ ALTER TABLE public.invoices
   ADD COLUMN IF NOT EXISTS invoice_email_sent_at timestamptz,
   ADD COLUMN IF NOT EXISTS invoice_email_status text,
   ADD COLUMN IF NOT EXISTS invoice_email_error text;
-
 ALTER TABLE public.invoice_templates
   ADD COLUMN IF NOT EXISTS template_type text NOT NULL DEFAULT 'driver_monthly',
   ADD COLUMN IF NOT EXISTS email_subject text,
@@ -21,12 +20,10 @@ ALTER TABLE public.invoice_templates
   ADD COLUMN IF NOT EXISTS auto_email_enabled boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS footer_text text,
   ADD COLUMN IF NOT EXISTS company_website text;
-
 CREATE TABLE IF NOT EXISTS public.driver_invoice_monthly_sequences (
   invoice_month text PRIMARY KEY,
   last_seq integer NOT NULL DEFAULT 0
 );
-
 CREATE OR REPLACE FUNCTION public.generate_invoice_number()
 RETURNS text
 LANGUAGE plpgsql
@@ -59,15 +56,12 @@ BEGIN
   END LOOP;
 END;
 $$;
-
 CREATE UNIQUE INDEX IF NOT EXISTS invoices_driver_period_unique
   ON public.invoices (driver_id, region_id, period_start, period_end)
   WHERE status NOT IN ('cancelled');
-
 INSERT INTO storage.buckets (id, name, public, file_size_limit)
 VALUES ('driver-invoices', 'driver-invoices', false, 10485760)
 ON CONFLICT (id) DO NOTHING;
-
 UPDATE public.invoice_templates
 SET
   email_subject = COALESCE(email_subject, 'Your ONECAB Monthly Earnings Statement - {{invoiceNo}}'),

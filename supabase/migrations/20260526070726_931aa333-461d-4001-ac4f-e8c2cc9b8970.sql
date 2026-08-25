@@ -1,10 +1,8 @@
-
 -- 1. Add the three new fields to service_area_vehicle_pricing
 ALTER TABLE public.service_area_vehicle_pricing
   ADD COLUMN IF NOT EXISTS per_km_rate_pence integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS per_min_rate_pence integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS airport_charge_pence integer NOT NULL DEFAULT 0;
-
 -- 2. Backfill per_km / per_min from first JSONB tier (rates stored as decimal currency units)
 UPDATE public.service_area_vehicle_pricing
 SET per_km_rate_pence = COALESCE(
@@ -16,7 +14,6 @@ SET per_km_rate_pence = COALESCE(
       0
     )
 WHERE per_km_rate_pence = 0 OR per_min_rate_pence = 0;
-
 -- 3. Mirror trigger: keep fare_pricing_settings per-vehicle row in sync with SOT
 CREATE OR REPLACE FUNCTION public.sync_sav_pricing_to_fare_engine()
 RETURNS trigger
@@ -52,7 +49,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 -- 3a. fare_pricing_settings needs a unique constraint for the ON CONFLICT target
 DO $$
 BEGIN
@@ -70,7 +66,6 @@ BEGIN
       WHERE vehicle_type_id IS NULL;
   END IF;
 END $$;
-
 -- Re-create function with index-based conflict target
 CREATE OR REPLACE FUNCTION public.sync_sav_pricing_to_fare_engine()
 RETURNS trigger
@@ -115,24 +110,20 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_sync_sav_pricing_to_fare_engine ON public.service_area_vehicle_pricing;
 CREATE TRIGGER trg_sync_sav_pricing_to_fare_engine
 AFTER INSERT OR UPDATE OF base_fare, minimum_fare, per_km_rate_pence, per_min_rate_pence, currency_code
 ON public.service_area_vehicle_pricing
 FOR EACH ROW
 EXECUTE FUNCTION public.sync_sav_pricing_to_fare_engine();
-
 -- 4. Backfill: trigger the sync for every existing row by touching updated_at
 UPDATE public.service_area_vehicle_pricing
 SET updated_at = now();
-
 -- 5. Normalise custom_zones.zone_type for airport detection (lowercase trim)
 UPDATE public.custom_zones
 SET zone_type = lower(trim(zone_type))
 WHERE zone_type IS NOT NULL
   AND zone_type <> lower(trim(zone_type));
-
 -- 6. Drop unused custom_zones.airport_fee column (never read by any code path).
 --    Airport charges are now per-vehicle on service_area_vehicle_pricing.airport_charge_pence
 ALTER TABLE public.custom_zones

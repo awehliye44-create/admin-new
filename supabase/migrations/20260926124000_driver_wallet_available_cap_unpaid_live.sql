@@ -3,7 +3,6 @@
 -- Available copy Live when Pending > 0 (MK0001: Pending+Available=Live).
 
 BEGIN;
-
 CREATE OR REPLACE FUNCTION public.driver_wallet_eligibility_balances(p_driver_id uuid)
  RETURNS TABLE(
   live_balance_pence bigint,
@@ -243,7 +242,5 @@ BEGIN
     GREATEST(0, v_unpaid_eligible)::bigint;
 END;
 $function$;
-
 GRANT EXECUTE ON FUNCTION public.driver_wallet_eligibility_balances(uuid) TO authenticated, service_role;
-
 COMMIT;

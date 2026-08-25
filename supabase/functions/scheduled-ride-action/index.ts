@@ -432,7 +432,7 @@ Deno.serve(async (req) => {
             : "Your driver";
           await supabase.functions.invoke("send-customer-notification", {
             body: {
-              passengerId: tripRow.passenger_id,
+              customer_id: tripRow.passenger_id,
               type: "DRIVER_CONFIRMED",
               title: "Driver confirmed",
               body: `${driverName} will pick you up for your scheduled ride.`,
@@ -703,7 +703,7 @@ Deno.serve(async (req) => {
             : "We're looking for another driver for your scheduled trip.";
           await supabase.functions.invoke("send-customer-notification", {
             body: {
-              passengerId: tripForNotif.passenger_id,
+              customer_id: tripForNotif.passenger_id,
               type: "DRIVER_CANCELLED",
               title: "Driver cancelled",
               body: customerMsg,

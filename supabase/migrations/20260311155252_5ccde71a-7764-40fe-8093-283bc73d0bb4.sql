@@ -1,4 +1,3 @@
-
 -- =====================================================
 -- ONECAB Payment System: trip_finance table
 -- Single source of truth for trip financial records
@@ -68,7 +67,6 @@ CREATE TABLE public.trip_finance (
     tip_amount_pence >= 0
   )
 );
-
 -- Indexes
 CREATE INDEX idx_trip_finance_trip_id ON public.trip_finance(trip_id);
 CREATE INDEX idx_trip_finance_driver_id ON public.trip_finance(driver_id);
@@ -76,27 +74,22 @@ CREATE INDEX idx_trip_finance_service_area ON public.trip_finance(service_area_i
 CREATE INDEX idx_trip_finance_settlement ON public.trip_finance(settlement_status);
 CREATE INDEX idx_trip_finance_created ON public.trip_finance(created_at DESC);
 CREATE INDEX idx_trip_finance_payment_method ON public.trip_finance(payment_method);
-
 -- Enable RLS
 ALTER TABLE public.trip_finance ENABLE ROW LEVEL SECURITY;
-
 -- RLS policies
 CREATE POLICY "Admins can manage trip_finance"
   ON public.trip_finance FOR ALL
   TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Drivers can view own trip_finance"
   ON public.trip_finance FOR SELECT
   TO authenticated
   USING (driver_id IN (SELECT id FROM public.drivers WHERE user_id = auth.uid()));
-
 -- Trigger for updated_at
 CREATE TRIGGER update_trip_finance_updated_at
   BEFORE UPDATE ON public.trip_finance
   FOR EACH ROW
   EXECUTE FUNCTION public.update_updated_at_column();
-
 -- Validation trigger: enforce commission calculation integrity
 CREATE OR REPLACE FUNCTION public.validate_trip_finance()
   RETURNS trigger
@@ -126,7 +119,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE TRIGGER trigger_validate_trip_finance
   BEFORE INSERT OR UPDATE ON public.trip_finance
   FOR EACH ROW

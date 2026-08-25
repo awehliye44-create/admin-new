@@ -27,7 +27,6 @@ AS $$
     'no_eligible_drivers'
   );
 $$;
-
 CREATE OR REPLACE FUNCTION public.record_booking_delivery(
   p_booking_id uuid,
   p_phase text,
@@ -102,7 +101,6 @@ BEGIN
   END;
 END;
 $$;
-
 -- Only log booking_received on first ACK (not every realtime/poll/http retry).
 CREATE OR REPLACE FUNCTION public.ack_offer_delivery(
   p_offer_id UUID,
@@ -188,7 +186,6 @@ BEGIN
   );
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.get_dispatch_metrics(
   p_start timestamptz,
   p_end timestamptz,
@@ -400,6 +397,5 @@ BEGIN
   );
 END;
 $$;
-
 REVOKE ALL ON FUNCTION public.get_dispatch_metrics(timestamptz, timestamptz, uuid, uuid, uuid) FROM public;
 GRANT EXECUTE ON FUNCTION public.get_dispatch_metrics(timestamptz, timestamptz, uuid, uuid, uuid) TO authenticated;

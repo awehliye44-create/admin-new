@@ -70,4 +70,4 @@ BEGIN
 
   RETURN jsonb_build_object('success', true, 'trip_id', p_trip_id, 'cancelled_by', p_cancelled_by, 'negotiation_status', v_terminal_neg);
 END;
-$function$;
+$function$;;

@@ -1,4 +1,3 @@
-
 INSERT INTO content_items (app_scope, slug, title, content_html, status, version) VALUES
   ('legal', 'about_us', 'About Us', '<p>About us content goes here.</p>', 'draft', 1),
   ('legal', 'terms_and_conditions', 'Terms & Conditions', '<p>Terms and conditions content goes here.</p>', 'draft', 1),

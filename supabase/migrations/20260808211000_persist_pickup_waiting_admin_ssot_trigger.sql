@@ -1,7 +1,3 @@
--- Restored from live schema_migrations.statements (already applied). Do not re-run.
--- SUPERSEDED for rate precedence by 20260920120000_p0_pickup_waiting_admin_ssot_charge_interval
--- (fare rate must win: COALESCE(v_fare_rate, v_dispatch_rate, 0)).
-
 -- DB SSOT guard: when pickup waiting starts (or a poisoned dispatch snapshot lands),
 -- freeze Admin Trip Lifecycle free-wait + paid flags and free_wait_expires_at.
 -- Never leave apps on the global dispatch row (historically 300s + paid OFF).
@@ -104,16 +100,10 @@ BEGIN
 
   RETURN NEW;
 END;
-$$
-
-
-DROP TRIGGER IF EXISTS trg_persist_pickup_waiting_admin_ssot ON public.trips
-
-
+$$;
+DROP TRIGGER IF EXISTS trg_persist_pickup_waiting_admin_ssot ON public.trips;
 CREATE TRIGGER trg_persist_pickup_waiting_admin_ssot
 BEFORE INSERT OR UPDATE OF pickup_waiting_started_at, pickup_waiting_admin_config, free_wait_expires_at
 ON public.trips
 FOR EACH ROW
-EXECUTE FUNCTION public.persist_pickup_waiting_admin_ssot()
-
-
+EXECUTE FUNCTION public.persist_pickup_waiting_admin_ssot();

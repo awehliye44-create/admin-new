@@ -1,6 +1,5 @@
 ALTER TABLE public.invoices
   ADD COLUMN IF NOT EXISTS driver_display_email text;
-
 UPDATE public.invoices i
 SET
   driver_display_email = d.email,
@@ -9,7 +8,6 @@ SET
 FROM public.drivers d
 WHERE i.driver_id = d.id
   AND (i.driver_display_email IS NULL OR trim(i.driver_display_email) = '');
-
 -- Snapshot email/name for orphaned invoices when the region has exactly one active driver.
 UPDATE public.invoices i
 SET

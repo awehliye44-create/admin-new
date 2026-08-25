@@ -12,16 +12,13 @@ ALTER TABLE public.trips
   ADD COLUMN IF NOT EXISTS invoice_email_error text,
   ADD COLUMN IF NOT EXISTS invoice_regenerated_at timestamptz,
   ADD COLUMN IF NOT EXISTS invoice_total_paid_pence integer;
-
 CREATE UNIQUE INDEX IF NOT EXISTS trips_invoice_no_unique
   ON public.trips (invoice_no)
   WHERE invoice_no IS NOT NULL;
-
 CREATE TABLE IF NOT EXISTS public.trip_invoice_daily_sequences (
   invoice_date date PRIMARY KEY,
   last_seq integer NOT NULL DEFAULT 0
 );
-
 CREATE OR REPLACE FUNCTION public.next_trip_invoice_number()
 RETURNS text
 LANGUAGE plpgsql
@@ -55,7 +52,6 @@ BEGIN
   END LOOP;
 END;
 $$;
-
 CREATE TABLE IF NOT EXISTS public.trip_invoice_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   trip_id uuid NOT NULL REFERENCES public.trips(id) ON DELETE CASCADE,
@@ -65,13 +61,10 @@ CREATE TABLE IF NOT EXISTS public.trip_invoice_events (
   metadata jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS trip_invoice_events_trip_id_idx
   ON public.trip_invoice_events (trip_id, created_at DESC);
-
 INSERT INTO storage.buckets (id, name, public, file_size_limit)
 VALUES ('trip-invoices', 'trip-invoices', false, 10485760)
 ON CONFLICT (id) DO NOTHING;
-
 COMMENT ON COLUMN public.trips.invoice_pdf_url IS 'Public or signed URL for the customer invoice PDF';
 COMMENT ON COLUMN public.trips.invoice_pdf_path IS 'Storage path inside trip-invoices bucket';

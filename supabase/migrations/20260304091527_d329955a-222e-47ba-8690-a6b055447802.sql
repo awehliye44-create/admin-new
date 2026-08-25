@@ -1,4 +1,3 @@
-
 -- Support conversations (tickets)
 CREATE TABLE public.support_conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -37,7 +36,6 @@ CREATE TABLE public.support_conversations (
     (user_type = 'driver' AND driver_id IS NOT NULL AND customer_id IS NULL)
   )
 );
-
 -- Support messages within conversations
 CREATE TABLE public.support_messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -65,7 +63,6 @@ CREATE TABLE public.support_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 -- Canned responses for quick replies
 CREATE TABLE public.canned_responses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -79,7 +76,6 @@ CREATE TABLE public.canned_responses (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 -- Indexes for performance
 CREATE INDEX idx_support_conversations_status ON public.support_conversations(status);
 CREATE INDEX idx_support_conversations_customer ON public.support_conversations(customer_id) WHERE customer_id IS NOT NULL;
@@ -88,20 +84,16 @@ CREATE INDEX idx_support_conversations_assigned ON public.support_conversations(
 CREATE INDEX idx_support_conversations_last_message ON public.support_conversations(last_message_at DESC);
 CREATE INDEX idx_support_messages_conversation ON public.support_messages(conversation_id, created_at);
 CREATE INDEX idx_support_messages_unread ON public.support_messages(conversation_id, is_read) WHERE is_read = false;
-
 -- Updated_at triggers
 CREATE TRIGGER update_support_conversations_updated_at
   BEFORE UPDATE ON public.support_conversations
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
 CREATE TRIGGER update_support_messages_updated_at
   BEFORE UPDATE ON public.support_messages
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
 CREATE TRIGGER update_canned_responses_updated_at
   BEFORE UPDATE ON public.canned_responses
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
 -- Auto-update last_message_at on conversation when a message is inserted
 CREATE OR REPLACE FUNCTION public.update_conversation_last_message()
 RETURNS trigger
@@ -116,49 +108,39 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE TRIGGER trg_update_conversation_last_message
   AFTER INSERT ON public.support_messages
   FOR EACH ROW EXECUTE FUNCTION public.update_conversation_last_message();
-
 -- RLS
 ALTER TABLE public.support_conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.canned_responses ENABLE ROW LEVEL SECURITY;
-
 -- Admin can do everything
 CREATE POLICY "Admins full access to conversations"
   ON public.support_conversations FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Admins full access to messages"
   ON public.support_messages FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
-
 CREATE POLICY "Admins full access to canned responses"
   ON public.canned_responses FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
-
 -- Customers can see their own conversations
 CREATE POLICY "Customers view own conversations"
   ON public.support_conversations FOR SELECT TO authenticated
   USING (customer_id = public.current_customer_id());
-
 -- Customers can create conversations
 CREATE POLICY "Customers create conversations"
   ON public.support_conversations FOR INSERT TO authenticated
   WITH CHECK (customer_id = public.current_customer_id() AND user_type = 'customer');
-
 -- Drivers can see their own conversations
 CREATE POLICY "Drivers view own conversations"
   ON public.support_conversations FOR SELECT TO authenticated
   USING (driver_id = public.current_driver_id());
-
 -- Drivers can create conversations
 CREATE POLICY "Drivers create conversations"
   ON public.support_conversations FOR INSERT TO authenticated
   WITH CHECK (driver_id = public.current_driver_id() AND user_type = 'driver');
-
 -- Users can see messages in their conversations
 CREATE POLICY "Users view messages in own conversations"
   ON public.support_messages FOR SELECT TO authenticated
@@ -172,7 +154,6 @@ CREATE POLICY "Users view messages in own conversations"
       )
     )
   );
-
 -- Users can send messages to their own conversations
 CREATE POLICY "Users send messages to own conversations"
   ON public.support_messages FOR INSERT TO authenticated
@@ -186,7 +167,6 @@ CREATE POLICY "Users send messages to own conversations"
       )
     )
   );
-
 -- Enable realtime for messages
 ALTER PUBLICATION supabase_realtime ADD TABLE public.support_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.support_conversations;

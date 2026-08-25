@@ -51,6 +51,5 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 COMMENT ON FUNCTION public.trg_commission_wallet_on_trip_assignment() IS
   'Phase 6: reserve/release on trips.driver_id INSERT/UPDATE. Reserve failures raise CODE: message (e.g. INSUFFICIENT_COMMISSION_WALLET_BALANCE).';

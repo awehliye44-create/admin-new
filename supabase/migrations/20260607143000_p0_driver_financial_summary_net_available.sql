@@ -2,7 +2,6 @@
 -- stats match driver-wallet-summary SSOT: net_available = wallet_balance - reserved.
 
 DROP VIEW IF EXISTS public.driver_financial_summary;
-
 CREATE VIEW public.driver_financial_summary AS
 WITH trip_flags AS (
   SELECT
@@ -123,8 +122,6 @@ FROM drivers d
   LEFT JOIN trip_totals tt ON tt.driver_id = d.id
   LEFT JOIN balance_totals bt ON bt.driver_id = d.id
   LEFT JOIN reserved_cashout_totals rc ON rc.driver_id = d.id;
-
 ALTER VIEW public.driver_financial_summary SET (security_invoker = on);
-
 GRANT SELECT ON public.driver_financial_summary TO authenticated;
 GRANT SELECT ON public.driver_financial_summary TO anon;

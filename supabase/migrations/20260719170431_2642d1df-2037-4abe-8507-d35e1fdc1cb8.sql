@@ -53,7 +53,6 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-
 -- Same fallback for enrich_ride_offer_presets (used by dispatch after insert)
 CREATE OR REPLACE FUNCTION public.enrich_ride_offer_presets(p_trip_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
@@ -118,7 +117,6 @@ BEGIN
                             'base_pence', v_base_pence, 'presets_enabled', false);
 END;
 $function$;
-
 -- Backfill any existing pending offers so their cards render immediately
 UPDATE public.ride_offers ro
 SET offer_snapshot = COALESCE(ro.offer_snapshot,'{}'::jsonb)

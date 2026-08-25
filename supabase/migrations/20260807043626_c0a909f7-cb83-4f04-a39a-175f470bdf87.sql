@@ -14,4 +14,4 @@ BEGIN
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM authenticated', r.sig);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', r.sig);
   END LOOP;
-END $$;
+END $$;;

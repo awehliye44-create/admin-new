@@ -15,6 +15,7 @@ import {
 } from "../_shared/commissionWalletDeduction.ts";
 import { tripUsesCommissionWalletDeduction } from "../_shared/commissionWalletSSOT.ts";
 import { calculateTripSettlement, resolveTripTierPercent, tripSettlementDbColumns } from "../_shared/tripSettlement.ts";
+import { notifyCustomerActiveTripEvent } from "../_shared/notifyCustomerActiveTripEvent.ts";
 
 const ACTIVE_STATUSES = new Set([
   "pending",
@@ -171,6 +172,12 @@ Deno.serve(async (req) => {
       if (tripUpdateErr) {
         return json({ success: false, error: tripUpdateErr.message }, 500);
       }
+
+      // Customer active-trip high-priority complete (deduped tripId:trip_completed).
+      void notifyCustomerActiveTripEvent(gate.supabase, {
+        tripId,
+        event: "trip_completed",
+      });
 
       if (trip.driver_id) {
         await gate.supabase

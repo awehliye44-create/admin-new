@@ -3,6 +3,7 @@
  * Requires service role (invoke from trusted admin tools only).
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { notifyCustomerActiveTripEvent } from "../_shared/notifyCustomerActiveTripEvent.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,6 +50,12 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Customer active-trip high-priority cancel (deduped tripId:trip_cancelled).
+    void notifyCustomerActiveTripEvent(supabase, {
+      tripId: body.trip_id,
+      event: "trip_cancelled",
+    });
 
     return new Response(JSON.stringify({ success: true, result: data }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

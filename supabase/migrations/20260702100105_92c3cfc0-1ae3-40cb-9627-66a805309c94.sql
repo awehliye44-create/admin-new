@@ -1,4 +1,3 @@
-
 -- 1. SUPA_auth_users_exposed + SUPA_security_definer_view: harden the two views
 ALTER VIEW public.admin_pending_customer_signups SET (security_invoker = on);
 ALTER VIEW public.admin_customer_code_audit SET (security_invoker = on);
@@ -6,14 +5,12 @@ REVOKE ALL ON public.admin_pending_customer_signups FROM anon, authenticated, PU
 REVOKE ALL ON public.admin_customer_code_audit FROM anon, authenticated, PUBLIC;
 GRANT SELECT ON public.admin_pending_customer_signups TO service_role;
 GRANT SELECT ON public.admin_customer_code_audit TO service_role;
-
 -- 2. SUPA_function_search_path_mutable: pin search_path
 ALTER FUNCTION public.is_email_pending_active(text, timestamptz, timestamptz, timestamptz) SET search_path = public;
 ALTER FUNCTION public.is_phone_pending_active(text, timestamptz, timestamptz, timestamptz) SET search_path = public;
 ALTER FUNCTION public.is_trip_commitment_monitoring_active(uuid) SET search_path = public;
 ALTER FUNCTION public.normalize_phone_digits(text) SET search_path = public;
 ALTER FUNCTION public.prevent_direct_driver_email_update() SET search_path = public;
-
 -- 3. trip_messages_missing_delete_policy: admin moderation coverage
 DROP POLICY IF EXISTS "Admins can moderate trip messages" ON public.trip_messages;
 CREATE POLICY "Admins can moderate trip messages"
@@ -22,7 +19,6 @@ CREATE POLICY "Admins can moderate trip messages"
   TO authenticated
   USING (has_role(auth.uid(), 'admin'::app_role))
   WITH CHECK (has_role(auth.uid(), 'admin'::app_role));
-
 -- 4. trip_stops_passenger_id_mismatch: replace broken policy with correct customer join
 DROP POLICY IF EXISTS "Passengers can view their trip stops" ON public.trip_stops;
 CREATE POLICY "Passengers can view their trip stops"
@@ -38,7 +34,6 @@ CREATE POLICY "Passengers can view their trip stops"
         AND c.user_id = auth.uid()
     )
   );
-
 -- 5. Restrict broad SELECT on internal config tables to admins only
 --    (runtime apps read these via edge functions using service role)
 DROP POLICY IF EXISTS "Authenticated users can read fare pricing settings" ON public.fare_pricing_settings;

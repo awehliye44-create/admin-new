@@ -1,4 +1,3 @@
-
 -- Invoice Templates: admin-configurable templates for driver earnings statements
 CREATE TABLE public.invoice_templates (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -19,17 +18,13 @@ CREATE TABLE public.invoice_templates (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by UUID REFERENCES auth.users(id)
 );
-
 ALTER TABLE public.invoice_templates ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Authenticated users can view templates"
   ON public.invoice_templates FOR SELECT TO authenticated USING (true);
-
 CREATE POLICY "Admins can manage templates"
   ON public.invoice_templates FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'))
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 -- Statement Runs: batch generation runs
 CREATE TABLE public.statement_runs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -46,17 +41,13 @@ CREATE TABLE public.statement_runs (
   completed_at TIMESTAMPTZ,
   created_by UUID REFERENCES auth.users(id)
 );
-
 ALTER TABLE public.statement_runs ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Authenticated users can view statement runs"
   ON public.statement_runs FOR SELECT TO authenticated USING (true);
-
 CREATE POLICY "Admins can manage statement runs"
   ON public.statement_runs FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'))
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 -- Invoices: individual driver earnings statements
 CREATE TABLE public.invoices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -92,17 +83,13 @@ CREATE TABLE public.invoices (
   viewed_at TIMESTAMPTZ,
   template_version INTEGER DEFAULT 1
 );
-
 ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Authenticated users can view invoices"
   ON public.invoices FOR SELECT TO authenticated USING (true);
-
 CREATE POLICY "Admins can manage invoices"
   ON public.invoices FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'))
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 -- Invoice Items: line items on each invoice
 CREATE TABLE public.invoice_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -115,17 +102,13 @@ CREATE TABLE public.invoice_items (
   sort_order INTEGER NOT NULL DEFAULT 0,
   metadata JSONB
 );
-
 ALTER TABLE public.invoice_items ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Authenticated users can view invoice items"
   ON public.invoice_items FOR SELECT TO authenticated USING (true);
-
 CREATE POLICY "Admins can manage invoice items"
   ON public.invoice_items FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'))
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 -- Invoice Delivery Logs: email delivery tracking
 CREATE TABLE public.invoice_delivery_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -136,20 +119,15 @@ CREATE TABLE public.invoice_delivery_logs (
   delivery_status TEXT NOT NULL DEFAULT 'sent' CHECK (delivery_status IN ('sent','delivered','failed','bounced')),
   error_message TEXT
 );
-
 ALTER TABLE public.invoice_delivery_logs ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Authenticated users can view delivery logs"
   ON public.invoice_delivery_logs FOR SELECT TO authenticated USING (true);
-
 CREATE POLICY "Admins can manage delivery logs"
   ON public.invoice_delivery_logs FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'))
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 -- Sequence for invoice numbers
 CREATE SEQUENCE public.invoice_number_seq START 1001;
-
 -- Function to generate invoice numbers
 CREATE OR REPLACE FUNCTION public.generate_invoice_number()
 RETURNS TEXT
@@ -159,7 +137,6 @@ BEGIN
   RETURN 'INV-' || to_char(now(), 'YYYYMM') || '-' || lpad(nextval('public.invoice_number_seq')::text, 5, '0');
 END;
 $$;
-
 -- Insert default template
 INSERT INTO public.invoice_templates (name, is_default, company_name, invoice_title, payment_terms, notes_footer)
 VALUES ('Default Earnings Statement', true, 'ONECAB', 'Driver Earnings Statement', 'Payment processed automatically via platform wallet', 'This is a system-generated earnings statement. For queries, contact support.');

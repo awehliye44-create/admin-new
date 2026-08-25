@@ -5,37 +5,30 @@
 ALTER TABLE public.payout_items DROP CONSTRAINT IF EXISTS payout_items_status_check;
 ALTER TABLE public.payout_items ADD CONSTRAINT payout_items_status_check
   CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'ledger_sync_failed'));
-
 ALTER TABLE public.payout_items
   ADD COLUMN IF NOT EXISTS wallet_recalculated_at timestamptz,
   ADD COLUMN IF NOT EXISTS ledger_sync_error text;
-
 COMMENT ON COLUMN public.payout_items.wallet_recalculated_at IS
   'Set when recalculate_driver_wallet succeeded after ledger debit.';
 COMMENT ON COLUMN public.payout_items.ledger_sync_error IS
   'Last ledger insert or wallet recalc failure when status = ledger_sync_failed.';
-
 -- 2) Clear provider refs on reversed duplicate ledger rows (allows unique indexes)
 UPDATE public.driver_wallet_ledger
 SET stripe_transfer_id = NULL
 WHERE description LIKE '[REVERSED duplicate finalization]%'
   AND stripe_transfer_id IS NOT NULL;
-
 -- 3) Idempotency — prevent duplicate payout ledger debits
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dwl_payout_stripe_payout_unique
   ON public.driver_wallet_ledger (stripe_payout_id)
   WHERE type IN ('WEEKLY_PAYOUT', 'PAYOUT', 'MANUAL_PAYOUT')
     AND stripe_payout_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dwl_payout_stripe_transfer_unique
   ON public.driver_wallet_ledger (stripe_transfer_id)
   WHERE type IN ('WEEKLY_PAYOUT', 'PAYOUT', 'MANUAL_PAYOUT', 'EARLY_CASHOUT')
     AND stripe_transfer_id IS NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payout_items_batch_driver_amount_completed
   ON public.payout_items (batch_id, driver_id, amount_pence)
   WHERE status IN ('completed', 'ledger_sync_failed');
-
 -- 4) Map batch kind → ledger type
 CREATE OR REPLACE FUNCTION public.payout_batch_kind_to_ledger_type(p_kind text)
 RETURNS text
@@ -49,8 +42,7 @@ AS $$
     ELSE 'PAYOUT'
   END;
 $$;
-
--- 5) Idempotent ledger debit insert (by provider reference)
+-- 4) Idempotent ledger debit insert (by provider reference)
 CREATE OR REPLACE FUNCTION public.insert_payout_ledger_debit_if_missing(
   p_driver_id uuid,
   p_amount_pence integer,
@@ -123,8 +115,7 @@ BEGIN
   RETURN v_new_id;
 END;
 $$;
-
--- 6) Sync ledger + recalculate wallet for a payout_item
+-- 5) Sync ledger + recalculate wallet for a payout_item
 CREATE OR REPLACE FUNCTION public.sync_payout_item_ledger_debit(p_payout_item_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -235,11 +226,9 @@ EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object('success', false, 'error', SQLERRM);
 END;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.sync_payout_item_ledger_debit(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.insert_payout_ledger_debit_if_missing(uuid, integer, text, text, text, text, text, timestamptz) TO service_role;
-
--- 7) Backfill payout_items that have provider refs but no ledger
+-- 6) Backfill payout_items that have provider refs but no ledger
 DO $$
 DECLARE
   r record;

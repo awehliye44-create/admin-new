@@ -6,14 +6,11 @@
 -- ── 0) Reserves metadata for audit void payload ──────────────────────────────
 ALTER TABLE public.driver_commission_wallet_reserves
   ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
-
 -- ── 1) Explicit top-up enable flag (separate from provider) ───────────────────
 ALTER TABLE public.service_areas
   ADD COLUMN IF NOT EXISTS commission_wallet_topup_enabled boolean NOT NULL DEFAULT false;
-
 COMMENT ON COLUMN public.service_areas.commission_wallet_topup_enabled IS
   'Driver Top Up CTA. Requires commission_wallet_enabled=true AND a configured top-up provider. Provider alone does not enable top-up.';
-
 ALTER TABLE public.service_areas
   DROP CONSTRAINT IF EXISTS service_areas_commission_wallet_topup_requires_wallet;
 ALTER TABLE public.service_areas
@@ -22,7 +19,6 @@ ALTER TABLE public.service_areas
     commission_wallet_topup_enabled = false
     OR commission_wallet_enabled = true
   );
-
 -- Banadir pilot only — already approved for Waafi top-up.
 UPDATE public.service_areas
 SET commission_wallet_topup_enabled = true,
@@ -31,17 +27,14 @@ WHERE id = '29259edf-80eb-4c08-9089-352b8a305b81'
   AND financial_model = 'DRIVER_COLLECTED_COMMISSION_WALLET'
   AND commission_wallet_enabled = true
   AND COALESCE(NULLIF(btrim(commission_topup_provider), ''), '') <> '';
-
 -- Turn off reserve flag everywhere (eligibility no longer depends on it).
 UPDATE public.service_areas
 SET commission_reserve_enabled = false,
     updated_at = now()
 WHERE commission_reserve_enabled = true;
-
 -- ── 2) Allow legacy void status on reserves (audit only) ─────────────────────
 ALTER TABLE public.driver_commission_wallet_reserves
   DROP CONSTRAINT IF EXISTS driver_commission_wallet_reserves_status_check;
-
 ALTER TABLE public.driver_commission_wallet_reserves
   ADD CONSTRAINT driver_commission_wallet_reserves_status_check
   CHECK (status IN (
@@ -50,7 +43,6 @@ ALTER TABLE public.driver_commission_wallet_reserves
     'converted_to_deduction',
     'legacy_reservation_voided'
   ));
-
 -- ── 3) Idempotent void of open reserves (no compensating credits) ────────────
 -- Reserves never affected display SSOT (credits − deductions only). Void only.
 UPDATE public.driver_commission_wallet_reserves
@@ -63,7 +55,6 @@ SET
     'prior_status', 'active'
   )
 WHERE status = 'active';
-
 -- ── 4) Balance SSOT helpers — ignore historical reserves; allow negative ─────
 CREATE OR REPLACE FUNCTION public.driver_commission_wallet_balance_parts(
   p_driver_id uuid,
@@ -162,10 +153,8 @@ BEGIN
   RETURN NEXT;
 END;
 $$;
-
 COMMENT ON FUNCTION public.driver_commission_wallet_balance_parts(uuid, uuid) IS
   'CW balance SSOT: credits − confirmed deductions. Reserves ignored. May be negative.';
-
 CREATE OR REPLACE FUNCTION public.driver_commission_wallet_usable_balance_minor(
   p_driver_id uuid,
   p_service_area_id uuid
@@ -185,10 +174,8 @@ AS $$
     0
   );
 $$;
-
 COMMENT ON FUNCTION public.driver_commission_wallet_usable_balance_minor(uuid, uuid) IS
   'Alias of live commission_wallet_balance (non-locking). Reserves ignored.';
-
 -- ── 5) Soft gate uses workflow (not reserve flag) + current balance ──────────
 CREATE OR REPLACE FUNCTION public.driver_passes_commission_wallet_dispatch_gate(
   p_driver_id uuid,
@@ -241,10 +228,8 @@ BEGIN
   RETURN v_balance >= v_required;
 END;
 $$;
-
 COMMENT ON FUNCTION public.driver_passes_commission_wallet_dispatch_gate(uuid, uuid) IS
   'Read-only CW eligibility: balance >= estimated commission. Never mutates wallet.';
-
 CREATE OR REPLACE FUNCTION public.is_commission_wallet_reserve_enabled(p_service_area_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -254,10 +239,8 @@ SET search_path = public
 AS $$
   SELECT false;
 $$;
-
 COMMENT ON FUNCTION public.is_commission_wallet_reserve_enabled(uuid) IS
   'Deprecated: pre-trip reservation removed. Always false. Eligibility uses is_commission_wallet_workflow_enabled.';
-
 -- ── 6) No-op reserve / release writers ───────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.reserve_driver_commission_wallet(
   p_driver_id uuid,
@@ -277,10 +260,8 @@ BEGIN
   );
 END;
 $$;
-
 COMMENT ON FUNCTION public.reserve_driver_commission_wallet(uuid, uuid) IS
   'No-op. Pre-trip CW reservation removed — acceptance must not lock balance.';
-
 CREATE OR REPLACE FUNCTION public.release_driver_commission_wallet(
   p_driver_id uuid,
   p_trip_id uuid,
@@ -311,10 +292,8 @@ BEGIN
   );
 END;
 $$;
-
 COMMENT ON FUNCTION public.release_driver_commission_wallet(uuid, uuid, text) IS
   'No-op writer. Voids leftover active reserve rows without ledger mutation.';
-
 -- ── 7) Disable assignment / fare-recalc reserve triggers ─────────────────────
 CREATE OR REPLACE FUNCTION public.trg_commission_wallet_on_trip_assignment()
 RETURNS trigger
@@ -326,10 +305,8 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 COMMENT ON FUNCTION public.trg_commission_wallet_on_trip_assignment() IS
   'No-op. Pre-trip Commission Wallet reservation disabled.';
-
 CREATE OR REPLACE FUNCTION public.trg_trips_cw_reserve_recalc_on_fare()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -340,10 +317,8 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 COMMENT ON FUNCTION public.trg_trips_cw_reserve_recalc_on_fare() IS
   'No-op. Pre-trip Commission Wallet reservation disabled.';
-
 -- ── 8) Completion deduction — full earned amount; no reserve convert credit ──
 CREATE OR REPLACE FUNCTION public.convert_driver_commission_wallet_on_trip_complete(
   p_driver_id uuid,
@@ -601,10 +576,8 @@ EXCEPTION
     );
 END;
 $$;
-
 COMMENT ON FUNCTION public.convert_driver_commission_wallet_on_trip_complete(uuid, uuid, integer, integer, integer) IS
   'Completed-trip CW deduction only. No pre-trip reserve. Full confirmed commission; balance may go negative. Idempotent per trip.';
-
 -- Unique protection: one COMMISSION_DEDUCTION per trip (skip if duplicates already exist).
 DO $$
 BEGIN

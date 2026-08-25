@@ -5,11 +5,9 @@ ADD COLUMN IF NOT EXISTS commission_pence integer,
 ADD COLUMN IF NOT EXISTS driver_net_pence integer,
 ADD COLUMN IF NOT EXISTS payment_status text DEFAULT 'pending',
 ADD COLUMN IF NOT EXISTS stripe_payment_intent_id text;
-
 -- Create index on payment_status for efficient queries
 CREATE INDEX IF NOT EXISTS idx_trips_payment_status ON public.trips(payment_status);
 CREATE INDEX IF NOT EXISTS idx_trips_stripe_payment_intent ON public.trips(stripe_payment_intent_id) WHERE stripe_payment_intent_id IS NOT NULL;
-
 -- Create driver wallet/ledger table
 CREATE TABLE IF NOT EXISTS public.driver_ledger (
   id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -22,7 +20,6 @@ CREATE TABLE IF NOT EXISTS public.driver_ledger (
   reference_id text,
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
-
 -- Add entry_type constraint
 ALTER TABLE public.driver_ledger 
 ADD CONSTRAINT driver_ledger_entry_type_check 
@@ -35,25 +32,20 @@ CHECK (entry_type IN (
   'ADJUSTMENT',
   'BONUS'
 ));
-
 -- Create indexes for efficient queries
 CREATE INDEX idx_driver_ledger_driver_id ON public.driver_ledger(driver_id);
 CREATE INDEX idx_driver_ledger_trip_id ON public.driver_ledger(trip_id);
 CREATE INDEX idx_driver_ledger_entry_type ON public.driver_ledger(entry_type);
 CREATE INDEX idx_driver_ledger_created_at ON public.driver_ledger(created_at DESC);
-
 -- Enable RLS on driver_ledger
 ALTER TABLE public.driver_ledger ENABLE ROW LEVEL SECURITY;
-
 -- RLS policies for driver_ledger
 CREATE POLICY "Admins can manage all ledger entries"
 ON public.driver_ledger FOR ALL
 USING (has_role(auth.uid(), 'admin'::app_role));
-
 CREATE POLICY "Drivers can view own ledger entries"
 ON public.driver_ledger FOR SELECT
 USING (driver_id IN (SELECT id FROM drivers WHERE user_id = auth.uid()));
-
 -- Create a view for driver wallet balance (calculated from ledger)
 CREATE OR REPLACE VIEW public.driver_wallet_balance AS
 SELECT 
@@ -68,7 +60,6 @@ SELECT
 FROM public.drivers d
 LEFT JOIN public.driver_ledger l ON d.id = l.driver_id
 GROUP BY d.id, d.first_name, d.last_name, d.email;
-
 -- Function to record cash trip commission debt
 CREATE OR REPLACE FUNCTION public.record_cash_trip_completion(
   p_trip_id uuid,
@@ -114,7 +105,6 @@ BEGIN
   RETURN v_ledger_id;
 END;
 $$;
-
 -- Function to record digital trip earnings (called after payment captured)
 CREATE OR REPLACE FUNCTION public.record_digital_trip_payment(
   p_trip_id uuid,
@@ -167,7 +157,6 @@ BEGIN
   RETURN v_ledger_id;
 END;
 $$;
-
 -- Function to get driver wallet balance
 CREATE OR REPLACE FUNCTION public.get_driver_wallet_balance(p_driver_id uuid)
 RETURNS TABLE(

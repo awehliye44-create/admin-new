@@ -98,7 +98,13 @@ export type PayoutFailureRow = {
   created_at: string | null;
 };
 
-const COUNTABLE_OUTCOMES = ["COMPLETED", "NO_SHOW", "LATE_PASSENGER_CANCELLATION"];
+const COUNTABLE_OUTCOMES = [
+  "COMPLETED",
+  "NO_SHOW",
+  "LATE_PASSENGER_CANCELLATION",
+  "AIRPORT_PROTECTION_CANCELLATION",
+  "CANCELLED_WITH_FEE",
+];
 const DEFAULT_COMMISSION_RATE = 0.15;
 
 export function commissionableRevenuePence(row: TripFinanceRow): number {

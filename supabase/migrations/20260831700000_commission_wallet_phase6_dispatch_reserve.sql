@@ -19,10 +19,8 @@ AS $$
       AND sa.commission_reserve_enabled = true
   );
 $$;
-
 COMMENT ON FUNCTION public.is_commission_wallet_reserve_enabled(uuid) IS
   'Phase 6 gate: CW workflow + commission_reserve_enabled. Never true for PLATFORM_COLLECTED.';
-
 CREATE OR REPLACE FUNCTION public.driver_commission_wallet_usable_balance_minor(
   p_driver_id uuid,
   p_service_area_id uuid
@@ -109,7 +107,6 @@ BEGIN
   RETURN GREATEST(0, v_purchased + v_promotional - GREATEST(0, v_reserved));
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.required_commission_reserve_minor(
   p_estimated_final_fare_minor integer,
   p_commission_rate_bps integer
@@ -127,7 +124,6 @@ AS $$
     )::integer
   );
 $$;
-
 CREATE OR REPLACE FUNCTION public.trip_commission_reserve_fare_minor(p_trip public.trips)
 RETURNS integer
 LANGUAGE plpgsql
@@ -152,7 +148,6 @@ BEGIN
   RETURN COALESCE(v_fare, 0);
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.reserve_driver_commission_wallet(
   p_driver_id uuid,
   p_trip_id uuid
@@ -381,7 +376,6 @@ EXCEPTION
     RAISE;
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.release_driver_commission_wallet(
   p_driver_id uuid,
   p_trip_id uuid,
@@ -496,7 +490,6 @@ BEGIN
   );
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.trg_commission_wallet_on_trip_assignment()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -540,19 +533,16 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_commission_wallet_on_trip_assignment ON public.trips;
 CREATE TRIGGER trg_commission_wallet_on_trip_assignment
   AFTER UPDATE OF driver_id ON public.trips
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_commission_wallet_on_trip_assignment();
-
 GRANT EXECUTE ON FUNCTION public.is_commission_wallet_reserve_enabled(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.driver_commission_wallet_usable_balance_minor(uuid, uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.required_commission_reserve_minor(integer, integer) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.reserve_driver_commission_wallet(uuid, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.release_driver_commission_wallet(uuid, uuid, text) TO service_role;
-
 COMMENT ON FUNCTION public.reserve_driver_commission_wallet(uuid, uuid) IS
   'Phase 6: atomically reserve commission on accept when CW reserve enabled. Rolls back accept on insufficient balance.';
 COMMENT ON FUNCTION public.release_driver_commission_wallet(uuid, uuid, text) IS

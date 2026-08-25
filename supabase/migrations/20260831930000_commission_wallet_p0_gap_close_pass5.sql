@@ -331,10 +331,8 @@ EXCEPTION
     RAISE;
 END;
 $$;
-
 COMMENT ON FUNCTION public.reserve_driver_commission_wallet(uuid, uuid) IS
   'Phase 6+P0: accept-time CW reserve; recalculates active reserve when required amount changes.';
-
 -- When trip fare fields change after assign, recalculate active CW reserve.
 CREATE OR REPLACE FUNCTION public.trg_trips_cw_reserve_recalc_on_fare()
 RETURNS trigger
@@ -375,7 +373,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_trips_cw_reserve_recalc_on_fare ON public.trips;
 CREATE TRIGGER trg_trips_cw_reserve_recalc_on_fare
   AFTER UPDATE OF
@@ -387,7 +384,6 @@ CREATE TRIGGER trg_trips_cw_reserve_recalc_on_fare
   ON public.trips
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_trips_cw_reserve_recalc_on_fare();
-
 -- Lock trip CW financial snapshot once set (NULL→value allowed once).
 CREATE OR REPLACE FUNCTION public.enforce_trip_commission_wallet_snapshot_immutable()
 RETURNS trigger
@@ -434,7 +430,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_enforce_trip_cw_snapshot_immutable ON public.trips;
 CREATE TRIGGER trg_enforce_trip_cw_snapshot_immutable
   BEFORE UPDATE OF

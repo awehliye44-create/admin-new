@@ -1,4 +1,3 @@
-
 -- 1. Expand the check constraint to support all needed types
 ALTER TABLE driver_wallet_ledger DROP CONSTRAINT driver_wallet_ledger_type_check;
 ALTER TABLE driver_wallet_ledger ADD CONSTRAINT driver_wallet_ledger_type_check
@@ -9,7 +8,6 @@ ALTER TABLE driver_wallet_ledger ADD CONSTRAINT driver_wallet_ledger_type_check
     'ADJUSTMENT', 'REFUND_DEBIT', 'PAYOUT', 'MANUAL_PAYOUT',
     'BONUS', 'DEBT_RECOVERY'
   ]));
-
 -- 2. Backfill from driver_ledger → driver_wallet_ledger
 --    Map COMPANY_COMMISSION → PLATFORM_COMMISSION since they're equivalent
 INSERT INTO driver_wallet_ledger (driver_id, type, amount_pence, currency, related_trip_id, description, created_at)
@@ -30,7 +28,6 @@ AND NOT EXISTS (
     AND dwl.related_trip_id = dl.trip_id
     AND dwl.type = CASE WHEN dl.entry_type = 'COMPANY_COMMISSION' THEN 'PLATFORM_COMMISSION' ELSE dl.entry_type END
 );
-
 -- Also backfill non-trip entries (adjustments, payouts, etc.)
 INSERT INTO driver_wallet_ledger (driver_id, type, amount_pence, currency, related_trip_id, description, created_at)
 SELECT
@@ -52,7 +49,6 @@ AND NOT EXISTS (
     AND dwl2.related_trip_id IS NULL
     AND ABS(EXTRACT(EPOCH FROM (dwl2.created_at - dl.created_at))) < 60
 );
-
 -- 3. Force-recalculate all driver wallets
 DO $$
 DECLARE r RECORD;
@@ -62,6 +58,5 @@ BEGIN
   END LOOP;
 END;
 $$;
-
 -- 4. Mark driver_ledger as deprecated
 COMMENT ON TABLE driver_ledger IS 'DEPRECATED — Do NOT read or write. Use driver_wallet_ledger exclusively. Kept for historical reference only.';

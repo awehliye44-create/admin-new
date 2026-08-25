@@ -1,9 +1,7 @@
-
 -- Digital Finance Migration: schema additions
 -- 1. Allow MIGRATION_RESET ledger type
 ALTER TABLE public.driver_wallet_ledger
   DROP CONSTRAINT IF EXISTS driver_wallet_ledger_type_check;
-
 ALTER TABLE public.driver_wallet_ledger
   ADD CONSTRAINT driver_wallet_ledger_type_check CHECK (type = ANY (ARRAY[
     'TRIP_EARNING_NET','CASH_TRIP_EARNING','CASH_COMMISSION_DEBT','DRIVER_TIP_CREDIT','TIP_CREDIT',
@@ -11,32 +9,27 @@ ALTER TABLE public.driver_wallet_ledger
     'ADJUSTMENT','REFUND_DEBIT','PAYOUT','MANUAL_PAYOUT','PAYOUT_CREATED','BONUS','DEBT_RECOVERY',
     'PAYOUT_FAILED_RETURN','LEDGER_REVERSAL','COMMISSION_RECOVERED','MIGRATION_RESET'
   ]));
-
 -- 2. Era views (audit-friendly)
 CREATE OR REPLACE VIEW public.v_finance_era_marker
 WITH (security_invoker = on) AS
 SELECT
   (SELECT setting_value::text FROM public.admin_settings WHERE setting_key = 'finance_era') AS era,
   (SELECT (setting_value #>> '{}')::timestamptz FROM public.admin_settings WHERE setting_key = 'finance_era_started_at') AS started_at;
-
 CREATE OR REPLACE VIEW public.v_finance_era_legacy_cash
 WITH (security_invoker = on) AS
 SELECT l.*
 FROM public.driver_wallet_ledger l
 LEFT JOIN public.v_finance_era_marker m ON true
 WHERE m.started_at IS NULL OR l.created_at < m.started_at;
-
 CREATE OR REPLACE VIEW public.v_finance_era_digital
 WITH (security_invoker = on) AS
 SELECT l.*
 FROM public.driver_wallet_ledger l
 JOIN public.v_finance_era_marker m ON true
 WHERE m.started_at IS NOT NULL AND l.created_at >= m.started_at;
-
 GRANT SELECT ON public.v_finance_era_marker TO authenticated;
 GRANT SELECT ON public.v_finance_era_legacy_cash TO authenticated;
 GRANT SELECT ON public.v_finance_era_digital TO authenticated;
-
 -- 3. Idempotent migration RPC (super_admin only)
 CREATE OR REPLACE FUNCTION public.run_digital_finance_migration()
 RETURNS jsonb
@@ -176,6 +169,5 @@ BEGIN
   );
 END;
 $$;
-
 REVOKE ALL ON FUNCTION public.run_digital_finance_migration() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.run_digital_finance_migration() TO service_role;

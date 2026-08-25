@@ -1,4 +1,3 @@
-
 CREATE OR REPLACE FUNCTION public.trg_documents_mark_superseded()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -29,7 +28,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_documents_supersede ON public.documents;
 CREATE TRIGGER trg_documents_supersede
   BEFORE INSERT OR UPDATE OF driver_id, document_type, is_current

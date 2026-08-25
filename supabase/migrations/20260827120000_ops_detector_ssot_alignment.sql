@@ -41,7 +41,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_detect_5xx_spikes()
 RETURNS integer
 LANGUAGE plpgsql
@@ -73,7 +72,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_detect_latency_spikes()
 RETURNS integer
 LANGUAGE plpgsql
@@ -105,7 +103,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_detect_edge_function_failures()
 RETURNS integer
 LANGUAGE plpgsql
@@ -146,7 +143,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_detect_webhook_failures()
 RETURNS integer
 LANGUAGE plpgsql
@@ -178,7 +174,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- =============================================================================
 -- 2. Finance detectors: Financial Reconciliation SSOT (read-only detection)
 -- =============================================================================
@@ -210,7 +205,6 @@ BEGIN
           AND oe.resolved = false
       )
       AND NOT (
-        -- Cash: commission debt / platform commission in wallet ledger
         (
           UPPER(COALESCE(t.payment_method, '')) = 'CASH'
           AND EXISTS (
@@ -221,7 +215,6 @@ BEGIN
           )
         )
         OR
-        -- Card: captured payment records commission (FR payments SSOT)
         (
           UPPER(COALESCE(t.payment_method, '')) <> 'CASH'
           AND EXISTS (
@@ -232,7 +225,6 @@ BEGIN
           )
         )
         OR
-        -- Card fallback: platform commission row in wallet ledger
         (
           UPPER(COALESCE(t.payment_method, '')) <> 'CASH'
           AND EXISTS (
@@ -256,7 +248,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_detect_missing_earnings()
 RETURNS int
 LANGUAGE plpgsql
@@ -284,7 +275,6 @@ BEGIN
           AND oe.resolved = false
       )
       AND (
-        -- Cash trips: wallet ledger cash earning types
         (
           UPPER(COALESCE(t.payment_method, '')) = 'CASH'
           AND NOT EXISTS (
@@ -294,7 +284,6 @@ BEGIN
           )
         )
         OR
-        -- Card trips: require capture settled (or grace window) before alerting
         (
           UPPER(COALESCE(t.payment_method, '')) <> 'CASH'
           AND (
@@ -325,15 +314,12 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- =============================================================================
 -- 3. Data hygiene: synthetic logs + phantom alerts (no finance mutations)
 -- =============================================================================
 
 DELETE FROM public.ops_logs
 WHERE is_synthetic = true;
-
--- Demo-seed alerts (fingerprint prefix demo:)
 UPDATE public.ops_alerts
 SET
   status = 'resolved',
@@ -344,8 +330,6 @@ SET
   )
 WHERE status IN ('open', 'acknowledged')
   AND fingerprint LIKE 'demo:%';
-
--- Log-spike alerts promoted from synthetic ops-seed (no production trip impact)
 UPDATE public.ops_alerts
 SET
   status = 'resolved',
@@ -365,8 +349,6 @@ WHERE status IN ('open', 'acknowledged')
     OR fingerprint LIKE 'webhook_failure:%'
     OR fingerprint LIKE 'fatal_log:%'
   );
-
--- MK-260625-001: FR-verified false positive (trip completed, payment captured, ledger exists)
 UPDATE public.ops_alerts
 SET
   status = 'resolved',
@@ -387,7 +369,6 @@ SET
 WHERE status IN ('open', 'acknowledged')
   AND related_trip_id = 'c9aeea66-f511-47f9-97aa-15eda198a876'::uuid
   AND category IN ('earning', 'commission');
-
 UPDATE public.ops_events
 SET
   resolved = true,

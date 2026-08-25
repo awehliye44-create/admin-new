@@ -1,4 +1,3 @@
-
 -- Audit log for AI fix actions
 CREATE TABLE public.ops_fix_actions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -14,21 +13,15 @@ CREATE TABLE public.ops_fix_actions (
   executed_by UUID REFERENCES auth.users(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 ALTER TABLE public.ops_fix_actions ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Authenticated users can read ops_fix_actions"
   ON public.ops_fix_actions FOR SELECT TO authenticated USING (true);
-
 CREATE POLICY "Authenticated users can insert ops_fix_actions"
   ON public.ops_fix_actions FOR INSERT TO authenticated WITH CHECK (auth.uid() = executed_by);
-
 CREATE POLICY "Authenticated users can update own ops_fix_actions"
   ON public.ops_fix_actions FOR UPDATE TO authenticated USING (auth.uid() = executed_by);
-
 CREATE INDEX idx_ops_fix_actions_alert ON public.ops_fix_actions(alert_id);
 CREATE INDEX idx_ops_fix_actions_status ON public.ops_fix_actions(status);
-
 -- ==========================================
 -- SAFE REPAIR FUNCTIONS (idempotent)
 -- ==========================================
@@ -68,7 +61,6 @@ BEGIN
     'trip_id', p_trip_id, 'commission_pence', ROUND(v_trip.final_fare_pence * 0.20));
 END;
 $$;
-
 -- 2. Repair missing driver earning ledger entry
 CREATE OR REPLACE FUNCTION public.ops_repair_missing_driver_earning(p_trip_id UUID)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -101,7 +93,6 @@ BEGIN
     'amount_pence', v_finance.driver_earning_pence);
 END;
 $$;
-
 -- 3. Repair missing financials (commission + earning + company commission)
 CREATE OR REPLACE FUNCTION public.ops_repair_missing_financials(p_trip_id UUID)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -130,7 +121,6 @@ BEGIN
   RETURN jsonb_build_object('success', true, 'commission_result', v_r1, 'earning_result', v_r2);
 END;
 $$;
-
 -- 4. Retry failed dispatch (reset stuck trip)
 CREATE OR REPLACE FUNCTION public.ops_retry_failed_dispatch(p_trip_id UUID)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -150,7 +140,6 @@ BEGIN
   RETURN jsonb_build_object('success', true, 'message', 'Trip reset to pending for re-dispatch', 'affected_rows', 1);
 END;
 $$;
-
 -- 5. Resolve alert if condition cleared
 CREATE OR REPLACE FUNCTION public.ops_resolve_alert_if_cleared(p_alert_id UUID)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -170,7 +159,6 @@ BEGIN
   RETURN jsonb_build_object('success', true, 'message', 'Alert resolved', 'affected_rows', 1);
 END;
 $$;
-
 -- 6. Replay webhook (mark for retry)
 CREATE OR REPLACE FUNCTION public.ops_replay_webhook(p_event_id UUID)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -187,7 +175,6 @@ BEGIN
   RETURN jsonb_build_object('success', true, 'message', 'Webhook event queued for retry', 'affected_rows', 1);
 END;
 $$;
-
 -- 7. Retry failed payout
 CREATE OR REPLACE FUNCTION public.ops_retry_failed_payout(p_payout_id UUID)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$

@@ -101,4 +101,4 @@ SELECT cron.schedule(
   $$SELECT public.sweep_trip_invoice_emails();$$
 );
 
-COMMIT;
+COMMIT;;

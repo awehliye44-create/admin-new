@@ -14,28 +14,23 @@ CREATE TABLE IF NOT EXISTS public.stop_waiting_settings (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
 ALTER TABLE public.stop_waiting_settings ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS "stop_waiting_settings admin manage" ON public.stop_waiting_settings;
 CREATE POLICY "stop_waiting_settings admin manage"
   ON public.stop_waiting_settings
   FOR ALL
   USING (public.has_role(auth.uid(), 'admin'))
   WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 DROP POLICY IF EXISTS "stop_waiting_settings auth read" ON public.stop_waiting_settings;
 CREATE POLICY "stop_waiting_settings auth read"
   ON public.stop_waiting_settings
   FOR SELECT
   TO authenticated
   USING (true);
-
 DROP TRIGGER IF EXISTS update_stop_waiting_settings_updated_at ON public.stop_waiting_settings;
 CREATE TRIGGER update_stop_waiting_settings_updated_at
   BEFORE UPDATE ON public.stop_waiting_settings
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
 -- Backfill from dispatch_settings (per service area rows only)
 INSERT INTO public.stop_waiting_settings (
   service_area_id, stop_radius_enabled, stop_radius_meters,
@@ -53,13 +48,11 @@ SELECT
 FROM public.dispatch_settings d
 WHERE d.service_area_id IS NOT NULL
 ON CONFLICT (service_area_id) DO NOTHING;
-
 -- =====================================================================
 -- 2. dispatch_trip_offers — standardize jsonb return on every branch
 --    Logic unchanged; only return shape normalized.
 -- =====================================================================
 DROP FUNCTION IF EXISTS public.dispatch_trip_offers(uuid, text);
-
 CREATE OR REPLACE FUNCTION public.dispatch_trip_offers(
   p_trip_id uuid,
   p_trigger_reason text DEFAULT 'auto'

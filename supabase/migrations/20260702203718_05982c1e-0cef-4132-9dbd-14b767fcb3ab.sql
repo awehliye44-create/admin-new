@@ -1,10 +1,7 @@
-
 -- Remove cash column from service area payment methods
 ALTER TABLE public.service_area_payment_methods DROP COLUMN IF EXISTS cash_enabled;
-
 -- Remove cash toggle from corporate accounts
 ALTER TABLE public.corporate_accounts DROP COLUMN IF EXISTS payment_cash_enabled;
-
 -- Rebuild the corporate allowed methods function without CASH
 CREATE OR REPLACE FUNCTION public.get_corporate_allowed_payment_methods(p_account_id uuid)
 RETURNS text[]
@@ -33,7 +30,6 @@ BEGIN
   RETURN methods;
 END;
 $$;
-
 -- Global block: no trip can be created with CASH payment method
 CREATE OR REPLACE FUNCTION public.block_cash_payment_method()
 RETURNS TRIGGER
@@ -49,7 +45,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS block_cash_payment_method_trg ON public.trips;
 CREATE TRIGGER block_cash_payment_method_trg
   BEFORE INSERT OR UPDATE OF payment_method ON public.trips

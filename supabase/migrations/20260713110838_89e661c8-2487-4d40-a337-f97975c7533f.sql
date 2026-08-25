@@ -1,4 +1,3 @@
-
 -- =====================================================================
 -- P0 Driver ID SSOT hardening + safe repair
 -- =====================================================================
@@ -18,18 +17,15 @@ UPDATE public.drivers
    SET driver_code = 'BAN0001'
  WHERE id = '579ae9b9-065f-4b86-bd6d-84612931fe2d'
    AND driver_code = '2520001';
-
 -- 2. Reset Banadir SA sequence so the next allocation is BAN0002
 UPDATE public.id_sequences
    SET current_value = 1, updated_at = now()
  WHERE sequence_type = 'driver_sa'
    AND region_id = '29259edf-80eb-4c08-9089-352b8a305b81';
-
 -- 3. Enforce uniqueness (case-insensitive) on driver_code — the SSOT lock
 CREATE UNIQUE INDEX IF NOT EXISTS drivers_driver_code_ci_unique
   ON public.drivers ((UPPER(driver_code)))
   WHERE driver_code IS NOT NULL;
-
 -- 4. Enforce canonical format: 2-8 alnum prefix + 4-6 digits, uppercase
 ALTER TABLE public.drivers
   DROP CONSTRAINT IF EXISTS drivers_driver_code_format_chk;
@@ -42,7 +38,6 @@ ALTER TABLE public.drivers
 -- Validate against existing rows now that the malformed one is repaired
 ALTER TABLE public.drivers
   VALIDATE CONSTRAINT drivers_driver_code_format_chk;
-
 -- 5. Block any non-service_role from mutating driver_code after insert.
 --    The trigger allocator runs BEFORE INSERT so this only affects UPDATE.
 CREATE OR REPLACE FUNCTION public.protect_driver_code_immutable()
@@ -63,7 +58,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_protect_driver_code_immutable ON public.drivers;
 CREATE TRIGGER trg_protect_driver_code_immutable
   BEFORE UPDATE OF driver_code ON public.drivers

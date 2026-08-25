@@ -33,7 +33,6 @@ BEGIN
     updated_at = now();
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.trigger_recalculate_wallet()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -79,10 +78,8 @@ BEGIN
   END IF;
 END;
 $function$;
-
 COMMENT ON FUNCTION public.recalculate_driver_wallet(uuid) IS
   'Rebuild driver_wallets from ledger SSOT — excludes PLATFORM_COMMISSION, CASH_TRIP_EARNING, COMMISSION_RECOVERED.';
-
 -- Phase 1E-B: one-time cache rebuild for all drivers with ledger activity.
 DO $$
 DECLARE

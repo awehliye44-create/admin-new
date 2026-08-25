@@ -1,4 +1,3 @@
-
 -- 1. Drop legacy triggers and functions (no fallback per cleanup policy)
 DROP TRIGGER IF EXISTS generate_trip_code_trigger ON public.trips;
 DROP TRIGGER IF EXISTS tr_assign_trip_number ON public.trips;
@@ -6,7 +5,6 @@ DROP FUNCTION IF EXISTS public.trigger_assign_trip_number() CASCADE;
 DROP FUNCTION IF EXISTS public.assign_trip_number(uuid, uuid) CASCADE;
 DROP FUNCTION IF EXISTS public.generate_trip_number(uuid) CASCADE;
 DROP FUNCTION IF EXISTS public.generate_trip_code() CASCADE;
-
 -- 2. New unified generator: SA-YYMMDD-NNN, sequence resets daily per service area
 CREATE OR REPLACE FUNCTION public.generate_trip_code()
 RETURNS trigger
@@ -58,17 +56,14 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-
 -- ALWAYS overwrite (no WHEN clause) so external apps cannot inject random codes
 CREATE TRIGGER generate_trip_code_trigger
 BEFORE INSERT ON public.trips
 FOR EACH ROW
 EXECUTE FUNCTION public.generate_trip_code();
-
 -- 3. Backfill existing trips
 -- Clear stale daily sequences (we'll rebuild from actual data)
 DELETE FROM public.service_area_sequences WHERE sequence_type LIKE 'trip_daily_%';
-
 WITH ranked AS (
   SELECT
     t.id,
@@ -89,7 +84,6 @@ SET trip_code         = r.sa_code || '-' || r.day || '-' || LPAD(r.seq::text, 3,
     sequence_no       = r.seq
 FROM ranked r
 WHERE r.id = t.id;
-
 -- Seed sequence counters with the max used per (service_area, day)
 INSERT INTO public.service_area_sequences (service_area_id, service_area_code, sequence_type, current_value)
 SELECT
@@ -103,7 +97,6 @@ WHERE t.service_area_id IS NOT NULL AND t.sequence_no IS NOT NULL
 GROUP BY t.service_area_id, sa.code, to_char(t.created_at, 'YYMMDD')
 ON CONFLICT (service_area_id, sequence_type)
 DO UPDATE SET current_value = EXCLUDED.current_value, updated_at = now();
-
 -- 4. Uniqueness guarantee
 CREATE UNIQUE INDEX IF NOT EXISTS trips_trip_code_unique ON public.trips (trip_code);
 CREATE INDEX IF NOT EXISTS trips_service_area_code_idx ON public.trips (service_area_code);

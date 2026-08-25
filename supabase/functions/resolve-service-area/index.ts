@@ -1,6 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkOfferSchedule } from "../_shared/offerSchedule.ts";
+import {
+  classifyServiceAreaFinancialPairing,
+  type ServiceAreaCommissionWalletConfig,
+} from "../_shared/commissionWalletSSOT.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -25,6 +29,12 @@ interface RegionSettings {
   timezone: string;
   service_area_id: string | null;
   service_area_name: string | null;
+  /** Authoritative financial model for the resolved service area. */
+  financial_model: string | null;
+  /** Authoritative customer payment policy (PLATFORM_PREPAID / DRIVER_COLLECTS_UPFRONT). */
+  customer_payment_policy: string | null;
+  /** Whether the payment configuration is valid and bookable. */
+  booking_workflow: "platform_collected" | "driver_collected" | "unavailable";
 }
 
 // Point-in-polygon algorithm (Ray casting)
@@ -108,22 +118,31 @@ serve(async (req) => {
       );
     }
 
-    // Get service areas for this region
+    // Get service areas for this region — include financial model fields for payment routing
     const { data: serviceAreas, error: saError } = await supabase
       .from('service_areas')
-      .select('id, name, geo_boundary, updated_at')
+      .select('id, name, geo_boundary, updated_at, financial_model, customer_payment_policy, commission_wallet_enabled')
       .eq('region_id', matchingRegion.id)
       .eq('is_active', true);
 
     if (saError) throw saError;
 
     // Find matching service area
-    let primaryServiceArea: { id: string; name: string; updated_at: string } | null = null;
+    let primaryServiceArea: {
+      id: string; name: string; updated_at: string;
+      financial_model: string | null; customer_payment_policy: string | null;
+      commission_wallet_enabled: boolean | null;
+    } | null = null;
     for (const sa of serviceAreas || []) {
       if (sa.geo_boundary) {
         const boundary = Array.isArray(sa.geo_boundary) ? sa.geo_boundary : [];
         if (boundary.length >= 3 && isPointInPolygon(pickupPoint, boundary as LatLng[])) {
-          primaryServiceArea = { id: sa.id, name: sa.name, updated_at: sa.updated_at };
+          primaryServiceArea = {
+            id: sa.id, name: sa.name, updated_at: sa.updated_at,
+            financial_model: sa.financial_model ?? null,
+            customer_payment_policy: sa.customer_payment_policy ?? null,
+            commission_wallet_enabled: sa.commission_wallet_enabled ?? null,
+          };
           break;
         }
       }
@@ -229,6 +248,22 @@ serve(async (req) => {
     // Check offer schedule
     const scheduleCheck = checkOfferSchedule(offerConfigRes.data as any, matchingRegion.timezone);
 
+    // Classify financial model — fail closed on invalid/missing config
+    const saConfig: ServiceAreaCommissionWalletConfig = {
+      financial_model: primaryServiceArea.financial_model,
+      commission_wallet_enabled: primaryServiceArea.commission_wallet_enabled,
+      customer_payment_policy: primaryServiceArea.customer_payment_policy,
+    };
+    const saPairing = classifyServiceAreaFinancialPairing(saConfig);
+    let booking_workflow: RegionSettings["booking_workflow"];
+    if (!saPairing.ok) {
+      booking_workflow = "unavailable";
+    } else if (saPairing.financial_model === "PLATFORM_COLLECTED") {
+      booking_workflow = "platform_collected";
+    } else {
+      booking_workflow = "driver_collected";
+    }
+
     const settings: RegionSettings = {
       region_id: matchingRegion.id,
       region_name: matchingRegion.name,
@@ -237,15 +272,26 @@ serve(async (req) => {
       timezone: matchingRegion.timezone,
       service_area_id: primaryServiceArea.id,
       service_area_name: primaryServiceArea.name,
+      financial_model: saPairing.ok ? saPairing.financial_model : null,
+      customer_payment_policy: saPairing.ok ? saPairing.customer_payment_policy : null,
+      booking_workflow,
     };
 
-    console.log('Resolved settings with', vehicleTypes.length, 'vehicle types,', fareConfigMap.size, 'fare configs');
+    console.log(
+      'Resolved settings with', vehicleTypes.length, 'vehicle types,',
+      fareConfigMap.size, 'fare configs, financial_model=', settings.financial_model,
+      'booking_workflow=', booking_workflow,
+    );
 
     return new Response(
       JSON.stringify({
         success: true,
         settings,
         vehicleTypes,
+        // farePricing: DEPRECATED — use the `calculate-fare` Edge Function with the resolved
+        // service_area_id for authoritative per-vehicle fares that include zones, surge,
+        // airport charges, and dynamic pricing. farePricing is kept only as a lightweight
+        // config hint for legacy callers; do NOT use it as the customer-facing price.
         farePricing: defaultFarePricing,
         paymentMethods,
         offersAllowedNow: scheduleCheck.offersAllowedNow,

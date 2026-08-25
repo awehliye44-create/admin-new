@@ -10,32 +10,27 @@ ALTER TABLE public.driver_wallet_ledger ADD CONSTRAINT driver_wallet_ledger_type
     'ADJUSTMENT', 'REFUND_DEBIT', 'PAYOUT', 'MANUAL_PAYOUT', 'PAYOUT_CREATED',
     'BONUS', 'DEBT_RECOVERY', 'PAYOUT_FAILED_RETURN', 'LEDGER_REVERSAL', 'COMMISSION_RECOVERED'
   ]));
-
 -- 2) Payout batch diagnostics for silent failures
 ALTER TABLE public.payout_batches
   ADD COLUMN IF NOT EXISTS failure_code TEXT,
   ADD COLUMN IF NOT EXISTS failure_reason TEXT,
   ADD COLUMN IF NOT EXISTS provider_response JSONB,
   ADD COLUMN IF NOT EXISTS failed_at TIMESTAMPTZ;
-
 ALTER TABLE public.payout_batches DROP CONSTRAINT IF EXISTS payout_batches_status_check;
 ALTER TABLE public.payout_batches ADD CONSTRAINT payout_batches_status_check
   CHECK (status = ANY (ARRAY[
     'pending', 'processing', 'completed', 'failed', 'partial', 'PARTIAL_SETTLEMENT',
     'INVALID_ORPHANED', 'CREATED', 'READY', 'BLOCKED', 'SENT', 'PAID', 'RETURNED'
   ]));
-
 ALTER TABLE public.payout_items
   ADD COLUMN IF NOT EXISTS failure_code TEXT,
   ADD COLUMN IF NOT EXISTS provider_response JSONB;
-
 ALTER TABLE public.payout_items DROP CONSTRAINT IF EXISTS payout_items_status_check;
 ALTER TABLE public.payout_items ADD CONSTRAINT payout_items_status_check
   CHECK (status = ANY (ARRAY[
     'pending', 'processing', 'completed', 'failed', 'ledger_sync_failed',
     'CREATED', 'READY', 'BLOCKED', 'SENT', 'PAID', 'FAILED', 'RETURNED', 'INVALID_ORPHANED'
   ]));
-
 ALTER TABLE public.payout_items DROP CONSTRAINT IF EXISTS payout_items_settlement_status_check;
 ALTER TABLE public.payout_items ADD CONSTRAINT payout_items_settlement_status_check
   CHECK (
@@ -45,7 +40,6 @@ ALTER TABLE public.payout_items ADD CONSTRAINT payout_items_settlement_status_ch
       'CREATED', 'READY', 'BLOCKED', 'SENT', 'PAID', 'RETURNED', 'INVALID_ORPHANED'
     ])
   );
-
 -- 3) Mark existing orphaned batches (amount > 0, zero payout_items)
 UPDATE public.payout_batches pb
 SET
@@ -56,7 +50,6 @@ SET
   notes = COALESCE(pb.notes, 'INVALID_ORPHANED: Batch has amount but no payout items')
 WHERE pb.total_amount_pence > 0
   AND NOT EXISTS (SELECT 1 FROM public.payout_items pi WHERE pi.batch_id = pb.id);
-
 -- 4) Backfill LEDGER_REVERSAL for capture_failed card trips with phantom credits
 -- One LEDGER_REVERSAL per trip (unique_trip_ledger_entry on related_trip_id + type).
 DO $$
@@ -102,10 +95,8 @@ BEGIN
     WHERE trip_id = r.trip_id;
   END LOOP;
 END $$;
-
 -- 5) driver_financial_summary — owed from ledger, not wallet sign
 DROP VIEW IF EXISTS public.driver_financial_summary;
-
 CREATE VIEW public.driver_financial_summary AS
 WITH trip_flags AS (
   SELECT
@@ -234,7 +225,6 @@ FROM drivers d
   LEFT JOIN trip_totals tt ON tt.driver_id = d.id
   LEFT JOIN balance_totals bt ON bt.driver_id = d.id
   LEFT JOIN reserved_cashout_totals rc ON rc.driver_id = d.id;
-
 ALTER VIEW public.driver_financial_summary SET (security_invoker = on);
 GRANT SELECT ON public.driver_financial_summary TO authenticated;
 GRANT SELECT ON public.driver_financial_summary TO anon;

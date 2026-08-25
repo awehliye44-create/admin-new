@@ -57,6 +57,7 @@ import {
   requiresProviderSettlement,
 } from "../_shared/digitalPaymentCapture.ts";
 import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
+import { notifyCustomerActiveTripEvent } from "../_shared/notifyCustomerActiveTripEvent.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -1741,6 +1742,10 @@ Deno.serve(async (req) => {
       if (!result.ok) {
         return errorResponse(result.code, result.message, result.status);
       }
+      void notifyCustomerActiveTripEvent(supabase, {
+        tripId: trip_id,
+        event: "trip_cancelled",
+      });
       return await respondOk({ success: true, action: result.action, ...result.detail });
     }
 
@@ -2048,6 +2053,10 @@ Deno.serve(async (req) => {
             idempotent: true,
             synced_trip_status: true,
           });
+          void notifyCustomerActiveTripEvent(supabase, {
+            tripId: trip_id,
+            event: "driver_arrived",
+          });
 
           const waitingResult = await tryStartPickupWaiting(supabase, {
             tripId: trip_id,
@@ -2155,6 +2164,10 @@ Deno.serve(async (req) => {
           trip_id,
           driver_id,
         });
+          void notifyCustomerActiveTripEvent(supabase, {
+            tripId: trip_id,
+            event: "driver_arrived",
+          });
 
         const waitingResult = await tryStartPickupWaiting(supabase, {
           tripId: trip_id,
@@ -3201,6 +3214,10 @@ Deno.serve(async (req) => {
         }
 
         console.log("[stop-workflow] COMPLETE_TRIP success");
+          void notifyCustomerActiveTripEvent(supabase, {
+            tripId: trip_id,
+            event: "trip_completed",
+          });
         return await respondOk({ success: true, action: 'complete_trip' });
       }
 

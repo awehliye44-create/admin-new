@@ -696,7 +696,7 @@ Deno.serve(async (req) => {
       });
       supabase.functions.invoke("send-customer-notification", {
         body: {
-          passengerId: trip.passenger_id,
+          customer_id: trip.passenger_id,
           type: "SCHEDULED_BOOKING_CONFIRMED",
           title: "Scheduled ride booked",
           body: `Your ride is booked for ${pickupDate}. We'll notify you when a driver confirms.`,

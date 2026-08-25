@@ -1,6 +1,4 @@
-
 DROP VIEW IF EXISTS public.admin_riders_with_trip_stats;
-
 CREATE OR REPLACE FUNCTION public.admin_get_user_email(_user_id uuid)
 RETURNS text
 LANGUAGE sql
@@ -11,10 +9,8 @@ AS $$
   SELECT email::text FROM auth.users WHERE id = _user_id
     AND (public.has_role(auth.uid(), 'admin') OR auth.role() = 'service_role');
 $$;
-
 REVOKE ALL ON FUNCTION public.admin_get_user_email(uuid) FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.admin_get_user_email(uuid) TO authenticated, service_role;
-
 CREATE VIEW public.admin_riders_with_trip_stats
 WITH (security_invoker = on) AS
 SELECT c.id,
@@ -42,5 +38,4 @@ WHERE c.deleted_at IS NULL
   AND c.rider_status = 'active'
   AND c.email_verified IS TRUE
   AND c.phone_verified IS TRUE;
-
 GRANT SELECT ON public.admin_riders_with_trip_stats TO authenticated, service_role;

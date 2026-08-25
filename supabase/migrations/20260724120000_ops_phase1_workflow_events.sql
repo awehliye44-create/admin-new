@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS public.ops_workflow_events (
   alert_id uuid REFERENCES public.ops_alerts(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-
 CREATE INDEX IF NOT EXISTS idx_ops_workflow_events_type_created
   ON public.ops_workflow_events (event_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ops_workflow_events_trip
@@ -31,9 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_ops_workflow_events_trip
   WHERE trip_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_ops_workflow_events_app_created
   ON public.ops_workflow_events (app_name, created_at DESC);
-
 ALTER TABLE public.ops_workflow_events ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS "Admins can read ops_workflow_events" ON public.ops_workflow_events;
 CREATE POLICY "Admins can read ops_workflow_events"
   ON public.ops_workflow_events FOR SELECT TO authenticated
@@ -41,12 +38,10 @@ CREATE POLICY "Admins can read ops_workflow_events"
     public.has_role(auth.uid(), 'admin'::app_role)
     OR public.has_role(auth.uid(), 'moderator'::app_role)
   );
-
 DROP POLICY IF EXISTS "Service role manages ops_workflow_events" ON public.ops_workflow_events;
 CREATE POLICY "Service role manages ops_workflow_events"
   ON public.ops_workflow_events FOR ALL TO service_role
   USING (true) WITH CHECK (true);
-
 -- 2. Map event_type → ops category / app
 CREATE OR REPLACE FUNCTION public.ops_workflow_event_category(p_event_type text)
 RETURNS text LANGUAGE sql IMMUTABLE AS $$
@@ -56,7 +51,6 @@ RETURNS text LANGUAGE sql IMMUTABLE AS $$
     ELSE 'backend'
   END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_workflow_event_app(p_event_type text)
 RETURNS text LANGUAGE sql IMMUTABLE AS $$
   SELECT CASE
@@ -65,7 +59,6 @@ RETURNS text LANGUAGE sql IMMUTABLE AS $$
     ELSE 'backend'
   END;
 $$;
-
 -- 3. Ingest RPC — called by ingest-ops-event edge function
 CREATE OR REPLACE FUNCTION public.ops_ingest_workflow_event(
   p_event_type text,
@@ -180,9 +173,7 @@ BEGIN
   RETURN v_event_id;
 END;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.ops_ingest_workflow_event TO service_role;
-
 -- 4. Backend SQL detectors (Phase 1 taxonomy)
 CREATE OR REPLACE FUNCTION public.ops_detect_contradictory_trip_state()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -213,7 +204,6 @@ EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object('contradictory_trip_state', 0, 'error', SQLERRM);
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_detect_rematch_assignment_failed()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;
@@ -241,7 +231,6 @@ EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object('rematch_assignment_failed', 0, 'error', SQLERRM);
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_detect_offer_presets_missing()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;
@@ -273,7 +262,6 @@ EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object('offer_presets_missing', 0, 'error', SQLERRM);
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_detect_dispatch_timeout_exceeded()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;
@@ -300,7 +288,6 @@ EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object('dispatch_timeout_exceeded', 0, 'error', SQLERRM);
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.ops_detect_notification_failures()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;
@@ -329,7 +316,6 @@ EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object('notification_failures', 0, 'error', SQLERRM);
 END;
 $$;
-
 -- 5. Workflow event rollup (recent unalerted spikes)
 CREATE OR REPLACE FUNCTION public.ops_detect_workflow_event_spikes()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -360,7 +346,6 @@ EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object('workflow_spikes', 0, 'error', SQLERRM);
 END;
 $$;
-
 -- 6. Restore full detection orchestrator (53245 + 73051 + perf + Phase 1)
 CREATE OR REPLACE FUNCTION public.ops_run_all_detections()
 RETURNS jsonb

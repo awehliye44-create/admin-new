@@ -103,7 +103,6 @@ BEGIN
   RETURN inside;
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.validate_service_area_boundary()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -157,7 +156,6 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.find_service_area_by_location(p_lat double precision, p_lng double precision)
 RETURNS uuid
 LANGUAGE plpgsql

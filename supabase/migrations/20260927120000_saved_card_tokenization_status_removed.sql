@@ -4,7 +4,6 @@
 
 ALTER TABLE public.customer_saved_payment_method_tokens
   DROP CONSTRAINT IF EXISTS customer_saved_payment_method_tokens_status_chk;
-
 ALTER TABLE public.customer_saved_payment_method_tokens
   ADD CONSTRAINT customer_saved_payment_method_tokens_status_chk
   CHECK (

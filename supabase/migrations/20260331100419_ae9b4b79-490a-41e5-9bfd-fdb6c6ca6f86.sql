@@ -1,4 +1,3 @@
-
 -- Schedule ops detection every 5 minutes via pg_cron + pg_net
 SELECT cron.schedule(
   'ops-run-detections-every-5min',

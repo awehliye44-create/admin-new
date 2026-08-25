@@ -21,22 +21,17 @@ CREATE TABLE IF NOT EXISTS public.finance_reconciliation_notes (
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT finance_reconciliation_notes_stripe_payout_unique UNIQUE (stripe_payout_id)
 );
-
 CREATE INDEX IF NOT EXISTS idx_finance_reconciliation_notes_driver
   ON public.finance_reconciliation_notes(driver_id, created_at DESC);
-
 COMMENT ON TABLE public.finance_reconciliation_notes IS
   'Documents split remediation when Stripe payout ≠ wallet-backed ledger debit (e.g. capture-failed leakage write-off).';
-
 ALTER TABLE public.finance_reconciliation_notes ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY finance_reconciliation_notes_service_role
   ON public.finance_reconciliation_notes
   FOR ALL
   TO service_role
   USING (true)
   WITH CHECK (true);
-
 CREATE POLICY finance_reconciliation_notes_admin_read
   ON public.finance_reconciliation_notes
   FOR SELECT
@@ -47,7 +42,6 @@ CREATE POLICY finance_reconciliation_notes_admin_read
       WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
     )
   );
-
 -- =============================================================================
 -- 2) MK0002 — partial ledger debit (£42.01 wallet-backed)
 -- =============================================================================
@@ -120,5 +114,4 @@ BEGIN
     note = EXCLUDED.note,
     metadata = EXCLUDED.metadata;
 END $$;
-
 SELECT recalculate_driver_wallet('cd8bae4c-3827-4b90-98c6-10be70eb0e52');

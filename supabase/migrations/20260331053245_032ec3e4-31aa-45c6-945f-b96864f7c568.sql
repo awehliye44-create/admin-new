@@ -1,4 +1,3 @@
-
 -- =============================================================
 -- PHASE 2 COMPLETION: ALL MISSING DETECTION FUNCTIONS
 -- =============================================================
@@ -39,7 +38,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 1b. Guest checkout failures: guest trips with payment failures
 CREATE OR REPLACE FUNCTION public.ops_detect_guest_checkout_failures()
 RETURNS integer
@@ -72,7 +70,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 1c. Guest booking not confirmed: guest trips stuck in pending >10min
 CREATE OR REPLACE FUNCTION public.ops_detect_guest_booking_not_confirmed()
 RETURNS integer
@@ -104,7 +101,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 1d. Guest booking drop-offs: guest trips created but cancelled by customer within 2 min
 CREATE OR REPLACE FUNCTION public.ops_detect_guest_dropoffs()
 RETURNS integer
@@ -133,7 +129,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 1e. Guest slow pages / API latency: ops_logs from guest app with high duration
 CREATE OR REPLACE FUNCTION public.ops_detect_guest_latency()
 RETURNS integer
@@ -162,8 +157,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
-
 -- =============================================
 -- 2. LOG-BASED DETECTIONS
 -- =============================================
@@ -196,7 +189,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 2b. Fatal logs: any fatal log triggers immediate alert
 CREATE OR REPLACE FUNCTION public.ops_detect_fatal_logs()
 RETURNS integer
@@ -230,7 +222,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 2c. API 5xx spikes: cluster of http_status >= 500 in ops_logs
 CREATE OR REPLACE FUNCTION public.ops_detect_5xx_spikes()
 RETURNS integer
@@ -260,7 +251,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 2d. Latency spikes: requests with duration_ms > threshold clustered
 CREATE OR REPLACE FUNCTION public.ops_detect_latency_spikes()
 RETURNS integer
@@ -290,7 +280,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 2e. Edge Function failures: errors from edge function sources
 CREATE OR REPLACE FUNCTION public.ops_detect_edge_function_failures()
 RETURNS integer
@@ -327,7 +316,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 2f. Webhook failures: errors from webhook-related sources
 CREATE OR REPLACE FUNCTION public.ops_detect_webhook_failures()
 RETURNS integer
@@ -357,8 +345,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
-
 -- =============================================
 -- 3. DUPLICATION DETECTIONS (FULL COVERAGE)
 -- =============================================
@@ -402,7 +388,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 3b. Duplicate payouts: same driver paid twice in same batch or overlapping batches
 CREATE OR REPLACE FUNCTION public.ops_detect_duplicate_payouts()
 RETURNS integer
@@ -440,7 +425,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 3c. Duplicate driver earnings: same trip_id in driver_ledger with same entry_type
 CREATE OR REPLACE FUNCTION public.ops_detect_duplicate_earnings()
 RETURNS integer
@@ -477,7 +461,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 3d. Duplicate dispatch requests: same trip offered to same driver multiple times
 CREATE OR REPLACE FUNCTION public.ops_detect_duplicate_dispatches()
 RETURNS integer
@@ -511,7 +494,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 3e. Repeated webhook processing: duplicate stripe_payment_intent_id in payments
 CREATE OR REPLACE FUNCTION public.ops_detect_repeated_webhooks()
 RETURNS integer
@@ -547,7 +529,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
 -- 3f. Repeated guest booking submissions: same guest submitting multiple times quickly
 CREATE OR REPLACE FUNCTION public.ops_detect_repeated_guest_submissions()
 RETURNS integer
@@ -584,8 +565,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
-
 -- =============================================
 -- 4. UPDATE ops_run_all_detections to include ALL functions
 -- =============================================

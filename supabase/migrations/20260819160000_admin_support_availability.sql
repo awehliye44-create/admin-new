@@ -12,15 +12,12 @@ CREATE TABLE IF NOT EXISTS public.admin_support_availability (
   admin_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
 -- RLS: only admins (has_role = 'admin') can write; read is denied via RLS
 -- (the edge function uses service role to read).
 ALTER TABLE public.admin_support_availability ENABLE ROW LEVEL SECURITY;
-
 CREATE POLICY "Admins can upsert availability heartbeat"
   ON public.admin_support_availability
   FOR ALL
   USING (has_role(auth.uid(), 'admin'::app_role))
   WITH CHECK (has_role(auth.uid(), 'admin'::app_role));
-
--- No public SELECT policy — the status edge function reads via service role key.
+-- No public SELECT policy — the status edge function reads via service role key.;

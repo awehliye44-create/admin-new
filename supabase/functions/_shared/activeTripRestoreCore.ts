@@ -90,6 +90,20 @@ function isCustomerRestoreCandidate(row: TripRow, nowMs: number): boolean {
   ) {
     return true;
   }
+  // Activated scheduled search / commitment — live even before a driver is set
+  // (status may lag; scheduled_status is the activation SSOT).
+  const scheduledStatus = String(row.scheduled_status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  if (
+    scheduledStatus === "broadcasting" ||
+    scheduledStatus === "dispatching" ||
+    scheduledStatus === "converted_to_instant" ||
+    scheduledStatus === "scheduled_committed"
+  ) {
+    return true;
+  }
   if (!isRestoreActiveTripStatus(status, "customer")) return false;
   if (!isScheduledTrip(row)) return true;
   const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);

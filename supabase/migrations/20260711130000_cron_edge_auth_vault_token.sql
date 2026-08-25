@@ -3,7 +3,6 @@
 -- Ops: ensure vault secret name = 'service_role_key' (or 'supabase_service_role_key').
 
 BEGIN;
-
 CREATE OR REPLACE FUNCTION public.cron_edge_auth_token()
 RETURNS text
 LANGUAGE sql
@@ -25,10 +24,7 @@ AS $$
     nullif(trim(current_setting('SUPABASE_ANON_KEY', true)), '')
   );
 $$;
-
 COMMENT ON FUNCTION public.cron_edge_auth_token() IS
   'Resolves Bearer token for pg_cron net.http_post → Edge. Prefer GUC service_role, then vault.service_role_key.';
-
 GRANT EXECUTE ON FUNCTION public.cron_edge_auth_token() TO service_role;
-
 COMMIT;

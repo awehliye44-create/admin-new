@@ -1,5 +1,4 @@
 UPDATE public.payment_provider_configs SET is_primary = false WHERE is_primary = true;
-
 UPDATE public.payment_provider_configs
 SET environment = 'live',
     status = 'live',

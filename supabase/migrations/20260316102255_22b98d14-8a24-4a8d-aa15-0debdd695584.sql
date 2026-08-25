@@ -1,4 +1,3 @@
-
 -- Table to persist active stop waiting sessions for Get Paid feature
 -- Supports crash recovery, duplicate prevention, and live fare accumulation
 CREATE TABLE public.trip_stop_waiting (
@@ -19,40 +18,33 @@ CREATE TABLE public.trip_stop_waiting (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT unique_active_stop_waiting UNIQUE (trip_id, stop_id, status) 
 );
-
 -- Partial unique index: only one active waiting session per trip at a time
 CREATE UNIQUE INDEX idx_one_active_waiting_per_trip 
   ON public.trip_stop_waiting (trip_id) 
   WHERE status = 'active';
-
 -- Index for driver lookups (restore on reconnect)
 CREATE INDEX idx_trip_stop_waiting_driver_active 
   ON public.trip_stop_waiting (driver_id) 
   WHERE status = 'active';
-
 -- RLS
 ALTER TABLE public.trip_stop_waiting ENABLE ROW LEVEL SECURITY;
-
 -- Admins can read all
 CREATE POLICY "Admins can manage stop waiting"
   ON public.trip_stop_waiting
   FOR ALL
   TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
-
 -- Drivers can read their own
 CREATE POLICY "Drivers can read own stop waiting"
   ON public.trip_stop_waiting
   FOR SELECT
   TO authenticated
   USING (driver_id = public.current_driver_id());
-
 -- Trigger for updated_at
 CREATE TRIGGER update_trip_stop_waiting_updated_at
   BEFORE UPDATE ON public.trip_stop_waiting
   FOR EACH ROW
   EXECUTE FUNCTION public.update_updated_at_column();
-
 -- RPC: Start stop waiting (with duplicate prevention)
 CREATE OR REPLACE FUNCTION public.start_stop_waiting(
   p_trip_id UUID,
@@ -92,7 +84,6 @@ BEGIN
   RETURN v_new_id;
 END;
 $$;
-
 -- RPC: Tick waiting (accumulate time and charge)
 CREATE OR REPLACE FUNCTION public.tick_stop_waiting(
   p_waiting_id UUID
@@ -142,7 +133,6 @@ BEGIN
   );
 END;
 $$;
-
 -- RPC: Stop waiting and finalize charge
 CREATE OR REPLACE FUNCTION public.stop_stop_waiting(
   p_waiting_id UUID
@@ -194,7 +184,6 @@ BEGIN
   );
 END;
 $$;
-
 -- RPC: Get active waiting session for a driver (for restore on reconnect)
 CREATE OR REPLACE FUNCTION public.get_active_stop_waiting(
   p_driver_id UUID

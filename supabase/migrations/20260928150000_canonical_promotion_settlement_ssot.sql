@@ -16,7 +16,6 @@ BEGIN
   RETURN 0;
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.trip_promotion_superseded_by_negotiation(p_trip public.trips)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -35,7 +34,6 @@ BEGIN
   RETURN false;
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.resolve_trip_pre_promotion_ride_fare_pence(p_trip public.trips)
 RETURNS integer
 LANGUAGE plpgsql
@@ -50,7 +48,6 @@ BEGIN
   );
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.resolve_trip_negotiated_commissionable_fare_pence(
   p_trip public.trips,
   p_negotiated_ride_fare_pence integer DEFAULT NULL
@@ -75,7 +72,6 @@ BEGIN
   RETURN GREATEST(0, v_negotiated + v_mod);
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.resolve_trip_commissionable_fare_pence(
   p_trip public.trips,
   p_committed_fare_pence integer,
@@ -108,7 +104,6 @@ BEGIN
   RETURN GREATEST(0, COALESCE(p_committed_fare_pence, 0) - GREATEST(0, p_airport_pence) - GREATEST(0, p_pass_through_pence));
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION public.snapshot_accepted_wave_commission(p_trip_id uuid, p_offer_id uuid)
  RETURNS void
  LANGUAGE plpgsql
@@ -215,7 +210,6 @@ BEGIN
   WHERE id = p_trip_id;
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.commit_negotiation_fare(p_trip_id uuid, p_committed_fare_pence integer, p_fare_source text, p_ride_offer_id uuid DEFAULT NULL::uuid, p_driver_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -497,7 +491,6 @@ BEGIN
   );
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.snapshot_driver_tier_commission_on_trip(p_trip_id uuid, p_driver_id uuid)
 RETURNS numeric
 LANGUAGE plpgsql
@@ -587,10 +580,8 @@ BEGIN
   RETURN v_pct_capped;
 END;
 $$;
-
 DROP FUNCTION IF EXISTS public.resolve_trip_pre_promotion_ride_fare_pence(public.trips, integer);
 DROP FUNCTION IF EXISTS public.resolve_trip_commissionable_fare_pence(public.trips, integer, integer, integer, integer);
-
 GRANT EXECUTE ON FUNCTION public.resolve_trip_locked_promotion_pence(public.trips) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.trip_promotion_superseded_by_negotiation(public.trips) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.resolve_trip_pre_promotion_ride_fare_pence(public.trips) TO authenticated, service_role;

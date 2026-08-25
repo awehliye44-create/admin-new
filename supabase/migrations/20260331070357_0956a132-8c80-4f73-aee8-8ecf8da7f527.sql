@@ -1,4 +1,3 @@
-
 -- Add thresholds for corporate_web screens
 INSERT INTO public.app_performance_thresholds (app_name, screen_name, metric_name, warning_threshold, critical_threshold, is_active)
 VALUES
@@ -29,7 +28,6 @@ VALUES
   ('guest_web', 'LandingPage', 'ttfb', 500, 1500, true),
   ('guest_web', 'CheckoutPage', 'transaction_time', 3000, 8000, true)
 ON CONFLICT DO NOTHING;
-
 -- Create detection function for corporate_web
 CREATE OR REPLACE FUNCTION public.ops_detect_corporate_web_issues()
 RETURNS jsonb
@@ -76,7 +74,6 @@ BEGIN
   RETURN jsonb_build_object('corporate_web_issues', v_count);
 END;
 $$;
-
 -- Update orchestrator to include corporate_web detection
 CREATE OR REPLACE FUNCTION public.ops_run_all_detections()
 RETURNS jsonb

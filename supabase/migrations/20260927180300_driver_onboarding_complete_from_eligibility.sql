@@ -36,10 +36,8 @@ BEGIN
   RETURN COALESCE(NEW, OLD);
 END;
 $function$;
-
 COMMENT ON FUNCTION public.update_driver_document_status() IS
   'Keeps drivers.documents_approved and drivers.onboarding_complete in lockstep with get_driver_document_eligibility (mandatory SA rules only).';
-
 -- Backfill live drivers so later login/restart already matches eligibility.
 UPDATE public.drivers d
 SET

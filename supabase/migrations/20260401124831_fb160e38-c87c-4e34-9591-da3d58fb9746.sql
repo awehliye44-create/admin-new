@@ -1,6 +1,5 @@
 -- 1. Fix case mismatch in trip_finance
 UPDATE trip_finance SET payment_method = 'CASH' WHERE payment_method = 'cash';
-
 -- 2. Backfill trip_finance for 12 missing completed trips
 SELECT public.ops_repair_missing_financials('bfa43ad2-d55c-4b31-94e6-95c9dc5b37cc'::uuid);
 SELECT public.ops_repair_missing_financials('4ae9abed-b7fd-4119-a337-07a8e3f8ddb7'::uuid);
@@ -14,7 +13,6 @@ SELECT public.ops_repair_missing_financials('333fb708-195a-42a0-ab28-df99cc96ff7
 SELECT public.ops_repair_missing_financials('64a620a4-03b7-4628-b0e1-33ee39e6baba'::uuid);
 SELECT public.ops_repair_missing_financials('15043c37-a852-4e97-8087-f89f4a929439'::uuid);
 SELECT public.ops_repair_missing_financials('ec4fcc1d-e826-4133-962b-4b72f8f1c214'::uuid);
-
 -- 3. Backfill missing driver_ledger entries for 8 trips that exist in driver_wallet_ledger but not driver_ledger
 -- For each, create CASH_COMMISSION_DEBT and COMPANY_COMMISSION entries
 INSERT INTO driver_ledger (driver_id, trip_id, entry_type, amount_pence, currency_code, description)
@@ -33,7 +31,6 @@ WHERE dwl.driver_id = 'd0d7cad6-5903-4910-9cad-96dcc3517918'
     WHERE driver_id = 'd0d7cad6-5903-4910-9cad-96dcc3517918' 
     AND entry_type = 'CASH_COMMISSION_DEBT'
   );
-
 INSERT INTO driver_ledger (driver_id, trip_id, entry_type, amount_pence, currency_code, description)
 SELECT 
   dwl.driver_id,
@@ -50,7 +47,6 @@ WHERE dwl.driver_id = 'd0d7cad6-5903-4910-9cad-96dcc3517918'
     WHERE driver_id = 'd0d7cad6-5903-4910-9cad-96dcc3517918' 
     AND entry_type = 'COMPANY_COMMISSION'
   );
-
 -- 4. Make the financial summary view case-insensitive to prevent future issues
 CREATE OR REPLACE VIEW driver_financial_summary AS
 WITH ledger_totals AS (

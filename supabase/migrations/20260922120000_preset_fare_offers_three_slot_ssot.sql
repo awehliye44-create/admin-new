@@ -39,7 +39,6 @@ BEGIN
   RETURN NULL;
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.compute_ride_offer_preset_options(p_trip trips)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -210,7 +209,6 @@ BEGIN
   );
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.commit_dispatch_wave(
   p_trip_id uuid,
   p_expected_version integer,
@@ -463,7 +461,6 @@ BEGIN
   );
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.enrich_ride_offer_presets(p_trip_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$

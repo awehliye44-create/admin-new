@@ -1,4 +1,3 @@
-
 -- Schedule daily cleanup at 3 AM UTC
 SELECT cron.schedule(
   'ops-cleanup-daily',

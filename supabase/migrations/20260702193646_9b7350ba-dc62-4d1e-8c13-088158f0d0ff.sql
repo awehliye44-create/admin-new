@@ -57,7 +57,6 @@ BEGIN
   END;
 END;
 $function$;
-
 -- =====================================================================
 -- Fix 2: Reschedule cron job "ack-timeout-sweep" from 5s → 10s.
 -- cron.schedule() with an existing jobname performs an upsert and
@@ -68,7 +67,6 @@ SELECT cron.schedule(
   '10 seconds',
   $$SELECT public.ack_timeout_sweep();$$
 );
-
 -- =====================================================================
 -- ROLLBACK (run manually to restore prior behaviour):
 -- ---------------------------------------------------------------------
@@ -118,4 +116,4 @@ SELECT cron.schedule(
 --   END;
 -- END;
 -- $function$;
--- =====================================================================
+-- =====================================================================;

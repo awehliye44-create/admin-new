@@ -1,4 +1,3 @@
-
 CREATE OR REPLACE VIEW public.user_directory AS
 
 -- Admins (from user_roles table)
@@ -61,5 +60,4 @@ SELECT
   NULL::timestamptz AS last_sign_in_at
 FROM public.corporate_users cu
 WHERE cu.user_id IS NOT NULL;
-
 GRANT SELECT ON public.user_directory TO authenticated;

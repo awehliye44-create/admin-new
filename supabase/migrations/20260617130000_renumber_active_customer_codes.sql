@@ -3,12 +3,10 @@
 -- active customers remain. Trips/bookings use customers.id (UUID), not customer_code.
 
 BEGIN;
-
 -- Avoid UNIQUE(customer_code) collisions during reassignment.
 UPDATE public.customers
 SET customer_code = 'TMP-' || id::text
 WHERE deleted_at IS NULL;
-
 WITH ranked AS (
   SELECT
     id,
@@ -22,7 +20,6 @@ SET
   updated_at = now()
 FROM ranked AS r
 WHERE c.id = r.id;
-
 INSERT INTO public.global_sequences (sequence_type, current_value)
 SELECT
   'customer',
@@ -33,5 +30,4 @@ ON CONFLICT (sequence_type)
 DO UPDATE SET
   current_value = EXCLUDED.current_value,
   updated_at = now();
-
 COMMIT;

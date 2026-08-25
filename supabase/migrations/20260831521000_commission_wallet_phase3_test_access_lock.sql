@@ -41,12 +41,10 @@ BEGIN
           HINT = 'Only admins may grant or revoke Commission Wallet test access.';
 END;
 $$;
-
 DROP TRIGGER IF EXISTS tr_prevent_driver_self_grant_cw_test_access ON public.drivers;
 CREATE TRIGGER tr_prevent_driver_self_grant_cw_test_access
   BEFORE INSERT OR UPDATE OF commission_wallet_test_access ON public.drivers
   FOR EACH ROW
   EXECUTE FUNCTION public.prevent_driver_self_grant_commission_wallet_test_access();
-
 COMMENT ON FUNCTION public.prevent_driver_self_grant_commission_wallet_test_access() IS
   'Phase 3: block drivers from self-granting commission_wallet_test_access; allow service_role and admin role.';

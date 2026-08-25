@@ -1,10 +1,8 @@
-
 -- =====================================================
 -- 1. CUSTOMER DEDUP: Unique constraint on customers.user_id
 -- =====================================================
 ALTER TABLE public.customers 
   ADD CONSTRAINT customers_user_id_unique UNIQUE (user_id);
-
 -- =====================================================
 -- 2. FIND OR CREATE CUSTOMER (prevents duplicates)
 -- =====================================================
@@ -61,7 +59,6 @@ BEGIN
   RETURN NULL;
 END;
 $$;
-
 -- =====================================================
 -- 3. SERVICE AREA POLYGON VALIDATION TRIGGER
 -- =====================================================
@@ -101,12 +98,10 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE TRIGGER tr_validate_service_area_boundary
   BEFORE INSERT OR UPDATE ON public.service_areas
   FOR EACH ROW
   EXECUTE FUNCTION public.validate_service_area_boundary();
-
 -- =====================================================
 -- 4. VALIDATE TRIP HAS VALID PICKUP SERVICE AREA
 -- =====================================================
@@ -141,7 +136,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 CREATE TRIGGER tr_validate_trip_service_area
   BEFORE INSERT ON public.trips
   FOR EACH ROW

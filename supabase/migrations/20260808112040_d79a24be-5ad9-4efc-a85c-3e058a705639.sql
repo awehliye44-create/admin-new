@@ -70,4 +70,4 @@ AS $$
 $$;
 
 REVOKE ALL ON FUNCTION public.resolve_service_area_communication(UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.resolve_service_area_communication(UUID) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.resolve_service_area_communication(UUID) TO authenticated, service_role;;

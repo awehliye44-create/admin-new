@@ -1,6 +1,5 @@
 -- Fix the new records
 UPDATE trip_finance SET payment_method = 'CASH' WHERE payment_method = 'cash';
-
 -- Fix the repair function to use uppercase CASH
 CREATE OR REPLACE FUNCTION public.ops_repair_missing_commission(p_trip_id uuid)
  RETURNS jsonb

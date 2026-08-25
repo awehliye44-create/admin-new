@@ -9,7 +9,6 @@
 -- Drop the exact 3-arg signature first so only the unified-countdown RPC remains.
 
 DROP FUNCTION IF EXISTS public.driver_send_preset_offer(uuid, integer, integer[]);
-
 CREATE OR REPLACE FUNCTION public.driver_send_preset_offer(
   p_offer_id uuid,
   p_selected_total_fare_pence integer,
@@ -135,10 +134,8 @@ BEGIN
   );
 END;
 $function$;
-
 GRANT EXECUTE ON FUNCTION public.driver_send_preset_offer(uuid, integer, integer[], integer)
   TO authenticated, service_role;
-
 -- Snapshot countdown_seconds is the Admin duration, independent of the display toggle.
 CREATE OR REPLACE FUNCTION public.compute_ride_offer_preset_options(p_trip trips)
  RETURNS jsonb
@@ -315,7 +312,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- Pre-hold SSOT: while negotiation_owner_driver_id is set, only that driver
 -- may be written onto trips.driver_id / confirmed_driver_id. Other-driver
 -- accept_ride_offer / stacked accept cannot steal the trip mid-negotiation.
@@ -344,20 +340,16 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
-
 DROP TRIGGER IF EXISTS trg_enforce_negotiation_pre_hold_assignment ON public.trips;
 CREATE TRIGGER trg_enforce_negotiation_pre_hold_assignment
 BEFORE UPDATE OF driver_id, confirmed_driver_id
 ON public.trips
 FOR EACH ROW
 EXECUTE FUNCTION public.enforce_negotiation_pre_hold_assignment();
-
 COMMENT ON COLUMN public.preset_offer_configs.countdown_seconds IS
   'Preset negotiation response window (seconds) for both Driver and Customer in this service area. Independent of countdown_enabled. Expiry never auto-accepts.';
-
 COMMENT ON COLUMN public.preset_offer_configs.countdown_enabled IS
   'Display toggle for the negotiation countdown. Does not change countdown_seconds.';
-
 -- Stacked offers never receive preset chips (success or fallback enrich).
 CREATE OR REPLACE FUNCTION public.enrich_ride_offer_presets(p_trip_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
@@ -482,7 +474,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- Defence in depth: stacked queue cannot steal a trip held by another driver.
 CREATE OR REPLACE FUNCTION public.accept_stacked_ride(
   p_offer_id uuid,

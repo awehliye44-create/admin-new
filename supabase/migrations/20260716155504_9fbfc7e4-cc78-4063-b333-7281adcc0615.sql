@@ -195,9 +195,7 @@ BEGIN
   RETURN v_trip_id;
 END;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.finalize_paid_booking_session(uuid) TO authenticated, service_role;
-
 CREATE OR REPLACE FUNCTION public.recover_authorised_paid_booking_sessions(p_limit int DEFAULT 25)
 RETURNS TABLE(payment_session_id uuid, provider_order_id text, result text, trip_id uuid, error text)
 LANGUAGE plpgsql
@@ -263,9 +261,7 @@ BEGIN
   END LOOP;
 END;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.recover_authorised_paid_booking_sessions(int) TO service_role;
-
 CREATE OR REPLACE FUNCTION public.alert_unresolved_authorised_paid_bookings()
 RETURNS TABLE(payment_session_id uuid, provider_order_id text, age_minutes numeric, recovery_attempt_count int, last_error text)
 LANGUAGE sql
@@ -290,5 +286,4 @@ AS $$
     )
   ORDER BY age_minutes DESC;
 $$;
-
 GRANT EXECUTE ON FUNCTION public.alert_unresolved_authorised_paid_bookings() TO service_role;

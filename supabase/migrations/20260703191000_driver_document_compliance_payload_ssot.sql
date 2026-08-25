@@ -277,10 +277,8 @@ BEGIN
   );
 END;
 $function$;
-
 COMMENT ON FUNCTION public.get_driver_document_eligibility(uuid) IS
   'Assigned-SA document compliance payload: document_status, compliance_hash, should_open_documents, should_notify. No global/MK fallback.';
-
 CREATE OR REPLACE FUNCTION public.check_driver_documents_approved(p_driver_id uuid)
 RETURNS boolean
 LANGUAGE sql

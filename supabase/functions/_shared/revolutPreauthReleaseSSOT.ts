@@ -10,12 +10,19 @@ import {
   retrieveRevolutOrder,
 } from "./revolutOrders.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
-import { markPaymentSessionReleased } from "./paymentSessionSSOT.ts";
+import { markPaymentSessionReleased, markPaymentSessionProviderFee } from "./paymentSessionSSOT.ts";
+import { extractProviderFeePence } from "./paymentCaptureEvidenceSSOT.ts";
+import {
+  buildFeeCapturePaymentSessionPatch,
+  isChargedFeeOutcome,
+  isNonCompletedTerminalTripStatus,
+} from "./chargedTerminalFeeWalletSSOT.ts";
 
 export type RevolutHoldReconciliationStatus =
   | "authorised_hold"
   | "released_hold"
   | "captured_after_completion"
+  | "captured_terminal_fee"
   | "refunded_wrong_capture"
   | "orphan_authorisation";
 
@@ -38,6 +45,31 @@ export function isRevolutWrongCaptureBeforeTripComplete(state: string | undefine
   return String(state ?? "").toUpperCase() === "COMPLETED";
 }
 
+/**
+ * Provider COMPLETED before trip completion is wrong only for accidental full-fare capture.
+ * Intentional no-show / cancel / protection fees (partial or full-auth fee) must not refund.
+ */
+export function isIntentionalTerminalFeeCapture(args: {
+  tripStatus?: string | null;
+  financialOutcome?: string | null;
+  feeStampPence?: number | null;
+  capturedAmountPence?: number | null;
+  authorisedAmountPence?: number | null;
+  feePenceRequested?: number | null;
+}): boolean {
+  const captured = Math.max(0, Math.round(Number(args.capturedAmountPence) || 0));
+  if (captured <= 0) return false;
+  const auth = Math.max(0, Math.round(Number(args.authorisedAmountPence) || 0));
+  const feeReq = Math.max(0, Math.round(Number(args.feePenceRequested) || 0));
+  const feeStamp = Math.max(0, Math.round(Number(args.feeStampPence) || 0));
+  if (feeReq > 0) return true;
+  // Partial capture of an open hold is always a terminal fee shape.
+  if (auth > 0 && captured < auth) return true;
+  if (isChargedFeeOutcome(args.financialOutcome)) return true;
+  if (isNonCompletedTerminalTripStatus(args.tripStatus) && feeStamp > 0) return true;
+  return false;
+}
+
 export function classifyRevolutHoldReconciliation(args: {
   providerOrderState?: string | null;
   tripStatus?: string | null;
@@ -45,6 +77,10 @@ export function classifyRevolutHoldReconciliation(args: {
   paymentInvariantViolation?: boolean;
   hasTrip?: boolean;
   sessionOrphaned?: boolean;
+  capturedAmountPence?: number | null;
+  authorisedAmountPence?: number | null;
+  financialOutcome?: string | null;
+  feeStampPence?: number | null;
 }): RevolutHoldReconciliationStatus {
   if (args.paymentInvariantViolation) return "refunded_wrong_capture";
   const state = String(args.providerOrderState ?? "").toUpperCase();
@@ -54,7 +90,20 @@ export function classifyRevolutHoldReconciliation(args: {
   }
   if (state === "CANCELLED" || args.reversalStatus === "cancelled") return "released_hold";
   if (state === "COMPLETED" && tripStatus === "completed") return "captured_after_completion";
-  if (state === "COMPLETED" && tripStatus !== "completed") return "refunded_wrong_capture";
+  if (state === "COMPLETED" && tripStatus !== "completed") {
+    if (
+      isIntentionalTerminalFeeCapture({
+        tripStatus: args.tripStatus,
+        financialOutcome: args.financialOutcome,
+        feeStampPence: args.feeStampPence,
+        capturedAmountPence: args.capturedAmountPence,
+        authorisedAmountPence: args.authorisedAmountPence,
+      })
+    ) {
+      return "captured_terminal_fee";
+    }
+    return "refunded_wrong_capture";
+  }
   if (isRevolutPreauthHoldState(state)) return "authorised_hold";
   if (state === "REFUNDED") return "refunded_wrong_capture";
   return "orphan_authorisation";
@@ -84,6 +133,60 @@ export async function releaseRevolutPreauthForTrip(
     const authorisedPence = Math.max(0, Number(order.amount ?? 0));
 
     if (isRevolutWrongCaptureBeforeTripComplete(state)) {
+      const completedAmt = Math.max(
+        0,
+        Math.round(Number(order.completed_amount ?? order.amount ?? 0) || 0),
+      );
+      // Load trip/fee stamps so full-auth fee captures (fee == auth) are not refunded
+      // when a later caller passes feePence: 0 (expire / sweep).
+      const { data: tripRow } = await supabase
+        .from("trips")
+        .select(
+          "status, financial_outcome, no_show_charge_pence, cancellation_fee_pence, capture_amount_pence",
+        )
+        .eq("id", args.tripId)
+        .maybeSingle();
+      const feeStamp = Math.max(
+        0,
+        Math.round(Number(tripRow?.no_show_charge_pence) || 0),
+        Math.round(Number(tripRow?.cancellation_fee_pence) || 0),
+        Math.round(Number(tripRow?.capture_amount_pence) || 0),
+      );
+      const intentionalFeeCapture = isIntentionalTerminalFeeCapture({
+        tripStatus: tripRow?.status as string | null,
+        financialOutcome: tripRow?.financial_outcome as string | null,
+        feeStampPence: feeStamp,
+        capturedAmountPence: completedAmt,
+        authorisedAmountPence: authorisedPence,
+        feePenceRequested: feePence,
+      });
+      if (intentionalFeeCapture) {
+        await updateTripPaymentReleased(supabase, {
+          tripId: args.tripId,
+          providerOrderId: orderId,
+          paymentStatus: "fee_charged",
+          feeCapturedPence: completedAmt,
+          clientActionId: args.clientActionId ?? null,
+          releaseReason: args.reason,
+          holdTerminalReason: args.holdTerminalReason ?? args.reason,
+          idempotencyKey: args.idempotencyKey,
+          providerOrderPayload: order as Record<string, unknown>,
+          retrieveSucceeded: true,
+        });
+        await auditRevolutHoldAction(supabase, {
+          action: "revolut_fee_capture_already_completed",
+          providerOrderId: orderId,
+          tripId: args.tripId,
+          stage: args.stage,
+          reason: args.reason,
+          providerState: state,
+        });
+        return {
+          released: true,
+          status: "fee_charged",
+          fee_captured_pence: completedAmt,
+        };
+      }
       await handleRevolutPaymentInvariantViolation(supabase, {
         providerOrderId: orderId,
         tripId: args.tripId,
@@ -119,6 +222,8 @@ export async function releaseRevolutPreauthForTrip(
         releaseReason: args.reason,
         holdTerminalReason: args.holdTerminalReason ?? args.reason,
         idempotencyKey: args.idempotencyKey,
+        providerOrderPayload: refreshed as Record<string, unknown>,
+        retrieveSucceeded: true,
       });
       await auditRevolutHoldAction(supabase, {
         action: feePence > 0 ? "revolut_partial_capture_on_cancel" : "revolut_hold_released",
@@ -268,6 +373,9 @@ async function updateTripPaymentReleased(
     releaseReason?: string;
     holdTerminalReason?: string;
     idempotencyKey?: string;
+    /** Merchant GET/capture response — ACQUIRING fee extract only (never settled_amount invent). */
+    providerOrderPayload?: Record<string, unknown> | null;
+    retrieveSucceeded?: boolean;
   },
 ): Promise<void> {
   const patch: Record<string, unknown> = {
@@ -285,6 +393,67 @@ async function updateTripPaymentReleased(
     provider_status: args.paymentStatus === "released" ? "CANCELLED" : undefined,
     updated_at: new Date().toISOString(),
   }).eq("trip_id", args.tripId).eq("provider_order_id", args.providerOrderId);
+
+  // Fee capture must stamp Payment Session as captured (captured_at for 27h) — never release-only.
+  if (args.feeCapturedPence != null && args.feeCapturedPence > 0) {
+    const { data: sessions } = await supabase
+      .from("payment_sessions")
+      .select("id, authorised_amount_pence")
+      .eq("trip_id", args.tripId)
+      .eq("provider_order_id", args.providerOrderId)
+      .eq("purpose", "RIDE_BOOKING")
+      .limit(1);
+    const session = Array.isArray(sessions) && sessions.length === 1 ? sessions[0] : null;
+    if (session?.id) {
+      const nowIso = new Date().toISOString();
+      const authPence = Math.max(0, Math.round(Number(session.authorised_amount_pence) || 0));
+      const feePatch = buildFeeCapturePaymentSessionPatch({
+        authPence,
+        capturedFeePence: args.feeCapturedPence,
+        providerState: "COMPLETED",
+        capturedAtIso: nowIso,
+      });
+      const { error: psErr } = await supabase
+        .from("payment_sessions")
+        .update({
+          provider_state: feePatch.provider_state,
+          status: feePatch.status,
+          captured_amount_pence: feePatch.captured_amount_pence,
+          released_amount_pence: feePatch.released_amount_pence,
+          captured_at: feePatch.captured_at,
+          released_at: feePatch.released_at,
+          financial_operation_state: feePatch.financial_operation_state,
+          hold_release_state: feePatch.hold_release_state,
+          hold_terminal_reason: feePatch.hold_terminal_reason,
+          provider_state_verified_at: nowIso,
+          provider_state_verified_by: "revolut_preauth_fee_capture",
+          updated_at: nowIso,
+        })
+        .eq("id", session.id);
+      if (psErr) {
+        console.error("[revolutPreauthRelease] fee-capture PS patch failed", psErr.message);
+      } else {
+        // Stamp ACQUIRING fee before any wallet/RFO path that reads PS.
+        const payload = args.providerOrderPayload ?? null;
+        const providerFeePence = extractProviderFeePence(payload);
+        try {
+          await markPaymentSessionProviderFee(supabase, {
+            sessionId: session.id as string,
+            providerOrderId: args.providerOrderId,
+            clientActionId: args.clientActionId ?? null,
+            providerFeePence,
+            retrieveSucceeded: args.retrieveSucceeded ?? payload != null,
+          });
+        } catch (feeErr) {
+          console.error(
+            "[revolutPreauthRelease] provider fee persist failed",
+            feeErr instanceof Error ? feeErr.message : String(feeErr),
+          );
+        }
+      }
+    }
+    return;
+  }
 
   if (args.paymentStatus === "released" || args.feeCapturedPence === 0) {
     await markPaymentSessionReleased(supabase, {

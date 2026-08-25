@@ -3,7 +3,6 @@
 
 -- 1) driver_financial_summary — wallet_balance = ledger liability SSOT
 DROP VIEW IF EXISTS public.driver_financial_summary;
-
 CREATE VIEW public.driver_financial_summary AS
 WITH trip_flags AS (
   SELECT
@@ -133,14 +132,11 @@ FROM drivers d
   LEFT JOIN trip_totals tt ON tt.driver_id = d.id
   LEFT JOIN balance_totals bt ON bt.driver_id = d.id
   LEFT JOIN reserved_cashout_totals rc ON rc.driver_id = d.id;
-
 ALTER VIEW public.driver_financial_summary SET (security_invoker = on);
 GRANT SELECT ON public.driver_financial_summary TO authenticated;
 GRANT SELECT ON public.driver_financial_summary TO anon;
-
 COMMENT ON VIEW public.driver_financial_summary IS
   'Phase 3A.4 wallet_balance = ledger liability SSOT (includes COMMISSION_RECOVERED; excludes PLATFORM_COMMISSION, CASH_TRIP_EARNING only).';
-
 -- 2) driver_wallets cache — same exclusion set as computeLedgerWalletBalancePence
 CREATE OR REPLACE FUNCTION public.recalculate_driver_wallet(p_driver_id uuid)
 RETURNS void
@@ -174,7 +170,6 @@ BEGIN
     updated_at = now();
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.trigger_recalculate_wallet()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -220,10 +215,8 @@ BEGIN
   END IF;
 END;
 $function$;
-
 COMMENT ON FUNCTION public.recalculate_driver_wallet(uuid) IS
   'Rebuild driver_wallets from Phase 3A.4 ledger wallet SSOT — excludes PLATFORM_COMMISSION and CASH_TRIP_EARNING only.';
-
 -- 3) Rebuild cache for all drivers with ledger activity
 DO $$
 DECLARE

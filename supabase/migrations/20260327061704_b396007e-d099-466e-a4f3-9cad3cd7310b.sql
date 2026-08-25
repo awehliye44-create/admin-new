@@ -1,4 +1,3 @@
-
 -- Add missing columns for grace period and waiting timer tracking
 ALTER TABLE public.trips 
   ADD COLUMN IF NOT EXISTS assigned_at timestamptz,

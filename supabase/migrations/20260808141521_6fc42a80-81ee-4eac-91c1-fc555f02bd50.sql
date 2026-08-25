@@ -283,4 +283,4 @@ BEGIN
     CASE WHEN _new_role = 'super_admin' THEN 'roles.staff.promote_super_admin' ELSE 'roles.staff.reassign' END,
     v_details || jsonb_build_object('result', 'success'));
 END;
-$$;
+$$;;

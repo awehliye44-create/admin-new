@@ -1,11 +1,9 @@
-
 -- ============================================================
 -- 1. Drop legacy dispatch_settings table + its sync trigger/fn
 -- ============================================================
 DROP TRIGGER IF EXISTS trg_sync_fare_pricing_to_dispatch_settings ON public.fare_pricing_settings;
 DROP FUNCTION IF EXISTS public.sync_fare_pricing_to_dispatch_settings() CASCADE;
 DROP TABLE IF EXISTS public.dispatch_settings CASCADE;
-
 -- ============================================================
 -- 2. Add admin-controlled fields for previously-hardcoded values
 -- ============================================================
@@ -13,7 +11,6 @@ ALTER TABLE public.global_dispatch_settings
   ADD COLUMN IF NOT EXISTS max_dispatch_rounds       integer NOT NULL DEFAULT 3,
   ADD COLUMN IF NOT EXISTS degraded_driver_penalty   integer NOT NULL DEFAULT 100,
   ADD COLUMN IF NOT EXISTS presence_max_age_seconds  integer NOT NULL DEFAULT 60;
-
 -- ============================================================
 -- 3. Remove dead UI-only columns from singleton
 --    (none of these are read by any production code path)
@@ -27,7 +24,6 @@ ALTER TABLE public.global_dispatch_settings
   DROP COLUMN IF EXISTS offer_expiry_seconds,
   DROP COLUMN IF EXISTS accept_timeout_seconds,
   DROP COLUMN IF EXISTS driver_response_timeout_seconds;
-
 -- ============================================================
 -- 4. Rewrite dispatch_trip_offers:
 --    - one config fetch
@@ -477,7 +473,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- ============================================================
 -- 5. Make tr_dispatch_trip_offers fault-tolerant — booking must
 --    commit even if the dispatcher errors momentarily.

@@ -1,6 +1,5 @@
 -- Driver Withdraw post-pay: RLS for Withdrawal Details + EARLY_CASHOUT fee ledger split.
 BEGIN;
-
 -- ---------------------------------------------------------------------------
 -- Drivers may read their own EARLY_CASHOUT payout items / batches (Wallet UI).
 -- Weekly/admin payout rows remain admin-only.
@@ -21,7 +20,6 @@ CREATE POLICY "Drivers read own early cashout payout items"
         AND b.kind = 'EARLY_CASHOUT'
     )
   );
-
 DROP POLICY IF EXISTS "Drivers read own early cashout payout batches"
   ON public.payout_batches;
 CREATE POLICY "Drivers read own early cashout payout batches"
@@ -38,7 +36,6 @@ CREATE POLICY "Drivers read own early cashout payout batches"
         AND d.user_id = auth.uid()
     )
   );
-
 -- ---------------------------------------------------------------------------
 -- finalize_driver_payout_completion: EARLY_CASHOUT fee split when configured.
 -- Historical items with net == gross (fee not applied at /pay) keep single debit.
@@ -510,5 +507,4 @@ BEGIN
   );
 END;
 $function$;
-
 COMMIT;

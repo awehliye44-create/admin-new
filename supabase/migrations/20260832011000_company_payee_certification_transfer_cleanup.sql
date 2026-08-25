@@ -3,7 +3,6 @@
 
 ALTER TABLE public.company_outgoing_transfers
   DROP CONSTRAINT IF EXISTS company_outgoing_transfers_transfer_type_check;
-
 ALTER TABLE public.company_outgoing_transfers
   ADD CONSTRAINT company_outgoing_transfers_transfer_type_check
   CHECK (transfer_type IN (
@@ -12,7 +11,6 @@ ALTER TABLE public.company_outgoing_transfers
     'COMPANY_PAYABLE',
     'CERTIFICATION'
   ));
-
 UPDATE public.company_outgoing_transfers
 SET
   transfer_type = 'CERTIFICATION',

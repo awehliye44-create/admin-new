@@ -1,4 +1,3 @@
-
 -- 1. Settings singleton
 CREATE TABLE public.ai_credit_settings (
   id boolean PRIMARY KEY DEFAULT true CHECK (id = true),
@@ -16,7 +15,6 @@ CREATE POLICY "settings readable by all" ON public.ai_credit_settings FOR SELECT
 CREATE POLICY "admin manage settings" ON public.ai_credit_settings FOR ALL TO authenticated
   USING (public.has_role(auth.uid(),'admin')) WITH CHECK (public.has_role(auth.uid(),'admin'));
 INSERT INTO public.ai_credit_settings (id) VALUES (true);
-
 -- 2. Packages
 CREATE TABLE public.ai_credit_packages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -35,15 +33,12 @@ ALTER TABLE public.ai_credit_packages ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "packages readable by all" ON public.ai_credit_packages FOR SELECT USING (true);
 CREATE POLICY "admin manage packages" ON public.ai_credit_packages FOR ALL TO authenticated
   USING (public.has_role(auth.uid(),'admin')) WITH CHECK (public.has_role(auth.uid(),'admin'));
-
 INSERT INTO public.ai_credit_packages (name, credits, price, currency, sort_order) VALUES
   ('Starter', 10, 2.00, 'GBP', 1),
   ('Standard', 50, 8.00, 'GBP', 2),
   ('Pro', 100, 15.00, 'GBP', 3);
-
 -- 3. Merchant flag
 ALTER TABLE public.merchants ADD COLUMN IF NOT EXISTS free_ai_credits_granted boolean NOT NULL DEFAULT false;
-
 -- 4. Credit history ledger
 CREATE TABLE public.merchant_ai_credit_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -67,7 +62,6 @@ CREATE POLICY "merchant read own history" ON public.merchant_ai_credit_history F
   USING (EXISTS (SELECT 1 FROM public.merchants m WHERE m.id = merchant_id AND m.owner_user_id = auth.uid()));
 CREATE POLICY "admin insert history" ON public.merchant_ai_credit_history FOR INSERT TO authenticated
   WITH CHECK (public.has_role(auth.uid(),'admin'));
-
 -- 5. Approve merchant + grant free credits atomically
 CREATE OR REPLACE FUNCTION public.approve_merchant_with_credits(_merchant_id uuid, _admin_notes text DEFAULT NULL)
 RETURNS jsonb
@@ -116,7 +110,6 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'granted', NOT COALESCE(_already_granted,false), 'amount', _free_amount);
 END $$;
-
 -- 6. Admin manual adjustment
 CREATE OR REPLACE FUNCTION public.adjust_merchant_credits(_merchant_id uuid, _delta integer, _notes text DEFAULT NULL)
 RETURNS jsonb
@@ -141,7 +134,6 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'balance', _balance);
 END $$;
-
 -- 7. Add unique constraint to merchant_ai_credits if missing (needed for ON CONFLICT)
 DO $$ BEGIN
   IF NOT EXISTS (
@@ -150,6 +142,5 @@ DO $$ BEGIN
     ALTER TABLE public.merchant_ai_credits ADD CONSTRAINT merchant_ai_credits_merchant_id_key UNIQUE (merchant_id);
   END IF;
 END $$;
-
 GRANT EXECUTE ON FUNCTION public.approve_merchant_with_credits(uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.adjust_merchant_credits(uuid, integer, text) TO authenticated;

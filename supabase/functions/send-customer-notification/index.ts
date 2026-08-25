@@ -10,19 +10,43 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
+import {
+  resolveCustomerAuthUserId,
+  resolveCustomerAuthoritativeToken,
+} from "../_shared/authoritativeDevicePush.ts";
 
 interface NotificationPayload {
-  customer_id: string;
+  /** Auth user id OR customers.id — resolved via resolveCustomerAuthUserId. */
+  customer_id?: string;
+  /** Legacy alias used by scheduled-* / create-ride callers (customers.id). */
+  passengerId?: string;
+  customerId?: string;
+  userId?: string;
+  user_id?: string;
   title: string;
   body: string;
   type?: string;
   data?: Record<string, string>;
 }
 
-const RATE_LIMIT_CONFIG = { limit: 200, windowMs: 60000, keyPrefix: 'send-customer-notif' };
+const RATE_LIMIT_CONFIG = { limit: 200, windowMs: 60000, keyPrefix: "send-customer-notif" };
+
+function readCustomerIdHint(payload: NotificationPayload): string | null {
+  for (const key of [
+    "customer_id",
+    "passengerId",
+    "customerId",
+    "userId",
+    "user_id",
+  ] as const) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     return handleCORSPreflight();
   }
 
@@ -44,18 +68,18 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
     const payload: NotificationPayload = await req.json();
+    const customerIdHint = readCustomerIdHint(payload);
 
     console.log("[send-customer-notification] Received:", {
-      customer_id: payload.customer_id,
+      customer_id_hint: customerIdHint,
       type: payload.type,
       title: payload.title,
     });
 
-    // Validation
     const validationErrors: Record<string, string> = {};
-    if (!payload.customer_id) {
+    if (!customerIdHint) {
       validationErrors.customer_id = "customer_id is required";
-    } else if (!isValidUUID(payload.customer_id)) {
+    } else if (!isValidUUID(customerIdHint)) {
       validationErrors.customer_id = "customer_id must be a valid UUID";
     }
     if (!payload.title) validationErrors.title = "title is required";
@@ -65,84 +89,92 @@ Deno.serve(async (req) => {
       return validationErrorResponse(validationErrors);
     }
 
-    const sanitizedTitle = sanitizeString(payload.title, 100) || 'Notification';
-    const sanitizedBody = sanitizeString(payload.body, 500) || '';
+    // trips.passenger_id is customers.id; tokens / active devices are auth.users.id.
+    const authUserId = await resolveCustomerAuthUserId(supabase, customerIdHint!);
 
-    // Get customer's push tokens
-    const { data: tokens, error: tokenError } = await supabase
-      .from("customer_push_tokens")
-      .select("token, platform")
-      .eq("user_id", payload.customer_id)
-      .eq("app_type", "customer");
+    const sanitizedTitle = sanitizeString(payload.title, 100) || "Notification";
+    const sanitizedBody = sanitizeString(payload.body, 500) || "";
 
-    if (tokenError) {
-      console.error("[send-customer-notification] Token fetch error:", tokenError);
-      return errorResponse("TOKEN_FETCH_FAILED", "Failed to fetch push tokens", 500);
-    }
+    // Sole active device — never fan out to historical tokens.
+    const authoritative = await resolveCustomerAuthoritativeToken(
+      supabase,
+      authUserId,
+    );
 
-    if (!tokens || tokens.length === 0) {
-      console.log("[send-customer-notification] No tokens for customer:", payload.customer_id);
+    if (!authoritative?.token) {
+      console.log(
+        "[send-customer-notification] No authoritative token for customer:",
+        authUserId,
+      );
       return errorResponse("NO_TOKENS", "No push tokens found", 404, { sent: 0 });
     }
 
-    console.log(`[send-customer-notification] Found ${tokens.length} token(s)`);
-
-    const results = await Promise.all(
-      tokens.map(async ({ token, platform }) => {
-        const fcmMessage: Record<string, unknown> = {
-          to: token,
-          priority: "high",
-          notification: {
-            title: sanitizedTitle,
-            body: sanitizedBody,
-            sound: "default",
-          },
-          data: {
-            type: payload.type || "trip_message",
-            ...payload.data,
-          },
-        };
-
-        if (platform === 'ios') {
-          fcmMessage.content_available = true;
-        }
-
-        try {
-          const response = await fetch("https://fcm.googleapis.com/fcm/send", {
-            method: "POST",
-            headers: {
-              "Authorization": `key=${FCM_SERVER_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(fcmMessage),
-          });
-
-          const result = await response.json();
-          console.log(`[send-customer-notification] FCM response (${platform}):`, result);
-
-          // Clean up invalid tokens
-          if (result.failure === 1 && result.results?.[0]?.error === "NotRegistered") {
-            console.log("[send-customer-notification] Removing invalid token");
-            await supabase.from("customer_push_tokens").delete().eq("token", token);
-          }
-
-          return { platform, success: result.success === 1, error: result.results?.[0]?.error };
-        } catch (err) {
-          console.error(`[send-customer-notification] FCM error (${platform}):`, err);
-          return { platform, success: false, error: String(err) };
-        }
-      })
+    console.log(
+      `[send-customer-notification] Authoritative token platform=${authoritative.platform}`,
     );
 
-    const successCount = results.filter(r => r.success).length;
-    console.log(`[send-customer-notification] Sent ${successCount}/${tokens.length}`);
+    const fcmMessage: Record<string, unknown> = {
+      to: authoritative.token,
+      priority: "high",
+      notification: {
+        title: sanitizedTitle,
+        body: sanitizedBody,
+        sound: "default",
+      },
+      data: {
+        type: payload.type || "trip_message",
+        ...payload.data,
+      },
+    };
 
-    return successResponse({
-      success: successCount > 0,
-      sent: successCount,
-      total: tokens.length,
-      results,
-    });
+    if (authoritative.platform === "ios") {
+      fcmMessage.content_available = true;
+    }
+
+    try {
+      const response = await fetch("https://fcm.googleapis.com/fcm/send", {
+        method: "POST",
+        headers: {
+          Authorization: `key=${FCM_SERVER_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(fcmMessage),
+      });
+
+      const result = await response.json();
+      console.log(
+        `[send-customer-notification] FCM response (${authoritative.platform}):`,
+        result,
+      );
+
+      if (result.failure === 1 && result.results?.[0]?.error === "NotRegistered") {
+        console.log("[send-customer-notification] Removing invalid token");
+        await supabase
+          .from("customer_push_tokens")
+          .delete()
+          .eq("token", authoritative.token);
+      }
+
+      const success = result.success === 1;
+      return successResponse({
+        success,
+        sent: success ? 1 : 0,
+        total: 1,
+        results: [
+          {
+            platform: authoritative.platform,
+            success,
+            error: result.results?.[0]?.error,
+          },
+        ],
+      });
+    } catch (err) {
+      console.error(
+        `[send-customer-notification] FCM error (${authoritative.platform}):`,
+        err,
+      );
+      return errorResponse("FCM_SEND_FAILED", String(err), 500);
+    }
   } catch (err) {
     console.error("[send-customer-notification] Unexpected error:", err);
     return errorResponse("INTERNAL_ERROR", String(err), 500);

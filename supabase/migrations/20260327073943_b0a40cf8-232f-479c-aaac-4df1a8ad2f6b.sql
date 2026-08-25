@@ -9,7 +9,6 @@ FROM driver_wallet_ledger wl
 WHERE wl.related_trip_id = t.id 
   AND wl.type = 'CASH_COMMISSION_DEBT'
   AND t.commission_pence != ABS(wl.amount_pence);
-
 -- Sync driver_ledger entries to match the wallet ledger
 UPDATE driver_ledger dl
 SET 
@@ -20,7 +19,6 @@ WHERE wl.related_trip_id = dl.trip_id
   AND wl.type = 'CASH_COMMISSION_DEBT'
   AND dl.entry_type = 'CASH_COMMISSION_DEBT'
   AND dl.amount_pence != wl.amount_pence;
-
 -- Sync trip_finance records
 UPDATE trip_finance tf
 SET 

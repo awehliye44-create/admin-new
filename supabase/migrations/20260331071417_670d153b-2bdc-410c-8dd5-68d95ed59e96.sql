@@ -1,4 +1,3 @@
-
 -- Fix ops_detect_customer_app_issues - explicit text casts
 CREATE OR REPLACE FUNCTION ops_detect_customer_app_issues() RETURNS jsonb LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;
@@ -26,7 +25,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('customer_app_issues', 0, 'note', 'table not found');
 END;
 $$;
-
 -- Fix ops_detect_driver_app_issues
 CREATE OR REPLACE FUNCTION ops_detect_driver_app_issues() RETURNS jsonb LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;
@@ -54,7 +52,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('driver_app_issues', 0, 'note', 'table not found');
 END;
 $$;
-
 -- Fix ops_detect_admin_panel_issues
 CREATE OR REPLACE FUNCTION ops_detect_admin_panel_issues() RETURNS jsonb LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;
@@ -82,7 +79,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('admin_panel_issues', 0, 'note', 'table not found');
 END;
 $$;
-
 -- Fix ops_detect_corporate_web_issues
 CREATE OR REPLACE FUNCTION ops_detect_corporate_web_issues() RETURNS jsonb LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;
@@ -110,7 +106,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('corporate_web_issues', 0, 'note', 'table not found');
 END;
 $$;
-
 -- Fix ops_detect_guest_booking_failures
 CREATE OR REPLACE FUNCTION ops_detect_guest_booking_failures() RETURNS jsonb LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;
@@ -138,7 +133,6 @@ BEGIN
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('guest_booking_issues', 0, 'note', 'table not found');
 END;
 $$;
-
 -- Fix ops_detect_log_anomalies
 CREATE OR REPLACE FUNCTION ops_detect_log_anomalies() RETURNS jsonb LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE v_count int := 0; rec record;

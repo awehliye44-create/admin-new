@@ -620,6 +620,17 @@ Deno.test("source lock: restore / get-active-trip ignore stale TTL during schedu
   assertStringIncludes(restore, ".limit(10)");
   assertStringIncludes(restore, "isCustomerRestoreCandidate(candidate, nowMs)");
   assertStringIncludes(getActive, "isCustomerLiveTrip(candidate as TripRow, nowMs)");
+  // Driverless activated scheduled (broadcast / dispatch / commitment) must be
+  // live — must not require hasDriver (that only gates reserved pre-pickup).
+  assertStringIncludes(getActive, 'scheduledStatus === "broadcasting"');
+  assertStringIncludes(getActive, 'scheduledStatus === "dispatching"');
+  assertStringIncludes(getActive, 'scheduledStatus === "scheduled_committed"');
+  assertStringIncludes(
+    getActive,
+    "do not require hasDriver (that only gates reserved pre-pickup live states)",
+  );
+  assertStringIncludes(restore, 'scheduledStatus === "broadcasting"');
+  assertStringIncludes(restore, 'scheduledStatus === "converted_to_instant"');
 });
 
 Deno.test("source lock: dispose selects scheduled lifecycle fields, not payment_status as cancel actor", async () => {

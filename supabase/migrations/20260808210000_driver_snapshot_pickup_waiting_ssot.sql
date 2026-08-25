@@ -1,5 +1,3 @@
--- Restored from live schema_migrations.statements (already applied). Do not re-run.
-
 -- Expose Pickup Waiting SSOT on driver active-trip hydrate.
 -- Without these keys, Driver cannot render Admin free-wait / live waiting charge after remount.
 
@@ -231,6 +229,4 @@ BEGIN
     'queued_trips', v_queued
   );
 END;
-$function$
-
-
+$function$;

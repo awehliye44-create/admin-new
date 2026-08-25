@@ -21,7 +21,6 @@ WHERE id = '0c12e3dc-a8e9-4331-8080-2a5c713d4e9a'
   AND batch_id = '8819ebee-cb96-406f-9f30-035baac119c5'
   AND stripe_transfer_id IS NULL
   AND stripe_payout_id IS NULL;
-
 UPDATE payout_batches
 SET
   status = 'failed',

@@ -107,8 +107,6 @@ BEGIN
   );
 END;
 $function$;
-
 REVOKE ALL ON FUNCTION public.get_customer_pending_trip_rating() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_customer_pending_trip_rating() TO authenticated, service_role;
-
 NOTIFY pgrst, 'reload schema';

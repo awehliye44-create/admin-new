@@ -37,7 +37,6 @@ BEGIN
   END;
 END;
 $function$;
-
 CREATE OR REPLACE FUNCTION public.scheduled_dispatch_sweep()
 RETURNS void
 LANGUAGE plpgsql
@@ -72,25 +71,21 @@ BEGIN
   END;
 END;
 $function$;
-
 DO $$
 BEGIN
   PERFORM cron.unschedule('schedule-dispatch-every-minute');
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
-
 DO $$
 BEGIN
   PERFORM cron.unschedule('scheduled-dispatch-every-minute');
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
-
 SELECT cron.schedule(
   'schedule-dispatch-every-minute',
   '* * * * *',
   $$SELECT public.schedule_dispatch_sweep();$$
 );
-
 SELECT cron.schedule(
   'scheduled-dispatch-every-minute',
   '* * * * *',

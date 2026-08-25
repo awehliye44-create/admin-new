@@ -1,4 +1,3 @@
-
 -- Corporate booking detection function
 CREATE OR REPLACE FUNCTION public.ops_detect_corporate_booking_issues()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -33,7 +32,6 @@ BEGIN
   RETURN jsonb_build_object('corporate_booking_issues', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('corporate_booking_issues', 0, 'note', 'table not found');
 END; $$;
-
 -- Customer app detection (from app_performance_events)
 CREATE OR REPLACE FUNCTION public.ops_detect_customer_app_issues()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -60,7 +58,6 @@ BEGIN
   RETURN jsonb_build_object('customer_app_issues', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('customer_app_issues', 0, 'note', 'table not found');
 END; $$;
-
 -- Driver app detection (from app_performance_events)
 CREATE OR REPLACE FUNCTION public.ops_detect_driver_app_issues()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -87,7 +84,6 @@ BEGIN
   RETURN jsonb_build_object('driver_app_issues', v_count);
 EXCEPTION WHEN undefined_table THEN RETURN jsonb_build_object('driver_app_issues', 0, 'note', 'table not found');
 END; $$;
-
 -- Update master orchestrator to include new detections
 CREATE OR REPLACE FUNCTION public.ops_run_all_detections()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$

@@ -902,4 +902,4 @@ END;
 $function$;
 
 REVOKE EXECUTE ON FUNCTION public.snapshot_accepted_wave_commission(uuid, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.snapshot_accepted_wave_commission(uuid, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.snapshot_accepted_wave_commission(uuid, uuid) TO authenticated, service_role;;

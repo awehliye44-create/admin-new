@@ -3,7 +3,6 @@
 -- UNIQUE(driver_id, service_area_id). Safe to re-run. No driver_wallet_ledger writes.
 
 BEGIN;
-
 CREATE TABLE IF NOT EXISTS public.driver_commission_wallet_accounts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   driver_id uuid NOT NULL REFERENCES public.drivers(id),
@@ -20,20 +19,15 @@ CREATE TABLE IF NOT EXISTS public.driver_commission_wallet_accounts (
   CONSTRAINT driver_commission_wallet_accounts_driver_sa_uidx
     UNIQUE (driver_id, service_area_id)
 );
-
 CREATE INDEX IF NOT EXISTS driver_commission_wallet_accounts_sa_idx
   ON public.driver_commission_wallet_accounts (service_area_id, created_at DESC);
-
 CREATE INDEX IF NOT EXISTS driver_commission_wallet_accounts_region_idx
   ON public.driver_commission_wallet_accounts (region_id);
-
 COMMENT ON TABLE public.driver_commission_wallet_accounts IS
   'Non-financial Commission Wallet profile per (driver, service_area). '
   'Balances are derived from driver_commission_wallet_ledger only. '
   'Creating a row must never write TOP_UP_CREDIT / ADMIN_CREDIT / deductions.';
-
 ALTER TABLE public.driver_commission_wallet_accounts ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS commission_wallet_accounts_driver_read
   ON public.driver_commission_wallet_accounts;
 CREATE POLICY commission_wallet_accounts_driver_read
@@ -43,7 +37,6 @@ CREATE POLICY commission_wallet_accounts_driver_read
   USING (
     driver_id IN (SELECT id FROM public.drivers WHERE user_id = auth.uid())
   );
-
 -- Idempotent ensure: create profile for CW-enabled SA only. Never writes ledger.
 CREATE OR REPLACE FUNCTION public.ensure_driver_commission_wallet_account(
   p_driver_id uuid,
@@ -216,13 +209,10 @@ BEGIN
   );
 END;
 $$;
-
 COMMENT ON FUNCTION public.ensure_driver_commission_wallet_account(uuid, uuid, text) IS
   'Idempotent non-financial CW profile ensure. Never writes ledger credits or driver_wallet_ledger.';
-
 GRANT EXECUTE ON FUNCTION public.ensure_driver_commission_wallet_account(uuid, uuid, text)
   TO service_role;
-
 -- Auto-create on assign / SA move (new SA only). Never transfers balances.
 CREATE OR REPLACE FUNCTION public.trg_ensure_commission_wallet_account_on_driver_sa()
 RETURNS trigger
@@ -264,17 +254,14 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_ensure_cw_account_on_driver_sa ON public.drivers;
 CREATE TRIGGER trg_ensure_cw_account_on_driver_sa
   AFTER INSERT OR UPDATE OF service_area_id
   ON public.drivers
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_ensure_commission_wallet_account_on_driver_sa();
-
 COMMENT ON FUNCTION public.trg_ensure_commission_wallet_account_on_driver_sa() IS
   'Creates CW account for destination SA when assigned. Preserves old SA accounts; never transfers balances.';
-
 -- Idempotent Africa backfill with proof payload.
 CREATE OR REPLACE FUNCTION public.backfill_driver_commission_wallet_accounts()
 RETURNS jsonb
@@ -395,11 +382,8 @@ BEGIN
   );
 END;
 $$;
-
 COMMENT ON FUNCTION public.backfill_driver_commission_wallet_accounts() IS
   'Idempotent Africa CW account backfill. Never creates financial ledger credits.';
-
 GRANT EXECUTE ON FUNCTION public.backfill_driver_commission_wallet_accounts()
   TO service_role;
-
 COMMIT;

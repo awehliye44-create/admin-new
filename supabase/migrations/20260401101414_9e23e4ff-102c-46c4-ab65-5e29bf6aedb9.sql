@@ -1,4 +1,3 @@
-
 -- 1. Fix the operator precedence bug in ops_auto_resolve_stale_alerts
 -- The OR in "AND fingerprint LIKE '%latency%' OR fingerprint LIKE '%slow%'" 
 -- breaks the WHERE clause - needs parentheses
@@ -85,7 +84,6 @@ BEGIN
   );
 END;
 $function$;
-
 -- 2. Create reconciliation diagnostics function
 CREATE OR REPLACE FUNCTION public.ops_reconciliation_diagnostics()
  RETURNS jsonb
@@ -146,7 +144,6 @@ BEGIN
   RETURN result;
 END;
 $function$;
-
 -- 3. Clean up existing demo alerts right now
 UPDATE ops_alerts 
 SET status = 'resolved', resolved_at = now() 
