@@ -135,6 +135,9 @@ function mapCustomerCounterRideOfferError(
   ) {
     return { code: "DISABLED", message: "Negotiation is not available for this trip", status: 403 };
   }
+  if (blob.includes("forbidden_customer") || blob.includes("customer_required")) {
+    return { code: "FORBIDDEN", message: "Not your trip", status: 403 };
+  }
   if (blob.includes("offer_not_found") || blob.includes("trip_not_found")) {
     return { code: "NOT_FOUND", message: "Offer not found", status: 404 };
   }
@@ -661,6 +664,8 @@ Deno.serve(async (req) => {
         {
           p_offer_id: offer_id,
           p_selected_fare_pence: selected_fare_pence,
+          p_actor_user_id: user.id,
+          p_customer_id: customerRecordId,
         },
       );
       if (counterRpcErr || counterRpc?.success !== true) {

@@ -144,6 +144,14 @@ Deno.test("Customer £Y timeout has one cron owner; pending RPC keeps active neg
   assertEquals(pendingKeepSql.includes("declined_customer_awaiting_driver"), true);
   assertEquals(pendingKeepSql.includes("ro.expires_at > now()"), true);
   assertEquals(pendingKeepSql.includes("ro.status = 'countered'"), false);
+  const restore = await Deno.readTextFile(
+    new URL("../restore-active-trip/index.ts", import.meta.url),
+  );
+  assertEquals(
+    restore.includes("(response.activeTrip as Record<string, unknown>).negotiation = negotiation"),
+    true,
+  );
+  assertEquals(restore.includes("if (negotiation) {"), false);
   assertEquals(send.includes("incomingData.notificationType"), true);
   assertEquals(send.includes("incomingData.notification_type"), true);
 });

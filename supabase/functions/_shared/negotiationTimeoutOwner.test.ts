@@ -137,7 +137,24 @@ Deno.test("expire-offers owns all live negotiation timeouts; syncs defer", async
   assertEquals(sql.includes("RAISE EXCEPTION 'FARE_COMMIT_FAILED'"), true);
   assertEquals(sql.includes("LEAST(120, GREATEST(5, v_cd_secs))"), true);
 
+  const actorSql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20261026130000_customer_counter_ride_offer_actor_check.sql",
+      import.meta.url,
+    ),
+  );
+  assertEquals(actorSql.includes("RAISE EXCEPTION 'customer_required'"), true);
+  assertEquals(actorSql.includes("RAISE EXCEPTION 'forbidden_customer'"), true);
+  assertEquals(actorSql.includes("RAISE EXCEPTION 'FARE_COMMIT_FAILED'"), true);
+  assertEquals(actorSql.includes("DROP FUNCTION IF EXISTS public.customer_counter_ride_offer(uuid, integer)"), true);
+
+  const restore = await read("../restore-active-trip/index.ts");
+  assertEquals(restore.includes("negotiation = negotiation"), true);
+  assertEquals(restore.includes("if (negotiation) {"), false);
+
   assertEquals(decision.includes("customer_counter_ride_offer"), true);
+  assertEquals(decision.includes("p_actor_user_id: user.id"), true);
+  assertEquals(decision.includes("p_customer_id: customerRecordId"), true);
   assertEquals(decision.includes('p_fare_source: "customer_counter_offer"'), false);
   assertEquals(decision.includes("Counter-offer recorded but committed fare"), false);
 });

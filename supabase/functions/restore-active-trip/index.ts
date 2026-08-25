@@ -235,9 +235,9 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
           tripId,
           originalFarePence,
         );
-        if (negotiation) {
-          (response.activeTrip as Record<string, unknown>).negotiation = negotiation;
-        }
+        // Always stamp the key. Omitting it lets Customer merge keep stale
+        // waiting_customer chips after Decline / £Y timeout (second chance).
+        (response.activeTrip as Record<string, unknown>).negotiation = negotiation;
         (response.activeTrip as Record<string, unknown>).driver = null;
         (response.activeTrip as Record<string, unknown>).driverId = null;
       }
