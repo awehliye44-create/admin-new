@@ -148,6 +148,16 @@ Deno.test("expire-offers owns all live negotiation timeouts; syncs defer", async
   assertEquals(actorSql.includes("RAISE EXCEPTION 'FARE_COMMIT_FAILED'"), true);
   assertEquals(actorSql.includes("DROP FUNCTION IF EXISTS public.customer_counter_ride_offer(uuid, integer)"), true);
 
+  const cronSql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20261026140000_unschedule_stale_negotiation_cron.sql",
+      import.meta.url,
+    ),
+  );
+  assertEquals(cronSql.includes("cron.unschedule('expire_stale_negotiations_15s')"), true);
+  assertEquals(cronSql.includes("expire_stale_negotiations_guarded"), true);
+  assertEquals(cronSql.includes("expire_offers_owns_timeouts"), true);
+
   const restore = await read("../restore-active-trip/index.ts");
   assertEquals(restore.includes("negotiation = negotiation"), true);
   assertEquals(restore.includes("if (negotiation) {"), false);
