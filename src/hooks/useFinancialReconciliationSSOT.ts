@@ -36,6 +36,8 @@ export type FinancialReconciliationSSOTResult = {
   lastSyncedAt: string | null;
   isLoading: boolean;
   isFetching: boolean;
+  /** True while the heavy trip-audit payload is still loading (summary may already be shown). */
+  isAuditLoading: boolean;
   error: Error | null;
   refetch: () => Promise<unknown>;
   refetchFresh: () => Promise<unknown>;
@@ -50,6 +52,11 @@ export type UseFinancialReconciliationSSOTArgs = {
   tripSearchType?: 'code' | 'id';
   /** Wait until region/service scope is resolved before hitting admin-finance-reconciliation. */
   enabled?: boolean;
+  /**
+   * summary — overview / alerts first paint (summary_only).
+   * full — trip audit tabs (mismatches, shortfalls, history, …).
+   */
+  auditMode?: 'summary' | 'full';
 };
 
 function nullableNum(v: unknown): number | null {
@@ -68,6 +75,7 @@ function financeReconciliationQueryKey(args: {
   to?: string;
   tripSearch?: string;
   tripSearchType?: 'code' | 'id';
+  mode: 'summary' | 'full';
 }) {
   return [
     'finance-reconciliation-summary',
@@ -77,6 +85,7 @@ function financeReconciliationQueryKey(args: {
     args.to,
     args.tripSearch,
     args.tripSearchType,
+    args.mode,
   ] as const;
 }
 
@@ -89,6 +98,20 @@ function pickLastSyncedAt(response: FinanceReconciliationResponse | null | undef
   );
 }
 
+function liveOkFrom(data: FinanceReconciliationResponse | undefined, error: unknown): boolean {
+  return !!pickSummary(data) && !error;
+}
+
+function livePartialFrom(data: FinanceReconciliationResponse | undefined): boolean {
+  return (
+    data?.status === 'PARTIAL'
+    || String(data?.downstream_status?.provider ?? '').toUpperCase() === 'UNAVAILABLE'
+    || String(data?.downstream_status?.payment_sessions ?? '').toUpperCase() === 'UNAVAILABLE'
+    || String(data?.downstream_status?.wallet ?? '').toUpperCase() === 'UNAVAILABLE'
+    || String(data?.downstream_status?.payouts ?? '').toUpperCase() === 'UNAVAILABLE'
+  );
+}
+
 export function useFinancialReconciliationSSOT({
   filter,
   from,
@@ -96,10 +119,16 @@ export function useFinancialReconciliationSSOT({
   tripSearch,
   tripSearchType,
   enabled = true,
+  auditMode = 'summary',
 }: UseFinancialReconciliationSSOTArgs): FinancialReconciliationSSOTResult {
   const queryClient = useQueryClient();
   const scopeKey = snapshotScopeKey(filter.regionId, filter.serviceAreaId, from, to);
-  const queryKey = financeReconciliationQueryKey({ filter, from, to, tripSearch, tripSearchType });
+  const summaryKey = financeReconciliationQueryKey({
+    filter, from, to, tripSearch, tripSearchType, mode: 'summary',
+  });
+  const fullKey = financeReconciliationQueryKey({
+    filter, from, to, tripSearch, tripSearchType, mode: 'full',
+  });
 
   const searchExtra = tripSearch
     ? {
@@ -108,62 +137,64 @@ export function useFinancialReconciliationSSOT({
       }
     : undefined;
 
-  const live = useFinanceReconciliation({
+  const summaryLive = useFinanceReconciliation({
     filter,
     from,
     to,
     tripSearch,
     tripSearchType,
     enabled,
+    mode: 'summary',
   });
 
-  const liveSummary = pickSummary(live.data);
-  const liveOk = !!liveSummary && !live.error;
-  const livePartial = liveOk && (
-    live.data?.status === 'PARTIAL'
-    || String(live.data?.downstream_status?.provider ?? '').toUpperCase() === 'UNAVAILABLE'
-    || String(live.data?.downstream_status?.payment_sessions ?? '').toUpperCase() === 'UNAVAILABLE'
-    || String(live.data?.downstream_status?.wallet ?? '').toUpperCase() === 'UNAVAILABLE'
-    || String(live.data?.downstream_status?.payouts ?? '').toUpperCase() === 'UNAVAILABLE'
-  );
+  const fullLive = useFinanceReconciliation({
+    filter,
+    from,
+    to,
+    tripSearch,
+    tripSearchType,
+    enabled: enabled && auditMode === 'full',
+    mode: 'full',
+  });
+
+  const liveOkFull = liveOkFrom(fullLive.data, fullLive.error);
+  const liveOkSummary = liveOkFrom(summaryLive.data, summaryLive.error);
+  const liveOk = liveOkFull || liveOkSummary;
+  const preferredData = liveOkFull ? fullLive.data : summaryLive.data;
+  const livePartial = liveOk && preferredData ? livePartialFrom(preferredData) : false;
 
   useEffect(() => {
-    if (liveOk && live.data) {
-      saveFinanceReconciliationSnapshot(live.data, scopeKey);
+    if (liveOk && preferredData) {
+      saveFinanceReconciliationSnapshot(preferredData, scopeKey);
     }
-  }, [liveOk, live.data, scopeKey]);
+  }, [liveOk, preferredData, scopeKey]);
 
   const snapshot = useMemo(() => {
     if (liveOk) return null;
     return loadFinanceReconciliationSnapshot(scopeKey);
-  }, [liveOk, live.dataUpdatedAt, live.errorUpdatedAt, scopeKey]);
+  }, [liveOk, summaryLive.dataUpdatedAt, summaryLive.errorUpdatedAt, fullLive.dataUpdatedAt, fullLive.errorUpdatedAt, scopeKey]);
 
   const refetchFresh = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey });
+    await queryClient.invalidateQueries({ queryKey: ['finance-reconciliation-summary'] });
+    const mode = auditMode === 'full' ? 'full' : 'summary';
+    const key = mode === 'full' ? fullKey : summaryKey;
     const fresh = await queryClient.fetchQuery({
-      queryKey,
+      queryKey: key,
       queryFn: () =>
         invokeFinanceReconciliation(filter, from, to, {
           ...searchExtra,
+          ...(mode === 'summary' ? { summary_only: '1' } : {}),
           _fresh: String(Date.now()),
         }),
       staleTime: 0,
     });
     clearFinanceReconciliationSnapshot();
     return fresh;
-  }, [queryClient, queryKey, filter, from, to, searchExtra]);
+  }, [queryClient, summaryKey, fullKey, filter, from, to, searchExtra, auditMode]);
 
   const refetch = useCallback(async () => refetchFresh(), [refetchFresh]);
 
-  useEffect(() => {
-    const onVisibility = () => {
-      if (document.visibilityState !== 'visible') return;
-      void queryClient.invalidateQueries({ queryKey });
-      void live.refetch();
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [queryClient, queryKey, live.refetch]);
+  // Never auto-refetch heavy finance queries on tab focus — Refresh only.
 
   const status: FinanceSsotStatus = liveOk
     ? (livePartial ? 'PARTIAL' : 'LIVE')
@@ -173,7 +204,7 @@ export function useFinancialReconciliationSSOT({
 
   const response =
     status === 'LIVE' || status === 'PARTIAL'
-      ? live.data ?? null
+      ? preferredData ?? null
       : status === 'READ_ONLY'
         ? snapshot!.response
         : null;
@@ -184,20 +215,22 @@ export function useFinancialReconciliationSSOT({
       ? applyDegradedReconciliationSummary(rawSummary)
       : rawSummary;
 
-  const isLoading = (!enabled || live.isLoading) && status === 'UNAVAILABLE';
+  const isLoading = (!enabled || summaryLive.isLoading) && status === 'UNAVAILABLE';
   const error =
     status === 'UNAVAILABLE'
-      ? live.error instanceof Error
-        ? live.error
-        : live.error
-          ? new Error(String(live.error))
+      ? summaryLive.error instanceof Error
+        ? summaryLive.error
+        : summaryLive.error
+          ? new Error(String(summaryLive.error))
           : new Error('Financial Reconciliation SSOT unavailable and no cached snapshot exists.')
       : null;
 
   const lastSyncedAt = pickLastSyncedAt(response) ?? response?.generated_at ?? null;
+  const isFetching = summaryLive.isFetching || (auditMode === 'full' && fullLive.isFetching);
+  const isAuditLoading = auditMode === 'full' && fullLive.isLoading && !fullLive.data;
 
   const displayStatus: FinanceSsotStatus =
-    live.isFetching && (status === 'LIVE' || status === 'PARTIAL')
+    isFetching && (status === 'LIVE' || status === 'PARTIAL')
       ? 'REFRESHING'
       : status === 'READ_ONLY'
         ? 'DEGRADED'
@@ -213,7 +246,8 @@ export function useFinancialReconciliationSSOT({
     snapshotSavedAt: status === 'READ_ONLY' ? snapshot!.savedAt : null,
     lastSyncedAt,
     isLoading,
-    isFetching: live.isFetching,
+    isFetching,
+    isAuditLoading,
     error,
     refetch,
     refetchFresh,

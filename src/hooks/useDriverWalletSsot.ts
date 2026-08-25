@@ -1,9 +1,13 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
   mergeDriverWalletEligibilityOverlay,
   type DriverWalletEligibilityOverlay,
 } from '@/lib/driverWalletSsotBalances';
+import {
+  ADMIN_FINANCE_QUERY_DEFAULTS,
+  withAdminFinanceQueryTiming,
+} from '@/lib/adminFinanceLoadPerf';
 
 export type DriverWalletPeriodKpis = {
   today_earnings_pence: number;
@@ -196,7 +200,66 @@ export function useDriverWalletSsot(args?: {
 
   return useQuery({
     queryKey: ['driver-wallet-ssot', regionId ?? 'all', page, pageSize],
-    queryFn: async (): Promise<DriverWalletSsotListResult> => {
+    queryFn: () =>
+      withAdminFinanceQueryTiming(
+        {
+          page: 'driver_wallet_ledger',
+          tab: 'drivers',
+          query_name: 'fleet_page',
+          rowCount: (r) => r.drivers?.length ?? 0,
+        },
+        async (): Promise<DriverWalletSsotListResult> => {
+          const { data, error } = await supabase.functions.invoke('admin-driver-wallet-ssot', {
+            body: {
+              ...(regionId ? { region_id: regionId } : {}),
+              limit: pageSize,
+              offset,
+            },
+          });
+          if (error) throw error;
+          if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
+          const drivers = await overlayDriverWalletEligibility(
+            (data.drivers ?? []) as DriverWalletSsotRow[],
+          );
+          return {
+            drivers,
+            total: Number(data.total ?? 0),
+            limit: Number(data.limit ?? pageSize),
+            offset: Number(data.offset ?? offset),
+          };
+        },
+      ),
+    ...ADMIN_FINANCE_QUERY_DEFAULTS,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+async function fetchAllDriverWalletSsotPages(regionId: string | null): Promise<DriverWalletSsotRow[]> {
+  const pageSize = 50;
+  const { data: firstData, error: firstError } = await supabase.functions.invoke('admin-driver-wallet-ssot', {
+    body: {
+      ...(regionId ? { region_id: regionId } : {}),
+      limit: pageSize,
+      offset: 0,
+    },
+  });
+  if (firstError) throw firstError;
+  if (!firstData?.success) throw new Error(firstData?.error ?? 'SSOT fetch failed');
+
+  const firstDrivers = await overlayDriverWalletEligibility(
+    (firstData.drivers ?? []) as DriverWalletSsotRow[],
+  );
+  const total = Number(firstData.total ?? firstDrivers.length);
+  if (total <= pageSize || firstDrivers.length === 0) return firstDrivers;
+
+  const pageOffsets: number[] = [];
+  for (let offset = pageSize; offset < total; offset += pageSize) {
+    pageOffsets.push(offset);
+  }
+
+  const restPages = await Promise.all(
+    pageOffsets.map(async (offset) => {
       const { data, error } = await supabase.functions.invoke('admin-driver-wallet-ssot', {
         body: {
           ...(regionId ? { region_id: regionId } : {}),
@@ -206,54 +269,28 @@ export function useDriverWalletSsot(args?: {
       });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
-      const drivers = await overlayDriverWalletEligibility(
-        (data.drivers ?? []) as DriverWalletSsotRow[],
-      );
-      return {
-        drivers,
-        total: Number(data.total ?? 0),
-        limit: Number(data.limit ?? pageSize),
-        offset: Number(data.offset ?? offset),
-      };
-    },
-    staleTime: 60_000,
-  });
-}
+      return overlayDriverWalletEligibility((data.drivers ?? []) as DriverWalletSsotRow[]);
+    }),
+  );
 
-async function fetchAllDriverWalletSsotPages(regionId: string | null): Promise<DriverWalletSsotRow[]> {
-  const pageSize = 50;
-  let offset = 0;
-  let total = Infinity;
-  const all: DriverWalletSsotRow[] = [];
-
-  while (offset < total) {
-    const { data, error } = await supabase.functions.invoke('admin-driver-wallet-ssot', {
-      body: {
-        ...(regionId ? { region_id: regionId } : {}),
-        limit: pageSize,
-        offset,
-      },
-    });
-    if (error) throw error;
-    if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
-
-    const drivers = await overlayDriverWalletEligibility(
-      (data.drivers ?? []) as DriverWalletSsotRow[],
-    );
-    total = Number(data.total ?? drivers.length);
-    all.push(...drivers);
-    offset += pageSize;
-    if (drivers.length === 0) break;
-  }
-
-  return all;
+  return [...firstDrivers, ...restPages.flat()];
 }
 
 /** Paginates through all driver-wallet SSOT rows for platform KPI aggregation. */
 export function useDriverWalletSsotAll(regionId?: string | null) {
   return useQuery({
     queryKey: ['driver-wallet-ssot-all', regionId ?? 'all'],
-    queryFn: () => fetchAllDriverWalletSsotPages(regionId ?? null),
+    queryFn: () =>
+      withAdminFinanceQueryTiming(
+        {
+          page: 'driver_wallet_ledger',
+          tab: 'fleet_overview',
+          query_name: 'fleet_all_pages',
+          rowCount: (r) => r.length,
+        },
+        () => fetchAllDriverWalletSsotPages(regionId ?? null),
+      ),
+    ...ADMIN_FINANCE_QUERY_DEFAULTS,
     staleTime: 60_000,
   });
 }
@@ -262,18 +299,29 @@ export function useDriverWalletSsotDetail(driverId: string | null) {
   return useQuery({
     queryKey: ['driver-wallet-ssot-detail', driverId],
     enabled: Boolean(driverId),
-    queryFn: async (): Promise<DriverWalletSsotRow | null> => {
-      if (!driverId) return null;
-      const { data, error } = await supabase.functions.invoke('admin-driver-wallet-ssot', {
-        body: { driver_id: driverId },
-      });
-      if (error) throw error;
-      if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
-      const driver = (data.driver ?? null) as DriverWalletSsotRow | null;
-      if (!driver) return null;
-      const [overlaid] = await overlayDriverWalletEligibility([driver]);
-      return overlaid ?? driver;
-    },
-    staleTime: 30_000,
+    queryFn: () =>
+      withAdminFinanceQueryTiming(
+        {
+          page: 'driver_wallet_ledger',
+          tab: 'driver_detail',
+          query_name: 'driver_detail',
+          rowCount: (r) => (r ? 1 : 0),
+        },
+        async (): Promise<DriverWalletSsotRow | null> => {
+          if (!driverId) return null;
+          const { data, error } = await supabase.functions.invoke('admin-driver-wallet-ssot', {
+            body: { driver_id: driverId },
+          });
+          if (error) throw error;
+          if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
+          const driver = (data.driver ?? null) as DriverWalletSsotRow | null;
+          if (!driver) return null;
+          const [overlaid] = await overlayDriverWalletEligibility([driver]);
+          return overlaid ?? driver;
+        },
+      ),
+    ...ADMIN_FINANCE_QUERY_DEFAULTS,
+    staleTime: 45_000,
+    placeholderData: keepPreviousData,
   });
 }

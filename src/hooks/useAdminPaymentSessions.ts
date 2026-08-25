@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type {
   AdminPaymentSessionsListRequest,
@@ -10,7 +10,16 @@ import {
   type AdminHoldActionRequest,
 } from '../../shared/paymentHoldReconciliation';
 import { isAdminPageLiveActive } from '@/lib/adminPageVisibility';
+import {
+  ADMIN_FINANCE_QUERY_DEFAULTS,
+  withAdminFinanceQueryTiming,
+} from '@/lib/adminFinanceLoadPerf';
 
+/**
+ * Payment Sessions list — DB-first by default.
+ * Provider live refresh only when the request explicitly sets refresh_provider_state
+ * (Force refresh / explicit Refresh with provider flag). Never auto-refresh on tab change.
+ */
 export function useAdminPaymentSessions(
   request: AdminPaymentSessionsListRequest,
   enabled = true,
@@ -18,27 +27,36 @@ export function useAdminPaymentSessions(
   const tab = request.tab ?? 'overview';
   return useQuery({
     queryKey: ['admin-payment-sessions', request],
-    queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke<AdminPaymentSessionsListResponse>(
-        ADMIN_PAYMENT_SESSIONS_FN,
+    queryFn: () =>
+      withAdminFinanceQueryTiming(
         {
-          body: {
-            ...request,
-            // Overview / history stay DB-first. Active holds still live-refresh (capped + concurrent).
-            refresh_provider_state:
-              request.refresh_provider_state
-              ?? (tab === 'active_holds' || tab === 'failed_recovery'),
-          },
+          page: 'payment_sessions',
+          tab,
+          query_name: 'list',
+          rowCount: (r) => r.rows?.length ?? 0,
         },
-      );
-      if (error) throw error;
-      if (!data?.success) {
-        throw new Error(data?.error ?? 'Payment sessions list failed');
-      }
-      return data;
-    },
+        async () => {
+          const { data, error } = await supabase.functions.invoke<AdminPaymentSessionsListResponse>(
+            ADMIN_PAYMENT_SESSIONS_FN,
+            {
+              body: {
+                ...request,
+                // Explicit only — never default true for active_holds / failed_recovery.
+                refresh_provider_state: request.refresh_provider_state === true,
+              },
+            },
+          );
+          if (error) throw error;
+          if (!data?.success) {
+            throw new Error(data?.error ?? 'Payment sessions list failed');
+          }
+          return data;
+        },
+      ),
     enabled,
+    ...ADMIN_FINANCE_QUERY_DEFAULTS,
     staleTime: 60_000,
+    placeholderData: keepPreviousData,
     refetchInterval: (query) => {
       if (!isAdminPageLiveActive()) return false;
       // Auto-retry when provider sync is pending — never overwrite verified values server-side.

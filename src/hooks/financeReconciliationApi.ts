@@ -43,10 +43,29 @@ export function buildFinanceReconciliationPath(
   return qs ? `admin-finance-reconciliation?${qs}` : 'admin-finance-reconciliation';
 }
 
-  /** Full Financial Reconciliation page — load all trips in scope (not mismatches only). */
+/** Full Financial Reconciliation audit — load all trips in scope (not mismatches only). */
 export const FINANCE_RECONCILIATION_AUDIT_LIMIT = '10000';
 
-/** Invoke Financial Reconciliation SSOT edge function. */
+/** Merge invoke extras: summary paths must not force audit_limit=10000. */
+export function mergeFinanceReconciliationInvokeExtra(
+  extra?: Record<string, string>,
+): Record<string, string> {
+  const summaryOnly =
+    extra?.summary_only === '1'
+    || extra?.summary_only === 'true'
+    || extra?.profit_ssot === '1';
+  return {
+    ...(summaryOnly ? {} : { audit_limit: FINANCE_RECONCILIATION_AUDIT_LIMIT }),
+    ...extra,
+  };
+}
+
+/**
+ * Invoke Financial Reconciliation SSOT edge function.
+ * - summary: summary_only=1, no forced 10k audit_limit (backend defaults ~500)
+ * - full: trip audit rows + platform KPIs (audit_limit 10000)
+ * Display/query optimisation only — does not change Edge money ownership.
+ */
 export async function invokeFinanceReconciliation(
   filter?: ServiceAreaFinanceSelection,
   from?: string,
@@ -55,10 +74,7 @@ export async function invokeFinanceReconciliation(
 ): Promise<FinanceReconciliationResponse> {
   const data = await fetchEdgeFunctionGet<FinanceReconciliationResponse>(
     'admin-finance-reconciliation',
-    buildFinanceReconciliationParams(filter, from, to, {
-      audit_limit: FINANCE_RECONCILIATION_AUDIT_LIMIT,
-      ...extra,
-    }),
+    buildFinanceReconciliationParams(filter, from, to, mergeFinanceReconciliationInvokeExtra(extra)),
   );
   assertFinanceReconciliationSsotResponse(data);
   return data;

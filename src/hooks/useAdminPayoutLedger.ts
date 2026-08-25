@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type {
   AdminPayoutLedgerListRequest,
@@ -6,6 +6,10 @@ import type {
 } from '../../shared/adminPayoutLedgerSSOT';
 import { ADMIN_PAYOUT_LEDGER_FN } from '../../shared/adminPayoutLedgerSSOT';
 import { isAdminPageLiveActive } from '@/lib/adminPageVisibility';
+import {
+  ADMIN_FINANCE_QUERY_DEFAULTS,
+  withAdminFinanceQueryTiming,
+} from '@/lib/adminFinanceLoadPerf';
 
 function emptyDegradedLedger(
   request: AdminPayoutLedgerListRequest,
@@ -58,30 +62,44 @@ export function useAdminPayoutLedger(
   const tab = request.tab ?? 'overview';
   return useQuery({
     queryKey: ['admin-payout-ledger', request],
-    queryFn: async () => {
-      try {
-        const { data, error } = await supabase.functions.invoke<AdminPayoutLedgerListResponse>(
-          ADMIN_PAYOUT_LEDGER_FN,
-          { body: request },
-        );
-        // Prefer structured body even when FunctionsHttpError wraps a DEGRADED/PARTIAL payload.
-        if (data?.success) return data;
-        if (data?.overview_summary || data?.company_balance || data?.page_status) {
-          return { ...data, success: true } as AdminPayoutLedgerListResponse;
-        }
-        const msg = error?.message
-          || data?.error
-          || 'Payout ledger list failed';
-        const code = data?.error_code ?? 'PAYOUT_LEDGER_API_UNAVAILABLE';
-        return emptyDegradedLedger(request, code, msg);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return emptyDegradedLedger(request, 'PAYOUT_LEDGER_API_UNAVAILABLE', msg);
-      }
-    },
+    queryFn: () =>
+      withAdminFinanceQueryTiming(
+        {
+          page: 'payout_ledger',
+          tab,
+          query_name: request.mode ?? 'list',
+          rowCount: (r) =>
+            r.items?.length
+            ?? r.accounts?.length
+            ?? r.batches?.length
+            ?? r.audit_rows?.length
+            ?? 0,
+        },
+        async () => {
+          try {
+            const { data, error } = await supabase.functions.invoke<AdminPayoutLedgerListResponse>(
+              ADMIN_PAYOUT_LEDGER_FN,
+              { body: request },
+            );
+            // Prefer structured body even when FunctionsHttpError wraps a DEGRADED/PARTIAL payload.
+            if (data?.success) return data;
+            if (data?.overview_summary || data?.company_balance || data?.page_status) {
+              return { ...data, success: true } as AdminPayoutLedgerListResponse;
+            }
+            const msg = error?.message
+              || data?.error
+              || 'Payout ledger list failed';
+            const code = data?.error_code ?? 'PAYOUT_LEDGER_API_UNAVAILABLE';
+            return emptyDegradedLedger(request, code, msg);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            return emptyDegradedLedger(request, 'PAYOUT_LEDGER_API_UNAVAILABLE', msg);
+          }
+        },
+      ),
     enabled,
-    staleTime: 0,
-    refetchOnWindowFocus: true,
+    ...ADMIN_FINANCE_QUERY_DEFAULTS,
+    placeholderData: keepPreviousData,
     refetchInterval: (query) => {
       if (!isAdminPageLiveActive()) return false;
       if (tab !== 'processing') return false;

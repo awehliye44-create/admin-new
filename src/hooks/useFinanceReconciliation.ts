@@ -1,7 +1,11 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { isAdminPageLiveActive } from '@/lib/adminPageVisibility';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { invokeFinanceReconciliation } from '@/hooks/financeReconciliationApi';
+import {
+  ADMIN_FINANCE_SUMMARY_STALE_MS,
+  withAdminFinanceQueryTiming,
+} from '@/lib/adminFinanceLoadPerf';
 
 export type OnecabSettlementStatus =
   | 'calculated_only'
@@ -576,8 +580,18 @@ export function useFinanceReconciliation(args?: {
   enabled?: boolean;
   tripSearch?: string;
   tripSearchType?: 'code' | 'id';
+  /** summary = overview cards; full = trip audit / mismatch tabs */
+  mode?: 'summary' | 'full';
 }) {
-  const { filter, from, to, enabled = true, tripSearch, tripSearchType } = args ?? {};
+  const {
+    filter,
+    from,
+    to,
+    enabled = true,
+    tripSearch,
+    tripSearchType,
+    mode = 'full',
+  } = args ?? {};
   const searchExtra = tripSearch
     ? {
         search: tripSearch,
@@ -594,12 +608,29 @@ export function useFinanceReconciliation(args?: {
       to,
       tripSearch,
       tripSearchType,
+      mode,
     ],
-    queryFn: () => invokeFinanceReconciliation(filter, from, to, searchExtra),
+    queryFn: () =>
+      withAdminFinanceQueryTiming(
+        {
+          page: 'financial_reconciliation',
+          tab: mode,
+          query_name: mode === 'summary' ? 'fr_summary' : 'fr_full_audit',
+          rowCount: (r) => r.trip_financial_audit?.length ?? 0,
+        },
+        () =>
+          invokeFinanceReconciliation(filter, from, to, {
+            ...searchExtra,
+            ...(mode === 'summary' ? { summary_only: '1' } : {}),
+          }),
+      ),
     enabled,
-    staleTime: 30_000,
+    staleTime: ADMIN_FINANCE_SUMMARY_STALE_MS,
+    refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData,
     refetchInterval: () => {
       if (tripSearch) return false;
+      if (mode === 'full') return false;
       if (!isAdminPageLiveActive()) return false;
       return 300_000;
     },

@@ -21,12 +21,7 @@ import { DigitalFinanceEraPanel } from '@/components/finance/DigitalFinanceEraPa
 import { FinancePanelErrorBoundary } from '@/components/finance/FinancePanelErrorBoundary';
 import { useFinanceReconciliationMoney } from '@/hooks/useFinanceReconciliationMoney';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { toast } from 'sonner';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
-import {
-  CRITICAL_BUTTON_TIMEOUT_MESSAGE,
-  useCriticalButtonTimeout,
-} from '@/lib/criticalButtonTimeout';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
 import { classifyFinanceReconciliationError } from '@/lib/financeReconciliationErrors';
 import {
@@ -34,6 +29,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { LoadingTimeout } from '@/components/LoadingTimeout';
 
 const FR_TABS = [
   'overview',
@@ -49,6 +45,18 @@ const FR_TABS = [
   'history',
 ] as const;
 type FrTab = (typeof FR_TABS)[number];
+
+/** Tabs that need the full trip_financial_audit payload (not summary_only). */
+const FR_FULL_AUDIT_TABS: ReadonlySet<FrTab> = new Set([
+  'trips',
+  'mismatches',
+  'shortfall',
+  'missing_captures',
+  'missing_releases',
+  'wallet_mismatches',
+  'payout_mismatches',
+  'history',
+]);
 
 function parseFrTab(value: string | null): FrTab {
   if (value && (FR_TABS as readonly string[]).includes(value)) return value as FrTab;
@@ -131,22 +139,27 @@ function FinancialReconciliationPage() {
     setTo(format(end, 'yyyy-MM-dd'));
   }, [financeScopeReady, from, to]);
 
+  const auditMode = FR_FULL_AUDIT_TABS.has(frTab) ? 'full' : 'summary';
   const ssot = useFinancialReconciliationSSOT({
     filter,
     from: from || undefined,
     to: to || undefined,
     enabled: financeScopeReady,
+    auditMode,
   });
-  const { isLoading, error, refetchFresh, isFetching, readOnly, status: ssotStatus, snapshotSavedAt, lastSyncedAt, badge: ssotBadge } = ssot;
-  const refreshFinanceTimeout = useCriticalButtonTimeout({
-    action: 'admin_refresh_finance',
-    isPending: isFetching,
-    onTimeout: () => {
-      void refetchFresh();
-      toast.error(CRITICAL_BUTTON_TIMEOUT_MESSAGE);
-    },
-  });
-  const isFinanceRefreshing = refreshFinanceTimeout.showSpinner;
+  const {
+    isLoading,
+    error,
+    refetchFresh,
+    isFetching,
+    isAuditLoading,
+    readOnly,
+    status: ssotStatus,
+    snapshotSavedAt,
+    lastSyncedAt,
+    badge: ssotBadge,
+  } = ssot;
+  const isFinanceRefreshing = isFetching;
 
   const handleRefreshFinance = useCallback(async () => {
     const perf = startAdminPerformanceStep({ action_name: 'admin_refresh_finance' });
@@ -170,7 +183,8 @@ function FinancialReconciliationPage() {
     filter,
     from: from || undefined,
     to: to || undefined,
-    enabled: financeScopeReady,
+    // Heavy wallet audit — only when Alerts tab is open (not on every FR paint).
+    enabled: financeScopeReady && frTab === 'alerts',
   });
 
   const summary = ssot.summary;
@@ -251,17 +265,16 @@ function FinancialReconciliationPage() {
     setSearchParams(next, { replace: true });
   };
 
-  if (!financeScopeReady || (isLoading && !summary)) {
+  // First paint: shell + filters immediately. Summary cards skeleton independently.
+  if (!financeScopeReady) {
     return (
       <AdminLayout title="Financial Reconciliation (SSOT)">
-        <div className="py-12 text-center text-muted-foreground">
-          {!financeScopeReady ? 'Preparing finance scope…' : 'Loading finance reconciliation…'}
-        </div>
+        <div className="py-12 text-center text-muted-foreground">Preparing finance scope…</div>
       </AdminLayout>
     );
   }
 
-  if (ssotStatus === 'UNAVAILABLE') {
+  if (ssotStatus === 'UNAVAILABLE' && !isLoading) {
     const failure = classifyFinanceReconciliationError(error);
     return (
       <AdminLayout
@@ -317,17 +330,6 @@ function FinancialReconciliationPage() {
     );
   }
 
-  if (!summary) {
-    return (
-      <AdminLayout title="Financial Reconciliation (SSOT)">
-        <Alert variant="destructive">
-          <AlertTitle>Reconciliation unavailable</AlertTitle>
-          <AlertDescription>No reconciliation data is available.</AlertDescription>
-        </Alert>
-      </AdminLayout>
-    );
-  }
-
   return (
     <AdminLayout
       title="Financial Reconciliation (SSOT)"
@@ -337,7 +339,7 @@ function FinancialReconciliationPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <FinanceSSOTBadge badge={ssotBadge} />
+              <FinanceSSOTBadge badge={summary ? ssotBadge : 'REFRESHING'} />
               {reconciliationChip && (
                 <Badge variant={statusChipVariant(reconciliationChip)}>
                   {reconciliationChip}
@@ -360,6 +362,33 @@ function FinancialReconciliationPage() {
             </Button>
           </div>
         </div>
+
+        <LoadingTimeout
+          isLoading={isLoading && !summary}
+          sectionLabel="reconciliation overview"
+          loadingText="Loading reconciliation overview…"
+          onRetry={() => void handleRefreshFinance()}
+          allowPartialContent
+        >
+          {!summary ? (
+            <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+              Preparing overview cards…
+            </div>
+          ) : null}
+        </LoadingTimeout>
+
+        {isAuditLoading ? (
+          <LoadingTimeout
+            isLoading
+            sectionLabel="reconciliation audit"
+            loadingText="Loading reconciliation audit…"
+            allowPartialContent
+          >
+            <p className="text-xs text-muted-foreground px-1">
+              Overview cards stay available while the trip audit loads.
+            </p>
+          </LoadingTimeout>
+        ) : null}
 
         {ssotStatus === 'DEGRADED_SNAPSHOT' && (
           <Alert variant="destructive">
@@ -452,17 +481,23 @@ function FinancialReconciliationPage() {
 
           <TabsContent value="overview" className="mt-4">
             <FinancePanelErrorBoundary panelName="Overview">
-              <FinancialReconciliationOverviewTab
-                ssot={ssot}
-                platformKpis={data?.platform_kpis}
-                auditOverviewKpis={data?.audit_overview_kpis}
-                money={money}
-                currencyGroups={data?.currency_groups}
-                serviceAreaGateways={data?.service_area_payment_gateways}
-                readOnly={readOnly}
-                onRefresh={() => void handleRefreshFinance()}
-                isRefreshing={isFinanceRefreshing}
-              />
+              {summary ? (
+                <FinancialReconciliationOverviewTab
+                  ssot={ssot}
+                  platformKpis={data?.platform_kpis}
+                  auditOverviewKpis={data?.audit_overview_kpis}
+                  money={money}
+                  currencyGroups={data?.currency_groups}
+                  serviceAreaGateways={data?.service_area_payment_gateways}
+                  readOnly={readOnly}
+                  onRefresh={() => void handleRefreshFinance()}
+                  isRefreshing={isFinanceRefreshing}
+                />
+              ) : (
+                <div className="py-8 text-center text-sm text-muted-foreground">
+                  Loading overview…
+                </div>
+              )}
             </FinancePanelErrorBoundary>
           </TabsContent>
 
@@ -492,18 +527,26 @@ function FinancialReconciliationPage() {
           <TabsContent value="trips" className="mt-4">
             {frTab === 'trips' && (
               <FinancePanelErrorBoundary panelName="Trips">
-                <FinancialReconciliationTripsTab
-                  rows={tripAuditRows}
-                  money={money}
-                  readOnly={readOnly}
-                  ssotBadge={ssotBadge}
-                  lastSyncedAt={lastSyncedAt}
-                  isRefreshing={isFinanceRefreshing}
-                  onRefresh={() => void handleRefreshFinance()}
-                  initialTripId={recoverTripId}
-                  initialTripCode={recoverTripCode}
-                  onInitialTripConsumed={clearRecoverTrip}
-                />
+                {isAuditLoading && tripAuditRows.length === 0 ? (
+                  <LoadingTimeout
+                    isLoading
+                    sectionLabel="trip audit"
+                    loadingText="Loading trip audit…"
+                  />
+                ) : (
+                  <FinancialReconciliationTripsTab
+                    rows={tripAuditRows}
+                    money={money}
+                    readOnly={readOnly}
+                    ssotBadge={ssotBadge}
+                    lastSyncedAt={lastSyncedAt}
+                    isRefreshing={isFinanceRefreshing}
+                    onRefresh={() => void handleRefreshFinance()}
+                    initialTripId={recoverTripId}
+                    initialTripCode={recoverTripCode}
+                    onInitialTripConsumed={clearRecoverTrip}
+                  />
+                )}
               </FinancePanelErrorBoundary>
             )}
           </TabsContent>

@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { Loader2, RefreshCw } from 'lucide-react';
+import { LoadingTimeout } from '@/components/LoadingTimeout';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -457,12 +458,8 @@ export default function PaymentSessions() {
     setRefreshProviderState(false);
   }, [refreshProviderState, isFetching, isLoading]);
 
-  // Action tabs: refresh provider evidence so allowed_actions are not STALE-gated.
-  useEffect(() => {
-    if (tab === 'active_holds' || tab === 'failed_recovery') {
-      setRefreshProviderState(true);
-    }
-  }, [tab]);
+  // Action tabs stay DB-first. Use "Force refresh provider" for live provider evidence.
+  // (Previously auto-set refreshProviderState on every tab change to active_holds/failed_recovery.)
 
   const setTab = (next: string) => {
     const params = new URLSearchParams(searchParams);
@@ -1099,10 +1096,13 @@ export default function PaymentSessions() {
                 </p>
               )}
 
-              {isLoading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-                </div>
+              {isLoading && rows.length === 0 ? (
+                <LoadingTimeout
+                  isLoading
+                  sectionLabel={`${t.id.replace(/_/g, ' ')} sessions`}
+                  loadingText="Loading payment sessions…"
+                  onRetry={() => void refetch()}
+                />
               ) : rows.length === 0 ? (
                 <Alert>
                   <AlertTitle>No payment attempts match the selected filters.</AlertTitle>
