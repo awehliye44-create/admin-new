@@ -278,8 +278,8 @@ Deno.test("Driver→Customer and Customer→Driver stamp Admin countdown, not 20
   assertEquals(decision.includes("loadServiceAreaNegotiationCountdown"), true);
   assertEquals(decision.includes("fallbackExpiresAt"), false);
   assertEquals(decision.includes("customerCounterDriverExpiresAtIso"), false);
-  assertEquals(decision.includes("customer_respond_by: null"), true);
-  assertEquals(decision.includes("negotiation_expires_at: driverRespondBy"), true);
+  assertEquals(decision.includes("customer_counter_ride_offer"), true);
+  assertEquals(decision.includes("countdown_seconds: adminCountdown"), true);
   assertEquals(deadline.includes("countdown_enabled === false"), false);
   assertEquals(deadline.includes("CUSTOMER_COUNTER_DRIVER_SECONDS"), false);
   assertEquals(deadline.includes("nextNegotiationExpiresAt"), false);
@@ -300,7 +300,8 @@ Deno.test("expiry rematches and never auto-accepts", async () => {
   );
   assertEquals(expire.includes("finalizeNegotiationFailureAndRebroadcast"), true);
   assertEquals(expire.includes("accept_ride_offer"), false);
-  assertEquals(sync.includes("finalizeNegotiationFailureAndRebroadcast"), true);
+  assertEquals(sync.includes("finalizeNegotiationFailureAndRebroadcast"), false);
+  assertEquals(sync.includes("awaiting_timeout_owner"), true);
   assertEquals(sync.includes("accept_ride_offer"), false);
   assertEquals(expire.includes("customer_respond_by"), true);
   assertEquals(expire.includes("driver_respond_by"), true);
@@ -331,7 +332,8 @@ Deno.test("£Y timeout and Decline enter the same Driver second chance; £Z stay
   assertEquals(sync.includes("enterDriverSecondChanceAtOriginalFare"), false);
   assertEquals(sync.includes("awaiting_timeout_owner"), true);
   assertEquals(grace.includes('DRIVER_SECOND_CHANCE_PHASE = "declined_customer_awaiting_driver"'), true);
-  assertEquals(decision.includes('p_fare_source: "customer_counter_offer"'), true);
+  assertEquals(decision.includes("customer_counter_ride_offer"), true);
+  assertEquals(decision.includes('p_fare_source: "customer_counter_offer"'), false);
   assertEquals(final.includes("timeout_driver"), true);
   assertEquals(final.includes("customer_counter_fare"), true);
   assertEquals(final.includes("CUSTOMER_COUNTER_DRIVER_SECONDS"), false);

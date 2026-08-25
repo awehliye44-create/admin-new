@@ -36,6 +36,7 @@ import {
   shouldTimeoutWaitingCustomer,
 } from "../_shared/customerNegotiationDecisionHold.ts";
 import { enterDriverSecondChanceAtOriginalFare } from "../_shared/customerNegotiationGrace.ts";
+import { waitingCustomerExpiryAction } from "../_shared/negotiationTimeoutOwner.ts";
 import {
   EXPIRE_OFFERS_AUTO_DISPATCH_SOURCE,
   invokeAutoDispatchWithServiceRole,
@@ -257,7 +258,12 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        if (o.driver_id) {
+        if (
+          waitingCustomerExpiryAction({
+            negotiationStatus: offerGuard?.negotiation_status ?? o.negotiation_status,
+            driverId: o.driver_id,
+          }) === "second_chance"
+        ) {
           await enterDriverSecondChanceAtOriginalFare(supabase, {
             offer_id: o.id,
             trip_id: o.trip_id,
@@ -411,16 +417,20 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        if (o.driver_id) {
-          await finalizeNegotiationFailureAndRebroadcast(supabase, {
-            tripId: o.trip_id,
-            failedDriverId: o.driver_id,
-            offerId: o.id,
-            offerTerminalStatus: "expired",
-            offerNegotiationStatus: "timeout_customer",
+        if (
+          waitingCustomerExpiryAction({
+            negotiationStatus: offerGuard?.negotiation_status ?? o.negotiation_status,
+            driverId: o.driver_id,
+          }) === "second_chance"
+        ) {
+          await enterDriverSecondChanceAtOriginalFare(supabase, {
+            offer_id: o.id,
+            trip_id: o.trip_id,
+            driver_id: o.driver_id,
+            reason: "timeout_customer",
           });
         }
-        console.log("[expire-offers] Stuck waiting_customer (no deadline) → rematch", o.id);
+        console.log("[expire-offers] Stuck waiting_customer → Driver second chance £X", o.id);
       } catch (e) {
         console.warn("[expire-offers] stuck waiting_customer error", o.id, e);
       }

@@ -1,8 +1,8 @@
 /**
- * Driver app: sync negotiation countdown expiry server-side.
+ * Driver app: display-clock reconcile only.
  *
- * waiting_customer timeout → expire-offers owns Driver second chance at £X
- * waiting_driver_final / declined_customer_awaiting_driver timeout → exclude driver + rebroadcast
+ * Local countdown hitting zero must not rematch. expire-offers owns
+ * Driver second-chance £X and Driver £Z timeouts.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
@@ -14,8 +14,6 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
-import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
-import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 40,
@@ -108,25 +106,11 @@ Deno.serve(async (req) => {
         return successResponse({ success: true, action: "not_expired_yet", trip_id: offer.trip_id });
       }
 
-      const rematch = await finalizeNegotiationFailureAndRebroadcast(supabase, {
-        tripId: offer.trip_id,
-        failedDriverId: driverId,
-        offerId,
-        offerTerminalStatus: "expired",
-        offerNegotiationStatus: "timeout_driver",
-      });
-
-      await notifyDriverTripStopped(supabaseUrl, serviceRoleKey, driverId, {
-        tripId: offer.trip_id,
-        stopReason: "negotiation_expired",
-        cancelledBy: "system",
-        body: "Negotiation ended — waiting for next offer",
-      });
-
       return successResponse({
-        success: rematch.success,
-        action: "grace_expired_rebroadcast",
+        success: true,
+        action: "awaiting_timeout_owner",
         trip_id: offer.trip_id,
+        negotiation_status: ns,
       });
     }
 
@@ -135,24 +119,11 @@ Deno.serve(async (req) => {
         return successResponse({ success: true, action: "not_expired_yet", trip_id: offer.trip_id });
       }
 
-      const rematch = await finalizeNegotiationFailureAndRebroadcast(supabase, {
-        tripId: offer.trip_id,
-        failedDriverId: driverId,
-        offerId,
-        offerTerminalStatus: "expired",
-        offerNegotiationStatus: "timeout_driver",
-      });
-
-      await notifyDriverTripStopped(supabaseUrl, serviceRoleKey, driverId, {
-        tripId: offer.trip_id,
-        stopReason: "negotiation_expired",
-        body: "Counter-offer window ended",
-      });
-
       return successResponse({
-        success: rematch.success,
-        action: "counter_timeout_rebroadcast",
+        success: true,
+        action: "awaiting_timeout_owner",
         trip_id: offer.trip_id,
+        negotiation_status: ns,
       });
     }
 

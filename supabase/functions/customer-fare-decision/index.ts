@@ -100,6 +100,47 @@ function extractCounterPresetOptions(offer: {
   });
 }
 
+function mapCustomerCounterRideOfferError(
+  err: { message?: string } | null,
+  data: unknown,
+): { code: string; message: string; status: number } {
+  const blob = `${err?.message ?? ""} ${typeof data === "string" ? data : JSON.stringify(data ?? {})}`
+    .toLowerCase();
+  if (blob.includes("fare_commit_failed")) {
+    return { code: "FARE_COMMIT_FAILED", message: "Could not persist counter-offer", status: 500 };
+  }
+  if (blob.includes("not_waiting_customer")) {
+    return {
+      code: "INVALID_STATE",
+      message: "Offer is not awaiting customer counter",
+      status: 409,
+    };
+  }
+  if (blob.includes("locked_driver_mismatch")) {
+    return { code: "LOCKED_DRIVER_MISMATCH", message: "This offer is no longer the locked driver offer", status: 409 };
+  }
+  if (blob.includes("invalid_counter_fare") || blob.includes("invalid_fare")) {
+    return { code: "INVALID_FARE", message: "Selected fare is not a valid counter option", status: 400 };
+  }
+  if (blob.includes("invalid_counter")) {
+    return {
+      code: "INVALID_COUNTER",
+      message: "Counter-offer cannot equal the driver's offer. Use ACCEPT instead.",
+      status: 400,
+    };
+  }
+  if (
+    blob.includes("ineligible_")
+    || blob.includes("negotiation_disabled")
+  ) {
+    return { code: "DISABLED", message: "Negotiation is not available for this trip", status: 403 };
+  }
+  if (blob.includes("offer_not_found") || blob.includes("trip_not_found")) {
+    return { code: "NOT_FOUND", message: "Offer not found", status: 404 };
+  }
+  return { code: "UPDATE_FAILED", message: "Failed to record counter-offer", status: 500 };
+}
+
 function isAwaitingCustomerDecision(offer: {
   negotiation_status?: string | null;
   status?: string | null;
@@ -601,10 +642,6 @@ Deno.serve(async (req) => {
         return errorResponse(cover.code, cover.message, cover.status);
       }
 
-      const driverRespondBy = resolveNegotiationDeadlineIso({
-        countdownSeconds: adminCountdown,
-      });
-
       console.log("[customer-fare-decision] CUSTOMER_SEND_COUNTER", {
         ride_id: trip.id,
         trip_id: trip.id,
@@ -616,63 +653,35 @@ Deno.serve(async (req) => {
         counter_fare: selected_fare_pence,
         counter_offer_fare: selected_fare_pence,
         selected_preset_key: selected_preset_key ?? matchingPreset?.key ?? null,
+        countdown_seconds: adminCountdown,
+      });
+
+      const { data: counterRpc, error: counterRpcErr } = await supabase.rpc(
+        "customer_counter_ride_offer",
+        {
+          p_offer_id: offer_id,
+          p_selected_fare_pence: selected_fare_pence,
+        },
+      );
+      if (counterRpcErr || counterRpc?.success !== true) {
+        console.error("[customer-fare-decision] customer_counter_ride_offer failed:", counterRpcErr, counterRpc);
+        const mapped = mapCustomerCounterRideOfferError(counterRpcErr, counterRpc);
+        return errorResponse(mapped.code, mapped.message, mapped.status);
+      }
+
+      const driverRespondBy =
+        typeof counterRpc.driver_respond_by === "string"
+          ? counterRpc.driver_respond_by
+          : resolveNegotiationDeadlineIso({ countdownSeconds: adminCountdown });
+      const updatedOffer = {
+        id: offer_id,
+        trip_id: trip.id,
+        driver_id: offer.driver_id,
+        status: "countered",
+        negotiation_status: "waiting_driver_final",
+        customer_counter_fare: selected_fare_pence,
         driver_respond_by: driverRespondBy,
-      });
-
-      const { data: updatedOffer, error: counterErr } = await supabase
-        .from("ride_offers")
-        .update({
-          status: "countered",
-          negotiation_status: "waiting_driver_final",
-          customer_counter_fare: selected_fare_pence,
-          customer_respond_by: null,
-          driver_respond_by: driverRespondBy,
-          negotiation_expires_at: driverRespondBy,
-          expires_at: driverRespondBy,
-          grace_window_expires_at: driverRespondBy,
-          responded_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", offer_id)
-        .eq("trip_id", trip.id)
-        .eq("driver_id", offer.driver_id)
-        .eq("negotiation_status", "waiting_customer")
-        .select("id, trip_id, driver_id, status, negotiation_status, customer_counter_fare, driver_respond_by")
-        .single();
-
-      if (counterErr || !updatedOffer) {
-        console.error("[customer-fare-decision] COUNTER update failed:", counterErr);
-        return errorResponse("UPDATE_FAILED", "Failed to record counter-offer", 500);
-      }
-
-      await supabase
-        .from("trips")
-        .update({
-          status: "negotiating",
-          negotiation_owner_driver_id: offer.driver_id,
-          current_offer_driver_id: offer.driver_id,
-          negotiation_locked_until: driverRespondBy,
-          dispatch_status: "paused",
-          broadcast_enabled: false,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", trip.id);
-
-      const { data: fareCommit, error: fareCommitErr } = await supabase.rpc("commit_negotiation_fare", {
-        p_trip_id: trip.id,
-        p_committed_fare_pence: selected_fare_pence,
-        p_fare_source: "customer_counter_offer",
-        p_ride_offer_id: offer_id,
-        p_driver_id: null,
-      });
-      if (fareCommitErr || fareCommit?.success !== true) {
-        console.error("[customer-fare-decision] commit_negotiation_fare failed:", fareCommitErr, fareCommit);
-        return errorResponse(
-          "FARE_COMMIT_FAILED",
-          "Counter-offer recorded but committed fare could not be persisted",
-          500,
-        );
-      }
+      };
 
       try {
         const { data: tripForNet } = await supabase
@@ -762,16 +771,11 @@ Deno.serve(async (req) => {
       });
 
       if (!broadcastDelivered) {
-        console.error("[customer-fare-decision] COUNTER driver broadcast failed", {
+        console.error("[customer-fare-decision] COUNTER driver broadcast failed (offer already committed)", {
           offer_id,
           trip_id: trip.id,
           driver_id: broadcastRow.driver_id,
         });
-        return errorResponse(
-          "BROADCAST_FAILED",
-          "Counter-offer saved but driver notification failed — please retry",
-          503,
-        );
       }
 
       try {
@@ -803,7 +807,7 @@ Deno.serve(async (req) => {
         driver_id: offer.driver_id,
         counter_fare: selected_fare_pence,
         driver_respond_by: driverRespondBy,
-        broadcast_sent: true,
+        broadcast_sent: broadcastDelivered,
       });
 
       return successResponse({

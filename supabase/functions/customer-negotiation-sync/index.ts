@@ -1,13 +1,11 @@
 /**
- * customer-negotiation-sync – sync customer negotiation deadlines.
+ * customer-negotiation-sync – display-clock reconcile only.
  *
- * The customer app calls this when remaining time from the backend deadline
- * hits zero. Customer £Y timeout is owned by expire-offers (second chance at
- * £X). This function must not stamp that transition. Driver final / second-
- * chance expiry still rematches here. Never auto-accept.
+ * Local countdown hitting zero must not mutate negotiation. expire-offers
+ * is the sole timeout owner for £Y second chance, Driver second-chance £X,
+ * and Driver £Z.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
 import { presetNegotiationSourceIneligibility } from "../_shared/presetNegotiationEligibility.ts";
 import { shouldTimeoutWaitingCustomer } from "../_shared/customerNegotiationDecisionHold.ts";
 
@@ -173,7 +171,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Driver final standard window after customer decline.
+    // Driver second-chance / £Z timeout is owned by expire-offers.
     if (ns === "declined_customer_awaiting_driver") {
       const graceMs = offer.grace_window_expires_at
         ? new Date(offer.grace_window_expires_at).getTime()
@@ -189,34 +187,16 @@ Deno.serve(async (req) => {
         });
       }
 
-      const result = await finalizeNegotiationFailureAndRebroadcast(supabase, {
-        tripId: offer.trip_id,
-        failedDriverId: offer.driver_id,
-        offerId,
-        offerTerminalStatus: "expired",
-        offerNegotiationStatus: "timeout_driver",
-      });
-      if (!result.success) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: result.error ?? "Failed to resume driver search",
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
       return new Response(JSON.stringify({
         success: true,
-        action: "negotiation_failed_rebroadcasting",
-        trip_id: result.trip_id ?? offer.trip_id,
-        negotiation_disabled: true,
+        action: "awaiting_timeout_owner",
+        trip_id: offer.trip_id,
+        negotiation_status: ns,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Waiting for driver to respond to counter — server will finalize on timeout
     if (ns === "waiting_driver_final") {
       const respondByMs = offer.driver_respond_by
         ? new Date(offer.driver_respond_by).getTime()
@@ -228,28 +208,11 @@ Deno.serve(async (req) => {
         });
       }
 
-      const result = await finalizeNegotiationFailureAndRebroadcast(supabase, {
-        tripId: offer.trip_id,
-        failedDriverId: offer.driver_id,
-        offerId,
-        offerTerminalStatus: "expired",
-        offerNegotiationStatus: "timeout_driver",
-      });
-      if (!result.success) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: result.error ?? "Failed to resume driver search",
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
       return new Response(JSON.stringify({
         success: true,
-        action: "driver_counter_window_elapsed",
-        trip_id: result.trip_id ?? offer.trip_id,
-        negotiation_disabled: true,
+        action: "awaiting_timeout_owner",
+        trip_id: offer.trip_id,
+        negotiation_status: ns,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
