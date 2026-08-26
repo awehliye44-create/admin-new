@@ -52,6 +52,22 @@ describe('financeReconciliationErrors', () => {
       }),
     ).not.toThrow();
   });
+
+  it('accepts the dedicated profit SSOT payload', () => {
+    expect(() =>
+      assertFinanceReconciliationSsotResponse({
+        profit_ssot: {
+          platform_net_revenue_pence: 2472,
+          expenses_pence: 0,
+          profit_before_tax_pence: 2472,
+        },
+        meta: {
+          ssot_version: 'financial_reconciliation_ssot_v5',
+          data_source_badge: 'LIVE',
+        },
+      }),
+    ).not.toThrow();
+  });
 });
 
 describe('snapshotScopeKey', () => {
