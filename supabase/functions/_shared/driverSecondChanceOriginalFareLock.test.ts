@@ -152,6 +152,7 @@ Deno.test("Customer £Y timeout has one cron owner; pending RPC keeps active neg
     true,
   );
   assertEquals(restore.includes("if (negotiation) {"), false);
+  assertEquals(restore.includes("negotiating ? null"), true);
   assertEquals(send.includes("incomingData.notificationType"), true);
   assertEquals(send.includes("incomingData.notification_type"), true);
 });

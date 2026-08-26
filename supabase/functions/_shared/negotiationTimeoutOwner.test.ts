@@ -161,6 +161,9 @@ Deno.test("expire-offers owns all live negotiation timeouts; syncs defer", async
   const restore = await read("../restore-active-trip/index.ts");
   assertEquals(restore.includes("negotiation = negotiation"), true);
   assertEquals(restore.includes("if (negotiation) {"), false);
+  assertEquals(restore.includes("negotiating ? null"), true);
+  assertEquals(restore.includes("negotiation_locked_until"), true);
+  assertEquals(restore.includes("negotiation_disabled"), true);
 
   assertEquals(decision.includes("customer_counter_ride_offer"), true);
   assertEquals(decision.includes("p_actor_user_id: user.id"), true);

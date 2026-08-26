@@ -83,6 +83,8 @@ async function buildCustomerActiveTrip(
     cancelledBy: trip.cancelled_by ?? null,
     cancelReason: trip.cancel_reason ?? null,
     dispatchStatus: trip.dispatch_status ?? null,
+    negotiation_disabled: trip.negotiation_disabled === true,
+    negotiation_locked_until: trip.negotiation_locked_until ?? null,
     currentBroadcastRound: trip.current_broadcast_round ?? null,
     arrivedAt: trip.arrived_at ?? null,
     pickupWaitingStartedAt: trip.pickup_waiting_started_at ?? null,
@@ -228,16 +230,18 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
         negotiating ? null : ((payload.driver as Record<string, unknown> | null) ?? null),
         stops,
       );
+      const originalFarePence = resolveCustomerPreauthBasePence(trip);
+      const negotiation = negotiating
+        ? await loadCustomerNegotiationView(
+            supabase,
+            tripId,
+            originalFarePence,
+          )
+        : null;
+      // Always stamp the key. Omitting it lets Customer merge keep stale
+      // waiting_customer / £Z chips after second chance, rematch, or assign.
+      (response.activeTrip as Record<string, unknown>).negotiation = negotiation;
       if (negotiating) {
-        const originalFarePence = resolveCustomerPreauthBasePence(trip);
-        const negotiation = await loadCustomerNegotiationView(
-          supabase,
-          tripId,
-          originalFarePence,
-        );
-        // Always stamp the key. Omitting it lets Customer merge keep stale
-        // waiting_customer chips after Decline / £Y timeout (second chance).
-        (response.activeTrip as Record<string, unknown>).negotiation = negotiation;
         (response.activeTrip as Record<string, unknown>).driver = null;
         (response.activeTrip as Record<string, unknown>).driverId = null;
       }

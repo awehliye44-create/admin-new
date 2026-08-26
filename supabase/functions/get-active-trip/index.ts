@@ -655,6 +655,8 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
           driverId: negotiating ? null : trip.driver_id,
           driver: negotiating ? null : driver,
           negotiation,
+          negotiation_disabled: trip.negotiation_disabled === true,
+          negotiation_locked_until: trip.negotiation_locked_until ?? null,
           createdAt: trip.created_at,
           scheduledAt: trip.scheduled_at,
           scheduledStatus: trip.scheduled_status,
