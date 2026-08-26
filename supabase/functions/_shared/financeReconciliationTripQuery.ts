@@ -31,25 +31,47 @@ export function resolveFinanceReconciliationAuditLimit(
 export async function applyFinanceReconciliationTripLocationFilter<T extends {
   eq: (col: string, val: string) => T;
   or: (filter: string) => T;
+  in: (col: string, vals: string[]) => T;
 }>(
   query: T,
   supabase: SupabaseClient,
-  filter: { regionId?: string | null; serviceAreaId?: string | null },
+  filter: {
+    regionId?: string | null;
+    serviceAreaId?: string | null;
+    /** When set, region expansion never includes DRIVER_COLLECTED service areas. */
+    allowedServiceAreaIds?: readonly string[] | null;
+  },
 ): Promise<T> {
   if (filter.serviceAreaId) {
     return query.eq("service_area_id", filter.serviceAreaId);
   }
+
+  const allowed = filter.allowedServiceAreaIds
+    ? new Set(filter.allowedServiceAreaIds)
+    : null;
+
   if (filter.regionId) {
     const { data: areas } = await supabase
       .from("service_areas")
       .select("id")
       .eq("region_id", filter.regionId);
-    const areaIds = (areas ?? []).map((a) => a.id as string).filter(Boolean);
+    let areaIds = (areas ?? []).map((a) => a.id as string).filter(Boolean);
+    if (allowed) areaIds = areaIds.filter((id) => allowed.has(id));
     if (areaIds.length > 0) {
-      return query.or(`region_id.eq.${filter.regionId},service_area_id.in.(${areaIds.join(",")})`);
+      return query.in("service_area_id", areaIds);
     }
-    return query.eq("region_id", filter.regionId);
+    // Region has no PLATFORM SAs — empty universe.
+    return query.eq("service_area_id", "00000000-0000-0000-0000-000000000000");
   }
+
+  if (allowed) {
+    const ids = [...allowed];
+    if (ids.length === 0) {
+      return query.eq("service_area_id", "00000000-0000-0000-0000-000000000000");
+    }
+    return query.in("service_area_id", ids);
+  }
+
   return query;
 }
 

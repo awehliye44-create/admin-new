@@ -37,17 +37,20 @@ const PLATFORM_HOOKS = [
   'src/hooks/useAdminPayoutLedger.ts',
 ] as const;
 
-const PLATFORM_EDGE = [
+  const PLATFORM_EDGE = [
   'supabase/functions/admin-payment-sessions/index.ts',
   'supabase/functions/admin-finance-reconciliation/index.ts',
   'supabase/functions/admin-driver-wallet-ssot/index.ts',
+  'supabase/functions/admin-driver-wallet-detail/index.ts',
   'supabase/functions/admin-payout-ledger/index.ts',
+  'supabase/functions/admin-payment-holds-reconciliation/index.ts',
   'supabase/functions/_shared/adminPaymentSessionsListSSOT.ts',
   'supabase/functions/_shared/adminPaymentSessionsTripCompareSSOT.ts',
   'supabase/functions/_shared/adminPayoutLedgerListSSOT.ts',
   'supabase/functions/_shared/adminPayoutLedgerOverviewSSOT.ts',
   'supabase/functions/_shared/adminPayoutLedgerAccountsOverviewSSOT.ts',
   'supabase/functions/_shared/fetchDriverWalletPayoutSnapshot.ts',
+  'supabase/functions/_shared/paymentHoldReconciliationSSOT.ts',
 ] as const;
 
 describe('ADMIN_PAGE_FINANCIAL_MODEL map', () => {
@@ -100,6 +103,8 @@ describe('Edge SSOT PLATFORM boundaries', () => {
     const src = read('supabase/functions/_shared/adminPaymentSessionsListSSOT.ts');
     expect(src).toContain('if (!row.service_area_id) continue');
     expect(src).toContain('allowed_service_area_ids');
+    expect(src).toContain('classifyTripForPlatformCollectedAdminPage');
+    expect(src).toContain('cwExcludedTripIds');
   });
 
   it('FR trip query hard-filters PLATFORM_COLLECTED and scopes wallet drivers', () => {
@@ -117,12 +122,113 @@ describe('Edge SSOT PLATFORM boundaries', () => {
     expect(src).toContain('.in("id", platformDriverIds)');
   });
 
-  it('Payout Ledger passes allowed_service_area_ids into builders', () => {
-    const index = read('supabase/functions/admin-payout-ledger/index.ts');
-    const overview = read('supabase/functions/_shared/adminPayoutLedgerOverviewSSOT.ts');
-    expect(index).toContain('allowed_service_area_ids: scope.allowedServiceAreaIds');
-    expect(overview).toContain('allowed_service_area_ids');
-    expect(overview).toContain('resolvePlatformCollectedDriverIds');
+  it('Payout Ledger batch/audit paths pass allowed_service_area_ids into nested lists', () => {
+    const src = read('supabase/functions/_shared/adminPayoutLedgerListSSOT.ts');
+    expect(src).toContain('allowed_service_area_ids: request.allowed_service_area_ids ?? null');
+    expect(src).toContain('scopedDriverBatches');
+    expect(src).toContain('platformDriverSet.has(row.driver_id)');
+  });
+
+  it('Payment holds loader accepts allowed_service_area_ids', () => {
+    const holds = read('supabase/functions/_shared/paymentHoldReconciliationSSOT.ts');
+    const list = read('supabase/functions/_shared/adminPaymentSessionsListSSOT.ts');
+    const edge = read('supabase/functions/admin-payment-holds-reconciliation/index.ts');
+    expect(holds).toContain('allowed_service_area_ids');
+    expect(holds).toContain('classifyTripForPlatformCollectedAdminPage');
+    expect(holds).toContain('orphan_payments');
+    expect(holds).toMatch(/orphan[\s\S]*service_area_id/);
+    expect(list).toContain('allowed_service_area_ids: request.allowed_service_area_ids ?? null');
+    expect(edge).toContain('FINANCIAL_MODEL.PLATFORM_COLLECTED');
+  });
+
+  it('Driver Wallet summary excludes CW trip commission', () => {
+    const src = read('supabase/functions/_shared/fetchDriverWalletSummary.ts');
+    expect(src).toContain('.eq("financial_model", "PLATFORM_COLLECTED")');
+  });
+
+  it('Payout Ledger Settings DriverSelector pins PLATFORM_COLLECTED', () => {
+    const panel = read('src/components/finance/PayoutLedgerSettingsPanel.tsx');
+    const hook = read('src/hooks/useAdminDriverOptions.ts');
+    expect(panel).toContain('financialModel="PLATFORM_COLLECTED"');
+    expect(hook).toContain('financialModel');
+    expect(hook).toContain('normaliseServiceAreaFinancialModel');
+  });
+
+  it('FR location filter intersects allowed PLATFORM service areas', () => {
+    const tripQ = read('supabase/functions/_shared/financeReconciliationTripQuery.ts');
+    const fr = read('supabase/functions/admin-finance-reconciliation/index.ts');
+    expect(tripQ).toContain('allowedServiceAreaIds');
+    expect(fr).toContain('allowedServiceAreaIds: modelScope.allowedServiceAreaIds');
+    expect(fr).toContain('platformDriverIds');
+  });
+
+  it('admin-driver-wallet-detail rejects non-PLATFORM drivers', () => {
+    const src = read('supabase/functions/admin-driver-wallet-detail/index.ts');
+    expect(src).toContain('resolvePlatformCollectedDriverIds');
+    expect(src).toContain('FINANCIAL_MODEL_VIOLATION');
+  });
+
+  it('DWL snapshot drops CW-linked ledger/settlement rows before KPIs', () => {
+    const src = read('supabase/functions/_shared/fetchDriverWalletPayoutSnapshot.ts');
+    expect(src).toContain('classifyTripForPlatformCollectedAdminPage');
+    expect(src).toContain('cwExcludedTripIds');
+    expect(src).toContain('rawLedger.filter');
+    expect(src).toContain('rawSettlements.filter');
+    expect(src).toContain('computeLedgerWalletBalancePence(ledger)');
+    expect(src).not.toMatch(/computeLedgerWalletBalancePence\(rawLedger\)/);
+  });
+
+  it('FR Alerts finance-backend-audit-v1 scopes PLATFORM trips + drivers', () => {
+    const src = read('supabase/functions/finance-backend-audit-v1/index.ts');
+    expect(src).toContain('resolveServiceAreaFinancialScope');
+    expect(src).toContain('resolvePlatformCollectedDriverIds');
+    expect(src).toContain('.eq("financial_model", FINANCIAL_MODEL.PLATFORM_COLLECTED)');
+    expect(src).toContain('scopedDriverIds');
+  });
+
+  it('weekly payout scheduler + executor load PLATFORM drivers only', () => {
+    const scheduler = read('supabase/functions/admin-weekly-payout-scheduler/index.ts');
+    const executor = read('supabase/functions/admin-execute-weekly-payout-occurrence/index.ts');
+    for (const src of [scheduler, executor]) {
+      expect(src).toContain('resolvePlatformCollectedDriverIds');
+      expect(src).toContain('FINANCIAL_MODEL.PLATFORM_COLLECTED');
+      expect(src).toContain('.in("id", platformDriverIds)');
+    }
+  });
+
+  it('payment holds trip map uses platform classifier (null+CW evidence excluded)', () => {
+    const src = read('supabase/functions/_shared/paymentHoldReconciliationSSOT.ts');
+    expect(src).toContain('classifyTripForPlatformCollectedAdminPage');
+    expect(src).toMatch(/classifyTripForPlatformCollectedAdminPage[\s\S]*includeOnPlatformPage/);
+  });
+
+  it('admin-refresh-payment-sessions scopes PLATFORM only', () => {
+    const edge = read('supabase/functions/admin-refresh-payment-sessions/index.ts');
+    const page = read('src/pages/PaymentSessions.tsx');
+    expect(edge).toContain('resolveServiceAreaFinancialScope');
+    expect(edge).toContain('classifyTripForPlatformCollectedAdminPage');
+    expect(edge).toContain('FINANCIAL_MODEL.PLATFORM_COLLECTED');
+    expect(page).toContain('admin-refresh-payment-sessions');
+    expect(page).toContain('service_area_id: serviceFilter.serviceAreaId');
+  });
+
+  it('Payout Ledger accounts overview KPIs scope payout_items to PLATFORM drivers', () => {
+    const src = read('supabase/functions/_shared/adminPayoutLedgerAccountsOverviewSSOT.ts');
+    expect(src).toContain('loadPayoutItemStatusTotals(supabase, platformDriverIds)');
+    expect(src).toContain('.in("driver_id", [...platformDriverIds])');
+    expect(src).toContain('resolvePlatformCollectedDriverIds');
+  });
+
+  it('DWL client ledger transactions filter CW-linked trip rows', () => {
+    const src = read('src/hooks/useFinanceLedgerTransactions.ts');
+    expect(src).toContain('classifyTripForPlatformCollectedAdminPage');
+    expect(src).toContain('financial_model, commission_wallet_enabled');
+  });
+
+  it('FR first-load auto-selects PLATFORM service areas only', () => {
+    const src = read('src/pages/FinancialReconciliation.tsx');
+    expect(src).toContain('filterServiceAreasByFinancialModel');
+    expect(src).toContain('FINANCIAL_MODEL.PLATFORM_COLLECTED');
   });
 });
 

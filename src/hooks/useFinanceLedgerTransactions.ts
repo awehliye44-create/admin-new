@@ -14,6 +14,7 @@ import {
   type AdminFinanceParty,
 } from '@/lib/adminFinanceLedgerDisplay';
 import { attachRunningBalancesNewestFirst } from '@/lib/driverWalletRunningBalanceSSOT';
+import { classifyTripForPlatformCollectedAdminPage } from '../../shared/financialModelScopeSSOT';
 
 export type FinanceLedgerTransactionRow = {
   id: string;
@@ -57,6 +58,8 @@ type LedgerDbRow = {
     passenger_name: string | null;
     discount_pence: number | null;
     discount_source: string | null;
+    financial_model?: string | null;
+    commission_wallet_enabled?: boolean | null;
   } | null;
 };
 
@@ -98,7 +101,7 @@ const LEDGER_SELECT = `
   id, type, amount_pence, currency, description, created_at, related_trip_id,
   driver_id,
   drivers(first_name, last_name, region_id),
-  trips(trip_code, payment_method, passenger_id, passenger_name, discount_pence, discount_source)
+  trips(trip_code, payment_method, passenger_id, passenger_name, discount_pence, discount_source, financial_model, commission_wallet_enabled)
 `;
 
 
@@ -256,6 +259,15 @@ async function fetchLedgerRows(args: {
   let mapped: FinanceLedgerTransactionRow[] = [];
   for (const row of (data ?? []) as LedgerDbRow[]) {
     if (!regionMatches(args.regionId, row.drivers?.region_id)) continue;
+    // Driver Wallet Ledger is PLATFORM_COLLECTED only — never surface CW-linked rows.
+    if (row.related_trip_id && row.trips) {
+      if (!classifyTripForPlatformCollectedAdminPage({
+        financial_model: row.trips.financial_model,
+        commission_wallet_enabled: row.trips.commission_wallet_enabled,
+      }).includeOnPlatformPage) {
+        continue;
+      }
+    }
     mapped.push(mapLedgerRow(row));
   }
 
@@ -332,7 +344,7 @@ export function useFinanceLedgerTransactions(args: {
           .select(`
             id, trip_id, driver_id, status, captured_amount_pence, amount_pence, currency,
             provider_fee_pence, payment_provider, provider_webhook_event_id, created_at,
-            trips(trip_code, payment_method, passenger_id, passenger_name),
+            trips(trip_code, payment_method, passenger_id, passenger_name, financial_model, commission_wallet_enabled),
             drivers(first_name, last_name, region_id)
           `)
           .in('status', ['captured', 'paid', 'succeeded'])
@@ -347,6 +359,12 @@ export function useFinanceLedgerTransactions(args: {
         if (paymentError) throw paymentError;
         for (const row of (paymentData ?? []) as unknown as PaymentDbRow[]) {
           if (!regionMatches(args.regionId, row.drivers?.region_id)) continue;
+          if (row.trips && !classifyTripForPlatformCollectedAdminPage({
+            financial_model: (row.trips as { financial_model?: unknown }).financial_model,
+            commission_wallet_enabled: (row.trips as { commission_wallet_enabled?: unknown }).commission_wallet_enabled,
+          }).includeOnPlatformPage) {
+            continue;
+          }
           rows.push(mapPaymentRow(row));
         }
       }
@@ -356,9 +374,10 @@ export function useFinanceLedgerTransactions(args: {
           .from('trips')
           .select(`
             id, trip_code, payment_method, completed_at, discount_pence, discount_source,
-            driver_id, passenger_id, passenger_name, region_id,
+            driver_id, passenger_id, passenger_name, region_id, financial_model, commission_wallet_enabled,
             drivers(first_name, last_name)
           `)
+          .eq('financial_model', 'PLATFORM_COLLECTED')
           .gt('discount_pence', 0)
           .order('completed_at', { ascending: false })
           .limit(Math.min(limit, 100));

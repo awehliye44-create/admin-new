@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
+import { resolvePlatformCollectedDriverIds } from "../_shared/platformCollectedDriverScope.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -52,9 +54,36 @@ serve(async (req) => {
     const url = new URL(req.url);
     const driverId = url.searchParams.get('driver_id');
     const period = url.searchParams.get('period') || 'all'; // 'this_week', 'last_week', 'this_month', 'all'
+    const serviceAreaId = url.searchParams.get('service_area_id');
 
     if (!driverId) {
       return new Response(JSON.stringify({ error: 'driver_id is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // PIPELINE 1 — Driver Wallet detail is PLATFORM_COLLECTED only.
+    const modelScope = await resolveServiceAreaFinancialScope(
+      supabase,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      serviceAreaId,
+    );
+    if (!modelScope.ok) {
+      return new Response(JSON.stringify({ error: modelScope.error, error_code: modelScope.code }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id: serviceAreaId,
+      allowed_service_area_ids: modelScope.allowedServiceAreaIds,
+    });
+    if (!platformDriverIds.includes(driverId)) {
+      return new Response(JSON.stringify({
+        error: 'Driver is outside PLATFORM_COLLECTED Driver Wallet scope',
+        error_code: 'FINANCIAL_MODEL_VIOLATION',
+      }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

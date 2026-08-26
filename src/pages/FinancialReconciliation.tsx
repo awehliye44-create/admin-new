@@ -4,6 +4,7 @@ import { format, subDays } from 'date-fns';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
+import { FINANCIAL_MODEL, filterServiceAreasByFinancialModel } from '../../shared/financialModelScopeSSOT';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -123,7 +124,12 @@ function FinancialReconciliationPage() {
       setFinanceScopeReady(true);
       return;
     }
-    const first = serviceAreas[0];
+    // Never auto-land on a CW service area — FR is PLATFORM_COLLECTED only.
+    const platformAreas = filterServiceAreasByFinancialModel(
+      serviceAreas,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+    );
+    const first = platformAreas[0];
     if (first) {
       const cc = first.region?.currency_code || first.currency_code || null;
       setFilter({ serviceAreaId: first.id, regionId: first.region_id, currencyCode: cc });

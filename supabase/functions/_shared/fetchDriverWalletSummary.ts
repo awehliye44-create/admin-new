@@ -44,10 +44,12 @@ export async function fetchDriverWalletSummary(
   });
 
   // Trip commission snapshots for trips completed in period (canonical gross commission).
+  // Driver Wallet is PLATFORM_COLLECTED only — never sum CW trip commission into period widgets.
   const { data: trips } = await supabase
     .from("trips")
-    .select("id, completed_at, commission_pence")
+    .select("id, completed_at, commission_pence, financial_model")
     .eq("driver_id", args.driverId)
+    .eq("financial_model", "PLATFORM_COLLECTED")
     .gte("completed_at", args.periodFrom)
     .lte("completed_at", args.periodTo);
 

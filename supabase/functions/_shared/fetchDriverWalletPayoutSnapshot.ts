@@ -31,6 +31,7 @@ import {
   buildCommissionFeeBreakdownRow,
   summarizeCommissionFeeRows,
 } from "./driverWalletCommissionFeeSSOT.ts";
+import { classifyTripForPlatformCollectedAdminPage } from "../../../shared/financialModelScopeSSOT.ts";
 
 const TERMINAL_FAILED = new Set(["failed", "ledger_sync_failed", "failed_duplicate"]);
 const STUCK_SETTLEMENT = new Set(["PROCESSING", "READY", "PENDING", "AVAILABLE"]);
@@ -161,20 +162,17 @@ export async function fetchDriverWalletPayoutSnapshot(
     fetchDriverPayoutEligibility(supabase, { driver_id: args.driverId }),
   ]);
 
-  const ledger = fullLedgerRes.data ?? [];
-  const recentLedger = recentLedgerRes.data ?? [];
+  const rawLedger = fullLedgerRes.data ?? [];
+  const rawRecentLedger = recentLedgerRes.data ?? [];
   const transferLedger = transferLedgerRes.data ?? [];
-  const walletBalance = computeLedgerWalletBalancePence(ledger);
-  const recoveryDebt = computeCashCommissionOutstanding(ledger);
-
-  const settlements = settlementsRes.data ?? [];
+  const rawSettlements = settlementsRes.data ?? [];
   const settlementTripIds = [...new Set(
-    settlements.map((s) => String(s.trip_id ?? "")).filter(Boolean),
+    rawSettlements.map((s) => String(s.trip_id ?? "")).filter(Boolean),
   )];
   // DWL freeze/reconciliation must compare wallet trip credits to those trips' nets —
   // not only the incomplete DES subset (which falsely freezes after historical payouts).
   const walletCreditTripIds = [...new Set(
-    ledger
+    rawLedger
       .filter((r) => {
         const t = String(r.type ?? "").toUpperCase();
         return (t === "TRIP_EARNING_NET" || t === "TRIP_SETTLEMENT_CORRECTION" || t === "SETTLEMENT_CORRECTION")
@@ -190,6 +188,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     final_customer_fare_pence: number | null;
   }>();
   const tripDetailById = new Map<string, Record<string, unknown>>();
+  const cwExcludedTripIds = new Set<string>();
   const sessionByTripId = new Map<string, Record<string, unknown>>();
   if (tripIdsForFr.length > 0) {
     const [tripRowsRes, sessionRowsRes] = await Promise.all([
@@ -207,9 +206,14 @@ export async function fetchDriverWalletPayoutSnapshot(
         .in("trip_id", tripIdsForFr),
     ]);
     for (const t of tripRowsRes.data ?? []) {
-      // Driver Wallet is PLATFORM_COLLECTED only — never surface CW trip revenue here.
-      const model = String((t as { financial_model?: string | null }).financial_model ?? "").toUpperCase();
-      if (model === "DRIVER_COLLECTED_COMMISSION_WALLET") continue;
+      // Driver Wallet is PLATFORM_COLLECTED only — never surface CW / unknown-CW trip revenue.
+      if (!classifyTripForPlatformCollectedAdminPage(t as {
+        financial_model?: unknown;
+        commission_wallet_enabled?: unknown;
+      }).includeOnPlatformPage) {
+        cwExcludedTripIds.add(String(t.id));
+        continue;
+      }
       tripMetaById.set(String(t.id), {
         payment_method: (t.payment_method as string | null) ?? null,
         payment_provider: (t.payment_provider as string | null) ?? null,
@@ -221,7 +225,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     }
     for (const s of sessionRowsRes.data ?? []) {
       const tripId = String(s.trip_id ?? "");
-      if (!tripId) continue;
+      if (!tripId || cwExcludedTripIds.has(tripId)) continue;
       // Prefer the session with a confirmed capture when multiple exist.
       const existing = sessionByTripId.get(tripId);
       const existingCap = Number(existing?.captured_amount_pence ?? 0);
@@ -239,6 +243,23 @@ export async function fetchDriverWalletPayoutSnapshot(
       }
     }
   }
+
+  // Drop CW-linked ledger/settlement rows before balance/KPIs (defense-in-depth).
+  const isCwLinkedTripId = (tripId: string | null | undefined) => {
+    const id = tripId ? String(tripId) : "";
+    return Boolean(id && cwExcludedTripIds.has(id));
+  };
+  const ledger = rawLedger.filter((r) => !isCwLinkedTripId(
+    (r as { related_trip_id?: string | null }).related_trip_id,
+  ));
+  const recentLedger = rawRecentLedger.filter((r) => !isCwLinkedTripId(
+    (r as { related_trip_id?: string | null }).related_trip_id,
+  ));
+  const settlements = rawSettlements.filter((s) => !isCwLinkedTripId(
+    (s as { trip_id?: string | null }).trip_id,
+  ));
+  const walletBalance = computeLedgerWalletBalancePence(ledger);
+  const recoveryDebt = computeCashCommissionOutstanding(ledger);
   // Canonical cleared = eligibility eligible earnings only (DES optional — never DES fallback invent).
   const financeCleared = Math.max(0, payoutEligibility.eligible_earnings_pence);
   // Canonical pending = settlement/capture pending from DWL eligibility (not reservations).

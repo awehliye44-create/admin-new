@@ -25,6 +25,7 @@ import {
   recordProviderStateVerification,
   closeCompanionOrphanPayments,
 } from "./paymentHoldProviderTerminalSSOT.ts";
+import { classifyTripForPlatformCollectedAdminPage } from "../../../shared/financialModelScopeSSOT.ts";
 
 export function classifyPaymentHoldRow(args: {
   sessionStatus: string | null;
@@ -108,6 +109,8 @@ export async function listPaymentHoldsRequiringAttention(
     refreshProviderState?: boolean;
     limit?: number;
     view?: PaymentHoldsListView;
+    /** PLATFORM_COLLECTED SA ids — when set, never surface DRIVER_COLLECTED sessions. */
+    allowed_service_area_ids?: readonly string[] | null;
     filters?: {
       dateFrom?: string | null;
       dateTo?: string | null;
@@ -142,11 +145,14 @@ export async function listPaymentHoldsRequiringAttention(
   const now = Date.now();
   const shouldRefresh = args.refreshProviderState === true;
   const filters = args.filters ?? {};
+  const allowedSa = args.allowed_service_area_ids
+    ? new Set(args.allowed_service_area_ids)
+    : null;
 
   let sessionQuery = supabase
     .from("payment_sessions")
     .select(
-      "id, status, payment_provider, provider_order_id, authorised_amount_pence, captured_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_capture_id, created_at, authorised_at, released_at, captured_at, refunded_at, trip_id, user_id, customer_id, client_action_id, release_attempt_count, recovery_attempt_count, release_failure_reason, hold_terminal_reason, hold_release_state, failure_reason, metadata, provider_state, provider_state_verified_at, provider_state_verified_by",
+      "id, status, payment_provider, provider_order_id, authorised_amount_pence, captured_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_capture_id, created_at, authorised_at, released_at, captured_at, refunded_at, trip_id, user_id, customer_id, client_action_id, release_attempt_count, recovery_attempt_count, release_failure_reason, hold_terminal_reason, hold_release_state, failure_reason, metadata, provider_state, provider_state_verified_at, provider_state_verified_by, service_area_id",
     )
     .order("created_at", { ascending: false })
     .limit(Math.min(1000, Math.max(limit, view === "history" ? Math.max(limit, 300) : limit * 2)));
@@ -163,22 +169,38 @@ export async function listPaymentHoldsRequiringAttention(
       : filters.dateTo;
     sessionQuery = sessionQuery.lte("created_at", toBound);
   }
+  if (allowedSa && allowedSa.size > 0) {
+    sessionQuery = sessionQuery.in("service_area_id", [...allowedSa]);
+  } else if (allowedSa && allowedSa.size === 0) {
+    sessionQuery = sessionQuery.eq("service_area_id", "00000000-0000-0000-0000-000000000000");
+  }
 
-  const { data: sessions } = await sessionQuery;
+  const { data: sessionsRaw } = await sessionQuery;
+  // Defensive: drop null-SA rows when PLATFORM scope is active (never silent mix).
+  const sessions = (sessionsRaw ?? []).filter((s) => {
+    if (!allowedSa) return true;
+    const sa = (s as { service_area_id?: string | null }).service_area_id;
+    return Boolean(sa && allowedSa.has(String(sa)));
+  });
 
-  const tripIds = [...new Set((sessions ?? []).map((s) => s.trip_id).filter(Boolean))] as string[];
+  const tripIds = [...new Set(sessions.map((s) => s.trip_id).filter(Boolean))] as string[];
   const tripById = new Map<string, Record<string, unknown>>();
   if (tripIds.length > 0) {
     const { data: trips } = await supabase
       .from("trips")
-      .select("id, trip_code, status, payment_hold_status, passenger_id, updated_at, driver_id")
+      .select("id, trip_code, status, payment_hold_status, passenger_id, updated_at, driver_id, financial_model, commission_wallet_enabled, service_area_id")
       .in("id", tripIds);
     for (const t of trips ?? []) {
+      // PLATFORM Payment Sessions only — exclude CW stamps and null+CW-evidence unknowns.
+      if (!classifyTripForPlatformCollectedAdminPage(t as {
+        financial_model?: unknown;
+        commission_wallet_enabled?: unknown;
+      }).includeOnPlatformPage) continue;
       tripById.set(t.id as string, t as Record<string, unknown>);
     }
   }
 
-  const customerIds = [...new Set((sessions ?? []).map((s) => s.customer_id).filter(Boolean))] as string[];
+  const customerIds = [...new Set(sessions.map((s) => s.customer_id).filter(Boolean))] as string[];
   const { data: customers } = customerIds.length > 0
     ? await supabase.from("customers").select("id, user_id, first_name, last_name, email").in("id", customerIds)
     : { data: [] };
@@ -225,7 +247,7 @@ export async function listPaymentHoldsRequiringAttention(
   if (shouldRefresh && merchant) {
     const uniqueOrders: string[] = [];
     const seen = new Set<string>();
-    for (const session of sessions ?? []) {
+    for (const session of sessions) {
       if (String(session.payment_provider ?? "").toLowerCase() !== "revolut") continue;
       const oid = String(session.provider_order_id ?? "");
       if (!oid || seen.has(oid)) continue;
@@ -244,7 +266,9 @@ export async function listPaymentHoldsRequiringAttention(
   const seenOrderIds = new Set<string>();
   const allBuilt: PaymentHoldReconciliationRow[] = [];
 
-  for (const session of sessions ?? []) {
+  for (const session of sessions) {
+    // Linked CW trips were excluded from tripById — never surface those holds on PLATFORM PS.
+    if (session.trip_id && !tripById.has(String(session.trip_id))) continue;
     const paymentProvider = String(session.payment_provider ?? "unknown");
     const providerOrderId = String(session.provider_order_id ?? "");
     const identity = holdIdentityKey(paymentProvider, providerOrderId);
@@ -445,23 +469,42 @@ export async function listPaymentHoldsRequiringAttention(
   }
 
   // Orphans: supporting evidence only — never a second RED row when session exists.
-  const { data: orphanRows } = await supabase
+  // PIPELINE 1: when PLATFORM scope is set, never emit CW / out-of-scope orphans as primary rows.
+  const { data: orphanRowsRaw } = await supabase
     .from("orphan_payments")
     .select(
-      "id, payment_provider, provider_order_id, amount_pence, currency, payment_status, client_action_id, user_id, customer_id, trip_id, failure_reason, reversal_status, created_at, resolved_at, metadata",
+      "id, payment_provider, provider_order_id, amount_pence, currency, payment_status, client_action_id, user_id, customer_id, trip_id, failure_reason, reversal_status, created_at, resolved_at, metadata, service_area_id",
     )
     .order("created_at", { ascending: false })
     .limit(Math.min(500, limit * 3));
 
-  const orphanCustomerIds = [...new Set((orphanRows ?? []).map((o) => o.customer_id).filter(Boolean))] as string[];
-  const orphanTripIds = [...new Set((orphanRows ?? []).map((o) => o.trip_id).filter(Boolean))] as string[];
+  const orphanRows = (orphanRowsRaw ?? []).filter((o) => {
+    if (!allowedSa) return true;
+    const sa = (o as { service_area_id?: string | null }).service_area_id;
+    if (sa) return allowedSa.has(String(sa));
+    // Null SA orphans kept only for companion attach / trip evidence resolution below.
+    return true;
+  });
+
+  const orphanCustomerIds = [...new Set(orphanRows.map((o) => o.customer_id).filter(Boolean))] as string[];
+  const orphanTripIds = [...new Set(orphanRows.map((o) => o.trip_id).filter(Boolean))] as string[];
   const missingOrphanTripIds = orphanTripIds.filter((id) => !tripById.has(id));
   if (missingOrphanTripIds.length > 0) {
     const { data: orphanTrips } = await supabase
       .from("trips")
-      .select("id, trip_code, status, payment_hold_status, passenger_id, updated_at, driver_id")
+      .select("id, trip_code, status, payment_hold_status, passenger_id, updated_at, driver_id, financial_model, commission_wallet_enabled, service_area_id")
       .in("id", missingOrphanTripIds);
     for (const t of orphanTrips ?? []) {
+      if (!classifyTripForPlatformCollectedAdminPage(t as {
+        financial_model?: unknown;
+        commission_wallet_enabled?: unknown;
+      }).includeOnPlatformPage) continue;
+      if (allowedSa) {
+        const sa = (t as { service_area_id?: string | null }).service_area_id;
+        if (sa && !allowedSa.has(String(sa))) continue;
+        const model = String((t as { financial_model?: string | null }).financial_model ?? "").toUpperCase();
+        if (!sa && model !== "PLATFORM_COLLECTED") continue;
+      }
       tripById.set(t.id as string, t as Record<string, unknown>);
     }
   }
@@ -478,7 +521,7 @@ export async function listPaymentHoldsRequiringAttention(
   }
 
   // Attach orphan evidence ids onto existing session rows; close stale companions on refresh.
-  for (const orphan of orphanRows ?? []) {
+  for (const orphan of orphanRows) {
     const paymentProvider = String(orphan.payment_provider ?? "unknown");
     const providerOrderId = String(orphan.provider_order_id ?? "");
     if (!providerOrderId) continue;
@@ -556,6 +599,19 @@ export async function listPaymentHoldsRequiringAttention(
     if (companionSession) {
       seenOrderIds.add(providerOrderId);
       continue;
+    }
+
+    // PLATFORM scope: null-SA orphans without PLATFORM trip evidence must not become primary rows.
+    if (allowedSa) {
+      const sa = (orphan as { service_area_id?: string | null }).service_area_id;
+      if (sa && !allowedSa.has(String(sa))) continue;
+      if (!sa) {
+        const tripId = orphan.trip_id ? String(orphan.trip_id) : null;
+        if (!tripId || !tripById.has(tripId)) continue;
+        const tripRow = tripById.get(tripId)!;
+        const tripSa = tripRow.service_area_id == null ? null : String(tripRow.service_area_id);
+        if (tripSa && !allowedSa.has(tripSa)) continue;
+      }
     }
 
     seenOrderIds.add(providerOrderId);

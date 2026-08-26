@@ -30,6 +30,8 @@ import {
   type ScheduleOccurrence,
   type ScheduleSettingsSnapshot,
 } from "../_shared/weeklyDriverPayoutBatchWorkflowSSOT.ts";
+import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
+import { resolvePlatformCollectedDriverIds } from "../_shared/platformCollectedDriverScope.ts";
 import {
   FUNDING_RESULT,
   ORCHESTRATOR_BATCH_STATUS,
@@ -258,13 +260,40 @@ Deno.serve(async (req) => {
     });
   }
 
-  // --- Eligibility + batch create/reuse ---
+  // --- Eligibility + batch create/reuse (PLATFORM_COLLECTED drivers only) ---
+  const modelScope = await resolveServiceAreaFinancialScope(
+    supabase,
+    FINANCIAL_MODEL.PLATFORM_COLLECTED,
+    resolvedServiceAreaId,
+  );
+  if (!modelScope.ok) {
+    return json({
+      success: false,
+      error: modelScope.error,
+      error_code: modelScope.code,
+    }, 400);
+  }
+  const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
+    service_area_id: resolvedServiceAreaId,
+    allowed_service_area_ids: modelScope.allowedServiceAreaIds,
+  });
+  if (platformDriverIds.length === 0) {
+    return json({
+      success: true,
+      planned_count: 0,
+      message: "No PLATFORM_COLLECTED drivers in scope",
+      revolut_pay_called: false,
+      wallet_debited: false,
+    });
+  }
+
   let driverQuery = supabase
     .from("drivers")
     .select(
       "id, region_id, service_area_id, first_name, last_name, payouts_enabled, approval_status, driver_status",
     )
-    .eq("approval_status", "approved");
+    .eq("approval_status", "approved")
+    .in("id", platformDriverIds);
   if (regionId) driverQuery = driverQuery.eq("region_id", regionId);
   if (resolvedServiceAreaId) driverQuery = driverQuery.eq("service_area_id", resolvedServiceAreaId);
   const { data: drivers, error: driversError } = await driverQuery;

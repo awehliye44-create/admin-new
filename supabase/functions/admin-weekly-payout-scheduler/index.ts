@@ -39,6 +39,8 @@ import {
   type ScheduleOccurrence,
   type ScheduleSettingsSnapshot,
 } from "../_shared/weeklyDriverPayoutBatchWorkflowSSOT.ts";
+import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
+import { resolvePlatformCollectedDriverIds } from "../_shared/platformCollectedDriverScope.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -302,13 +304,43 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Load drivers
+    // Load drivers — PLATFORM_COLLECTED membership only (never CW-only drivers).
+    const modelScope = await resolveServiceAreaFinancialScope(
+      supabase,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      serviceAreaId,
+    );
+    if (!modelScope.ok) {
+      return new Response(JSON.stringify({
+        ok: false,
+        error: modelScope.error,
+        error_code: modelScope.code,
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id: serviceAreaId,
+      allowed_service_area_ids: modelScope.allowedServiceAreaIds,
+    });
+    if (platformDriverIds.length === 0) {
+      return new Response(JSON.stringify({
+        ok: true,
+        dry_run: dryRun,
+        planned_count: 0,
+        message: "No PLATFORM_COLLECTED drivers in scope",
+        slices_6_to_12_started: false,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     let driverQuery = supabase
       .from("drivers")
       .select(
         "id, region_id, service_area_id, first_name, last_name, payouts_enabled, approval_status, driver_status",
       )
-      .eq("approval_status", "approved");
+      .eq("approval_status", "approved")
+      .in("id", platformDriverIds);
     if (regionId) driverQuery = driverQuery.eq("region_id", regionId);
     if (serviceAreaId) driverQuery = driverQuery.eq("service_area_id", serviceAreaId);
     const { data: drivers, error: driversError } = await driverQuery;

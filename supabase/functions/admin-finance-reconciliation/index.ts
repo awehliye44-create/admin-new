@@ -200,6 +200,7 @@ async function withTimeout<T>(
 
 async function fetchLegacyManualReviewItems(
   supabase: ReturnType<typeof createClient>,
+  platformDriverIds: string[],
 ): Promise<Array<{
   payout_item_id: string;
   driver_id: string;
@@ -208,11 +209,14 @@ async function fetchLegacyManualReviewItems(
   manual_review_reason: string | null;
   excluded_from_auto_allocation: boolean;
 }>> {
+  if (platformDriverIds.length === 0) return [];
+
   const { data, error } = await supabase
     .from("payout_items")
     .select("id, driver_id, amount_pence, driver_amount_pence, completed_at, manual_review_reason, excluded_from_auto_allocation")
     .or("manual_review_required.eq.true,excluded_from_auto_allocation.eq.true")
     .in("status", ["completed", "COMPLETED", "SENT", "PAID", "paid"])
+    .in("driver_id", platformDriverIds)
     .order("completed_at", { ascending: false });
 
   if (error) {
@@ -508,7 +512,11 @@ serve(async (req) => {
     tripQuery = await applyFinanceReconciliationTripLocationFilter(
       tripQuery,
       supabase,
-      { regionId: resolvedRegionId, serviceAreaId },
+      {
+        regionId: resolvedRegionId,
+        serviceAreaId,
+        allowedServiceAreaIds: modelScope.allowedServiceAreaIds,
+      },
     );
 
     const financialPromise = resolvedRegionId
@@ -570,7 +578,7 @@ serve(async (req) => {
           .in("status", ["processing", "pending", "transfer_created"])
           .in("driver_id", platformDriverIds)
         : Promise.resolve({ data: [], error: null }),
-      fetchLegacyManualReviewItems(supabase),
+      fetchLegacyManualReviewItems(supabase, platformDriverIds),
     ]);
 
     if (tripResult.error) throw tripResult.error;
@@ -861,7 +869,11 @@ serve(async (req) => {
         auditSearchQuery = await applyFinanceReconciliationTripLocationFilter(
           auditSearchQuery,
           supabase,
-          { regionId: resolvedRegionId, serviceAreaId },
+          {
+            regionId: resolvedRegionId,
+            serviceAreaId,
+            allowedServiceAreaIds: modelScope.allowedServiceAreaIds,
+          },
         );
 
         const term = search.trim();
@@ -986,10 +998,20 @@ serve(async (req) => {
         .or(`financial_outcome.in.(${COUNTABLE_FINANCIAL_OUTCOMES.join(",")}),status.in.(completed,no_show)`);
 
       if (serviceAreaId) todayTripQuery = todayTripQuery.eq("service_area_id", serviceAreaId);
-      else if (resolvedRegionId) {
-        const { data: areas } = await supabase.from("service_areas").select("id").eq("region_id", resolvedRegionId);
-        const ids = (areas || []).map((a) => a.id);
+      else if (modelScope.allowedServiceAreaIds.length > 0) {
+        let ids = modelScope.allowedServiceAreaIds;
+        if (resolvedRegionId) {
+          const { data: areas } = await supabase
+            .from("service_areas")
+            .select("id")
+            .eq("region_id", resolvedRegionId);
+          const regionSet = new Set((areas || []).map((a) => a.id as string));
+          ids = ids.filter((id) => regionSet.has(id));
+        }
         if (ids.length > 0) todayTripQuery = todayTripQuery.in("service_area_id", ids);
+        else todayTripQuery = todayTripQuery.eq("service_area_id", "00000000-0000-0000-0000-000000000000");
+      } else {
+        todayTripQuery = todayTripQuery.eq("service_area_id", "00000000-0000-0000-0000-000000000000");
       }
 
       const { data: todayTrips, error: todayTripsErr } = await todayTripQuery;
@@ -1065,20 +1087,19 @@ serve(async (req) => {
           .eq("type", "CHARGEBACK_DEBIT")
           .gte("created_at", periodFrom)
           .lte("created_at", periodTo);
-        if (resolvedRegionId) {
-          const { data: regionDrivers } = await supabase
-            .from("drivers")
-            .select("id")
-            .eq("region_id", resolvedRegionId);
-          const ids = (regionDrivers ?? []).map((d) => d.id);
-          if (ids.length > 0) cbQuery = cbQuery.in("driver_id", ids);
+        if (platformDriverIds.length > 0) {
+          cbQuery = cbQuery.in("driver_id", platformDriverIds);
+        } else {
+          chargebacks_pence = 0;
         }
-        const { data: cbRows, error: cbErr } = await cbQuery;
-        if (!cbErr) {
-          chargebacks_pence = (cbRows ?? []).reduce(
-            (s, row) => s + Math.abs(Number(row.amount_pence ?? 0)),
-            0,
-          );
+        if (chargebacks_pence !== 0) {
+          const { data: cbRows, error: cbErr } = await cbQuery;
+          if (!cbErr) {
+            chargebacks_pence = (cbRows ?? []).reduce(
+              (s, row) => s + Math.abs(Number(row.amount_pence ?? 0)),
+              0,
+            );
+          }
         }
       }
 
@@ -1108,10 +1129,12 @@ serve(async (req) => {
       });
     }
 
-    const service_area_payment_gateways = await resolveAllServiceAreaGatewayStatuses(supabase, {
-      regionId: resolvedRegionId ?? null,
-      serviceAreaId: serviceAreaId ?? null,
-    });
+    const service_area_payment_gateways = (
+      await resolveAllServiceAreaGatewayStatuses(supabase, {
+        regionId: resolvedRegionId ?? null,
+        serviceAreaId: serviceAreaId ?? null,
+      })
+    ).filter((row) => modelScope.allowedServiceAreaIds.includes(row.service_area_id));
 
     const generated_at = new Date().toISOString();
     // Provider balance is intentionally not queried by FR (not payment truth).

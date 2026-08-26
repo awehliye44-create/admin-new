@@ -774,6 +774,8 @@ async function listCompanyBatches(
       const detail = await listAdminPayoutLedger(supabase, {
         mode: "list",
         tab: "history",
+        service_area_id: request.service_area_id ?? null,
+        allowed_service_area_ids: request.allowed_service_area_ids ?? null,
         limit: Math.min(200, limit * 10),
       });
       for (const item of detail.items ?? []) {
@@ -786,16 +788,22 @@ async function listCompanyBatches(
     }
   }
 
+  // Drop driver batches with no PLATFORM-scoped items when model scope is active.
+  const scopedBatchIds = new Set(driverItems.map((i) => String(i.batch_id ?? "")).filter(Boolean));
+  const scopedDriverBatches = (request.service_area_id || request.allowed_service_area_ids)
+    ? driverBatches.filter((b) => scopedBatchIds.has(String(b.id)))
+    : driverBatches;
+
   return {
     success: true,
     page_status: cErr ? "PARTIAL" : "LIVE",
     tab: "batch_history",
     items: driverItems,
-    batches: driverBatches,
+    batches: scopedDriverBatches,
     company_batches: companyBatches,
     summary: {
       ...emptySummary(),
-      total_items: driverBatches.length + companyBatches.length,
+      total_items: scopedDriverBatches.length + companyBatches.length,
       completed_count: driverItems.filter((i) =>
         String(i.display_status ?? i.status).toUpperCase() === "COMPLETED"
       ).length,
@@ -834,25 +842,38 @@ async function listCompanyAudit(
 
   // Driver payout audit (separate from company transfers — never merged into company_transfers).
   let audit_rows: AdminPayoutLedgerListResponse["audit_rows"] = [];
+  const platformDriverIds = (request.service_area_id || request.allowed_service_area_ids)
+    ? await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id: request.service_area_id ?? null,
+      allowed_service_area_ids: request.allowed_service_area_ids ?? [],
+    })
+    : null;
+  const platformDriverSet = platformDriverIds ? new Set(platformDriverIds) : null;
   try {
     const { data: payoutAudit } = await supabase
       .from("payout_audit_log")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(limit);
-    audit_rows = (payoutAudit ?? []).map((row) => ({
-      id: String(row.id),
-      created_at: String(row.created_at),
-      driver_id: row.driver_id == null ? null : String(row.driver_id),
-      payout_type: (row.payout_type as string | null) ?? null,
-      event_type: String(row.event_type ?? ""),
-      requested_amount_pence: row.requested_amount_pence == null
-        ? null
-        : Number(row.requested_amount_pence),
-      provider_error_code: (row.provider_error_code as string | null) ?? null,
-      provider_error_message: (row.provider_error_message as string | null) ?? null,
-      metadata: (row.metadata as Record<string, unknown> | null) ?? null,
-    }));
+    audit_rows = (payoutAudit ?? [])
+      .map((row) => ({
+        id: String(row.id),
+        created_at: String(row.created_at),
+        driver_id: row.driver_id == null ? null : String(row.driver_id),
+        payout_type: (row.payout_type as string | null) ?? null,
+        event_type: String(row.event_type ?? ""),
+        requested_amount_pence: row.requested_amount_pence == null
+          ? null
+          : Number(row.requested_amount_pence),
+        provider_error_code: (row.provider_error_code as string | null) ?? null,
+        provider_error_message: (row.provider_error_message as string | null) ?? null,
+        metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+      }))
+      .filter((row) => {
+        if (!platformDriverSet) return true;
+        if (!row.driver_id) return false;
+        return platformDriverSet.has(row.driver_id);
+      });
   } catch (err) {
     console.warn("[admin-payout-ledger] payout_audit_log read failed", err);
   }
@@ -864,6 +885,7 @@ async function listCompanyAudit(
       mode: "list",
       tab: "history",
       service_area_id: request.service_area_id,
+      allowed_service_area_ids: request.allowed_service_area_ids ?? null,
       limit,
     });
     driverItems = (detail.items ?? []).filter((i) => {

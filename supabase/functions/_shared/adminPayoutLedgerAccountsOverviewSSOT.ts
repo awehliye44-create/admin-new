@@ -67,7 +67,10 @@ function emptyFleet(): AdminPayoutLedgerFleetSummary {
   };
 }
 
-async function loadPayoutItemStatusTotals(supabase: AnySupabase): Promise<{
+async function loadPayoutItemStatusTotals(
+  supabase: AnySupabase,
+  platformDriverIds: readonly string[],
+): Promise<{
   scheduled_pence: number;
   processing_pence: number;
   paid_today_pence: number;
@@ -79,10 +82,26 @@ async function loadPayoutItemStatusTotals(supabase: AnySupabase): Promise<{
   processing_count: number;
   completed_count: number;
 }> {
+  const empty = {
+    scheduled_pence: 0,
+    processing_pence: 0,
+    paid_today_pence: 0,
+    paid_week_pence: 0,
+    paid_month_pence: 0,
+    paid_year_pence: 0,
+    failed_count: 0,
+    scheduled_count: 0,
+    processing_count: 0,
+    completed_count: 0,
+  };
+  // PLATFORM Payout Ledger only — never sum CW-driver payout_items into fleet KPIs.
+  if (platformDriverIds.length === 0) return empty;
+
   // No paid_at column on payout_items — must use completed_at.
   const { data: items } = await supabase
     .from("payout_items")
-    .select("status, net_driver_payout_pence, amount_pence, created_at, updated_at, completed_at, execution_status")
+    .select("status, net_driver_payout_pence, amount_pence, created_at, updated_at, completed_at, execution_status, driver_id")
+    .in("driver_id", [...platformDriverIds])
     .limit(2000);
 
   const SCHEDULED = new Set(["pending", "scheduled", "queued", "on_hold", "ready"]);
@@ -154,35 +173,33 @@ export async function buildPayoutLedgerAccountsOverview(
     limit?: number;
   },
 ): Promise<AdminPayoutLedgerListResponse> {
+  const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
+    service_area_id: args?.service_area_id ?? null,
+    allowed_service_area_ids: args?.allowed_service_area_ids ?? [],
+  });
+  if (platformDriverIds.length === 0) {
+    return {
+      success: true,
+      page_status: "LIVE",
+      tab: "overview",
+      items: [],
+      batches: [],
+      accounts: [],
+      fleet_summary: emptyFleet(),
+      summary: emptySummary(),
+    };
+  }
+
   let driverQuery = supabase
     .from("drivers")
     .select("id, first_name, last_name, driver_code, payouts_enabled, category_id, driver_categories(name)")
     .eq("approval_status", "approved")
+    .in("id", platformDriverIds)
     .limit(Math.min(200, Math.max(1, args?.limit ?? 100)));
-
-  if (args?.service_area_id || args?.allowed_service_area_ids) {
-    const ids = await resolvePlatformCollectedDriverIds(supabase, {
-      service_area_id: args?.service_area_id ?? null,
-      allowed_service_area_ids: args?.allowed_service_area_ids ?? [],
-    });
-    if (ids.length === 0) {
-      return {
-        success: true,
-        page_status: "LIVE",
-        tab: "overview",
-        items: [],
-        batches: [],
-        accounts: [],
-        fleet_summary: emptyFleet(),
-        summary: emptySummary(),
-      };
-    }
-    driverQuery = driverQuery.in("id", ids);
-  }
 
   const [{ data: drivers, error }, itemTotals] = await Promise.all([
     driverQuery,
-    loadPayoutItemStatusTotals(supabase),
+    loadPayoutItemStatusTotals(supabase, platformDriverIds),
   ]);
   if (error) {
     console.error("[admin-payout-ledger] drivers query failed", error);

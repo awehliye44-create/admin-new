@@ -31,6 +31,7 @@ import { isValidConfirmedCapturePence } from "../../../shared/paymentCaptureEvid
 import {
   buildCanonicalTripEconomicsRead,
 } from "../../../shared/paymentSessionsCanonicalReadAdapterSSOT.ts";
+import { classifyTripForPlatformCollectedAdminPage } from "../../../shared/financialModelScopeSSOT.ts";
 import { listPaymentHoldsRequiringAttention } from "./paymentHoldReconciliationSSOT.ts";
 import { buildPaymentSessionsTripCompare, buildPsOnlyCompareSummary } from "./adminPaymentSessionsTripCompareSSOT.ts";
 import type { PaymentHoldReconciliationRow } from "../../../shared/paymentHoldReconciliation.ts";
@@ -397,6 +398,7 @@ export async function listAdminPaymentSessions(
       refreshProviderState: refresh,
       view: "all",
       limit: fetchLimit,
+      allowed_service_area_ids: request.allowed_service_area_ids ?? null,
       filters: {
         dateFrom: request.date_from,
         dateTo: request.date_to,
@@ -416,6 +418,7 @@ export async function listAdminPaymentSessions(
       refreshProviderState: false,
       view: "all",
       limit: fetchLimit,
+      allowed_service_area_ids: request.allowed_service_area_ids ?? null,
       filters: {
         dateFrom: request.date_from,
         dateTo: request.date_to,
@@ -737,13 +740,28 @@ export async function listAdminPaymentSessions(
     const { data: tripPayables } = await supabase
       .from("trips")
       .select(
-        "id, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, waiting_charge_pence, total_waiting_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, tip_pence, tip_amount_pence, locked_base_fare_pence, customer_modification_charge_pence, destination_change_adjustment_pence, accepted_preset_offer_fare_pence, accepted_driver_offer_fare_pence, commissionable_fare_pence, commission_pence, driver_net_pence",
+        "id, financial_model, commission_wallet_enabled, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, waiting_charge_pence, total_waiting_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, tip_pence, tip_amount_pence, locked_base_fare_pence, customer_modification_charge_pence, destination_change_adjustment_pence, accepted_preset_offer_fare_pence, accepted_driver_offer_fare_pence, commissionable_fare_pence, commission_pence, driver_net_pence",
       )
       .in("id", payableTripIds);
     const payableByTrip = new Map<string, number | null>();
+    const cwExcludedTripIds = new Set<string>();
     for (const t of tripPayables ?? []) {
+      if (!classifyTripForPlatformCollectedAdminPage(t as {
+        financial_model?: unknown;
+        commission_wallet_enabled?: unknown;
+      }).includeOnPlatformPage) {
+        cwExcludedTripIds.add(String(t.id));
+        continue;
+      }
       const eco = buildCanonicalTripEconomicsRead(t as Record<string, unknown>);
       payableByTrip.set(String(t.id), eco.final_fare_pence);
+    }
+    // Drop sessions whose linked trip is CW / unknown-CW (SA allowlist alone is not enough).
+    if (cwExcludedTripIds.size > 0) {
+      for (let i = mapped.length - 1; i >= 0; i--) {
+        const tripId = mapped[i]?.trip_id;
+        if (tripId && cwExcludedTripIds.has(tripId)) mapped.splice(i, 1);
+      }
     }
     const openRecoveryByTripId = new Set<string>();
     for (const r of mapped) {
@@ -1060,7 +1078,10 @@ function buildPaymentSessionsSummary(
     red: activeActionRequired,
     amber: automaticallyRecovering,
     green: rows.filter((r) => r.classification === "GREEN").length,
-    unknown_count: holdSummary.unknown_count,
+    unknown_count: rows.filter((r) =>
+      String(r.attention_class ?? "").includes("UNKNOWN")
+      || String(r.classification ?? "") === "UNKNOWN"
+    ).length,
     active_action_required_count: activeActionRequired,
     automatically_recovering_count: automaticallyRecovering,
     automatically_recovered_count: automaticallyRecovered,

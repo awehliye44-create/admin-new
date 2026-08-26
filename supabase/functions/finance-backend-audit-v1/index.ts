@@ -18,6 +18,8 @@ import {
   type TripAuditSourceRow,
 } from "../_shared/financeSettlementSummary.ts";
 import { getLondonDayBounds, normalizeFinancePeriodParam } from "../_shared/financeLondonDay.ts";
+import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
+import { resolvePlatformCollectedDriverIds } from "../_shared/platformCollectedDriverScope.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -160,15 +162,38 @@ serve(async (req) => {
       currency = (region?.currency_code || "gbp").toLowerCase();
     }
 
-    let serviceAreaIds: string[] | null = null;
-    if (serviceAreaId) {
-      serviceAreaIds = [serviceAreaId];
-    } else if (resolvedRegionId) {
+    // FR Alerts audit is PLATFORM_COLLECTED only — never mix CW SAs / drivers / trips.
+    const modelScope = await resolveServiceAreaFinancialScope(
+      supabase,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      serviceAreaId,
+    );
+    if (!modelScope.ok) {
+      return json({
+        error: modelScope.error,
+        error_code: modelScope.code,
+        finance_backend_audit_v1: null,
+      });
+    }
+    let serviceAreaIds = [...modelScope.allowedServiceAreaIds];
+    if (resolvedRegionId && !serviceAreaId) {
       const { data: areas } = await supabase
         .from("service_areas")
         .select("id")
         .eq("region_id", resolvedRegionId);
-      serviceAreaIds = (areas || []).map((a) => a.id);
+      const regionSet = new Set((areas || []).map((a) => String(a.id)));
+      serviceAreaIds = serviceAreaIds.filter((id) => regionSet.has(id));
+    }
+    const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id: serviceAreaId,
+      allowed_service_area_ids: serviceAreaIds,
+    });
+    if (driverId && !platformDriverIds.includes(String(driverId))) {
+      return json({
+        error: "Driver is outside PLATFORM_COLLECTED scope",
+        error_code: "FINANCIAL_MODEL_VIOLATION",
+        finance_backend_audit_v1: null,
+      });
     }
 
     let tripQuery = supabase
@@ -200,6 +225,7 @@ serve(async (req) => {
         service_area_id,
         driver:drivers!trips_driver_id_fkey(first_name, last_name)
       `)
+      .eq("financial_model", FINANCIAL_MODEL.PLATFORM_COLLECTED)
       .gte("completed_at", periodFrom)
       .lte("completed_at", periodTo)
       .or(`financial_outcome.in.(${COUNTABLE_FINANCIAL_OUTCOMES.join(",")}),status.in.(completed,no_show)`)
@@ -207,8 +233,10 @@ serve(async (req) => {
       .order("completed_at", { ascending: false })
       .limit(auditLimit);
 
-    if (serviceAreaIds?.length) tripQuery = tripQuery.in("service_area_id", serviceAreaIds);
+    if (serviceAreaIds.length) tripQuery = tripQuery.in("service_area_id", serviceAreaIds);
     if (driverId) tripQuery = tripQuery.eq("driver_id", driverId);
+
+    const scopedDriverIds = driverId ? [String(driverId)] : platformDriverIds;
 
     let ledgerQuery = supabase
       .from("driver_wallet_ledger")
@@ -217,7 +245,12 @@ serve(async (req) => {
       .lte("created_at", periodTo)
       .order("created_at", { ascending: false })
       .limit(5000);
-    if (driverId) ledgerQuery = ledgerQuery.eq("driver_id", driverId);
+    if (scopedDriverIds.length > 0) {
+      ledgerQuery = ledgerQuery.in("driver_id", scopedDriverIds);
+    } else {
+      // No PLATFORM drivers in scope — force empty ledger (never all drivers).
+      ledgerQuery = ledgerQuery.eq("driver_id", "00000000-0000-0000-0000-000000000000");
+    }
 
     let payoutQuery = supabase
       .from("payout_items")
@@ -240,7 +273,11 @@ serve(async (req) => {
       .lte("created_at", periodTo)
       .order("created_at", { ascending: false })
       .limit(auditLimit);
-    if (driverId) payoutQuery = payoutQuery.eq("driver_id", driverId);
+    if (scopedDriverIds.length > 0) {
+      payoutQuery = payoutQuery.in("driver_id", scopedDriverIds);
+    } else {
+      payoutQuery = payoutQuery.eq("driver_id", "00000000-0000-0000-0000-000000000000");
+    }
 
     let cashoutQuery = supabase
       .from("driver_early_cashouts")
@@ -260,7 +297,11 @@ serve(async (req) => {
       .lte("created_at", periodTo)
       .order("created_at", { ascending: false })
       .limit(auditLimit);
-    if (driverId) cashoutQuery = cashoutQuery.eq("driver_id", driverId);
+    if (scopedDriverIds.length > 0) {
+      cashoutQuery = cashoutQuery.in("driver_id", scopedDriverIds);
+    } else {
+      cashoutQuery = cashoutQuery.eq("driver_id", "00000000-0000-0000-0000-000000000000");
+    }
 
     const [tripResult, ledgerResult, payoutResult, cashoutResult] = await Promise.all([
       tripQuery,

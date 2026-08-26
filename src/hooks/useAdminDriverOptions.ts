@@ -1,6 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { DriverOption } from '@/components/finance/DriverSelector';
+import {
+  FINANCIAL_MODEL,
+  type FinancialModel,
+  normaliseServiceAreaFinancialModel,
+} from '../../shared/financialModelScopeSSOT';
 
 type AdminDriverRow = {
   id: string;
@@ -29,28 +34,58 @@ export function useAdminDriverOptions(args?: {
   serviceAreaId?: string | null;
   /** When true, only drivers with payouts enabled. */
   payoutsEnabledOnly?: boolean;
+  /**
+   * When set, only drivers belonging to service areas of this financial model.
+   * PLATFORM pages (Payout Ledger Settings) must pass PLATFORM_COLLECTED.
+   */
+  financialModel?: FinancialModel | null;
 }) {
   const regionId = args?.regionId ?? null;
   const serviceAreaId = args?.serviceAreaId ?? null;
   const payoutsEnabledOnly = args?.payoutsEnabledOnly ?? false;
+  const financialModel = args?.financialModel ?? null;
 
   return useQuery({
-    queryKey: ['admin-driver-options', regionId, serviceAreaId, payoutsEnabledOnly],
+    queryKey: ['admin-driver-options', regionId, serviceAreaId, payoutsEnabledOnly, financialModel],
     queryFn: async (): Promise<DriverOption[]> => {
-      const [{ data: drivers, error: driversError }, junctionRes] = await Promise.all([
+      const [{ data: drivers, error: driversError }, junctionRes, areasRes] = await Promise.all([
         supabase.rpc('admin_list_drivers'),
         serviceAreaId
           ? supabase
             .from('driver_service_areas')
             .select('driver_id')
             .eq('service_area_id', serviceAreaId)
+          : financialModel
+          ? supabase
+            .from('driver_service_areas')
+            .select('driver_id, service_area_id')
+          : Promise.resolve({ data: null, error: null }),
+        financialModel
+          ? supabase.from('service_areas').select('id, financial_model')
           : Promise.resolve({ data: null, error: null }),
       ]);
 
       if (driversError) throw driversError;
       if (junctionRes.error) throw junctionRes.error;
+      if (areasRes.error) throw areasRes.error;
 
-      const junctionIds = new Set((junctionRes.data ?? []).map((row) => row.driver_id));
+      const modelAllowedSaIds = financialModel
+        ? new Set(
+          ((areasRes.data ?? []) as Array<{ id: string; financial_model?: unknown }>)
+            .filter((sa) => normaliseServiceAreaFinancialModel(sa.financial_model) === financialModel)
+            .map((sa) => sa.id),
+        )
+        : null;
+
+      const junctionIds = new Set(
+        ((junctionRes.data ?? []) as Array<{ driver_id: string; service_area_id?: string }>)
+          .filter((row) => {
+            if (!modelAllowedSaIds) return true;
+            if (serviceAreaId) return true;
+            return modelAllowedSaIds.has(String(row.service_area_id ?? ''));
+          })
+          .map((row) => row.driver_id),
+      );
 
       let list = ((drivers ?? []) as AdminDriverRow[]).filter((d) => {
         if (d.deleted_at) return false;
@@ -63,7 +98,20 @@ export function useAdminDriverOptions(args?: {
         list = list.filter(
           (d) => d.service_area_id === serviceAreaId || junctionIds.has(d.id),
         );
+        if (modelAllowedSaIds && !modelAllowedSaIds.has(serviceAreaId)) {
+          list = [];
+        }
+      } else if (financialModel && modelAllowedSaIds) {
+        list = list.filter(
+          (d) =>
+            junctionIds.has(d.id)
+            || (d.service_area_id != null && modelAllowedSaIds.has(d.service_area_id)),
+        );
       } else if (regionId) {
+        list = list.filter((d) => d.region_id === regionId);
+      }
+
+      if (regionId && !serviceAreaId) {
         list = list.filter((d) => d.region_id === regionId);
       }
 
@@ -78,6 +126,8 @@ export function useAdminDriverOptions(args?: {
     staleTime: 60_000,
   });
 }
+
+export { FINANCIAL_MODEL };
 
 export function findDriverOption(options: DriverOption[], driverId: string | null | undefined): DriverOption | null {
   if (!driverId) return null;

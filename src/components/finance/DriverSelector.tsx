@@ -28,6 +28,7 @@ export function DriverSelector({
   onChange,
   regionId,
   serviceAreaId,
+  financialModel,
   fallbackLabel,
   className,
 }: {
@@ -35,6 +36,8 @@ export function DriverSelector({
   onChange: (driverId: string | null, driver?: DriverOption | null) => void;
   regionId?: string | null;
   serviceAreaId?: string | null;
+  /** When set, only list drivers in that financial-model pipeline. */
+  financialModel?: 'PLATFORM_COLLECTED' | 'DRIVER_COLLECTED_COMMISSION_WALLET' | null;
   /** SSOT or URL fallback when drivers row is still loading */
   fallbackLabel?: string | null;
   /** Limit to drivers with Provider (Driver Wallet Ledger). */
@@ -50,7 +53,7 @@ export function DriverSelector({
     isError,
     error,
     refetch,
-  } = useAdminDriverOptions({ regionId, serviceAreaId });
+  } = useAdminDriverOptions({ regionId, serviceAreaId, financialModel });
 
   useEffect(() => {
     if (!open) return;

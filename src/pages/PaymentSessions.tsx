@@ -842,7 +842,11 @@ export default function PaymentSessions() {
                 try {
                   const { data: r, error: e } = await supabase.functions.invoke(
                     'admin-refresh-payment-sessions',
-                    { body: {} },
+                    {
+                      body: {
+                        service_area_id: serviceFilter.serviceAreaId || null,
+                      },
+                    },
                   );
                   if (e) throw e;
                   const refreshed = (r as { refreshed?: number } | null)?.refreshed ?? 0;

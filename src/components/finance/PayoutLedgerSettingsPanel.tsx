@@ -524,6 +524,20 @@ export function PayoutLedgerSettingsPanel({
   const driverOverrideMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
       if (!overrideDriverId) throw new Error('Select a driver');
+      // PIPELINE 1 — never pause/resume CW-only drivers from Payout Ledger Settings.
+      const { data: links, error: linkErr } = await supabase
+        .from('driver_service_areas')
+        .select('service_area_id, service_areas(financial_model)')
+        .eq('driver_id', overrideDriverId);
+      if (linkErr) throw linkErr;
+      const platformMember = (links ?? []).some((row) => {
+        const sa = row.service_areas as { financial_model?: string | null } | null;
+        const model = String(sa?.financial_model ?? '').toUpperCase();
+        return model !== 'DRIVER_COLLECTED_COMMISSION_WALLET';
+      });
+      if (!platformMember) {
+        throw new Error('Driver is outside PLATFORM_COLLECTED Payout Ledger scope');
+      }
       const { error } = await supabase
         .from('drivers')
         .update({ payouts_enabled: enabled })
@@ -628,7 +642,7 @@ export function PayoutLedgerSettingsPanel({
             onChange={setOverrideDriverId}
             regionId={serviceFilter.regionId}
             serviceAreaId={serviceFilter.serviceAreaId}
-            
+            financialModel="PLATFORM_COLLECTED"
           />
           {overrideDriverId && (
             <div className="flex items-center justify-between gap-3 rounded-md border p-3">

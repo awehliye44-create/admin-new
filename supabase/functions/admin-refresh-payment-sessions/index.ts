@@ -16,6 +16,8 @@ import {
   isRecoveryCompletionIdempotent,
 } from "../_shared/paymentSessionsRecoveryCompletionSSOT.ts";
 import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
+import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
+import { classifyTripForPlatformCollectedAdminPage } from "../../../shared/financialModelScopeSSOT.ts";
 
 const ACTIVE_STATUSES = [
   "pending_payment",
@@ -46,25 +48,70 @@ serve(async (req) => {
     const gate = await requireAdminOrStaff(req);
     if (!gate.ok) return gate.response;
 
-    let body: { session_ids?: string[] } = {};
+    let body: { session_ids?: string[]; service_area_id?: string | null } = {};
     try { body = (await req.json()) ?? {}; } catch { /* optional */ }
+
+    // Payment Sessions page is PLATFORM_COLLECTED only — never refresh CW sessions.
+    const modelScope = await resolveServiceAreaFinancialScope(
+      gate.supabase,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      body.service_area_id ?? null,
+    );
+    if (!modelScope.ok) {
+      return jsonResponse({
+        ok: false,
+        error: modelScope.error,
+        error_code: modelScope.code,
+      }, 400);
+    }
+    const allowedSa = new Set(modelScope.allowedServiceAreaIds);
 
     const query = gate.supabase
       .from("payment_sessions")
       .select(
-        "id, provider_order_id, provider_capture_id, status, provider_state, authorised_amount_pence, trip_id, purpose, metadata, parent_session_id, captured_amount_pence, refunded_amount_pence, hold_release_state, financial_operation_state, financial_model",
+        "id, provider_order_id, provider_capture_id, status, provider_state, authorised_amount_pence, trip_id, purpose, metadata, parent_session_id, captured_amount_pence, refunded_amount_pence, hold_release_state, financial_operation_state, financial_model, service_area_id",
       )
       .eq("payment_provider", "revolut")
       .not("provider_order_id", "is", null);
 
-    const { data: sessions, error } = Array.isArray(body.session_ids) && body.session_ids.length > 0
+    const { data: sessionsRaw, error } = Array.isArray(body.session_ids) && body.session_ids.length > 0
       ? await query.in("id", body.session_ids)
       : await query.or(
           `status.in.(${ACTIVE_STATUSES.join(",")}),provider_state.in.(AUTHORISED,PENDING,PROCESSING,UNKNOWN)`,
         );
 
     if (error) return jsonResponse({ error: error.message }, 500);
-    if (!sessions?.length) return jsonResponse({ ok: true, refreshed: 0, results: [] });
+    if (!sessionsRaw?.length) return jsonResponse({ ok: true, refreshed: 0, results: [] });
+
+    const tripIdsForClassify = [
+      ...new Set(
+        sessionsRaw
+          .map((s) => String(s.trip_id ?? ""))
+          .filter(Boolean),
+      ),
+    ];
+    const tripById = new Map<string, { financial_model?: unknown; commission_wallet_enabled?: unknown }>();
+    if (tripIdsForClassify.length > 0) {
+      const { data: trips } = await gate.supabase
+        .from("trips")
+        .select("id, financial_model, commission_wallet_enabled")
+        .in("id", tripIdsForClassify);
+      for (const t of trips ?? []) {
+        tripById.set(String(t.id), t as { financial_model?: unknown; commission_wallet_enabled?: unknown });
+      }
+    }
+
+    const sessions = sessionsRaw.filter((s) => {
+      const sa = s.service_area_id ? String(s.service_area_id) : "";
+      if (sa && !allowedSa.has(sa)) return false;
+      const trip = s.trip_id ? tripById.get(String(s.trip_id)) : undefined;
+      if (!sa && !trip) return false;
+      return classifyTripForPlatformCollectedAdminPage({
+        financial_model: s.financial_model ?? trip?.financial_model,
+        commission_wallet_enabled: trip?.commission_wallet_enabled,
+      }).includeOnPlatformPage;
+    });
+    if (!sessions.length) return jsonResponse({ ok: true, refreshed: 0, results: [], skipped_out_of_scope: sessionsRaw.length });
 
     const { secretKey, environment } = getRevolutMerchantConfig();
     const nowIso = new Date().toISOString();

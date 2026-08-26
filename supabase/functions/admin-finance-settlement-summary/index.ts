@@ -17,6 +17,8 @@ import {
   type PayoutFailureRow,
   type TripFinanceRow,
 } from "../_shared/financeSettlementSummary.ts";
+import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
+import { resolvePlatformCollectedDriverIds } from "../_shared/platformCollectedDriverScope.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -82,6 +84,19 @@ serve(async (req) => {
     const periodFrom = url.searchParams.get("from") || startOfTodayUtc();
     const periodTo = url.searchParams.get("to") || endOfTodayUtc();
 
+    // PIPELINE 1 — settlement summary is PLATFORM_COLLECTED only (never mix CW trips/wallets).
+    const modelScope = await resolveServiceAreaFinancialScope(
+      supabase,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      serviceAreaId,
+    );
+    if (!modelScope.ok) {
+      return new Response(JSON.stringify({ error: modelScope.error, error_code: modelScope.code }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     let resolvedRegionId = regionId;
     if (!resolvedRegionId && serviceAreaId) {
       const { data: sa } = await supabase
@@ -124,26 +139,44 @@ serve(async (req) => {
         service_area_id,
         financial_model
       `)
+      .eq("financial_model", FINANCIAL_MODEL.PLATFORM_COLLECTED)
       .gte("completed_at", periodFrom)
       .lte("completed_at", periodTo)
       .or(`financial_outcome.in.(${COUNTABLE_FINANCIAL_OUTCOMES.join(",")}),status.in.(completed,no_show)`)
       .not("completed_at", "is", null);
 
     if (serviceAreaId) tripQuery = tripQuery.eq("service_area_id", serviceAreaId);
-    else if (resolvedRegionId) {
-      const { data: areas } = await supabase.from("service_areas").select("id").eq("region_id", resolvedRegionId);
-      const ids = (areas || []).map((a) => a.id);
+    else if (modelScope.allowedServiceAreaIds.length > 0) {
+      let ids = modelScope.allowedServiceAreaIds;
+      if (resolvedRegionId) {
+        const { data: areas } = await supabase.from("service_areas").select("id").eq("region_id", resolvedRegionId);
+        const regionSet = new Set((areas || []).map((a) => a.id as string));
+        ids = ids.filter((id) => regionSet.has(id));
+      }
       if (ids.length > 0) tripQuery = tripQuery.in("service_area_id", ids);
+      else tripQuery = tripQuery.eq("service_area_id", "00000000-0000-0000-0000-000000000000");
+    } else {
+      tripQuery = tripQuery.eq("service_area_id", "00000000-0000-0000-0000-000000000000");
     }
 
-    const financialPromise = resolvedRegionId
-      ? supabase
-        .from("driver_financial_summary")
-        .select("driver_id, wallet_balance, available_for_payout, net_available_for_payout, total_payouts_sent, reserved_cashout_pence, region_id")
-        .eq("region_id", resolvedRegionId)
-      : supabase
-        .from("driver_financial_summary")
-        .select("driver_id, wallet_balance, available_for_payout, net_available_for_payout, total_payouts_sent, reserved_cashout_pence, region_id");
+    const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id: serviceAreaId,
+      allowed_service_area_ids: modelScope.allowedServiceAreaIds,
+    });
+    const platformDriverSet = new Set(platformDriverIds);
+
+    const financialPromise = platformDriverIds.length > 0
+      ? (resolvedRegionId
+        ? supabase
+          .from("driver_financial_summary")
+          .select("driver_id, wallet_balance, available_for_payout, net_available_for_payout, total_payouts_sent, reserved_cashout_pence, region_id")
+          .eq("region_id", resolvedRegionId)
+          .in("driver_id", platformDriverIds)
+        : supabase
+          .from("driver_financial_summary")
+          .select("driver_id, wallet_balance, available_for_payout, net_available_for_payout, total_payouts_sent, reserved_cashout_pence, region_id")
+          .in("driver_id", platformDriverIds))
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null });
 
     const todayStart = startOfTodayUtc();
 
@@ -156,21 +189,30 @@ serve(async (req) => {
     ] = await Promise.all([
       tripQuery,
       financialPromise,
-      supabase
-        .from("payout_items")
-        .select("amount_pence, error_message, created_at, drivers:driver_id(region_id)")
-        .eq("status", "failed")
-        .gte("created_at", todayStart)
-        .order("created_at", { ascending: false })
-        .limit(50),
-      supabase
-        .from("payout_items")
-        .select("amount_pence")
-        .in("status", ["pending", "processing"]),
-      supabase
-        .from("driver_early_cashouts")
-        .select("requested_cashout_pence, driver_receives_pence")
-        .in("status", ["processing", "pending", "transfer_created"]),
+      platformDriverIds.length > 0
+        ? supabase
+          .from("payout_items")
+          .select("amount_pence, error_message, created_at, driver_id, drivers:driver_id(region_id)")
+          .eq("status", "failed")
+          .gte("created_at", todayStart)
+          .in("driver_id", platformDriverIds)
+          .order("created_at", { ascending: false })
+          .limit(50)
+        : Promise.resolve({ data: [], error: null }),
+      platformDriverIds.length > 0
+        ? supabase
+          .from("payout_items")
+          .select("amount_pence")
+          .in("status", ["pending", "processing"])
+          .in("driver_id", platformDriverIds)
+        : Promise.resolve({ data: [], error: null }),
+      platformDriverIds.length > 0
+        ? supabase
+          .from("driver_early_cashouts")
+          .select("requested_cashout_pence, driver_receives_pence, driver_id")
+          .in("status", ["processing", "pending", "transfer_created"])
+          .in("driver_id", platformDriverIds)
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
     if (tripResult.error) throw tripResult.error;
@@ -188,10 +230,14 @@ serve(async (req) => {
     const paidOut = financialRows.reduce((s, d) => s + Number(d.total_payouts_sent || 0), 0);
     const reservedCashout = financialRows.reduce((s, d) => s + Number(d.reserved_cashout_pence || 0), 0);
 
-    const failedItems = (failedPayoutsResult.data || []) as Array<PayoutFailureRow & { drivers?: { region_id?: string } | null }>;
-    const scopedFailed = resolvedRegionId
-      ? failedItems.filter((f) => f.drivers?.region_id === resolvedRegionId)
-      : failedItems;
+    const failedItems = (failedPayoutsResult.data || []) as Array<
+      PayoutFailureRow & { driver_id?: string; drivers?: { region_id?: string } | null }
+    >;
+    const scopedFailed = failedItems.filter((f) => {
+      if (f.driver_id && !platformDriverSet.has(String(f.driver_id))) return false;
+      if (resolvedRegionId) return f.drivers?.region_id === resolvedRegionId;
+      return true;
+    });
     const failedAmount = scopedFailed.reduce((s, f) => s + Number(f.amount_pence || 0), 0);
 
     const failureReasonMap = new Map<string, { amount_pence: number; count: number }>();

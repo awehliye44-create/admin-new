@@ -2,11 +2,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
 import { listPaymentHoldsRequiringAttention } from "../_shared/paymentHoldReconciliationSSOT.ts";
+import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 
 const InputSchema = z.object({
   refresh_provider_state: z.boolean().optional().default(true),
   view: z.enum(["attention", "history", "all"]).optional().default("attention"),
   limit: z.number().int().min(1).max(200).optional(),
+  service_area_id: z.string().uuid().nullable().optional(),
 });
 
 serve(async (req) => {
@@ -28,6 +30,7 @@ serve(async (req) => {
       body = {
         refresh_provider_state: url.searchParams.get("refresh_provider_state") !== "0",
         view: url.searchParams.get("view") ?? "attention",
+        service_area_id: url.searchParams.get("service_area_id"),
       };
     }
 
@@ -36,10 +39,25 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: "Invalid input", details: parsed.error.flatten() }, 400);
     }
 
+    // PIPELINE 1 — holds reconciliation is PLATFORM_COLLECTED only.
+    const scope = await resolveServiceAreaFinancialScope(
+      gate.supabase,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      parsed.data.service_area_id ?? null,
+    );
+    if (!scope.ok) {
+      return jsonResponse({
+        success: false,
+        error: scope.error,
+        error_code: scope.code,
+      }, 400);
+    }
+
     const holds = await listPaymentHoldsRequiringAttention(gate.supabase, {
       refreshProviderState: parsed.data.refresh_provider_state,
       view: parsed.data.view,
       limit: parsed.data.limit,
+      allowed_service_area_ids: scope.allowedServiceAreaIds,
     });
 
     return jsonResponse({
