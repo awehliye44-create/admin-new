@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -26174,7 +26174,12 @@ export type Database = {
       current_driver_id: { Args: never; Returns: string }
       current_driver_profile_id: { Args: never; Returns: string }
       customer_counter_ride_offer: {
-        Args: { p_offer_id: string; p_selected_fare_pence: number }
+        Args: {
+          p_actor_user_id?: string
+          p_customer_id?: string
+          p_offer_id: string
+          p_selected_fare_pence: number
+        }
         Returns: Json
       }
       decline_ride_offer:
@@ -27970,6 +27975,7 @@ export type Database = {
           trip_id: string
         }[]
       }
+      refresh_driver_document_approval_flags: { Args: never; Returns: number }
       refresh_driver_wallet_reservation_cache: {
         Args: { p_driver_id: string }
         Returns: undefined

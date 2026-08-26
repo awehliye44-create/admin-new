@@ -91,7 +91,10 @@ export function assertFinanceReconciliationSsotResponse(data: unknown): void {
     throw new Error(`${FN} returned an empty or invalid body`);
   }
   const row = data as Record<string, unknown>;
-  if (row.finance_reconciliation_summary && typeof row.finance_reconciliation_summary === 'object') {
+  const hasSummary = row.finance_reconciliation_summary
+    && typeof row.finance_reconciliation_summary === 'object';
+  const hasProfitSsot = row.profit_ssot && typeof row.profit_ssot === 'object';
+  if (hasSummary || hasProfitSsot) {
     return;
   }
   if (
@@ -104,6 +107,6 @@ export function assertFinanceReconciliationSsotResponse(data: unknown): void {
     );
   }
   throw new Error(
-    `${FN} wrong contract: missing finance_reconciliation_summary`,
+    `${FN} wrong contract: missing finance_reconciliation_summary or profit_ssot`,
   );
 }
