@@ -37,7 +37,7 @@ export interface ResolvedPersonalVoucher {
   finalFarePence: number;
 }
 
-function calcDiscountPence(voucher: PersonalVoucherRow, farePence: number): number {
+export function calcDiscountPence(voucher: PersonalVoucherRow, farePence: number): number {
   if (farePence <= 0) return 0;
   let raw = 0;
   if (voucher.discount_type === "percent") {
