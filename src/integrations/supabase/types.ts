@@ -26256,6 +26256,13 @@ export type Database = {
         Args: { p_reminder_days: number[] }
         Returns: number
       }
+      document_update_is_versioning_only: {
+        Args: {
+          p_new: Database["public"]["Tables"]["documents"]["Row"]
+          p_old: Database["public"]["Tables"]["documents"]["Row"]
+        }
+        Returns: boolean
+      }
       driver_accept_counter_offer: {
         Args: { p_driver_id: string; p_offer_id: string }
         Returns: Json
