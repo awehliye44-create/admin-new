@@ -99,6 +99,16 @@ async function applyTripHistoryLocationFilter(
   return query;
 }
 
+/** Newest-first by display date (completed_at, else cancelled_at, else created_at). */
+export function sortTripHistoryRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  const at = (row: Record<string, unknown>): number => {
+    const value = (row.completed_at ?? row.cancelled_at ?? row.created_at) as string | null | undefined;
+    const ts = value ? new Date(value).getTime() : NaN;
+    return Number.isFinite(ts) ? ts : 0;
+  };
+  return [...rows].sort((a, b) => at(b) - at(a));
+}
+
 export async function fetchTripHistoryRows(args: {
   start: Date;
   end: Date;
@@ -119,14 +129,15 @@ export async function fetchTripHistoryRows(args: {
       .select(select)
       .or(tripHistoryTerminalOrFilter())
       .or(tripHistoryDateOrFilter(args.start, args.end))
-      .order('completed_at', { ascending: false, nullsFirst: false })
+      // Order by created_at so no-show rows (completed_at NULL) are never truncated away.
+      .order('created_at', { ascending: false })
       .limit(2000);
 
     query = await applyTripHistoryLocationFilter(query, args);
 
     const { data, error } = await query;
     if (!error) {
-      const rows = (data ?? []) as unknown as TripHistoryRow[];
+      const rows = sortTripHistoryRows((data ?? []) as unknown as TripHistoryRow[]);
       const directory = await fetchPassengerDirectory(
         rows.map((row) => (row as { passenger_id?: string | null }).passenger_id),
       );
@@ -141,3 +152,4 @@ export async function fetchTripHistoryRows(args: {
 
   throw lastError ?? new Error('Failed to load trip history');
 }
+

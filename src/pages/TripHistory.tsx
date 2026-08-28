@@ -773,15 +773,26 @@ export default function TripHistory() {
     resolveAdminCompletedTripCustomerPayablePence(trip);
 
   /**
-   * Provider actual captured amount — Payment Sessions SSOT only.
-   * No trip.capture_amount_pence / payments-table fallback for finance display.
+   * Provider actual captured amount.
+   * Preferred: Payment Sessions SSOT. Fallback (older/no-session trips): confirmed
+   * payments capture row, then trips.capture_amount_pence when payment_status = captured.
    */
   const getTripProviderCapturedPence = (trip: CompletedTrip): number | null => {
     if (trip.ps_captured_pence != null && Number.isFinite(Number(trip.ps_captured_pence))) {
       return Math.round(Number(trip.ps_captured_pence));
     }
+    const paymentsCaptured = Number(trip.payment_captured_pence);
+    if (Number.isFinite(paymentsCaptured) && paymentsCaptured > 0) {
+      return Math.round(paymentsCaptured);
+    }
+    const status = String(trip.payment_status ?? '').trim().toLowerCase();
+    if (status === 'captured' || status === 'paid') {
+      const tripCaptured = Number(trip.capture_amount_pence);
+      if (Number.isFinite(tripCaptured) && tripCaptured > 0) return Math.round(tripCaptured);
+    }
     return null;
   };
+
 
   /** PS-owned refund only — never reconstruct from trip.refund_amount as primary. */
   const getTripProviderRefundedPence = (trip: CompletedTrip): number | null => {
