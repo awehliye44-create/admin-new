@@ -12,6 +12,7 @@ import {
   TRIP_HISTORY_FINANCIAL_OUTCOMES,
   TRIP_HISTORY_STATUSES,
   tripHistoryDateOrFilter,
+  sortTripHistoryRows,
   tripHistoryTerminalOrFilter,
 } from '../tripHistoryQuery';
 
@@ -135,5 +136,16 @@ describe('admin NO_SHOW page ownership', () => {
     expect(filter).toContain('financial_outcome.eq.NO_SHOW');
     expect(filter).toContain('cancelled_at.gte.');
     expect(filter).toContain('completed_at.is.null');
+  });
+});
+
+describe('trip history ordering', () => {
+  it('keeps no-show rows (completed_at NULL) in newest-first order', () => {
+    const rows = [
+      { id: 'a', completed_at: '2026-08-23T10:00:00.000Z' },
+      { id: 'b', completed_at: null, cancelled_at: '2026-08-24T11:49:19.055Z' },
+      { id: 'c', completed_at: '2026-08-22T10:00:00.000Z' },
+    ];
+    expect(sortTripHistoryRows(rows).map((r) => r.id)).toEqual(['b', 'a', 'c']);
   });
 });
