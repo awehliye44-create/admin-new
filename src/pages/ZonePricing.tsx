@@ -97,8 +97,9 @@ export default function ZonePricing() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('zone_pricing_rules')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .select('id, zone_id, vehicle_type_id, rule_type, value, min_fare, max_fare, applies_to, time_restrictions, is_active, created_at, updated_at')
+        .order('created_at', { ascending: false })
+        .limit(500);
       if (error) throw error;
       return data as ZonePricingRule[];
     },

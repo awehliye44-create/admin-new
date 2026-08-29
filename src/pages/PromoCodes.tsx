@@ -106,8 +106,9 @@ export default function PromoCodes() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('promo_codes')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .select('id, code, description, discount_type, discount_value, min_fare, max_discount, usage_limit, usage_count, per_user_limit, valid_from, valid_until, is_active, created_at')
+        .order('created_at', { ascending: false })
+        .limit(500);
 
       if (error) throw error;
       return (data || []) as PromoCode[];

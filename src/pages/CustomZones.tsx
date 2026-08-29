@@ -108,7 +108,7 @@ export default function CustomZones() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('custom_zones')
-        .select('*, region:regions(id, name), service_area:service_areas(id, name, geo_boundary)')
+        .select('id, name, description, zone_type, shape_type, region_id, service_area_id, geo_boundary, center_lat, center_lng, radius_meters, is_active, color, priority, access_allowance_minutes, metadata, created_at, updated_at, region:regions(id, name), service_area:service_areas(id, name, geo_boundary)')
         .eq('zone_type', 'PRICING')
         .order('priority', { ascending: false });
       if (error) throw error;

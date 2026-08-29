@@ -32,6 +32,7 @@ import {
   finishEdgeRequestLog,
 } from "../_shared/edgeRequestTiming.ts";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 interface AcceptRequest {
   offer_id: string;
@@ -332,20 +333,15 @@ Deno.serve(async (req) => {
       }
 
       // ── Push: notify customer that driver is completing a nearby trip first ───
+      // stacked_driver_assigned aliases to canonical driver_assigned (same WAV/channel).
       if (passengerUserId) {
-        supabase.functions.invoke("send-customer-notification", {
-          body: {
-            customer_id: passengerUserId,
-            type:        "stacked_driver_assigned",
-            title:       "Driver assigned",
-            body:        "Your driver is completing a nearby trip first. We'll keep you updated.",
-            data: {
-              trip_id:          acceptedTripId,
-              current_trip_id:  effectiveCurrentTripId,
-              stacked:          "true",
-            },
-          },
-        }).catch(e => console.warn("[accept-offer] customer stacked push failed:", e));
+        void notifyCustomerTripLifecycle(supabase, {
+          userId: passengerUserId,
+          tripId: acceptedTripId,
+          event: "driver_assigned",
+          title: "Driver assigned",
+          body: "Your driver is completing a nearby trip first. We'll keep you updated.",
+        }).catch((e) => console.warn("[accept-offer] customer stacked push failed:", e));
       } else {
         console.warn("[accept-offer] stacked accept: passenger_user_id not found — customer push skipped", {
           trip_id: acceptedTripId,
@@ -577,6 +573,26 @@ Deno.serve(async (req) => {
         driver: driver?.first_name,
         passengerId: trip?.passenger_id,
       });
+    }
+
+    // After authoritative accept_ride_offer — Customer driver_assigned push/WAV.
+    // Stacked path notifies above; this covers listed-fare / original Accept.
+    if (tripId) {
+      const passengerId =
+        typeof tripData?.passenger_id === "string" ? tripData.passenger_id : null;
+      if (passengerId) {
+        void notifyCustomerTripLifecycle(supabase, {
+          passengerId,
+          tripId,
+          event: "driver_assigned",
+        }).catch((e) =>
+          console.warn("[accept-offer] customer driver_assigned push failed:", e)
+        );
+      } else {
+        console.warn("[accept-offer] passenger_id missing — customer assigned push skipped", {
+          trip_id: tripId,
+        });
+      }
     }
 
     if (tripId) {

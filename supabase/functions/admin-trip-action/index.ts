@@ -15,6 +15,7 @@ import {
 } from "../_shared/commissionWalletDeduction.ts";
 import { tripUsesCommissionWalletDeduction } from "../_shared/commissionWalletSSOT.ts";
 import { calculateTripSettlement, resolveTripTierPercent, tripSettlementDbColumns } from "../_shared/tripSettlement.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 const ACTIVE_STATUSES = new Set([
   "pending",
@@ -172,6 +173,19 @@ Deno.serve(async (req) => {
         return json({ success: false, error: tripUpdateErr.message }, 500);
       }
 
+      // After authoritative force_complete — Customer trip_completed lifecycle push/WAV.
+      const passengerIdComplete =
+        typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+      if (passengerIdComplete) {
+        void notifyCustomerTripLifecycle(gate.supabase, {
+          passengerId: passengerIdComplete,
+          tripId,
+          event: "trip_completed",
+        }).catch((e) =>
+          console.warn("[admin-trip-action] customer trip_completed push failed:", e)
+        );
+      }
+
       if (trip.driver_id) {
         await gate.supabase
           .from("drivers")
@@ -305,6 +319,20 @@ Deno.serve(async (req) => {
         .from("drivers")
         .update({ current_trip_id: tripId })
         .eq("id", newDriverId);
+
+      // After authoritative reassign — Customer driver_assigned lifecycle push/WAV.
+      const passengerIdReassign =
+        typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+      if (passengerIdReassign) {
+        void notifyCustomerTripLifecycle(gate.supabase, {
+          passengerId: passengerIdReassign,
+          tripId,
+          event: "new_driver_assigned",
+          body: "A new driver has been assigned to your trip.",
+        }).catch((e) =>
+          console.warn("[admin-trip-action] customer driver_assigned push failed:", e)
+        );
+      }
 
       const snap = await loadSnapshot(gate.supabase, tripId);
       return json({ success: true, action, ...snap });

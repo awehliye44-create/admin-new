@@ -66,7 +66,7 @@ export function ServiceAreaDocumentRules() {
     const fetchData = async () => {
       const [saRes, dtRes] = await Promise.all([
         supabase.from('service_areas').select('id, name, is_active').order('name'),
-        supabase.from('document_types').select('*').eq('is_active', true).order('display_order'),
+        supabase.from('document_types').select('id, name, slug, description, is_required, has_expiry, show_in_driver_app, reminder_days_before_expiry, display_order, is_active, created_at, updated_at').eq('is_active', true).order('display_order'),
       ]);
       if (saRes.data) setServiceAreas(saRes.data);
       if (dtRes.data) setDocTypes(dtRes.data);
@@ -81,7 +81,9 @@ export function ServiceAreaDocumentRules() {
     try {
       const { data: existingRules, error } = await supabase
         .from('service_area_document_rules')
-        .select('*')
+        .select(
+          'doc_type_id, display_in_driver_app, mandatory, expiry_required, sort_order, is_active',
+        )
         .eq('service_area_id', serviceAreaId);
       if (error) throw error;
 

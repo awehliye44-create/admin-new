@@ -77,7 +77,7 @@ export function DemandZoneSettingsDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('service_area_demand_zone_settings')
-        .select('*')
+        .select('id,service_area_id,surge_enabled,heat_map_enabled,manual_zones_enabled,recompute_interval_minutes,consecutive_checks_required,zone_radius_meters,open_trip_max_lifetime_minutes,low_min_trips,low_max_trips,medium_min_trips,medium_max_trips,high_min_trips,multiplier_low,multiplier_medium,multiplier_high,max_multiplier,colour_low,colour_medium,colour_high,updated_by,created_at,updated_at')
         .eq('service_area_id', serviceAreaId)
         .maybeSingle();
       if (error) throw error;

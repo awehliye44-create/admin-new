@@ -249,8 +249,9 @@ export function PaymentControlsCard({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('admin_payment_audit')
-        .select('*')
+        .select('id,trip_id,action,reason,amount_pence_before,amount_pence_after,delta_pence,provider,provider_payment_id,admin_user_id,created_at,metadata')
         .eq('trip_id', tripId)
+        .limit(100)
         .order('created_at', { ascending: false });
       if (error) throw error;
       return (data || []) as AuditEntry[];

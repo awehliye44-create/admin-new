@@ -147,20 +147,21 @@ export default function RiderFeedback() {
     try {
       const { count: total } = await supabase
         .from('rider_feedback')
-        .select('*', { count: 'exact', head: true });
+        .select('id', { count: 'exact', head: true });
 
       const { count: pending } = await supabase
         .from('rider_feedback')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'exact', head: true })
         .eq('status', 'pending');
 
       const { data: ratingData } = await supabase
         .from('rider_feedback')
-        .select('rating');
+        .select('rating')
+        .limit(2000);
 
       const { count: lowRating } = await supabase
         .from('rider_feedback')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'exact', head: true })
         .lte('rating', 2);
 
       const ratings = ratingData || [];

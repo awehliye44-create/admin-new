@@ -62,6 +62,10 @@ import { toast } from 'sonner';
 import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
+import {
+  ADMIN_ACTIVE_TRIPS_CAP,
+  ADMIN_ACTIVE_TRIPS_ONLINE_DRIVERS_CAP,
+} from '@/lib/adminQueryBounds';
 import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import {
@@ -244,17 +248,19 @@ export default function ActiveTrips() {
         supabase
           .from('trips')
           .select(`
-            *,
+            id, trip_code, trip_number, status, passenger_name, passenger_phone, pickup_address, dropoff_address, estimated_fare, fare, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, modification_status, modified_dropoff_address, current_customer_total_pence, snapshot_mismatch, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence, estimated_total_pence, capture_amount_pence, fare_snapshot_json, currency_code, created_at, searching_expires_at, started_at, driver_id, pricing_mode, fare_locked, vehicle_type, vehicle_type_id, service_area_id,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone),
             service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code, distance_unit))
           `)
           .in('status', [...ACTIVE_TRIP_DB_STATUSES])
-          .order('created_at', { ascending: false }),
+          .order('created_at', { ascending: false })
+          .limit(ADMIN_ACTIVE_TRIPS_CAP),
         supabase
           .from('drivers')
           .select('id, driver_code, first_name, last_name, phone, is_online, rating')
           .eq('is_online', true)
-          .eq('approval_status', 'approved'),
+          .eq('approval_status', 'approved')
+          .limit(ADMIN_ACTIVE_TRIPS_ONLINE_DRIVERS_CAP),
       ]);
 
       if (tripsRes.error) throw tripsRes.error;

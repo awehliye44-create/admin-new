@@ -208,7 +208,7 @@ export default function GeneralSettings() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('admin_settings')
-        .select('*')
+        .select('setting_key, setting_value')
         .in('setting_key', ['company_info', 'branding_settings', 'localization_settings', 'app_settings']);
       
       if (error) throw error;

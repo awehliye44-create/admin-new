@@ -117,7 +117,7 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
     try {
       const { data: configData } = await supabase
         .from('preset_offer_configs')
-        .select('*')
+        .select('id,service_area_id,is_enabled,price_mode,countdown_enabled,countdown_seconds,countdown_auto_select,countdown_auto_select_offer_id,default_selected_offer_id,schedule_enabled,schedule_days,schedule_start_time,schedule_end_time,created_at,updated_at')
         .eq('service_area_id', serviceAreaId)
         .maybeSingle();
 
@@ -139,7 +139,7 @@ export function PresetOffersConfig({ serviceAreaId, currencySymbol }: PresetOffe
 
         const { data: offersData } = await supabase
           .from('preset_offers')
-          .select('*')
+          .select('id,config_id,offer_key,label,description,multiplier,fixed_amount_pence,icon,color,display_order,is_active,created_at,updated_at')
           .eq('config_id', configData.id)
           .order('display_order');
 

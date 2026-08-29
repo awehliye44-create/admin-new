@@ -163,7 +163,7 @@ export function DriverDetailsDialog({
     queryFn: async () => {
       const { data } = await supabase
         .from('vehicle_types')
-        .select('*')
+        .select('id,name,slug,description,capacity,icon,features,display_order,is_active,created_at,updated_at')
         .eq('is_active', true)
         .order('display_order');
       return (data || []) as VehicleType[];
@@ -178,7 +178,7 @@ export function DriverDetailsDialog({
     queryFn: async () => {
       const { data } = await supabase
         .from('driver_vehicle_categories')
-        .select('*')
+        .select('id,driver_id,vehicle_type_id,is_enabled')
         .eq('driver_id', driver!.id);
       return (data || []) as DriverVehicleCategory[];
     },
@@ -303,7 +303,7 @@ export function DriverDetailsDialog({
   const fetchTierCategories = async () => {
     const { data } = await supabase
       .from('driver_categories')
-      .select('*')
+      .select('id,name,description,color,icon,commission_pct,min_trips,min_rating,trip_target,category_priority,level_order,display_order,requirements,is_active,created_at,updated_at')
       .eq('is_active', true)
       .order('level_order');
     if (data) setTierCategories(data);

@@ -157,7 +157,9 @@ export default function Invoices() {
     queryFn: async () => {
       let query = supabase
         .from("invoices")
-        .select("*, drivers(first_name, last_name, driver_code), regions(name, currency_code), service_areas(name)")
+        .select(
+          "id, invoice_number, driver_id, period_start, period_end, currency_code, gross_earnings_pence, commission_pence, bonuses_pence, penalties_pence, adjustments_pence, net_earnings_pence, completed_trips, no_show_trips, late_cancel_trips, status, pdf_storage_path, invoice_pdf_url, invoice_generated_at, invoice_email_sent, invoice_email_sent_at, invoice_email_status, invoice_email_error, card_trips, created_at, sent_at, viewed_at, region_id, service_area_id, statement_run_id, driver_display_name, driver_display_code, drivers(first_name, last_name, driver_code), regions(name, currency_code), service_areas(name)",
+        )
         .order("created_at", { ascending: false })
         .limit(200);
 
@@ -290,7 +292,7 @@ export default function Invoices() {
     setPreviewInvoice(inv);
     const { data } = await supabase
       .from("invoice_items")
-      .select("*")
+      .select("id, description, amount_pence, sort_order")
       .eq("invoice_id", inv.id)
       .order("sort_order");
     setPreviewItems(data || []);

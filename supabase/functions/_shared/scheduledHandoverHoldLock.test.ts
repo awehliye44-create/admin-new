@@ -411,9 +411,10 @@ Deno.test("source lock: auto-dispatch skips expire while scheduled handover pend
   );
   assertStringIncludes(src, "isScheduledInstantConversionPending");
   assertStringIncludes(src, "SCHEDULED_HANDOVER_PENDING");
+  assertStringIncludes(src, "expireTripWhenSearchExhaustedAndNotifyCustomer");
   assert(
-    src.indexOf("isScheduledInstantConversionPending(trip)") <
-      src.indexOf('rpc("expire_trip_when_search_exhausted"'),
+    src.indexOf('abortDispatch("SCHEDULED_HANDOVER_PENDING"') <
+      src.indexOf("await expireTripWhenSearchExhaustedAndNotifyCustomer"),
   );
 });
 

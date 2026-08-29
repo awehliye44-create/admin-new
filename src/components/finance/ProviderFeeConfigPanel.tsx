@@ -63,7 +63,7 @@ export function ProviderFeeConfigPanel({
     queryFn: async (): Promise<FeeConfigRow[]> => {
       const { data, error } = await supabase
         .from('provider_fee_configurations' as 'service_areas')
-        .select('*')
+        .select('id,service_area_id,collection_provider,payment_method,card_type,card_origin,fee_type,percentage_fee_bps,fixed_fee_pence,currency_code,vat_treatment,version,is_active,effective_from,effective_to,notes,created_by,created_at,updated_at')
         .eq('service_area_id' as never, serviceAreaId!)
         .order('effective_from', { ascending: false });
       if (error) throw error;

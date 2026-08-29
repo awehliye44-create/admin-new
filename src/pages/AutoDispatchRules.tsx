@@ -310,6 +310,12 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   ...mapCommitmentPolicyToDb(settingsToCommitmentPolicy(settings)),
 });
 
+/** Explicit columns for the singleton global_dispatch_settings row (no select('*')). */
+const GLOBAL_DISPATCH_SETTINGS_SELECT = [
+  'singleton',
+  ...Object.keys(mapSettingsToDb(defaultSettings)),
+].join(', ');
+
 export default function AutoDispatchRules() {
   const [settings, setSettings] = useState<DispatchSettings>(defaultSettings);
   const { data: regions = [] } = useRegions();
@@ -341,7 +347,7 @@ export default function AutoDispatchRules() {
       try {
         const { data, error } = await supabase
           .from('global_dispatch_settings')
-          .select('*')
+          .select(GLOBAL_DISPATCH_SETTINGS_SELECT)
           .eq('singleton', true)
           .maybeSingle();
         if (error) throw error;

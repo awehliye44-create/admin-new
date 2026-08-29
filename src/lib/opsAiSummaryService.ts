@@ -80,7 +80,7 @@ export async function regenerateAISummary(
 export async function fetchAISummary(alertId: string) {
   const { data, error } = await supabase
     .from('ops_alert_summaries')
-    .select('*')
+    .select('id,alert_id,summary,root_cause,recommended_action,confidence_score,model_used,created_at,updated_at')
     .eq('alert_id', alertId)
     .order('created_at', { ascending: false })
     .limit(1);

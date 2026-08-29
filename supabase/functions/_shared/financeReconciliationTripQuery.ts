@@ -16,11 +16,13 @@ export function resolveFinanceReconciliationAuditLimit(
   raw: string | null | undefined,
   mode: "full" | "summary" | "statement",
 ): number {
-  if (mode === "statement") {
-    return Math.min(Number(raw || FINANCE_RECONCILIATION_TRIP_AUDIT_LIMIT_MAX), FINANCE_RECONCILIATION_TRIP_AUDIT_LIMIT_MAX);
-  }
-  if (mode === "summary") {
-    return Math.min(Number(raw || 500), 2000);
+  // Never default money/KPI paths to a silent 500-trip under-sample.
+  // Page UIs paginate separately; period audits use the full safety max.
+  if (mode === "statement" || mode === "summary" || mode === "full") {
+    return Math.min(
+      Number(raw || FINANCE_RECONCILIATION_TRIP_AUDIT_LIMIT_DEFAULT),
+      FINANCE_RECONCILIATION_TRIP_AUDIT_LIMIT_MAX,
+    );
   }
   return Math.min(
     Number(raw || FINANCE_RECONCILIATION_TRIP_AUDIT_LIMIT_DEFAULT),

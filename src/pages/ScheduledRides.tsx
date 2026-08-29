@@ -48,6 +48,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  ADMIN_SCHEDULED_RIDES_CAP,
+  ADMIN_SCHEDULED_RIDES_DRIVERS_CAP,
+} from '@/lib/adminQueryBounds';
 import { isAdminPageLiveActive, subscribeAdminPageLiveActive } from '@/lib/adminPageVisibility';
 import { 
   Calendar, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
@@ -209,11 +213,13 @@ export default function ScheduledRides() {
           // Terminal trips belong to Missed & Cancelled, never to the live scheduled board
           .not('status', 'in', '(completed,cancelled,customer_cancelled,expired,expired_no_driver,no_show,declined)')
           .or('scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)')
-          .order('scheduled_at', { ascending: true }),
+          .order('scheduled_at', { ascending: true })
+          .limit(ADMIN_SCHEDULED_RIDES_CAP),
         supabase
           .from('drivers')
           .select('id, first_name, last_name, phone, is_online, rating, profile_photo_url')
-          .eq('approval_status', 'approved'),
+          .eq('approval_status', 'approved')
+          .limit(ADMIN_SCHEDULED_RIDES_DRIVERS_CAP),
       ]);
 
       if (tripsRes.error) throw tripsRes.error;

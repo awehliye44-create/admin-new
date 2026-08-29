@@ -240,7 +240,9 @@ export default function ManualTrip() {
         const [{ data, error }, { data: cwSa }] = await Promise.all([
           supabase
             .from('service_area_payment_methods')
-            .select('*')
+            .select(
+              'card_enabled, wallet_enabled, apple_pay_enabled, google_pay_enabled',
+            )
             .eq('service_area_id', selectedServiceAreaId)
             .single(),
           supabase

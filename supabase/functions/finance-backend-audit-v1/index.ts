@@ -140,7 +140,10 @@ serve(async (req) => {
     const periodTo =
       normalizeFinancePeriodParam(url.searchParams.get("to"), "end")
       || getLondonDayBounds().end.toISOString();
-    const auditLimit = Math.min(Number(url.searchParams.get("audit_limit") || 500), 2000);
+    const auditLimit = Math.min(
+      Number(url.searchParams.get("audit_limit") || 10_000),
+      10_000,
+    );
 
     let resolvedRegionId = regionId;
     if (!resolvedRegionId && serviceAreaId) {

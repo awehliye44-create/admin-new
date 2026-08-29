@@ -18,6 +18,7 @@ import {
 import { checkOfferSchedule } from "../_shared/offerSchedule.ts";
 import { authenticateDriver } from "../_shared/driverAuth.ts";
 import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
+import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 
 // Rate limit: 30 requests per minute per IP for trip acceptance
 const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60 * 1000 };
@@ -222,6 +223,25 @@ serve(async (req) => {
       ipAddress: clientIP,
       userAgent,
     });
+
+    // Belt-and-suspenders: live Driver uses accept-offer, but if this path
+    // still assigns, Customer must get driver_assigned lifecycle push/WAV.
+    if (!r.idempotent) {
+      try {
+        const finalize = await finalizeRideAssignmentSideEffects(supabase, {
+          tripId: trip_id,
+          offerId: offer.id,
+          driverId: driver_id,
+          source: "edge_accept_trip",
+          acceptedVia: "accept_ride_offer",
+        });
+        if (!finalize.ok) {
+          console.warn("[accept-trip] finalize assignment incomplete:", finalize);
+        }
+      } catch (finalizeErr) {
+        console.warn("[accept-trip] finalize assignment failed:", finalizeErr);
+      }
+    }
 
     // Fetch trip details for response payload
     const { data: tripDetails } = await supabase

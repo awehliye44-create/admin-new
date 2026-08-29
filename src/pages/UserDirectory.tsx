@@ -46,7 +46,7 @@ export default function UserDirectory() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('user_directory' as any)
-        .select('*')
+        .select('user_id, full_name, email, phone, user_type, status, has_linked_record, created_at')
         .order('created_at', { ascending: false })
         .limit(500);
       if (error) throw error;

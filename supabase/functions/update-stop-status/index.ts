@@ -317,8 +317,9 @@ Deno.serve(async (req) => {
         if (customerRes.ok) {
           const tripInfo = await customerRes.json();
           if (tripInfo?.[0]?.passenger_id) {
+            const passengerId = tripInfo[0].passenger_id as string;
             await fetch(
-              `${supabaseUrl}/rest/v1/customers?user_id=eq.${tripInfo[0].passenger_id}`,
+              `${supabaseUrl}/rest/v1/customers?id=eq.${passengerId}`,
               {
                 method: "PATCH",
                 headers: {
@@ -329,6 +330,26 @@ Deno.serve(async (req) => {
                 body: JSON.stringify({ active_trip_id: null }),
               }
             );
+
+            // Legacy complete path — same Customer trip_completed lifecycle as stop-workflow.
+            try {
+              await fetch(`${supabaseUrl}/functions/v1/send-trip-notification`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${supabaseServiceKey}`,
+                  apikey: supabaseServiceKey,
+                },
+                body: JSON.stringify({
+                  userId: passengerId,
+                  tripId: body.trip_id,
+                  event: "trip_completed",
+                  notificationId: `trip_completed-${body.trip_id}`,
+                }),
+              });
+            } catch (notifErr) {
+              console.warn("[update-stop-status] trip_completed push failed:", notifErr);
+            }
           }
         }
 

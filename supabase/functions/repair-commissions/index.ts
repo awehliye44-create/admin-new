@@ -68,26 +68,46 @@ serve(async (req) => {
 
     console.log(`[repair-commissions] mode=${dry_run ? 'DRY_RUN' : 'APPLY'}, driver=${driver_id || 'all'}, since=${since || 'all'}, until=${until || 'all'}`);
 
-    // === Fetch completed trips ===
-    let query = supabase
-      .from('trips')
-      .select('id, driver_id, service_area_id, gross_fare_pence, final_fare_pence, capture_amount_pence, airport_charge_pence, other_pass_through_charges_pence, commission_pence, driver_net_pence, payment_method, payment_status, currency_code, financial_outcome, completed_at, fare, tip_pence, tip_amount_pence, accepted_commission_percent, driver_tier_commission_percent, commission_pct, settlement_formula_version')
-      .eq('status', 'completed')
-      .not('driver_id', 'is', null);
+    // Page through completed trips — batch size is not a hard history ceiling.
+    const REPAIR_BATCH = 500;
+    const trips: Array<Record<string, unknown>> = [];
+    let repairCursorCompletedAt: string | null = null;
+    let repairCursorId: string | null = null;
+    for (;;) {
+      let batchQuery = supabase
+        .from('trips')
+        .select('id, driver_id, service_area_id, gross_fare_pence, final_fare_pence, capture_amount_pence, airport_charge_pence, other_pass_through_charges_pence, commission_pence, driver_net_pence, payment_method, payment_status, currency_code, financial_outcome, completed_at, fare, tip_pence, tip_amount_pence, accepted_commission_percent, driver_tier_commission_percent, commission_pct, settlement_formula_version')
+        .eq('status', 'completed')
+        .not('driver_id', 'is', null)
+        .order('completed_at', { ascending: true })
+        .order('id', { ascending: true })
+        .limit(REPAIR_BATCH);
 
-    if (driver_id) query = query.eq('driver_id', driver_id);
-    if (since) query = query.gte('completed_at', since);
-    if (until) query = query.lt('completed_at', until);
+      if (driver_id) batchQuery = batchQuery.eq('driver_id', driver_id);
+      if (since) batchQuery = batchQuery.gte('completed_at', since);
+      if (until) batchQuery = batchQuery.lt('completed_at', until);
+      if (repairCursorCompletedAt && repairCursorId) {
+        batchQuery = batchQuery.or(
+          `completed_at.gt.${repairCursorCompletedAt},and(completed_at.eq.${repairCursorCompletedAt},id.gt.${repairCursorId})`,
+        );
+      }
 
-    const { data: trips, error: tripsError } = await query.order('completed_at', { ascending: true }).limit(500);
-
-    if (tripsError) {
-      return new Response(JSON.stringify({ error: 'Failed to fetch trips', details: tripsError.message }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      const { data: batch, error: tripsError } = await batchQuery;
+      if (tripsError) {
+        return new Response(JSON.stringify({ error: 'Failed to fetch trips', details: tripsError.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const rows = (batch ?? []) as Array<Record<string, unknown>>;
+      if (rows.length === 0) break;
+      trips.push(...rows);
+      const last = rows[rows.length - 1]!;
+      repairCursorCompletedAt = typeof last.completed_at === 'string' ? last.completed_at : null;
+      repairCursorId = typeof last.id === 'string' ? last.id : null;
+      if (rows.length < REPAIR_BATCH || !repairCursorCompletedAt || !repairCursorId) break;
     }
 
-    if (!trips || trips.length === 0) {
+    if (trips.length === 0) {
       return new Response(JSON.stringify({ message: 'No trips found matching criteria', corrections: [] }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -102,7 +122,7 @@ serve(async (req) => {
     let currencyFixed = 0;
     let outcomeFixed = 0;
 
-    for (const trip of trips) {
+    for (const trip of trips as any[]) {
       const dId = trip.driver_id;
       const issues: string[] = [];
 

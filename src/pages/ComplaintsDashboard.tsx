@@ -101,8 +101,9 @@ export default function ComplaintsDashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('complaints')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .select('id, complaint_number, reporter_type, reporter_id, reporter_name, reporter_email, reported_user_type, reported_user_id, reported_user_name, trip_id, category, priority, status, subject, description, created_at, updated_at, assigned_to, resolution, resolved_at, resolved_by, service_area_id')
+        .order('created_at', { ascending: false })
+        .limit(500);
 
       if (error) throw error;
       return data as Complaint[];

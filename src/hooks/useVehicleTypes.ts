@@ -28,7 +28,9 @@ export function useVehicleTypes(options?: { activeOnly?: boolean }) {
     queryFn: async () => {
       let query = supabase
         .from("vehicle_types")
-        .select("*")
+        .select(
+          "id, name, slug, description, capacity, icon, features, display_order, is_active, created_at, updated_at",
+        )
         .order("display_order", { ascending: true });
 
       if (activeOnly) {

@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { ADMIN_SUPPORT_TICKETS_PAGE_SIZE } from '@/lib/adminQueryBounds';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import {
@@ -103,9 +104,12 @@ export default function Tickets() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('support_conversations')
-        .select('*')
+        .select(
+          'id, subject, status, priority, channel, user_type, customer_id, driver_id, assigned_admin_id, category, trip_id, created_at, updated_at, last_message_at, resolved_at',
+        )
         .not('channel', 'in', '(whatsapp,website)')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(ADMIN_SUPPORT_TICKETS_PAGE_SIZE);
 
       if (error) throw error;
       const rows = (data || []) as SupportConversation[];
@@ -136,7 +140,7 @@ export default function Tickets() {
       if (!selectedTicket) return [];
       const { data, error } = await supabase
         .from('support_messages')
-        .select('*')
+        .select('id, sender_type, sender_id, content, created_at')
         .eq('conversation_id', selectedTicket.id)
         .order('created_at', { ascending: true });
 

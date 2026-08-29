@@ -69,7 +69,7 @@ export function ServiceAreaDriverTiersConfig({
       setIsLoading(true);
       const { data, error } = await supabase
         .from('service_area_driver_tiers')
-        .select('*')
+        .select('id,service_area_id,tier_name,category_priority,trip_target,is_active,display_order')
         .eq('service_area_id', serviceAreaId)
         .order('display_order', { ascending: true });
 

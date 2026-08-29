@@ -187,7 +187,7 @@ export default function FareSimulator() {
       if (formData.vehicle_type_id) {
         const { data } = await supabase
           .from('fare_pricing_settings')
-          .select('*')
+          .select('id, service_area_id, vehicle_type_id, pricing_mode, currency_code, base_fare_pence, per_km_rate_pence, per_min_rate_pence, booking_fee_pence, minimum_fare_pence, free_waiting_minutes, waiting_per_minute_pence, extra_stop_flat_fee_pence, recalculate_on_waiting, recalculate_on_stop_added, recalculate_on_dropoff_changed, enable_surge, surge_multiplier_default, peak_hour_multiplier, zone_multiplier, traffic_multiplier, demand_supply_multiplier, distance_pricing_bands')
           .eq('service_area_id', formData.service_area_id)
           .eq('vehicle_type_id', formData.vehicle_type_id)
           .maybeSingle();
@@ -197,7 +197,7 @@ export default function FareSimulator() {
       // Fall back to default (vehicle_type_id IS NULL)
       const { data } = await supabase
         .from('fare_pricing_settings')
-        .select('*')
+        .select('id, service_area_id, vehicle_type_id, pricing_mode, currency_code, base_fare_pence, per_km_rate_pence, per_min_rate_pence, booking_fee_pence, minimum_fare_pence, free_waiting_minutes, waiting_per_minute_pence, extra_stop_flat_fee_pence, recalculate_on_waiting, recalculate_on_stop_added, recalculate_on_dropoff_changed, enable_surge, surge_multiplier_default, peak_hour_multiplier, zone_multiplier, traffic_multiplier, demand_supply_multiplier, distance_pricing_bands')
         .eq('service_area_id', formData.service_area_id)
         .is('vehicle_type_id', null)
         .maybeSingle();
@@ -224,7 +224,7 @@ export default function FareSimulator() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('zone_pricing_rules')
-        .select('*')
+        .select('id, zone_id, vehicle_type_id, rule_type, value, applies_to, is_active')
         .eq('is_active', true);
       if (error) throw error;
       return data as ZonePricingRule[];

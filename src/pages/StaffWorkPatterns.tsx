@@ -145,7 +145,7 @@ export default function StaffWorkPatterns() {
       ] = await Promise.all([
         supabase
           .from('staff_work_patterns')
-          .select('*')
+          .select('id, name, pattern_type, timezone, description, shift_length_preset, schedule, weekly_hours_minutes, staff_role, region_id, service_area_id, is_active, effective_from, effective_to, archived_at, created_at, updated_at')
           .is('archived_at', null)
           .order('name'),
         supabase
@@ -156,10 +156,10 @@ export default function StaffWorkPatterns() {
           .from('staff_pattern_assignments')
           .select('pattern_id, staff_id, is_active')
           .eq('is_active', true),
-        supabase.from('staff_coverage_requirements').select('*').eq('is_active', true),
+        supabase.from('staff_coverage_requirements').select('id, day_of_week, start_time, end_time, shift_name, required_staff_count, staff_role, region_id, service_area_id, is_active, created_at, updated_at').eq('is_active', true),
         supabase
           .from('staff_leave_exceptions')
-          .select('*')
+          .select('id, staff_id, leave_date, leave_type, start_time, end_time, reason, status')
           .order('leave_date', { ascending: false })
           .limit(100),
         supabase.from('regions').select('id, name').order('name'),

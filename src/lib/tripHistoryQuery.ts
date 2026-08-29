@@ -10,7 +10,29 @@ export const TRIP_HISTORY_FINANCIAL_OUTCOMES = [
 
 export const TRIP_HISTORY_STATUSES = ['completed', 'no_show'] as const;
 
-export function tripHistoryTerminalOrFilter(): string {
+/** Admin table page sizes — never a hard history ceiling. */
+export const TRIP_HISTORY_PAGE_SIZE_DEFAULT = 100;
+export const TRIP_HISTORY_PAGE_SIZE_OPTIONS = [50, 100] as const;
+
+/**
+ * Absolute safety bound for a single request only (PostgREST / browser).
+ * Full history remains in the database and is reachable via cursor pagination.
+ * NEVER treat this as “only keep N trips”.
+ */
+export const TRIP_HISTORY_REQUEST_SAFETY_MAX = 200;
+
+export function tripHistoryTerminalOrFilter(
+  status: TripHistoryStatusFilter = 'all',
+): string {
+  if (status === 'completed') {
+    return 'financial_outcome.eq.COMPLETED,status.eq.completed';
+  }
+  if (status === 'no_show') {
+    return 'financial_outcome.eq.NO_SHOW,status.eq.no_show';
+  }
+  if (status === 'late_cancellation') {
+    return 'financial_outcome.eq.LATE_PASSENGER_CANCELLATION';
+  }
   return `financial_outcome.in.(${TRIP_HISTORY_FINANCIAL_OUTCOMES.join(',')}),status.in.(${TRIP_HISTORY_STATUSES.join(',')})`;
 }
 
@@ -78,6 +100,65 @@ function isRecoverableTripHistoryQueryError(error: { message?: string; code?: st
 
 export type TripHistoryRow = Record<string, unknown> & { id: string };
 
+export type TripHistoryStatusFilter =
+  | 'all'
+  | 'completed'
+  | 'no_show'
+  | 'late_cancellation';
+
+export type TripHistoryCursor = {
+  completedAt: string | null;
+  id: string;
+};
+
+export type TripHistoryPage = {
+  rows: TripHistoryRow[];
+  nextCursor: TripHistoryCursor | null;
+  hasMore: boolean;
+  pageSize: number;
+};
+
+export function resolveTripHistoryPageSize(raw?: number | null): number {
+  const n = Math.round(Number(raw ?? TRIP_HISTORY_PAGE_SIZE_DEFAULT));
+  if (!Number.isFinite(n) || n < 1) return TRIP_HISTORY_PAGE_SIZE_DEFAULT;
+  return Math.min(n, TRIP_HISTORY_REQUEST_SAFETY_MAX);
+}
+
+/** Newest-first by display date (completed_at, else cancelled_at, else created_at). */
+export function sortTripHistoryRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  const at = (row: Record<string, unknown>): number => {
+    const value = (row.completed_at ?? row.cancelled_at ?? row.created_at) as
+      | string
+      | null
+      | undefined;
+    const ts = value ? new Date(value).getTime() : NaN;
+    return Number.isFinite(ts) ? ts : 0;
+  };
+  return [...rows].sort((a, b) => at(b) - at(a));
+}
+
+export function encodeTripHistoryCursor(cursor: TripHistoryCursor | null | undefined): string | null {
+  if (!cursor?.id) return null;
+  return JSON.stringify({
+    completedAt: cursor.completedAt,
+    id: cursor.id,
+  });
+}
+
+export function decodeTripHistoryCursor(raw: string | null | undefined): TripHistoryCursor | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { completedAt?: unknown; id?: unknown };
+    if (typeof parsed.id !== 'string' || !parsed.id) return null;
+    return {
+      id: parsed.id,
+      completedAt: typeof parsed.completedAt === 'string' ? parsed.completedAt : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function applyTripHistoryLocationFilter(
   query: any,
   args: { regionId?: string; serviceAreaId?: string },
@@ -99,22 +180,41 @@ async function applyTripHistoryLocationFilter(
   return query;
 }
 
-/** Newest-first by display date (completed_at, else cancelled_at, else created_at). */
-export function sortTripHistoryRows<T extends Record<string, unknown>>(rows: T[]): T[] {
-  const at = (row: Record<string, unknown>): number => {
-    const value = (row.completed_at ?? row.cancelled_at ?? row.created_at) as string | null | undefined;
-    const ts = value ? new Date(value).getTime() : NaN;
-    return Number.isFinite(ts) ? ts : 0;
-  };
-  return [...rows].sort((a, b) => at(b) - at(a));
+function applyTripHistoryCursorFilter(query: any, cursor: TripHistoryCursor | null | undefined): any {
+  if (!cursor?.id) return query;
+  if (cursor.completedAt) {
+    // Newer-first: next page is strictly older than (completed_at, id).
+    return query.or(
+      `completed_at.lt.${cursor.completedAt},and(completed_at.eq.${cursor.completedAt},id.lt.${cursor.id})`,
+    );
+  }
+  // Null completed_at ranks after non-null (nullsFirst: false). Continue within that band.
+  return query.is('completed_at', null).lt('id', cursor.id);
 }
 
-export async function fetchTripHistoryRows(args: {
+export type FetchTripHistoryPageArgs = {
   start: Date;
   end: Date;
   regionId?: string;
   serviceAreaId?: string;
-}): Promise<TripHistoryRow[]> {
+  /** Page size — default 100. Not a history retention cap. */
+  pageSize?: number;
+  cursor?: TripHistoryCursor | null;
+  status?: TripHistoryStatusFilter;
+  driverId?: string | null;
+  passengerId?: string | null;
+  /** Exact or prefix trip code search (server-side; full history searchable). */
+  tripCode?: string | null;
+};
+
+/**
+ * One Admin Trip History page. Full trip history stays in the database forever;
+ * this only pages the UI. Never deletes, archives, or hides finance rows.
+ */
+export async function fetchTripHistoryPage(
+  args: FetchTripHistoryPageArgs,
+): Promise<TripHistoryPage> {
+  const pageSize = resolveTripHistoryPageSize(args.pageSize);
   const selectVariants = [
     `${TRIP_HISTORY_SELECT_BASE}, ${TRIP_HISTORY_SELECT_INVOICE}, ${TRIP_HISTORY_SELECT_CORPORATE}`,
     `${TRIP_HISTORY_SELECT_BASE}, ${TRIP_HISTORY_SELECT_INVOICE}`,
@@ -127,21 +227,47 @@ export async function fetchTripHistoryRows(args: {
     let query = supabase
       .from('trips')
       .select(select)
-      .or(tripHistoryTerminalOrFilter())
+      .or(tripHistoryTerminalOrFilter(args.status ?? 'all'))
       .or(tripHistoryDateOrFilter(args.start, args.end))
-      // Order by created_at so no-show rows (completed_at NULL) are never truncated away.
-      .order('created_at', { ascending: false })
-      .limit(2000);
+      .order('completed_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false })
+      .limit(pageSize + 1);
 
     query = await applyTripHistoryLocationFilter(query, args);
+    query = applyTripHistoryCursorFilter(query, args.cursor);
+
+    if (args.driverId) query = query.eq('driver_id', args.driverId);
+    if (args.passengerId) query = query.eq('passenger_id', args.passengerId);
+    if (args.tripCode && args.tripCode.trim()) {
+      const code = args.tripCode.trim();
+      // Prefer exact / prefix so indexes on trip_code remain useful.
+      query = query.ilike('trip_code', `${code}%`);
+    }
 
     const { data, error } = await query;
     if (!error) {
-      const rows = sortTripHistoryRows((data ?? []) as unknown as TripHistoryRow[]);
+      const raw = (data ?? []) as unknown as TripHistoryRow[];
+      const hasMore = raw.length > pageSize;
+      const pageRows = hasMore ? raw.slice(0, pageSize) : raw;
       const directory = await fetchPassengerDirectory(
-        rows.map((row) => (row as { passenger_id?: string | null }).passenger_id),
+        pageRows.map((row) => (row as { passenger_id?: string | null }).passenger_id),
       );
-      return hydratePassengerIdentity(rows as unknown as Array<Record<string, unknown>>, directory) as TripHistoryRow[];
+      const rows = hydratePassengerIdentity(
+        pageRows as unknown as Array<Record<string, unknown>>,
+        directory,
+      ) as TripHistoryRow[];
+
+      const last = rows[rows.length - 1];
+      const nextCursor: TripHistoryCursor | null =
+        hasMore && last
+          ? {
+              id: last.id,
+              completedAt:
+                typeof last.completed_at === 'string' ? last.completed_at : null,
+            }
+          : null;
+
+      return { rows, nextCursor, hasMore, pageSize };
     }
 
     lastError = error;
@@ -153,3 +279,21 @@ export async function fetchTripHistoryRows(args: {
   throw lastError ?? new Error('Failed to load trip history');
 }
 
+/**
+ * @deprecated Prefer fetchTripHistoryPage — kept as a thin first-page helper for callers
+ * that have not yet adopted cursors. Still page-sized (default 100), never a 500/2000 hard history cap.
+ */
+export async function fetchTripHistoryRows(args: {
+  start: Date;
+  end: Date;
+  regionId?: string;
+  serviceAreaId?: string;
+  pageSize?: number;
+  status?: TripHistoryStatusFilter;
+  driverId?: string | null;
+  passengerId?: string | null;
+  tripCode?: string | null;
+}): Promise<TripHistoryRow[]> {
+  const page = await fetchTripHistoryPage({ ...args, cursor: null });
+  return page.rows;
+}

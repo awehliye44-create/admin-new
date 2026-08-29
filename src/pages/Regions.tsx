@@ -197,7 +197,7 @@ export default function Regions() {
       if (!isBackground) setIsLoading(true);
       const { data, error } = await supabase
         .from('regions')
-        .select('*')
+        .select('id, name, status, distance_unit, currency_code, timezone, geo_boundary, created_at, updated_at')
         .order('created_at', { ascending: false });
 
       if (error) throw error;

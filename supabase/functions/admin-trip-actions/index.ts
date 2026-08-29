@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
 
 const corsHeaders: Record<string, string> = {
@@ -121,6 +122,30 @@ Deno.serve(async (req) => {
       console.error(
         "[PAYMENT_AUDIT] admin-trip-actions hold disposition failed (non-fatal to trip cancel):",
         holdErr,
+      );
+    }
+
+    // After terminal cancel succeeds — Customer trip_cancelled lifecycle push.
+    try {
+      const { data: tripRow } = await supabase
+        .from("trips")
+        .select("passenger_id")
+        .eq("id", trip_id)
+        .maybeSingle();
+      const passengerId =
+        typeof tripRow?.passenger_id === "string" ? tripRow.passenger_id : null;
+      if (passengerId) {
+        await notifyCustomerTripLifecycle(supabase, {
+          passengerId,
+          tripId: trip_id,
+          event: "trip_cancelled",
+          body: "Your trip has been cancelled by ONECAB.",
+        });
+      }
+    } catch (notifyErr) {
+      console.warn(
+        "[admin-trip-actions] customer trip_cancelled push failed (non-fatal):",
+        notifyErr,
       );
     }
 

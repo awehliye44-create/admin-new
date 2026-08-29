@@ -39,6 +39,9 @@ export interface OfferWithAreas extends Offer {
   redemption_count: number;
 }
 
+const OFFER_COLUMNS =
+  "id, name, code, description, offer_type, discount_value, currency, min_fare_pence, max_discount_pence, starts_at, ends_at, is_enabled, status, first_ride_only, new_customer_only, per_user_limit, total_usage_limit, usage_count, priority, terms, banner_title, banner_subtitle, cta_text, badge_text, style_variant, created_at, updated_at";
+
 /** Admin: list ALL offers with their service-area links + redemption counts. */
 export function useAdminOffers() {
   return useQuery({
@@ -46,7 +49,7 @@ export function useAdminOffers() {
     queryFn: async (): Promise<OfferWithAreas[]> => {
       const { data: offers, error } = await supabase
         .from("offers" as any)
-        .select("*")
+        .select(OFFER_COLUMNS)
         .order("priority", { ascending: false })
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -87,7 +90,7 @@ export function useActiveOffersForArea(serviceAreaId?: string | null) {
       const nowIso = new Date().toISOString();
       const { data: offers, error } = await supabase
         .from("offers" as any)
-        .select("*")
+        .select(OFFER_COLUMNS)
         .eq("is_enabled", true)
         .eq("status", "active")
         .lte("starts_at", nowIso)

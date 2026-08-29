@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { ADMIN_MISSED_CANCELLED_PAGE_SIZE } from '@/lib/adminQueryBounds';
 import { 
   XCircle, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
   Eye, AlertTriangle, Ban, TrendingDown,
@@ -116,6 +117,7 @@ export default function MissedCancelled() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('7days');
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
+  const [listPage, setListPage] = useState(0);
 
   // Dialog states
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -137,12 +139,14 @@ export default function MissedCancelled() {
     }
   }, [dateFilter]);
 
-  const { data: allTrips = [], isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['missed-cancelled', dateFilter],
+  const { data: missedPage, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['missed-cancelled', dateFilter, listPage],
     queryFn: async () => {
       const { start, end } = getDateRange();
       
-      const { data, error } = await supabase
+      const from = listPage * ADMIN_MISSED_CANCELLED_PAGE_SIZE;
+      const to = from + ADMIN_MISSED_CANCELLED_PAGE_SIZE - 1;
+      const { data, error, count } = await supabase
         .from('trips')
         .select(`
           id, trip_number, trip_code, status, passenger_id, passenger_name, passenger_phone,
@@ -155,22 +159,26 @@ export default function MissedCancelled() {
           arrival_cancellation_applied, arrival_cancellation_fee, arrival_cancellation_applied_at, arrival_cancellation_reason,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, region_id),
           service_area:service_areas!trips_service_area_id_fkey(id, name, region_id, region:regions(currency_code))
-        `)
+        `, { count: 'exact' })
         .in('status', [...MISSED_CANCELLED_STATUSES])
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString())
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .range(from, to);
 
       if (error) throw error;
       const rows = (data || []) as unknown as CancelledTrip[];
       const directory = await fetchPassengerDirectory(rows.map((row) => row.passenger_id));
       // Defense in depth: never surface no-show outcomes here (Trip History owns them).
-      return hydratePassengerIdentity(rows, directory).filter((row) => belongsInMissedCancelled(row));
+      const filtered = hydratePassengerIdentity(rows, directory).filter((row) => belongsInMissedCancelled(row));
+      return { rows: filtered, totalCount: count ?? filtered.length };
 
     },
     staleTime: 30_000,
   });
 
+  const allTrips = missedPage?.rows ?? [];
+  const totalCount = missedPage?.totalCount ?? 0;
   // Filter by selected service area's region
   const trips = useMemo(() => {
     if (!serviceFilter.regionId) return allTrips;
@@ -352,7 +360,7 @@ export default function MissedCancelled() {
                 <SelectItem value="expired">Expired</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={dateFilter} onValueChange={setDateFilter}>
+            <Select value={dateFilter} onValueChange={(v) => { setDateFilter(v); setListPage(0); }}>
               <SelectTrigger className="w-full md:w-[130px]">
                 <SelectValue placeholder="Date Range" />
               </SelectTrigger>
@@ -397,6 +405,7 @@ export default function MissedCancelled() {
               </p>
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -483,6 +492,32 @@ export default function MissedCancelled() {
                 })}
               </TableBody>
             </Table>
+            <div className="flex items-center justify-between mt-4 gap-2 flex-wrap">
+              <p className="text-sm text-muted-foreground">
+                Page {listPage + 1}
+                {totalCount ? ` · ${totalCount} in date range` : ''}
+                {` · up to ${ADMIN_MISSED_CANCELLED_PAGE_SIZE} per page`}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={listPage <= 0 || isLoading}
+                  onClick={() => setListPage((p) => Math.max(0, p - 1))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isLoading || allTrips.length < ADMIN_MISSED_CANCELLED_PAGE_SIZE}
+                  onClick={() => setListPage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+            </>
           )}
         </CardContent>
       </Card>

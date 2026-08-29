@@ -12,6 +12,7 @@ import {
   isScheduledInstantConversionPending,
   isScheduledWorkflowOrigin,
 } from "../_shared/scheduledHandoverHoldLock.ts";
+import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -300,10 +301,14 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
             status: candidate.status,
             searching_expires_at: candidate.searching_expires_at ?? null,
           });
-          const { data: expiredByServer, error: expireErr } = await supabase.rpc(
-            "expire_trip_when_search_exhausted",
-            { p_trip_id: candidate.id },
-          );
+          const { expired: expiredByServer, rpcError: expireErr } =
+            await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
+              tripId: candidate.id,
+              passengerId:
+                (candidate as { passenger_id?: string | null }).passenger_id ??
+                customer?.id ??
+                userId,
+            });
           if (expireErr) {
             console.warn("SEARCH_CYCLE_EXPIRED_BACKEND expire RPC failed:", candidate.id, expireErr);
             trip = candidate;

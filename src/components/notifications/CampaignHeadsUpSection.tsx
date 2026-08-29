@@ -149,7 +149,9 @@ export function CampaignHeadsUpSection() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("campaign_heads_up_templates")
-        .select("*")
+        .select(
+          "id, slug, category, name, title, subtitle, emoji, accent_color, gradient_from, gradient_to, background_image_url, cta_label, cta_url, deep_link, default_target_app",
+        )
         .eq("is_active", true)
         .order("category")
         .order("name");
@@ -163,7 +165,9 @@ export function CampaignHeadsUpSection() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("campaign_heads_up_campaigns")
-        .select("*")
+        .select(
+          "id, template_slug, category, title, subtitle, emoji, accent_color, gradient_from, gradient_to, background_image_url, cta_label, cta_url, deep_link, target_scope, target_app, target_region_id, target_service_area_id, priority, schedule_mode, scheduled_at, starts_at, ends_at, status, sent_count, delivered_count, opened_count, dismissed_count, tapped_count, failed_count, sent_at, created_at",
+        )
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;

@@ -94,8 +94,11 @@ export default function AccountRequests() {
     queryFn: async () => {
       let query = supabase
         .from('corporate_account_requests')
-        .select(`*, region:regions(id, name), service_area:service_areas(id, name)`)
-        .order('created_at', { ascending: false });
+        .select(
+          "id, company_name, contact_name, contact_email, contact_phone, address, city, country, tax_id, employee_count, estimated_monthly_trips, notes, status, rejection_reason, reviewed_by, reviewed_at, approved_at, suspended_at, region_id, service_area_id, created_at, region:regions(id, name), service_area:service_areas(id, name)",
+        )
+        .order('created_at', { ascending: false })
+        .limit(200);
       if (regionFilter !== 'all') query = query.eq('region_id', regionFilter);
       if (serviceAreaFilter !== 'all') query = query.eq('service_area_id', serviceAreaFilter);
       const { data, error } = await query;

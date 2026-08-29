@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { assertGlobalRebroadcastAllowed } from "../_shared/rebroadcastPolicy.ts";
 import { recordDispatchWaveSnapshot } from "../_shared/recordDispatchWaveSnapshot.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import {
   handleCORSPreflight,
   checkRateLimit,
@@ -264,31 +265,17 @@ Deno.serve(async (req) => {
           .eq("active_trip_id", tripId);
       }
 
-      // Notify customer with Scan & Go specific cancellation message
+      // Terminal Scan & Go cancel — same Customer lifecycle WAV path (not a parallel producer).
       if (tripRow?.passenger_id) {
-        try {
-          const notifUrl = `${supabaseUrl}/functions/v1/send-customer-notification`;
-          await fetch(notifUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${supabaseKey}`,
-            },
-            body: JSON.stringify({
-              customerId: tripRow.passenger_id,
-              type: "SCAN_AND_GO_DECLINED",
-              title: "This driver declined your booking",
-              body: "Your Scan & Go booking has been cancelled.",
-              data: {
-                trip_id: tripId,
-                cancellation_reason: "driver_declined_scan_and_go",
-                actions: ["scan_again", "close"],
-              },
-            }),
-          });
-        } catch (notifErr) {
-          console.error("[decline-offer] Customer notification error:", notifErr);
-        }
+        void notifyCustomerTripLifecycle(supabase, {
+          passengerId: tripRow.passenger_id,
+          tripId,
+          event: "trip_cancelled",
+          title: "ONECAB TRIP CANCELLED",
+          body: "Your Scan & Go booking has been cancelled.",
+        }).catch((e) =>
+          console.warn("[decline-offer] customer trip_cancelled push failed:", e)
+        );
       }
 
       return successResponse({ ...data, scan_and_go_cancelled: true });

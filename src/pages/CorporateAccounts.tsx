@@ -13,6 +13,9 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ADMIN_CORPORATE_ACCOUNTS_PAGE_SIZE } from '@/lib/adminQueryBounds';
+import { useRegions } from '@/hooks/useRegions';
+import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { 
   Building2, 
   Search, 
@@ -75,26 +78,11 @@ export default function CorporateAccounts() {
 
   const [formData, setFormData] = useState(defaultFormData);
 
-  const { data: regions = [] } = useQuery({
-    queryKey: ['regions'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('regions').select('*').order('name');
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  const { data: serviceAreas = [] } = useQuery({
-    queryKey: ['service-areas'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('service_areas').select('*, region:regions(name)').order('name');
-      if (error) throw error;
-      return data;
-    },
-  });
+  const { data: regions = [] } = useRegions();
+  const { data: serviceAreas = [] } = useServiceAreas();
 
   const filteredServiceAreas = serviceAreas.filter(
-    (sa: any) => regionFilter === 'all' || sa.region_id === regionFilter
+    (sa) => regionFilter === 'all' || sa.region_id === regionFilter
   );
 
   // Only fetch approved/active + suspended accounts (not pending — those are in Account Requests)
@@ -103,9 +91,12 @@ export default function CorporateAccounts() {
     queryFn: async () => {
       let query = supabase
         .from('corporate_accounts')
-        .select('*, region:regions(name), service_area:service_areas(name)')
+        .select(
+          'id, company_name, contact_name, contact_email, contact_phone, billing_email, address, city, country, tax_id, payment_terms, credit_limit, discount_percentage, notes, employee_count, monthly_budget, region_id, service_area_id, status, payment_card_enabled, payment_apple_pay_enabled, payment_google_pay_enabled, payment_invoice_enabled, payment_wallet_enabled, created_at, region:regions(name), service_area:service_areas(name)',
+        )
         .in('status', ['active', 'suspended'])
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(ADMIN_CORPORATE_ACCOUNTS_PAGE_SIZE);
       if (regionFilter !== 'all') query = query.eq('region_id', regionFilter);
       if (serviceAreaFilter !== 'all') query = query.eq('service_area_id', serviceAreaFilter);
       const { data, error } = await query;

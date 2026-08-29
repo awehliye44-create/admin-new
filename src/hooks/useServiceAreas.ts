@@ -51,7 +51,7 @@ export function useServiceAreas(options?: { activeOnly?: boolean }) {
       let query = supabase
         .from("service_areas")
         .select(
-          "*, financial_model, commission_wallet_enabled, commission_wallet_currency, welcome_credit_enabled, welcome_credit_amount_minor, welcome_credit_max_drivers, region:regions(currency_code, distance_unit, name)",
+          "id, name, code, country, timezone, currency_code, distance_unit, region_id, is_active, geo_boundary, center_lat, center_lng, created_at, updated_at, financial_model, commission_wallet_enabled, commission_wallet_currency, welcome_credit_enabled, welcome_credit_amount_minor, welcome_credit_max_drivers, region:regions(currency_code, distance_unit, name)",
         )
         .order("name", { ascending: true });
 

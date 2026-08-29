@@ -29,6 +29,7 @@ import {
   loadStackedRideConfig,
   logStackedRideDisabledSafeGuard,
 } from "../_shared/stackedRideConfig.ts";
+import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
 
 declare const EdgeRuntime:
   | { waitUntil?: (promise: Promise<unknown>) => void }
@@ -1042,10 +1043,11 @@ Deno.serve(async (req) => {
         const searchDeadlineMs = new Date(trip.searching_expires_at).getTime();
         if (!Number.isFinite(searchDeadlineMs) || searchDeadlineMs > nowMs) continue;
 
-        const { data: didExpire, error: rpcError } = await supabase.rpc(
-          "expire_trip_when_search_exhausted",
-          { p_trip_id: trip.id },
-        );
+        const { expired: didExpire, rpcError } =
+          await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
+            tripId: trip.id,
+            passengerId: trip.passenger_id ?? null,
+          });
 
         if (rpcError) {
           console.warn("[scheduled-dispatch] expire_trip_when_search_exhausted failed:", trip.id, rpcError);

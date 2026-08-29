@@ -21,6 +21,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
+import { ADMIN_RIDERS_PAGE_SIZE } from '@/lib/adminQueryBounds';
 import {
   Users, Loader2, Search, MoreVertical, Eye,
   Phone, Car, RefreshCw, UserCheck, UserX, Clock, Calendar,
@@ -57,6 +58,7 @@ export default function Riders() {
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLinkCustomerId = searchParams.get('customerId');
   const [searchQuery, setSearchQuery] = useState('');
+  const [listPage, setListPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [selectedRider, setSelectedRider] = useState<Rider | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
@@ -68,44 +70,157 @@ export default function Riders() {
   const [voucherRider, setVoucherRider] = useState<Rider | null>(null);
   const [isVoucherDialogOpen, setIsVoucherDialogOpen] = useState(false);
 
-  const { data: riders = [], isLoading } = useQuery({
-    queryKey: ['riders'],
+  const { data: ridersPage, isLoading } = useQuery({
+    queryKey: ['riders', listPage, statusFilter, searchQuery],
     queryFn: async () => {
-      const { data: ridersData, error: ridersError } = await supabase
-        .from('admin_riders_with_trip_stats')
-        .select('id, user_id, customer_code, first_name, last_name, phone, email, created_at, updated_at, rider_status, trip_count, last_trip_at')
-        .order('created_at', { ascending: false });
+      const from = listPage * ADMIN_RIDERS_PAGE_SIZE;
+      const to = from + ADMIN_RIDERS_PAGE_SIZE - 1;
+      const q = searchQuery.trim();
 
+      let ridersQ = supabase
+        .from('admin_riders_with_trip_stats')
+        .select(
+          'id, user_id, customer_code, first_name, last_name, phone, email, created_at, updated_at, rider_status, trip_count, last_trip_at',
+          { count: 'exact' },
+        )
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      if (statusFilter !== 'all') {
+        ridersQ = ridersQ.eq('rider_status', statusFilter);
+      }
+      if (q) {
+        ridersQ = ridersQ.or(
+          `first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%,customer_code.ilike.%${q}%`,
+        );
+      }
+
+      const { data: ridersData, error: ridersError, count } = await ridersQ;
       if (ridersError) throw ridersError;
 
-      return (ridersData || []).map((rider) => ({
+      const riders = (ridersData || []).map((rider) => ({
         ...rider,
         trip_count: rider.trip_count ?? 0,
         last_trip_at: rider.last_trip_at ?? null,
         rider_status: rider.rider_status || 'active',
       })) as Rider[];
+      return { riders, totalCount: count ?? riders.length };
     },
     staleTime: 30_000,
   });
 
+  const riders = ridersPage?.riders ?? [];
+  const ridersTotalCount = ridersPage?.totalCount ?? 0;
+
+  const { data: riderStatusCounts } = useQuery({
+    queryKey: ['riders-status-counts'],
+    queryFn: async () => {
+      const head = async (status?: StatusFilter) => {
+        let q = supabase
+          .from('admin_riders_with_trip_stats')
+          .select('id', { count: 'exact', head: true });
+        if (status && status !== 'all') q = q.eq('rider_status', status);
+        const { count, error } = await q;
+        if (error) throw error;
+        return count ?? 0;
+      };
+      const [all, active, disabled, suspended, deleted] = await Promise.all([
+        head('all'),
+        head('active'),
+        head('disabled'),
+        head('suspended'),
+        head('deleted'),
+      ]);
+      return { all, active, disabled, suspended, deleted };
+    },
+    staleTime: 60_000,
+  });
+
+  const { data: riderStatCards } = useQuery({
+    queryKey: ['riders-stat-cards'],
+    queryFn: async () => {
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const [withTrips, newThisMonth] = await Promise.all([
+        supabase
+          .from('admin_riders_with_trip_stats')
+          .select('id', { count: 'exact', head: true })
+          .eq('rider_status', 'active')
+          .gt('trip_count', 0),
+        supabase
+          .from('admin_riders_with_trip_stats')
+          .select('id', { count: 'exact', head: true })
+          .gte('created_at', monthStart),
+      ]);
+      if (withTrips.error) throw withTrips.error;
+      if (newThisMonth.error) throw newThisMonth.error;
+      return {
+        withTrips: withTrips.count ?? 0,
+        newThisMonth: newThisMonth.count ?? 0,
+      };
+    },
+    staleTime: 60_000,
+  });
+
   // Payment Sessions (and other finance pages) deep-link: /riders?customerId=<uuid>
   useEffect(() => {
-    if (!deepLinkCustomerId || isLoading || riders.length === 0) return;
+    if (!deepLinkCustomerId || isLoading) return;
     const match = riders.find((r) => r.id === deepLinkCustomerId);
-    if (!match) return;
-    setSelectedRider(match);
-    setIsViewDialogOpen(true);
-    setSearchQuery(
-      [match.first_name, match.last_name, match.customer_code, match.phone]
-        .filter(Boolean)
-        .join(' '),
-    );
-    const next = new URLSearchParams(searchParams);
-    next.delete('customerId');
-    setSearchParams(next, { replace: true });
+    if (match) {
+      setSelectedRider(match);
+      setIsViewDialogOpen(true);
+      setSearchQuery(
+        [match.first_name, match.last_name, match.customer_code, match.phone]
+          .filter(Boolean)
+          .join(' '),
+      );
+      const next = new URLSearchParams(searchParams);
+      next.delete('customerId');
+      setSearchParams(next, { replace: true });
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('admin_riders_with_trip_stats')
+        .select(
+          'id, user_id, customer_code, first_name, last_name, phone, email, created_at, updated_at, rider_status, trip_count, last_trip_at',
+        )
+        .eq('id', deepLinkCustomerId)
+        .maybeSingle();
+      if (cancelled || error || !data) return;
+      const rider = {
+        ...data,
+        trip_count: data.trip_count ?? 0,
+        last_trip_at: data.last_trip_at ?? null,
+        rider_status: data.rider_status || 'active',
+      } as Rider;
+      setSelectedRider(rider);
+      setIsViewDialogOpen(true);
+      setSearchQuery(
+        [rider.first_name, rider.last_name, rider.customer_code, rider.phone]
+          .filter(Boolean)
+          .join(' '),
+      );
+      const next = new URLSearchParams(searchParams);
+      next.delete('customerId');
+      setSearchParams(next, { replace: true });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [deepLinkCustomerId, isLoading, riders, searchParams, setSearchParams]);
 
-  const refreshData = () => queryClient.invalidateQueries({ queryKey: ['riders'] });
+  useEffect(() => {
+    setListPage(0);
+  }, [statusFilter, searchQuery]);
+
+  const refreshData = () => {
+    queryClient.invalidateQueries({ queryKey: ['riders'] });
+    queryClient.invalidateQueries({ queryKey: ['riders-status-counts'] });
+    queryClient.invalidateQueries({ queryKey: ['riders-stat-cards'] });
+  };
 
   const handleViewRider = (rider: Rider) => {
     setSelectedRider(rider);
@@ -234,31 +349,16 @@ export default function Riders() {
     }
   };
 
-  const filteredRiders = riders.filter(rider => {
-    const fullName = getFullName(rider).toLowerCase();
-    const phone = rider.phone?.toLowerCase() || '';
-    const code = rider.customer_code?.toLowerCase() || '';
-    const query = searchQuery.toLowerCase();
-    const matchesSearch = fullName.includes(query) || phone.includes(query) || code.includes(query);
-    const matchesStatus = statusFilter === 'all' || rider.rider_status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
-
-  const counts = {
-    all: riders.length,
-    active: riders.filter(r => r.rider_status === 'active').length,
-    disabled: riders.filter(r => r.rider_status === 'disabled').length,
-    suspended: riders.filter(r => r.rider_status === 'suspended').length,
-    deleted: riders.filter(r => r.rider_status === 'deleted').length,
+  const filteredRiders = riders;
+  const counts = riderStatusCounts || {
+    all: 0,
+    active: 0,
+    disabled: 0,
+    suspended: 0,
+    deleted: 0,
   };
-
-  const totalRiders = counts.active;
-  const activeRiders = riders.filter(r => r.rider_status === 'active' && (r.trip_count ?? 0) > 0).length;
-  const newThisMonth = riders.filter(r => {
-    const created = new Date(r.created_at);
-    const now = new Date();
-    return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
-  }).length;
+  const activeRiders = riderStatCards?.withTrips ?? 0;
+  const newThisMonth = riderStatCards?.newThisMonth ?? 0;
 
   const actionLabels: Record<ActionType, { title: string; description: string; buttonLabel: string; buttonClass: string }> = {
     disable: {
@@ -394,6 +494,7 @@ export default function Riders() {
               {searchQuery ? 'No riders match your search' : 'No riders found'}
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -518,6 +619,32 @@ export default function Riders() {
                 ))}
               </TableBody>
             </Table>
+            <div className="flex items-center justify-between mt-4 gap-2 flex-wrap">
+              <p className="text-sm text-muted-foreground">
+                Page {listPage + 1}
+                {ridersTotalCount ? ` · ${ridersTotalCount} matching` : ''}
+                {` · ${ADMIN_RIDERS_PAGE_SIZE} per page`}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={listPage <= 0 || isLoading}
+                  onClick={() => setListPage((p) => Math.max(0, p - 1))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isLoading || riders.length < ADMIN_RIDERS_PAGE_SIZE}
+                  onClick={() => setListPage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+            </>
           )}
         </CardContent>
       </Card>

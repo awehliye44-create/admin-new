@@ -60,7 +60,7 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
         const [methodsRes, areaRes] = await Promise.all([
           supabase
             .from('service_area_payment_methods')
-            .select('*')
+            .select('service_area_id, card_enabled, wallet_enabled, apple_pay_enabled, google_pay_enabled, mobile_wallet_methods')
             .eq('service_area_id', serviceAreaId)
             .maybeSingle(),
           supabase

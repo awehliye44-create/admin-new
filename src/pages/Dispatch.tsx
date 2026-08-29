@@ -52,7 +52,7 @@ export default function Dispatch() {
         const { data, error } = await supabase
           .from('trips')
           .select(`
-            *,
+            id, trip_code, pickup_address, dropoff_address, status, fare, estimated_fare, passenger_name, created_at, service_area_id, driver_id,
             driver:drivers!trips_driver_id_fkey(first_name, last_name, driver_code),
             service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code))
           `)

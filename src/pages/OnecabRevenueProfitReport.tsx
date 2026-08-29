@@ -130,7 +130,7 @@ export default function OnecabRevenueProfitReport() {
     queryFn: async () => {
       let q = supabase
         .from('onecab_expenses')
-        .select('*')
+        .select('id, category, subcategory, description, amount_pence, currency_code, region_id, service_area_id, expense_date, notes, created_at')
         .gte('expense_date', format(range.start, 'yyyy-MM-dd'))
         .lte('expense_date', format(range.end, 'yyyy-MM-dd'))
         .order('expense_date', { ascending: false })

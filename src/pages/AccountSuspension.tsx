@@ -74,8 +74,9 @@ export default function AccountSuspension() {
 
       const { data, error } = await supabase
         .from('account_suspensions')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .select('id, user_type, user_id, user_name, user_email, reason, status, suspended_at, suspended_by, suspended_by_name, duration_days, expires_at, lifted_at, lifted_by, lifted_by_name, notes')
+        .order('created_at', { ascending: false })
+        .limit(500);
 
       if (error) throw error;
       return (data || []) as unknown as Suspension[];

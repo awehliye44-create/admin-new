@@ -5,6 +5,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { rebroadcastTripViaAutoDispatch } from "./dispatchOrchestrator.ts";
+import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
 
 export const STACKED_RIDE_ORPHAN_PREVENTED = "STACKED_RIDE_ORPHAN_PREVENTED";
 export const STACKED_RIDE_CANCELLED_DUE_TO_CURRENT_TRIP_FAILURE =
@@ -37,6 +38,38 @@ function logLifecycle(
   payload: Record<string, unknown>,
 ): void {
   console.log(token, payload);
+}
+
+/**
+ * Queued → active: Customer already got driver_assigned at stacked accept.
+ * Re-alert with a distinct notificationId so BG devices hear “now on the way”.
+ */
+async function notifyCustomerStackedTripPromoted(
+  supabase: SupabaseClient,
+  tripId: string,
+): Promise<void> {
+  try {
+    const { data: trip } = await supabase
+      .from("trips")
+      .select("passenger_id")
+      .eq("id", tripId)
+      .maybeSingle();
+    const passengerId =
+      typeof trip?.passenger_id === "string" ? trip.passenger_id : null;
+    if (!passengerId) return;
+    await notifyCustomerTripLifecycle(supabase, {
+      passengerId,
+      tripId,
+      event: "driver_assigned",
+      body: "Your driver is now on the way to pick you up.",
+      notificationId: `driver_assigned-${tripId}-promoted`,
+    });
+  } catch (e) {
+    console.warn(
+      "[stackedRideLifecycle] promote driver_assigned push failed:",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
 }
 
 /** Clear stacked_trip_id links and emit observability token. */
@@ -106,6 +139,9 @@ async function promoteQueuedStackedTrip(
 
   const promoted = data?.promoted === true;
   if (promoted) {
+    const promotedTripId =
+      (typeof data?.trip_id === "string" && data.trip_id) || queuedTripId;
+    void notifyCustomerStackedTripPromoted(supabase, promotedTripId);
     logLifecycle(STACKED_RIDE_PROMOTED, {
       current_trip_id: currentTripId,
       queued_trip_id: queuedTripId,
@@ -209,7 +245,7 @@ async function cancelQueuedStackedTrip(
     failureReason,
   });
 
-  const { error } = await supabase
+  const { data: cancelledRows, error } = await supabase
     .from("trips")
     .update({
       status: "cancelled",
@@ -219,7 +255,8 @@ async function cancelQueuedStackedTrip(
       updated_at: now,
     })
     .eq("id", queuedTripId)
-    .eq("status", "queued");
+    .eq("status", "queued")
+    .select("id, passenger_id");
 
   if (error) {
     logLifecycle(STACKED_RIDE_ORPHAN_PREVENTED, {
@@ -229,6 +266,19 @@ async function cancelQueuedStackedTrip(
       cancel_error: error.message,
     });
     return { handled: false, queued_trip_id: queuedTripId, action: "skipped", detail: error.message };
+  }
+
+  const cancelled = cancelledRows?.[0];
+  if (cancelled && typeof cancelled.passenger_id === "string" && cancelled.passenger_id) {
+    void notifyCustomerTripLifecycle(supabase, {
+      passengerId: cancelled.passenger_id,
+      tripId: queuedTripId,
+      event: "trip_cancelled",
+      title: "ONECAB TRIP CANCELLED",
+      body: "Your trip has been cancelled.",
+    }).catch((e) =>
+      console.warn("[stackedRideLifecycle] queued trip_cancelled push failed:", e)
+    );
   }
 
   logLifecycle(STACKED_RIDE_CANCELLED_DUE_TO_CURRENT_TRIP_FAILURE, {
@@ -478,6 +528,11 @@ export async function tryPromoteStackedTripAfterCompletion(
 
   const promoted = data?.promoted === true;
   if (promoted) {
+    const promotedTripId =
+      (typeof data?.trip_id === "string" && data.trip_id) || undefined;
+    if (promotedTripId) {
+      void notifyCustomerStackedTripPromoted(supabase, promotedTripId);
+    }
     logLifecycle(STACKED_RIDE_PROMOTED, {
       current_trip_id: completedTripId,
       queued_trip_id: data?.trip_id ?? null,
@@ -529,6 +584,9 @@ export async function attemptStackedTripPromotionAfterComplete(
   if (data?.promoted === true) {
     const promotedId =
       (typeof data.trip_id === "string" && data.trip_id) || linkedId || undefined;
+    if (promotedId) {
+      void notifyCustomerStackedTripPromoted(supabase, promotedId);
+    }
     logLifecycle(STACKED_RIDE_PROMOTED, {
       current_trip_id: completedTripId,
       queued_trip_id: promotedId ?? null,

@@ -98,17 +98,17 @@ export function ServiceAreaCommunicationConfig({
       const [settingsRes, maskingRes, catalogRes] = await Promise.all([
         supabase
           .from('service_area_communication_settings')
-          .select('*')
+          .select('service_area_id,is_enabled,voip_enabled,call_masking_enabled,default_method,voip_provider,voip_rate_per_minute_minor,masked_call_rate_per_minute_minor,maximum_call_duration_seconds,outbound_caller_id,currency,config_version,created_at,updated_at')
           .eq('service_area_id', serviceAreaId)
           .maybeSingle(),
         supabase
           .from('service_area_call_masking_config')
-          .select('*')
+          .select('service_area_id,provider,provider_config_id,number_pool_id,outbound_caller_id,country_code,is_active,created_at,updated_at')
           .eq('service_area_id', serviceAreaId)
           .maybeSingle(),
         supabase
           .from('call_masking_provider_configs')
-          .select('*')
+          .select('id,provider,label,number_pool_id,outbound_caller_id,country_code,is_active,created_at')
           .eq('is_active', true)
           .order('label'),
       ]);
@@ -144,7 +144,7 @@ export function ServiceAreaCommunicationConfig({
 
       const voipLogsRes = await supabase
         .from('voip_call_logs')
-        .select('*')
+        .select('id,service_area_id,trip_id,customer_id,driver_id,status,provider,room_name,provider_room_sid,initiator_role,initiator_user_id,participants_joined,started_at,connected_at,ended_at,duration_seconds,end_reason,expires_at,incoming_push_sent_at,termination_attempted_at,idempotency_key,created_at')
         .eq('service_area_id', serviceAreaId)
         .order('started_at', { ascending: false })
         .limit(100);

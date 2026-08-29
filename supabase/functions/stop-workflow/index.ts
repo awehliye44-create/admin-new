@@ -57,6 +57,7 @@ import {
   requiresProviderSettlement,
 } from "../_shared/digitalPaymentCapture.ts";
 import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -2205,6 +2206,11 @@ Deno.serve(async (req) => {
           event_type: 'ARRIVE_AT_PICKUP_TAPPED',
           details: { arrived_at: now },
         });
+        await notifyCustomerTripLifecycle(supabase, {
+          passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
+          tripId: trip_id,
+          event: "driver_arrived",
+        });
         if (waitingResult.started) {
           const isMultiStopTrip = (stops?.length ?? 0) > 2;
           await writeTripAudit(supabase, {
@@ -2402,6 +2408,11 @@ Deno.serve(async (req) => {
             pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
             pickup_waiting_intervals_charged: waitingFinal.intervals_charged,
           },
+        });
+        await notifyCustomerTripLifecycle(supabase, {
+          passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
+          tripId: trip_id,
+          event: "trip_started",
         });
         return await respondOk({
           success: true,
@@ -3201,6 +3212,11 @@ Deno.serve(async (req) => {
         }
 
         console.log("[stop-workflow] COMPLETE_TRIP success");
+        await notifyCustomerTripLifecycle(supabase, {
+          passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
+          tripId: trip_id,
+          event: "trip_completed",
+        });
         return await respondOk({ success: true, action: 'complete_trip' });
       }
 

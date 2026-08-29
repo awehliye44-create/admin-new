@@ -83,10 +83,11 @@ export default function Vehicles() {
       const { data, error } = await supabase
         .from('vehicles')
         .select(`
-          *,
+          id, make, model, year, color, license_plate, is_primary, approval_status, rejection_reason, capacity, vehicle_type_id, driver_id, created_at, updated_at,
           driver:drivers(first_name, last_name, driver_code)
         `)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(500);
 
       if (error) throw error;
       setVehicles(data || []);
@@ -103,11 +104,12 @@ export default function Vehicles() {
       const { data, error } = await supabase
         .from('vehicle_change_requests')
         .select(`
-          *,
+          id, driver_id, vehicle_id, requested_make, requested_model, requested_year, requested_color, requested_license_plate, status, admin_notes, reviewed_at, reviewed_by, created_at, updated_at,
           driver:drivers(first_name, last_name, driver_code),
           vehicle:vehicles(make, model, year, color, license_plate)
         `)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(200);
 
       if (error) throw error;
       setChangeRequests(data || []);

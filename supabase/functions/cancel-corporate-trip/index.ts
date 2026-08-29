@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { notifyCustomerTripLifecycle } from '../_shared/customerTripLifecycleNotify.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -50,7 +51,7 @@ Deno.serve(async (req) => {
     // 1. Fetch the trip
     const { data: trip, error: tripError } = await supabase
       .from('trips')
-      .select('id, status, driver_id, service_area_id, arrived_at, created_at, scheduled_at, final_fare_pence, estimated_fare')
+      .select('id, status, driver_id, passenger_id, service_area_id, arrived_at, created_at, scheduled_at, final_fare_pence, estimated_fare')
       .eq('id', trip_id)
       .single();
 
@@ -182,6 +183,17 @@ Deno.serve(async (req) => {
         .update({ current_trip_id: null, updated_at: now.toISOString() })
         .eq('id', trip.driver_id)
         .eq('current_trip_id', trip_id);
+    }
+
+    // After terminal cancel — Customer trip_cancelled lifecycle push/WAV.
+    if (trip.passenger_id) {
+      void notifyCustomerTripLifecycle(supabase, {
+        passengerId: trip.passenger_id,
+        tripId: trip_id,
+        event: 'trip_cancelled',
+      }).catch((e) =>
+        console.warn('[cancel-corporate-trip] customer trip_cancelled push failed:', e)
+      );
     }
 
     return new Response(

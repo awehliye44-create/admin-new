@@ -90,8 +90,9 @@ export default function CorporateFares() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('corporate_fare_rules')
-        .select('*')
-        .order('priority', { ascending: false });
+        .select('id, name, description, corporate_account_id, rule_type, discount_percentage, fixed_rate, fare_cap, applies_to_vehicle_types, applies_to_regions, time_restrictions, booking_restrictions, priority, is_active, valid_from, valid_until, created_at, updated_at')
+        .order('priority', { ascending: false })
+        .limit(500);
       if (error) throw error;
       return data as CorporateFareRule[];
     },

@@ -124,7 +124,7 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
       // Fetch staff profile (including inactive — we explicitly check is_active below)
       const { data: profile } = await supabase
         .from('staff_profiles')
-        .select('*')
+        .select('id, user_id, staff_role_id, full_name, username, role, is_active, is_owner, created_at')
         .eq('user_id', userId)
         .maybeSingle();
 

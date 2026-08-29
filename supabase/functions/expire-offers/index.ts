@@ -31,6 +31,7 @@ import {
   isScheduledInstantConversionPending,
   isScheduledWorkflowOrigin,
 } from "../_shared/scheduledHandoverHoldLock.ts";
+import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
 import {
   shouldTimeoutAbandonedDecisionHold,
   shouldTimeoutWaitingCustomer,
@@ -608,7 +609,7 @@ Deno.serve(async (req) => {
     // Scan & Go retired (trips.scan_go dropped 20260903121500) — do not SELECT or branch on it.
     const { data: staleTrips, error: tripsError } = await supabase
       .from("trips")
-      .select("id, current_broadcast_round, max_broadcast_rounds, broadcast_enabled, status, scheduled_status, dispatch_status, dispatch_mode, is_scheduled, scheduled_at")
+      .select("id, current_broadcast_round, max_broadcast_rounds, broadcast_enabled, status, scheduled_status, dispatch_status, dispatch_mode, is_scheduled, scheduled_at, passenger_id")
       .in("status", ["searching", "searching_new_driver", "offered", "pending", "broadcasting"])
       .eq("dispatch_status", "broadcasting");
 
@@ -655,10 +656,11 @@ Deno.serve(async (req) => {
             searchWindowRecheckTripIds.push(trip.id);
             console.log("[expire-offers] Scheduled handover pending; skip expire:", trip.id);
           } else {
-            const { data: expired, error: expireErr } = await supabase.rpc(
-              "expire_trip_when_search_exhausted",
-              { p_trip_id: trip.id },
-            );
+            const { expired, rpcError: expireErr } =
+              await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
+                tripId: trip.id,
+                passengerId: (trip as { passenger_id?: string | null }).passenger_id ?? null,
+              });
             if (expireErr) {
               console.warn("[expire-offers] expire_trip_when_search_exhausted failed:", trip.id, expireErr);
             } else if (expired === true) {

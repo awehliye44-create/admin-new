@@ -21,6 +21,13 @@ import {
   resolveAlertSound,
   TRIP_EVENT_SOUND_MAP,
 } from "../_shared/alertSoundResolver.ts";
+import {
+  canonicalizeCustomerTripNotificationEvent,
+  customerAndroidChannelIdForEvent,
+  customerAndroidSoundForEvent,
+  customerIosCategoryIdForEvent,
+  customerIosSoundFileForEvent,
+} from "../_shared/customerTripLifecycleNotify.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -55,6 +62,7 @@ interface SendTripNotificationRequest {
 // ── Notification copy (mirrors frontend tripNotificationTypes.ts) ──────────
 
 const NOTIFICATION_COPY: Record<string, { title: string; body: string }> = {
+  driver_assigned:    { title: 'ONECAB DRIVER ASSIGNED',    body: 'Your driver is on the way.' },
   trip_accepted:      { title: 'ONECAB DRIVER ASSIGNED',    body: 'Your driver is on the way.' },
   driver_approaching: { title: 'ONECAB DRIVER ARRIVING',      body: 'Your driver is arriving soon.' },
   driver_arrived:     { title: 'ONECAB DRIVER ARRIVED',     body: 'Your driver has arrived.' },
@@ -65,6 +73,7 @@ const NOTIFICATION_COPY: Record<string, { title: string; body: string }> = {
   safety_reminder:    { title: 'Safety Reminder',    body: 'Share your live trip for extra safety.' },
   fare_updated:       { title: 'Fare Updated',       body: 'Your fare was updated due to trip changes.' },
   trip_completed:     { title: 'ONECAB TRIP COMPLETED',       body: "You've arrived. Thanks for riding with ONECAB." },
+  trip_cancelled:     { title: 'ONECAB TRIP CANCELLED',      body: 'Your trip has been cancelled.' },
   rating_request:     { title: 'Rate Your Trip',     body: 'How was your trip? Rate your ride.' },
   payment_success:    { title: 'Payment Successful', body: 'Payment successful.' },
   payment_failed:     { title: 'Payment Failed',     body: 'Payment failed. Please update your payment method.' },
@@ -103,37 +112,15 @@ const NOTIFICATION_COPY: Record<string, { title: string; body: string }> = {
   },
 };
 
-// ── Event → Android channel mapping ────────────────────────────────────────
-
-const EVENT_CHANNEL: Record<string, string> = {
-  trip_accepted: 'trip_updates',
-  driver_approaching: 'trip_updates',
-  driver_arrived: 'critical_alerts',
-  waiting_started: 'critical_alerts',
-  trip_started: 'critical_alerts',
-  traffic_delay: 'trip_updates',
-  route_changed: 'trip_updates',
-  safety_reminder: 'critical_alerts',
-  fare_updated: 'payment_alerts',
-  trip_completed: 'trip_updates',
-  rating_request: 'post_trip',
-  payment_success: 'payment_alerts',
-  payment_failed: 'critical_alerts',
-  lost_item_followup: 'post_trip',
-  customer_new_fare_offer: 'critical_alerts',
-  driver_accepted_counter: 'critical_alerts',
-  finding_another_driver_updated_fare: 'trip_updates',
-  negotiation_offer_expired: 'trip_updates',
-  new_driver_assigned: 'trip_updates',
-  driver_cancelled: 'critical_alerts',
-  customer_new_message: 'trip_updates',
-  high_demand: 'trip_updates',
-};
+// ── Event → Android channel mapping (native per-event versioned IDs) ──────
+// SSOT: customerTripLifecycleNotify.ts — never trip_updates / critical_alerts / post_trip.
 
 // ── Event → priority ───────────────────────────────────────────────────────
 
 const EVENT_PRIORITY: Record<string, 'high' | 'normal'> = {
+  driver_assigned: 'high',
   trip_accepted: 'high',
+  trip_cancelled: 'high',
   driver_approaching: 'normal',
   driver_arrived: 'high',
   waiting_started: 'high',
@@ -160,17 +147,19 @@ const EVENT_PRIORITY: Record<string, 'high' | 'normal'> = {
 // ── Event → deep link screen ───────────────────────────────────────────────
 
 const EVENT_SCREEN: Record<string, string> = {
-  trip_accepted: '/ride-tracking',
-  driver_approaching: '/ride-tracking',
-  driver_arrived: '/ride-tracking',
-  waiting_started: '/ride-tracking',
-  trip_started: '/ride-tracking',
-  traffic_delay: '/ride-tracking',
-  route_changed: '/ride-tracking',
-  safety_reminder: '/ride-tracking',
-  fare_updated: '/ride-tracking',
-  trip_completed: '/rate-driver',
-  rating_request: '/rate-driver',
+  driver_assigned: '/booking/driver-accepted',
+  trip_accepted: '/booking/driver-accepted',
+  driver_approaching: '/booking/driver-accepted',
+  driver_arrived: '/booking/driver-accepted',
+  waiting_started: '/booking/driver-accepted',
+  trip_started: '/booking/driver-accepted',
+  traffic_delay: '/booking/driver-accepted',
+  route_changed: '/booking/driver-accepted',
+  safety_reminder: '/booking/driver-accepted',
+  fare_updated: '/booking/driver-accepted',
+  trip_completed: '/booking/rate-trip',
+  trip_cancelled: '/',
+  rating_request: '/booking/rate-trip',
   payment_success: '/wallet',
   payment_failed: '/wallet',
   lost_item_followup: '/lost-property',
@@ -178,10 +167,10 @@ const EVENT_SCREEN: Record<string, string> = {
   driver_accepted_counter: '/booking/driver-accepted',
   finding_another_driver_updated_fare: '/booking/finding-drivers',
   negotiation_offer_expired: '/booking/finding-drivers',
-  new_driver_assigned: '/ride-tracking',
-  driver_cancelled: '/ride-tracking',
-  customer_new_message: '/ride-tracking',
-  high_demand: '/book-ride',
+  new_driver_assigned: '/booking/driver-accepted',
+  driver_cancelled: '/booking/finding-drivers',
+  customer_new_message: '/booking/trip-chat',
+  high_demand: '/',
 };
 
 // ============================================================================
@@ -263,8 +252,12 @@ async function sendFCMv1(
   body: string,
   data: Record<string, string>
 ): Promise<{ success: boolean; error?: string }> {
-  const channelId = data.channelId || 'trip_updates';
+  const channelId = data.channelId || customerAndroidChannelIdForEvent(data.type || '');
   const priority = data.priority || 'normal';
+  const androidSound = data.androidSound || customerAndroidSoundForEvent(data.type || '');
+  const iosSound = data.iosSound || customerIosSoundFileForEvent(data.type || '');
+  const iosCategory =
+    data.iosCategory || customerIosCategoryIdForEvent(data.type || '') || data.type;
 
   const message: Record<string, unknown> = {
     token,
@@ -275,24 +268,24 @@ async function sendFCMv1(
     },
   };
 
-  // Platform-specific config
+  // Platform-specific config — bundled WAV / per-event channel, never OS "default".
   if (platform === 'android') {
     (message as any).android = {
       priority: priority === 'high' ? 'HIGH' : 'NORMAL',
       notification: {
         channel_id: channelId,
-        sound: priority === 'high' ? 'default' : undefined,
-        click_action: 'FLUTTER_NOTIFICATION_CLICK', // For deep linking
-        tag: data.notificationId, // Replaces previous notification with same tag
+        sound: androidSound,
+        click_action: 'FLUTTER_NOTIFICATION_CLICK',
+        tag: data.notificationId,
       },
     };
   } else if (platform === 'ios') {
     const apsPayload: Record<string, unknown> = {
       alert: { title, body },
-      sound: priority === 'high' ? 'default' : undefined,
+      sound: iosSound,
       'thread-id': data.tripId, // Groups notifications by trip
       'mutable-content': 1, // Allows notification service extension
-      category: data.type, // Maps to UNNotificationCategory
+      category: iosCategory,
     };
     if (priority === 'high') {
       // iOS 15+ Focus: pairs with com.apple.developer.usernotifications.time-sensitive entitlement.
@@ -368,7 +361,9 @@ serve(async (req) => {
     }
 
     const body: SendTripNotificationRequest = await req.json();
-    const { userId, tripId, event, driverName, fareDisplay } = body;
+    const { tripId, driverName, fareDisplay } = body;
+    const event = canonicalizeCustomerTripNotificationEvent(body.event ?? "");
+    const userId = body.userId;
 
     if (!userId || !tripId || !event) {
       return new Response(JSON.stringify({ error: "Missing userId, tripId, or event" }), {
@@ -376,8 +371,8 @@ serve(async (req) => {
       });
     }
 
-    // Resolve notification content
-    const copy = NOTIFICATION_COPY[event];
+    // Resolve notification content (canonical first, then original alias)
+    const copy = NOTIFICATION_COPY[event] ?? NOTIFICATION_COPY[body.event];
     if (!copy) {
       return new Response(JSON.stringify({ error: `Unknown event type: ${event}` }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -389,23 +384,32 @@ serve(async (req) => {
     if (driverName) notifBody = notifBody.replace('{driverName}', driverName);
     if (fareDisplay) notifBody = notifBody.replace('{fare}', fareDisplay);
 
-    const notificationId = body.notificationId || `${event}-${tripId}-${Date.now()}`;
-    const channelId = EVENT_CHANNEL[event] || 'trip_updates';
-    const priority = EVENT_PRIORITY[event] || 'normal';
-    const screen = EVENT_SCREEN[event] || '/ride-tracking';
+    const notificationId = body.notificationId || `${event}-${tripId}`;
+    const channelId = customerAndroidChannelIdForEvent(event);
+    const androidSound = customerAndroidSoundForEvent(event);
+    const iosSound = customerIosSoundFileForEvent(event);
+    const iosCategory = customerIosCategoryIdForEvent(event);
+    const priority = EVENT_PRIORITY[event] || EVENT_PRIORITY[body.event] || 'high';
+    const screen = EVENT_SCREEN[event] || EVENT_SCREEN[body.event] || '/booking/driver-accepted';
 
     // Data payload for the app
     const dataPayload: Record<string, string> = {
       type: event,
+      event,
+      event_type: event,
       tripId,
       trip_id: tripId,
       screen,
       path: screen,
       channelId,
+      channel_id: channelId,
+      androidSound,
+      iosSound,
       notificationId,
       priority,
       timestamp: new Date().toISOString(),
     };
+    if (iosCategory) dataPayload.iosCategory = iosCategory;
     if (driverName) dataPayload.driverName = driverName;
     if (fareDisplay) dataPayload.fareDisplay = fareDisplay;
     const negotiationDeadline = body.negotiationExpiresAt || body.expiresAt;
@@ -416,7 +420,7 @@ serve(async (req) => {
       dataPayload.expiresAt = negotiationDeadline;
     }
 
-    const alertSoundEvent = TRIP_EVENT_SOUND_MAP[event] ?? null;
+    const alertSoundEvent = TRIP_EVENT_SOUND_MAP[event] ?? TRIP_EVENT_SOUND_MAP[body.event] ?? event;
     if (alertSoundEvent) {
       const resolved = await resolveAlertSound(
         createClient(supabaseUrl, supabaseServiceKey),
@@ -433,23 +437,14 @@ serve(async (req) => {
 
     // Get customer's push tokens (passenger_id or auth user id)
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const { resolveCustomerAuthUserId } = await import("../_shared/authoritativeDevicePush.ts");
-    const authUserId = await resolveCustomerAuthUserId(supabase, userId);
-    const { data: tokens, error: tokenError } = await supabase
-      .from("customer_push_tokens")
-      .select("token, platform")
-      .eq("user_id", authUserId)
-      .eq("app_type", "customer");
+    const { resolveCustomerAuthoritativeToken } = await import("../_shared/authoritativeDevicePush.ts");
+    const authoritative = await resolveCustomerAuthoritativeToken(supabase, userId);
+    const tokens = authoritative
+      ? [{ token: authoritative.token, platform: authoritative.platform }]
+      : [];
 
-    if (tokenError) {
-      console.error("Error fetching push tokens:", tokenError);
-      return new Response(JSON.stringify({ error: "Failed to fetch tokens" }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (!tokens || tokens.length === 0) {
-      console.log(`No push tokens for user ${userId} — notification skipped`);
+    if (tokens.length === 0) {
+      console.log(`No authoritative Customer push token for user ${userId} — notification skipped`);
       return new Response(JSON.stringify({ success: true, sent: 0, reason: "no_tokens" }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -494,7 +489,7 @@ serve(async (req) => {
     }
 
     if (sent === 0 && fcmServerKey) {
-      // Legacy FCM API fallback
+      // Legacy FCM API fallback — top-level android_channel_id (not FCM v1 shape).
       for (const { token: deviceToken, platform } of tokens) {
         try {
           const response = await fetch("https://fcm.googleapis.com/fcm/send", {
@@ -505,10 +500,16 @@ serve(async (req) => {
             },
             body: JSON.stringify({
               to: deviceToken,
-              notification: { title, body: notifBody, sound: "default" },
+              notification: {
+                title,
+                body: notifBody,
+                sound: platform === "ios" ? iosSound : androidSound,
+              },
               data: dataPayload,
-              priority: priority === 'high' ? 'high' : 'normal',
-              ...(platform === 'android' ? { android: { notification: { channel_id: channelId } } } : {}),
+              priority: priority === "high" ? "high" : "normal",
+              ...(platform === "android"
+                ? { android_channel_id: channelId }
+                : {}),
             }),
           });
 

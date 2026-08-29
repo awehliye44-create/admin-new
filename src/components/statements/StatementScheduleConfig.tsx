@@ -89,7 +89,9 @@ export default function StatementScheduleConfig() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("statement_schedule_configs")
-        .select("*")
+        .select(
+          "id, is_auto_generate_enabled, is_auto_send_enabled, frequency, generation_day, send_mode, send_day, send_hour, statement_period_mode, custom_period_days, due_days_after_generation, timezone, scope_type, scope_region_id, scope_service_area_id, last_run_at, last_run_status, last_run_error, last_run_invoice_count, next_run_at",
+        )
         .order("created_at", { ascending: true })
         .limit(1)
         .maybeSingle();
@@ -103,7 +105,9 @@ export default function StatementScheduleConfig() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("statement_schedule_run_log")
-        .select("*, regions(name), service_areas(name)")
+        .select(
+          "id, triggered_at, status, invoice_count, error_message, period_start, period_end, scope_type, scope_region_id, scope_service_area_id, regions(name), service_areas(name)",
+        )
         .order("triggered_at", { ascending: false })
         .limit(10);
       if (error) throw error;

@@ -105,7 +105,7 @@ export default function DriverDemandZones() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('driver_demand_zones')
-        .select('*, region:regions(id, name), service_area:service_areas(id, name)')
+        .select('id, name, center_lat, center_lng, radius_meters, demand_level, active, region_id, service_area_id, source, created_at, updated_at, region:regions(id, name), service_area:service_areas(id, name)')
         .order('source')
         .order('name');
       if (error) throw error;

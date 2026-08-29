@@ -8,6 +8,7 @@ import {
   buildAssignedNegotiationSnapshot,
   type AssignedNegotiationSnapshot,
 } from "./assignedNegotiationSnapshot.ts";
+import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
 
 export type FinalizeRideAssignmentParams = {
   tripId: string;
@@ -125,17 +126,15 @@ export async function finalizeRideAssignmentSideEffects(
         ? `£${(farePence / 100).toFixed(2)}`
         : (typeof tripRow?.fare === "number" ? `£${tripRow.fare.toFixed(2)}` : undefined);
 
-      await supabase.functions.invoke("send-trip-notification", {
-        body: {
-          userId,
-          tripId,
-          event: "trip_accepted",
-          fareDisplay,
-        },
+      await notifyCustomerTripLifecycle(supabase, {
+        userId,
+        tripId,
+        event: "driver_assigned",
+        fareDisplay,
       });
       console.log("[ride-assignment] RIDE_ASSIGNED_BROADCASTED", {
         trip_id: tripId,
-        event: "trip_accepted",
+        event: "driver_assigned",
         user_id: userId,
       });
     }

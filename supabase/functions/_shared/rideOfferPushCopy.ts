@@ -20,7 +20,7 @@ import {
 export const RIDE_OFFER_IOS_ALERT_SOUND = 'onecab_new_ride_offer.wav';
 
 /** Approved Android channel (native SSOT). */
-export const RIDE_OFFER_ANDROID_CHANNEL_ID = 'onecab_new_ride_offers_v1';
+export const RIDE_OFFER_ANDROID_CHANNEL_ID = 'onecab_new_ride_offers_v3';
 
 export { DRIVER_NEW_RIDE_OFFER_TITLE, DRIVER_NEW_RIDE_OFFER_BODY };
 

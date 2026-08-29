@@ -10,6 +10,7 @@ import {
   validationErrorResponse,
 } from "../_shared/security.ts";
 import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 20,
@@ -53,7 +54,7 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, service_area_id, driver_id, confirmed_driver_id, created_at, is_scheduled, scheduled_at, accepted_at, arrived_at, no_show_charge_pence, late_cancel_fee_pence, total_waiting_charge_pence, pickup_waiting_charge_pence"
+        "id, status, service_area_id, driver_id, confirmed_driver_id, passenger_id, created_at, is_scheduled, scheduled_at, accepted_at, arrived_at, no_show_charge_pence, late_cancel_fee_pence, total_waiting_charge_pence, pickup_waiting_charge_pence"
       )
       .eq("id", trip_id)
       .single();
@@ -71,6 +72,19 @@ Deno.serve(async (req) => {
         cancelledBy: cancelledByRole,
         body: "Rider cancelled this trip",
       });
+    };
+
+    const notifyCustomerCancelledIfNeeded = () => {
+      const passengerId =
+        typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+      if (!passengerId) return;
+      void notifyCustomerTripLifecycle(supabase, {
+        passengerId,
+        tripId: trip_id,
+        event: "trip_cancelled",
+      }).catch((e) =>
+        console.warn("[late-cancellation-check] customer trip_cancelled push failed:", e)
+      );
     };
 
     // Already cancelled — still ping driver so active trip UI clears
@@ -167,6 +181,7 @@ Deno.serve(async (req) => {
       }
 
       await notifyDriverIfAssigned();
+      notifyCustomerCancelledIfNeeded();
 
       console.log("[late-cancellation-check] Cancellation-after-arrival fee:", feePence, "trip:", trip_id);
       return successResponse({
@@ -199,6 +214,7 @@ Deno.serve(async (req) => {
             .eq("id", driverId);
         }
         await notifyDriverIfAssigned();
+        notifyCustomerCancelledIfNeeded();
       }
       return successResponse({ success: true, fee_applied: false, reason: "Late cancellation fee disabled" });
     }
@@ -239,6 +255,7 @@ Deno.serve(async (req) => {
             .eq("id", driverId);
         }
         await notifyDriverIfAssigned();
+        notifyCustomerCancelledIfNeeded();
       }
       return successResponse({ success: true, fee_applied: false, reason: "Not within late cancellation window" });
     }
@@ -264,6 +281,7 @@ Deno.serve(async (req) => {
     }
 
     await notifyDriverIfAssigned();
+    notifyCustomerCancelledIfNeeded();
 
     console.log("[late-cancellation-check] Late-cancel fee:", lateFeePence, "trip:", trip_id);
 

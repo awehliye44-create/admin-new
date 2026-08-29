@@ -13,7 +13,7 @@ export function useHelpCategories(audience: HelpAudience) {
     queryFn: async (): Promise<HelpCategoryRow[]> => {
       const { data, error } = await db
         .from('help_centre_categories')
-        .select('*')
+        .select('id, audience, title, description, icon_key, display_order, is_active')
         .eq('audience', audience)
         .order('display_order', { ascending: true })
         .order('title', { ascending: true });
@@ -30,7 +30,7 @@ export function useHelpArticles(audience: HelpAudience) {
     queryFn: async (): Promise<HelpArticleRow[]> => {
       const { data, error } = await db
         .from('help_centre_articles')
-        .select('*')
+        .select('id, audience, category_id, title, slug, summary, body, cover_image_path, display_order, is_featured, status, is_active, published_at, updated_at')
         .eq('audience', audience)
         .order('is_featured', { ascending: false })
         .order('display_order', { ascending: true })

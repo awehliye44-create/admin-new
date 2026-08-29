@@ -112,6 +112,12 @@ async function enrichCasesWithNames(cases: LostPropertyCase[]): Promise<LostProp
   }));
 }
 
+const LOST_PROPERTY_CASE_COLUMNS =
+  'id, case_number, trip_id, driver_id, customer_id, service_area_id, item_category, item_description, photos, found_item_photos, driver_photos, status, return_method, return_trip_id, customer_confirmed, chat_enabled, chat_opened_at, chat_expires_at, chat_locked_at, chat_lock_reason, admin_joined_at, photos_hidden_at, photos_delete_at, admin_viewed_at, admin_last_read_message_at, created_at, updated_at, closed_at';
+
+const LOST_PROPERTY_MESSAGE_COLUMNS =
+  'id, case_id, sender_type, sender_id, message, attachments, created_at';
+
 export function useLostPropertyCases(filters?: {
   status?: string;
   serviceAreaId?: string;
@@ -124,8 +130,9 @@ export function useLostPropertyCases(filters?: {
     queryFn: async () => {
       let query = supabase
         .from('lost_property_cases')
-        .select('*')
-        .order('updated_at', { ascending: false });
+        .select(LOST_PROPERTY_CASE_COLUMNS)
+        .order('updated_at', { ascending: false })
+        .limit(200);
 
       if (filters?.status && filters.status !== 'all') {
         query = query.eq('status', filters.status);
@@ -160,7 +167,7 @@ export function useLostPropertyCase(caseId: string | undefined) {
       if (!caseId) return null;
       const { data, error } = await supabase
         .from('lost_property_cases')
-        .select('*')
+        .select(LOST_PROPERTY_CASE_COLUMNS)
         .eq('id', caseId)
         .single();
       if (error) throw error;
@@ -197,7 +204,7 @@ export function useLostPropertyMessages(caseId: string | undefined) {
       if (!caseId) return [];
       const { data, error } = await supabase
         .from('lost_property_messages')
-        .select('*')
+        .select(LOST_PROPERTY_MESSAGE_COLUMNS)
         .eq('case_id', caseId)
         .order('created_at', { ascending: true });
       if (error) throw error;

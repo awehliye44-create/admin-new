@@ -50,8 +50,11 @@ import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { getCurrencySymbol } from '@/lib/regionSettings';
-import { isActiveTripDbStatus } from '@/lib/activeTripStatuses';
-import { filterAdminActiveTrips } from '@/lib/adminActiveTripFilter';
+import {
+  fetchDashboardChartRows,
+  fetchDashboardPeriodStats,
+} from '@/lib/adminDashboardStats';
+import { ADMIN_DASHBOARD_LIVE_FLEET_CAP } from '@/lib/adminQueryBounds';
 
 
 interface Stats {
@@ -60,6 +63,8 @@ interface Stats {
   offlineDrivers: number;
   pendingDrivers: number;
   inactiveDrivers: number;
+  onTripDrivers: number;
+  availableOnlineDrivers: number;
   totalRiders: number;
   totalTrips: number;
   activeTrips: number;
@@ -84,17 +89,6 @@ interface DashboardServiceArea {
   name: string;
   region_id: string;
   region?: { currency_code: string; distance_unit: string } | null;
-}
-
-interface Driver {
-  id: string;
-  first_name: string;
-  last_name: string;
-  is_online: boolean;
-  current_lat: number | null;
-  current_lng: number | null;
-  heading: number | null;
-  current_trip_id: string | null;
 }
 
 interface LiveFleetDriver {
@@ -313,17 +307,17 @@ export default function Dashboard() {
 
   // Platform financial KPIs — Financial Reconciliation → Overview only (no duplicate widgets here).
 
-  // ─── MAIN DASHBOARD QUERY — operational stats only (no revenue) ───
+  // ─── MAIN DASHBOARD QUERY — head-count KPIs (no 10k trip / all-drivers hydrate) ───
   const { data: dashData, isLoading, refetch: fetchStats } = useQuery({
     queryKey: ['dashboard-stats', period, selectedServiceArea, customDateFrom?.toISOString(), customDateTo?.toISOString()],
     queryFn: async () => {
       const { startDate, endDate } = dateRange;
+      const scope = {
+        startIso: startDate.toISOString(),
+        endIso: endDate.toISOString(),
+        serviceAreaId: selectedServiceArea,
+      };
 
-      let tripsQ = supabase.from('trips')
-        .select('id, status, financial_outcome, service_area_id, searching_expires_at, driver_id, created_at, trip_code')
-        .gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString()).limit(10000);
-
-      // Chart query range
       const timePeriod = period === 'custom' ? 'daily' : period;
       const now = new Date();
       let chartStart: Date;
@@ -332,48 +326,22 @@ export default function Dashboard() {
       else chartStart = startOfWeek(subWeeks(now, 3));
       const chartEnd = period === 'custom' && customDateTo ? endOfDay(customDateTo) : now;
 
-      let chartQ = supabase.from('trips').select('status, created_at')
-        .gte('created_at', chartStart.toISOString()).lte('created_at', chartEnd.toISOString())
-        .in('status', ['completed', 'cancelled']);
-
-      if (selectedServiceArea !== 'all') {
-        tripsQ = tripsQ.eq('service_area_id', selectedServiceArea);
-        chartQ = chartQ.eq('service_area_id', selectedServiceArea);
-      }
-
-      const [driversR, ridersR, tripsR, recentR, chartR] = await Promise.all([
-        supabase.from('drivers').select('id, is_online, approval_status, current_lat, current_lng, heading, current_trip_id, first_name, last_name'),
-        supabase.from('customers').select('id', { count: 'exact', head: true }),
-        tripsQ,
-        supabase.from('trips')
+      const [stats, recentR, cTrips] = await Promise.all([
+        fetchDashboardPeriodStats(scope),
+        supabase
+          .from('trips')
           .select('id, passenger_name, pickup_address, dropoff_address, driver:drivers!trips_driver_id_fkey(first_name, last_name)')
-          .order('created_at', { ascending: false }).limit(5),
-        chartQ,
+          .order('created_at', { ascending: false })
+          .limit(5),
+        fetchDashboardChartRows({
+          startIso: chartStart.toISOString(),
+          endIso: chartEnd.toISOString(),
+          serviceAreaId: selectedServiceArea,
+        }),
       ]);
 
-      const allDrivers = driversR.data || [];
-      const trips = tripsR.data || [];
+      if (recentR.error) throw recentR.error;
 
-      const s: Stats = {
-        totalDrivers: allDrivers.length,
-        onlineDrivers: allDrivers.filter(d => d.is_online).length,
-        offlineDrivers: allDrivers.filter(d => !d.is_online).length,
-        pendingDrivers: allDrivers.filter(d => d.approval_status === 'pending').length,
-        inactiveDrivers: allDrivers.filter(d => d.approval_status === 'rejected').length,
-        totalRiders: ridersR.count || 0,
-        totalTrips: trips.length,
-        activeTrips: filterAdminActiveTrips(
-          trips.filter(t => isActiveTripDbStatus(t.status)),
-        ).length,
-        inProgressTrips: trips.filter(t =>
-          ['in_progress', 'started', 'on_trip', 'ongoing', 'trip_started'].includes(t.status || ''),
-        ).length,
-        completedTrips: trips.filter(t => t.status === 'completed').length,
-        cancelledTrips: trips.filter(t => t.status === 'cancelled').length,
-      };
-
-      // Chart bucketing
-      const cTrips = chartR.data || [];
       let chartData: BookingDataPoint[] = [];
       if (timePeriod === 'daily') {
         const totalMs = chartEnd.getTime() - chartStart.getTime();
@@ -399,7 +367,11 @@ export default function Dashboard() {
         }
       }
 
-      return { stats: s, drivers: allDrivers as Driver[], recentTrips: (recentR.data || []) as RecentTrip[], bookingChartData: chartData };
+      return {
+        stats: stats as Stats,
+        recentTrips: (recentR.data || []) as RecentTrip[],
+        bookingChartData: chartData,
+      };
     },
     staleTime: 60_000,
     refetchInterval: () => (isAdminPageLiveActive() ? 120_000 : false),
@@ -415,7 +387,8 @@ export default function Dashboard() {
         .select('id, first_name, last_name, is_online, current_lat, current_lng, heading, current_trip_id, last_location_updated_at')
         .eq('is_online', true)
         .not('current_lat', 'is', null)
-        .not('current_lng', 'is', null);
+        .not('current_lng', 'is', null)
+        .limit(ADMIN_DASHBOARD_LIVE_FLEET_CAP);
       if (error) throw error;
       return (data || []) as LiveFleetDriver[];
     },
@@ -484,8 +457,21 @@ export default function Dashboard() {
     }
   }, [liveDrivers, isMapLoaded]);
 
-  const stats = dashData?.stats || { totalDrivers: 0, onlineDrivers: 0, offlineDrivers: 0, pendingDrivers: 0, inactiveDrivers: 0, totalRiders: 0, totalTrips: 0, activeTrips: 0, inProgressTrips: 0, completedTrips: 0, cancelledTrips: 0 };
-  const drivers = dashData?.drivers || [];
+  const stats = dashData?.stats || {
+    totalDrivers: 0,
+    onlineDrivers: 0,
+    offlineDrivers: 0,
+    pendingDrivers: 0,
+    inactiveDrivers: 0,
+    onTripDrivers: 0,
+    availableOnlineDrivers: 0,
+    totalRiders: 0,
+    totalTrips: 0,
+    activeTrips: 0,
+    inProgressTrips: 0,
+    completedTrips: 0,
+    cancelledTrips: 0,
+  };
   const recentTrips = dashData?.recentTrips || [];
   const bookingChartData = dashData?.bookingChartData || [];
 
@@ -510,10 +496,10 @@ export default function Dashboard() {
   const activeCurrencyCode = selectedArea?.region?.currency_code || (serviceAreas[0]?.region?.currency_code) || '';
   const currencySymbol = getCurrencySymbol(activeCurrencyCode);
 
-  const onlineDriversCount = drivers.filter(d => d.is_online).length;
-  const onTripCount = drivers.filter(d => d.current_trip_id).length;
-  const availableCount = drivers.filter(d => d.is_online && !d.current_trip_id).length;
-  const offlineCount = drivers.filter(d => !d.is_online).length;
+  const onlineDriversCount = stats.onlineDrivers;
+  const onTripCount = stats.onTripDrivers;
+  const availableCount = stats.availableOnlineDrivers;
+  const offlineCount = stats.offlineDrivers;
 
   return (
     <AdminLayout title="Dashboard" description="Dashboard › Main Dashboard">

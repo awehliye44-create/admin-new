@@ -19,6 +19,7 @@ import {
 import { isCashPayment, settleNoShowFee } from "../_shared/noShowSettlement.ts";
 import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
 import { handleQueuedTripAfterCurrentTripFailure } from "../_shared/stackedRideLifecycle.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 10,
@@ -254,6 +255,17 @@ Deno.serve(async (req) => {
         .update({ active_trip_id: null })
         .eq("id", trip.passenger_id)
         .eq("active_trip_id", trip_id);
+
+      // Terminal no_show aliases to trip_cancelled lifecycle WAV.
+      void notifyCustomerTripLifecycle(supabase, {
+        passengerId: trip.passenger_id,
+        tripId: trip_id,
+        event: "no_show",
+        title: "ONECAB TRIP CANCELLED",
+        body: "Your trip ended — the driver reported a no-show.",
+      }).catch((e) =>
+        console.warn("[pickup-no-show] customer trip_cancelled push failed:", e)
+      );
     }
 
     let cardCharged = false;

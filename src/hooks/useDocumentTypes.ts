@@ -23,7 +23,9 @@ export function useDocumentTypes() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("document_types")
-        .select("*")
+        .select(
+          "id, name, slug, description, is_required, has_expiry, show_in_driver_app, reminder_days_before_expiry, display_order, is_active, created_at, updated_at",
+        )
         .order("display_order", { ascending: true });
 
       if (error) throw error;

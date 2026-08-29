@@ -11,6 +11,7 @@ import {
 } from "../_shared/security.ts";
 import { requireUser } from "../_shared/internalAuth.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 
 /**
@@ -474,6 +475,12 @@ serve(async (req) => {
     console.log(
       `[cancel-trip] Trip ${trip_id}: status=${tripStatus}, fee=${appliedFee}p, type=${feeType}, outcome=${financialOutcome}`
     );
+
+    await notifyCustomerTripLifecycle(supabase, {
+      passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
+      tripId: trip_id,
+      event: "trip_cancelled",
+    });
 
     // Response messages for apps
     let riderMessage = "Trip cancelled";

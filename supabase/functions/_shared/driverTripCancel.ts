@@ -10,6 +10,7 @@ import {
 } from "./driverCancelRematch.ts";
 import { isTripAtPickupStatus } from "./pickupWaiting.ts";
 import { sanitizeString } from "./security.ts";
+import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
 import {
   handleQueuedTripAfterCurrentTripFailure,
   handleQueuedTripDriverCancel,
@@ -223,6 +224,14 @@ export async function executeDriverTerminalCancel(
     raw_status: rawStatus,
     source: "stop-workflow:driver_cancel",
   }));
+
+  const passengerId =
+    typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+  await notifyCustomerTripLifecycle(supabase, {
+    passengerId,
+    tripId,
+    event: "trip_cancelled",
+  });
 
   return { ok: true, action: "driver_cancel", detail: { trip_id: tripId } };
 }

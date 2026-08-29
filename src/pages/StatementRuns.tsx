@@ -49,7 +49,9 @@ export default function StatementRuns() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("statement_runs")
-        .select("*, regions(name, currency_code), service_areas(name)")
+        .select(
+          "id, period_start, period_end, region_id, service_area_id, currency_code, status, total_invoices, total_amount_pence, created_at, regions(name, currency_code), service_areas(name)",
+        )
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw error;

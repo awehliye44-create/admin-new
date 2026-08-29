@@ -70,7 +70,7 @@ export function ZoneRoutePricingTab() {
   const fetchAll = async () => {
     setLoading(true);
     const [rulesRes, zonesRes, vtRes, saRes] = await Promise.all([
-      supabase.from('zone_route_pricing').select('*').order('priority', { ascending: false }),
+      supabase.from('zone_route_pricing').select('id,from_zone_id,to_zone_id,service_area_id,vehicle_type_id,fixed_fare,surcharge_pct,airport_charge,is_active,priority').order('priority', { ascending: false }),
       supabase.from('custom_zones').select('id, name').eq('zone_type', 'PRICING').eq('is_active', true),
       supabase.from('vehicle_types').select('id, name').eq('is_active', true).order('display_order'),
       supabase.from('service_areas').select('id, name').eq('is_active', true),

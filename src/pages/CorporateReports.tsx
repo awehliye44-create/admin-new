@@ -79,8 +79,9 @@ export default function CorporateReports() {
     queryFn: async () => {
       let query = supabase
         .from('corporate_accounts')
-        .select('*')
-        .order('company_name');
+        .select('id, company_name, status, discount_percentage, region_id, service_area_id')
+        .order('company_name')
+        .limit(500);
       
       if (regionFilter !== 'all') {
         query = query.eq('region_id', regionFilter);

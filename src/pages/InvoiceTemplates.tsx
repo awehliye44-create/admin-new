@@ -101,7 +101,9 @@ export default function InvoiceTemplates() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("invoice_templates")
-        .select("*")
+        .select(
+          "id, name, is_default, template_type, logo_url, company_name, company_address, company_email, company_phone, company_website, company_registration, invoice_title, payment_terms, due_date_label, notes_footer, footer_text, email_subject, email_body, auto_email_enabled, table_columns, created_at, updated_at",
+        )
         .order("is_default", { ascending: false });
       if (error) throw error;
       return data as InvoiceTemplate[];

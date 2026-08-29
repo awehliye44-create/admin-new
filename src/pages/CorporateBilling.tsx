@@ -180,12 +180,13 @@ export default function CorporateBilling() {
       let query = supabase
         .from('corporate_invoices')
         .select(`
-          *,
+          id, invoice_number, corporate_account_id, amount, tax_amount, total_amount, status, due_date, paid_at, billing_period_start, billing_period_end, trip_count, notes, created_at, updated_at, region_id, service_area_id,
           corporate_account:corporate_accounts(id, company_name),
           region:regions(id, name),
           service_area:service_areas(id, name)
         `)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(200);
       
       if (regionFilter !== 'all') {
         query = query.eq('region_id', regionFilter);

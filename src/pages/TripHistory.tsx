@@ -64,7 +64,14 @@ import { TripHistoryShortfallRecaptureAction } from '@/components/trips/TripHist
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
-import { fetchTripHistoryRows } from '@/lib/tripHistoryQuery';
+import {
+  fetchTripHistoryPage,
+  TRIP_HISTORY_PAGE_SIZE_DEFAULT,
+  TRIP_HISTORY_PAGE_SIZE_OPTIONS,
+  type TripHistoryCursor,
+  type TripHistoryRow,
+  type TripHistoryStatusFilter,
+} from '@/lib/tripHistoryQuery';
 import { fetchTripsCaptureSsot } from '@/hooks/financeReconciliationApi';
 import {
   adminNoShowPaymentLabel,
@@ -77,6 +84,136 @@ function getTripMapCenter(trip: CompletedTrip): [number, number] {
   const lng = trip.pickup_longitude ?? trip.dropoff_longitude ?? -0.7594;
   const lat = trip.pickup_latitude ?? trip.dropoff_latitude ?? 52.0406;
   return [lng, lat];
+}
+
+/** Enrich one Trip History page with stops / payments / capture SSOT (page-scoped only). */
+async function enrichTripHistoryPageRows(tripsData: TripHistoryRow[]): Promise<CompletedTrip[]> {
+  const tripIds = tripsData.map((t) => t.id);
+
+  let stopsMap: Record<string, TripStop[]> = {};
+  if (tripIds.length > 0) {
+    const { data: stopsData, error: stopsError } = await supabase
+      .from('trip_stops')
+      .select('id, trip_id, stop_index, address, lat, lng, type, status, arrived_at, completed_at')
+      .in('trip_id', tripIds)
+      .order('stop_index', { ascending: true });
+
+    if (!stopsError && stopsData) {
+      stopsMap = stopsData.reduce((acc, stop) => {
+        if (!acc[stop.trip_id]) acc[stop.trip_id] = [];
+        acc[stop.trip_id].push(stop);
+        return acc;
+      }, {} as Record<string, TripStop[]>);
+    }
+  }
+
+  let paymentsMap: Record<string, {
+    captured: number;
+    authorized: number | null;
+    tip: number | null;
+    count: number;
+    hasShortfallPi: boolean;
+    lifecycleFees: number;
+    metadataLifecycleFees: number;
+  }> = {};
+  if (tripIds.length > 0) {
+    const { data: paymentsData } = await supabase
+      .from('payments')
+      .select('trip_id, amount_pence, captured_amount_pence, status, fee_type, updated_at, metadata')
+      .in('trip_id', tripIds)
+      .order('updated_at', { ascending: false });
+    if (paymentsData) {
+      for (const p of paymentsData as any[]) {
+        const summary = summarizeTripPayments([p]);
+        const rowCaptured = summary.capturedTotalPence ?? 0;
+        const existing = paymentsMap[p.trip_id];
+        if (!existing) {
+          paymentsMap[p.trip_id] = {
+            captured: rowCaptured,
+            authorized: p.amount_pence ?? null,
+            tip: summary.tipFromMeta,
+            count: 1,
+            hasShortfallPi: summary.hasShortfallPaymentIntent,
+            lifecycleFees: summary.lifecycleFeesPence,
+            metadataLifecycleFees: summary.metadataLifecycleFeesPence,
+          };
+        } else {
+          existing.captured += rowCaptured;
+          existing.count += 1;
+          existing.hasShortfallPi = existing.hasShortfallPi || summary.hasShortfallPaymentIntent;
+          existing.lifecycleFees += summary.lifecycleFeesPence;
+          existing.metadataLifecycleFees += summary.metadataLifecycleFeesPence;
+          if (existing.tip == null && summary.tipFromMeta != null) {
+            existing.tip = summary.tipFromMeta;
+          }
+        }
+      }
+    }
+  }
+
+  const psByTrip = new Map<string, { captured: number | null; refunded: number | null }>();
+  if (tripIds.length > 0) {
+    const { data: psRows } = await supabase
+      .from('payment_sessions')
+      .select('trip_id, captured_amount_pence, refunded_amount_pence')
+      .in('trip_id', tripIds);
+    for (const row of psRows ?? []) {
+      const tid = String((row as { trip_id?: string }).trip_id ?? '');
+      if (!tid) continue;
+      const cap = (row as { captured_amount_pence?: number | null }).captured_amount_pence;
+      const ref = (row as { refunded_amount_pence?: number | null }).refunded_amount_pence;
+      const prev = psByTrip.get(tid);
+      if (!prev || (cap != null && (prev.captured == null || cap > prev.captured))) {
+        psByTrip.set(tid, {
+          captured: cap != null && Number.isFinite(Number(cap)) ? Math.round(Number(cap)) : null,
+          refunded: ref != null && Number.isFinite(Number(ref)) ? Math.round(Number(ref)) : null,
+        });
+      }
+    }
+  }
+
+  const captureSsotRows = tripIds.length > 0
+    ? await fetchTripsCaptureSsot(tripIds).catch((captureErr) => {
+        console.warn('[TripHistory] Capture SSOT optional fetch failed:', captureErr);
+        return [];
+      })
+    : [];
+  const captureByTrip = new Map(captureSsotRows.map((r) => [r.trip_id, r]));
+
+  return tripsData.map((trip) => {
+    const pay = paymentsMap[trip.id];
+    const capture = captureByTrip.get(trip.id);
+    const ps = psByTrip.get(trip.id);
+    return {
+      ...trip,
+      trip_stops: stopsMap[trip.id] || [],
+      payment_captured_pence: pay && pay.captured > 0 ? pay.captured : null,
+      ps_captured_pence: ps?.captured ?? null,
+      ps_refunded_pence: ps?.refunded ?? null,
+      payment_authorized_pence: pay?.authorized ?? null,
+      payment_tip_pence: pay?.tip ?? null,
+      payment_count: pay?.count ?? 0,
+      has_shortfall_payment_intent: pay?.hasShortfallPi ?? false,
+      payment_lifecycle_fees_pence: pay?.lifecycleFees ?? 0,
+      payment_metadata_lifecycle_fees_pence: pay?.metadataLifecycleFees ?? 0,
+      settlement_total_pence: capture?.settlement_total_pence ?? null,
+      ledger_trip_earning_net_pence: capture?.ledger_trip_earning_net_pence ?? null,
+      invoice_no: (trip.invoice_no as string | null | undefined) ?? null,
+      invoice_pdf_url: (trip.invoice_pdf_url as string | null | undefined) ?? null,
+      invoice_generated_at: (trip.invoice_generated_at as string | null | undefined) ?? null,
+      invoice_email_sent: (trip.invoice_email_sent as boolean | null | undefined) ?? null,
+      invoice_email_sent_at: (trip.invoice_email_sent_at as string | null | undefined) ?? null,
+      invoice_email_status: (trip.invoice_email_status as string | null | undefined) ?? null,
+      invoice_email_error: (trip.invoice_email_error as string | null | undefined) ?? null,
+      invoice_pdf_error: (trip.invoice_pdf_error as string | null | undefined) ?? null,
+      invoice_total_paid_pence: (trip.invoice_total_paid_pence as number | null | undefined) ?? null,
+      invoice_regenerated_at: (trip.invoice_regenerated_at as string | null | undefined) ?? null,
+      invoice_payment_classification: (trip.invoice_payment_classification as string | null | undefined) ?? null,
+      invoice_paid_pence: (trip.invoice_paid_pence as number | null | undefined) ?? null,
+      invoice_outstanding_pence: (trip.invoice_outstanding_pence as number | null | undefined) ?? null,
+      invoice_delivery_eligible: (trip.invoice_delivery_eligible as boolean | null | undefined) ?? null,
+    };
+  }) as CompletedTrip[];
 }
 
 function scheduleDialogMapResize(map: mapboxgl.Map): void {
@@ -249,6 +386,12 @@ export default function TripHistory() {
   
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('7days');
+  const [statusFilter, setStatusFilter] = useState<TripHistoryStatusFilter>('all');
+  const [pageSize, setPageSize] = useState(TRIP_HISTORY_PAGE_SIZE_DEFAULT);
+  const [appendedRows, setAppendedRows] = useState<CompletedTrip[]>([]);
+  const [nextCursor, setNextCursor] = useState<TripHistoryCursor | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   // Region and Service Area filters
   const [selectedRegionId, setSelectedRegionId] = useState<string>('all');
@@ -315,156 +458,109 @@ export default function TripHistory() {
     setSelectedServiceAreaId('all');
   }, [selectedRegionId]);
 
-  // React Query for trip data
-  const { data: trips = [], isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['trip-history', dateFilter, selectedRegionId, selectedServiceAreaId, corporateFilter, session?.access_token],
+  // Server trip-code filter when the search box looks like a code (full history searchable).
+  const serverTripCode = useMemo(() => {
+    const q = searchQuery.trim();
+    if (q.length < 3) return undefined;
+    // Trip codes are alphanumeric (e.g. MK260815029) — free-text name search stays client-side on the loaded page.
+    if (/^[A-Za-z0-9][A-Za-z0-9_-]{2,31}$/.test(q)) return q;
+    return undefined;
+  }, [searchQuery]);
+
+  // React Query for first Trip History page (paginated — not a hard history cap).
+  const {
+    data: firstPage,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: [
+      'trip-history',
+      dateFilter,
+      selectedRegionId,
+      selectedServiceAreaId,
+      statusFilter,
+      pageSize,
+      serverTripCode ?? '',
+      session?.access_token,
+    ],
     enabled: isAuthReady && Boolean(session?.access_token),
     queryFn: async () => {
       const { start, end } = getDateRange();
-
-      const tripsData = await fetchTripHistoryRows({
+      const page = await fetchTripHistoryPage({
         start,
         end,
         regionId: selectedRegionId !== 'all' ? selectedRegionId : undefined,
         serviceAreaId: selectedServiceAreaId !== 'all' ? selectedServiceAreaId : undefined,
+        pageSize,
+        cursor: null,
+        status: statusFilter,
+        tripCode: serverTripCode,
       });
-
-      const tripIds = tripsData.map((t) => t.id);
-      
-      let stopsMap: Record<string, TripStop[]> = {};
-      if (tripIds.length > 0) {
-        const { data: stopsData, error: stopsError } = await supabase
-          .from('trip_stops')
-          .select('id, trip_id, stop_index, address, lat, lng, type, status, arrived_at, completed_at')
-          .in('trip_id', tripIds)
-          .order('stop_index', { ascending: true });
-
-        if (!stopsError && stopsData) {
-          stopsMap = stopsData.reduce((acc, stop) => {
-            if (!acc[stop.trip_id]) acc[stop.trip_id] = [];
-            acc[stop.trip_id].push(stop);
-            return acc;
-          }, {} as Record<string, TripStop[]>);
-        }
-      }
-
-      // Fetch payments — legacy fallback when Payment Sessions row is absent
-      let paymentsMap: Record<string, {
-        captured: number;
-        authorized: number | null;
-        tip: number | null;
-        count: number;
-        hasShortfallPi: boolean;
-        lifecycleFees: number;
-        metadataLifecycleFees: number;
-      }> = {};
-      if (tripIds.length > 0) {
-        const { data: paymentsData } = await supabase
-          .from('payments')
-          .select('trip_id, amount_pence, captured_amount_pence, status, fee_type, updated_at, metadata')
-          .in('trip_id', tripIds)
-          .order('updated_at', { ascending: false });
-        if (paymentsData) {
-          for (const p of paymentsData as any[]) {
-            const summary = summarizeTripPayments([p]);
-            const rowCaptured = summary.capturedTotalPence ?? 0;
-            const existing = paymentsMap[p.trip_id];
-            if (!existing) {
-              paymentsMap[p.trip_id] = {
-                captured: rowCaptured,
-                authorized: p.amount_pence ?? null,
-                tip: summary.tipFromMeta,
-                count: 1,
-                hasShortfallPi: summary.hasShortfallPaymentIntent,
-                lifecycleFees: summary.lifecycleFeesPence,
-                metadataLifecycleFees: summary.metadataLifecycleFeesPence,
-              };
-            } else {
-              existing.captured += rowCaptured;
-              existing.count += 1;
-              existing.hasShortfallPi = existing.hasShortfallPi || summary.hasShortfallPaymentIntent;
-              existing.lifecycleFees += summary.lifecycleFeesPence;
-              existing.metadataLifecycleFees += summary.metadataLifecycleFeesPence;
-              if (existing.tip == null && summary.tipFromMeta != null) {
-                existing.tip = summary.tipFromMeta;
-              }
-            }
-          }
-        }
-      }
-
-      // Payment Sessions SSOT — preferred customer money for display
-      const psByTrip = new Map<string, { captured: number | null; refunded: number | null }>();
-      if (tripIds.length > 0) {
-        const { data: psRows } = await supabase
-          .from('payment_sessions')
-          .select('trip_id, captured_amount_pence, refunded_amount_pence')
-          .in('trip_id', tripIds);
-        for (const row of psRows ?? []) {
-          const tid = String((row as { trip_id?: string }).trip_id ?? '');
-          if (!tid) continue;
-          const cap = (row as { captured_amount_pence?: number | null }).captured_amount_pence;
-          const ref = (row as { refunded_amount_pence?: number | null }).refunded_amount_pence;
-          const prev = psByTrip.get(tid);
-          // Prefer the session with the larger confirmed capture (multi-session rare).
-          if (!prev || (cap != null && (prev.captured == null || cap > prev.captured))) {
-            psByTrip.set(tid, {
-              captured: cap != null && Number.isFinite(Number(cap)) ? Math.round(Number(cap)) : null,
-              refunded: ref != null && Number.isFinite(Number(ref)) ? Math.round(Number(ref)) : null,
-            });
-          }
-        }
-      }
-
-      const captureSsotRows = tripIds.length > 0
-        ? await fetchTripsCaptureSsot(tripIds).catch((captureErr) => {
-            console.warn('[TripHistory] Capture SSOT optional fetch failed:', captureErr);
-            return [];
-          })
-        : [];
-      const captureByTrip = new Map(captureSsotRows.map((r) => [r.trip_id, r]));
-
-      return tripsData.map((trip) => {
-        const pay = paymentsMap[trip.id];
-        const capture = captureByTrip.get(trip.id);
-        const ps = psByTrip.get(trip.id);
-        return {
-          ...trip,
-          trip_stops: stopsMap[trip.id] || [],
-          payment_captured_pence: pay && pay.captured > 0 ? pay.captured : null,
-          ps_captured_pence: ps?.captured ?? null,
-          ps_refunded_pence: ps?.refunded ?? null,
-          payment_authorized_pence: pay?.authorized ?? null,
-          payment_tip_pence: pay?.tip ?? null,
-          payment_count: pay?.count ?? 0,
-          has_shortfall_payment_intent: pay?.hasShortfallPi ?? false,
-          payment_lifecycle_fees_pence: pay?.lifecycleFees ?? 0,
-          payment_metadata_lifecycle_fees_pence: pay?.metadataLifecycleFees ?? 0,
-          settlement_total_pence: capture?.settlement_total_pence ?? null,
-          ledger_trip_earning_net_pence: capture?.ledger_trip_earning_net_pence ?? null,
-          invoice_no: (trip.invoice_no as string | null | undefined) ?? null,
-          invoice_pdf_url: (trip.invoice_pdf_url as string | null | undefined) ?? null,
-          invoice_generated_at: (trip.invoice_generated_at as string | null | undefined) ?? null,
-          invoice_email_sent: (trip.invoice_email_sent as boolean | null | undefined) ?? null,
-          invoice_email_sent_at: (trip.invoice_email_sent_at as string | null | undefined) ?? null,
-          invoice_email_status: (trip.invoice_email_status as string | null | undefined) ?? null,
-          invoice_email_error: (trip.invoice_email_error as string | null | undefined) ?? null,
-          invoice_pdf_error: (trip.invoice_pdf_error as string | null | undefined) ?? null,
-          invoice_total_paid_pence: (trip.invoice_total_paid_pence as number | null | undefined) ?? null,
-          invoice_regenerated_at: (trip.invoice_regenerated_at as string | null | undefined) ?? null,
-          invoice_payment_classification: (trip.invoice_payment_classification as string | null | undefined) ?? null,
-          invoice_paid_pence: (trip.invoice_paid_pence as number | null | undefined) ?? null,
-          invoice_outstanding_pence: (trip.invoice_outstanding_pence as number | null | undefined) ?? null,
-          invoice_delivery_eligible: (trip.invoice_delivery_eligible as boolean | null | undefined) ?? null,
-        };
-      }) as CompletedTrip[];
+      const trips = await enrichTripHistoryPageRows(page.rows);
+      return {
+        trips,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        pageSize: page.pageSize,
+      };
     },
     staleTime: 30_000,
   });
 
+  useEffect(() => {
+    setAppendedRows([]);
+    setNextCursor(firstPage?.nextCursor ?? null);
+    setHasMore(Boolean(firstPage?.hasMore));
+  }, [firstPage]);
+
+  const trips = useMemo(
+    () => [...(firstPage?.trips ?? []), ...appendedRows],
+    [firstPage?.trips, appendedRows],
+  );
+
   const fetchData = useCallback(() => {
+    setAppendedRows([]);
     void refetch();
   }, [refetch]);
+
+  const loadMoreTrips = useCallback(async () => {
+    if (!hasMore || !nextCursor || isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      const { start, end } = getDateRange();
+      const page = await fetchTripHistoryPage({
+        start,
+        end,
+        regionId: selectedRegionId !== 'all' ? selectedRegionId : undefined,
+        serviceAreaId: selectedServiceAreaId !== 'all' ? selectedServiceAreaId : undefined,
+        pageSize,
+        cursor: nextCursor,
+        status: statusFilter,
+        tripCode: serverTripCode,
+      });
+      const enriched = await enrichTripHistoryPageRows(page.rows);
+      setAppendedRows((prev) => [...prev, ...enriched]);
+      setNextCursor(page.nextCursor);
+      setHasMore(page.hasMore);
+    } catch (err) {
+      console.error('[TripHistory] load more failed:', err);
+      toast.error('Could not load more trips');
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [
+    getDateRange,
+    hasMore,
+    isLoadingMore,
+    nextCursor,
+    pageSize,
+    selectedRegionId,
+    selectedServiceAreaId,
+    serverTripCode,
+    statusFilter,
+  ]);
 
   const fetchTripStops = async (tripId: string) => {
     try {
@@ -1030,8 +1126,11 @@ export default function TripHistory() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Trips</p>
+                <p className="text-sm text-muted-foreground">Trips loaded</p>
                 <p className="text-2xl font-bold">{filteredTrips.length}</p>
+                {hasMore ? (
+                  <p className="text-xs text-muted-foreground mt-1">More available — use Load more</p>
+                ) : null}
               </div>
               <CheckCircle className="h-8 w-8 text-green-500 opacity-80" />
             </div>
@@ -1096,12 +1195,41 @@ export default function TripHistory() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search trips..."
+                placeholder="Trip code or search…"
                 className="pl-9 w-full md:w-[180px]"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
+            <Select
+              value={statusFilter}
+              onValueChange={(v) => setStatusFilter(v as TripHistoryStatusFilter)}
+            >
+              <SelectTrigger className="w-full md:w-[150px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="no_show">No-show</SelectItem>
+                <SelectItem value="late_cancellation">Late cancel</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(v) => setPageSize(Number(v))}
+            >
+              <SelectTrigger className="w-full md:w-[120px]">
+                <SelectValue placeholder="Page size" />
+              </SelectTrigger>
+              <SelectContent>
+                {TRIP_HISTORY_PAGE_SIZE_OPTIONS.map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n} / page
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={selectedRegionId} onValueChange={setSelectedRegionId}>
               <SelectTrigger className="w-full md:w-[140px]">
                 <Globe className="h-4 w-4 mr-2 text-muted-foreground" />
@@ -1213,6 +1341,7 @@ export default function TripHistory() {
               ) : null}
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1394,6 +1523,21 @@ export default function TripHistory() {
                 ))}
               </TableBody>
             </Table>
+            {hasMore ? (
+              <div className="flex justify-center pt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => void loadMoreTrips()}
+                  disabled={isLoadingMore}
+                >
+                  {isLoadingMore ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : null}
+                  Load more trips
+                </Button>
+              </div>
+            ) : null}
+            </>
           )}
         </CardContent>
       </Card>

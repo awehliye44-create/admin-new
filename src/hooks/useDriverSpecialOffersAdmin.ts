@@ -30,7 +30,7 @@ export function useSpecialOfferCategories(audience: OfferAudience) {
     queryFn: async (): Promise<SpecialOfferCategoryRow[]> => {
       const { data, error } = await db
         .from('driver_special_offer_categories')
-        .select('*')
+        .select('id, name, badge_label, display_order, is_active, audience')
         .eq('audience', audience)
         .order('display_order', { ascending: true })
         .order('name', { ascending: true });
@@ -47,7 +47,7 @@ export function useSpecialOffersAdmin(audience: OfferAudience) {
     queryFn: async (): Promise<SpecialOfferWithAreas[]> => {
       const { data, error } = await db
         .from('driver_special_offers')
-        .select('*')
+        .select('id, category_id, title, partner_name, short_description, full_details, badge_label, image_path, website_url, phone_number, email_address, promo_code, internal_route, website_button_label, phone_button_label, email_button_label, banner_headline, banner_button_label, status, is_active, is_featured, show_in_home_banner, show_in_offer_list, starts_at, ends_at, minimum_completed_trips, new_drivers_only, eligible_driver_tiers, display_order, scope_type, region_id, created_at, audience')
         .eq('audience', audience)
         .order('is_featured', { ascending: false })
         .order('display_order', { ascending: true })

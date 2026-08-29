@@ -62,7 +62,7 @@ export function mergeFinanceReconciliationInvokeExtra(
 
 /**
  * Invoke Financial Reconciliation SSOT edge function.
- * - summary: summary_only=1, no forced 10k audit_limit (backend defaults ~500)
+ * - summary: summary_only=1; backend audit limit defaults to 10k (never a silent 500 under-sample)
  * - full: trip audit rows + platform KPIs (audit_limit 10000)
  * Display/query optimisation only — does not change Edge money ownership.
  */

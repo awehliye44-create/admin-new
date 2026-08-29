@@ -79,7 +79,7 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
     queryFn: async () => {
       const { data, error } = await supabase
         .from('ops_events')
-        .select('*')
+        .select('id,alert_id,event_type,category,severity,app,description,trip_id,driver_id,customer_id,payment_id,payout_batch_id,service_area_id,amount_pence,currency_code,metadata,resolved,resolved_at,created_at')
         .eq('alert_id', alert.id)
         .order('created_at', { ascending: false })
         .limit(20);
@@ -96,7 +96,7 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
       if (alert.related_trip_id) {
         const { data } = await supabase
           .from('ops_logs')
-          .select('*')
+          .select('id,level,message,app,source,trip_id,driver_id,user_id,error_code,http_status,duration_ms,request_id,is_synthetic,metadata,created_at')
           .eq('trip_id', alert.related_trip_id)
           .order('created_at', { ascending: false })
           .limit(10);
@@ -105,7 +105,7 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
       if (alert.related_entity_type === 'ops_log' && alert.related_entity_id) {
         const { data } = await supabase
           .from('ops_logs')
-          .select('*')
+          .select('id,level,message,app,source,trip_id,driver_id,user_id,error_code,http_status,duration_ms,request_id,is_synthetic,metadata,created_at')
           .eq('id', alert.related_entity_id)
           .limit(1);
         if (data) {
@@ -120,7 +120,7 @@ export function OpsAlertDetail({ alert, onBack, onRefresh }: OpsAlertDetailProps
         const to = new Date(alertTime.getTime() + 5 * 60 * 1000).toISOString();
         const { data } = await supabase
           .from('ops_logs')
-          .select('*')
+          .select('id,level,message,app,source,trip_id,driver_id,user_id,error_code,http_status,duration_ms,request_id,is_synthetic,metadata,created_at')
           .gte('created_at', from)
           .lte('created_at', to)
           .in('level', ['error', 'fatal', 'warn'])

@@ -44,6 +44,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { ADMIN_DRIVERS_PAGE_SIZE } from '@/lib/adminQueryBounds';
 import {
   Car, 
   Loader2, 
@@ -156,6 +157,16 @@ export default function Drivers() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [listPage, setListPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const [statusCounts, setStatusCounts] = useState({
+    all: 0,
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    disabled: 0,
+    deleted: 0,
+  });
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
@@ -195,10 +206,67 @@ export default function Drivers() {
       // Only show full loading spinner on initial load, not background refreshes
       if (!isBackground) setIsLoading(true);
 
-      const { data, error } = await supabase.rpc('admin_list_drivers');
+      // Server-side page — do not hydrate the entire fleet for the list.
+      const from = listPage * ADMIN_DRIVERS_PAGE_SIZE;
+      const to = from + ADMIN_DRIVERS_PAGE_SIZE - 1;
+      const q = searchQuery.trim();
 
+      let driversQ = supabase
+        .from('drivers')
+        .select(
+          'id, driver_code, first_name, last_name, email, phone, is_online, approval_status, driver_status, deleted_at, rating, total_trips, profile_photo_url, created_at, region_id, residential_address, postcode, city, country, country_code, service_area_id, is_pet_friendly, documents_approved, category_id, current_trip_id',
+          { count: 'exact' },
+        )
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      if (statusFilter === 'disabled') {
+        driversQ = driversQ.eq('driver_status', 'disabled');
+      } else if (statusFilter === 'deleted') {
+        driversQ = driversQ.eq('driver_status', 'deleted');
+      } else if (statusFilter === 'pending' || statusFilter === 'approved' || statusFilter === 'rejected') {
+        driversQ = driversQ.eq('approval_status', statusFilter);
+        if (statusFilter !== 'deleted') {
+          driversQ = driversQ.neq('driver_status', 'deleted');
+        }
+        if (statusFilter === 'approved') {
+          driversQ = driversQ.eq('driver_status', 'active');
+        }
+      } else {
+        driversQ = driversQ.neq('driver_status', 'deleted');
+      }
+
+      if (selectedRegionFilter !== 'all') {
+        driversQ = driversQ.eq('region_id', selectedRegionFilter);
+      }
+
+      if (q) {
+        driversQ = driversQ.or(
+          `first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%,driver_code.ilike.%${q}%`,
+        );
+      }
+
+      if (selectedServiceAreaFilter !== 'all') {
+        const { data: dsaRows, error: dsaErr } = await supabase
+          .from('driver_service_areas')
+          .select('driver_id')
+          .eq('service_area_id', selectedServiceAreaFilter);
+        if (dsaErr) throw dsaErr;
+        const saIds = Array.from(new Set((dsaRows || []).map((r) => r.driver_id)));
+        if (saIds.length === 0) {
+          setDrivers([]);
+          setTotalCount(0);
+          setVehicles({});
+          setDriverServiceAreasMap({});
+          return;
+        }
+        driversQ = driversQ.in('id', saIds);
+      }
+
+      const { data, error, count } = await driversQ;
       if (error) throw error;
       setDrivers((data as Driver[]) || []);
+      setTotalCount(count ?? (data?.length ?? 0));
 
       // Fetch driver categories/tiers
       const { data: categoriesData } = await supabase
@@ -211,7 +279,7 @@ export default function Drivers() {
         setCategories(categoriesData as DriverCategory[]);
       }
 
-      // Fetch vehicles and service area assignments for all drivers
+      // Vehicles / DSA only for the current page
       if (data && data.length > 0) {
         const driverIds = data.map(d => d.id);
         const [vehiclesRes, driverServiceAreasRes] = await Promise.all([
@@ -239,14 +307,13 @@ export default function Drivers() {
           setVehicles(vehiclesMap);
         }
 
-        // Build driver -> service areas map
         if (driverServiceAreasRes.data) {
           const dsaMap: Record<string, string[]> = {};
 
           data.forEach((driver) => {
             if (driver.service_area_id) {
               dsaMap[driver.id] = [driver.service_area_id];
-            }
+          }
           });
 
           driverServiceAreasRes.data.forEach(dsa => {
@@ -257,6 +324,9 @@ export default function Drivers() {
 
           setDriverServiceAreasMap(dsaMap);
         }
+      } else {
+        setVehicles({});
+        setDriverServiceAreasMap({});
       }
     } catch (err) {
       console.error('Error fetching drivers:', err);
@@ -271,11 +341,15 @@ export default function Drivers() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [listPage, statusFilter, searchQuery, selectedRegionFilter, selectedServiceAreaFilter]);
 
   useEffect(() => {
     fetchDrivers();
-  }, []);
+  }, [fetchDrivers]);
+
+  useEffect(() => {
+    setListPage(0);
+  }, [statusFilter, searchQuery, selectedRegionFilter, selectedServiceAreaFilter]);
 
   const updateDriverApprovalStatus = async (driverId: string, newStatus: string) => {
     if (newStatus === 'approved') {
@@ -430,42 +504,38 @@ export default function Drivers() {
     setSelectedServiceAreaFilter('all');
   }, [selectedRegionFilter]);
 
-  const filteredDrivers = drivers.filter(driver => {
-    // Hide deleted drivers unless specifically filtered
-    if (statusFilter !== 'deleted' && driver.driver_status === 'deleted') return false;
+  // Server already applied status / search / region / service-area filters.
+  const filteredDrivers = drivers;
 
-    const matchesSearch = 
-      driver.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      driver.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      driver.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      driver.phone.includes(searchQuery) ||
-      driver.driver_code?.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = statusFilter === 'all' 
-      ? true
-      : statusFilter === 'disabled' ? driver.driver_status === 'disabled'
-      : statusFilter === 'deleted' ? driver.driver_status === 'deleted'
-      : driver.approval_status === statusFilter;
-    
-    // Region filter
-    const matchesRegion = selectedRegionFilter === 'all' || driver.region_id === selectedRegionFilter;
-    
-    // Service area filter - check if driver is assigned to this service area
-    const matchesServiceArea = selectedServiceAreaFilter === 'all' || 
-      (driverServiceAreasMap[driver.id]?.includes(selectedServiceAreaFilter));
-    
-    return matchesSearch && matchesStatus && matchesRegion && matchesServiceArea;
-  });
-
-  const nonDeletedDrivers = drivers.filter(d => d.driver_status !== 'deleted');
-  const statusCounts = {
-    all: nonDeletedDrivers.length,
-    pending: nonDeletedDrivers.filter(d => d.approval_status === 'pending').length,
-    approved: nonDeletedDrivers.filter(d => d.approval_status === 'approved' && d.driver_status === 'active').length,
-    rejected: nonDeletedDrivers.filter(d => d.approval_status === 'rejected').length,
-    disabled: drivers.filter(d => d.driver_status === 'disabled').length,
-    deleted: drivers.filter(d => d.driver_status === 'deleted').length,
-  };
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const head = async (
+        apply: (q: any) => any,
+      ) => {
+        let q: any = supabase.from('drivers').select('id', { count: 'exact', head: true });
+        q = apply(q);
+        const { count } = await q;
+        return count ?? 0;
+      };
+      try {
+        const [all, pending, approved, rejected, disabled, deleted] = await Promise.all([
+          head((q) => q.neq('driver_status', 'deleted')),
+          head((q) => q.eq('approval_status', 'pending').neq('driver_status', 'deleted')),
+          head((q) => q.eq('approval_status', 'approved').eq('driver_status', 'active')),
+          head((q) => q.eq('approval_status', 'rejected').neq('driver_status', 'deleted')),
+          head((q) => q.eq('driver_status', 'disabled')),
+          head((q) => q.eq('driver_status', 'deleted')),
+        ]);
+        if (!cancelled) {
+          setStatusCounts({ all, pending, approved, rejected, disabled, deleted });
+        }
+      } catch (e) {
+        console.error('Driver status counts failed', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const openDriverDetails = (driver: Driver) => {
     console.info('ADMIN_DRIVER_ADDRESS_VIEWED', JSON.stringify({ driver_id: driver.id, phase: 'details_dialog' }));
@@ -646,7 +716,7 @@ export default function Drivers() {
       // Fetch current service areas for this driver
       const { data, error } = await supabase
         .from('driver_service_areas')
-        .select('*')
+        .select('id, driver_id, service_area_id')
         .eq('driver_id', driver.id);
 
       if (error) throw error;
@@ -924,6 +994,7 @@ export default function Drivers() {
               {searchQuery ? 'No drivers found matching your search.' : `No ${statusFilter === 'all' ? '' : statusFilter} drivers found.`}
             </div>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1156,6 +1227,32 @@ export default function Drivers() {
                 ))}
               </TableBody>
             </Table>
+            <div className="flex items-center justify-between mt-4 gap-2 flex-wrap">
+              <p className="text-sm text-muted-foreground">
+                Page {listPage + 1}
+                {totalCount ? ` · ${totalCount} matching` : ''}
+                {` · ${ADMIN_DRIVERS_PAGE_SIZE} per page`}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={listPage <= 0 || isLoading}
+                  onClick={() => setListPage((p) => Math.max(0, p - 1))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isLoading || drivers.length < ADMIN_DRIVERS_PAGE_SIZE}
+                  onClick={() => setListPage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+            </>
           )}
         </CardContent>
       </Card>

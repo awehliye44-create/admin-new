@@ -177,8 +177,7 @@ Deno.test("customer fare push resolves customers.id to auth user id", async () =
   assertEquals(auth.includes("export async function resolveCustomerAuthUserId"), true);
   assertEquals(offer.includes("resolveCustomerAuthUserId"), true);
   assertEquals(offer.includes("userId: customerAuthUserId"), true);
-  assertEquals(tripNotif.includes("resolveCustomerAuthUserId"), true);
-  assertEquals(tripNotif.includes("authUserId"), true);
+  assertEquals(tripNotif.includes("resolveCustomerAuthoritativeToken"), true);
 });
 
 Deno.test("customer negotiation pushes deep-link to the current ride", async () => {

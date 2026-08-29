@@ -102,7 +102,9 @@ interface ServiceArea {
   region?: Region;
 }
 
-interface PricingStatus {
+const SERVICE_AREA_SELECT =
+  'id, name, code, country, timezone, currency_code, distance_unit, region_id, is_active, tips_enabled, trip_id_prefix, driver_id_prefix, geo_boundary, created_at, updated_at, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)';
+
   vehicleTypesConfigured: number;
   totalVehicleTypes: number;
   hasBaseFare: boolean;
@@ -273,7 +275,7 @@ export default function Services() {
       const [areasRes, vehicleTypesRes] = await Promise.all([
         supabase
           .from('service_areas')
-          .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
+          .select(SERVICE_AREA_SELECT)
           .order('name', { ascending: true }),
         supabase
           .from('vehicle_types')
@@ -422,7 +424,7 @@ export default function Services() {
           is_active: formData.is_active,
           geo_boundary: boundaryForDb,
         } as any)
-        .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
+        .select(SERVICE_AREA_SELECT)
         .single();
 
       if (error) throw error;
@@ -512,7 +514,7 @@ export default function Services() {
           geo_boundary: boundaryForDb,
         } as any)
         .eq('id', selectedArea.id)
-        .select(`*, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)`)
+        .select(SERVICE_AREA_SELECT)
         .single();
 
       if (error) throw error;

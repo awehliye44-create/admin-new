@@ -273,7 +273,7 @@ export function AppPerformanceDashboard() {
       if (!includeSeed) {
         const { data, error } = await supabase
           .from('app_health_summary')
-          .select('*');
+          .select('app_name,screen_name,metric_name,event_count,avg_ms,median_ms,p95_ms,p99_ms,min_ms,max_ms,last_event_at');
         if (error) throw error;
         return (data || []) as HealthSummaryRow[];
       }
@@ -319,7 +319,7 @@ export function AppPerformanceDashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('app_performance_thresholds')
-        .select('*')
+        .select('id,app_name,screen_name,metric_name,warning_threshold,critical_threshold,is_active,created_at,updated_at')
         .eq('is_active', true);
       if (error) throw error;
       return (data || []) as Threshold[];

@@ -5,6 +5,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { loadDispatchSettings } from "./dispatch-settings.ts";
+import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
 
 export const DISPATCH_SOURCE_TAGS = [
   "auto_dispatch",
@@ -34,7 +35,7 @@ export type DispatchOrchestratorResult = {
   error?: string;
 };
 
-type InvokeClient = Pick<SupabaseClient, "rpc" | "functions">;
+type InvokeClient = Pick<SupabaseClient, "rpc" | "functions" | "from">;
 
 export function isManualEmergencyDispatchOnly(
   settings: Record<string, unknown>,
@@ -80,6 +81,40 @@ export async function invokeAutoDispatchWithRetry(
   return last;
 }
 
+/**
+ * If SQL dispatch expired the trip in-process, Customer still needs trip_cancelled.
+ * Edge auto-dispatch uses expireTripWhenSearchExhaustedAndNotifyCustomer; SQL cannot.
+ */
+async function notifyIfSqlDispatchExpiredTrip(
+  supabase: InvokeClient,
+  tripId: string,
+): Promise<void> {
+  try {
+    const { data: trip } = await supabase
+      .from("trips")
+      .select("status, passenger_id")
+      .eq("id", tripId)
+      .maybeSingle();
+    const status = String(trip?.status ?? "").toLowerCase();
+    if (status !== "expired" && status !== "expired_no_driver") return;
+    const passengerId =
+      typeof trip?.passenger_id === "string" ? trip.passenger_id : null;
+    if (!passengerId) return;
+    await notifyCustomerTripLifecycle(supabase, {
+      passengerId,
+      tripId,
+      event: "trip_cancelled",
+      title: "ONECAB TRIP CANCELLED",
+      body: "No drivers were available. Your trip has ended.",
+    });
+  } catch (e) {
+    console.warn(
+      "[dispatchOrchestrator] post-SQL-expire customer notify failed:",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+}
+
 export async function invokeSqlDispatchTripOffersIfAllowed(
   supabase: InvokeClient,
   tripId: string,
@@ -97,6 +132,7 @@ export async function invokeSqlDispatchTripOffersIfAllowed(
   if (error) {
     return { ok: false, path: "sql_dispatch_trip_offers", error: error.message };
   }
+  await notifyIfSqlDispatchExpiredTrip(supabase, tripId);
   return { ok: true, path: "sql_dispatch_trip_offers" };
 }
 

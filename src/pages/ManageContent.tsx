@@ -266,7 +266,7 @@ export default function ManageContent() {
     setLoading(true);
     const { data, error } = await supabase
       .from('content_items')
-      .select('*')
+      .select('id, app_scope, slug, title, content_html, status, version, change_log, updated_at, published_at')
       .order('version', { ascending: false });
 
     if (error) {

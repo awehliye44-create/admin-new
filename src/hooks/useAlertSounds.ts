@@ -53,7 +53,7 @@ export function useAlertSounds() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('alert_sounds')
-        .select('*')
+        .select('id, name, storage_path, mime_type, file_size, duration, target_app, is_active, created_at, updated_at')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data as AlertSound[];
@@ -65,7 +65,7 @@ export function useAlertSounds() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('alert_sound_mappings')
-        .select('*, alert_sounds(*)')
+        .select('id, target_app, event_type, alert_sound_id, is_default, is_active, created_at, updated_at, alert_sounds(id, name, storage_path, mime_type, file_size, duration, target_app, is_active, created_at, updated_at)')
         .order('target_app')
         .order('event_type');
       if (error) throw error;

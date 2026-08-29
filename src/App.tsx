@@ -1,3 +1,4 @@
+import { Suspense, lazy, type ComponentType, type LazyExoticComponent } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -6,92 +7,104 @@ import { GlobalErrorBoundary } from "@/components/GlobalErrorBoundary";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createAppQueryClient } from "@/lib/queryConfig";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import Index from "./pages/Index";
-import Auth from "./pages/Auth";
-import AuthReset from "./pages/AuthReset";
-import RevolutBusinessOAuthCallback from "./pages/auth/RevolutBusinessOAuthCallback";
-import NotFound from "./pages/NotFound";
-import Dashboard from "./pages/Dashboard";
-import Dispatch from "./pages/Dispatch";
-import ActiveTrips from "./pages/ActiveTrips";
-import ScheduledRides from "./pages/ScheduledRides";
-import MissedCancelled from "./pages/MissedCancelled";
-import ManualTrip from "./pages/ManualTrip";
-import TripHistory from "./pages/TripHistory";
-import Drivers from "./pages/Drivers";
-import Vehicles from "./pages/Vehicles";
-import FleetTracking from "./pages/FleetTracking";
-import Documents from "./pages/Documents";
-import DocumentManagement from "./pages/DocumentManagement";
-
-import Regions from "./pages/Regions";
-import Services from "./pages/Services";
-import VehicleTypes from "./pages/VehicleTypes";
-import CustomZones from "./pages/CustomZones";
-import AutoDispatchRules from "./pages/AutoDispatchRules";
-import ServiceAreaPricing from "./pages/ServiceAreaPricing";
-import ZonePricing from "./pages/ZonePricing";
-
-import CorporateFares from "./pages/CorporateFares";
-import FareSimulator from "./pages/FareSimulator";
-
-import PromoCodes from "./pages/PromoCodes";
-import Offers from "./pages/Offers";
-import CorporateAccounts from "./pages/CorporateAccounts";
-import CorporateBilling from "./pages/CorporateBilling";
-import CorporateReports from "./pages/CorporateReports";
-import CorporateSettings from "./pages/CorporateSettings";
-import AccountRequests from "./pages/AccountRequests";
-import Riders from "./pages/Riders";
-import PendingCustomerSignups from "./pages/PendingCustomerSignups";
-import RiderFeedback from "./pages/RiderFeedback";
-import AccountSuspension from "./pages/AccountSuspension";
-import ComplaintsDashboard from "./pages/ComplaintsDashboard";
-import Tickets from "./pages/Tickets";
-import SupportCategories from "./pages/SupportCategories";
-import FinancialReconciliation from "./pages/FinancialReconciliation";
-import PaymentSessions from "./pages/PaymentSessions";
-import PayoutLedger from "./pages/PayoutLedger";
-import LegacyDriversPayoutsRedirect from "./pages/LegacyDriversPayoutsRedirect";
-import DriverWalletLedger from "./pages/DriverWalletLedger";
-import CommissionWallet from "./pages/CommissionWallet";
-import AnnualTaxiReport from "./pages/AnnualTaxiReport";
-import OnecabRevenueProfitReport from "./pages/OnecabRevenueProfitReport";
-import Disputes from "./pages/Disputes";
-import DisputeSettings from "./pages/DisputeSettings";
-import Invoices from "./pages/Invoices";
-import InvoiceTemplates from "./pages/InvoiceTemplates";
-import StatementRuns from "./pages/StatementRuns";
-import GeneralSettings from "./pages/GeneralSettings";
-import Integrations from "./pages/Integrations";
-import PaymentProviders from "./pages/PaymentProviders";
-
-import RolesPermissions from "./pages/RolesPermissions";
-import Notifications from "./pages/Notifications";
-import AdminProfile from "./pages/AdminProfile";
 import { AuthProvider } from "@/hooks/useAuth";
 import { StaffProfileProvider } from "@/hooks/useStaffProfile";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AdminShell } from "@/components/layout/AdminShell";
-
-
-import ManageContent from "./pages/ManageContent";
-import HelpCentre from "./pages/HelpCentre";
-import DriverSpecialOffers from "./pages/DriverSpecialOffers";
-import CustomerSpecialOffers from "./pages/CustomerSpecialOffers";
-import LiveChat from "./pages/LiveChat";
-import OnecabDocuments from "./pages/OnecabDocuments";
-import AlertSounds from "./pages/AlertSounds";
-import UserDirectory from "./pages/UserDirectory";
-
-import DispatchMetrics from "./pages/DispatchMetrics";
-import DriverDemandZones from "./pages/DriverDemandZones";
-import StaffWorkPatterns from "./pages/StaffWorkPatterns";
-import LostProperty from "./pages/LostProperty";
-import LostPropertyDetail from "./pages/LostPropertyDetail";
 import { AdminTelemetryProvider } from "@/lib/telemetry/adminBootstrap";
 import { AdminTabActivityHost, AdminSupportPresenceHost } from "@/hooks/useAdminTabActivity";
+import { Loader2 } from "lucide-react";
+
+/** Eager auth entry — keep login bundle small and fast. */
+import Auth from "./pages/Auth";
+import AuthReset from "./pages/AuthReset";
+import RevolutBusinessOAuthCallback from "./pages/auth/RevolutBusinessOAuthCallback";
+
 const queryClient = createAppQueryClient();
+
+function lazyPage(
+  loader: () => Promise<{ default: ComponentType<object> }>,
+): LazyExoticComponent<ComponentType<object>> {
+  return lazy(loader);
+}
+
+function RouteFallback() {
+  return (
+    <div className="flex min-h-[40vh] w-full items-center justify-center p-8" role="status" aria-label="Loading page">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+const Index = lazyPage(() => import("./pages/Index"));
+const NotFound = lazyPage(() => import("./pages/NotFound"));
+const Dashboard = lazyPage(() => import("./pages/Dashboard"));
+const Dispatch = lazyPage(() => import("./pages/Dispatch"));
+const ActiveTrips = lazyPage(() => import("./pages/ActiveTrips"));
+const ScheduledRides = lazyPage(() => import("./pages/ScheduledRides"));
+const MissedCancelled = lazyPage(() => import("./pages/MissedCancelled"));
+const ManualTrip = lazyPage(() => import("./pages/ManualTrip"));
+const TripHistory = lazyPage(() => import("./pages/TripHistory"));
+const Drivers = lazyPage(() => import("./pages/Drivers"));
+const Vehicles = lazyPage(() => import("./pages/Vehicles"));
+const FleetTracking = lazyPage(() => import("./pages/FleetTracking"));
+const Documents = lazyPage(() => import("./pages/Documents"));
+const DocumentManagement = lazyPage(() => import("./pages/DocumentManagement"));
+const Regions = lazyPage(() => import("./pages/Regions"));
+const Services = lazyPage(() => import("./pages/Services"));
+const VehicleTypes = lazyPage(() => import("./pages/VehicleTypes"));
+const CustomZones = lazyPage(() => import("./pages/CustomZones"));
+const AutoDispatchRules = lazyPage(() => import("./pages/AutoDispatchRules"));
+const ServiceAreaPricing = lazyPage(() => import("./pages/ServiceAreaPricing"));
+const ZonePricing = lazyPage(() => import("./pages/ZonePricing"));
+const CorporateFares = lazyPage(() => import("./pages/CorporateFares"));
+const FareSimulator = lazyPage(() => import("./pages/FareSimulator"));
+const PromoCodes = lazyPage(() => import("./pages/PromoCodes"));
+const Offers = lazyPage(() => import("./pages/Offers"));
+const CorporateAccounts = lazyPage(() => import("./pages/CorporateAccounts"));
+const CorporateBilling = lazyPage(() => import("./pages/CorporateBilling"));
+const CorporateReports = lazyPage(() => import("./pages/CorporateReports"));
+const CorporateSettings = lazyPage(() => import("./pages/CorporateSettings"));
+const AccountRequests = lazyPage(() => import("./pages/AccountRequests"));
+const Riders = lazyPage(() => import("./pages/Riders"));
+const PendingCustomerSignups = lazyPage(() => import("./pages/PendingCustomerSignups"));
+const RiderFeedback = lazyPage(() => import("./pages/RiderFeedback"));
+const AccountSuspension = lazyPage(() => import("./pages/AccountSuspension"));
+const ComplaintsDashboard = lazyPage(() => import("./pages/ComplaintsDashboard"));
+const Tickets = lazyPage(() => import("./pages/Tickets"));
+const SupportCategories = lazyPage(() => import("./pages/SupportCategories"));
+const FinancialReconciliation = lazyPage(() => import("./pages/FinancialReconciliation"));
+const PaymentSessions = lazyPage(() => import("./pages/PaymentSessions"));
+const PayoutLedger = lazyPage(() => import("./pages/PayoutLedger"));
+const LegacyDriversPayoutsRedirect = lazyPage(() => import("./pages/LegacyDriversPayoutsRedirect"));
+const DriverWalletLedger = lazyPage(() => import("./pages/DriverWalletLedger"));
+const CommissionWallet = lazyPage(() => import("./pages/CommissionWallet"));
+const AnnualTaxiReport = lazyPage(() => import("./pages/AnnualTaxiReport"));
+const OnecabRevenueProfitReport = lazyPage(() => import("./pages/OnecabRevenueProfitReport"));
+const Disputes = lazyPage(() => import("./pages/Disputes"));
+const DisputeSettings = lazyPage(() => import("./pages/DisputeSettings"));
+const Invoices = lazyPage(() => import("./pages/Invoices"));
+const InvoiceTemplates = lazyPage(() => import("./pages/InvoiceTemplates"));
+const StatementRuns = lazyPage(() => import("./pages/StatementRuns"));
+const GeneralSettings = lazyPage(() => import("./pages/GeneralSettings"));
+const Integrations = lazyPage(() => import("./pages/Integrations"));
+const PaymentProviders = lazyPage(() => import("./pages/PaymentProviders"));
+const RolesPermissions = lazyPage(() => import("./pages/RolesPermissions"));
+const Notifications = lazyPage(() => import("./pages/Notifications"));
+const AdminProfile = lazyPage(() => import("./pages/AdminProfile"));
+const ManageContent = lazyPage(() => import("./pages/ManageContent"));
+const HelpCentre = lazyPage(() => import("./pages/HelpCentre"));
+const DriverSpecialOffers = lazyPage(() => import("./pages/DriverSpecialOffers"));
+const CustomerSpecialOffers = lazyPage(() => import("./pages/CustomerSpecialOffers"));
+const LiveChat = lazyPage(() => import("./pages/LiveChat"));
+const OnecabDocuments = lazyPage(() => import("./pages/OnecabDocuments"));
+const AlertSounds = lazyPage(() => import("./pages/AlertSounds"));
+const UserDirectory = lazyPage(() => import("./pages/UserDirectory"));
+const DispatchMetrics = lazyPage(() => import("./pages/DispatchMetrics"));
+const DriverDemandZones = lazyPage(() => import("./pages/DriverDemandZones"));
+const StaffWorkPatterns = lazyPage(() => import("./pages/StaffWorkPatterns"));
+const LostProperty = lazyPage(() => import("./pages/LostProperty"));
+const LostPropertyDetail = lazyPage(() => import("./pages/LostPropertyDetail"));
 
 const App = () => (
   <GlobalErrorBoundary>
@@ -103,6 +116,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <Suspense fallback={<RouteFallback />}>
           <AdminTabActivityHost />
           <AdminSupportPresenceHost />
           <AdminTelemetryProvider />
@@ -222,6 +236,7 @@ const App = () => (
             
             <Route path="*" element={<NotFound />} />
           </Routes>
+        </Suspense>
         </BrowserRouter>
       </TooltipProvider>
       </StaffProfileProvider>

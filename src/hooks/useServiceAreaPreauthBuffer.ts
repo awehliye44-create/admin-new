@@ -43,7 +43,9 @@ export function useServiceAreaPreauthBuffer(serviceAreaId?: string) {
       setIsLoading(true);
       const { data, error } = await supabase
         .from("service_area_preauth_settings")
-        .select("*")
+        .select(
+          "service_area_id, enable_preauth_buffer, buffer_type, buffer_value, min_hold_pence, max_hold_pence",
+        )
         .eq("service_area_id", serviceAreaId)
         .maybeSingle();
       if (cancelled) return;

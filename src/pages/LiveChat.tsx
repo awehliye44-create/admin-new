@@ -1,3 +1,4 @@
+import { ADMIN_SUPPORT_INBOX_PAGE_SIZE } from "@/lib/adminQueryBounds";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,8 @@ export default function LiveChat() {
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [isNewOpen, setIsNewOpen] = useState(false);
 
-  const { data: conversations = [], isLoading: convsLoading, refetch, error: convsError } = useSupportConversations(statusFilter);
+  const [inboxLimit, setInboxLimit] = useState(ADMIN_SUPPORT_INBOX_PAGE_SIZE);
+  const { data: conversations = [], isLoading: convsLoading, refetch, error: convsError } = useSupportConversations(statusFilter, inboxLimit);
   const { data: messages = [], isLoading: msgsLoading } = useSupportMessages(selectedConvId);
   const { data: cannedResponses = [] } = useCannedResponses();
   const sendMessage = useSendMessage();
@@ -174,7 +176,10 @@ export default function LiveChat() {
                       variant={statusFilter === f.value ? "default" : "outline"}
                       size="sm"
                       className="h-7 text-xs"
-                      onClick={() => setStatusFilter(f.value)}
+                      onClick={() => {
+                        setStatusFilter(f.value);
+                        setInboxLimit(ADMIN_SUPPORT_INBOX_PAGE_SIZE);
+                      }}
                     >
                       {f.label}
                     </Button>
@@ -182,18 +187,34 @@ export default function LiveChat() {
                 </div>
               </div>
               {/* Conversation list */}
-              <div className="min-h-0 flex-1 overflow-hidden">
+              <div className="min-h-0 flex-1 overflow-hidden flex flex-col">
                 {convsLoading ? (
                   <div className="flex items-center justify-center py-12 text-muted-foreground">
                     <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
                     Loading conversations…
                   </div>
                 ) : (
-                  <ConversationList
-                    conversations={filteredConversations}
-                    selectedId={selectedConvId}
-                    onSelect={handleSelectConv}
-                  />
+                  <>
+                    <div className="min-h-0 flex-1 overflow-hidden">
+                      <ConversationList
+                        conversations={filteredConversations}
+                        selectedId={selectedConvId}
+                        onSelect={handleSelectConv}
+                      />
+                    </div>
+                    {conversations.length >= inboxLimit ? (
+                      <div className="shrink-0 border-t p-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => setInboxLimit((n) => n + ADMIN_SUPPORT_INBOX_PAGE_SIZE)}
+                        >
+                          Load more
+                        </Button>
+                      </div>
+                    ) : null}
+                  </>
                 )}
               </div>
             </div>

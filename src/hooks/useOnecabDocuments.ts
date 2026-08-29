@@ -88,7 +88,9 @@ export function useOnecabDocuments() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("onecab_documents")
-        .select("*")
+        .select(
+          "id, title, category, document_type, issuing_authority, description, reference_number, issue_date, expiry_date, reminder_days_before, renewal_status, status, file_name, file_path, mime_type, notes, uploaded_by, created_at, updated_at, deleted_at",
+        )
         .is("deleted_at", null)
         .order("expiry_date", { ascending: true, nullsFirst: false });
 
@@ -104,7 +106,7 @@ export function useOnecabDocumentActivity(documentId?: string) {
     queryFn: async () => {
       let query = supabase
         .from("onecab_document_activity_log")
-        .select("*")
+        .select("id, document_id, action, details, performed_by, created_at")
         .order("created_at", { ascending: false })
         .limit(50);
 

@@ -24,7 +24,9 @@ export function useRegions() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("regions")
-        .select("*")
+        .select(
+          "id, name, status, distance_unit, currency_code, timezone, geo_boundary, created_at, updated_at",
+        )
         .order("name", { ascending: true });
 
       if (error) throw error;

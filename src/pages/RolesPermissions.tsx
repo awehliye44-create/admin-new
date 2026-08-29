@@ -197,7 +197,7 @@ export default function RolesPermissions() {
     try {
       const { data: profiles, error: profilesError } = await supabase
         .from('staff_profiles')
-        .select('*')
+        .select('id, user_id, staff_role_id, full_name, username, role, is_active, is_owner, created_at')
         .order('created_at', { ascending: false });
 
       if (profilesError) throw profilesError;

@@ -181,7 +181,7 @@ export default function CorporateSettings() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('admin_settings')
-        .select('*')
+        .select('setting_key, setting_value')
         .eq('setting_key', settingsKey)
         .maybeSingle();
       

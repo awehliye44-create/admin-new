@@ -14,5 +14,11 @@ Deno.test("terminal filter matches Trip History SSOT", () => {
 Deno.test("full FR audit limit defaults to 10000 not 100", () => {
   assertEquals(resolveFinanceReconciliationAuditLimit(null, "full"), 10_000);
   assertEquals(resolveFinanceReconciliationAuditLimit("100", "full"), 100);
-  assertEquals(resolveFinanceReconciliationAuditLimit(null, "summary"), 500);
+  assertEquals(resolveFinanceReconciliationAuditLimit(null, "summary"), 10_000);
+  assertEquals(resolveFinanceReconciliationAuditLimit(null, "statement"), 10_000);
+});
+
+Deno.test("FR never defaults money paths to a silent 500 trip cap", () => {
+  assertEquals(resolveFinanceReconciliationAuditLimit(undefined, "summary") >= 10_000, true);
+  assertEquals(resolveFinanceReconciliationAuditLimit("500", "summary"), 500);
 });

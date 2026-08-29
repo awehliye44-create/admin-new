@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useEffect } from "react";
 import { isAdminPageLiveActive } from "@/lib/adminPageVisibility";
+import { ADMIN_SUPPORT_INBOX_PAGE_SIZE } from "@/lib/adminQueryBounds";
 
 export interface SupportConversation {
   id: string;
@@ -126,7 +127,10 @@ async function enrichSupportIdentities(rows: SupportConversation[]): Promise<Sup
 
 // Fetch all conversations + subscribe to Realtime so new WhatsApp (and any
 // channel) conversations appear immediately without waiting for the poll cycle.
-export function useSupportConversations(statusFilter?: string) {
+export function useSupportConversations(
+  statusFilter?: string,
+  pageSize: number = ADMIN_SUPPORT_INBOX_PAGE_SIZE,
+) {
   const queryClient = useQueryClient();
 
   // Realtime: invalidate on any INSERT or UPDATE to support_conversations or
@@ -158,17 +162,21 @@ export function useSupportConversations(statusFilter?: string) {
   }, [queryClient]);
 
   return useQuery({
-    queryKey: ["support-conversations", statusFilter],
+    queryKey: ["support-conversations", statusFilter, pageSize],
     queryFn: async () => {
       // Base query MUST NOT embed the drivers table. Production `authenticated`
       // has no SELECT on public.drivers, so PostgREST relation expansion of
       // that FK fails the entire inbox with:
       //   permission denied for table drivers
       // even for WhatsApp/website rows that have driver_id = null.
+      // Newest-first bound — Load more raises pageSize; Realtime still invalidates.
       let query = supabase
         .from("support_conversations")
-        .select("*")
-        .order("last_message_at", { ascending: false });
+        .select(
+          "id, subject, status, priority, channel, initiated_by, user_type, customer_id, driver_id, assigned_admin_id, category, tags, trip_id, wa_id, guest_name, guest_email, last_message_at, resolved_at, created_at, updated_at",
+        )
+        .order("last_message_at", { ascending: false })
+        .limit(pageSize);
 
       if (statusFilter && statusFilter !== "all") {
         query = query.eq("status", statusFilter);
@@ -245,7 +253,9 @@ export function useSupportMessages(conversationId: string | null) {
       if (!conversationId) return [];
       const { data, error } = await supabase
         .from("support_messages")
-        .select("*")
+        .select(
+          "id, conversation_id, sender_type, sender_id, content, content_type, file_url, file_name, file_size, is_read, read_at, metadata, created_at, updated_at",
+        )
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
 
@@ -500,7 +510,7 @@ export function useCannedResponses() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("canned_responses")
-        .select("*")
+        .select("id, title, content, category, shortcut, is_active, usage_count, created_at")
         .eq("is_active", true)
         .order("usage_count", { ascending: false });
 

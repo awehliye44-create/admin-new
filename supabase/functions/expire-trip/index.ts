@@ -4,6 +4,7 @@ import {
   resolveRevolutOrderIdFromTrip,
 } from "../_shared/revolutPreauthReleaseSSOT.ts";
 import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
+import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -203,10 +204,11 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { data: expiredByServer, error: updateError } = await supabase.rpc(
-      "expire_trip_when_search_exhausted",
-      { p_trip_id: tripId },
-    );
+    const { expired: expiredByServer, rpcError: updateError } =
+      await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
+        tripId,
+        passengerId: trip.passenger_id ?? null,
+      });
 
     if (updateError) {
       console.error("Error updating trip to expired:", updateError);

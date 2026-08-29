@@ -75,6 +75,8 @@ import {
   WAVE3_NO_ELIGIBLE_LOG_TOKEN,
 } from "../_shared/dispatchSearchWindow.ts";
 import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
+import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
+import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 import {
   blockedTerminalTripLogPayload,
   isTripTerminalForDispatch,
@@ -884,7 +886,10 @@ Deno.serve(async (req) => {
           scheduled_handover_pending: true,
         });
       }
-      await supabase.rpc("expire_trip_when_search_exhausted", { p_trip_id: trip_id });
+      await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
+        tripId: trip_id,
+        passengerId: (trip as { passenger_id?: string | null }).passenger_id ?? null,
+      });
       abortDispatch("SEARCH_WINDOW_ENDED", {
         sequence: currentRound,
         searching_expires_at: trip.searching_expires_at ?? null,
@@ -903,7 +908,10 @@ Deno.serve(async (req) => {
         !isScheduledInstantConversionPending(trip) &&
         shouldExpireTripAfterWavesExhausted(trip, dispatchSettings)
       ) {
-        await supabase.rpc("expire_trip_when_search_exhausted", { p_trip_id: trip_id });
+        await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
+          tripId: trip_id,
+          passengerId: (trip as { passenger_id?: string | null }).passenger_id ?? null,
+        });
         abortDispatch("MAX_ROUNDS_EXCEEDED", { round: currentRound, max_rounds: maxRounds });
         return errorResponse(
           "MAX_ROUNDS_EXCEEDED",
@@ -2161,7 +2169,10 @@ Deno.serve(async (req) => {
           !isScheduledInstantConversionPending(trip) &&
           shouldExpireTripAfterWavesExhausted(trip, dispatchSettings)
         ) {
-          await supabase.rpc("expire_trip_when_search_exhausted", { p_trip_id: trip_id });
+          await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
+            tripId: trip_id,
+            passengerId: (trip as { passenger_id?: string | null }).passenger_id ?? null,
+          });
           abortDispatch("NO_DRIVERS_SEARCH_ENDED", {
             round: currentRound,
             max_rounds: maxRounds,
@@ -2868,6 +2879,22 @@ Deno.serve(async (req) => {
       } else if (acceptResult?.success) {
         autoAccepted = true;
         console.log("[auto-dispatch] AUTO-ACCEPT: Success for trip", trip_id, "driver", nearestAutoAcceptOffer.driver_id);
+
+        // Same post-accept Customer driver_assigned path as accept-offer / fare final.
+        try {
+          const finalize = await finalizeRideAssignmentSideEffects(supabase, {
+            tripId: trip_id,
+            offerId: nearestAutoAcceptOffer.id,
+            driverId: nearestAutoAcceptOffer.driver_id,
+            source: "edge_auto_dispatch_auto_accept",
+            acceptedVia: "accept_ride_offer",
+          });
+          if (!finalize.ok) {
+            console.warn("[auto-dispatch] AUTO-ACCEPT finalize incomplete:", finalize);
+          }
+        } catch (finalizeErr) {
+          console.warn("[auto-dispatch] AUTO-ACCEPT finalize failed:", finalizeErr);
+        }
         
         // Notify the driver via push notification
         try {

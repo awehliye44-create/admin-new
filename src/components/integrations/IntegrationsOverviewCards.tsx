@@ -19,7 +19,7 @@ export function IntegrationsOverviewCards() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("admin_settings")
-        .select("*")
+        .select("setting_key, setting_value")
         .eq("setting_key", "integrations")
         .single();
       if (error && error.code !== "PGRST116") throw error;
@@ -32,7 +32,7 @@ export function IntegrationsOverviewCards() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("admin_settings")
-        .select("*")
+        .select("setting_key, setting_value")
         .eq("setting_key", "api_keys")
         .single();
       if (error && error.code !== "PGRST116") throw error;

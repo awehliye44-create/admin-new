@@ -195,7 +195,7 @@ export function PayoutLedgerSettingsPanel({
     queryFn: async () => {
       let q = supabase
         .from('company_operational_refund_reserves')
-        .select('*')
+        .select('id,service_area_id,currency,status,reserve_mode,reserve_amount_pence,reserve_percentage_bps,minimum_reserve_pence,effective_from,effective_to,audit_note,metadata,created_by,approved_by,activated_at,disabled_at,created_at,updated_at')
         .order('updated_at', { ascending: false })
         .limit(20);
       if (serviceFilter.serviceAreaId) {
