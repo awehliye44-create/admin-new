@@ -82,6 +82,8 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   assertStringIncludes(stop, 'event: "driver_arrived"');
   assertStringIncludes(stop, 'event: "trip_started"');
   assertStringIncludes(stop, 'event: "trip_completed"');
+  assertStringIncludes(stop, "finalizeRideAssignmentSideEffects");
+  assertStringIncludes(stop, "edge_stop_workflow_offer_claim");
   assertStringIncludes(cancel, 'event: "trip_cancelled"');
   assertStringIncludes(driverCancel, 'event: "trip_cancelled"');
   assertStringIncludes(adminCancel, 'event: "trip_cancelled"');

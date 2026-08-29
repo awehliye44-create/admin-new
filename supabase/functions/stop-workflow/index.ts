@@ -58,6 +58,7 @@ import {
 } from "../_shared/digitalPaymentCapture.ts";
 import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -1720,6 +1721,22 @@ Deno.serve(async (req) => {
       trip.driver_id = driver_id;
       trip.confirmed_driver_id = driver_id;
       trip.status = 'accepted';
+
+      // First assignment via stop-workflow claim — same Customer driver_assigned path as accept-offer.
+      try {
+        const finalize = await finalizeRideAssignmentSideEffects(supabase, {
+          tripId: trip_id,
+          offerId: offer.id,
+          driverId: driver_id,
+          source: "edge_stop_workflow_offer_claim",
+          acceptedVia: "stop_workflow_offer_claim",
+        });
+        if (!finalize.ok) {
+          console.warn("[stop-workflow] offer-claim finalize incomplete:", finalize);
+        }
+      } catch (finalizeErr) {
+        console.warn("[stop-workflow] offer-claim finalize failed:", finalizeErr);
+      }
     }
 
     // Driver cancel SSOT — no stop progression required
