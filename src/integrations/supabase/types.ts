@@ -21227,6 +21227,7 @@ export type Database = {
           platform_commission_amount: number | null
           platform_gross_revenue_pence: number | null
           platform_net_revenue_pence: number | null
+          platform_promotion_subsidy_pence: number
           pre_assigned_driver_id: string | null
           preauth_buffer_pence: number
           previous_driver_id: string | null
@@ -21517,6 +21518,7 @@ export type Database = {
           platform_commission_amount?: number | null
           platform_gross_revenue_pence?: number | null
           platform_net_revenue_pence?: number | null
+          platform_promotion_subsidy_pence?: number
           pre_assigned_driver_id?: string | null
           preauth_buffer_pence?: number
           previous_driver_id?: string | null
@@ -21807,6 +21809,7 @@ export type Database = {
           platform_commission_amount?: number | null
           platform_gross_revenue_pence?: number | null
           platform_net_revenue_pence?: number | null
+          platform_promotion_subsidy_pence?: number
           pre_assigned_driver_id?: string | null
           preauth_buffer_pence?: number
           previous_driver_id?: string | null
