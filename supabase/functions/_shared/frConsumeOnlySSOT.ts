@@ -34,8 +34,13 @@ export function evaluateFrSettlementCaptureIdentity(args: {
   captured_pence: number | null | undefined;
   driver_net_pence: number | null | undefined;
   commission_pence: number | null | undefined;
-  /** When set, promotion identity uses commission after locked ONECAB promotion — not gross. */
+  /** Legacy promotion handling — ignored when an explicit subsidy leg is stamped. */
   commission_after_promotion_pence?: number | null | undefined;
+  /**
+   * Platform-funded customer promotion subsidy (marketing cost).
+   * Identity: captured = driver_net + gross commission + airport + tip − subsidy.
+   */
+  platform_promotion_subsidy_pence?: number | null | undefined;
   airport_charge_pence: number | null | undefined;
   tips_pence: number | null | undefined;
 }): {
@@ -49,17 +54,24 @@ export function evaluateFrSettlementCaptureIdentity(args: {
   if (args.driver_net_pence == null || args.commission_pence == null) {
     return { balanced: false, variance_pence: null, evaluable: false };
   }
-  const commissionForIdentity = args.commission_after_promotion_pence != null
-    ? Math.round(Number(args.commission_after_promotion_pence))
-    : Math.round(Number(args.commission_pence));
+  const subsidy = Math.max(0, Math.round(Number(args.platform_promotion_subsidy_pence ?? 0)));
+  // Explicit subsidy leg is authoritative: commission stays gross and the platform-funded
+  // promotion is deducted as its own reconciliation leg.
+  const commissionForIdentity = subsidy > 0
+    ? Math.round(Number(args.commission_pence))
+    : (args.commission_after_promotion_pence != null
+      ? Math.round(Number(args.commission_after_promotion_pence))
+      : Math.round(Number(args.commission_pence)));
   const rhs =
     Math.max(0, Math.round(Number(args.driver_net_pence)))
     + commissionForIdentity
     + Math.max(0, Math.round(Number(args.airport_charge_pence ?? 0)))
-    + Math.max(0, Math.round(Number(args.tips_pence ?? 0)));
+    + Math.max(0, Math.round(Number(args.tips_pence ?? 0)))
+    - subsidy;
   const variance = Math.round(Number(args.captured_pence)) - rhs;
   return { balanced: variance === 0, variance_pence: variance, evaluable: true };
 }
+
 
 /** Fully BALANCED only when every stream agrees — never WALLET_CREDIT_PENDING. */
 export function isFrTripFullyBalanced(args: {
