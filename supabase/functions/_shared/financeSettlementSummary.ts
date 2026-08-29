@@ -894,7 +894,12 @@ export function mapTripToFinancialAuditRow(
   const grossCommission = tripGrossCommissionPence(row);
   const commissionAfterPromotion = resolveTripCommissionAfterPromotionPence(row);
   const lockedPromotionPence = resolveLockedPromotionPence(row);
+  const platformPromotionSubsidyPence = Math.max(
+    0,
+    Math.round(Number(row.platform_promotion_subsidy_pence ?? 0)),
+  );
   const prePromotionCommissionable = resolveTripPrePromotionCommissionableFarePence(row);
+
   const feeClass = classifyFrProviderFeeFromSession({
     provider_processing_fee_pence: session?.provider_processing_fee_pence,
     fee_status: session?.fee_status,
