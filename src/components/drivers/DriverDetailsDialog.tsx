@@ -166,7 +166,7 @@ export function DriverDetailsDialog({
         .select('id,name,slug,description,capacity,icon,features,display_order,is_active,created_at,updated_at')
         .eq('is_active', true)
         .order('display_order');
-      return (data || []) as VehicleType[];
+      return (data || []) as unknown as VehicleType[];
     },
     staleTime: 5 * 60_000,
     enabled: open,

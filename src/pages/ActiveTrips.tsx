@@ -267,7 +267,7 @@ export default function ActiveTrips() {
       if (driversRes.error) throw driversRes.error;
 
       const baseTrips = filterAdminActiveTrips(
-        (tripsRes.data ?? []).filter(Boolean) as Trip[],
+        (tripsRes.data ?? []).filter(Boolean) as unknown as Trip[],
       ) as Trip[];
       const tripIds = baseTrips.map((t) => t.id);
 

@@ -2,6 +2,7 @@
  * Lock: ONECAB must never hard-cap trip history at 500 (or 2000) for Admin/finance.
  * Admin tables paginate (default 50/100). Full history stays in DB permanently.
  */
+import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {

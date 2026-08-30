@@ -352,7 +352,7 @@ export default function AutoDispatchRules() {
           .maybeSingle();
         if (error) throw error;
         if (data) {
-          setSettings(mapDbToSettings(data as Record<string, unknown>));
+          setSettings(mapDbToSettings(data as unknown as Record<string, unknown>));
         } else {
           setSettings(defaultSettings);
         }
