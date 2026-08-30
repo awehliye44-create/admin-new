@@ -59,6 +59,7 @@ const TRIP_AUDIT_SELECT = `
         final_customer_fare_pence,
         commissionable_fare_pence,
         capture_amount_pence,
+        platform_promotion_subsidy_pence,
         outstanding_balance_pence,
         payment_coverage_status,
         refund_amount_pence,
@@ -1074,7 +1075,14 @@ serve(async (req) => {
         (s, row) => s + Number(row.amount_pence ?? 0),
         0,
       );
-      const profit_before_tax_pence = net == null ? null : net - expenses_pence;
+      // Platform-funded customer promotions are a marketing cost against platform revenue.
+      const promotion_subsidy_pence = tripRows.reduce(
+        (sum, t) => sum + Math.max(0, Math.round(Number(t.platform_promotion_subsidy_pence ?? 0))),
+        0,
+      );
+      const profit_before_tax_pence = net == null
+        ? null
+        : net - expenses_pence - promotion_subsidy_pence;
       const om = finance_reconciliation_summary.onecab_money;
       const cr = finance_reconciliation_summary.customer_revenue;
       const dm = finance_reconciliation_summary.driver_money;
@@ -1109,6 +1117,7 @@ serve(async (req) => {
         profit_ssot: {
           platform_net_revenue_pence: net,
           expenses_pence,
+          promotion_subsidy_pence,
           profit_before_tax_pence,
           gross_customer_revenue_pence: cr.total_customer_revenue_pence ?? null,
           gross_commission_pence: om.total_commission_earned_pence

@@ -374,6 +374,8 @@ export type FrPerTripAuditRecord = {
   pre_promotion_commissionable_fare_pence: number | null;
   /** Stored global_offer discount pence — may or may not be absorbed by ONECAB. */
   locked_promotion_pence: number;
+  /** Platform-funded promotion subsidy (marketing cost) — deducted in the FR identity. */
+  platform_promotion_subsidy_pence?: number | null;
   /** Promotion actually absorbed by ONECAB commission (0 when not applied). */
   applied_promotion_pence: number;
   /** Portion of locked promotion not absorbed by ONECAB. */
@@ -773,6 +775,7 @@ export function buildFrPerTripAuditRecord(args: {
     driver_net_pence: driverEntitlement,
     commission_pence: grossCommission,
     commission_after_promotion_pence: commissionAfter,
+    platform_promotion_subsidy_pence: Math.max(0, Math.round(Number(r.platform_promotion_subsidy_pence ?? 0))),
     airport_charge_pence: airport,
     tips_pence: tips,
   });

@@ -226,9 +226,7 @@ export default function Drivers() {
         driversQ = driversQ.eq('driver_status', 'deleted');
       } else if (statusFilter === 'pending' || statusFilter === 'approved' || statusFilter === 'rejected') {
         driversQ = driversQ.eq('approval_status', statusFilter);
-        if (statusFilter !== 'deleted') {
-          driversQ = driversQ.neq('driver_status', 'deleted');
-        }
+        driversQ = driversQ.neq('driver_status', 'deleted');
         if (statusFilter === 'approved') {
           driversQ = driversQ.eq('driver_status', 'active');
         }

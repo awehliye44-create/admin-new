@@ -107,6 +107,7 @@ const SERVICE_AREA_SELECT =
 
 interface PricingStatus {
   vehicleTypesConfigured: number;
+
   totalVehicleTypes: number;
   hasBaseFare: boolean;
   hasCancellationFees: boolean;

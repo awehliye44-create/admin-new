@@ -57,7 +57,7 @@ async function tripHeadCount(
 async function driversHeadCount(
   filter?: { column: string; value: string | boolean },
 ): Promise<number> {
-  let q = supabase.from('drivers').select('id', { count: 'exact', head: true });
+  let q: any = supabase.from('drivers').select('id', { count: 'exact', head: true });
   if (filter) {
     q = q.eq(filter.column, filter.value);
   }
