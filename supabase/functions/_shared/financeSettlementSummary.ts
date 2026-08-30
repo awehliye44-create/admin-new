@@ -572,12 +572,15 @@ export type TripFinancialAuditRow = {
     capture_classification: string;
   } | null;
   settlement_identity_balanced?: boolean | null;
+  /** Platform-funded customer promotion subsidy (marketing cost) deducted in the FR identity. */
+  platform_promotion_subsidy_pence?: number | null;
   /** Authoritative consume-only trip audit status. WALLET_MISMATCH is displayed/filtered. */
   fr_trip_audit_status?: string | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
   id: string;
+  platform_promotion_subsidy_pence?: number | null;
   trip_code?: string | null;
   status?: string | null;
   refund_amount_pence?: number | null;
@@ -1071,6 +1074,7 @@ export function mapTripToFinancialAuditRow(
     driver_net_pence: expectedDriverNet,
     commission_pence: grossCommission,
     commission_after_promotion_pence: commissionAfterPromotion,
+    platform_promotion_subsidy_pence: platformPromotionSubsidyPence,
     airport_charge_pence: airportPence,
     tips_pence: tipPence,
   });
@@ -1115,6 +1119,7 @@ export function mapTripToFinancialAuditRow(
     financial_model: row.financial_model ?? null,
     locked_promotion_pence: lockedPromotionPence,
     commission_after_promotion_pence: commissionAfterPromotion,
+    platform_promotion_subsidy_pence: platformPromotionSubsidyPence,
     pre_promotion_commissionable_fare_pence: prePromotionCommissionable,
     confirmed_provider_fee_pence: feeClass.confirmed_provider_fee_pence,
     pending_provider_fee_pence: feeClass.pending_provider_fee_pence,

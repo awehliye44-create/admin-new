@@ -59,6 +59,7 @@ const TRIP_AUDIT_SELECT = `
         final_customer_fare_pence,
         commissionable_fare_pence,
         capture_amount_pence,
+        platform_promotion_subsidy_pence,
         outstanding_balance_pence,
         payment_coverage_status,
         refund_amount_pence,
