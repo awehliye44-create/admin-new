@@ -105,7 +105,9 @@ interface ServiceArea {
 const SERVICE_AREA_SELECT =
   'id, name, code, country, timezone, currency_code, distance_unit, region_id, is_active, tips_enabled, trip_id_prefix, driver_id_prefix, geo_boundary, created_at, updated_at, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)';
 
+interface PricingStatus {
   vehicleTypesConfigured: number;
+
   totalVehicleTypes: number;
   hasBaseFare: boolean;
   hasCancellationFees: boolean;
