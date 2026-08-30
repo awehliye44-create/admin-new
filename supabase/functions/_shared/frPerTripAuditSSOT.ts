@@ -775,7 +775,7 @@ export function buildFrPerTripAuditRecord(args: {
     driver_net_pence: driverEntitlement,
     commission_pence: grossCommission,
     commission_after_promotion_pence: commissionAfter,
-    platform_promotion_subsidy_pence: r.platform_promotion_subsidy_pence ?? 0,
+    platform_promotion_subsidy_pence: Math.max(0, Math.round(Number(r.platform_promotion_subsidy_pence ?? 0))),
     airport_charge_pence: airport,
     tips_pence: tips,
   });
