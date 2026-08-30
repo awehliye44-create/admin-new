@@ -131,6 +131,8 @@ export async function fetchTripsCaptureSsot(tripIds: string[]): Promise<TripCapt
 export type OnecabProfitSsot = {
   platform_net_revenue_pence: number | null;
   expenses_pence: number;
+  /** Platform-funded customer promotion subsidy (marketing cost). */
+  promotion_subsidy_pence?: number | null;
   profit_before_tax_pence: number | null;
   /** Annual / period control-centre lines from FR summary (display-only). */
   gross_customer_revenue_pence?: number | null;

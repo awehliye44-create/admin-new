@@ -109,3 +109,44 @@ describe("resolveFrTripAuditStatus", () => {
     expect(resolveFrTripAuditStatus({})).toBe(FR_TRIP_AUDIT_STATUS.PENDING_SYNC);
   });
 });
+
+describe("platform promotion subsidy leg", () => {
+  it("promoted trip reconciles: captured = driver_net + gross commission - subsidy", () => {
+    const r = evaluateFrSettlementCaptureIdentity({
+      captured_pence: 480,
+      driver_net_pence: 425,
+      commission_pence: 75,
+      commission_after_promotion_pence: 55,
+      platform_promotion_subsidy_pence: 20,
+      airport_charge_pence: 0,
+      tips_pence: 0,
+    });
+    expect(r.evaluable).toBe(true);
+    expect(r.variance_pence).toBe(0);
+    expect(r.balanced).toBe(true);
+  });
+
+  it("non-promoted trip reconciles without subsidy", () => {
+    const r = evaluateFrSettlementCaptureIdentity({
+      captured_pence: 500,
+      driver_net_pence: 425,
+      commission_pence: 75,
+      platform_promotion_subsidy_pence: 0,
+      airport_charge_pence: 0,
+      tips_pence: 0,
+    });
+    expect(r.balanced).toBe(true);
+  });
+
+  it("promoted trip without a stamped subsidy still mismatches by the promo amount", () => {
+    const r = evaluateFrSettlementCaptureIdentity({
+      captured_pence: 480,
+      driver_net_pence: 425,
+      commission_pence: 75,
+      airport_charge_pence: 0,
+      tips_pence: 0,
+    });
+    expect(r.variance_pence).toBe(-20);
+    expect(r.balanced).toBe(false);
+  });
+});
