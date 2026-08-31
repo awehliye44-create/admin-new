@@ -146,6 +146,12 @@ verify_jwt = false
 [functions.submit-corporate-account-request]
 verify_jwt = false
 
+[functions.corporate-service-area-options]
+verify_jwt = false
+
+[functions.set-corporate-service-area]
+verify_jwt = false
+
 [functions.lost-property]
 verify_jwt = false
 

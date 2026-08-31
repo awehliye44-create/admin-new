@@ -182,6 +182,9 @@ export default function CorporateAccounts() {
   };
 
   const handleSave = () => {
+    const selectedSa = serviceAreas.find((sa: { id: string }) => sa.id === formData.service_area_id);
+    const saCountry = (selectedSa as { region?: { country_code?: string | null } } | undefined)
+      ?.region?.country_code;
     saveMutation.mutate({
       company_name: formData.company_name,
       contact_name: formData.contact_name,
@@ -200,6 +203,7 @@ export default function CorporateAccounts() {
       monthly_budget: formData.monthly_budget,
       region_id: formData.region_id || null,
       service_area_id: formData.service_area_id || null,
+      country_code: saCountry ? String(saCountry).trim().toUpperCase() : null,
       payment_card_enabled: formData.payment_card_enabled,
       payment_apple_pay_enabled: formData.payment_apple_pay_enabled,
       payment_google_pay_enabled: formData.payment_google_pay_enabled,

@@ -35,6 +35,12 @@ Deno.test("corporate web helper invokes submit-corporate-account-request", async
   assertEquals(lib.includes("corporate_account_requests"), false);
 });
 
+Deno.test("corporate web registration uses edge function not direct insert", async () => {
+  const index = await Deno.readTextFile(centralHubPath("src/pages/Index.tsx"));
+  assertEquals(index.includes("submitCorporateAccountRequest"), true);
+  assertEquals(index.includes('from("corporate_account_requests").insert'), false);
+});
+
 Deno.test("rollback restores production RPC ACLs deterministically", async () => {
   const rollback = await read("supabase/rollback/p0_security_hardening_rollback_20260831.sql");
   assertEquals(rollback.includes("admin_driver_financial_summaries(uuid,uuid)"), true);

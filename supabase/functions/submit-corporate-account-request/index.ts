@@ -5,6 +5,13 @@ import {
   nativeAppCorsHeaders as corsHeaders,
 } from "../_shared/security.ts";
 import { normalizeOnboardingPhone, isValidOnboardingPhone } from "../_shared/onboardingValidation.ts";
+import { geocodeCorporateAddress } from "../_shared/corporateAddressGeocode.ts";
+import {
+  CORPORATE_SERVICE_UNAVAILABLE_MESSAGE,
+  SERVICE_AREA_COUNTRY_MISMATCH,
+  assertServiceAreaCountryMatch,
+  normalizeIsoCountryCode,
+} from "../../../shared/corporateServiceAreaCountrySSOT.ts";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_BODY_BYTES = 16_384;
@@ -131,6 +138,7 @@ Deno.serve(async (req) => {
       "id",
       "created_at",
       "updated_at",
+      "country_code",
     ]) {
       if (forbidden in body) {
         delete body[forbidden];
@@ -140,6 +148,61 @@ Deno.serve(async (req) => {
     const parsed = parseSubmitBody(body);
     if (!parsed.ok) {
       return jsonResponse({ error: "Validation failed", codes: parsed.errors }, 400);
+    }
+
+    const addressText = parsed.row.address ?? "";
+    const requestedSaId = parsed.row.service_area_id;
+
+    if (requestedSaId && addressText.length < 2) {
+      return jsonResponse({
+        error: "Enter a company address or postcode to select a service area.",
+        code: "ADDRESS_REQUIRED",
+      }, 400);
+    }
+
+    const service = createClient(supabaseUrl, serviceKey);
+
+    let resolvedCountry = normalizeIsoCountryCode(parsed.row.country);
+    let resolvedCity = parsed.row.city;
+    let resolvedRegionId = parsed.row.region_id;
+
+    if (addressText.length >= 2) {
+      const geo = await geocodeCorporateAddress(addressText);
+      resolvedCountry = normalizeIsoCountryCode(geo?.countryCode) ?? resolvedCountry;
+      if (geo?.city && !resolvedCity) resolvedCity = geo.city;
+    }
+
+    if (requestedSaId) {
+      if (!resolvedCountry) {
+        return jsonResponse({
+          error: CORPORATE_SERVICE_UNAVAILABLE_MESSAGE,
+          code: "SERVICE_UNAVAILABLE",
+        }, 400);
+      }
+
+      const { data: sa, error: saErr } = await service
+        .from("service_areas")
+        .select("id, region_id, is_active, regions!inner(country_code)")
+        .eq("id", requestedSaId)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (saErr || !sa) {
+        return jsonResponse({ error: "Invalid or inactive service area" }, 400);
+      }
+
+      const region = (Array.isArray(sa.regions) ? sa.regions[0] : sa.regions) as {
+        country_code?: string;
+      } | null;
+      try {
+        assertServiceAreaCountryMatch(resolvedCountry, region?.country_code);
+      } catch {
+        return jsonResponse({
+          error: CORPORATE_SERVICE_UNAVAILABLE_MESSAGE,
+          code: SERVICE_AREA_COUNTRY_MISMATCH,
+        }, 400);
+      }
+      resolvedRegionId = String(sa.region_id);
     }
 
     let userId: string | null = null;
@@ -161,9 +224,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    const service = createClient(supabaseUrl, serviceKey);
     const insertRow = {
       ...parsed.row,
+      city: resolvedCity,
+      country: resolvedCountry,
+      country_code: resolvedCountry,
+      region_id: resolvedRegionId,
       user_id: userId,
     };
 
