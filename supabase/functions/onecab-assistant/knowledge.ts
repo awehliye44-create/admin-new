@@ -141,12 +141,14 @@ export const TOPICS: Topic[] = [
   },
   {
     id: "drivers",
-    title: "Driver applications",
+    title: "Drive with ONECAB",
     keywords: ["driver", "drive", "job", "apply", "application", "join", "earn", "career", "vacancy"],
     body:
-      "Drivers apply through the ONECAB driver application form at /drivers, and open roles are " +
-      "listed at /careers. The application asks for name, email, phone, licence details and " +
-      "experience; ONECAB reviews documents directly, never through this assistant.",
+      "Drivers cannot apply, create an account or upload documents on the website. " +
+      "Registration is completed only in the ONECAB Driver app. The /drivers page explains " +
+      "how to get started, and /driver-app has the download section. Document requirements " +
+      "depend on the service area selected in the app. Open roles are listed at /careers. " +
+      "Never send licence documents through this assistant.",
   },
   {
     id: "corporate",
@@ -247,11 +249,21 @@ export const FAQ_CACHE: { id: string; quickAction?: QuickAction; patterns: strin
   {
     id: "faq-driver",
     quickAction: "apply_driver",
-    patterns: ["apply as a driver", "become a driver", "driver job", "how do i apply to drive", "driver application", "join as driver"],
+    patterns: [
+      "apply as a driver",
+      "become a driver",
+      "driver job",
+      "how do i apply to drive",
+      "driver application",
+      "join as driver",
+      "join as a driver",
+      "drive with onecab",
+    ],
     answer:
-      "Drivers apply through the ONECAB driver application form on the For Drivers page, and open " +
-      "roles are listed on the Careers page. Never send licence documents, passwords or codes to me — " +
-      "the application form and ONECAB Support handle that securely.",
+      "Driver accounts are created only in the ONECAB Driver app. Registration is not available on " +
+      "this website. See /drivers for how to get started and /driver-app for the download section. " +
+      "Open roles are listed on the Careers page. Never send licence documents, passwords or codes " +
+      "to me — the Driver app and ONECAB Support handle that securely.",
   },
   {
     id: "faq-accessibility",
@@ -357,7 +369,7 @@ export function isPromptInjection(text: string): boolean {
 
 export const INJECTION_REPLY =
   "I can only help with public ONECAB information — booking, service areas, payments, " +
-  "accessibility, driver applications and contact details. What would you like to know?";
+  "accessibility, driving with ONECAB and contact details. What would you like to know?";
 
 const PRIVATE_DATA_RE =
   /\b(?:customer|passenger|driver|another user|someone else)(?:'s)?\s+(?:details|data|address|phone|number|records?|trips?|bookings?|payment)|\b(?:list|show|give me)\b[^\n]{0,25}\b(?:customers|drivers|bookings|trips|payments|records)\b/i;

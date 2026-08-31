@@ -1,4 +1,5 @@
-// Public website enquiry intake (onecab.net contact + driver application forms).
+// Public website enquiry intake (onecab.net contact form only).
+// Driver registration is completed in the ONECAB Driver app, not on the website.
 // Honeypot + IP-hash rate limiting + idempotency, emailed via Resend.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { z } from "https://esm.sh/zod@3.23.8";
@@ -39,13 +40,11 @@ function json(req: Request, body: unknown, status = 200) {
 }
 
 const BodySchema = z.object({
-  formType: z.enum(["contact", "driver_application"]),
+  formType: z.enum(["contact"]),
   idempotencyKey: z.string().trim().min(8).max(200),
   name: z.string().trim().min(1).max(120),
   email: z.string().trim().email().max(255),
   phone: z.string().trim().max(40).optional(),
-  license: z.string().trim().max(120).optional(),
-  experience: z.string().trim().max(500).optional(),
   message: z.string().trim().max(4000).optional(),
   source: z.string().trim().max(120).optional(),
   company_website: z.string().max(500).optional(),
@@ -79,17 +78,12 @@ function escapeHtml(value: string): string {
 }
 
 function buildEmail(data: z.infer<typeof BodySchema>) {
-  const isDriver = data.formType === "driver_application";
-  const subject = isDriver
-    ? `New driver application — ${data.name}`
-    : `New website enquiry — ${data.name}`;
+  const subject = `New website enquiry — ${data.name}`;
 
   const rows: Array<[string, string | undefined]> = [
     ["Name", data.name],
     ["Email", data.email],
     ["Phone", data.phone],
-    ["Licence", data.license],
-    ["Experience", data.experience],
     ["Source", data.source],
   ];
 
@@ -136,6 +130,17 @@ Deno.serve(async (req) => {
 
   const parsed = BodySchema.safeParse(raw);
   if (!parsed.success) {
+    const formType = typeof raw === "object" && raw && "formType" in raw ? (raw as { formType?: unknown }).formType : undefined;
+    if (formType === "driver_application") {
+      return json(
+        req,
+        {
+          error: "Driver registration is completed in the ONECAB Driver app, not on the website.",
+          error_code: "DRIVER_REGISTRATION_APP_ONLY",
+        },
+        400,
+      );
+    }
     return json(req, { error: "Validation failed", details: parsed.error.flatten().fieldErrors }, 400);
   }
   const data = parsed.data;
@@ -186,8 +191,8 @@ Deno.serve(async (req) => {
       name: data.name,
       email: data.email,
       phone: data.phone ?? null,
-      license: data.license ?? null,
-      experience: data.experience ?? null,
+      license: null,
+      experience: null,
       message: data.message ?? null,
       source: data.source ?? null,
       ip_hash: ipHash,
@@ -215,7 +220,7 @@ Deno.serve(async (req) => {
     text,
     replyTo: data.email,
     allowExternalReplyTo: true,
-    tag: data.formType === "driver_application" ? "driver_application" : "website_contact",
+    tag: "website_contact",
   });
 
   await supabase

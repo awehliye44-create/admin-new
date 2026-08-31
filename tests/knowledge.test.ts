@@ -11,6 +11,7 @@ import {
   NO_CONFIRMED_ANSWER,
   redact,
   selectTopics,
+  TOPICS,
   trimToWords,
 } from "../supabase/functions/onecab-assistant/knowledge";
 
@@ -35,6 +36,19 @@ describe("FAQ cache (avoids AI calls)", () => {
   it("keeps confirmed contact details only", () => {
     expect(matchFaq("phone number")!.answer).toContain(CONTACT.phoneDisplay);
     expect(matchFaq("email address")!.answer).toContain("info@onecab.net");
+  });
+
+  it("does not tell drivers to apply on the website", () => {
+    expect(matchFaq("Join as a driver")?.id).toBe("faq-driver");
+    expect(matchFaq("drive with onecab")?.id).toBe("faq-driver");
+    const answer = matchFaq("join as a driver", "apply_driver")!.answer;
+    expect(answer).toMatch(/Driver app/i);
+    expect(answer).not.toMatch(/application form/i);
+    expect(answer).not.toMatch(/Apply Now/i);
+    expect(answer).not.toMatch(/For Drivers page/i);
+    const topic = TOPICS.find((item) => item.id === "drivers");
+    expect(topic?.body).toMatch(/cannot apply.*on the website/i);
+    expect(topic?.body).not.toMatch(/application form/i);
   });
 });
 
