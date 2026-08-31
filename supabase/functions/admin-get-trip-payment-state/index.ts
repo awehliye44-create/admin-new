@@ -21,6 +21,8 @@ import {
 } from "../_shared/tripPaymentProviderSSOT.ts";
 import { readSavedCardAttemptFromSessionMetadata } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { resolveCustomerPayablePenceForAudit } from "../_shared/extraPaymentRecoverySSOT.ts";
+import { resolveTripHistoryPaymentLayers } from "../_shared/tripHistoryPaymentLayersSSOT.ts";
+import { resolveCanonicalCustomerPayablePence } from "../_shared/paymentSessionsCaptureConfirmationSSOT.ts";
 
 const InputSchema = z.object({ trip_id: z.string().uuid() });
 
@@ -54,10 +56,16 @@ const TRIP_AUDIT_SELECT = `
   refund_amount_pence,
   pickup_waiting_charge_pence,
   stop_waiting_charge_pence,
+  total_waiting_charge_pence,
+  waiting_charge_pence,
   airport_charge_pence,
   other_pass_through_charges_pence,
   tip_pence,
   tip_amount_pence,
+  no_show_charge_pence,
+  cancellation_fee_pence,
+  arrival_cancellation_applied,
+  arrival_cancellation_fee,
   payment_method,
   payment_status,
   financial_outcome,
@@ -200,6 +208,8 @@ serve(async (req) => {
     let provider_settlement_warning: string | null = null;
     let provider_status: string | null = trip.provider_status ?? null;
     let provider_currency: string | null = null;
+    let providerLiveCaptured = 0;
+    let providerLiveAuthorised = 0;
 
     // Prefer Payment Sessions authorised hold when trip auth is missing.
     for (const row of paymentSessionsRes.data ?? []) {
@@ -216,13 +226,12 @@ serve(async (req) => {
         const order = await retrieveRevolutOrder(environment, secretKey, providerOrderId);
         provider_status = order.state ?? provider_status;
         provider_currency = (order.currency ?? trip.currency_code ?? 'GBP').toUpperCase();
-        authorized_pence = Math.max(authorized_pence, nonNegPence(order.amount ?? 0));
+        providerLiveAuthorised = nonNegPence(order.amount ?? 0);
+        authorized_pence = Math.max(authorized_pence, providerLiveAuthorised);
         const state = String(order.state ?? '').toUpperCase();
         if (state === 'COMPLETED' || state === 'REFUNDED') {
-          captured_pence = Math.max(
-            captured_pence,
-            nonNegPence(trip.capture_amount_pence ?? order.amount ?? 0),
-          );
+          providerLiveCaptured = nonNegPence(trip.capture_amount_pence ?? order.amount ?? 0);
+          captured_pence = Math.max(captured_pence, providerLiveCaptured);
         }
         provider_state = state.toLowerCase() || null;
         provider_currency_code = provider_currency;
@@ -235,19 +244,71 @@ serve(async (req) => {
       }
     }
 
+    // Unify 4 layers: sessions → trip capture → legacy payments → provider live.
+    const paymentLayers = resolveTripHistoryPaymentLayers({
+      sessions: paymentSessionsRes.data ?? [],
+      trip: {
+        authorised_amount_pence: trip.authorised_amount_pence,
+        capture_amount_pence: trip.capture_amount_pence,
+        refund_amount_pence: trip.refund_amount_pence,
+        final_fare_pence: trip.final_fare_pence,
+        final_customer_fare_pence: trip.final_customer_fare_pence,
+        no_show_charge_pence: trip.no_show_charge_pence,
+        cancellation_fee_pence: trip.cancellation_fee_pence,
+        arrival_cancellation_applied: trip.arrival_cancellation_applied,
+        arrival_cancellation_fee: trip.arrival_cancellation_fee,
+        outstanding_balance_pence: trip.outstanding_balance_pence,
+        tip_pence: trip.tip_pence,
+        tip_amount_pence: trip.tip_amount_pence,
+        payment_status: trip.payment_status,
+        provider_status,
+      },
+      payments: (paymentsRes.data ?? []).map((p) => ({
+        captured_amount_pence: p.captured_amount_pence,
+        amount_pence: p.amount_pence,
+        status: p.status,
+      })),
+      providerCapturedPence: providerLiveCaptured,
+      providerAuthorisedPence: providerLiveAuthorised,
+    });
+
+    authorized_pence = Math.max(authorized_pence, paymentLayers.authorized_pence);
+    captured_pence = Math.max(captured_pence, paymentLayers.captured_pence);
+    refunded_pence = Math.max(refunded_pence, paymentLayers.refunded_pence);
+
     const final_fare_pence = nonNegPence(auditRow.final_fare_pence);
     const final_customer_fare_pence = nonNegPence(trip.final_customer_fare_pence)
       || nonNegPence(auditRow.final_customer_fare_pence);
     const settlement_total_pence = nonNegPence(auditRow.settlement_total_pence);
-    const customer_payable_pence = resolveCustomerPayablePenceForAudit({
+
+    const feeAwarePayable = resolveCanonicalCustomerPayablePence({
+      finalCustomerFarePence: trip.final_customer_fare_pence,
+      finalFarePence: trip.final_fare_pence,
+      noShowChargePence: trip.no_show_charge_pence,
+      cancellationFeePence: Math.max(
+        nonNegPence(trip.cancellation_fee_pence),
+        trip.arrival_cancellation_applied === true && trip.arrival_cancellation_fee != null
+          ? Math.round(Number(trip.arrival_cancellation_fee) * 100)
+          : 0,
+      ),
+      outstandingBalancePence: trip.outstanding_balance_pence,
+    });
+
+    const discountedPayable = resolveCustomerPayablePenceForAudit({
       trip,
-      settlementTotalPence: settlement_total_pence,
+      settlementTotalPence: Math.max(settlement_total_pence, feeAwarePayable.payable_pence ?? 0),
       capturedPence: captured_pence,
     });
+
+    const customer_payable_pence = Math.max(
+      paymentLayers.customer_payable_pence,
+      discountedPayable,
+      feeAwarePayable.payable_pence ?? 0,
+    );
     const commission_pence = nonNegPence(auditRow.onecab_gross_commission_pence);
     const onecab_net_pence = auditRow.onecab_net_pence;
     const driver_net_pence = auditRow.driver_net_pence;
-    const buffer_pence = Math.max(0, authorized_pence - final_fare_pence);
+    const buffer_pence = Math.max(0, authorized_pence - Math.max(final_fare_pence, customer_payable_pence));
 
     const netCaptured = Math.max(0, captured_pence - refunded_pence);
     const payableForVerify = customer_payable_pence > 0 ? customer_payable_pence : settlement_total_pence;
@@ -259,8 +320,7 @@ serve(async (req) => {
     if (provider_transfer_id) {
       provider_settlement_verified = true;
       provider_settlement_warning = null;
-    } else if (captureCoversPayable && providerCompleted) {
-      // Customer capture is complete — Trip History should not alarm on missing driver transfer.
+    } else if (captureCoversPayable && (providerCompleted || paymentLayers.evidence_source !== 'none')) {
       provider_settlement_verified = true;
       provider_settlement_warning = null;
     } else if (
@@ -269,6 +329,10 @@ serve(async (req) => {
     ) {
       provider_settlement_verified = true;
     }
+
+    const outstanding_pence = customer_payable_pence > 0
+      ? Math.max(0, customer_payable_pence - netCaptured)
+      : nonNegPence(auditRow.outstanding_pence);
 
     const provider_settlement_warning_severity = getSettlementWarningSeverity(
       provider_settlement_verified,
@@ -355,7 +419,9 @@ serve(async (req) => {
           saved_card_state: savedCard.state,
         };
       })(),
-      ssot_source: 'trip_financial_audit',
+      ssot_source: 'trip_history_payment_layers',
+      payment_evidence_source: paymentLayers.evidence_source,
+      payable_source: paymentLayers.payable_source || feeAwarePayable.source,
       payment_intent_id: providerOrderId,
       charge_id,
       payment_method: charge_payment_method ?? trip.payment_method,
@@ -392,7 +458,7 @@ serve(async (req) => {
       recovery_debt_pence: auditRow.debt_recovered_pence,
       debt_recovered_pence: auditRow.debt_recovered_pence,
       available_payout_created_pence: auditRow.available_payout_created_pence,
-      outstanding_pence: auditRow.outstanding_pence,
+      outstanding_pence,
       capture_mismatch: auditRow.capture_mismatch,
       actions_allowed,
       provider_transfer_id,

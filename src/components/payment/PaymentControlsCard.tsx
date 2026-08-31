@@ -225,7 +225,7 @@ export function PaymentControlsCard({
       const [tripRes, paymentsRes, ledgerRes, sessionRes] = await Promise.all([
         supabase
           .from('trips')
-          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence, discount_pence, offer_discount_pence, voucher_discount_pence, promotion_discount_pence, discount_source, refund_amount_pence, fare_snapshot_json')
+          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, no_show_charge_pence, cancellation_fee_pence, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence, discount_pence, offer_discount_pence, voucher_discount_pence, promotion_discount_pence, discount_source, refund_amount_pence, fare_snapshot_json')
           .eq('id', tripId)
           .single(),
         supabase
@@ -239,7 +239,7 @@ export function PaymentControlsCard({
           .eq('type', 'TRIP_EARNING_NET'),
         supabase
           .from('payment_sessions')
-          .select('refunded_amount_pence, captured_amount_pence')
+          .select('refunded_amount_pence, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, status, provider_state, purpose')
           .eq('trip_id', tripId),
       ]);
       if (tripRes.error) throw tripRes.error;
@@ -248,29 +248,67 @@ export function PaymentControlsCard({
       const ledgerEarning = ledgerRes.data?.[0];
       let paymentRefundedPence: number | null = null;
       let bestSessionCaptured = -1;
+      let sessionCapturedSum = 0;
+      let sessionAuthMax = 0;
       for (const row of sessionRes.data ?? []) {
         const cap = row.captured_amount_pence != null && Number.isFinite(Number(row.captured_amount_pence))
           ? Math.round(Number(row.captured_amount_pence))
           : null;
+        const authRaw = row.total_authorised_amount_pence ?? row.authorised_amount_pence;
+        const auth = authRaw != null && Number.isFinite(Number(authRaw))
+          ? Math.max(0, Math.round(Number(authRaw)))
+          : 0;
+        if (auth > sessionAuthMax) sessionAuthMax = auth;
         const ref = row.refunded_amount_pence != null && Number.isFinite(Number(row.refunded_amount_pence))
           ? Math.max(0, Math.round(Number(row.refunded_amount_pence)))
           : null;
-        if (cap != null && cap > bestSessionCaptured) {
-          bestSessionCaptured = cap;
-          paymentRefundedPence = ref;
+        if (cap != null && cap > 0) {
+          sessionCapturedSum += cap;
+          if (cap > bestSessionCaptured) {
+            bestSessionCaptured = cap;
+            paymentRefundedPence = ref;
+          }
         }
       }
       const tripRefunded = tripRes.data?.refund_amount_pence != null && Number.isFinite(Number(tripRes.data.refund_amount_pence))
         ? Math.max(0, Math.round(Number(tripRes.data.refund_amount_pence)))
         : 0;
       const mergedRefunded = Math.max(paymentRefundedPence ?? 0, tripRefunded);
+      const tripCapture = tripRes.data?.capture_amount_pence != null
+        ? Math.max(0, Math.round(Number(tripRes.data.capture_amount_pence)))
+        : 0;
+      // Prefer Payment Sessions capture; fall back to payments table / trip capture.
+      const unifiedCaptured = Math.max(
+        sessionCapturedSum,
+        summary.capturedTotalPence ?? 0,
+        tripCapture,
+      );
+      const noShow = tripRes.data?.no_show_charge_pence != null
+        ? Math.max(0, Math.round(Number(tripRes.data.no_show_charge_pence)))
+        : 0;
+      const cancelFee = tripRes.data?.cancellation_fee_pence != null
+        ? Math.max(0, Math.round(Number(tripRes.data.cancellation_fee_pence)))
+        : 0;
       return {
-        ...(tripRes.data as TripCaptureFields & { authorised_amount_pence?: number | null; estimated_fare_pence?: number | null }),
-        payment_captured_pence: summary.capturedTotalPence,
+        ...(tripRes.data as TripCaptureFields & {
+          authorised_amount_pence?: number | null;
+          estimated_fare?: number | null;
+          no_show_charge_pence?: number | null;
+          cancellation_fee_pence?: number | null;
+        }),
+        authorised_amount_pence: Math.max(
+          Number(tripRes.data?.authorised_amount_pence ?? 0) || 0,
+          sessionAuthMax,
+        ),
+        payment_captured_pence: unifiedCaptured > 0 ? unifiedCaptured : null,
         payment_tip_pence: summary.tipFromMeta,
-        payment_count: summary.paymentCount,
+        payment_count: Math.max(summary.paymentCount, sessionCapturedSum > 0 ? 1 : 0),
         has_shortfall_payment_intent: summary.hasShortfallPaymentIntent,
-        payment_lifecycle_fees_pence: summary.lifecycleFeesPence,
+        payment_lifecycle_fees_pence: Math.max(
+          summary.lifecycleFeesPence,
+          noShow,
+          cancelFee,
+        ),
         payment_metadata_lifecycle_fees_pence: summary.metadataLifecycleFeesPence,
         ledger_trip_earning_net_pence: ledgerEarning?.amount_pence ?? null,
         payment_refunded_pence: mergedRefunded > 0 ? mergedRefunded : null,

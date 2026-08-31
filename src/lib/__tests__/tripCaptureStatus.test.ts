@@ -342,6 +342,30 @@ describe('tripCaptureStatus — discounted and refunded trips', () => {
     expect(getTripCaptureStatus(trip).kind).toBe('captured');
   });
 
+  it('treats no-show charge as expected payable when ride fare is absent', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      no_show_charge_pence: 500,
+      payment_captured_pence: 500,
+      payment_count: 1,
+    };
+    expect(getExpectedCustomerTotalPence(trip)).toBe(500);
+    expect(getTripCaptureStatus(trip).kind).toBe('captured');
+  });
+
+  it('treats cancellation fee as expected payable when ride fare is absent', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      cancellation_fee_pence: 350,
+      payment_captured_pence: 350,
+      payment_count: 1,
+    };
+    expect(getExpectedCustomerTotalPence(trip)).toBe(350);
+    expect(getTripCaptureStatus(trip).kind).toBe('captured');
+  });
+
   it('does not flag capture mismatch when gross minus final_fare discount explains lower capture', () => {
     const trip: TripCaptureFields = {
       payment_method: 'card',

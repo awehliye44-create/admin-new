@@ -62,6 +62,9 @@ export interface TripCaptureFields {
   voucher_discount_pence?: number | null;
   promotion_discount_pence?: number | null;
   discount_source?: string | null;
+  /** Terminal fee-only trips (no ride fare). */
+  no_show_charge_pence?: number | null;
+  cancellation_fee_pence?: number | null;
 }
 
 export interface TripSettlementBreakdown {
@@ -367,7 +370,17 @@ export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number |
 
   if (finalFare > 0) return finalFare + tip + lifecycleExtras;
   const fare = getReconciliationSettlementFarePence(trip);
-  if (fare <= 0 && tip <= 0 && lifecycleExtras <= 0) return null;
+  if (fare <= 0 && tip <= 0 && lifecycleExtras <= 0) {
+    const noShow = trip.no_show_charge_pence != null && trip.no_show_charge_pence > 0
+      ? trip.no_show_charge_pence
+      : 0;
+    const cancelFee = trip.cancellation_fee_pence != null && trip.cancellation_fee_pence > 0
+      ? trip.cancellation_fee_pence
+      : 0;
+    const feeOnly = Math.max(noShow, cancelFee);
+    if (feeOnly > 0) return feeOnly + tip;
+    return null;
+  }
   return fare + tip + lifecycleExtras;
 }
 

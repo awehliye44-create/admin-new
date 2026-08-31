@@ -50,6 +50,7 @@ const VERIFIED_CAPTURE_SESSION_STATUSES = new Set([
   "captured",
   "paid",
   "succeeded",
+  "completed",
   "recovery_completed",
 ]);
 
