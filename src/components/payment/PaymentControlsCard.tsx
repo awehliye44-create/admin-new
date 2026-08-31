@@ -109,7 +109,13 @@ interface AuditEntry {
 
 const formatPence = (pence: number, currency?: string | null) => {
   if (!currency) return '—';
-  return formatMoneyMinor(pence, currency);
+  const safe = Number.isFinite(pence) ? Math.round(pence) : 0;
+  return formatMoneyMinor(safe, currency);
+};
+
+const safePence = (value: unknown): number => {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
 };
 
 const fmtTime = (iso: string | null) => (iso ? format(new Date(iso), 'dd MMM yyyy HH:mm') : '—');
@@ -365,7 +371,7 @@ export function PaymentControlsCard({
   const isCancelled = String(state?.provider_state ?? '').toLowerCase() === 'cancelled'
     || String(state?.payment_status ?? '').includes('cancel');
   const hasCharge = !!state && (state.actions_allowed?.can_refund || state.actions_allowed?.can_partial_refund || state.captured_pence > 0);
-  const refundable = state ? Math.max(0, state.refundable_pence ?? state.captured_pence - state.refunded_pence) : 0;
+  const refundable = state ? Math.max(0, safePence(state.refundable_pence ?? state.captured_pence - state.refunded_pence)) : 0;
   const canRefund = state?.actions_allowed?.can_refund ?? (hasCharge && refundable > 0);
   const canPartialRefund = state?.actions_allowed?.can_partial_refund ?? canRefund;
   const isFullyRefunded = state ? state.captured_pence > 0 && refundable === 0 : false;
@@ -386,11 +392,11 @@ export function PaymentControlsCard({
     estimated_fare?: number | null;
     currency_code?: string | null;
   }) | undefined;
-  const authorisedPence = Math.max(0, state?.authorized_pence ?? ctx?.authorised_amount_pence ?? 0);
-  const capturedPence = Math.max(0, state?.captured_pence ?? ctx?.capture_amount_pence ?? getCapturedTotalPence(ctx ?? {}) ?? 0);
-  const refundedPence = Math.max(0, state?.refunded_pence ?? ctx?.payment_refunded_pence ?? 0);
+  const authorisedPence = safePence(state?.authorized_pence ?? ctx?.authorised_amount_pence ?? 0);
+  const capturedPence = safePence(state?.captured_pence ?? ctx?.capture_amount_pence ?? getCapturedTotalPence(ctx ?? {}) ?? 0);
+  const refundedPence = safePence(state?.refunded_pence ?? ctx?.payment_refunded_pence ?? 0);
   const netCapturedPence = Math.max(0, capturedPence - refundedPence);
-  const settlementTotalPence = state?.settlement_total_pence ?? state?.final_fare_pence ?? 0;
+  const settlementTotalPence = safePence(state?.settlement_total_pence ?? state?.final_fare_pence ?? 0);
   const settlementBreakdown = ctx ? getTripSettlementBreakdown(ctx) : null;
   const driverNetPence = state?.driver_net_pence ?? null;
   const quotedEstimatePence = Math.max(0, Math.round((ctx?.estimated_fare ?? 0) * 100));
@@ -624,11 +630,11 @@ export function PaymentControlsCard({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
               <div className="rounded-md border p-2">
                 <div className="text-xs text-muted-foreground">Authorized</div>
-                <div className="font-semibold">{formatPence(state.authorized_pence, currency)}</div>
+                <div className="font-semibold">{formatPence(safePence(state.authorized_pence), currency)}</div>
               </div>
               <div className="rounded-md border p-2">
                 <div className="text-xs text-muted-foreground">Captured (primary PI)</div>
-                <div className="font-semibold">{formatPence(state.captured_pence, currency)}</div>
+                <div className="font-semibold">{formatPence(safePence(state.captured_pence), currency)}</div>
                 {captureContext && (() => {
                   const paymentsTotal = getCapturedTotalPence(captureContext);
                   if (paymentsTotal != null && paymentsTotal !== state.captured_pence) {
@@ -644,11 +650,11 @@ export function PaymentControlsCard({
               </div>
               <div className="rounded-md border p-2">
                 <div className="text-xs text-muted-foreground">Refunded</div>
-                <div className="font-semibold">{formatPence(state.refunded_pence, currency)}</div>
+                <div className="font-semibold">{formatPence(safePence(state.refunded_pence), currency)}</div>
               </div>
               <div className="rounded-md border p-2">
                 <div className="text-xs text-muted-foreground">Refundable</div>
-                <div className="font-semibold">{formatPence(state.refundable_pence, currency)}</div>
+                <div className="font-semibold">{formatPence(safePence(state.refundable_pence), currency)}</div>
               </div>
             </div>
 
