@@ -48,6 +48,7 @@ import {
 import {
   computeSettlementTotalPence,
   EXTRA_PAYMENT_TOLERANCE_PENCE,
+  resolveCustomerPayablePenceForAudit,
 } from "./extraPaymentRecoverySSOT.ts";
 import {
   getTripAvailablePayoutCreatedPence,
@@ -835,6 +836,11 @@ export function mapTripToFinancialAuditRow(
       ? null
       : Math.max(0, Number(session.refunded_amount_pence)));
   const settlementTotal = computeSettlementTotalPence(row);
+  const customerPayablePence = resolveCustomerPayablePenceForAudit({
+    trip: row,
+    settlementTotalPence: settlementTotal,
+    capturedPence: captured,
+  });
   // Digital customer paid = confirmed PS capture only. Never invent £0 from missing evidence.
   const customerPaid = isCash
     ? settlementTotal
@@ -871,9 +877,9 @@ export function mapTripToFinancialAuditRow(
 
   // Outstanding only when capture known — do not invent £0 as confirmed capture for GREEN.
   const outstanding = captured == null
-    ? Math.max(0, row.outstanding_balance_pence ?? settlementTotal)
+    ? Math.max(0, row.outstanding_balance_pence ?? customerPayablePence)
     : computeAuditOutstandingPence({
-      settlement_pence: settlementTotal,
+      settlement_pence: customerPayablePence,
       captured_pence: captured,
       outstanding_balance_pence: row.outstanding_balance_pence,
     });

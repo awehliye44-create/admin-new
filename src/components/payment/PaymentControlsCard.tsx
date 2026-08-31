@@ -26,6 +26,7 @@ import { FinanceTripActionsPanel } from '@/components/finance/FinanceTripActions
 import {
   captureStatusColorClass,
   getCapturedTotalPence,
+  getExpectedCustomerTotalPence,
   getTripCaptureStatus,
   getTripSettlementBreakdown,
   getTripTipPence,
@@ -35,6 +36,7 @@ import {
 } from '@/lib/tripCaptureStatus';
 import {
   paymentCoverageBadgeLabel,
+  computeOutstandingShortfallPence,
 } from '../../../shared/tripHistoryShortfallRecaptureSSOT';
 
 interface PaymentState {
@@ -397,23 +399,34 @@ export function PaymentControlsCard({
   const refundedPence = safePence(state?.refunded_pence ?? ctx?.payment_refunded_pence ?? 0);
   const netCapturedPence = Math.max(0, capturedPence - refundedPence);
   const settlementTotalPence = safePence(state?.settlement_total_pence ?? state?.final_fare_pence ?? 0);
+  const customerPayablePence = captureContextForStatus
+    ? (getExpectedCustomerTotalPence(captureContextForStatus) ?? settlementTotalPence)
+    : safePence(state?.outstanding_pence != null
+      ? settlementTotalPence
+      : (state?.final_customer_fare_pence ?? settlementTotalPence));
+  const displayPayablePence = customerPayablePence > 0 ? customerPayablePence : settlementTotalPence;
   const settlementBreakdown = ctx ? getTripSettlementBreakdown(ctx) : null;
   const driverNetPence = state?.driver_net_pence ?? null;
   const quotedEstimatePence = Math.max(0, Math.round((ctx?.estimated_fare ?? 0) * 100));
-  // Never coalesce null outstanding → 0 for "fully paid" (that caused canceled/£0 capture to look paid).
-  const outstandingKnown = state?.outstanding_pence != null
-    && Number.isFinite(Number(state.outstanding_pence));
-  const extraDuePence = outstandingKnown
-    ? Math.max(0, Math.round(Number(state!.outstanding_pence)))
-    : refundedPence > 0
-      ? 0
-      : Math.max(0, settlementTotalPence - netCapturedPence);
+  const computedOutstandingPence = computeOutstandingShortfallPence({
+    customerPayablePence: displayPayablePence,
+    verifiedCapturedTotalPence: netCapturedPence,
+    netRefundedTotalPence: refundedPence,
+  });
+  const extraDuePence = computedOutstandingPence ?? 0;
   const releasedBufferPence = Math.max(0, authorisedPence - capturedPence);
+  const providerStateBlob = String(state?.provider_state ?? state?.provider_status ?? state?.payment_status ?? '').toLowerCase();
+  const providerCaptureConfirmed = netCapturedPence > 0
+    && displayPayablePence > 0
+    && netCapturedPence >= displayPayablePence - 1
+    && (providerStateBlob.includes('completed') || providerStateBlob.includes('captured') || providerStateBlob.includes('paid'));
+  const settlementVerifiedForDisplay = !!state?.provider_settlement_verified
+    || (!isFinanceVariant && providerCaptureConfirmed && extraDuePence <= 0);
   const coverageBadge = paymentCoverageBadgeLabel({
-    customerPayablePence: settlementTotalPence > 0 ? settlementTotalPence : null,
+    customerPayablePence: displayPayablePence > 0 ? displayPayablePence : null,
     verifiedCapturedTotalPence: capturedPence > 0 ? capturedPence : (state?.captured_pence ?? null),
     netRefundedTotalPence: state?.refunded_pence ?? 0,
-    providerSettlementVerified: !!state?.provider_settlement_verified,
+    providerSettlementVerified: settlementVerifiedForDisplay,
     paymentStatus: state?.payment_status ?? state?.provider_state,
     providerStatus: state?.provider_status ?? state?.provider_state,
   });
@@ -617,12 +630,16 @@ export function PaymentControlsCard({
               <Badge
                 variant="outline"
                 className={
-                  state.provider_settlement_verified
+                  settlementVerifiedForDisplay
                     ? 'bg-green-500/10 text-green-600 border-green-500/30'
                     : 'bg-destructive/10 text-destructive border-destructive/40'
                 }
               >
-                {state.provider_settlement_verified ? 'Provider settlement verified' : 'Provider settlement not verified'}
+                {state.provider_settlement_verified
+                  ? 'Provider settlement verified'
+                  : providerCaptureConfirmed && extraDuePence <= 0
+                    ? 'Payment captured ✓'
+                    : 'Provider settlement not verified'}
               </Badge>
             </div>
 
@@ -689,7 +706,7 @@ export function PaymentControlsCard({
                     <span>{formatPence(quotedEstimatePence, currency)}</span>
                   </div>
                 )}
-                <div className="flex justify-between"><span className="text-muted-foreground">Final Settlement Total</span><span>{formatPence(settlementTotalPence, currency)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">{displayPayablePence < settlementTotalPence ? 'Customer payable' : 'Final Settlement Total'}</span><span>{formatPence(displayPayablePence, currency)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Authorised hold</span><span>{formatPence(authorisedPence, currency)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Captured</span><span>{formatPence(capturedPence, currency)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Released buffer</span><span>{formatPence(releasedBufferPence, currency)}</span></div>
@@ -720,7 +737,7 @@ export function PaymentControlsCard({
             {/* Detailed finance breakdown — Financial Reconciliation (SSOT) only */}
             {isFinanceVariant ? (
             <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1.5">
-              <div className="flex justify-between"><span className="text-muted-foreground">Final Settlement Total</span><span>{formatPence(settlementTotalPence, currency)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">{displayPayablePence < settlementTotalPence ? 'Customer payable' : 'Final Settlement Total'}</span><span>{formatPence(isFinanceVariant ? settlementTotalPence : displayPayablePence, currency)}</span></div>
               {settlementBreakdown?.showBreakdown && settlementBreakdown.waitingPence > 0 && (
                 <div className="flex justify-between"><span className="text-muted-foreground">Waiting time</span><span>{formatPence(settlementBreakdown.waitingPence, currency)}</span></div>
               )}

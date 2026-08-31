@@ -49,6 +49,19 @@ describe("tripHistoryShortfallRecaptureSSOT", () => {
     expect(rejectClientChargeAmountFields({ trip_id: "t1" }).ok).toBe(true);
   });
 
+  it("discounted trip: captured matches customer payable — no shortfall badge", () => {
+    const badge = paymentCoverageBadgeLabel({
+      customerPayablePence: 595,
+      verifiedCapturedTotalPence: 595,
+      providerSettlementVerified: true,
+      paymentStatus: "completed",
+      providerStatus: "completed",
+    });
+    expect(badge.outstandingPence).toBe(0);
+    expect(badge.label).toBe("Fully paid / Captured");
+    expect(badge.tone).toBe("fully_paid");
+  });
+
   it("provider canceled is never Fully paid / Captured", () => {
     expect(
       isFullyPaidCapturedCoverage({

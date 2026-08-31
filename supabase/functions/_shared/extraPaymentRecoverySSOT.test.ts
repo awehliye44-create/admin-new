@@ -2,6 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   assertExtraPaymentAmountTrusted,
   computeSettlementTotalPence,
+  resolveCustomerPayablePenceForAudit,
   resolveExtraPaymentChargePence,
 } from "./extraPaymentRecoverySSOT.ts";
 
@@ -34,4 +35,20 @@ Deno.test("blocks second recovery when nothing outstanding", () => {
     ],
   });
   assertEquals(resolution.charge_pence, 0);
+});
+
+Deno.test("discounted trip: captured 595 vs settlement 619 — payable is 595 not shortfall", () => {
+  const settlement = computeSettlementTotalPence({ final_fare_pence: 619 });
+  assertEquals(settlement, 619);
+  const payable = resolveCustomerPayablePenceForAudit({
+    trip: {
+      final_fare_pence: 619,
+      final_customer_fare_pence: 595,
+      gross_fare_pence: 619,
+      offer_discount_pence: 24,
+    },
+    settlementTotalPence: settlement,
+    capturedPence: 595,
+  });
+  assertEquals(payable, 595);
 });

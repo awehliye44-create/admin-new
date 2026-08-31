@@ -35,6 +35,77 @@ export function computeSettlementTotalPence(trip: ExtraPaymentTripFields): numbe
   return fare + tip + extras;
 }
 
+export type CustomerPayableTripFields = ExtraPaymentTripFields & {
+  final_customer_fare_pence?: number | null;
+  gross_fare_pence?: number | null;
+  discount_pence?: number | null;
+  offer_discount_pence?: number | null;
+  total_waiting_charge_pence?: number | null;
+  pickup_waiting_charge_pence?: number | null;
+};
+
+/**
+ * Post-discount customer payable for outstanding / shortfall — never treat promo/discount gap as shortfall.
+ */
+export function resolveCustomerPayablePenceForAudit(args: {
+  trip: CustomerPayableTripFields;
+  settlementTotalPence: number;
+  capturedPence?: number | null;
+}): number {
+  const tip = getTripTipPenceServer(args.trip);
+  const waiting = Math.max(
+    0,
+    args.trip.total_waiting_charge_pence ?? args.trip.pickup_waiting_charge_pence ?? 0,
+  );
+  const finalCustomer = Math.max(0, args.trip.final_customer_fare_pence ?? 0);
+  const finalFare = Math.max(0, args.trip.final_fare_pence ?? 0);
+  const gross = Math.max(0, args.trip.gross_fare_pence ?? 0);
+  const explicitDiscount = Math.max(
+    0,
+    args.trip.discount_pence ?? 0,
+    args.trip.offer_discount_pence ?? 0,
+    gross > finalFare && finalFare > 0 ? gross - finalFare : 0,
+  );
+  const captured = args.capturedPence != null && args.capturedPence > 0
+    ? Math.round(args.capturedPence)
+    : null;
+
+  if (finalCustomer > 0) {
+    const fromCustomer = finalCustomer + waiting + tip;
+    if (captured != null && Math.abs(captured - fromCustomer) <= EXTRA_PAYMENT_TOLERANCE_PENCE) {
+      return fromCustomer;
+    }
+    if (fromCustomer < args.settlementTotalPence - EXTRA_PAYMENT_TOLERANCE_PENCE) {
+      return fromCustomer;
+    }
+  }
+
+  if (explicitDiscount > 0) {
+    const postDiscountSettlement = Math.max(0, args.settlementTotalPence - explicitDiscount);
+    if (finalFare > 0) {
+      const fromFinalFare = finalFare + waiting + tip;
+      if (captured != null && captured >= fromFinalFare - EXTRA_PAYMENT_TOLERANCE_PENCE) {
+        return fromFinalFare;
+      }
+      return fromFinalFare;
+    }
+    if (captured != null && captured >= postDiscountSettlement - EXTRA_PAYMENT_TOLERANCE_PENCE) {
+      return Math.max(captured, postDiscountSettlement);
+    }
+  }
+
+  if (
+    captured != null
+    && captured < args.settlementTotalPence - EXTRA_PAYMENT_TOLERANCE_PENCE
+    && explicitDiscount > 0
+    && Math.abs(args.settlementTotalPence - captured - explicitDiscount) <= EXTRA_PAYMENT_TOLERANCE_PENCE
+  ) {
+    return captured;
+  }
+
+  return args.settlementTotalPence;
+}
+
 export function sumTripPaymentsCapturedPence(payments: PaymentCaptureFields[]): number {
   return sumPaymentsCapturedPence(payments);
 }
