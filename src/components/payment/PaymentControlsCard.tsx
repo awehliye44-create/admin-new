@@ -212,6 +212,8 @@ export function PaymentControlsCard({
         body: { trip_id: tripId },
       });
       if (error) throw new Error(data?.error || error.message);
+      if (data?.error) throw new Error(String(data.error));
+      if (!data?.trip_id) throw new Error('Payment state response incomplete');
       return data as PaymentState;
     },
   });
@@ -396,34 +398,57 @@ export function PaymentControlsCard({
     estimated_fare?: number | null;
     currency_code?: string | null;
   }) | undefined;
-  const authorisedPence = safePence(state?.authorized_pence ?? ctx?.authorised_amount_pence ?? 0);
-  const capturedPence = safePence(state?.captured_pence ?? ctx?.capture_amount_pence ?? getCapturedTotalPence(ctx ?? {}) ?? 0);
-  const refundedPence = safePence(state?.refunded_pence ?? ctx?.payment_refunded_pence ?? 0);
+  const contextCapturedPence = safePence(
+    getCapturedTotalPence(ctx ?? {}) ?? ctx?.capture_amount_pence ?? 0,
+  );
+  const authorisedPence = Math.max(
+    safePence(state?.authorized_pence),
+    safePence(ctx?.authorised_amount_pence),
+  );
+  const capturedPence = Math.max(safePence(state?.captured_pence), contextCapturedPence);
+  const refundedPence = Math.max(
+    safePence(state?.refunded_pence),
+    safePence(ctx?.payment_refunded_pence),
+  );
   const netCapturedPence = Math.max(0, capturedPence - refundedPence);
-  const settlementTotalPence = safePence(state?.settlement_total_pence ?? state?.final_fare_pence ?? 0);
+  const settlementTotalPence = Math.max(
+    safePence(state?.settlement_total_pence),
+    safePence(state?.final_fare_pence),
+    safePence(ctx?.final_fare_pence),
+    safePence(ctx?.settlement_total_pence),
+  );
   const customerPayableFromContext = captureContextForStatus
     ? getExpectedCustomerTotalPence(captureContextForStatus)
     : null;
-  const customerPayablePence = safePence(
-    state?.customer_payable_pence
-    ?? customerPayableFromContext
-    ?? state?.final_customer_fare_pence
-    ?? settlementTotalPence,
+  const customerPayablePence = Math.max(
+    safePence(state?.customer_payable_pence),
+    safePence(customerPayableFromContext),
+    safePence(state?.final_customer_fare_pence),
+    safePence(ctx?.final_customer_fare_pence),
   );
-  const displayPayablePence = customerPayablePence > 0 ? customerPayablePence : settlementTotalPence;
+  const displayPayablePence = customerPayablePence > 0
+    ? customerPayablePence
+    : settlementTotalPence;
   const settlementBreakdown = ctx ? getTripSettlementBreakdown(ctx) : null;
   const driverNetPence = state?.driver_net_pence ?? null;
   const quotedEstimatePence = Math.max(0, Math.round((ctx?.estimated_fare ?? 0) * 100));
   const computedOutstandingPence = computeOutstandingShortfallPence({
-    customerPayablePence: displayPayablePence,
-    verifiedCapturedTotalPence: netCapturedPence,
+    customerPayablePence: displayPayablePence > 0 ? displayPayablePence : null,
+    verifiedCapturedTotalPence: netCapturedPence > 0 ? netCapturedPence : null,
     netRefundedTotalPence: refundedPence,
   });
-  const extraDuePence = computedOutstandingPence ?? 0;
+  // Prefer server outstanding when UI has no payable/capture evidence yet.
+  const extraDuePence = computedOutstandingPence
+    ?? (typeof state?.outstanding_pence === 'number' ? Math.max(0, state.outstanding_pence) : 0);
   const releasedBufferPence = Math.max(0, authorisedPence - capturedPence);
   const providerStateBlob = String(
     state?.provider_state ?? state?.provider_status ?? state?.payment_status ?? '',
   ).toLowerCase();
+  const hasPaymentEvidence = netCapturedPence > 0
+    || authorisedPence > 0
+    || displayPayablePence > 0
+    || !!state?.provider_order_id
+    || !!state?.payment_intent_id;
   const captureLooksComplete = captureStatus?.kind === 'captured'
     || captureStatus?.kind === 'captured_split'
     || providerStateBlob.includes('completed')
@@ -432,9 +457,22 @@ export function PaymentControlsCard({
     || providerStateBlob.includes('succeeded');
   const providerCaptureConfirmed = netCapturedPence > 0
     && extraDuePence <= 0
-    && captureLooksComplete;
+    && (
+      captureLooksComplete
+      || (displayPayablePence > 0 && netCapturedPence >= displayPayablePence - 1)
+    );
   const settlementVerifiedForDisplay = !!state?.provider_settlement_verified
     || providerCaptureConfirmed;
+  const settlementBadgeLabel = settlementVerifiedForDisplay
+    ? (state?.provider_settlement_verified ? 'Provider settlement verified' : 'Payment captured ✓')
+    : !hasPaymentEvidence
+      ? 'Payment evidence unavailable'
+      : 'Provider settlement not verified';
+  const settlementBadgeTone: 'ok' | 'warn' | 'muted' = settlementVerifiedForDisplay
+    ? 'ok'
+    : !hasPaymentEvidence
+      ? 'muted'
+      : 'warn';
   const coverageBadge = paymentCoverageBadgeLabel({
     customerPayablePence: displayPayablePence > 0 ? displayPayablePence : null,
     verifiedCapturedTotalPence: capturedPence > 0 ? capturedPence : (state?.captured_pence ?? null),
@@ -643,16 +681,14 @@ export function PaymentControlsCard({
               <Badge
                 variant="outline"
                 className={
-                  settlementVerifiedForDisplay
+                  settlementBadgeTone === 'ok'
                     ? 'bg-green-500/10 text-green-600 border-green-500/30'
-                    : 'bg-destructive/10 text-destructive border-destructive/40'
+                    : settlementBadgeTone === 'muted'
+                      ? 'bg-muted text-muted-foreground border-muted'
+                      : 'bg-destructive/10 text-destructive border-destructive/40'
                 }
               >
-                {settlementVerifiedForDisplay
-                  ? (state.provider_settlement_verified
-                    ? 'Provider settlement verified'
-                    : 'Payment captured ✓')
-                  : 'Provider settlement not verified'}
+                {settlementBadgeLabel}
               </Badge>
             </div>
 
@@ -660,14 +696,14 @@ export function PaymentControlsCard({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
               <div className="rounded-md border p-2">
                 <div className="text-xs text-muted-foreground">Authorized</div>
-                <div className="font-semibold">{formatPence(safePence(state.authorized_pence), currency)}</div>
+                <div className="font-semibold">{formatPence(authorisedPence, currency)}</div>
               </div>
               <div className="rounded-md border p-2">
                 <div className="text-xs text-muted-foreground">Captured (primary PI)</div>
-                <div className="font-semibold">{formatPence(safePence(state.captured_pence), currency)}</div>
+                <div className="font-semibold">{formatPence(capturedPence, currency)}</div>
                 {captureContext && (() => {
                   const paymentsTotal = getCapturedTotalPence(captureContext);
-                  if (paymentsTotal != null && paymentsTotal !== state.captured_pence) {
+                  if (paymentsTotal != null && paymentsTotal !== capturedPence) {
                     return (
                       <div className="text-[10px] text-muted-foreground mt-0.5">
                         All PIs: {formatPence(paymentsTotal, currency)}
@@ -680,11 +716,11 @@ export function PaymentControlsCard({
               </div>
               <div className="rounded-md border p-2">
                 <div className="text-xs text-muted-foreground">Refunded</div>
-                <div className="font-semibold">{formatPence(safePence(state.refunded_pence), currency)}</div>
+                <div className="font-semibold">{formatPence(refundedPence, currency)}</div>
               </div>
               <div className="rounded-md border p-2">
                 <div className="text-xs text-muted-foreground">Refundable</div>
-                <div className="font-semibold">{formatPence(safePence(state.refundable_pence), currency)}</div>
+                <div className="font-semibold">{formatPence(Math.max(0, capturedPence - refundedPence), currency)}</div>
               </div>
             </div>
 

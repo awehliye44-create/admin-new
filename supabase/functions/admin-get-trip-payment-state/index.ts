@@ -25,7 +25,7 @@ import { resolveCustomerPayablePenceForAudit } from "../_shared/extraPaymentReco
 const InputSchema = z.object({ trip_id: z.string().uuid() });
 
 const PAYMENT_SESSION_MONEY_SELECT =
-  "id, trip_id, purpose, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at, release_evidence_status, release_evidence_source, release_verified_at, metadata";
+  "id, trip_id, purpose, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_order_id, provider_state, provider_state_verified_at, release_evidence_status, release_evidence_source, release_verified_at, metadata";
 
 function nonNegPence(value: unknown): number {
   const n = Number(value);
@@ -114,10 +114,6 @@ serve(async (req) => {
       provider_settlement_warning: null,
     } as unknown as TripAuditSourceRow & Record<string, any>;
 
-    const paymentProvider = resolveTripPaymentProvider(trip);
-    const providerOrderId = tripProviderOrderId(trip);
-
-
     const [paymentsRes, payoutItemsRes, ledgerRes, paymentSessionsRes] = await Promise.all([
       gate.supabase
         .from('payments')
@@ -136,6 +132,23 @@ serve(async (req) => {
         .select(PAYMENT_SESSION_MONEY_SELECT)
         .eq('trip_id', trip_id),
     ]);
+
+    const sessionOrderId = (() => {
+      for (const row of paymentSessionsRes.data ?? []) {
+        const id = String((row as { provider_order_id?: string | null }).provider_order_id ?? '').trim();
+        if (id) return id;
+      }
+      return null;
+    })();
+    if (!trip.provider_order_id && sessionOrderId) {
+      trip.provider_order_id = sessionOrderId;
+    }
+    if (!trip.payment_session_id && (paymentSessionsRes.data?.length ?? 0) > 0) {
+      trip.payment_session_id = (paymentSessionsRes.data![0] as { id?: string }).id ?? null;
+    }
+
+    const paymentProvider = resolveTripPaymentProvider(trip);
+    const providerOrderId = tripProviderOrderId(trip);
 
     const auditContext = buildTripFinancialAuditContext({
       payments: (paymentsRes.data ?? []).map((p) => ({
@@ -181,12 +194,21 @@ serve(async (req) => {
     let charge_payment_method: string | null = null;
     let payment_method_brand: string | null = null;
     let last4: string | null = null;
-    let provider_fee_pence: number = auditRow.processing_fee_pence;
+    let provider_fee_pence: number = nonNegPence(auditRow.processing_fee_pence);
     const provider_transfer_id: string | null = trip.provider_transfer_id ?? null;
-    let provider_settlement_verified: boolean = trip.provider_settlement_verified ?? false;
-    let provider_settlement_warning: string | null = trip.provider_settlement_warning ?? null;
+    let provider_settlement_verified: boolean = false;
+    let provider_settlement_warning: string | null = null;
     let provider_status: string | null = trip.provider_status ?? null;
     let provider_currency: string | null = null;
+
+    // Prefer Payment Sessions authorised hold when trip auth is missing.
+    for (const row of paymentSessionsRes.data ?? []) {
+      const auth = nonNegPence((row as { authorised_amount_pence?: number | null }).authorised_amount_pence);
+      const sessionState = String((row as { provider_state?: string | null }).provider_state ?? '').toLowerCase();
+      if (auth > authorized_pence) authorized_pence = auth;
+      if (!provider_state && sessionState) provider_state = sessionState;
+      if (!provider_status && sessionState) provider_status = sessionState;
+    }
 
     if (paymentProvider === 'revolut' && providerOrderId) {
       try {
@@ -194,7 +216,7 @@ serve(async (req) => {
         const order = await retrieveRevolutOrder(environment, secretKey, providerOrderId);
         provider_status = order.state ?? provider_status;
         provider_currency = (order.currency ?? trip.currency_code ?? 'GBP').toUpperCase();
-        authorized_pence = nonNegPence(order.amount ?? authorized_pence);
+        authorized_pence = Math.max(authorized_pence, nonNegPence(order.amount ?? 0));
         const state = String(order.state ?? '').toUpperCase();
         if (state === 'COMPLETED' || state === 'REFUNDED') {
           captured_pence = Math.max(
@@ -227,12 +249,22 @@ serve(async (req) => {
     const driver_net_pence = auditRow.driver_net_pence;
     const buffer_pence = Math.max(0, authorized_pence - final_fare_pence);
 
+    const netCaptured = Math.max(0, captured_pence - refunded_pence);
+    const payableForVerify = customer_payable_pence > 0 ? customer_payable_pence : settlement_total_pence;
+    const providerCompleted = ['completed', 'captured', 'paid', 'succeeded', 'refunded']
+      .some((s) => String(provider_state ?? provider_status ?? '').toLowerCase().includes(s));
+    const captureCoversPayable = payableForVerify > 0
+      && netCaptured >= payableForVerify - 1;
+
     if (provider_transfer_id) {
+      provider_settlement_verified = true;
+      provider_settlement_warning = null;
+    } else if (captureCoversPayable && providerCompleted) {
+      // Customer capture is complete — Trip History should not alarm on missing driver transfer.
       provider_settlement_verified = true;
       provider_settlement_warning = null;
     } else if (
       trip.provider_settlement_verified
-      && provider_settlement_verified
       && isInformationalSettlementWarning(provider_settlement_warning)
     ) {
       provider_settlement_verified = true;
