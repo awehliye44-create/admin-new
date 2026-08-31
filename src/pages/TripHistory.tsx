@@ -1451,20 +1451,29 @@ export default function TripHistory() {
                         {(() => {
                           const sym = getCurrencySymbol(resolveTripCurrency(trip));
                           const payable = getTripCustomerPayablePence(trip);
-                          const captured = getTripProviderCapturedPence(trip);
                           const refunded = getTripProviderRefundedPence(trip);
                           const net = getTripNetChargedPence(trip);
-                          if (payable <= 0 && (captured == null || captured <= 0)) {
+                          const discount = getTripPromotionDiscountPence(trip);
+                          const gross = Number(trip.gross_fare_pence);
+                          if (payable <= 0 && discount <= 0) {
                             return <span className="text-muted-foreground">—</span>;
                           }
                           return (
                             <>
-                              <span className="text-muted-foreground text-xs font-normal">
-                                Payable {sym}{(payable / 100).toFixed(2)}
+                              {discount > 0 && Number.isFinite(gross) && gross > 0 && (
+                                <span className="text-[10px] text-muted-foreground font-normal line-through">
+                                  {sym}{(gross / 100).toFixed(2)}
+                                </span>
+                              )}
+                              <span>
+                                {sym}{(payable / 100).toFixed(2)}
                               </span>
-                              <span className={captured != null && captured > 0 ? 'text-green-600' : 'text-muted-foreground'}>
-                                Captured {captured == null ? '—' : `${sym}${(captured / 100).toFixed(2)}`}
-                              </span>
+                              {discount > 0 && (
+                                <span className="text-[10px] text-emerald-600 font-normal">
+                                  Promotion −{sym}{(discount / 100).toFixed(2)}
+                                  {trip.applied_offer_code ? ` (${trip.applied_offer_code})` : ''}
+                                </span>
+                              )}
                               {refunded != null && refunded > 0 && (
                                 <span className="text-[10px] text-red-600 font-normal">
                                   Refunded {sym}{(refunded / 100).toFixed(2)}
