@@ -60,6 +60,7 @@ const TRIP_HISTORY_SELECT_BASE = `
   final_customer_fare_pence, capture_amount_pence, commissionable_fare_pence, no_show_charge_pence,
   locked_base_fare_pence, accepted_preset_offer_fare_pence, accepted_driver_offer_fare_pence,
   customer_modification_charge_pence, destination_change_adjustment_pence,
+  offer_discount_pence, voucher_discount_pence, discount_pence, applied_offer_code,
   provider_fee_pence, onecab_net_pence,
   payment_status, payment_method, payment_provider, provider_order_id, provider_payment_id,
   currency_code, estimated_distance_km, estimated_duration_minutes,

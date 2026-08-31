@@ -279,6 +279,10 @@ interface CompletedTrip {
   estimated_fare: number | null;
   fare: number | null;
   gross_fare_pence: number | null;
+  offer_discount_pence?: number | null;
+  voucher_discount_pence?: number | null;
+  discount_pence?: number | null;
+  applied_offer_code?: string | null;
   commission_pence: number | null;
   driver_net_pence: number | null;
   final_fare_pence: number | null;
@@ -890,6 +894,17 @@ export default function TripHistory() {
   };
 
 
+  /** Promotion / voucher discount applied to the customer fare (display only). */
+  const getTripPromotionDiscountPence = (trip: CompletedTrip): number => {
+    const candidates = [trip.offer_discount_pence, trip.voucher_discount_pence, trip.discount_pence];
+    let total = 0;
+    for (const c of candidates) {
+      const n = Number(c);
+      if (Number.isFinite(n) && n > 0) total = Math.max(total, Math.round(n));
+    }
+    return total;
+  };
+
   /** PS-owned refund only — never reconstruct from trip.refund_amount as primary. */
   const getTripProviderRefundedPence = (trip: CompletedTrip): number | null => {
     if (trip.ps_refunded_pence != null && Number.isFinite(Number(trip.ps_refunded_pence))) {
@@ -1451,20 +1466,29 @@ export default function TripHistory() {
                         {(() => {
                           const sym = getCurrencySymbol(resolveTripCurrency(trip));
                           const payable = getTripCustomerPayablePence(trip);
-                          const captured = getTripProviderCapturedPence(trip);
                           const refunded = getTripProviderRefundedPence(trip);
                           const net = getTripNetChargedPence(trip);
-                          if (payable <= 0 && (captured == null || captured <= 0)) {
+                          const discount = getTripPromotionDiscountPence(trip);
+                          const gross = Number(trip.gross_fare_pence);
+                          if (payable <= 0 && discount <= 0) {
                             return <span className="text-muted-foreground">—</span>;
                           }
                           return (
                             <>
-                              <span className="text-muted-foreground text-xs font-normal">
-                                Payable {sym}{(payable / 100).toFixed(2)}
+                              {discount > 0 && Number.isFinite(gross) && gross > 0 && (
+                                <span className="text-[10px] text-muted-foreground font-normal line-through">
+                                  {sym}{(gross / 100).toFixed(2)}
+                                </span>
+                              )}
+                              <span>
+                                {sym}{(payable / 100).toFixed(2)}
                               </span>
-                              <span className={captured != null && captured > 0 ? 'text-green-600' : 'text-muted-foreground'}>
-                                Captured {captured == null ? '—' : `${sym}${(captured / 100).toFixed(2)}`}
-                              </span>
+                              {discount > 0 && (
+                                <span className="text-[10px] text-emerald-600 font-normal">
+                                  Promotion −{sym}{(discount / 100).toFixed(2)}
+                                  {trip.applied_offer_code ? ` (${trip.applied_offer_code})` : ''}
+                                </span>
+                              )}
                               {refunded != null && refunded > 0 && (
                                 <span className="text-[10px] text-red-600 font-normal">
                                   Refunded {sym}{(refunded / 100).toFixed(2)}
