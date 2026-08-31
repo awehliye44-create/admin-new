@@ -64,6 +64,7 @@ export type BackendPerformanceAction =
   | 'edge_stop_workflow'
   | 'edge_create_ride'
   | 'edge_create_preauth_payment_intent'
+  | 'edge_confirm_revolut_payment'
   | 'edge_setup_card'
   | 'edge_cancel_trip'
   | 'edge_create_trip_after_payment'
@@ -146,6 +147,7 @@ export const P95_TARGET_MS: Record<PerformanceActionName, number> = {
   edge_stop_workflow: 1_500,
   edge_create_ride: 5_000,
   edge_create_preauth_payment_intent: 2_000,
+  edge_confirm_revolut_payment: 2_000,
   edge_setup_card: 2_000,
   edge_cancel_trip: 1_500,
   edge_create_trip_after_payment: 5_000,
@@ -323,6 +325,7 @@ export const EDGE_FUNCTION_PERF_ACTION: Record<string, BackendPerformanceAction>
   'stop-workflow': 'edge_stop_workflow',
   'create-ride': 'edge_create_ride',
   'create-preauth-payment-intent': 'edge_create_preauth_payment_intent',
+  'confirm-revolut-payment': 'edge_confirm_revolut_payment',
   'setup-card': 'edge_setup_card',
   'cancel-trip': 'edge_cancel_trip',
   'create-trip-after-payment': 'edge_create_trip_after_payment',

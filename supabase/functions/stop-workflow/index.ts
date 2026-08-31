@@ -48,6 +48,7 @@ import {
   startRequestTimer,
   withDuration,
   createRequestId,
+  createStageClock,
   finishEdgeRequestLog,
 } from "../_shared/edgeRequestTiming.ts";
 import { invokeFinalizeTripCapture as invokeFinalizeTripCaptureWithRetry } from "../_shared/invokeFinalizeTripCapture.ts";
@@ -1526,6 +1527,7 @@ Deno.serve(async (req) => {
     const { trip_id, driver_id: requestedDriverId, action, driver_lat, driver_lng, cancel_reason } = body;
 
     /** Always attach fresh trip + stops so clients render backend truth only. */
+    let completeTripStagesMs: Record<string, number> | null = null;
     const respondOk = async (payload: Record<string, unknown>) => {
       const duration_ms = elapsed();
       let tripSnapshot: Record<string, unknown> | null = null;
@@ -1550,11 +1552,17 @@ Deno.serve(async (req) => {
       } catch (snapErr) {
         console.warn("[stop-workflow] failed to attach trip snapshot", snapErr);
       }
-      logRequestDuration("stop-workflow", duration_ms, { request_id: requestId, action, trip_id });
+      logRequestDuration("stop-workflow", duration_ms, {
+        request_id: requestId,
+        action,
+        trip_id,
+        ...(completeTripStagesMs ? { stages_ms: completeTripStagesMs } : {}),
+      });
       finishEdgeRequestLog("stop-workflow", duration_ms, {
         request_id: requestId,
         action,
         trip_id,
+        ...(completeTripStagesMs ? { stages_ms: completeTripStagesMs } : {}),
       });
       return successResponse(
         withDuration(
@@ -1562,6 +1570,9 @@ Deno.serve(async (req) => {
             ...payload,
             trip: payload.trip ?? tripSnapshot,
             stops: payload.stops ?? stopsSnapshot,
+            ...(completeTripStagesMs
+              ? { complete_trip_stages_ms: completeTripStagesMs }
+              : {}),
           },
           duration_ms,
           { source: "stop-workflow", requestId },
@@ -2736,6 +2747,8 @@ Deno.serve(async (req) => {
       }
 
       case 'complete_trip': {
+        const stages = createStageClock(elapsed);
+        stages.mark('complete_case_enter');
         // Must have started trip
         if (!trip.started_at) {
           return errorResponse("NOT_STARTED", "Trip not started yet", 400);
@@ -2744,6 +2757,8 @@ Deno.serve(async (req) => {
         // Idempotency: already completed
         if (trip.status === 'completed') {
           console.log("[stop-workflow] Trip already completed (idempotent)");
+          stages.mark('idempotent_already_completed');
+          completeTripStagesMs = stages.snapshot();
           return await respondOk({ success: true, idempotent: true, message: "Trip already completed" });
         }
 
@@ -2753,6 +2768,7 @@ Deno.serve(async (req) => {
         }
 
         // P0: Close any open intermediate stop waiting before completion (multi-stop SSOT).
+        stages.mark('waiting_finalize_start');
         for (const stopRow of stops ?? []) {
           if (
             stopRow.type === 'stop' &&
@@ -2763,7 +2779,9 @@ Deno.serve(async (req) => {
           }
         }
         await updateTripTotalWaiting(supabase, trip_id);
+        stages.mark('waiting_finalize_end');
 
+        stages.mark('fare_lookup_start');
         const { data: tripBeforeComplete } = await supabase
           .from("trips")
           .select("*")
@@ -2775,12 +2793,14 @@ Deno.serve(async (req) => {
         const finalFareMajor = finalFarePence / 100;
         const totalWaitingPence =
           resolvedFare.arrival_waiting_charge_pence + resolvedFare.stop_waiting_charge_pence;
+        stages.mark('fare_lookup_end');
 
         // ── PHASE 1: Complete stops + trip status + resolve commission (PARALLEL) ──
         const incompleteStopIds = (stops || [])
           .filter(s => s.status !== 'completed' && s.status !== 'skipped')
           .map(s => s.id);
 
+        stages.mark('completion_writes_start');
         const [, , commissionResult, driverRegionResult] = await Promise.all([
           incompleteStopIds.length > 0
             ? supabase
@@ -2822,6 +2842,7 @@ Deno.serve(async (req) => {
             .eq('id', driver_id)
             .single(),
         ]);
+        stages.mark('completion_writes_end');
 
         // Queued stacked trips may exist even if stacked_trip_id link was cleared (max 2–3).
         const { count: remainingQueuedCount } = await supabase
@@ -2850,6 +2871,7 @@ Deno.serve(async (req) => {
         }
 
         // ── PHASE 2: SSOT fare + payment (P0: card → finalize-trip-and-capture) ──
+        stages.mark('settlement_start');
         const { data: tripAfterComplete } = await supabase
           .from("trips")
           .select("*")
@@ -2930,6 +2952,7 @@ Deno.serve(async (req) => {
         // Persist settlement columns BEFORE finalize so applyCanonicalSettlementAfterCapture
         // can credit TRIP_EARNING_NET from trips.driver_net_pence (existing SSOT).
         if (needsProviderSettlement) {
+          stages.mark('payment_capture_start');
           await supabase.from("trips").update({
             ...tripSettlementDbColumns(settlement),
             tip_amount_pence: tipAmountPence,
@@ -3074,9 +3097,14 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString(),
           }).eq("id", trip_id);
         }
+        if (needsProviderSettlement || isCardPaymentMethodFlag) {
+          stages.mark('payment_capture_end');
+        }
+        stages.mark('settlement_end');
 
         const skipCardLedgerInStopWorkflow = needsProviderSettlement;
         if ((commissionableFarePence > 0 || tipAmountPence > 0) && !skipCardLedgerInStopWorkflow && mayPostDriverWalletLedger) {
+          stages.mark('wallet_ledger_start');
           if (isCash && !isOperationalCash) {
             // Historical legacy cash trips — fare snapshot only; no cash settlement ledger.
             await Promise.all([
@@ -3199,6 +3227,7 @@ Deno.serve(async (req) => {
           parallelOps.push(tripIncrementPromise);
           await Promise.all(parallelOps);
           }
+          stages.mark('wallet_ledger_end');
         } else {
           // No fare — just increment trips
           await tripIncrementPromise;
@@ -3214,11 +3243,13 @@ Deno.serve(async (req) => {
         // Server-side stacked promotion — do not wait for driver post-trip rating UI.
         // RPC falls back to stack_position when stacked_trip_id is null (Admin max 2–3).
         if (hasStackedTrip) {
+          stages.mark('stacked_promotion_start');
           const promotion = await tryPromoteStackedTripAfterCompletion(
             supabase,
             driver_id,
             trip_id,
           );
+          stages.mark('stacked_promotion_end');
           console.log("[stop-workflow] STACKED_TRIP_PROMOTION_AFTER_COMPLETE", {
             completed_trip_id: trip_id,
             stacked_trip_id: trip.stacked_trip_id,
@@ -3229,11 +3260,15 @@ Deno.serve(async (req) => {
         }
 
         console.log("[stop-workflow] COMPLETE_TRIP success");
+        stages.mark('notification_start');
         await notifyCustomerTripLifecycle(supabase, {
           passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
           tripId: trip_id,
           event: "trip_completed",
         });
+        stages.mark('notification_end');
+        stages.mark('response_ready');
+        completeTripStagesMs = stages.snapshot();
         return await respondOk({ success: true, action: 'complete_trip' });
       }
 

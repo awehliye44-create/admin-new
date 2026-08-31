@@ -1,11 +1,33 @@
-// ONECAB Telemetry Ingestion — v10 (force redeploy 2026-04-17T13:35Z)
+// ONECAB Telemetry Ingestion — v11 (P2 abuse hardening — deploy separately from P0 SQL)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkRateLimit, getClientIP } from "../_shared/security.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+const MAX_BODY_BYTES = 65_536;
+const MAX_EVENTS_PER_REQUEST = 50;
+const MAX_METADATA_KEYS = 12;
+const MAX_METADATA_VALUE_LEN = 256;
+const MAX_SCREEN_NAME_LEN = 120;
+
+const ALLOWED_METADATA_KEYS = new Set([
+  "endpoint",
+  "method",
+  "status_code",
+  "error_code",
+  "phase",
+  "route",
+  "action",
+  "provider",
+  "attempt",
+  "duration_ms",
+  "cache_hit",
+  "network_type",
+]);
 
 interface TelemetryEvent {
   app_name: string;
@@ -46,15 +68,67 @@ const MIN_THRESHOLDS: Record<string, number> = {
   network_request_time: 500,
 };
 
+function sanitizeMetadata(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (Object.keys(out).length >= MAX_METADATA_KEYS) break;
+    if (!ALLOWED_METADATA_KEYS.has(key)) continue;
+    if (typeof value === "string") {
+      out[key] = value.slice(0, MAX_METADATA_VALUE_LEN);
+    } else if (typeof value === "number" && Number.isFinite(value)) {
+      out[key] = value;
+    } else if (typeof value === "boolean") {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ success: false, error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const contentLength = Number(req.headers.get("content-length") ?? "0");
+  if (contentLength > MAX_BODY_BYTES) {
+    return new Response(JSON.stringify({ success: false, error: "Payload too large" }), {
+      status: 413,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const rate = checkRateLimit(getClientIP(req), {
+    keyPrefix: "ingest-telemetry",
+    limit: 120,
+    windowMs: 60_000,
+  });
+  if (!rate.allowed) {
+    return new Response(JSON.stringify({ success: false, error: "Rate limited" }), {
+      status: 429,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   try {
+    const rawText = await req.text();
+    if (rawText.length > MAX_BODY_BYTES) {
+      return new Response(JSON.stringify({ success: false, error: "Payload too large" }), {
+        status: 413,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     let body: unknown;
     try {
-      body = await req.json();
+      body = rawText ? JSON.parse(rawText) : null;
     } catch {
       // Empty body or invalid JSON — treat as no-op success
       return new Response(
@@ -91,6 +165,13 @@ Deno.serve(async (req) => {
       ? body
       : wrappedEvents ?? [body as TelemetryEvent];
 
+    if (events.length > MAX_EVENTS_PER_REQUEST) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Too many events in one request" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // Empty array — graceful no-op (not an error)
     if (events.length === 0) {
       return new Response(
@@ -111,6 +192,10 @@ Deno.serve(async (req) => {
       }
       if (!e.screen_name || typeof e.screen_name !== "string") {
         errors.push(`Event ${i}: missing screen_name`);
+        continue;
+      }
+      if (e.screen_name.length > MAX_SCREEN_NAME_LEN) {
+        errors.push(`Event ${i}: screen_name too long`);
         continue;
       }
       if (!e.metric_name || !VALID_METRICS.includes(e.metric_name)) {
@@ -144,17 +229,17 @@ Deno.serve(async (req) => {
 
     const rows = valid.map((e) => ({
       app_name: e.app_name,
-      screen_name: e.screen_name,
+      screen_name: e.screen_name.slice(0, MAX_SCREEN_NAME_LEN),
       metric_name: e.metric_name,
       metric_value: e.metric_value,
       unit: e.unit || "ms",
-      app_version: e.app_version || null,
-      platform: e.platform || null,
-      device_model: e.device_model || null,
-      os_version: e.os_version || null,
-      user_id: e.user_id || null,
-      session_id: e.session_id || null,
-      metadata: e.metadata || {},
+      app_version: e.app_version?.slice(0, 32) || null,
+      platform: e.platform?.slice(0, 32) || null,
+      device_model: e.device_model?.slice(0, 64) || null,
+      os_version: e.os_version?.slice(0, 32) || null,
+      user_id: null,
+      session_id: typeof e.session_id === "string" ? e.session_id.slice(0, 64) : null,
+      metadata: sanitizeMetadata(e.metadata),
     }));
 
     const { error } = await supabase

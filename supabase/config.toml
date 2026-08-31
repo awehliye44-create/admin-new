@@ -143,6 +143,9 @@ verify_jwt = false
 [functions.ingest-telemetry]
 verify_jwt = false
 
+[functions.submit-corporate-account-request]
+verify_jwt = false
+
 [functions.lost-property]
 verify_jwt = false
 
@@ -275,4 +278,8 @@ verify_jwt = false
 
 # Public website support widget — guest live chat into Admin Live Chat (anon, no JWT).
 [functions.website-support-chat]
+verify_jwt = false
+
+# Public password recovery (driver / customer / corporate) — Resend, not Supabase mailer.
+[functions.request-password-recovery]
 verify_jwt = false

@@ -3,7 +3,7 @@
  * Generates a Supabase Auth recovery link server-side, then emails it via
  * the existing Resend helper (never the default Supabase recovery mailer).
  *
- * POST { email, app: "driver" | "customer" }
+ * POST { email, app: "driver" | "customer" | "corporate" }
  * Always returns a neutral success message (no account enumeration).
  */
 
@@ -11,8 +11,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import { fetchCompanyBranding } from "../_shared/companyBranding.ts";
 import {
+  buildCorporateRecoveryPageUrlFromSession,
   emailRateLimitFingerprint,
   extractRecoveryActionLink,
+  extractRecoveryTokenHash,
   getRecoveryRedirect,
   hasDisallowedClientRedirect,
   isUnknownAccountGenerateLinkError,
@@ -20,6 +22,7 @@ import {
   parseRecoveryApp,
   passwordRecoverySafeResponse,
 } from "../_shared/passwordRecoverySSOT.ts";
+import { ensureCorporateAuthUserForRecovery } from "../_shared/corporatePasswordRecoveryProvision.ts";
 import { buildPasswordResetEmail } from "../_shared/passwordResetEmail.ts";
 import { sendResendEmail } from "../_shared/resendMail.ts";
 import {
@@ -37,6 +40,69 @@ function json(body: Record<string, unknown>, status = 200): Response {
     status,
     headers: { ...securityHeaders, ...corsHeaders },
   });
+}
+
+async function generateRecoveryLink(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  email: string,
+  redirectTo: string,
+) {
+  return await admin.auth.admin.generateLink({
+    type: "recovery",
+    email,
+    options: { redirectTo },
+  });
+}
+
+/**
+ * Exchange recovery token_hash for a session so the Corporate SPA can load a
+ * recovery session from the URL hash (current live build does not call verifyOtp).
+ */
+async function exchangeCorporateRecoverySession(
+  supabaseUrl: string,
+  anonKey: string,
+  tokenHash: string,
+): Promise<{
+  access_token: string;
+  refresh_token: string;
+  expires_in?: number;
+  expires_at?: number;
+  token_type?: string;
+} | null> {
+  const res = await fetch(`${supabaseUrl}/auth/v1/verify`, {
+    method: "POST",
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ type: "recovery", token_hash: tokenHash }),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    console.error("[password-recovery] corporate token exchange failed", {
+      status: res.status,
+      message: typeof payload?.msg === "string"
+        ? payload.msg
+        : typeof payload?.error_description === "string"
+        ? payload.error_description
+        : typeof payload?.message === "string"
+        ? payload.message
+        : "unknown",
+    });
+    return null;
+  }
+  const access = typeof payload?.access_token === "string" ? payload.access_token : "";
+  const refresh = typeof payload?.refresh_token === "string" ? payload.refresh_token : "";
+  if (!access || !refresh) return null;
+  return {
+    access_token: access,
+    refresh_token: refresh,
+    expires_in: typeof payload?.expires_in === "number" ? payload.expires_in : undefined,
+    expires_at: typeof payload?.expires_at === "number" ? payload.expires_at : undefined,
+    token_type: typeof payload?.token_type === "string" ? payload.token_type : undefined,
+  };
 }
 
 Deno.serve(async (req) => {
@@ -78,12 +144,12 @@ Deno.serve(async (req) => {
     windowMs: 15 * 60 * 1000,
   });
   if (!rate.allowed) {
-    // Same outer shape as success where appropriate — still 429 for abuse.
     return rateLimitResponse(rate.retryAfter ?? 60);
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   if (!supabaseUrl || !serviceKey) {
     console.error("[password-recovery] missing service configuration");
     return json({ ok: false, error: "Service unavailable" }, 503);
@@ -92,6 +158,8 @@ Deno.serve(async (req) => {
   const redirectTo = getRecoveryRedirect(app, {
     DRIVER_PASSWORD_RESET_REDIRECT: Deno.env.get("DRIVER_PASSWORD_RESET_REDIRECT") ?? undefined,
     CUSTOMER_PASSWORD_RESET_REDIRECT: Deno.env.get("CUSTOMER_PASSWORD_RESET_REDIRECT") ??
+      undefined,
+    CORPORATE_PASSWORD_RESET_REDIRECT: Deno.env.get("CORPORATE_PASSWORD_RESET_REDIRECT") ??
       undefined,
   });
 
@@ -104,15 +172,33 @@ Deno.serve(async (req) => {
     app,
     emailDomain: email.split("@")[1] ?? "",
     emailFp,
-    // never log redirect with tokens — redirect scheme only
     redirectScheme: redirectTo.split("://")[0] ?? "",
   }));
 
-  const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
-    type: "recovery",
-    email,
-    options: { redirectTo },
-  });
+  let { data: linkData, error: linkError } = await generateRecoveryLink(admin, email, redirectTo);
+
+  if (linkError && app === "corporate" && isUnknownAccountGenerateLinkError(linkError.message)) {
+    console.log("[password-recovery]", JSON.stringify({
+      step: "corporate_unknown_auth_user",
+      emailDomain: email.split("@")[1] ?? "",
+    }));
+    const ensured = await ensureCorporateAuthUserForRecovery(admin, email);
+    if (ensured.ok) {
+      console.log("[password-recovery]", JSON.stringify({
+        step: "corporate_auth_ensured",
+        created: ensured.created,
+        emailDomain: email.split("@")[1] ?? "",
+      }));
+      ({ data: linkData, error: linkError } = await generateRecoveryLink(admin, email, redirectTo));
+    } else {
+      console.log("[password-recovery]", JSON.stringify({
+        step: "corporate_not_provisioned",
+        reason: ensured.reason,
+        emailDomain: email.split("@")[1] ?? "",
+      }));
+      return json(SAFE);
+    }
+  }
 
   if (linkError) {
     if (isUnknownAccountGenerateLinkError(linkError.message)) {
@@ -127,13 +213,39 @@ Deno.serve(async (req) => {
       app,
       message: linkError.message,
     });
-    // Do not reveal account existence via Admin error text.
     return json(SAFE);
   }
 
-  const recoveryUrl = extractRecoveryActionLink(linkData);
+  let recoveryUrl: string | null = null;
+  if (app === "corporate") {
+    const tokenHash = extractRecoveryTokenHash(linkData);
+    if (!tokenHash || !anonKey) {
+      console.error("[password-recovery] corporate missing token_hash or anon key");
+      return json({ ok: false, error: "Unable to send reset email right now" }, 502);
+    }
+    const session = await exchangeCorporateRecoverySession(supabaseUrl, anonKey, tokenHash);
+    if (!session) {
+      return json({ ok: false, error: "Unable to send reset email right now" }, 502);
+    }
+    recoveryUrl = buildCorporateRecoveryPageUrlFromSession({
+      portalResetUrl: redirectTo,
+      accessToken: session.access_token,
+      refreshToken: session.refresh_token,
+      expiresIn: session.expires_in,
+      expiresAt: session.expires_at,
+      tokenType: session.token_type,
+    });
+    console.log("[password-recovery]", JSON.stringify({
+      step: "corporate_session_link_built",
+      emailDomain: email.split("@")[1] ?? "",
+      hasHashSession: Boolean(recoveryUrl?.includes("#access_token=")),
+    }));
+  } else {
+    recoveryUrl = extractRecoveryActionLink(linkData);
+  }
+
   if (!recoveryUrl) {
-    console.error("[password-recovery] generateLink missing action_link", { app });
+    console.error("[password-recovery] generateLink missing recovery url fields", { app });
     return json({ ok: false, error: "Unable to send reset email right now" }, 502);
   }
 
@@ -184,7 +296,6 @@ Deno.serve(async (req) => {
     emailDomain: email.split("@")[1] ?? "",
     provider: "resend",
     providerMessageId: sent.id ?? null,
-    // never log recoveryUrl / tokens
   }));
 
   return json(SAFE);

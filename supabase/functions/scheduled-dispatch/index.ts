@@ -29,7 +29,11 @@ import {
   loadStackedRideConfig,
   logStackedRideDisabledSafeGuard,
 } from "../_shared/stackedRideConfig.ts";
-import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
+import {
+  expireTripWhenSearchExhaustedAndNotifyCustomer,
+  notifyCustomerTripLifecycle,
+} from "../_shared/customerTripLifecycleNotify.ts";
+import { notifyCustomerNegotiationRematch } from "../_shared/negotiationFailureRematch.ts";
 
 declare const EdgeRuntime:
   | { waitUntil?: (promise: Promise<unknown>) => void }
@@ -124,6 +128,7 @@ async function sendCustomerPush(
   try {
     await supabase.functions.invoke("send-customer-notification", {
       body: {
+        customer_id: args.passengerId,
         passengerId: args.passengerId,
         type: args.type,
         title: args.title,
@@ -262,18 +267,8 @@ async function releaseAndRebroadcast(
     }),
   );
 
-  // Notify customer
-  if (trip.passenger_id) {
-    queueBackground(
-      sendCustomerPush(supabase, {
-        passengerId: trip.passenger_id,
-        type: "DRIVER_UNAVAILABLE",
-        title: "Finding you a new driver",
-        body: "Your driver is unavailable. We're finding a replacement now.",
-        data: { trip_id: trip.id, reason },
-      }),
-    );
-  }
+  // Rematch — lifecycle WAV (finding-another), never mute send-customer-notification / trip_cancelled.
+  queueBackground(notifyCustomerNegotiationRematch(supabase, trip.id));
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
@@ -466,18 +461,16 @@ Deno.serve(async (req) => {
           }),
         );
 
-        // Push to customer: driver is on the way
+        // Commitment activation — mandatory driver_assigned lifecycle WAV (not mute send-customer-notification).
         if (trip.passenger_id) {
           queueBackground(
-            sendCustomerPush(supabase, {
+            notifyCustomerTripLifecycle(supabase, {
               passengerId: trip.passenger_id,
-              type: "DRIVER_EN_ROUTE",
-              title: "Your driver is on the way",
+              tripId: trip.id,
+              event: "driver_assigned",
+              title: "ONECAB DRIVER ASSIGNED",
               body: "Your driver is heading to your pickup location.",
-              data: {
-                trip_id: trip.id,
-                type: "driver_en_route",
-              },
+              notificationId: `driver_assigned-${trip.id}-scheduled_commitment`,
             }),
           );
         }
@@ -1072,18 +1065,7 @@ Deno.serve(async (req) => {
             metadata: { missed_reason: "search_window_exhausted" },
           });
 
-          // Notify customer
-          if (trip.passenger_id) {
-            queueBackground(
-              sendCustomerPush(supabase, {
-                passengerId: trip.passenger_id,
-                type: "NO_DRIVER_AVAILABLE",
-                title: "No driver available",
-                body: "We couldn't find a driver for your scheduled trip. Please try booking again.",
-                data: { trip_id: trip.id, type: "no_driver_available" },
-              }),
-            );
-          }
+          // Customer trip_cancelled WAV already sent by expireTripWhenSearchExhaustedAndNotifyCustomer.
 
           expired++;
         }

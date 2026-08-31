@@ -620,11 +620,28 @@ export default function ManualTrip() {
           }
       }
 
-      const { error } = await supabase
+      const { data: createdTrip, error } = await supabase
         .from('trips')
-        .insert([tripData as never]);
+        .insert([tripData as never])
+        .select('id')
+        .single();
 
       if (error) throw error;
+
+      // Pre-assigned driver — Customer must hear driver_assigned (not mute DB insert).
+      if (selectedDriverId && createdTrip?.id && passengerId) {
+        const { error: notifyErr } = await supabase.functions.invoke('admin-trip-action', {
+          body: {
+            action: 'notify_driver_assigned',
+            trip_id: createdTrip.id,
+            body: 'Your driver has been assigned.',
+            notification_id: `driver_assigned-${createdTrip.id}-manual`,
+          },
+        });
+        if (notifyErr) {
+          console.warn('[ManualTrip] driver_assigned notify failed:', notifyErr);
+        }
+      }
 
       setIsSuccess(true);
       toast.success('Trip created successfully!');

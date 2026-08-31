@@ -243,7 +243,7 @@ serve(async (req: Request) => {
       try {
         const { data: origTrip } = await admin
           .from("trips")
-          .select("pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, service_area_id, customer_id, financial_model, commission_wallet_enabled, customer_payment_policy")
+          .select("pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, service_area_id, passenger_id, customer_id, financial_model, commission_wallet_enabled, customer_payment_policy")
           .eq("id", lpCase.trip_id)
           .single();
 
@@ -261,9 +261,19 @@ serve(async (req: Request) => {
             commissionWalletEnabled = sa?.commission_wallet_enabled ?? null;
             customerPaymentPolicy = sa?.customer_payment_policy ?? null;
           }
+          const passengerId =
+            typeof origTrip.passenger_id === "string" && origTrip.passenger_id.trim()
+              ? origTrip.passenger_id.trim()
+              : typeof origTrip.customer_id === "string" && origTrip.customer_id.trim()
+                ? origTrip.customer_id.trim()
+                : typeof lpCase.customer_id === "string"
+                  ? lpCase.customer_id
+                  : null;
           const { data: returnTrip } = await admin.from("trips").insert({
-            customer_id: origTrip.customer_id,
+            passenger_id: passengerId,
+            customer_id: origTrip.customer_id ?? passengerId,
             driver_id: driver.id,
+            confirmed_driver_id: driver.id,
             service_area_id: origTrip.service_area_id,
             financial_model: financialModel,
             commission_wallet_enabled: commissionWalletEnabled,
@@ -283,6 +293,27 @@ serve(async (req: Request) => {
               .from("lost_property_cases")
               .update({ return_trip_id: returnTrip.id })
               .eq("id", case_id);
+
+            if (passengerId) {
+              try {
+                const { notifyCustomerTripLifecycle } = await import(
+                  "../_shared/customerTripLifecycleNotify.ts"
+                );
+                await notifyCustomerTripLifecycle(admin, {
+                  passengerId,
+                  tripId: returnTrip.id,
+                  event: "driver_assigned",
+                  title: "ONECAB DRIVER ASSIGNED",
+                  body: "Your driver is on the way for your lost-property return.",
+                  notificationId: `driver_assigned-${returnTrip.id}-lost_property`,
+                });
+              } catch (assignNotifErr) {
+                console.warn(
+                  "[lost-property-transition] return-trip driver_assigned push failed:",
+                  assignNotifErr,
+                );
+              }
+            }
           }
         }
       } catch (tripErr) {

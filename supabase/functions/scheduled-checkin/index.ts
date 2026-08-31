@@ -226,17 +226,16 @@ Deno.serve(async (req) => {
     if (trip.passenger_id) {
       try {
         const driverName = driverRow.first_name?.trim() ?? "Your driver";
-        await supabase.functions.invoke("send-customer-notification", {
-          body: {
-            passengerId: trip.passenger_id,
-            type: "DRIVER_EN_ROUTE",
-            title: "Your driver is on the way",
-            body: `${driverName} is heading to your pickup at ${trip.pickup_address ?? "your location"}.`,
-            data: {
-              trip_id,
-              type: "driver_en_route",
-            },
-          },
+        const { notifyCustomerTripLifecycle } = await import(
+          "../_shared/customerTripLifecycleNotify.ts"
+        );
+        await notifyCustomerTripLifecycle(supabase, {
+          passengerId: trip.passenger_id,
+          tripId: trip_id,
+          event: "driver_assigned",
+          title: "Your driver is on the way",
+          body: `${driverName} is heading to your pickup at ${trip.pickup_address ?? "your location"}.`,
+          notificationId: `driver_assigned-${trip_id}-scheduled_checkin`,
         });
       } catch (notifErr) {
         console.warn("[scheduled-checkin] Customer notification failed:", notifErr);

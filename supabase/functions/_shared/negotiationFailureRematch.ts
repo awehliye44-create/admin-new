@@ -1,5 +1,7 @@
 import { type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertGlobalRebroadcastAllowed } from "./rebroadcastPolicy.ts";
+import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
+import { FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY } from "./negotiationPushCopy.ts";
 
 export type FinalizeNegotiationFailureParams = {
   tripId: string;
@@ -20,6 +22,7 @@ export type FinalizeNegotiationFailureResult = {
 /**
  * Same trip_id global rebroadcast after negotiation failure.
  * Never creates a new trip/booking.
+ * After authoritative rematch, Customer gets finding-another-driver (never trip_cancelled).
  */
 export async function finalizeNegotiationFailureAndRebroadcast(
   supabase: SupabaseClient,
@@ -72,7 +75,38 @@ export async function finalizeNegotiationFailureAndRebroadcast(
     await rebroadcastSameTrip(supabase, params.tripId);
   }
 
-  return { success: true, trip_id: row.trip_id ?? params.tripId, rebroadcast_skipped: !allowed };
+  const tripId = row.trip_id ?? params.tripId;
+  await notifyCustomerNegotiationRematch(supabase, tripId);
+
+  return { success: true, trip_id: tripId, rebroadcast_skipped: !allowed };
+}
+
+/** Customer heads-up after negotiation rematch — not trip_cancelled. */
+export async function notifyCustomerNegotiationRematch(
+  supabase: SupabaseClient,
+  tripId: string,
+): Promise<void> {
+  try {
+    const { data: trip } = await supabase
+      .from("trips")
+      .select("passenger_id")
+      .eq("id", tripId)
+      .maybeSingle();
+    const passengerId =
+      typeof trip?.passenger_id === "string" ? trip.passenger_id.trim() : "";
+    if (!passengerId) return;
+
+    await notifyCustomerTripLifecycle(supabase, {
+      passengerId,
+      tripId,
+      event: "finding_another_driver_updated_fare",
+      title: "Finding another driver",
+      body: FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY,
+      notificationId: `finding_another_driver-${tripId}`,
+    });
+  } catch (e) {
+    console.warn("[negotiationFailureRematch] customer finding-another push failed:", e);
+  }
 }
 
 /** Invoke global dispatch for an already-finalized trip (same trip_id, never a new booking). */

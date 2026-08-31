@@ -14,6 +14,26 @@ export function startRequestTimer(): () => number {
   return () => Math.round(performance.now() - t0);
 }
 
+/**
+ * Relative stage marks within a single Edge request (ms from request start).
+ * Observability only — never restructures business logic.
+ */
+export function createStageClock(elapsed: () => number): {
+  mark: (name: string) => void;
+  snapshot: () => Record<string, number>;
+} {
+  const stages: Record<string, number> = {};
+  return {
+    mark(name: string) {
+      if (stages[name] != null) return;
+      stages[name] = elapsed();
+    },
+    snapshot() {
+      return { ...stages };
+    },
+  };
+}
+
 export function createRequestId(): string {
   return crypto.randomUUID();
 }

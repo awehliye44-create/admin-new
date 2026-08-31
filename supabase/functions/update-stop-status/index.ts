@@ -187,6 +187,40 @@ Deno.serve(async (req) => {
         }
       );
 
+      if (currentStop.type === "pickup" && newTripStatus === "arrived") {
+        try {
+          const tripInfoRes = await fetch(
+            `${supabaseUrl}/rest/v1/trips?id=eq.${body.trip_id}&select=passenger_id`,
+            {
+              headers: {
+                apikey: supabaseServiceKey,
+                Authorization: `Bearer ${supabaseServiceKey}`,
+              },
+            },
+          );
+          const tripInfo = tripInfoRes.ok ? await tripInfoRes.json() : null;
+          const passengerId = tripInfo?.[0]?.passenger_id as string | undefined;
+          if (passengerId) {
+            await fetch(`${supabaseUrl}/functions/v1/send-trip-notification`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${supabaseServiceKey}`,
+                apikey: supabaseServiceKey,
+              },
+              body: JSON.stringify({
+                userId: passengerId,
+                tripId: body.trip_id,
+                event: "driver_arrived",
+                notificationId: `driver_arrived-${body.trip_id}`,
+              }),
+            });
+          }
+        } catch (notifErr) {
+          console.warn("[update-stop-status] driver_arrived push failed:", notifErr);
+        }
+      }
+
       console.log(`Stop ${currentStopIndex} marked as arrived`);
 
       return new Response(
@@ -403,6 +437,40 @@ Deno.serve(async (req) => {
           }),
         }
       );
+
+      if (currentStop.type === "pickup" && newTripStatus === "in_progress") {
+        try {
+          const tripInfoRes = await fetch(
+            `${supabaseUrl}/rest/v1/trips?id=eq.${body.trip_id}&select=passenger_id`,
+            {
+              headers: {
+                apikey: supabaseServiceKey,
+                Authorization: `Bearer ${supabaseServiceKey}`,
+              },
+            },
+          );
+          const tripInfo = tripInfoRes.ok ? await tripInfoRes.json() : null;
+          const passengerId = tripInfo?.[0]?.passenger_id as string | undefined;
+          if (passengerId) {
+            await fetch(`${supabaseUrl}/functions/v1/send-trip-notification`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${supabaseServiceKey}`,
+                apikey: supabaseServiceKey,
+              },
+              body: JSON.stringify({
+                userId: passengerId,
+                tripId: body.trip_id,
+                event: "trip_started",
+                notificationId: `trip_started-${body.trip_id}`,
+              }),
+            });
+          }
+        } catch (notifErr) {
+          console.warn("[update-stop-status] trip_started push failed:", notifErr);
+        }
+      }
 
       // Get next stop info
       const nextStopRes = await fetch(

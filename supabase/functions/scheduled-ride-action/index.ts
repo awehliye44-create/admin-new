@@ -18,6 +18,7 @@ import {
   buildScheduledUrgentConversionPatch,
   resolveScheduledDispatchConfig,
 } from "../_shared/scheduledDispatchConfig.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -424,20 +425,19 @@ Deno.serve(async (req) => {
         .eq("id", driver_id)
         .single();
 
-      // §18 — Notify customer: driver confirmed
+      // §18 — Notify customer: driver confirmed (lifecycle WAV, not mute send-customer-notification).
       try {
         if (tripRow?.passenger_id) {
           const driverName = driverRow
             ? `${driverRow.first_name ?? "Your driver"}`.trim()
             : "Your driver";
-          await supabase.functions.invoke("send-customer-notification", {
-            body: {
-              passengerId: tripRow.passenger_id,
-              type: "DRIVER_CONFIRMED",
-              title: "Driver confirmed",
-              body: `${driverName} will pick you up for your scheduled ride.`,
-              data: { trip_id, type: "scheduled_driver_confirmed" },
-            },
+          await notifyCustomerTripLifecycle(supabase, {
+            passengerId: tripRow.passenger_id,
+            tripId: trip_id,
+            event: "driver_assigned",
+            title: "Driver confirmed",
+            body: `${driverName} will pick you up for your scheduled ride.`,
+            notificationId: `driver_assigned-${trip_id}-scheduled_accept`,
           });
         }
       } catch (notifErr) {
@@ -690,7 +690,7 @@ Deno.serve(async (req) => {
 
       console.log(`[scheduled-ride-action] Driver ${driver_id} cancelled confirmed job ${trip_id}. Reason: ${cancellation_reason}`);
 
-      // Notify customer: their confirmed driver has cancelled
+      // Notify customer: their confirmed driver has cancelled (lifecycle WAV, not trip_cancelled).
       try {
         const { data: tripForNotif } = await supabase
           .from("trips")
@@ -701,17 +701,13 @@ Deno.serve(async (req) => {
           const customerMsg = isCheckinOpen
             ? "We're finding you a replacement driver right now."
             : "We're looking for another driver for your scheduled trip.";
-          await supabase.functions.invoke("send-customer-notification", {
-            body: {
-              passengerId: tripForNotif.passenger_id,
-              type: "DRIVER_CANCELLED",
-              title: "Driver cancelled",
-              body: customerMsg,
-              data: {
-                trip_id,
-                type: "scheduled_driver_cancelled",
-              },
-            },
+          await notifyCustomerTripLifecycle(supabase, {
+            passengerId: tripForNotif.passenger_id,
+            tripId: trip_id,
+            event: "driver_cancelled",
+            title: "Driver cancelled",
+            body: customerMsg,
+            notificationId: `driver_cancelled-scheduled-${trip_id}`,
           });
         }
       } catch (notifErr) {

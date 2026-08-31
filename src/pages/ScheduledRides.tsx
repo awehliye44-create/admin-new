@@ -315,6 +315,20 @@ export default function ScheduledRides() {
 
       if (error) throw error;
 
+      // Scheduled pre-confirm — Customer driver_assigned lifecycle WAV (Edge resolves passenger_id).
+      const { error: notifyErr } = await supabase.functions.invoke('admin-trip-action', {
+        body: {
+          action: 'notify_driver_assigned',
+          trip_id: selectedTrip.id,
+          title: 'Driver confirmed',
+          body: 'Your driver is confirmed for your scheduled ride.',
+          notification_id: `driver_assigned-${selectedTrip.id}-scheduled_admin`,
+        },
+      });
+      if (notifyErr) {
+        console.warn('[ScheduledRides] driver_assigned notify failed:', notifyErr);
+      }
+
       perf.complete({ success: true, metadata: { trip_id: selectedTrip.id } });
       toast.success('Driver assigned successfully');
       setIsAssignOpen(false);
@@ -342,20 +356,39 @@ export default function ScheduledRides() {
       metadata: { trip_id: selectedTrip.id },
     });
     try {
-      const { error } = await supabase
-        .from('trips')
-        .update({ 
-          status: 'cancelled',
-          scheduled_status: 'cancelled',
-          special_instructions: cancelReason 
-            ? `Admin cancelled: ${cancelReason}. ${selectedTrip.special_instructions || ''}`
-            : `Admin cancelled. ${selectedTrip.special_instructions || ''}`,
-        })
-        .eq('id', selectedTrip.id);
+      const tripId = selectedTrip.id;
+      const reason = cancelReason || 'Cancelled by admin';
+      // Same Edge cancel as Active Trips — payment dispose + Customer trip_cancelled WAV.
+      const { data: cancelResult, error } = await supabase.functions.invoke('admin-trip-actions', {
+        body: {
+          action: 'cancel',
+          trip_id: tripId,
+          reason,
+        },
+      });
 
       if (error) throw error;
+      if (cancelResult && typeof cancelResult === 'object') {
+        const body = cancelResult as {
+          success?: boolean;
+          error?: string;
+          result?: { success?: boolean; error?: string };
+        };
+        if (body.success === false || body.error) {
+          throw new Error(body.error || body.result?.error || 'Failed to cancel trip');
+        }
+        if (body.result && body.result.success === false) {
+          throw new Error(body.result.error || 'Failed to cancel trip');
+        }
+      }
 
-      perf.complete({ success: true, metadata: { trip_id: selectedTrip.id } });
+      // Keep scheduled board filters consistent (RPC cancels status/dispatch, not scheduled_status).
+      await supabase
+        .from('trips')
+        .update({ scheduled_status: 'cancelled' })
+        .eq('id', tripId);
+
+      perf.complete({ success: true, metadata: { trip_id: tripId } });
       toast.success('Scheduled ride cancelled');
       setIsCancelOpen(false);
       setSelectedTrip(null);

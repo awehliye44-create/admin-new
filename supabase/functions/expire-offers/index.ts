@@ -11,7 +11,7 @@ import {
   isValidUUID,
 } from "../_shared/security.ts";
 import { assertGlobalRebroadcastAllowed } from "../_shared/rebroadcastPolicy.ts";
-import { finalizeNegotiationFailureAndRebroadcast } from "../_shared/negotiationFailureRematch.ts";
+import { finalizeNegotiationFailureAndRebroadcast, notifyCustomerNegotiationRematch } from "../_shared/negotiationFailureRematch.ts";
 import {
   buildRebroadcastInvocations,
   buildVehicleTypeSelectedStuckInvocations,
@@ -26,7 +26,6 @@ import {
   filterTripIdsExcludingTerminal,
   isTripTerminalForDispatch,
 } from "../_shared/tripTerminalDispatch.ts";
-import { FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY } from "../_shared/negotiationPushCopy.ts";
 import {
   isScheduledInstantConversionPending,
   isScheduledWorkflowOrigin,
@@ -347,33 +346,7 @@ Deno.serve(async (req) => {
             offerNegotiationStatus: offerNegStatus,
           });
           console.log("[expire-offers] Negotiation rematch after grace/counter timeout", o.trip_id);
-          if (isWaitingDriver) {
-            try {
-              const { data: tripRow } = await supabase
-                .from("trips")
-                .select("passenger_id")
-                .eq("id", o.trip_id)
-                .maybeSingle();
-              if (tripRow?.passenger_id) {
-                await fetch(`${supabaseUrl}/functions/v1/send-trip-notification`, {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${supabaseKey}`,
-                  },
-                  body: JSON.stringify({
-                    userId: tripRow.passenger_id,
-                    tripId: o.trip_id,
-                    event: "finding_another_driver_updated_fare",
-                    title: "Finding another driver",
-                    body: FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY,
-                  }),
-                });
-              }
-            } catch (pushErr) {
-              console.warn("[expire-offers] updated-fare customer push failed", o.id, pushErr);
-            }
-          }
+          // Customer finding-another push is owned by finalizeNegotiationFailureAndRebroadcast.
         }
       } catch (e) {
         console.warn("[expire-offers] Negotiation timeout handler error for offer", o.id, e);
@@ -523,6 +496,8 @@ Deno.serve(async (req) => {
             .eq("status", "negotiating");
 
           console.log("[expire-offers] Stuck negotiating trip (no active offers) → searching_new_driver", t.id);
+
+          void notifyCustomerNegotiationRematch(supabase, t.id);
 
           await assertGlobalRebroadcastAllowed(supabase, t.id, "expire-offers:stuck_negotiating_trip")
             .then(async (allowed) => {

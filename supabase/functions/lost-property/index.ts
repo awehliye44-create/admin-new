@@ -18,6 +18,7 @@ import {
   tripCashUpfrontPaymentFields,
   tripInsertFieldsFromFinancialModelSnapshot,
 } from "../_shared/commissionWalletSSOT.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 async function tripCwSnapshotFields(
   sb: ReturnType<typeof getServiceClient>,
@@ -502,7 +503,7 @@ async function driverAcceptReturn(req: Request) {
   const sb = getServiceClient();
   const { data: lpc } = await sb
     .from("lost_property_cases")
-    .select("id, driver_id, status, return_trip_id")
+    .select("id, driver_id, status, return_trip_id, customer_id")
     .eq("id", case_id)
     .single();
 
@@ -541,6 +542,35 @@ async function driverAcceptReturn(req: Request) {
       }
       return errorResp(tripAssignErr.message || "Failed to assign return trip", 500);
     }
+
+    const { data: returnTripRow } = await sb
+      .from("trips")
+      .select("passenger_id")
+      .eq("id", lpc.return_trip_id)
+      .maybeSingle();
+    const passengerId =
+      typeof returnTripRow?.passenger_id === "string" && returnTripRow.passenger_id.trim()
+        ? returnTripRow.passenger_id.trim()
+        : typeof lpc.customer_id === "string"
+          ? lpc.customer_id
+          : null;
+    // Legacy return trips may lack passenger_id — repair then notify.
+    if (passengerId && !returnTripRow?.passenger_id) {
+      await sb
+        .from("trips")
+        .update({ passenger_id: passengerId })
+        .eq("id", lpc.return_trip_id);
+    }
+    void notifyCustomerTripLifecycle(sb, {
+      passengerId,
+      tripId: lpc.return_trip_id,
+      event: "driver_assigned",
+      title: "ONECAB DRIVER ASSIGNED",
+      body: "Your driver is on the way for your lost-property return.",
+      notificationId: `driver_assigned-${lpc.return_trip_id}-lost_property`,
+    }).catch((e) =>
+      console.warn("[lost-property] return-trip driver_assigned push failed:", e)
+    );
   }
 
   await sb

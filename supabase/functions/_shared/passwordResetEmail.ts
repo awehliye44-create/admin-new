@@ -30,7 +30,7 @@ export const PASSWORD_RESET_EMAIL_SUBJECT = "Reset your ONECAB password";
 
 export function buildPasswordResetEmail(args: {
   recoveryUrl: string;
-  app: "driver" | "customer";
+  app: "driver" | "customer" | "corporate";
   logoUrl?: string;
 }): { subject: string; html: string; text: string } {
   const recoveryUrl = args.recoveryUrl.trim();
@@ -39,7 +39,12 @@ export function buildPasswordResetEmail(args: {
   }
   const safeUrl = esc(recoveryUrl);
   const logoUrl = args.logoUrl?.trim();
-  const appLabel = args.app === "driver" ? "Driver" : "Customer";
+  const appLabel =
+    args.app === "driver" ? "Driver" : args.app === "corporate" ? "Corporate" : "Customer";
+  const continueHint =
+    args.app === "corporate"
+      ? "Open this email on your computer or phone and tap Reset password to continue in the ONECAB Corporate portal."
+      : "Open this email on your phone and tap Reset password to continue in the ONECAB app.";
 
   const logoBlock = logoUrl
     ? `<img src="${esc(logoUrl)}" alt="ONECAB" width="150" style="display:block;width:150px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;" />`
@@ -51,7 +56,7 @@ export function buildPasswordResetEmail(args: {
 
 We received a request to reset the password for your ONECAB ${appLabel} account.
 
-Open this email on your phone and tap Reset password to continue in the ONECAB app.
+${continueHint}
 
 If you did not request a password reset, you can safely ignore this email. Your current password will remain unchanged.
 

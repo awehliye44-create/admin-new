@@ -14,6 +14,7 @@ import { resolveTerminalPaymentDecision } from "./terminalFeeDecisionSSOT.ts";
 
 const adminActionsPath = new URL("../admin-trip-actions/index.ts", import.meta.url);
 const activeTripsPath = new URL("../../../src/pages/ActiveTrips.tsx", import.meta.url);
+const scheduledRidesPath = new URL("../../../src/pages/ScheduledRides.tsx", import.meta.url);
 const cancelPath = new URL("../cancel-trip/index.ts", import.meta.url);
 const disposePath = new URL("./terminalTripPaymentDisposition.ts", import.meta.url);
 const feePath = new URL("./terminalFeeDecisionSSOT.ts", import.meta.url);
@@ -116,7 +117,7 @@ Deno.test("D: same-order incremental auth — release full current authorised to
   assertEquals(d.provider_action, "void_full");
 });
 
-Deno.test("E: admin-trip-actions invokes dispose (idempotent shared path); ActiveTrips uses Edge", async () => {
+Deno.test("E: admin-trip-actions invokes dispose (idempotent shared path); ActiveTrips + ScheduledRides use Edge", async () => {
   const adminSrc = await Deno.readTextFile(adminActionsPath);
   assertStringIncludes(adminSrc, "disposeTerminalTripPayment");
   assertStringIncludes(adminSrc, 'reason: "admin_cancel"');
@@ -132,6 +133,15 @@ Deno.test("E: admin-trip-actions invokes dispose (idempotent shared path); Activ
     /handleCancel[\s\S]*?supabase\.rpc\(\s*['\"]apply_terminal_trip_cancellation['\"]/.test(ui),
     false,
   );
+
+  const scheduledUi = await Deno.readTextFile(scheduledRidesPath);
+  assertStringIncludes(scheduledUi, "admin-trip-actions");
+  // Old mute path wrote trips.status + scheduled_status together; Edge cancel owns status.
+  assertEquals(
+    /status:\s*['\"]cancelled['\"],\s*scheduled_status:\s*['\"]cancelled['\"]/.test(scheduledUi),
+    false,
+  );
+  assertStringIncludes(scheduledUi, "scheduled_status: 'cancelled'");
 });
 
 Deno.test("F: completed trip never voids uncaptured hold", () => {

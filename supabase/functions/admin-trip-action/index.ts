@@ -4,6 +4,8 @@
  * Actions:
  * - force_complete: complete trip + stops (same terminal fields as stop-workflow)
  * - reassign: move active trip to another online driver
+ * - notify_driver_assigned: Customer driver_assigned lifecycle WAV after admin
+ *   pre-assign (Manual Trip / ScheduledRides) — never mute
  *
  * Returns fresh trip + stops snapshot.
  */
@@ -338,10 +340,39 @@ Deno.serve(async (req) => {
       return json({ success: true, action, ...snap });
     }
 
+    if (action === "notify_driver_assigned") {
+      const passengerId =
+        typeof trip.passenger_id === "string" ? trip.passenger_id.trim() : "";
+      if (!passengerId) {
+        return json({ success: false, error: "Trip has no passenger_id" }, 409);
+      }
+      const title =
+        typeof body.title === "string" && body.title.trim()
+          ? body.title.trim()
+          : undefined;
+      const notifyBody =
+        typeof body.body === "string" && body.body.trim()
+          ? body.body.trim()
+          : undefined;
+      const notificationId =
+        typeof body.notification_id === "string" && body.notification_id.trim()
+          ? body.notification_id.trim()
+          : `driver_assigned-${tripId}-admin`;
+      await notifyCustomerTripLifecycle(gate.supabase, {
+        passengerId,
+        tripId,
+        event: "driver_assigned",
+        ...(title ? { title } : {}),
+        ...(notifyBody ? { body: notifyBody } : {}),
+        notificationId,
+      });
+      return json({ success: true, action, trip_id: tripId });
+    }
+
     return json({
       success: false,
       error: "Unknown action",
-      allowed: ["force_complete", "reassign"],
+      allowed: ["force_complete", "reassign", "notify_driver_assigned"],
     }, 400);
   } catch (e) {
     console.error("[admin-trip-action]", e);

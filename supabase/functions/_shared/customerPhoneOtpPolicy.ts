@@ -4,6 +4,7 @@ import {
   isValidOnboardingPhone,
   normalizeOnboardingPhone,
 } from "./onboardingValidation.ts";
+import { assertOtpPhoneCountryAllowed } from "./otpPhoneCountryPolicy.ts";
 
 export type CustomerPhoneOtpPurpose = "signup" | "change";
 
@@ -14,6 +15,8 @@ export const CUSTOMER_PHONE_OTP_BLOCK = {
   PHONE_REQUIRED: "PHONE_REQUIRED",
   PHONE_UNCHANGED: "PHONE_UNCHANGED",
   NO_PROFILE: "NO_PROFILE",
+  OTP_COUNTRY_UNKNOWN: "OTP_COUNTRY_UNKNOWN",
+  OTP_COUNTRY_NOT_ALLOWED: "OTP_COUNTRY_NOT_ALLOWED",
 } as const;
 
 export type CustomerPhoneOtpBlockCode =
@@ -42,6 +45,16 @@ export async function assertCustomerPhoneOtpAllowed(
       code: CUSTOMER_PHONE_OTP_BLOCK.PHONE_INVALID,
       message: "Please enter a valid phone number.",
       httpStatus: 400,
+    };
+  }
+
+  const countryGuard = await assertOtpPhoneCountryAllowed(service, normalizedPhone);
+  if (!countryGuard.ok) {
+    return {
+      ok: false,
+      code: countryGuard.code,
+      message: countryGuard.message,
+      httpStatus: countryGuard.httpStatus,
     };
   }
 

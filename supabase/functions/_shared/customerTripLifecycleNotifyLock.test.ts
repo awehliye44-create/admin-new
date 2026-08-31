@@ -89,13 +89,25 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   assertStringIncludes(adminCancel, 'event: "trip_cancelled"');
   assertStringIncludes(adminAction, 'event: "trip_completed"');
   assertStringIncludes(adminAction, 'event: "new_driver_assigned"');
+  assertStringIncludes(adminAction, 'notify_driver_assigned');
+  assertStringIncludes(adminAction, 'event: "driver_assigned"');
+  const manualTrip = await Deno.readTextFile(
+    new URL("../../../src/pages/ManualTrip.tsx", import.meta.url),
+  );
+  assertStringIncludes(manualTrip, "notify_driver_assigned");
+  assertStringIncludes(manualTrip, "admin-trip-action");
+  const scheduledUi = await Deno.readTextFile(
+    new URL("../../../src/pages/ScheduledRides.tsx", import.meta.url),
+  );
+  assertStringIncludes(scheduledUi, "notify_driver_assigned");
   assertStringIncludes(expire, "expireTripWhenSearchExhaustedAndNotifyCustomer");
   assertStringIncludes(corporateCancel, "event: 'trip_cancelled'");
   const decline = await read("../decline-offer/index.ts");
   assertStringIncludes(decline, 'event: "trip_cancelled"');
   assertEquals(decline.includes("send-customer-notification"), false);
   assertEquals(rematch.includes('event: "trip_cancelled"'), false);
-  assertEquals(rematch.includes("notifyCustomerTripLifecycle"), false);
+  assertStringIncludes(rematch, 'event: "driver_cancelled"');
+  assertStringIncludes(rematch, "notifyCustomerTripLifecycle");
 
   // Direct expire_trip_when_search_exhausted RPC sites must notify via helper.
   assertStringIncludes(helper, "expireTripWhenSearchExhaustedAndNotifyCustomer");
@@ -110,6 +122,19 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   assertEquals(expireOffers.includes('rpc("expire_trip_when_search_exhausted"'), false);
   assertStringIncludes(scheduledDispatch, "expireTripWhenSearchExhaustedAndNotifyCustomer");
   assertEquals(scheduledDispatch.includes('rpc("expire_trip_when_search_exhausted"'), false);
+  assertStringIncludes(scheduledDispatch, "notifyCustomerNegotiationRematch");
+  assertEquals(scheduledDispatch.includes('type: "DRIVER_UNAVAILABLE"'), false);
+  assertEquals(scheduledDispatch.includes('type: "NO_DRIVER_AVAILABLE"'), false);
+  assertEquals(scheduledDispatch.includes('type: "DRIVER_EN_ROUTE"'), false);
+  const commitmentChunk = scheduledDispatch.slice(
+    scheduledDispatch.indexOf("SCHEDULED_COMMITMENT_MODE_TRIGGERED"),
+    scheduledDispatch.indexOf("committedCount++"),
+  );
+  assertStringIncludes(commitmentChunk, 'event: "driver_assigned"');
+  assertStringIncludes(commitmentChunk, "notifyCustomerTripLifecycle");
+  const adminNegCancel = await read("../admin-cancel-trip-negotiation/index.ts");
+  assertStringIncludes(adminNegCancel, "notifyCustomerTripLifecycle");
+  assertStringIncludes(adminNegCancel, 'event: "trip_cancelled"');
   assertStringIncludes(getActiveTrip, "expireTripWhenSearchExhaustedAndNotifyCustomer");
   assertEquals(getActiveTrip.includes('rpc("expire_trip_when_search_exhausted"'), false);
   assertStringIncludes(pickupNoShow, 'event: "no_show"');
@@ -127,5 +152,40 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   assertStringIncludes(stackedLifecycle, "cancelQueuedStackedTrip");
   const updateStop = await read("../update-stop-status/index.ts");
   assertStringIncludes(updateStop, 'event: "trip_completed"');
+  assertStringIncludes(updateStop, 'event: "driver_arrived"');
+  assertStringIncludes(updateStop, 'event: "trip_started"');
   assertStringIncludes(updateStop, "send-trip-notification");
+  const negotiationRematch = await read("./negotiationFailureRematch.ts");
+  assertStringIncludes(negotiationRematch, "notifyCustomerNegotiationRematch");
+  assertStringIncludes(negotiationRematch, 'event: "finding_another_driver_updated_fare"');
+  assertEquals(negotiationRematch.includes('event: "trip_cancelled"'), false);
+  assertStringIncludes(expireOffers, "notifyCustomerNegotiationRematch");
+  const driverFareFinal = await read("../driver-fare-final/index.ts");
+  assertStringIncludes(driverFareFinal, "finalizeNegotiationFailureAndRebroadcast");
+  // Finding-another push is centralized — not duplicated on DECLINE.
+  assertEquals(driverFareFinal.includes('event: "finding_another_driver_updated_fare"'), false);
+  const scheduledRide = await read("../scheduled-ride-action/index.ts");
+  assertStringIncludes(scheduledRide, 'event: "driver_cancelled"');
+  assertStringIncludes(scheduledRide, "notifyCustomerTripLifecycle");
+  assertStringIncludes(scheduledRide, 'event: "driver_assigned"');
+  assertEquals(scheduledRide.includes('type: "DRIVER_CONFIRMED"'), false);
+  assertEquals(scheduledRide.includes('invoke("send-customer-notification"'), false);
+  const cancelConfirmedChunk = scheduledRide.slice(
+    scheduledRide.indexOf('action === "cancel_confirmed"'),
+  );
+  assertEquals(cancelConfirmedChunk.includes("send-customer-notification"), false);
+  const scheduledCheckin = await read("../scheduled-checkin/index.ts");
+  assertStringIncludes(scheduledCheckin, "notifyCustomerTripLifecycle");
+  assertStringIncludes(scheduledCheckin, 'event: "driver_assigned"');
+  assertEquals(scheduledCheckin.includes("send-customer-notification"), false);
+  const sendCustomerNotif = await read("../send-customer-notification/index.ts");
+  assertStringIncludes(sendCustomerNotif, "passengerId");
+  assertStringIncludes(sendCustomerNotif, "resolveCustomerAuthoritativeToken");
+  const lostProperty = await read("../lost-property/index.ts");
+  assertStringIncludes(lostProperty, 'event: "driver_assigned"');
+  assertStringIncludes(lostProperty, "notifyCustomerTripLifecycle");
+  const lostPropertyTransition = await read("../lost-property-transition/index.ts");
+  assertStringIncludes(lostPropertyTransition, "passenger_id: passengerId");
+  assertStringIncludes(lostPropertyTransition, 'event: "driver_assigned"');
+  assertStringIncludes(lostPropertyTransition, "notifyCustomerTripLifecycle");
 });

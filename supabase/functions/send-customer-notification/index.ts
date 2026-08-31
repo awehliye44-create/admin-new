@@ -12,7 +12,10 @@ import {
 } from "../_shared/security.ts";
 
 interface NotificationPayload {
-  customer_id: string;
+  customer_id?: string;
+  /** Alias used by some Edge producers — same as customer_id / passenger auth id. */
+  passengerId?: string;
+  passenger_id?: string;
   title: string;
   body: string;
   type?: string;
@@ -44,18 +47,24 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
     const payload: NotificationPayload = await req.json();
+    const customerId = (
+      payload.customer_id ??
+      payload.passengerId ??
+      payload.passenger_id ??
+      ""
+    ).trim();
 
     console.log("[send-customer-notification] Received:", {
-      customer_id: payload.customer_id,
+      customer_id: customerId || null,
       type: payload.type,
       title: payload.title,
     });
 
     // Validation
     const validationErrors: Record<string, string> = {};
-    if (!payload.customer_id) {
+    if (!customerId) {
       validationErrors.customer_id = "customer_id is required";
-    } else if (!isValidUUID(payload.customer_id)) {
+    } else if (!isValidUUID(customerId)) {
       validationErrors.customer_id = "customer_id must be a valid UUID";
     }
     if (!payload.title) validationErrors.title = "title is required";
@@ -68,20 +77,34 @@ Deno.serve(async (req) => {
     const sanitizedTitle = sanitizeString(payload.title, 100) || 'Notification';
     const sanitizedBody = sanitizeString(payload.body, 500) || '';
 
-    // Get customer's push tokens
-    const { data: tokens, error: tokenError } = await supabase
-      .from("customer_push_tokens")
-      .select("token, platform")
-      .eq("user_id", payload.customer_id)
-      .eq("app_type", "customer");
-
-    if (tokenError) {
-      console.error("[send-customer-notification] Token fetch error:", tokenError);
-      return errorResponse("TOKEN_FETCH_FAILED", "Failed to fetch push tokens", 500);
+    // Resolve customers.id → auth user_id when needed (token rows key on auth user).
+    let authUserId = customerId;
+    const { data: customerRow } = await supabase
+      .from("customers")
+      .select("user_id")
+      .eq("id", customerId)
+      .maybeSingle();
+    if (typeof customerRow?.user_id === "string" && customerRow.user_id.trim()) {
+      authUserId = customerRow.user_id.trim();
     }
 
+    // Get customer's push tokens (authoritative device preferred when available)
+    const { resolveCustomerAuthoritativeToken } = await import(
+      "../_shared/authoritativeDevicePush.ts"
+    );
+    const authoritative = await resolveCustomerAuthoritativeToken(supabase, authUserId);
+    const tokens = authoritative?.token
+      ? [{ token: authoritative.token, platform: authoritative.platform }]
+      : (
+        await supabase
+          .from("customer_push_tokens")
+          .select("token, platform")
+          .eq("user_id", authUserId)
+          .eq("app_type", "customer")
+      ).data;
+
     if (!tokens || tokens.length === 0) {
-      console.log("[send-customer-notification] No tokens for customer:", payload.customer_id);
+      console.log("[send-customer-notification] No tokens for customer:", authUserId);
       return errorResponse("NO_TOKENS", "No push tokens found", 404, { sent: 0 });
     }
 

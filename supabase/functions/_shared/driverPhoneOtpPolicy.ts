@@ -4,6 +4,7 @@ import {
   isValidOnboardingPhone,
   normalizeOnboardingPhone,
 } from "./onboardingValidation.ts";
+import { assertOtpPhoneCountryAllowed } from "./otpPhoneCountryPolicy.ts";
 import { PHONE_CHANGE_ERROR, PHONE_CHANGE_ERROR_MESSAGES } from "./phoneChangeErrorCodes.ts";
 import { assertPhoneAvailableForChange } from "./phoneChangeSsot.ts";
 
@@ -48,6 +49,16 @@ export async function assertDriverPhoneOtpAllowed(
       code: PHONE_CHANGE_ERROR.INVALID_PHONE_FORMAT,
       message: PHONE_CHANGE_ERROR_MESSAGES.INVALID_PHONE_FORMAT,
       httpStatus: 400,
+    };
+  }
+
+  const countryGuard = await assertOtpPhoneCountryAllowed(service, normalizedPhone);
+  if (!countryGuard.ok) {
+    return {
+      ok: false,
+      code: countryGuard.code,
+      message: countryGuard.message,
+      httpStatus: countryGuard.httpStatus,
     };
   }
 

@@ -1,0 +1,8 @@
+-- Production ACL snapshot captured BEFORE P0 deploy (2026-08-31).
+-- Reference only — NOT applied automatically. Used to generate the rollback SQL.
+--
+-- Executable rollback (manual only — MUST NOT live under supabase/migrations/):
+--   supabase/rollback/p0_security_hardening_rollback_20260831.sql
+--
+-- Re-capture ACLs with:
+--   supabase db query --linked -f <capture_script>.sql

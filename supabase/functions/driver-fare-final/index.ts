@@ -32,7 +32,6 @@ import { presetNegotiationSourceIneligibility } from "../_shared/presetNegotiati
 import {
   DRIVER_ACCEPTED_COUNTER_BODY,
   DRIVER_ACCEPTED_COUNTER_TITLE,
-  FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY,
 } from "../_shared/negotiationPushCopy.ts";
 import {
   ensureNegotiationPayableAuthorised,
@@ -530,27 +529,7 @@ Deno.serve(async (req) => {
         },
       });
 
-      const passengerId = (trip as { passenger_id?: string | null }).passenger_id;
-      if (passengerId && offer.negotiation_status !== "declined_customer_awaiting_driver") {
-        try {
-          await fetch(`${supabaseUrl}/functions/v1/send-trip-notification`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${supabaseServiceKey}`,
-            },
-            body: JSON.stringify({
-              userId: passengerId,
-              tripId: trip.id,
-              event: "finding_another_driver_updated_fare",
-              title: "Finding another driver",
-              body: FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY,
-            }),
-          });
-        } catch (pushErr) {
-          console.warn("[driver-fare-final] customer reject push failed:", pushErr);
-        }
-      }
+      // Customer finding-another push is owned by finalizeNegotiationFailureAndRebroadcast.
 
       return successResponse({
         success: true,

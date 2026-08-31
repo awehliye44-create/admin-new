@@ -24,6 +24,7 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleCORSPreflight();
@@ -291,6 +292,18 @@ Deno.serve(async (req) => {
         .update({ active_trip_id: body.tripId })
         .eq("id", trip.passenger_id);
     }
+
+    // Rematch (not terminal) — Customer must hear finding-another-driver, never trip_cancelled.
+    void notifyCustomerTripLifecycle(supabase, {
+      passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
+      tripId: body.tripId,
+      event: "driver_cancelled",
+      title: "ONECAB DRIVER CANCELLED",
+      body: "We're finding another driver for you.",
+      notificationId: `driver_cancelled-${body.tripId}-${searchCycleId}`,
+    }).catch((e) =>
+      console.warn("[driver-cancel-before-pickup] customer driver_cancelled push failed:", e)
+    );
 
     // Scan & Go retired — always rematch ordinary pre-pickup cancel.
     const dispatchResult = await rebroadcastTripViaAutoDispatch(

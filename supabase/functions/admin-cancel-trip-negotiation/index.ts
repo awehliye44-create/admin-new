@@ -3,6 +3,7 @@
  * Requires service role (invoke from trusted admin tools only).
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -48,6 +49,35 @@ Deno.serve(async (req) => {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    const rpcResult = data as { success?: boolean; cancelled?: boolean } | null;
+    const { data: tripRow } = await supabase
+      .from("trips")
+      .select("status, passenger_id")
+      .eq("id", body.trip_id)
+      .maybeSingle();
+    const status = String(tripRow?.status ?? "").toLowerCase();
+    const passengerId =
+      typeof tripRow?.passenger_id === "string" ? tripRow.passenger_id.trim() : "";
+    const didCancel =
+      rpcResult?.cancelled === true ||
+      status === "cancelled" ||
+      status === "canceled";
+    if (didCancel && passengerId) {
+      void notifyCustomerTripLifecycle(supabase, {
+        passengerId,
+        tripId: body.trip_id,
+        event: "trip_cancelled",
+        title: "ONECAB TRIP CANCELLED",
+        body: "Your trip has been cancelled.",
+        notificationId: `trip_cancelled-${body.trip_id}-admin_negotiation_cancel`,
+      }).catch((e) =>
+        console.warn(
+          "[admin-cancel-trip-negotiation] customer trip_cancelled push failed:",
+          e,
+        )
+      );
     }
 
     return new Response(JSON.stringify({ success: true, result: data }), {
