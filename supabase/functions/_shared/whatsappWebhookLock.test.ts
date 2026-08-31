@@ -213,7 +213,9 @@ Deno.test("support state: book intent escapes support, unknown intent extends su
 Deno.test("workflow processes messages directly without DB re-read round-trip", () => {
   const index = readSrc("supabase/functions/whatsapp-webhook/index.ts");
   assert(!index.includes("reload inbound row failed"));
+  // Multi-message batches still use waitUntil; single-message is inline for latency.
   assert(index.includes("scheduleBackground(processAcceptedMessages(client, acceptedMessages))"));
+  assert(index.includes("acceptedMessages.length === 1"));
 });
 
 Deno.test("conversation upsert handles concurrent first-message races", () => {
@@ -236,14 +238,14 @@ Deno.test("active trip lookup filters by passenger phone in SQL — not global 2
   assert(!workflow.includes(".limit(25)"));
 });
 
-Deno.test("continuation link messages use preview_url true, plain text messages do not", () => {
+Deno.test("continuation link messages disable preview_url — plain text default stays false", () => {
   const outbound = readSrc("supabase/functions/_shared/whatsappOutbound.ts");
   const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
-  // Default is false — only callers with { previewUrl: true } get link previews
+  // Default is false — Meta link-preview fetch can stall Graph responses
   assert(outbound.includes("preview_url: opts.previewUrl === true"));
   assert(!outbound.includes("preview_url: true,"));
-  // Book and track continuation callers must opt in
-  assert(workflow.includes("{ previewUrl: true }"));
+  assert(workflow.includes("previewUrl: false"));
+  assert(!workflow.includes("previewUrl: true"));
 });
 
 Deno.test("GET verify token comparison is timing-safe", () => {
@@ -370,14 +372,13 @@ Deno.test("outbound fetch has AbortSignal timeout — hung Meta API cannot orpha
   assert(outbound.includes('"send_timeout"'));
 });
 
-Deno.test("welcome is two Cloud API messages: greeting text then image-header buttons", () => {
+Deno.test("welcome is ONE Cloud API interactive message (no sequential greeting RTT)", () => {
   const outbound = readSrc("supabase/functions/_shared/whatsappOutbound.ts");
   assert(outbound.includes("Welcome to *ONECAB*. 👋"));
   assert(outbound.includes("Choose an option below to continue."));
   assert(outbound.includes("*Reliable. Safe. Always On Time.*"));
+  assert(outbound.includes("WHATSAPP_WELCOME_INTERACTIVE_BODY"));
   assert(outbound.includes("type: \"button\""));
-  assert(outbound.includes('header'));
-  assert(outbound.includes("image: { link: headerImageUrl }"));
   assert(outbound.includes('id: "book_ride"'));
   assert(outbound.includes('id: "track_booking"'));
   assert(outbound.includes('id: "customer_support"'));
@@ -386,6 +387,29 @@ Deno.test("welcome is two Cloud API messages: greeting text then image-header bu
   assert(outbound.includes("🎧 Customer support"));
   // List messages cannot carry an image header — do not use them for welcome.
   assert(!outbound.includes('type: "list"'));
+  // Must NOT send a separate greeting text before the interactive (doubled Meta RTT).
+  const welcomeStart = outbound.indexOf("export async function sendWhatsAppWelcomeMenu");
+  const welcomeEnd = outbound.indexOf("export async function sendWhatsAppCompactMenuHint");
+  const welcomeFn = outbound.slice(welcomeStart, welcomeEnd);
+  assert(!welcomeFn.includes("sendWhatsAppTextMessage"),
+    "welcome must not call sendWhatsAppTextMessage — that was a second Graph round-trip");
+  assert(welcomeFn.includes("postWhatsAppMessage"));
+  assert(outbound.includes("WHATSAPP_OUTBOUND_TIMEOUT_MS = 8_000") ||
+    outbound.includes("WHATSAPP_OUTBOUND_TIMEOUT_MS = 8000"));
+});
+
+Deno.test("webhook processes single inbound inline before ACK — Graph send not deferred", () => {
+  const index = readSrc("supabase/functions/whatsapp-webhook/index.ts");
+  assert(index.includes("acceptedMessages.length === 1"));
+  assert(index.includes("await processAcceptedMessages"));
+  assert(index.includes("workflow_ms"));
+});
+
+Deno.test("book/track continuation disables preview_url to avoid Meta link-preview stall", () => {
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
+  assert(workflow.includes("previewUrl: false"));
+  assert(!workflow.includes("previewUrl: true"),
+    "previewUrl:true can stall Graph responses when Meta fetches the link");
 });
 
 Deno.test("welcome header image uses public storage URL, not a secret", () => {

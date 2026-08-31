@@ -65,13 +65,23 @@ async function processAcceptedMessages(
   messages: WhatsAppInboundMessage[],
 ): Promise<void> {
   for (const message of messages) {
+    const t0 = Date.now();
     try {
       const action = await processWhatsAppInboundMessage(client, message);
+      const workflowMs = Date.now() - t0;
+      // Mark processed after Graph send so customer reply is already in flight.
       await markInboundProcessed(client, message.metaMessageId, action);
+      console.info("[whatsapp-webhook] latency", {
+        meta_message_id_prefix: message.metaMessageId.slice(0, 24),
+        action,
+        workflow_ms: workflowMs,
+        total_ms: Date.now() - t0,
+      });
     } catch (error) {
       console.error("[whatsapp-webhook] workflow failed", {
         meta_message_id_prefix: message.metaMessageId.slice(0, 24),
         error: String(error),
+        elapsed_ms: Date.now() - t0,
       });
       await markInboundProcessed(client, message.metaMessageId, "workflow_error");
     }
@@ -179,7 +189,15 @@ Deno.serve(async (req) => {
   }
 
   if (acceptedMessages.length > 0) {
-    scheduleBackground(processAcceptedMessages(client, acceptedMessages));
+    // Single-message path (normal Hi / button tap): process BEFORE returning 200 so the
+    // Graph send starts immediately and is not deferred to post-response waitUntil.
+    // Meta accepts a few seconds of webhook latency; our Hi path targets <3s backend.
+    // Multi-message batches stay on waitUntil so we still ACK quickly.
+    if (acceptedMessages.length === 1) {
+      await processAcceptedMessages(client, acceptedMessages);
+    } else {
+      scheduleBackground(processAcceptedMessages(client, acceptedMessages));
+    }
   }
 
   return json(200, { ok: true, accepted: acceptedMessages.length });

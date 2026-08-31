@@ -449,7 +449,7 @@ async function sendBookContinuation(
     creds,
     waId,
     `Book your ONECAB ride here:\n${url}\n\nThis secure link continues your WhatsApp booking.`,
-    { previewUrl: true },
+    { previewUrl: false },
   );
   if (!sent.ok) return "book_link_send_failed";
 
@@ -495,14 +495,14 @@ async function sendTrackContinuation(
       creds,
       waId,
       `Track your live ONECAB booking${ref} here:\n${url}\n\nThis secure link opens live tracking.`,
-      { previewUrl: true },
+      { previewUrl: false },
     );
   } else {
     trackSent = await sendWhatsAppTextMessage(
       creds,
       waId,
       `Open secure ONECAB tracking here:\n${url}\n\nIf you do not see your booking, reply with your booking reference and our team will help.`,
-      { previewUrl: true },
+      { previewUrl: false },
     );
   }
   if (!trackSent.ok) return "track_link_send_failed";

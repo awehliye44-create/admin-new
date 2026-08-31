@@ -17,6 +17,10 @@ export const WHATSAPP_WELCOME_TEXT =
 export const WHATSAPP_WELCOME_CARD_BODY =
   "*Reliable. Safe. Always On Time.*\nMilton Keynes’ trusted taxi service. Book in seconds. Ride with confidence.";
 
+/** Single interactive body — greeting + card copy (avoids a second Graph round-trip). */
+export const WHATSAPP_WELCOME_INTERACTIVE_BODY =
+  `${WHATSAPP_WELCOME_TEXT}\n\n${WHATSAPP_WELCOME_CARD_BODY}`;
+
 export const WHATSAPP_WELCOME_BUTTONS = [
   { type: "reply" as const, reply: { id: "book_ride", title: "🚕 Book a ride" } },
   { type: "reply" as const, reply: { id: "track_booking", title: "📍 Track my booking" } },
@@ -38,9 +42,9 @@ export function readWhatsAppWelcomeHeaderImageUrl(): string {
   return `${supabaseUrl}/storage/v1/object/public/whatsapp-public/welcome-header.jpg`;
 }
 
-// 20 s is generous for a single WhatsApp Cloud API call; prevents indefinite hangs
-// inside EdgeRuntime.waitUntil that would orphan processed messages.
-const WHATSAPP_OUTBOUND_TIMEOUT_MS = 20_000;
+// Keep outbound tight: hung Meta calls must not push customer-visible p95 into tens of seconds.
+// Fail fast so the webhook path can finish / retry cleanly.
+const WHATSAPP_OUTBOUND_TIMEOUT_MS = 8_000;
 
 function logGraphError(raw: string, status: number): void {
   let meta: Record<string, unknown> = { status, body_prefix: raw.slice(0, 240) };
@@ -124,7 +128,7 @@ function welcomeInteractivePayload(
 ): Record<string, unknown> {
   const interactive: Record<string, unknown> = {
     type: "button",
-    body: { text: WHATSAPP_WELCOME_CARD_BODY },
+    body: { text: WHATSAPP_WELCOME_INTERACTIVE_BODY },
     action: { buttons: WHATSAPP_WELCOME_BUTTONS },
   };
   if (headerImageUrl) {
@@ -142,29 +146,27 @@ function welcomeInteractivePayload(
   };
 }
 
+/**
+ * One Graph call on the happy path (interactive buttons).
+ * No separate greeting text — that doubled Meta RTT (~1–2s) on every first contact.
+ * Prefer no image header first (fastest); optional image retry only if env forces it.
+ */
 export async function sendWhatsAppWelcomeMenu(
   creds: WhatsAppCredentials,
   toWaId: string,
 ): Promise<WhatsAppSendResult> {
-  const greeting = await sendWhatsAppTextMessage(creds, toWaId, WHATSAPP_WELCOME_TEXT);
-  if (!greeting.ok) return greeting;
+  const preferImage = (Deno.env.get("WHATSAPP_WELCOME_PREFER_IMAGE") ?? "").trim() === "1";
+  const imageUrl = preferImage ? readWhatsAppWelcomeHeaderImageUrl() : "";
 
-  const imageUrl = readWhatsAppWelcomeHeaderImageUrl();
-  const withImage = await postWhatsAppMessage(
-    creds,
-    welcomeInteractivePayload(toWaId, imageUrl || null),
-  );
-  if (withImage.ok) return withImage;
-
-  // Image header is visual-only — still deliver the three actions if Meta rejects the media.
   if (imageUrl) {
-    const withoutImage = await postWhatsAppMessage(
+    const withImage = await postWhatsAppMessage(
       creds,
-      welcomeInteractivePayload(toWaId, null),
+      welcomeInteractivePayload(toWaId, imageUrl),
     );
-    if (withoutImage.ok) return withoutImage;
+    if (withImage.ok) return withImage;
   }
-  return withImage;
+
+  return postWhatsAppMessage(creds, welcomeInteractivePayload(toWaId, null));
 }
 
 export async function sendWhatsAppCompactMenuHint(
