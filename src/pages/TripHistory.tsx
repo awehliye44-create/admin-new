@@ -279,6 +279,10 @@ interface CompletedTrip {
   estimated_fare: number | null;
   fare: number | null;
   gross_fare_pence: number | null;
+  offer_discount_pence?: number | null;
+  voucher_discount_pence?: number | null;
+  discount_pence?: number | null;
+  applied_offer_code?: string | null;
   commission_pence: number | null;
   driver_net_pence: number | null;
   final_fare_pence: number | null;
@@ -889,6 +893,17 @@ export default function TripHistory() {
     return null;
   };
 
+
+  /** Promotion / voucher discount applied to the customer fare (display only). */
+  const getTripPromotionDiscountPence = (trip: CompletedTrip): number => {
+    const candidates = [trip.offer_discount_pence, trip.voucher_discount_pence, trip.discount_pence];
+    let total = 0;
+    for (const c of candidates) {
+      const n = Number(c);
+      if (Number.isFinite(n) && n > 0) total = Math.max(total, Math.round(n));
+    }
+    return total;
+  };
 
   /** PS-owned refund only — never reconstruct from trip.refund_amount as primary. */
   const getTripProviderRefundedPence = (trip: CompletedTrip): number | null => {
