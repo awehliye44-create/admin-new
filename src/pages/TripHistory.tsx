@@ -1463,45 +1463,36 @@ export default function TripHistory() {
                     </TableCell>
                      <TableCell>
                       <div className="font-medium flex flex-col gap-0.5">
-                        {(() => {
-                          const sym = getCurrencySymbol(resolveTripCurrency(trip));
-                          const payable = getTripCustomerPayablePence(trip);
-                          const refunded = getTripProviderRefundedPence(trip);
-                          const net = getTripNetChargedPence(trip);
-                          const discount = getTripPromotionDiscountPence(trip);
-                          const gross = Number(trip.gross_fare_pence);
-                          if (payable <= 0 && discount <= 0) {
-                            return <span className="text-muted-foreground">—</span>;
-                          }
-                          return (
-                            <>
-                              {discount > 0 && Number.isFinite(gross) && gross > 0 && (
-                                <span className="text-[10px] text-muted-foreground font-normal line-through">
-                                  {sym}{(gross / 100).toFixed(2)}
-                                </span>
-                              )}
-                              <span>
-                                {sym}{(payable / 100).toFixed(2)}
-                              </span>
-                              {discount > 0 && (
-                                <span className="text-[10px] text-emerald-600 font-normal">
-                                  Promotion −{sym}{(discount / 100).toFixed(2)}
-                                  {trip.applied_offer_code ? ` (${trip.applied_offer_code})` : ''}
-                                </span>
-                              )}
-                              {refunded != null && refunded > 0 && (
-                                <span className="text-[10px] text-red-600 font-normal">
-                                  Refunded {sym}{(refunded / 100).toFixed(2)}
-                                </span>
-                              )}
-                              {net != null && refunded != null && refunded > 0 && (
-                                <span className="text-[10px] text-muted-foreground font-normal">
-                                  Net charged {sym}{(net / 100).toFixed(2)}
-                                </span>
-                              )}
-                            </>
-                          );
-                        })()}
+                         {(() => {
+                           const sym = getCurrencySymbol(resolveTripCurrency(trip));
+                           const captured = getTripNetChargedPence(trip);
+                           const payable = getTripCustomerPayablePence(trip);
+                           const discount = getTripPromotionDiscountPence(trip);
+                           // Primary SSOT: real captured amount (already net of promotion). Fallback: payable fare stamp.
+                           const shown = captured != null && captured > 0 ? captured : payable;
+                           const refunded = getTripProviderRefundedPence(trip);
+                           if (shown <= 0) {
+                             return <span className="text-muted-foreground">—</span>;
+                           }
+                           return (
+                             <>
+                               <span>
+                                 {sym}{(shown / 100).toFixed(2)}
+                               </span>
+                               {discount > 0 && (
+                                 <span className="text-[10px] text-emerald-600 font-normal">
+                                   Promotion −{sym}{(discount / 100).toFixed(2)}
+                                   {trip.applied_offer_code ? ` (${trip.applied_offer_code})` : ''}
+                                 </span>
+                               )}
+                               {refunded != null && refunded > 0 && (
+                                 <span className="text-[10px] text-red-600 font-normal">
+                                   Refunded {sym}{(refunded / 100).toFixed(2)}
+                                 </span>
+                               )}
+                             </>
+                           );
+                         })()}
                       </div>
                     </TableCell>
                     <TableCell>
