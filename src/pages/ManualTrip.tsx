@@ -31,7 +31,6 @@ import {
   buildTripFinancialModelSnapshot,
   classifyServiceAreaFinancialPairing,
   shouldSkipPlatformPreauthForCommissionWallet,
-  tripCashUpfrontPaymentFields,
   tripInsertFieldsFromFinancialModelSnapshot,
 } from '../../shared/commissionWalletSSOT';
 
@@ -618,9 +617,6 @@ export default function ManualTrip() {
           });
           if (snap) {
             Object.assign(tripData, tripInsertFieldsFromFinancialModelSnapshot(snap));
-            if (shouldSkipPlatformPreauthForCommissionWallet(cwConfig)) {
-              Object.assign(tripData, tripCashUpfrontPaymentFields());
-            }
           }
       }
 
