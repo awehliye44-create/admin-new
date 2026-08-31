@@ -308,3 +308,87 @@ describe('tripCaptureStatus — Trip History finance SSOT', () => {
     expect(getTripDriverNetPence(trip)).not.toBe(512 - 77);
   });
 });
+
+describe('tripCaptureStatus — discounted and refunded trips', () => {
+  it('does not flag capture mismatch when offer discount explains lower capture', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      gross_fare_pence: 1000,
+      final_fare_pence: 900,
+      final_customer_fare_pence: 1000,
+      offer_discount_pence: 100,
+      payment_captured_pence: 900,
+      payment_count: 1,
+    };
+    expect(getExpectedCustomerTotalPence(trip)).toBe(900);
+    expect(getTripCaptureStatus(trip).kind).toBe('captured');
+    expect(getTripCaptureStatus(trip).kind).not.toBe('capture_mismatch');
+  });
+
+  it('does not flag capture mismatch when gross minus final_fare discount explains lower capture', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      gross_fare_pence: 1200,
+      final_fare_pence: 1050,
+      final_customer_fare_pence: 1200,
+      payment_captured_pence: 1050,
+      payment_count: 1,
+    };
+    expect(getTripCaptureStatus(trip).kind).toBe('captured');
+  });
+
+  it('treats Payment Sessions refund as reconciled — not capture mismatch', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      final_fare_pence: 1000,
+      final_customer_fare_pence: 1000,
+      payment_captured_pence: 1000,
+      payment_refunded_pence: 250,
+      payment_count: 1,
+    };
+    expect(getTripCaptureStatus(trip).kind).toBe('refunded');
+    expect(getTripCaptureStatus(trip).shortLabel).toBe('Partial refund');
+  });
+
+  it('treats full Payment Sessions refund as refunded — not capture mismatch', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      final_fare_pence: 800,
+      payment_captured_pence: 800,
+      payment_refunded_pence: 800,
+      payment_count: 1,
+    };
+    expect(getTripCaptureStatus(trip).kind).toBe('refunded');
+    expect(getTripCaptureStatus(trip).shortLabel).toBe('Refunded');
+  });
+
+  it('uses trips.refund_amount_pence when Payment Sessions refund is absent', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      final_fare_pence: 650,
+      payment_captured_pence: 650,
+      refund_amount_pence: 150,
+      payment_count: 1,
+    };
+    expect(getTripCaptureStatus(trip).kind).toBe('refunded');
+    expect(getTripCaptureStatus(trip).shortLabel).toBe('Partial refund');
+  });
+
+  it('does not flag mismatch when captured matches display payable without explicit discount field', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      gross_fare_pence: 1000,
+      final_fare_pence: 1000,
+      final_customer_fare_pence: 900,
+      payment_captured_pence: 900,
+      payment_count: 1,
+    };
+    expect(getTripCaptureStatus(trip).kind).toBe('captured');
+  });
+});

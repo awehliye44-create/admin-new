@@ -210,10 +210,10 @@ export function PaymentControlsCard({
     queryKey: ['admin-payment-capture-context', tripId],
     enabled: !!tripId && isAdmin,
     queryFn: async () => {
-      const [tripRes, paymentsRes, ledgerRes] = await Promise.all([
+      const [tripRes, paymentsRes, ledgerRes, sessionRes] = await Promise.all([
         supabase
           .from('trips')
-          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence')
+          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence, discount_pence, offer_discount_pence, voucher_discount_pence, promotion_discount_pence, discount_source, refund_amount_pence, fare_snapshot_json')
           .eq('id', tripId)
           .single(),
         supabase
@@ -225,11 +225,33 @@ export function PaymentControlsCard({
           .select('type, amount_pence')
           .eq('related_trip_id', tripId)
           .eq('type', 'TRIP_EARNING_NET'),
+        supabase
+          .from('payment_sessions')
+          .select('refunded_amount_pence, captured_amount_pence')
+          .eq('trip_id', tripId),
       ]);
       if (tripRes.error) throw tripRes.error;
       const payments = (paymentsRes.data ?? []) as unknown as Parameters<typeof summarizeTripPayments>[0];
       const summary = summarizeTripPayments(payments);
       const ledgerEarning = ledgerRes.data?.[0];
+      let paymentRefundedPence: number | null = null;
+      let bestSessionCaptured = -1;
+      for (const row of sessionRes.data ?? []) {
+        const cap = row.captured_amount_pence != null && Number.isFinite(Number(row.captured_amount_pence))
+          ? Math.round(Number(row.captured_amount_pence))
+          : null;
+        const ref = row.refunded_amount_pence != null && Number.isFinite(Number(row.refunded_amount_pence))
+          ? Math.max(0, Math.round(Number(row.refunded_amount_pence)))
+          : null;
+        if (cap != null && cap > bestSessionCaptured) {
+          bestSessionCaptured = cap;
+          paymentRefundedPence = ref;
+        }
+      }
+      const tripRefunded = tripRes.data?.refund_amount_pence != null && Number.isFinite(Number(tripRes.data.refund_amount_pence))
+        ? Math.max(0, Math.round(Number(tripRes.data.refund_amount_pence)))
+        : 0;
+      const mergedRefunded = Math.max(paymentRefundedPence ?? 0, tripRefunded);
       return {
         ...(tripRes.data as TripCaptureFields & { authorised_amount_pence?: number | null; estimated_fare_pence?: number | null }),
         payment_captured_pence: summary.capturedTotalPence,
@@ -239,6 +261,8 @@ export function PaymentControlsCard({
         payment_lifecycle_fees_pence: summary.lifecycleFeesPence,
         payment_metadata_lifecycle_fees_pence: summary.metadataLifecycleFeesPence,
         ledger_trip_earning_net_pence: ledgerEarning?.amount_pence ?? null,
+        payment_refunded_pence: mergedRefunded > 0 ? mergedRefunded : null,
+        refund_amount_pence: tripRefunded > 0 ? tripRefunded : null,
       };
     },
   });
@@ -322,7 +346,17 @@ export function PaymentControlsCard({
 
   const state = stateQuery.data;
   const captureContext = captureContextQuery.data;
-  const captureStatus = captureContext ? getTripCaptureStatus(captureContext) : null;
+  const captureContextForStatus = captureContext
+    ? {
+        ...captureContext,
+        payment_refunded_pence: Math.max(
+          captureContext.payment_refunded_pence ?? 0,
+          captureContext.refund_amount_pence ?? 0,
+          state?.refunded_pence ?? 0,
+        ) || null,
+      }
+    : null;
+  const captureStatus = captureContextForStatus ? getTripCaptureStatus(captureContextForStatus) : null;
   const currency = state?.provider_currency_code
     || (captureContext as { currency_code?: string | null } | undefined)?.currency_code
     || 'GBP';
@@ -354,6 +388,8 @@ export function PaymentControlsCard({
   }) | undefined;
   const authorisedPence = Math.max(0, state?.authorized_pence ?? ctx?.authorised_amount_pence ?? 0);
   const capturedPence = Math.max(0, state?.captured_pence ?? ctx?.capture_amount_pence ?? getCapturedTotalPence(ctx ?? {}) ?? 0);
+  const refundedPence = Math.max(0, state?.refunded_pence ?? ctx?.payment_refunded_pence ?? 0);
+  const netCapturedPence = Math.max(0, capturedPence - refundedPence);
   const settlementTotalPence = state?.settlement_total_pence ?? state?.final_fare_pence ?? 0;
   const settlementBreakdown = ctx ? getTripSettlementBreakdown(ctx) : null;
   const driverNetPence = state?.driver_net_pence ?? null;
@@ -363,7 +399,9 @@ export function PaymentControlsCard({
     && Number.isFinite(Number(state.outstanding_pence));
   const extraDuePence = outstandingKnown
     ? Math.max(0, Math.round(Number(state!.outstanding_pence)))
-    : Math.max(0, settlementTotalPence - capturedPence);
+    : refundedPence > 0
+      ? 0
+      : Math.max(0, settlementTotalPence - netCapturedPence);
   const releasedBufferPence = Math.max(0, authorisedPence - capturedPence);
   const coverageBadge = paymentCoverageBadgeLabel({
     customerPayablePence: settlementTotalPence > 0 ? settlementTotalPence : null,
@@ -473,7 +511,7 @@ export function PaymentControlsCard({
   }[mode ?? 'capture'];
 
   const captureMismatch = !!captureStatus && !!captureContext && isCardTrip(captureContext)
-    && (captureStatus.kind === 'capture_mismatch' || extraDuePence > 0);
+    && captureStatus.kind === 'capture_mismatch';
 
   return (
     <Card className="border-primary/30">

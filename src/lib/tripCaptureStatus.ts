@@ -5,6 +5,7 @@
  * Never label expected payable as "captured".
  */
 
+import { resolveDiscountPenceFromTrip, resolveTripDisplayFare } from '@/lib/fareDisplaySSOT';
 import {
   getPaymentRowCapturedPence,
   getTripDriverNetPence as getTripDriverNetPenceSsot,
@@ -52,6 +53,15 @@ export interface TripCaptureFields {
   total_waiting_charge_pence?: number | null;
   /** Legacy trips.fare in pounds */
   fare?: number | null;
+  /** Payment Sessions / provider refunded amount — post-capture adjustment */
+  payment_refunded_pence?: number | null;
+  /** trips.refund_amount_pence — cumulative provider refund on trip row */
+  refund_amount_pence?: number | null;
+  discount_pence?: number | null;
+  offer_discount_pence?: number | null;
+  voucher_discount_pence?: number | null;
+  promotion_discount_pence?: number | null;
+  discount_source?: string | null;
 }
 
 export interface TripSettlementBreakdown {
@@ -297,6 +307,15 @@ export function getTripLifecycleExtrasPence(trip: TripCaptureFields): number {
   return fromTrip;
 }
 
+export function getTripDiscountPence(trip: TripCaptureFields): number {
+  const explicit = resolveDiscountPenceFromTrip(trip);
+  if (explicit > 0) return explicit;
+  const gross = trip.gross_fare_pence ?? 0;
+  const finalFare = trip.final_fare_pence ?? 0;
+  if (gross > finalFare && finalFare > 0) return gross - finalFare;
+  return 0;
+}
+
 export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number | null {
   const tip = getTripTipPence(trip);
   const lifecycleExtras = getTripLifecycleExtrasPence(trip);
@@ -307,6 +326,7 @@ export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number |
       ?? trip.pickup_waiting_charge_pence
       ?? 0,
   );
+  const discountPence = getTripDiscountPence(trip);
   const finalCustomer =
     trip.final_customer_fare_pence != null && trip.final_customer_fare_pence > 0
       ? trip.final_customer_fare_pence
@@ -315,6 +335,11 @@ export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number |
     trip.final_fare_pence != null && trip.final_fare_pence > 0
       ? trip.final_fare_pence
       : 0;
+
+  // Discounted trips: final_fare is post-discount settlement — never compare against stale pre-discount fare.
+  if (finalFare > 0 && discountPence > 0) {
+    return finalFare + waiting + tip + lifecycleExtras;
+  }
 
   if (finalCustomer > 0) {
     // final_customer already includes approved mods. Add waiting/tip only.
@@ -356,11 +381,60 @@ function paymentStatusIndicatesCaptureProblem(paymentStatus: string): boolean {
   return CAPTURE_PROBLEM_STATUSES.has(paymentStatus);
 }
 
+function getTripRefundedPence(trip: TripCaptureFields): number {
+  return Math.max(0, trip.payment_refunded_pence ?? trip.refund_amount_pence ?? 0);
+}
+
+function capturedMatchesAnyPayableField(trip: TripCaptureFields, capturedTotal: number): boolean {
+  const tip = getTripTipPence(trip);
+  const lifecycleExtras = getTripLifecycleExtrasPence(trip);
+  const waiting = Math.max(
+    0,
+    trip.total_waiting_charge_pence
+      ?? trip.waiting_charge_pence
+      ?? trip.pickup_waiting_charge_pence
+      ?? 0,
+  );
+  const displayPayable = resolveTripDisplayFare(trip).payable_pence;
+  const fareCandidates = [
+    trip.settlement_total_pence,
+    trip.final_customer_fare_pence,
+    // final_fare only when it reflects a discount/adjustment lower than gross list fare
+    trip.gross_fare_pence != null
+      && trip.final_fare_pence != null
+      && trip.final_fare_pence > 0
+      && trip.final_fare_pence < trip.gross_fare_pence
+      ? trip.final_fare_pence
+      : null,
+    displayPayable > 0 ? displayPayable : null,
+  ];
+
+  for (const fare of fareCandidates) {
+    if (fare == null || fare <= 0) continue;
+    const withExtras = fare + waiting + tip + lifecycleExtras;
+    if (Math.abs(capturedTotal - withExtras) <= MISMATCH_TOLERANCE_PENCE) return true;
+    if (Math.abs(capturedTotal - fare) <= MISMATCH_TOLERANCE_PENCE) return true;
+  }
+  return false;
+}
+
 function shouldReportCaptureMismatch(
   capturedTotal: number,
   expectedTotal: number,
   paymentStatus: string,
+  trip: TripCaptureFields,
 ): boolean {
+  const refundedPence = getTripRefundedPence(trip);
+  if (refundedPence > 0) return false;
+
+  const discountPence = getTripDiscountPence(trip);
+  if (discountPence > 0) {
+    const postDiscountExpected = Math.max(0, expectedTotal - discountPence);
+    if (capturedTotal >= postDiscountExpected - MISMATCH_TOLERANCE_PENCE) return false;
+  }
+
+  if (capturedMatchesAnyPayableField(trip, capturedTotal)) return false;
+
   const diff = capturedTotal - expectedTotal;
   if (Math.abs(diff) <= MISMATCH_TOLERANCE_PENCE) return false;
   if (capturedTotal >= expectedTotal - MISMATCH_TOLERANCE_PENCE) return false;
@@ -435,11 +509,24 @@ export function getTripCaptureStatus(trip: TripCaptureFields): TripCaptureStatus
     });
   }
 
-  if (paymentStatus === 'refunded' || paymentStatus === 'partially_refunded') {
+  const refundedPence = getTripRefundedPence(trip);
+  const capturedForRefund = getCapturedTotalPence(trip);
+  const isFullyRefunded = refundedPence > 0
+    && capturedForRefund != null
+    && refundedPence >= capturedForRefund - MISMATCH_TOLERANCE_PENCE;
+
+  if (
+    paymentStatus === 'refunded'
+    || paymentStatus === 'partially_refunded'
+    || paymentStatus.includes('refund')
+    || refundedPence > 0
+  ) {
+    const partial = paymentStatus === 'partially_refunded'
+      || (refundedPence > 0 && !isFullyRefunded);
     return baseStatus(trip, {
       kind: 'refunded',
-      label: paymentStatus === 'partially_refunded' ? 'Partially refunded' : 'Refunded',
-      shortLabel: paymentStatus === 'partially_refunded' ? 'Partial refund' : 'Refunded',
+      label: partial ? 'Partially refunded' : 'Refunded',
+      shortLabel: partial ? 'Partial refund' : 'Refunded',
     });
   }
 
@@ -490,7 +577,7 @@ export function getTripCaptureStatus(trip: TripCaptureFields): TripCaptureStatus
     });
   }
 
-  if (!shouldReportCaptureMismatch(capturedTotal, expectedTotal, paymentStatus)) {
+  if (!shouldReportCaptureMismatch(capturedTotal, expectedTotal, paymentStatus, trip)) {
     return baseStatus(trip, {
       kind: split ? 'captured_split' : 'captured',
       label: split ? 'Captured (split) ✓' : 'Captured ✓',
