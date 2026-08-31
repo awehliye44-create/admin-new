@@ -23,6 +23,15 @@ import { readSavedCardAttemptFromSessionMetadata } from "../_shared/tripHistoryS
 
 const InputSchema = z.object({ trip_id: z.string().uuid() });
 
+const PAYMENT_SESSION_MONEY_SELECT =
+  "id, trip_id, purpose, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at, release_evidence_status, release_evidence_source, release_verified_at, metadata";
+
+function nonNegPence(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n);
+}
+
 const TRIP_AUDIT_SELECT = `
   id,
   trip_code,
@@ -105,7 +114,7 @@ serve(async (req) => {
     const providerOrderId = tripProviderOrderId(trip);
 
 
-    const [paymentsRes, payoutItemsRes, ledgerRes] = await Promise.all([
+    const [paymentsRes, payoutItemsRes, ledgerRes, paymentSessionsRes] = await Promise.all([
       gate.supabase
         .from('payments')
         .select('trip_id, captured_amount_pence, amount_pence, status, provider_status, provider_payment_id:provider_payment_id, provider_available_on')
@@ -118,10 +127,21 @@ serve(async (req) => {
         .from('driver_wallet_ledger')
         .select('related_trip_id, type, amount_pence, provider_payout_id:provider_payout_id, provider_transfer_id:provider_transfer_id')
         .eq('related_trip_id', trip_id),
+      gate.supabase
+        .from('payment_sessions')
+        .select(PAYMENT_SESSION_MONEY_SELECT)
+        .eq('trip_id', trip_id),
     ]);
 
     const auditContext = buildTripFinancialAuditContext({
-      payments: paymentsRes.data ?? [],
+      payments: (paymentsRes.data ?? []).map((p) => ({
+        trip_id: p.trip_id ?? null,
+        status: p.status,
+        provider_status: p.provider_status,
+        captured_amount_pence: null,
+        provider_payment_id: p.provider_payment_id ?? null,
+        provider_available_on: p.provider_available_on ?? null,
+      })),
       payoutItems: payoutItemsRes.data ?? [],
       ledgerRows: (ledgerRes.data ?? []).map((row) => ({
         related_trip_id: row.related_trip_id ?? null,
@@ -130,6 +150,7 @@ serve(async (req) => {
         provider_payout_id: row.provider_payout_id ?? null,
         provider_transfer_id: row.provider_transfer_id ?? null,
       })),
+      paymentSessions: paymentSessionsRes.data ?? [],
     });
 
     const auditRow = mapTripToFinancialAuditRow(trip as TripAuditSourceRow, auditContext);
@@ -144,12 +165,12 @@ serve(async (req) => {
       customer_email = c?.email ?? null;
     }
 
-    let authorized_pence = trip.authorised_amount_pence ?? 0;
-    let captured_pence = auditRow.captured_pence;
-    let refunded_pence = auditRow.refunded_pence;
+    let authorized_pence = nonNegPence(trip.authorised_amount_pence);
+    let captured_pence = nonNegPence(auditRow.captured_pence ?? trip.capture_amount_pence);
+    let refunded_pence = nonNegPence(auditRow.refunded_pence ?? trip.refund_amount_pence);
     let provider_state: string | null = null;
     let amount_capturable: number | null = null;
-    let provider_currency_code: string | null = null;
+    let provider_currency_code: string | null = (trip.currency_code ?? 'GBP').toUpperCase();
     let charge_id: string | null = trip.provider_charge_id ?? null;
     let payment_created: string | null = trip.created_at ?? null;
     let captured_at: string | null = null;
@@ -169,10 +190,13 @@ serve(async (req) => {
         const order = await retrieveRevolutOrder(environment, secretKey, providerOrderId);
         provider_status = order.state ?? provider_status;
         provider_currency = (order.currency ?? trip.currency_code ?? 'GBP').toUpperCase();
-        authorized_pence = Number(order.amount ?? authorized_pence);
+        authorized_pence = nonNegPence(order.amount ?? authorized_pence);
         const state = String(order.state ?? '').toUpperCase();
         if (state === 'COMPLETED' || state === 'REFUNDED') {
-          captured_pence = Math.max(captured_pence, Number(trip.capture_amount_pence ?? order.amount ?? 0));
+          captured_pence = Math.max(
+            captured_pence,
+            nonNegPence(trip.capture_amount_pence ?? order.amount ?? 0),
+          );
         }
         provider_state = state.toLowerCase() || null;
         provider_currency_code = provider_currency;
@@ -185,9 +209,9 @@ serve(async (req) => {
       }
     }
 
-    const final_fare_pence = auditRow.final_fare_pence;
-    const settlement_total_pence = auditRow.settlement_total_pence;
-    const commission_pence = auditRow.onecab_gross_commission_pence;
+    const final_fare_pence = nonNegPence(auditRow.final_fare_pence);
+    const settlement_total_pence = nonNegPence(auditRow.settlement_total_pence);
+    const commission_pence = nonNegPence(auditRow.onecab_gross_commission_pence);
     const onecab_net_pence = auditRow.onecab_net_pence;
     const driver_net_pence = auditRow.driver_net_pence;
     const buffer_pence = Math.max(0, authorized_pence - final_fare_pence);
