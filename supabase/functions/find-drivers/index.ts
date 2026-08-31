@@ -16,6 +16,12 @@ import {
 } from "../_shared/validation.ts";
 import { getDistanceMatrix } from "../_shared/googleMaps.ts";
 
+/**
+ * Ride Now vehicle availability SSOT for Customer Choose Ride and Corporate Book a Ride.
+ * Do not add a parallel corporate-only nearby-driver calculator.
+ * Empty eligible set → availability_state: unavailable (cards stay visible, not selectable).
+ */
+
 // Rate limit: 60 requests per minute per IP
 const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60 * 1000 };
 
@@ -160,6 +166,7 @@ serve(async (req) => {
       console.log('Pickup location is not within any active region');
       return successResponse({
         drivers: [],
+        availability_state: 'unavailable',
         message: 'No drivers available right now.',
         subtext: 'Please try again in a few minutes or adjust your pickup location.'
       });
@@ -173,6 +180,7 @@ serve(async (req) => {
       console.log('No service areas found for region:', matchingRegion.name);
       return successResponse({
         drivers: [],
+        availability_state: 'unavailable',
         message: 'No drivers available right now.',
         subtext: 'Please try again in a few minutes or adjust your pickup location.'
       });
@@ -195,6 +203,7 @@ serve(async (req) => {
       console.log('No drivers assigned to service areas in this region');
       return successResponse({
         drivers: [],
+        availability_state: 'unavailable',
         message: 'No drivers available right now.',
         subtext: 'Please try again in a few minutes or adjust your pickup location.'
       });
@@ -222,6 +231,7 @@ serve(async (req) => {
     if (!drivers || drivers.length === 0) {
       return successResponse({
         drivers: [],
+        availability_state: 'unavailable',
         message: 'No drivers available right now.',
         subtext: 'Please try again in a few minutes or adjust your pickup location.'
       });
@@ -313,6 +323,7 @@ serve(async (req) => {
     if (eligibleDrivers.length === 0) {
       return successResponse({
         drivers: [],
+        availability_state: 'unavailable',
         message: 'No drivers available right now.',
         subtext: 'Please try again in a few minutes or adjust your pickup location.'
       });
@@ -320,6 +331,7 @@ serve(async (req) => {
 
     return successResponse({
       drivers: eligibleDrivers,
+      availability_state: 'available',
       service_area_ids: serviceAreaIds,
       region: matchingRegion,
       settings: {

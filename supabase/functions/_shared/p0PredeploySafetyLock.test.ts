@@ -23,12 +23,6 @@ function centralHubPath(rel: string): URL {
   return new URL(`../../../../onecab-central-hub/${rel}`, import.meta.url);
 }
 
-Deno.test("corporate web ContactSection uses edge function not direct insert", async () => {
-  const contact = await Deno.readTextFile(centralHubPath("src/components/ContactSection.tsx"));
-  assertEquals(contact.includes("submitCorporateAccountRequest"), true);
-  assertEquals(contact.includes('from("corporate_account_requests").insert'), false);
-});
-
 Deno.test("corporate web helper invokes submit-corporate-account-request", async () => {
   const lib = await Deno.readTextFile(centralHubPath("src/lib/submitCorporateAccountRequest.ts"));
   assertEquals(lib.includes('invoke("submit-corporate-account-request"'), true);
@@ -39,6 +33,13 @@ Deno.test("corporate web registration uses edge function not direct insert", asy
   const index = await Deno.readTextFile(centralHubPath("src/pages/Index.tsx"));
   assertEquals(index.includes("submitCorporateAccountRequest"), true);
   assertEquals(index.includes('from("corporate_account_requests").insert'), false);
+});
+
+Deno.test("corporate marketing FAQ does not submit account requests", async () => {
+  const faq = await Deno.readTextFile(centralHubPath("src/components/FaqSection.tsx"));
+  assertEquals(faq.includes("submitCorporateAccountRequest"), false);
+  assertEquals(faq.includes("corporate_account_requests"), false);
+  assertEquals(faq.includes("Request a Quote"), false);
 });
 
 Deno.test("rollback restores production RPC ACLs deterministically", async () => {
