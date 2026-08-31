@@ -354,6 +354,22 @@ describe('tripCaptureStatus — discounted and refunded trips', () => {
     expect(getTripCaptureStatus(trip).kind).toBe('captured');
   });
 
+  it('no-show fee capture against larger ride hold is not a shortfall', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'no_show_company_compensated',
+      final_fare_pence: 480,
+      final_customer_fare_pence: 480,
+      no_show_charge_pence: 400,
+      authorised_amount_pence: 480,
+      payment_captured_pence: 400,
+      payment_count: 1,
+    };
+    expect(getExpectedCustomerTotalPence(trip)).toBe(400);
+    expect(getOutstandingShortfallPence(trip)).toBe(0);
+    expect(getTripCaptureStatus(trip).kind).toBe('captured');
+  });
+
   it('treats cancellation fee as expected payable when ride fare is absent', () => {
     const trip: TripCaptureFields = {
       payment_method: 'card',

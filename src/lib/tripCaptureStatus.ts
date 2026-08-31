@@ -338,6 +338,28 @@ export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number |
     trip.final_fare_pence != null && trip.final_fare_pence > 0
       ? trip.final_fare_pence
       : 0;
+  const noShow = trip.no_show_charge_pence != null && trip.no_show_charge_pence > 0
+    ? trip.no_show_charge_pence
+    : 0;
+  const cancelFee = trip.cancellation_fee_pence != null && trip.cancellation_fee_pence > 0
+    ? trip.cancellation_fee_pence
+    : 0;
+  const terminalFee = Math.max(noShow, cancelFee);
+  const captured = getCapturedTotalPence(trip) ?? 0;
+  const rideFare = Math.max(finalCustomer, finalFare);
+
+  // No-show / cancellation: captured fee is payable — never original ride hold / stale final_fare.
+  if (terminalFee > 0) {
+    const captureMatchesFee = captured > 0 && Math.abs(captured - terminalFee) <= 1;
+    const feeBelowRide = rideFare > 0 && terminalFee < rideFare - 1;
+    const statusBlob = String(trip.payment_status ?? '').toLowerCase();
+    const feeStatus = statusBlob.includes('no_show')
+      || statusBlob.includes('noshow')
+      || statusBlob.includes('cancel');
+    if (captureMatchesFee || feeBelowRide || feeStatus || rideFare <= 0) {
+      return terminalFee + tip + lifecycleExtras;
+    }
+  }
 
   // Discounted trips: prefer post-discount customer payable over stale pre-discount settlement fare.
   if (finalFare > 0 && discountPence > 0) {
@@ -371,14 +393,7 @@ export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number |
   if (finalFare > 0) return finalFare + tip + lifecycleExtras;
   const fare = getReconciliationSettlementFarePence(trip);
   if (fare <= 0 && tip <= 0 && lifecycleExtras <= 0) {
-    const noShow = trip.no_show_charge_pence != null && trip.no_show_charge_pence > 0
-      ? trip.no_show_charge_pence
-      : 0;
-    const cancelFee = trip.cancellation_fee_pence != null && trip.cancellation_fee_pence > 0
-      ? trip.cancellation_fee_pence
-      : 0;
-    const feeOnly = Math.max(noShow, cancelFee);
-    if (feeOnly > 0) return feeOnly + tip;
+    if (terminalFee > 0) return terminalFee + tip;
     return null;
   }
   return fare + tip + lifecycleExtras;

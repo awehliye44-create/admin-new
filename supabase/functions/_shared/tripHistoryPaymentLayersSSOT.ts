@@ -47,6 +47,8 @@ export type TripHistoryPaymentLayerTrip = {
   tip_amount_pence?: number | null;
   payment_status?: string | null;
   provider_status?: string | null;
+  financial_outcome?: string | null;
+  status?: string | null;
 };
 
 export type TripHistoryPaymentLayerPayment = {
@@ -151,15 +153,56 @@ export function sumLegacyPaymentsCapturedPence(
   return sum;
 }
 
+const FEE_MATCH_TOLERANCE_PENCE = 1;
+
+function looksLikeTerminalFeeTrip(trip: TripHistoryPaymentLayerTrip): boolean {
+  const blob = `${trip.payment_status ?? ""} ${trip.financial_outcome ?? ""} ${trip.status ?? ""}`
+    .toLowerCase();
+  return blob.includes("no_show")
+    || blob.includes("noshow")
+    || blob.includes("cancel")
+    || blob.includes("arrival_cancellation");
+}
+
 /**
  * Resolve customer payable including fee-only terminal trips
  * (no-show / cancellation / arrival cancellation).
+ *
+ * When a ride hold (£4.80) is partially captured as a no-show fee (£4.00),
+ * payable must be the fee — never the original hold / stale final_fare.
  */
 export function resolveTripHistoryCustomerPayablePence(
   trip: TripHistoryPaymentLayerTrip,
+  capturedPence?: number | null,
 ): { payable_pence: number; source: string } {
   const tip = positivePence(trip.tip_pence ?? trip.tip_amount_pence);
   const arrivalFee = arrivalCancellationPence(trip);
+  const noShow = positivePence(trip.no_show_charge_pence);
+  const cancelFee = Math.max(positivePence(trip.cancellation_fee_pence), arrivalFee);
+  const terminalFee = Math.max(noShow, cancelFee);
+  const captured = positivePence(capturedPence);
+  const rideFare = Math.max(
+    positivePence(trip.final_customer_fare_pence),
+    positivePence(trip.final_fare_pence),
+  );
+
+  if (terminalFee > 0) {
+    const captureMatchesFee = captured > 0
+      && Math.abs(captured - terminalFee) <= FEE_MATCH_TOLERANCE_PENCE;
+    const feeBelowRideHold = rideFare > 0 && terminalFee < rideFare - FEE_MATCH_TOLERANCE_PENCE;
+    const preferFee = captureMatchesFee
+      || looksLikeTerminalFeeTrip(trip)
+      || feeBelowRideHold
+      || rideFare <= 0;
+
+    if (preferFee) {
+      return {
+        payable_pence: terminalFee + tip,
+        source: noShow >= cancelFee ? "no_show_charge_pence" : "cancellation_fee_pence",
+      };
+    }
+  }
+
   const canonical = resolveCanonicalCustomerPayablePence({
     finalCustomerFarePence: trip.final_customer_fare_pence,
     finalFarePence: trip.final_fare_pence,
@@ -172,7 +215,6 @@ export function resolveTripHistoryCustomerPayablePence(
   });
 
   if (canonical.payable_pence != null && canonical.payable_pence > 0) {
-    // tip is usually inside final fare; only add when payable came from fee-only columns
     if (
       canonical.source === "no_show_charge_pence"
       || canonical.source === "cancellation_fee_pence"
@@ -256,7 +298,7 @@ export function resolveTripHistoryPaymentLayers(args: {
   );
 
   const refundable_pence = Math.max(0, captured_pence - refunded_pence);
-  const payable = resolveTripHistoryCustomerPayablePence(args.trip);
+  const payable = resolveTripHistoryCustomerPayablePence(args.trip, captured_pence);
 
   const has_payment_evidence = captured_pence > 0
     || authorized_pence > 0

@@ -103,6 +103,31 @@ Deno.test("layers: no-show fee is customer payable and pairs with capture", () =
   assertEquals(layers.has_payment_evidence, true);
 });
 
+Deno.test("layers: no-show partial capture of ride hold is not a shortfall", () => {
+  // Auth £4.80 ride hold, capture £4.00 no-show fee — outstanding must be £0.
+  const layers = resolveTripHistoryPaymentLayers({
+    sessions: [{
+      status: "completed",
+      provider_state: "COMPLETED",
+      captured_amount_pence: 400,
+      authorised_amount_pence: 480,
+    }],
+    trip: {
+      authorised_amount_pence: 480,
+      final_fare_pence: 480,
+      final_customer_fare_pence: 480,
+      no_show_charge_pence: 400,
+      capture_amount_pence: 400,
+      payment_status: "no_show_company_compensated",
+    },
+  });
+  assertEquals(layers.authorized_pence, 480);
+  assertEquals(layers.captured_pence, 400);
+  assertEquals(layers.customer_payable_pence, 400);
+  assertEquals(layers.payable_source, "no_show_charge_pence");
+  assertEquals(Math.max(0, layers.customer_payable_pence - layers.captured_pence), 0);
+});
+
 Deno.test("layers: cancellation / arrival fee payable when no final fare", () => {
   const cancel = resolveTripHistoryCustomerPayablePence({
     cancellation_fee_pence: 350,

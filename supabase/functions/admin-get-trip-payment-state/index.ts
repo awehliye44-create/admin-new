@@ -22,7 +22,6 @@ import {
 import { readSavedCardAttemptFromSessionMetadata } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { resolveCustomerPayablePenceForAudit } from "../_shared/extraPaymentRecoverySSOT.ts";
 import { resolveTripHistoryPaymentLayers } from "../_shared/tripHistoryPaymentLayersSSOT.ts";
-import { resolveCanonicalCustomerPayablePence } from "../_shared/paymentSessionsCaptureConfirmationSSOT.ts";
 
 const InputSchema = z.object({ trip_id: z.string().uuid() });
 
@@ -69,6 +68,7 @@ const TRIP_AUDIT_SELECT = `
   payment_method,
   payment_status,
   financial_outcome,
+  status,
   provider_charge_id:provider_charge_id,
   provider_transfer_id:provider_transfer_id,
   provider_order_id,
@@ -262,6 +262,8 @@ serve(async (req) => {
         tip_amount_pence: trip.tip_amount_pence,
         payment_status: trip.payment_status,
         provider_status,
+        financial_outcome: trip.financial_outcome,
+        status: trip.status,
       },
       payments: (paymentsRes.data ?? []).map((p) => ({
         captured_amount_pence: p.captured_amount_pence,
@@ -281,34 +283,29 @@ serve(async (req) => {
       || nonNegPence(auditRow.final_customer_fare_pence);
     const settlement_total_pence = nonNegPence(auditRow.settlement_total_pence);
 
-    const feeAwarePayable = resolveCanonicalCustomerPayablePence({
-      finalCustomerFarePence: trip.final_customer_fare_pence,
-      finalFarePence: trip.final_fare_pence,
-      noShowChargePence: trip.no_show_charge_pence,
-      cancellationFeePence: Math.max(
-        nonNegPence(trip.cancellation_fee_pence),
-        trip.arrival_cancellation_applied === true && trip.arrival_cancellation_fee != null
-          ? Math.round(Number(trip.arrival_cancellation_fee) * 100)
-          : 0,
-      ),
-      outstandingBalancePence: trip.outstanding_balance_pence,
-    });
-
-    const discountedPayable = resolveCustomerPayablePenceForAudit({
-      trip,
-      settlementTotalPence: Math.max(settlement_total_pence, feeAwarePayable.payable_pence ?? 0),
-      capturedPence: captured_pence,
-    });
-
-    const customer_payable_pence = Math.max(
-      paymentLayers.customer_payable_pence,
-      discountedPayable,
-      feeAwarePayable.payable_pence ?? 0,
-    );
+    // Prefer unified Trip History payable (no-show/cancel fee over stale ride final_fare).
+    let customer_payable_pence = paymentLayers.customer_payable_pence;
+    if (
+      paymentLayers.payable_source !== "no_show_charge_pence"
+      && paymentLayers.payable_source !== "cancellation_fee_pence"
+    ) {
+      const discountedPayable = resolveCustomerPayablePenceForAudit({
+        trip,
+        settlementTotalPence: Math.max(settlement_total_pence, customer_payable_pence),
+        capturedPence: captured_pence,
+      });
+      customer_payable_pence = Math.max(customer_payable_pence, discountedPayable);
+    }
+    // Display settlement for fee trips should follow payable (not original ride hold).
+    const settlement_display_pence =
+      paymentLayers.payable_source === "no_show_charge_pence"
+      || paymentLayers.payable_source === "cancellation_fee_pence"
+        ? customer_payable_pence
+        : Math.max(settlement_total_pence, customer_payable_pence);
     const commission_pence = nonNegPence(auditRow.onecab_gross_commission_pence);
     const onecab_net_pence = auditRow.onecab_net_pence;
     const driver_net_pence = auditRow.driver_net_pence;
-    const buffer_pence = Math.max(0, authorized_pence - Math.max(final_fare_pence, customer_payable_pence));
+    const buffer_pence = Math.max(0, authorized_pence - captured_pence);
 
     const netCaptured = Math.max(0, captured_pence - refunded_pence);
     const payableForVerify = customer_payable_pence > 0 ? customer_payable_pence : settlement_total_pence;
@@ -421,7 +418,7 @@ serve(async (req) => {
       })(),
       ssot_source: 'trip_history_payment_layers',
       payment_evidence_source: paymentLayers.evidence_source,
-      payable_source: paymentLayers.payable_source || feeAwarePayable.source,
+      payable_source: paymentLayers.payable_source,
       payment_intent_id: providerOrderId,
       charge_id,
       payment_method: charge_payment_method ?? trip.payment_method,
@@ -447,7 +444,7 @@ serve(async (req) => {
         : (final_customer_fare_pence || final_fare_pence),
       customer_payable_pence,
       final_fare_pence,
-      settlement_total_pence,
+      settlement_total_pence: settlement_display_pence,
       gross_fare_pence: auditRow.gross_fare_pence,
       discount_pence: auditRow.discount_pence,
       buffer_pence,

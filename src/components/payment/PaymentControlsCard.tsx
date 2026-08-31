@@ -458,12 +458,20 @@ export function PaymentControlsCard({
   const customerPayableFromContext = captureContextForStatus
     ? getExpectedCustomerTotalPence(captureContextForStatus)
     : null;
-  const customerPayablePence = Math.max(
-    safePence(state?.customer_payable_pence),
-    safePence(customerPayableFromContext),
-    safePence(state?.final_customer_fare_pence),
-    safePence(ctx?.final_customer_fare_pence),
+  const feePayableHint = Math.max(
+    safePence(ctx?.no_show_charge_pence),
+    safePence((ctx as { cancellation_fee_pence?: number | null } | undefined)?.cancellation_fee_pence),
   );
+  // Prefer fee / edge payable — never Math.max up to stale ride settlement on no-show.
+  const customerPayablePence = (() => {
+    const fromState = safePence(state?.customer_payable_pence);
+    const fromContext = safePence(customerPayableFromContext);
+    if (feePayableHint > 0 && netCapturedPence > 0 && Math.abs(netCapturedPence - feePayableHint) <= 1) {
+      return feePayableHint;
+    }
+    if (fromState > 0 && fromContext > 0) return Math.min(fromState, fromContext);
+    return Math.max(fromState, fromContext, safePence(state?.final_customer_fare_pence));
+  })();
   const displayPayablePence = customerPayablePence > 0
     ? customerPayablePence
     : settlementTotalPence;
