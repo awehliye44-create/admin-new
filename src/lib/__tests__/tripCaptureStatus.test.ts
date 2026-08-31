@@ -326,6 +326,22 @@ describe('tripCaptureStatus — discounted and refunded trips', () => {
     expect(getTripCaptureStatus(trip).kind).not.toBe('capture_mismatch');
   });
 
+  it('uses post-discount customer payable when final_fare is pre-discount settlement', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      gross_fare_pence: 643,
+      final_fare_pence: 619,
+      final_customer_fare_pence: 595,
+      offer_discount_pence: 24,
+      payment_captured_pence: 595,
+      payment_count: 1,
+    };
+    expect(getExpectedCustomerTotalPence(trip)).toBe(595);
+    expect(getOutstandingShortfallPence(trip)).toBe(0);
+    expect(getTripCaptureStatus(trip).kind).toBe('captured');
+  });
+
   it('does not flag capture mismatch when gross minus final_fare discount explains lower capture', () => {
     const trip: TripCaptureFields = {
       payment_method: 'card',

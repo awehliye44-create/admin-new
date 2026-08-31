@@ -59,6 +59,8 @@ interface PaymentState {
   refundable_pence: number;
   amount_capturable_pence: number | null;
   final_fare_pence: number;
+  final_customer_fare_pence?: number;
+  customer_payable_pence?: number;
   settlement_total_pence: number;
   gross_fare_pence?: number;
   discount_pence?: number;
@@ -399,11 +401,15 @@ export function PaymentControlsCard({
   const refundedPence = safePence(state?.refunded_pence ?? ctx?.payment_refunded_pence ?? 0);
   const netCapturedPence = Math.max(0, capturedPence - refundedPence);
   const settlementTotalPence = safePence(state?.settlement_total_pence ?? state?.final_fare_pence ?? 0);
-  const customerPayablePence = captureContextForStatus
-    ? (getExpectedCustomerTotalPence(captureContextForStatus) ?? settlementTotalPence)
-    : safePence(state?.outstanding_pence != null
-      ? settlementTotalPence
-      : (state?.final_customer_fare_pence ?? settlementTotalPence));
+  const customerPayableFromContext = captureContextForStatus
+    ? getExpectedCustomerTotalPence(captureContextForStatus)
+    : null;
+  const customerPayablePence = safePence(
+    state?.customer_payable_pence
+    ?? customerPayableFromContext
+    ?? state?.final_customer_fare_pence
+    ?? settlementTotalPence,
+  );
   const displayPayablePence = customerPayablePence > 0 ? customerPayablePence : settlementTotalPence;
   const settlementBreakdown = ctx ? getTripSettlementBreakdown(ctx) : null;
   const driverNetPence = state?.driver_net_pence ?? null;
@@ -415,13 +421,20 @@ export function PaymentControlsCard({
   });
   const extraDuePence = computedOutstandingPence ?? 0;
   const releasedBufferPence = Math.max(0, authorisedPence - capturedPence);
-  const providerStateBlob = String(state?.provider_state ?? state?.provider_status ?? state?.payment_status ?? '').toLowerCase();
+  const providerStateBlob = String(
+    state?.provider_state ?? state?.provider_status ?? state?.payment_status ?? '',
+  ).toLowerCase();
+  const captureLooksComplete = captureStatus?.kind === 'captured'
+    || captureStatus?.kind === 'captured_split'
+    || providerStateBlob.includes('completed')
+    || providerStateBlob.includes('captured')
+    || providerStateBlob.includes('paid')
+    || providerStateBlob.includes('succeeded');
   const providerCaptureConfirmed = netCapturedPence > 0
-    && displayPayablePence > 0
-    && netCapturedPence >= displayPayablePence - 1
-    && (providerStateBlob.includes('completed') || providerStateBlob.includes('captured') || providerStateBlob.includes('paid'));
+    && extraDuePence <= 0
+    && captureLooksComplete;
   const settlementVerifiedForDisplay = !!state?.provider_settlement_verified
-    || (!isFinanceVariant && providerCaptureConfirmed && extraDuePence <= 0);
+    || providerCaptureConfirmed;
   const coverageBadge = paymentCoverageBadgeLabel({
     customerPayablePence: displayPayablePence > 0 ? displayPayablePence : null,
     verifiedCapturedTotalPence: capturedPence > 0 ? capturedPence : (state?.captured_pence ?? null),
@@ -635,11 +648,11 @@ export function PaymentControlsCard({
                     : 'bg-destructive/10 text-destructive border-destructive/40'
                 }
               >
-                {state.provider_settlement_verified
-                  ? 'Provider settlement verified'
-                  : providerCaptureConfirmed && extraDuePence <= 0
-                    ? 'Payment captured ✓'
-                    : 'Provider settlement not verified'}
+                {settlementVerifiedForDisplay
+                  ? (state.provider_settlement_verified
+                    ? 'Provider settlement verified'
+                    : 'Payment captured ✓')
+                  : 'Provider settlement not verified'}
               </Badge>
             </div>
 

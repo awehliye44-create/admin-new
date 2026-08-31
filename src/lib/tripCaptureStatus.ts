@@ -336,8 +336,11 @@ export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number |
       ? trip.final_fare_pence
       : 0;
 
-  // Discounted trips: final_fare is post-discount settlement — never compare against stale pre-discount fare.
+  // Discounted trips: prefer post-discount customer payable over stale pre-discount settlement fare.
   if (finalFare > 0 && discountPence > 0) {
+    if (finalCustomer > 0 && finalCustomer <= finalFare) {
+      return finalCustomer + waiting + tip + lifecycleExtras;
+    }
     return finalFare + waiting + tip + lifecycleExtras;
   }
 
@@ -347,6 +350,14 @@ export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number |
     // final_fare is usable when it is not a mod double-count (MK-260704-002: 3007 = 1742+1241+24).
     if (finalFare > 0 && finalFare <= fromCustomer + 1) {
       return finalFare + tip + lifecycleExtras;
+    }
+    // Pre-discount settlement gap (e.g. £6.19 vs £5.95) — never treat promo delta as shortfall.
+    if (
+      finalFare > fromCustomer + 1
+      && discountPence > 0
+      && finalFare - fromCustomer <= discountPence + 1
+    ) {
+      return fromCustomer;
     }
     if (finalFare > fromCustomer + 50) {
       return fromCustomer;

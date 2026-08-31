@@ -20,6 +20,7 @@ import {
   tripProviderOrderId,
 } from "../_shared/tripPaymentProviderSSOT.ts";
 import { readSavedCardAttemptFromSessionMetadata } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
+import { resolveCustomerPayablePenceForAudit } from "../_shared/extraPaymentRecoverySSOT.ts";
 
 const InputSchema = z.object({ trip_id: z.string().uuid() });
 
@@ -213,7 +214,14 @@ serve(async (req) => {
     }
 
     const final_fare_pence = nonNegPence(auditRow.final_fare_pence);
+    const final_customer_fare_pence = nonNegPence(trip.final_customer_fare_pence)
+      || nonNegPence(auditRow.final_customer_fare_pence);
     const settlement_total_pence = nonNegPence(auditRow.settlement_total_pence);
+    const customer_payable_pence = resolveCustomerPayablePenceForAudit({
+      trip,
+      settlementTotalPence: settlement_total_pence,
+      capturedPence: captured_pence,
+    });
     const commission_pence = nonNegPence(auditRow.onecab_gross_commission_pence);
     const onecab_net_pence = auditRow.onecab_net_pence;
     const driver_net_pence = auditRow.driver_net_pence;
@@ -336,7 +344,10 @@ serve(async (req) => {
       refundable_pence: refundableAmount,
       refund_status: refundStatus,
       net_captured_pence: Math.max(0, captured_pence - refunded_pence),
-      final_customer_fare_pence: final_fare_pence,
+      final_customer_fare_pence: customer_payable_pence > 0
+        ? customer_payable_pence
+        : (final_customer_fare_pence || final_fare_pence),
+      customer_payable_pence,
       final_fare_pence,
       settlement_total_pence,
       gross_fare_pence: auditRow.gross_fare_pence,
