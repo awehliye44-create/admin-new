@@ -1,7 +1,8 @@
 /**
  * website-support-chat
  *
- * Public (anon-key) endpoint used by the onecab.net website support widget.
+ * Public (anon-key) endpoint used by the onecab.net website support widget
+ * and the Corporate marketing Live Support widget.
  * Reuses the EXISTING Admin Live Chat backend (support_conversations /
  * support_messages) — no separate support system.
  *
@@ -10,9 +11,12 @@
  * the website never touches the tables directly.
  *
  * Actions (POST JSON { action, ... }):
- *  - start   { name?, email?, message } -> { session_token, conversation_id }
+ *  - start   { name?, email?, message, source? } -> { session_token, conversation_id }
  *  - send    { session_token, message } -> { ok: true }
  *  - poll    { session_token, since? }  -> { status, messages[] }
+ *
+ * Optional Authorization: Bearer <user JWT> on start links customer_id when a
+ * matching customers.user_id row exists (Corporate signed-in visitors).
  *
  * Availability is gated by admin-support-status (separate endpoint); this
  * function additionally refuses to open NEW conversations when no admin is
@@ -24,7 +28,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -79,18 +83,38 @@ Deno.serve(async (req) => {
 
       const name = clean(body.name, 120);
       const email = clean(body.email, 200);
+      const source = clean(body.source, 40).toLowerCase();
+      const isCorporate = source === "corporate";
       const sessionToken = crypto.randomUUID() + crypto.randomUUID().replaceAll("-", "");
 
+      // Optional: associate signed-in visitor with customers.user_id (same SSOT).
+      let customerId: string | null = null;
+      const authHeader = req.headers.get("Authorization") ?? "";
+      const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
+      if (bearer && bearer !== Deno.env.get("SUPABASE_ANON_KEY")) {
+        const { data: authData } = await supabase.auth.getUser(bearer);
+        const userId = authData.user?.id ?? null;
+        if (userId) {
+          const { data: customer } = await supabase
+            .from("customers")
+            .select("id")
+            .eq("user_id", userId)
+            .maybeSingle();
+          customerId = customer?.id ?? null;
+        }
+      }
+
+      const subjectPrefix = isCorporate ? "Corporate website" : "Website chat";
       const { data: conv, error: convErr } = await supabase
         .from("support_conversations")
         .insert({
-          subject: name ? `Website chat — ${name}` : "Website chat",
+          subject: name ? `${subjectPrefix} — ${name}` : subjectPrefix,
           status: "open",
           priority: "normal",
           channel: "website",
           initiated_by: "user",
           user_type: "customer",
-          customer_id: null,
+          customer_id: customerId,
           guest_session_token: sessionToken,
           guest_name: name || null,
           guest_email: email || null,
