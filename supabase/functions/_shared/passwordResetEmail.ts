@@ -4,6 +4,8 @@
  * No Deno/npm imports — vitest-safe via @shared.
  */
 
+import { isAllowedPasswordResetRecoveryUrl } from "./passwordRecoverySSOT.ts";
+
 const BRAND = {
   black: "#0B0F14",
   yellow: "#FFD400",
@@ -34,8 +36,8 @@ export function buildPasswordResetEmail(args: {
   logoUrl?: string;
 }): { subject: string; html: string; text: string } {
   const recoveryUrl = args.recoveryUrl.trim();
-  if (!recoveryUrl.startsWith("http")) {
-    throw new Error("recoveryUrl must be an https recovery link");
+  if (!isAllowedPasswordResetRecoveryUrl(recoveryUrl)) {
+    throw new Error("recoveryUrl must be https or a native ONECAB deep link");
   }
   const safeUrl = esc(recoveryUrl);
   const logoUrl = args.logoUrl?.trim();

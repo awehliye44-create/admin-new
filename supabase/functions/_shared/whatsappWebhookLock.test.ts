@@ -372,12 +372,13 @@ Deno.test("outbound fetch has AbortSignal timeout — hung Meta API cannot orpha
   assert(outbound.includes('"send_timeout"'));
 });
 
-Deno.test("welcome is ONE Cloud API interactive message (no sequential greeting RTT)", () => {
+Deno.test("welcome is ONE Cloud API interactive message with tappable buttons (no Reply 1/2/3 text)", () => {
   const outbound = readSrc("supabase/functions/_shared/whatsappOutbound.ts");
+  const workflow = readSrc("supabase/functions/_shared/whatsappWorkflow.ts");
   assert(outbound.includes("Welcome to *ONECAB*. 👋"));
-  assert(outbound.includes("Choose an option below to continue."));
   assert(outbound.includes("*Reliable. Safe. Always On Time.*"));
   assert(outbound.includes("WHATSAPP_WELCOME_INTERACTIVE_BODY"));
+  assert(outbound.includes("WHATSAPP_WELCOME_CARD_BODY"));
   assert(outbound.includes("type: \"button\""));
   assert(outbound.includes('id: "book_ride"'));
   assert(outbound.includes('id: "track_booking"'));
@@ -385,17 +386,19 @@ Deno.test("welcome is ONE Cloud API interactive message (no sequential greeting 
   assert(outbound.includes("🚕 Book a ride"));
   assert(outbound.includes("📍 Track my booking"));
   assert(outbound.includes("🎧 Customer support"));
-  // List messages cannot carry an image header — do not use them for welcome.
+  assert(outbound.includes("readWhatsAppWelcomeHeaderImageUrl()"));
+  assert(!outbound.includes("Reply with 1, 2, or 3"),
+    "must not send numbered text menu — customer taps interactive buttons only");
+  assert(!workflow.includes("sendWhatsAppCompactMenuHint"),
+    "workflow must use sendWhatsAppWelcomeMenu for all menu paths");
+  assert(workflow.includes("sendWhatsAppWelcomeMenu"));
   assert(!outbound.includes('type: "list"'));
-  // Must NOT send a separate greeting text before the interactive (doubled Meta RTT).
   const welcomeStart = outbound.indexOf("export async function sendWhatsAppWelcomeMenu");
-  const welcomeEnd = outbound.indexOf("export async function sendWhatsAppCompactMenuHint");
-  const welcomeFn = outbound.slice(welcomeStart, welcomeEnd);
+  const welcomeEnd = outbound.indexOf("\n", outbound.indexOf("}", welcomeStart + 200));
+  const welcomeFn = outbound.slice(welcomeStart, welcomeStart + 800);
   assert(!welcomeFn.includes("sendWhatsAppTextMessage"),
-    "welcome must not call sendWhatsAppTextMessage — that was a second Graph round-trip");
+    "welcome must not call sendWhatsAppTextMessage — single interactive Graph call");
   assert(welcomeFn.includes("postWhatsAppMessage"));
-  assert(outbound.includes("WHATSAPP_OUTBOUND_TIMEOUT_MS = 8_000") ||
-    outbound.includes("WHATSAPP_OUTBOUND_TIMEOUT_MS = 8000"));
 });
 
 Deno.test("webhook processes single inbound inline before ACK — Graph send not deferred", () => {

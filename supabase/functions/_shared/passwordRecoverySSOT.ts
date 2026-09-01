@@ -166,6 +166,50 @@ export function buildCorporateRecoveryPageUrlFromSession(args: {
 }
 
 /**
+ * Native Driver / Customer deep link with recovery session in the URL hash.
+ * Avoids the mobile browser → Supabase verify → redirect chain that can drop tokens
+ * or consume the one-time recovery OTP before the app calls setSession.
+ */
+export function buildNativeRecoveryDeepLinkFromSession(args: {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn?: number;
+  expiresAt?: number;
+  tokenType?: string;
+  nativeRedirect: string;
+}): string | null {
+  const accessToken = args.accessToken.trim();
+  const refreshToken = args.refreshToken.trim();
+  if (!accessToken || !refreshToken) return null;
+
+  const base = args.nativeRedirect.trim().replace(/#.*$/, "");
+  if (!/^onecab-(driver|customer):\/\//i.test(base)) return null;
+
+  const params = new URLSearchParams();
+  params.set("access_token", accessToken);
+  params.set("refresh_token", refreshToken);
+  params.set("token_type", (args.tokenType ?? "bearer").trim() || "bearer");
+  params.set("type", "recovery");
+  if (typeof args.expiresIn === "number" && Number.isFinite(args.expiresIn)) {
+    params.set("expires_in", String(Math.floor(args.expiresIn)));
+  }
+  if (typeof args.expiresAt === "number" && Number.isFinite(args.expiresAt)) {
+    params.set("expires_at", String(Math.floor(args.expiresAt)));
+  }
+  return `${base}#${params.toString()}`;
+}
+
+/** Password-reset emails may use https action links or native app deep links. */
+export function isAllowedPasswordResetRecoveryUrl(url: string): boolean {
+  const trimmed = url.trim();
+  return (
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("http://") ||
+    /^onecab-(driver|customer):\/\//i.test(trimmed)
+  );
+}
+
+/**
  * Fallback for newer Corporate builds that call verifyOtp(token_hash).
  * Prefer buildCorporateRecoveryPageUrlFromSession for live compatibility.
  */

@@ -22,7 +22,6 @@ import {
 import type { WhatsAppInboundMessage } from "./whatsappInboundParse.ts";
 import {
   readWhatsAppSendCredentials,
-  sendWhatsAppCompactMenuHint,
   sendWhatsAppTextMessage,
   sendWhatsAppWelcomeMenu,
 } from "./whatsappOutbound.ts";
@@ -580,7 +579,7 @@ async function cancelBookingSession(
   waId: string,
   creds: NonNullable<ReturnType<typeof readWhatsAppSendCredentials>>,
 ): Promise<string> {
-  const sent = await sendWhatsAppCompactMenuHint(creds, waId);
+  const sent = await sendWhatsAppWelcomeMenu(creds, waId);
   await markConversationOutbound(client, waId, {
     workflow_state: "idle",
     booking_session_started_at: null,
@@ -658,7 +657,7 @@ export async function processWhatsAppInboundMessage(
         support_opened_at: null,
         support_conversation_id: null,
       });
-      const sent = await sendWhatsAppCompactMenuHint(creds, message.waId);
+      const sent = await sendWhatsAppWelcomeMenu(creds, message.waId);
       return sent.ok ? "support_exited_menu" : "support_exited";
     }
     // Everything else: bridge silently, no automated reply.
@@ -717,7 +716,7 @@ export async function processWhatsAppInboundMessage(
       );
     case "cancel":
     case "menu": {
-      const menuSent = await sendWhatsAppCompactMenuHint(creds, message.waId);
+      const menuSent = await sendWhatsAppWelcomeMenu(creds, message.waId);
       if (!menuSent.ok) return "menu_hint_send_failed";
       await markConversationOutbound(client, message.waId, { workflow_state: "idle" });
       return "menu_hint_sent";
@@ -727,7 +726,7 @@ export async function processWhatsAppInboundMessage(
         return sendTrackContinuation(client, message.waId, creds);
       }
       {
-        const unknownSent = await sendWhatsAppCompactMenuHint(creds, message.waId);
+        const unknownSent = await sendWhatsAppWelcomeMenu(creds, message.waId);
         if (!unknownSent.ok) return "unknown_menu_hint_send_failed";
       }
       return "unknown_menu_hint";

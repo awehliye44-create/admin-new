@@ -1166,6 +1166,7 @@ export type Database = {
       campaign_heads_up_deliveries: {
         Row: {
           campaign_id: string
+          claimed_at: string | null
           created_at: string
           dedupe_key: string
           delivered_at: string | null
@@ -1181,6 +1182,7 @@ export type Database = {
         }
         Insert: {
           campaign_id: string
+          claimed_at?: string | null
           created_at?: string
           dedupe_key: string
           delivered_at?: string | null
@@ -1196,6 +1198,7 @@ export type Database = {
         }
         Update: {
           campaign_id?: string
+          claimed_at?: string | null
           created_at?: string
           dedupe_key?: string
           delivered_at?: string | null

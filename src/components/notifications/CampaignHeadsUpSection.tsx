@@ -36,6 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import {
   CAMPAIGN_HEADS_UP_CATEGORIES,
   type CampaignAccentColor,
@@ -110,6 +111,59 @@ const ACCENT_HEX: Record<CampaignAccentColor, { from: string; to: string }> = {
   red: { from: "#991b1b", to: "#f87171" },
 };
 
+function toIsoOrNull(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+async function invokeCampaignSend(
+  campaignId: string,
+): Promise<{ ok: true; delivered: number; noReach: boolean } | { ok: false; message: string }> {
+  const { data, error } = await supabase.functions.invoke("send-campaign-heads-up", {
+    body: { campaignId },
+  });
+  const payload = (data ?? null) as {
+    ok?: boolean;
+    error?: string;
+    delivered?: number;
+    noReach?: boolean;
+  } | null;
+  if (payload && typeof payload.error === "string" && payload.error) {
+    return { ok: false, message: payload.error };
+  }
+  if (error) {
+    if (error instanceof FunctionsHttpError) {
+      try {
+        const body = await error.context.json() as { error?: string };
+        if (typeof body?.error === "string" && body.error) {
+          return { ok: false, message: body.error };
+        }
+      } catch {
+        /* use error.message */
+      }
+    }
+    return { ok: false, message: error.message };
+  }
+  return {
+    ok: true,
+    delivered: Number(payload?.delivered ?? 0),
+    noReach: payload?.noReach === true,
+  };
+}
+
+function campaignSendToast(result: { delivered: number; noReach: boolean }): string {
+  if (result.delivered > 0) {
+    return `Campaign sent — ${result.delivered} delivered`;
+  }
+  if (result.noReach) {
+    return "No devices reached — campaign kept as draft/scheduled so you can retry";
+  }
+  return "Campaign dispatched — no devices reached (check target app / active devices)";
+}
+
 const emptyForm = {
   templateId: "",
   category: "celebration" as CampaignHeadsUpCategory,
@@ -127,7 +181,6 @@ const emptyForm = {
   target_app: "customer" as CampaignTargetApp,
   target_region_id: "",
   target_service_area_id: "",
-  target_user_segment: "",
   target_user_ids: "",
   languages: "en",
   priority: "normal",
@@ -235,14 +288,62 @@ export function CampaignHeadsUpSection() {
     }));
   }, []);
 
+  const isTimed =
+    form.schedule_mode === "scheduled" ||
+    form.schedule_mode === "repeat_yearly" ||
+    form.schedule_mode === "repeat_monthly";
+
   const saveCampaign = async (asDraft: boolean) => {
     if (!form.title.trim() || !form.subtitle.trim()) {
       toast.error("Title and message are required");
       return;
     }
+    if (!asDraft) {
+      if (form.target_scope === "region" && !form.target_region_id) {
+        toast.error("Select a region");
+        return;
+      }
+      if (form.target_scope === "service_area" && !form.target_service_area_id) {
+        toast.error("Select a service area");
+        return;
+      }
+      if (form.target_scope === "users" && !form.target_user_ids.trim()) {
+        toast.error("Add at least one user ID");
+        return;
+      }
+    }
+    if (!asDraft && isTimed && !form.scheduled_at && !form.starts_at) {
+      toast.error("Set a send time for scheduled or repeating campaigns");
+      return;
+    }
+    const scheduledAt = toIsoOrNull(form.scheduled_at) ?? toIsoOrNull(form.starts_at);
+    const startsAt = toIsoOrNull(form.starts_at);
+    const endsAt = toIsoOrNull(form.ends_at);
+    if (form.scheduled_at.trim() && !toIsoOrNull(form.scheduled_at)) {
+      toast.error("Scheduled time is invalid");
+      return;
+    }
+    if (form.starts_at.trim() && !startsAt) {
+      toast.error("Start time is invalid");
+      return;
+    }
+    if (form.ends_at.trim() && !endsAt) {
+      toast.error("End time is invalid");
+      return;
+    }
+    if (!asDraft && isTimed && !scheduledAt) {
+      toast.error("Set a valid send time for scheduled or repeating campaigns");
+      return;
+    }
     setIsSaving(true);
     try {
       const selectedTemplate = templates.find((t) => t.id === form.templateId);
+      const insertStatus = asDraft
+        ? "draft"
+        : form.schedule_mode === "instant"
+          ? "draft"
+          : "scheduled";
+      const { data: auth } = await supabase.auth.getUser();
       const { data: row, error } = await supabase
         .from("campaign_heads_up_campaigns")
         .insert({
@@ -263,28 +364,26 @@ export function CampaignHeadsUpSection() {
           target_app: form.target_app,
           target_region_id: form.target_region_id || null,
           target_service_area_id: form.target_service_area_id || null,
-          target_user_segment: form.target_user_segment || null,
           target_user_ids: form.target_scope === "users" && form.target_user_ids.trim()
             ? form.target_user_ids.split(/[\s,]+/).filter(Boolean)
             : null,
           languages: form.languages.split(/[\s,]+/).filter(Boolean),
           priority: form.priority,
           schedule_mode: form.schedule_mode,
-          scheduled_at: form.scheduled_at || null,
-          starts_at: form.starts_at || null,
-          ends_at: form.ends_at || null,
-          status: asDraft ? "draft" : form.schedule_mode === "scheduled" ? "scheduled" : "draft",
+          scheduled_at: scheduledAt,
+          starts_at: startsAt,
+          ends_at: endsAt,
+          status: insertStatus,
+          created_by: auth.user?.id ?? null,
         })
         .select("id")
         .single();
       if (error) throw error;
 
       if (!asDraft && form.schedule_mode === "instant") {
-        const { error: sendErr } = await supabase.functions.invoke("send-campaign-heads-up", {
-          body: { campaignId: row.id },
-        });
-        if (sendErr) throw sendErr;
-        toast.success("Campaign sent");
+        const result = await invokeCampaignSend(row.id);
+        if (!result.ok) throw new Error(result.message);
+        toast.success(campaignSendToast(result));
       } else if (asDraft) {
         toast.success("Campaign saved as draft");
       } else {
@@ -295,7 +394,7 @@ export function CampaignHeadsUpSection() {
       setForm(emptyForm);
     } catch (err) {
       console.error(err);
-      toast.error("Failed to save campaign");
+      toast.error(err instanceof Error ? err.message : "Failed to save campaign");
     } finally {
       setIsSaving(false);
     }
@@ -304,15 +403,13 @@ export function CampaignHeadsUpSection() {
   const sendExisting = async (campaignId: string) => {
     setIsSaving(true);
     try {
-      const { error } = await supabase.functions.invoke("send-campaign-heads-up", {
-        body: { campaignId },
-      });
-      if (error) throw error;
-      toast.success("Campaign dispatched");
+      const result = await invokeCampaignSend(campaignId);
+      if (!result.ok) throw new Error(result.message);
+      toast.success(campaignSendToast(result));
       queryClient.invalidateQueries({ queryKey: ["campaign-heads-up-campaigns"] });
     } catch (err) {
       console.error(err);
-      toast.error("Send failed");
+      toast.error(err instanceof Error ? err.message : "Send failed");
     } finally {
       setIsSaving(false);
     }
@@ -512,21 +609,10 @@ export function CampaignHeadsUpSection() {
 
             {form.target_scope === "users" && (
               <div className="space-y-2">
-                <Label>User IDs (comma-separated UUIDs)</Label>
+                <Label>User IDs (auth user, customer, or driver UUIDs)</Label>
                 <Textarea value={form.target_user_ids} onChange={(e) => setForm({ ...form, target_user_ids: e.target.value })} rows={2} placeholder="uuid-1, uuid-2" />
               </div>
             )}
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>User segment (optional)</Label>
-                <Input value={form.target_user_segment} onChange={(e) => setForm({ ...form, target_user_segment: e.target.value })} placeholder="e.g. new_users, vip" />
-              </div>
-              <div className="space-y-2">
-                <Label>Languages</Label>
-                <Input value={form.languages} onChange={(e) => setForm({ ...form, languages: e.target.value })} placeholder="en, so, sw" />
-              </div>
-            </div>
 
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
@@ -562,7 +648,9 @@ export function CampaignHeadsUpSection() {
               </div>
             </div>
 
-            {form.schedule_mode === "scheduled" && (
+            {(form.schedule_mode === "scheduled" ||
+              form.schedule_mode === "repeat_yearly" ||
+              form.schedule_mode === "repeat_monthly") && (
               <div className="space-y-2">
                 <Label>Scheduled at</Label>
                 <Input type="datetime-local" value={form.scheduled_at} onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })} />
@@ -571,19 +659,17 @@ export function CampaignHeadsUpSection() {
 
             <div className="flex flex-wrap gap-2 pt-2">
               <Button disabled={isSaving} onClick={() => saveCampaign(false)}>
-                {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                Send Now
+                {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : isTimed ? (
+                  <Calendar className="mr-2 h-4 w-4" />
+                ) : (
+                  <Send className="mr-2 h-4 w-4" />
+                )}
+                {isTimed ? "Schedule" : "Send Now"}
               </Button>
               <Button variant="outline" disabled={isSaving} onClick={() => saveCampaign(true)}>
                 <Clock className="mr-2 h-4 w-4" />
                 Save Draft
               </Button>
-              {form.schedule_mode === "scheduled" && (
-                <Button variant="secondary" disabled={isSaving} onClick={() => saveCampaign(false)}>
-                  <Calendar className="mr-2 h-4 w-4" />
-                  Schedule
-                </Button>
-              )}
             </div>
           </CardContent>
         </Card>
@@ -686,9 +772,9 @@ export function CampaignHeadsUpSection() {
                       {format(new Date(c.created_at), "MMM d, HH:mm")}
                     </TableCell>
                     <TableCell>
-                      {(c.status === "draft" || c.status === "scheduled") && (
+                      {(c.status === "draft" || c.status === "scheduled" || c.status === "sending") && (
                         <Button size="sm" variant="outline" disabled={isSaving} onClick={() => sendExisting(c.id)}>
-                          Send
+                          {c.status === "sending" ? "Retry" : "Send"}
                         </Button>
                       )}
                     </TableCell>

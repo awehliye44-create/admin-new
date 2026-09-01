@@ -12,6 +12,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { fetchCompanyBranding } from "../_shared/companyBranding.ts";
 import {
   buildCorporateRecoveryPageUrlFromSession,
+  buildNativeRecoveryDeepLinkFromSession,
   emailRateLimitFingerprint,
   extractRecoveryActionLink,
   extractRecoveryTokenHash,
@@ -56,10 +57,9 @@ async function generateRecoveryLink(
 }
 
 /**
- * Exchange recovery token_hash for a session so the Corporate SPA can load a
- * recovery session from the URL hash (current live build does not call verifyOtp).
+ * Exchange recovery token_hash for a session (Driver / Customer / Corporate).
  */
-async function exchangeCorporateRecoverySession(
+async function exchangeRecoverySession(
   supabaseUrl: string,
   anonKey: string,
   tokenHash: string,
@@ -217,13 +217,14 @@ Deno.serve(async (req) => {
   }
 
   let recoveryUrl: string | null = null;
+  const tokenHash = extractRecoveryTokenHash(linkData);
+
   if (app === "corporate") {
-    const tokenHash = extractRecoveryTokenHash(linkData);
     if (!tokenHash || !anonKey) {
       console.error("[password-recovery] corporate missing token_hash or anon key");
       return json({ ok: false, error: "Unable to send reset email right now" }, 502);
     }
-    const session = await exchangeCorporateRecoverySession(supabaseUrl, anonKey, tokenHash);
+    const session = await exchangeRecoverySession(supabaseUrl, anonKey, tokenHash);
     if (!session) {
       return json({ ok: false, error: "Unable to send reset email right now" }, 502);
     }
@@ -240,6 +241,30 @@ Deno.serve(async (req) => {
       emailDomain: email.split("@")[1] ?? "",
       hasHashSession: Boolean(recoveryUrl?.includes("#access_token=")),
     }));
+  } else if ((app === "driver" || app === "customer") && tokenHash && anonKey) {
+    const session = await exchangeRecoverySession(supabaseUrl, anonKey, tokenHash);
+    if (session) {
+      recoveryUrl = buildNativeRecoveryDeepLinkFromSession({
+        nativeRedirect: redirectTo,
+        accessToken: session.access_token,
+        refreshToken: session.refresh_token,
+        expiresIn: session.expires_in,
+        expiresAt: session.expires_at,
+        tokenType: session.token_type,
+      });
+      console.log("[password-recovery]", JSON.stringify({
+        step: "native_session_deep_link_built",
+        app,
+        emailDomain: email.split("@")[1] ?? "",
+        hasHashSession: Boolean(recoveryUrl?.includes("#access_token=")),
+      }));
+    }
+    if (!recoveryUrl) {
+      recoveryUrl = extractRecoveryActionLink(linkData);
+      console.warn("[password-recovery] native token exchange failed — falling back to action_link", {
+        app,
+      });
+    }
   } else {
     recoveryUrl = extractRecoveryActionLink(linkData);
   }

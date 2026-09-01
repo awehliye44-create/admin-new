@@ -126,9 +126,12 @@ function welcomeInteractivePayload(
   toWaId: string,
   headerImageUrl: string | null,
 ): Record<string, unknown> {
+  const bodyText = headerImageUrl
+    ? WHATSAPP_WELCOME_CARD_BODY
+    : WHATSAPP_WELCOME_INTERACTIVE_BODY;
   const interactive: Record<string, unknown> = {
     type: "button",
-    body: { text: WHATSAPP_WELCOME_INTERACTIVE_BODY },
+    body: { text: bodyText },
     action: { buttons: WHATSAPP_WELCOME_BUTTONS },
   };
   if (headerImageUrl) {
@@ -147,17 +150,14 @@ function welcomeInteractivePayload(
 }
 
 /**
- * One Graph call on the happy path (interactive buttons).
- * No separate greeting text — that doubled Meta RTT (~1–2s) on every first contact.
- * Prefer no image header first (fastest); optional image retry only if env forces it.
+ * Interactive tappable menu — image header + three reply buttons (SSOT customer UX).
+ * One Graph call on the happy path. Image header fallback to buttons-only if Meta rejects media.
  */
 export async function sendWhatsAppWelcomeMenu(
   creds: WhatsAppCredentials,
   toWaId: string,
 ): Promise<WhatsAppSendResult> {
-  const preferImage = (Deno.env.get("WHATSAPP_WELCOME_PREFER_IMAGE") ?? "").trim() === "1";
-  const imageUrl = preferImage ? readWhatsAppWelcomeHeaderImageUrl() : "";
-
+  const imageUrl = readWhatsAppWelcomeHeaderImageUrl();
   if (imageUrl) {
     const withImage = await postWhatsAppMessage(
       creds,
@@ -167,15 +167,4 @@ export async function sendWhatsAppWelcomeMenu(
   }
 
   return postWhatsAppMessage(creds, welcomeInteractivePayload(toWaId, null));
-}
-
-export async function sendWhatsAppCompactMenuHint(
-  creds: WhatsAppCredentials,
-  toWaId: string,
-): Promise<WhatsAppSendResult> {
-  return sendWhatsAppTextMessage(
-    creds,
-    toWaId,
-    "Please choose an option:\n• 🚕 Book a ride\n• 📍 Track my booking\n• 🎧 Customer support\n\nReply with 1, 2, or 3, or tap a menu button.",
-  );
 }
