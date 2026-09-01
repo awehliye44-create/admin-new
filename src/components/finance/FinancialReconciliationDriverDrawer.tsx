@@ -44,6 +44,7 @@ import {
   type DriverDateRangePreset,
 } from '@/lib/financialReconciliationDriverDateRange';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
+import { financialReconciliationIssuesTabUrl } from '@/lib/financialReconciliationRoutes';
 import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import { reconciliationBadgeVariant } from '@/lib/financeTripReconciliationBadge';
@@ -182,11 +183,21 @@ export function FinancialReconciliationDriverDrawer({
   useEffect(() => {
     if (!open) return;
     setPaymentTab('all');
-    setDateRange(defaultDriverDateRange());
-  }, [open, driverRow?.driver_id]);
+    if (pageFrom && pageTo) {
+      setDateRange({ preset: 'custom', from: pageFrom, to: pageTo });
+    } else {
+      setDateRange(defaultDriverDateRange());
+    }
+  }, [open, driverRow?.driver_id, pageFrom, pageTo]);
+
+  const walletPeriodFrom = pageFrom ?? dateRange.from;
+  const walletPeriodTo = pageTo ?? dateRange.to;
 
   const { data: walletDetail, isLoading: walletLoading, refetch: refetchWallet, isFetching: walletFetching } =
-    useDriverWalletSsotDetail(open ? driverId : null);
+    useDriverWalletSsotDetail(open ? driverId : null, {
+      periodFrom: walletPeriodFrom,
+      periodTo: walletPeriodTo,
+    });
 
   const { data: perDriverData, isLoading: perDriverLoading, refetch: refetchPerDriver, isFetching: perDriverFetching } =
     usePerDriverFinancialReconciliation({
@@ -208,6 +219,13 @@ export function FinancialReconciliationDriverDrawer({
 
   const driver = walletDetail ?? driverRow;
   const perDriver = perDriverData?.finance_reconciliation_driver_ssot;
+  const missingStampCount = driver?.missing_stamp_trip_count ?? 0;
+  const unverifiedWalletCredits = driver?.unverified_wallet_credits_pence ?? 0;
+  const verifiedExpected = driver?.verified_expected_payable_pence ?? driver?.expected_payable_pence ?? null;
+  const verifiedWallet = driver?.verified_wallet_credits_pence ?? driver?.actual_wallet_trip_credits_pence ?? null;
+  const walletVariance = driver?.wallet_variance_pence ?? null;
+  const driverCreditStatus = driver?.driver_credit_status ?? driver?.reconciliation_status ?? null;
+  const payoutStatus = driver?.payout_status ?? null;
 
   const filteredTrips = useMemo(
     () => tripRows.filter((row) => matchesPaymentTab(row, paymentTab)),
@@ -227,8 +245,9 @@ export function FinancialReconciliationDriverDrawer({
   const remainingLiability = perDriver?.driver_remaining_liability_pence ?? null;
 
   const compareBalanced =
-    (perDriver?.reconciliation_status ?? driver?.reconciliation_status) === 'BALANCED'
-    && (variance == null || Math.abs(variance) <= 1);
+    (driverCreditStatus === 'DRIVER_CREDIT_OK' || driverCreditStatus === 'EXPECTED_STAMP_MISSING')
+    && (payoutStatus == null || payoutStatus === 'PAYOUT_OK')
+    && (walletVariance == null || walletVariance === 0);
 
   const payoutReasons = [
     ...(perDriver?.payout_blocked_reasons ?? []),
@@ -295,7 +314,7 @@ export function FinancialReconciliationDriverDrawer({
                     <Badge variant="outline">{driverRow.driver_code}</Badge>
                   ) : null}
                   <Badge variant={compareBalanced ? 'default' : 'destructive'}>
-                    {compareBalanced ? 'Balanced' : 'Mismatch'}
+                    {driverCreditStatus ?? (compareBalanced ? 'Balanced' : 'Mismatch')}
                   </Badge>
                 </div>
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-xs text-muted-foreground">
@@ -381,15 +400,76 @@ export function FinancialReconciliationDriverDrawer({
                   />
                   <OverviewMetric label="Reconciliation variance" value={fmt(variance)} />
                   <OverviewMetric label="Pending settlement" value={fmt(pendingBatch)} hint="In payout batch" />
-                  <OverviewMetric label="Available for payout" value={fmt(eligiblePayout)} hint="Finance-cleared payable" />
-                  <OverviewMetric label="Paid out" value={fmt(paidOut)} hint="Provider transfers" />
-                  <OverviewMetric label="Wallet balance" value={fmt(walletBalance)} />
+                  <OverviewMetric label="Available for payout" value={fmt(eligiblePayout)} hint="Live payout eligibility" />
+                  <OverviewMetric
+                    label="Paid out"
+                    value={fmt(driver?.payout_ledger_completed_pence ?? paidOut)}
+                    hint="Completed Payout Ledger (period)"
+                  />
+                  <OverviewMetric label="Wallet balance" value={fmt(walletBalance)} hint="Live ledger SSOT" />
                   <OverviewMetric label="Remaining liability" value={fmt(remainingLiability)} />
                   <OverviewMetric
                     label="Reconciliation"
                     value={perDriver?.reconciliation_status ?? driver?.reconciliation_status ?? '—'}
                   />
                 </div>
+
+                <Card>
+                  <CardContent className="pt-4 pb-4">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <p className="text-sm font-medium">Driver wallet reconciliation</p>
+                      <div className="flex flex-wrap gap-1">
+                        {driverCreditStatus ? (
+                          <Badge variant={driverCreditStatus === 'DRIVER_CREDIT_OK' ? 'default' : 'secondary'}>
+                            {driverCreditStatus}
+                          </Badge>
+                        ) : null}
+                        {payoutStatus ? (
+                          <Badge variant={payoutStatus === 'PAYOUT_OK' ? 'default' : 'destructive'}>
+                            {payoutStatus}
+                          </Badge>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <OverviewMetric
+                        label={missingStampCount > 0 ? 'Verified expected earnings' : 'Expected earnings'}
+                        value={fmt(verifiedExpected)}
+                        hint={missingStampCount > 0 ? 'Evaluable trips in selected period' : undefined}
+                      />
+                      <OverviewMetric
+                        label={missingStampCount > 0 ? 'Verified wallet credits' : 'Wallet credited'}
+                        value={fmt(verifiedWallet)}
+                        hint={missingStampCount > 0 ? 'Evaluable trips in selected period' : undefined}
+                      />
+                      <OverviewMetric
+                        label="Difference"
+                        value={fmt(walletVariance)}
+                        hint={missingStampCount > 0 ? 'On evaluable trips' : undefined}
+                      />
+                      {missingStampCount > 0 ? (
+                        <OverviewMetric
+                          label="Unverified wallet credits"
+                          value={fmt(unverifiedWalletCredits)}
+                          hint={`${missingStampCount} trip(s) need entitlement-stamp verification`}
+                        />
+                      ) : null}
+                    </div>
+                    {missingStampCount > 0 && unverifiedWalletCredits > 0 ? (
+                      <p className="text-xs text-amber-700 mt-3">
+                        <Link
+                          to={financialReconciliationIssuesTabUrl('driver_credit', {
+                            tripCodes: driver?.missing_stamp_trip_codes ?? [],
+                            driverId: driver?.driver_id,
+                          })}
+                          className="underline underline-offset-2"
+                        >
+                          {missingStampCount} trip(s) ({fmt(unverifiedWalletCredits)}) require entitlement-stamp verification.
+                        </Link>
+                      </p>
+                    ) : null}
+                  </CardContent>
+                </Card>
               </>
             )}
 

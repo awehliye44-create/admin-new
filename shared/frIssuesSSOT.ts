@@ -458,6 +458,69 @@ export function filterFrUnifiedIssuesByTripCodes(
   );
 }
 
+/** Supplement Issues when stamp-verification trips fall outside the selected audit period. */
+export function buildFrMissingStampVerificationIssues(args: {
+  tripCodes: string[];
+  driverId?: string | null;
+  driverName?: string | null;
+  missingStampTrips?: Array<{
+    trip_id: string | null;
+    trip_code: string | null;
+    wallet_credit_pence: number;
+  }> | null;
+  existingIssues: FrUnifiedIssue[];
+}): FrUnifiedIssue[] {
+  const wanted = new Set(
+    args.tripCodes.map((code) => code.trim().toUpperCase()).filter(Boolean),
+  );
+  if (wanted.size === 0) return [];
+
+  const existingCodes = new Set(
+    args.existingIssues
+      .map((issue) => issue.trip_code?.trim().toUpperCase())
+      .filter(Boolean),
+  );
+
+  const byCode = new Map(
+    (args.missingStampTrips ?? [])
+      .filter((trip) => trip.trip_code?.trim())
+      .map((trip) => [trip.trip_code!.trim().toUpperCase(), trip]),
+  );
+
+  const supplemental: FrUnifiedIssue[] = [];
+  for (const code of wanted) {
+    if (existingCodes.has(code)) continue;
+    const trip = byCode.get(code);
+    supplemental.push({
+      trip_id: trip?.trip_id ?? code,
+      date: null,
+      trip_code: trip?.trip_code ?? code,
+      driver_id: args.driverId ?? null,
+      driver_name: args.driverName ?? null,
+      issue_type: 'driver_credit',
+      issue_label: 'Driver credit',
+      expected_pence: null,
+      actual_pence: trip?.wallet_credit_pence ?? null,
+      difference_pence: null,
+      status: 'EXPECTED_STAMP_MISSING',
+      driver_credit_health: 'MISSING',
+      is_critical: false,
+      is_resolved: false,
+      payment_session_id: null,
+    });
+  }
+  return supplemental;
+}
+
+export function filterFrUnifiedIssuesByDriverId(
+  issues: FrUnifiedIssue[],
+  driverId: string | null | undefined,
+): FrUnifiedIssue[] {
+  const id = driverId?.trim();
+  if (!id) return issues;
+  return issues.filter((issue) => issue.driver_id === id);
+}
+
 export function countFrIssuesByFilter(issues: FrUnifiedIssue[]): Record<FrIssueFilter, number> {
   const counts = {} as Record<FrIssueFilter, number>;
   for (const filter of FR_ISSUE_FILTERS) {

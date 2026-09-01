@@ -77,6 +77,11 @@ const FR_VERIFIED_STAMP_FIELDS_EMPTY = {
   unverified_wallet_credits_pence: 0,
   missing_stamp_trip_count: 0,
   missing_stamp_trip_codes: [] as string[],
+  missing_stamp_trips: [] as Array<{
+    trip_id: string | null;
+    trip_code: string | null;
+    wallet_credit_pence: number;
+  }>,
 };
 
 export type ProviderAccountBalanceStatus = "AVAILABLE" | "UNAVAILABLE" | "NOT_APPLICABLE";
@@ -178,6 +183,11 @@ export type FrDriverReconciliationRow = {
   unverified_wallet_credits_pence: number;
   missing_stamp_trip_count: number;
   missing_stamp_trip_codes: string[];
+  missing_stamp_trips: Array<{
+    trip_id: string | null;
+    trip_code: string | null;
+    wallet_credit_pence: number;
+  }>;
   wallet_adjustments_pence: number;
   debt_recovery_pence: number;
   /** Lifetime wallet payout debits incl. fees — not the Paid out column. */
@@ -536,6 +546,14 @@ export function computeFrDriverReconciliation(
   const missingStampTripCodes = missingStampTrips
     .map((trip) => trip.trip_code?.trim())
     .filter((code): code is string => Boolean(code));
+  const missingStampTripsDetail = missingStampTrips.map((trip) => ({
+    trip_id: trip.trip_id == null ? null : String(trip.trip_id),
+    trip_code: trip.trip_code?.trim() ?? null,
+    wallet_credit_pence: sumActualWalletTripCreditsPence(
+      input.ledger,
+      new Set([String(trip.trip_id)]),
+    ),
+  }));
   const expected = entitlementSummary.missing_stamp_trip_count > 0
     ? sumFrDriverExpectedEntitlementPence(evaluableTrips).expected_payable_pence
     : entitlementSummary.expected_payable_pence;
@@ -628,6 +646,7 @@ export function computeFrDriverReconciliation(
       ...FR_VERIFIED_STAMP_FIELDS_EMPTY,
       missing_stamp_trip_count: entitlementSummary.missing_stamp_trip_count,
       missing_stamp_trip_codes: missingStampTripCodes,
+      missing_stamp_trips: missingStampTripsDetail,
       unverified_wallet_credits_pence: unverifiedWalletCredits,
       expected_payable_pence: null,
       actual_wallet_trip_credits_pence: actualCredits,
@@ -715,6 +734,7 @@ export function computeFrDriverReconciliation(
     unverified_wallet_credits_pence: unverifiedWalletCredits,
     missing_stamp_trip_count: entitlementSummary.missing_stamp_trip_count,
     missing_stamp_trip_codes: missingStampTripCodes,
+    missing_stamp_trips: missingStampTripsDetail,
     expected_payable_pence: expected,
     actual_wallet_trip_credits_pence: actualCredits,
     wallet_adjustments_pence: adjustments,

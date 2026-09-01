@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildFrUnifiedIssues,
+  buildFrMissingStampVerificationIssues,
   countFrIssuesByFilter,
   filterFrUnifiedIssues,
+  filterFrUnifiedIssuesByTripCodes,
   hasFrPeriodAuditKpis,
   parseFrIssueFilter,
   parseFrTripFilter,
@@ -194,5 +196,31 @@ describe('hasFrPeriodAuditKpis', () => {
 
   it('is true when trip_count is positive', () => {
     expect(hasFrPeriodAuditKpis({ trip_count: 4 })).toBe(true);
+  });
+});
+
+describe('missing stamp verification issues', () => {
+  it('filters issues by trip code', () => {
+    const issues = buildFrUnifiedIssues([shortfallTrip, driverCreditTrip]);
+    const filtered = filterFrUnifiedIssuesByTripCodes(issues, ['MK-003']);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.trip_code).toBe('MK-003');
+  });
+
+  it('supplements stamp-verification trips missing from period audit rows', () => {
+    const base = buildFrUnifiedIssues([balancedTrip]);
+    const supplemental = buildFrMissingStampVerificationIssues({
+      tripCodes: ['MK-260817-008', 'MK-260815-029'],
+      driverId: 'driver-2',
+      driverName: 'Asiya',
+      missingStampTrips: [
+        { trip_id: 't1', trip_code: 'MK-260817-008', wallet_credit_pence: 609 },
+        { trip_id: 't2', trip_code: 'MK-260815-029', wallet_credit_pence: 835 },
+      ],
+      existingIssues: base,
+    });
+    expect(supplemental).toHaveLength(2);
+    expect(supplemental.every((issue) => issue.status === 'EXPECTED_STAMP_MISSING')).toBe(true);
+    expect(supplemental.reduce((sum, issue) => sum + (issue.actual_pence ?? 0), 0)).toBe(1444);
   });
 });

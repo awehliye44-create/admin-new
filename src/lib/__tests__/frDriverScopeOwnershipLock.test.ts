@@ -30,6 +30,9 @@ describe('FR driver scope ownership UI', () => {
     expect(panel).toContain('payout_ledger_completed_pence');
     expect(panel).toContain('driver_credit_status');
     expect(panel).toContain('available_for_payout_pence');
+    expect(panel).toContain('missing_stamp_trip_count');
+    expect(panel).toContain('require entitlement-stamp verification');
+    expect(panel).toContain('Verified expected earnings');
     expect(panel).not.toContain('Live Wallet Balance');
     expect(panel).not.toContain('DRIVER_AND_PAYOUT_MISMATCH');
   });
@@ -52,6 +55,9 @@ describe('FR driver scope ownership UI', () => {
 
   it('driver drawer surfaces backend reconciliation reasons', () => {
     expect(drawer).toContain('reconciliation_reasons');
+    expect(drawer).toContain('Driver wallet reconciliation');
+    expect(drawer).toContain('Verified expected earnings');
+    expect(drawer).toContain('require entitlement-stamp verification');
   });
 
   it('overview uses period summary cards without live wallet balance KPIs', () => {

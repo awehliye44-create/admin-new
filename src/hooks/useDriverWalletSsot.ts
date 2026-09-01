@@ -115,6 +115,11 @@ export type DriverWalletSsotRow = {
   unverified_wallet_credits_pence?: number | null;
   missing_stamp_trip_count?: number | null;
   missing_stamp_trip_codes?: string[] | null;
+  missing_stamp_trips?: Array<{
+    trip_id: string | null;
+    trip_code: string | null;
+    wallet_credit_pence: number;
+  }> | null;
   provider_balance_is_reference_only?: boolean;
   provider_connect_audit_status?: string | null;
   period_kpis?: DriverWalletPeriodKpis;
@@ -320,9 +325,15 @@ export function useDriverWalletSsotAll(regionId?: string | null) {
   });
 }
 
-export function useDriverWalletSsotDetail(driverId: string | null) {
+export function useDriverWalletSsotDetail(
+  driverId: string | null,
+  args?: { periodFrom?: string | null; periodTo?: string | null },
+) {
+  const periodFrom = args?.periodFrom ?? null;
+  const periodTo = args?.periodTo ?? null;
+
   return useQuery({
-    queryKey: ['driver-wallet-ssot-detail', driverId],
+    queryKey: ['driver-wallet-ssot-detail', driverId, periodFrom ?? 'all', periodTo ?? 'all'],
     enabled: Boolean(driverId),
     queryFn: () =>
       withAdminFinanceQueryTiming(
@@ -335,7 +346,11 @@ export function useDriverWalletSsotDetail(driverId: string | null) {
         async (): Promise<DriverWalletSsotRow | null> => {
           if (!driverId) return null;
           const { data, error } = await supabase.functions.invoke('admin-driver-wallet-ssot', {
-            body: { driver_id: driverId },
+            body: {
+              driver_id: driverId,
+              ...(periodFrom ? { from: periodFrom } : {}),
+              ...(periodTo ? { to: periodTo } : {}),
+            },
           });
           if (error) throw error;
           if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');

@@ -23,11 +23,14 @@ import {
   FR_ISSUE_FILTERS,
   FR_ISSUE_FILTER_LABELS,
   buildFrUnifiedIssues,
+  buildFrMissingStampVerificationIssues,
   countFrIssuesByFilter,
   filterFrUnifiedIssues,
+  filterFrUnifiedIssuesByDriverId,
   filterFrUnifiedIssuesByTripCodes,
   type FrIssueFilter,
 } from '../../../shared/frIssuesSSOT';
+import { useDriverWalletSsotDetail } from '@/hooks/useDriverWalletSsot';
 
 type FinancialReconciliationIssuesTabProps = {
   rows: TripFinancialAuditRow[];
@@ -40,6 +43,7 @@ type FinancialReconciliationIssuesTabProps = {
   issueFilter: FrIssueFilter;
   onIssueFilterChange: (filter: FrIssueFilter) => void;
   issueTripCodes?: string[];
+  issueDriverId?: string | null;
   periodLabel?: string;
   exportMeta?: FrAuditExportMeta | null;
 };
@@ -89,6 +93,7 @@ export function FinancialReconciliationIssuesTab({
   issueFilter,
   onIssueFilterChange,
   issueTripCodes = [],
+  issueDriverId = null,
   periodLabel,
   exportMeta,
 }: FinancialReconciliationIssuesTabProps) {
@@ -99,12 +104,28 @@ export function FinancialReconciliationIssuesTab({
     setActiveFilter(issueFilter);
   }, [issueFilter]);
 
-  const allIssues = useMemo(() => buildFrUnifiedIssues(rows), [rows]);
+  const shouldLoadStampDriver = Boolean(issueDriverId && issueTripCodes.length > 0);
+  const { data: stampDriverDetail } = useDriverWalletSsotDetail(
+    shouldLoadStampDriver ? issueDriverId : null,
+  );
+
+  const allIssues = useMemo(() => {
+    const base = buildFrUnifiedIssues(rows);
+    const supplemental = buildFrMissingStampVerificationIssues({
+      tripCodes: issueTripCodes,
+      driverId: issueDriverId ?? stampDriverDetail?.driver_id ?? null,
+      driverName: stampDriverDetail?.driver_name ?? stampDriverDetail?.driver_code ?? null,
+      missingStampTrips: stampDriverDetail?.missing_stamp_trips ?? null,
+      existingIssues: base,
+    });
+    return [...base, ...supplemental];
+  }, [rows, issueTripCodes, issueDriverId, stampDriverDetail]);
   const filterCounts = useMemo(() => countFrIssuesByFilter(allIssues), [allIssues]);
   const visible = useMemo(() => {
-    const filtered = filterFrUnifiedIssues(allIssues, activeFilter);
+    let filtered = filterFrUnifiedIssues(allIssues, activeFilter);
+    filtered = filterFrUnifiedIssuesByDriverId(filtered, issueDriverId);
     return filterFrUnifiedIssuesByTripCodes(filtered, issueTripCodes);
-  }, [allIssues, activeFilter, issueTripCodes]);
+  }, [allIssues, activeFilter, issueTripCodes, issueDriverId]);
   const exportRows = useMemo(() => {
     const tripIds = new Set(visible.map((issue) => issue.trip_id));
     return rows.filter((row) => tripIds.has(row.trip_id));
@@ -127,7 +148,8 @@ export function FinancialReconciliationIssuesTab({
 
       {issueTripCodes.length > 0 ? (
         <p className="text-xs text-muted-foreground">
-          Showing {issueTripCodes.join(', ')} only.
+          Showing stamp-verification trips: {issueTripCodes.join(', ')}
+          {issueDriverId ? ` · driver ${issueDriverId.slice(0, 8)}` : ''}
         </p>
       ) : null}
 

@@ -23,6 +23,7 @@ import { useFinanceReconciliationMoney } from '@/hooks/useFinanceReconciliationM
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
+import { paymentSessionsNavUrl } from '../../shared/paymentSessionsNavigationSSOT';
 import { classifyFinanceReconciliationError } from '@/lib/financeReconciliationErrors';
 import {
   Collapsible,
@@ -220,6 +221,7 @@ function FinancialReconciliationPage() {
     if (!raw?.trim()) return [];
     return raw.split(',').map((code) => code.trim()).filter(Boolean);
   }, [searchParams]);
+  const issueDriverId = searchParams.get('issueDriverId');
   const legacyTab = searchParams.get('tab');
 
   const unifiedIssues = useMemo(() => buildFrUnifiedIssues(tripAuditRows), [tripAuditRows]);
@@ -417,7 +419,7 @@ function FinancialReconciliationPage() {
               )}
               <p className="text-xs text-muted-foreground">
                 Hold operations:{' '}
-                <Link className="underline" to={paymentSessionsUrl({ tab: 'active_holds' })}>
+                <Link className="underline" to={paymentSessionsNavUrl({ tab: 'issues', issueFilter: 'active_holds' })}>
                   Open Payment Sessions
                 </Link>
               </p>
@@ -699,6 +701,7 @@ function FinancialReconciliationPage() {
                     issueFilter={issueFilter}
                     onIssueFilterChange={handleIssueFilterChange}
                     issueTripCodes={issueTripCodes}
+                    issueDriverId={issueDriverId}
                     periodLabel={periodLabel}
                     exportMeta={frAuditExportMeta}
                   />
