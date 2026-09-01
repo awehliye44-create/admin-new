@@ -23,7 +23,6 @@ import { useFinanceReconciliationMoney } from '@/hooks/useFinanceReconciliationM
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
-import { paymentSessionsNavUrl } from '../../shared/paymentSessionsNavigationSSOT';
 import { classifyFinanceReconciliationError } from '@/lib/financeReconciliationErrors';
 import {
   Collapsible,
@@ -419,7 +418,7 @@ function FinancialReconciliationPage() {
               )}
               <p className="text-xs text-muted-foreground">
                 Hold operations:{' '}
-                <Link className="underline" to={paymentSessionsNavUrl({ tab: 'issues', issueFilter: 'active_holds' })}>
+                <Link className="underline" to="/payment-sessions?tab=issues&issueFilter=active_holds">
                   Open Payment Sessions
                 </Link>
               </p>
