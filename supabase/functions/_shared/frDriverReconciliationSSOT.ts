@@ -344,9 +344,14 @@ export function buildPeriodScopedFrDriverInputs(args: {
 
   const periodLedger = args.ledger.filter((row) => {
     const type = String(row.type ?? "").toUpperCase();
-    if (!TRIP_CREDIT_TYPES.has(type)) return false;
-    const tripId = row.related_trip_id;
-    return Boolean(tripId && periodTripIds.has(String(tripId)));
+    if (TRIP_CREDIT_TYPES.has(type)) {
+      const tripId = row.related_trip_id;
+      return Boolean(tripId && periodTripIds.has(String(tripId)));
+    }
+    if (PAYOUT_DEBIT_TYPES.has(type) || PAYOUT_REVERSAL_TYPES.has(type)) {
+      return isInstantInFinancePeriod(row.created_at, args.periodFrom, args.periodTo);
+    }
+    return false;
   });
 
   const periodPayoutItems = args.completedPayoutItems.filter((item) =>
@@ -525,7 +530,9 @@ export function computeFrDriverReconciliation(
     return entitlement == null;
   });
   const missingStampTripIds = new Set(missingStampTrips.map((trip) => String(trip.trip_id)));
-  const unverifiedWalletCredits = sumActualWalletTripCreditsPence(input.ledger, missingStampTripIds);
+  const unverifiedWalletCredits = missingStampTripIds.size > 0
+    ? sumActualWalletTripCreditsPence(input.ledger, missingStampTripIds)
+    : 0;
   const missingStampTripCodes = missingStampTrips
     .map((trip) => trip.trip_code?.trim())
     .filter((code): code is string => Boolean(code));

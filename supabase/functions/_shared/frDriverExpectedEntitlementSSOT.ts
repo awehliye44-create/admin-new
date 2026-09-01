@@ -141,17 +141,6 @@ export function resolveFrDriverExpectedEntitlement(
     };
   }
 
-  if (trip.settlement_amount_pence != null && Number.isFinite(Number(trip.settlement_amount_pence))) {
-    const settlementAmt = Math.max(0, Math.round(Number(trip.settlement_amount_pence)));
-    return {
-      expected_entitlement_pence: settlementAmt + tipsPence(trip),
-      expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
-      entitlement_source: "driver_earning_settlement.amount_pence",
-      financial_settled_at: financialSettledAt,
-      is_terminal_fee_outcome: isTerminalFeeFinancialOutcome(trip),
-    };
-  }
-
   const isTerminal = isTerminalFeeFinancialOutcome(trip);
   const captured = trip.captured_amount_pence == null
     ? null
@@ -164,6 +153,7 @@ export function resolveFrDriverExpectedEntitlement(
     ? null
     : Math.max(0, Math.round(Number(trip.commission_pence)));
 
+  // Terminal fee outcomes must use capture − provider fee before any settlement stamp.
   if (isTerminal && captured != null && captured > 0) {
     const terminalTen = resolveTerminalFeeDriverTenPence({
       captured_pence: captured,
@@ -179,6 +169,17 @@ export function resolveFrDriverExpectedEntitlement(
     };
   }
 
+  if (trip.settlement_amount_pence != null && Number.isFinite(Number(trip.settlement_amount_pence))) {
+    const settlementAmt = Math.max(0, Math.round(Number(trip.settlement_amount_pence)));
+    return {
+      expected_entitlement_pence: settlementAmt + tipsPence(trip),
+      expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
+      entitlement_source: "driver_earning_settlement.amount_pence",
+      financial_settled_at: financialSettledAt,
+      is_terminal_fee_outcome: isTerminal,
+    };
+  }
+
   const modCharge = Math.max(0, Math.round(Number(trip.customer_modification_charge_pence ?? 0)));
   if (trip.driver_net_pence == null) {
     return {
@@ -191,10 +192,15 @@ export function resolveFrDriverExpectedEntitlement(
   }
 
   if (modCharge > 0 && trip.settlement_amount_pence == null) {
+    // Fall through — caller may mark modification_stamp_incomplete when wallet ≠ driver_net.
+  }
+
+  if (trip.driver_net_pence != null && Number.isFinite(Number(trip.driver_net_pence))) {
+    const net = Math.max(0, Math.round(Number(trip.driver_net_pence)));
     return {
-      expected_entitlement_pence: null,
-      expected_stamp_status: FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING,
-      entitlement_source: "modification_stamp_incomplete",
+      expected_entitlement_pence: net + tipsPence(trip) + otherDriverEntitlementPence(trip),
+      expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
+      entitlement_source: "trips.driver_net_pence",
       financial_settled_at: financialSettledAt,
       is_terminal_fee_outcome: false,
     };
@@ -215,17 +221,6 @@ export function resolveFrDriverExpectedEntitlement(
         is_terminal_fee_outcome: false,
       };
     }
-  }
-
-  if (trip.driver_net_pence != null && Number.isFinite(Number(trip.driver_net_pence))) {
-    const net = Math.max(0, Math.round(Number(trip.driver_net_pence)));
-    return {
-      expected_entitlement_pence: net + tipsPence(trip) + otherDriverEntitlementPence(trip),
-      expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
-      entitlement_source: "trips.driver_net_pence",
-      financial_settled_at: financialSettledAt,
-      is_terminal_fee_outcome: false,
-    };
   }
 
   return {
@@ -291,10 +286,13 @@ export function buildFrDriverSettlementTripRow(args: {
   trip: Record<string, unknown>;
   session?: Record<string, unknown> | null;
   settlement?: Record<string, unknown> | null;
+  /** When set, modified trips without settlement stamp may be flagged incomplete. */
+  actual_wallet_trip_credit_pence?: number | null;
 }): FrDriverSettlementTripForReconciliation {
   const trip = args.trip;
   const session = args.session ?? null;
   const settlement = args.settlement ?? null;
+  const modCharge = Math.max(0, Math.round(Number(trip.customer_modification_charge_pence ?? 0)));
   const resolution = resolveFrDriverExpectedEntitlement({
     trip_id: trip.id == null ? null : String(trip.id),
     trip_code: (trip.trip_code as string | null) ?? null,
@@ -341,6 +339,26 @@ export function buildFrDriverSettlementTripRow(args: {
     settlement_settled_at: (settlement?.settled_at as string | null) ?? null,
     settlement_capture_time: (settlement?.capture_time as string | null) ?? null,
   });
+  const walletCredit = args.actual_wallet_trip_credit_pence == null
+    ? null
+    : Math.round(Number(args.actual_wallet_trip_credit_pence));
+  const modificationStampIncomplete = modCharge > 0
+    && settlement?.amount_pence == null
+    && walletCredit != null
+    && resolution.expected_entitlement_pence != null
+    && walletCredit !== Math.round(Number(resolution.expected_entitlement_pence));
+  if (modificationStampIncomplete) {
+    return {
+      trip_id: trip.id == null ? null : String(trip.id),
+      driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
+      expected_entitlement_pence: null,
+      expected_stamp_status: FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING,
+      financial_settled_at: resolution.financial_settled_at,
+      settlement_status: (settlement?.settlement_status as string | null) ?? null,
+      completed_at: (trip.completed_at as string | null) ?? null,
+      trip_code: (trip.trip_code as string | null) ?? null,
+    };
+  }
   return {
     trip_id: trip.id == null ? null : String(trip.id),
     driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),

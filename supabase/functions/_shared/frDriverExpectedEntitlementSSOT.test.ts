@@ -72,14 +72,21 @@ Deno.test("3. NULL expected stamp => EXPECTED_STAMP_MISSING, not over-credit", (
   assertEquals(status, "EXPECTED_STAMP_MISSING");
 });
 
-Deno.test("4. modified trip uses modification_stamp_incomplete until settlement amount exists", () => {
-  const row = resolveFrDriverExpectedEntitlement({
-    trip_status: "completed",
-    financial_model: "PLATFORM_COLLECTED",
-    driver_net_pence: 651,
-    customer_modification_charge_pence: 266,
-    captured_amount_pence: 982,
-    commission_pence: 115,
+Deno.test("4. modified trip uses modification_stamp_incomplete when wallet ≠ driver_net", () => {
+  const row = buildFrDriverSettlementTripRow({
+    trip: {
+      id: "t-mod",
+      trip_code: "MK-260815-029",
+      status: "completed",
+      financial_model: "PLATFORM_COLLECTED",
+      driver_net_pence: 651,
+      customer_modification_charge_pence: 266,
+    },
+    session: {
+      captured_amount_pence: 982,
+      commission_pence: 115,
+    },
+    actual_wallet_trip_credit_pence: 835,
   });
   assertEquals(row.expected_stamp_status, FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING);
 });
