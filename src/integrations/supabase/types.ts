@@ -2819,6 +2819,7 @@ export type Database = {
           contact_name: string
           contact_phone: string | null
           country: string | null
+          country_code: string | null
           created_at: string
           employee_count: number | null
           estimated_monthly_trips: number | null
@@ -2844,6 +2845,7 @@ export type Database = {
           contact_name: string
           contact_phone?: string | null
           country?: string | null
+          country_code?: string | null
           created_at?: string
           employee_count?: number | null
           estimated_monthly_trips?: number | null
@@ -2869,6 +2871,7 @@ export type Database = {
           contact_name?: string
           contact_phone?: string | null
           country?: string | null
+          country_code?: string | null
           created_at?: string
           employee_count?: number | null
           estimated_monthly_trips?: number | null
@@ -2912,6 +2915,7 @@ export type Database = {
           contact_name: string
           contact_phone: string | null
           country: string | null
+          country_code: string | null
           created_at: string
           credit_limit: number | null
           current_balance: number | null
@@ -2941,6 +2945,7 @@ export type Database = {
           contact_name: string
           contact_phone?: string | null
           country?: string | null
+          country_code?: string | null
           created_at?: string
           credit_limit?: number | null
           current_balance?: number | null
@@ -2970,6 +2975,7 @@ export type Database = {
           contact_name?: string
           contact_phone?: string | null
           country?: string | null
+          country_code?: string | null
           created_at?: string
           credit_limit?: number | null
           current_balance?: number | null
@@ -26810,6 +26816,14 @@ export type Database = {
         Args: { p_account_id: string }
         Returns: string[]
       }
+      get_corporate_service_areas_for_country: {
+        Args: {
+          p_country_code: string
+          p_latitude?: number
+          p_longitude?: number
+        }
+        Returns: Json
+      }
       get_customer_lifecycle_debt_pence: {
         Args: { p_customer_id: string }
         Returns: number
@@ -27462,6 +27476,7 @@ export type Database = {
       }
       list_driver_signup_countries: { Args: never; Returns: Json }
       list_driver_trip_history: { Args: { p_limit?: number }; Returns: Json }
+      list_enabled_otp_country_codes: { Args: never; Returns: Json }
       lock_driver_vehicle: { Args: { p_driver_id: string }; Returns: undefined }
       log_audit_event: {
         Args: {
