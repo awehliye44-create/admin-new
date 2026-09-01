@@ -32,6 +32,8 @@ export interface TripCaptureFields {
   final_customer_fare_pence?: number | null;
   gross_fare_pence?: number | null;
   capture_amount_pence?: number | null;
+  /** trips.authorised_amount_pence — provider hold amount */
+  authorised_amount_pence?: number | null;
   tip_pence?: number | null;
   tip_amount_pence?: number | null;
   payment_captured_pence?: number | null;
