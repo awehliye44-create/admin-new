@@ -46,6 +46,13 @@ export type DriverWalletSettlementHistoryRow = {
   wallet_credit_pence: number | null;
   settlement_status: string | null;
   payment_session_id: string | null;
+  expected_driver_credit_pence?: number | null;
+  actual_driver_credit_pence?: number | null;
+  credit_difference_pence?: number | null;
+  driver_credit_health?: string | null;
+  credit_eligibility_at?: string | null;
+  is_diagnostic_projection?: boolean;
+  diagnostic_label?: string | null;
 };
 
 export type DriverWalletSsotRow = {
@@ -190,6 +197,7 @@ async function overlayDriverWalletEligibility(
 
 export function useDriverWalletSsot(args?: {
   regionId?: string | null;
+  serviceAreaId?: string | null;
   page?: number;
   pageSize?: number;
 }) {
@@ -197,9 +205,10 @@ export function useDriverWalletSsot(args?: {
   const pageSize = args?.pageSize ?? DEFAULT_PAGE_SIZE;
   const offset = (page - 1) * pageSize;
   const regionId = args?.regionId ?? null;
+  const serviceAreaId = args?.serviceAreaId ?? null;
 
   return useQuery({
-    queryKey: ['driver-wallet-ssot', regionId ?? 'all', page, pageSize],
+    queryKey: ['driver-wallet-ssot', regionId ?? 'all', serviceAreaId ?? 'all', page, pageSize],
     queryFn: () =>
       withAdminFinanceQueryTiming(
         {
@@ -212,6 +221,7 @@ export function useDriverWalletSsot(args?: {
           const { data, error } = await supabase.functions.invoke('admin-driver-wallet-ssot', {
             body: {
               ...(regionId ? { region_id: regionId } : {}),
+              ...(serviceAreaId ? { service_area_id: serviceAreaId } : {}),
               limit: pageSize,
               offset,
             },

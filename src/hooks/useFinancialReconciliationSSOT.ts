@@ -38,6 +38,11 @@ export type FinancialReconciliationSSOTResult = {
   isFetching: boolean;
   /** True while the heavy trip-audit payload is still loading (summary may already be shown). */
   isAuditLoading: boolean;
+  /** True while a new period/scope audit is loading but placeholder rows from the prior scope are still held. */
+  isAuditScopeTransition: boolean;
+  /** True while summary KPIs for a new period/scope are loading but placeholder summary from the prior scope is still held. */
+  isSummaryScopeTransition: boolean;
+  auditError: Error | null;
   error: Error | null;
   refetch: () => Promise<unknown>;
   refetchFresh: () => Promise<unknown>;
@@ -53,8 +58,8 @@ export type UseFinancialReconciliationSSOTArgs = {
   /** Wait until region/service scope is resolved before hitting admin-finance-reconciliation. */
   enabled?: boolean;
   /**
-   * summary — overview / alerts first paint (summary_only).
-   * full — trip audit tabs (mismatches, shortfalls, history, …).
+   * summary — overview / drivers first paint (summary_only).
+   * full — trip audit for Trips and Issues tabs.
    */
   auditMode?: 'summary' | 'full';
 };
@@ -228,6 +233,19 @@ export function useFinancialReconciliationSSOT({
   const lastSyncedAt = pickLastSyncedAt(response) ?? response?.generated_at ?? null;
   const isFetching = summaryLive.isFetching || (auditMode === 'full' && fullLive.isFetching);
   const isAuditLoading = auditMode === 'full' && fullLive.isLoading && !fullLive.data;
+  const isAuditScopeTransition =
+    auditMode === 'full'
+    && fullLive.isFetching
+    && fullLive.isPlaceholderData;
+  const isSummaryScopeTransition =
+    summaryLive.isFetching
+    && summaryLive.isPlaceholderData;
+  const auditError =
+    auditMode === 'full' && fullLive.error
+      ? fullLive.error instanceof Error
+        ? fullLive.error
+        : new Error(String(fullLive.error))
+      : null;
 
   const displayStatus: FinanceSsotStatus =
     isFetching && (status === 'LIVE' || status === 'PARTIAL')
@@ -248,6 +266,9 @@ export function useFinancialReconciliationSSOT({
     isLoading,
     isFetching,
     isAuditLoading,
+    isAuditScopeTransition,
+    isSummaryScopeTransition,
+    auditError,
     error,
     refetch,
     refetchFresh,

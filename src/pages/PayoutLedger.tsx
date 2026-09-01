@@ -60,6 +60,10 @@ import { downloadCsv, downloadRecordsAsExcel, printFinanceReport, printFinanceRe
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
 import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
+import { DriverCreditExceptionsBanner } from '@/components/finance/DriverCreditExceptionsBanner';
+import {
+  PAYOUT_CREDIT_INTEGRITY,
+} from '../../shared/driverCreditMonitoringSSOT';
 import type {
   AdminPayoutLedgerDriverTab,
   AdminPayoutLedgerItemRow,
@@ -193,6 +197,7 @@ function BatchKindCell({ kind }: { kind: string | null | undefined }) {
 function statementRecords(items: AdminPayoutLedgerItemRow[]) {
   return items.map((r) => ({
     batch_id: r.batch_id,
+    trip_id: r.trip_id,
     driver: r.driver_name ?? r.driver_id,
     amount_pence: r.net_bank_transfer_pence,
     created: r.created_at,
@@ -203,6 +208,11 @@ function statementRecords(items: AdminPayoutLedgerItemRow[]) {
     bank_reference: r.bank_reference,
     status: r.status,
     failure_reason: r.failure_reason,
+    credit_integrity_status: r.credit_integrity_status,
+    driver_credit_health: r.driver_credit_health,
+    expected_driver_credit_pence: r.expected_driver_credit_pence,
+    actual_driver_credit_pence: r.actual_driver_credit_pence,
+    credit_difference_pence: r.credit_difference_pence,
   }));
 }
 
@@ -215,6 +225,9 @@ export default function PayoutLedger() {
   const queryClient = useQueryClient();
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(
     DEFAULT_SERVICE_AREA_SELECTION,
+  );
+  const [payoutCreditExceptionsOnly, setPayoutCreditExceptionsOnly] = useState(
+    searchParams.get('payoutCreditExceptions') === '1',
   );
 
   const listRequest = useMemo(() => {
@@ -264,8 +277,9 @@ export default function PayoutLedger() {
       batch_id: batchId,
       service_area_id: serviceFilter.serviceAreaId,
       limit: 100,
+      credit_exceptions_only: payoutCreditExceptionsOnly ? true : null,
     };
-  }, [topTab, driverTab, driverId, batchId, serviceFilter.serviceAreaId]);
+  }, [topTab, driverTab, driverId, batchId, serviceFilter.serviceAreaId, payoutCreditExceptionsOnly]);
 
   const accountRequest = useMemo(
     () => ({
@@ -285,6 +299,10 @@ export default function PayoutLedger() {
   );
   const { data: accountData } = useAdminPayoutLedger(accountRequest, Boolean(driverId));
   const items = data?.items ?? [];
+  const summary = data?.summary;
+  const payoutCreditExceptionCount = summary?.credit_exception_item_count ?? 0;
+  const payoutCreditDifferencePence = summary?.credit_exception_difference_pence ?? 0;
+  const displayItems = items;
   const batches = useMemo(
     () => [...(data?.batches ?? [])].sort(compareBatchesForAdminDisplay),
     [data?.batches],
@@ -307,12 +325,15 @@ export default function PayoutLedger() {
       ?? accounts.find((row) => row.driver_id === driverId)
       ?? null)
     : null;
-  const summary = data?.summary;
   const fleet = data?.fleet_summary;
   const ledgerErrorCode = data?.error_code
     ?? (error instanceof Error && /permission|403|401/i.test(error.message)
       ? 'PAYOUT_LEDGER_PERMISSION_DENIED'
       : null);
+  useEffect(() => {
+    setPayoutCreditExceptionsOnly(searchParams.get('payoutCreditExceptions') === '1');
+  }, [searchParams]);
+
   useEffect(() => {
     if (topTab === 'settings') return;
     const channel = supabase
@@ -375,7 +396,7 @@ export default function PayoutLedger() {
   };
 
   const exportItemsCsv = (filename = 'payout-ledger-history.csv') => {
-    downloadCsv(filename, statementRecords(items));
+    downloadCsv(filename, statementRecords(displayItems));
   };
 
   const exportAccountStatement = (row: DriverPayoutAccountRow) => {
@@ -466,6 +487,24 @@ export default function PayoutLedger() {
             <AlertDescription>{error instanceof Error ? error.message : String(error)}</AlertDescription>
           </Alert>
         )}
+
+        {topTab !== 'settings' ? (
+          <DriverCreditExceptionsBanner
+            exceptionTripCount={payoutCreditExceptionCount}
+            totalDifferencePence={payoutCreditDifferencePence}
+            onFilterExceptions={() => {
+              setPayoutCreditExceptionsOnly((v) => {
+                const nextActive = !v;
+                const params = new URLSearchParams(searchParams);
+                if (nextActive) params.set('payoutCreditExceptions', '1');
+                else params.delete('payoutCreditExceptions');
+                setSearchParams(params, { replace: true });
+                return nextActive;
+              });
+            }}
+            active={payoutCreditExceptionsOnly}
+          />
+        ) : null}
         {(data?.page_status === 'PARTIAL' || data?.page_status === 'DEGRADED')
           && data?.error_code
           && topTab !== 'settings' && (
@@ -531,7 +570,7 @@ export default function PayoutLedger() {
             {items.length > 0 && (
               <div className="space-y-2">
                 <h3 className="text-sm font-medium">Failed driver payouts</h3>
-                <PayoutItemsTable items={items} exportRow={exportRow} />
+                <PayoutItemsTable items={displayItems} exportRow={exportRow} />
               </div>
             )}
           </TabsContent>
@@ -648,7 +687,7 @@ export default function PayoutLedger() {
             {items.length > 0 && (
               <div className="space-y-2">
                 <h3 className="text-sm font-medium">Driver payout batch item details</h3>
-                <PayoutItemsTable items={items} exportRow={exportRow} />
+                <PayoutItemsTable items={displayItems} exportRow={exportRow} />
               </div>
             )}
           </TabsContent>
@@ -696,7 +735,7 @@ export default function PayoutLedger() {
             {items.length > 0 && (
               <div className="space-y-2">
                 <h3 className="text-sm font-medium">Driver payout items (audit view)</h3>
-                <PayoutItemsTable items={items} exportRow={exportRow} />
+                <PayoutItemsTable items={displayItems} exportRow={exportRow} />
               </div>
             )}
             {companyAuditRows.length === 0 ? (
@@ -1027,17 +1066,17 @@ export default function PayoutLedger() {
 
               <TabsContent value="statements" className="mt-4 space-y-3">
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => exportItemsCsv(`payout-statement-${driverId.slice(0, 8)}.csv`)} disabled={items.length === 0}>
+                  <Button variant="outline" size="sm" onClick={() => exportItemsCsv(`payout-statement-${driverId.slice(0, 8)}.csv`)} disabled={displayItems.length === 0}>
                     <Download className="h-4 w-4 mr-2" /> CSV
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => downloadRecordsAsExcel('payout-statement', statementRecords(items), 'Payout Statement')} disabled={items.length === 0}>
+                  <Button variant="outline" size="sm" onClick={() => downloadRecordsAsExcel('payout-statement', statementRecords(displayItems), 'Payout Statement')} disabled={displayItems.length === 0}>
                     <Download className="h-4 w-4 mr-2" /> Excel
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => printFinanceReport()} disabled={items.length === 0}>
+                  <Button variant="outline" size="sm" onClick={() => printFinanceReport()} disabled={displayItems.length === 0}>
                     <Printer className="h-4 w-4 mr-2" /> Print
                   </Button>
                 </div>
-                <PayoutItemsTable items={items} exportRow={exportRow} />
+                <PayoutItemsTable items={displayItems} exportRow={exportRow} />
               </TabsContent>
 
               <TabsContent value="audit_log" className="mt-4 space-y-3">
@@ -1080,7 +1119,7 @@ export default function PayoutLedger() {
                     </Table>
                   </div>
                 )}
-                <PayoutItemsTable items={items} exportRow={exportRow} />
+                <PayoutItemsTable items={displayItems} exportRow={exportRow} />
               </TabsContent>
 
               {DRIVER_TABS
@@ -1149,7 +1188,7 @@ export default function PayoutLedger() {
                         <Loader2 className="h-4 w-4 animate-spin" /> Loading payouts...
                       </div>
                     ) : (
-                      <PayoutItemsTable items={items} exportRow={exportRow} />
+                      <PayoutItemsTable items={displayItems} exportRow={exportRow} />
                     )}
                   </TabsContent>
                 ))}
@@ -1198,6 +1237,10 @@ function PayoutItemsTable({
             <TableHead>Provider payment</TableHead>
             <TableHead>Paid</TableHead>
             <TableHead>Wallet debit</TableHead>
+            <TableHead>Credit integrity</TableHead>
+            <TableHead>Expected credit</TableHead>
+            <TableHead>Actual credit</TableHead>
+            <TableHead>Credit diff</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Failure</TableHead>
             <TableHead>Actions</TableHead>
@@ -1221,6 +1264,20 @@ function PayoutItemsTable({
               <TableCell className="text-xs font-mono">{maskProviderRef(row.provider_payout_id)}</TableCell>
               <TableCell className="text-xs">{paid ? 'Paid' : 'Not paid'}</TableCell>
               <TableCell className="text-xs">{paid ? 'Applied' : 'Not applied'}</TableCell>
+              <TableCell className="text-xs">
+                <Badge variant={row.credit_integrity_status === PAYOUT_CREDIT_INTEGRITY.CREDIT_EXCEPTION ? 'destructive' : 'outline'}>
+                  {row.credit_integrity_status ?? '—'}
+                </Badge>
+              </TableCell>
+              <TableCell className="text-xs text-right tabular-nums">
+                {formatNullablePence(row.expected_driver_credit_pence, row.currency)}
+              </TableCell>
+              <TableCell className="text-xs text-right tabular-nums">
+                {formatNullablePence(row.actual_driver_credit_pence, row.currency)}
+              </TableCell>
+              <TableCell className="text-xs text-right tabular-nums">
+                {formatNullablePence(row.credit_difference_pence, row.currency)}
+              </TableCell>
               <TableCell className="text-xs"><Badge variant="outline">{itemStatusDisplay(row)}</Badge></TableCell>
               <TableCell className="text-xs max-w-[160px] truncate">{row.failure_reason ?? '—'}</TableCell>
               <TableCell>

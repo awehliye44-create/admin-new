@@ -30,6 +30,17 @@ export type DriverWalletSettlementHistoryInput = {
     payment_method?: string | null;
     captured_amount_pence?: number | null;
     provider_processing_fee_pence?: number | null;
+    provider_state?: string | null;
+    captured_at?: string | null;
+  } | null;
+  credit_monitoring?: {
+    expected_driver_credit_pence?: number | null;
+    actual_driver_credit_pence?: number | null;
+    credit_difference_pence?: number | null;
+    driver_credit_health?: string | null;
+    credit_eligibility_at?: string | null;
+    is_diagnostic_projection?: boolean;
+    diagnostic_label?: string | null;
   } | null;
 };
 
@@ -51,6 +62,13 @@ export type DriverWalletSettlementHistoryRow = {
   wallet_credit_pence: number | null;
   settlement_status: string | null;
   payment_session_id: string | null;
+  expected_driver_credit_pence?: number | null;
+  actual_driver_credit_pence?: number | null;
+  credit_difference_pence?: number | null;
+  driver_credit_health?: string | null;
+  credit_eligibility_at?: string | null;
+  is_diagnostic_projection?: boolean;
+  diagnostic_label?: string | null;
 };
 
 function isCashPaymentMethod(method: string | null | undefined): boolean {
@@ -102,6 +120,13 @@ export function buildDriverWalletSettlementHistoryRow(
       : Number(input.wallet_credit_pence),
     settlement_status: input.settlement_status,
     payment_session_id: sessionId,
+    expected_driver_credit_pence: input.credit_monitoring?.expected_driver_credit_pence ?? null,
+    actual_driver_credit_pence: input.credit_monitoring?.actual_driver_credit_pence ?? null,
+    credit_difference_pence: input.credit_monitoring?.credit_difference_pence ?? null,
+    driver_credit_health: input.credit_monitoring?.driver_credit_health ?? null,
+    credit_eligibility_at: input.credit_monitoring?.credit_eligibility_at ?? null,
+    is_diagnostic_projection: input.credit_monitoring?.is_diagnostic_projection ?? false,
+    diagnostic_label: input.credit_monitoring?.diagnostic_label ?? null,
   };
 }
 

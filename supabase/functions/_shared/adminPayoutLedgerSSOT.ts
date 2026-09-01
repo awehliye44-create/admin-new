@@ -73,6 +73,8 @@ export type AdminPayoutLedgerListRequest = {
   date_from?: string | null;
   date_to?: string | null;
   limit?: number;
+  /** When true, return only payout items with credit integrity exceptions. */
+  credit_exceptions_only?: boolean | null;
 };
 
 export type AdminPayoutLedgerItemRow = {
@@ -120,6 +122,13 @@ export type AdminPayoutLedgerItemRow = {
     can_cancel: boolean;
     can_inspect_provider: boolean;
   };
+  /** Pre-payout integrity — consumes valid Driver Wallet entries only. */
+  credit_integrity_status?: string | null;
+  trip_id?: string | null;
+  driver_credit_health?: string | null;
+  expected_driver_credit_pence?: number | null;
+  actual_driver_credit_pence?: number | null;
+  credit_difference_pence?: number | null;
 };
 
 export type DriverPayoutAccountRow = {
@@ -413,6 +422,8 @@ export type AdminPayoutLedgerListResponse = {
     unverified_accounts?: number;
     next_batch_amount_pence?: number;
     next_batch_driver_count?: number;
+    credit_exception_item_count?: number;
+    credit_exception_difference_pence?: number | null;
   };
   error?: string;
 };

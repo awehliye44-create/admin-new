@@ -9,6 +9,13 @@ export function tripSettlementRecoverUrl(tripId: string, tripCode?: string | nul
   return `/trip-history?${params.toString()}`;
 }
 
+/** Deep-link to Financial Reconciliation → Issues tab with optional filter. */
+export function financialReconciliationIssuesTabUrl(issueFilter?: string): string {
+  const params = new URLSearchParams({ tab: 'issues' });
+  if (issueFilter?.trim()) params.set('issueFilter', issueFilter.trim());
+  return `/financial-reconciliation?${params.toString()}`;
+}
+
 /**
  * Deep-link to Financial Reconciliation → Trips tab with payment action drawer.
  */

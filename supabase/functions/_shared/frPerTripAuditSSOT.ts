@@ -23,6 +23,11 @@ import {
   resolveFrTripAuditStatus,
   FR_TRIP_AUDIT_STATUS,
 } from "./frConsumeOnlySSOT.ts";
+import {
+  aggregateDriverCreditExceptions,
+  isDriverCreditExceptionHealth,
+  DRIVER_CREDIT_HEALTH,
+} from "./driverCreditMonitoringSSOT.ts";
 
 export const FR_PAYMENT_SESSION_RESOLUTION = {
   RESOLVED: "RESOLVED",
@@ -397,6 +402,11 @@ export type FrPerTripAuditRecord = {
   wallet_status: string | null;
   commission_status: string | null;
   fee_status: string | null;
+  driver_credit_health?: string | null;
+  expected_driver_credit_pence?: number | null;
+  actual_driver_credit_pence?: number | null;
+  credit_difference_pence?: number | null;
+  credit_eligibility_at?: string | null;
   final_reconciliation_status: string;
   evidence_codes: string[];
   evaluable: boolean;
@@ -421,6 +431,7 @@ export type FrPeriodAuditSummary = {
     actual_trip_earning_net_pence: number;
     wallet_variance_pence: number;
     wallet_status: string;
+    driver_credit_health?: string | null;
   }>;
 };
 
@@ -462,6 +473,8 @@ export type FrAuditOverviewFromTripRecords = {
   pending_trip_count: number;
   matched_trip_count: number;
   mismatched_trip_count: number;
+  driver_credit_exception_trip_count: number;
+  driver_credit_exception_difference_pence: number;
 };
 
 function derivePendingReason(row: {
@@ -747,9 +760,17 @@ export function buildFrPerTripAuditRecord(args: {
     ? Math.max(0, Math.round(Number(r.driver_net_pence)))
     : null;
   const walletCreditRaw = r.wallet_credit_pence;
-  const actualWallet = walletCreditRaw != null && Number(walletCreditRaw) > 0
-    ? Math.round(Number(walletCreditRaw))
-    : (walletCreditRaw === 0 ? 0 : null);
+  const actualWallet = r.actual_driver_credit_pence != null
+    ? Math.round(Number(r.actual_driver_credit_pence))
+    : (walletCreditRaw != null && Number(walletCreditRaw) > 0
+      ? Math.round(Number(walletCreditRaw))
+      : (walletCreditRaw === 0 ? 0 : null));
+  const tips = r.tip_pence != null ? Math.max(0, Math.round(Number(r.tip_pence))) : 0;
+  const expectedCredit = r.expected_driver_credit_pence != null
+    ? Math.max(0, Math.round(Number(r.expected_driver_credit_pence)))
+    : (driverEntitlement != null
+      ? driverEntitlement + tips
+      : null);
 
   const feeClass = classifyFrProviderFeeFromSession({
     provider_processing_fee_pence: r.confirmed_provider_fee_pence != null
@@ -768,7 +789,6 @@ export function buildFrPerTripAuditRecord(args: {
   const airport = r.airport_charge_pence != null
     ? Math.max(0, Math.round(Number(r.airport_charge_pence)))
     : 0;
-  const tips = r.tip_pence != null ? Math.max(0, Math.round(Number(r.tip_pence))) : 0;
 
   const settlementIdentity = evaluateFrSettlementCaptureIdentity({
     captured_pence: captured,
@@ -780,11 +800,16 @@ export function buildFrPerTripAuditRecord(args: {
     tips_pence: tips,
   });
 
-  const walletVariance = driverEntitlement == null || actualWallet == null
-    ? (driverEntitlement != null && actualWallet === 0
-      ? 0 - driverEntitlement
-      : null)
-    : actualWallet - driverEntitlement;
+  const walletVariance = r.credit_difference_pence != null
+    ? Math.round(Number(r.credit_difference_pence))
+    : (expectedCredit == null || actualWallet == null
+      ? (expectedCredit != null && actualWallet === 0
+        ? 0 - expectedCredit
+        : null)
+      : actualWallet - expectedCredit);
+  const driverCreditHealth = r.driver_credit_health != null
+    ? String(r.driver_credit_health)
+    : null;
 
   const sessionResolution = args.session?.session_resolution_status
     ?? FR_PAYMENT_SESSION_RESOLUTION.RESOLVED;
@@ -796,6 +821,9 @@ export function buildFrPerTripAuditRecord(args: {
   if (feeClass.fee_status === "PENDING") evidenceCodes.push("PROVIDER_FEE_PENDING");
   if (r.wallet_reconciliation_status === "WALLET_CREDIT_MISSING") {
     evidenceCodes.push("WALLET_CREDIT_MISSING");
+  }
+  if (driverCreditHealth && isDriverCreditExceptionHealth(driverCreditHealth)) {
+    evidenceCodes.push(`DRIVER_CREDIT_${driverCreditHealth}`);
   }
   if (settlementIdentity.evaluable && !settlementIdentity.balanced) {
     evidenceCodes.push("SETTLEMENT_IDENTITY_MISMATCH");
@@ -863,12 +891,17 @@ export function buildFrPerTripAuditRecord(args: {
     gross_commission_pence: grossCommission,
     commission_after_applied_promotion_pence: commissionAfter,
     commission_after_promotion_pence: commissionAfter, // alias
-    driver_entitlement_pence: driverEntitlement,
+    driver_entitlement_pence: expectedCredit,
     actual_trip_earning_net_pence: actualWallet,
     capture_variance_pence: settlementIdentity.variance_pence,
     wallet_variance_pence: walletVariance,
     capture_status: String(r.capture_reconciliation_status ?? ""),
     wallet_status: String(r.wallet_reconciliation_status ?? ""),
+    driver_credit_health: driverCreditHealth,
+    expected_driver_credit_pence: expectedCredit,
+    actual_driver_credit_pence: actualWallet,
+    credit_difference_pence: walletVariance,
+    credit_eligibility_at: (r.credit_eligibility_at as string | null) ?? null,
     commission_status: settlementIdentity.evaluable
       ? (settlementIdentity.balanced ? "COMMISSION_MATCHED" : "COMMISSION_MISMATCH")
       : "COMMISSION_PENDING",
@@ -1016,13 +1049,21 @@ export function aggregateFrOverviewFromPerTripRecords(
     }
     if (releaseStatus === "RELEASE_AMOUNT_UNCONFIRMED") releaseUnconfirmed += 1;
 
-    const walletStatus = String(rec.wallet_status ?? "");
-    if (walletStatus === "WALLET_CREDIT_MISSING") missingWallet += 1;
+    const walletStatus = String(rec.wallet_status ?? row.wallet_reconciliation_status ?? "");
+    const driverCreditHealth = String(row.driver_credit_health ?? "");
     if (
       walletStatus === "WALLET_CREDIT_MISSING"
+      || driverCreditHealth === DRIVER_CREDIT_HEALTH.MISSING
+    ) {
+      missingWallet += 1;
+    }
+    if (
+      isDriverCreditExceptionHealth(driverCreditHealth)
+      || walletStatus === "WALLET_CREDIT_MISSING"
       || walletStatus === "WALLET_OVER_CREDITED"
       || walletStatus === "WALLET_UNDER_CREDITED"
       || walletStatus === "WALLET_DUPLICATE"
+      || walletStatus === "WALLET_WRONG_DRIVER"
       || walletStatus === "WALLET_OVER_CREDIT"
       || walletStatus === "WALLET_UNDER_CREDIT"
       || walletStatus === "DUPLICATE_WALLET_CREDIT"
@@ -1077,6 +1118,7 @@ export function aggregateFrOverviewFromPerTripRecords(
       || walletStatus === "WALLET_OVER_CREDITED"
       || walletStatus === "WALLET_UNDER_CREDITED"
       || walletStatus === "WALLET_DUPLICATE"
+      || walletStatus === "WALLET_WRONG_DRIVER"
       || walletStatus === "WALLET_OVER_CREDIT"
       || walletStatus === "WALLET_UNDER_CREDIT"
       || walletStatus === "DUPLICATE_WALLET_CREDIT"
@@ -1087,6 +1129,14 @@ export function aggregateFrOverviewFromPerTripRecords(
   }
 
   const identityBalanced = identityEvaluableCount > 0 && identityVariance === 0;
+  const creditAgg = aggregateDriverCreditExceptions(
+    auditRows.map((row) => ({
+      driver_credit_health: row.driver_credit_health as string | null | undefined,
+      credit_difference_pence: row.credit_difference_pence as number | null | undefined,
+      expected_driver_credit_pence: row.expected_driver_credit_pence as number | null | undefined,
+      actual_driver_credit_pence: row.actual_driver_credit_pence as number | null | undefined,
+    })),
+  );
 
   return {
     completed_trip_fare_total_pence: fare,
@@ -1126,6 +1176,8 @@ export function aggregateFrOverviewFromPerTripRecords(
     pending_trip_count: pending,
     matched_trip_count: matched,
     mismatched_trip_count: mismatched,
+    driver_credit_exception_trip_count: creditAgg.exception_trip_count,
+    driver_credit_exception_difference_pence: creditAgg.total_difference_pence,
   };
 }
 
@@ -1142,6 +1194,9 @@ export function buildFrPeriodAuditSummary(
 
   const walletGapTrips = records
     .filter((r) => {
+      if (r.driver_credit_health && isDriverCreditExceptionHealth(r.driver_credit_health)) {
+        return true;
+      }
       const ws = r.wallet_status;
       return ws === "WALLET_CREDIT_MISSING"
         || ws === "WALLET_UNDER_CREDITED"
@@ -1149,15 +1204,17 @@ export function buildFrPeriodAuditSummary(
         || ws === "WALLET_OVER_CREDITED"
         || ws === "WALLET_OVER_CREDIT"
         || ws === "WALLET_DUPLICATE"
+        || ws === "WALLET_WRONG_DRIVER"
         || ws === "DUPLICATE_WALLET_CREDIT";
     })
     .map((r) => ({
       trip_id: r.trip_id,
       trip_code: r.trip_code,
-      expected_driver_entitlement_pence: r.driver_entitlement_pence ?? 0,
-      actual_trip_earning_net_pence: r.actual_trip_earning_net_pence ?? 0,
-      wallet_variance_pence: r.wallet_variance_pence ?? 0,
-      wallet_status: String(r.wallet_status ?? "UNKNOWN"),
+      expected_driver_entitlement_pence: r.expected_driver_credit_pence ?? r.driver_entitlement_pence ?? 0,
+      actual_trip_earning_net_pence: r.actual_driver_credit_pence ?? r.actual_trip_earning_net_pence ?? 0,
+      wallet_variance_pence: r.credit_difference_pence ?? r.wallet_variance_pence ?? 0,
+      wallet_status: String(r.driver_credit_health ?? r.wallet_status ?? "UNKNOWN"),
+      driver_credit_health: r.driver_credit_health ?? null,
     }));
 
   const walletGapTotal = walletGapTrips.reduce(

@@ -23,6 +23,13 @@ import {
 } from "../../../shared/driverPayoutBatchDisplaySSOT.ts";
 import { orchestratorBlockerLabel } from "../../../shared/weeklyPayoutOrchestratorSSOT.ts";
 import { resolvePlatformCollectedDriverIds } from "./platformCollectedDriverScope.ts";
+import {
+  buildPaymentSessionDriverCreditFields,
+  classifyPayoutCreditIntegrity,
+  aggregateDriverCreditExceptions,
+  PAYOUT_CREDIT_INTEGRITY,
+} from "./driverCreditMonitoringSSOT.ts";
+import { loadDriverCreditPaymentSessionContextByTripId } from "./driverCreditPaymentSessionContextSSOT.ts";
 
 const PROCESSING = new Set(["processing", "in_progress", "submitted", "pending_provider"]);
 const SCHEDULED = new Set(["pending", "scheduled", "queued", "on_hold"]);
@@ -62,6 +69,8 @@ function emptySummary(): AdminPayoutLedgerListResponse["summary"] {
     total_paid_week_pence: null,
     total_paid_month_pence: null,
     total_paid_year_pence: null,
+    credit_exception_item_count: 0,
+    credit_exception_difference_pence: 0,
   };
 }
 
@@ -925,6 +934,83 @@ async function listCompanyAudit(
   };
 }
 
+type DriverCreditTripFields = {
+  driver_credit_health: string;
+  expected_driver_credit_pence: number | null;
+  actual_driver_credit_pence: number | null;
+  credit_difference_pence: number | null;
+};
+
+async function loadDriverCreditByTripId(
+  supabase: SupabaseClient,
+  tripIds: string[],
+): Promise<Map<string, DriverCreditTripFields>> {
+  const out = new Map<string, DriverCreditTripFields>();
+  if (tripIds.length === 0) return out;
+
+  const { data: trips, error: tripErr } = await supabase
+    .from("trips")
+    .select(
+      "id, driver_id, driver_net_pence, tip_pence, tip_amount_pence, financial_model, status, completed_at",
+    )
+    .in("id", tripIds);
+  if (tripErr) {
+    console.warn("[admin-payout-ledger] driver credit trip fetch skipped", tripErr.message);
+    return out;
+  }
+
+  const [{ data: ledgerRows, error: ledgerErr }, sessionContextByTripId] = await Promise.all([
+    supabase
+      .from("driver_wallet_ledger")
+      .select("related_trip_id, type, amount_pence, driver_id")
+      .in("related_trip_id", tripIds),
+    loadDriverCreditPaymentSessionContextByTripId(supabase, tripIds),
+  ]);
+
+  const ledgerByTripId = new Map<string, Array<{ type: string; amount_pence: number; driver_id: string | null }>>();
+  for (const entry of ledgerRows ?? []) {
+    const tripId = entry.related_trip_id == null ? null : String(entry.related_trip_id);
+    if (!tripId) continue;
+    const list = ledgerByTripId.get(tripId) ?? [];
+    list.push({
+      type: String(entry.type),
+      amount_pence: Number(entry.amount_pence),
+      driver_id: entry.driver_id == null ? null : String(entry.driver_id),
+    });
+    ledgerByTripId.set(tripId, list);
+  }
+
+  for (const trip of trips ?? []) {
+    const tripId = String(trip.id);
+    const tipPence = Math.max(0, Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0));
+    const session = sessionContextByTripId.get(tripId);
+    const credit = buildPaymentSessionDriverCreditFields({
+      financial_model: trip.financial_model as string | null,
+      trip_status: (trip.status as string | null) ?? "completed",
+      trip_driver_id: trip.driver_id == null ? null : String(trip.driver_id),
+      driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
+      tip_pence: tipPence,
+      ledger: ledgerByTripId.get(tripId) ?? [],
+      wallet_evidence_available: ledgerErr == null,
+      provider_state: session?.provider_state ?? null,
+      captured_pence: session?.captured_pence ?? null,
+      captured_at: session?.captured_at ?? (trip.completed_at as string | null),
+      released_pence: session?.released_pence ?? null,
+      refunded_pence: session?.refunded_pence ?? null,
+      fee_charged_at: session?.captured_at ?? (trip.completed_at as string | null),
+      purpose: session?.purpose ?? "trip_fare",
+    });
+    out.set(tripId, {
+      driver_credit_health: credit.driver_credit_health,
+      expected_driver_credit_pence: credit.expected_driver_credit_pence,
+      actual_driver_credit_pence: credit.actual_driver_credit_pence,
+      credit_difference_pence: credit.credit_difference_pence,
+    });
+  }
+
+  return out;
+}
+
 export async function listAdminPayoutLedger(
   supabase: SupabaseClient,
   request: AdminPayoutLedgerListRequest = {},
@@ -1099,6 +1185,13 @@ export async function listAdminPayoutLedger(
     : null;
   const platformDriverSet = platformDriverIds ? new Set(platformDriverIds) : null;
 
+  const tripIds = [...new Set(
+    (rawItems ?? [])
+      .map((i) => (i.trip_id == null ? null : String(i.trip_id)))
+      .filter((id): id is string => Boolean(id)),
+  )];
+  const creditByTripId = await loadDriverCreditByTripId(supabase, tripIds);
+
   const items: AdminPayoutLedgerItemRow[] = [];
   for (const raw of rawItems ?? []) {
     const status = normaliseStatus(raw.status as string | null);
@@ -1132,6 +1225,10 @@ export async function listAdminPayoutLedger(
     const reservationStatus = reservation?.status ?? null;
     const releaseReason = reservation?.release_reason ?? null;
     const walletLedgerEntryId = (raw.ledger_entry_id as string | null) ?? null;
+    const tripId = raw.trip_id == null ? null : String(raw.trip_id);
+    const tripCredit = tripId ? creditByTripId.get(tripId) : null;
+    const driverCreditHealth = tripCredit?.driver_credit_health
+      ?? (walletLedgerEntryId && !tripId ? "OK" : "MISSING");
     const failureReason = (raw.failure_reason as string | null)
       ?? (raw.error_message as string | null)
       ?? null;
@@ -1156,6 +1253,7 @@ export async function listAdminPayoutLedger(
       service_area_name: serviceAreaId ? (serviceAreaNameById.get(serviceAreaId) ?? null) : null,
       payout_type: (raw.payout_type as string | null) ?? null,
       batch_id: (raw.batch_id as string | null) ?? null,
+      trip_id: tripId,
       gross_wallet_debit_pence: amount,
       fees_pence: fees,
       net_bank_transfer_pence: net,
@@ -1184,6 +1282,16 @@ export async function listAdminPayoutLedger(
       wallet_ledger_entry_id: walletLedgerEntryId,
       allocation_count: allocationCountByItem.get(String(raw.id)) ?? 0,
       action_policy: actionPolicyForStatus(String(raw.status ?? "")),
+      credit_integrity_status: classifyPayoutCreditIntegrity({
+        wallet_ledger_entry_id: walletLedgerEntryId,
+        payout_status: String(raw.status ?? ""),
+        reservation_status: reservationStatus,
+        driver_credit_health: driverCreditHealth,
+      }),
+      driver_credit_health: driverCreditHealth,
+      expected_driver_credit_pence: tripCredit?.expected_driver_credit_pence ?? null,
+      actual_driver_credit_pence: tripCredit?.actual_driver_credit_pence ?? null,
+      credit_difference_pence: tripCredit?.credit_difference_pence ?? null,
     });
   }
 
@@ -1205,7 +1313,20 @@ export async function listAdminPayoutLedger(
     )
   );
 
-  const sliced = items.slice(0, limit);
+  const creditAgg = aggregateDriverCreditExceptions(
+    items
+      .filter((item) => item.credit_integrity_status === PAYOUT_CREDIT_INTEGRITY.CREDIT_EXCEPTION)
+      .map((item) => ({
+        driver_credit_health: item.driver_credit_health ?? "MISSING",
+        expected_driver_credit_pence: item.expected_driver_credit_pence,
+        actual_driver_credit_pence: item.actual_driver_credit_pence,
+        credit_difference_pence: item.credit_difference_pence,
+      })),
+  );
+  const listedItems = request.credit_exceptions_only === true
+    ? items.filter((item) => item.credit_integrity_status === PAYOUT_CREDIT_INTEGRITY.CREDIT_EXCEPTION)
+    : items;
+  const sliced = listedItems.slice(0, limit);
 
   // Calendar KPIs from a wider window (not the page slice).
   let kpiQuery = supabase
@@ -1311,6 +1432,8 @@ export async function listAdminPayoutLedger(
       total_paid_week_pence: paidWeek > 0 ? paidWeek : null,
       total_paid_month_pence: paidMonth > 0 ? paidMonth : null,
       total_paid_year_pence: paidYear > 0 ? paidYear : null,
+      credit_exception_item_count: creditAgg.exception_trip_count,
+      credit_exception_difference_pence: creditAgg.total_difference_pence,
     },
   };
 }

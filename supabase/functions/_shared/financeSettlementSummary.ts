@@ -24,13 +24,18 @@ import {
   classifyProviderVerificationStatus,
   classifyRefundReconciliation,
   classifyReleaseReconciliation,
-  classifyWalletReconciliation,
   evaluateSettlementCaptureIdentity,
   onecabNetFromSessionFee,
   resolveFrTripAuditStatus,
-  sumTripWalletEarningCreditPence,
   type CaptureReconciliationStatus,
 } from "./frTripAuditComparisonSSOT.ts";
+import {
+  classifyDriverCreditHealth,
+  isDriverCreditExceptionHealth,
+  mapDriverCreditHealthToWalletReconciliationStatus,
+  sumActiveDriverWalletCreditForTrip,
+  TERMINAL_FEE_TRIP_STATUSES,
+} from "./driverCreditMonitoringSSOT.ts";
 import {
   captureClassificationToMatchStatus,
   readPersistedCaptureBreakdown,
@@ -577,6 +582,12 @@ export type TripFinancialAuditRow = {
   platform_promotion_subsidy_pence?: number | null;
   /** Authoritative consume-only trip audit status. WALLET_MISMATCH is displayed/filtered. */
   fr_trip_audit_status?: string | null;
+  /** Canonical driver credit health (OK / MISSING / …). FR primary detection owner. */
+  driver_credit_health?: string | null;
+  expected_driver_credit_pence?: number | null;
+  actual_driver_credit_pence?: number | null;
+  credit_difference_pence?: number | null;
+  credit_eligibility_at?: string | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
@@ -884,10 +895,15 @@ export function mapTripToFinancialAuditRow(
       outstanding_balance_pence: row.outstanding_balance_pence,
     });
 
-  // Expected driver net = trip settlement snapshot. Actual wallet = ledger TRIP_EARNING_NET.
+  // Expected driver net = trip settlement snapshot. Actual wallet = ledger earning credits.
   const expectedDriverNet = tripDriverNetPence(row);
-  const walletEarning = sumTripWalletEarningCreditPence(ledger);
-  const walletCredit = walletEarning.credit_pence;
+  const walletEarning = sumActiveDriverWalletCreditForTrip({
+    ledger,
+    trip_driver_id: row.driver_id ?? null,
+  });
+  const walletCredit = walletEarning.correct_driver_credit_pence > 0
+    ? walletEarning.correct_driver_credit_pence
+    : null;
   const debtRecovered = getTripDebtRecoveredPence(ledger);
   const availablePayoutCreated = getTripAvailablePayoutCreatedPence({
     driverNetPence: expectedDriverNet,
@@ -1007,15 +1023,28 @@ export function mapTripToFinancialAuditRow(
   const displayedWalletCredit = walletEvidenceAvailable
     ? (walletCredit ?? 0)
     : walletCredit;
-  const walletVariancePence = expectedDriverNet == null || !walletEvidenceAvailable
-    ? null
-    : displayedWalletCredit! - expectedDriverNet;
-  const wallet_reconciliation_status = classifyWalletReconciliation({
-    walletEvidenceAvailable,
-    expected_driver_net_pence: expectedDriverNet,
-    actual_wallet_credit_pence: walletCredit,
-    duplicate_wallet_credit: walletEarning.entry_count > 1,
+  const driverCredit = classifyDriverCreditHealth({
+    financial_model: row.financial_model ?? null,
+    trip_status: row.status ?? null,
+    trip_driver_id: row.driver_id ?? null,
+    driver_net_pence: expectedDriverNet,
+    tip_pence: tipPence,
+    ledger,
+    wallet_evidence_available: walletEvidenceAvailable,
+    provider_state: provider_state,
+    captured_pence: captured,
+    captured_at: provider_verified_at ?? row.completed_at ?? null,
+    released_pence: releasedPence,
+    refunded_pence: refunded,
+    fee_charged_at: provider_verified_at ?? row.completed_at ?? null,
+    is_terminal_fee_session: TERMINAL_FEE_TRIP_STATUSES.has(String(row.status ?? "").toLowerCase()),
   });
+  const walletVariancePence = walletEvidenceAvailable
+    ? driverCredit.credit_difference_pence
+    : null;
+  const wallet_reconciliation_status = mapDriverCreditHealthToWalletReconciliationStatus(
+    driverCredit.health,
+  );
   const payoutItems = context.payoutsByTripId.get(row.id) ?? [];
   const payoutEvidenceAvailable = context.payoutsByTripId != null;
   const payoutAmount = payoutItems.reduce(
@@ -1085,14 +1114,7 @@ export function mapTripToFinancialAuditRow(
     tips_pence: tipPence,
   });
   const settlementIdentityBalanced = settlementIdentity.balanced;
-  const walletMismatchDiagnostic =
-    wallet_reconciliation_status === "WALLET_CREDIT_MISSING"
-    || wallet_reconciliation_status === "WALLET_OVER_CREDITED"
-    || wallet_reconciliation_status === "WALLET_UNDER_CREDITED"
-    || wallet_reconciliation_status === "WALLET_DUPLICATE"
-    || wallet_reconciliation_status === "WALLET_OVER_CREDIT"
-    || wallet_reconciliation_status === "WALLET_UNDER_CREDIT"
-    || wallet_reconciliation_status === "DUPLICATE_WALLET_CREDIT";
+  const walletMismatchDiagnostic = isDriverCreditExceptionHealth(driverCredit.health);
   // WALLET_MISMATCH is the authoritative displayed status. Do not replace it with a
   // competing SETTLEMENT_MISMATCH when the wallet diagnostic already fired.
   if (settlementIdentity.evaluable && !settlementIdentityBalanced && !walletMismatchDiagnostic) {
@@ -1168,7 +1190,14 @@ export function mapTripToFinancialAuditRow(
     authorised_pence: authorisedPence,
     released_pence: releasedPence,
     fee_status,
-    wallet_credit_pence: displayedWalletCredit,
+    wallet_credit_pence: walletEvidenceAvailable
+      ? (driverCredit.actual_driver_credit_pence > 0 ? driverCredit.actual_driver_credit_pence : displayedWalletCredit)
+      : displayedWalletCredit,
+    driver_credit_health: driverCredit.health,
+    expected_driver_credit_pence: driverCredit.expected_driver_credit_pence,
+    actual_driver_credit_pence: driverCredit.actual_driver_credit_pence,
+    credit_difference_pence: driverCredit.credit_difference_pence,
+    credit_eligibility_at: driverCredit.credit_eligibility_at,
     variance_pence: variancePence,
     capture_variance_pence: captureVariance,
     wallet_variance_pence: walletVariancePence,
@@ -1242,6 +1271,7 @@ export function buildTripFinancialAuditContext(args: {
     related_trip_id: string | null;
     type: string;
     amount_pence: number;
+    driver_id?: string | null;
     provider_payout_id?: string | null;
     provider_transfer_id?: string | null;
   }>;
@@ -1293,6 +1323,7 @@ export function buildTripFinancialAuditContext(args: {
     list.push({
       type: entry.type,
       amount_pence: entry.amount_pence,
+      driver_id: entry.driver_id ?? null,
       provider_payout_id: entry.provider_payout_id ?? null,
       provider_transfer_id: entry.provider_transfer_id ?? null,
     });

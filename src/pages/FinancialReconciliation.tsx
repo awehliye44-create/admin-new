@@ -11,13 +11,12 @@ import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useFinancialReconciliationSSOT } from '@/hooks/useFinancialReconciliationSSOT';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
-import { useFinanceBackendAudit } from '@/hooks/useFinanceBackendAudit';
 import { safeReconciliationStatus, formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DriverWalletSsotPanel } from '@/components/finance/DriverWalletSsotPanel';
 import { FinancialReconciliationOverviewTab } from '@/components/finance/FinancialReconciliationOverviewTab';
-import { FinancialReconciliationAlertsTab } from '@/components/finance/FinancialReconciliationAlertsTab';
 import { FinancialReconciliationTripsTab } from '@/components/finance/FinancialReconciliationTripsTab';
+import { FinancialReconciliationIssuesTab } from '@/components/finance/FinancialReconciliationIssuesTab';
 import { DigitalFinanceEraPanel } from '@/components/finance/DigitalFinanceEraPanel';
 import { FinancePanelErrorBoundary } from '@/components/finance/FinancePanelErrorBoundary';
 import { useFinanceReconciliationMoney } from '@/hooks/useFinanceReconciliationMoney';
@@ -30,37 +29,29 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { LoadingTimeout } from '@/components/LoadingTimeout';
+import { DriverCreditExceptionsBanner } from '@/components/finance/DriverCreditExceptionsBanner';
+import {
+  buildFrUnifiedIssues,
+  countFrIssuesByFilter,
+  parseFrIssueFilter,
+  parseFrTripFilter,
+  resolveFrDriverCreditBanner,
+  resolveFrTabBadgeCounts,
+  resolveLegacyFrTabIssueFilter,
+  financialReconciliationLegacyTabRedirect,
+  type FrIssueFilter,
+} from '../../shared/frIssuesSSOT';
+import { aggregateDriverCreditExceptions } from '../../shared/driverCreditMonitoringSSOT';
 
-const FR_TABS = [
-  'overview',
-  'trips',
-  'drivers',
-  'mismatches',
-  'shortfall',
-  'missing_captures',
-  'missing_releases',
-  'wallet_mismatches',
-  'payout_mismatches',
-  'alerts',
-  'history',
-] as const;
+const FR_TABS = ['overview', 'trips', 'drivers', 'issues'] as const;
 type FrTab = (typeof FR_TABS)[number];
 
 /** Tabs that need the full trip_financial_audit payload (not summary_only). */
-const FR_FULL_AUDIT_TABS: ReadonlySet<FrTab> = new Set([
-  'trips',
-  'mismatches',
-  'shortfall',
-  'missing_captures',
-  'missing_releases',
-  'wallet_mismatches',
-  'payout_mismatches',
-  'history',
-]);
+const FR_FULL_AUDIT_TABS: ReadonlySet<FrTab> = new Set(['trips', 'issues']);
 
 function parseFrTab(value: string | null): FrTab {
   if (value && (FR_TABS as readonly string[]).includes(value)) return value as FrTab;
+  if (resolveLegacyFrTabIssueFilter(value)) return 'issues';
   return 'overview';
 }
 
@@ -156,9 +147,12 @@ function FinancialReconciliationPage() {
   const {
     isLoading,
     error,
+    auditError,
     refetchFresh,
     isFetching,
     isAuditLoading,
+    isAuditScopeTransition,
+    isSummaryScopeTransition,
     readOnly,
     status: ssotStatus,
     snapshotSavedAt,
@@ -181,22 +175,9 @@ function FinancialReconciliationPage() {
   }, [refetchFresh]);
   const data = ssot.response;
 
-  const {
-    data: backendAuditData,
-    error: backendAuditError,
-    isError: backendAuditIsError,
-  } = useFinanceBackendAudit({
-    filter,
-    from: from || undefined,
-    to: to || undefined,
-    // Heavy wallet audit — only when Alerts tab is open (not on every FR paint).
-    enabled: financeScopeReady && frTab === 'alerts',
-  });
-
   const summary = ssot.summary;
   const money = useFinanceReconciliationMoney(data, filter.currencyCode);
   const ccy = money.currencyCode ?? filter.currencyCode ?? '';
-  const backendAudit = backendAuditData?.finance_backend_audit_v1;
 
   useEffect(() => {
     if (searchParams.get('recover') === '1') {
@@ -207,6 +188,8 @@ function FinancialReconciliationPage() {
       const next = new URLSearchParams(searchParams);
       next.set('tab', 'trips');
       next.delete('recover');
+      next.delete('issueFilter');
+      next.delete('tripFilter');
       setSearchParams(next, { replace: true });
       return;
     }
@@ -221,9 +204,88 @@ function FinancialReconciliationPage() {
   const clearRecoverTrip = useCallback(() => {
     setRecoverTripId(null);
     setRecoverTripCode(null);
-  }, []);
+    const next = new URLSearchParams(searchParams);
+    if (!next.has('trip') && !next.has('tripId')) return;
+    next.delete('trip');
+    next.delete('tripId');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
-  const tripAuditRows = data?.trip_financial_audit ?? [];
+  const rawTripAuditRows = data?.trip_financial_audit ?? [];
+  const tripAuditRows = isAuditScopeTransition ? [] : rawTripAuditRows;
+  const issueFilter = parseFrIssueFilter(searchParams.get('issueFilter'));
+  const tripFilter = parseFrTripFilter(searchParams.get('tripFilter'));
+  const legacyTab = searchParams.get('tab');
+
+  const unifiedIssues = useMemo(() => buildFrUnifiedIssues(tripAuditRows), [tripAuditRows]);
+  const issueCounts = useMemo(() => countFrIssuesByFilter(unifiedIssues), [unifiedIssues]);
+  const tabBadgeCounts = useMemo(
+    () => resolveFrTabBadgeCounts({
+      tripAuditRows,
+      unifiedOpenIssueCount: issueCounts.all,
+      auditOverviewKpis: (isAuditScopeTransition || isSummaryScopeTransition) ? null : data?.audit_overview_kpis,
+      metaTripCount: (isAuditScopeTransition || isSummaryScopeTransition) ? undefined : data?.meta?.trip_count,
+    }),
+    [tripAuditRows, issueCounts.all, data?.audit_overview_kpis, data?.meta?.trip_count, isAuditScopeTransition, isSummaryScopeTransition],
+  );
+  const driverCreditBanner = useMemo(
+    () => resolveFrDriverCreditBanner({
+      tripAuditRows,
+      tripAgg: aggregateDriverCreditExceptions(tripAuditRows),
+      auditOverviewKpis: (isAuditScopeTransition || isSummaryScopeTransition) ? null : data?.audit_overview_kpis,
+    }),
+    [tripAuditRows, data?.audit_overview_kpis, isAuditScopeTransition, isSummaryScopeTransition],
+  );
+
+  const periodLabel = from && to ? `${from} – ${to}` : undefined;
+  const serviceAreaLabel =
+    serviceAreas.find((sa) => sa.id === filter.serviceAreaId)?.name
+    ?? serviceAreas.find((sa) => sa.region_id === filter.regionId)?.name
+    ?? 'all';
+  const frAuditExportMeta = useMemo(() => ({
+    generatedAt: new Date().toISOString(),
+    sourceSsot: 'Financial Reconciliation audit (Payment Sessions + trip settlement + Driver Wallet Ledger + Payout Ledger)',
+    serviceArea: serviceAreaLabel,
+    currency: ccy || 'GBP',
+    formulaVersion: 'fr_trip_audit_v1',
+    unresolvedMismatches: tabBadgeCounts.openIssueCount,
+    periodLabel,
+  }), [serviceAreaLabel, ccy, tabBadgeCounts.openIssueCount, periodLabel]);
+
+  const handleDriverCreditFilter = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    if (frTab === 'trips') {
+      if (tripFilter === 'driver_credit') {
+        next.delete('tripFilter');
+      } else {
+        next.set('tripFilter', 'driver_credit');
+      }
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    if (frTab === 'issues') {
+      if (issueFilter === 'driver_credit') {
+        next.delete('issueFilter');
+      } else {
+        next.set('issueFilter', 'driver_credit');
+      }
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    next.set('tab', 'issues');
+    next.delete('tripFilter');
+    next.set('issueFilter', 'driver_credit');
+    setSearchParams(next, { replace: true });
+  }, [frTab, issueFilter, tripFilter, searchParams, setSearchParams]);
+
+  const handleIssueFilterChange = useCallback((filterValue: FrIssueFilter) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', 'issues');
+    next.delete('tripFilter');
+    if (filterValue === 'all') next.delete('issueFilter');
+    else next.set('issueFilter', filterValue);
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const frPerfRef = useRef<ReturnType<typeof startAdminPerformanceStep> | null>(null);
   useEffect(() => {
@@ -257,8 +319,46 @@ function FinancialReconciliationPage() {
   if (searchParams.get('tab') === 'connect-balance') {
     return <Navigate to="/financial-reconciliation?tab=overview" replace />;
   }
-  if (searchParams.get('tab') === 'recovery') {
-    return <Navigate to="/financial-reconciliation?tab=shortfall" replace />;
+  if (searchParams.get('driverCreditExceptions') === '1') {
+    return <Navigate to="/financial-reconciliation?tab=issues&issueFilter=driver_credit" replace />;
+  }
+  if (legacyTab && !(FR_TABS as readonly string[]).includes(legacyTab)) {
+    const redirect = financialReconciliationLegacyTabRedirect(legacyTab);
+    if (redirect) {
+      return <Navigate to={redirect} replace />;
+    }
+    return <Navigate to="/financial-reconciliation?tab=overview" replace />;
+  }
+
+  const rawIssueFilter = searchParams.get('issueFilter');
+  if (rawIssueFilter && frTab !== 'issues') {
+    const next = new URLSearchParams(searchParams);
+    next.delete('issueFilter');
+    return <Navigate to={`/financial-reconciliation?${next.toString()}`} replace />;
+  }
+  if (
+    frTab === 'issues'
+    && rawIssueFilter
+    && (rawIssueFilter !== issueFilter || rawIssueFilter === 'all')
+  ) {
+    const next = new URLSearchParams(searchParams);
+    if (issueFilter === 'all') next.delete('issueFilter');
+    else next.set('issueFilter', issueFilter);
+    return <Navigate to={`/financial-reconciliation?${next.toString()}`} replace />;
+  }
+
+  const rawTripFilter = searchParams.get('tripFilter');
+  if (rawTripFilter && (frTab !== 'trips' || !tripFilter)) {
+    const next = new URLSearchParams(searchParams);
+    next.delete('tripFilter');
+    return <Navigate to={`/financial-reconciliation?${next.toString()}`} replace />;
+  }
+
+  if (frTab !== 'trips' && (searchParams.get('trip') || searchParams.get('tripId'))) {
+    const next = new URLSearchParams(searchParams);
+    next.delete('trip');
+    next.delete('tripId');
+    return <Navigate to={`/financial-reconciliation?${next.toString()}`} replace />;
   }
 
   const lastSyncedLabel = lastSyncedAt
@@ -268,6 +368,14 @@ function FinancialReconciliationPage() {
   const setFrTab = (tab: FrTab) => {
     const next = new URLSearchParams(searchParams);
     next.set('tab', tab);
+    if (tab !== 'issues') {
+      next.delete('issueFilter');
+    }
+    if (tab !== 'trips') {
+      next.delete('tripFilter');
+      next.delete('trip');
+      next.delete('tripId');
+    }
     setSearchParams(next, { replace: true });
   };
 
@@ -346,7 +454,7 @@ function FinancialReconciliationPage() {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <FinanceSSOTBadge badge={summary ? ssotBadge : 'REFRESHING'} />
-              {reconciliationChip && (
+              {reconciliationChip && !isSummaryScopeTransition && (
                 <Badge variant={statusChipVariant(reconciliationChip)}>
                   {reconciliationChip}
                 </Badge>
@@ -369,31 +477,16 @@ function FinancialReconciliationPage() {
           </div>
         </div>
 
-        <LoadingTimeout
-          isLoading={isLoading && !summary}
-          sectionLabel="reconciliation overview"
-          loadingText="Loading reconciliation overview…"
-          onRetry={() => void handleRefreshFinance()}
-          allowPartialContent
-        >
-          {!summary ? (
-            <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-              Preparing overview cards…
-            </div>
-          ) : null}
-        </LoadingTimeout>
+        {(!summary || (frTab === 'overview' && isSummaryScopeTransition)) ? (
+          <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+            Loading reconciliation overview…
+          </div>
+        ) : null}
 
-        {isAuditLoading ? (
-          <LoadingTimeout
-            isLoading
-            sectionLabel="reconciliation audit"
-            loadingText="Loading reconciliation audit…"
-            allowPartialContent
-          >
-            <p className="text-xs text-muted-foreground px-1">
-              Overview cards stay available while the trip audit loads.
-            </p>
-          </LoadingTimeout>
+        {isAuditLoading && (frTab === 'trips' || frTab === 'issues') ? (
+          <p className="text-xs text-muted-foreground px-1">
+            Loading trip audit for {frTab === 'trips' ? 'Trips' : 'Issues'}…
+          </p>
         ) : null}
 
         {ssotStatus === 'DEGRADED_SNAPSHOT' && (
@@ -456,55 +549,55 @@ function FinancialReconciliationPage() {
             </AlertDescription>
           </Alert>
         )}
-        {backendAuditIsError && (
-          <Alert>
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Backend wallet audit unavailable</AlertTitle>
-            <AlertDescription>
-              Trip and wallet SSOT tabs still load. Alerts may omit ledger/payout integrity rows until{' '}
-              <code>finance-backend-audit-v1</code> recovers.
-              {backendAuditError instanceof Error ? ` ${backendAuditError.message}` : null}
-            </AlertDescription>
-          </Alert>
-        )}
-
         <DigitalFinanceEraPanel />
+
+        <DriverCreditExceptionsBanner
+          exceptionTripCount={driverCreditBanner.exception_trip_count}
+          totalDifferencePence={driverCreditBanner.total_difference_pence}
+          currencyCode={ccy || 'GBP'}
+          onFilterExceptions={handleDriverCreditFilter}
+          active={
+            (frTab === 'trips' && tripFilter === 'driver_credit')
+            || (frTab === 'issues' && issueFilter === 'driver_credit')
+          }
+        />
 
         <Tabs value={frTab} onValueChange={(v) => setFrTab(v as FrTab)}>
           <TabsList className="flex flex-wrap h-auto gap-1">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="trips">Trips ({tripAuditRows.length})</TabsTrigger>
+            <TabsTrigger value="trips">
+              Trips{tabBadgeCounts.periodTripCount > 0 ? ` (${tabBadgeCounts.periodTripCount})` : ''}
+            </TabsTrigger>
             <TabsTrigger value="drivers">Drivers</TabsTrigger>
-            <TabsTrigger value="mismatches">Mismatches</TabsTrigger>
-            <TabsTrigger value="shortfall">Shortfalls</TabsTrigger>
-            <TabsTrigger value="missing_captures">Missing Captures</TabsTrigger>
-            <TabsTrigger value="missing_releases">Missing Releases</TabsTrigger>
-            <TabsTrigger value="wallet_mismatches">Wallet Mismatches</TabsTrigger>
-            <TabsTrigger value="payout_mismatches">Payout Mismatches</TabsTrigger>
-            <TabsTrigger value="alerts">Alerts</TabsTrigger>
-            <TabsTrigger value="history">Resolved History</TabsTrigger>
+            <TabsTrigger value="issues">
+              Issues{tabBadgeCounts.openIssueCount > 0 ? ` (${tabBadgeCounts.openIssueCount})` : ''}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-4">
-            <FinancePanelErrorBoundary panelName="Overview">
-              {summary ? (
-                <FinancialReconciliationOverviewTab
-                  ssot={ssot}
-                  platformKpis={data?.platform_kpis}
-                  auditOverviewKpis={data?.audit_overview_kpis}
-                  money={money}
-                  currencyGroups={data?.currency_groups}
-                  serviceAreaGateways={data?.service_area_payment_gateways}
-                  readOnly={readOnly}
-                  onRefresh={() => void handleRefreshFinance()}
-                  isRefreshing={isFinanceRefreshing}
-                />
-              ) : (
-                <div className="py-8 text-center text-sm text-muted-foreground">
-                  Loading overview…
-                </div>
-              )}
-            </FinancePanelErrorBoundary>
+            {frTab === 'overview' && (
+              <FinancePanelErrorBoundary panelName="Overview">
+                {summary && !isSummaryScopeTransition ? (
+                  <FinancialReconciliationOverviewTab
+                    ssot={ssot}
+                    auditOverviewKpis={isSummaryScopeTransition ? null : data?.audit_overview_kpis}
+                    money={money}
+                    currencyGroups={isSummaryScopeTransition ? undefined : data?.currency_groups}
+                    filter={filter}
+                    from={from || undefined}
+                    to={to || undefined}
+                    openIssueCount={tabBadgeCounts.openIssueCount}
+                    readOnly={readOnly}
+                    onRefresh={() => void handleRefreshFinance()}
+                    isRefreshing={isFinanceRefreshing}
+                  />
+                ) : (
+                  <div className="py-8 text-center text-sm text-muted-foreground">
+                    Loading overview…
+                  </div>
+                )}
+              </FinancePanelErrorBoundary>
+            )}
           </TabsContent>
 
           <TabsContent value="drivers" className="mt-4">
@@ -533,12 +626,22 @@ function FinancialReconciliationPage() {
           <TabsContent value="trips" className="mt-4">
             {frTab === 'trips' && (
               <FinancePanelErrorBoundary panelName="Trips">
-                {isAuditLoading && tripAuditRows.length === 0 ? (
-                  <LoadingTimeout
-                    isLoading
-                    sectionLabel="trip audit"
-                    loadingText="Loading trip audit…"
-                  />
+                {((isAuditLoading && tripAuditRows.length === 0) || isAuditScopeTransition) ? (
+                  <div className="py-8 text-center text-sm text-muted-foreground">
+                    Loading trip audit…
+                  </div>
+                ) : auditError && tripAuditRows.length === 0 ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Trip audit unavailable</AlertTitle>
+                    <AlertDescription>{auditError.message}</AlertDescription>
+                  </Alert>
+                ) : error && tripAuditRows.length === 0 ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Trip audit unavailable</AlertTitle>
+                    <AlertDescription>
+                      {error instanceof Error ? error.message : 'Could not load trip audit for this period.'}
+                    </AlertDescription>
+                  </Alert>
                 ) : (
                   <FinancialReconciliationTripsTab
                     rows={tripAuditRows}
@@ -551,38 +654,36 @@ function FinancialReconciliationPage() {
                     initialTripId={recoverTripId}
                     initialTripCode={recoverTripCode}
                     onInitialTripConsumed={clearRecoverTrip}
+                    mode={tripFilter === 'driver_credit' ? 'driver_credit_exceptions' : 'all'}
+                    simplifiedStatus
+                    periodLabel={periodLabel}
                   />
                 )}
               </FinancePanelErrorBoundary>
             )}
           </TabsContent>
 
-          <TabsContent value="alerts" className="mt-4">
-            {frTab === 'alerts' && (
-              <FinancePanelErrorBoundary panelName="Alerts">
-                <FinancialReconciliationAlertsTab
-                  ssot={ssot}
-                  backendAudit={backendAudit}
-                  backendAuditError={backendAuditIsError && backendAuditError instanceof Error ? backendAuditError : null}
-                  money={money}
-                  readOnly={readOnly}
-                />
-              </FinancePanelErrorBoundary>
-            )}
-          </TabsContent>
-
-          <TabsContent value="mismatches" className="mt-4">
-            {frTab === 'mismatches' && (
-              <FinancePanelErrorBoundary panelName="Mismatches">
-                <div className="space-y-4">
-                  <Alert>
-                    <AlertTitle>Trip mismatches</AlertTitle>
+          <TabsContent value="issues" className="mt-4">
+            {frTab === 'issues' && (
+              <FinancePanelErrorBoundary panelName="Issues">
+                {((isAuditLoading && tripAuditRows.length === 0) || isAuditScopeTransition) ? (
+                  <div className="py-8 text-center text-sm text-muted-foreground">
+                    Loading issues…
+                  </div>
+                ) : auditError && tripAuditRows.length === 0 ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Issues unavailable</AlertTitle>
+                    <AlertDescription>{auditError.message}</AlertDescription>
+                  </Alert>
+                ) : error && tripAuditRows.length === 0 ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Issues unavailable</AlertTitle>
                     <AlertDescription>
-                      Capture / reconciliation mismatches for this period. Money-movement alerts remain on the Alerts tab.
-                      Hold actions run on Payment Sessions. Financial Reconciliation never edits money.
+                      {error instanceof Error ? error.message : 'Could not load issues for this period.'}
                     </AlertDescription>
                   </Alert>
-                  <FinancialReconciliationTripsTab
+                ) : (
+                  <FinancialReconciliationIssuesTab
                     rows={tripAuditRows}
                     money={money}
                     readOnly={readOnly}
@@ -590,169 +691,12 @@ function FinancialReconciliationPage() {
                     lastSyncedAt={lastSyncedAt}
                     isRefreshing={isFinanceRefreshing}
                     onRefresh={() => void handleRefreshFinance()}
-                    mode="mismatches"
+                    issueFilter={issueFilter}
+                    onIssueFilterChange={handleIssueFilterChange}
+                    periodLabel={periodLabel}
+                    exportMeta={frAuditExportMeta}
                   />
-                </div>
-              </FinancePanelErrorBoundary>
-            )}
-          </TabsContent>
-
-          <TabsContent value="shortfall" className="mt-4">
-            {frTab === 'shortfall' && (
-              <FinancePanelErrorBoundary panelName="Shortfall">
-                <div className="space-y-4">
-                  <Alert>
-                    <AlertTitle>Shortfall (read-only)</AlertTitle>
-                    <AlertDescription>
-                      Trips with outstanding customer payable. Recovery actions live on Payment Sessions.
-                    </AlertDescription>
-                  </Alert>
-                  <FinancialReconciliationTripsTab
-                    rows={tripAuditRows}
-                    money={money}
-                    readOnly={readOnly}
-                    ssotBadge={ssotBadge}
-                    lastSyncedAt={lastSyncedAt}
-                    isRefreshing={isFinanceRefreshing}
-                    onRefresh={() => void handleRefreshFinance()}
-                    mode="shortfall"
-                  />
-                </div>
-              </FinancePanelErrorBoundary>
-            )}
-          </TabsContent>
-
-          <TabsContent value="missing_captures" className="mt-4">
-            {frTab === 'missing_captures' && (
-              <FinancePanelErrorBoundary panelName="Missing Captures">
-                <div className="space-y-4">
-                  <Alert>
-                    <AlertTitle>Missing captures (read-only)</AlertTitle>
-                    <AlertDescription>
-                      Authorised or payable trips without confirmed capture evidence. Capture lifecycle is owned by Payment Sessions.
-                    </AlertDescription>
-                  </Alert>
-                  <FinancialReconciliationTripsTab
-                    rows={tripAuditRows}
-                    money={money}
-                    readOnly={readOnly}
-                    ssotBadge={ssotBadge}
-                    lastSyncedAt={lastSyncedAt}
-                    isRefreshing={isFinanceRefreshing}
-                    onRefresh={() => void handleRefreshFinance()}
-                    mode="missing_captures"
-                  />
-                </div>
-              </FinancePanelErrorBoundary>
-            )}
-          </TabsContent>
-
-          <TabsContent value="missing_releases" className="mt-4">
-            {frTab === 'missing_releases' && (
-              <FinancePanelErrorBoundary panelName="Missing Releases">
-                <div className="space-y-4">
-                  <Alert>
-                    <AlertTitle>Missing releases (read-only)</AlertTitle>
-                    <AlertDescription>
-                      Authorised holds without release or capture. Release / retry lives on Payment Sessions.
-                    </AlertDescription>
-                  </Alert>
-                  <FinancialReconciliationTripsTab
-                    rows={tripAuditRows}
-                    money={money}
-                    readOnly={readOnly}
-                    ssotBadge={ssotBadge}
-                    lastSyncedAt={lastSyncedAt}
-                    isRefreshing={isFinanceRefreshing}
-                    onRefresh={() => void handleRefreshFinance()}
-                    mode="missing_releases"
-                  />
-                </div>
-              </FinancePanelErrorBoundary>
-            )}
-          </TabsContent>
-
-          <TabsContent value="wallet_mismatches" className="mt-4">
-            {frTab === 'wallet_mismatches' && (
-              <FinancePanelErrorBoundary panelName="Wallet Mismatches">
-                <div className="space-y-4">
-                  <Alert>
-                    <AlertTitle>Wallet mismatches (read-only)</AlertTitle>
-                    <AlertDescription>
-                      Driver net vs wallet credit variance. Credits are owned by Driver Wallet Ledger — open Wallet to investigate.
-                      Financial Reconciliation never creates or alters wallet entries.
-                    </AlertDescription>
-                  </Alert>
-                  <FinancialReconciliationTripsTab
-                    rows={tripAuditRows}
-                    money={money}
-                    readOnly={readOnly}
-                    ssotBadge={ssotBadge}
-                    lastSyncedAt={lastSyncedAt}
-                    isRefreshing={isFinanceRefreshing}
-                    onRefresh={() => void handleRefreshFinance()}
-                    mode="wallet_mismatches"
-                  />
-                </div>
-              </FinancePanelErrorBoundary>
-            )}
-          </TabsContent>
-
-          <TabsContent value="payout_mismatches" className="mt-4">
-            {frTab === 'payout_mismatches' && (
-              <FinancePanelErrorBoundary panelName="Payout Mismatches">
-                <div className="space-y-4">
-                  <Alert>
-                    <AlertTitle>Payout mismatches (read-only)</AlertTitle>
-                    <AlertDescription>
-                      Trip payout badge failures / mismatches. Execution is owned by Payout Ledger — this page never executes transfers.
-                    </AlertDescription>
-                  </Alert>
-                  <FinancialReconciliationTripsTab
-                    rows={tripAuditRows}
-                    money={money}
-                    readOnly={readOnly}
-                    ssotBadge={ssotBadge}
-                    lastSyncedAt={lastSyncedAt}
-                    isRefreshing={isFinanceRefreshing}
-                    onRefresh={() => void handleRefreshFinance()}
-                    mode="payout_mismatches"
-                  />
-                </div>
-              </FinancePanelErrorBoundary>
-            )}
-          </TabsContent>
-
-          <TabsContent value="history" className="mt-4">
-            {frTab === 'history' && (
-              <FinancePanelErrorBoundary panelName="Resolved History">
-                <div className="space-y-4">
-                  <Alert>
-                    <AlertTitle>Resolved History</AlertTitle>
-                    <AlertDescription className="space-y-2">
-                      <p>
-                        Balanced trip reconciliations for this period. Hold release history lives on{' '}
-                        <Link
-                          to={paymentSessionsUrl({ tab: 'history' })}
-                          className="underline font-medium"
-                        >
-                          Payment Sessions History
-                        </Link>
-                        .
-                      </p>
-                    </AlertDescription>
-                  </Alert>
-                  <FinancialReconciliationTripsTab
-                    rows={tripAuditRows}
-                    money={money}
-                    readOnly={readOnly}
-                    ssotBadge={ssotBadge}
-                    lastSyncedAt={lastSyncedAt}
-                    isRefreshing={isFinanceRefreshing}
-                    onRefresh={() => void handleRefreshFinance()}
-                    mode="resolved"
-                  />
-                </div>
+                )}
               </FinancePanelErrorBoundary>
             )}
           </TabsContent>

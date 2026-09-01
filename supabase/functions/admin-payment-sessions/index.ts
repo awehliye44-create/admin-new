@@ -42,6 +42,7 @@ const InputSchema = z.object({
   payment_session_id: z.string().uuid().nullable().optional(),
   provider_order_id: z.string().nullable().optional(),
   trip_id: z.string().uuid().nullable().optional(),
+  driver_credit_exceptions_only: z.boolean().nullable().optional(),
 });
 
 serve(async (req) => {

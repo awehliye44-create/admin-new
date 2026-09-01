@@ -10,6 +10,7 @@ import type { DriverWalletSsotRow, DriverWalletSettlementHistoryRow } from '@/ho
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { isDriverCreditExceptionHealth } from '../../../shared/driverCreditMonitoringSSOT';
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -28,10 +29,12 @@ export function DriverWalletSettlementTab({
   driver,
   currencyCode = 'GBP',
   isLoading,
+  exceptionsOnly = false,
 }: {
   driver: DriverWalletSsotRow | null | undefined;
   currencyCode?: string;
   isLoading?: boolean;
+  exceptionsOnly?: boolean;
 }) {
   if (isLoading) {
     return (
@@ -51,6 +54,9 @@ export function DriverWalletSettlementTab({
   }
 
   const rows = (driver.settlement_history ?? []) as DriverWalletSettlementHistoryRow[];
+  const displayRows = exceptionsOnly
+    ? rows.filter((row) => isDriverCreditExceptionHealth(row.driver_credit_health))
+    : rows;
 
   return (
     <div className="space-y-3">
@@ -72,24 +78,34 @@ export function DriverWalletSettlementTab({
               <TableHead className="text-right">Platform Commission</TableHead>
               <TableHead className="text-right">Driver Commission %</TableHead>
               <TableHead className="text-right">Driver Net</TableHead>
+              <TableHead className="text-right">Expected Credit</TableHead>
+              <TableHead className="text-right">Actual Credit</TableHead>
+              <TableHead className="text-right">Credit Diff</TableHead>
+              <TableHead>Credit Health</TableHead>
               <TableHead className="text-right">Wallet Credit</TableHead>
+              <TableHead>Eligibility</TableHead>
               <TableHead>Settlement Status</TableHead>
               <TableHead>Linked Payment Session</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.length === 0 ? (
+            {displayRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={19} className="text-center text-muted-foreground py-8">
                   No settlement rows for this driver.
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((row) => (
-                <TableRow key={row.settlement_id}>
+              displayRows.map((row) => (
+                <TableRow
+                  key={row.settlement_id}
+                  className={row.is_diagnostic_projection ? 'bg-destructive/5' : undefined}
+                >
                   <TableCell className="text-xs font-mono">
-                    {row.trip_id
+                    {row.is_diagnostic_projection ? (
+                      <span className="text-destructive">{row.diagnostic_label ?? 'Missing credit'}</span>
+                    ) : row.trip_id
                       ? getTripDisplayId({ trip_code: row.trip_code, id: row.trip_id })
                       : '—'}
                   </TableCell>
@@ -112,8 +128,27 @@ export function DriverWalletSettlementTab({
                   <TableCell className="text-xs text-right tabular-nums">
                     {formatNullablePence(row.driver_net_pence, currencyCode)}
                   </TableCell>
+                  <TableCell className="text-xs text-right tabular-nums">
+                    {formatNullablePence(row.expected_driver_credit_pence, currencyCode)}
+                  </TableCell>
+                  <TableCell className="text-xs text-right tabular-nums">
+                    {formatNullablePence(row.actual_driver_credit_pence, currencyCode)}
+                  </TableCell>
+                  <TableCell className="text-xs text-right tabular-nums font-medium">
+                    {formatNullablePence(row.credit_difference_pence, currencyCode)}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={isDriverCreditExceptionHealth(row.driver_credit_health) ? 'destructive' : 'outline'}
+                    >
+                      {row.driver_credit_health ?? '—'}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="text-xs text-right tabular-nums font-medium">
                     {formatNullablePence(row.wallet_credit_pence, currencyCode)}
+                  </TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">
+                    {fmtDate(row.credit_eligibility_at)}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline">{row.settlement_status ?? '—'}</Badge>
@@ -123,6 +158,13 @@ export function DriverWalletSettlementTab({
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
+                      {row.trip_id ? (
+                        <Button variant="outline" size="sm" asChild>
+                          <Link to={`/financial-reconciliation?tripId=${encodeURIComponent(row.trip_id)}&tab=trips`}>
+                            Open FR
+                          </Link>
+                        </Button>
+                      ) : null}
                       {row.trip_id ? (
                         <Button variant="outline" size="sm" asChild>
                           <Link to={`/active-trips?tripId=${encodeURIComponent(row.trip_id)}`}>

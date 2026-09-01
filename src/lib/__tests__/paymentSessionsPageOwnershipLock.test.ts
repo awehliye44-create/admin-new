@@ -94,12 +94,9 @@ describe('Payment Sessions page ownership', () => {
 describe('Financial Reconciliation retains audit ownership', () => {
   const fr = readSrc('src/components/finance/FinancialReconciliationOverviewTab.tsx');
 
-  it('still surfaces FR audit cards removed from Payment Sessions', () => {
-    expect(fr).toContain('Matched Trips');
-    expect(fr).toContain('Capture Shortfall');
-    expect(fr).toContain('Gross Overcapture');
-    expect(fr).toContain('Missing Payment Sessions');
-    expect(fr).toContain('Trips with wallet mismatches');
-    expect(fr).toContain('Reconciliation status');
+  it('surfaces period reconciliation summary on Overview', () => {
+    expect(fr).toContain('Captured revenue');
+    expect(fr).toContain('Reconciliation difference');
+    expect(fr).toContain('Open issues');
   });
 });

@@ -3,6 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { LoadingTimeout } from '@/components/LoadingTimeout';
+import { DriverCreditExceptionsBanner } from '@/components/finance/DriverCreditExceptionsBanner';
+import { isDriverCreditExceptionHealth } from '../../shared/driverCreditMonitoringSSOT';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -352,7 +354,9 @@ export default function PaymentSessions() {
   );
   const [captureFailed, setCaptureFailed] = useState(searchParams.get('captureFailed') === '1');
   const [refreshProviderState, setRefreshProviderState] = useState(false);
-  const [listOffset, setListOffset] = useState(0);
+  const [driverCreditExceptionsOnly, setDriverCreditExceptionsOnly] = useState(
+    searchParams.get('driverCreditExceptions') === '1',
+  );
 
   const [actingId, setActingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -361,6 +365,10 @@ export default function PaymentSessions() {
   const [refundRow, setRefundRow] = useState<AdminPaymentSessionsListRow | null>(null);
   const [refundAmountInput, setRefundAmountInput] = useState('');
   const [refundReason, setRefundReason] = useState('');
+
+  useEffect(() => {
+    setDriverCreditExceptionsOnly(searchParams.get('driverCreditExceptions') === '1');
+  }, [searchParams]);
 
   useEffect(() => {
     if (customerIdParam) setCustomerId(customerIdParam);
@@ -392,6 +400,7 @@ export default function PaymentSessions() {
     recoveryPending,
     providerFeesPending,
     captureFailed,
+    driverCreditExceptionsOnly,
   ]);
 
   const pageLimit = tab === 'history' || tab === 'overview' ? 100 : 100;
@@ -419,6 +428,7 @@ export default function PaymentSessions() {
       recovery_pending: recoveryPending ? true : null,
       provider_fees_pending: providerFeesPending ? true : null,
       capture_failed: captureFailed ? true : null,
+      driver_credit_exceptions_only: driverCreditExceptionsOnly ? true : null,
       ...(refreshProviderState ? { refresh_provider_state: true as const } : {}),
     }),
     [
@@ -443,6 +453,7 @@ export default function PaymentSessions() {
       recoveryPending,
       providerFeesPending,
       captureFailed,
+      driverCreditExceptionsOnly,
       refreshProviderState,
     ],
   );
@@ -790,6 +801,7 @@ export default function PaymentSessions() {
   );
 
   const rows = data?.rows ?? [];
+  const displayRows = rows;
   const summary = data?.summary;
   const filteredTotal = data?.filtered_total ?? rows.length;
   const hasMore = Boolean(data?.has_more);
@@ -1044,6 +1056,24 @@ export default function PaymentSessions() {
           </Alert>
         )}
 
+        <DriverCreditExceptionsBanner
+          exceptionTripCount={summary?.driver_credit_exception_trip_count ?? 0}
+          totalDifferencePence={summary?.driver_credit_exception_difference_pence ?? 0}
+          onFilterExceptions={() => {
+            setDriverCreditExceptionsOnly((v) => {
+              const nextActive = !v;
+              const params = new URLSearchParams(searchParams);
+              if (nextActive) params.set('driverCreditExceptions', '1');
+              else params.delete('driverCreditExceptions');
+              params.delete('offset');
+              setSearchParams(params, { replace: true });
+              setListOffset(0);
+              return nextActive;
+            });
+          }}
+          active={driverCreditExceptionsOnly}
+        />
+
         <PaymentSessionsKpiStrip
           summary={summary}
           currencyCode={serviceFilter.currencyCode ?? 'GBP'}
@@ -1144,6 +1174,10 @@ export default function PaymentSessions() {
                         <TableHead>Pre-auth Buffer</TableHead>
                         <TableHead>Authorised</TableHead>
                         <TableHead>Captured</TableHead>
+                        <TableHead>Driver Credit</TableHead>
+                        <TableHead className="text-right">Expected Credit</TableHead>
+                        <TableHead className="text-right">Actual Credit</TableHead>
+                        <TableHead className="text-right">Credit Diff</TableHead>
                         <TableHead>Difference</TableHead>
                         <TableHead>Reconciliation</TableHead>
                         <TableHead>Released</TableHead>
@@ -1160,7 +1194,7 @@ export default function PaymentSessions() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {rows.map((row) => {
+                      {displayRows.map((row) => {
                         const key = row.id;
                         const verificationLabel = (() => {
                           const v = row.provider_verification_status;
@@ -1249,6 +1283,26 @@ export default function PaymentSessions() {
                               <TableCell className="text-xs tabular-nums">
                                 {/* Money only — lifecycle / auth labels belong elsewhere. */}
                                 {formatNullablePence(row.captured_amount_pence)}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                <Badge
+                                  variant={
+                                    isDriverCreditExceptionHealth(row.driver_credit_health)
+                                      ? 'destructive'
+                                      : 'outline'
+                                  }
+                                >
+                                  {row.driver_credit_display ?? '—'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-xs tabular-nums text-right">
+                                {formatNullablePence(row.expected_driver_credit_pence)}
+                              </TableCell>
+                              <TableCell className="text-xs tabular-nums text-right">
+                                {formatNullablePence(row.actual_driver_credit_pence)}
+                              </TableCell>
+                              <TableCell className="text-xs tabular-nums text-right">
+                                {formatNullablePence(row.credit_difference_pence)}
                               </TableCell>
                               <TableCell className="text-xs tabular-nums">
                                 {row.difference_pence == null
@@ -1412,6 +1466,12 @@ export default function PaymentSessions() {
                                             webhook_timeline: row.webhook_timeline,
                                             admin_refresh_timeline: row.admin_refresh_timeline,
                                             allowed_actions: row.allowed_actions,
+                                            driver_credit_display: row.driver_credit_display,
+                                            driver_credit_health: row.driver_credit_health,
+                                            expected_driver_credit_pence: row.expected_driver_credit_pence,
+                                            actual_driver_credit_pence: row.actual_driver_credit_pence,
+                                            credit_difference_pence: row.credit_difference_pence,
+                                            credit_eligibility_at: row.credit_eligibility_at,
                                           },
                                           null,
                                           2,

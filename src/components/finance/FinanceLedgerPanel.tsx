@@ -22,6 +22,7 @@ import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAr
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { downloadCsv, downloadRecordsAsExcel, printFinanceReport } from '@/lib/financeExport';
 import { filterDriverWalletMovementRows } from '@/lib/driverWalletMovementDisplaySSOT';
+import { isDriverCreditExceptionHealth } from '../../../shared/driverCreditMonitoringSSOT';
 
 const DRIVER_FILTER_TABS = Object.entries(DRIVER_WALLET_LEDGER_FILTER_LABELS) as [DriverWalletLedgerFilter, string][];
 
@@ -48,6 +49,8 @@ export function FinanceLedgerPanel({
   initialFilter = 'driver_earnings',
   hideFilterTabs = false,
   variant = 'default',
+  creditByTripId,
+  creditExceptionsOnly = false,
 }: {
   serviceFilter: ServiceAreaFinanceSelection;
   periodFrom?: string;
@@ -57,6 +60,14 @@ export function FinanceLedgerPanel({
   hideFilterTabs?: boolean;
   /** driver_wallet: Credit/Debit + canonical Type enum columns. */
   variant?: 'default' | 'driver_wallet';
+  creditByTripId?: Record<string, {
+    driver_credit_health?: string | null;
+    expected_driver_credit_pence?: number | null;
+    actual_driver_credit_pence?: number | null;
+    credit_difference_pence?: number | null;
+  }>;
+  /** When true, show only trip rows with driver credit exception health. */
+  creditExceptionsOnly?: boolean;
 }) {
   const [filter, setFilter] = useState<DriverWalletLedgerFilter>(initialFilter);
 
@@ -78,11 +89,20 @@ export function FinanceLedgerPanel({
     skipRunningBalance: isWallet,
   });
 
+  const showCreditHealth = Boolean(creditByTripId && Object.keys(creditByTripId).length > 0);
+
   const filteredRows = useMemo(() => {
     const movementRows = isWallet ? filterDriverWalletMovementRows(rows) : rows;
+    const creditScopedRows = creditExceptionsOnly && creditByTripId
+      ? movementRows.filter((row) => {
+        if (!row.trip_id) return false;
+        const health = creditByTripId[row.trip_id]?.driver_credit_health;
+        return isDriverCreditExceptionHealth(health);
+      })
+      : movementRows;
     const q = search.trim().toLowerCase();
-    if (!q) return movementRows;
-    return movementRows.filter((row) => {
+    if (!q) return creditScopedRows;
+    return creditScopedRows.filter((row) => {
       const tripRef = row.trip_code ?? row.trip_id ?? '';
       return (
         row.type_label.toLowerCase().includes(q)
@@ -94,13 +114,14 @@ export function FinanceLedgerPanel({
         || (row.evidence?.toLowerCase().includes(q) ?? false)
       );
     });
-  }, [rows, search, isWallet]);
+  }, [rows, search, isWallet, creditExceptionsOnly, creditByTripId]);
 
   const exportRows = () => {
     const records = filteredRows.map((r) => {
       const credit = r.amount_pence > 0 ? r.amount_pence : null;
       const debit = r.amount_pence < 0 ? Math.abs(r.amount_pence) : null;
       if (variant === 'driver_wallet') {
+        const tripCredit = r.trip_id ? creditByTripId?.[r.trip_id] : undefined;
         return {
           date: r.created_at,
           reference: r.ledger_reference,
@@ -112,6 +133,10 @@ export function FinanceLedgerPanel({
           status: r.status,
           evidence: r.evidence,
           notes: r.notes,
+          driver_credit_health: tripCredit?.driver_credit_health ?? null,
+          expected_driver_credit_pence: tripCredit?.expected_driver_credit_pence ?? null,
+          actual_driver_credit_pence: tripCredit?.actual_driver_credit_pence ?? null,
+          credit_difference_pence: tripCredit?.credit_difference_pence ?? null,
         };
       }
       return {
@@ -134,6 +159,7 @@ export function FinanceLedgerPanel({
   const exportExcel = () => {
     const records = filteredRows.map((r) => {
       if (variant === 'driver_wallet') {
+        const tripCredit = r.trip_id ? creditByTripId?.[r.trip_id] : undefined;
         return {
           date: r.created_at,
           reference: r.ledger_reference,
@@ -145,6 +171,10 @@ export function FinanceLedgerPanel({
           status: r.status,
           evidence: r.evidence,
           notes: r.notes,
+          driver_credit_health: tripCredit?.driver_credit_health ?? null,
+          expected_driver_credit_pence: tripCredit?.expected_driver_credit_pence ?? null,
+          actual_driver_credit_pence: tripCredit?.actual_driver_credit_pence ?? null,
+          credit_difference_pence: tripCredit?.credit_difference_pence ?? null,
         };
       }
       return {
@@ -249,6 +279,7 @@ export function FinanceLedgerPanel({
                       <TableHead className="text-right">Running Balance</TableHead>
                     ) : null}
                     {isWallet ? <TableHead>Type</TableHead> : null}
+                    {showCreditHealth ? <TableHead>Credit health</TableHead> : null}
                     <TableHead>Status</TableHead>
                     <TableHead>Evidence</TableHead>
                     <TableHead>Notes</TableHead>
@@ -257,15 +288,16 @@ export function FinanceLedgerPanel({
                 <TableBody>
                   {filteredRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={isWallet ? 10 : 11} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={(isWallet ? 10 : 11) + (showCreditHealth ? 1 : 0)} className="text-center text-muted-foreground py-8">
                         {isWallet ? 'No wallet movements in this period' : 'No ledger rows found for this filter.'}
                       </TableCell>
                     </TableRow>
                   ) : (
                     filteredRows.map((row) => {
                       const isRecoveryDebit = isAdminDebtRecoveryDebit(row.type, row.amount_pence);
-                      const credit = row.amount_pence > 0 ? row.amount_pence : null;
-                      const debit = row.amount_pence < 0 ? Math.abs(row.amount_pence) : null;
+                      const creditPence = row.amount_pence > 0 ? row.amount_pence : null;
+                      const debitPence = row.amount_pence < 0 ? Math.abs(row.amount_pence) : null;
+                      const tripCredit = row.trip_id ? creditByTripId?.[row.trip_id] : undefined;
                       return (
                         <TableRow key={row.id}>
                           <TableCell className="whitespace-nowrap text-xs">
@@ -302,10 +334,10 @@ export function FinanceLedgerPanel({
                           {isWallet ? (
                             <>
                               <TableCell className="text-xs text-right font-medium text-emerald-400 tabular-nums">
-                                {credit != null ? formatPence(credit, row.currency) : '—'}
+                                {creditPence != null ? formatPence(creditPence, row.currency) : '—'}
                               </TableCell>
                               <TableCell className="text-xs text-right font-medium text-red-400 tabular-nums">
-                                {debit != null ? formatPence(debit, row.currency) : '—'}
+                                {debitPence != null ? formatPence(debitPence, row.currency) : '—'}
                               </TableCell>
                             </>
                           ) : (
@@ -323,6 +355,29 @@ export function FinanceLedgerPanel({
                               <span className={isRecoveryDebit ? 'text-red-400 font-medium' : undefined}>
                                 {canonicalDriverWalletTxType(row.type)}
                               </span>
+                            </TableCell>
+                          ) : null}
+                          {showCreditHealth ? (
+                            <TableCell className="text-xs">
+                              {tripCredit?.driver_credit_health ? (
+                                <Badge
+                                  variant={isDriverCreditExceptionHealth(tripCredit.driver_credit_health) ? 'destructive' : 'outline'}
+                                  className="text-[10px]"
+                                  title={[
+                                    tripCredit.expected_driver_credit_pence != null
+                                      ? `Expected: ${formatNullablePence(tripCredit.expected_driver_credit_pence, row.currency)}`
+                                      : null,
+                                    tripCredit.actual_driver_credit_pence != null
+                                      ? `Actual: ${formatNullablePence(tripCredit.actual_driver_credit_pence, row.currency)}`
+                                      : null,
+                                    tripCredit.credit_difference_pence != null
+                                      ? `Diff: ${formatNullablePence(tripCredit.credit_difference_pence, row.currency)}`
+                                      : null,
+                                  ].filter(Boolean).join(' · ')}
+                                >
+                                  {tripCredit.driver_credit_health}
+                                </Badge>
+                              ) : '—'}
                             </TableCell>
                           ) : null}
                           <TableCell className="text-xs">{row.status ?? '—'}</TableCell>

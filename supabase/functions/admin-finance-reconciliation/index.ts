@@ -38,6 +38,7 @@ import {
   buildFrPeriodAuditSummary,
   resolveCanonicalPaymentSessionMoneyByTrip,
 } from "../_shared/frPerTripAuditSSOT.ts";
+import { isDriverCreditExceptionHealth } from "../_shared/driverCreditMonitoringSSOT.ts";
 import {
   applyFinanceReconciliationTripLocationFilter,
   buildFinanceReconciliationTripQuery,
@@ -1189,6 +1190,7 @@ serve(async (req) => {
       drivers: undefined,
       mismatches: trip_financial_audit.filter((r) =>
         r.capture_mismatch
+        || (r.driver_credit_health != null && isDriverCreditExceptionHealth(r.driver_credit_health))
         || String(r.reconciliation_status?.tone ?? "").toLowerCase() === "error"
         || String(r.reconciliation_status?.label ?? "").toLowerCase().includes("mismatch")
       ),

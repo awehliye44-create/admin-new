@@ -61,6 +61,8 @@ export type AdminPaymentSessionsListRequest = {
   payment_session_id?: string | null;
   provider_order_id?: string | null;
   trip_id?: string | null;
+  /** When true, return only rows with driver credit exception health. */
+  driver_credit_exceptions_only?: boolean | null;
 };
 
 export type AdminPaymentSessionsListRow = {
@@ -162,6 +164,13 @@ export type AdminPaymentSessionsListRow = {
     can_open_reconciliation?: boolean;
   };
   page_status_hint?: AdminPaymentSessionsPageStatus | null;
+  /** Read-only driver credit monitoring (PLATFORM_COLLECTED captured / terminal-fee sessions). */
+  driver_credit_display?: string | null;
+  driver_credit_health?: string | null;
+  expected_driver_credit_pence?: number | null;
+  actual_driver_credit_pence?: number | null;
+  credit_difference_pence?: number | null;
+  credit_eligibility_at?: string | null;
 };
 
 /** Completed Trips Paid — one row = one completed trip (fare from trip SSOT, not React). */
@@ -218,6 +227,11 @@ export type AdminPaymentSessionsCompletedTripRow = {
   fr_match_status_persisted?: false;
   /** Legacy write-path DTO — read path leaves null; UI uses stamp fields. */
   capture_breakdown?: import("./paymentSessionsCaptureBreakdownSSOT.ts").PaymentSessionCaptureBreakdown | null;
+  driver_credit_health?: string | null;
+  expected_driver_credit_pence?: number | null;
+  actual_driver_credit_pence?: number | null;
+  credit_difference_pence?: number | null;
+  credit_eligibility_at?: string | null;
 };
 
 /** Payment Matching — comparison-only rows. */
@@ -321,6 +335,9 @@ export type AdminPaymentSessionsSummary = {
   net_onecab_commission_pence: number | null;
   /** SUM trip driver_net_pence — backend only. */
   driver_net_total_pence: number | null;
+  /** Read-only driver credit exceptions across visible session scope. */
+  driver_credit_exception_trip_count?: number | null;
+  driver_credit_exception_difference_pence?: number | null;
 };
 
 export type AdminPaymentSessionsListResponse = {

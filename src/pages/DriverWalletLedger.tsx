@@ -34,6 +34,8 @@ import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
 import type { DriverWalletLedgerFilter } from '@/lib/driverWalletLedgerFilters';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { DriverCreditExceptionsBanner } from '@/components/finance/DriverCreditExceptionsBanner';
+import { aggregateDriverCreditExceptions } from '../../shared/driverCreditMonitoringSSOT';
 
 /** Driver money SSOT. Customer payment → Payment Sessions; bank transfers → Payout Ledger. */
 export default function DriverWalletLedger() {
@@ -169,6 +171,10 @@ export default function DriverWalletLedger() {
   });
 
   useEffect(() => {
+    setDriverCreditExceptionsOnly(searchParams.get('driverCreditExceptions') === '1');
+  }, [searchParams]);
+
+  useEffect(() => {
     const canonical = parseDriverWalletLedgerTab(rawTab);
     if (rawTab && rawTab !== canonical) {
       const next = new URLSearchParams(searchParams);
@@ -214,6 +220,38 @@ export default function DriverWalletLedger() {
   const loadingDetail = (isLoading || isFetching) && !!driverId;
   /** Level 1 = fleet list; Level 2 = individual driver account. Never mix. */
   const showDriverList = !driverId;
+  const [driverCreditExceptionsOnly, setDriverCreditExceptionsOnly] = useState(
+    searchParams.get('driverCreditExceptions') === '1',
+  );
+  const settlementCreditAgg = useMemo(
+    () => aggregateDriverCreditExceptions(
+      (driver?.settlement_history ?? []).map((row) => ({
+        driver_credit_health: row.driver_credit_health,
+        expected_driver_credit_pence: row.expected_driver_credit_pence,
+        actual_driver_credit_pence: row.actual_driver_credit_pence,
+        credit_difference_pence: row.credit_difference_pence,
+      })),
+    ),
+    [driver?.settlement_history],
+  );
+  const creditByTripId = useMemo(() => {
+    const map: Record<string, {
+      driver_credit_health?: string | null;
+      expected_driver_credit_pence?: number | null;
+      actual_driver_credit_pence?: number | null;
+      credit_difference_pence?: number | null;
+    }> = {};
+    for (const row of driver?.settlement_history ?? []) {
+      if (!row.trip_id) continue;
+      map[row.trip_id] = {
+        driver_credit_health: row.driver_credit_health,
+        expected_driver_credit_pence: row.expected_driver_credit_pence,
+        actual_driver_credit_pence: row.actual_driver_credit_pence,
+        credit_difference_pence: row.credit_difference_pence,
+      };
+    }
+    return map;
+  }, [driver?.settlement_history]);
 
   const walletPerfRef = useRef<ReturnType<typeof startAdminPerformanceStep> | null>(null);
   useEffect(() => {
@@ -244,6 +282,8 @@ export default function DriverWalletLedger() {
             initialFilter={filter}
             hideFilterTabs={hideTabs}
             variant="driver_wallet"
+            creditByTripId={creditByTripId}
+            creditExceptionsOnly={driverCreditExceptionsOnly}
           />
         ) : (
           <p className="text-sm text-muted-foreground py-8">
@@ -286,6 +326,23 @@ export default function DriverWalletLedger() {
         </div>
 
         <ServiceAreaGatewayStatusFetcher serviceAreaId={serviceFilter.serviceAreaId} />
+
+        <DriverCreditExceptionsBanner
+          exceptionTripCount={settlementCreditAgg.exception_trip_count}
+          totalDifferencePence={settlementCreditAgg.total_difference_pence}
+          onFilterExceptions={() => {
+            if (driverId && tab !== 'settlement') setTab('settlement');
+            setDriverCreditExceptionsOnly((v) => {
+              const nextActive = !v;
+              const next = new URLSearchParams(searchParams);
+              if (nextActive) next.set('driverCreditExceptions', '1');
+              else next.delete('driverCreditExceptions');
+              setSearchParams(next, { replace: true });
+              return nextActive;
+            });
+          }}
+          active={driverCreditExceptionsOnly}
+        />
 
         {showDriverList ? (
           <div className="space-y-6">
@@ -360,6 +417,7 @@ export default function DriverWalletLedger() {
                   driver={driver}
                   currencyCode={currencyCode}
                   isLoading={loadingDetail}
+                  exceptionsOnly={driverCreditExceptionsOnly}
                 />
               </TabsContent>
 

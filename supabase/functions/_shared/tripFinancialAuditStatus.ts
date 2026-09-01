@@ -37,6 +37,7 @@ export type TripAuditPayoutRecord = {
 export type TripAuditLedgerRecord = {
   type: string;
   amount_pence: number;
+  driver_id?: string | null;
   provider_payout_id?: string | null;
   provider_transfer_id?: string | null;
 };

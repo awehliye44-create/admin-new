@@ -51,6 +51,7 @@ const InputSchema = z.object({
   date_from: z.string().nullable().optional(),
   date_to: z.string().nullable().optional(),
   limit: z.number().int().min(1).max(200).optional(),
+  credit_exceptions_only: z.boolean().nullable().optional(),
 });
 
 serve(async (req) => {

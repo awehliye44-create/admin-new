@@ -1,27 +1,33 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { formatMoneyMinor } from '@/lib/formatMoneyMinor';
 import { FinancialReconciliationRefreshBar } from '@/components/finance/FinancialReconciliationRefreshBar';
 import type { FinancialReconciliationSSOTResult } from '@/hooks/useFinancialReconciliationSSOT';
-import type { PlatformReconciliationKpis } from '@/hooks/useFinanceReconciliation';
 import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
 import { FinanceSSOTBadge } from '@/components/finance/FinanceSSOTBadge';
-import {
-  ServiceAreaGatewayStatusPanel,
-  type ServiceAreaGatewayStatusRow,
-} from '@/components/finance/ServiceAreaGatewayStatusPanel';
-
+import { fetchOnecabProfitSsot } from '@/hooks/financeReconciliationApi';
+import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
+import { financialReconciliationIssuesTabUrl } from '@/lib/financialReconciliationRoutes';
+import { hasFrPeriodAuditKpis } from '../../../shared/frIssuesSSOT';
 
-function KpiCard({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
+function KpiCard({
+  label,
+  value,
+  subtitle,
+}: {
+  label: string;
+  value: string | number;
+  subtitle?: React.ReactNode;
+}) {
   return (
     <Card>
       <CardContent className="pt-4 pb-4">
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="text-xl font-semibold mt-1">{value}</p>
-        {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+        {subtitle ? <div className="text-xs text-muted-foreground mt-1">{subtitle}</div> : null}
       </CardContent>
     </Card>
   );
@@ -29,54 +35,28 @@ function KpiCard({ label, value, subtitle }: { label: string; value: string | nu
 
 export function FinancialReconciliationOverviewTab({
   ssot,
-  platformKpis,
   auditOverviewKpis,
   money,
   currencyGroups,
-  serviceAreaGateways,
+  filter,
+  from,
+  to,
+  openIssueCount = 0,
   readOnly = false,
   onRefresh,
   isRefreshing = false,
 }: {
   ssot: FinancialReconciliationSSOTResult;
-  platformKpis?: PlatformReconciliationKpis | null;
   auditOverviewKpis?: {
-    completed_trip_fare_total_pence: number;
+    trip_count?: number;
     confirmed_provider_captured_total_pence: number;
-    total_authorised_pence?: number;
-    expected_released_pence?: number;
-    refunded_total_pence: number;
-    released_total_pence?: number;
-    release_amount_unconfirmed_count?: number;
-    waiting_charges_total_pence?: number;
-    provider_fee_total_pence: number;
-    onecab_gross_commission_pence: number;
-    onecab_net_commission_pence: number | null;
     driver_net_total_pence: number;
-    wallet_credits_total_pence: number;
-    payouts_completed_pence: number;
-    airport_charges_total_pence?: number;
-    driver_tips_total_pence?: number;
-    commissionable_fare_total_pence?: number;
+    onecab_gross_commission_pence: number;
+    provider_fee_total_pence: number;
     settlement_identity_variance_pence?: number | null;
-    settlement_identity_balanced?: boolean;
-    settlement_identity_evaluable_trip_count?: number;
-    settlement_identity_pending_trip_count?: number;
-    evaluated_trip_count?: number;
-    pending_trip_count?: number;
-    matched_trip_count?: number;
-    mismatched_trip_count?: number;
-    unallocated_pence?: number | null;
-    capture_shortfall_pence: number;
-    overcapture_pence: number;
-    missing_captures_count?: number;
-    missing_releases_count?: number;
-    missing_wallet_credits_count: number;
-    payout_mismatches_count: number;
-    wallet_mismatches_count?: number;
-    balanced_trips_count: number;
     unresolved_mismatches_count: number;
-    trip_count: number;
+    driver_credit_exception_trip_count?: number;
+    driver_credit_exception_difference_pence?: number;
   } | null;
   money: FinanceMoneyFormat;
   currencyGroups?: Array<{
@@ -88,46 +68,48 @@ export function FinancialReconciliationOverviewTab({
     commission_pence: number;
     trip_count: number;
   }>;
-  serviceAreaGateways?: ServiceAreaGatewayStatusRow[];
+  filter: ServiceAreaFinanceSelection;
+  from?: string;
+  to?: string;
+  openIssueCount?: number;
   readOnly?: boolean;
   onRefresh?: () => void;
   isRefreshing?: boolean;
 }) {
   const fmt = money.fmt;
-  const kpisUnavailable = platformKpis == null;
   const o = auditOverviewKpis;
+  const summary = ssot.summary;
+  const useAuditKpis = hasFrPeriodAuditKpis(o);
 
-  // Per-driver audit rollup is derived from platform KPIs only.
-  // Fetching every driver's wallet snapshot here caused a full-fleet fan-out
-  // that made the Overview tab slow/timeout on medium+ fleets — removed.
-  const settlementLabel =
-    o == null
-      ? '—'
-      : o.settlement_identity_balanced === true
-      ? 'BALANCED'
-      : o.settlement_identity_variance_pence == null && (o.settlement_identity_pending_trip_count ?? 0) > 0
-      ? `PENDING (${o.settlement_identity_pending_trip_count} trips)`
-      : o.settlement_identity_variance_pence == null
-      ? 'PENDING_SYNC'
-      : `MISMATCH ${fmt(o.settlement_identity_variance_pence)}`;
+  const profitQuery = useQuery({
+    queryKey: ['fr-overview-profit-ssot', filter, from, to],
+    queryFn: () => {
+      const fromDate = from ? new Date(`${from}T00:00:00`) : new Date();
+      const toDate = to ? new Date(`${to}T23:59:59`) : new Date();
+      return fetchOnecabProfitSsot(fromDate, toDate, filter);
+    },
+    enabled: Boolean(from && to && (filter.regionId || filter.serviceAreaId)),
+    staleTime: 60_000,
+  });
 
-  const combinedOverviewStatus =
-    o == null
-      ? 'PENDING'
-      : o.settlement_identity_balanced === true
-      ? 'BALANCED'
-      : (o.missing_releases_count ?? 0) > 0
-      ? 'MISSING_RELEASE'
-      : 'PARTIAL';
+  const promotionSubsidyPence = profitQuery.data?.promotion_subsidy_pence ?? null;
+
+  const reconciliationDifference =
+    useAuditKpis && o?.settlement_identity_variance_pence != null
+      ? o.settlement_identity_variance_pence
+      : summary?.reconciliation_check?.delta_pence ?? summary?.reconciliation_check?.variance_pence ?? null;
+
+  const openIssues = openIssueCount > 0
+    ? openIssueCount
+    : (useAuditKpis ? (o?.unresolved_mismatches_count ?? 0) : 0);
 
   return (
     <div className="space-y-4">
-      
       <p className="text-xs text-muted-foreground">
-        Audit totals only — customer capture from Payment Sessions, wallet from Driver Wallet Ledger, payouts from Payout Ledger.
-        Bank transfer lifecycle:{' '}
+        Period totals for the selected service area and date range
+        {from && to ? ` (${from} – ${to})` : ''}. Bank transfers:{' '}
         <Link to={payoutLedgerUrl()} className="underline">
-          Open Payout Ledger
+          Payout Ledger
         </Link>
       </p>
 
@@ -143,147 +125,59 @@ export function FinancialReconciliationOverviewTab({
       <div className="flex items-center gap-2">
         <FinanceSSOTBadge badge={ssot.badge} />
         <span className="text-xs text-muted-foreground">
-          Financial Reconciliation compares authoritative SSOTs. It never owns payment, wallet, or payout truth.
+          Read-only audit — capture, wallet credits, and payouts are owned elsewhere.
         </span>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <KpiCard
-          label="Customer Captured"
-          value={o ? fmt(o.confirmed_provider_captured_total_pence) : '—'}
+          label="Captured revenue"
+          value={useAuditKpis ? fmt(o!.confirmed_provider_captured_total_pence) : fmt(summary?.customer_revenue?.card_customer_revenue_pence)}
           subtitle="Payment Sessions"
         />
         <KpiCard
-          label="Total Authorised"
-          value={o ? fmt(o.total_authorised_pence ?? 0) : '—'}
-          subtitle="Payment Sessions"
+          label="Driver earnings"
+          value={useAuditKpis ? fmt(o!.driver_net_total_pence) : fmt(summary?.driver_money?.card_driver_payable_pence)}
+          subtitle="Period trip stamps"
         />
         <KpiCard
-          label="Expected Released"
-          value={o ? fmt(o.expected_released_pence ?? 0) : '—'}
-          subtitle="Audit only (auth − capture)"
+          label="ONECAB commission"
+          value={useAuditKpis ? fmt(o!.onecab_gross_commission_pence) : fmt(summary?.onecab_money?.onecab_gross_commission_pence)}
         />
         <KpiCard
-          label="Provider-Confirmed Released"
-          value={o?.released_total_pence == null ? '—' : fmt(o.released_total_pence)}
-          subtitle="Payment Sessions"
-        />
-        <KpiCard
-          label="Release Amount Unconfirmed"
-          value={o?.release_amount_unconfirmed_count ?? '—'}
-        />
-        <KpiCard label="Refunded" value={o ? fmt(o.refunded_total_pence) : '—'} subtitle="Payment Sessions" />
-        <KpiCard
-          label="Waiting Charges"
-          value={o ? fmt(o.waiting_charges_total_pence ?? 0) : '—'}
-          subtitle="Payment Sessions breakdown"
-        />
-        <KpiCard
-          label="Airport Charges"
-          value={o ? fmt(o.airport_charges_total_pence ?? 0) : '—'}
-          subtitle="Non-commissionable"
-        />
-        <KpiCard
-          label="Driver Tips"
-          value={o ? fmt(o.driver_tips_total_pence ?? 0) : '—'}
-          subtitle="Non-commissionable"
-        />
-        <KpiCard
-          label="Commissionable Fare"
-          value={o ? fmt(o.commissionable_fare_total_pence ?? 0) : '—'}
-        />
-        <KpiCard label="ONECAB Gross" value={o ? fmt(o.onecab_gross_commission_pence) : '—'} />
-        <KpiCard label="Provider Fees" value={o ? fmt(o.provider_fee_total_pence) : '—'} subtitle="Payment Sessions" />
-        <KpiCard
-          label="ONECAB Net"
-          value={o?.onecab_net_commission_pence == null ? 'Pending fee' : fmt(o.onecab_net_commission_pence)}
-        />
-        <KpiCard label="Driver Net (period stamps)" value={o ? fmt(o.driver_net_total_pence) : '—'} />
-        <KpiCard
-          label="Period TEN Credits"
-          value={o ? fmt(o.wallet_credits_total_pence) : '—'}
-          subtitle="Trip earning credits in audit window"
-        />
-        <KpiCard
-          label="Unallocated"
+          label="Promotion subsidy"
           value={
-            o?.unallocated_pence == null
-              ? '—'
-              : fmt(o.unallocated_pence)
+            promotionSubsidyPence == null
+              ? profitQuery.isLoading
+                ? '…'
+                : '—'
+              : fmt(promotionSubsidyPence)
           }
-          subtitle="Settlement identity variance (same-scope capture vs stamps)"
+          subtitle="Platform-funded promotions"
         />
         <KpiCard
-          label="Settlement identity"
-          value={settlementLabel}
-          subtitle="Captured = driver + commission after promotion + airport + tips"
+          label="Provider fees"
+          value={useAuditKpis ? fmt(o!.provider_fee_total_pence) : fmt(summary?.onecab_money?.provider_processing_fee_pence)}
+          subtitle="Payment Sessions"
         />
         <KpiCard
-          label="Driver audit status"
-          value={combinedOverviewStatus}
-          subtitle="Per-driver period TEN vs period stamps (not live balance)"
+          label="Reconciliation difference"
+          value={reconciliationDifference == null ? '—' : fmt(reconciliationDifference)}
+          subtitle="Settlement identity variance"
         />
         <KpiCard
-          label="Matched Trips"
-          value={o?.matched_trip_count ?? '—'}
-          subtitle="FR audit conclusion"
-        />
-        <KpiCard
-          label="Capture Shortfall"
-          value={o ? fmt(o.capture_shortfall_pence) : '—'}
-          subtitle="FR audit conclusion"
-        />
-        <KpiCard
-          label="Gross Overcapture"
-          value={o ? fmt(o.overcapture_pence) : '—'}
-          subtitle="FR audit conclusion"
-        />
-        <KpiCard
-          label="Missing Payment Sessions"
-          value={o?.missing_captures_count ?? '—'}
-          subtitle="Completed trips without PS capture evidence"
-        />
-        <KpiCard label="Missing Captures" value={o?.missing_captures_count ?? '—'} />
-        <KpiCard label="Missing Releases" value={o?.missing_releases_count ?? '—'} />
-        <KpiCard label="Trips with wallet mismatches" value={o?.wallet_mismatches_count ?? '—'} />
-        <KpiCard label="Commission / provider mismatches" value={o?.mismatched_trip_count ?? '—'} />
-        <KpiCard label="Payout Mismatches" value={o?.payout_mismatches_count ?? '—'} />
-        <KpiCard label="Balanced trips" value={o?.balanced_trips_count ?? '—'} />
-        <KpiCard label="Trips with unresolved mismatches" value={o?.unresolved_mismatches_count ?? '—'} />
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <KpiCard
-          label="Reconciliation status"
-          value={combinedOverviewStatus}
-          subtitle={
-            ssot.summary?.reconciliation_check?.status
-              ? `Platform check: ${ssot.summary.reconciliation_check.status}`
-              : undefined
-          }
-        />
-        <KpiCard
-          label="Period customer captured (SSOT)"
-          value={fmt(ssot.summary?.customer_revenue?.card_customer_revenue_pence)}
-          subtitle="Payment Sessions captures"
-        />
-        <KpiCard
-          label="Period provider fees (SSOT)"
-          value={fmt(ssot.summary?.onecab_money?.provider_processing_fee_pence)}
-        />
-        <KpiCard
-          label="Period commission (SSOT)"
-          value={fmt(ssot.summary?.onecab_money?.onecab_gross_commission_pence)}
-        />
-        <KpiCard
-          label="Period driver payable (SSOT)"
-          value={fmt(ssot.summary?.driver_money?.card_driver_payable_pence)}
-          subtitle="Period trip stamps — not live wallet"
-        />
-        <KpiCard
-          label="Ledger wallet balance (live)"
-          value={fmt(ssot.summary?.driver_money?.driver_wallet_balance_pence)}
-          subtitle="Driver Wallet Ledger live SSOT — not compared to period payable for status"
+          label="Open issues"
+          value={openIssues}
+          subtitle={(
+            <>
+              {!useAuditKpis && openIssues === 0 ? (
+                <span className="block">Open Issues tab to load period counts.</span>
+              ) : null}
+              <Link to={financialReconciliationIssuesTabUrl()} className="underline">
+                View in Issues tab
+              </Link>
+            </>
+          )}
         />
       </div>
 
@@ -295,48 +189,24 @@ export function FinancialReconciliationOverviewTab({
               <Card key={group.currency_code}>
                 <CardContent className="pt-4 pb-4 space-y-1">
                   <p className="text-xs text-muted-foreground">{group.currency_code} · {group.trip_count} trips</p>
-                  <p className="text-sm">Revenue: {formatMoneyMinor(group.customer_revenue_pence, group.currency_code, 'en-GB', group.currency_minor_unit)}</p>
-                  <p className="text-sm">Driver net: {formatMoneyMinor(group.driver_net_pence, group.currency_code, 'en-GB', group.currency_minor_unit)}</p>
-                  <p className="text-sm">Commission: {formatMoneyMinor(group.commission_pence, group.currency_code, 'en-GB', group.currency_minor_unit)}</p>
+                  <p className="text-sm">
+                    Revenue:{' '}
+                    {formatMoneyMinor(group.customer_revenue_pence, group.currency_code, 'en-GB', group.currency_minor_unit)}
+                  </p>
+                  <p className="text-sm">
+                    Driver net:{' '}
+                    {formatMoneyMinor(group.driver_net_pence, group.currency_code, 'en-GB', group.currency_minor_unit)}
+                  </p>
+                  <p className="text-sm">
+                    Commission:{' '}
+                    {formatMoneyMinor(group.commission_pence, group.currency_code, 'en-GB', group.currency_minor_unit)}
+                  </p>
                 </CardContent>
               </Card>
             ))}
           </div>
         </div>
       ) : null}
-
-      {serviceAreaGateways && serviceAreaGateways.length > 0 ? (
-        <ServiceAreaGatewayStatusPanel rows={serviceAreaGateways} />
-      ) : null}
-
-      <p className="text-sm font-medium">Sync integrity</p>
-      {kpisUnavailable ? (
-        <Alert variant="destructive">
-          <AlertTitle>Sync KPIs unavailable</AlertTitle>
-          <AlertDescription className="space-y-2">
-            <p>Driver sync KPIs could not be loaded. Select a service area and refresh.</p>
-            <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
-              Refresh
-            </Button>
-          </AlertDescription>
-        </Alert>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard label="Balanced Drivers" value={platformKpis?.balanced_drivers ?? 0} />
-          <KpiCard label="Failed Payouts" value={fmt(platformKpis?.failed_payouts_pence)} />
-          <KpiCard label="Provider-only Records" value={platformKpis?.provider_only_records ?? 0} />
-          <KpiCard label="Ledger-only Records" value={platformKpis?.ledger_only_records ?? 0} />
-        </div>
-      )}
-
-      <p className="text-xs text-muted-foreground">
-        Trip earnings and settlement calculations:{' '}
-        <Link to="/trip-history" className="underline">Trip History (Trip Settlement SSOT)</Link>
-        {' · '}
-        <Link to="/financial-reconciliation?tab=drivers" className="underline">Drivers</Link>
-        {' · '}
-        <Link to={payoutLedgerUrl()} className="underline">Payout Ledger</Link>
-      </p>
     </div>
   );
 }

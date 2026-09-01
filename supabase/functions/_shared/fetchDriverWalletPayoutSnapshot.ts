@@ -21,7 +21,13 @@ import {
 import { fetchDriverPayoutEligibility } from "./fetchDriverPayoutEligibility.ts";
 import { mergeBackendEconomicFields } from "./economicEarnedAtSSOT.ts";
 import { economicFieldsByLedgerOrTrip, loadDriverWalletEconomicFields } from "./loadDriverWalletEconomicFields.ts";
-import { buildDriverWalletSettlementHistory } from "./driverWalletSettlementHistorySSOT.ts";
+import { buildDriverWalletSettlementHistory, buildDriverWalletSettlementHistoryRow } from "./driverWalletSettlementHistorySSOT.ts";
+import {
+  buildPaymentSessionDriverCreditFields,
+  DRIVER_CREDIT_HEALTH,
+  DRIVER_WALLET_MISSING_LEDGER_LABEL,
+  buildMissingLedgerDiagnosticRow,
+} from "./driverCreditMonitoringSSOT.ts";
 import { buildDriverWalletDebtRecoveryKpis } from "./driverWalletDebtRecoverySSOT.ts";
 import { nextWeeklyPayoutDateIso } from "./payoutScheduleSSOT.ts";
 import { buildPayoutScheduleDto } from "./payoutScheduleSSOT.ts";
@@ -195,13 +201,13 @@ export async function fetchDriverWalletPayoutSnapshot(
       supabase
         .from("trips")
         .select(
-          "id, trip_code, completed_at, passenger_name, payment_status, final_customer_fare_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
+          "id, trip_code, completed_at, passenger_name, payment_status, status, final_customer_fare_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, tip_pence, tip_amount_pence, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
         )
         .in("id", tripIdsForFr),
       supabase
         .from("payment_sessions")
         .select(
-          "id, trip_id, captured_amount_pence, payment_provider, payment_method, provider_processing_fee_pence, fee_status, provider_order_id, provider_payment_id, provider_fee_percentage_snapshot_pence, provider_fixed_fee_snapshot_pence, provider_fee_total_snapshot_pence, provider_fee_currency_snapshot, provider_fee_version_snapshot, provider_fee_source, provider_fee_confirmed_at, provider_name_snapshot",
+          "id, trip_id, purpose, captured_amount_pence, payment_provider, payment_method, provider_processing_fee_pence, fee_status, provider_state, captured_at, released_amount_pence, refunded_amount_pence, provider_order_id, provider_payment_id, provider_fee_percentage_snapshot_pence, provider_fixed_fee_snapshot_pence, provider_fee_total_snapshot_pence, provider_fee_currency_snapshot, provider_fee_version_snapshot, provider_fee_source, provider_fee_confirmed_at, provider_name_snapshot",
         )
         .in("trip_id", tripIdsForFr),
     ]);
@@ -552,7 +558,29 @@ export async function fetchDriverWalletPayoutSnapshot(
     }
   }
 
-  const settlement_history = buildDriverWalletSettlementHistory(
+  const settlementHistoryTripIds = settlements
+    .map((s) => (s.trip_id == null ? null : String(s.trip_id)))
+    .filter((id): id is string => Boolean(id));
+  const ledgerByTripId = new Map<string, Array<{ type: string; amount_pence: number; driver_id: string | null }>>();
+  if (settlementHistoryTripIds.length > 0) {
+    const { data: ledgerRows } = await supabase
+      .from("driver_wallet_ledger")
+      .select("related_trip_id, type, amount_pence, driver_id")
+      .in("related_trip_id", settlementHistoryTripIds);
+    for (const entry of ledgerRows ?? []) {
+      const tripId = entry.related_trip_id == null ? null : String(entry.related_trip_id);
+      if (!tripId) continue;
+      const list = ledgerByTripId.get(tripId) ?? [];
+      list.push({
+        type: String(entry.type),
+        amount_pence: Number(entry.amount_pence),
+        driver_id: entry.driver_id == null ? null : String(entry.driver_id),
+      });
+      ledgerByTripId.set(tripId, list);
+    }
+  }
+
+  let settlement_history = buildDriverWalletSettlementHistory(
     settlements.map((s) => {
       const tripId = s.trip_id == null ? null : String(s.trip_id);
       const ledgerJoin = s.driver_wallet_ledger as { amount_pence?: number } | { amount_pence?: number }[] | null;
@@ -561,6 +589,38 @@ export async function fetchDriverWalletPayoutSnapshot(
         : Number(ledgerJoin?.amount_pence ?? 0);
       const trip = tripId ? tripDetailById.get(tripId) : null;
       const session = tripId ? sessionByTripId.get(tripId) : null;
+      const ledgerEntries = tripId ? ledgerByTripId.get(tripId) ?? [] : [];
+      const credit = buildPaymentSessionDriverCreditFields({
+        financial_model: (trip?.financial_model as string | null) ?? null,
+        trip_status: (trip?.status as string | null) ?? null,
+        trip_driver_id: args.driverId,
+        driver_net_pence: trip?.driver_net_pence == null ? null : Number(trip.driver_net_pence),
+        tip_pence: trip?.tip_pence == null
+          ? (trip?.tip_amount_pence == null ? null : Number(trip.tip_amount_pence))
+          : Number(trip.tip_pence),
+        ledger: ledgerEntries,
+        wallet_evidence_available: true,
+        provider_state: (session?.provider_state as string | null) ?? null,
+        captured_pence: session?.captured_amount_pence == null
+          ? null
+          : Number(session.captured_amount_pence),
+        captured_at: (session?.captured_at as string | null)
+          ?? (trip?.completed_at as string | null),
+        released_pence: session?.released_amount_pence == null
+          ? null
+          : Number(session.released_amount_pence),
+        refunded_pence: session?.refunded_amount_pence == null
+          ? null
+          : Number(session.refunded_amount_pence),
+        fee_charged_at: (session?.captured_at as string | null)
+          ?? (trip?.completed_at as string | null),
+        purpose: (session?.purpose as string | null) ?? null,
+        is_terminal_fee_session: ["no_show", "cancelled", "canceled"].includes(
+          String(trip?.status ?? "").toLowerCase(),
+        ),
+        now_ms: Date.now(),
+      });
+      const missingLedger = credit.driver_credit_health === DRIVER_CREDIT_HEALTH.MISSING && ledgerAmt === 0;
       return {
         settlement_id: String(s.id),
         trip_id: tripId,
@@ -599,11 +659,115 @@ export async function fetchDriverWalletPayoutSnapshot(
             provider_processing_fee_pence: session.provider_processing_fee_pence == null
               ? null
               : Number(session.provider_processing_fee_pence),
+            provider_state: (session.provider_state as string | null) ?? null,
+            captured_at: (session.captured_at as string | null) ?? null,
           }
           : null,
+        credit_monitoring: {
+          expected_driver_credit_pence: credit.expected_driver_credit_pence,
+          actual_driver_credit_pence: credit.actual_driver_credit_pence,
+          credit_difference_pence: credit.credit_difference_pence,
+          driver_credit_health: credit.driver_credit_health,
+          credit_eligibility_at: credit.credit_eligibility_at,
+          is_diagnostic_projection: missingLedger,
+          diagnostic_label: missingLedger ? DRIVER_WALLET_MISSING_LEDGER_LABEL : null,
+        },
       };
     }),
   );
+
+  const settlementTripIdsCovered = new Set(
+    settlement_history.map((row) => row.trip_id).filter((id): id is string => Boolean(id)),
+  );
+  const missingCreditDiagnostics = [];
+  for (const [tripId, trip] of tripDetailById.entries()) {
+    if (settlementTripIdsCovered.has(tripId)) continue;
+    const model = String(trip.financial_model ?? "").toUpperCase();
+    if (model.includes("DRIVER_COLLECTED")) continue;
+    const session = sessionByTripId.get(tripId);
+    const ledgerEntries = ledgerByTripId.get(tripId) ?? [];
+    const credit = buildPaymentSessionDriverCreditFields({
+      financial_model: model,
+      trip_status: (trip.status as string | null) ?? null,
+      trip_driver_id: args.driverId,
+      driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
+      tip_pence: trip.tip_pence == null
+        ? (trip.tip_amount_pence == null ? null : Number(trip.tip_amount_pence))
+        : Number(trip.tip_pence),
+      ledger: ledgerEntries,
+      wallet_evidence_available: true,
+      provider_state: (session?.provider_state as string | null) ?? null,
+      captured_pence: session?.captured_amount_pence == null
+        ? null
+        : Number(session.captured_amount_pence),
+      captured_at: (session?.captured_at as string | null)
+        ?? (trip.completed_at as string | null),
+      released_pence: session?.released_amount_pence == null
+        ? null
+        : Number(session.released_amount_pence),
+      refunded_pence: session?.refunded_amount_pence == null
+        ? null
+        : Number(session.refunded_amount_pence),
+      fee_charged_at: (session?.captured_at as string | null)
+        ?? (trip.completed_at as string | null),
+      purpose: (session?.purpose as string | null) ?? null,
+      is_terminal_fee_session: ["no_show", "cancelled", "canceled"].includes(
+        String(trip.status ?? "").toLowerCase(),
+      ),
+      now_ms: Date.now(),
+    });
+    const diagnostic = buildMissingLedgerDiagnosticRow({
+      trip_id: tripId,
+      trip_code: (trip.trip_code as string | null) ?? null,
+      expected_driver_credit_pence: credit.expected_driver_credit_pence,
+      driver_credit_health: credit.driver_credit_health,
+      credit_eligibility_at: credit.credit_eligibility_at,
+      payment_session_id: (session?.id as string | null) ?? null,
+    });
+    if (!diagnostic) continue;
+    missingCreditDiagnostics.push(buildDriverWalletSettlementHistoryRow({
+      settlement_id: `missing-credit:${tripId}`,
+      trip_id: tripId,
+      settlement_status: "MISSING_LEDGER_CREDIT",
+      settled_at: (trip.completed_at as string | null) ?? null,
+      wallet_credit_pence: null,
+      trip: {
+        trip_code: (trip.trip_code as string | null) ?? null,
+        completed_at: (trip.completed_at as string | null) ?? null,
+        passenger_name: (trip.passenger_name as string | null) ?? null,
+        payment_provider: (trip.payment_provider as string | null) ?? null,
+        payment_method: (trip.payment_method as string | null) ?? null,
+        driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
+        payment_session_id: (trip.payment_session_id as string | null) ?? null,
+      },
+      payment_session: session
+        ? {
+          id: (session.id as string | null) ?? null,
+          payment_provider: (session.payment_provider as string | null) ?? null,
+          payment_method: (session.payment_method as string | null) ?? null,
+          captured_amount_pence: session.captured_amount_pence == null
+            ? null
+            : Number(session.captured_amount_pence),
+        }
+        : null,
+      credit_monitoring: {
+        expected_driver_credit_pence: diagnostic.expected_driver_credit_pence,
+        actual_driver_credit_pence: diagnostic.actual_driver_credit_pence,
+        credit_difference_pence: diagnostic.credit_difference_pence,
+        driver_credit_health: diagnostic.driver_credit_health,
+        credit_eligibility_at: diagnostic.credit_eligibility_at,
+        is_diagnostic_projection: true,
+        diagnostic_label: DRIVER_WALLET_MISSING_LEDGER_LABEL,
+      },
+    }));
+  }
+  if (missingCreditDiagnostics.length > 0) {
+    settlement_history = [...settlement_history, ...missingCreditDiagnostics].sort((a, b) => {
+      const aTs = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+      const bTs = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+      return bTs - aTs;
+    });
+  }
 
   // Active provider fee config for this driver's service area (estimate + admin display).
   let activeFeeConfig: Record<string, unknown> | null = null;

@@ -344,6 +344,11 @@ export interface TripFinancialAuditRow {
   wallet_reconciliation_status?: string | null;
   payout_reconciliation_status?: string | null;
   wallet_status?: string | null;
+  driver_credit_health?: string | null;
+  expected_driver_credit_pence?: number | null;
+  actual_driver_credit_pence?: number | null;
+  credit_difference_pence?: number | null;
+  credit_eligibility_at?: string | null;
   provider_state?: string | null;
   provider_verified_at?: string | null;
   provider_verification_status?: 'VERIFIED' | 'STALE' | 'UNKNOWN' | null;
@@ -448,6 +453,9 @@ export interface FinanceReconciliationResponse {
     missing_releases_count?: number;
     missing_wallet_credits_count: number;
     payout_mismatches_count: number;
+    wallet_mismatches_count?: number;
+    driver_credit_exception_trip_count?: number;
+    driver_credit_exception_difference_pence?: number;
     balanced_trips_count: number;
     unresolved_mismatches_count: number;
     trip_count: number;

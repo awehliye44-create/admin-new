@@ -1,7 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
-import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -80,10 +77,11 @@ export function DriverWalletSsotPanel({
 
   useEffect(() => {
     setPage(1);
-  }, [regionId]);
+  }, [regionId, filter?.serviceAreaId]);
 
   const { data, isLoading, error, refetch, isFetching } = useDriverWalletSsot({
     regionId,
+    serviceAreaId: filter?.serviceAreaId ?? null,
     page,
     pageSize,
   });
@@ -112,11 +110,6 @@ export function DriverWalletSsotPanel({
     isMixedCurrency: false,
   };
 
-  const tripsUrl = (driverId: string) => {
-    const params = new URLSearchParams({ tab: 'trips', driverId });
-    return `/financial-reconciliation?${params.toString()}`;
-  };
-
   return (
     <>
       <Card>
@@ -124,7 +117,9 @@ export function DriverWalletSsotPanel({
           <div>
             <CardTitle className="text-base">Drivers</CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Per-driver Financial Reconciliation — Driver Wallet vs canonical payable. Legacy Connect is retired.
+              Period-scoped expected earnings and wallet credits
+              {pageFrom && pageTo ? ` (${pageFrom} – ${pageTo})` : ''}.
+              Available is live payout eligibility — open a row for full evidence.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
@@ -140,44 +135,20 @@ export function DriverWalletSsotPanel({
               <TableHeader>
                 <TableRow>
                   <TableHead>Driver</TableHead>
-                  <TableHead>Driver Code</TableHead>
-                  <TableHead>Service Area</TableHead>
-                  <TableHead className="text-right" title="Same-scope: settled trip stamps in audit window">
-                    Period Expected Driver Payable
+                  <TableHead className="text-right">Expected earnings</TableHead>
+                  <TableHead className="text-right">Wallet credited</TableHead>
+                  <TableHead className="text-right">Paid out</TableHead>
+                  <TableHead className="text-right" title="Live payout eligibility (not period-scoped)">
+                    Available
                   </TableHead>
-                  <TableHead className="text-right" title="Same-scope: TRIP_EARNING_NET credits (payouts excluded)">
-                    Period TEN Credits
-                  </TableHead>
-                  <TableHead className="text-right">Wallet Adjustments</TableHead>
-                  <TableHead className="text-right">Debt Recovery</TableHead>
-                  <TableHead className="text-right">Payouts Debited</TableHead>
-                  <TableHead className="text-right" title="Live balance — owned by Driver Wallet Ledger (not period payable)">
-                    Live Wallet Balance
-                  </TableHead>
-                  <TableHead className="text-right" title="Live eligibility — owned by Payout Ledger / wallet clearing">
-                    Live Available for Payout
-                  </TableHead>
-                  <TableHead
-                    className="text-right"
-                    title="Pending 27h credits and post-payout credits are not payout mismatches."
-                  >
-                    Pending Balance
-                  </TableHead>
-                  <TableHead
-                    className="text-right"
-                    title="Period TEN − period expected stamps only. Payout debits excluded."
-                  >
-                    Period Payable Variance
-                  </TableHead>
-                  <TableHead className="text-right">Payout Variance</TableHead>
-                  <TableHead>Reconciliation Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="text-right">Difference</TableHead>
+                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.length === 0 && !isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={15} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                       No drivers with payout accounts in this region.
                     </TableCell>
                   </TableRow>
@@ -190,72 +161,25 @@ export function DriverWalletSsotPanel({
                   >
                     <TableCell>
                       <div className="font-medium whitespace-nowrap">{driverLabel(row)}</div>
-                      {row.driver_name?.trim() && row.driver_code?.trim() ? (
-                        <div className="text-xs text-muted-foreground mt-0.5">{row.driver_code.trim()}</div>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                      <div className="font-medium text-foreground">{row.driver_code?.trim() || '—'}</div>
-                      <div className="font-mono mt-0.5" title={row.driver_id}>
-                        Internal ID: {row.driver_id.slice(0, 8)}…
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {row.driver_code?.trim() || row.driver_id.slice(0, 8)}
+                        {row.service_area_name || serviceAreaName ? ` · ${row.service_area_name ?? serviceAreaName}` : ''}
                       </div>
-                    </TableCell>
-                    <TableCell className="text-xs whitespace-nowrap">
-                      {row.service_area_name ?? serviceAreaName ?? '—'}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{fmt(row.expected_payable_pence)}</TableCell>
                     <TableCell className="text-right tabular-nums">{fmt(row.actual_wallet_trip_credits_pence)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmt(row.wallet_adjustments_pence ?? 0)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmt(row.debt_recovery_pence ?? 0)}</TableCell>
                     <TableCell className="text-right tabular-nums">{fmt(row.payouts_debited_pence ?? 0)}</TableCell>
-                    <TableCell className="text-right tabular-nums font-medium">
-                      {fmt(row.current_wallet_balance_pence ?? row.wallet_balance_pence)}
-                    </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {fmt(row.available_for_payout_pence ?? row.cashout_limit_pence)}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {fmt(row.pending_balance_pence ?? row.period_kpis?.pending_earnings_pence)}
-                    </TableCell>
                     <TableCell className="text-right tabular-nums">{fmt(row.wallet_variance_pence)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmt(row.payout_variance_pence)}</TableCell>
                     <TableCell>
                       <Badge
                         variant={statusVariant(row.reconciliation_status)}
-                        title={
-                          [
-                            ...(row.reconciliation_reasons ?? []),
-                            'Pending 27h credits and post-payout credits are not payout mismatches.',
-                          ].join(' · ')
-                        }
+                        title={(row.reconciliation_reasons ?? []).join(' · ')}
                       >
                         {row.reconciliation_status}
                       </Badge>
-                      {row.reconciliation_reasons?.length ? (
-                        <p className="text-xs text-muted-foreground mt-1 max-w-[220px]">
-                          {row.reconciliation_reasons[0]}
-                        </p>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex flex-wrap justify-end gap-1 max-w-[280px]">
-                        <Button variant="outline" size="sm" asChild>
-                          <Link to={tripsUrl(row.driver_id)}>Open Trips</Link>
-                        </Button>
-                        <Button variant="outline" size="sm" asChild>
-                          <Link to={driverWalletLedgerUrl(row.driver_id, 'overview')}>
-                            Open Driver Wallet
-                          </Link>
-                        </Button>
-                        <Button variant="outline" size="sm" asChild>
-                          <Link to={payoutLedgerUrl({ driverId: row.driver_id })}>
-                            Open Payout Ledger
-                          </Link>
-                        </Button>
-                        <Button variant="default" size="sm" onClick={() => openDriverDrawer(row)}>
-                          View Reconciliation Evidence
-                        </Button>
-                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

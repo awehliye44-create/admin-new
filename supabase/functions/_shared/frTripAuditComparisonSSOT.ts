@@ -317,10 +317,12 @@ export type FrAuditOverviewKpis = {
   overcapture_pence: number;
   missing_captures_count: number;
   missing_releases_count: number;
-  missing_wallet_credits_count: number;
-  payout_mismatches_count: number;
-  wallet_mismatches_count: number;
-  balanced_trips_count: number;
+    missing_wallet_credits_count: number;
+    payout_mismatches_count: number;
+    wallet_mismatches_count: number;
+    driver_credit_exception_trip_count?: number;
+    driver_credit_exception_difference_pence?: number;
+    balanced_trips_count: number;
   unresolved_mismatches_count: number;
   trip_count: number;
 };
