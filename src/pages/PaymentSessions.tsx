@@ -357,6 +357,7 @@ export default function PaymentSessions() {
   const [driverCreditExceptionsOnly, setDriverCreditExceptionsOnly] = useState(
     searchParams.get('driverCreditExceptions') === '1',
   );
+  const [listOffset, setListOffset] = useState(0);
 
   const [actingId, setActingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
