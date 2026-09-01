@@ -18,6 +18,12 @@ import {
 import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
 import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 import { classifyTripForPlatformCollectedAdminPage } from "../../../shared/financialModelScopeSSOT.ts";
+import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
+import { extractRevolutProviderFeeMinor } from "../_shared/revolutApi.ts";
+import {
+  maybeResumeTerminalFeeSettlementAfterProviderFee,
+  persistProviderFeeAndMaybeResumeTerminalSettlement,
+} from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 
 const ACTIVE_STATUSES = [
   "pending_payment",
@@ -69,7 +75,7 @@ serve(async (req) => {
     const query = gate.supabase
       .from("payment_sessions")
       .select(
-        "id, provider_order_id, provider_capture_id, status, provider_state, authorised_amount_pence, trip_id, purpose, metadata, parent_session_id, captured_amount_pence, refunded_amount_pence, hold_release_state, financial_operation_state, financial_model, service_area_id",
+        "id, provider_order_id, provider_capture_id, status, provider_state, authorised_amount_pence, trip_id, purpose, metadata, parent_session_id, captured_amount_pence, refunded_amount_pence, hold_release_state, financial_operation_state, financial_model, service_area_id, provider_processing_fee_pence, fee_status",
       )
       .eq("payment_provider", "revolut")
       .not("provider_order_id", "is", null);
@@ -120,12 +126,42 @@ serve(async (req) => {
     for (const s of sessions) {
       try {
         if (TERMINAL_SESSION.has(String(s.status ?? ""))) {
+          let terminalFeeResume: Record<string, unknown> | null = null;
+          const feeKnown = s.provider_processing_fee_pence != null
+            && String(s.fee_status ?? "").toUpperCase() === "ACTUAL";
+          if (s.trip_id && s.provider_order_id) {
+            if (!feeKnown) {
+              const order = await retrieveRevolutOrder(environment, secretKey, s.provider_order_id);
+              const feeMinor = extractRevolutProviderFeeMinor(order);
+              if (feeMinor != null) {
+                const { resume } = await persistProviderFeeAndMaybeResumeTerminalSettlement(
+                  gate.supabase,
+                  {
+                    sessionId: s.id,
+                    providerOrderId: s.provider_order_id,
+                    tripId: String(s.trip_id),
+                    providerFeePence: feeMinor,
+                    retrieveSucceeded: true,
+                    source: "admin_refresh",
+                  },
+                );
+                terminalFeeResume = resume as unknown as Record<string, unknown>;
+              }
+            } else {
+              const resume = await maybeResumeTerminalFeeSettlementAfterProviderFee(
+                gate.supabase,
+                { tripId: String(s.trip_id), source: "admin_refresh" },
+              );
+              terminalFeeResume = resume as unknown as Record<string, unknown>;
+            }
+          }
           results.push({
             session_id: s.id,
             provider_order_id: s.provider_order_id,
             skipped: true,
             reason: "already_terminal",
             status: s.status,
+            terminal_fee_resume: terminalFeeResume,
           });
           continue;
         }
@@ -253,9 +289,17 @@ serve(async (req) => {
 
           plan.recovery_session_patch.provider_state_verified_by = "admin_refresh_recovery";
 
-          await gate.supabase.from("payment_sessions").update(plan.recovery_session_patch).eq("id", s.id);
+          await transitionPaymentSession(gate.supabase, {
+            sessionId: s.id,
+            patch: plan.recovery_session_patch,
+            source: "admin_refresh",
+          });
           if (plan.parent_session_patch && parent?.id) {
-            await gate.supabase.from("payment_sessions").update(plan.parent_session_patch).eq("id", parent.id);
+            await transitionPaymentSession(gate.supabase, {
+              sessionId: parent.id,
+              patch: plan.parent_session_patch,
+              source: "admin_refresh",
+            });
           }
           await gate.supabase.from("trips").update(plan.trip_patch).eq("id", s.trip_id);
 
@@ -349,6 +393,25 @@ serve(async (req) => {
           statusAdvanceExtras,
         });
 
+        let terminalFeeResume: Record<string, unknown> | null = null;
+        if (s.trip_id && ["COMPLETED", "CAPTURED"].includes(stateUpper)) {
+          const feeMinor = extractRevolutProviderFeeMinor(order);
+          if (feeMinor != null) {
+            const { resume } = await persistProviderFeeAndMaybeResumeTerminalSettlement(
+              gate.supabase,
+              {
+                sessionId: s.id,
+                providerOrderId: s.provider_order_id,
+                tripId: String(s.trip_id),
+                providerFeePence: feeMinor,
+                retrieveSucceeded: true,
+                source: "admin_refresh",
+              },
+            );
+            terminalFeeResume = resume as unknown as Record<string, unknown>;
+          }
+        }
+
         results.push({
           session_id: s.id,
           provider_order_id: s.provider_order_id,
@@ -359,6 +422,7 @@ serve(async (req) => {
           decision: lifecycleResult.decision,
           reason: lifecycleResult.reason,
           error: lifecycleResult.error_message ?? null,
+          terminal_fee_resume: terminalFeeResume,
         });
       } catch (e) {
         results.push({

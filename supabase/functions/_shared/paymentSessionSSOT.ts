@@ -5,6 +5,9 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
+  mutatePaymentSession,
+} from "./paymentSessionMutationCore.ts";
+import {
   fromDbPaymentSessionStatus,
   isAuthorisedHoldSessionStatus,
   isBlockedForTripCreateSessionStatus,
@@ -46,22 +49,9 @@ async function patchPaymentSession(
   filter: { clientActionId?: string | null; providerOrderId?: string | null; sessionId?: string | null },
   patch: Record<string, unknown>,
 ): Promise<void> {
-  let query = supabase.from("payment_sessions").update({
-    ...patch,
-    updated_at: new Date().toISOString(),
-  });
-  if (filter.sessionId) {
-    query = query.eq("id", filter.sessionId);
-  } else if (filter.clientActionId) {
-    query = query.eq("client_action_id", filter.clientActionId);
-  } else if (filter.providerOrderId) {
-    query = query.eq("provider_order_id", filter.providerOrderId);
-  } else {
-    return;
-  }
-  const { error } = await query;
+  const { error } = await mutatePaymentSession(supabase, filter, patch, "ssot");
   if (error) {
-    console.warn("[paymentSessionSSOT] patch failed", error.message, patch);
+    console.warn("[paymentSessionSSOT] patch failed", error, patch);
   }
 }
 
@@ -277,18 +267,16 @@ export async function markPaymentSessionReleased(
   const sessionId = session?.id ? String(session.id) : null;
   const oldState = String(session?.provider_state ?? "").toUpperCase();
   if (sessionId && (oldState === "AUTHORISED" || oldState === "AUTHORIZED" || oldState === "COMPLETED")) {
-    const { error: flipErr } = await supabase
-      .from("payment_sessions")
-      .update({
+    await mutatePaymentSession(
+      supabase,
+      { sessionId },
+      {
         provider_state: oldState === "COMPLETED" ? "REFUNDED" : "CANCELLED",
         provider_state_verified_at: now,
         provider_state_verified_by: "markPaymentSessionReleased",
-        updated_at: now,
-      })
-      .eq("id", sessionId);
-    if (flipErr) {
-      console.warn("[paymentSessionSSOT] provider_state pre-flip failed", flipErr.message);
-    }
+      },
+      "ssot",
+    );
   }
 
   await markPaymentSessionStatus(supabase, "released", {

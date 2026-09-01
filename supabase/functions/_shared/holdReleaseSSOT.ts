@@ -17,6 +17,7 @@ import {
   loadPaymentSession,
   markPaymentSessionReleased,
 } from "./paymentSessionSSOT.ts";
+import { transitionPaymentSession } from "./paymentSessionTransitionFacade.ts";
 import {
   cancelRevolutOrder,
   retrieveRevolutOrder,
@@ -314,10 +315,11 @@ export async function releaseHoldForPaymentSession(
   const sessionId = session?.id ? String(session.id) : null;
   if (sessionId) {
     const attempts = Number(session?.release_attempt_count ?? 0) + 1;
-    await supabase.from("payment_sessions").update({
-      release_attempt_count: attempts,
-      updated_at: new Date().toISOString(),
-    }).eq("id", sessionId);
+    await transitionPaymentSession(supabase, {
+      sessionId,
+      source: "hold_release",
+      patch: { release_attempt_count: attempts },
+    });
   }
 
   try {
@@ -410,10 +412,11 @@ export async function releaseHoldForPaymentSession(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (sessionId) {
-      await supabase.from("payment_sessions").update({
-        release_failure_reason: message,
-        updated_at: new Date().toISOString(),
-      }).eq("id", sessionId);
+      await transitionPaymentSession(supabase, {
+        sessionId,
+        source: "hold_release",
+        patch: { release_failure_reason: message },
+      });
     }
     return { ok: false, released: false, skipped: false, status: "failed", error: message };
   }
@@ -432,10 +435,13 @@ export async function attemptHoldRecoveryOnce(
   const sessionId = session.id ? String(session.id) : "";
   const orderId = String(session.provider_order_id ?? "");
   if (sessionId) {
-    await supabase.from("payment_sessions").update({
-      recovery_attempt_count: Number(session.recovery_attempt_count ?? 0) + 1,
-      updated_at: new Date().toISOString(),
-    }).eq("id", sessionId);
+    await transitionPaymentSession(supabase, {
+      sessionId,
+      source: "hold_release",
+      patch: {
+        recovery_attempt_count: Number(session.recovery_attempt_count ?? 0) + 1,
+      },
+    });
   }
   if (!orderId) {
     return { ok: false, released: false, status: "missing_provider_order_id" };

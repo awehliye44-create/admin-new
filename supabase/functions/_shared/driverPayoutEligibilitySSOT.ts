@@ -1,16 +1,7 @@
 /**
  * Canonical driver payout eligibility SSOT (pure — no I/O).
- *
- * DWL owns monetary balance. Eligibility is proven from:
- *   driver_wallet_ledger → trip → payment_sessions capture → payout-clearing gate
- *     → canonical driver_net
- * DES is an optional settlement companion; missing DES must not erase valid wallet credits.
- *
- * PLATFORM_COLLECTED card: capture is necessary but NOT sufficient for Available.
- * Lifecycle: earned/captured → PENDING (settlement) → AVAILABLE → PAID.
- * Pending/Available is a liquidity classification only — it must not change
- * live liability, TRIP_EARNING_NET, or period earnings.
  */
+import { FINANCIAL_MODEL, resolveFinancialModelStamp } from "../../../shared/financialModelScopeSSOT.ts";
 
 export const PAYOUT_ELIGIBILITY_STATUS = {
   ELIGIBLE: "ELIGIBLE",
@@ -37,6 +28,7 @@ export type PayoutEligibilityStatus =
 /** Balance-affecting earning credits that can become payout-eligible. */
 export const PAYOUT_ELIGIBLE_LEDGER_TYPES = new Set([
   "TRIP_EARNING_NET",
+  "DRIVER_COMPENSATION_CREDIT",
   "DRIVER_TIP_CREDIT",
   "TIP_CREDIT",
 ]);
@@ -190,6 +182,9 @@ export type LedgerEligibilityEvidence = {
   trip_cancelled?: boolean | null;
   completed_at?: string | null;
   session_status?: string | null;
+  /** Payment Sessions provider fee when evaluating terminal compensation. */
+  provider_processing_fee_pence?: number | null;
+  fee_status?: string | null;
 };
 
 export type EligiblePayoutEntry = {
@@ -247,6 +242,23 @@ function expectedCanonicalNet(entry: LedgerEligibilityEvidence): number | null {
     return entry.canonical_driver_net_pence == null
       ? null
       : Math.max(0, Math.round(Number(entry.canonical_driver_net_pence)));
+  }
+  if (type === "DRIVER_COMPENSATION_CREDIT") {
+    const captured = entry.captured_amount_pence == null
+      ? null
+      : Math.round(Number(entry.captured_amount_pence));
+    const fee = entry.provider_processing_fee_pence == null
+      ? null
+      : Math.round(Number(entry.provider_processing_fee_pence));
+    const feeConfirmed = String(entry.fee_status ?? "").toUpperCase() === "ACTUAL"
+      || (fee != null && fee >= 0 && entry.provider_processing_fee_pence != null);
+    if (captured != null && captured > 0 && feeConfirmed && fee != null) {
+      return Math.max(0, captured - fee);
+    }
+    if (!feeConfirmed && captured != null && captured > 0) {
+      return null;
+    }
+    return Math.max(0, Math.round(Number(entry.amount_pence ?? 0))) || null;
   }
   if (type === "DRIVER_TIP_CREDIT" || type === "TIP_CREDIT") {
     if (entry.canonical_tip_pence == null) return null;
@@ -322,16 +334,17 @@ export function evaluateLedgerEntryEligibility(
     return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
   }
 
-  const financialModel = String(entry.financial_model ?? entry.payment_collection_model ?? "")
-    .trim()
-    .toUpperCase();
-  if (financialModel.includes("DRIVER_COLLECTED")) {
+  const financialModel = resolveFinancialModelStamp(
+    entry.financial_model ?? entry.payment_collection_model,
+  );
+  if (financialModel === FINANCIAL_MODEL.UNKNOWN) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
+  }
+  if (financialModel === FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET) {
     return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
   }
   if (entry.trip_id) {
-    const isPlatformCollected =
-      financialModel === "PLATFORM_COLLECTED" || financialModel === "PLATFORM_PREPAID";
-    if (!isPlatformCollected) {
+    if (financialModel !== FINANCIAL_MODEL.PLATFORM_COLLECTED) {
       return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
     }
   }

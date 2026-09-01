@@ -3,7 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { FinanceLedgerPanel } from '@/components/finance/FinanceLedgerPanel';
-import { DriverWalletOverviewCards } from '@/components/finance/DriverWalletOverviewCards';
+import { DriverWalletActivePositionCards } from '@/components/finance/DriverWalletActivePositionCards';
+import { DriverWalletHistorySummary } from '@/components/finance/DriverWalletHistorySummary';
 import { DriverWalletStatementsPanel } from '@/components/finance/DriverWalletStatementsPanel';
 import { DriverWalletDriverList } from '@/components/finance/DriverWalletDriverList';
 import { DriverWalletFleetOverviewCards } from '@/components/finance/DriverWalletFleetOverviewCards';
@@ -403,13 +404,15 @@ export default function DriverWalletLedger() {
                 <TabsTrigger value="statements">Statements</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="overview" className="mt-4">
-                <DriverWalletOverviewCards
+              <TabsContent value="overview" className="mt-4 space-y-4">
+                <DriverWalletActivePositionCards
                   driver={driver}
-                  driverId={driverId}
                   currencyCode={currencyCode}
                   isLoading={isLoading && !!driverId}
                 />
+                {driver ? (
+                  <DriverWalletHistorySummary driver={driver} currencyCode={currencyCode} />
+                ) : null}
               </TabsContent>
 
               <TabsContent value="settlement" className="mt-4">

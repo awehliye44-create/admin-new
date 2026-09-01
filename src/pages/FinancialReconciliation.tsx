@@ -418,7 +418,7 @@ function FinancialReconciliationPage() {
               )}
               <p className="text-xs text-muted-foreground">
                 Hold operations:{' '}
-                <Link className="underline" to="/payment-sessions?tab=issues&issueFilter=active_holds">
+                <Link className="underline" to="/payment-sessions?tab=captured&opFilter=release_pending">
                   Open Payment Sessions
                 </Link>
               </p>

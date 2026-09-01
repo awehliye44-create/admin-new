@@ -20,6 +20,8 @@ import {
   useCriticalButtonTimeout,
 } from '@/lib/criticalButtonTimeout';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
+import { useRevolutBusinessPayoutGate } from '@/hooks/useRevolutBusinessPayoutGate';
+import { REVOLUT_BUSINESS_PAYOUT_OAUTH_BLOCKED_COPY } from '../../../shared/revolutBusinessOAuthSSOT.ts';
 
 /** Payout Ledger–owned writers only. Do not mount on Driver Wallet. */
 export function PayoutLedgerCreateWeeklyBatchButton({
@@ -32,6 +34,7 @@ export function PayoutLedgerCreateWeeklyBatchButton({
   currencyCode?: string;
 }) {
   const queryClient = useQueryClient();
+  const { gate: payoutGate, isLoading: payoutGateLoading } = useRevolutBusinessPayoutGate();
   const [creatingBatch, setCreatingBatch] = useState(false);
   const runPayoutsTimeout = useCriticalButtonTimeout({
     action: 'admin_run_payouts',
@@ -43,6 +46,10 @@ export function PayoutLedgerCreateWeeklyBatchButton({
   });
 
   const handleCreateWeeklyBatch = async () => {
+    if (!payoutGate.live_payouts_executable) {
+      toast.error(payoutGate.admin_blocked_copy ?? REVOLUT_BUSINESS_PAYOUT_OAUTH_BLOCKED_COPY);
+      return;
+    }
     if (!regionId) {
       toast.error('Select a service area / region before creating a weekly batch');
       return;
@@ -50,7 +57,7 @@ export function PayoutLedgerCreateWeeklyBatchButton({
     setCreatingBatch(true);
     const perf = startAdminPerformanceStep({ action_name: 'admin_run_payouts' });
     try {
-      const { data, error } = await supabase.functions.invoke('admin-weekly-payout-scheduler', {
+      const { data, error } = await supabase.functions.invoke('admin-execute-weekly-payout-occurrence', {
         body: {
           force: true,
           region_id: regionId,
@@ -86,7 +93,10 @@ export function PayoutLedgerCreateWeeklyBatchButton({
     <Button
       size="sm"
       onClick={() => void handleCreateWeeklyBatch()}
-      disabled={runPayoutsTimeout.showSpinner || !regionId}
+      disabled={runPayoutsTimeout.showSpinner || !regionId || payoutGateLoading || !payoutGate.live_payouts_executable}
+      title={!payoutGate.live_payouts_executable
+        ? (payoutGate.admin_blocked_copy ?? REVOLUT_BUSINESS_PAYOUT_OAUTH_BLOCKED_COPY)
+        : undefined}
     >
       {runPayoutsTimeout.showSpinner ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
       Create weekly batch
@@ -109,6 +119,7 @@ export function PayoutLedgerSubmitProviderButton({
   disabled?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const { gate: payoutGate, isLoading: payoutGateLoading } = useRevolutBusinessPayoutGate();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const submitTimeout = useCriticalButtonTimeout({
@@ -121,6 +132,10 @@ export function PayoutLedgerSubmitProviderButton({
   });
 
   const handleSubmit = async () => {
+    if (!payoutGate.live_payouts_executable) {
+      toast.error(payoutGate.admin_blocked_copy ?? REVOLUT_BUSINESS_PAYOUT_OAUTH_BLOCKED_COPY);
+      return;
+    }
     setSubmitting(true);
     const perf = startAdminPerformanceStep({
       action_name: 'admin_pay_driver',
@@ -159,7 +174,15 @@ export function PayoutLedgerSubmitProviderButton({
 
   return (
     <>
-      <Button size="sm" variant="default" disabled={disabled} onClick={() => setOpen(true)}>
+      <Button
+        size="sm"
+        variant="default"
+        disabled={disabled || payoutGateLoading || !payoutGate.live_payouts_executable}
+        title={!payoutGate.live_payouts_executable
+          ? (payoutGate.admin_blocked_copy ?? REVOLUT_BUSINESS_PAYOUT_OAUTH_BLOCKED_COPY)
+          : undefined}
+        onClick={() => setOpen(true)}
+      >
         Submit to provider
       </Button>
       <Dialog open={open} onOpenChange={(next) => !next && setOpen(false)}>

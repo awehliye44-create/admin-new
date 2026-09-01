@@ -8,6 +8,7 @@ import {
   getTripSettlementFarePence,
 } from "../_shared/tripSettlementFinanceSSOT.ts";
 import { tripBlocksDriverWalletLedgerPosting } from "../_shared/commissionWalletDeduction.ts";
+import { postStampedTripSettlementWalletCredit } from "../_shared/canonicalTypedWalletPostingSSOT.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -129,31 +130,15 @@ serve(async (req) => {
           });
         }
 
-        // If trip has fare data and a driver, create ledger entry if not already exists.
-        // Phase 7: never post DWL for Commission Wallet trips.
         if (
           trip.driver_id
-          && trip.commission_pence
-          && trip.commission_pence > 0
+          && (trip.driver_net_pence != null || trip.commission_pence != null)
           && !(await tripBlocksDriverWalletLedgerPosting(supabase, trip_id))
         ) {
-          const { data: existingEntry } = await supabase
-            .from('driver_wallet_ledger')
-            .select('id')
-            .eq('related_trip_id', trip_id)
-            .limit(1);
-
-          if (!existingEntry || existingEntry.length === 0) {
-            const netPence = trip.driver_net_pence || (trip.gross_fare_pence || 0) - trip.commission_pence;
-            await supabase.from('driver_wallet_ledger').insert({
-              driver_id: trip.driver_id,
-              related_trip_id: trip_id,
-              type: 'TRIP_EARNING_NET',
-              amount_pence: netPence,
-              currency: currency_code,
-              description: 'Net earnings from trip (admin confirmed)',
-            });
-          }
+          await postStampedTripSettlementWalletCredit(supabase, {
+            trip: { ...trip, id: trip_id, driver_id: trip.driver_id },
+            currency: currency_code,
+          });
         }
 
         // Log the action

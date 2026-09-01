@@ -4,6 +4,7 @@
  */
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import { mutatePaymentSession, mutatePaymentSessionReturningId } from "./paymentSessionMutationCore.ts";
 
 export type FinancialOperationState =
   | "IDLE"
@@ -127,16 +128,20 @@ export async function claimPaymentSessionFinancialLock(
     updated_at: now,
   };
 
-  // Compare-and-set: allow claim when idle OR same owner OR expired lock.
-  let q = supabase.from("payment_sessions").update(patch).eq("id", sessionId);
-  if (current.state === "IDLE" || lockExpired(current.startedAtMs)) {
-    // Prefer idle; if expired, overwrite regardless of prior state (except CAPTURED handled above).
-  } else if (current.owner === owner) {
-    q = q.eq("financial_operation_owner", owner);
+  const claimFilter: { sessionId: string; expectFinancialOperationOwner?: string } = {
+    sessionId,
+  };
+  if (current.state !== "IDLE" && !lockExpired(current.startedAtMs) && current.owner === owner) {
+    claimFilter.expectFinancialOperationOwner = owner;
   }
 
-  const { data: updated, error: updErr } = await q.select("id").maybeSingle();
-  if (updErr || !updated) {
+  const claim = await mutatePaymentSessionReturningId(
+    supabase,
+    claimFilter,
+    patch,
+    "financial_lock",
+  );
+  if (!claim.ok || !claim.id) {
     // Re-read for race
     const { data: again } = await supabase
       .from("payment_sessions")
@@ -187,15 +192,15 @@ export async function releasePaymentSessionFinancialLock(
     delete metadata.financial_operation_started_at;
     delete metadata.financial_operation_key;
   }
-  await supabase
-    .from("payment_sessions")
-    .update({
+  await mutatePaymentSession(
+    supabase,
+    { sessionId, expectFinancialOperationOwner: args.owner },
+    {
       metadata,
       financial_operation_state: next,
       financial_operation_owner: next === "IDLE" ? null : args.owner,
       financial_operation_started_at: next === "IDLE" ? null : new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", sessionId)
-    .eq("financial_operation_owner", args.owner);
+    },
+    "financial_lock",
+  );
 }

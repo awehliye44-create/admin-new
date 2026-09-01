@@ -5,29 +5,9 @@
 // POST { dry_run?: boolean, limit?: number, order_id?: string }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { revolutMerchantRequest } from "../_shared/revolutApi.ts";
-
-function extractFeeMinor(order: unknown): number | null {
-  if (!order || typeof order !== "object") return null;
-  const payments = (order as { payments?: unknown }).payments;
-  if (!Array.isArray(payments) || payments.length === 0) return null;
-  let total = 0;
-  let saw = false;
-  for (const p of payments) {
-    if (!p || typeof p !== "object") continue;
-    const fees = (p as { fees?: unknown }).fees;
-    if (Array.isArray(fees)) {
-      for (const f of fees) {
-        const amt = (f as { amount?: unknown })?.amount;
-        if (typeof amt === "number" && Number.isFinite(amt)) { total += amt; saw = true; }
-      }
-      continue;
-    }
-    const flat = (p as { fee?: unknown }).fee;
-    if (typeof flat === "number" && Number.isFinite(flat)) { total += flat; saw = true; }
-  }
-  return saw ? Math.round(total) : null;
-}
+import { revolutMerchantRequest, extractRevolutProviderFeeMinor } from "../_shared/revolutApi.ts";
+import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
+import { persistProviderFeeAndMaybeResumeTerminalSettlement } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -83,7 +63,7 @@ Deno.serve(async (req) => {
       const order = await revolutMerchantRequest<unknown>(
         "live", secretKey, `/orders/${encodeURIComponent(orderId)}`, { method: "GET" },
       );
-      const fee = extractFeeMinor(order);
+      const fee = extractRevolutProviderFeeMinor(order);
       if (fee == null) {
         skipped++;
         results.push({ session_id: s.id, order_id: orderId, fee: null, action: "skipped_no_fee" });
@@ -91,20 +71,35 @@ Deno.serve(async (req) => {
       }
       if (!dryRun) {
         const nowIso = new Date().toISOString();
-        await admin.from("payment_sessions").update({
-          provider_processing_fee_pence: fee,
-          provider_fee_source: "revolut_backfill",
-          provider_fee_confirmed_at: nowIso,
-          updated_at: nowIso,
-        }).eq("id", s.id);
-        if (s.trip_id) {
-          await admin.from("trips").update({
-            provider_fee_pence: fee, updated_at: nowIso,
-          }).eq("id", s.trip_id);
-        }
+        const { resume } = await persistProviderFeeAndMaybeResumeTerminalSettlement(admin, {
+          sessionId: s.id,
+          providerOrderId: orderId,
+          tripId: s.trip_id != null ? String(s.trip_id) : null,
+          providerFeePence: fee,
+          retrieveSucceeded: true,
+          source: "revolut_backfill",
+        });
+        await transitionPaymentSession(admin, {
+          sessionId: s.id,
+          patch: {
+            provider_fee_source: "revolut_backfill",
+            provider_fee_confirmed_at: nowIso,
+            updated_at: nowIso,
+          },
+          source: "fee_backfill",
+        });
+        results.push({
+          session_id: s.id,
+          trip_id: s.trip_id,
+          order_id: orderId,
+          fee_pence: fee,
+          action: "updated",
+          terminal_fee_resume: resume,
+        });
+      } else {
+        results.push({ session_id: s.id, trip_id: s.trip_id, order_id: orderId, fee_pence: fee, action: "would_update" });
       }
       updated++;
-      results.push({ session_id: s.id, trip_id: s.trip_id, order_id: orderId, fee_pence: fee, action: dryRun ? "would_update" : "updated" });
     } catch (err) {
       results.push({ session_id: s.id, order_id: orderId, error: (err as Error).message, action: "error" });
     }

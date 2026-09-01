@@ -1,9 +1,15 @@
 /**
  * No-show fee settlement.
  *
- * CARD: apply configured no-show fee → capture via provider → ONECAB settlement.
+ * CARD: capture via provider → Payment Session evidence → canonical entitlement posting.
  * CASH:  terminal no_show with all financial amounts zero; payment_status = not_required.
  */
+
+import {
+  loadTerminalCaptureEvidence,
+  postTerminalEntitlementFromSettlement,
+  stampTerminalOutcomeTripRow,
+} from "./terminalOutcomeEntitlementSSOT.ts";
 
 export type NoShowPaymentStatus =
   | "not_required"
@@ -11,7 +17,8 @@ export type NoShowPaymentStatus =
   | "no_show_cash_unpaid"
   | "no_show_customer_debt"
   | "no_show_company_compensated"
-  | "fee_charged";
+  | "fee_charged"
+  | "fee_pending_settlement";
 
 export const NO_SHOW_DRIVER_MESSAGE =
   "No-show recorded. Fee will be handled by ONECAB.";
@@ -21,6 +28,9 @@ export const NO_SHOW_DRIVER_MESSAGE_WAIVED =
 
 export const NO_SHOW_DRIVER_MESSAGE_CASH =
   "No-show recorded. No fee applies for cash trips.";
+
+export const NO_SHOW_DRIVER_MESSAGE_PENDING =
+  "No-show recorded. Driver compensation pending provider fee confirmation.";
 
 /** Trip row financial fields cleared for cash no-show (£0 policy). */
 export const CASH_NO_SHOW_ZERO_FINANCIAL_PATCH = {
@@ -42,9 +52,6 @@ export const CASH_NO_SHOW_ZERO_FINANCIAL_PATCH = {
   estimated_total_pence: 0,
 } as const;
 
-const LEDGER_DRIVER_COMPENSATION = "DRIVER_COMPENSATION_CREDIT";
-const LEDGER_NO_SHOW_FEE = "NO_SHOW_FEE";
-
 export interface NoShowSettlementInput {
   supabase: any;
   tripId: string;
@@ -64,68 +71,12 @@ export interface NoShowSettlementResult {
   driverCompensated: boolean;
   customerDebtPence: number;
   driverMessage: string;
+  entitlement_pence?: number | null;
+  pending_settlement?: boolean;
 }
 
 export function isCashPayment(method: string | null | undefined): boolean {
   return (method ?? "").toLowerCase() === "cash";
-}
-
-// deno-lint-ignore no-explicit-any
-async function ledgerExists(
-  supabase: any,
-  tripId: string,
-  type: string,
-): Promise<boolean> {
-  const { data } = await supabase
-    .from("driver_wallet_ledger")
-    .select("id")
-    .eq("related_trip_id", tripId)
-    .eq("type", type)
-    .maybeSingle();
-  return !!data;
-}
-
-// deno-lint-ignore no-explicit-any
-async function recordDriverCompensation(
-  supabase: any,
-  input: {
-    driverId: string;
-    tripId: string;
-    feePence: number;
-    currency: string;
-  },
-): Promise<boolean> {
-  const { driverId, tripId, feePence, currency } = input;
-  if (feePence <= 0) return false;
-
-  if (await ledgerExists(supabase, tripId, LEDGER_DRIVER_COMPENSATION)) {
-    return true;
-  }
-
-  const cs = currency.toUpperCase();
-  const major = (feePence / 100).toFixed(2);
-
-  await supabase.from("driver_wallet_ledger").insert({
-    driver_id: driverId,
-    related_trip_id: tripId,
-    type: LEDGER_DRIVER_COMPENSATION,
-    amount_pence: feePence,
-    currency: cs,
-    description: `No-show compensation (ONECAB) — ${cs} ${major}`,
-  });
-
-  if (!(await ledgerExists(supabase, tripId, LEDGER_NO_SHOW_FEE))) {
-    await supabase.from("driver_wallet_ledger").insert({
-      driver_id: driverId,
-      related_trip_id: tripId,
-      type: LEDGER_NO_SHOW_FEE,
-      amount_pence: feePence,
-      currency: cs,
-      description: `No-show fee — ${cs} ${major}`,
-    });
-  }
-
-  return true;
 }
 
 // deno-lint-ignore no-explicit-any
@@ -169,6 +120,7 @@ async function recordCustomerOutstandingBalance(
 
 /**
  * Post no-show financial settlement after trip row is terminal.
+ * Wallet credit uses canonical terminal entitlement — never raw feePence.
  */
 export async function settleNoShowFee(
   input: NoShowSettlementInput,
@@ -228,31 +180,38 @@ export async function settleNoShowFee(
     };
   }
 
+  const evidence = await loadTerminalCaptureEvidence(supabase, tripId, cardCharged ? feePence : null);
+  await stampTerminalOutcomeTripRow({
+    supabase,
+    tripId,
+    outcome: "NO_SHOW",
+    evidence,
+    paymentMethod,
+  });
+
+  const posted = await postTerminalEntitlementFromSettlement({
+    supabase,
+    tripId,
+    driverId,
+    outcome: "NO_SHOW",
+    currency,
+    evidence,
+  });
+
   let paymentStatus: NoShowPaymentStatus;
   let customerDebtPence = 0;
-  let driverCompensated = false;
 
-  if (cardCharged) {
-    paymentStatus = "fee_charged";
-    driverCompensated = await recordDriverCompensation(supabase, {
-      driverId,
-      tripId,
-      feePence,
-      currency,
-    });
+  if (posted.pending) {
+    paymentStatus = "fee_pending_settlement";
+  } else if (cardCharged) {
+    paymentStatus = posted.credited ? "fee_charged" : "fee_pending_settlement";
   } else {
     paymentStatus = "no_show_customer_debt";
     customerDebtPence = feePence;
-    driverCompensated = await recordDriverCompensation(supabase, {
-      driverId,
-      tripId,
-      feePence,
-      currency,
-    });
-    if (driverCompensated) {
+    if (posted.credited) {
       paymentStatus = "no_show_company_compensated";
     }
-    if (passengerId) {
+    if (passengerId && !cardCharged) {
       await recordCustomerOutstandingBalance(supabase, {
         passengerId,
         tripId,
@@ -267,17 +226,22 @@ export async function settleNoShowFee(
       payment_status: paymentStatus,
       financial_outcome: "NO_SHOW",
       debt_recovery_pence: customerDebtPence,
-      gross_fare_pence: 0,
+      gross_fare_pence: evidence.captured_pence,
       no_show_charge_pence: feePence,
+      capture_amount_pence: evidence.captured_pence,
+      driver_net_pence: posted.entitlement_pence ?? 0,
+      commission_pence: 0,
       updated_at: new Date().toISOString(),
     })
     .eq("id", tripId);
 
   return {
     paymentStatus,
-    driverCompensated,
+    driverCompensated: posted.credited,
     customerDebtPence,
-    driverMessage: NO_SHOW_DRIVER_MESSAGE,
+    driverMessage: posted.pending ? NO_SHOW_DRIVER_MESSAGE_PENDING : NO_SHOW_DRIVER_MESSAGE,
+    entitlement_pence: posted.entitlement_pence,
+    pending_settlement: posted.pending,
   };
 }
 
@@ -289,4 +253,5 @@ export const NO_SHOW_PAYMENT_STATUS_LABELS: Record<string, string> = {
   no_show_customer_debt: "No-show — customer outstanding balance",
   no_show_company_compensated: "No-show — company compensated driver",
   fee_charged: "No-show fee charged (card)",
+  fee_pending_settlement: "No-show — driver compensation pending provider fee",
 };

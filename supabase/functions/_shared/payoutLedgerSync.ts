@@ -1,9 +1,9 @@
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { completePayoutSettlementLifecycle } from "./settlementLifecycleSSOT.ts";
 import {
-  assertPayoutItemLedgerLineage,
-  PAYOUT_LINEAGE_MISSING,
-} from "./payoutItemLedgerAllocationWrite.ts";
+  invokeAutomatedPayoutCompletion,
+  invokeManualExternalPayoutCompletion,
+} from "./payoutCompletionRpcSSOT.ts";
+import { redactCompletionEvidence } from "./driverPayoutCompletionSSOT.ts";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 export const PAYOUT_LEDGER_TYPES = [
   "WEEKLY_PAYOUT",
@@ -28,7 +28,6 @@ export function payoutDescriptionForType(type: PayoutLedgerType): string {
   return "Payout to bank";
 }
 
-
 export async function refreshPayoutBatchStatus(
   supabase: SupabaseClient,
   batchId: string,
@@ -41,7 +40,7 @@ export async function refreshPayoutBatchStatus(
   const rows = items ?? [];
   if (rows.length === 0) return;
 
-  const completed = rows.filter((r) => r.status === "completed").length;
+  const completed = rows.filter((r) => r.status === "completed" || r.status === "COMPLETED").length;
   const failed = rows.filter((r) => ["failed", "ledger_sync_failed"].includes(String(r.status))).length;
   const now = new Date().toISOString();
 
@@ -68,6 +67,143 @@ export type FinalizePayoutLedgerResult = {
   walletBalanceAfter: number | null;
 };
 
+/** Path B — verified manual external bank transfer (single atomic RPC). */
+export async function finalizeManualExternalPayout(args: {
+  supabase: SupabaseClient;
+  payoutItemId: string;
+  batchId: string;
+  driverId: string;
+  payoutAmount: number;
+  externalReference: string;
+  adminUserId?: string | null;
+  completedAt?: string | null;
+  walletBalanceBefore: number;
+}): Promise<FinalizePayoutLedgerResult> {
+  const rpc = await invokeManualExternalPayoutCompletion({
+    supabase: args.supabase,
+    payoutItemId: args.payoutItemId,
+    driverId: args.driverId,
+    amountPence: args.payoutAmount,
+    externalReference: args.externalReference,
+    completedAt: args.completedAt,
+    adminUserId: args.adminUserId,
+    evidence: {
+      path: "manual_external_bank_transfer",
+      amount_pence: args.payoutAmount,
+    },
+  });
+
+  if (!rpc.ok) {
+    const errMsg = rpc.error ?? "manual_completion_failed";
+    await args.supabase.from("payout_items").update({
+      status: "ledger_sync_failed",
+      ledger_sync_error: errMsg,
+      error_message: `Manual payout completion failed: ${errMsg}`,
+      updated_at: new Date().toISOString(),
+    }).eq("id", args.payoutItemId);
+
+    return {
+      success: false,
+      status: "ledger_sync_failed",
+      ledgerEntryId: rpc.ledger_entry_id,
+      walletRecalculated: rpc.wallet_debited,
+      error: errMsg,
+      walletBalanceAfter: args.walletBalanceBefore,
+    };
+  }
+
+  await refreshPayoutBatchStatus(args.supabase, args.batchId);
+
+  return {
+    success: true,
+    status: "completed",
+    ledgerEntryId: rpc.ledger_entry_id,
+    walletRecalculated: rpc.wallet_debited,
+    error: null,
+    walletBalanceAfter: args.walletBalanceBefore - args.payoutAmount,
+  };
+}
+
+/** Path A — automated provider-completed payout (single finalize RPC, no TS prerequisite seeding). */
+export async function finalizeAutomatedPayoutAfterProviderSuccess(args: {
+  supabase: SupabaseClient;
+  payoutItemId: string;
+  batchId: string;
+  driverId: string;
+  payoutAmount: number;
+  currencyCode: string;
+  providerPaymentId: string;
+  providerState?: string;
+  providerCompletedAt?: string | null;
+  walletBalanceBefore: number;
+}): Promise<FinalizePayoutLedgerResult> {
+  const payId = String(args.providerPaymentId ?? "").trim();
+  if (!payId) {
+    return {
+      success: false,
+      status: "failed",
+      ledgerEntryId: null,
+      walletRecalculated: false,
+      error: "provider_payment_id_required",
+      walletBalanceAfter: args.walletBalanceBefore,
+    };
+  }
+
+  const completedAt = args.providerCompletedAt ?? new Date().toISOString();
+  const rpc = await invokeAutomatedPayoutCompletion({
+    supabase: args.supabase,
+    payoutItemId: args.payoutItemId,
+    providerPaymentId: payId,
+    providerState: args.providerState ?? "completed",
+    providerCompletedAt: completedAt,
+    evidence: redactCompletionEvidence({
+      provider_payment_id: payId,
+      provider_state: "completed",
+      completed_at: completedAt,
+      amount_pence: args.payoutAmount,
+      currency: args.currencyCode,
+    }),
+  });
+
+  if (!rpc.ok) {
+    const errMsg = rpc.error ?? "finalize_rpc_failed";
+    await args.supabase.from("payout_items").update({
+      status: "ledger_sync_failed",
+      ledger_sync_error: errMsg,
+      error_message: `Provider payout succeeded but completion RPC failed: ${errMsg}`,
+      updated_at: new Date().toISOString(),
+    }).eq("id", args.payoutItemId);
+
+    await args.supabase.from("payout_batches").update({
+      status: "partial",
+      failed_payouts: 1,
+      notes: `CRITICAL: Provider payout sent; completion RPC failed for item ${args.payoutItemId}`,
+      updated_at: new Date().toISOString(),
+    }).eq("id", args.batchId);
+
+    return {
+      success: false,
+      status: "ledger_sync_failed",
+      ledgerEntryId: rpc.ledger_entry_id,
+      walletRecalculated: rpc.wallet_debited,
+      error: errMsg,
+      walletBalanceAfter: args.walletBalanceBefore,
+    };
+  }
+
+  await refreshPayoutBatchStatus(args.supabase, args.batchId);
+
+  return {
+    success: true,
+    status: "completed",
+    ledgerEntryId: rpc.ledger_entry_id,
+    walletRecalculated: rpc.wallet_debited,
+    error: null,
+    walletBalanceAfter: args.walletBalanceBefore - args.payoutAmount,
+  };
+}
+
+/** @deprecated Use finalizeManualExternalPayout or finalizeAutomatedPayoutAfterProviderSuccess. */
 export async function finalizePayoutAfterProviderSuccess(args: {
   supabase: SupabaseClient;
   payoutItemId: string;
@@ -81,149 +217,61 @@ export async function finalizePayoutAfterProviderSuccess(args: {
   providerReference?: string | null;
   paymentProvider?: string | null;
   walletBalanceBefore: number;
+  adminUserId?: string | null;
 }): Promise<FinalizePayoutLedgerResult> {
-  const ledgerType = ledgerTypeForBatchKind(args.batchKind);
-  const providerTransferId = args.providerTransferId ?? null;
-  const providerReference = args.providerReference?.trim() || null;
-  const providerPayoutId =
-    args.providerPayoutId?.trim() || providerReference;
-
-  const { data: ledgerEntry, error: ledgerError } = await args.supabase
-    .from("driver_wallet_ledger")
-    .insert({
-      driver_id: args.driverId,
-      type: ledgerType,
-      amount_pence: -args.payoutAmount,
-      currency: args.currencyCode,
-      description: payoutDescriptionForType(ledgerType),
-      provider_transfer_id: providerTransferId,
-      provider_payout_id: providerPayoutId,
-    })
-    .select("id")
-    .single();
-
-  if (ledgerError || !ledgerEntry?.id) {
-    const errMsg = ledgerError?.message ?? "ledger_insert_failed";
-    console.error("[payout] Ledger insert failed:", ledgerError);
-
-    await args.supabase.from("payout_items").update({
-      status: "ledger_sync_failed",
-      provider_transfer_id: providerTransferId,
-      provider_payout_id: providerPayoutId,
-      provider_reference: providerReference,
-      provider_status: providerReference ? "paid" : null,
-      ledger_sync_error: errMsg,
-      error_message: `Provider payout succeeded but ledger debit failed: ${errMsg}`,
-      updated_at: new Date().toISOString(),
-    }).eq("id", args.payoutItemId);
-
-    await args.supabase.from("payout_batches").update({
-      status: "partial",
-      failed_payouts: 1,
-      notes: `CRITICAL: Provider payout sent; ledger sync failed for item ${args.payoutItemId}`,
-      updated_at: new Date().toISOString(),
-    }).eq("id", args.batchId);
-
-    return {
-      success: false,
-      status: "ledger_sync_failed",
-      ledgerEntryId: null,
-      walletRecalculated: false,
-      error: errMsg,
-      walletBalanceAfter: args.walletBalanceBefore,
-    };
-  }
-
-  const { error: recalcError } = await args.supabase.rpc("recalculate_driver_wallet", {
-    p_driver_id: args.driverId,
-  });
-
-  if (recalcError) {
-    const errMsg = recalcError.message;
-    console.error("[payout] Wallet recalc failed:", recalcError);
-
-    await args.supabase.from("payout_items").update({
-      status: "ledger_sync_failed",
-      provider_transfer_id: providerTransferId,
-      provider_payout_id: providerPayoutId,
-      provider_reference: providerReference,
-      provider_status: providerReference ? "paid" : null,
-      ledger_entry_id: ledgerEntry.id,
-      ledger_sync_error: errMsg,
-      error_message: `Ledger debited but wallet recalc failed: ${errMsg}`,
-      updated_at: new Date().toISOString(),
-    }).eq("id", args.payoutItemId);
-
-    return {
-      success: false,
-      status: "ledger_sync_failed",
-      ledgerEntryId: ledgerEntry.id,
-      walletRecalculated: false,
-      error: errMsg,
-      walletBalanceAfter: args.walletBalanceBefore,
-    };
-  }
-
-  const completedAt = new Date().toISOString();
-  const walletBalanceAfter = args.walletBalanceBefore - args.payoutAmount;
-
-  await assertPayoutItemLedgerLineage({
+  const ref = args.providerReference?.trim()
+    || args.providerPayoutId?.trim()
+    || args.providerTransferId?.trim()
+    || "";
+  return finalizeManualExternalPayout({
     supabase: args.supabase,
-    payout_item_id: args.payoutItemId,
-    expected_amount_pence: args.payoutAmount,
+    payoutItemId: args.payoutItemId,
+    batchId: args.batchId,
+    driverId: args.driverId,
+    payoutAmount: args.payoutAmount,
+    externalReference: ref,
+    adminUserId: args.adminUserId,
+    walletBalanceBefore: args.walletBalanceBefore,
   });
-
-  await args.supabase.from("payout_items").update({
-    status: "completed",
-    provider_transfer_id: providerTransferId,
-    provider_payout_id: providerPayoutId,
-    provider_reference: providerReference,
-    provider_status: providerReference ? "paid" : null,
-    ledger_entry_id: ledgerEntry.id,
-    wallet_recalculated_at: completedAt,
-    ledger_sync_error: null,
-    error_message: null,
-    completed_at: completedAt,
-    updated_at: completedAt,
-  }).eq("id", args.payoutItemId);
-
-  await refreshPayoutBatchStatus(args.supabase, args.batchId);
-
-  try {
-    await completePayoutSettlementLifecycle({
-      supabase: args.supabase,
-      payoutItemId: args.payoutItemId,
-      batchId: args.batchId,
-      driverId: args.driverId,
-      payoutAmountPence: args.payoutAmount,
-      paidAt: completedAt,
-      sourceLedgerDebitId: ledgerEntry.id,
-    });
-  } catch (lifecycleErr) {
-    const msg = lifecycleErr instanceof Error ? lifecycleErr.message : String(lifecycleErr);
-    if (msg.includes(PAYOUT_LINEAGE_MISSING) || msg.includes("PAYOUT_LINEAGE")) {
-      throw lifecycleErr;
-    }
-    console.error("[payout] Settlement lifecycle sync failed:", lifecycleErr);
-  }
-
-  return {
-    success: true,
-    status: "completed",
-    ledgerEntryId: ledgerEntry.id,
-    walletRecalculated: true,
-    error: null,
-    walletBalanceAfter,
-  };
 }
 
 export async function retryPayoutLedgerSync(
   supabase: SupabaseClient,
   payoutItemId: string,
 ): Promise<Record<string, unknown>> {
-  const { data, error } = await supabase.rpc("sync_payout_item_ledger_debit", {
-    p_payout_item_id: payoutItemId,
+  const { data: item } = await supabase
+    .from("payout_items")
+    .select("id, provider_reference, provider_payout_id, provider_transfer_id, batch_id")
+    .eq("id", payoutItemId)
+    .maybeSingle();
+
+  const providerPaymentId = String(
+    item?.provider_payout_id ?? item?.provider_reference ?? item?.provider_transfer_id ?? "",
+  ).trim();
+
+  if (!providerPaymentId) {
+    throw new Error("missing_provider_reference_for_completion_retry");
+  }
+
+  const rpc = await invokeAutomatedPayoutCompletion({
+    supabase,
+    payoutItemId,
+    providerPaymentId,
+    providerState: "completed",
   });
-  if (error) throw error;
-  return (data ?? {}) as Record<string, unknown>;
+
+  if (!rpc.ok) {
+    throw new Error(rpc.error ?? "finalize_driver_payout_completion_failed");
+  }
+
+  if (item?.batch_id) {
+    await refreshPayoutBatchStatus(supabase, String(item.batch_id));
+  }
+
+  return {
+    success: true,
+    ledger_entry_id: rpc.ledger_entry_id,
+    already_applied: rpc.already_applied ?? false,
+    wallet_debited: rpc.wallet_debited,
+  };
 }

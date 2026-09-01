@@ -9,6 +9,9 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
+  mutatePaymentSession,
+} from "./paymentSessionMutationCore.ts";
+import {
   resolvePaymentSessionStatusFromProviderWebhook,
   type PaymentSessionWebhookLifecycleDecision,
   type ResolvePaymentSessionStatusFromProviderWebhookResult,
@@ -113,20 +116,19 @@ async function attemptCasUpdate(
     patch.status = resolution.nextStatus;
   }
 
-  let query = supabase
-    .from("payment_sessions")
-    .update(patch)
-    .eq("id", args.context.sessionId)
-    .eq("status", args.context.currentStatus);
-
   const opState = String(args.context.financialOperationState ?? "").trim();
-  if (opState) {
-    query = query.eq("financial_operation_state", opState);
-  }
-
-  const { error } = await query;
-  if (error) {
-    return { applied: false, error: { message: error.message, code: error.code } };
+  const result = await mutatePaymentSession(
+    supabase,
+    {
+      sessionId: args.context.sessionId,
+      expectStatus: args.context.currentStatus,
+      expectFinancialOperationState: opState || null,
+    },
+    patch,
+    "webhook",
+  );
+  if (!result.ok) {
+    return { applied: false, error: { message: result.error ?? "update_failed" } };
   }
   return { applied: true };
 }
@@ -169,18 +171,16 @@ export async function applyPaymentSessionWebhookLifecycleUpdate(
 
   // PENDING_EVIDENCE / KEEP_CURRENT — persist provider evidence only (no status change).
   if (resolution.decision !== "ADVANCE") {
-    const evidenceOnly = {
-      ...args.providerEvidencePatch,
-      updated_at: new Date().toISOString(),
-    };
-    const { error } = await args.supabase
-      .from("payment_sessions")
-      .update(evidenceOnly)
-      .eq("id", args.context.sessionId);
-    if (error) {
+    const evidenceOnly = { ...args.providerEvidencePatch };
+    const evidenceResult = await mutatePaymentSession(
+      args.supabase,
+      { sessionId: args.context.sessionId },
+      evidenceOnly,
+      "webhook",
+    );
+    if (!evidenceResult.ok) {
       return buildStructuredResult(args.context, providerState, resolution, false, {
-        error_code: error.code,
-        error_message: error.message,
+        error_message: evidenceResult.error,
       });
     }
     return buildStructuredResult(args.context, providerState, resolution, true);

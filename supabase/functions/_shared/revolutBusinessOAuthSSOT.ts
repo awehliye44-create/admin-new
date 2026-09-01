@@ -16,6 +16,7 @@ import {
   mapRevolutAccountDiag,
   normalizeRevolutBusinessOAuthScope,
   parseLivePayoutExecutionEnabled,
+  evaluateRevolutBusinessPayoutExecutionGate,
   parseRevolutBusinessGrantedScopes,
   resolveConnectionStatus,
   resolveRevolutBusinessJwtIss,
@@ -23,7 +24,7 @@ import {
   type RevolutBusinessDiagnosticsDto,
   type RevolutBusinessRelayDiagnostics,
 } from "../../../shared/revolutBusinessOAuthSSOT.ts";
-import { listRevolutAccounts } from "./revolutApi.ts";
+import { listCompanyBalanceAccounts } from "./companyBalanceResolveSSOT.ts";
 import {
   assertRevolutBusinessRelayConfigured,
   getRevolutBusinessRelayBaseUrl,
@@ -42,6 +43,7 @@ export {
   REVOLUT_BUSINESS_RELAY_WHITELIST_IP,
   buildRevolutBusinessAuthorizationUrl,
   normalizeRevolutBusinessOAuthScope,
+  evaluateRevolutBusinessPayoutExecutionGate,
   parseRevolutBusinessGrantedScopes,
   resolveRevolutBusinessJwtIss,
   resolveRevolutBusinessRedirectUri,
@@ -499,6 +501,10 @@ export async function buildRevolutBusinessDiagnostics(args: {
   let accounts: ReturnType<typeof mapRevolutAccountDiag>[] = [];
   let message: string | null = null;
   let workingToken = vault.access_token;
+  let accounts_list_succeeded = false;
+  let accounts_list_http_status: number | null = null;
+  let accounts_list_error: string | null = null;
+  let accounts_list_relay_hint: string | null = null;
 
   if (args.includeAccounts && workingToken) {
     const expired = vault.expires_at && Date.parse(vault.expires_at) <= now.getTime();
@@ -520,10 +526,29 @@ export async function buildRevolutBusinessDiagnostics(args: {
 
   if (args.includeAccounts && workingToken) {
     try {
-      const raw = await listRevolutAccounts("live", workingToken);
+      const raw = await listCompanyBalanceAccounts(workingToken);
       accounts = raw.map(mapRevolutAccountDiag).filter((a) => a.id);
+      accounts_list_succeeded = true;
     } catch (err) {
-      message = err instanceof Error ? err.message : "accounts_list_failed";
+      accounts_list_succeeded = false;
+      const status = typeof err === "object" && err && "status" in err
+        ? Number((err as { status?: number }).status)
+        : null;
+      accounts_list_http_status = Number.isFinite(status) && status ? status : null;
+      const body = typeof err === "object" && err && "body" in err
+        ? (err as { body?: unknown }).body
+        : null;
+      const relayMessage = typeof err === "object" && err && "message" in err
+        ? String((err as { message?: string }).message ?? "")
+        : "";
+      accounts_list_error = relayMessage || (err instanceof Error ? err.message : "accounts_list_failed");
+      accounts_list_relay_hint = summarizeAccountsListFailureBody(body);
+      message = accounts_list_error;
+      console.warn("[revolut-business-oauth] accounts list failed", {
+        status: accounts_list_http_status,
+        error: accounts_list_error,
+        relay_hint: accounts_list_relay_hint,
+      });
     }
   }
 
@@ -584,6 +609,19 @@ export async function buildRevolutBusinessDiagnostics(args: {
       now,
     });
 
+  const oauth_connected = connection_status === "TOKEN_PRESENT";
+  const payoutGate = evaluateRevolutBusinessPayoutExecutionGate({
+    oauth_connected,
+    token_valid,
+    oauth_scopes_granted: vault.scopes_granted,
+    live_payout_execution_enabled: isLivePayoutExecutionEnabled(),
+    accounts_list_succeeded,
+    selected_source_account_ok: oauth_connected && token_valid && accounts_list_succeeded
+      ? selected_source_account_ok
+      : null,
+    live_balance_pence: gbpSource?.balance_pence ?? null,
+  });
+
   return {
     version: REVOLUT_BUSINESS_OAUTH_VERSION,
     connection_status,
@@ -593,7 +631,7 @@ export async function buildRevolutBusinessDiagnostics(args: {
     client_id_hint: clientIdHint(clientId),
     certificate_configured: Boolean(privateKey),
     private_key_configured: Boolean(privateKey),
-    oauth_connected: connection_status === "TOKEN_PRESENT",
+    oauth_connected,
     access_token_configured: Boolean(workingToken ?? vault.access_token),
     refresh_token_configured: Boolean(vault.refresh_token),
     token_valid,
@@ -604,7 +642,13 @@ export async function buildRevolutBusinessDiagnostics(args: {
     oauth_scope: normalizeRevolutBusinessOAuthScope(REVOLUT_BUSINESS_OAUTH_SCOPE),
     oauth_scopes_granted: vault.scopes_granted,
     live_payout_execution_enabled: isLivePayoutExecutionEnabled(),
-    payment_execution_blocked: !isLivePayoutExecutionEnabled(),
+    live_payouts_executable: payoutGate.live_payouts_executable,
+    live_payouts_blocked: payoutGate.live_payouts_blocked,
+    payout_execution_locked: payoutGate.payout_execution_locked,
+    admin_blocked_copy: payoutGate.admin_blocked_copy,
+    selected_source_live_verifiable: payoutGate.selected_source_live_verifiable,
+    live_balance_verified: payoutGate.live_balance_verified,
+    payment_execution_blocked: payoutGate.payout_execution_locked,
     relay,
     egress_public_ip: egress,
     egress_ip_fixed_proven: Boolean(relay.egress_ip_matches_whitelist),
@@ -623,6 +667,27 @@ export async function buildRevolutBusinessDiagnostics(args: {
         ?? (selected ? `Revolut Business GBP …${selected.slice(-6)}` : null))
       : null,
     selected_source_last_verified_at: selectedLastVerifiedAt,
+    accounts_list_succeeded,
+    accounts_list_http_status,
+    accounts_list_error,
+    accounts_list_relay_hint,
     message,
   };
+}
+
+function summarizeAccountsListFailureBody(body: unknown): string | null {
+  if (body == null) return null;
+  if (typeof body === "string") {
+    const cleaned = body.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 240);
+    return cleaned || null;
+  }
+  if (typeof body !== "object") return null;
+  const record = body as Record<string, unknown>;
+  const parts = [
+    record.message,
+    record.error,
+    record.error_description,
+    record.code,
+  ].filter((v) => typeof v === "string" && v.trim()).map((v) => String(v).trim());
+  return parts.length > 0 ? parts.join(" · ").slice(0, 240) : null;
 }

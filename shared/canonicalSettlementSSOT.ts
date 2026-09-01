@@ -260,3 +260,142 @@ export const CANONICAL_SETTLEMENT_GOLDEN_TOTALS = {
   onecab_net_commission_pence: 172,
   driver_net_pence: 1409,
 } as const;
+
+/** Phase 0b — authoritative settlement contract (promoted + non-promoted). */
+export type AuthoritativeSettlementInput = CanonicalSettlementComponents & {
+  locked_promotion_pence?: number;
+  pre_promotion_commissionable_fare_pence?: number | null;
+  financial_outcome?: string | null;
+  capture_identity_pence?: number | null;
+};
+
+export type AuthoritativeSettlementResult = {
+  formula_version: string;
+  gross_fare_pence: number;
+  commissionable_fare_pence: number;
+  effective_commission_percent: number;
+  commission_amount_pence: number;
+  promotion_subsidy_pence: number;
+  driver_entitlement_pence: number;
+  driver_total_earnings_pence: number;
+  non_commissionable_extras_pence: number;
+  airport_charge_pence: number;
+  tip_pence: number;
+  provider_processing_fee_pence: number | null;
+  onecab_net_commission_pence: number | null;
+  capture_identity_pence: number;
+  financial_outcome: string | null;
+  capture_identity_balanced: boolean;
+  capture_identity_variance_pence: number;
+};
+
+export function assertAuthoritativeCaptureIdentity(args: {
+  captured_pence: number;
+  driver_entitlement_pence: number;
+  commission_amount_pence: number;
+  platform_owned_extras_pence: number;
+  promotion_subsidy_pence: number;
+}): { balanced: boolean; variance_pence: number } {
+  const rhs =
+    Math.max(0, args.driver_entitlement_pence)
+    + Math.max(0, args.commission_amount_pence)
+    + Math.max(0, args.platform_owned_extras_pence)
+    - Math.max(0, args.promotion_subsidy_pence);
+  const variance = Math.max(0, args.captured_pence) - rhs;
+  return { balanced: variance === 0, variance_pence: variance };
+}
+
+/** Single formula owner for promoted and non-promoted trips. */
+export function computeAuthoritativeSettlement(
+  input: AuthoritativeSettlementInput,
+): AuthoritativeSettlementResult {
+  const lockedPromo = nonNeg(input.locked_promotion_pence);
+  const airport = nonNeg(input.airport_charge_pence);
+  const tip = nonNeg(input.tip_pence);
+  const tier = capTierCommissionPercent(input.commission_percent);
+
+  let canonical: CanonicalSettlementResult;
+  let promotionSubsidy = 0;
+  let commissionAfterPromo = 0;
+
+  if (lockedPromo > 0 && input.pre_promotion_commissionable_fare_pence != null) {
+    const commissionable = Math.max(0, nonNeg(input.pre_promotion_commissionable_fare_pence));
+    const grossCommission = Math.round((commissionable * tier) / 100);
+    const driverNet = Math.max(0, commissionable - grossCommission);
+    promotionSubsidy = lockedPromo;
+    commissionAfterPromo = grossCommission - promotionSubsidy;
+    const feeConfirmed = input.fee_confirmed === true
+      || (input.provider_processing_fee_pence != null && Number(input.provider_processing_fee_pence) > 0);
+    const fee = feeConfirmed
+      ? Math.max(0, Math.round(Number(input.provider_processing_fee_pence)))
+      : null;
+    const totalCustomer = commissionable + airport + tip;
+    canonical = {
+      formula_version: SETTLEMENT_FORMULA_VERSION,
+      ride_fare_pence: commissionable,
+      pickup_waiting_charge_pence: 0,
+      stop_waiting_charge_pence: 0,
+      other_commissionable_extras_pence: 0,
+      commissionable_fare_pence: commissionable,
+      airport_charge_pence: airport,
+      tip_pence: tip,
+      non_commissionable_pence: airport + tip,
+      total_customer_charge_pence: totalCustomer,
+      onecab_gross_commission_pence: grossCommission,
+      driver_net_pence: driverNet,
+      driver_total_earnings_pence: driverNet + airport + tip,
+      provider_processing_fee_pence: fee,
+      onecab_net_commission_pence: fee != null ? Math.max(0, commissionAfterPromo - fee) : null,
+      commission_percent: tier,
+      capture_identity_balanced: true,
+      capture_identity_variance_pence: 0,
+    };
+  } else {
+    canonical = calculateCanonicalSettlement(input);
+    commissionAfterPromo = canonical.onecab_gross_commission_pence;
+  }
+
+  const captured = input.capture_identity_pence != null && input.capture_identity_pence > 0
+    ? Math.round(Number(input.capture_identity_pence))
+    : canonical.total_customer_charge_pence;
+
+  const identity = assertAuthoritativeCaptureIdentity({
+    captured_pence: captured,
+    driver_entitlement_pence: canonical.driver_net_pence,
+    commission_amount_pence: canonical.onecab_gross_commission_pence,
+    platform_owned_extras_pence: airport + tip,
+    promotion_subsidy_pence: promotionSubsidy,
+  });
+
+  return {
+    formula_version: canonical.formula_version,
+    gross_fare_pence: canonical.commissionable_fare_pence + airport + tip,
+    commissionable_fare_pence: canonical.commissionable_fare_pence,
+    effective_commission_percent: tier,
+    commission_amount_pence: canonical.onecab_gross_commission_pence,
+    promotion_subsidy_pence: promotionSubsidy,
+    driver_entitlement_pence: canonical.driver_net_pence,
+    driver_total_earnings_pence: canonical.driver_total_earnings_pence,
+    non_commissionable_extras_pence: canonical.non_commissionable_pence,
+    airport_charge_pence: airport,
+    tip_pence: tip,
+    provider_processing_fee_pence: canonical.provider_processing_fee_pence,
+    onecab_net_commission_pence: canonical.onecab_net_commission_pence,
+    capture_identity_pence: captured,
+    financial_outcome: input.financial_outcome ?? null,
+    capture_identity_balanced: identity.balanced,
+    capture_identity_variance_pence: identity.variance_pence,
+  };
+}
+
+/** Phase 0b golden fixtures — promotion + terminal + extras. */
+export const AUTHORITATIVE_SETTLEMENT_GOLDEN_FIXTURES = [
+  { label: "no_promotion", input: { ride_fare_pence: 480, commission_percent: 15, provider_processing_fee_pence: 25, fee_confirmed: true }, expected: { captured: 480, entitlement: 408, commission: 72, subsidy: 0 } },
+  { label: "fixed_promotion", input: { pre_promotion_commissionable_fare_pence: 800, locked_promotion_pence: 100, commission_percent: 15, airport_charge_pence: 0, tip_pence: 0 }, expected: { captured: 800, entitlement: 680, commission: 120, subsidy: 100 } },
+  { label: "percentage_promotion_global_offer", input: { pre_promotion_commissionable_fare_pence: 1000, locked_promotion_pence: 150, commission_percent: 15 }, expected: { entitlement: 850, commission: 150, subsidy: 150 } },
+  { label: "promotion_cap", input: { pre_promotion_commissionable_fare_pence: 500, locked_promotion_pence: 200, commission_percent: 10 }, expected: { entitlement: 450, commission: 50, subsidy: 200 } },
+  { label: "airport_fee", input: { ride_fare_pence: 600, airport_charge_pence: 500, commission_percent: 15 }, expected: { captured: 1100, entitlement: 510, commission: 90, extras: 500 } },
+  { label: "tip", input: { ride_fare_pence: 400, tip_pence: 200, commission_percent: 15 }, expected: { captured: 600, entitlement: 340, commission: 60, extras: 200 } },
+  { label: "dynamic_dispatch_commission", input: { ride_fare_pence: 700, commission_percent: 22 }, expected: { entitlement: 546, commission: 154 } },
+  { label: "terminal_fee_zero_commission", input: { ride_fare_pence: 400, commission_percent: 0, provider_processing_fee_pence: 24, fee_confirmed: true, financial_outcome: "NO_SHOW" }, expected: { captured: 400, entitlement: 400, commission: 0, provider_fee: 24 } },
+] as const;

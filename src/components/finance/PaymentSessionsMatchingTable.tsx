@@ -97,7 +97,6 @@ export function PaymentSessionsMatchingTable({
                   {row.payment_session_id && (
                     <Button asChild size="sm" variant="outline">
                       <Link to={paymentSessionsUrl({
-                        tab: 'provider_payments',
                         paymentSessionId: row.payment_session_id,
                       })}
                       >

@@ -208,8 +208,16 @@ export type RevolutBusinessDiagnosticsDto = {
   oauth_scope: string;
   /** Scopes actually granted after exchange — from vault/token; empty before consent. */
   oauth_scopes_granted: string[];
+  /** Raw env flag — not an executable payout unlock. */
   live_payout_execution_enabled: boolean;
-  /** Always true while LIVE=false / relay denylist — PAY consent ≠ payment execution. */
+  /** Effective gate — OAuth + scopes + env + live balance all ready. */
+  live_payouts_executable: boolean;
+  live_payouts_blocked: boolean;
+  payout_execution_locked: boolean;
+  admin_blocked_copy: string | null;
+  selected_source_live_verifiable: boolean;
+  live_balance_verified: boolean;
+  /** Back-compat alias for payout_execution_locked. */
   payment_execution_blocked: boolean;
   relay: RevolutBusinessRelayDiagnostics;
   egress_public_ip: string | null;
@@ -223,6 +231,10 @@ export type RevolutBusinessDiagnosticsDto = {
   selected_source_account_ok: boolean | null;
   selected_source_account_label?: string | null;
   selected_source_last_verified_at?: string | null;
+  accounts_list_succeeded?: boolean;
+  accounts_list_http_status?: number | null;
+  accounts_list_error?: string | null;
+  accounts_list_relay_hint?: string | null;
   message: string | null;
 };
 
@@ -293,4 +305,87 @@ export function resolveConnectionStatus(args: {
     }
   }
   return "TOKEN_PRESENT";
+}
+
+export const REVOLUT_BUSINESS_PAYOUT_OAUTH_BLOCKED_COPY =
+  "Blocked: Revolut Business consent required. Complete OAuth before payouts can run.";
+
+export const REVOLUT_BUSINESS_ACCOUNTS_BALANCE_BLOCKED_COPY =
+  "Blocked: Cannot verify Revolut Business account balance.";
+
+export const REVOLUT_BUSINESS_SELECTED_SOURCE_STALE_COPY =
+  "Blocked: selected payout source is not present in the latest Revolut /accounts response. Select a current GBP account.";
+
+export const REVOLUT_BUSINESS_PAYOUT_REQUIRED_SCOPES = ["READ", "WRITE", "PAY"] as const;
+
+export function hasRevolutBusinessPayoutScopesGranted(
+  scopes: string[] | null | undefined,
+): boolean {
+  const granted = new Set(
+    (scopes ?? []).map((s) => String(s).trim().toUpperCase()).filter(Boolean),
+  );
+  return REVOLUT_BUSINESS_PAYOUT_REQUIRED_SCOPES.every((scope) => granted.has(scope));
+}
+
+export type RevolutBusinessPayoutExecutionGate = {
+  oauth_ready: boolean;
+  scopes_granted_ok: boolean;
+  accounts_list_succeeded: boolean;
+  live_balance_verified: boolean;
+  payout_execution_locked: boolean;
+  live_payouts_blocked: boolean;
+  live_payouts_executable: boolean;
+  selected_source_live_verifiable: boolean;
+  admin_blocked_copy: string | null;
+};
+
+export function evaluateRevolutBusinessPayoutExecutionGate(args: {
+  oauth_connected: boolean;
+  token_valid: boolean;
+  oauth_scopes_granted: string[];
+  live_payout_execution_enabled: boolean;
+  accounts_list_succeeded?: boolean;
+  selected_source_account_ok?: boolean | null;
+  live_balance_pence?: number | null;
+}): RevolutBusinessPayoutExecutionGate {
+  const oauth_ready = Boolean(args.oauth_connected && args.token_valid);
+  const scopes_granted_ok = hasRevolutBusinessPayoutScopesGranted(args.oauth_scopes_granted);
+  const accounts_list_succeeded = args.accounts_list_succeeded === true;
+  const selected_source_live_verifiable = oauth_ready && accounts_list_succeeded;
+  const live_balance_verified = oauth_ready
+    && accounts_list_succeeded
+    && args.selected_source_account_ok === true
+    && args.live_balance_pence != null
+    && Number.isFinite(Number(args.live_balance_pence));
+  const consent_ready = oauth_ready && scopes_granted_ok;
+  const execution_ready = consent_ready
+    && accounts_list_succeeded
+    && args.selected_source_account_ok === true
+    && live_balance_verified
+    && args.live_payout_execution_enabled;
+  const payout_execution_locked = !execution_ready;
+  const live_payouts_blocked = payout_execution_locked;
+  const live_payouts_executable = execution_ready;
+  const admin_blocked_copy = !consent_ready
+    ? REVOLUT_BUSINESS_PAYOUT_OAUTH_BLOCKED_COPY
+    : (!args.live_payout_execution_enabled
+      ? "Blocked: live payout execution is disabled in environment configuration."
+      : (!accounts_list_succeeded
+        ? REVOLUT_BUSINESS_ACCOUNTS_BALANCE_BLOCKED_COPY
+        : (args.selected_source_account_ok === false
+          ? REVOLUT_BUSINESS_SELECTED_SOURCE_STALE_COPY
+          : (!live_balance_verified
+            ? "Blocked: live settled company balance is not verified for the selected payout source."
+            : null))));
+  return {
+    oauth_ready,
+    scopes_granted_ok,
+    accounts_list_succeeded,
+    live_balance_verified,
+    payout_execution_locked,
+    live_payouts_blocked,
+    live_payouts_executable,
+    selected_source_live_verifiable,
+    admin_blocked_copy,
+  };
 }

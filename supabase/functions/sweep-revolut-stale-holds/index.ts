@@ -26,6 +26,7 @@ import {
 import { applyCanonicalSettlementAfterCapture } from "../_shared/applyCanonicalSettlementAfterCapture.ts";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
+import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -266,15 +267,19 @@ serve(async (req) => {
           ?? 0,
       ));
       const nowIso = new Date().toISOString();
-      await supabase.from("payment_sessions").update({
-        status: "captured",
-        provider_state: "COMPLETED",
-        captured_amount_pence: amountMinor > 0 ? amountMinor : null,
-        captured_at: nowIso,
-        provider_state_verified_at: nowIso,
-        provider_state_verified_by: "sweep_completed_heal",
-        updated_at: nowIso,
-      }).eq("id", row.id);
+      await transitionPaymentSession(supabase, {
+        sessionId: row.id,
+        patch: {
+          status: "captured",
+          provider_state: "COMPLETED",
+          captured_amount_pence: amountMinor > 0 ? amountMinor : null,
+          captured_at: nowIso,
+          provider_state_verified_at: nowIso,
+          provider_state_verified_by: "sweep_completed_heal",
+          updated_at: nowIso,
+        },
+        source: "sweep",
+      });
       await supabase.from("trips").update({
         payment_status: "captured",
         capture_amount_pence: amountMinor > 0 ? amountMinor : trip.capture_amount_pence,
@@ -334,17 +339,21 @@ serve(async (req) => {
       continue;
     }
     const nowIso = new Date().toISOString();
-    const { error: snapErr } = await supabase.from("payment_sessions").update({
-      provider_state: "COMPLETED",
-      provider_state_verified_at: nowIso,
-      provider_state_verified_by: "sweep_captured_authorised_snapshot",
-      updated_at: nowIso,
-    }).eq("id", row.id);
+    const snapResult = await transitionPaymentSession(supabase, {
+      sessionId: row.id,
+      patch: {
+        provider_state: "COMPLETED",
+        provider_state_verified_at: nowIso,
+        provider_state_verified_by: "sweep_captured_authorised_snapshot",
+        updated_at: nowIso,
+      },
+      source: "sweep",
+    });
     healResults.push({
       trip_id: tripId,
       action: "heal_captured_authorised_snapshot",
-      ok: !snapErr,
-      error: snapErr?.message ?? null,
+      ok: snapResult.ok,
+      error: snapResult.ok ? null : (snapResult.error ?? null),
     });
   }
 
@@ -451,29 +460,37 @@ serve(async (req) => {
       continue;
     }
     const now = new Date().toISOString();
-    const { error: flipErr } = await supabase.from("payment_sessions").update({
-      provider_state: "CANCELLED",
-      provider_state_verified_at: now,
-      provider_state_verified_by: "sweep_local_only_stale",
-      updated_at: now,
-    }).eq("id", row.id);
-    if (flipErr) {
-      orphanResults.push({ payment_session_id: row.id, outcome: "LOCAL_FLIP_FAILED", message: flipErr.message });
+    const flipResult = await transitionPaymentSession(supabase, {
+      sessionId: row.id,
+      patch: {
+        provider_state: "CANCELLED",
+        provider_state_verified_at: now,
+        provider_state_verified_by: "sweep_local_only_stale",
+        updated_at: now,
+      },
+      source: "sweep",
+    });
+    if (!flipResult.ok) {
+      orphanResults.push({ payment_session_id: row.id, outcome: "LOCAL_FLIP_FAILED", message: flipResult.error ?? "update_failed" });
       continue;
     }
-    const { error: closeErr } = await supabase.from("payment_sessions").update({
-      status: "cancelled",
-      hold_release_state: "released",
-      released_at: now,
-      hold_terminal_reason: "sweep_local_only_no_provider_order",
-      failure_reason: "missing_provider_order_id",
-      updated_at: now,
-    }).eq("id", row.id);
+    const closeResult = await transitionPaymentSession(supabase, {
+      sessionId: row.id,
+      patch: {
+        status: "cancelled",
+        hold_release_state: "released",
+        released_at: now,
+        hold_terminal_reason: "sweep_local_only_no_provider_order",
+        failure_reason: "missing_provider_order_id",
+        updated_at: now,
+      },
+      source: "sweep",
+    });
     orphanResults.push({
       payment_session_id: row.id,
       action: "closed_local_only_stale",
-      ok: !closeErr,
-      error: closeErr?.message ?? null,
+      ok: closeResult.ok,
+      error: closeResult.ok ? null : (closeResult.error ?? null),
       age_ms: ageMs,
     });
   }

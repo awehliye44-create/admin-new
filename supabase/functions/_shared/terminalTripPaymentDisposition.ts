@@ -35,6 +35,7 @@ import {
   type TerminalPaymentDecision,
 } from "./terminalFeeDecisionSSOT.ts";
 import { shouldBlockPrematureScheduledSearchHoldRelease } from "./scheduledHandoverHoldLock.ts";
+import { transitionPaymentSession } from "./paymentSessionTransitionFacade.ts";
 
 export type { TerminalPaymentDecision, FarePricingFeeConfig } from "./terminalFeeDecisionSSOT.ts";
 export { resolveTerminalPaymentDecision } from "./terminalFeeDecisionSSOT.ts";
@@ -327,18 +328,22 @@ async function markDispositionFinal(
   dispositionKey: string,
   decision: TerminalPaymentDecision,
 ): Promise<void> {
-  await supabase.from("payment_sessions").update({
-    metadata: {
-      ...priorMeta,
-      terminal_disposition_key: dispositionKey,
-      terminal_disposition_pending: false,
-      terminal_disposition_final: true,
-      terminal_disposition_reason: decision.disposition_reason,
-      terminal_disposition_decision: decision,
-      terminal_disposition_final_at: new Date().toISOString(),
+  await transitionPaymentSession(supabase, {
+    sessionId,
+    patch: {
+      metadata: {
+        ...priorMeta,
+        terminal_disposition_key: dispositionKey,
+        terminal_disposition_pending: false,
+        terminal_disposition_final: true,
+        terminal_disposition_reason: decision.disposition_reason,
+        terminal_disposition_decision: decision,
+        terminal_disposition_final_at: new Date().toISOString(),
+      },
+      updated_at: new Date().toISOString(),
     },
-    updated_at: new Date().toISOString(),
-  }).eq("id", sessionId);
+    source: "terminal_disposition",
+  });
 }
 
 export async function disposeTerminalTripPayment(
@@ -580,17 +585,21 @@ export async function disposeTerminalTripPayment(
   }
 
   if (paymentSession?.id) {
-    await supabase.from("payment_sessions").update({
-      metadata: {
-        ...priorMeta,
-        terminal_disposition_key: dispositionKey,
-        terminal_disposition_pending: true,
-        terminal_disposition_reason: decision.disposition_reason,
-        terminal_disposition_decision: decision,
-        terminal_disposition_pending_at: new Date().toISOString(),
+    await transitionPaymentSession(supabase, {
+      sessionId: paymentSession.id as string,
+      patch: {
+        metadata: {
+          ...priorMeta,
+          terminal_disposition_key: dispositionKey,
+          terminal_disposition_pending: true,
+          terminal_disposition_reason: decision.disposition_reason,
+          terminal_disposition_decision: decision,
+          terminal_disposition_pending_at: new Date().toISOString(),
+        },
+        updated_at: new Date().toISOString(),
       },
-      updated_at: new Date().toISOString(),
-    }).eq("id", paymentSession.id);
+      source: "terminal_disposition",
+    });
   }
 
   const tripFeePatch: Record<string, unknown> = {

@@ -29,6 +29,18 @@ import {
 } from "./paymentSessionSSOT.ts";
 import { persistConfirmedProviderCapture } from "./persistConfirmedProviderCapture.ts";
 import { extractProviderFeePence } from "../../../shared/paymentCaptureEvidenceSSOT.ts";
+import {
+  transitionPaymentSession,
+  type PaymentSessionTransitionSource,
+} from "./paymentSessionTransitionFacade.ts";
+
+function toTransitionSource(
+  source: "revolut_webhook" | "admin_refresh" | "hold_attention_backfill",
+): PaymentSessionTransitionSource {
+  if (source === "revolut_webhook") return "webhook";
+  if (source === "admin_refresh") return "admin_refresh";
+  return "sweep";
+}
 
 export type PersistProviderTerminalResult = {
   applied: boolean;
@@ -229,18 +241,22 @@ export async function persistProviderTerminalHoldState(
     && !captureNeedsRepair
   ) {
     if (sessionId) {
-      await supabase.from("payment_sessions").update({
-        provider_state: providerState,
-        provider_state_verified_at: verifiedAt,
-        provider_state_verified_by: verifiedBy,
-        metadata: {
-          ...baseMetadata,
+      await transitionPaymentSession(supabase, {
+        sessionId,
+        patch: {
           provider_state: providerState,
           provider_state_verified_at: verifiedAt,
           provider_state_verified_by: verifiedBy,
+          metadata: {
+            ...baseMetadata,
+            provider_state: providerState,
+            provider_state_verified_at: verifiedAt,
+            provider_state_verified_by: verifiedBy,
+          },
+          updated_at: verifiedAt,
         },
-        updated_at: verifiedAt,
-      }).eq("id", sessionId);
+        source: toTransitionSource(args.source),
+      });
     }
     const orphanClosed = await closeCompanionOrphanPayments(supabase, {
       paymentProvider,
@@ -280,47 +296,55 @@ export async function persistProviderTerminalHoldState(
           verifiedBy,
           source: args.source,
         });
-        await supabase.from("payment_sessions").update({
-          hold_terminal_reason: terminalReason,
-          provider_state: providerState,
-          provider_state_verified_at: verifiedAt,
-          provider_state_verified_by: verifiedBy,
-          fee_status: feePence != null ? "ACTUAL" : (session?.fee_status ?? "PENDING"),
-          provider_processing_fee_pence: feePence ?? session?.provider_processing_fee_pence ?? null,
-          provider_payment_id: providerCaptureId
-            ?? (session?.provider_payment_id as string | null)
-            ?? null,
-          metadata: {
-            ...baseMetadata,
+        await transitionPaymentSession(supabase, {
+          sessionId,
+          patch: {
+            hold_terminal_reason: terminalReason,
             provider_state: providerState,
             provider_state_verified_at: verifiedAt,
             provider_state_verified_by: verifiedBy,
+            fee_status: feePence != null ? "ACTUAL" : (session?.fee_status ?? "PENDING"),
+            provider_processing_fee_pence: feePence ?? session?.provider_processing_fee_pence ?? null,
+            provider_payment_id: providerCaptureId
+              ?? (session?.provider_payment_id as string | null)
+              ?? null,
+            metadata: {
+              ...baseMetadata,
+              provider_state: providerState,
+              provider_state_verified_at: verifiedAt,
+              provider_state_verified_by: verifiedBy,
+            },
+            updated_at: verifiedAt,
           },
-          updated_at: verifiedAt,
-        }).eq("id", sessionId);
+          source: toTransitionSource(args.source),
+        });
       } else {
         // Provider verified CAPTURED but amount not yet known — persist status + timestamps.
-        await supabase.from("payment_sessions").update({
-          status: "captured",
-          captured_at: capturedAtExisting ?? eventAt,
-          hold_terminal_reason: terminalReason,
-          release_failure_reason: null,
-          hold_release_state: null,
-          provider_state: providerState,
-          provider_state_verified_at: verifiedAt,
-          provider_state_verified_by: verifiedBy,
-          provider_capture_id: providerCaptureId ?? session?.provider_capture_id ?? null,
-          fee_status: feePence != null ? "ACTUAL" : (session?.fee_status ?? "PENDING"),
-          provider_processing_fee_pence: feePence ?? session?.provider_processing_fee_pence ?? null,
-          metadata: {
-            ...baseMetadata,
+        await transitionPaymentSession(supabase, {
+          sessionId,
+          patch: {
+            status: "captured",
+            captured_at: capturedAtExisting ?? eventAt,
+            hold_terminal_reason: terminalReason,
+            release_failure_reason: null,
+            hold_release_state: null,
             provider_state: providerState,
             provider_state_verified_at: verifiedAt,
             provider_state_verified_by: verifiedBy,
-            capture_amount_pending: true,
+            provider_capture_id: providerCaptureId ?? session?.provider_capture_id ?? null,
+            fee_status: feePence != null ? "ACTUAL" : (session?.fee_status ?? "PENDING"),
+            provider_processing_fee_pence: feePence ?? session?.provider_processing_fee_pence ?? null,
+            metadata: {
+              ...baseMetadata,
+              provider_state: providerState,
+              provider_state_verified_at: verifiedAt,
+              provider_state_verified_by: verifiedBy,
+              capture_amount_pending: true,
+            },
+            updated_at: verifiedAt,
           },
-          updated_at: verifiedAt,
-        }).eq("id", sessionId);
+          source: toTransitionSource(args.source),
+        });
       }
     }
   } else if (refundNotRelease) {
@@ -351,19 +375,23 @@ export async function persistProviderTerminalHoldState(
           { orderId, confirmedRefundAmount },
         );
       }
-      await supabase.from("payment_sessions").update({
-        provider_state: providerState,
-        provider_state_verified_at: verifiedAt,
-        provider_state_verified_by: verifiedBy,
-        metadata: {
-          ...baseMetadata,
+      await transitionPaymentSession(supabase, {
+        sessionId,
+        patch: {
           provider_state: providerState,
           provider_state_verified_at: verifiedAt,
           provider_state_verified_by: verifiedBy,
-          refund_terminal_not_release: true,
+          metadata: {
+            ...baseMetadata,
+            provider_state: providerState,
+            provider_state_verified_at: verifiedAt,
+            provider_state_verified_by: verifiedBy,
+            refund_terminal_not_release: true,
+          },
+          updated_at: verifiedAt,
         },
-        updated_at: verifiedAt,
-      }).eq("id", sessionId);
+        source: toTransitionSource(args.source),
+      });
     }
   } else if (
     providerState === "CANCELLED"
@@ -394,11 +422,17 @@ export async function persistProviderTerminalHoldState(
       });
 
       if (sessionId) {
-        await supabase.from("payment_sessions").update(patch).eq("id", sessionId);
+        await transitionPaymentSession(supabase, {
+          sessionId,
+          patch,
+          source: toTransitionSource(args.source),
+        });
       } else {
-        await supabase.from("payment_sessions").update(patch)
-          .eq("payment_provider", paymentProvider)
-          .eq("provider_order_id", orderId);
+        await transitionPaymentSession(supabase, {
+          providerOrderId: orderId,
+          patch,
+          source: toTransitionSource(args.source),
+        });
       }
     } else {
       // No session — still close companion orphans for this provider order.
@@ -451,11 +485,15 @@ export async function recordProviderStateVerification(
   metadata.provider_state_verified_at = verifiedAt;
   metadata.provider_state_verified_by = args.source;
 
-  await supabase.from("payment_sessions").update({
-    provider_state: providerState,
-    provider_state_verified_at: verifiedAt,
-    provider_state_verified_by: args.source,
-    metadata,
-    updated_at: verifiedAt,
-  }).eq("id", String(session.id));
+  await transitionPaymentSession(supabase, {
+    sessionId: String(session.id),
+    patch: {
+      provider_state: providerState,
+      provider_state_verified_at: verifiedAt,
+      provider_state_verified_by: args.source,
+      metadata,
+      updated_at: verifiedAt,
+    },
+    source: "admin_refresh",
+  });
 }

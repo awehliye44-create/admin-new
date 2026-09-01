@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { format } from 'date-fns';
 import { ChevronLeft, ChevronRight, Loader2, MoreHorizontal } from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -32,46 +31,31 @@ function walletStatusVariant(status: string | null | undefined): 'default' | 'se
   return 'destructive';
 }
 
-function outstandingDebt(row: DriverWalletSsotRow): number | null {
-  const v = row.debt_recovery?.remaining_debt_pence
-    ?? row.debt_recovery?.outstanding_debt_pence
-    ?? row.recovery_debt_pence
-    ?? row.period_kpis?.outstanding_debt_pence;
-  return v == null ? null : Number(v);
+function reservedPence(row: DriverWalletSsotRow): number {
+  return Math.max(
+    0,
+    Math.round(
+      Number(
+        row.withdrawal_in_progress_pence
+          ?? row.included_in_payout_batch_amount_pence
+          ?? 0,
+      ),
+    ),
+  );
 }
 
-function connectedAccountStatus(row: DriverWalletSsotRow): string {
-  if (row.verification_status) return row.verification_status;
-  if (row.connected_account_id) return 'connected';
-  return 'not_connected';
+function openDifferencePence(row: DriverWalletSsotRow): number | null {
+  if (row.wallet_variance_pence == null) return null;
+  return Math.round(Number(row.wallet_variance_pence));
 }
 
-function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  try {
-    return format(new Date(iso), 'dd MMM yyyy HH:mm');
-  } catch {
-    return iso;
-  }
-}
-
-function formatNextPayout(row: DriverWalletSsotRow, currencyCode: string): string {
-  const amount = formatNullablePence(row.scheduled_payout_display_pence, currencyCode);
-  const local = row.next_scheduled_payout_local;
-  if (local) return amount === '—' ? local : `${amount} · ${local}`;
-  return amount === '—' ? '—' : amount;
-}
-
-function formatLastPayout(row: DriverWalletSsotRow, currencyCode: string): string {
-  if (!row.last_payout_at && row.last_payout_amount_pence == null) return '—';
-  const amount = formatNullablePence(row.last_payout_amount_pence, currencyCode);
-  if (!row.last_payout_at) return amount;
-  return `${amount} · ${formatDateTime(row.last_payout_at)}`;
+function driverStatusLabel(row: DriverWalletSsotRow): string {
+  return row.driver_credit_status ?? row.wallet_status ?? '—';
 }
 
 /**
- * Level 1 — Driver Wallet Ledger overview list (provider Connected Accounts style).
- * Opens Level 2 individual driver wallet account on row / action click.
+ * Level 1 — Driver Wallet Ledger active driver list.
+ * Active columns only; history metrics live on the driver detail view.
  */
 export function DriverWalletDriverList({
   regionId = null,
@@ -104,9 +88,9 @@ export function DriverWalletDriverList({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Driver financial accounts</CardTitle>
+        <CardTitle className="text-base">Active driver wallets</CardTitle>
         <p className="text-sm text-muted-foreground mt-1">
-          Select a driver to open their wallet account. Balances are Driver Wallet Ledger SSOT only.
+          Pending, available, reserved, and open differences only. Lifetime paid-out totals are on the driver history view.
         </p>
       </CardHeader>
       <CardContent>
@@ -122,26 +106,19 @@ export function DriverWalletDriverList({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Driver Name</TableHead>
-                <TableHead>Driver Code / ID</TableHead>
-                <TableHead>Service Area</TableHead>
-                <TableHead>Driver Tier</TableHead>
-                
-                <TableHead className="text-right">Live Wallet Balance</TableHead>
-                <TableHead className="text-right">Available Balance</TableHead>
-                <TableHead className="text-right">Pending Balance</TableHead>
-                <TableHead className="text-right">Outstanding Debt</TableHead>
-                <TableHead>Next Scheduled Payout</TableHead>
-                <TableHead>Last Payout</TableHead>
-                <TableHead>Payout Destination Status</TableHead>
-                <TableHead>Wallet Status</TableHead>
+                <TableHead>Driver</TableHead>
+                <TableHead className="text-right">Pending</TableHead>
+                <TableHead className="text-right">Available</TableHead>
+                <TableHead className="text-right">Reserved</TableHead>
+                <TableHead className="text-right">Open difference</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead className="w-[52px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.length === 0 && !isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                     No drivers with connected payout accounts in this region.
                   </TableCell>
                 </TableRow>
@@ -158,40 +135,25 @@ export function DriverWalletDriverList({
                 >
                   <TableCell className="font-medium">
                     <div>{driverLabel(row)}</div>
-                    {row.driver_name?.trim() && row.driver_code?.trim() ? (
+                    {row.driver_code?.trim() ? (
                       <div className="text-xs text-muted-foreground mt-0.5">{row.driver_code.trim()}</div>
                     ) : null}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    <div className="font-medium text-foreground">{row.driver_code?.trim() || '—'}</div>
-                    <div className="font-mono truncate max-w-[140px] mt-0.5" title={row.driver_id}>
-                      Internal ID: {row.driver_id.slice(0, 8)}…
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs">{row.service_area_name ?? '—'}</TableCell>
-                  <TableCell>{row.driver_tier_name ?? '—'}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatNullablePence(balances.livePence, currencyCode)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatNullablePence(balances.availablePence, currencyCode)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatNullablePence(balances.pendingPence, currencyCode)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {formatNullablePence(outstandingDebt(row), currencyCode)}
+                    {formatNullablePence(balances.availablePence, currencyCode)}
                   </TableCell>
-                  <TableCell className="text-xs whitespace-nowrap">
-                    {formatNextPayout(row, currencyCode)}
+                  <TableCell className="text-right tabular-nums">
+                    {formatNullablePence(reservedPence(row), currencyCode)}
                   </TableCell>
-                  <TableCell className="text-xs whitespace-nowrap">
-                    {formatLastPayout(row, currencyCode)}
+                  <TableCell className="text-right tabular-nums">
+                    {formatNullablePence(openDifferencePence(row), currencyCode)}
                   </TableCell>
-                  <TableCell className="text-xs">{connectedAccountStatus(row)}</TableCell>
                   <TableCell>
                     <Badge variant={walletStatusVariant(row.wallet_status)}>
-                      {row.wallet_status ?? '—'}
+                      {driverStatusLabel(row)}
                     </Badge>
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>

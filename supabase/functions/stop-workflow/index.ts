@@ -60,6 +60,7 @@ import {
 import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
+import { postTripEarningNetCanonical } from "../_shared/canonicalTypedWalletPostingSSOT.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -3186,14 +3187,14 @@ Deno.serve(async (req) => {
             }
           } else if (!existsMap['TRIP_EARNING_NET']) {
             parallelOps.push(
-              supabase.from("driver_wallet_ledger").insert({
-                driver_id,
-                related_trip_id: trip_id,
-                type: 'TRIP_EARNING_NET',
-                amount_pence: driverNetBeforeTip + settlement.airport_charge_pence,
+              postTripEarningNetCanonical(supabase, {
+                driverId: driver_id,
+                tripId: trip_id,
+                driverNetPence: driverNetBeforeTip + settlement.airport_charge_pence,
+                tipPence: tipAmountPence,
                 currency: ledgerCurrency || 'GBP',
-                description: `Trip earnings (fare ${cs}${(commissionableFarePence / 100).toFixed(2)} - ${settlement.tier_percent_used}% commission)`,
-              })
+                commissionPct: settlement.tier_percent_used,
+              }).then(() => ({ data: null, error: null })),
             );
           }
 

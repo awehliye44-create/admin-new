@@ -37,7 +37,7 @@ export function DriverWalletFleetOverviewCards({
         <div>
           <p className="text-sm font-medium">Fleet overview</p>
           <p className="text-xs text-muted-foreground">
-            Aggregate Driver Wallet Ledger SSOT across all drivers
+            Active Driver Wallet balances across all drivers (excludes completed payouts)
             {isFetching ? ' · refreshing…' : ''}
           </p>
         </div>
@@ -57,15 +57,13 @@ export function DriverWalletFleetOverviewCards({
         ) : null}
 
         {(drivers.length > 0 || !isLoading) ? (
-          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <Metric label="Total Drivers" value={String(overview.total_drivers)} />
-            <Metric label="Total Live Driver Balance" value={fmt(overview.total_live_balance_pence)} />
-            <Metric label="Total Available Balance" value={fmt(overview.total_available_balance_pence)} />
-            <Metric label="Total Pending Balance" value={fmt(overview.total_pending_balance_pence)} />
-            <Metric label="Total Outstanding Debt" value={fmt(overview.total_outstanding_debt_pence)} />
-            <Metric label="Wallets Active" value={String(overview.wallets_active)} />
+            <Metric label="Total Pending" value={fmt(overview.total_pending_balance_pence)} />
+            <Metric label="Total Available" value={fmt(overview.total_available_balance_pence)} />
+            <Metric label="Total Reserved" value={fmt(overview.total_reserved_pence)} />
+            <Metric label="Processing exceptions" value={fmt(overview.total_processing_exception_pence)} />
             <Metric label="Wallets On Hold" value={String(overview.wallets_on_hold)} />
-            <Metric label="Negative Wallets" value={String(overview.negative_wallets)} />
           </div>
         ) : null}
       </LoadingTimeout>

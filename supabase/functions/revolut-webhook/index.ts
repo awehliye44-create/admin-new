@@ -13,7 +13,7 @@ import {
   mapRevolutStateToPaymentStatus,
   retrieveRevolutOrder,
 } from "../_shared/revolutOrders.ts";
-import { revolutMerchantRequest } from "../_shared/revolutApi.ts";
+import { revolutMerchantRequest, extractRevolutProviderFeeMinor } from "../_shared/revolutApi.ts";
 import { logAuditEvent } from "../_shared/security.ts";
 import { creditCapturedCardTripLedger } from "../_shared/onecabFinanceLedger.ts";
 import {
@@ -29,39 +29,8 @@ import {
   revolutProviderStateRank,
 } from "../_shared/revolutProviderStateRankSSOT.ts";
 import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
-
-/**
- * Extract provider processing fee (minor units) from a Revolut order payload.
- * Order → payments[].fees[].amount (minor units). Sum all fees across payments.
- * Returns null when the payload has no fee data (never fabricate 0).
- */
-function extractRevolutFeeMinor(order: unknown): number | null {
-  if (!order || typeof order !== "object") return null;
-  const payments = (order as { payments?: unknown }).payments;
-  if (!Array.isArray(payments) || payments.length === 0) return null;
-  let total = 0;
-  let sawFee = false;
-  for (const p of payments) {
-    if (!p || typeof p !== "object") continue;
-    const fees = (p as { fees?: unknown }).fees;
-    if (Array.isArray(fees)) {
-      for (const f of fees) {
-        const amt = (f as { amount?: unknown })?.amount;
-        if (typeof amt === "number" && Number.isFinite(amt)) {
-          total += amt;
-          sawFee = true;
-        }
-      }
-      continue;
-    }
-    const flatFee = (p as { fee?: unknown }).fee;
-    if (typeof flatFee === "number" && Number.isFinite(flatFee)) {
-      total += flatFee;
-      sawFee = true;
-    }
-  }
-  return sawFee ? Math.round(total) : null;
-}
+import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
+import { persistProviderFeeAndMaybeResumeTerminalSettlement } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -371,9 +340,17 @@ Deno.serve(async (req) => {
           nowIso,
         });
 
-        await supabase.from("payment_sessions").update(plan.recovery_session_patch).eq("id", recoverySession.id);
+        await transitionPaymentSession(supabase, {
+          sessionId: recoverySession.id,
+          patch: plan.recovery_session_patch,
+          source: "recovery",
+        });
         if (plan.parent_session_patch && parent?.id) {
-          await supabase.from("payment_sessions").update(plan.parent_session_patch).eq("id", parent.id);
+          await transitionPaymentSession(supabase, {
+            sessionId: parent.id,
+            patch: plan.parent_session_patch,
+            source: "recovery",
+          });
         }
         // Never set provider_order_id to the recovery order.
         await supabase.from("trips").update(plan.trip_patch).eq("id", recoverySession.trip_id);
@@ -430,13 +407,17 @@ Deno.serve(async (req) => {
               const { secretKey, environment } = getRevolutMerchantConfig();
               const { cancelRevolutOrder } = await import("../_shared/revolutOrders.ts");
               await cancelRevolutOrder(environment, secretKey, parentFresh.provider_order_id!);
-              await supabase.from("payment_sessions").update({
-                provider_state: "CANCELLED",
-                status: "released_after_recovery",
-                provider_state_verified_at: nowIso,
-                provider_state_verified_by: "recovery_captured",
-                updated_at: nowIso,
-              }).eq("id", parentFresh.id);
+              await transitionPaymentSession(supabase, {
+                sessionId: parentFresh.id,
+                patch: {
+                  provider_state: "CANCELLED",
+                  status: "released_after_recovery",
+                  provider_state_verified_at: nowIso,
+                  provider_state_verified_by: "recovery_captured",
+                  updated_at: nowIso,
+                },
+                source: "recovery",
+              });
             } catch (releaseErr) {
               console.error(`[revolut-webhook] parent hold release after recovery failed:`, (releaseErr as Error).message);
             }
@@ -448,7 +429,11 @@ Deno.serve(async (req) => {
           updated_at: nowIso,
         };
         if (amt != null) sessionUpdate.captured_amount_pence = Math.round(amt);
-        await supabase.from("payment_sessions").update(sessionUpdate).eq("id", recoverySession.id);
+        await transitionPaymentSession(supabase, {
+          sessionId: recoverySession.id,
+          patch: sessionUpdate,
+          source: "recovery",
+        });
       }
     }
   } else {
@@ -797,30 +782,15 @@ Deno.serve(async (req) => {
           `/orders/${encodeURIComponent(orderId)}`,
           { method: "GET" },
         );
-        feeMinor = extractRevolutFeeMinor(order);
+        feeMinor = extractRevolutProviderFeeMinor(order);
         if (feeMinor != null) {
-          const nowIso = new Date().toISOString();
-          const { error: sessErr } = await supabase
-            .from("payment_sessions")
-            .update({
-              provider_processing_fee_pence: feeMinor,
-              provider_fee_source: "revolut_order_capture",
-              provider_fee_confirmed_at: nowIso,
-              updated_at: nowIso,
-            })
-            .eq("provider_order_id", orderId);
-          if (sessErr) {
-            console.error(`[revolut-webhook] session fee update failed:`, sessErr.message);
-          }
-          if (tripId) {
-            const { error: tripFeeErr } = await supabase
-              .from("trips")
-              .update({ provider_fee_pence: feeMinor, updated_at: nowIso })
-              .eq("id", tripId);
-            if (tripFeeErr) {
-              console.error(`[revolut-webhook] trip fee update failed:`, tripFeeErr.message);
-            }
-          }
+          await persistProviderFeeAndMaybeResumeTerminalSettlement(supabase, {
+            providerOrderId: orderId,
+            tripId,
+            providerFeePence: feeMinor,
+            retrieveSucceeded: true,
+            source: "revolut_webhook",
+          });
         }
       } else {
         console.warn("[revolut-webhook] no merchant secret env; skipping fee hydration");

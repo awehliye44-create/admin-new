@@ -16,6 +16,8 @@ import {
 } from "../../../shared/paymentSessionsCaptureConfirmationSSOT.ts";
 import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "../../../shared/paymentHoldProviderTerminalPure.ts";
 import { markPaymentSessionCaptured } from "./paymentSessionSSOT.ts";
+import { transitionPaymentSession } from "./paymentSessionTransitionFacade.ts";
+import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "./terminalFeeSettlementResumptionSSOT.ts";
 
 export type PersistConfirmedCaptureArgs = {
   supabase: SupabaseClient;
@@ -92,18 +94,24 @@ export async function persistConfirmedProviderCapture(
   if (!needsWrite) {
     // Still allow fee backfill when capture already matches.
     if (fee != null) {
-      await args.supabase.from("payment_sessions").update({
-        provider_processing_fee_pence: fee,
-        fee_status: "ACTUAL",
-        provider_state: "CAPTURED",
-        provider_state_verified_at: now,
-        provider_state_verified_by: verifiedBy,
-        updated_at: now,
-        metadata: {
-          capture_persist_source: args.source ?? "persistConfirmedProviderCapture",
-          capture_idempotent: true,
+      await transitionPaymentSession(args.supabase, {
+        providerOrderId: orderId,
+        source: "capture_persist",
+        patch: {
+          provider_processing_fee_pence: fee,
+          fee_status: "ACTUAL",
+          provider_state: "CAPTURED",
+          metadata: {
+            capture_persist_source: args.source ?? "persistConfirmedProviderCapture",
+            capture_idempotent: true,
+          },
         },
-      }).eq("provider_order_id", orderId);
+      });
+      await maybeResumeTerminalFeeSettlementAfterProviderFee(args.supabase, {
+        tripId,
+        source: args.source ?? "persistConfirmedProviderCapture",
+        providerFeePence: fee,
+      });
     }
     return {
       applied: false,
@@ -123,24 +131,25 @@ export async function persistConfirmedProviderCapture(
     providerCaptureId: captureId,
   });
 
-  await args.supabase.from("payment_sessions").update({
-    provider_state: "CAPTURED",
-    provider_state_verified_at: now,
-    provider_state_verified_by: verifiedBy,
-    provider_processing_fee_pence: fee,
-    fee_status: fee != null ? "ACTUAL" : "PENDING",
-    provider_capture_id: captureId,
-    hold_terminal_reason: "PROVIDER_CAPTURED",
-    metadata: {
-      capture_amount_pence: amount,
+  await transitionPaymentSession(args.supabase, {
+    providerOrderId: orderId,
+    source: "capture_persist",
+    patch: {
       provider_state: "CAPTURED",
-      provider_state_verified_at: now,
-      provider_state_verified_by: verifiedBy,
-      capture_persist_source: args.source ?? "persistConfirmedProviderCapture",
-      ...(fee != null ? { provider_fee_pence: fee } : {}),
+      provider_processing_fee_pence: fee,
+      fee_status: fee != null ? "ACTUAL" : "PENDING",
+      provider_capture_id: captureId,
+      hold_terminal_reason: "PROVIDER_CAPTURED",
+      metadata: {
+        capture_amount_pence: amount,
+        provider_state: "CAPTURED",
+        provider_state_verified_at: now,
+        provider_state_verified_by: verifiedBy,
+        capture_persist_source: args.source ?? "persistConfirmedProviderCapture",
+        ...(fee != null ? { provider_fee_pence: fee } : {}),
+      },
     },
-    updated_at: now,
-  }).eq("provider_order_id", orderId);
+  });
 
   const { data: tripRow } = await args.supabase
     .from("trips")
@@ -236,6 +245,14 @@ export async function persistConfirmedProviderCapture(
       idempotency_key: `capture:${orderId}:${amount}`,
     },
   });
+
+  if (fee != null) {
+    await maybeResumeTerminalFeeSettlementAfterProviderFee(args.supabase, {
+      tripId,
+      source: args.source ?? "persistConfirmedProviderCapture",
+      providerFeePence: fee,
+    });
+  }
 
   return {
     applied: true,

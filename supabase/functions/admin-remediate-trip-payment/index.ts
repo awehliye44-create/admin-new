@@ -15,6 +15,7 @@ import { retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { releaseHoldOnTripTerminal } from "../_shared/holdReleaseSSOT.ts";
 import { markPaymentSessionReleased } from "../_shared/paymentSessionSSOT.ts";
 import { finalizeRevolutTripCapture } from "../_shared/finalizeRevolutTripCapture.ts";
+import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid().optional(),
@@ -56,12 +57,16 @@ serve(async (req) => {
         const order = await retrieveRevolutOrder(merchant.environment, merchant.secretKey, orderId);
         providerState = String(order.state ?? "").toUpperCase();
         liveAmount = Number(order.amount ?? null);
-        await supabase.from("payment_sessions").update({
-          provider_state: providerState,
-          provider_state_verified_at: new Date().toISOString(),
-          provider_state_verified_by: "admin-remediate-trip-payment",
-          updated_at: new Date().toISOString(),
-        }).eq("provider_order_id", orderId);
+        await transitionPaymentSession(supabase, {
+          providerOrderId: orderId,
+          patch: {
+            provider_state: providerState,
+            provider_state_verified_at: new Date().toISOString(),
+            provider_state_verified_by: "admin-remediate-trip-payment",
+            updated_at: new Date().toISOString(),
+          },
+          source: "admin_remediate",
+        });
       } catch (err) {
         providerUnknown = true;
         console.warn("[admin-remediate-trip-payment] provider refresh failed", err);
@@ -163,18 +168,19 @@ serve(async (req) => {
         // Trigger prevent_authorised_session_client_cancel uses OLD.provider_state.
         // Flip provider_state first (no status change), then close session.
         const nowIso = new Date().toISOString();
-        let psQ1 = supabase.from("payment_sessions").update({
-          provider_state: "CANCELLED",
-          provider_state_verified_at: nowIso,
-          provider_state_verified_by: "admin-remediate-trip-payment",
-          updated_at: nowIso,
+        const ps1Result = await transitionPaymentSession(supabase, {
+          sessionId: trip.payment_session_id ?? undefined,
+          providerOrderId: trip.payment_session_id ? undefined : orderId,
+          patch: {
+            provider_state: "CANCELLED",
+            provider_state_verified_at: nowIso,
+            provider_state_verified_by: "admin-remediate-trip-payment",
+            updated_at: nowIso,
+          },
+          source: "admin_remediate",
         });
-        psQ1 = trip.payment_session_id
-          ? psQ1.eq("id", trip.payment_session_id)
-          : psQ1.eq("provider_order_id", orderId);
-        const { error: ps1Err } = await psQ1;
-        if (ps1Err) {
-          console.warn("[admin-remediate-trip-payment] provider_state pre-flip failed", ps1Err.message);
+        if (!ps1Result.ok) {
+          console.warn("[admin-remediate-trip-payment] provider_state pre-flip failed", ps1Result.error);
         }
 
         await markPaymentSessionReleased(supabase, {
@@ -189,26 +195,27 @@ serve(async (req) => {
           releaseEvidenceSource: "admin-remediate-trip-payment",
           idempotencyKey: `remediate_local_${trip.id}`,
         });
-        let psQ2 = supabase.from("payment_sessions").update({
-          status: "cancelled",
-          provider_state: "CANCELLED",
-          released_at: nowIso,
-          released_amount_pence: releasedAmt,
-          hold_release_state: "released",
-          hold_terminal_reason: "provider_cancelled",
-          release_evidence_status: "CONFIRMED",
-          release_evidence_source: "admin-remediate-trip-payment",
-          provider_release_reference: orderId,
-          provider_state_verified_at: nowIso,
-          provider_state_verified_by: "admin-remediate-trip-payment",
-          updated_at: nowIso,
+        const ps2Result = await transitionPaymentSession(supabase, {
+          sessionId: trip.payment_session_id ?? undefined,
+          providerOrderId: trip.payment_session_id ? undefined : orderId,
+          patch: {
+            status: "cancelled",
+            provider_state: "CANCELLED",
+            released_at: nowIso,
+            released_amount_pence: releasedAmt,
+            hold_release_state: "released",
+            hold_terminal_reason: "provider_cancelled",
+            release_evidence_status: "CONFIRMED",
+            release_evidence_source: "admin-remediate-trip-payment",
+            provider_release_reference: orderId,
+            provider_state_verified_at: nowIso,
+            provider_state_verified_by: "admin-remediate-trip-payment",
+            updated_at: nowIso,
+          },
+          source: "admin_remediate",
         });
-        psQ2 = trip.payment_session_id
-          ? psQ2.eq("id", trip.payment_session_id)
-          : psQ2.eq("provider_order_id", orderId);
-        const { error: ps2Err } = await psQ2;
-        if (ps2Err) {
-          console.warn("[admin-remediate-trip-payment] session close failed", ps2Err.message, sessionFilter);
+        if (!ps2Result.ok) {
+          console.warn("[admin-remediate-trip-payment] session close failed", ps2Result.error, sessionFilter);
         }
       }
       await supabase.from("trips").update({

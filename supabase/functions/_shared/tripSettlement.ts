@@ -20,6 +20,11 @@
  * Provider fee reduces ONECAB net only (never driver_net).
  */
 
+import {
+  calculateCanonicalSettlement,
+  computeAuthoritativeSettlement,
+} from "../../../shared/canonicalSettlementSSOT.ts";
+
 export const SETTLEMENT_FORMULA_VERSION = "2";
 
 /** Sanity ceiling for commission % (wave/base rates may exceed legacy 15% tier caps). */
@@ -231,54 +236,77 @@ export function resolveSettlementFinalFarePence(trip: TripSettlementTripRow): nu
 export function calculateTripSettlement(input: TripSettlementInput): TripSettlementResult {
   const finalFarePence = nonNegInt(input.final_fare_pence);
   const airportChargePence = nonNegInt(input.airport_charge_pence);
-  const otherPassThroughChargesPence = 0;
   const tipsPence = nonNegInt(input.tips_pence);
+  const lockedPromotionPence = nonNegInt(input.locked_promotion_pence);
+  const tierPercentUsed = capTierCommissionPercent(input.driver_tier_commission_percent);
   const feePending = input.provider_fee_confirmed === false;
   const providerFeePence = feePending ? 0 : nonNegInt(input.provider_fee_pence);
   const providerFeeConfirmed = !feePending
     && (input.provider_fee_confirmed === true || providerFeePence > 0);
-  const tierPercentUsed = capTierCommissionPercent(input.driver_tier_commission_percent);
-  const lockedPromotionPence = nonNegInt(input.locked_promotion_pence);
 
-  const commissionableFarePence = input.pre_promotion_commissionable_fare_pence != null
-    ? Math.max(0, nonNegInt(input.pre_promotion_commissionable_fare_pence))
-    : Math.max(0, finalFarePence - airportChargePence);
+  if (lockedPromotionPence === 0 && input.pre_promotion_commissionable_fare_pence == null) {
+    const authoritative = computeAuthoritativeSettlement({
+      ride_fare_pence: Math.max(0, finalFarePence - airportChargePence),
+      airport_charge_pence: airportChargePence,
+      tip_pence: tipsPence,
+      commission_percent: tierPercentUsed,
+      provider_processing_fee_pence: feePending ? null : providerFeePence,
+      fee_confirmed: providerFeeConfirmed,
+      capture_identity_pence: finalFarePence + tipsPence,
+    });
+    return {
+      final_fare_pence: finalFarePence,
+      commissionable_fare_pence: authoritative.commissionable_fare_pence,
+      commission_pence: authoritative.commission_amount_pence,
+      locked_promotion_pence: 0,
+      applied_customer_promotion_pence: 0,
+      commission_after_promotion_pence: authoritative.commission_amount_pence,
+      driver_net_pence: authoritative.driver_entitlement_pence,
+      driver_total_earnings_pence: authoritative.driver_total_earnings_pence,
+      airport_charge_pence: authoritative.airport_charge_pence,
+      other_pass_through_charges_pence: 0,
+      tips_pence: authoritative.tip_pence,
+      provider_fee_pence: providerFeePence,
+      provider_fee_confirmed: providerFeeConfirmed,
+      platform_gross_revenue_pence: authoritative.commission_amount_pence,
+      platform_net_revenue_pence: authoritative.onecab_net_commission_pence ?? 0,
+      onecab_net_pence: authoritative.onecab_net_commission_pence,
+      tier_percent_used: tierPercentUsed,
+      formula_version: authoritative.formula_version,
+    };
+  }
 
-  const commissionPence = Math.round((commissionableFarePence * tierPercentUsed) / 100);
-  const driverNetPence = Math.max(0, commissionableFarePence - commissionPence);
-  const driverTotalEarningsPence = driverNetPence + airportChargePence + tipsPence;
-  // The applied customer promotion is always the full locked promotion (ONECAB funds it from commission).
-  // Customer modifications are full-price and receive no promotion.
-  const appliedCustomerPromotionPence = lockedPromotionPence;
-  // commission_after_promotion may be negative (explicit ONECAB subsidy) — never clamped.
-  // driver_net is never reduced by the promotion.
-  const commissionAfterPromotionPence = commissionPence - appliedCustomerPromotionPence;
-  const onecabNetPence = feePending
-    ? null
-    : commissionAfterPromotionPence - providerFeePence;
-
-  const platformGrossRevenuePence = commissionPence;
-  const platformNetRevenuePence = onecabNetPence ?? 0;
+  const authoritative = computeAuthoritativeSettlement({
+    ride_fare_pence: Math.max(0, (input.pre_promotion_commissionable_fare_pence ?? finalFarePence) - airportChargePence),
+    pre_promotion_commissionable_fare_pence: input.pre_promotion_commissionable_fare_pence,
+    locked_promotion_pence: lockedPromotionPence,
+    airport_charge_pence: airportChargePence,
+    tip_pence: tipsPence,
+    commission_percent: tierPercentUsed,
+    provider_processing_fee_pence: feePending ? null : providerFeePence,
+    fee_confirmed: providerFeeConfirmed,
+    capture_identity_pence: finalFarePence + tipsPence,
+  });
 
   return {
     final_fare_pence: finalFarePence,
-    commissionable_fare_pence: commissionableFarePence,
-    commission_pence: commissionPence,
+    commissionable_fare_pence: authoritative.commissionable_fare_pence,
+    commission_pence: authoritative.commission_amount_pence,
     locked_promotion_pence: lockedPromotionPence,
-    applied_customer_promotion_pence: appliedCustomerPromotionPence,
-    commission_after_promotion_pence: commissionAfterPromotionPence,
-    driver_net_pence: driverNetPence,
-    driver_total_earnings_pence: driverTotalEarningsPence,
-    airport_charge_pence: airportChargePence,
-    other_pass_through_charges_pence: otherPassThroughChargesPence,
-    tips_pence: tipsPence,
+    applied_customer_promotion_pence: authoritative.promotion_subsidy_pence,
+    commission_after_promotion_pence: authoritative.commission_amount_pence - authoritative.promotion_subsidy_pence,
+    driver_net_pence: authoritative.driver_entitlement_pence,
+    driver_total_earnings_pence: authoritative.driver_total_earnings_pence,
+    airport_charge_pence: authoritative.airport_charge_pence,
+    other_pass_through_charges_pence: 0,
+    tips_pence: authoritative.tip_pence,
     provider_fee_pence: providerFeePence,
     provider_fee_confirmed: providerFeeConfirmed,
-    platform_gross_revenue_pence: platformGrossRevenuePence,
-    platform_net_revenue_pence: platformNetRevenuePence,
-    onecab_net_pence: onecabNetPence,
+    platform_gross_revenue_pence: authoritative.commission_amount_pence,
+    platform_net_revenue_pence: authoritative.onecab_net_commission_pence ?? 0,
+    onecab_net_pence: authoritative.onecab_net_commission_pence,
     tier_percent_used: tierPercentUsed,
-    formula_version: SETTLEMENT_FORMULA_VERSION,
+    formula_version: authoritative.formula_version,
   };
 }
 

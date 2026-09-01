@@ -47,6 +47,7 @@ import {
 } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
 import { readTripFinancialModelStamp } from "../_shared/commissionWalletSSOT.ts";
+import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -129,7 +130,11 @@ Deno.serve(async (req) => {
             parentPatch.captured_at = nowIso;
             parentPatch.status = "captured";
           }
-          await supabase.from("payment_sessions").update(parentPatch).eq("id", parentSess.id);
+          await transitionPaymentSession(supabase, {
+            sessionId: parentSess.id,
+            patch: parentPatch,
+            source: "recovery",
+          });
         } catch (refreshErr) {
           console.warn("[create-payment-recovery] parent provider refresh failed", refreshErr);
         }

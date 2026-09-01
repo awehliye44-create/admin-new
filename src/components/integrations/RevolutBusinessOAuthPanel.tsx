@@ -6,9 +6,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CheckCircle2, Loader2, Link2, RefreshCw } from "lucide-react";
+import { CheckCircle2, Link2, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  evaluateRevolutBusinessPayoutExecutionGate,
+  REVOLUT_BUSINESS_ACCOUNTS_BALANCE_BLOCKED_COPY,
+  REVOLUT_BUSINESS_PAYOUT_OAUTH_BLOCKED_COPY,
+  REVOLUT_BUSINESS_SELECTED_SOURCE_STALE_COPY,
+} from "../../../shared/revolutBusinessOAuthSSOT.ts";
 
 type RelayDiag = {
   configured?: boolean;
@@ -47,7 +53,13 @@ type Diag = {
   oauth_scope?: string;
   oauth_scopes_granted?: string[];
   live_payout_execution_enabled?: boolean;
+  live_payouts_executable?: boolean;
+  live_payouts_blocked?: boolean;
+  payout_execution_locked?: boolean;
   payment_execution_blocked?: boolean;
+  admin_blocked_copy?: string | null;
+  selected_source_live_verifiable?: boolean;
+  live_balance_verified?: boolean;
   relay?: RelayDiag;
   egress_public_ip?: string | null;
   egress_ip_fixed_proven?: boolean;
@@ -59,6 +71,10 @@ type Diag = {
   selected_source_account_ok?: boolean | null;
   selected_source_account_label?: string | null;
   selected_source_last_verified_at?: string | null;
+  accounts_list_succeeded?: boolean;
+  accounts_list_http_status?: number | null;
+  accounts_list_error?: string | null;
+  accounts_list_relay_hint?: string | null;
   message?: string | null;
   authorization_url?: string;
   gaps?: Array<{ id: string; status: string; detail: string }>;
@@ -249,11 +265,40 @@ export function RevolutBusinessOAuthPanel() {
   }, [diag?.gbp_accounts, selectedSourceId]);
 
   const selectedBalancePence = selectedAccount?.balance_pence ?? diag?.gbp_balance_pence ?? null;
+
+  const payoutGate = useMemo(() => evaluateRevolutBusinessPayoutExecutionGate({
+    oauth_connected: Boolean(diag?.oauth_connected),
+    token_valid: Boolean(diag?.token_valid),
+    oauth_scopes_granted: diag?.oauth_scopes_granted ?? [],
+    live_payout_execution_enabled: Boolean(diag?.live_payout_execution_enabled),
+    accounts_list_succeeded: Boolean(diag?.accounts_list_succeeded),
+    selected_source_account_ok: diag?.selected_source_account_ok ?? null,
+    live_balance_pence: selectedBalancePence,
+  }), [
+    diag?.oauth_connected,
+    diag?.token_valid,
+    diag?.oauth_scopes_granted,
+    diag?.live_payout_execution_enabled,
+    diag?.accounts_list_succeeded,
+    diag?.selected_source_account_ok,
+    selectedBalancePence,
+  ]);
+
   const selectedHasZeroFunds =
     Boolean(selectedSourceId)
+    && payoutGate.live_balance_verified
     && selectedBalancePence != null
     && Number.isFinite(selectedBalancePence)
     && selectedBalancePence <= 0;
+
+  const showOAuthBlockedAlert = !payoutGate.oauth_ready || !payoutGate.scopes_granted_ok;
+  const showAccountsBlockedAlert = payoutGate.oauth_ready
+    && payoutGate.scopes_granted_ok
+    && !payoutGate.accounts_list_succeeded;
+  const showStaleSourceAlert = payoutGate.accounts_list_succeeded
+    && diag?.selected_source_account_ok === false;
+  const cachedLastVerifiedAt = diag?.selected_source_last_verified_at ?? null;
+  const liveLastVerifiedAt = payoutGate.live_balance_verified ? lastVerifiedAt : null;
 
   return (
     <Card>
@@ -261,10 +306,66 @@ export function RevolutBusinessOAuthPanel() {
         <CardTitle className="text-base">Revolut Business API (READ,WRITE,PAY consent)</CardTitle>
         <CardDescription>
           OAuth consent and company-balance diagnostics via fixed-IP relay ({diag?.relay?.whitelist_ip ?? "63.186.194.116"}).
-          Connect requests READ,WRITE,PAY. Live payouts stay OFF and payment execution stays BLOCKED until a later unlock. Tokens never appear in this UI.
+          Connect requests READ,WRITE,PAY. Payout execution stays locked until OAuth, scopes, and live balance are verified. Tokens never appear in this UI.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {showAccountsBlockedAlert && (
+          <Alert variant="destructive">
+            <AlertTitle>Cannot verify Revolut Business account balance</AlertTitle>
+            <AlertDescription className="space-y-3">
+              <p>{REVOLUT_BUSINESS_ACCOUNTS_BALANCE_BLOCKED_COPY}</p>
+              {diag?.accounts_list_http_status != null && (
+                <p className="text-xs font-mono">
+                  Relay /accounts HTTP {diag.accounts_list_http_status}
+                  {diag.accounts_list_error ? ` — ${diag.accounts_list_error}` : ""}
+                </p>
+              )}
+              {diag?.accounts_list_relay_hint && (
+                <p className="text-xs">{diag.accounts_list_relay_hint}</p>
+              )}
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy === "diagnostics"}
+                onClick={() => void refreshDiagnostics()}
+              >
+                {busy === "diagnostics" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                Retry diagnostics
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {showStaleSourceAlert && (
+          <Alert variant="destructive">
+            <AlertTitle>Selected payout source is stale</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p>{REVOLUT_BUSINESS_SELECTED_SOURCE_STALE_COPY}</p>
+              {(diag?.gbp_accounts ?? []).length > 0 && (
+                <p className="text-xs">Choose a current GBP account below via Use as source.</p>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {showOAuthBlockedAlert && (
+          <Alert variant="destructive">
+            <AlertTitle>Revolut Business consent required</AlertTitle>
+            <AlertDescription className="space-y-3">
+              <p>{REVOLUT_BUSINESS_PAYOUT_OAUTH_BLOCKED_COPY}</p>
+              <Button
+                size="sm"
+                disabled={busy === "connect"}
+                onClick={() => void startOAuth("connect")}
+              >
+                {busy === "connect" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Link2 className="h-4 w-4 mr-1" />}
+                Connect Revolut Business
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
@@ -344,12 +445,15 @@ export function RevolutBusinessOAuthPanel() {
           <div className="rounded-md border p-3 space-y-4 text-sm">
             <div className="flex flex-wrap gap-2 items-center">
               <Badge variant={statusBadgeVariant(diag.connection_status)}>{diag.connection_status ?? "—"}</Badge>
-              <Badge variant={diag.live_payout_execution_enabled ? "destructive" : "secondary"}>
-                live payouts: {diag.live_payout_execution_enabled ? "ON" : "OFF"}
+              <Badge variant={payoutGate.live_payouts_blocked ? "secondary" : "default"}>
+                live payouts: {payoutGate.live_payouts_executable ? "EXECUTABLE" : "BLOCKED"}
               </Badge>
-              <Badge variant={(diag.payment_execution_blocked ?? !diag.live_payout_execution_enabled) ? "secondary" : "destructive"}>
-                payment execution: {(diag.payment_execution_blocked ?? !diag.live_payout_execution_enabled) ? "BLOCKED" : "UNLOCKED"}
+              <Badge variant={payoutGate.payout_execution_locked ? "secondary" : "destructive"}>
+                payment execution: {payoutGate.payout_execution_locked ? "LOCKED" : "UNLOCKED"}
               </Badge>
+              {diag.live_payout_execution_enabled && (
+                <Badge variant="outline">env flag: ON</Badge>
+              )}
               <Badge variant="outline">requested: {diag.oauth_scope ?? "READ,WRITE,PAY"}</Badge>
               <Badge variant="outline">
                 granted: {(diag.oauth_scopes_granted ?? []).length > 0
@@ -413,22 +517,28 @@ export function RevolutBusinessOAuthPanel() {
                     </div>
                     <div>
                       <span className="text-muted-foreground">Available balance: </span>
-                      <span className="font-semibold tabular-nums">{formatPence(selectedBalancePence)}</span>
+                      <span className="font-semibold tabular-nums">
+                        {payoutGate.live_balance_verified
+                          ? formatPence(selectedBalancePence)
+                          : "— (live unverified)"}
+                      </span>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Currency: </span>
                       <span>{selectedAccount?.currency ?? "GBP"}</span>
                     </div>
-                    <div>
-                      <span className="text-muted-foreground">Last verified: </span>
-                      <span>
-                        {formatVerifiedAt(
-                          diag.selected_source_last_verified_at
-                            ?? lastVerifiedAt
-                            ?? diag.token_expires_at,
-                        )}
-                      </span>
-                    </div>
+                    {cachedLastVerifiedAt && !payoutGate.live_balance_verified && (
+                      <div>
+                        <span className="text-muted-foreground">Cached balance as of: </span>
+                        <span>{formatVerifiedAt(cachedLastVerifiedAt)}</span>
+                      </div>
+                    )}
+                    {liveLastVerifiedAt && (
+                      <div>
+                        <span className="text-muted-foreground">Live verified: </span>
+                        <span>{formatVerifiedAt(liveLastVerifiedAt)}</span>
+                      </div>
+                    )}
                   </div>
                   {selectedHasZeroFunds && (
                     <Alert variant="destructive" className="mt-2">
@@ -439,7 +549,14 @@ export function RevolutBusinessOAuthPanel() {
                       </AlertDescription>
                     </Alert>
                   )}
-                  {diag.selected_source_account_ok === false && (
+                  {!payoutGate.selected_source_live_verifiable && (
+                    <p className="text-xs text-amber-800">
+                      {showAccountsBlockedAlert
+                        ? "Cannot verify selected payout source until Revolut Business /accounts succeeds."
+                        : "Cannot verify selected payout source until Revolut Business is connected."}
+                    </p>
+                  )}
+                  {showStaleSourceAlert && (
                     <p className="text-xs text-amber-800">
                       Selected account ID is not present in the latest Revolut /accounts response.
                     </p>

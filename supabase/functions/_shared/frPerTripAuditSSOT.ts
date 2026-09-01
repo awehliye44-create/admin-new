@@ -16,7 +16,7 @@ import {
   resolveLockedPromotionPence,
   resolvePrePromotionCommissionableFarePence,
 } from "./tripSettlement.ts";
-import { SERVICE_AREA_FINANCIAL_MODEL } from "./commissionWalletSSOT.ts";
+import { resolveFinancialModelStamp } from "../../../shared/financialModelScopeSSOT.ts";
 import {
   evaluateFrSettlementCaptureIdentity,
   isFrTripFullyBalanced,
@@ -859,7 +859,7 @@ export function buildFrPerTripAuditRecord(args: {
     trip_id: tripId,
     trip_code: (r.trip_code as string | null) ?? null,
     completed_at: (r.date as string | null) ?? null,
-    financial_model: (r.financial_model as string | null) ?? SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,
+    financial_model: resolveFinancialModelStamp(r.financial_model),
     canonical_payment_session_ids: args.session?.canonical_payment_session_ids ?? (
       r.payment_session_id ? [String(r.payment_session_id)] : []
     ),

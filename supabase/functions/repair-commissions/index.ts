@@ -7,6 +7,7 @@ import {
   SETTLEMENT_FORMULA_VERSION,
 } from "../_shared/tripSettlement.ts";
 import { tripBlocksDriverWalletLedgerPosting } from "../_shared/commissionWalletDeduction.ts";
+import { repairMissingTripEarningNet } from '../_shared/canonicalTypedWalletPostingSSOT.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -272,6 +273,21 @@ serve(async (req) => {
               amount = correctCommission;
               desc = 'Platform commission (repaired)';
               break;
+          }
+
+          if (missingType === 'TRIP_EARNING_NET') {
+            try {
+              const repaired = await repairMissingTripEarningNet(supabase, {
+                driverId: dId,
+                tripId: trip.id,
+                driverNetPence: correctNet,
+                currency: correctCurrency,
+              });
+              if (repaired.credited) walletLedgerCreated++;
+            } catch (repairErr) {
+              console.error(`[repair-commissions] wallet repair error for ${trip.id}:`, repairErr);
+            }
+            continue;
           }
 
           const { error: insertErr } = await supabase.from('driver_wallet_ledger').insert({

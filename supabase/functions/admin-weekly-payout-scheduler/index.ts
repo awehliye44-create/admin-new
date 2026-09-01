@@ -101,27 +101,38 @@ serve(async (req) => {
   const transport = isRevolutPaymentTransportEnabled();
   const executionBlocked = shouldBlockExecutionDisabled();
 
-  // Slice 5 must never run when execution flags are on — that is Slice 6+.
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+
+  // Slice 5 must never run money path when execution flags are on — forward to orchestrator.
   if (live && transport) {
-    return new Response(JSON.stringify({
-      ok: false,
-      error: "slice5_refuses_enabled_execution_flags",
-      message: "LIVE + TRANSPORT enabled — stop; do not start Slice 6+ from Slice 5 entry",
-      live_payout_execution_enabled: live,
-      revolut_payment_transport_enabled: transport,
-      slices_6_to_12_started: false,
-    }), {
-      status: 409,
+    const forwardUrl = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/admin-execute-weekly-payout-occurrence`;
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const cronSecret = req.headers.get("x-onecab-cron-secret")
+      ?? (typeof body.cron_secret === "string" ? body.cron_secret : null);
+    const forwardRes = await fetch(forwardUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(authHeader ? { Authorization: authHeader } : {}),
+        ...(cronSecret ? { "x-onecab-cron-secret": cronSecret } : {}),
+      },
+      body: JSON.stringify({
+        ...body,
+        forwarded_from: "admin-weekly-payout-scheduler",
+      }),
+    });
+    const forwardText = await forwardRes.text();
+    return new Response(forwardText, {
+      status: forwardRes.status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const scheduledRun = body.scheduled === true || body.source === "pg_cron";
     const dryRun = body.dry_run === true;
     const force = body.force === true

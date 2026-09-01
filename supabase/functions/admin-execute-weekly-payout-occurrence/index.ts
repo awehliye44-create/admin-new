@@ -64,7 +64,7 @@ import {
 import {
   isRevolutBusinessRelayConfigured,
   relayApprovedDriverPayoutPayment,
-  relayDriverPayoutPaymentStatus,
+  relayApprovedDriverPayoutPaymentStatus,
 } from "../_shared/revolutBusinessRelayClient.ts";
 import { ensureFreshRevolutBusinessAccessToken } from "../_shared/revolutBusinessAccessTokenRefresh.ts";
 
@@ -106,11 +106,73 @@ Deno.serve(async (req) => {
   const live = isLivePayoutExecutionEnabled();
   const transport = isRevolutPaymentTransportEnabled();
 
+  const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+
+  if (body.health === true || body.boot_probe === true) {
+    const baseHealth = {
+      ok: true,
+      function: "admin-execute-weekly-payout-occurrence",
+      boot: "ok",
+      live_payout_execution_enabled: live,
+      revolut_payment_transport_enabled: transport,
+      revolut_business_relay_configured: isRevolutBusinessRelayConfigured(),
+    };
+    if (body.funding_probe !== true) {
+      return json(baseHealth);
+    }
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const probeClient = createClient(supabaseUrl, supabaseServiceKey);
+    const auth = await assertCronOrServiceRoleAuth(req, body);
+    if (!auth.ok) return auth.response;
+    let fundingAvailable: number | null = null;
+    let sourceAccountId: string | null = null;
+    let sourceLabel: string | null = null;
+    let balanceStatus = "UNAVAILABLE";
+    try {
+      const companyBalance = await resolveLiveCompanyBalanceSnapshot({
+        supabase: probeClient,
+        currency: "GBP",
+      });
+      fundingAvailable = companyBalance.provider_available_balance_pence
+        ?? companyBalance.provider_cash_balance_pence
+        ?? null;
+      sourceAccountId = companyBalance.source_account_id ?? null;
+      sourceLabel = companyBalance.source_account_label ?? null;
+      balanceStatus = String(companyBalance.status_code ?? companyBalance.status ?? "UNAVAILABLE");
+    } catch (err) {
+      console.warn("[orchestrator] funding_probe balance read failed", err);
+    }
+    const requiredBatchPence = 1703;
+    const fundingGate = evaluateBatchFundingGate({
+      required_batch_pence: requiredBatchPence,
+      available_pence: fundingAvailable,
+    });
+    return json({
+      ...baseHealth,
+      funding_probe: {
+        read_only: true,
+        source: "relay_revolut_business_accounts",
+        balance_status: balanceStatus,
+        source_account_id: sourceAccountId,
+        source_account_label: sourceLabel,
+        settled_available_pence: fundingAvailable,
+        required_batch_pence: requiredBatchPence,
+        funding_result: fundingGate.result,
+        blocker_code: fundingGate.blocker_code,
+        shortfall_pence: fundingAvailable != null && fundingAvailable < requiredBatchPence
+          ? requiredBatchPence - fundingAvailable
+          : null,
+        surplus_pence: fundingAvailable != null && fundingAvailable >= requiredBatchPence
+          ? fundingAvailable - requiredBatchPence
+          : null,
+      },
+    });
+  }
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-  const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   const scheduledRun = body.scheduled === true || body.source === "pg_cron";
   const dryRun = body.dry_run === true;
   const force = body.force === true
@@ -421,29 +483,7 @@ Deno.serve(async (req) => {
   } catch (err) {
     console.warn("[orchestrator] company balance refresh failed", err);
   }
-  // Fallback: persisted default payout source (settled available last synced).
-  if (fundingAvailable == null || sourceAccountId == null) {
-    const { data: srcRows } = await supabase
-      .from("revolut_business_source_accounts")
-      .select(
-        "id, revolut_account_id, account_name, last_available_balance_pence, last_balance_pence, is_default_payout_source",
-      )
-      .eq("provider", "revolut_business")
-      .eq("is_active", true)
-      .eq("is_default_payout_source", true)
-      .limit(1);
-    const src = srcRows?.[0] as Record<string, unknown> | undefined;
-    if (src) {
-      sourceAccountId = sourceAccountId
-        ?? (src.revolut_account_id == null ? null : String(src.revolut_account_id));
-      sourceLabel = sourceLabel
-        ?? (src.account_name == null ? null : String(src.account_name));
-      if (fundingAvailable == null) {
-        const avail = src.last_available_balance_pence ?? src.last_balance_pence;
-        fundingAvailable = avail == null ? null : Math.round(Number(avail));
-      }
-    }
-  }
+  // Never substitute persisted cache for live relay balance on the funding gate.
   const fundingGate = evaluateBatchFundingGate({
     required_batch_pence: requiredBatchPence,
     available_pence: fundingAvailable,
@@ -885,7 +925,7 @@ Deno.serve(async (req) => {
         });
         continue;
       }
-      const statusResult = await relayDriverPayoutPaymentStatus({
+      const statusResult = await relayApprovedDriverPayoutPaymentStatus({
         providerPaymentId: existingPaymentId,
         accessToken,
         payoutItemId,
@@ -1018,7 +1058,7 @@ Deno.serve(async (req) => {
           ? String((claimSubRaw as Record<string, unknown>).provider_payment_id)
           : existingPaymentId;
         if (alreadyId) {
-          const statusResult = await relayDriverPayoutPaymentStatus({
+          const statusResult = await relayApprovedDriverPayoutPaymentStatus({
             providerPaymentId: alreadyId,
             accessToken,
             payoutItemId,
@@ -1272,7 +1312,7 @@ Deno.serve(async (req) => {
     }
 
     // Finalize when provider completed
-    const statusResult = await relayDriverPayoutPaymentStatus({
+    const statusResult = await relayApprovedDriverPayoutPaymentStatus({
       providerPaymentId,
       accessToken,
       payoutItemId,

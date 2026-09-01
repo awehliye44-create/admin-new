@@ -56,6 +56,12 @@ verify_jwt = false
 [functions.admin-weekly-payout-scheduler]
 verify_jwt = false
 
+[functions.admin-execute-weekly-payout-occurrence]
+verify_jwt = false
+
+[functions.admin-finalize-driver-payout-completion]
+verify_jwt = false
+
 [functions.admin-weekly-monday-settlement]
 verify_jwt = false
 

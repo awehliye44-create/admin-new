@@ -293,6 +293,7 @@ serve(async (req) => {
       providerPayoutId: providerReference,
       paymentProvider: payoutProvider,
       walletBalanceBefore: ssot.driver_wallet_balance_pence,
+      adminUserId: user.id,
     });
 
     if (!result.success) {

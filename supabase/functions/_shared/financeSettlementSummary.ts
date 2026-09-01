@@ -31,11 +31,16 @@ import {
 } from "./frTripAuditComparisonSSOT.ts";
 import {
   classifyDriverCreditHealth,
+  DRIVER_CREDIT_HEALTH,
   isDriverCreditExceptionHealth,
   mapDriverCreditHealthToWalletReconciliationStatus,
   sumActiveDriverWalletCreditForTrip,
   TERMINAL_FEE_TRIP_STATUSES,
 } from "./driverCreditMonitoringSSOT.ts";
+import {
+  FR_EXPECTED_STAMP_STATUS,
+  resolveFrDriverExpectedEntitlement,
+} from "./frDriverExpectedEntitlementSSOT.ts";
 import {
   captureClassificationToMatchStatus,
   readPersistedCaptureBreakdown,
@@ -588,6 +593,8 @@ export type TripFinancialAuditRow = {
   actual_driver_credit_pence?: number | null;
   credit_difference_pence?: number | null;
   credit_eligibility_at?: string | null;
+  /** Canonical entitlement stamp — missing => EXPECTED_STAMP_MISSING, never expected zero. */
+  expected_stamp_status?: string | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
@@ -895,8 +902,9 @@ export function mapTripToFinancialAuditRow(
       outstanding_balance_pence: row.outstanding_balance_pence,
     });
 
-  // Expected driver net = trip settlement snapshot. Actual wallet = ledger earning credits.
-  const expectedDriverNet = tripDriverNetPence(row);
+  // Expected driver net resolved after PS fee / provider verification context.
+  let expectedDriverNet: number | null = null;
+  let tripEntitlement: ReturnType<typeof resolveFrDriverExpectedEntitlement>;
   const walletEarning = sumActiveDriverWalletCreditForTrip({
     ledger,
     trip_driver_id: row.driver_id ?? null,
@@ -905,10 +913,6 @@ export function mapTripToFinancialAuditRow(
     ? walletEarning.correct_driver_credit_pence
     : null;
   const debtRecovered = getTripDebtRecoveredPence(ledger);
-  const availablePayoutCreated = getTripAvailablePayoutCreatedPence({
-    driverNetPence: expectedDriverNet,
-    debtRecoveredPence: debtRecovered,
-  });
 
   const paymentIntentId =
     row.provider_payment_id ??
@@ -984,6 +988,40 @@ export function mapTripToFinancialAuditRow(
     })
     : null;
 
+  tripEntitlement = resolveFrDriverExpectedEntitlement({
+    trip_id: row.id,
+    trip_code: row.trip_code ?? null,
+    trip_status: row.status ?? null,
+    financial_outcome: row.financial_outcome ?? null,
+    financial_model: row.financial_model ?? null,
+    driver_net_pence: row.driver_net_pence ?? null,
+    commission_pence: row.commission_pence ?? null,
+    tip_pence: row.tip_pence ?? null,
+    tip_amount_pence: row.tip_amount_pence ?? null,
+    airport_charge_pence: row.airport_charge_pence ?? null,
+    pickup_waiting_charge_pence: row.pickup_waiting_charge_pence ?? null,
+    stop_waiting_charge_pence: row.stop_waiting_charge_pence ?? null,
+    other_pass_through_charges_pence: row.other_pass_through_charges_pence ?? null,
+    no_show_charge_pence: row.no_show_charge_pence ?? null,
+    gross_fare_pence: row.gross_fare_pence ?? null,
+    final_customer_fare_pence: row.final_customer_fare_pence ?? null,
+    locked_base_fare_pence: row.locked_base_fare_pence ?? null,
+    customer_modification_charge_pence: row.customer_modification_charge_pence ?? null,
+    provider_fee_pence: row.provider_fee_pence ?? null,
+    settlement_amount_pence: (row as { settlement_amount_pence?: number | null }).settlement_amount_pence ?? null,
+    captured_amount_pence: captured,
+    provider_processing_fee_pence: feeClass.confirmed_provider_fee_pence ?? session?.provider_processing_fee_pence ?? null,
+    captured_at: provider_verified_at ?? row.completed_at ?? null,
+    completed_at: row.completed_at ?? null,
+  });
+  expectedDriverNet = tripEntitlement.expected_stamp_status === FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING
+    ? null
+    : tripEntitlement.expected_entitlement_pence;
+  const availablePayoutCreated = getTripAvailablePayoutCreatedPence({
+    driverNetPence: expectedDriverNet,
+    debtRecoveredPence: debtRecovered,
+  });
+
   const psMatch = psCaptureBreakdown
     ? captureClassificationToMatchStatus(psCaptureBreakdown.capture_classification)
     : null;
@@ -1023,11 +1061,19 @@ export function mapTripToFinancialAuditRow(
   const displayedWalletCredit = walletEvidenceAvailable
     ? (walletCredit ?? 0)
     : walletCredit;
-  const driverCredit = classifyDriverCreditHealth({
+  const driverCredit = tripEntitlement.expected_stamp_status === FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING
+    ? {
+      health: DRIVER_CREDIT_HEALTH.MISSING,
+      expected_driver_credit_pence: 0,
+      actual_driver_credit_pence: walletCredit ?? 0,
+      credit_difference_pence: 0,
+      credit_eligibility_at: null,
+    }
+    : classifyDriverCreditHealth({
     financial_model: row.financial_model ?? null,
     trip_status: row.status ?? null,
     trip_driver_id: row.driver_id ?? null,
-    driver_net_pence: expectedDriverNet,
+    driver_net_pence: expectedDriverNet ?? 0,
     tip_pence: tipPence,
     ledger,
     wallet_evidence_available: walletEvidenceAvailable,
@@ -1037,7 +1083,8 @@ export function mapTripToFinancialAuditRow(
     released_pence: releasedPence,
     refunded_pence: refunded,
     fee_charged_at: provider_verified_at ?? row.completed_at ?? null,
-    is_terminal_fee_session: TERMINAL_FEE_TRIP_STATUSES.has(String(row.status ?? "").toLowerCase()),
+    is_terminal_fee_session: tripEntitlement.is_terminal_fee_outcome
+      || TERMINAL_FEE_TRIP_STATUSES.has(String(row.status ?? "").toLowerCase()),
   });
   const walletVariancePence = walletEvidenceAvailable
     ? driverCredit.credit_difference_pence
@@ -1194,10 +1241,15 @@ export function mapTripToFinancialAuditRow(
       ? (driverCredit.actual_driver_credit_pence > 0 ? driverCredit.actual_driver_credit_pence : displayedWalletCredit)
       : displayedWalletCredit,
     driver_credit_health: driverCredit.health,
-    expected_driver_credit_pence: driverCredit.expected_driver_credit_pence,
+    expected_driver_credit_pence: tripEntitlement.expected_stamp_status === FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING
+      ? null
+      : (expectedDriverNet ?? driverCredit.expected_driver_credit_pence),
     actual_driver_credit_pence: driverCredit.actual_driver_credit_pence,
-    credit_difference_pence: driverCredit.credit_difference_pence,
+    credit_difference_pence: tripEntitlement.expected_stamp_status === FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING
+      ? null
+      : driverCredit.credit_difference_pence,
     credit_eligibility_at: driverCredit.credit_eligibility_at,
+    expected_stamp_status: tripEntitlement.expected_stamp_status,
     variance_pence: variancePence,
     capture_variance_pence: captureVariance,
     wallet_variance_pence: walletVariancePence,

@@ -6,6 +6,11 @@
 import type { PaymentSessionActionPolicy, PaymentSessionPurpose } from "./paymentSessionPhase1SSOT.ts";
 import type { PaymentHoldAttentionClass, PaymentHoldClassification } from "./paymentHoldReconciliation.ts";
 import type { PaymentTripMatchStatus } from "./paymentSessionsTripMatchSSOT.ts";
+import {
+  paymentSessionsNavUrl,
+  resolveLegacyPaymentSessionsTabMapping,
+  type PaymentSessionsNavTab,
+} from "./paymentSessionsNavigationSSOT.ts";
 
 export const ADMIN_PAYMENT_SESSIONS_FN = "admin-payment-sessions";
 
@@ -359,7 +364,7 @@ export type AdminPaymentSessionsListResponse = {
 };
 
 export function paymentSessionsUrl(args?: {
-  tab?: AdminPaymentSessionsTab;
+  tab?: AdminPaymentSessionsTab | PaymentSessionsNavTab;
   paymentSessionId?: string | null;
   providerOrderId?: string | null;
   tripId?: string | null;
@@ -371,18 +376,31 @@ export function paymentSessionsUrl(args?: {
   moneyAtRisk?: boolean;
   matchStatus?: PaymentTripMatchStatus;
 }): string {
-  const params = new URLSearchParams();
-  if (args?.tab) params.set("tab", args.tab);
-  if (args?.paymentSessionId) params.set("paymentSessionId", args.paymentSessionId);
-  if (args?.providerOrderId) params.set("providerOrderId", args.providerOrderId);
-  if (args?.tripId) params.set("tripId", args.tripId);
-  if (args?.customerId) params.set("customerId", args.customerId);
-  if (args?.providerFeesPending) params.set("providerFeesPending", "1");
-  if (args?.captureFailed) params.set("captureFailed", "1");
-  if (args?.recoveryPending) params.set("recoveryPending", "1");
-  if (args?.releaseFailed) params.set("releaseFailed", "1");
-  if (args?.moneyAtRisk) params.set("moneyAtRisk", "1");
-  if (args?.matchStatus) params.set("matchStatus", args.matchStatus);
-  const qs = params.toString();
-  return qs ? `/payment-sessions?${qs}` : "/payment-sessions";
+  if (!args) return '/payment-sessions?tab=captured';
+
+  const mapped = args.tab != null
+    ? resolveLegacyPaymentSessionsTabMapping(String(args.tab))
+    : { navTab: 'captured' as PaymentSessionsNavTab };
+  let navTab: PaymentSessionsNavTab = mapped.navTab;
+  let opFilter: import('./paymentSessionsNavigationSSOT.ts').PaymentSessionsOpChip | undefined = mapped.opChip;
+
+  if (args.captureFailed) opFilter = 'refund_failed';
+  if (args.releaseFailed) opFilter = 'release_failed';
+  if (args.recoveryPending) {
+    navTab = 'recovery';
+    opFilter = 'recovery_required';
+  }
+  if (args.moneyAtRisk) opFilter = 'release_failed';
+  if (args.providerFeesPending) {
+    navTab = 'captured';
+  }
+
+  return paymentSessionsNavUrl({
+    tab: navTab,
+    opFilter,
+    paymentSessionId: args.paymentSessionId ?? undefined,
+    providerOrderId: args.providerOrderId ?? undefined,
+    tripId: args.tripId ?? undefined,
+    customerId: args.customerId ?? undefined,
+  });
 }

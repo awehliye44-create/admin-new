@@ -186,10 +186,15 @@ describe('Edge SSOT PLATFORM boundaries', () => {
     expect(src).toContain('scopedDriverIds');
   });
 
-  it('weekly payout scheduler + executor load PLATFORM drivers only', () => {
-    const scheduler = read('supabase/functions/admin-weekly-payout-scheduler/index.ts');
+  it('weekly payout orchestrator + admin UI load PLATFORM drivers only', () => {
+    const actions = read('src/components/finance/PayoutLedgerActions.tsx');
     const executor = read('supabase/functions/admin-execute-weekly-payout-occurrence/index.ts');
-    for (const src of [scheduler, executor]) {
+    const migration = read('supabase/migrations/20260832010000_weekly_payout_orchestrator_claim_cron.sql');
+    expect(actions).toContain('admin-execute-weekly-payout-occurrence');
+    expect(actions).not.toContain('admin-weekly-payout-scheduler');
+    expect(migration).toContain('admin-execute-weekly-payout-occurrence');
+    expect(migration).toContain('claim_weekly_payout_occurrence');
+    for (const src of [executor]) {
       expect(src).toContain('resolvePlatformCollectedDriverIds');
       expect(src).toContain('FINANCIAL_MODEL.PLATFORM_COLLECTED');
       expect(src).toContain('.in("id", platformDriverIds)');
@@ -256,13 +261,13 @@ describe('seeded row isolation (before/after counts)', () => {
 
   const seeded = [platformTrip, cwTrip, nullLegacyPlatform, nullWithCwEvidence];
 
-  it('PLATFORM pages keep PLATFORM + explicit legacy-null; drop CW and CW-evidenced null', () => {
+  it('PLATFORM pages keep explicit PLATFORM only; drop null, CW, and CW-evidenced null', () => {
     const before = seeded.length;
     const after = filterTripsForPlatformCollectedAdminPage(seeded);
     expect(before).toBe(4);
-    expect(after.map((t) => t.id)).toEqual(['p1', 'n1']);
-    expect(after).toHaveLength(2);
-    expect(after.every((t) => t.id !== 'c1' && t.id !== 'n2')).toBe(true);
+    expect(after.map((t) => t.id)).toEqual(['p1']);
+    expect(after).toHaveLength(1);
+    expect(after.every((t) => t.id !== 'c1' && t.id !== 'n1' && t.id !== 'n2')).toBe(true);
   });
 
   it('Commission Wallet page keeps DRIVER_COLLECTED only', () => {
@@ -273,11 +278,11 @@ describe('seeded row isolation (before/after counts)', () => {
     expect(after).toHaveLength(1);
   });
 
-  it('classifies legacy-null into explicit PLATFORM bucket', () => {
+  it('classifies null financial_model as UNKNOWN (fail-closed)', () => {
     const c = classifyTripForPlatformCollectedAdminPage(nullLegacyPlatform);
-    expect(c.includeOnPlatformPage).toBe(true);
-    if (c.includeOnPlatformPage) {
-      expect(c.bucket).toBe('LEGACY_NULL_AS_PLATFORM_COLLECTED');
+    expect(c.includeOnPlatformPage).toBe(false);
+    if (!c.includeOnPlatformPage) {
+      expect(c.model).toBe(FINANCIAL_MODEL.UNKNOWN);
     }
   });
 

@@ -39,7 +39,7 @@ describe('admin finance load performance contracts', () => {
       'utf8',
     );
     expect(src).toMatch(/refresh_provider_state:\s*request\.refresh_provider_state\s*===\s*true/);
-    expect(src).not.toMatch(/tab === 'active_holds' \|\| tab === 'failed_recovery'/);
+    expect(src).toMatch(/isPaymentSessionsProviderPollBackendTab/);
   });
 
   it('FR SSOT does not auto-refetch on visibilitychange', async () => {

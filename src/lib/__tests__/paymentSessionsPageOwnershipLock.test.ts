@@ -1,8 +1,6 @@
 /**
  * Payment Sessions page ownership lock.
- * PS UI must not render FR conclusions or settlement stamps.
- *
- * Run: npx vitest run src/lib/__tests__/paymentSessionsPageOwnershipLock.test.ts
+ * PS UI must not render FR conclusions, driver credit, or settlement stamps.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -15,88 +13,82 @@ function readSrc(rel: string): string {
 }
 
 const FORBIDDEN_LABELS = [
-  '(FR)',
-  'Open FR',
-  'Matched Trips (FR)',
-  'Capture Shortfall (FR)',
-  'Gross Overcapture (FR)',
-  'Refunded / Resolved Overcapture (FR)',
-  'Outstanding Customer Overcharge (FR)',
-  'Completed Trip Fare Total',
-  'ONECAB Gross Commission (Settlement)',
-  'ONECAB Net Commission (Settlement)',
+  'Driver credit exceptions',
+  'Driver Credit',
+  'Expected Credit',
   'Driver Net Total (Settlement)',
+  'ONECAB Gross Commission',
 ] as const;
 
 describe('Payment Sessions page ownership', () => {
   const page = readSrc('src/pages/PaymentSessions.tsx');
-  const kpi = readSrc('src/components/finance/PaymentSessionsKpiStrip.tsx');
-  const combined = `${page}\n${kpi}`;
+  const listPanel = readSrc('src/components/finance/PaymentSessionsListPanel.tsx');
+  const combined = `${page}\n${listPanel}`;
 
-  it('keeps PS title and lifecycle subtitle', () => {
+  it('keeps PS title and lifecycle-only subtitle', () => {
     expect(page).toContain('Payment Sessions (SSOT)');
-    expect(page).toContain(
-      'Canonical source for customer payment lifecycle: authorisation, capture, release, refund, provider fee, and provider state.',
-    );
+    expect(page).toContain('Customer payment lifecycle only');
+    expect(page).toContain('Financial Reconciliation');
   });
 
-  it('does not render FR or settlement labels on the PS page surface', () => {
+  it('does not render driver credit or settlement on PS surface', () => {
     for (const label of FORBIDDEN_LABELS) {
-      expect(combined.includes(label), `forbidden label still present: ${label}`).toBe(false);
+      expect(combined.includes(label), `forbidden label: ${label}`).toBe(false);
     }
+    expect(page).not.toContain('DriverCreditExceptionsBanner');
+    expect(page).not.toContain('PaymentSessionsCompactCreditNotice');
+    expect(page).not.toContain('driver_credit_exception');
   });
 
-  it('does not aggregate settlement stamps on the KPI strip', () => {
-    expect(kpi).not.toContain('commission_pence');
-    expect(kpi).not.toContain('driver_net_pence');
-    expect(kpi).not.toContain('gross_onecab_commission');
-    expect(kpi).not.toContain('driver_net_total');
-    expect(kpi).not.toContain('completed_trip_fare');
-    expect(kpi).not.toContain('capture_shortfall');
-    expect(kpi).not.toContain('overcapture');
-    expect(kpi).not.toContain('open_financial_reconciliation');
+  it('uses exactly four lifecycle tabs', () => {
+    expect(page).toContain('PAYMENT_SESSIONS_NAV_TABS');
+    expect(page).toContain('captured: \'Captured\'');
+    expect(page).toContain('released: \'Released\'');
+    expect(page).toContain('refunded: \'Refunded\'');
+    expect(page).toContain('recovery: \'Recovery\'');
+    expect(page).not.toContain('provider_payments');
+    expect(page).not.toContain('Active Holds');
+    expect(page).not.toContain('Overview');
   });
 
-  it('keeps PS-owned lifecycle KPI cards', () => {
-    expect(kpi).toContain('Provider Captured Total');
-    expect(kpi).toContain('Authorised Total');
-    expect(kpi).toContain('Released Total');
-    expect(kpi).toContain('Refunded Total');
-    expect(kpi).toContain('Provider Fees');
-    expect(kpi).toContain('Active Holds');
+  it('does not show legacy noisy header badges', () => {
+    expect(page).not.toContain('Automatically Recovered');
+    expect(page).not.toContain('Cancelled by Customer');
+    expect(page).not.toContain('Test/Sandbox');
+    expect(page).not.toContain('PARTIAL');
+    expect(page).not.toContain('RED:');
   });
 
-  it('removes FR-only classification filters from the page', () => {
-    expect(page).not.toContain('money_at_risk');
-    expect(page).not.toContain('legacy_evidence');
-    // URL cleanup of legacy deep-links is allowed; filter checkbox labels must be gone.
-    expect(page).not.toMatch(/Checkbox[\s\S]{0,80}money_at_risk/);
-    expect(page).not.toMatch(/>[\s\n]*money_at_risk[\s\n]*</);
-    expect(page).not.toMatch(/>[\s\n]*legacy_evidence[\s\n]*</);
+  it('shows summary cards and operational chips only', () => {
+    expect(page).toContain('PaymentSessionsSummaryCards');
+    expect(page).toContain('PaymentSessionsOperationalChips');
   });
 
-  it('does not reference removed FR tab row collections (runtime crash lock)', () => {
-    expect(page).not.toContain('completedTripRows');
-    expect(page).not.toContain('matchingRows');
-    expect(page).not.toContain('PaymentSessionsCompletedTripsTable');
-    expect(page).not.toContain('PaymentSessionsMatchingTable');
+  it('pins PLATFORM_COLLECTED service filter', () => {
+    expect(page).toContain('financialModel="PLATFORM_COLLECTED"');
+    expect(page).toContain('admin-refresh-payment-sessions');
   });
 
-  it('keeps PS lifecycle filters', () => {
-    expect(page).toContain('active_hold');
-    expect(page).toContain('provider_fees_pending');
-    expect(page).toContain('release_failed');
-    expect(page).toContain('recovery_pending');
-    expect(page).toContain('capture_failed');
+  it('lazy-mounts active tab list only', () => {
+    expect(page).toContain('navTab === t');
+    expect(page).not.toContain('PaymentSessionsOverviewTab');
   });
 });
 
-describe('Financial Reconciliation retains audit ownership', () => {
-  const fr = readSrc('src/components/finance/FinancialReconciliationOverviewTab.tsx');
+describe('Payment Sessions list panel', () => {
+  const listPanel = readSrc('src/components/finance/PaymentSessionsListPanel.tsx');
 
-  it('surfaces period reconciliation summary on Overview', () => {
-    expect(fr).toContain('Captured revenue');
-    expect(fr).toContain('Reconciliation difference');
-    expect(fr).toContain('Open issues');
+  it('keeps customer payment columns only', () => {
+    expect(listPanel).toContain('Authorised');
+    expect(listPanel).toContain('Captured');
+    expect(listPanel).toContain('Provider fee');
+    expect(listPanel).not.toContain('Driver Credit');
+    expect(listPanel).not.toContain('expected_driver_credit');
+    expect(listPanel).toContain('Financial Reconciliation');
+  });
+
+  it('wires row actions through props', () => {
+    expect(listPanel).toContain('onAction={onAction}');
+    expect(listPanel).not.toContain('onAction={runAction}');
   });
 });

@@ -14,6 +14,7 @@ import {
   ADMIN_FINANCE_QUERY_DEFAULTS,
   withAdminFinanceQueryTiming,
 } from '@/lib/adminFinanceLoadPerf';
+import { isPaymentSessionsProviderPollBackendTab } from '../../shared/paymentSessionsNavigationSSOT.ts';
 
 /**
  * Payment Sessions list — DB-first by default.
@@ -61,7 +62,7 @@ export function useAdminPaymentSessions(
       if (!isAdminPageLiveActive()) return false;
       // Auto-retry when provider sync is pending — never overwrite verified values server-side.
       if (query.state.data?.provider_verification_message) return 45_000;
-      if (tab !== 'active_holds' && tab !== 'failed_recovery') return false;
+      if (!isPaymentSessionsProviderPollBackendTab(tab)) return false;
       const red = query.state.data?.summary?.red ?? 0;
       const unresolved = query.state.data?.summary?.active_hold_count ?? 0;
       if (unresolved <= 0) return false;

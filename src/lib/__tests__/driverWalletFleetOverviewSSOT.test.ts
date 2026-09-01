@@ -2,59 +2,51 @@ import { describe, expect, it } from 'vitest';
 import { buildDriverWalletFleetOverview } from '@/lib/driverWalletFleetOverviewSSOT';
 
 describe('buildDriverWalletFleetOverview', () => {
-  it('rolls up SSOT driver rows for Level 1 overview cards', () => {
+  it('rolls up active SSOT balances only (no lifetime paid-out totals)', () => {
     const overview = buildDriverWalletFleetOverview([
       {
-        wallet_balance_pence: 986,
-        cashout_limit_pence: 0,
+        available_for_payout_pence: 0,
+        pending_balance_pence: 0,
+        withdrawal_in_progress_pence: 200,
         wallet_status: 'ACTIVE',
-        period_kpis: { pending_earnings_pence: 0, outstanding_debt_pence: 0 },
       },
       {
-        wallet_balance_pence: 408,
-        cashout_limit_pence: 0,
-        wallet_status: 'ACTIVE',
-        period_kpis: { pending_earnings_pence: 100 },
+        available_for_payout_pence: 0,
+        pending_balance_pence: 100,
+        included_in_payout_batch_amount_pence: 50,
+        failed_payout_stuck_processing_pence: 25,
         debt_recovery: { remaining_debt_pence: 50 },
+        wallet_status: 'ACTIVE',
       },
       {
-        wallet_balance_pence: -25,
-        cashout_limit_pence: 0,
+        available_for_payout_pence: 0,
+        pending_balance_pence: 0,
         wallet_status: 'FROZEN',
-        period_kpis: { pending_earnings_pence: 0 },
       },
     ]);
 
     expect(overview.total_drivers).toBe(3);
-    expect(overview.total_live_balance_pence).toBe(986 + 408 - 25);
     expect(overview.total_available_balance_pence).toBe(0);
     expect(overview.total_pending_balance_pence).toBe(100);
-    expect(overview.total_outstanding_debt_pence).toBe(50);
+    expect(overview.total_reserved_pence).toBe(250);
+    expect(overview.total_processing_exception_pence).toBe(25);
     expect(overview.wallets_active).toBe(2);
     expect(overview.wallets_on_hold).toBe(1);
-    expect(overview.negative_wallets).toBe(1);
   });
 
-  it('uses eligibility pending/available instead of live cashout and zero period KPI', () => {
+  it('uses eligibility pending/available fields', () => {
     const overview = buildDriverWalletFleetOverview([
       {
-        wallet_balance_pence: 2239,
-        cashout_limit_pence: 2239,
         available_for_payout_pence: 2239,
         pending_balance_pence: 1818,
-        period_kpis: { pending_earnings_pence: 0 },
         wallet_status: 'ACTIVE',
       },
       {
-        wallet_balance_pence: 773,
-        cashout_limit_pence: 773,
         available_for_payout_pence: 773,
         pending_balance_pence: 1155,
-        period_kpis: { pending_earnings_pence: 0 },
         wallet_status: 'ACTIVE',
       },
     ]);
-    expect(overview.total_live_balance_pence).toBe(3012);
     expect(overview.total_available_balance_pence).toBe(3012);
     expect(overview.total_pending_balance_pence).toBe(2973);
   });
@@ -62,13 +54,12 @@ describe('buildDriverWalletFleetOverview', () => {
   it('returns zeros for empty fleet', () => {
     expect(buildDriverWalletFleetOverview([])).toEqual({
       total_drivers: 0,
-      total_live_balance_pence: 0,
-      total_available_balance_pence: 0,
       total_pending_balance_pence: 0,
-      total_outstanding_debt_pence: 0,
+      total_available_balance_pence: 0,
+      total_reserved_pence: 0,
+      total_processing_exception_pence: 0,
       wallets_active: 0,
       wallets_on_hold: 0,
-      negative_wallets: 0,
     });
   });
 });

@@ -24,6 +24,7 @@ export type FrIssueTripRow = {
   actual_driver_credit_pence?: number | null;
   ps_expected_capture_pence?: number | null;
   driver_credit_health?: string | null;
+  expected_stamp_status?: string | null;
   payment_session_id?: string | null;
 };
 
@@ -206,7 +207,8 @@ export function isMissingReleaseTrip(row: FrIssueTripRow): boolean {
 }
 
 export function isDriverCreditIssueTrip(row: FrIssueTripRow): boolean {
-  return isDriverCreditExceptionHealth(row.driver_credit_health);
+  return row.expected_stamp_status === 'EXPECTED_STAMP_MISSING'
+    || isDriverCreditExceptionHealth(row.driver_credit_health);
 }
 
 export function isWalletMismatchTrip(row: FrIssueTripRow): boolean {
@@ -362,6 +364,28 @@ export function buildFrUnifiedIssues(rows: FrIssueTripRow[]): FrUnifiedIssue[] {
         status: row.reconciliation_status?.label ?? 'Balanced',
         is_critical: false,
         is_resolved: true,
+        payment_session_id: row.payment_session_id ?? null,
+      });
+      continue;
+    }
+
+    if (row.expected_stamp_status === 'EXPECTED_STAMP_MISSING') {
+      const { expected, actual, difference } = expectedActualForIssue('driver_credit', row);
+      issues.push({
+        trip_id: row.trip_id,
+        date: row.date ?? null,
+        trip_code: row.trip_code ?? null,
+        driver_id: row.driver_id ?? null,
+        driver_name: row.driver_name ?? null,
+        issue_type: 'driver_credit',
+        issue_label: issueLabel('driver_credit'),
+        expected_pence: null,
+        actual_pence: actual,
+        difference_pence: null,
+        status: 'EXPECTED_STAMP_MISSING',
+        driver_credit_health: row.driver_credit_health ?? 'MISSING',
+        is_critical: false,
+        is_resolved: false,
         payment_session_id: row.payment_session_id ?? null,
       });
       continue;

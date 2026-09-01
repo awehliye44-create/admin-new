@@ -21,6 +21,10 @@ import {
   aggregateDriverPayoutBatchStatus,
   resolveDriverPayoutItemDisplayPresentation,
 } from "../../../shared/driverPayoutBatchDisplaySSOT.ts";
+import {
+  itemMatchesPayoutLedgerLifecycleTab,
+  itemMatchesPayoutLedgerStatusTab,
+} from "../../../shared/payoutLedgerNavigationSSOT.ts";
 import { orchestratorBlockerLabel } from "../../../shared/weeklyPayoutOrchestratorSSOT.ts";
 import { resolvePlatformCollectedDriverIds } from "./platformCollectedDriverScope.ts";
 import {
@@ -427,15 +431,16 @@ async function loadBatchItemStatuses(
 const DRIVER_BATCH_SELECT =
   "id, created_at, run_date, kind, status, total_drivers, total_amount_pence, successful_payouts, failed_payouts, completed_at, failure_reason, failure_code, blocker_code, schedule_occurrence_key, schedule_id, scheduled_local_at, scheduled_utc_at, timezone, currency, eligible_driver_count";
 
-function itemMatchesTab(status: string, tab: AdminPayoutLedgerTab): boolean {
-  const s = status.toLowerCase();
-  if (tab === "overview" || tab === "history" || tab === "batches" || tab === "settings") return true;
-  if (tab === "scheduled") return SCHEDULED.has(s) || s === "on_hold";
-  if (tab === "processing") return PROCESSING.has(s);
-  if (tab === "completed") return COMPLETED.has(s);
-  if (tab === "failed") return FAILED.has(s);
-  if (tab === "returned_cancelled") return RETURNED_CANCELLED.has(s);
-  return true;
+function itemMatchesTab(
+  status: string,
+  tab: AdminPayoutLedgerTab,
+  completedAt?: string | null,
+): boolean {
+  if (tab === "settings" || tab === "company_transfers") return true;
+  if (!itemMatchesPayoutLedgerLifecycleTab({ tab, status, completed_at: completedAt })) {
+    return false;
+  }
+  return itemMatchesPayoutLedgerStatusTab({ tab, status });
 }
 
 function actionPolicyForStatus(status: string): AdminPayoutLedgerItemRow["action_policy"] {
@@ -899,7 +904,7 @@ async function listCompanyAudit(
     });
     driverItems = (detail.items ?? []).filter((i) => {
       const d = String(i.display_status ?? i.status).toUpperCase();
-      return d === "COMPLETED" || d === "NOT_SUBMITTED" || d === "RESERVED" || d === "SUBMITTED";
+      return d === "COMPLETED";
     });
   } catch (err) {
     console.warn("[admin-payout-ledger] audit driver items failed", err);
@@ -1195,7 +1200,7 @@ export async function listAdminPayoutLedger(
   const items: AdminPayoutLedgerItemRow[] = [];
   for (const raw of rawItems ?? []) {
     const status = normaliseStatus(raw.status as string | null);
-    if (!itemMatchesTab(String(raw.status ?? ""), tab)) continue;
+    if (!itemMatchesTab(String(raw.status ?? ""), tab, raw.completed_at as string | null)) continue;
     if (request.payout_type) {
       const type = String(raw.payout_type ?? "");
       if (type.toLowerCase() !== request.payout_type.toLowerCase()) continue;
