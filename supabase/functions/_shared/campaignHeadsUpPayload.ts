@@ -4,6 +4,8 @@
  * Apps parse `type === campaign_heads_up` (layer === campaign).
  */
 
+import { scrubCampaignTaxiBranding } from "../../../shared/campaignHeadsUpTemplates.ts";
+
 export const CAMPAIGN_PUSH_LAYER = "campaign";
 export const CAMPAIGN_PUSH_TYPE = "campaign_heads_up";
 export const CAMPAIGN_ANDROID_CHANNEL_ID = "promotions";
@@ -34,15 +36,18 @@ export function buildCampaignHeadsUpFcmData(
 ): Record<string, string> {
   const deepLink = (input.deepLink ?? input.ctaUrl ?? "").trim();
   const ctaUrl = (input.ctaUrl ?? input.deepLink ?? "").trim();
+  const title = scrubCampaignTaxiBranding(input.title);
+  const subtitle = scrubCampaignTaxiBranding(input.subtitle);
+  const emoji = scrubCampaignTaxiBranding(input.emoji);
   return {
     layer: CAMPAIGN_PUSH_LAYER,
     type: CAMPAIGN_PUSH_TYPE,
     campaignId: input.campaignId,
     notificationId: input.notificationId,
-    title: input.title,
-    body: input.subtitle,
-    subtitle: input.subtitle,
-    emoji: input.emoji ?? "",
+    title,
+    body: subtitle,
+    subtitle,
+    emoji,
     accentColor: input.accentColor ?? "blue",
     gradientFrom: input.gradientFrom ?? "",
     gradientTo: input.gradientTo ?? "",

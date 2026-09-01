@@ -54,6 +54,16 @@ Deno.test("campaign heads-up payload is System B, not trip events", () => {
   });
   assertEquals(noCta.screen, "");
   assertEquals(noCta.deepLink, "");
+  const taxi = buildCampaignHeadsUpFcmData({
+    campaignId: "c-taxi",
+    notificationId: "n-taxi",
+    title: "Welcome 🚖",
+    subtitle: "Ride with 🚖 today",
+    emoji: "🚖",
+  });
+  assertEquals(taxi.title, "Welcome ✨");
+  assertEquals(taxi.subtitle, "Ride with ✨ today");
+  assertEquals(taxi.emoji, "✨");
   assertEquals(campaignTargetApps("both"), ["customer", "driver"]);
   assertEquals(campaignTargetApps("driver"), ["driver"]);
   assertEquals(campaignTargetApps("customer"), ["customer"]);
@@ -142,6 +152,11 @@ Deno.test("send-campaign-heads-up lock", async () => {
     "supabase/migrations/20261027125000_campaign_heads_up_delivery_user_update_guard.sql",
   );
 
+  const taxiBrandingSweep = await read(
+    "supabase/migrations/20261028140000_campaign_heads_up_remove_taxi_branding.sql",
+  );
+  const sharedTemplates = await read("shared/campaignHeadsUpTemplates.ts");
+
   assert(src.includes("listActiveCustomerUserIds"));
   assert(src.includes("listActiveDriverIds"));
   assert(src.includes("assertCronOrServiceRoleAuth"));
@@ -160,6 +175,9 @@ Deno.test("send-campaign-heads-up lock", async () => {
   assert(src.includes("heartbeatSending"));
   assert(src.includes('claim === "skip_done"'));
   assert(src.includes('claim === "skip_busy"'));
+  // OS notification title/body must use scrubbed FCM payload fields, not raw DB copy.
+  assert(src.includes("dataPayload.title"));
+  assert(src.includes("dataPayload.subtitle"));
   assert(src.includes("return { sent: 0, delivered: 0, failed: 0 }"));
   assert(src.includes('.lt("claimed_at", staleBefore)'));
   assert(src.includes('.eq("status", "failed")'));
@@ -212,7 +230,9 @@ Deno.test("send-campaign-heads-up lock", async () => {
   assert(deliveryUserUpdateGuard.includes("campaign_heads_up_delivery_invalid_stamps"));
   assert(deliveryUserUpdateGuard.includes("IF auth.uid() IS NULL THEN"));
   assert(deliveryUserUpdateGuard.includes("status IN ('opened', 'tapped', 'dismissed')"));
-  assert(!deliveryUserUpdateGuard.includes("auth.role()"));
+  // Bypass must be auth.uid() IS NULL — never auth.role() (comment may mention it).
+  assert(!/\bIF\s+auth\.role\(\)/.test(deliveryUserUpdateGuard));
+  assert(!/auth\.role\(\)\s*=/.test(deliveryUserUpdateGuard));
   assert(cron.includes("campaign_heads_up_due_sweep"));
   assert(cron.includes("'source', 'pg_cron'"));
   assert(adminUi.includes("insertStatus"));
@@ -227,6 +247,35 @@ Deno.test("send-campaign-heads-up lock", async () => {
   assert(adminUi.includes("kept as draft/scheduled"));
   assert(adminUi.includes('c.status === "sending"'));
   assert(adminUi.includes('"Retry"'));
+  assert(adminUi.includes("onecab-notification-brand-mark.png"));
+  assert(adminUi.includes("brandMark"));
+  assert(adminUi.includes("scrubCampaignTaxiBranding"));
+  assert(adminUi.includes("replaceCampaignTaxiBranding"));
+  assert(sharedTemplates.includes("scrubCampaignTaxiBranding"));
+  assert(sharedTemplates.includes("replaceCampaignTaxiBranding"));
+  assert(sharedTemplates.includes("CAMPAIGN_TAXI_BRANDING_EMOJI"));
+  assert(payload.includes("scrubCampaignTaxiBranding"));
+  assert(!adminUi.includes("🚖"));
+  // Seed catalog must not use taxi branding; the scrub constant may mention it.
+  assert(!/title:\s*'[^']*🚖/.test(sharedTemplates));
+  assert(!/emoji:\s*'🚖'/.test(sharedTemplates));
+  assert(sharedTemplates.includes("Welcome to ONECAB ✨"));
+  assert(taxiBrandingSweep.includes("replace(title, '🚖', '✨')"));
+  assert(taxiBrandingSweep.includes("campaign_heads_up_templates"));
+  assert(taxiBrandingSweep.includes("campaign_heads_up_campaigns"));
+  const taxiSubtitleSweep = await read(
+    "supabase/migrations/20261028150000_campaign_heads_up_scrub_subtitle_taxi.sql",
+  );
+  assert(taxiSubtitleSweep.includes("subtitle = replace(subtitle, '🚖', '✨')"));
+  assert(taxiSubtitleSweep.includes("emoji = replace(coalesce(emoji, ''), '🚖', '✨')"));
+  const taxiScrubTrigger = await read(
+    "supabase/migrations/20261028160000_campaign_heads_up_taxi_scrub_trigger.sql",
+  );
+  assert(taxiScrubTrigger.includes("scrub_campaign_heads_up_taxi_branding"));
+  assert(taxiScrubTrigger.includes("trg_scrub_campaign_heads_up_templates_taxi"));
+  assert(taxiScrubTrigger.includes("trg_scrub_campaign_heads_up_campaigns_taxi"));
+  assert(taxiScrubTrigger.includes("BEFORE INSERT OR UPDATE OF title, subtitle, emoji"));
+  assert(adminUi.includes("scrubCampaignTaxiBranding(t.title)"));
   assert(!adminUi.includes("User segment"));
   assert(!payload.includes('|| "/offers"'));
 });

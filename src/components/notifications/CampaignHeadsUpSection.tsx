@@ -37,8 +37,11 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import { FunctionsHttpError } from "@supabase/supabase-js";
+import brandMark from "@/assets/onecab-notification-brand-mark.png";
 import {
   CAMPAIGN_HEADS_UP_CATEGORIES,
+  replaceCampaignTaxiBranding,
+  scrubCampaignTaxiBranding,
   type CampaignAccentColor,
   type CampaignHeadsUpCategory,
   type CampaignScheduleMode,
@@ -274,9 +277,9 @@ export function CampaignHeadsUpSection() {
       ...prev,
       templateId: template.id,
       category: template.category,
-      title: template.title,
-      subtitle: template.subtitle,
-      emoji: template.emoji ?? "🎉",
+      title: scrubCampaignTaxiBranding(template.title),
+      subtitle: scrubCampaignTaxiBranding(template.subtitle),
+      emoji: scrubCampaignTaxiBranding(template.emoji) || "🎉",
       accent_color: template.accent_color as CampaignAccentColor,
       gradient_from: template.gradient_from,
       gradient_to: template.gradient_to,
@@ -350,9 +353,9 @@ export function CampaignHeadsUpSection() {
           template_id: form.templateId || null,
           template_slug: selectedTemplate?.slug ?? null,
           category: form.category,
-          title: form.title.trim(),
-          subtitle: form.subtitle.trim(),
-          emoji: form.emoji,
+          title: scrubCampaignTaxiBranding(form.title),
+          subtitle: scrubCampaignTaxiBranding(form.subtitle),
+          emoji: scrubCampaignTaxiBranding(form.emoji) || null,
           accent_color: form.accent_color,
           gradient_from: form.gradient_from,
           gradient_to: form.gradient_to,
@@ -505,16 +508,27 @@ export function CampaignHeadsUpSection() {
 
             <div className="space-y-2">
               <Label>Title</Label>
-              <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+              <Input
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: replaceCampaignTaxiBranding(e.target.value) })}
+              />
             </div>
             <div className="space-y-2">
               <Label>Message</Label>
-              <Textarea value={form.subtitle} onChange={(e) => setForm({ ...form, subtitle: e.target.value })} rows={3} />
+              <Textarea
+                value={form.subtitle}
+                onChange={(e) => setForm({ ...form, subtitle: replaceCampaignTaxiBranding(e.target.value) })}
+                rows={3}
+              />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Emoji</Label>
-                <Input value={form.emoji} onChange={(e) => setForm({ ...form, emoji: e.target.value })} placeholder="🎉" />
+                <Input
+                  value={form.emoji}
+                  onChange={(e) => setForm({ ...form, emoji: replaceCampaignTaxiBranding(e.target.value) })}
+                  placeholder="🎉"
+                />
               </div>
               <div className="space-y-2">
                 <Label>Background image URL</Label>
@@ -685,20 +699,26 @@ export function CampaignHeadsUpSection() {
               style={{ background: `linear-gradient(135deg, ${form.gradient_from}, ${form.gradient_to})` }}
             >
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-lg shrink-0">🚖</div>
+                <img
+                  src={brandMark}
+                  alt="ONECAB"
+                  className="w-10 h-10 rounded-xl object-cover shrink-0 bg-black"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="font-bold text-sm leading-tight">{form.title || "Campaign title"}</p>
+                    <p className="font-bold text-sm leading-tight">{scrubCampaignTaxiBranding(form.title) || "Campaign title"}</p>
                     <span className="text-[10px] text-white/80">now</span>
                   </div>
-                  <p className="text-xs text-white/90 mt-1">{form.subtitle || "Campaign message preview"}</p>
+                  <p className="text-xs text-white/90 mt-1">{scrubCampaignTaxiBranding(form.subtitle) || "Campaign message preview"}</p>
                   {form.cta_label ? (
                     <span className="inline-block mt-2 text-xs font-semibold bg-white/20 rounded-full px-3 py-1">
                       {form.cta_label}
                     </span>
                   ) : null}
                 </div>
-                {form.emoji ? <span className="text-2xl">{form.emoji}</span> : null}
+                {scrubCampaignTaxiBranding(form.emoji) ? (
+                  <span className="text-2xl">{scrubCampaignTaxiBranding(form.emoji)}</span>
+                ) : null}
               </div>
             </div>
           </CardContent>
@@ -724,7 +744,7 @@ export function CampaignHeadsUpSection() {
               >
                 <Badge variant="outline" className="text-[10px] mb-2">{t.category}</Badge>
                 <p className="font-semibold text-sm">{t.name}</p>
-                <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{t.title}</p>
+                <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{scrubCampaignTaxiBranding(t.title)}</p>
                 <Badge className="mt-2 text-[10px]">Reusable</Badge>
               </button>
             ))}
@@ -760,7 +780,7 @@ export function CampaignHeadsUpSection() {
                 {campaigns.map((c) => (
                   <TableRow key={c.id}>
                     <TableCell>
-                      <p className="font-medium">{c.title}</p>
+                      <p className="font-medium">{scrubCampaignTaxiBranding(c.title)}</p>
                       <p className="text-xs text-muted-foreground">{c.category}</p>
                     </TableCell>
                     <TableCell>{c.target_app} · {c.target_scope}</TableCell>

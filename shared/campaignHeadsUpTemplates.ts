@@ -80,7 +80,7 @@ export const CAMPAIGN_HEADS_UP_TEMPLATE_SEEDS: CampaignHeadsUpTemplateSeed[] = [
   { slug: 'lunar_new_year', category: 'religious', name: 'Lunar New Year', title: 'Happy Lunar New Year 🧧', subtitle: 'Gong Xi Fa Cai — prosperity and good fortune!', emoji: '🧧', accent_color: 'red', gradient_from: '#b91c1c', gradient_to: '#fecaca', default_target_app: 'both' },
   // Celebration
   { slug: 'happy_new_year', category: 'celebration', name: 'Happy New Year', title: 'Happy New Year 🎆', subtitle: 'Cheers to new beginnings with ONECAB!', emoji: '🎆', accent_color: 'purple', gradient_from: '#581c87', gradient_to: '#d8b4fe', default_target_app: 'both' },
-  { slug: 'welcome_onecab', category: 'celebration', name: 'Welcome to ONECAB', title: 'Welcome to ONECAB 🚖', subtitle: 'Your premium ride experience starts here.', emoji: '🚖', accent_color: 'blue', gradient_from: '#1e3a8a', gradient_to: '#60a5fa', default_target_app: 'both' },
+  { slug: 'welcome_onecab', category: 'celebration', name: 'Welcome to ONECAB', title: 'Welcome to ONECAB ✨', subtitle: 'Your premium ride experience starts here.', emoji: '✨', accent_color: 'blue', gradient_from: '#1e3a8a', gradient_to: '#60a5fa', default_target_app: 'both' },
   { slug: 'anniversary', category: 'celebration', name: 'Anniversary', title: 'ONECAB Anniversary 🎉', subtitle: 'Celebrating another year of rides together.', emoji: '🎉', accent_color: 'pink', gradient_from: '#9d174d', gradient_to: '#f9a8d4', default_target_app: 'both' },
   { slug: 'regional_launch', category: 'celebration', name: 'Regional Launch', title: 'ONECAB is here! 🚀', subtitle: 'Premium rides now available in your city.', emoji: '🚀', accent_color: 'green', gradient_from: '#166534', gradient_to: '#6ee7b7', default_target_app: 'both' },
   // Promotion
@@ -100,3 +100,30 @@ export const CAMPAIGN_HEADS_UP_TEMPLATE_SEEDS: CampaignHeadsUpTemplateSeed[] = [
 export const CAMPAIGN_HEADS_UP_AUTO_DISMISS_MS = 4_000;
 
 export const CAMPAIGN_PUSH_LAYER = 'campaign' as const;
+
+/** Taxi emoji must never appear as campaign branding; prefer sparkles. */
+export const CAMPAIGN_TAXI_BRANDING_EMOJI = '🚖';
+export const CAMPAIGN_TAXI_BRANDING_REPLACEMENT = '✨';
+
+/** Scrub taxi branding from campaign title / subtitle / accent emoji. */
+export function scrubCampaignTaxiBranding(
+  value: string | null | undefined,
+): string {
+  return String(value ?? '')
+    .replace(
+      new RegExp(CAMPAIGN_TAXI_BRANDING_EMOJI, 'gu'),
+      CAMPAIGN_TAXI_BRANDING_REPLACEMENT,
+    )
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/** Live-input scrub: replace taxi mark without trimming (preserves typing spaces). */
+export function replaceCampaignTaxiBranding(
+  value: string | null | undefined,
+): string {
+  return String(value ?? '').replace(
+    new RegExp(CAMPAIGN_TAXI_BRANDING_EMOJI, 'gu'),
+    CAMPAIGN_TAXI_BRANDING_REPLACEMENT,
+  );
+}

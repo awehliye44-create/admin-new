@@ -503,8 +503,8 @@ async function dispatchCampaign(opts: {
         accessToken,
         row.token,
         row.platform,
-        campaign.title,
-        campaign.subtitle,
+        dataPayload.title,
+        dataPayload.subtitle,
         dataPayload,
         campaign.priority,
       );
