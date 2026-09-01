@@ -134,6 +134,7 @@ Deno.serve(async (req) => {
       }
       const detail = await fetchDriverWalletPayoutSnapshot(supabase, {
         driverId: String(driverId),
+        ...(periodFrom && periodTo ? { periodFrom: String(periodFrom), periodTo: String(periodTo) } : {}),
       });
       return new Response(JSON.stringify({ success: true, driver: detail }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -184,6 +185,7 @@ Deno.serve(async (req) => {
       for (const d of drivers ?? []) {
         rows.push(await fetchDriverWalletPayoutSnapshot(supabase, {
           driverId: d.id,
+          ...(periodFrom && periodTo ? { periodFrom: String(periodFrom), periodTo: String(periodTo) } : {}),
         }));
       }
       return new Response(JSON.stringify({
@@ -213,7 +215,8 @@ Deno.serve(async (req) => {
     const rows = [];
     for (const d of drivers ?? []) {
       rows.push(await fetchDriverWalletPayoutSnapshot(supabase, {
-          driverId: d.id,
+        driverId: d.id,
+        ...(periodFrom && periodTo ? { periodFrom: String(periodFrom), periodTo: String(periodTo) } : {}),
       }));
     }
 

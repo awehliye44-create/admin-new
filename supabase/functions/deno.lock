@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "npm:@supabase/supabase-js@2": "2.57.2",
     "npm:@supabase/supabase-js@2.57.2": "2.57.2"
   },
   "npm": {

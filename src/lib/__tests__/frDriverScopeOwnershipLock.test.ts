@@ -27,8 +27,21 @@ describe('FR driver scope ownership UI', () => {
     expect(panel).toContain('Live payout eligibility (not period-scoped)');
     expect(panel).toContain('expected_payable_pence');
     expect(panel).toContain('actual_wallet_trip_credits_pence');
+    expect(panel).toContain('payout_ledger_completed_pence');
+    expect(panel).toContain('driver_credit_status');
     expect(panel).toContain('available_for_payout_pence');
     expect(panel).not.toContain('Live Wallet Balance');
+    expect(panel).not.toContain('DRIVER_AND_PAYOUT_MISMATCH');
+  });
+
+  it('SSOT exposes separate driver credit and payout statuses', () => {
+    expect(ssot).toContain('DRIVER_CREDIT_OK');
+    expect(ssot).toContain('DRIVER_UNDER_CREDITED');
+    expect(ssot).toContain('DRIVER_OVER_CREDITED');
+    expect(ssot).toContain('EXPECTED_STAMP_MISSING');
+    expect(ssot).toContain('PAYOUT_OK');
+    expect(ssot).toContain('PAYOUT_MISMATCH');
+    expect(ssot).toContain('sumPayoutWalletTransfersPence');
   });
 
   it('SSOT documents pending/post-payout credits are not payout mismatches', () => {

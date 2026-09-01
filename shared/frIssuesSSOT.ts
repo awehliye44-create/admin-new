@@ -444,6 +444,20 @@ export function filterFrUnifiedIssues(
   return issues;
 }
 
+/** Narrow Issues tab to specific trip codes (e.g. missing entitlement stamps). */
+export function filterFrUnifiedIssuesByTripCodes(
+  issues: FrUnifiedIssue[],
+  tripCodes: string[],
+): FrUnifiedIssue[] {
+  const codes = new Set(
+    tripCodes.map((code) => code.trim().toUpperCase()).filter(Boolean),
+  );
+  if (codes.size === 0) return issues;
+  return issues.filter(
+    (issue) => issue.trip_code && codes.has(String(issue.trip_code).trim().toUpperCase()),
+  );
+}
+
 export function countFrIssuesByFilter(issues: FrUnifiedIssue[]): Record<FrIssueFilter, number> {
   const counts = {} as Record<FrIssueFilter, number>;
   for (const filter of FR_ISSUE_FILTERS) {

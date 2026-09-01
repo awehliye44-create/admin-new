@@ -106,6 +106,15 @@ export type DriverWalletSsotRow = {
   provider_account_balance_status?: 'AVAILABLE' | 'UNAVAILABLE' | 'NOT_APPLICABLE' | string | null;
   wallet_variance_pence?: number | null;
   payout_variance_pence?: number | null;
+  payout_ledger_completed_pence?: number | null;
+  driver_credit_status?: string | null;
+  payout_status?: string | null;
+  query_scope_status?: string | null;
+  verified_expected_payable_pence?: number | null;
+  verified_wallet_credits_pence?: number | null;
+  unverified_wallet_credits_pence?: number | null;
+  missing_stamp_trip_count?: number | null;
+  missing_stamp_trip_codes?: string[] | null;
   provider_balance_is_reference_only?: boolean;
   provider_connect_audit_status?: string | null;
   period_kpis?: DriverWalletPeriodKpis;
@@ -200,15 +209,19 @@ export function useDriverWalletSsot(args?: {
   serviceAreaId?: string | null;
   page?: number;
   pageSize?: number;
+  periodFrom?: string | null;
+  periodTo?: string | null;
 }) {
   const page = Math.max(1, args?.page ?? 1);
   const pageSize = args?.pageSize ?? DEFAULT_PAGE_SIZE;
   const offset = (page - 1) * pageSize;
   const regionId = args?.regionId ?? null;
   const serviceAreaId = args?.serviceAreaId ?? null;
+  const periodFrom = args?.periodFrom ?? null;
+  const periodTo = args?.periodTo ?? null;
 
   return useQuery({
-    queryKey: ['driver-wallet-ssot', regionId ?? 'all', serviceAreaId ?? 'all', page, pageSize],
+    queryKey: ['driver-wallet-ssot', regionId ?? 'all', serviceAreaId ?? 'all', periodFrom ?? 'all', periodTo ?? 'all', page, pageSize],
     queryFn: () =>
       withAdminFinanceQueryTiming(
         {
@@ -222,6 +235,8 @@ export function useDriverWalletSsot(args?: {
             body: {
               ...(regionId ? { region_id: regionId } : {}),
               ...(serviceAreaId ? { service_area_id: serviceAreaId } : {}),
+              ...(periodFrom ? { from: periodFrom } : {}),
+              ...(periodTo ? { to: periodTo } : {}),
               limit: pageSize,
               offset,
             },

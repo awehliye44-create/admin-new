@@ -10,6 +10,7 @@ import {
   sumActualWalletTripCreditsPence,
   sumExpectedPayablePence,
 } from "./frDriverReconciliationSSOT.ts";
+import { FR_EXPECTED_STAMP_STATUS } from "./frDriverExpectedEntitlementSSOT.ts";
 
 const ahmedLedger = [
   { type: "TRIP_EARNING_NET", amount_pence: 408 },
@@ -375,6 +376,77 @@ Deno.test("lock: post-payout TEN matching stamps is not payout mismatch", () => 
   assertEquals(row.wallet_variance_pence, 0);
   assertEquals(row.payout_variance_pence, 0);
   assertEquals(row.reconciliation_status, "BALANCED");
+});
+
+Deno.test("lock: CASHOUT_FEE is excluded from payout variance (not Paid out)", () => {
+  const row = computeFrDriverReconciliation({
+    ledger: [
+      { type: "TRIP_EARNING_NET", amount_pence: 5000 },
+      { type: "EARLY_CASHOUT", amount_pence: -2841 },
+      { type: "CASHOUT_FEE", amount_pence: -50 },
+      { type: "EARLY_CASHOUT", amount_pence: -1225 },
+      { type: "CASHOUT_FEE", amount_pence: -50 },
+    ],
+    settledTrips: [{ trip_id: "t1", driver_net_pence: 5000 }],
+    completedPayoutItems: [
+      { status: "COMPLETED", net_driver_payout_pence: 2841 },
+      { status: "COMPLETED", net_driver_payout_pence: 1225 },
+    ],
+    walletEvidenceAvailable: true,
+    settlementEvidenceAvailable: true,
+    identityMappingValid: true,
+    accountVerified: true,
+    finance_cleared_pence: 834,
+    provider_account_balance_pence: null,
+    provider_account_balance_status: "NOT_APPLICABLE",
+    payout_provider: "revolut",
+  });
+  assertEquals(row.payouts_debited_pence, 4166);
+  assertEquals(row.payout_ledger_completed_pence, 4066);
+  assertEquals(row.payout_variance_pence, 0);
+  assertEquals(row.payout_status, "PAYOUT_OK");
+});
+
+Deno.test("lock: separate driver credit statuses — terminal fee uses 376 not raw driver_net", () => {
+  const row = computeFrDriverReconciliation({
+    ledger: [
+      { type: "TRIP_EARNING_NET", amount_pence: 376, related_trip_id: "a" },
+      { type: "TRIP_EARNING_NET", amount_pence: 376, related_trip_id: "b" },
+      { type: "TRIP_EARNING_NET", amount_pence: 376, related_trip_id: "c" },
+    ],
+    settledTrips: [
+      {
+        trip_id: "a",
+        driver_net_pence: 400,
+        expected_entitlement_pence: 376,
+        expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
+      },
+      {
+        trip_id: "b",
+        driver_net_pence: 400,
+        expected_entitlement_pence: 376,
+        expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
+      },
+      {
+        trip_id: "c",
+        driver_net_pence: 400,
+        expected_entitlement_pence: 376,
+        expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
+      },
+    ],
+    completedPayoutItems: [],
+    walletEvidenceAvailable: true,
+    settlementEvidenceAvailable: true,
+    identityMappingValid: true,
+    accountVerified: true,
+    finance_cleared_pence: 1128,
+    provider_account_balance_pence: null,
+    provider_account_balance_status: "NOT_APPLICABLE",
+    payout_provider: "revolut",
+  });
+  assertEquals(row.wallet_variance_pence, 0);
+  assertEquals(row.driver_credit_status, "DRIVER_CREDIT_OK");
+  assertEquals(row.payout_status, "PAYOUT_OK");
 });
 
 Deno.test("lock: periodPayableVariancePence helper matches TEN − expected", () => {

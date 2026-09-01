@@ -10,9 +10,16 @@ export function tripSettlementRecoverUrl(tripId: string, tripCode?: string | nul
 }
 
 /** Deep-link to Financial Reconciliation → Issues tab with optional filter. */
-export function financialReconciliationIssuesTabUrl(issueFilter?: string): string {
+export function financialReconciliationIssuesTabUrl(
+  issueFilter?: string,
+  options?: { tripCodes?: string[]; driverId?: string },
+): string {
   const params = new URLSearchParams({ tab: 'issues' });
   if (issueFilter?.trim()) params.set('issueFilter', issueFilter.trim());
+  if (options?.tripCodes?.length) {
+    params.set('issueTripCodes', options.tripCodes.join(','));
+  }
+  if (options?.driverId?.trim()) params.set('issueDriverId', options.driverId.trim());
   return `/financial-reconciliation?${params.toString()}`;
 }
 

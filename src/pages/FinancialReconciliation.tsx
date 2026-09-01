@@ -215,6 +215,11 @@ function FinancialReconciliationPage() {
   const tripAuditRows = isAuditScopeTransition ? [] : rawTripAuditRows;
   const issueFilter = parseFrIssueFilter(searchParams.get('issueFilter'));
   const tripFilter = parseFrTripFilter(searchParams.get('tripFilter'));
+  const issueTripCodes = useMemo(() => {
+    const raw = searchParams.get('issueTripCodes');
+    if (!raw?.trim()) return [];
+    return raw.split(',').map((code) => code.trim()).filter(Boolean);
+  }, [searchParams]);
   const legacyTab = searchParams.get('tab');
 
   const unifiedIssues = useMemo(() => buildFrUnifiedIssues(tripAuditRows), [tripAuditRows]);
@@ -693,6 +698,7 @@ function FinancialReconciliationPage() {
                     onRefresh={() => void handleRefreshFinance()}
                     issueFilter={issueFilter}
                     onIssueFilterChange={handleIssueFilterChange}
+                    issueTripCodes={issueTripCodes}
                     periodLabel={periodLabel}
                     exportMeta={frAuditExportMeta}
                   />

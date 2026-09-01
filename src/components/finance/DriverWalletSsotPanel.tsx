@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ChevronLeft, ChevronRight, Loader2, AlertTriangle } from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { formatMoneyMinor } from '@/lib/formatMoneyMinor';
+import { financialReconciliationIssuesTabUrl } from '@/lib/financialReconciliationRoutes';
 import { FinancialReconciliationDriverDrawer } from '@/components/finance/FinancialReconciliationDriverDrawer';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
@@ -25,11 +28,13 @@ function resolvePageSize(override?: number): number {
 }
 
 function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
-  if (status === 'BALANCED') return 'default';
+  if (status === 'BALANCED' || status === 'DRIVER_CREDIT_OK' || status === 'PAYOUT_OK') return 'default';
   if (
     status === 'PROVIDER_BALANCE_UNAVAILABLE'
     || status === 'PENDING_SYNC'
     || status === 'ACCOUNT_UNVERIFIED'
+    ||     status === 'DRIVER_CREDIT_UNKNOWN'
+    || status === 'EXPECTED_STAMP_MISSING'
   ) {
     return 'secondary';
   }
@@ -40,6 +45,10 @@ function driverLabel(row: Pick<DriverWalletSsotRow, 'driver_code' | 'driver_name
   if (row.driver_name?.trim()) return row.driver_name.trim();
   if (row.driver_code?.trim()) return row.driver_code.trim();
   return 'Unknown driver';
+}
+
+function hasMissingEntitlementStamps(row: DriverWalletSsotRow): boolean {
+  return (row.missing_stamp_trip_count ?? 0) > 0;
 }
 
 
@@ -77,18 +86,21 @@ export function DriverWalletSsotPanel({
 
   useEffect(() => {
     setPage(1);
-  }, [regionId, filter?.serviceAreaId]);
+  }, [regionId, filter?.serviceAreaId, pageFrom, pageTo]);
 
   const { data, isLoading, error, refetch, isFetching } = useDriverWalletSsot({
     regionId,
     serviceAreaId: filter?.serviceAreaId ?? null,
     page,
     pageSize,
+    periodFrom: pageFrom ?? null,
+    periodTo: pageTo ?? null,
   });
 
   const rows = data?.drivers ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const stampVerificationWarnings = rows.filter(hasMissingEntitlementStamps);
 
   const fmt = (p: number | null | undefined) => {
     if (p == null) return '—';
@@ -119,6 +131,7 @@ export function DriverWalletSsotPanel({
             <p className="text-sm text-muted-foreground mt-1">
               Period-scoped expected earnings and wallet credits
               {pageFrom && pageTo ? ` (${pageFrom} – ${pageTo})` : ''}.
+              Paid out uses completed Payout Ledger items in the same period.
               Available is live payout eligibility — open a row for full evidence.
             </p>
           </div>
@@ -127,6 +140,32 @@ export function DriverWalletSsotPanel({
           </Button>
         </CardHeader>
         <CardContent>
+          {stampVerificationWarnings.map((row) => {
+            const tripCount = row.missing_stamp_trip_count ?? 0;
+            const unverifiedPence = row.unverified_wallet_credits_pence ?? 0;
+            const tripCodes = row.missing_stamp_trip_codes ?? [];
+            if (tripCount <= 0 || unverifiedPence <= 0) return null;
+            return (
+              <Alert key={row.driver_id} variant="default" className="mb-4 border-amber-500/40 bg-amber-500/5">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-sm">
+                  <span className="font-medium">{driverLabel(row)}</span>
+                  {' — '}
+                  <Link
+                    to={financialReconciliationIssuesTabUrl('driver_credit', {
+                      tripCodes,
+                      driverId: row.driver_id,
+                    })}
+                    className="underline underline-offset-2 hover:text-foreground"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {tripCount} trip{tripCount === 1 ? '' : 's'} ({fmt(unverifiedPence)}) require entitlement-stamp verification.
+                  </Link>
+                </AlertDescription>
+              </Alert>
+            );
+          })}
+
           {isLoading ? <p className="text-sm text-muted-foreground">Loading SSOT…</p> : null}
           {error ? <p className="text-sm text-destructive">{(error as Error).message}</p> : null}
 
@@ -137,12 +176,14 @@ export function DriverWalletSsotPanel({
                   <TableHead>Driver</TableHead>
                   <TableHead className="text-right">Expected earnings</TableHead>
                   <TableHead className="text-right">Wallet credited</TableHead>
-                  <TableHead className="text-right">Paid out</TableHead>
+                  <TableHead className="text-right" title="Completed Payout Ledger items in selected period">
+                    Paid out
+                  </TableHead>
                   <TableHead className="text-right" title="Live payout eligibility (not period-scoped)">
                     Available
                   </TableHead>
                   <TableHead className="text-right">Difference</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Credit / Payout</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -153,7 +194,16 @@ export function DriverWalletSsotPanel({
                     </TableCell>
                   </TableRow>
                 ) : null}
-                {rows.map((row) => (
+                {rows.map((row) => {
+                  const missingStamps = hasMissingEntitlementStamps(row);
+                  const expectedDisplay = missingStamps
+                    ? row.verified_expected_payable_pence ?? row.expected_payable_pence
+                    : row.expected_payable_pence;
+                  const walletDisplay = missingStamps
+                    ? row.verified_wallet_credits_pence ?? row.actual_wallet_trip_credits_pence
+                    : row.actual_wallet_trip_credits_pence;
+                  const unverifiedPence = row.unverified_wallet_credits_pence ?? 0;
+                  return (
                   <TableRow
                     key={row.driver_id}
                     className="cursor-pointer hover:bg-muted/40"
@@ -165,24 +215,61 @@ export function DriverWalletSsotPanel({
                         {row.driver_code?.trim() || row.driver_id.slice(0, 8)}
                         {row.service_area_name || serviceAreaName ? ` · ${row.service_area_name ?? serviceAreaName}` : ''}
                       </div>
+                      {missingStamps ? (
+                        <div className="text-xs text-amber-700 mt-1">
+                          Missing entitlement stamps: {row.missing_stamp_trip_count ?? 0} trip{(row.missing_stamp_trip_count ?? 0) === 1 ? '' : 's'}
+                        </div>
+                      ) : null}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{fmt(row.expected_payable_pence)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmt(row.actual_wallet_trip_credits_pence)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmt(row.payouts_debited_pence ?? 0)}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <div>{fmt(expectedDisplay)}</div>
+                      {missingStamps ? (
+                        <div className="text-xs text-muted-foreground">Verified expected earnings</div>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <div>{fmt(walletDisplay)}</div>
+                      {missingStamps ? (
+                        <>
+                          <div className="text-xs text-muted-foreground">Verified wallet credits</div>
+                          {unverifiedPence > 0 ? (
+                            <div className="text-xs text-amber-700 mt-1">
+                              Unverified: {fmt(unverifiedPence)}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {fmt(row.payout_ledger_completed_pence ?? 0)}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {fmt(row.available_for_payout_pence ?? row.cashout_limit_pence)}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{fmt(row.wallet_variance_pence)}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <div>{fmt(row.wallet_variance_pence)}</div>
+                      {missingStamps ? (
+                        <div className="text-xs text-muted-foreground">On evaluable trips</div>
+                      ) : null}
+                    </TableCell>
                     <TableCell>
-                      <Badge
-                        variant={statusVariant(row.reconciliation_status)}
-                        title={(row.reconciliation_reasons ?? []).join(' · ')}
-                      >
-                        {row.reconciliation_status}
-                      </Badge>
+                      <div className="flex flex-col gap-1 items-start">
+                        <Badge
+                          variant={statusVariant(row.driver_credit_status ?? row.reconciliation_status)}
+                          title={(row.reconciliation_reasons ?? []).join(' · ')}
+                        >
+                          {row.driver_credit_status ?? row.reconciliation_status}
+                        </Badge>
+                        {row.payout_status ? (
+                          <Badge variant={statusVariant(row.payout_status)} title="Payout ledger vs wallet transfers">
+                            {row.payout_status}
+                          </Badge>
+                        ) : null}
+                      </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

@@ -10,10 +10,14 @@ import {
   type DriverWalletPayoutSnapshot,
 } from "./driverWalletPayoutSSOT.ts";
 import {
+  buildPeriodScopedFrDriverInputs,
   computeFrDriverReconciliation,
+  isInstantInFinancePeriod,
   type FrDriverReconciliationRow,
   type ProviderAccountBalanceStatus,
 } from "./frDriverReconciliationSSOT.ts";
+import { normalizeFinancePeriodParam } from "./financeLondonDay.ts";
+import { buildFrDriverSettlementTripRow } from "./frDriverExpectedEntitlementSSOT.ts";
 import {
   buildDriverWalletPeriodKpis,
   type DriverWalletPeriodKpis,
@@ -100,6 +104,9 @@ export async function fetchDriverWalletPayoutSnapshot(
   args: {
     driverId: string;
     currency?: string;
+    /** FR Drivers tab — London calendar bounds (ISO). When set, expected/credits/paid-out are period-scoped. */
+    periodFrom?: string | null;
+    periodTo?: string | null;
   },
 ): Promise<DriverWalletPayoutDetail> {
   const currency = (args.currency ?? "gbp").toLowerCase();
@@ -148,7 +155,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       .order("created_at", { ascending: false })
       .limit(100),
     supabase.from("driver_earning_settlement")
-      .select("id, trip_id, settlement_status, settlement_lifecycle_status, settled_at, allocated_to_payout, allocated_amount_pence, paid_in_payout_item_id, paid_in_batch_id, driver_wallet_ledger!inner(amount_pence)")
+      .select("id, trip_id, settlement_status, settlement_lifecycle_status, settled_at, capture_time, amount_pence, allocated_to_payout, allocated_amount_pence, paid_in_payout_item_id, paid_in_batch_id, driver_wallet_ledger!inner(amount_pence)")
       .eq("driver_id", args.driverId),
     supabase.from("payout_items")
       .select("id, batch_id, status, settlement_status, net_driver_payout_pence, amount_pence, provider_transfer_id, provider_payout_id, failure_reason, created_at, updated_at")
@@ -201,7 +208,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       supabase
         .from("trips")
         .select(
-          "id, trip_code, completed_at, passenger_name, payment_status, status, final_customer_fare_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, tip_pence, tip_amount_pence, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
+          "id, trip_code, completed_at, passenger_name, payment_status, status, financial_outcome, final_customer_fare_pence, gross_fare_pence, locked_base_fare_pence, customer_modification_charge_pence, no_show_charge_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, other_pass_through_charges_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, tip_pence, tip_amount_pence, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
         )
         .in("id", tripIdsForFr),
       supabase
@@ -425,32 +432,113 @@ export async function fetchDriverWalletPayoutSnapshot(
     verificationStatus = "not_set";
   }
 
-  const settledTripsForFr: Array<{
-    trip_id: string | null;
-    driver_net_pence: number | null;
-    settlement_status?: string | null;
-  }> = walletCreditTripIds.map((tripId) => {
+  const settlementByTripId = new Map<string, Record<string, unknown>>();
+  for (const s of rawSettlements) {
+    const tripId = s.trip_id == null ? null : String(s.trip_id);
+    if (tripId) settlementByTripId.set(tripId, s as Record<string, unknown>);
+  }
+
+  const settledTripsForFr = walletCreditTripIds.map((tripId) => {
     const trip = tripDetailById.get(tripId);
-    return {
-      trip_id: tripId,
-      driver_net_pence: trip?.driver_net_pence == null ? null : Number(trip.driver_net_pence),
-      settlement_status: "settled",
-    };
+    if (!trip) {
+      return {
+        trip_id: tripId,
+        driver_net_pence: null,
+        expected_entitlement_pence: null,
+        expected_stamp_status: "EXPECTED_STAMP_MISSING" as const,
+        financial_settled_at: null,
+        settlement_status: "settled",
+        completed_at: null,
+        trip_code: null,
+      };
+    }
+    return buildFrDriverSettlementTripRow({
+      trip,
+      session: sessionByTripId.get(tripId) ?? null,
+      settlement: settlementByTripId.get(tripId) ?? null,
+    });
   });
   if (settledTripsForFr.length === 0 && settlements.length > 0) {
     for (const s of settlements) {
       const tripId = s.trip_id == null ? null : String(s.trip_id);
-      const ledgerJoin = s.driver_wallet_ledger as { amount_pence?: number } | { amount_pence?: number }[] | null;
-      const ledgerAmt = Array.isArray(ledgerJoin)
-        ? Number(ledgerJoin[0]?.amount_pence ?? 0)
-        : Number(ledgerJoin?.amount_pence ?? 0);
-      settledTripsForFr.push({
-        trip_id: tripId,
-        driver_net_pence: Number.isFinite(ledgerAmt) ? ledgerAmt : null,
-        settlement_status: (s.settlement_status as string | null) ?? null,
-      });
+      if (!tripId) continue;
+      const trip = tripDetailById.get(tripId);
+      if (!trip) continue;
+      settledTripsForFr.push(buildFrDriverSettlementTripRow({
+        trip,
+        session: sessionByTripId.get(tripId) ?? null,
+        settlement: s as Record<string, unknown>,
+      }));
     }
   }
+
+  const periodFromIso = args.periodFrom?.trim()
+    ? (normalizeFinancePeriodParam(args.periodFrom.trim(), "start") ?? args.periodFrom.trim())
+    : null;
+  const periodToIso = args.periodTo?.trim()
+    ? (normalizeFinancePeriodParam(args.periodTo.trim(), "end") ?? args.periodTo.trim())
+    : null;
+  const periodScoped = Boolean(periodFromIso && periodToIso);
+
+  if (periodScoped) {
+    const { data: driverTripRows } = await supabase
+      .from("trips")
+      .select(
+        "id, trip_code, completed_at, status, financial_outcome, final_customer_fare_pence, gross_fare_pence, locked_base_fare_pence, customer_modification_charge_pence, no_show_charge_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, other_pass_through_charges_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, tip_pence, tip_amount_pence, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
+      )
+      .eq("driver_id", args.driverId)
+      .eq("financial_model", "PLATFORM_COLLECTED");
+    for (const row of driverTripRows ?? []) {
+      if (!classifyTripForPlatformCollectedAdminPage(row as {
+        financial_model?: unknown;
+        commission_wallet_enabled?: unknown;
+      }).includeOnPlatformPage) {
+        continue;
+      }
+      const tripId = String(row.id);
+      const built = buildFrDriverSettlementTripRow({
+        trip: row as Record<string, unknown>,
+        session: sessionByTripId.get(tripId) ?? null,
+        settlement: settlementByTripId.get(tripId) ?? null,
+      });
+      if (!isInstantInFinancePeriod(built.financial_settled_at, periodFromIso!, periodToIso!)) {
+        continue;
+      }
+      if (settledTripsForFr.some((s) => s.trip_id === tripId)) continue;
+      settledTripsForFr.push(built);
+    }
+  }
+
+  const fullLedgerForFr = rawLedger.map((r) => ({
+    type: String(r.type ?? ""),
+    amount_pence: Number(r.amount_pence ?? 0),
+    related_trip_id: (r.related_trip_id as string | null) ?? null,
+    created_at: (r.created_at as string | null) ?? null,
+  }));
+  const payoutItemsForFr = payoutItems.map((p) => ({
+    status: (p.status as string | null) ?? null,
+    net_driver_payout_pence: p.net_driver_payout_pence == null
+      ? null
+      : Number(p.net_driver_payout_pence),
+    amount_pence: p.amount_pence == null ? null : Number(p.amount_pence),
+    created_at: (p.created_at as string | null) ?? null,
+    updated_at: (p.updated_at as string | null) ?? null,
+  }));
+
+  const frScopeInputs = periodScoped
+    ? buildPeriodScopedFrDriverInputs({
+      periodFrom: periodFromIso!,
+      periodTo: periodToIso!,
+      ledger: fullLedgerForFr,
+      settledTrips: settledTripsForFr,
+      completedPayoutItems: payoutItemsForFr,
+    })
+    : {
+      ledger: fullLedgerForFr,
+      settledTrips: settledTripsForFr,
+      completedPayoutItems: payoutItemsForFr,
+      period_trip_ids: [],
+    };
 
   // Revolut bank destination can verify without Connect.
   const accountVerified = verificationStatus === "verified"
@@ -465,18 +553,9 @@ export async function fetchDriverWalletPayoutSnapshot(
   }
 
   const frRow = computeFrDriverReconciliation({
-    ledger: ledger.map((r) => ({
-      type: String(r.type ?? ""),
-      amount_pence: Number(r.amount_pence ?? 0),
-    })),
-    settledTrips: settledTripsForFr,
-    completedPayoutItems: payoutItems.map((p) => ({
-      status: (p.status as string | null) ?? null,
-      net_driver_payout_pence: p.net_driver_payout_pence == null
-        ? null
-        : Number(p.net_driver_payout_pence),
-      amount_pence: p.amount_pence == null ? null : Number(p.amount_pence),
-    })),
+    ledger: frScopeInputs.ledger,
+    settledTrips: frScopeInputs.settledTrips,
+    completedPayoutItems: frScopeInputs.completedPayoutItems,
     walletEvidenceAvailable: fullLedgerRes.error == null,
     settlementEvidenceAvailable: settlementsRes.error == null,
     identityMappingValid: Boolean(driver?.id),
@@ -489,6 +568,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     provider_account_balance_pence: connectAvailable,
     provider_account_balance_status: providerBalanceStatus,
     pending_balance_pence: canonicalPending,
+    query_scope_status: periodScoped ? "PERIOD_SCOPED" : "LIFETIME",
   });
 
   const economicFields = await loadDriverWalletEconomicFields(supabase, args.driverId);
@@ -877,9 +957,9 @@ export async function fetchDriverWalletPayoutSnapshot(
   } else if (
     snapshot.payout_blocked
     || walletBalance < 0
-    || frRow.reconciliation_status === "DRIVER_WALLET_MISMATCH"
-    || frRow.reconciliation_status === "PAYOUT_MISMATCH"
-    || frRow.reconciliation_status === "DRIVER_AND_PAYOUT_MISMATCH"
+    || frRow.driver_credit_status === "DRIVER_UNDER_CREDITED"
+    || frRow.driver_credit_status === "DRIVER_OVER_CREDITED"
+    || frRow.payout_status === "PAYOUT_MISMATCH"
   ) {
     walletStatus = "FROZEN";
   } else if (verificationStatus === "restricted" || verificationStatus === "pending") {

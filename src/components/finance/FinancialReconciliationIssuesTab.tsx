@@ -25,6 +25,7 @@ import {
   buildFrUnifiedIssues,
   countFrIssuesByFilter,
   filterFrUnifiedIssues,
+  filterFrUnifiedIssuesByTripCodes,
   type FrIssueFilter,
 } from '../../../shared/frIssuesSSOT';
 
@@ -38,6 +39,7 @@ type FinancialReconciliationIssuesTabProps = {
   onRefresh?: () => void;
   issueFilter: FrIssueFilter;
   onIssueFilterChange: (filter: FrIssueFilter) => void;
+  issueTripCodes?: string[];
   periodLabel?: string;
   exportMeta?: FrAuditExportMeta | null;
 };
@@ -86,6 +88,7 @@ export function FinancialReconciliationIssuesTab({
   onRefresh,
   issueFilter,
   onIssueFilterChange,
+  issueTripCodes = [],
   periodLabel,
   exportMeta,
 }: FinancialReconciliationIssuesTabProps) {
@@ -98,10 +101,10 @@ export function FinancialReconciliationIssuesTab({
 
   const allIssues = useMemo(() => buildFrUnifiedIssues(rows), [rows]);
   const filterCounts = useMemo(() => countFrIssuesByFilter(allIssues), [allIssues]);
-  const visible = useMemo(
-    () => filterFrUnifiedIssues(allIssues, activeFilter),
-    [allIssues, activeFilter],
-  );
+  const visible = useMemo(() => {
+    const filtered = filterFrUnifiedIssues(allIssues, activeFilter);
+    return filterFrUnifiedIssuesByTripCodes(filtered, issueTripCodes);
+  }, [allIssues, activeFilter, issueTripCodes]);
   const exportRows = useMemo(() => {
     const tripIds = new Set(visible.map((issue) => issue.trip_id));
     return rows.filter((row) => tripIds.has(row.trip_id));
@@ -120,6 +123,12 @@ export function FinancialReconciliationIssuesTab({
 
       {periodLabel ? (
         <p className="text-xs text-muted-foreground">Period: {periodLabel}</p>
+      ) : null}
+
+      {issueTripCodes.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Showing {issueTripCodes.join(', ')} only.
+        </p>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
