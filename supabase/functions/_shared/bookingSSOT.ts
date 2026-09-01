@@ -56,6 +56,17 @@ export type BookingCommitBody = {
   qr_session_id?: string;
   internal_user_id?: string;
   booking_source?: string | null;
+  /** Locked demand-zone surge quote from calculate-fare / estimate-fare. */
+  surge_quote?: {
+    quote_id?: string;
+    service_area_id?: string;
+    zone_id?: string | null;
+    confirmed_demand_level?: string | null;
+    applied_multiplier?: number;
+    quote_expires_at?: string;
+    pickup_lat?: number;
+    pickup_lng?: number;
+  } | null;
 };
 
 export function applyBookingTypeFieldsToTrip(
@@ -109,6 +120,8 @@ export type MinimalTripBuildInput = {
   scheduledDispatchConfig?: ScheduledDispatchConfig | null;
   /** Wall clock for anchor math (tests). Defaults to Date.now(). */
   nowMs?: number;
+  /** Validated pickup-zone surge multiplier (1 when no surge). */
+  surgeMultiplier?: number;
 };
 
 /** Build "First Last" from customer profile fields. */
@@ -300,7 +313,7 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     currency_code: input.regionCurrencyCode.toLowerCase(),
     distance_unit: input.regionDistanceUnit,
     region_id: input.regionId,
-    surge_multiplier: 1.0,
+    surge_multiplier: input.surgeMultiplier ?? 1.0,
     is_scheduled: isScheduled,
     job_type: "ride",
     total_stops: totalStops,

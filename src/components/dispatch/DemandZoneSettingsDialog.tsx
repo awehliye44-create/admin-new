@@ -107,7 +107,9 @@ export function DemandZoneSettingsDialog({
     onSuccess: async () => {
       toast({ title: 'Settings saved', description: `${serviceAreaName} demand-zone settings updated.` });
       await queryClient.invalidateQueries({ queryKey: ['demand-zone-settings', serviceAreaId] });
+      await queryClient.invalidateQueries({ queryKey: ['demand-zone-settings-all'] });
       await queryClient.invalidateQueries({ queryKey: ['driver-demand-zones'] });
+      await queryClient.invalidateQueries({ queryKey: ['demand-zone-audit'] });
       onOpenChange(false);
     },
     onError: (err: Error) => {

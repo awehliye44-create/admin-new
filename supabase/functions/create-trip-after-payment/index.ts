@@ -3,6 +3,7 @@ import {
   buildMinimalTripInsertRow,
   type BookingCommitBody,
 } from "../_shared/bookingSSOT.ts";
+import { assertBookingSurgeAtPickup } from "../_shared/demandZoneSurgeSSOT.ts";
 import { resolveScheduledDispatchConfig } from "../_shared/scheduledDispatchConfig.ts";
 import { buildBookingPostCommitTasks } from "../_shared/bookingPostCommit.ts";
 import { verifyRevolutHoldForTripCreateFast } from "../_shared/bookingPaymentVerifyFast.ts";
@@ -951,6 +952,27 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       scheduledDispatchConfig = resolveScheduledDispatchConfig(globalCfg);
     }
 
+    const surgeCheck = await assertBookingSurgeAtPickup(supabase, {
+      serviceAreaId,
+      pickupLat: body.pickup.lat,
+      pickupLng: body.pickup.lng,
+      surgeQuote: body.surge_quote ?? null,
+    });
+    if (!surgeCheck.ok) {
+      return failBookingAfterAuthorizedPayment(
+        supabase,
+        verifiedRevolutOrder,
+        {
+          ...reversalContext,
+          failureStage: "surge_quote",
+          failureReason: surgeCheck.code,
+        },
+        surgeCheck.code === "SURGE_QUOTE_STALE" ? 409 : 400,
+        surgeCheck.message,
+        { code: surgeCheck.code, failure_stage: "surge_quote" },
+      );
+    }
+
     const tripData = buildMinimalTripInsertRow({
       body,
       customerId,
@@ -975,6 +997,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       requestOrigin: req.headers.get("origin"),
       scheduledDispatchConfig,
       financialModelSnapshot,
+      surgeMultiplier: surgeCheck.multiplier,
     });
 
     if (preAssignedDriverId) {

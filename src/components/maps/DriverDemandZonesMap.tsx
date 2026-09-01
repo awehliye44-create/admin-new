@@ -3,8 +3,8 @@ import { Loader2 } from 'lucide-react';
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
-import { buildAdminDemandZonesGeoJson, type AdminDemandZone } from '@/lib/demandZoneGeojson';
-import { DEMAND_LEGEND_ITEMS } from '@/lib/demandZoneMapStyle';
+import { buildAdminDemandZonesGeoJson, type AdminDemandZone, type BuildAdminDemandZonesGeoJsonOptions } from '@/lib/demandZoneGeojson';
+import { buildDemandLegendItems, type DemandZoneColorEntry } from '@/lib/demandZoneMapStyle';
 import { attachAdminMapControls } from '@/lib/mapControls';
 import {
   buildDemandZonesBounds,
@@ -25,6 +25,8 @@ interface DriverDemandZonesMapProps {
   serviceAreaBoundary?: GeoJSON.Polygon | null;
   height?: string;
   onZoneClick?: (zoneId: string) => void;
+  geoJsonOptions?: BuildAdminDemandZonesGeoJsonOptions;
+  legendPalette?: Record<'LOW' | 'MEDIUM' | 'HIGH', DemandZoneColorEntry>;
 }
 
 export function DriverDemandZonesMap({
@@ -32,6 +34,8 @@ export function DriverDemandZonesMap({
   serviceAreaBoundary,
   height = '560px',
   onZoneClick,
+  geoJsonOptions,
+  legendPalette,
 }: DriverDemandZonesMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -188,7 +192,7 @@ export function DriverDemandZonesMap({
     if (!map || !isMapLoaded) return;
 
     const source = map.getSource(ZONE_SOURCE) as mapboxgl.GeoJSONSource | undefined;
-    source?.setData(buildAdminDemandZonesGeoJson(zones));
+    source?.setData(buildAdminDemandZonesGeoJson(zones, geoJsonOptions));
 
     const boundarySource = map.getSource(BOUNDARY_SOURCE) as mapboxgl.GeoJSONSource | undefined;
     if (boundarySource) {
@@ -209,9 +213,10 @@ export function DriverDemandZonesMap({
     }
 
     fitToCurrentView();
-  }, [zones, serviceAreaBoundary, isMapLoaded, fitToCurrentView]);
+  }, [zones, serviceAreaBoundary, isMapLoaded, fitToCurrentView, geoJsonOptions]);
 
   const initError = mapboxError ?? mapError;
+  const legendItems = buildDemandLegendItems(legendPalette);
 
   return (
     <div
@@ -243,7 +248,7 @@ export function DriverDemandZonesMap({
           Demand levels
         </p>
         <ul className="space-y-1">
-          {DEMAND_LEGEND_ITEMS.map(({ level, label, fill, stroke }) => (
+          {legendItems.map(({ level, label, fill, stroke }) => (
             <li key={level} className="flex items-center gap-2 text-xs text-foreground">
               <span
                 className="h-3 w-3 rounded-full border shrink-0"

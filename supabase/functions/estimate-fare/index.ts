@@ -11,8 +11,8 @@ import {
 } from "../_shared/zoneRoutePricing.ts";
 import {
   buildSurgeQuote,
+  parseRpcSurgeResolution,
   type SurgeResolution,
-  type DemandLevel,
 } from "../_shared/demandZoneSurgeSSOT.ts";
 
 
@@ -228,15 +228,7 @@ Deno.serve(async (req) => {
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
-      if (surgeData) {
-        surgeResolution = {
-          zone_id: surgeData.zone_id ?? null,
-          confirmed_demand_level: (surgeData.confirmed_demand_level ?? null) as DemandLevel | null,
-          applied_multiplier: Number(surgeData.applied_multiplier ?? 1),
-          surge_enabled: surgeData.surge_enabled === true,
-          reason: surgeData.reason ?? "NO_ZONE",
-        };
-      }
+      surgeResolution = parseRpcSurgeResolution(surgeData);
     }
 
     const surgeIssuedAtMs = Date.now();

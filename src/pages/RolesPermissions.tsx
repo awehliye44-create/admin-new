@@ -51,9 +51,9 @@ import { useRoleCapabilities } from '@/hooks/useRoleCapabilities';
 import { Switch } from '@/components/ui/switch';
 import { HelpTip, PermissionsHelpButton, DelegationConfirmDialog } from '@/components/roles/RolesHelp';
 import {
-  ROLE_ACTION_KEYS,
-  ACTION_LABELS,
-  ACTION_HELP,
+  DEMAND_ZONE_ROLE_ACTION_KEYS,
+  DEMAND_ZONE_ACTION_LABELS,
+  DEMAND_ZONE_ACTION_HELP,
   ROLE_TOOLTIPS,
   TAB_HELP,
   DENIED_COPY,
@@ -67,7 +67,6 @@ import {
   canSetStaffActive,
   canEditStaff,
   canCreateStaff,
-  type RoleActionKey,
 } from '../../shared/rolesPermissionsSSOT';
 import { format } from 'date-fns';
 
@@ -144,7 +143,7 @@ export default function RolesPermissions() {
   const canAssignAreas = hasCapability('roles_permissions.assign_service_areas');
   const correlationId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now()));
   const [actionMatrix, setActionMatrix] = useState<Record<string, Record<string, boolean>>>({});
-  const [pendingDelegation, setPendingDelegation] = useState<{ role: StaffRole; actionKey: RoleActionKey } | null>(null);
+  const [pendingDelegation, setPendingDelegation] = useState<{ role: StaffRole; actionKey: string } | null>(null);
   const [confirmSuperAdmin, setConfirmSuperAdmin] = useState<null | (() => void)>(null);
   const [togglingAction, setTogglingAction] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('staff');
@@ -594,7 +593,7 @@ export default function RolesPermissions() {
   // Permission page groups for the matrix
   const PAGE_GROUPS = [
     { label: 'Dashboard', pages: ['dashboard'] },
-    { label: 'Operations', pages: ['fleet-tracking', 'active-trips', 'auto-dispatch', 'scheduled-rides', 'missed-cancelled', 'trip-history', 'manual-trip'] },
+    { label: 'Operations', pages: ['fleet-tracking', 'active-trips', 'auto-dispatch', 'scheduled-rides', 'missed-cancelled', 'trip-history', 'manual-trip', 'dispatch-metrics', 'driver-demand-zones', 'staff-work-patterns'] },
     { label: 'Fleet', pages: ['drivers', 'vehicles', 'vehicle-types', 'documents', 'document-management'] },
     { label: 'Service Areas', pages: ['regions', 'services'] },
     { label: 'Pricing', pages: ['promo-codes', 'custom-zones', 'zone-pricing', 'corporate-fares', 'fare-simulator'] },
@@ -646,7 +645,7 @@ export default function RolesPermissions() {
     }
   };
 
-  const applyActionPermission = async (role: StaffRole, actionKey: RoleActionKey, nextValue: boolean) => {
+  const applyActionPermission = async (role: StaffRole, actionKey: string, nextValue: boolean) => {
     const guard = canToggleActionPermission(actor, role, actionKey, nextValue);
     if (!guard.allowed) {
       setError(guard.reason ?? DENIED_COPY.actionDenied);
@@ -679,7 +678,7 @@ export default function RolesPermissions() {
     }
   };
 
-  const handleToggleActionPermission = (role: StaffRole, actionKey: RoleActionKey) => {
+  const handleToggleActionPermission = (role: StaffRole, actionKey: string) => {
     const current = actionMatrix[actionKey]?.[role] ?? false;
     const nextValue = !current;
     // Explicit delegation confirmation before granting a sensitive capability
@@ -1027,6 +1026,85 @@ export default function RolesPermissions() {
                             </TableRow>
                           ))}
                         </Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>Driver Demand Zones — Action Capabilities</CardTitle>
+              <CardDescription>
+                Granular permissions for heat map, surge settings, recompute, and audit.
+                Page access to Driver Demand Zones is controlled separately above.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="w-full">
+                <div className="rounded-md border min-w-[800px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[240px] sticky left-0 bg-background z-10">Capability</TableHead>
+                        {ROLES_ORDER.map(r => {
+                          const config = ROLE_CONFIG[r];
+                          const Icon = config.icon;
+                          return (
+                            <TableHead key={r} className="text-center min-w-[100px]">
+                              <div className="flex items-center justify-center gap-1">
+                                <Icon className="h-3 w-3" />
+                                <span className="text-xs">{config.prefix}</span>
+                              </div>
+                            </TableHead>
+                          );
+                        })}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {DEMAND_ZONE_ROLE_ACTION_KEYS.map(actionKey => (
+                        <TableRow key={actionKey}>
+                          <TableCell className="sticky left-0 bg-background z-10 text-sm">
+                            <div className="font-medium">{DEMAND_ZONE_ACTION_LABELS[actionKey]}</div>
+                            <p className="text-xs text-muted-foreground mt-0.5 max-w-[220px]">
+                              {DEMAND_ZONE_ACTION_HELP[actionKey]}
+                            </p>
+                          </TableCell>
+                          {ROLES_ORDER.map(r => {
+                            const key = `${actionKey}-${r}`;
+                            const isAllowed = actionMatrix[actionKey]?.[r] ?? false;
+                            const isToggling = togglingAction === key;
+                            return (
+                              <TableCell key={r} className="text-center">
+                                {isToggling ? (
+                                  <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
+                                ) : canManageRoles ? (
+                                  <button
+                                    onClick={() => handleToggleActionPermission(r, actionKey)}
+                                    className="mx-auto block cursor-pointer hover:scale-110 transition-transform"
+                                    title={
+                                      isAllowed
+                                        ? `Revoke ${DEMAND_ZONE_ACTION_LABELS[actionKey]} from ${ROLE_LABELS[r]}`
+                                        : `Grant ${DEMAND_ZONE_ACTION_LABELS[actionKey]} to ${ROLE_LABELS[r]}`
+                                    }
+                                  >
+                                    {isAllowed ? (
+                                      <CheckCircle className="h-4 w-4 text-green-500" />
+                                    ) : (
+                                      <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 hover:border-primary" />
+                                    )}
+                                  </button>
+                                ) : isAllowed ? (
+                                  <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />
+                                ) : (
+                                  <div className="h-4 w-4 rounded-full border-2 border-muted mx-auto" />
+                                )}
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
                       ))}
                     </TableBody>
                   </Table>

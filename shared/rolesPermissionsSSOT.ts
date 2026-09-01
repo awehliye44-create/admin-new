@@ -91,6 +91,42 @@ export const ACTION_HELP: Record<RoleActionKey, string> = {
     'Allows the role to review the history of role, permission and service-area changes.',
 };
 
+/** Granular capabilities for Driver Demand Zones (seeded in role_action_permissions). */
+export const DEMAND_ZONE_ROLE_ACTION_KEYS = [
+  'demand_zones.view',
+  'demand_zones.recompute',
+  'demand_zones.configure_heatmap',
+  'demand_zones.configure_colours',
+  'demand_zones.configure_surge',
+  'demand_zones.view_audit',
+] as const;
+
+export type DemandZoneRoleActionKey = (typeof DEMAND_ZONE_ROLE_ACTION_KEYS)[number];
+
+export const DEMAND_ZONE_ACTION_LABELS: Record<DemandZoneRoleActionKey, string> = {
+  'demand_zones.view': 'View demand zones',
+  'demand_zones.recompute': 'Recompute heat map',
+  'demand_zones.configure_heatmap': 'Configure heat map',
+  'demand_zones.configure_colours': 'Configure zone colours',
+  'demand_zones.configure_surge': 'Configure surge multipliers',
+  'demand_zones.view_audit': 'View demand zone audit',
+};
+
+export const DEMAND_ZONE_ACTION_HELP: Record<DemandZoneRoleActionKey, string> = {
+  'demand_zones.view':
+    'Read computed and manual demand zones. Required for zone list/map RLS alongside page access.',
+  'demand_zones.recompute':
+    'Run compute-driver-demand-zones for a service area from the admin panel.',
+  'demand_zones.configure_heatmap':
+    'Edit heat-map thresholds, interval, radius, hysteresis, and manual-zone toggle.',
+  'demand_zones.configure_colours':
+    'Edit LOW / MEDIUM / HIGH zone colours shown on admin and driver maps.',
+  'demand_zones.configure_surge':
+    'Enable zone surge and edit LOW / MEDIUM / HIGH multipliers.',
+  'demand_zones.view_audit':
+    'Open the Audit tab and read demand_zone_audit_log entries.',
+};
+
 /* ------------------------------------------------------------------ */
 /* Help copy                                                           */
 /* ------------------------------------------------------------------ */
@@ -147,6 +183,8 @@ export const PAGE_HELP: Record<string, string> = {
   'active-trips':
     'Allows the role to view live trips. Actions such as reassignment or cancellation require separate permissions.',
   'auto-dispatch': 'Allows the role to access automatic dispatch controls and operational status.',
+  'driver-demand-zones':
+    'Allows the role to view driver demand zones, heat-map settings, and zone surge configuration.',
   'scheduled-rides':
     'Allows the role to view and manage scheduled bookings according to its granted action permissions.',
   'missed-cancelled': 'Allows the role to review missed and cancelled bookings and their reasons.',

@@ -19,6 +19,12 @@ import {
   resolveVehicleDisplayOrder,
   sortVehicleRowsByDisplayOrder,
 } from "../_shared/vehicleTypeSort.ts";
+import {
+  applyZoneSurgeToMeteredFarePence,
+  meteredFareEligibleForZoneSurge,
+  parseRpcSurgeResolution,
+  type SurgeResolution,
+} from "../_shared/demandZoneSurgeSSOT.ts";
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   GBP: "£", USD: "$", EUR: "€", KES: "KSh", NGN: "₦",
@@ -238,6 +244,34 @@ Deno.serve(async (req) => {
       `[calculate-fare] zones=${zones.length} routes=${zoneRoutes.length}`,
     );
 
+    let surgeResolution: SurgeResolution = {
+      zone_id: null,
+      confirmed_demand_level: null,
+      applied_multiplier: 1,
+      surge_enabled: false,
+      reason: "NO_SETTINGS",
+    };
+    const surgeIssuedAtMs = Date.now();
+    if (pickup) {
+      const { data: surgeData, error: surgeErr } = await supabase.rpc(
+        "resolve_zone_surge",
+        {
+          _service_area_id: service_area_id,
+          _pickup_lat: pickup.lat,
+          _pickup_lng: pickup.lng,
+        },
+      );
+      if (surgeErr) {
+        console.error("[calculate-fare] resolve_zone_surge failed:", surgeErr.message);
+        return respond(200, {
+          success: false,
+          error: "SURGE_RESOLUTION_FAILED",
+          vehicleFares: [],
+        });
+      }
+      surgeResolution = parseRpcSurgeResolution(surgeData);
+    }
+
     const orderedVehicleIds = sortVehicleRowsByDisplayOrder(
       pricingVehicleIds
         .filter((id) => vtMap.has(id) && vtMap.get(id)?.is_active !== false)
@@ -278,8 +312,13 @@ Deno.serve(async (req) => {
           };
         }
 
+        const pricingForEngine = {
+          ...pricing,
+          enable_surge: false,
+        };
+
         const breakdown = calculateFare({
-          pricing,
+          pricing: pricingForEngine,
           distanceKm,
           durationMin,
           pickup,
@@ -292,6 +331,30 @@ Deno.serve(async (req) => {
           vehicleTypeId: vtId,
           distanceUnit,
         });
+
+        let totalFarePence = breakdown.final_fare_pence;
+        let totalFare = breakdown.final_fare;
+        let surgeQuote: ReturnType<typeof applyZoneSurgeToMeteredFarePence>["surgeQuote"] | null = null;
+        let appliedSurgeMultiplier = 1;
+
+        if (
+          pickup
+          && meteredFareEligibleForZoneSurge(breakdown.fare_source, breakdown.pricing_mode)
+        ) {
+          const surged = applyZoneSurgeToMeteredFarePence({
+            tripFarePence: Math.round(breakdown.trip_fare * 100),
+            airportChargePence: Math.round(breakdown.airport_charge * 100),
+            surgeResolution,
+            serviceAreaId: service_area_id,
+            pickupLat: pickup.lat,
+            pickupLng: pickup.lng,
+            issuedAtMs: surgeIssuedAtMs,
+          });
+          totalFarePence = surged.finalFarePence;
+          totalFare = totalFarePence / 100;
+          surgeQuote = surged.surgeQuote;
+          appliedSurgeMultiplier = surged.appliedMultiplier;
+        }
 
         const vehicleCategory = (vehicle?.name as string) || (vehicle?.slug as string) || null;
         const routePricingFields = buildRoutePricingApiFields(breakdown, vehicleCategory);
@@ -313,9 +376,9 @@ Deno.serve(async (req) => {
           timeCostFormatted: formatPrice(breakdown.time_cost, currencyCode),
           bookingFee: breakdown.booking_fee,
           bookingFeeFormatted: formatPrice(breakdown.booking_fee, currencyCode),
-          totalFare: breakdown.final_fare,
-          totalFareFormatted: formatPrice(breakdown.final_fare, currencyCode),
-          totalFarePence: breakdown.final_fare_pence,
+          totalFare,
+          totalFareFormatted: formatPrice(totalFare, currencyCode),
+          totalFarePence,
           minimumFare: breakdown.minimum_fare,
           minimumFareFormatted: formatPrice(breakdown.minimum_fare, currencyCode),
           multiplier: breakdown.multiplier,
@@ -339,8 +402,11 @@ Deno.serve(async (req) => {
           distanceBands: breakdown.distance_bands,
           minimumApplied: breakdown.minimum_applied,
           subtotalBeforeMinimum: breakdown.subtotal_before_minimum,
-          grossFarePence: breakdown.final_fare_pence,
-          finalPayableFarePence: breakdown.final_fare_pence,
+          grossFarePence: totalFarePence,
+          finalPayableFarePence: totalFarePence,
+          surge_multiplier: appliedSurgeMultiplier,
+          appliedSurgeMultiplier,
+          surge_quote: surgeQuote,
         };
 
         return {
@@ -374,6 +440,7 @@ Deno.serve(async (req) => {
       distanceUnit,
       financial_model: financialModel,
       skip_platform_preauth: skipPlatformPreauth,
+      demand_surge: surgeResolution,
       vehicleFares,
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error: unknown) {

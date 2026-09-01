@@ -31,20 +31,31 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Plus, Pencil, Trash2, RefreshCw, Flame, Map, List, Settings2 } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, RefreshCw, Flame, Map, List, Settings2, History } from 'lucide-react';
 import { DriverDemandZonesMap } from '@/components/maps/DriverDemandZonesMap';
 import { DriverDemandZonesHelpPanel } from '@/components/dispatch/DriverDemandZonesHelpPanel';
 import { DemandZoneSettingsDialog } from '@/components/dispatch/DemandZoneSettingsDialog';
+import { DemandZoneAuditPanel } from '@/components/dispatch/DemandZoneAuditPanel';
 import type { AdminDemandZone } from '@/lib/demandZoneGeojson';
+import { buildPaletteByServiceArea } from '@/lib/demandZoneGeojson';
+import { buildDemandZoneColorPalette } from '@/lib/demandZoneMapStyle';
+import {
+  DEMAND_ZONE_ACTION_KEYS,
+  type DemandZoneSettings,
+} from '../../shared/demandZoneSurgeSSOT';
+import { useRoleCapabilities } from '@/hooks/useRoleCapabilities';
 
 type DemandLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 type DemandSource = 'manual' | 'computed';
-type ViewMode = 'map' | 'list';
+type ViewMode = 'map' | 'list' | 'audit';
 
 interface DemandZone extends AdminDemandZone {
   region_id: string | null;
   service_area_id: string | null;
   source: DemandSource;
+  proposed_demand_level: DemandLevel | null;
+  confirmed_demand_level: DemandLevel | null;
+  last_open_trip_count: number | null;
   created_at: string;
   updated_at: string;
   region?: { id: string; name: string } | null;
@@ -88,6 +99,7 @@ function parseGeoBoundary(raw: unknown): GeoJSON.Polygon | null {
 export default function DriverDemandZones() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { actor, has: hasAction, isLoading: capsLoading } = useRoleCapabilities();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<DemandZone | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -98,6 +110,7 @@ export default function DriverDemandZones() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [search, setSearch] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
 
 
   const { data: zones = [], isLoading, refetch, isFetching } = useQuery({
@@ -105,7 +118,7 @@ export default function DriverDemandZones() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('driver_demand_zones')
-        .select('id, name, center_lat, center_lng, radius_meters, demand_level, active, region_id, service_area_id, source, created_at, updated_at, region:regions(id, name), service_area:service_areas(id, name)')
+        .select('id, name, center_lat, center_lng, radius_meters, demand_level, proposed_demand_level, confirmed_demand_level, last_open_trip_count, active, region_id, service_area_id, source, created_at, updated_at, region:regions(id, name), service_area:service_areas(id, name)')
         .order('source')
         .order('name');
       if (error) throw error;
@@ -141,6 +154,49 @@ export default function DriverDemandZones() {
       })) as ServiceArea[];
     },
   });
+
+  const { data: allDemandSettings = [] } = useQuery({
+    queryKey: ['demand-zone-settings-all'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('service_area_demand_zone_settings')
+        .select('service_area_id, heat_map_enabled, manual_zones_enabled, recompute_interval_minutes, open_trip_max_lifetime_minutes, low_min_trips, low_max_trips, medium_min_trips, medium_max_trips, high_min_trips, consecutive_checks_required, surge_enabled, multiplier_low, multiplier_medium, multiplier_high, colour_low, colour_medium, colour_high');
+      if (error) throw error;
+      return (data ?? []) as DemandZoneSettings[];
+    },
+  });
+
+  const selectedSettings = useMemo(() => {
+    if (serviceAreaFilter === 'all') return null;
+    return allDemandSettings.find((s) => s.service_area_id === serviceAreaFilter) ?? null;
+  }, [allDemandSettings, serviceAreaFilter]);
+
+  const mapGeoJsonOptions = useMemo(() => {
+    if (serviceAreaFilter !== 'all' && selectedSettings) {
+      return { palette: buildDemandZoneColorPalette(selectedSettings) };
+    }
+    return { paletteByServiceArea: buildPaletteByServiceArea(allDemandSettings) };
+  }, [serviceAreaFilter, selectedSettings, allDemandSettings]);
+
+  const mapLegendPalette = useMemo(
+    () => (selectedSettings ? buildDemandZoneColorPalette(selectedSettings) : undefined),
+    [selectedSettings],
+  );
+
+  const manualZonesEnabled = serviceAreaFilter === 'all'
+    ? allDemandSettings.some((s) => s.manual_zones_enabled)
+    : (selectedSettings?.manual_zones_enabled ?? true);
+
+  const heatMapEnabled = serviceAreaFilter === 'all'
+    ? allDemandSettings.some((s) => s.heat_map_enabled)
+    : (selectedSettings?.heat_map_enabled ?? true);
+
+  const recomputeIntervalLabel = selectedSettings?.recompute_interval_minutes
+    ?? allDemandSettings.find((s) => s.heat_map_enabled)?.recompute_interval_minutes
+    ?? 2;
+
+  const displayLevel = (zone: DemandZone): DemandLevel =>
+    zone.confirmed_demand_level ?? zone.demand_level;
 
   const filterServiceAreas = useMemo(
     () => (regionFilter === 'all'
@@ -181,13 +237,59 @@ export default function DriverDemandZones() {
     return filterServiceAreas.find((sa) => sa.id === serviceAreaFilter)?.geo_boundary ?? null;
   }, [serviceAreaFilter, filterServiceAreas]);
 
+  const canRecompute = actor.isSuperAdmin || hasAction(DEMAND_ZONE_ACTION_KEYS.recompute);
+  const canViewAudit = actor.isSuperAdmin || hasAction(DEMAND_ZONE_ACTION_KEYS.viewAudit);
+  const canManageManualZones =
+    actor.isSuperAdmin
+    || hasAction(DEMAND_ZONE_ACTION_KEYS.configureHeatMap);
+
+  const selectedZone = useMemo(
+    () => (selectedZoneId ? zones.find((z) => z.id === selectedZoneId) ?? null : null),
+    [zones, selectedZoneId],
+  );
+
+  const surgeMultiplierForLevel = (level: DemandLevel): string | null => {
+    if (!selectedSettings?.surge_enabled) return null;
+    if (level === 'HIGH' && selectedSettings.multiplier_high != null) {
+      return `×${selectedSettings.multiplier_high}`;
+    }
+    if (level === 'MEDIUM' && selectedSettings.multiplier_medium != null) {
+      return `×${selectedSettings.multiplier_medium}`;
+    }
+    return `×${selectedSettings.multiplier_low ?? 1}`;
+  };
+
   const openCreate = () => {
+    if (!canManageManualZones) {
+      toast({
+        title: 'Permission required',
+        description: 'You do not have permission to add manual demand zones.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!manualZonesEnabled) {
+      toast({
+        title: 'Manual zones disabled',
+        description: 'Enable manual zones in Heat map & surge settings for this service area.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setEditing(null);
     setForm(emptyForm);
     setDialogOpen(true);
   };
 
   const openEdit = (zone: DemandZone) => {
+    if (!canManageManualZones) {
+      toast({
+        title: 'Permission required',
+        description: 'You do not have permission to edit manual demand zones.',
+        variant: 'destructive',
+      });
+      return;
+    }
     if (zone.source === 'computed') {
       toast({
         title: 'Read-only zone',
@@ -273,10 +375,15 @@ export default function DriverDemandZones() {
 
   const computeMutation = useMutation({
     mutationFn: async () => {
+      const body: Record<string, string> = { source: 'admin_manual' };
+      if (serviceAreaFilter !== 'all') {
+        body.service_area_id = serviceAreaFilter;
+      }
       const { data, error } = await supabase.functions.invoke('compute-driver-demand-zones', {
-        body: { source: 'admin_manual' },
+        body,
       });
       if (error) throw error;
+      if (data?.error) throw new Error(String(data.error));
       return data;
     },
     onSuccess: async (data) => {
@@ -287,6 +394,7 @@ export default function DriverDemandZones() {
           : 'Compute job finished.',
       });
       await queryClient.invalidateQueries({ queryKey: ['driver-demand-zones'] });
+      await queryClient.invalidateQueries({ queryKey: ['demand-zone-audit'] });
     },
     onError: (err: Error) => {
       toast({ title: 'Compute failed', description: err.message, variant: 'destructive' });
@@ -305,6 +413,8 @@ export default function DriverDemandZones() {
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Level</TableHead>
+            <TableHead>Confirmed</TableHead>
+            <TableHead>Open trips</TableHead>
             <TableHead>Source</TableHead>
             <TableHead>Service area</TableHead>
             <TableHead>Center</TableHead>
@@ -316,21 +426,38 @@ export default function DriverDemandZones() {
         <TableBody>
           {isLoading ? (
             <TableRow>
-              <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+              <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
                 <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
                 Loading zones…
               </TableCell>
             </TableRow>
           ) : filteredZones.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+              <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
                 No demand zones match the current filters.
               </TableCell>
             </TableRow>
           ) : filteredZones.map((zone) => (
             <TableRow key={zone.id}>
               <TableCell className="font-medium">{zone.name}</TableCell>
-              <TableCell>{levelBadge(zone.demand_level)}</TableCell>
+              <TableCell>{levelBadge(displayLevel(zone))}</TableCell>
+              <TableCell>
+                {zone.source === 'computed' && zone.proposed_demand_level
+                  && zone.proposed_demand_level !== zone.confirmed_demand_level ? (
+                    <span className="text-xs text-muted-foreground">
+                      {zone.confirmed_demand_level ?? '—'}
+                      {' → '}
+                      {zone.proposed_demand_level}
+                    </span>
+                  ) : (
+                    levelBadge(zone.confirmed_demand_level ?? zone.demand_level)
+                  )}
+              </TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                {zone.source === 'computed' && zone.last_open_trip_count != null
+                  ? zone.last_open_trip_count
+                  : '—'}
+              </TableCell>
               <TableCell>
                 <Badge variant={zone.source === 'computed' ? 'outline' : 'secondary'}>
                   {zone.source}
@@ -348,7 +475,7 @@ export default function DriverDemandZones() {
                     size="icon"
                     variant="ghost"
                     onClick={() => openEdit(zone)}
-                    disabled={zone.source === 'computed'}
+                    disabled={zone.source === 'computed' || !canManageManualZones}
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
@@ -356,7 +483,7 @@ export default function DriverDemandZones() {
                     size="icon"
                     variant="ghost"
                     onClick={() => deleteMutation.mutate(zone)}
-                    disabled={zone.source === 'computed' || deleteMutation.isPending}
+                    disabled={zone.source === 'computed' || deleteMutation.isPending || !canManageManualZones}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -443,7 +570,14 @@ export default function DriverDemandZones() {
             <Button
               variant="outline"
               onClick={() => computeMutation.mutate()}
-              disabled={computeMutation.isPending}
+              disabled={computeMutation.isPending || !heatMapEnabled || !canRecompute || capsLoading}
+              title={
+                !canRecompute
+                  ? 'You do not have permission to recompute demand zones'
+                  : !heatMapEnabled
+                    ? 'Enable heat map in settings for this service area first'
+                    : undefined
+              }
             >
               {computeMutation.isPending
                 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -454,7 +588,7 @@ export default function DriverDemandZones() {
               <Settings2 className="mr-2 h-4 w-4" />
               Heat map &amp; surge settings
             </Button>
-            <Button onClick={openCreate}>
+            <Button onClick={openCreate} disabled={!manualZonesEnabled || !canManageManualZones}>
               <Plus className="mr-2 h-4 w-4" />
               Add manual zone
             </Button>
@@ -472,27 +606,88 @@ export default function DriverDemandZones() {
                 <List className="h-4 w-4" />
                 List
               </TabsTrigger>
+              {canViewAudit && (
+                <TabsTrigger value="audit" className="gap-2">
+                  <History className="h-4 w-4" />
+                  Audit
+                </TabsTrigger>
+              )}
             </TabsList>
           </Tabs>
           <p className="text-xs text-muted-foreground">
-            {filteredZones.length} zone{filteredZones.length === 1 ? '' : 's'} · Demand zones recompute every 2 minutes from live open trips
+            {filteredZones.length} zone{filteredZones.length === 1 ? '' : 's'}
+            {' · '}
+            {heatMapEnabled
+              ? `Computed zones refresh every ${recomputeIntervalLabel} minute${recomputeIntervalLabel === 1 ? '' : 's'} from open trips`
+              : 'Heat map disabled for the selected service area'}
           </p>
         </div>
 
         {viewMode === 'map' ? (
           <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
-            <div className="min-w-0">
+            <div className="relative min-w-0">
               <DriverDemandZonesMap
                 zones={mapZones}
                 serviceAreaBoundary={serviceAreaBoundary}
+                geoJsonOptions={mapGeoJsonOptions}
+                legendPalette={mapLegendPalette}
+                onZoneClick={setSelectedZoneId}
               />
+              {selectedZone && (
+                <div className="absolute top-3 right-3 z-[2] max-w-[280px] rounded-lg border bg-background/95 p-3 text-sm shadow-md backdrop-blur-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-semibold leading-tight">{selectedZone.name}</p>
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground text-xs"
+                      onClick={() => setSelectedZoneId(null)}
+                      aria-label="Close zone details"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    <p>
+                      Confirmed:{' '}
+                      <span className="font-medium text-foreground">
+                        {displayLevel(selectedZone)}
+                      </span>
+                      {surgeMultiplierForLevel(displayLevel(selectedZone)) && (
+                        <span className="ml-1 text-amber-700 dark:text-amber-400">
+                          {surgeMultiplierForLevel(displayLevel(selectedZone))} surge
+                        </span>
+                      )}
+                    </p>
+                    {selectedZone.source === 'computed' && selectedZone.proposed_demand_level
+                      && selectedZone.proposed_demand_level !== selectedZone.confirmed_demand_level && (
+                      <p>
+                        Pending:{' '}
+                        <span className="font-medium text-foreground">
+                          {selectedZone.proposed_demand_level}
+                        </span>
+                        {' (hysteresis)'}
+                      </p>
+                    )}
+                    {selectedZone.source === 'computed' && selectedZone.last_open_trip_count != null && (
+                      <p>Open trips: {selectedZone.last_open_trip_count}</p>
+                    )}
+                    <p>Source: {selectedZone.source}</p>
+                    <p>{selectedZone.service_area?.name ?? 'Global'}</p>
+                  </div>
+                </div>
+              )}
             </div>
-            <DriverDemandZonesHelpPanel />
+            <DriverDemandZonesHelpPanel settings={selectedSettings} />
+          </div>
+        ) : viewMode === 'list' ? (
+          <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
+            <div className="min-w-0">{zonesTable}</div>
+            <DriverDemandZonesHelpPanel settings={selectedSettings} />
           </div>
         ) : (
           <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
-            <div className="min-w-0">{zonesTable}</div>
-            <DriverDemandZonesHelpPanel />
+            <DemandZoneAuditPanel serviceAreaId={serviceAreaFilter} />
+            <DriverDemandZonesHelpPanel settings={selectedSettings} />
           </div>
         )}
       </div>

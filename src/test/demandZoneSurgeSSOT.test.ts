@@ -4,16 +4,19 @@ import {
   DEMAND_ZONE_ACTION_KEYS,
   DEMAND_ZONE_SETTINGS_DEFAULTS,
   applyHysteresis,
+  applyZoneSurgeToMeteredFarePence,
   buildSurgeQuote,
   canConfigureForSelection,
   countOpenTrips,
   isValidHexColour,
   levelColour,
   lockedBookingMultiplier,
+  meteredFareEligibleForZoneSurge,
   normaliseHexColour,
   proposeLevel,
   quoteRequiresRefresh,
   resolveZoneSurge,
+  validateBookingSurgeQuote,
   validateColours,
   validateDemandZoneSettings,
   validateSurge,
@@ -258,6 +261,53 @@ describe('quote lock', () => {
 
   it('confirmed booking keeps its locked multiplier and ignores client input', () => {
     expect(lockedBookingMultiplier(quote, 9.99)).toBe(1.25);
+  });
+});
+
+describe('calculate-fare zone surge helpers', () => {
+  it('only standard dynamic metered fares are surge eligible', () => {
+    expect(meteredFareEligibleForZoneSurge('standard_dynamic', 'NORMAL_DISTANCE_TIME')).toBe(true);
+    expect(meteredFareEligibleForZoneSurge('route_fixed', 'ROUTE_PRICING')).toBe(false);
+  });
+
+  it('applies zone multiplier to trip fare and preserves airport add-on', () => {
+    const resolution = resolveZoneSurge({
+      zones: [zone()],
+      settings: settings({ surge_enabled: true, multiplier_high: 1.25 }),
+      serviceAreaId: SA_MK,
+      pickupLat: 52.0406,
+      pickupLng: -0.7594,
+    });
+    const result = applyZoneSurgeToMeteredFarePence({
+      tripFarePence: 800,
+      airportChargePence: 200,
+      surgeResolution: resolution,
+      serviceAreaId: SA_MK,
+      pickupLat: 52.0406,
+      pickupLng: -0.7594,
+      issuedAtMs: Date.now(),
+    });
+    expect(result.appliedMultiplier).toBe(1.25);
+    expect(result.finalFarePence).toBe(1200);
+    expect(result.surgeQuote.applied_multiplier).toBe(1.25);
+  });
+
+  it('validateBookingSurgeQuote rejects stale multipliers', () => {
+    const stale = validateBookingSurgeQuote(
+      {
+        quote_id: 'q1',
+        service_area_id: SA_MK,
+        zone_id: 'zone-central',
+        confirmed_demand_level: 'HIGH',
+        applied_multiplier: 1.5,
+        quote_expires_at: new Date(Date.now() + 60_000).toISOString(),
+        pickup_lat: 52.0406,
+        pickup_lng: -0.7594,
+      },
+      1.25,
+    );
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) expect(stale.code).toBe('SURGE_QUOTE_STALE');
   });
 });
 

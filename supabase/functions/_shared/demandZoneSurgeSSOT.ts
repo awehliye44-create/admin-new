@@ -423,6 +423,143 @@ export function buildSurgeQuote(params: {
   };
 }
 
+/** Map `resolve_zone_surge` RPC jsonb into the SSOT resolution shape. */
+export function parseRpcSurgeResolution(data: unknown): SurgeResolution {
+  const row = data && typeof data === 'object' ? data as Record<string, unknown> : {};
+  const level = String(row.confirmed_demand_level ?? '').toUpperCase();
+  const confirmed =
+    level === 'HIGH' || level === 'MEDIUM' || level === 'LOW'
+      ? (level as DemandLevel)
+      : null;
+  return {
+    zone_id: typeof row.zone_id === 'string' ? row.zone_id : null,
+    confirmed_demand_level: confirmed,
+    applied_multiplier: Number(row.applied_multiplier ?? 1),
+    surge_enabled: row.surge_enabled === true,
+    reason: typeof row.reason === 'string' ? row.reason : 'NO_ZONE',
+  };
+}
+
+/** Zone surge applies to metered trip fare only — never route-fixed or airport add-ons. */
+export function meteredFareEligibleForZoneSurge(
+  fareSource: string,
+  pricingMode: string,
+): boolean {
+  if (pricingMode === 'ROUTE_PRICING') return false;
+  return fareSource === 'standard_dynamic';
+}
+
+export function applyZoneSurgeToMeteredFarePence(params: {
+  tripFarePence: number;
+  airportChargePence: number;
+  surgeResolution: SurgeResolution;
+  serviceAreaId: string;
+  pickupLat: number;
+  pickupLng: number;
+  issuedAtMs: number;
+}): {
+  finalFarePence: number;
+  surgeQuote: SurgeQuote;
+  appliedMultiplier: number;
+} {
+  const surgeApplies = params.surgeResolution.surge_enabled
+    && params.surgeResolution.applied_multiplier > 1;
+  const surgeQuote = buildSurgeQuote({
+    quoteId: crypto.randomUUID(),
+    serviceAreaId: params.serviceAreaId,
+    baseFarePence: params.tripFarePence,
+    resolution: surgeApplies
+      ? params.surgeResolution
+      : { ...params.surgeResolution, applied_multiplier: 1 },
+    pickupLat: params.pickupLat,
+    pickupLng: params.pickupLng,
+    issuedAtMs: params.issuedAtMs,
+  });
+  const finalFarePence = surgeQuote.final_fare_pence + params.airportChargePence;
+  return {
+    finalFarePence,
+    surgeQuote,
+    appliedMultiplier: surgeQuote.applied_multiplier,
+  };
+}
+
+export type BookingSurgeQuoteInput = Pick<
+  SurgeQuote,
+  | 'quote_id'
+  | 'service_area_id'
+  | 'zone_id'
+  | 'confirmed_demand_level'
+  | 'applied_multiplier'
+  | 'quote_expires_at'
+  | 'pickup_lat'
+  | 'pickup_lng'
+>;
+
+export function validateBookingSurgeQuote(
+  quote: BookingSurgeQuoteInput | null | undefined,
+  serverMultiplier: number,
+  nowMs = Date.now(),
+): { ok: true; multiplier: number } | { ok: false; code: string; message: string } {
+  if (!quote || quote.applied_multiplier == null) {
+    return { ok: true, multiplier: 1 };
+  }
+  const quoted = Number(quote.applied_multiplier);
+  if (!Number.isFinite(quoted) || quoted < 1) {
+    return {
+      ok: false,
+      code: 'SURGE_QUOTE_INVALID',
+      message: 'Invalid demand surge quote. Please refresh your fare.',
+    };
+  }
+  if (quote.quote_expires_at && new Date(quote.quote_expires_at).getTime() <= nowMs) {
+    return {
+      ok: false,
+      code: 'SURGE_QUOTE_EXPIRED',
+      message: 'Your fare quote expired. Please refresh and try again.',
+    };
+  }
+  if (Math.abs(serverMultiplier - quoted) > 0.01) {
+    return {
+      ok: false,
+      code: 'SURGE_QUOTE_STALE',
+      message: 'Demand in this area changed. Please refresh your fare.',
+    };
+  }
+  return { ok: true, multiplier: quoted };
+}
+
+/** Re-resolve pickup surge at booking time; never trust client multiplier alone. */
+export async function assertBookingSurgeAtPickup(
+  supabase: { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> },
+  params: {
+    serviceAreaId: string;
+    pickupLat: number;
+    pickupLng: number;
+    surgeQuote?: BookingSurgeQuoteInput | null;
+  },
+): Promise<{ ok: true; multiplier: number } | { ok: false; code: string; message: string }> {
+  if (!params.surgeQuote?.applied_multiplier) {
+    return { ok: true, multiplier: 1 };
+  }
+  const { data, error } = await supabase.rpc('resolve_zone_surge', {
+    _service_area_id: params.serviceAreaId,
+    _pickup_lat: params.pickupLat,
+    _pickup_lng: params.pickupLng,
+  });
+  if (error) {
+    return {
+      ok: false,
+      code: 'SURGE_RESOLUTION_FAILED',
+      message: 'Unable to confirm demand pricing right now. Please try again.',
+    };
+  }
+  const resolution = parseRpcSurgeResolution(data);
+  return validateBookingSurgeQuote(
+    params.surgeQuote,
+    resolution.applied_multiplier,
+  );
+}
+
 /** A quote must be refreshed when the pickup moves out of the quoted zone or it expires. */
 export function quoteRequiresRefresh(
   quote: SurgeQuote,

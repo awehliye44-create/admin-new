@@ -18,6 +18,7 @@ import {
   computeScheduledDispatchAnchors,
   resolveScheduledDispatchConfig,
 } from "../_shared/scheduledDispatchConfig.ts";
+import { assertBookingSurgeAtPickup } from "../_shared/demandZoneSurgeSSOT.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60000, keyPrefix: 'create-ride' };
 
@@ -71,6 +72,17 @@ interface CreateRidePayload {
   vehicle_type?: string;
   vehicle_type_id?: string;
   special_instructions?: string;
+  /** Locked demand-zone surge quote from estimate-fare (client multiplier never trusted). */
+  surge_quote?: {
+    quote_id?: string;
+    service_area_id?: string;
+    zone_id?: string | null;
+    confirmed_demand_level?: string | null;
+    applied_multiplier?: number;
+    quote_expires_at?: string;
+    pickup_lat?: number;
+    pickup_lng?: number;
+  } | null;
   /** Deferred payment (long-advance bookings >6 days): skip preauth, reauth at T-24h */
   payment_deferred?: boolean;
   deferred_payment_method_id?: string;
@@ -519,6 +531,28 @@ Deno.serve(async (req) => {
         400,
       );
     }
+
+    let surgeMultiplier = 1;
+    if (
+      payload.surge_quote?.applied_multiplier != null
+      && serviceAreaId
+      && hasValidPickupCoordinates(payload.pickup.lat, payload.pickup.lng)
+    ) {
+      const surgeCheck = await assertBookingSurgeAtPickup(supabase, {
+        serviceAreaId,
+        pickupLat: payload.pickup.lat,
+        pickupLng: payload.pickup.lng,
+        surgeQuote: payload.surge_quote,
+      });
+      if (!surgeCheck.ok) {
+        return errorResponse(
+          surgeCheck.code,
+          surgeCheck.message,
+          surgeCheck.code === "SURGE_QUOTE_STALE" ? 409 : 400,
+        );
+      }
+      surgeMultiplier = surgeCheck.multiplier;
+    }
     
     const tripData = {
       passenger_id: customerId || crypto.randomUUID(),
@@ -567,7 +601,7 @@ Deno.serve(async (req) => {
       trip_type: isScheduled ? 'scheduled' : 'immediate',
       currency: "GBP",
       currency_code: "gbp",
-      surge_multiplier: 1,
+      surge_multiplier: surgeMultiplier,
       is_scheduled: isScheduled,
       job_type: "ride",
       total_stops: totalStops,
