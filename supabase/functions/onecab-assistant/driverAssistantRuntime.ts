@@ -17,11 +17,11 @@ const DRIVER_TRIP_SELECT =
 
 function isActiveDriverAccount(row: {
   deleted_at?: string | null;
-  status?: string | null;
+  driver_status?: string | null;
 } | null): boolean {
   if (!row) return false;
   if (row.deleted_at) return false;
-  const status = String(row.status ?? "active").trim().toLowerCase();
+  const status = String(row.driver_status ?? "active").trim().toLowerCase();
   return status === "active" || status === "";
 }
 
@@ -41,13 +41,15 @@ export function createDriverAuthenticator(admin: SupabaseClient): AuthenticateDr
     if (!resolved.ok) return { ok: false, reason: "not_driver" };
 
     const driverId = resolved.driver.driver_id;
-    const { data: driverRow } = await admin
+    const { data: driverRow, error: driverRowError } = await admin
       .from("drivers")
-      .select("id, status, deleted_at, first_name")
+      .select("id, driver_status, deleted_at, first_name")
       .eq("id", driverId)
       .maybeSingle();
 
-    if (!isActiveDriverAccount(driverRow)) return { ok: false, reason: "not_driver" };
+    if (driverRowError || !isActiveDriverAccount(driverRow)) {
+      return { ok: false, reason: "not_driver" };
+    }
 
     const { data: profile } = await admin
       .from("profiles")
