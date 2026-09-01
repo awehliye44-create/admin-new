@@ -11,8 +11,8 @@ import {
   buildDemandZoneColorPalette,
   buildDemandLegendItems,
 } from '@/lib/demandZoneMapStyle';
-import type { DemandLevel, DemandZoneSettings } from '../../shared/demandZoneSurgeSSOT';
-import { DEMAND_ZONE_SETTINGS_DEFAULTS } from '../../shared/demandZoneSurgeSSOT';
+import type { DemandLevel, DemandZoneSettings } from '../../../shared/demandZoneSurgeSSOT';
+import { DEMAND_ZONE_SETTINGS_DEFAULTS } from '../../../shared/demandZoneSurgeSSOT';
 
 const BEST_USE_CASES = [
   { label: 'Train stations', icon: Train },
