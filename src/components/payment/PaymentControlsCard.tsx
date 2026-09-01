@@ -225,7 +225,7 @@ export function PaymentControlsCard({
       const [tripRes, paymentsRes, ledgerRes, sessionRes] = await Promise.all([
         supabase
           .from('trips')
-          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, no_show_charge_pence, cancellation_fee_pence, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence, discount_pence, offer_discount_pence, voucher_discount_pence, promotion_discount_pence, discount_source, refund_amount_pence, fare_snapshot_json')
+          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, no_show_charge_pence, cancellation_fee_pence, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence, discount_pence, offer_discount_pence, voucher_discount_pence, discount_source, refund_amount_pence, fare_snapshot_json')
           .eq('id', tripId)
           .single(),
         supabase
