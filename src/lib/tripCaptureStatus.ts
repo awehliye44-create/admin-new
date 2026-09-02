@@ -29,6 +29,7 @@ export type CaptureStatusKind =
   | 'unknown';
 
 export interface TripCaptureFields {
+  accepted_preset_offer_fare_pence?: number | null;
   payment_method?: string | null;
   payment_status?: string | null;
   final_fare_pence?: number | null;

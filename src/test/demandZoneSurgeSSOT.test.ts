@@ -307,7 +307,7 @@ describe('calculate-fare zone surge helpers', () => {
       1.25,
     );
     expect(stale.ok).toBe(false);
-    if (!stale.ok) expect(stale.code).toBe('SURGE_QUOTE_STALE');
+    if (stale.ok === false) expect(stale.code).toBe('SURGE_QUOTE_STALE');
   });
 });
 

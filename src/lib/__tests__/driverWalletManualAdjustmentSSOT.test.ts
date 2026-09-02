@@ -77,7 +77,7 @@ describe('driverWalletManualAdjustmentSSOT', () => {
       reason_note: 'too short',
     });
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.code).toBe('INVALID_AMOUNT');
+    if (bad.ok === false) expect(bad.code).toBe('INVALID_AMOUNT');
 
     const badNote = validateDriverWalletManualAdjustmentInput({
       direction: 'credit',
@@ -86,7 +86,7 @@ describe('driverWalletManualAdjustmentSSOT', () => {
       reason_note: 'short',
     });
     expect(badNote.ok).toBe(false);
-    if (!badNote.ok) expect(badNote.code).toBe('REASON_TOO_SHORT');
+    if (badNote.ok === false) expect(badNote.code).toBe('REASON_TOO_SHORT');
   });
 
   it('owner approval required above threshold for finance staff', () => {

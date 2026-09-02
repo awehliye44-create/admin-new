@@ -15,7 +15,6 @@ describe('buildDriverWalletFleetOverview', () => {
         pending_balance_pence: 100,
         included_in_payout_batch_amount_pence: 50,
         failed_payout_stuck_processing_pence: 25,
-        debt_recovery: { remaining_debt_pence: 50 },
         wallet_status: 'ACTIVE',
       },
       {

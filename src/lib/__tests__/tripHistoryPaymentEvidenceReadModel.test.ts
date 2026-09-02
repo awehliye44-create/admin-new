@@ -49,6 +49,8 @@ describe('tripHistoryPaymentEvidenceReadModel', () => {
           captured_amount_pence: 595,
           released_amount_pence: null,
           refunded_amount_pence: 0,
+          provider_processing_fee_pence: null,
+          fee_status: null,
           provider_state: 'COMPLETED',
           payment_status: 'completed',
           payment_label: 'Captured',
