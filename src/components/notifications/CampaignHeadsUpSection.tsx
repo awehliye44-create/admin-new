@@ -385,7 +385,7 @@ export function CampaignHeadsUpSection() {
 
       if (!asDraft && form.schedule_mode === "instant") {
         const result = await invokeCampaignSend(row.id);
-        if (!result.ok) throw new Error(result.message);
+        if (result.ok === false) throw new Error(result.message);
         toast.success(campaignSendToast(result));
       } else if (asDraft) {
         toast.success("Campaign saved as draft");
@@ -407,7 +407,7 @@ export function CampaignHeadsUpSection() {
     setIsSaving(true);
     try {
       const result = await invokeCampaignSend(campaignId);
-      if (!result.ok) throw new Error(result.message);
+      if (result.ok === false) throw new Error(result.message);
       toast.success(campaignSendToast(result));
       queryClient.invalidateQueries({ queryKey: ["campaign-heads-up-campaigns"] });
     } catch (err) {
