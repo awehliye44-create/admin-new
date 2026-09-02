@@ -41,12 +41,16 @@ export async function loadProtectedDriverLiabilityPence(
     }
 
     const { computeLedgerWalletBalancePence } = await import("./onecabFinanceLedger.ts");
-    const byDriver = new Map<string, Array<{ type?: string | null; amount_pence?: number | null }>>();
+    type LedgerBalanceRow = { type: string; amount_pence: number };
+    const byDriver = new Map<string, LedgerBalanceRow[]>();
     for (const row of ledgerRows ?? []) {
       const id = String(row.driver_id ?? "");
       if (!id) continue;
       const list = byDriver.get(id) ?? [];
-      list.push(row);
+      list.push({
+        type: String(row.type ?? ""),
+        amount_pence: Math.round(Number(row.amount_pence ?? 0)) || 0,
+      });
       byDriver.set(id, list);
     }
     let liveTotal = 0;

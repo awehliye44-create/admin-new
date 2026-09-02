@@ -62,7 +62,8 @@ import {
   type CompanyOutgoingTransferRow,
 } from '../../../shared/adminPayoutLedgerSSOT';
 import type { CompanyBalanceSnapshot } from '../../../shared/companyBalanceSSOT';
-import { COMPANY_BALANCE_ERROR, evaluateCompanyFundsUnderprotection } from '../../../shared/companyBalanceSSOT';
+import { COMPANY_BALANCE_ERROR } from '../../../shared/companyBalanceSSOT';
+import { evaluateCompanyFundsUnderprotection } from '../../../shared/companyFundsUnderprotectionSSOT';
 import type { CompanyPayeePublicDto } from '../../../shared/companyPayeeSSOT';
 import {
   COMPANY_TRANSFER_CATEGORIES,
