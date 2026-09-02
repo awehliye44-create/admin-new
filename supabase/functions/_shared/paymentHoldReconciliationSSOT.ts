@@ -90,7 +90,7 @@ export function classifyPaymentHoldRow(args: {
 function formatCustomerName(row: {
   first_name?: string | null;
   last_name?: string | null;
-} | null): string | null {
+} | null | undefined): string | null {
   if (!row) return null;
   const name = [row.first_name, row.last_name].filter(Boolean).join(" ").trim();
   return name || null;

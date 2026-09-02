@@ -398,7 +398,7 @@ export function explainPaymentSessionsOperationalChipRow(
     : rowNeedsManualRecoveryNow(row);
   if (!matches) return null;
 
-  let actionable_reason = chip;
+  let actionable_reason: string = chip;
   if (chip === 'release_pending') {
     if (upper(row.attention_class) === 'RELEASE_PENDING') actionable_reason = 'release_pending_attention';
     else if (isPaymentSessionsTerminalTripStatus(row.trip_status)) actionable_reason = 'terminal_trip_active_hold';

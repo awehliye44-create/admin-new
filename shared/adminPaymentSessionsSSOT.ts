@@ -118,6 +118,10 @@ export type AdminPaymentSessionsListRow = {
   release_evidence_status: string | null;
   release_evidence_source: string | null;
   release_verified_at: string | null;
+  /** Provider/session resolution stamp — lifecycle only, not FR/wallet. */
+  payment_resolution_status?: string | null;
+  /** True when session needs manual recovery attention. */
+  recovery_required?: boolean | null;
   provider_verification_status: "VERIFIED" | "STALE" | "UNKNOWN" | "UNAVAILABLE";
   session_status: string | null;
   session_status_display: string | null;

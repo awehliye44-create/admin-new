@@ -18,7 +18,7 @@ export type { FinancialModel, FinancialModelScopeResult };
 
 export async function resolveServiceAreaFinancialScope(
   supabase: SupabaseClient,
-  requiredModel: FinancialModel,
+  requiredModel: Exclude<FinancialModel, "FINANCIAL_MODEL_UNKNOWN">,
   requestedServiceAreaId?: string | null,
 ): Promise<FinancialModelScopeResult> {
   const { data, error } = await supabase

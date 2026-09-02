@@ -249,6 +249,8 @@ export function derivePaymentSessionAllowedActions(args: {
   releasedAt?: string | null;
   capturedAt?: string | null;
   canonicalPayablePence?: number | null;
+  /** Informational refund total — does not alone enable actions. */
+  refundedAmountPence?: number | null;
   recoveryCapturedPence?: number | null;
   /** True only when a release request was submitted to Revolut with a request id. */
   providerReleaseRequestSubmitted?: boolean | null;
