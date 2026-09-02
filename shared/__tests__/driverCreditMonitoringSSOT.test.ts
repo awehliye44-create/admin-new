@@ -3,9 +3,12 @@ import {
   classifyDriverCreditHealth,
   DEFAULT_PAYOUT_CLEARING_DELAY_HOURS,
   DRIVER_CREDIT_HEALTH,
+  DRIVER_CREDIT_EXCEPTION_SCOPE,
   DRIVER_CREDIT_PROCESSING_GRACE_MS,
+  DRIVER_CREDIT_RECOMMENDED_OWNER,
   PAYOUT_CREDIT_INTEGRITY,
   aggregateDriverCreditExceptions,
+  buildDriverWalletCreditAuditFromSettlementRows,
   classifyPayoutCreditIntegrity,
   computeExpectedDriverCreditPence,
   evaluatePromotionReconciliationIdentity,
@@ -252,5 +255,57 @@ describe("driverCreditMonitoringSSOT", () => {
     ]);
     expect(agg.exception_trip_count).toBe(2);
     expect(agg.total_difference_pence).toBe(150);
+  });
+
+  it("scopes driver wallet audit — active vs historical; no scary aggregate on backlog", () => {
+    const audit = buildDriverWalletCreditAuditFromSettlementRows([
+      {
+        trip_code: "MK-ACTIVE-1",
+        driver_credit_health: DRIVER_CREDIT_HEALTH.MISSING,
+        expected_driver_credit_pence: 376,
+        actual_driver_credit_pence: 0,
+        credit_difference_pence: -376,
+        credit_eligibility_at: new Date(NOW - 60_000).toISOString(),
+        settlement_status: "settled",
+        completed_at: OLD_CAPTURE,
+      },
+      {
+        trip_code: "MK-HIST-1",
+        driver_credit_health: DRIVER_CREDIT_HEALTH.UNDER_CREDITED,
+        expected_driver_credit_pence: 500,
+        actual_driver_credit_pence: 400,
+        credit_difference_pence: -100,
+        credit_eligibility_at: new Date(NOW - 60_000).toISOString(),
+        settlement_status: "settled",
+        completed_at: OLD_CAPTURE,
+        payout_status: "paid",
+      },
+      {
+        trip_code: "MK-DUP-1",
+        driver_credit_health: DRIVER_CREDIT_HEALTH.DUPLICATE,
+        expected_driver_credit_pence: 400,
+        actual_driver_credit_pence: 800,
+        credit_difference_pence: 400,
+        credit_eligibility_at: new Date(NOW - 60_000).toISOString(),
+        settlement_status: "settled",
+        completed_at: OLD_CAPTURE,
+        payout_status: "paid",
+      },
+    ], { now_ms: NOW });
+
+    expect(audit.summary.active_wallet_impacting_count).toBe(2);
+    expect(audit.summary.resolved_paid_count).toBe(1);
+    expect(audit.summary.historical_backlog_count).toBe(0);
+    expect(audit.summary.show_blocking_alert).toBe(true);
+    expect(audit.summary.active_balance_variance_pence).toBe(776);
+    expect(
+      audit.rows.find((r) => r.trip_code === "MK-ACTIVE-1")?.recommended_owner,
+    ).toBe(DRIVER_CREDIT_RECOMMENDED_OWNER.SETTLEMENT_REPAIR);
+    expect(
+      audit.rows.find((r) => r.trip_code === "MK-HIST-1")?.scope,
+    ).toBe(DRIVER_CREDIT_EXCEPTION_SCOPE.RESOLVED_PAID_HISTORY);
+    expect(
+      audit.rows.find((r) => r.trip_code === "MK-DUP-1")?.scope,
+    ).toBe(DRIVER_CREDIT_EXCEPTION_SCOPE.ACTIVE_WALLET_IMPACTING);
   });
 });
