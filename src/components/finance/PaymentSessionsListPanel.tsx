@@ -15,6 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { AdminPaymentSessionsListRow } from '../../../shared/adminPaymentSessionsSSOT';
+import { isStaleUnverifiedAuthorisationRow } from '../../../shared/paymentSessionsOperationalChipsSSOT';
 import { financeReconciliationTripUrl, tripSettlementRecoverUrl } from '@/lib/financialReconciliationRoutes';
 import { formatAgeMinutes, formatNullablePence } from '@/lib/formatNullablePence';
 import { PaymentSessionsRowActions } from '@/components/finance/PaymentSessionsRowActions';
@@ -45,6 +46,9 @@ export type PaymentSessionsListPanelProps = {
 };
 
 function statusLabel(row: AdminPaymentSessionsListRow): string {
+  if (isStaleUnverifiedAuthorisationRow(row)) {
+    return 'Authorisation expired/unverified';
+  }
   return row.session_status_display
     ?? row.session_status_label
     ?? row.session_status
@@ -210,6 +214,17 @@ export function PaymentSessionsListPanel({
                     <TableRow>
                       <TableCell colSpan={13} className="bg-muted/40 text-xs">
                         <div className="space-y-2">
+                          {row.authorised_amount_pence != null && Number(row.authorised_amount_pence) > 0 ? (
+                            <div className="rounded border bg-background px-3 py-2">
+                              <p className="text-muted-foreground">Authorised hold amount</p>
+                              <p className="text-sm font-semibold tabular-nums">
+                                {formatNullablePence(row.authorised_amount_pence)}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                Not captured · Not revenue
+                              </p>
+                            </div>
+                          ) : null}
                           <div className="flex flex-wrap gap-3 text-muted-foreground">
                             <span>order: {row.provider_order_id?.slice(0, 12) ?? '—'}</span>
                             <span>age: {formatAgeMinutes(row.age_minutes)}</span>

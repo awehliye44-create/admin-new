@@ -25,7 +25,7 @@ export function useAdminPaymentSessions(
   request: AdminPaymentSessionsListRequest,
   enabled = true,
 ) {
-  const tab = request.tab ?? 'overview';
+  const tab = request.tab ?? 'captured';
   return useQuery({
     queryKey: ['admin-payment-sessions', request],
     queryFn: () =>

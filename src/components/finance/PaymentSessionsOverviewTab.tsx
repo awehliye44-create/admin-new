@@ -55,7 +55,6 @@ export function PaymentSessionsOverviewTab({
 
   const capturedTotal = summary.provider_captured_total_pence
     ?? summary.total_customer_revenue_captured_pence;
-  const authorisedTotal = summary.total_authorised_pence;
   const refundedTotal = summary.refunded_total_pence;
   const feesTotal = summary.provider_fees_total_pence;
   const openIssues = countOpenPaymentSessionIssues(summary);
@@ -75,20 +74,6 @@ export function PaymentSessionsOverviewTab({
       value: formatNullablePence(capturedTotal, currencyCode),
       subtitle: summary.captured_count > 0 ? `${summary.captured_count} sessions` : undefined,
       onClick: () => onNavigateSessions('captured'),
-    });
-  }
-
-  if (authorisedTotal != null || summary.active_hold_count > 0) {
-    cards.push({
-      key: 'authorised',
-      label: 'Authorised / held',
-      value: authorisedTotal != null
-        ? formatNullablePence(authorisedTotal, currencyCode)
-        : String(summary.active_hold_count),
-      subtitle: summary.active_hold_count > 0
-        ? `${summary.active_hold_count} active holds`
-        : undefined,
-      onClick: () => onNavigateSessions('authorised'),
     });
   }
 

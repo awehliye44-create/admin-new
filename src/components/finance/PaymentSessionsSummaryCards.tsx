@@ -13,7 +13,7 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** PS-owned summary cards — customer payment lifecycle totals only. */
+/** PS-owned summary cards — collected money lifecycle only (never authorisations). */
 export function PaymentSessionsSummaryCards({
   summary,
   currencyCode = 'GBP',
@@ -26,18 +26,13 @@ export function PaymentSessionsSummaryCards({
 
   const capturedTotal = summary.provider_captured_total_pence
     ?? summary.total_customer_revenue_captured_pence;
-  const authorisedActive = summary.total_authorised_pence;
   const releasedTotal = summary.released_buffer_total_pence;
   const refundedTotal = summary.refunded_total_pence;
   const feesTotal = summary.provider_fees_total_pence;
 
   return (
-    <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+    <div className="grid gap-2 grid-cols-2 lg:grid-cols-4">
       <SummaryCard label="Captured total" value={fmt(capturedTotal)} />
-      <SummaryCard
-        label="Authorised active total"
-        value={authorisedActive != null ? fmt(authorisedActive) : String(summary.active_hold_count ?? '—')}
-      />
       <SummaryCard label="Released total" value={fmt(releasedTotal)} />
       <SummaryCard label="Refunded total" value={fmt(refundedTotal)} />
       <SummaryCard label="Provider fees" value={fmt(feesTotal)} />

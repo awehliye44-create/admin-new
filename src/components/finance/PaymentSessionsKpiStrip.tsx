@@ -45,12 +45,6 @@ export function PaymentSessionsKpiStrip({
       hint: 'Confirmed captures only',
     },
     {
-      id: 'authorised_total',
-      label: 'Authorised / held',
-      value: formatNullablePence(summary.total_authorised_pence, currencyCode),
-      onDrill: () => onDrill({ sessionFilter: 'authorised' }),
-    },
-    {
       id: 'refunded_total',
       label: 'Refunded',
       value: formatNullablePence(summary.refunded_total_pence, currencyCode),
@@ -65,7 +59,7 @@ export function PaymentSessionsKpiStrip({
     {
       id: 'active',
       label: 'Active holds',
-      value: String(summary.active_hold_count),
+      value: String(summary.verified_active_hold_count ?? summary.active_hold_count ?? 0),
       onDrill: () => onDrill({ issueFilter: 'active_holds' }),
     },
   ];

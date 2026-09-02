@@ -30,6 +30,7 @@ import {
 } from '@/components/finance/PaymentSessionsFilterBar';
 import { PaymentSessionsListPanel } from '@/components/finance/PaymentSessionsListPanel';
 import { PaymentSessionsOperationalChips } from '@/components/finance/PaymentSessionsOperationalChips';
+import { PaymentSessionsOperationalChipAuditPanel } from '@/components/finance/PaymentSessionsOperationalChipAuditPanel';
 import { PaymentSessionsSummaryCards } from '@/components/finance/PaymentSessionsSummaryCards';
 import {
   useAdminPaymentSessions,
@@ -59,6 +60,8 @@ import {
   DEFAULT_SERVICE_AREA_SELECTION,
   type ServiceAreaFinanceSelection,
 } from '@/components/finance/ServiceAreaFinanceFilter';
+import { useServiceAreas } from '@/hooks/useServiceAreas';
+import { FINANCIAL_MODEL, filterServiceAreasByFinancialModel } from '../../shared/financialModelScopeSSOT';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -112,9 +115,48 @@ export default function PaymentSessions() {
     providerFeesPending: false,
     captureFailed: false,
   }));
-  const [refreshProviderState, setRefreshProviderState] = useState(false);
+  const [financeScopeReady, setFinanceScopeReady] = useState(false);
+  const [providerRefreshActive, setProviderRefreshActive] = useState(false);
   const [forceRefreshOpen, setForceRefreshOpen] = useState(false);
   const [listOffset, setListOffset] = useState(0);
+
+  const { data: serviceAreas = [], isLoading: serviceAreasLoading } = useServiceAreas({ activeOnly: true });
+
+  // Never load unscoped — all-service-area list is slow and feels stuck on large fleets (FR SSOT).
+  useEffect(() => {
+    if (financeScopeReady || serviceAreasLoading) return;
+    if (filters.serviceFilter.regionId || filters.serviceFilter.serviceAreaId) {
+      setFinanceScopeReady(true);
+      return;
+    }
+    const platformAreas = filterServiceAreasByFinancialModel(
+      serviceAreas,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+    );
+    const first = platformAreas[0];
+    if (first) {
+      const cc = first.region?.currency_code || first.currency_code || null;
+      setFilters((f) => ({
+        ...f,
+        serviceFilter: {
+          serviceAreaId: first.id,
+          regionId: first.region_id,
+          currencyCode: cc,
+        },
+      }));
+    }
+    setFinanceScopeReady(true);
+  }, [
+    financeScopeReady,
+    serviceAreasLoading,
+    serviceAreas,
+    filters.serviceFilter.regionId,
+    filters.serviceFilter.serviceAreaId,
+  ]);
+
+  const triggerProviderListRefresh = useCallback(() => {
+    setProviderRefreshActive(true);
+  }, []);
 
   const [actingId, setActingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -160,9 +202,9 @@ export default function PaymentSessions() {
       recovery_pending: filters.recoveryPending || null,
       provider_fees_pending: filters.providerFeesPending || null,
       capture_failed: filters.captureFailed || null,
-      ...(refreshProviderState ? { refresh_provider_state: true as const } : {}),
+      ...(providerRefreshActive ? { refresh_provider_state: true as const } : {}),
     }),
-    [paymentSessionId, providerOrderId, filters, listOffset, refreshProviderState, serviceFilter],
+    [paymentSessionId, providerOrderId, filters, listOffset, providerRefreshActive, serviceFilter],
   );
 
   const listRequest = useMemo(
@@ -170,13 +212,16 @@ export default function PaymentSessions() {
     [navTab, opChip, baseRequest],
   );
 
-  const { data, isLoading, isFetching, error, refetch } = useAdminPaymentSessions(listRequest, true);
+  const { data, isLoading, isFetching, error, refetch } = useAdminPaymentSessions(
+    listRequest,
+    financeScopeReady,
+  );
 
   useEffect(() => {
-    if (!refreshProviderState) return;
+    if (!providerRefreshActive) return;
     if (isFetching || isLoading) return;
-    setRefreshProviderState(false);
-  }, [refreshProviderState, isFetching, isLoading]);
+    setProviderRefreshActive(false);
+  }, [providerRefreshActive, isFetching, isLoading, data, error]);
 
   const summary = data?.summary;
   const rawRows = data?.rows ?? [];
@@ -433,24 +478,29 @@ export default function PaymentSessions() {
 
   const runForceRefreshProvider = async () => {
     setForceRefreshOpen(false);
-    setRefreshProviderState(true);
+    triggerProviderListRefresh();
     try {
-      const { error: invokeErr } = await supabase.functions.invoke('admin-refresh-payment-sessions', {
+      const { data: refreshData, error: invokeErr } = await supabase.functions.invoke('admin-refresh-payment-sessions', {
         body: { service_area_id: serviceFilter.serviceAreaId || null },
       });
+      if (refreshData && typeof refreshData === 'object' && (refreshData as { ok?: boolean }).ok === false) {
+        throw new Error(
+          typeof (refreshData as { error?: unknown }).error === 'string'
+            ? (refreshData as { error: string }).error
+            : 'Provider refresh failed',
+        );
+      }
       if (invokeErr) throw invokeErr;
       toast.success('Provider state refreshed');
-      await refetch();
     } catch (err) {
       toast.error(`Refresh failed: ${(err as Error).message}`);
-    } finally {
-      setRefreshProviderState(false);
+      setProviderRefreshActive(false);
     }
   };
 
   const listPanelProps = {
     rows: displayRows,
-    isLoading,
+    isLoading: !financeScopeReady || isLoading,
     isFetching,
     error: error as Error | null,
     filteredTotal,
@@ -471,8 +521,7 @@ export default function PaymentSessions() {
     onRequestRecovery: runRequestRecovery,
     onAbandonRecovery: runAbandonRecovery,
     onRefreshProvider: () => {
-      setRefreshProviderState(true);
-      void refetch();
+      triggerProviderListRefresh();
     },
   };
 
@@ -494,6 +543,9 @@ export default function PaymentSessions() {
                 patchSearchParams(buildPaymentSessionsNavPatch({ tab, opFilter }));
               }}
             />
+            {(opChip === 'release_pending' || opChip === 'recovery_required') && (
+              <PaymentSessionsOperationalChipAuditPanel summary={summary} opChip={opChip} />
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
@@ -582,7 +634,7 @@ export default function PaymentSessions() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setForceRefreshOpen(false)}>Cancel</Button>
-            <Button onClick={() => void runForceRefreshProvider()} disabled={refreshProviderState}>
+            <Button onClick={() => void runForceRefreshProvider()} disabled={providerRefreshActive || isFetching}>
               Refresh provider
             </Button>
           </DialogFooter>

@@ -52,7 +52,7 @@ describe('paymentSessionsNavigationSSOT', () => {
   it('redirects legacy tabs to lifecycle tabs', () => {
     expect(paymentSessionsLegacyTabRedirect('overview')).toBe('/payment-sessions?tab=captured');
     expect(paymentSessionsLegacyTabRedirect('active_holds')).toBe(
-      '/payment-sessions?tab=captured&opFilter=release_pending',
+      '/payment-sessions?tab=captured&opFilter=active_holds',
     );
     expect(paymentSessionsLegacyTabRedirect('captured')).toBeNull();
   });
@@ -75,13 +75,30 @@ describe('paymentSessionsNavigationSSOT', () => {
   });
 
   it('shows operational chips only when count > 0', () => {
-    const chips = buildPaymentSessionsOperationalChips({
-      active_hold_count: 3,
+    const releaseChips = buildPaymentSessionsOperationalChips({
+      actionable_release_pending_count: 3,
+      verified_active_hold_count: 5,
+      active_hold_count: 5,
+      release_failed_count: 1,
       active_action_required_count: 1,
+      manual_recovery_required_count: 2,
       recovery_pending_count: 2,
       red: 1,
     } as never);
-    expect(chips.map((c) => c.id)).toEqual(['release_pending', 'release_failed', 'recovery_required']);
+    expect(releaseChips.map((c) => c.id)).toEqual(['release_pending', 'release_failed', 'recovery_required']);
+    expect(releaseChips.find((c) => c.id === 'release_pending')?.label).toBe('Active releases');
+
+    const holdChips = buildPaymentSessionsOperationalChips({
+      actionable_release_pending_count: 0,
+      verified_active_hold_count: 2,
+      active_hold_count: 2,
+      active_action_required_count: 0,
+      manual_recovery_required_count: 0,
+      recovery_pending_count: 0,
+      red: 0,
+    } as never);
+    expect(holdChips.map((c) => c.id)).toEqual(['active_holds']);
+    expect(holdChips[0]?.label).toBe('Active holds');
   });
 
   it('normalizes legacy URLs', () => {
@@ -90,7 +107,7 @@ describe('paymentSessionsNavigationSSOT', () => {
     ).toBe('/payment-sessions?tab=captured');
     expect(
       normalizePaymentSessionsSearchParams(new URLSearchParams('tab=issues&issueFilter=active_holds')),
-    ).toBe('/payment-sessions?tab=captured&opFilter=release_pending');
+    ).toBe('/payment-sessions?tab=captured&opFilter=active_holds');
     expect(
       normalizePaymentSessionsSearchParams(new URLSearchParams('paymentSessionId=ps-1')),
     ).toBe('/payment-sessions?paymentSessionId=ps-1&tab=captured');

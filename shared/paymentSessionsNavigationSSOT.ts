@@ -9,16 +9,22 @@ import type {
   AdminPaymentSessionsTab,
 } from './adminPaymentSessionsSSOT.ts';
 import {
-  rowBelongsInActiveHoldsTab,
   rowBelongsInCapturedTab,
   rowBelongsInRefundedTab,
   rowBelongsInReleasedTab,
 } from './paymentSessionsDisplaySSOT.ts';
+import {
+  isVerifiedCurrentActiveHoldRow,
+  rowNeedsActiveReleaseNow,
+  rowNeedsManualRecoveryNow,
+  rowNeedsReleaseFailedNow,
+} from './paymentSessionsOperationalChipsSSOT.ts';
 
 export type PaymentSessionsNavTab = 'captured' | 'released' | 'refunded' | 'recovery';
 
 export type PaymentSessionsOpChip =
   | 'all'
+  | 'active_holds'
   | 'release_pending'
   | 'release_failed'
   | 'refund_pending'
@@ -34,11 +40,12 @@ export const PAYMENT_SESSIONS_NAV_TABS: PaymentSessionsNavTab[] = [
 
 export const PAYMENT_SESSIONS_OP_CHIP_LABELS: Record<PaymentSessionsOpChip, string> = {
   all: 'All',
-  release_pending: 'Release pending',
+  active_holds: 'Active holds',
+  release_pending: 'Active releases',
   release_failed: 'Release failed',
   refund_pending: 'Refund pending',
   refund_failed: 'Refund failed',
-  recovery_required: 'Recovery required',
+  recovery_required: 'Manual recovery',
 };
 
 const LEGACY_TAB_MAP: Record<string, PaymentSessionsNavTab> = {
@@ -60,7 +67,7 @@ const LEGACY_TAB_MAP: Record<string, PaymentSessionsNavTab> = {
 
 const LEGACY_OP_FROM_ISSUE: Record<string, PaymentSessionsOpChip> = {
   action_required: 'release_failed',
-  active_holds: 'release_pending',
+  active_holds: 'active_holds',
   recovering: 'recovery_required',
   failed: 'release_failed',
   capture_failed: 'refund_failed',
@@ -81,7 +88,7 @@ export function parsePaymentSessionsOpChip(raw: string | null | undefined): Paym
   if (raw === 'recovery_pending') return 'recovery_required';
   if (raw === 'capture_failed') return 'refund_failed';
   if (raw === 'release_failed') return 'release_failed';
-  if (raw === 'active_holds' || raw === 'active_hold') return 'release_pending';
+  if (raw === 'active_holds' || raw === 'active_hold') return 'active_holds';
   if (raw && (Object.keys(PAYMENT_SESSIONS_OP_CHIP_LABELS) as PaymentSessionsOpChip[]).includes(raw as PaymentSessionsOpChip)) {
     return raw as PaymentSessionsOpChip;
   }
@@ -93,7 +100,7 @@ export function paymentSessionsLegacyTabRedirect(tab: string | null | undefined)
   if (!tab || PAYMENT_SESSIONS_NAV_TABS.includes(tab as PaymentSessionsNavTab)) return null;
   const mapped = tab ? LEGACY_TAB_MAP[tab] : null;
   if (!mapped) return '/payment-sessions?tab=captured';
-  if (tab === 'active_holds') return '/payment-sessions?tab=captured&opFilter=release_pending';
+  if (tab === 'active_holds') return '/payment-sessions?tab=captured&opFilter=active_holds';
   if (tab === 'failed_recovery') return '/payment-sessions?tab=recovery&opFilter=recovery_required';
   return `/payment-sessions?tab=${mapped}`;
 }
@@ -110,7 +117,7 @@ export function resolveLegacyPaymentSessionsIssueParams(
     return LEGACY_OP_FROM_ISSUE[issueFilter];
   }
   const sessionFilter = searchParams.get('sessionFilter');
-  if (sessionFilter === 'authorised') return 'release_pending';
+  if (sessionFilter === 'authorised') return 'active_holds';
   return null;
 }
 
@@ -124,7 +131,7 @@ export function resolveLegacyPaymentSessionsTabMapping(tab: string | null | unde
   }
   if (tab && LEGACY_TAB_MAP[tab]) {
     const navTab = LEGACY_TAB_MAP[tab];
-    if (tab === 'active_holds') return { navTab: 'captured', opChip: 'release_pending' };
+    if (tab === 'active_holds') return { navTab: 'captured', opChip: 'active_holds' };
     if (tab === 'failed_recovery') return { navTab: 'recovery', opChip: 'recovery_required' };
     if (tab === 'captured') return { navTab: 'captured' };
     return { navTab };
@@ -174,6 +181,10 @@ export function normalizePaymentSessionsSearchParams(
       changed = true;
     }
     if (legacyOp === 'release_pending' && next.get('tab') !== 'captured') {
+      next.set('tab', 'captured');
+      changed = true;
+    }
+    if (legacyOp === 'active_holds' && next.get('tab') !== 'captured') {
       next.set('tab', 'captured');
       changed = true;
     }
@@ -229,15 +240,15 @@ export function isCaptureFailedRow(row: AdminPaymentSessionsListRow): boolean {
 }
 
 export function isReleaseFailedRow(row: AdminPaymentSessionsListRow): boolean {
-  return row.attention_class === 'RELEASE_FAILED';
+  return rowNeedsReleaseFailedNow(row);
 }
 
 export function isReleasePendingRow(row: AdminPaymentSessionsListRow): boolean {
-  return rowBelongsInActiveHoldsTab(row) && !isReleaseFailedRow(row);
+  return rowNeedsActiveReleaseNow(row);
 }
 
 export function isRecoveringRow(row: AdminPaymentSessionsListRow): boolean {
-  return row.attention_class === 'RECOVERY_PENDING';
+  return rowNeedsManualRecoveryNow(row);
 }
 
 export function isRefundPendingRow(row: AdminPaymentSessionsListRow): boolean {
@@ -258,6 +269,7 @@ export function rowMatchesOpChip(
   chip: PaymentSessionsOpChip,
 ): boolean {
   if (chip === 'all') return true;
+  if (chip === 'active_holds') return isVerifiedCurrentActiveHoldRow(row);
   if (chip === 'release_pending') return isReleasePendingRow(row);
   if (chip === 'release_failed') return isReleaseFailedRow(row);
   if (chip === 'refund_pending') return isRefundPendingRow(row);
@@ -294,9 +306,18 @@ export function buildPaymentSessionsBackendRequest(args: {
 
   if (opChip === 'release_failed') req.release_failed = true;
   if (opChip === 'refund_failed') req.capture_failed = true;
+  if (opChip === 'release_pending') {
+    tab = 'captured';
+    req.operational_chip = 'release_pending';
+  }
+  if (opChip === 'active_holds') {
+    tab = 'captured';
+    req.operational_chip = 'active_holds';
+  }
   if (opChip === 'recovery_required') {
     tab = 'failed_recovery';
     req.recovery_pending = true;
+    req.operational_chip = 'recovery_required';
   }
 
   req.tab = tab;
@@ -310,7 +331,7 @@ export function filterPaymentSessionsRowsForNav(
 ): AdminPaymentSessionsListRow[] {
   let filtered = rows;
   if (navTab === 'captured') {
-    filtered = rows.filter((r) => rowBelongsInCapturedTab(r) || rowBelongsInActiveHoldsTab(r));
+    filtered = rows.filter((r) => rowBelongsInCapturedTab(r) || rowNeedsActiveReleaseNow(r));
   } else if (navTab === 'released') {
     filtered = rows.filter(rowBelongsInReleasedTab);
   } else if (navTab === 'refunded') {
@@ -330,7 +351,7 @@ export function needsClientSidePaymentSessionsNavFilter(args: {
   search: string;
 }): boolean {
   if (args.search.trim()) return true;
-  if (args.opChip === 'release_pending' || args.opChip === 'refund_pending') return true;
+  if (args.opChip === 'refund_pending') return true;
   if (args.navTab === 'recovery' && args.opChip === 'all') return true;
   return false;
 }
@@ -348,10 +369,12 @@ export function countPaymentSessionsOpChip(
 ): number | null {
   if (!summary) return null;
   switch (chip) {
+    case 'active_holds':
+      return summary.verified_active_hold_count ?? summary.active_hold_count ?? 0;
     case 'release_pending':
-      return summary.active_hold_count ?? 0;
+      return summary.actionable_release_pending_count ?? 0;
     case 'release_failed':
-      return summary.active_action_required_count ?? summary.red ?? 0;
+      return summary.release_failed_count ?? 0;
     case 'refund_pending':
       return summary.outstanding_customer_overcharge_pence != null && summary.outstanding_customer_overcharge_pence > 0
         ? 1
@@ -359,7 +382,7 @@ export function countPaymentSessionsOpChip(
     case 'refund_failed':
       return null;
     case 'recovery_required':
-      return summary.recovery_pending_count ?? summary.automatically_recovering_count ?? 0;
+      return summary.manual_recovery_required_count ?? summary.recovery_pending_count ?? 0;
     default:
       return null;
   }
@@ -381,17 +404,27 @@ export function buildPaymentSessionsOperationalChips(
   if (!summary) return [];
   const chips: PaymentSessionsOperationalChip[] = [];
 
-  const releasePending = summary.active_hold_count ?? 0;
-  if (releasePending > 0) {
+  const releaseNeeded = summary.actionable_release_pending_count ?? 0;
+  if (releaseNeeded > 0) {
     chips.push({
       id: 'release_pending',
       label: PAYMENT_SESSIONS_OP_CHIP_LABELS.release_pending,
-      count: releasePending,
+      count: releaseNeeded,
       navTab: 'captured',
     });
   }
 
-  const releaseFailed = summary.active_action_required_count ?? summary.red ?? 0;
+  const verifiedActive = summary.verified_active_hold_count ?? summary.active_hold_count ?? 0;
+  if (verifiedActive > 0 && releaseNeeded === 0) {
+    chips.push({
+      id: 'active_holds',
+      label: PAYMENT_SESSIONS_OP_CHIP_LABELS.active_holds,
+      count: verifiedActive,
+      navTab: 'captured',
+    });
+  }
+
+  const releaseFailed = summary.release_failed_count ?? 0;
   if (releaseFailed > 0) {
     chips.push({
       id: 'release_failed',
@@ -401,7 +434,7 @@ export function buildPaymentSessionsOperationalChips(
     });
   }
 
-  const recoveryRequired = summary.recovery_pending_count ?? summary.automatically_recovering_count ?? 0;
+  const recoveryRequired = summary.manual_recovery_required_count ?? 0;
   if (recoveryRequired > 0) {
     chips.push({
       id: 'recovery_required',
@@ -470,7 +503,7 @@ export function resolvePaymentSessionsFilteredTotal(args: {
   if (args.navTab === 'released') return args.summary?.released_count ?? args.backendFilteredTotal ?? args.displayRowCount;
   if (args.navTab === 'refunded') return args.summary?.refunded_count ?? args.backendFilteredTotal ?? args.displayRowCount;
   if (args.navTab === 'recovery') {
-    return (args.summary?.recovery_pending_count ?? 0)
+    return (args.summary?.manual_recovery_required_count ?? args.summary?.recovery_pending_count ?? 0)
       + (args.summary?.failed_recovery_count ?? 0);
   }
   return args.backendFilteredTotal ?? args.displayRowCount;
