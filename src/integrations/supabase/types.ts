@@ -23508,28 +23508,6 @@ export type Database = {
           },
         ]
       }
-      admin_pending_customer_signups: {
-        Row: {
-          auth_email_confirmed_at: string | null
-          auth_phone_confirmed_at: string | null
-          created_at: string | null
-          email: string | null
-          email_verified_at: string | null
-          expires_at: string | null
-          first_name: string | null
-          id: string | null
-          last_name: string | null
-          legacy_customer_code: string | null
-          phone: string | null
-          phone_verified_at: string | null
-          record_type: string | null
-          signup_source: string | null
-          status: string | null
-          updated_at: string | null
-          user_id: string | null
-        }
-        Relationships: []
-      }
       admin_riders_with_trip_stats: {
         Row: {
           created_at: string | null
@@ -25679,6 +25657,28 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      admin_list_pending_customer_signups: {
+        Args: never
+        Returns: {
+          auth_email_confirmed_at: string
+          auth_phone_confirmed_at: string
+          created_at: string
+          email: string
+          email_verified_at: string
+          expires_at: string
+          first_name: string
+          id: string
+          last_name: string
+          legacy_customer_code: string
+          phone: string
+          phone_verified_at: string
+          record_type: string
+          signup_source: string
+          status: string
+          updated_at: string
+          user_id: string
+        }[]
       }
       admin_live_chat_driver_identity: {
         Args: { p_ids: string[] }
