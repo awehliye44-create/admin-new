@@ -39,7 +39,7 @@ export async function fetchDriverPayoutEligibility(
       .maybeSingle(),
     supabase
       .from("driver_wallet_ledger")
-      .select("id, type, amount_pence, related_trip_id, created_at")
+      .select("id, type, amount_pence, related_trip_id, created_at, metadata")
       .eq("driver_id", args.driver_id),
     supabase
       .from("driver_early_cashouts")
@@ -66,10 +66,12 @@ export async function fetchDriverPayoutEligibility(
     reservedPayout = 0;
   }
 
-  const earningRows = ledger.filter((r) =>
-    PAYOUT_ELIGIBLE_LEDGER_TYPES.has(String(r.type ?? "").toUpperCase())
-    && Number(r.amount_pence ?? 0) > 0
-  );
+  const earningRows = ledger.filter((r) => {
+    const type = String(r.type ?? "").toUpperCase();
+    const amount = Number(r.amount_pence ?? 0);
+    if (type === "ADMIN_WALLET_CREDIT" && amount > 0) return true;
+    return PAYOUT_ELIGIBLE_LEDGER_TYPES.has(type) && amount > 0;
+  });
 
   const tripIds = [...new Set(
     earningRows.map((r) => String(r.related_trip_id ?? "")).filter(Boolean),
@@ -96,7 +98,7 @@ export async function fetchDriverPayoutEligibility(
         ? supabase
           .from("payment_sessions")
           .select(
-            "id, trip_id, captured_amount_pence, refunded_amount_pence, status, captured_at, provider_state, payment_method",
+            "id, trip_id, captured_amount_pence, refunded_amount_pence, status, captured_at, provider_state, payment_method, metadata",
           )
           .in("trip_id", tripIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
@@ -129,7 +131,7 @@ export async function fetchDriverPayoutEligibility(
     if (sessionIdsFromTrips.length > 0) {
       const { data: sessionsById } = await supabase
         .from("payment_sessions")
-        .select("id, trip_id, captured_amount_pence, refunded_amount_pence, status, captured_at, provider_state, payment_method")
+        .select("id, trip_id, captured_amount_pence, refunded_amount_pence, status, captured_at, provider_state, payment_method, metadata")
         .in("id", sessionIdsFromTrips);
       for (const s of sessionsById ?? []) {
         sessionById.set(String(s.id), s as Record<string, unknown>);
@@ -192,6 +194,11 @@ export async function fetchDriverPayoutEligibility(
     const allocFromDes = Math.max(0, Number(des?.allocated_amount_pence ?? 0));
     const allocated = Math.max(allocFromPila, allocFromDes);
     const lifecycle = String(des?.settlement_lifecycle_status ?? "").toUpperCase();
+    const ledgerType = String(row.type ?? "").toUpperCase();
+    const rowMetadata = (row as { metadata?: Record<string, unknown> | null }).metadata;
+    const adminWalletPayoutEligible = ledgerType === "ADMIN_WALLET_CREDIT"
+      ? rowMetadata?.payout_eligible !== false
+      : null;
     const capturedRaw = session?.captured_amount_pence;
     const captured = capturedRaw == null ? null : Number(capturedRaw);
     const refunded = Number(session?.refunded_amount_pence ?? 0);
@@ -204,11 +211,19 @@ export async function fetchDriverPayoutEligibility(
       ? null
       : Math.max(0, Number(trip.driver_net_pence));
 
+    const sessionMeta = session?.metadata && typeof session.metadata === "object"
+      ? session.metadata as Record<string, unknown>
+      : null;
+    const firstCapturedAt = sessionMeta?.first_captured_at
+      ? String(sessionMeta.first_captured_at)
+      : null;
+
     return {
       ledger_entry_id: String(row.id),
       trip_id: tripId,
-      ledger_type: String(row.type ?? ""),
+      ledger_type: ledgerType,
       amount_pence: Math.max(0, Number(row.amount_pence ?? 0)),
+      admin_wallet_payout_eligible: adminWalletPayoutEligible,
       trip_exists: Boolean(trip),
       trip_status: trip?.status ? String(trip.status) : null,
       trip_cancelled: Boolean(trip?.cancelled_at),
@@ -234,9 +249,11 @@ export async function fetchDriverPayoutEligibility(
         ? Math.max(refunded, 1)
         : 0,
       chargeback_hold: sessionStatus.includes("chargeback") || sessionStatus.includes("dispute"),
-      allocated_to_payout: des?.allocated_to_payout === true || allocated >= Math.max(0, Number(row.amount_pence ?? 0)),
+      allocated_to_payout: des?.allocated_to_payout === true
+        || allocated >= Math.max(0, Number(row.amount_pence ?? 0)),
       allocated_amount_pence: allocated,
       paid_in_batch_id: (des?.paid_in_batch_id as string | null) ?? null,
+      paid_in_payout_item_id: (des?.paid_in_payout_item_id as string | null) ?? null,
       payout_processing: lifecycle === "INCLUDED_IN_PAYOUT" && !des?.paid_in_payout_item_id,
       des_present: Boolean(des),
       des_eligible_for_payout: des?.eligible_for_payout === true,
@@ -253,9 +270,10 @@ export async function fetchDriverPayoutEligibility(
       settled_at: (des?.settled_at as string | null) ?? null,
       des_settlement_status: des?.settlement_status ? String(des.settlement_status) : null,
       provider_state: session?.provider_state ? String(session.provider_state) : null,
-      captured_at: (session?.captured_at as string | null)
-        ?? (des?.capture_time as string | null)
-        ?? null,
+      captured_at: (session?.captured_at as string | null) ?? null,
+      first_captured_at: firstCapturedAt,
+      capture_time: (des?.capture_time as string | null) ?? null,
+      trip_completed_at: trip?.completed_at ? String(trip.completed_at) : null,
       earning_credited_at: (row as { created_at?: string | null }).created_at ?? null,
     };
   });

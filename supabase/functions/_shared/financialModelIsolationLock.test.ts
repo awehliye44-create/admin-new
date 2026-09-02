@@ -108,8 +108,9 @@ Deno.test("financial model isolation lock", async () => {
   assert(chargeFee.includes("FINANCIAL_MODEL_VIOLATION"));
   assert(capture.includes("FINANCIAL_MODEL_VIOLATION"));
   assert(adjustment.includes("FINANCIAL_MODEL_VIOLATION"));
-  assert(eligibility.includes('financialModel.includes("DRIVER_COLLECTED")'));
-  assert(eligibility.includes('financialModel === "PLATFORM_COLLECTED"'));
+  assert(eligibility.includes("resolveFinancialModelStamp"));
+  assert(eligibility.includes("FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET"));
+  assert(eligibility.includes("FINANCIAL_MODEL.PLATFORM_COLLECTED"));
   assert(stopWorkflow.includes("mayPostDriverWalletLedger"));
   assert(stopWorkflow.includes('tripFinancialModel === "PLATFORM_COLLECTED"'));
   assert(lostPropertyTransition.includes("financial_model: financialModel"));

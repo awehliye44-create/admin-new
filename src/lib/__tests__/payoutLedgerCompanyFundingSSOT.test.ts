@@ -162,6 +162,8 @@ describe("post-Slice-8 payout ledger company funding SSOT", () => {
     });
     expect(audit.find((r) => r.kind === "NET_COMMISSION")?.amount_pence)
       .toBe(EXPECTED_NET_COMMISSION_PENCE);
+    expect(audit.find((r) => r.kind === "NET_COMMISSION")?.label)
+      .toBe("Recognised ONECAB Net Commission");
     const unclassified = audit.find((r) => r.kind === "UNATTRIBUTED_CASH");
     expect(unclassified?.amount_pence).toBe(EXPECTED_OTHER_COMPANY_CASH_PENCE);
     expect(unclassified?.label).toBe("Unclassified Company Cash");

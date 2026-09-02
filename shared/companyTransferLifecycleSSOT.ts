@@ -6,6 +6,11 @@
  * no source debit, no COMPLETED transfers, no driver wallet mutation.
  */
 
+import {
+  COMPANY_FUNDS_UNDERPROTECTED,
+  evaluateCompanyFundsUnderprotection,
+} from "./companyFundsUnderprotectionSSOT.ts";
+
 export const SLICE11 = 11 as const;
 
 /** Canonical lifecycle statuses (backend-controlled fail-closed). */
@@ -81,6 +86,7 @@ export const COMPANY_TRANSFER_GATE_REASON = {
   LIVE_EXECUTION_DISABLED: "LIVE_COMPANY_TRANSFER_EXECUTION_DISABLED",
   FUNDING_SNAPSHOT_MISMATCH: "FUNDING_SNAPSHOT_MISMATCH",
   CLASSIFIED_COMPANY_CASH_UNAVAILABLE: "CLASSIFIED_COMPANY_CASH_UNAVAILABLE",
+  DRIVER_LIABILITIES_EXCEED_REVOLUT_SOURCE: "DRIVER_LIABILITIES_EXCEED_REVOLUT_SOURCE",
 } as const;
 
 export type CompanyTransferGateReasonCode =
@@ -106,6 +112,7 @@ export const COMPANY_TRANSFER_GATE_REASON_LABELS: Record<string, string> = {
   LIVE_COMPANY_TRANSFER_EXECUTION_DISABLED: "Company transfer execution is disabled",
   FUNDING_SNAPSHOT_MISMATCH: "Funding snapshot no longer matches available funds",
   CLASSIFIED_COMPANY_CASH_UNAVAILABLE: "Classified company cash is unavailable",
+  DRIVER_LIABILITIES_EXCEED_REVOLUT_SOURCE: COMPANY_FUNDS_UNDERPROTECTED.MESSAGE,
 };
 
 export function companyTransferGateReasonLabel(
@@ -195,6 +202,8 @@ export type CompanyTransferFundingSnapshot = {
   reserve_policy_id: string | null;
   final_company_available_pence: number | null;
   final_available_authoritative: boolean;
+  company_funds_underprotected?: boolean;
+  company_funds_underprotected_message?: string | null;
   source_account_id: string | null;
   rpc_versions: {
     slice10_reserve: number;
@@ -326,6 +335,12 @@ export function buildCompanyTransferFundingSnapshot(args: {
     && (reserveStatusNorm === "ACTIVE" || reserveStatusNorm === "AVAILABLE")
     && String(args.operational_reserve_reason_code ?? "").toUpperCase()
       !== "OPERATIONAL_RESERVE_NOT_CONFIGURED";
+  const underprotection = evaluateCompanyFundsUnderprotection({
+    provider_available_balance_pence: args.source_balance_pence ?? null,
+    protected_driver_liabilities_pence: args.protected_liabilities_pence ?? null,
+    approved_company_payables_pence: args.approved_payables_pence ?? null,
+  });
+  const finalOut = underprotection.underprotected ? 0 : finalPence;
 
   return {
     captured_at: args.captured_at ?? new Date().toISOString(),
@@ -349,8 +364,12 @@ export function buildCompanyTransferFundingSnapshot(args: {
       : (args.operational_reserve_status ?? null),
     operational_reserve_reason_code: args.operational_reserve_reason_code ?? null,
     reserve_policy_id: args.reserve_policy_id ?? null,
-    final_company_available_pence: finalPence,
-    final_available_authoritative: finalPence != null && reserveConfigured,
+    final_company_available_pence: finalOut,
+    final_available_authoritative: underprotection.underprotected
+      ? true
+      : (finalOut != null && reserveConfigured),
+    company_funds_underprotected: underprotection.underprotected,
+    company_funds_underprotected_message: underprotection.message,
     source_account_id: args.source_account_id ?? null,
     rpc_versions: {
       slice10_reserve: 10,
@@ -373,6 +392,15 @@ export function evaluateCompanyTransferFundingGate(args: {
   const reasons: CompanyTransferGateReasonCode[] = [];
   const snap = args.funding_snapshot;
   const amount = Math.round(Number(args.amount_pence) || 0);
+
+  const underprotection = evaluateCompanyFundsUnderprotection({
+    provider_available_balance_pence: snap.source_balance_pence,
+    protected_driver_liabilities_pence: snap.protected_liabilities_pence,
+    approved_company_payables_pence: snap.approved_payables_pence,
+  });
+  if (underprotection.underprotected) {
+    reasons.push(COMPANY_TRANSFER_GATE_REASON.DRIVER_LIABILITIES_EXCEED_REVOLUT_SOURCE);
+  }
 
   if (!(amount > 0)) {
     reasons.push(COMPANY_TRANSFER_GATE_REASON.AMOUNT_INVALID);

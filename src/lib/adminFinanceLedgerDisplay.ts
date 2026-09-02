@@ -83,6 +83,8 @@ const LEDGER_TYPE_META: Record<string, {
   MANUAL_ADJUSTMENT: { label: 'Adjustment', party: 'driver', filter: 'adjustments' },
   MANUAL_CREDIT: { label: 'Manual Credit', party: 'driver', filter: 'adjustments' },
   MANUAL_DEBIT: { label: 'Manual Debit', party: 'driver', filter: 'adjustments' },
+  ADMIN_WALLET_CREDIT: { label: 'Admin wallet credit', party: 'driver', filter: 'adjustments' },
+  ADMIN_WALLET_DEBIT: { label: 'Admin wallet debit', party: 'driver', filter: 'adjustments' },
   CORRECTION: { label: 'Correction', party: 'driver', filter: 'adjustments' },
   CHARGEBACK_DEBIT: { label: 'Chargeback', party: 'driver', filter: 'refunds' },
   BONUS: { label: 'Bonus', party: 'driver', filter: 'bonus' },

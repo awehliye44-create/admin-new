@@ -2,7 +2,7 @@
  * Phase 0e — resume terminal/no-show wallet settlement when provider fee becomes known.
  * Idempotent: reuses postTerminalEntitlementFromSettlement; never posts gross capture.
  */
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   loadTerminalCaptureEvidence,
   postTerminalEntitlementFromSettlement,

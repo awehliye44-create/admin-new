@@ -119,6 +119,9 @@ export type DriverWalletSsotRow = {
     trip_id: string | null;
     trip_code: string | null;
     wallet_credit_pence: number;
+    period_origin?: string | null;
+    captured_at_restamp_suspect?: boolean;
+    original_trip_completed_at?: string | null;
   }> | null;
   provider_balance_is_reference_only?: boolean;
   provider_connect_audit_status?: string | null;

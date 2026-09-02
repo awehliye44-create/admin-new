@@ -29,6 +29,7 @@ import {
   revolutProviderStateRank,
 } from "../_shared/revolutProviderStateRankSSOT.ts";
 import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
+import { resolvePaymentSessionCaptureAdvanceExtras } from "../_shared/paymentSessionCaptureTimestampSSOT.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import { persistProviderFeeAndMaybeResumeTerminalSettlement } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 
@@ -443,7 +444,7 @@ Deno.serve(async (req) => {
       const { data: session } = await supabase
         .from("payment_sessions")
         .select(
-          "id, trip_id, status, authorised_amount_pence, captured_amount_pence, provider_state, failure_reason, metadata, financial_operation_state, financial_model, purpose, refunded_amount_pence, hold_release_state, provider_capture_id, provider_order_id",
+          "id, trip_id, status, authorised_amount_pence, captured_amount_pence, captured_at, provider_state, failure_reason, metadata, financial_operation_state, purpose, refunded_amount_pence, hold_release_state, provider_capture_id, provider_order_id",
         )
         .eq("provider_order_id", orderId)
         .eq("purpose", "RIDE_BOOKING")
@@ -505,8 +506,15 @@ Deno.serve(async (req) => {
                 : null
             );
             if (captureAmt != null && captureAmt > 0) {
-              statusAdvanceExtras.captured_amount_pence = captureAmt;
-              statusAdvanceExtras.captured_at = nowIso;
+              Object.assign(
+                statusAdvanceExtras,
+                resolvePaymentSessionCaptureAdvanceExtras({
+                  storedCapturedAt: session.captured_at as string | null,
+                  storedCapturedAmountPence: session.captured_amount_pence as number | null,
+                  incomingCapturedAmountPence: captureAmt,
+                  nowIso,
+                }),
+              );
             }
           }
         } else if (["CANCELLED", "FAILED"].includes(stateUpper)) {
@@ -520,6 +528,16 @@ Deno.serve(async (req) => {
           }
         }
 
+        let tripFinancialModel: string | null = null;
+        if (session.trip_id) {
+          const { data: tripRow } = await supabase
+            .from("trips")
+            .select("financial_model")
+            .eq("id", session.trip_id)
+            .maybeSingle();
+          tripFinancialModel = (tripRow?.financial_model as string | null) ?? null;
+        }
+
         const lifecycleResult = await applyPaymentSessionWebhookLifecycleUpdate({
           supabase,
           context: {
@@ -528,7 +546,7 @@ Deno.serve(async (req) => {
             providerOrderId: orderId,
             currentStatus: String(session.status ?? ""),
             financialOperationState: session.financial_operation_state,
-            financialModel: session.financial_model,
+            financialModel: tripFinancialModel,
             purpose: session.purpose,
             storedCapturedAmountPence: session.captured_amount_pence,
             refundedAmountPence: session.refunded_amount_pence,

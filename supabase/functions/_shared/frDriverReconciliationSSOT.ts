@@ -81,6 +81,9 @@ const FR_VERIFIED_STAMP_FIELDS_EMPTY = {
     trip_id: string | null;
     trip_code: string | null;
     wallet_credit_pence: number;
+    period_origin?: string | null;
+    captured_at_restamp_suspect?: boolean;
+    original_trip_completed_at?: string | null;
   }>,
 };
 
@@ -142,6 +145,9 @@ export type FrDriverSettlementTripWithCompleted = FrDriverSettlementTrip & {
   completed_at?: string | null;
   trip_code?: string | null;
   financial_settled_at?: string | null;
+  period_origin?: string | null;
+  captured_at_restamp_suspect?: boolean;
+  original_trip_completed_at?: string | null;
 };
 
 export type FrDriverReconciliationInput = {
@@ -187,6 +193,9 @@ export type FrDriverReconciliationRow = {
     trip_id: string | null;
     trip_code: string | null;
     wallet_credit_pence: number;
+    period_origin?: string | null;
+    captured_at_restamp_suspect?: boolean;
+    original_trip_completed_at?: string | null;
   }>;
   wallet_adjustments_pence: number;
   debt_recovery_pence: number;
@@ -342,7 +351,7 @@ export function buildPeriodScopedFrDriverInputs(args: {
     args.settledTrips
       .filter((trip) => {
         if (!trip.trip_id) return false;
-        const earnedAt = trip.financial_settled_at ?? trip.completed_at;
+        const earnedAt = trip.period_origin ?? trip.financial_settled_at ?? trip.completed_at;
         return isInstantInFinancePeriod(earnedAt, args.periodFrom, args.periodTo);
       })
       .map((trip) => String(trip.trip_id)),
@@ -553,6 +562,9 @@ export function computeFrDriverReconciliation(
       input.ledger,
       new Set([String(trip.trip_id)]),
     ),
+    period_origin: trip.period_origin ?? trip.financial_settled_at ?? null,
+    captured_at_restamp_suspect: trip.captured_at_restamp_suspect ?? false,
+    original_trip_completed_at: trip.original_trip_completed_at ?? trip.completed_at ?? null,
   }));
   const expected = entitlementSummary.missing_stamp_trip_count > 0
     ? sumFrDriverExpectedEntitlementPence(evaluableTrips).expected_payable_pence

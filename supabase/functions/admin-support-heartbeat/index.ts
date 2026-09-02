@@ -7,7 +7,8 @@
  *
  * Auth: requires a valid admin Supabase JWT (has_role = 'admin').
  * Method: POST (body ignored).
- * Response: { ok: true }
+ * Response: { ok: true } or { ok: false, error: string } — always HTTP 200 so
+ * Cursor/Lovable preview never treats expected auth gaps as blank-screen RUNTIME_ERROR.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
@@ -27,10 +28,10 @@ function json(payload: Record<string, unknown>, status = 200): Response {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" });
 
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return json({ error: "Authorization required" }, 401);
+  if (!authHeader) return json({ ok: false, error: "Authorization required" });
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -42,7 +43,7 @@ Deno.serve(async (req) => {
     auth: { persistSession: false },
   });
   const { data: { user }, error: authErr } = await callerClient.auth.getUser();
-  if (authErr || !user) return json({ error: "Unauthorized" }, 401);
+  if (authErr || !user) return json({ ok: false, error: "Unauthorized" });
 
   // Verify the user has the 'admin' app_role.
   const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
@@ -55,7 +56,7 @@ Deno.serve(async (req) => {
     .eq("role", "admin")
     .maybeSingle();
 
-  if (!roleRow) return json({ error: "Forbidden" }, 403);
+  if (!roleRow) return json({ ok: false, error: "Forbidden" });
 
   // Upsert the singleton availability heartbeat.
   const { error: upsertErr } = await serviceClient
@@ -67,7 +68,7 @@ Deno.serve(async (req) => {
 
   if (upsertErr) {
     console.error("[admin-support-heartbeat] upsert error:", upsertErr.message);
-    return json({ error: "Failed to update availability" }, 500);
+    return json({ ok: false, error: "Failed to update availability" });
   }
 
   return json({ ok: true });

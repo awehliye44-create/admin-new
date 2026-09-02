@@ -6,6 +6,7 @@
  */
 
 import { TERMINAL_FEE_TRIP_STATUSES } from "./driverCreditMonitoringSSOT.ts";
+import { isCapturedAtRestampSuspect } from "./paymentSessionCaptureTimestampSSOT.ts";
 import {
   resolveCapturedTripEarningNetPence,
   type TripSettlementTripRow,
@@ -49,6 +50,19 @@ export type FrDriverEntitlementTripInput = {
   captured_at?: string | null;
   settlement_settled_at?: string | null;
   settlement_capture_time?: string | null;
+  /** Earliest TRIP_EARNING_NET ledger posting for period-origin when capture restamped. */
+  ledger_created_at?: string | null;
+  /** payment_sessions.metadata.first_captured_at when present. */
+  first_captured_at?: string | null;
+};
+
+export type FrTripFinancialPeriodOrigin = {
+  /** Stable instant for FR period scoping — never admin-restamped captured_at alone. */
+  period_origin: string | null;
+  /** Back-compat alias; same as period_origin. */
+  financial_settled_at: string | null;
+  captured_at_restamp_suspect: boolean;
+  original_trip_completed_at: string | null;
 };
 
 export type FrDriverEntitlementResolution = {
@@ -88,6 +102,83 @@ export function resolveTerminalFeeDriverTenPence(args: {
   return Math.max(0, captured - providerFee);
 }
 
+function pickFirstValidIso(candidates: (string | null | undefined)[]): string | null {
+  for (const iso of candidates) {
+    if (!iso?.trim()) continue;
+    const ms = Date.parse(iso);
+    if (Number.isFinite(ms)) return new Date(ms).toISOString();
+  }
+  return null;
+}
+
+/**
+ * Stable FR period origin — ignores forward-restamped captured_at when ledger
+ * was credited earlier (CAPTURED_AT_RESTAMP_SUSPECT).
+ */
+export function resolveFrTripFinancialPeriodOrigin(
+  trip: Pick<
+    FrDriverEntitlementTripInput,
+    | "financial_settled_at"
+    | "settlement_settled_at"
+    | "settlement_capture_time"
+    | "captured_at"
+    | "completed_at"
+    | "ledger_created_at"
+    | "first_captured_at"
+    | "trip_status"
+    | "financial_outcome"
+  >,
+): FrTripFinancialPeriodOrigin {
+  const originalTripCompletedAt = trip.completed_at?.trim()
+    ? new Date(trip.completed_at).toISOString()
+    : null;
+  const restampSuspect = isCapturedAtRestampSuspect({
+    captured_at: trip.captured_at,
+    trip_completed_at: trip.completed_at,
+    ledger_created_at: trip.ledger_created_at,
+  });
+  const capturedAtCandidate = restampSuspect ? null : trip.captured_at;
+  const isTerminal = isTerminalFeeFinancialOutcome(trip);
+
+  const periodOrigin = isTerminal
+    ? pickFirstValidIso([
+      trip.financial_settled_at,
+      trip.settlement_capture_time,
+      trip.settlement_settled_at,
+      trip.first_captured_at,
+      capturedAtCandidate,
+      trip.completed_at,
+      trip.ledger_created_at,
+    ])
+    : pickFirstValidIso(
+      restampSuspect
+        ? [
+          trip.financial_settled_at,
+          trip.first_captured_at,
+          trip.settlement_capture_time,
+          trip.settlement_settled_at,
+          trip.completed_at,
+          trip.ledger_created_at,
+        ]
+        : [
+          trip.financial_settled_at,
+          trip.captured_at,
+          trip.settlement_capture_time,
+          trip.settlement_settled_at,
+          trip.completed_at,
+          trip.first_captured_at,
+          trip.ledger_created_at,
+        ],
+    );
+
+  return {
+    period_origin: periodOrigin,
+    financial_settled_at: periodOrigin,
+    captured_at_restamp_suspect: restampSuspect,
+    original_trip_completed_at: originalTripCompletedAt,
+  };
+}
+
 export function resolveFrTripFinancialSettledAt(
   trip: Pick<
     FrDriverEntitlementTripInput,
@@ -96,21 +187,13 @@ export function resolveFrTripFinancialSettledAt(
     | "settlement_capture_time"
     | "captured_at"
     | "completed_at"
+    | "ledger_created_at"
+    | "first_captured_at"
+    | "trip_status"
+    | "financial_outcome"
   >,
 ): string | null {
-  const candidates = [
-    trip.financial_settled_at,
-    trip.captured_at,
-    trip.settlement_capture_time,
-    trip.settlement_settled_at,
-    trip.completed_at,
-  ];
-  for (const iso of candidates) {
-    if (!iso?.trim()) continue;
-    const ms = Date.parse(iso);
-    if (Number.isFinite(ms)) return new Date(ms).toISOString();
-  }
-  return null;
+  return resolveFrTripFinancialPeriodOrigin(trip).period_origin;
 }
 
 function tipsPence(trip: FrDriverEntitlementTripInput): number {
@@ -129,7 +212,7 @@ function otherDriverEntitlementPence(trip: FrDriverEntitlementTripInput): number
 export function resolveFrDriverExpectedEntitlement(
   trip: FrDriverEntitlementTripInput,
 ): FrDriverEntitlementResolution {
-  const financialSettledAt = resolveFrTripFinancialSettledAt(trip);
+  const financialSettledAt = resolveFrTripFinancialPeriodOrigin(trip).period_origin;
   const model = String(trip.financial_model ?? "").trim().toUpperCase();
   if (model.includes("DRIVER_COLLECTED")) {
     return {
@@ -238,6 +321,10 @@ export type FrDriverSettlementTripForReconciliation = {
   expected_entitlement_pence?: number | null;
   expected_stamp_status?: FrExpectedStampStatus;
   financial_settled_at?: string | null;
+  /** Stable FR period scoping instant (same as financial_settled_at after restamp guard). */
+  period_origin?: string | null;
+  captured_at_restamp_suspect?: boolean;
+  original_trip_completed_at?: string | null;
   settlement_status?: string | null;
   completed_at?: string | null;
   trip_code?: string | null;
@@ -282,17 +369,41 @@ export function sumFrDriverExpectedEntitlementPence(
 }
 
 /** Map trip + session + settlement evidence → FR reconciliation row. */
+function readSessionFirstCapturedAt(session: Record<string, unknown> | null): string | null {
+  if (!session) return null;
+  const meta = session.metadata;
+  if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+    const fromMeta = (meta as Record<string, unknown>).first_captured_at;
+    if (fromMeta != null && String(fromMeta).trim()) return String(fromMeta).trim();
+  }
+  return null;
+}
+
 export function buildFrDriverSettlementTripRow(args: {
   trip: Record<string, unknown>;
   session?: Record<string, unknown> | null;
   settlement?: Record<string, unknown> | null;
   /** When set, modified trips without settlement stamp may be flagged incomplete. */
   actual_wallet_trip_credit_pence?: number | null;
+  /** Earliest TRIP_EARNING_NET ledger posting — restamp guard input. */
+  ledger_created_at?: string | null;
 }): FrDriverSettlementTripForReconciliation {
   const trip = args.trip;
   const session = args.session ?? null;
   const settlement = args.settlement ?? null;
   const modCharge = Math.max(0, Math.round(Number(trip.customer_modification_charge_pence ?? 0)));
+  const firstCapturedAt = readSessionFirstCapturedAt(session);
+  const periodOrigin = resolveFrTripFinancialPeriodOrigin({
+    trip_status: (trip.status as string | null) ?? null,
+    financial_outcome: (trip.financial_outcome as string | null) ?? null,
+    financial_settled_at: (trip.financial_settled_at as string | null) ?? null,
+    captured_at: (session?.captured_at as string | null) ?? null,
+    settlement_settled_at: (settlement?.settled_at as string | null) ?? null,
+    settlement_capture_time: (settlement?.capture_time as string | null) ?? null,
+    completed_at: (trip.completed_at as string | null) ?? null,
+    ledger_created_at: args.ledger_created_at ?? null,
+    first_captured_at: firstCapturedAt,
+  });
   const resolution = resolveFrDriverExpectedEntitlement({
     trip_id: trip.id == null ? null : String(trip.id),
     trip_code: (trip.trip_code as string | null) ?? null,
@@ -338,6 +449,8 @@ export function buildFrDriverSettlementTripRow(args: {
     completed_at: (trip.completed_at as string | null) ?? null,
     settlement_settled_at: (settlement?.settled_at as string | null) ?? null,
     settlement_capture_time: (settlement?.capture_time as string | null) ?? null,
+    ledger_created_at: args.ledger_created_at ?? null,
+    first_captured_at: firstCapturedAt,
   });
   const walletCredit = args.actual_wallet_trip_credit_pence == null
     ? null
@@ -347,13 +460,19 @@ export function buildFrDriverSettlementTripRow(args: {
     && walletCredit != null
     && resolution.expected_entitlement_pence != null
     && walletCredit !== Math.round(Number(resolution.expected_entitlement_pence));
+  const rowDiagnostics = {
+    financial_settled_at: periodOrigin.period_origin,
+    period_origin: periodOrigin.period_origin,
+    captured_at_restamp_suspect: periodOrigin.captured_at_restamp_suspect,
+    original_trip_completed_at: periodOrigin.original_trip_completed_at,
+  };
   if (modificationStampIncomplete) {
     return {
       trip_id: trip.id == null ? null : String(trip.id),
       driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
       expected_entitlement_pence: null,
       expected_stamp_status: FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING,
-      financial_settled_at: resolution.financial_settled_at,
+      ...rowDiagnostics,
       settlement_status: (settlement?.settlement_status as string | null) ?? null,
       completed_at: (trip.completed_at as string | null) ?? null,
       trip_code: (trip.trip_code as string | null) ?? null,
@@ -364,7 +483,7 @@ export function buildFrDriverSettlementTripRow(args: {
     driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
     expected_entitlement_pence: resolution.expected_entitlement_pence,
     expected_stamp_status: resolution.expected_stamp_status,
-    financial_settled_at: resolution.financial_settled_at,
+    ...rowDiagnostics,
     settlement_status: (settlement?.settlement_status as string | null) ?? null,
     completed_at: (trip.completed_at as string | null) ?? null,
     trip_code: (trip.trip_code as string | null) ?? null,

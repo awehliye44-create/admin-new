@@ -23,6 +23,8 @@ export function canonicalDriverWalletTxType(rawType: string | null | undefined):
 
   if (type === 'MANUAL_CREDIT') return 'MANUAL_CREDIT';
   if (type === 'MANUAL_DEBIT') return 'MANUAL_DEBIT';
+  if (type === 'ADMIN_WALLET_CREDIT') return 'MANUAL_CREDIT';
+  if (type === 'ADMIN_WALLET_DEBIT') return 'MANUAL_DEBIT';
   if (type === 'BONUS' || type === 'PROMOTION' || type === 'INCENTIVE') return 'BONUS';
   if (type === 'ADJUSTMENT' || type === 'MANUAL_ADJUSTMENT' || type === 'CORRECTION' || type === 'ADMIN_CORRECTION') {
     return 'ADJUSTMENT';

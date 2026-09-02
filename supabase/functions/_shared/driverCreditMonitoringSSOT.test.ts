@@ -11,6 +11,9 @@ import {
   runDriverCreditHistoricalAudit,
   mapDriverCreditHealthToWalletReconciliationStatus,
   buildMissingLedgerDiagnosticRow,
+  buildDriverWalletCreditAuditFromSettlementRows,
+  DRIVER_CREDIT_EXCEPTION_SCOPE,
+  DRIVER_CREDIT_RECOMMENDED_OWNER,
   isDriverCreditExceptionHealth,
 } from "./driverCreditMonitoringSSOT.ts";
 
@@ -254,4 +257,40 @@ Deno.test("missing ledger diagnostic row stamps credit difference", () => {
 Deno.test("payout CREDIT_EXCEPTION label is not a driver credit health exception", () => {
   assertEquals(isDriverCreditExceptionHealth("CREDIT_EXCEPTION"), false);
   assertEquals(isDriverCreditExceptionHealth(DRIVER_CREDIT_HEALTH.UNDER_CREDITED), true);
+});
+
+Deno.test("driver wallet audit scopes active vs resolved — no aggregate on historical chip", () => {
+  const audit = buildDriverWalletCreditAuditFromSettlementRows([
+    {
+      trip_code: "MK-ACTIVE-1",
+      driver_credit_health: DRIVER_CREDIT_HEALTH.MISSING,
+      expected_driver_credit_pence: 376,
+      actual_driver_credit_pence: 0,
+      credit_difference_pence: -376,
+      credit_eligibility_at: new Date(NOW - 60_000).toISOString(),
+      settlement_status: "settled",
+    },
+    {
+      trip_code: "MK-PAID-1",
+      driver_credit_health: DRIVER_CREDIT_HEALTH.UNDER_CREDITED,
+      expected_driver_credit_pence: 500,
+      actual_driver_credit_pence: 400,
+      credit_difference_pence: -100,
+      credit_eligibility_at: new Date(NOW - 60_000).toISOString(),
+      settlement_status: "settled",
+      payout_status: "paid",
+    },
+  ], { now_ms: NOW });
+
+  assertEquals(audit.summary.active_wallet_impacting_count, 1);
+  assertEquals(audit.summary.resolved_paid_count, 1);
+  assertEquals(audit.summary.show_blocking_alert, true);
+  assertEquals(
+    audit.rows.find((r) => r.trip_code === "MK-ACTIVE-1")?.recommended_owner,
+    DRIVER_CREDIT_RECOMMENDED_OWNER.SETTLEMENT_REPAIR,
+  );
+  assertEquals(
+    audit.rows.find((r) => r.trip_code === "MK-PAID-1")?.scope,
+    DRIVER_CREDIT_EXCEPTION_SCOPE.RESOLVED_PAID_HISTORY,
+  );
 });

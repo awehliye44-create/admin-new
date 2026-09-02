@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, jsonResponse, requireAdminOrStaff, type GateError } from "../_shared/adminPaymentGate.ts";
 import { listAdminPayoutLedger } from "../_shared/adminPayoutLedgerListSSOT.ts";
 import { buildPayoutLedgerAccountsOverview } from "../_shared/adminPayoutLedgerAccountsOverviewSSOT.ts";
 import { buildPayoutLedgerOverview } from "../_shared/adminPayoutLedgerOverviewSSOT.ts";
@@ -9,6 +9,31 @@ import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/fi
 
 function livePayoutFlag(): boolean {
   return (Deno.env.get("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "false").trim().toLowerCase() === "true";
+}
+
+/** Cursor/Lovable preview treats non-2xx edge responses as blank-screen RUNTIME_ERROR. */
+async function gateFailureResponse(gate: GateError): Promise<Response> {
+  let payload: Record<string, unknown> = { success: false, ok: false, error: "Unauthorized" };
+  try {
+    const parsed = await gate.response.json();
+    if (parsed && typeof parsed === "object") {
+      payload = { success: false, ok: false, ...(parsed as Record<string, unknown>) };
+    }
+  } catch {
+    // keep default
+  }
+  return jsonResponse(payload, 200);
+}
+
+const HANDLER_BUDGET_MS = 25_000;
+
+async function withHandlerBudget<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  return await Promise.race([
+    fn(),
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`${label}_TIMEOUT`)), HANDLER_BUDGET_MS);
+    }),
+  ]);
 }
 
 const InputSchema = z.object({
@@ -59,7 +84,7 @@ serve(async (req) => {
 
   try {
     const gate = await requireAdminOrStaff(req);
-    if (!gate.ok) return gate.response;
+    if (!gate.ok) return await gateFailureResponse(gate);
 
     let body: unknown = {};
     if (req.method === "POST") {
@@ -138,34 +163,40 @@ serve(async (req) => {
     };
 
     if (parsed.data.mode === "accounts_overview") {
-      const overview = await buildPayoutLedgerAccountsOverview(gate.supabase, {
-        service_area_id: scopedRequest.service_area_id ?? null,
-        allowed_service_area_ids: scopedRequest.allowed_service_area_ids,
-        limit: parsed.data.limit,
-      });
+      const overview = await withHandlerBudget("accounts_overview", () =>
+        buildPayoutLedgerAccountsOverview(gate.supabase, {
+          service_area_id: scopedRequest.service_area_id ?? null,
+          allowed_service_area_ids: scopedRequest.allowed_service_area_ids,
+          limit: parsed.data.limit,
+        }));
       return jsonResponse(overview);
     }
 
     // Explicit Overview route — never fall through to list without overview_summary.
     if (parsed.data.mode === "ledger_overview") {
-      const overview = await buildPayoutLedgerOverview(gate.supabase, {
-        service_area_id: scopedRequest.service_area_id ?? null,
-        allowed_service_area_ids: scopedRequest.allowed_service_area_ids,
-        limit: parsed.data.limit,
-      });
+      const overview = await withHandlerBudget("ledger_overview", () =>
+        buildPayoutLedgerOverview(gate.supabase, {
+          service_area_id: scopedRequest.service_area_id ?? null,
+          allowed_service_area_ids: scopedRequest.allowed_service_area_ids,
+          limit: parsed.data.limit,
+        }));
       return jsonResponse(overview);
     }
 
-    const result = await listAdminPayoutLedger(gate.supabase, scopedRequest);
+    const result = await withHandlerBudget("payout_ledger_list", () =>
+      listAdminPayoutLedger(gate.supabase, scopedRequest));
     return jsonResponse(result);
   } catch (err) {
+    const timedOut = err instanceof Error && err.message.endsWith("_TIMEOUT");
     console.error("[admin-payout-ledger]", err);
     // Never crash the full Payout Ledger UI with a generic non-2xx.
     // Return HTTP 200 + structured DEGRADED payload so independent tabs can still render.
     return jsonResponse({
       success: true,
-      error: err instanceof Error ? err.message : String(err),
-      error_code: PAYOUT_LEDGER_ERROR.API_UNAVAILABLE,
+      error: timedOut
+        ? "Payout ledger request timed out — try narrowing the service area filter."
+        : err instanceof Error ? err.message : String(err),
+      error_code: timedOut ? "PAYOUT_LEDGER_TIMEOUT" : PAYOUT_LEDGER_ERROR.API_UNAVAILABLE,
       page_status: "DEGRADED",
       tab: "overview",
       items: [],

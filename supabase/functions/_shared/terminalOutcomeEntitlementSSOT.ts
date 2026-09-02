@@ -2,7 +2,7 @@
  * Terminal outcome entitlement — canonical settlement → wallet posting.
  * Wallet amount is never calculated independently in noShowSettlement or callers.
  */
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { computeAuthoritativeSettlement } from "../../../shared/canonicalSettlementSSOT.ts";
 import { resolveTerminalFeeDriverTenPence } from "./frDriverExpectedEntitlementSSOT.ts";
 import { hasConflictingEntitlementTypes } from "./driverEntitlementLedgerSSOT.ts";
@@ -20,6 +20,7 @@ export type TerminalCaptureEvidence = {
 export type TerminalEntitlementResult = {
   captured_pence: number;
   provider_fee_pence: number | null;
+  provider_fee_confirmed: boolean;
   commission_pence: number;
   expected_driver_entitlement_pence: number | null;
   pending: boolean;
@@ -40,6 +41,7 @@ export function computeTerminalOutcomeEntitlement(
     return {
       captured_pence: 0,
       provider_fee_pence: null,
+      provider_fee_confirmed: false,
       commission_pence: 0,
       expected_driver_entitlement_pence: null,
       pending: true,
@@ -52,6 +54,7 @@ export function computeTerminalOutcomeEntitlement(
     return {
       captured_pence: captured,
       provider_fee_pence: evidence.provider_fee_pence,
+      provider_fee_confirmed: false,
       commission_pence: 0,
       expected_driver_entitlement_pence: null,
       pending: true,
@@ -79,6 +82,7 @@ export function computeTerminalOutcomeEntitlement(
   return {
     captured_pence: captured,
     provider_fee_pence: providerFee,
+    provider_fee_confirmed: true,
     commission_pence: settlement.commission_amount_pence,
     expected_driver_entitlement_pence: entitlement,
     pending: false,

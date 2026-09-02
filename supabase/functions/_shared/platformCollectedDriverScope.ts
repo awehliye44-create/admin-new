@@ -2,8 +2,27 @@
  * Resolve driver ids that belong to PLATFORM_COLLECTED service areas.
  * Membership is via driver_service_areas (not drivers.service_area_id alone).
  */
+import {
+  FINANCIAL_MODEL,
+  filterServiceAreasByFinancialModel,
+} from "../../../shared/financialModelScopeSSOT.ts";
+
 // deno-lint-ignore no-explicit-any
 type AnySupabase = any;
+
+/** All service areas stamped PLATFORM_COLLECTED (global company-funds liability scope). */
+export async function loadPlatformCollectedServiceAreaIds(
+  supabase: AnySupabase,
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("service_areas")
+    .select("id, financial_model");
+  if (error) throw error;
+  return filterServiceAreasByFinancialModel(
+    (data ?? []) as { id: string; financial_model?: unknown }[],
+    FINANCIAL_MODEL.PLATFORM_COLLECTED,
+  ).map((sa) => sa.id);
+}
 
 export async function resolvePlatformCollectedDriverIds(
   supabase: AnySupabase,

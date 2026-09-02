@@ -311,4 +311,42 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
     expect(agg.available_balance_pence).toBe(0);
     expect(agg.primary_hold_reason).toBe(PAYOUT_ELIGIBILITY_STATUS.ADMIN_HOLD);
   });
+
+  it("forward-restamped captured_at does not restart 27h clearing", () => {
+    const r = evaluateLedgerEntryEligibility(
+      revolutTripCredit({
+        captured_at: "2026-09-01T20:22:26.000Z",
+        trip_completed_at: "2026-08-15T08:00:00.000Z",
+        earning_credited_at: "2026-08-15T08:05:00.000Z",
+        provider_available_on: null,
+        provider_state: "CAPTURED",
+      }),
+      {
+        clearing_delay_hours: 27,
+        now_ms: Date.parse("2026-09-02T00:00:00.000Z"),
+      },
+    );
+    expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE);
+  });
+
+  it("partial payout allocation counts only unpaid remainder", () => {
+    const r = evaluateLedgerEntryEligibility(
+      revolutTripCredit({
+        amount_pence: 680,
+        canonical_driver_net_pence: 680,
+        captured_amount_pence: 800,
+        allocated_amount_pence: 105,
+        trip_completed_at: "2026-08-15T08:00:00.000Z",
+        earning_credited_at: "2026-08-15T08:05:00.000Z",
+        captured_at: "2026-09-01T20:22:26.000Z",
+        provider_available_on: null,
+      }),
+      {
+        clearing_delay_hours: 27,
+        now_ms: Date.parse("2026-09-02T00:00:00.000Z"),
+      },
+    );
+    expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE);
+    expect(r.payable_pence).toBe(575);
+  });
 });

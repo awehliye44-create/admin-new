@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { finalizePayoutAfterProviderSuccess } from "../_shared/payoutLedgerSync.ts";
 import { fetchPerDriverFinancialReconciliation } from "../_shared/perDriverFinancialReconciliation.ts";
 import { resolveCurrencyFromDriver } from "../_shared/regionCurrency.ts";
@@ -28,40 +27,20 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
+    const { requireFinanceExecutionAuth } = await import("../_shared/adminPaymentGate.ts");
+    const auth = await requireFinanceExecutionAuth(req, { pageSlug: "payout-ledger" });
+    if (!auth.ok) {
+      return new Response(await auth.response.text(), {
+        status: auth.response.status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { data: roleData } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .maybeSingle();
-
-    if (!roleData) {
-      return new Response(JSON.stringify({ error: "Admin access required" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const supabase = auth.supabase;
+    console.info("[admin-mark-manual-payout-paid] auth ok", {
+      user_id: auth.userId,
+      role: auth.actor_role ?? null,
+    });
 
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const verificationMode = isPayoutVerificationMode(body as Record<string, unknown>);

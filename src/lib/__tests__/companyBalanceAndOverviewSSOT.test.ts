@@ -3,7 +3,10 @@ import {
   assertCompanyBalanceExcludesDriverWallet,
   assertCompanyTransferFundingAvailable,
   auditCompanyBalanceSourceCandidates,
+  capCompanyTransferableFundsPence,
+  computeRealAvailableCompanyFundsPence,
   COMPANY_BALANCE_ERROR,
+  COMPANY_BALANCE_LABELS,
   formatCompanyBalancePence,
   resolveCompanyBalanceSnapshot,
 } from "../../../shared/companyBalanceSSOT";
@@ -199,5 +202,62 @@ describe("P0 company funding labels / residual formula", () => {
     });
     expect(a.provider_available_balance_pence).not.toBe(b.provider_available_balance_pence);
     expect(a.driver_liability_pence).toBe(b.driver_liability_pence);
+  });
+
+  it("commission label is recognised accounting — not cash availability", () => {
+    expect(COMPANY_BALANCE_LABELS.ONECAB_NET_COMMISSION_AVAILABLE).toBe(
+      "Recognised ONECAB Net Commission",
+    );
+    expect(COMPANY_BALANCE_LABELS.ONECAB_NET_COMMISSION_AVAILABLE.includes("Available")).toBe(false);
+  });
+
+  it("transferable funds are capped by Revolut source and before-reserve liquidity", () => {
+    expect(capCompanyTransferableFundsPence({
+      amount_pence: 5000,
+      provider_available_balance_pence: 2176,
+      before_operational_reserve_pence: 2065,
+    })).toBe(2065);
+
+    const snap = resolveCompanyBalanceSnapshot({
+      currency: "GBP",
+      provider_available_balance_pence: 2176,
+      source_account_id: "4fb5a28b-3797-e242-0040-62910ba9f9d4",
+      driver_liability_pence: 0,
+      approved_company_payables_pence: 0,
+      operational_reserve_pence: 1,
+      classified_company_cash_pence: 5173,
+      status_code: "AVAILABLE",
+    });
+    expect(snap.company_available_before_operational_reserve_pence).toBe(2176);
+    expect(snap.company_available_for_transfer_pence).toBeLessThanOrEqual(2176);
+    expect(snap.company_available_for_transfer_pence).toBeLessThanOrEqual(
+      snap.company_available_before_operational_reserve_pence ?? 0,
+    );
+    expect(snap.company_available_for_transfer_pence).toBe(2175);
+  });
+
+  it("real available funds UI uses liquidity only — not Payment Sessions commission cap", () => {
+    expect(COMPANY_BALANCE_LABELS.ONECAB_AVAILABLE_COMPANY_FUNDS).toBe(
+      "ONECAB Real Available Funds",
+    );
+
+    const real = computeRealAvailableCompanyFundsPence({
+      company_available_before_operational_reserve_pence: 2065,
+      operational_reserve_pence: 111,
+      operational_reserve_configured: true,
+      provider_available_balance_pence: 2176,
+      company_funds_underprotected: false,
+    });
+    expect(real).toBe(1954);
+    expect(real).toBeLessThanOrEqual(2176);
+    expect(real).not.toBe(5173);
+
+    expect(computeRealAvailableCompanyFundsPence({
+      company_available_before_operational_reserve_pence: 0,
+      operational_reserve_pence: 111,
+      operational_reserve_configured: true,
+      provider_available_balance_pence: 2176,
+      company_funds_underprotected: true,
+    })).toBe(0);
   });
 });

@@ -94,7 +94,7 @@ async function reloadSession(
   const { data } = await supabase
     .from("payment_sessions")
     .select(
-      "id, trip_id, status, financial_operation_state, financial_model, purpose, captured_amount_pence, refunded_amount_pence, hold_release_state, provider_capture_id, provider_order_id, provider_state",
+      "id, trip_id, status, financial_operation_state, purpose, captured_amount_pence, refunded_amount_pence, hold_release_state, provider_capture_id, provider_order_id, provider_state",
     )
     .eq("id", sessionId)
     .maybeSingle();

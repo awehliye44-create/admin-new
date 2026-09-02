@@ -2,6 +2,7 @@
  * Canonical driver payout eligibility SSOT (pure — no I/O).
  */
 import { FINANCIAL_MODEL, resolveFinancialModelStamp } from "../../../shared/financialModelScopeSSOT.ts";
+import { resolveStablePayoutClearingOriginMs } from "./paymentSessionCaptureTimestampSSOT.ts";
 
 export const PAYOUT_ELIGIBILITY_STATUS = {
   ELIGIBLE: "ELIGIBLE",
@@ -31,6 +32,11 @@ export const PAYOUT_ELIGIBLE_LEDGER_TYPES = new Set([
   "DRIVER_COMPENSATION_CREDIT",
   "DRIVER_TIP_CREDIT",
   "TIP_CREDIT",
+]);
+
+/** Admin manual wallet credits — immediately available when metadata.payout_eligible. */
+export const ADMIN_WALLET_PAYOUT_ELIGIBLE_LEDGER_TYPES = new Set([
+  "ADMIN_WALLET_CREDIT",
 ]);
 
 export const DES_SOURCE_WALLET_CREDIT = "REVOLUT_WALLET_CREDIT";
@@ -110,7 +116,13 @@ export type PayoutClearingEvidence = {
   provider_state?: string | null;
   /** Payment Sessions capture confirmation time — delay origin, not SSOT alone. */
   captured_at?: string | null;
-  /** Ledger credit time — delay origin fallback when captured_at is missing. */
+  /** Immutable first capture when stored in session metadata. */
+  first_captured_at?: string | null;
+  /** DES capture companion — economic settlement fallback. */
+  capture_time?: string | null;
+  /** Trip completion — clearing origin fallback; never alone for Available. */
+  trip_completed_at?: string | null;
+  /** Ledger credit time — delay origin fallback when captured_at is missing/restamped. */
   earning_credited_at?: string | null;
 };
 
@@ -138,7 +150,13 @@ export function isPayoutClearedForPlatformCollected(
 
   if (isProviderFundsClearedState(evidence.provider_state)) return true;
 
-  const origin = parseTimeMs(evidence.captured_at) ?? parseTimeMs(evidence.earning_credited_at);
+  const origin = resolveStablePayoutClearingOriginMs({
+    captured_at: evidence.captured_at,
+    trip_completed_at: evidence.trip_completed_at,
+    earning_credited_at: evidence.earning_credited_at,
+    capture_time: evidence.capture_time,
+    first_captured_at: evidence.first_captured_at,
+  });
   if (origin == null) return false;
   return origin + hours * 3_600_000 <= nowMs;
 }
@@ -164,6 +182,7 @@ export type LedgerEligibilityEvidence = {
   allocated_to_payout?: boolean;
   allocated_amount_pence?: number | null;
   paid_in_batch_id?: string | null;
+  paid_in_payout_item_id?: string | null;
   payout_processing?: boolean;
   /** Companion DES row present (audit only — not required for Revolut eligibility). */
   des_present?: boolean;
@@ -176,6 +195,8 @@ export type LedgerEligibilityEvidence = {
   des_settlement_status?: string | null;
   provider_state?: string | null;
   captured_at?: string | null;
+  first_captured_at?: string | null;
+  capture_time?: string | null;
   earning_credited_at?: string | null;
   /** Trip workflow status. Pending/Available require completed, never cancelled. */
   trip_status?: string | null;
@@ -185,6 +206,8 @@ export type LedgerEligibilityEvidence = {
   /** Payment Sessions provider fee when evaluating terminal compensation. */
   provider_processing_fee_pence?: number | null;
   fee_status?: string | null;
+  /** Admin manual wallet credit — metadata.payout_eligible when ledger_type is ADMIN_WALLET_CREDIT. */
+  admin_wallet_payout_eligible?: boolean | null;
 };
 
 export type EligiblePayoutEntry = {
@@ -330,6 +353,27 @@ export function evaluateLedgerEntryEligibility(
   const amount = Math.max(0, Math.round(Number(entry.amount_pence ?? 0)));
   const type = String(entry.ledger_type ?? "").toUpperCase();
 
+  if (ADMIN_WALLET_PAYOUT_ELIGIBLE_LEDGER_TYPES.has(type)) {
+    if (amount <= 0) {
+      return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
+    }
+    if (entry.admin_wallet_payout_eligible === false) {
+      return { status: PAYOUT_ELIGIBILITY_STATUS.ADMIN_HOLD, payable_pence: amount };
+    }
+    if (entry.allocated_to_payout === true || entry.paid_in_batch_id || entry.paid_in_payout_item_id) {
+      return { status: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED, payable_pence: 0 };
+    }
+    const allocated = Math.max(0, Math.round(Number(entry.allocated_amount_pence ?? 0)));
+    const payable = remainingPayable(amount, allocated, false);
+    if (payable <= 0) {
+      return { status: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED, payable_pence: 0 };
+    }
+    if (entry.payout_processing === true) {
+      return { status: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_PROCESSING, payable_pence: payable };
+    }
+    return { status: PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE, payable_pence: payable };
+  }
+
   if (!PAYOUT_ELIGIBLE_LEDGER_TYPES.has(type) || amount <= 0) {
     return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
   }
@@ -349,7 +393,7 @@ export function evaluateLedgerEntryEligibility(
     }
   }
 
-  if (entry.paid_in_batch_id || entry.allocated_to_payout === true) {
+  if (entry.paid_in_batch_id || entry.allocated_to_payout === true || entry.paid_in_payout_item_id) {
     return { status: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED, payable_pence: 0 };
   }
 
@@ -547,7 +591,8 @@ export function aggregateDriverPayoutEligibility(
         eligibility_status: PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE,
         des_companion_missing: entry.des_present !== true,
       });
-    } else if (payable_pence > 0 || PAYOUT_ELIGIBLE_LEDGER_TYPES.has(String(entry.ledger_type ?? "").toUpperCase())) {
+    } else if (payable_pence > 0 || PAYOUT_ELIGIBLE_LEDGER_TYPES.has(String(entry.ledger_type ?? "").toUpperCase())
+      || ADMIN_WALLET_PAYOUT_ELIGIBLE_LEDGER_TYPES.has(String(entry.ledger_type ?? "").toUpperCase())) {
       held_entries.push({
         ledger_entry_id: entry.ledger_entry_id,
         trip_id: entry.trip_id,
