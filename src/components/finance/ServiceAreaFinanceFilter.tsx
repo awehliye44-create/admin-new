@@ -90,14 +90,15 @@ export function ServiceAreaFinanceFilter({
 
   const emptyScope = !isLoading && serviceAreas.length === 0;
 
-  if (emptyScope && financialModel !== 'ALL_OPERATIONAL') {
+  if (emptyScope && concreteModel) {
     return (
       <div className={`flex items-center gap-2 text-sm text-muted-foreground ${className ?? ''}`}>
         <MapPin className="h-4 w-4 shrink-0" />
-        {emptyServiceAreaScopeMessage(financialModel)}
+        {emptyServiceAreaScopeMessage(concreteModel)}
       </div>
     );
   }
+
 
   return (
     <Select value={value.serviceAreaId || '__all__'} onValueChange={handleChange}>
