@@ -49,12 +49,9 @@ export default function PendingCustomerSignups() {
   const { data: signups = [], isLoading, error } = useQuery({
     queryKey: ['pending-customer-signups'],
     queryFn: async () => {
-      const { data, error: queryError } = await supabase
-        .from('admin_pending_customer_signups' as 'admin_riders_with_trip_stats')
-        .select(
-          'id, user_id, first_name, last_name, email, phone, email_verified_at, phone_verified_at, status, signup_source, expires_at, created_at, updated_at, auth_email_confirmed_at, auth_phone_confirmed_at, record_type, legacy_customer_code',
-        )
-        .order('created_at', { ascending: false });
+      const { data, error: queryError } = await supabase.rpc(
+        'admin_list_pending_customer_signups' as 'has_role',
+      );
 
       if (queryError) throw queryError;
       return (data ?? []) as unknown as PendingSignup[];
