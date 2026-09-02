@@ -45,13 +45,17 @@ export function ServiceAreaFinanceFilter({
   const { data: allAreas = [], isLoading } = useServiceAreas({ activeOnly: true });
   const didAutoSelectRef = useRef(false);
 
+  // Fail-closed: only the two concrete pipelines scope the dropdown.
+  const concreteModel =
+    financialModel === 'PLATFORM_COLLECTED' || financialModel === 'DRIVER_COLLECTED_COMMISSION_WALLET'
+      ? financialModel
+      : null;
+
   const serviceAreas: ServiceArea[] = useMemo(
-    () =>
-      financialModel === 'ALL_OPERATIONAL'
-        ? allAreas
-        : filterServiceAreasByFinancialModel(allAreas, financialModel),
-    [allAreas, financialModel],
+    () => (concreteModel ? filterServiceAreasByFinancialModel(allAreas, concreteModel) : allAreas),
+    [allAreas, concreteModel],
   );
+
 
   // A selection made under another scope must never leak across pipelines.
   useEffect(() => {
