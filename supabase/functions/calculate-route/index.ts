@@ -8,6 +8,16 @@ interface RouteRequest {
   destLng: number;
   intermediateStops?: { lat: number; lng: number }[];
   departureTime?: string; // ISO string for traffic-aware routing
+  /** Opt-in full polyline — pricing/quote paths omit geometry for latency. */
+  includeGeometry?: boolean;
+}
+
+interface RouteTimings {
+  totalMs: number;
+  setupMs: number;
+  mapboxMs: number;
+  cacheHit: boolean;
+  profile: string | null;
 }
 
 interface RouteResponse {
@@ -21,7 +31,14 @@ interface RouteResponse {
   error?: string;
   errorCode?: string;
   mapboxCode?: string;
+  timings?: RouteTimings;
 }
+
+/** Short-lived in-isolate cache — identical coords reuse recent Mapbox result. */
+const ROUTE_CACHE_TTL_MS = 120_000;
+const ROUTE_CACHE_MAX = 64;
+type RouteCacheEntry = { expiresAt: number; response: RouteResponse };
+const routeCache = new Map<string, RouteCacheEntry>();
 
 function calculateHaversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
@@ -38,8 +55,9 @@ function toRad(deg: number): number {
   return deg * (Math.PI / 180);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** ~1.1 m precision — improves cache hits without materially wrong routes. */
+function normalizeCoord(n: number): number {
+  return Math.round(n * 1e5) / 1e5;
 }
 
 /** Only forward depart_at when Mapbox will accept it — bad values abort the whole request. */
@@ -47,47 +65,101 @@ function safeDepartAt(departureTime: string | undefined): string | null {
   if (!departureTime || typeof departureTime !== "string") return null;
   const ms = Date.parse(departureTime);
   if (!Number.isFinite(ms)) return null;
-  // Mapbox rejects far-past / far-future depart_at; drop rather than fail routing.
   const now = Date.now();
   if (ms < now - 5 * 60_000 || ms > now + 7 * 24 * 60 * 60_000) return null;
   return new Date(ms).toISOString();
 }
 
+function routeCacheKey(body: RouteRequest): string {
+  const departAt = safeDepartAt(body.departureTime) ?? "";
+  const stopKey = (body.intermediateStops ?? [])
+    .map((s) => `${normalizeCoord(s.lat)},${normalizeCoord(s.lng)}`)
+    .join(";");
+  return [
+    normalizeCoord(body.originLat),
+    normalizeCoord(body.originLng),
+    stopKey,
+    normalizeCoord(body.destLat),
+    normalizeCoord(body.destLng),
+    departAt,
+    body.includeGeometry === true ? "geo" : "pricing",
+  ].join("|");
+}
+
+function readRouteCache(key: string): RouteResponse | null {
+  const entry = routeCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    routeCache.delete(key);
+    return null;
+  }
+  return {
+    ...entry.response,
+    timings: entry.response.timings
+      ? { ...entry.response.timings, cacheHit: true }
+      : undefined,
+  };
+}
+
+function writeRouteCache(key: string, response: RouteResponse): void {
+  if (routeCache.size >= ROUTE_CACHE_MAX) {
+    const oldest = routeCache.keys().next().value;
+    if (oldest) routeCache.delete(oldest);
+  }
+  routeCache.set(key, {
+    expiresAt: Date.now() + ROUTE_CACHE_TTL_MS,
+    response: { ...response, timings: response.timings ? { ...response.timings, cacheHit: false } : undefined },
+  });
+}
+
+function buildMapboxParams(
+  token: string,
+  profile: "driving-traffic" | "driving",
+  departAt: string | null,
+  includeGeometry: boolean,
+): URLSearchParams {
+  const params = new URLSearchParams({
+    access_token: token,
+    alternatives: "false",
+    steps: "false",
+    overview: includeGeometry ? "full" : "false",
+  });
+  if (includeGeometry) {
+    params.set("geometries", "polyline");
+  }
+  if (profile === "driving-traffic" && departAt) {
+    params.set("depart_at", departAt);
+  }
+  return params;
+}
+
 /**
- * Mapbox Directions — try driving-traffic, then plain driving.
+ * Mapbox Directions — pricing paths use lean params (no geometry/annotations).
  * Returns null when Mapbox cannot produce a route (caller may haversine).
  */
 async function tryMapboxDirections(
   token: string,
   request: RouteRequest,
   profile: "driving-traffic" | "driving",
-): Promise<RouteResponse | null> {
-  const { originLat, originLng, destLat, destLng, intermediateStops, departureTime } = request;
+): Promise<{ response: RouteResponse | null; mapboxMs: number }> {
+  const { originLat, originLng, destLat, destLng, intermediateStops, departureTime, includeGeometry } =
+    request;
+  const includeGeo = includeGeometry === true;
+  const departAt = profile === "driving-traffic" ? safeDepartAt(departureTime) : null;
 
+  const coords: string[] = [`${originLng},${originLat}`];
+  for (const s of intermediateStops || []) {
+    coords.push(`${s.lng},${s.lat}`);
+  }
+  coords.push(`${destLng},${destLat}`);
+
+  const params = buildMapboxParams(token, profile, departAt, includeGeo);
+  const url =
+    `https://api.mapbox.com/directions/v5/mapbox/${profile}/` +
+    `${coords.join(";")}?${params}`;
+
+  const mapboxStart = Date.now();
   try {
-    const coords: string[] = [`${originLng},${originLat}`];
-    for (const s of intermediateStops || []) {
-      coords.push(`${s.lng},${s.lat}`);
-    }
-    coords.push(`${destLng},${destLat}`);
-
-    const params = new URLSearchParams({
-      access_token: token,
-      geometries: "polyline",
-      overview: "full",
-      steps: "false",
-      annotations: "duration,distance",
-      language: "en",
-    });
-    if (profile === "driving-traffic") {
-      const departAt = safeDepartAt(departureTime);
-      if (departAt) params.set("depart_at", departAt);
-    }
-
-    const url =
-      `https://api.mapbox.com/directions/v5/mapbox/${profile}/` +
-      `${coords.join(";")}?${params}`;
-
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8_000);
     let response: Response;
@@ -97,45 +169,57 @@ async function tryMapboxDirections(
       clearTimeout(timer);
     }
     const data = await response.json();
+    const mapboxMs = Date.now() - mapboxStart;
 
     if (!response.ok || data.code !== "Ok" || !Array.isArray(data.routes) || data.routes.length === 0) {
-      console.error("Mapbox Directions error:", profile, data?.code, data?.message);
-      return null;
+      console.error("Mapbox Directions error:", profile, data?.code, data?.message, `${mapboxMs}ms`);
+      return { response: null, mapboxMs };
     }
 
     const route = data.routes[0];
     const distanceMeters = Math.round(Number(route.distance) || 0);
     const durationSeconds = Math.round(Number(route.duration) || 0);
 
-    console.log("Mapbox Directions success:", { profile, distanceMeters, durationSeconds });
+    console.log("Mapbox Directions success:", { profile, distanceMeters, durationSeconds, mapboxMs });
 
     return {
-      success: true,
-      distanceMeters,
-      distanceKm: Math.round((distanceMeters / 1000) * 100) / 100,
-      durationSeconds,
-      durationMinutes: Math.ceil(durationSeconds / 60),
-      polyline: typeof route.geometry === "string" ? route.geometry : undefined,
-      source: "mapbox_directions",
+      mapboxMs,
+      response: {
+        success: true,
+        distanceMeters,
+        distanceKm: Math.round((distanceMeters / 1000) * 100) / 100,
+        durationSeconds,
+        durationMinutes: Math.ceil(durationSeconds / 60),
+        polyline: includeGeo && typeof route.geometry === "string" ? route.geometry : undefined,
+        source: "mapbox_directions",
+      },
     };
   } catch (error) {
-    console.error("Mapbox Directions exception:", profile, error);
-    return null;
+    const mapboxMs = Date.now() - mapboxStart;
+    console.error("Mapbox Directions exception:", profile, error, `${mapboxMs}ms`);
+    return { response: null, mapboxMs };
   }
 }
 
 async function resolveMapboxRoute(
   token: string,
   body: RouteRequest,
-): Promise<RouteResponse | null> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt > 0) await sleep(250 * attempt);
-    const traffic = await tryMapboxDirections(token, body, "driving-traffic");
-    if (traffic) return traffic;
-    const driving = await tryMapboxDirections(token, body, "driving");
-    if (driving) return driving;
+): Promise<{ response: RouteResponse | null; mapboxMs: number; profile: string | null }> {
+  const departAt = safeDepartAt(body.departureTime);
+  // Ride Now (no depart_at): skip driving-traffic — one Mapbox call instead of two.
+  const profiles: Array<"driving-traffic" | "driving"> = departAt
+    ? ["driving-traffic", "driving"]
+    : ["driving"];
+
+  let totalMapboxMs = 0;
+  for (const profile of profiles) {
+    const { response, mapboxMs } = await tryMapboxDirections(token, body, profile);
+    totalMapboxMs += mapboxMs;
+    if (response) {
+      return { response, mapboxMs: totalMapboxMs, profile };
+    }
   }
-  return null;
+  return { response: null, mapboxMs: totalMapboxMs, profile: null };
 }
 
 function normalizeCoordinateBody(
@@ -167,6 +251,7 @@ function normalizeCoordinateBody(
       destLat: dLat,
       destLng: dLng,
       intermediateStops: stops.length > 0 ? stops : undefined,
+      includeGeometry: raw.includeGeometry === true,
     },
   };
 }
@@ -207,28 +292,13 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const requestStart = Date.now();
+
   try {
     const token = Deno.env.get("MAPBOX_PUBLIC_TOKEN");
 
-    if (!token) {
-      console.error("MAPBOX_PUBLIC_TOKEN not configured");
-      const rawBody: RouteRequest = await req.json();
-      const norm = normalizeCoordinateBody(rawBody);
-      if (!norm.ok) {
-        return new Response(JSON.stringify(norm.response), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const fallback = getHaversineFallback(norm.body);
-      fallback.error = "Mapbox token not configured, using estimate";
-      return new Response(
-        JSON.stringify(fallback),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
     const rawBody: RouteRequest = await req.json();
+    const setupMs = Date.now() - requestStart;
     const norm = normalizeCoordinateBody(rawBody);
     if (!norm.ok) {
       console.warn("Route calculation invalid coordinates:", JSON.stringify(rawBody));
@@ -239,21 +309,65 @@ serve(async (req) => {
     }
     const body = norm.body;
 
+    if (!token) {
+      console.error("MAPBOX_PUBLIC_TOKEN not configured");
+      const fallback = getHaversineFallback(body);
+      fallback.error = "Mapbox token not configured, using estimate";
+      return new Response(
+        JSON.stringify(fallback),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const cacheKey = routeCacheKey(body);
+    const cached = readRouteCache(cacheKey);
+    if (cached) {
+      const totalMs = Date.now() - requestStart;
+      cached.timings = {
+        totalMs,
+        setupMs,
+        mapboxMs: 0,
+        cacheHit: true,
+        profile: cached.timings?.profile ?? null,
+      };
+      console.log("Route cache hit:", { cacheKey, totalMs });
+      return new Response(
+        JSON.stringify(cached),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     console.log("Route calculation request:", {
       originLat: body.originLat,
       originLng: body.originLng,
       destLat: body.destLat,
       destLng: body.destLng,
       stops: body.intermediateStops?.length || 0,
+      includeGeometry: body.includeGeometry === true,
     });
 
-    let result = await resolveMapboxRoute(token, body);
+    const { response: mapboxResult, mapboxMs, profile } = await resolveMapboxRoute(token, body);
+
+    let result = mapboxResult;
 
     if (!result) {
-      console.log("Mapbox Directions failed after retries, using Haversine fallback");
+      console.log("Mapbox Directions failed, using Haversine fallback");
       result = getHaversineFallback(body);
       result.error = "Routing API unavailable, using distance estimate";
       result.errorCode = "MAPBOX_UNAVAILABLE";
+    }
+
+    const totalMs = Date.now() - requestStart;
+    result.timings = {
+      totalMs,
+      setupMs,
+      mapboxMs,
+      cacheHit: false,
+      profile,
+    };
+
+    if (result.source === "mapbox_directions") {
+      writeRouteCache(cacheKey, result);
     }
 
     return new Response(

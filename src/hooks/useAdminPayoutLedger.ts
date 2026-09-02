@@ -11,6 +11,33 @@ import {
   withAdminFinanceQueryTiming,
 } from '@/lib/adminFinanceLoadPerf';
 
+const PAYOUT_LEDGER_INVOKE_TIMEOUT_MS = 28_000;
+
+async function invokePayoutLedger(
+  request: AdminPayoutLedgerListRequest,
+): Promise<{ data: AdminPayoutLedgerListResponse | null; error: Error | null }> {
+  try {
+    const result = await Promise.race([
+      supabase.functions.invoke<AdminPayoutLedgerListResponse>(
+        ADMIN_PAYOUT_LEDGER_FN,
+        { body: request },
+      ),
+      new Promise<never>((_, reject) => {
+        window.setTimeout(
+          () => reject(new Error('Payout ledger request timed out — try narrowing the service area filter.')),
+          PAYOUT_LEDGER_INVOKE_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    return { data: result.data, error: result.error };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
+  }
+}
+
 function emptyDegradedLedger(
   request: AdminPayoutLedgerListRequest,
   errorCode: string,
@@ -77,10 +104,7 @@ export function useAdminPayoutLedger(
         },
         async () => {
           try {
-            const { data, error } = await supabase.functions.invoke<AdminPayoutLedgerListResponse>(
-              ADMIN_PAYOUT_LEDGER_FN,
-              { body: request },
-            );
+            const { data, error } = await invokePayoutLedger(request);
             // Prefer structured body even when FunctionsHttpError wraps a DEGRADED/PARTIAL payload.
             if (data?.success) return data;
             if (data?.overview_summary || data?.company_balance || data?.page_status) {

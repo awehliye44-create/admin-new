@@ -195,6 +195,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       .map((r) => String(r.related_trip_id)),
   )];
   const walletCreditByTripId = new Map<string, number>();
+  const walletCreditLedgerCreatedAtByTripId = new Map<string, string>();
   for (const row of rawLedger) {
     const t = String(row.type ?? "").toUpperCase();
     if (t !== "TRIP_EARNING_NET" && t !== "TRIP_SETTLEMENT_CORRECTION" && t !== "SETTLEMENT_CORRECTION") {
@@ -206,6 +207,13 @@ export async function fetchDriverWalletPayoutSnapshot(
       tripId,
       (walletCreditByTripId.get(tripId) ?? 0) + Math.round(Number(row.amount_pence ?? 0)),
     );
+    const createdAt = row.created_at == null ? null : String(row.created_at);
+    if (createdAt) {
+      const existing = walletCreditLedgerCreatedAtByTripId.get(tripId);
+      if (!existing || Date.parse(createdAt) < Date.parse(existing)) {
+        walletCreditLedgerCreatedAtByTripId.set(tripId, createdAt);
+      }
+    }
   }
   const tripIdsForFr = [...new Set([...settlementTripIds, ...walletCreditTripIds])];
   const tripMetaById = new Map<string, {
@@ -227,7 +235,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       supabase
         .from("payment_sessions")
         .select(
-          "id, trip_id, purpose, captured_amount_pence, payment_provider, payment_method, provider_processing_fee_pence, fee_status, provider_state, captured_at, released_amount_pence, refunded_amount_pence, provider_order_id, provider_payment_id, provider_fee_percentage_snapshot_pence, provider_fixed_fee_snapshot_pence, provider_fee_total_snapshot_pence, provider_fee_currency_snapshot, provider_fee_version_snapshot, provider_fee_source, provider_fee_confirmed_at, provider_name_snapshot",
+          "id, trip_id, purpose, captured_amount_pence, payment_provider, payment_method, provider_processing_fee_pence, fee_status, provider_state, captured_at, released_amount_pence, refunded_amount_pence, provider_order_id, provider_payment_id, provider_fee_percentage_snapshot_pence, provider_fixed_fee_snapshot_pence, provider_fee_total_snapshot_pence, provider_fee_currency_snapshot, provider_fee_version_snapshot, provider_fee_source, provider_fee_confirmed_at, provider_name_snapshot, metadata",
         )
         .in("trip_id", tripIdsForFr),
     ]);
@@ -470,6 +478,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       session: sessionByTripId.get(tripId) ?? null,
       settlement: settlementByTripId.get(tripId) ?? null,
       actual_wallet_trip_credit_pence: walletCreditByTripId.get(tripId) ?? null,
+      ledger_created_at: walletCreditLedgerCreatedAtByTripId.get(tripId) ?? null,
     });
   });
   if (settledTripsForFr.length === 0 && settlements.length > 0) {
@@ -483,6 +492,7 @@ export async function fetchDriverWalletPayoutSnapshot(
         session: sessionByTripId.get(tripId) ?? null,
         settlement: s as Record<string, unknown>,
         actual_wallet_trip_credit_pence: walletCreditByTripId.get(tripId) ?? null,
+        ledger_created_at: walletCreditLedgerCreatedAtByTripId.get(tripId) ?? null,
       }));
     }
   }
@@ -516,8 +526,13 @@ export async function fetchDriverWalletPayoutSnapshot(
         session: sessionByTripId.get(tripId) ?? null,
         settlement: settlementByTripId.get(tripId) ?? null,
         actual_wallet_trip_credit_pence: walletCreditByTripId.get(tripId) ?? null,
+        ledger_created_at: walletCreditLedgerCreatedAtByTripId.get(tripId) ?? null,
       });
-      if (!isInstantInFinancePeriod(built.financial_settled_at, periodFromIso!, periodToIso!)) {
+      if (!isInstantInFinancePeriod(
+        built.period_origin ?? built.financial_settled_at,
+        periodFromIso!,
+        periodToIso!,
+      )) {
         continue;
       }
       if (settledTripsForFr.some((s) => s.trip_id === tripId)) continue;

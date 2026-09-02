@@ -15,7 +15,7 @@ export const DRIVER_WALLET_LEDGER_FILTER_LABELS: Record<DriverWalletLedgerFilter
   driver_earnings: 'Trip Earnings',
   debt_recovery: 'Debt Recovery',
   bonus: 'Bonus / Promotion',
-  adjustments: 'Wallet Adjustment',
+  adjustments: 'Adjustments',
   refunds: 'Refund / Chargeback',
   payouts: 'Payout',
 };

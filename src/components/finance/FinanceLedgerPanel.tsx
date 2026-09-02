@@ -7,7 +7,15 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatPence } from '@/hooks/useDriverWallet';
-import { useFinanceLedgerTransactions } from '@/hooks/useFinanceLedgerTransactions';
+import { useFinanceLedgerTransactions, type FinanceLedgerTransactionRow } from '@/hooks/useFinanceLedgerTransactions';
+import {
+  driverWalletAdminAdjustmentReasonLabel,
+  useDriverWalletAdminAdjustments,
+} from '@/hooks/useDriverWalletAdminAdjustments';
+import {
+  formatDriverWalletAdminAdjustmentAuditNotes,
+  formatDriverWalletAdminIdShort,
+} from '../../../shared/driverWalletManualAdjustmentSSOT';
 import { isAdminDebtRecoveryDebit } from '@/lib/adminFinanceLedgerDisplay';
 import {
   DRIVER_WALLET_LEDGER_FILTER_LABELS,
@@ -89,10 +97,65 @@ export function FinanceLedgerPanel({
     skipRunningBalance: isWallet,
   });
 
+  const { data: adminAdjustments = [] } = useDriverWalletAdminAdjustments(
+    isWallet && filter === 'adjustments' ? driverId : null,
+  );
+
+  const ledgerEntryIds = useMemo(
+    () => new Set(rows.map((r) => r.id)),
+    [rows],
+  );
+
+  const mergedRows = useMemo(() => {
+    if (!isWallet || filter !== 'adjustments') return rows;
+    const pendingRows: FinanceLedgerTransactionRow[] = adminAdjustments
+      .filter((adj) => adj.status !== 'APPLIED' || !adj.ledger_entry_id || !ledgerEntryIds.has(adj.ledger_entry_id))
+      .filter((adj) => adj.status === 'PENDING_APPROVAL' || adj.status === 'REJECTED')
+      .map((adj) => {
+        const signed = adj.signed_amount_pence ?? (adj.direction === 'DEBIT' ? -adj.amount_pence : adj.amount_pence);
+        const reasonLabel = driverWalletAdminAdjustmentReasonLabel(adj.reason_category);
+        return {
+          id: `admin-adj-${adj.id}`,
+          created_at: adj.created_at,
+          trip_id: adj.related_trip_id,
+          trip_code: null,
+          driver_id: driverId,
+          driver_name: null,
+          customer_name: null,
+          type: adj.ledger_type,
+          type_label: adj.ledger_type === 'ADMIN_WALLET_CREDIT' ? 'Admin wallet credit' : 'Admin wallet debit',
+          party: 'driver',
+          direction: signed >= 0 ? 'credit' : 'debit',
+          amount_pence: signed,
+          currency: 'GBP',
+          payment_method: null,
+          source: 'admin_manual_adjustment',
+          status: adj.status === 'PENDING_APPROVAL' ? 'Pending approval' : 'Rejected',
+          ledger_reference: adj.id,
+          description: reasonLabel,
+          notes: formatDriverWalletAdminAdjustmentAuditNotes({
+            reasonCategoryLabel: reasonLabel,
+            reasonNote: adj.reason_note,
+            createdByAdminId: adj.created_by_admin_id,
+            approvedByAdminId: adj.approved_by_admin_id,
+          }),
+          evidence: adj.evidence_reference,
+          adjustment_status: adj.status === 'PENDING_APPROVAL' ? 'Pending approval' : 'Rejected',
+          adjustment_reason_category: reasonLabel,
+          adjustment_created_by: adj.created_by_admin_id,
+          adjustment_approved_by: adj.approved_by_admin_id,
+          related_payout_item_id: adj.related_payout_item_id,
+        } satisfies FinanceLedgerTransactionRow;
+      });
+    return [...pendingRows, ...rows].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+  }, [rows, adminAdjustments, filter, isWallet, driverId, ledgerEntryIds]);
+
   const showCreditHealth = Boolean(creditByTripId && Object.keys(creditByTripId).length > 0);
 
   const filteredRows = useMemo(() => {
-    const movementRows = isWallet ? filterDriverWalletMovementRows(rows) : rows;
+    const movementRows = isWallet ? filterDriverWalletMovementRows(mergedRows) : mergedRows;
     const creditScopedRows = creditExceptionsOnly && creditByTripId
       ? movementRows.filter((row) => {
         if (!row.trip_id) return false;
@@ -112,9 +175,11 @@ export function FinanceLedgerPanel({
         || row.type.toLowerCase().includes(q)
         || (row.description?.toLowerCase().includes(q) ?? false)
         || (row.evidence?.toLowerCase().includes(q) ?? false)
+        || (row.adjustment_reason_category?.toLowerCase().includes(q) ?? false)
+        || (row.adjustment_created_by?.toLowerCase().includes(q) ?? false)
       );
     });
-  }, [rows, search, isWallet, creditExceptionsOnly, creditByTripId]);
+  }, [mergedRows, search, isWallet, creditExceptionsOnly, creditByTripId]);
 
   const exportRows = () => {
     const records = filteredRows.map((r) => {
@@ -380,12 +445,21 @@ export function FinanceLedgerPanel({
                               ) : '—'}
                             </TableCell>
                           ) : null}
-                          <TableCell className="text-xs">{row.status ?? '—'}</TableCell>
-                          <TableCell className="text-xs font-mono max-w-[140px] truncate" title={row.evidence ?? undefined}>
-                            {row.evidence ?? '—'}
+                          <TableCell className="text-xs">{row.status ?? row.adjustment_status ?? '—'}</TableCell>
+                          <TableCell className="text-xs font-mono max-w-[140px] truncate" title={row.evidence ?? row.related_payout_item_id ?? undefined}>
+                            {row.evidence
+                              ?? (row.related_payout_item_id ? `Payout ${row.related_payout_item_id.slice(0, 8)}…` : '—')}
                           </TableCell>
-                          <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate" title={row.notes ?? undefined}>
+                          <TableCell className="text-xs text-muted-foreground max-w-[220px] truncate" title={row.notes ?? undefined}>
                             {row.notes ?? '—'}
+                            {row.adjustment_created_by ? (
+                              <span className="block text-[10px] text-muted-foreground/80">
+                                Created {formatDriverWalletAdminIdShort(row.adjustment_created_by)}
+                                {row.adjustment_approved_by
+                                  ? ` · Approved ${formatDriverWalletAdminIdShort(row.adjustment_approved_by)}`
+                                  : ''}
+                              </span>
+                            ) : null}
                           </TableCell>
                         </TableRow>
                       );

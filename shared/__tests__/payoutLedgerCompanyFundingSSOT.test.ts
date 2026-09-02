@@ -11,6 +11,10 @@ import {
   sumCompletedDriverPayoutsThisMonthPence,
   sumProtectedDriverLiabilitiesPence,
 } from "../payoutLedgerCompanyFundingSSOT";
+import {
+  PROTECTED_LIABILITY_ACCEPTANCE_PROOF,
+  computeProtectedDriverLiabilitiesPence,
+} from "../protectedDriverLiabilitiesSSOT";
 
 const {
   AHMED_ID,
@@ -162,6 +166,8 @@ describe("post-Slice-8 payout ledger company funding SSOT", () => {
     });
     expect(audit.find((r) => r.kind === "NET_COMMISSION")?.amount_pence)
       .toBe(EXPECTED_NET_COMMISSION_PENCE);
+    expect(audit.find((r) => r.kind === "NET_COMMISSION")?.label)
+      .toBe("Recognised ONECAB Net Commission");
     const unclassified = audit.find((r) => r.kind === "UNATTRIBUTED_CASH");
     expect(unclassified?.amount_pence).toBe(EXPECTED_OTHER_COMPANY_CASH_PENCE);
     expect(unclassified?.label).toBe("Unclassified Company Cash");
@@ -187,5 +193,20 @@ describe("post-Slice-8 payout ledger company funding SSOT", () => {
       classified_sources: [],
       onecab_net_commission_available_pence: null,
     })).toBeNull();
+  });
+
+  it("MK gap closure: pending clearing blocks positive before-reserve when Revolut lower", () => {
+    const protectedTotal = computeProtectedDriverLiabilitiesPence([
+      { driver_id: "mk1", pending_clearing_pence: 1576 },
+      { driver_id: "mk2", pending_clearing_pence: 744 },
+    ]).total_pence;
+    expect(protectedTotal).toBe(PROTECTED_LIABILITY_ACCEPTANCE_PROOF.PENDING_CLEARING_PENCE);
+    expect(
+      computeCompanyAvailableBeforeOperationalReservePence({
+        provider_available_balance_pence: PROTECTED_LIABILITY_ACCEPTANCE_PROOF.REVOLUT_SOURCE_PENCE,
+        driver_liability_pence: protectedTotal,
+        approved_company_payables_pence: PROTECTED_LIABILITY_ACCEPTANCE_PROOF.APPROVED_PAYABLES_PENCE,
+      }),
+    ).toBe(0);
   });
 });

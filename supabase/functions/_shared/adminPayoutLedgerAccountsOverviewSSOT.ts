@@ -341,100 +341,105 @@ export async function buildPayoutLedgerAccountsOverview(
   let paused = 0;
   let unverified = 0;
 
-  for (const d of drivers ?? []) {
-    let eligibility;
-    try {
-      eligibility = await fetchDriverPayoutEligibility(supabase, {
+  // Eligibility in parallel batches — sequential per-driver calls felt stuck on fleet load.
+  const ELIGIBILITY_BATCH = 8;
+  for (let i = 0; i < (drivers ?? []).length; i += ELIGIBILITY_BATCH) {
+    const batch = (drivers ?? []).slice(i, i + ELIGIBILITY_BATCH);
+    await Promise.all(batch.map(async (d) => {
+      let eligibility;
+      try {
+        eligibility = await fetchDriverPayoutEligibility(supabase, {
+          driver_id: d.id,
+          service_area_id: args?.service_area_id ?? null,
+        });
+      } catch (eligErr) {
+        console.warn("[admin-payout-ledger] eligibility failed", {
+          driver_id: d.id,
+          error: eligErr instanceof Error ? eligErr.message : String(eligErr),
+        });
+        return;
+      }
+      const available = Math.max(0, eligibility.available_balance_pence);
+      const live = Math.round(eligibility.live_balance_pence);
+      const pending = Math.max(0, eligibility.pending_balance_pence);
+      const reserved = Math.max(0, reservedByDriver.get(String(d.id)) ?? 0);
+      const debt = Math.max(0, eligibility.outstanding_debt_pence);
+      const name = `${d.first_name ?? ""} ${d.last_name ?? ""}`.trim() || null;
+      const pausedAccount = d.payouts_enabled === false;
+      if (pausedAccount) paused += 1;
+
+      if (available <= 0 && live <= 0 && debt <= 0) {
+        return;
+      }
+
+      totalLive += Math.max(0, live);
+      totalAvailable += available;
+      totalReserved += reserved;
+      totalPending += pending;
+      totalDebt += debt;
+
+      if (available > 0 && !pausedAccount) {
+        nextBatchAmount += available;
+        nextBatchDrivers += 1;
+        eligibleDrivers += 1;
+      } else if (live > 0 && available <= 0) {
+        heldDrivers += 1;
+      }
+
+      const saMeta = serviceAreaByDriver.get(String(d.id));
+      const provider = saMeta?.provider ?? null;
+      const normalizedProvider = String(provider ?? "").toLowerCase();
+      const isRevolut = !normalizedProvider || normalizedProvider === "revolut";
+      const manualBank = true;
+      // Connect account id retired from drivers — Revolut/manual bank has no Connect id.
+      const connected: string | null = null;
+      if (!manualBank) unverified += 1;
+      const tierJoin = d.driver_categories as { name?: string } | { name?: string }[] | null;
+      const tierName = Array.isArray(tierJoin)
+        ? (tierJoin[0]?.name ?? null)
+        : (tierJoin?.name ?? null);
+      const lastPaid = lastPayoutByDriver.get(String(d.id));
+
+      accounts.push({
         driver_id: d.id,
-        service_area_id: args?.service_area_id ?? null,
+        name,
+        code: (d.driver_code as string | null) ?? null,
+        service_area_id: saMeta?.service_area_id ?? null,
+        service_area: saMeta?.service_area ?? null,
+        tier: tierName,
+        provider: isRevolut ? "revolut" : (normalizedProvider || "revolut"),
+        connected_account: connected,
+        payout_destination: payoutDestinationLabel({
+          provider: isRevolut ? "revolut" : provider,
+          connected_account_id: isRevolut ? null : connected,
+          manual_bank: manualBank,
+        }),
+        verification: manualBank ? "manual_bank" : (connected ? "legacy_connect" : "not_set"),
+        live_balance_pence: live,
+        available_balance_pence: available,
+        pending_balance_pence: pending,
+        debt_pence: debt,
+        eligible_entry_count: eligibility.eligible_entries.length,
+        unavailable_reason: available <= 0 && live > 0
+          ? (pausedAccount
+            ? "ADMIN_HOLD"
+            : (eligibility.primary_hold_reason ?? eligibility.held_entries[0]?.hold_reason ?? "UNKNOWN_ELIGIBILITY_ERROR"))
+          : null,
+        next_scheduled_at: schedule.next_run_at_utc,
+        next_scheduled_local: schedule.next_run_at_local,
+        last_payout_at: lastPaid?.at ?? null,
+        last_payout_amount_pence: lastPaid?.amount_pence ?? null,
+        schedule_label: schedule.schedule_label,
+        payout_status: pausedAccount
+          ? "PAUSED"
+          : available > 0
+          ? "ELIGIBLE"
+          : live > 0
+          ? "HELD"
+          : "ZERO",
+        paused: pausedAccount,
       });
-    } catch (eligErr) {
-      console.warn("[admin-payout-ledger] eligibility failed", {
-        driver_id: d.id,
-        error: eligErr instanceof Error ? eligErr.message : String(eligErr),
-      });
-      continue;
-    }
-    const available = Math.max(0, eligibility.available_balance_pence);
-    const live = Math.round(eligibility.live_balance_pence);
-    const pending = Math.max(0, eligibility.pending_balance_pence);
-    const reserved = Math.max(0, reservedByDriver.get(String(d.id)) ?? 0);
-    const debt = Math.max(0, eligibility.outstanding_debt_pence);
-    const name = `${d.first_name ?? ""} ${d.last_name ?? ""}`.trim() || null;
-    const pausedAccount = d.payouts_enabled === false;
-    if (pausedAccount) paused += 1;
-
-    if (available <= 0 && live <= 0 && debt <= 0) {
-      continue;
-    }
-
-    totalLive += Math.max(0, live);
-    totalAvailable += available;
-    totalReserved += reserved;
-    totalPending += pending;
-    totalDebt += debt;
-
-    if (available > 0 && !pausedAccount) {
-      nextBatchAmount += available;
-      nextBatchDrivers += 1;
-      eligibleDrivers += 1;
-    } else if (live > 0 && available <= 0) {
-      heldDrivers += 1;
-    }
-
-    const saMeta = serviceAreaByDriver.get(String(d.id));
-    const provider = saMeta?.provider ?? null;
-    const normalizedProvider = String(provider ?? "").toLowerCase();
-    const isRevolut = !normalizedProvider || normalizedProvider === "revolut";
-    const manualBank = true;
-    // Connect account id retired from drivers — Revolut/manual bank has no Connect id.
-    const connected: string | null = null;
-    if (!manualBank) unverified += 1;
-    const tierJoin = d.driver_categories as { name?: string } | { name?: string }[] | null;
-    const tierName = Array.isArray(tierJoin)
-      ? (tierJoin[0]?.name ?? null)
-      : (tierJoin?.name ?? null);
-    const lastPaid = lastPayoutByDriver.get(String(d.id));
-
-    accounts.push({
-      driver_id: d.id,
-      name,
-      code: (d.driver_code as string | null) ?? null,
-      service_area_id: saMeta?.service_area_id ?? null,
-      service_area: saMeta?.service_area ?? null,
-      tier: tierName,
-      provider: isRevolut ? "revolut" : (normalizedProvider || "revolut"),
-      connected_account: connected,
-      payout_destination: payoutDestinationLabel({
-        provider: isRevolut ? "revolut" : provider,
-        connected_account_id: isRevolut ? null : connected,
-        manual_bank: manualBank,
-      }),
-      verification: manualBank ? "manual_bank" : (connected ? "legacy_connect" : "not_set"),
-      live_balance_pence: live,
-      available_balance_pence: available,
-      pending_balance_pence: pending,
-      debt_pence: debt,
-      eligible_entry_count: eligibility.eligible_entries.length,
-      unavailable_reason: available <= 0 && live > 0
-        ? (pausedAccount
-          ? "ADMIN_HOLD"
-          : (eligibility.primary_hold_reason ?? eligibility.held_entries[0]?.hold_reason ?? "UNKNOWN_ELIGIBILITY_ERROR"))
-        : null,
-      next_scheduled_at: schedule.next_run_at_utc,
-      next_scheduled_local: schedule.next_run_at_local,
-      last_payout_at: lastPaid?.at ?? null,
-      last_payout_amount_pence: lastPaid?.amount_pence ?? null,
-      schedule_label: schedule.schedule_label,
-      payout_status: pausedAccount
-        ? "PAUSED"
-        : available > 0
-        ? "ELIGIBLE"
-        : live > 0
-        ? "HELD"
-        : "ZERO",
-      paused: pausedAccount,
-    });
+    }));
   }
 
   accounts.sort((a, b) =>

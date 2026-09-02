@@ -201,18 +201,27 @@ export function useFinancialReconciliationSSOT({
 
   // Never auto-refetch heavy finance queries on tab focus — Refresh only.
 
+  const pendingLiveResolution =
+    enabled
+    && !liveOkSummary
+    && (summaryLive.isLoading || summaryLive.isFetching);
+
   const status: FinanceSsotStatus = liveOk
     ? (livePartial ? 'PARTIAL' : 'LIVE')
-    : snapshot
-      ? 'READ_ONLY'
-      : 'UNAVAILABLE';
+    : pendingLiveResolution
+      ? (snapshot ? 'REFRESHING' : 'UNAVAILABLE')
+      : snapshot
+        ? 'READ_ONLY'
+        : 'UNAVAILABLE';
 
   const response =
     status === 'LIVE' || status === 'PARTIAL'
       ? preferredData ?? null
-      : status === 'READ_ONLY'
-        ? snapshot!.response
-        : null;
+      : status === 'REFRESHING' && snapshot
+        ? snapshot.response
+        : status === 'READ_ONLY'
+          ? snapshot!.response
+          : null;
 
   const rawSummary = pickSummary(response);
   const summary =
@@ -220,7 +229,7 @@ export function useFinancialReconciliationSSOT({
       ? applyDegradedReconciliationSummary(rawSummary)
       : rawSummary;
 
-  const isLoading = (!enabled || summaryLive.isLoading) && status === 'UNAVAILABLE';
+  const isLoading = enabled && status === 'UNAVAILABLE' && summaryLive.isLoading && !snapshot;
   const error =
     status === 'UNAVAILABLE'
       ? summaryLive.error instanceof Error
@@ -248,10 +257,10 @@ export function useFinancialReconciliationSSOT({
       : null;
 
   const displayStatus: FinanceSsotStatus =
-    isFetching && (status === 'LIVE' || status === 'PARTIAL')
-      ? 'REFRESHING'
-      : status === 'READ_ONLY'
-        ? 'DEGRADED'
+    status === 'READ_ONLY'
+      ? 'DEGRADED'
+      : isFetching && (status === 'LIVE' || status === 'PARTIAL')
+        ? 'REFRESHING'
         : status;
 
   return {
@@ -260,7 +269,7 @@ export function useFinancialReconciliationSSOT({
     status: displayStatus === 'DEGRADED' ? 'DEGRADED_SNAPSHOT' : status,
     badge: displayStatus === 'DEGRADED' ? 'DEGRADED' : displayStatus,
     isLive: status === 'LIVE' || status === 'PARTIAL',
-    readOnly: status !== 'LIVE' && status !== 'PARTIAL',
+    readOnly: status === 'READ_ONLY',
     snapshotSavedAt: status === 'READ_ONLY' ? snapshot!.savedAt : null,
     lastSyncedAt,
     isLoading,

@@ -2,6 +2,19 @@
  * Payout Ledger company-funding card rollups (pure).
  * Never mutates wallets / reservations / provider payments.
  */
+import {
+  computeProtectedDriverLiabilitiesPence,
+} from "../../../shared/protectedDriverLiabilitiesSSOT.ts";
+import { COMPANY_BALANCE_LABELS } from "./companyBalanceSSOT.ts";
+
+export {
+  computeProtectedDriverLiabilitiesPence,
+  computeProtectedDriverLiabilityForDriver,
+  sumLiveDriverWalletLiabilitiesPence,
+  type ProtectedDriverLiabilityBreakdown,
+  type ProtectedDriverLiabilityDriverRow,
+  PROTECTED_LIABILITY_ACCEPTANCE_PROOF,
+} from "../../../shared/protectedDriverLiabilitiesSSOT.ts";
 
 export const SLICE8_FUNDING_PROOF = {
   AHMED_ID: "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
@@ -86,7 +99,7 @@ export function buildCompanyFundingAuditRows(args: {
     rows.push({
       kind: "NET_COMMISSION",
       amount_pence: Math.max(0, Math.round(args.onecab_net_commission_available_pence)),
-      label: "ONECAB Net Commission Available",
+      label: COMPANY_BALANCE_LABELS.ONECAB_NET_COMMISSION_AVAILABLE,
       source: PAYMENT_SESSIONS_NET_COMMISSION_SOURCE,
     });
   }
@@ -133,15 +146,16 @@ export function buildCompanyFundingAuditRows(args: {
   return rows;
 }
 
-/** Protected driver liabilities = sum(max(0, live_driver_wallet_balance_pence)). */
+/** @deprecated Use computeProtectedDriverLiabilitiesPence — live-only rollup for legacy tests. */
 export function sumProtectedDriverLiabilitiesPence(
   liveByDriver: ReadonlyArray<{ driver_id: string; live_pence: number }>,
 ): number {
-  let total = 0;
-  for (const row of liveByDriver) {
-    total += Math.max(0, Math.round(Number(row.live_pence ?? 0)));
-  }
-  return total;
+  return computeProtectedDriverLiabilitiesPence(
+    liveByDriver.map((row) => ({
+      driver_id: row.driver_id,
+      live_wallet_pence: row.live_pence,
+    })),
+  ).total_pence;
 }
 
 /** Reserved = sum(ACTIVE driver_payout_reservations.amount_pence) only. */

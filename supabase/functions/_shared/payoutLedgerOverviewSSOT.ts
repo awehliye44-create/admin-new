@@ -3,7 +3,11 @@
  */
 
 import type { CompanyBalanceSnapshot } from "./companyBalanceSSOT.ts";
-import type { CompanyFundingClassifiedSource } from "./payoutLedgerCompanyFundingSSOT.ts";
+import type {
+  CompanyFundingClassifiedSource,
+} from "./payoutLedgerCompanyFundingSSOT.ts";
+import type { ProtectedDriverLiabilityBreakdown } from "../../../shared/protectedDriverLiabilitiesSSOT.ts";
+import type { CompanyFundsScopeMode } from "./companyFundsScopeSSOT.ts";
 
 export const PAYOUT_LEDGER_ERROR = {
   API_UNAVAILABLE: "PAYOUT_LEDGER_API_UNAVAILABLE",
@@ -69,6 +73,10 @@ export type PayoutLedgerOverviewDto = {
   };
 
   company_balance?: CompanyBalanceSnapshot;
+  /** GLOBAL when Revolut source is not SA-segregated. */
+  company_funds_scope?: CompanyFundsScopeMode;
+  company_funds_scope_label?: string | null;
+  protected_driver_liabilities_breakdown?: ProtectedDriverLiabilityBreakdown;
   /** How company-owned cash was classified for Audit History. */
   company_funding_audit?: CompanyFundingClassifiedSource[];
 };

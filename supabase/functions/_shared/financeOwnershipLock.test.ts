@@ -27,6 +27,7 @@ Deno.test("canonical posting service owns TRIP_EARNING_NET insert", async () => 
 
 Deno.test("Payout Ledger eligible types are Driver Wallet Ledger earning credits only", () => {
   assertEquals([...PAYOUT_ELIGIBLE_LEDGER_TYPES].sort(), [
+    "DRIVER_COMPENSATION_CREDIT",
     "DRIVER_TIP_CREDIT",
     "TIP_CREDIT",
     "TRIP_EARNING_NET",

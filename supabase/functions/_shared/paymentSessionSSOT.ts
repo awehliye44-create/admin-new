@@ -1223,10 +1223,12 @@ export async function finalizeBookingAfterPaymentFromSession(
     return { attempted: false, error: "internal_finalize_not_configured" };
   }
 
+  const readySnapshot = bookingSnapshot as Record<string, unknown>;
+
   const body = {
-    ...bookingSnapshot,
+    ...readySnapshot,
     payment_intent_id: args.providerOrderId,
-    client_action_id: bookingSnapshot.client_action_id ?? session.client_action_id,
+    client_action_id: readySnapshot.client_action_id ?? session.client_action_id,
     internal_user_id: userId,
   };
 

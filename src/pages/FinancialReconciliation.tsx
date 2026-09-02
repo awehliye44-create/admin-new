@@ -495,7 +495,7 @@ function FinancialReconciliationPage() {
           </p>
         ) : null}
 
-        {ssotStatus === 'DEGRADED_SNAPSHOT' && (
+        {ssotStatus === 'DEGRADED_SNAPSHOT' && readOnly && !isFetching && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Awaiting Provider Sync</AlertTitle>

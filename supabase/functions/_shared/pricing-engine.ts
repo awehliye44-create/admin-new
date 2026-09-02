@@ -76,6 +76,14 @@ export type FarePricingRow = Record<string, unknown> & {
   demand_supply_multiplier?: number | null;
 };
 
+/** Columns used by `calculateFare` / quote path — avoid `select("*")`. */
+export const FARE_PRICING_SETTINGS_QUOTE_SELECT =
+  "vehicle_type_id, pricing_mode, base_fare_pence, per_km_rate_pence, per_min_rate_pence, booking_fee_pence, minimum_fare_pence, distance_pricing_bands, enable_surge, surge_multiplier_default, peak_hour_multiplier, zone_multiplier, traffic_multiplier, demand_supply_multiplier";
+
+/** Columns used by zone containment + airport metadata on the quote path. */
+export const CUSTOM_ZONES_QUOTE_SELECT =
+  "id, name, shape_type, zone_type, metadata, priority, center_lat, center_lng, radius_meters, geo_boundary, service_area_id, region_id";
+
 export type DistanceBandUsage = {
   from_distance: number;
   to_distance: number | null;
@@ -663,6 +671,9 @@ function resolveRoutePricingContext(input: {
   vehicleTypeId: string | null;
   pickupZoneId?: string | null;
   dropoffZoneId?: string | null;
+  /** When set (quote path), skip re-scanning the same pickup/dropoff polygons. */
+  pickupContainingZones?: ZoneRow[] | null;
+  dropoffContainingZones?: ZoneRow[] | null;
 }): RoutePricingContext {
   const { zones, zoneRoutes, serviceAreaId, vehicleTypeId } = input;
   const pickup = input.pickup;
@@ -690,8 +701,10 @@ function resolveRoutePricingContext(input: {
   }
 
   if (pickup && dropoff) {
-    const pickupZones = zonesContainingPoint(pickup, zones);
-    const dropoffZones = zonesContainingPoint(dropoff, zones);
+    const pickupZones = input.pickupContainingZones
+      ?? zonesContainingPoint(pickup, zones);
+    const dropoffZones = input.dropoffContainingZones
+      ?? zonesContainingPoint(dropoff, zones);
     for (const pz of pickupZones) {
       for (const dz of dropoffZones) {
         if (pz.id === dz.id) continue;
@@ -709,8 +722,12 @@ function resolveRoutePricingContext(input: {
     }
   }
 
-  const pickupZone = pickup ? detectZone(pickup, zones) : null;
-  const dropoffZone = dropoff ? detectZone(dropoff, zones) : null;
+  const pickupZone = input.pickupContainingZones
+    ? (input.pickupContainingZones[0] ?? null)
+    : (pickup ? detectZone(pickup, zones) : null);
+  const dropoffZone = input.dropoffContainingZones
+    ? (input.dropoffContainingZones[0] ?? null)
+    : (dropoff ? detectZone(dropoff, zones) : null);
   const route =
     pickupZone && dropoffZone && pickupZone.id !== dropoffZone.id
       ? findZoneRoutePricing(
@@ -816,6 +833,12 @@ export interface CalculateFareInput {
   /** When set (e.g. from resolve_zone at booking), used before geometry detection. */
   pickupZoneId?: string | null;
   dropoffZoneId?: string | null;
+  /**
+   * Precomputed `zonesContainingPoint` results for the quote pickup/dropoff.
+   * Avoids re-scanning the same polygons once per vehicle on Choose Ride.
+   */
+  pickupContainingZones?: ZoneRow[] | null;
+  dropoffContainingZones?: ZoneRow[] | null;
   /**
    * Region's distance unit ("km" or "mile"). The admin UI labels the per-distance
    * rate using this unit (e.g. "Per mile Rate"), so the stored `per_km_rate_pence`
@@ -1108,6 +1131,8 @@ export function calculateFareSingleLeg(input: CalculateFareInput): FareBreakdown
     vehicleTypeId: input.vehicleTypeId ?? null,
     pickupZoneId: input.pickupZoneId ?? null,
     dropoffZoneId: input.dropoffZoneId ?? null,
+    pickupContainingZones: input.pickupContainingZones,
+    dropoffContainingZones: input.dropoffContainingZones,
   });
 
   const fixedFare = fixedApplied && route?.fixed_fare != null
@@ -1278,6 +1303,9 @@ export function calculateFare(input: CalculateFareInput): FareBreakdown {
       dropoff: legs[0]?.to ?? input.dropoff,
       pickupZoneId: undefined,
       dropoffZoneId: undefined,
+      // Recompute for possibly remapped endpoints.
+      pickupContainingZones: undefined,
+      dropoffContainingZones: undefined,
       stops: [],
     });
   }
@@ -1295,6 +1323,8 @@ export function calculateFare(input: CalculateFareInput): FareBreakdown {
       dropoff: leg.to,
       pickupZoneId: leg.fromZone?.id ?? null,
       dropoffZoneId: leg.toZone?.id ?? null,
+      pickupContainingZones: undefined,
+      dropoffContainingZones: undefined,
       distanceKm: shares[i]?.distanceKm ?? 0,
       durationMin: shares[i]?.durationMin ?? 0,
       stops: [],

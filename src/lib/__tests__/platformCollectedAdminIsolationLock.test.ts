@@ -318,8 +318,10 @@ describe('seeded row isolation (before/after counts)', () => {
     const scope = resolveFinancialModelScope(areas, FINANCIAL_MODEL.PLATFORM_COLLECTED, null);
     expect(scope.ok).toBe(true);
     if (scope.ok) {
-      expect(scope.allowedServiceAreaIds.sort()).toEqual(['legacy', 'uk'].sort());
+      // Fail-closed: null financial_model is UNKNOWN — not included in PLATFORM scope.
+      expect(scope.allowedServiceAreaIds).toEqual(['uk']);
       expect(scope.allowedServiceAreaIds).not.toContain('af');
+      expect(scope.allowedServiceAreaIds).not.toContain('legacy');
     }
     const cwScope = resolveFinancialModelScope(
       areas,

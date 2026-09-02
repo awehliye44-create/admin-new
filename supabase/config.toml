@@ -13,6 +13,12 @@ verify_jwt = false
 [functions.resolve-service-area]
 verify_jwt = false
 
+[functions.calculate-route]
+verify_jwt = false
+
+[functions.calculate-fare]
+verify_jwt = false
+
 [functions.complete-trip]
 verify_jwt = false
 
@@ -72,6 +78,9 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.admin-company-outgoing-transfer]
+verify_jwt = false
+
+[functions.admin-company-operational-reserve]
 verify_jwt = false
 
 [functions.admin-company-payees]
@@ -282,6 +291,10 @@ verify_jwt = false
 # Requires service-role bearer. JWT checked inside handler.
 # Schedule: do NOT add a pg_cron job until production deployment is approved.
 [functions.reconcile-submitted-driver-withdrawals]
+verify_jwt = false
+
+# Admin app heartbeat — keeps website support widget availability fresh (JWT validated in function).
+[functions.admin-support-heartbeat]
 verify_jwt = false
 
 # Public website support widget — availability polling (anon, no JWT).

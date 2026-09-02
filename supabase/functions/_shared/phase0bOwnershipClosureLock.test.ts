@@ -83,7 +83,7 @@ Deno.test("authoritative settlement golden fixtures balance capture identity", (
     if (fx.expected.commission != null) {
       assertEquals(result.commission_amount_pence, fx.expected.commission, fx.label);
     }
-    if (fx.expected.subsidy != null) {
+    if ("subsidy" in fx.expected && fx.expected.subsidy != null) {
       assertEquals(result.promotion_subsidy_pence, fx.expected.subsidy, fx.label);
     }
   }
@@ -102,9 +102,10 @@ Deno.test("terminal fee lifecycle proof — 400 capture / 24 fee / 376 entitleme
   assertEquals(TERMINAL_FEE_LIFECYCLE_PROOF.clearing_delay_hours, DEFAULT_PAYOUT_CLEARING_DELAY_HOURS);
 });
 
-Deno.test("DRIVER_COMPENSATION_CREDIT is payout-eligible (terminal entitlement family)", () => {
-  const now = new Date();
-  const created = new Date(now.getTime() - 28 * 60 * 60 * 1000).toISOString();
+Deno.test("DRIVER_COMPENSATION_CREDIT is payout-eligible after 27h clearing (terminal entitlement family)", () => {
+  const created = new Date(
+    Date.now() - (DEFAULT_PAYOUT_CLEARING_DELAY_HOURS + 1) * 3_600_000,
+  ).toISOString();
   const result = evaluateLedgerEntryEligibility({
     ledger_entry_id: "le-1",
     trip_id: "trip-1",
@@ -113,6 +114,8 @@ Deno.test("DRIVER_COMPENSATION_CREDIT is payout-eligible (terminal entitlement f
     amount_pence: 376,
     payment_session_id: "ps-1",
     captured_amount_pence: 400,
+    provider_processing_fee_pence: 24,
+    fee_status: "ACTUAL",
     canonical_driver_net_pence: null,
     financial_model: "PLATFORM_COLLECTED",
     earning_credited_at: created,
@@ -120,6 +123,30 @@ Deno.test("DRIVER_COMPENSATION_CREDIT is payout-eligible (terminal entitlement f
     trip_status: "no_show",
   });
   assertEquals(result.status, "ELIGIBLE");
+  assertEquals(result.payable_pence, 376);
+});
+
+Deno.test("DRIVER_COMPENSATION_CREDIT stays settlement-pending before 27h clearing", () => {
+  const created = new Date(
+    Date.now() - (DEFAULT_PAYOUT_CLEARING_DELAY_HOURS - 1) * 3_600_000,
+  ).toISOString();
+  const result = evaluateLedgerEntryEligibility({
+    ledger_entry_id: "le-2",
+    trip_id: "trip-2",
+    trip_exists: true,
+    ledger_type: "DRIVER_COMPENSATION_CREDIT",
+    amount_pence: 376,
+    payment_session_id: "ps-2",
+    captured_amount_pence: 400,
+    provider_processing_fee_pence: 24,
+    fee_status: "ACTUAL",
+    canonical_driver_net_pence: null,
+    financial_model: "PLATFORM_COLLECTED",
+    earning_credited_at: created,
+    completed_at: created,
+    trip_status: "no_show",
+  });
+  assertEquals(result.status, "SETTLEMENT_PENDING");
   assertEquals(result.payable_pence, 376);
 });
 

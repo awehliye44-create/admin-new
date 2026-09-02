@@ -4,6 +4,7 @@ import {
   FR_EXPECTED_STAMP_STATUS,
   isTerminalFeeFinancialOutcome,
   resolveFrDriverExpectedEntitlement,
+  resolveFrTripFinancialPeriodOrigin,
   resolveTerminalFeeDriverTenPence,
   resolveFrTripFinancialSettledAt,
   sumFrDriverExpectedEntitlementPence,
@@ -12,6 +13,7 @@ import {
   classifyFrDriverCreditStatus,
   computeFrDriverReconciliation,
   isInstantInFinancePeriod,
+  buildPeriodScopedFrDriverInputs,
   sumActualWalletTripCreditsPence,
 } from "./frDriverReconciliationSSOT.ts";
 
@@ -149,6 +151,97 @@ Deno.test("7. correction posting date does not move earned period silently", () 
     settlement_settled_at: "2026-08-30T12:00:00.000Z",
   });
   assertEquals(earned, "2026-08-24T19:07:50.468Z");
+});
+
+Deno.test("MK-260817-008 restamped captured_at stays missing stamp but out of current FR period", () => {
+  const mk008 = buildFrDriverSettlementTripRow({
+    trip: {
+      id: "trip-mk008",
+      trip_code: "MK-260817-008",
+      status: "completed",
+      financial_model: "PLATFORM_COLLECTED",
+      driver_net_pence: null,
+      commission_pence: null,
+      completed_at: "2026-08-17T12:00:00.000Z",
+    },
+    session: {
+      captured_amount_pence: 716,
+      captured_at: "2026-09-01T20:22:26.000Z",
+    },
+    actual_wallet_trip_credit_pence: 609,
+    ledger_created_at: "2026-08-21T10:00:00.000Z",
+  });
+  assertEquals(mk008.expected_stamp_status, FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING);
+  assertEquals(mk008.captured_at_restamp_suspect, true);
+  assertEquals(mk008.original_trip_completed_at, "2026-08-17T12:00:00.000Z");
+  assertEquals(
+    mk008.period_origin,
+    "2026-08-17T12:00:00.000Z",
+  );
+  assertEquals(
+    isInstantInFinancePeriod(
+      mk008.period_origin,
+      "2026-08-24T23:00:00.000Z",
+      "2026-09-01T22:59:59.999Z",
+    ),
+    false,
+  );
+
+  const lifetimeFr = computeFrDriverReconciliation({
+    ledger: [{ type: "TRIP_EARNING_NET", amount_pence: 609, related_trip_id: "trip-mk008" }],
+    settledTrips: [mk008],
+    completedPayoutItems: [],
+    walletEvidenceAvailable: true,
+    settlementEvidenceAvailable: true,
+    identityMappingValid: true,
+    accountVerified: true,
+    finance_cleared_pence: 609,
+    provider_account_balance_pence: null,
+    provider_account_balance_status: "NOT_APPLICABLE",
+    payout_provider: "revolut",
+    query_scope_status: "LIFETIME",
+  });
+  assertEquals(lifetimeFr.missing_stamp_trip_count, 1);
+  assertEquals(lifetimeFr.driver_credit_status, "EXPECTED_STAMP_MISSING");
+
+  const periodScoped = buildPeriodScopedFrDriverInputs({
+    periodFrom: "2026-08-24T23:00:00.000Z",
+    periodTo: "2026-09-01T22:59:59.999Z",
+    ledger: [{ type: "TRIP_EARNING_NET", amount_pence: 609, related_trip_id: "trip-mk008" }],
+    settledTrips: [mk008],
+    completedPayoutItems: [],
+  });
+  assertEquals(periodScoped.period_trip_ids.length, 0);
+  assertEquals(periodScoped.settledTrips.length, 0);
+
+  const periodFr = computeFrDriverReconciliation({
+    ledger: periodScoped.ledger,
+    settledTrips: periodScoped.settledTrips,
+    completedPayoutItems: periodScoped.completedPayoutItems,
+    walletEvidenceAvailable: true,
+    settlementEvidenceAvailable: true,
+    identityMappingValid: true,
+    accountVerified: true,
+    finance_cleared_pence: 609,
+    provider_account_balance_pence: null,
+    provider_account_balance_status: "NOT_APPLICABLE",
+    payout_provider: "revolut",
+    query_scope_status: "PERIOD_SCOPED",
+  });
+  assertEquals(periodFr.missing_stamp_trip_count, 0);
+});
+
+Deno.test("resolveFrTripFinancialPeriodOrigin exposes restamp diagnostics", () => {
+  const origin = resolveFrTripFinancialPeriodOrigin({
+    trip_status: "completed",
+    financial_outcome: "COMPLETED",
+    completed_at: "2026-08-17T12:00:00.000Z",
+    captured_at: "2026-09-01T20:22:26.000Z",
+    ledger_created_at: "2026-08-21T10:00:00.000Z",
+  });
+  assertEquals(origin.captured_at_restamp_suspect, true);
+  assertEquals(origin.period_origin, "2026-08-17T12:00:00.000Z");
+  assertEquals(origin.original_trip_completed_at, "2026-08-17T12:00:00.000Z");
 });
 
 Deno.test("8. PLATFORM_COLLECTED only — CW trips excluded from entitlement", () => {

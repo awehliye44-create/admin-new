@@ -3,7 +3,7 @@
 // to reflect the ground truth. PAYMENT_RECOVERY COMPLETED uses the same SSOT
 // planner as revolut-webhook (never double-credits wallet; never swaps trip order id).
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { corsHeaders, jsonResponse, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, jsonResponse, requireAdminOrStaff, type GateError } from "../_shared/adminPaymentGate.ts";
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { creditCapturedCardTripLedger } from "../_shared/onecabFinanceLedger.ts";
 import { logAuditEvent } from "../_shared/security.ts";
@@ -15,7 +15,7 @@ import {
   planRecoveryCaptureCompletion,
   isRecoveryCompletionIdempotent,
 } from "../_shared/paymentSessionsRecoveryCompletionSSOT.ts";
-import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
+import { resolvePaymentSessionCaptureAdvanceExtras } from "../_shared/paymentSessionCaptureTimestampSSOT.ts";
 import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 import { classifyTripForPlatformCollectedAdminPage } from "../../../shared/financialModelScopeSSOT.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
@@ -25,16 +25,34 @@ import {
   persistProviderFeeAndMaybeResumeTerminalSettlement,
 } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 
+/** Cursor/Lovable preview treats non-2xx edge responses as blank-screen RUNTIME_ERROR. */
+function financeSafeJson(body: unknown): Response {
+  return jsonResponse(body, 200);
+}
+
+async function gateFailureResponse(gate: GateError): Promise<Response> {
+  let payload: Record<string, unknown> = { ok: false, success: false, error: "Unauthorized" };
+  try {
+    const parsed = await gate.response.json();
+    if (parsed && typeof parsed === "object") {
+      payload = { ok: false, success: false, ...(parsed as Record<string, unknown>) };
+    }
+  } catch {
+    // keep default
+  }
+  return financeSafeJson(payload);
+}
+
 const ACTIVE_STATUSES = [
   "pending_payment",
   "payment_authorised",
   "completed_pending_capture",
   "dispatching",
   "trip_created",
-  "processing",
+  // Never "processing" — not a payment_session_status enum value (Revolut PROCESSING is provider_state).
   "RECOVERY_CHECKOUT_CREATED",
   "CUSTOMER_ACTION_REQUIRED",
-];
+] as const;
 
 const TERMINAL_SESSION = new Set([
   "RECOVERY_COMPLETED",
@@ -52,7 +70,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const gate = await requireAdminOrStaff(req);
-    if (!gate.ok) return gate.response;
+    if (!gate.ok) return await gateFailureResponse(gate);
 
     let body: { session_ids?: string[]; service_area_id?: string | null } = {};
     try { body = (await req.json()) ?? {}; } catch { /* optional */ }
@@ -64,18 +82,18 @@ serve(async (req) => {
       body.service_area_id ?? null,
     );
     if (!modelScope.ok) {
-      return jsonResponse({
+      return financeSafeJson({
         ok: false,
         error: modelScope.error,
         error_code: modelScope.code,
-      }, 400);
+      });
     }
     const allowedSa = new Set(modelScope.allowedServiceAreaIds);
 
     const query = gate.supabase
       .from("payment_sessions")
       .select(
-        "id, provider_order_id, provider_capture_id, status, provider_state, authorised_amount_pence, trip_id, purpose, metadata, parent_session_id, captured_amount_pence, refunded_amount_pence, hold_release_state, financial_operation_state, financial_model, service_area_id, provider_processing_fee_pence, fee_status",
+        "id, provider_order_id, provider_capture_id, status, provider_state, authorised_amount_pence, trip_id, purpose, metadata, parent_session_id, captured_amount_pence, captured_at, refunded_amount_pence, hold_release_state, financial_operation_state, service_area_id, provider_processing_fee_pence, fee_status",
       )
       .eq("payment_provider", "revolut")
       .not("provider_order_id", "is", null);
@@ -86,8 +104,8 @@ serve(async (req) => {
           `status.in.(${ACTIVE_STATUSES.join(",")}),provider_state.in.(AUTHORISED,PENDING,PROCESSING,UNKNOWN)`,
         );
 
-    if (error) return jsonResponse({ error: error.message }, 500);
-    if (!sessionsRaw?.length) return jsonResponse({ ok: true, refreshed: 0, results: [] });
+    if (error) return financeSafeJson({ ok: false, error: error.message });
+    if (!sessionsRaw?.length) return financeSafeJson({ ok: true, refreshed: 0, results: [] });
 
     const tripIdsForClassify = [
       ...new Set(
@@ -113,11 +131,11 @@ serve(async (req) => {
       const trip = s.trip_id ? tripById.get(String(s.trip_id)) : undefined;
       if (!sa && !trip) return false;
       return classifyTripForPlatformCollectedAdminPage({
-        financial_model: s.financial_model ?? trip?.financial_model,
+        financial_model: trip?.financial_model,
         commission_wallet_enabled: trip?.commission_wallet_enabled,
       }).includeOnPlatformPage;
     });
-    if (!sessions.length) return jsonResponse({ ok: true, refreshed: 0, results: [], skipped_out_of_scope: sessionsRaw.length });
+    if (!sessions.length) return financeSafeJson({ ok: true, refreshed: 0, results: [], skipped_out_of_scope: sessionsRaw.length });
 
     const { secretKey, environment } = getRevolutMerchantConfig();
     const nowIso = new Date().toISOString();
@@ -364,10 +382,19 @@ serve(async (req) => {
           statusAdvanceExtras.failure_reason = null;
         } else if (["COMPLETED", "CAPTURED"].includes(stateUpper)) {
           if (amountMinor != null && amountMinor > 0) {
-            statusAdvanceExtras.captured_amount_pence = amountMinor;
-            statusAdvanceExtras.captured_at = nowIso;
+            Object.assign(
+              statusAdvanceExtras,
+              resolvePaymentSessionCaptureAdvanceExtras({
+                storedCapturedAt: s.captured_at as string | null,
+                storedCapturedAmountPence: s.captured_amount_pence as number | null,
+                incomingCapturedAmountPence: amountMinor,
+                nowIso,
+              }),
+            );
           }
         }
+
+        const tripMeta = s.trip_id ? tripById.get(String(s.trip_id)) : undefined;
 
         const lifecycleResult = await applyPaymentSessionWebhookLifecycleUpdate({
           supabase: gate.supabase,
@@ -378,7 +405,7 @@ serve(async (req) => {
             providerCaptureId: s.provider_capture_id,
             currentStatus: String(s.status ?? ""),
             financialOperationState: s.financial_operation_state,
-            financialModel: s.financial_model,
+            financialModel: tripMeta?.financial_model as string | null | undefined,
             purpose: s.purpose,
             storedCapturedAmountPence: s.captured_amount_pence,
             refundedAmountPence: s.refunded_amount_pence,
@@ -433,8 +460,8 @@ serve(async (req) => {
       }
     }
 
-    return jsonResponse({ ok: true, refreshed: results.length, environment, results });
+    return financeSafeJson({ ok: true, refreshed: results.length, environment, results });
   } catch (e) {
-    return jsonResponse({ error: (e as Error).message ?? String(e) }, 500);
+    return financeSafeJson({ ok: false, error: (e as Error).message ?? String(e) });
   }
 });

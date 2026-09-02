@@ -12,11 +12,13 @@ import {
   finalisePayoutLedgerOverviewStatus,
   PAYOUT_LEDGER_ERROR,
 } from "../../../shared/payoutLedgerOverviewSSOT.ts";
-import { fetchDriverPayoutEligibility } from "./fetchDriverPayoutEligibility.ts";
 import { computeCashCommissionOutstanding, computeLedgerWalletBalancePence } from "./onecabFinanceLedger.ts";
+import { loadDriverWalletEligibilityBalancesBatchRpc } from "./driverWalletEligibilityBalancesRpc.ts";
 import { loadPayoutControlCentreSettings } from "./payoutControlCentreSettingsSSOT.ts";
 import { buildPayoutScheduleDto } from "./payoutScheduleSSOT.ts";
 import { resolveLiveCompanyBalanceWithSlice10Gate } from "./companyBalanceResolveSSOT.ts";
+import { resolveCompanyFundsScope } from "./companyFundsScopeSSOT.ts";
+import { loadProtectedDriverLiabilitiesPence } from "./loadProtectedDriverLiabilitiesSSOT.ts";
 import {
   buildCompanyFundingAuditRows,
   PAYMENT_SESSIONS_NET_COMMISSION_SOURCE,
@@ -31,6 +33,8 @@ const COMPLETED = new Set(["completed", "paid", "succeeded"]);
 const FAILED = new Set(["failed", "error", "ledger_sync_failed", "failed_duplicate"]);
 
 const DRIVER_SECTION_BUDGET_MS = 8_000;
+const PROTECTED_LIABILITIES_BUDGET_MS = 20_000;
+const COMPANY_BALANCE_BUDGET_MS = 6_000;
 
 function londonDayStartIso(ref = new Date()): string {
   const fmt = new Intl.DateTimeFormat("en-GB", {
@@ -199,7 +203,6 @@ async function loadDriverOverviewSection(
     byDriver.set(id, list);
   }
 
-  const candidates: string[] = [];
   let liveTotal = 0;
   let debtTotal = 0;
   for (const d of drivers ?? []) {
@@ -209,7 +212,6 @@ async function loadDriverOverviewSection(
     const debt = computeCashCommissionOutstanding(rows);
     liveTotal += Math.max(0, live);
     debtTotal += Math.max(0, debt);
-    if (live !== 0 || debt > 0) candidates.push(id);
   }
 
   let available = 0;
@@ -219,28 +221,22 @@ async function loadDriverOverviewSection(
   let nextBatch = 0;
   let nextDrivers = 0;
 
-  // Eligibility only for non-zero wallets (typically a handful).
-  for (const driverId of candidates.slice(0, 40)) {
-    try {
-      const elig = await fetchDriverPayoutEligibility(supabase, { driver_id: driverId });
-      const avail = Math.max(0, elig.available_balance_pence);
-      const pend = Math.max(0, elig.pending_balance_pence);
-      const live = Math.round(elig.live_balance_pence);
-      available += avail;
-      pending += pend;
-      const paused = (drivers ?? []).find((d: { id: string }) => String(d.id) === driverId)?.payouts_enabled === false;
-      if (avail > 0 && !paused) {
-        eligible += 1;
-        nextBatch += avail;
-        nextDrivers += 1;
-      } else if (live > 0 && avail <= 0) {
-        held += 1;
-      }
-    } catch (err) {
-      console.warn("[admin-payout-ledger] overview eligibility failed", {
-        driver_id: driverId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+  const eligibilityByDriver = await loadDriverWalletEligibilityBalancesBatchRpc(supabase, driverIds);
+  for (const driverId of driverIds) {
+    const elig = eligibilityByDriver.get(driverId);
+    if (!elig) continue;
+    const avail = elig.available_balance_pence;
+    const pend = elig.pending_balance_pence;
+    const live = elig.live_balance_pence;
+    available += avail;
+    pending += pend;
+    const paused = (drivers ?? []).find((d: { id: string }) => String(d.id) === driverId)?.payouts_enabled === false;
+    if (avail > 0 && !paused) {
+      eligible += 1;
+      nextBatch += avail;
+      nextDrivers += 1;
+    } else if (live > 0 && avail <= 0) {
+      held += 1;
     }
   }
 
@@ -458,6 +454,36 @@ export async function buildPayoutLedgerOverview(
   }
   dto.next_scheduled_weekly_driver_payout_at = schedule.next_run_at_utc;
 
+  // --- Company funds scope: global Revolut source → global liabilities (never MK-only from global account) ---
+  let revolutSourceServiceAreaId: string | null = null;
+  try {
+    const { data: sourceRows } = await supabase
+      .from("revolut_business_source_accounts")
+      .select("service_area_id")
+      .eq("provider", "revolut_business")
+      .eq("is_active", true)
+      .eq("is_default_payout_source", true)
+      .limit(5);
+    const scoped = (sourceRows ?? []).find(
+      (r: { service_area_id?: string | null }) => r.service_area_id != null,
+    );
+    const global = (sourceRows ?? []).find(
+      (r: { service_area_id?: string | null }) => r.service_area_id == null,
+    );
+    revolutSourceServiceAreaId = (scoped?.service_area_id as string | null)
+      ?? (global?.service_area_id as string | null)
+      ?? null;
+  } catch (err) {
+    console.warn("[admin-payout-ledger] revolut source scope read failed", err);
+  }
+
+  const companyFundsScope = resolveCompanyFundsScope({
+    ui_service_area_id: service_area_id,
+    revolut_source_service_area_id: revolutSourceServiceAreaId,
+  });
+  dto.company_funds_scope = companyFundsScope.scope_mode;
+  dto.company_funds_scope_label = companyFundsScope.scope_label;
+
   // --- Company transfers aggregates (not company cash balance) ---
   let companyAwaiting = 0;
   let companyPayablesPending = 0;
@@ -471,8 +497,9 @@ export async function buildPayoutLedgerOverview(
       .select("status, amount_pence, execution_at, updated_at, created_at, service_area_id")
       .order("created_at", { ascending: false })
       .limit(2000);
-    if (service_area_id) {
-      companyQuery = companyQuery.eq("service_area_id", service_area_id);
+    const payablesScopeSa = companyFundsScope.balance_service_area_id;
+    if (payablesScopeSa) {
+      companyQuery = companyQuery.eq("service_area_id", payablesScopeSa);
     } else if (allowed_service_area_ids && allowed_service_area_ids.length > 0) {
       companyQuery = companyQuery.in("service_area_id", allowed_service_area_ids);
     } else if (allowed_service_area_ids && allowed_service_area_ids.length === 0) {
@@ -512,15 +539,55 @@ export async function buildPayoutLedgerOverview(
   }
 
   // Slice 10: ACTIVE reserve + classified PS net commission (fail-closed; never invent £0).
-  const companyBalance = await resolveLiveCompanyBalanceWithSlice10Gate({
-    supabase,
-    service_area_id,
-    currency,
-    approved_payables_pending_pence: dto.company_payables_pending_pence,
-    driver_liability_pence: dto.driver_wallet_total_pence,
-    driver_payout_reserved_pence: dto.driver_reserved_pence,
-    customer_refund_reserved_pence: null,
-  });
+  let protectedLiabilitiesPence: number | null = null;
+  try {
+    const liabilityLoad = await withTimeout(
+      loadProtectedDriverLiabilitiesPence(supabase, {
+        service_area_id: companyFundsScope.balance_service_area_id,
+        allowed_service_area_ids,
+        global_company_funds: companyFundsScope.is_global_source,
+      }),
+      PROTECTED_LIABILITIES_BUDGET_MS,
+      "PROTECTED_LIABILITIES",
+    );
+    protectedLiabilitiesPence = liabilityLoad.amount_pence;
+    if (liabilityLoad.error_code) {
+      dto.section_errors.push(liabilityLoad.error_code);
+    }
+    dto.protected_driver_liabilities_breakdown = liabilityLoad.breakdown ?? undefined;
+  } catch (err) {
+    console.warn("[admin-payout-ledger] protected liabilities failed", err);
+    dto.section_errors.push("DRIVER_LIABILITY_QUERY_FAILED");
+    protectedLiabilitiesPence = null;
+  }
+
+  let companyBalance;
+  try {
+    companyBalance = await withTimeout(
+      resolveLiveCompanyBalanceWithSlice10Gate({
+        supabase,
+        service_area_id: companyFundsScope.balance_service_area_id,
+        currency,
+        approved_payables_pending_pence: dto.company_payables_pending_pence,
+        driver_liability_pence: protectedLiabilitiesPence,
+        driver_payout_reserved_pence: dto.driver_reserved_pence,
+        customer_refund_reserved_pence: null,
+      }),
+      COMPANY_BALANCE_BUDGET_MS,
+      "COMPANY_BALANCE",
+    );
+  } catch (err) {
+    console.warn("[admin-payout-ledger] company balance timed out or failed", err);
+    dto.section_errors.push(PAYOUT_LEDGER_ERROR.COMPANY_BALANCE_SOURCE_UNAVAILABLE);
+    companyBalance = {
+      status: "UNAVAILABLE",
+      unavailable_reason: PAYOUT_LEDGER_ERROR.COMPANY_BALANCE_SOURCE_UNAVAILABLE,
+      company_ledger_balance_pence: null,
+      company_available_for_transfer_pence: null,
+      company_available_before_operational_reserve_pence: null,
+      classified_company_cash_pence: null,
+    };
+  }
   dto.company_balance = companyBalance;
   dto.company_balance_pence = companyBalance.company_ledger_balance_pence;
   dto.company_available_for_transfer_pence = companyBalance.company_available_for_transfer_pence;
@@ -530,9 +597,6 @@ export async function buildPayoutLedgerOverview(
     ...dto.sources,
     payment_sessions_net_commission: PAYMENT_SESSIONS_NET_COMMISSION_SOURCE,
   };
-  if (netCommissionPence == null) {
-    dto.section_errors.push("PAYMENT_SESSIONS_NET_COMMISSION_UNAVAILABLE");
-  }
 
   const classifiedRows = buildCompanyFundingAuditRows({
     company_available_before_operational_reserve_pence:

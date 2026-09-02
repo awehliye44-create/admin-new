@@ -126,57 +126,19 @@ function mapCompanyTransfer(row: Record<string, unknown>): CompanyOutgoingTransf
   };
 }
 
-/** Protected driver liabilities = sum of positive live DWL balances (not provider cash). */
+/** Protected driver liabilities — delegated to loadProtectedDriverLiabilitiesSSOT. */
+import { loadProtectedDriverLiabilitiesPence } from "./loadProtectedDriverLiabilitiesSSOT.ts";
+
 async function loadProtectedDriverLiabilityPence(
   supabase: SupabaseClient,
   service_area_id?: string | null,
   allowed_service_area_ids?: readonly string[] | null,
 ): Promise<{ amount_pence: number | null; error_code: string | null }> {
-  try {
-    let driverQuery = supabase
-      .from("drivers")
-      .select("id")
-      .limit(500);
-    if (service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length >= 0)) {
-      const ids = await resolvePlatformCollectedDriverIds(supabase, {
-        service_area_id: service_area_id ?? null,
-        allowed_service_area_ids: allowed_service_area_ids ?? [],
-      });
-      if (ids.length === 0) return { amount_pence: 0, error_code: null };
-      driverQuery = driverQuery.in("id", ids);
-    }
-    const { data: drivers, error } = await driverQuery;
-    if (error) {
-      return { amount_pence: null, error_code: "DRIVER_LIABILITY_QUERY_FAILED" };
-    }
-    const driverIds = (drivers ?? []).map((d) => String(d.id)).filter(Boolean);
-    if (driverIds.length === 0) return { amount_pence: 0, error_code: null };
-
-    const { data: ledgerRows, error: ledgerErr } = await supabase
-      .from("driver_wallet_ledger")
-      .select("driver_id, type, amount_pence")
-      .in("driver_id", driverIds);
-    if (ledgerErr) {
-      return { amount_pence: null, error_code: "DRIVER_LIABILITY_QUERY_FAILED" };
-    }
-
-    const { computeLedgerWalletBalancePence } = await import("./onecabFinanceLedger.ts");
-    const byDriver = new Map<string, Array<{ type?: string | null; amount_pence?: number | null }>>();
-    for (const row of ledgerRows ?? []) {
-      const id = String(row.driver_id ?? "");
-      if (!id) continue;
-      const list = byDriver.get(id) ?? [];
-      list.push(row);
-      byDriver.set(id, list);
-    }
-    let liveTotal = 0;
-    for (const id of driverIds) {
-      liveTotal += Math.max(0, computeLedgerWalletBalancePence(byDriver.get(id) ?? []));
-    }
-    return { amount_pence: liveTotal, error_code: null };
-  } catch {
-    return { amount_pence: null, error_code: "DRIVER_LIABILITY_QUERY_FAILED" };
-  }
+  const result = await loadProtectedDriverLiabilitiesPence(supabase, {
+    service_area_id,
+    allowed_service_area_ids,
+  });
+  return { amount_pence: result.amount_pence, error_code: result.error_code };
 }
 
 async function loadReservedDriverPayoutPence(

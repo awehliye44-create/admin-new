@@ -13,6 +13,16 @@ import {
   computeFinalCompanyAvailablePence,
   OPERATIONAL_RESERVE_ERROR,
 } from "./companyOperationalReserveSSOT.ts";
+import {
+  COMPANY_FUNDS_UNDERPROTECTED,
+  evaluateCompanyFundsUnderprotection,
+} from "../../../shared/companyFundsUnderprotectionSSOT.ts";
+
+export {
+  COMPANY_FUNDS_UNDERPROTECTED,
+  evaluateCompanyFundsUnderprotection,
+  type CompanyFundsUnderprotectionEvaluation,
+} from "../../../shared/companyFundsUnderprotectionSSOT.ts";
 
 export const COMPANY_BALANCE_ERROR = {
   SOURCE_UNAVAILABLE: "COMPANY_BALANCE_SOURCE_UNAVAILABLE",
@@ -43,14 +53,13 @@ export const COMPANY_BALANCE_LABELS = {
   PROTECTED_DRIVER_LIABILITIES: "Protected Driver Liabilities",
   RESERVED_DRIVER_PAYOUTS: "Reserved Driver Payouts",
   APPROVED_COMPANY_PAYABLES: "Approved Company Payables",
-  ONECAB_NET_COMMISSION_AVAILABLE: "ONECAB Net Commission Available",
+  ONECAB_NET_COMMISSION_AVAILABLE: "Recognised ONECAB Net Commission",
   /** @deprecated Prefer UNCLASSIFIED_COMPANY_CASH */
   OTHER_COMPANY_OWNED_CASH: "Unclassified Company Cash",
   UNCLASSIFIED_COMPANY_CASH: "Unclassified Company Cash",
   OPERATIONAL_REFUND_RESERVE: "Operational / Refund Reserve",
-  ONECAB_AVAILABLE_COMPANY_FUNDS: "ONECAB Available Company Funds",
-  ONECAB_CASH_AVAILABLE_BEFORE_OPERATIONAL_RESERVE:
-    "ONECAB Cash Available Before Operational Reserve",
+  ONECAB_AVAILABLE_COMPANY_FUNDS: "ONECAB Real Available Funds",
+  ONECAB_CASH_AVAILABLE_BEFORE_OPERATIONAL_RESERVE: "ONECAB Funds Before Reserve",
   DRIVER_PAYOUT_FUNDING_STATUS: "Driver Payout Funding Status",
   FUNDING_GAP: "Funding Gap",
 } as const;
@@ -59,16 +68,37 @@ export const COMPANY_BALANCE_TOOLTIPS = {
   REVOLUT_SOURCE_ACCOUNT_BALANCE:
     "Total available cash in the selected Revolut Business account. This includes protected driver and company liabilities.",
   ONECAB_AVAILABLE_COMPANY_FUNDS:
-    "Amount ONECAB may use after deducting protected driver liabilities, approved company payables and a configured operational/refund reserve. Active payout reservations are already inside live liabilities — never subtract them again. When the reserve is NOT_CONFIGURED, final company funds stay UNAVAILABLE (not silent £0).",
+    "Spendable company transfer budget from live Revolut liquidity after protected driver liabilities, approved payables, and operational/refund reserve. Always capped by live Revolut source balance and ONECAB funds before reserve. Never includes Payment Sessions commission totals. When the reserve is NOT_CONFIGURED, real available funds stay UNAVAILABLE (not silent £0).",
   ONECAB_AVAILABLE_BEFORE_OPERATIONAL_RESERVE:
-    "Company-owned liquidity before operational reserve. Not all of this amount is current-period commission.",
+    "ONECAB-owned liquidity before operational reserve: Revolut source − protected driver liabilities − approved company payables (− customer refund reserve when configured). Not all of this amount is current-period commission.",
+  APPROVED_COMPANY_PAYABLES:
+    "Approved or awaiting-approval company outgoing transfers — deducted from company funds before reserve (not driver wallet money).",
+  PROTECTED_DRIVER_LIABILITIES:
+    "Driver money protected from company use: live wallet, pending clearing entitlement, active payout reservations, in-flight provider transfers, terminal-fee compensation owed, and unresolved payout obligations. A £0.00 figure on an older deploy may omit pending-clearing entitlements until company-funds gap closure is live.",
   ONECAB_NET_COMMISSION_AVAILABLE:
-    "Recognised net commission from Payment Sessions SSOT only. Never recalculated from gross or provider fees on this page.",
+    "Recognised commission can be higher than current Revolut balance because cash may already have been paid out, reserved, refunded, transferred, or classified historically. It is not a spendable balance.",
   OTHER_COMPANY_OWNED_CASH:
     "Unclassified residual company-owned cash after recognised Payment Sessions net commission. Never commission; status RECONCILIATION_REQUIRED until classified. Not silently transferable.",
   UNCLASSIFIED_COMPANY_CASH:
     "Unclassified residual company-owned cash after recognised Payment Sessions net commission. Never commission; status RECONCILIATION_REQUIRED until classified. Not silently transferable.",
+  RESERVED_DRIVER_PAYOUTS:
+    "Display-only: ACTIVE driver_payout_reservations. Included in Protected Driver Liabilities when computing company funds — shown separately for operational visibility.",
 } as const;
+
+/** Payout Ledger company-funding section headings (display only). */
+export const COMPANY_FUNDING_SECTIONS = {
+  LIQUIDITY_AND_PROTECTION: "Liquidity & protection",
+  /** @deprecated Prefer LIQUIDITY_AND_PROTECTION */
+  TRANSFERABLE_FUNDS: "Liquidity & protection",
+  ACCOUNTING_DIAGNOSTICS: "Accounting diagnostics",
+  /** @deprecated Prefer ACCOUNTING_DIAGNOSTICS */
+  ACCOUNTING_CLASSIFICATION: "Accounting diagnostics",
+  /** @deprecated Reserved payouts moved into main liquidity grid */
+  OPERATIONAL_VISIBILITY: "Operational visibility",
+} as const;
+
+export const COMPANY_BALANCE_COMMISSION_SUBTITLE =
+  "Accounting total from Payment Sessions. Not cash availability.";
 
 export const COMPANY_BALANCE_LABELS_EXTENDED = {
   ONECAB_AVAILABLE_BEFORE_OPERATIONAL_RESERVE:
@@ -163,6 +193,11 @@ export type CompanyBalanceSnapshot = {
   driver_payout_funding_status: DriverPayoutFundingStatus;
   /** max(0, protected liabilities − provider cash); null when either input unknown. */
   funding_gap_pence: number | null;
+  /** Protected liabilities + approved payables exceed Revolut source — company transfers blocked. */
+  company_funds_underprotected?: boolean;
+  company_funds_underprotected_reason_code?: string | null;
+  company_funds_underprotected_message?: string | null;
+  company_funds_underprotected_shortfall_pence?: number | null;
   evidence_status: CompanyBalanceEvidenceStatus;
   unavailable_reason: string | null;
   source_label: string;
@@ -249,15 +284,69 @@ export function computeCompanyAvailableBeforeOperationalReservePence(args: {
 }
 
 /**
- * ONECAB available company funds (authoritative, fail-closed — Slice 10):
- *   eligible = max(0, source − liabilities − payables)
- *   transferable_base = min(eligible, classified_company_cash)
- *   final = max(0, transferable_base − operational_reserve)
- *
- * Active reserved payouts are already inside live liability — do NOT subtract again.
- * Unconfigured operational reserve (null) → null (NOT silent £0).
- * Missing classified cash → null (unclassified excluded from transferable).
+ * Hard cap: company transferable funds never exceed live Revolut cash or before-reserve liquidity.
  */
+export function capCompanyTransferableFundsPence(args: {
+  amount_pence: number | null;
+  provider_available_balance_pence: number | null;
+  before_operational_reserve_pence: number | null;
+}): number | null {
+  if (args.amount_pence == null) return null;
+  let capped = Math.max(0, Math.round(args.amount_pence));
+  if (args.provider_available_balance_pence != null) {
+    capped = Math.min(
+      capped,
+      Math.max(0, Math.round(args.provider_available_balance_pence)),
+    );
+  }
+  if (args.before_operational_reserve_pence != null) {
+    capped = Math.min(
+      capped,
+      Math.max(0, Math.round(args.before_operational_reserve_pence)),
+    );
+  }
+  return capped;
+}
+
+/**
+ * UI liquidity-only real available funds — never capped by Payment Sessions commission.
+ * Backend transfer gates may still use classified_company_cash_pence separately.
+ */
+export function computeRealAvailableCompanyFundsPence(args: {
+  company_available_before_operational_reserve_pence: number | null;
+  operational_reserve_pence: number | null;
+  operational_reserve_configured: boolean;
+  provider_available_balance_pence: number | null;
+  company_funds_underprotected?: boolean;
+}): number | null {
+  if (args.company_funds_underprotected) return 0;
+  if (args.company_available_before_operational_reserve_pence == null) return null;
+  if (!args.operational_reserve_configured || args.operational_reserve_pence == null) {
+    return null;
+  }
+  const raw = Math.max(
+    0,
+    args.company_available_before_operational_reserve_pence
+      - Math.max(0, Math.round(args.operational_reserve_pence)),
+  );
+  return capCompanyTransferableFundsPence({
+    amount_pence: raw,
+    provider_available_balance_pence: args.provider_available_balance_pence,
+    before_operational_reserve_pence: args.company_available_before_operational_reserve_pence,
+  });
+}
+
+  /**
+   * ONECAB available company funds (authoritative, fail-closed — Slice 10):
+   *   eligible = max(0, source − protected_liabilities − approved_payables [− customer_refund])
+   *   transferable_base = min(eligible, classified_company_cash)
+   *   final = max(0, transferable_base − operational_reserve)
+   *
+   * Protected liabilities include pending clearing, reservations, in-flight transfers, etc.
+   * Reserved payouts shown separately for visibility — already in protected_liabilities total.
+   * Unconfigured operational reserve (null) → null (NOT silent £0).
+   * Missing classified cash → null (unclassified excluded from transferable).
+   */
 export function computeCompanyAvailableForTransferPence(args: {
   provider_available_balance_pence: number | null;
   driver_liability_pence?: number | null;
@@ -594,7 +683,7 @@ export function resolveCompanyBalanceSnapshot(args?: {
     approved_company_payables_pence: approved,
   });
   const classified = args?.classified_company_cash_pence ?? null;
-  const available = computeCompanyAvailableForTransferPence({
+  const availableRaw = computeCompanyAvailableForTransferPence({
     provider_available_balance_pence: provider,
     driver_liability_pence: args?.driver_liability_pence,
     driver_payout_reserved_pence: args?.driver_payout_reserved_pence,
@@ -603,11 +692,32 @@ export function resolveCompanyBalanceSnapshot(args?: {
     operational_reserve_pence: args?.operational_reserve_pence,
     classified_company_cash_pence: classified,
   });
+  const available = capCompanyTransferableFundsPence({
+    amount_pence: availableRaw,
+    provider_available_balance_pence: provider,
+    before_operational_reserve_pence: beforeReserve,
+  });
   const reserveMissing = args?.operational_reserve_pence == null;
   const classifiedMissing = classified == null;
-  const transferableBase = !classifiedMissing && beforeReserve != null
+  const transferableBaseRaw = !classifiedMissing && beforeReserve != null
     ? Math.min(beforeReserve, classified)
     : null;
+  const transferableBase = capCompanyTransferableFundsPence({
+    amount_pence: transferableBaseRaw,
+    provider_available_balance_pence: provider,
+    before_operational_reserve_pence: beforeReserve,
+  });
+  const underprotection = evaluateCompanyFundsUnderprotection({
+    provider_available_balance_pence: provider,
+    protected_driver_liabilities_pence: args?.driver_liability_pence ?? null,
+    approved_company_payables_pence: approved,
+  });
+  let beforeReserveOut = beforeReserve;
+  let availableOut = available;
+  if (underprotection.underprotected) {
+    beforeReserveOut = 0;
+    availableOut = 0;
+  }
   const reserveReason = String(args?.operational_reserve_reason_code ?? "").trim()
     || OPERATIONAL_RESERVE_ERROR.NOT_CONFIGURED;
   const reserveSectionStatus =
@@ -626,9 +736,16 @@ export function resolveCompanyBalanceSnapshot(args?: {
     driver_payout_reserved_pence: args?.driver_payout_reserved_pence ?? null,
     approved,
     operational_reserve_pence: args?.operational_reserve_pence ?? null,
-    available,
+    available: availableOut,
   });
-  if (reserveMissing && sections.operational_reserve.amount_pence == null) {
+  if (underprotection.underprotected) {
+    sections.company_transfer_available = {
+      status: "AVAILABLE",
+      amount_pence: 0,
+      currency,
+      reason_code: underprotection.reason_code,
+    };
+  } else if (reserveMissing && sections.operational_reserve.amount_pence == null) {
     sections.operational_reserve = {
       status: reserveSectionStatus,
       amount_pence: null,
@@ -636,14 +753,14 @@ export function resolveCompanyBalanceSnapshot(args?: {
       reason_code: reserveReason,
     };
   }
-  if (reserveMissing) {
+  if (!underprotection.underprotected && reserveMissing) {
     sections.company_transfer_available = {
       status: "UNAVAILABLE",
       amount_pence: null,
       currency,
       reason_code: reserveReason,
     };
-  } else if (classifiedMissing) {
+  } else if (!underprotection.underprotected && classifiedMissing) {
     sections.company_transfer_available = {
       status: "UNAVAILABLE",
       amount_pence: null,
@@ -674,13 +791,17 @@ export function resolveCompanyBalanceSnapshot(args?: {
     customer_refund_reserved_pence: args?.customer_refund_reserved_pence ?? null,
     approved_company_payables_pence: approved,
     operational_reserve_pence: args?.operational_reserve_pence ?? null,
-    company_available_for_transfer_pence: available,
-    final_company_available_pence: available,
-    company_available_before_operational_reserve_pence: beforeReserve,
+    company_available_for_transfer_pence: availableOut,
+    final_company_available_pence: availableOut,
+    company_available_before_operational_reserve_pence: beforeReserveOut,
     classified_company_cash_pence: classified,
     transferable_base_pence: transferableBase,
     approved_payables_pending_pence: approved,
     ...fundingFields(provider, args?.driver_liability_pence ?? null),
+    company_funds_underprotected: underprotection.underprotected,
+    company_funds_underprotected_reason_code: underprotection.reason_code,
+    company_funds_underprotected_message: underprotection.message,
+    company_funds_underprotected_shortfall_pence: underprotection.shortfall_pence,
     evidence_status: "CONFIRMED",
     unavailable_reason: null,
     source_label: "Company Balance SSOT / Revolut Business",

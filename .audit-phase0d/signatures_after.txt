@@ -1,0 +1,2 @@
+finalize_driver_payout_completion(p_payout_item_id uuid, p_provider_payment_id text, p_provider_state text, p_provider_completed_at timestamp with time zone, p_evidence_redacted jsonb)
+finalize_manual_external_payout_completion(p_payout_item_id uuid, p_external_reference text, p_driver_id uuid, p_amount_pence integer, p_completed_at timestamp with time zone, p_admin_user_id uuid, p_operator_reason text, p_evidence jsonb)

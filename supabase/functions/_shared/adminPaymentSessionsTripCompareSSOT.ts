@@ -84,10 +84,13 @@ export async function buildPaymentSessionsTripCompare(
   const tab = request.tab ?? "overview";
   const detailRows = tab === "completed_trips_paid" || tab === "payment_matching";
   const limit = Math.min(1000, Math.max(1, request.limit ?? 100));
+  const offset = Math.max(0, Number(request.offset ?? 0));
   // Overview KPIs: smaller completed-trip window, no name joins.
-  const fetchLimit = detailRows
-    ? Math.min(1000, Math.max(limit * 5, 200))
-    : Math.min(300, Math.max(limit * 2, 100));
+  const fetchLimit = offset > 0
+    ? limit
+    : detailRows
+      ? Math.min(1000, Math.max(limit * 5, 200))
+      : Math.min(300, Math.max(limit * 2, 100));
 
   let tripQuery = supabase
     .from("trips")
@@ -98,8 +101,13 @@ export async function buildPaymentSessionsTripCompare(
     .eq("financial_model", FINANCIAL_MODEL.PLATFORM_COLLECTED)
     .eq("status", "completed")
     .not("completed_at", "is", null)
-    .order("completed_at", { ascending: false })
-    .limit(fetchLimit);
+    .order("completed_at", { ascending: false });
+
+  if (offset > 0) {
+    tripQuery = tripQuery.range(offset, offset + fetchLimit - 1);
+  } else {
+    tripQuery = tripQuery.limit(fetchLimit);
+  }
 
   if (request.service_area_id) {
     tripQuery = tripQuery.eq("service_area_id", request.service_area_id);

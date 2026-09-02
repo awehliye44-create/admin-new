@@ -50,6 +50,20 @@ Deno.test("rollback restores production RPC ACLs deterministically", async () =>
   assertEquals(rollback.includes('CREATE POLICY "Anonymous can submit account requests"'), true);
 });
 
+Deno.test("admin refresh preserves economic captured_at on provider re-verify", async () => {
+  const edge = await read("supabase/functions/admin-refresh-payment-sessions/index.ts");
+  assertEquals(edge.includes("resolvePaymentSessionCaptureAdvanceExtras"), true);
+  assertEquals(edge.includes('statusAdvanceExtras.captured_at = nowIso'), false);
+});
+
+Deno.test("eligibility migration ignores restamped captured_at for clearing origin", async () => {
+  const sql = await read("supabase/migrations/20260930220000_driver_wallet_clearing_origin_restamp_guard.sql");
+  assertEquals(sql.includes("driver_wallet_captured_at_restamp_suspect"), true);
+  assertEquals(sql.includes("driver_wallet_stable_clearing_origin"), true);
+  assertEquals(sql.includes("v_unpaid := GREATEST(0, r.amount_pence - v_allocated)"), true);
+  assertEquals(sql.includes("payout_item_status_releases_ledger_allocation"), true);
+});
+
 Deno.test("admin finance RPCs enforce internal admin authorization", async () => {
   const repoRoot = new URL("../../../", import.meta.url);
   const summaries = await Deno.readTextFile(

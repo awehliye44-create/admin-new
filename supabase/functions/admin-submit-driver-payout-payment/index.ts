@@ -56,6 +56,31 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
+  let body: Record<string, unknown> = {};
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "invalid_json" }, 400);
+  }
+
+  const { requireFinanceExecutionAuth } = await import("../_shared/adminPaymentGate.ts");
+  const auth = await requireFinanceExecutionAuth(req, {
+    pageSlug: "payout-ledger",
+    cronBody: body,
+  });
+  if (!auth.ok) {
+    return new Response(await auth.response.text(), {
+      status: auth.response.status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  console.info("[admin-submit-driver-payout-payment] auth ok", {
+    user_id: auth.userId,
+    role: auth.actor_role ?? null,
+    source: auth.auth_source ?? null,
+  });
+
   const flagGate = evaluateSlice7FlagGate(Deno.env);
   if (!flagGate.ok) {
     return json({
@@ -70,13 +95,6 @@ Deno.serve(async (req) => {
       wallet_debited: false,
       slices_8_to_12_started: false,
     }, 503);
-  }
-
-  let body: Record<string, unknown> = {};
-  try {
-    body = await req.json();
-  } catch {
-    return json({ error: "invalid_json" }, 400);
   }
 
   const blocked = rejectCompanyOrArbitraryPayment(body);

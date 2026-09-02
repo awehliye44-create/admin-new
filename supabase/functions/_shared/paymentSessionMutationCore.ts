@@ -33,7 +33,7 @@ export async function mutatePaymentSession(
   patch: Record<string, unknown>,
   source: PaymentSessionMutationSource,
 ): Promise<{ ok: boolean; error?: string }> {
-  const body = {
+  const body: Record<string, unknown> = {
     ...patch,
     updated_at: new Date().toISOString(),
   };
@@ -82,7 +82,7 @@ export async function mutatePaymentSessionReturningId(
   patch: Record<string, unknown>,
   source: PaymentSessionMutationSource,
 ): Promise<{ ok: boolean; id?: string; error?: string }> {
-  const body = {
+  const body: Record<string, unknown> = {
     ...patch,
     updated_at: new Date().toISOString(),
   };

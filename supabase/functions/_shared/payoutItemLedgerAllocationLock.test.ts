@@ -30,6 +30,7 @@ Deno.test("payout allocation types match payout-eligible DWL credits only", () =
     [...PAYOUT_ELIGIBLE_LEDGER_TYPES].sort(),
   );
   assertEquals(isAllocatableWalletLedgerType("TRIP_EARNING_NET"), true);
+  assertEquals(isAllocatableWalletLedgerType("DRIVER_COMPENSATION_CREDIT"), true);
   assertEquals(isAllocatableWalletLedgerType("CASH_TRIP_EARNING"), false);
   assertEquals(isAllocatableWalletLedgerType("CASH_COMMISSION_DEBT"), false);
   assertEquals(isAllocatableWalletLedgerType("BONUS"), false);
@@ -168,7 +169,8 @@ Deno.test("payout ledger allocation lineage lock", async () => {
   assert(manual.includes("assertPayoutItemLedgerLineage"));
   assert(reserve.includes("assertPayoutItemLedgerLineage"));
   assert(finalize.includes("assertPayoutItemLedgerLineage"));
-  assert(ledgerSync.includes("assertPayoutItemLedgerLineage"));
-  assert(ledgerSync.includes("PAYOUT_LINEAGE"));
+  assert(ledgerSync.includes("invokeAutomatedPayoutCompletion"));
+  assert(ledgerSync.includes("invokeManualExternalPayoutCompletion"));
+  assert(!ledgerSync.includes('from("driver_wallet_ledger").insert'));
   assert(allocSsot.includes('"FAILED"'));
 });

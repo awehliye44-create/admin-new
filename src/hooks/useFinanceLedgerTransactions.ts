@@ -15,6 +15,11 @@ import {
 } from '@/lib/adminFinanceLedgerDisplay';
 import { attachRunningBalancesNewestFirst } from '@/lib/driverWalletRunningBalanceSSOT';
 import { classifyTripForPlatformCollectedAdminPage } from '../../shared/financialModelScopeSSOT';
+import {
+  formatDriverWalletAdminAdjustmentAuditNotes,
+  isDriverWalletAdminAdjustmentLedgerType,
+  parseDriverWalletAdminAdjustmentMetadata,
+} from '../../shared/driverWalletManualAdjustmentSSOT';
 
 export type FinanceLedgerTransactionRow = {
   id: string;
@@ -38,6 +43,11 @@ export type FinanceLedgerTransactionRow = {
   notes: string | null;
   evidence: string | null;
   running_balance_pence?: number | null;
+  adjustment_status?: string | null;
+  adjustment_reason_category?: string | null;
+  adjustment_created_by?: string | null;
+  adjustment_approved_by?: string | null;
+  related_payout_item_id?: string | null;
 };
 
 type LedgerDbRow = {
@@ -49,6 +59,7 @@ type LedgerDbRow = {
   created_at: string;
   related_trip_id: string | null;
   driver_id: string;
+  metadata?: Record<string, unknown> | null;
 
   drivers: { first_name: string | null; last_name: string | null; region_id?: string | null } | null;
   trips: {
@@ -98,7 +109,7 @@ type DiscountTripRow = {
 };
 
 const LEDGER_SELECT = `
-  id, type, amount_pence, currency, description, created_at, related_trip_id,
+  id, type, amount_pence, currency, description, created_at, related_trip_id, metadata,
   driver_id,
   drivers(first_name, last_name, region_id),
   trips(trip_code, payment_method, passenger_id, passenger_name, discount_pence, discount_source, financial_model, commission_wallet_enabled)
@@ -113,6 +124,18 @@ function formatName(first: string | null | undefined, last: string | null | unde
 function mapLedgerRow(row: LedgerDbRow): FinanceLedgerTransactionRow {
   const meta = adminFinanceLedgerTypeMeta(row.type);
   const trip = row.trips;
+  const isAdminAdjustment = isDriverWalletAdminAdjustmentLedgerType(row.type);
+  const adjMeta = isAdminAdjustment
+    ? parseDriverWalletAdminAdjustmentMetadata(row.metadata ?? null)
+    : null;
+  const auditNotes = adjMeta
+    ? formatDriverWalletAdminAdjustmentAuditNotes({
+      reasonCategoryLabel: adjMeta.reasonCategoryLabel,
+      reasonNote: adjMeta.reasonNote,
+      createdByAdminId: adjMeta.createdByAdminId,
+      approvedByAdminId: adjMeta.approvedByAdminId,
+    })
+    : null;
   return {
     id: row.id,
     created_at: row.created_at,
@@ -128,12 +151,16 @@ function mapLedgerRow(row: LedgerDbRow): FinanceLedgerTransactionRow {
     amount_pence: row.amount_pence,
     currency: (row.currency ?? 'GBP').toUpperCase(),
     payment_method: trip?.payment_method ?? null,
-    source: 'ledger',
-    status: 'posted',
+    source: isAdminAdjustment ? 'admin_manual_adjustment' : 'ledger',
+    status: isAdminAdjustment ? 'Applied' : 'posted',
     ledger_reference: row.id,
     description: row.description,
-    notes: row.description,
-    evidence: null,
+    notes: auditNotes ?? row.description,
+    evidence: adjMeta?.evidenceReference ?? null,
+    adjustment_status: isAdminAdjustment ? 'Applied' : null,
+    adjustment_reason_category: adjMeta?.reasonCategoryLabel ?? null,
+    adjustment_created_by: adjMeta?.createdByAdminId ?? null,
+    adjustment_approved_by: adjMeta?.approvedByAdminId ?? null,
   };
 }
 
@@ -246,7 +273,7 @@ async function fetchLedgerRows(args: {
     } else if (args.filter === 'adjustments') {
       query = query.in('type', [
         'ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'MANUAL_CREDIT', 'MANUAL_DEBIT',
-        'LEDGER_REVERSAL', 'CORRECTION',
+        'LEDGER_REVERSAL', 'CORRECTION', 'ADMIN_WALLET_CREDIT', 'ADMIN_WALLET_DEBIT',
       ]);
     } else if (args.filter === 'bonus') {
       query = query.in('type', ['BONUS', 'PROMOTION']);
