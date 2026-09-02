@@ -30,6 +30,8 @@ export type TripHistoryTerminalOutcomeTrip = TerminalTripRow & {
   terminal_disposition_reason?: string | null;
   payment_disposition?: {
     captured_amount_pence?: number | null;
+    released_amount_pence?: number | null;
+    refunded_amount_pence?: number | null;
     provider_processing_fee_pence?: number | null;
     fee_status?: string | null;
     payment_session_id?: string | null;

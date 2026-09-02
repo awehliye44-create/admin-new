@@ -14,7 +14,7 @@ import { FINANCIAL_MODEL, resolveFinancialModelStamp } from "../../../shared/fin
 import { loadPaymentSession, markPaymentSessionProviderFee } from "./paymentSessionSSOT.ts";
 
 export type TerminalTripRow = {
-  id: string;
+  id?: string;
   driver_id?: string | null;
   confirmed_driver_id?: string | null;
   financial_model?: string | null;
