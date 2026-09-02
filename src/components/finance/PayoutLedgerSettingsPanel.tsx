@@ -20,9 +20,22 @@ import {
 import { toast } from 'sonner';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { DriverSelector } from '@/components/finance/DriverSelector';
+import { useStaffProfile } from '@/hooks/useStaffProfile';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  RECOMMENDED_LAUNCH_RESERVE_PENCE,
   RESERVE_MODE,
   RESERVE_POLICY_STATUS,
+  ZERO_RESERVE_OWNER_CONFIRMATION_PHRASE,
   validateReservePolicyDraft,
   type ReserveMode,
   type ReservePolicyStatus,
@@ -50,6 +63,7 @@ const SETTING_KEYS = [
   'allow_sole_admin_company_transfer_approval',
   'sole_admin_company_transfer_limit_pence',
   'sole_admin_company_transfer_allowed_types',
+  'owner_sole_approval_limit_pence',
   'company_transfer_default_account',
   'company_transfer_retry_max',
   'company_transfer_batch_size',
@@ -104,6 +118,7 @@ export function PayoutLedgerSettingsPanel({
   serviceFilter: ServiceAreaFinanceSelection;
 }) {
   const queryClient = useQueryClient();
+  const { isOwner } = useStaffProfile();
   const [overrideDriverId, setOverrideDriverId] = useState<string | null>(null);
 
   const { data: settings, isLoading } = useQuery({
@@ -190,6 +205,8 @@ export function PayoutLedgerSettingsPanel({
     updated_at: string;
   };
 
+  type ReserveScope = 'service_area' | 'global';
+
   const { data: reservePolicies = [], refetch: refetchReserves } = useQuery({
     queryKey: ['company-operational-refund-reserves', serviceFilter.serviceAreaId],
     queryFn: async () => {
@@ -200,6 +217,8 @@ export function PayoutLedgerSettingsPanel({
         .limit(20);
       if (serviceFilter.serviceAreaId) {
         q = q.or(`service_area_id.eq.${serviceFilter.serviceAreaId},service_area_id.is.null`);
+      } else {
+        q = q.is('service_area_id', null);
       }
       const { data, error } = await q;
       if (error) throw error;
@@ -208,9 +227,15 @@ export function PayoutLedgerSettingsPanel({
     staleTime: 15_000,
   });
 
-  const activeReserve = reservePolicies.find((r) => r.status === 'ACTIVE') ?? null;
-  const draftReserve = reservePolicies.find((r) => r.status === 'DRAFT') ?? null;
-  const currentReserve = activeReserve ?? draftReserve ?? reservePolicies[0] ?? null;
+  const [reserveScope, setReserveScope] = useState<ReserveScope>('service_area');
+  const scopedReservePolicies = reservePolicies.filter((row) => (
+    reserveScope === 'global'
+      ? row.service_area_id == null
+      : Boolean(serviceFilter.serviceAreaId) && row.service_area_id === serviceFilter.serviceAreaId
+  ));
+  const activeReserve = scopedReservePolicies.find((r) => r.status === 'ACTIVE') ?? null;
+  const draftReserve = scopedReservePolicies.find((r) => r.status === 'DRAFT') ?? null;
+  const currentReserve = activeReserve ?? draftReserve ?? scopedReservePolicies[0] ?? null;
 
   const [reserveMode, setReserveMode] = useState<ReserveMode>(RESERVE_MODE.FIXED_AMOUNT);
   const [reserveAmount, setReserveAmount] = useState('');
@@ -220,6 +245,17 @@ export function PayoutLedgerSettingsPanel({
     () => new Date().toISOString().slice(0, 10),
   );
   const [reserveAuditNote, setReserveAuditNote] = useState('');
+  const [activateDialogOpen, setActivateDialogOpen] = useState(false);
+  const [activateAuditReason, setActivateAuditReason] = useState('');
+  const [activateZeroConfirm, setActivateZeroConfirm] = useState(false);
+
+  useEffect(() => {
+    if (currentReserve?.service_area_id == null) {
+      setReserveScope('global');
+    } else if (serviceFilter.serviceAreaId) {
+      setReserveScope('service_area');
+    }
+  }, [currentReserve?.id, currentReserve?.service_area_id, serviceFilter.serviceAreaId]);
 
   useEffect(() => {
     if (!currentReserve) {
@@ -251,26 +287,27 @@ export function PayoutLedgerSettingsPanel({
     void refetchReserves();
   };
 
-  async function writeReserveAudit(args: {
-    reserve_id: string | null;
-    action: string;
-    from_status: string | null;
-    to_status: string | null;
-    payload: Record<string, unknown>;
-    note?: string;
-  }) {
-    const { data: auth } = await supabase.auth.getUser();
-    await supabase.from('company_operational_reserve_audit').insert({
-      reserve_id: args.reserve_id,
-      action: args.action,
-      actor_id: auth.user?.id ?? null,
-      from_status: args.from_status,
-      to_status: args.to_status,
-      payload: args.payload as never,
-      note: args.note ?? 'Config only — no money movement',
-      money_moved: false,
-    });
+  async function invokeReservePolicy(body: Record<string, unknown>) {
+    const { data, error } = await supabase.functions.invoke('admin-company-operational-reserve', { body });
+    if (error) throw error;
+    if (data?.success === false || data?.error) {
+      throw new Error(String(data.error ?? data.message ?? 'Reserve mutation failed'));
+    }
+    return data;
   }
+
+  const resolveReserveServiceAreaId = (): string | null => {
+    if (reserveScope === 'global') return null;
+    if (!serviceFilter.serviceAreaId) {
+      throw new Error('Select a service area for service-area-scoped reserve');
+    }
+    return serviceFilter.serviceAreaId;
+  };
+
+  const activateTarget = draftReserve ?? currentReserve;
+  const activateRequiresZeroConfirm = activateTarget?.reserve_mode === RESERVE_MODE.FIXED_AMOUNT
+    && activateTarget.reserve_amount_pence === 0;
+  const canSaveReserveDraft = reserveScope === 'global' || Boolean(serviceFilter.serviceAreaId);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -302,61 +339,19 @@ export function PayoutLedgerSettingsPanel({
       });
       if (!validated.ok) throw new Error((validated as { message: string }).message);
 
-      const { data: auth } = await supabase.auth.getUser();
-      const payload = {
-        service_area_id: serviceFilter.serviceAreaId,
+      await invokeReservePolicy({
+        action: 'save_draft',
+        service_area_id: resolveReserveServiceAreaId(),
         currency,
         reserve_mode: reserveMode,
-        reserve_amount_pence: reserveMode === RESERVE_MODE.FIXED_AMOUNT
-          ? Math.round(Number(amountPence))
-          : null,
-        reserve_percentage_bps: reserveMode === RESERVE_MODE.PERCENTAGE
-          ? Math.round(Number(bps))
-          : null,
+        reserve_amount_pence: reserveMode === RESERVE_MODE.FIXED_AMOUNT ? Math.round(Number(amountPence)) : null,
+        reserve_percentage_bps: reserveMode === RESERVE_MODE.PERCENTAGE ? Math.round(Number(bps)) : null,
         minimum_reserve_pence: Math.round(minimum),
         effective_from: new Date(`${reserveEffectiveFrom}T00:00:00.000Z`).toISOString(),
-        effective_to: null as string | null,
-        status: RESERVE_POLICY_STATUS.DRAFT,
-        audit_note: reserveAuditNote.trim()
-          || 'Draft via Payout Ledger settings (no money movement)',
-        updated_at: new Date().toISOString(),
-      };
-
-      if (draftReserve?.id) {
-        const { error } = await supabase
-          .from('company_operational_refund_reserves')
-          .update(payload)
-          .eq('id', draftReserve.id)
-          .eq('status', 'DRAFT');
-        if (error) throw error;
-        await writeReserveAudit({
-          reserve_id: draftReserve.id,
-          action: 'UPDATE_DRAFT',
-          from_status: 'DRAFT',
-          to_status: 'DRAFT',
-          payload,
-        });
-        return draftReserve.id;
-      }
-
-      const insertPayload = {
-        ...payload,
-        created_by: auth.user?.id ?? null,
-      };
-      const { data: inserted, error } = await supabase
-        .from('company_operational_refund_reserves')
-        .insert(insertPayload)
-        .select('id')
-        .single();
-      if (error) throw error;
-      await writeReserveAudit({
-        reserve_id: inserted.id,
-        action: 'SAVE_DRAFT',
-        from_status: null,
-        to_status: 'DRAFT',
-        payload: insertPayload,
+        audit_note: reserveAuditNote.trim() || 'Draft via Payout Ledger settings (no money movement)',
+        reserve_id: draftReserve?.id ?? null,
+        request_id: crypto.randomUUID(),
       });
-      return inserted.id as string;
     },
     onSuccess: () => {
       toast.success('Reserve draft saved (no money moved)');
@@ -366,64 +361,27 @@ export function PayoutLedgerSettingsPanel({
   });
 
   const reserveActivate = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (args: { audit_reason: string; confirm_zero_reserve: boolean }) => {
       const targetId = draftReserve?.id ?? currentReserve?.id;
       if (!targetId) throw new Error('Save a draft before activating');
-      const confirmed = window.confirm(
-        'Activate this Operational / Refund Reserve policy?\n\n'
-          + 'This unlocks ONECAB Available Company Funds using the safer transferable base. '
-          + 'It does NOT move money, create reservations, or execute transfers.',
-      );
-      if (!confirmed) throw new Error('Activation cancelled');
+      if (!isOwner) throw new Error('Owner or super_admin activation required');
 
-      // Demote any other ACTIVE for same SA+currency first (unique index).
-      if (activeReserve && activeReserve.id !== targetId) {
-        const { error: disableErr } = await supabase
-          .from('company_operational_refund_reserves')
-          .update({
-            status: 'DISABLED',
-            disabled_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', activeReserve.id);
-        if (disableErr) throw disableErr;
-        await writeReserveAudit({
-          reserve_id: activeReserve.id,
-          action: 'DISABLE',
-          from_status: 'ACTIVE',
-          to_status: 'DISABLED',
-          payload: { reason: 'replaced_by_activation' },
-        });
-      }
-
-      const { data: auth } = await supabase.auth.getUser();
-      const { error } = await supabase
-        .from('company_operational_refund_reserves')
-        .update({
-          status: 'ACTIVE',
-          approved_by: auth.user?.id ?? null,
-          activated_at: new Date().toISOString(),
-          disabled_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', targetId);
-      if (error) throw error;
-      await writeReserveAudit({
+      await invokeReservePolicy({
+        action: 'activate',
         reserve_id: targetId,
-        action: 'ACTIVATE',
-        from_status: draftReserve?.status ?? currentReserve?.status ?? null,
-        to_status: 'ACTIVE',
-        payload: { confirmed: true },
-        note: 'Explicit activation confirmation — no money movement',
+        audit_reason: args.audit_reason.trim(),
+        confirm_zero_reserve: args.confirm_zero_reserve,
+        request_id: crypto.randomUUID(),
       });
     },
     onSuccess: () => {
       toast.success('Reserve activated (config only — no money moved)');
+      setActivateDialogOpen(false);
+      setActivateAuditReason('');
+      setActivateZeroConfirm(false);
       invalidateReserveQueries();
     },
-    onError: (err: Error) => {
-      if (err.message !== 'Activation cancelled') toast.error(err.message);
-    },
+    onError: (err: Error) => toast.error(err.message),
   });
 
   const reserveDisable = useMutation({
@@ -436,22 +394,12 @@ export function PayoutLedgerSettingsPanel({
           + 'No money is moved.',
       );
       if (!confirmed) throw new Error('Disable cancelled');
-      const from = activeReserve?.status ?? currentReserve?.status ?? null;
-      const { error } = await supabase
-        .from('company_operational_refund_reserves')
-        .update({
-          status: 'DISABLED',
-          disabled_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', targetId);
-      if (error) throw error;
-      await writeReserveAudit({
+
+      await invokeReservePolicy({
+        action: 'disable',
         reserve_id: targetId,
-        action: 'DISABLE',
-        from_status: from,
-        to_status: 'DISABLED',
-        payload: { confirmed: true },
+        reason: 'Disabled via Payout Ledger settings',
+        request_id: crypto.randomUUID(),
       });
     },
     onSuccess: () => {
@@ -853,6 +801,17 @@ export function PayoutLedgerSettingsPanel({
             <p className="text-[10px] text-muted-foreground">Certification default = 1 (£0.01).</p>
           </div>
           <div className="space-y-1.5">
+            <Label>Owner sole-approval limit (pence)</Label>
+            <Input
+              value={get('owner_sole_approval_limit_pence', '25000')}
+              onChange={(e) => set('owner_sole_approval_limit_pence', e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Authorised Owner may self-approve COMPANY_OUTGOING up to this amount when LIVE is on.
+              Default £250 = 25000.
+            </p>
+          </div>
+          <div className="space-y-1.5">
             <Label>Sole-admin allowed transfer types</Label>
             <Input
               value={get('sole_admin_company_transfer_allowed_types', 'CERTIFICATION')}
@@ -925,28 +884,48 @@ export function PayoutLedgerSettingsPanel({
         <CardContent className="space-y-3">
           <p className="text-xs text-muted-foreground">
             Backend SSOT only — configuration never moves money. Until an ACTIVE policy exists,
-            reserve is OPERATIONAL_RESERVE_NOT_CONFIGURED and final Available stays UNAVAILABLE
-            (fail-closed). Unclassified residual cash is never transferable.
+            reserve shows SETUP REQUIRED and Real Available stays gated (fail-closed).
+            Owner or super_admin must activate with an audit reason. Unclassified residual cash
+            is never transferable.
           </p>
           <div className="text-xs font-mono rounded-md border p-2 space-y-1">
             <div>
               Gate:{' '}
               {activeReserve
                 ? `ACTIVE · ${activeReserve.reserve_mode} · ${activeReserve.currency}`
-                : 'OPERATIONAL_RESERVE_NOT_CONFIGURED'}
+                : 'OPERATIONAL_RESERVE_NOT_CONFIGURED · setup required'}
             </div>
             {currentReserve ? (
               <div>
-                Latest: {currentReserve.status} · id {currentReserve.id.slice(0, 8)}…
+                Latest ({reserveScope}): {currentReserve.status} · id {currentReserve.id.slice(0, 8)}…
+                {currentReserve.service_area_id
+                  ? ` · SA ${currentReserve.service_area_id.slice(0, 8)}…`
+                  : ' · global scope'}
                 {currentReserve.reserve_mode === 'FIXED_AMOUNT'
                   ? ` · ${currentReserve.reserve_amount_pence ?? 0}p`
                   : ` · ${currentReserve.reserve_percentage_bps ?? 0} bps (min ${currentReserve.minimum_reserve_pence ?? 0}p)`}
               </div>
             ) : (
-              <div>No draft/active/disabled row for this service area yet.</div>
+              <div>No draft/active/disabled row for this scope yet.</div>
             )}
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Policy scope</Label>
+              <Select
+                value={reserveScope}
+                onValueChange={(v) => setReserveScope(v as ReserveScope)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="service_area">Service area</SelectItem>
+                  <SelectItem value="global">Global / fleet-wide</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Service-area policies apply when that SA is selected; global applies fleet-wide.
+              </p>
+            </div>
             <div className="space-y-1.5">
               <Label>Reserve type</Label>
               <Select
@@ -964,21 +943,37 @@ export function PayoutLedgerSettingsPanel({
               <Label>Currency / service area</Label>
               <div className="text-sm font-mono pt-2">
                 {(serviceFilter.currencyCode ?? 'GBP').toUpperCase()}
-                {serviceFilter.serviceAreaId
-                  ? ` · SA ${serviceFilter.serviceAreaId.slice(0, 8)}…`
-                  : ' · (select a service area)'}
+                {reserveScope === 'global'
+                  ? ' · global'
+                  : serviceFilter.serviceAreaId
+                    ? ` · SA ${serviceFilter.serviceAreaId.slice(0, 8)}…`
+                    : ' · (select a service area)'}
               </div>
             </div>
             {reserveMode === RESERVE_MODE.FIXED_AMOUNT ? (
               <div className="space-y-1.5">
-                <Label>Reserve amount (pence)</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Reserve amount (pence)</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      setReserveMode(RESERVE_MODE.FIXED_AMOUNT);
+                      setReserveAmount(String(RECOMMENDED_LAUNCH_RESERVE_PENCE));
+                    }}
+                  >
+                    Use launch default (£1.00)
+                  </Button>
+                </div>
                 <Input
                   type="number"
                   min={0}
                   step={1}
                   value={reserveAmount}
                   onChange={(e) => setReserveAmount(e.target.value)}
-                  placeholder="e.g. 1"
+                  placeholder={`${RECOMMENDED_LAUNCH_RESERVE_PENCE} = £1.00 recommended for testing`}
                 />
               </div>
             ) : (
@@ -1027,7 +1022,7 @@ export function PayoutLedgerSettingsPanel({
             <Button
               variant="outline"
               size="sm"
-              disabled={reserveSaveDraft.isPending || !serviceFilter.serviceAreaId}
+              disabled={reserveSaveDraft.isPending || !canSaveReserveDraft}
               onClick={() => reserveSaveDraft.mutate()}
             >
               {reserveSaveDraft.isPending ? 'Saving…' : 'Save draft'}
@@ -1035,15 +1030,32 @@ export function PayoutLedgerSettingsPanel({
             <Button
               variant="default"
               size="sm"
-              disabled={reserveActivate.isPending || (!draftReserve && !currentReserve)}
-              onClick={() => reserveActivate.mutate()}
+              disabled={
+                reserveActivate.isPending
+                || (!draftReserve && !currentReserve)
+                || !isOwner
+              }
+              onClick={() => {
+                setActivateAuditReason(reserveAuditNote.trim());
+                setActivateZeroConfirm(false);
+                setActivateDialogOpen(true);
+              }}
             >
-              {reserveActivate.isPending ? 'Activating…' : 'Activate'}
+              {reserveActivate.isPending ? 'Activating…' : 'Activate (owner)'}
             </Button>
+            {!isOwner ? (
+              <span className="text-xs text-muted-foreground self-center">
+                Owner or super_admin required to activate or disable.
+              </span>
+            ) : null}
             <Button
               variant="destructive"
               size="sm"
-              disabled={reserveDisable.isPending || (!activeReserve && !currentReserve)}
+              disabled={
+                reserveDisable.isPending
+                || (!activeReserve && !currentReserve)
+                || !isOwner
+              }
               onClick={() => reserveDisable.mutate()}
             >
               {reserveDisable.isPending ? 'Disabling…' : 'Disable'}
@@ -1051,6 +1063,60 @@ export function PayoutLedgerSettingsPanel({
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={activateDialogOpen} onOpenChange={setActivateDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Activate operational / refund reserve</DialogTitle>
+            <DialogDescription>
+              Unlocks Real Available Funds on the overview (Before Reserve − reserve).
+              Config only — no money movement, reservations, or transfers.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="reserve-activate-audit">Owner audit reason (required)</Label>
+              <Textarea
+                id="reserve-activate-audit"
+                value={activateAuditReason}
+                onChange={(e) => setActivateAuditReason(e.target.value)}
+                placeholder="Why this reserve policy is appropriate (min 10 characters)"
+                rows={3}
+              />
+            </div>
+            {activateRequiresZeroConfirm ? (
+              <div className="flex items-start gap-2 rounded-md border p-3">
+                <Checkbox
+                  id="reserve-zero-confirm"
+                  checked={activateZeroConfirm}
+                  onCheckedChange={(v) => setActivateZeroConfirm(v === true)}
+                />
+                <label htmlFor="reserve-zero-confirm" className="text-sm leading-snug cursor-pointer">
+                  {ZERO_RESERVE_OWNER_CONFIRMATION_PHRASE}
+                </label>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setActivateDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                reserveActivate.isPending
+                || activateAuditReason.trim().length < 10
+                || (activateRequiresZeroConfirm && !activateZeroConfirm)
+              }
+              onClick={() => reserveActivate.mutate({
+                audit_reason: activateAuditReason,
+                confirm_zero_reserve: activateZeroConfirm,
+              })}
+            >
+              {reserveActivate.isPending ? 'Activating…' : 'Confirm activation'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
         Save payout settings

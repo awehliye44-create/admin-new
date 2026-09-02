@@ -4,7 +4,7 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Loader2, Plus, Printer, RefreshCw, Copy } from 'lucide-react';
+import { Download, Loader2, Plus, Printer, RefreshCw, Copy, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -17,7 +17,8 @@ import {
   isCompanyTransferCertificationOrTestProof,
   isCompanyTransferOperationallyVisible,
 } from '../../../shared/companyTransferLifecycleSSOT';
-import { soleAdminCtReasonLabel, canUiSoleApproveCompanyTransfer } from '../../../shared/companyTransferSoleAdminApprovalSSOT';
+import { soleAdminCtReasonLabel, canUiSoleApproveCompanyTransfer, SOLE_OWNER_CT_DEFAULT_LIMIT_PENCE } from '../../../shared/companyTransferSoleAdminApprovalSSOT';
+import { resolveHighRiskApprovalRequirement } from '../../../shared/companyOutgoingTransferApprovalSSOT';
 import { isCompanyPayeeProviderVerified } from '../../../shared/companyPayeeRevolutLinkSSOT';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -61,7 +62,7 @@ import {
   type CompanyOutgoingTransferRow,
 } from '../../../shared/adminPayoutLedgerSSOT';
 import type { CompanyBalanceSnapshot } from '../../../shared/companyBalanceSSOT';
-import { COMPANY_BALANCE_ERROR } from '../../../shared/companyBalanceSSOT';
+import { COMPANY_BALANCE_ERROR, evaluateCompanyFundsUnderprotection } from '../../../shared/companyBalanceSSOT';
 import type { CompanyPayeePublicDto } from '../../../shared/companyPayeeSSOT';
 import {
   COMPANY_TRANSFER_CATEGORIES,
@@ -179,13 +180,18 @@ async function companyTransferInvokeErrorMessage(
       }
       const fromErr = fromPayload(payload);
       if (fromErr) return fromErr;
+      if (payload?.success === true) {
+        return typeof payload.message === 'string'
+          ? payload.message
+          : 'Transfer updated';
+      }
     } catch {
       /* fall through */
     }
   }
   if (error instanceof Error && error.message) {
     if (/non-2xx|edge function/i.test(error.message)) {
-      return 'Transfer validation failed. If you created this transfer, another admin must approve it (self-approval is disabled when company LIVE is on).';
+      return fallback;
     }
     return error.message;
   }
@@ -271,6 +277,21 @@ export function PayoutLedgerCompanyTransfersPanel({
   const [soleAdminReason, setSoleAdminReason] = useState(
     'Sole-admin approval: no second authorised company-transfer approver is configured.',
   );
+  const soleApproveUiGate = (t: CompanyOutgoingTransferRow | null) => {
+    if (!t) return false;
+    const meta = (t.metadata && typeof t.metadata === 'object'
+      ? t.metadata
+      : {}) as Record<string, unknown>;
+    return canUiSoleApproveCompanyTransfer({
+      actor_is_owner: isOwner,
+      transfer_type: t.transfer_type,
+      amount_pence: t.amount_pence,
+      owner_sole_approval_limit_pence: SOLE_OWNER_CT_DEFAULT_LIMIT_PENCE,
+      transfer_high_risk: resolveHighRiskApprovalRequirement(t.category).always_require_approval
+        || meta.force_high_risk === true,
+      manual_override: meta.manual_override === true,
+    });
+  };
   const [form, setForm] = useState({
     payee_id: '',
     recipient_name: '',
@@ -483,12 +504,29 @@ export function PayoutLedgerCompanyTransfersPanel({
   const actionMutation = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
       const { data, error } = await supabase.functions.invoke(ADMIN_COMPANY_TRANSFER_FN, { body });
-      if (data && data.success === false) {
-        throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Action failed'));
+      const payload = (data && typeof data === 'object' ? data : null) as Record<string, unknown> | null;
+
+      const transferStatus = payload?.transfer && typeof payload.transfer === 'object'
+        ? String((payload.transfer as Record<string, unknown>).status ?? '')
+        : '';
+      const succeeded = payload?.success === true
+        || payload?.idempotent === true
+        || (transferStatus === 'APPROVED' || transferStatus === 'READY_FOR_EXECUTION');
+
+      if (succeeded) return payload;
+
+      if (payload && payload.success === false) {
+        const codes = Array.isArray(payload.blocked_reason_codes)
+          ? payload.blocked_reason_codes.map(String)
+          : [];
+        if (codes.length > 0) {
+          throw new Error(codes.map((code) => soleAdminCtReasonLabel(code) || code).join('; '));
+        }
+        throw new Error(await companyTransferInvokeErrorMessage(payload, error, 'Action failed'));
       }
-      if (data?.success) return data;
-      if (error) throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Action failed'));
-      throw new Error('Action failed');
+
+      if (error) throw new Error(await companyTransferInvokeErrorMessage(payload, error, 'Action failed'));
+      throw new Error(await companyTransferInvokeErrorMessage(payload, error, 'Action failed'));
     },
     onSuccess: (data) => {
       if (data?.blocked) {
@@ -507,22 +545,28 @@ export function PayoutLedgerCompanyTransfersPanel({
       } else {
         toast.success(
           data?.sole_admin_override
-            ? 'Sole-admin approval recorded — READY FOR EXECUTION (not submitted)'
+            ? 'Owner sole approval recorded — READY FOR EXECUTION (not submitted)'
             : 'Transfer updated',
         );
       }
       setSoleAdminTransfer(null);
       void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
     },
-    onError: (err: Error) => toast.error(err.message, { duration: 12_000 }),
+    onError: (err: Error) => {
+      toast.error(err.message, { duration: 12_000 });
+      // Approval may have succeeded server-side while the client timed out or mis-parsed.
+      void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
+    },
   });
 
   const requestApprove = (t: CompanyOutgoingTransferRow) => {
     const isSelf = Boolean(user?.id && t.requested_by && user.id === t.requested_by);
-    // Self-approve always opens sole-admin confirmation when LIVE four-eyes applies.
-    // Server enforces CERTIFICATION + 1p + super_admin + no second approver.
     if (isSelf) {
-      setSoleAdminReason('COMPANY_TRANSFER_CERTIFICATION');
+      setSoleAdminReason(
+        isOwner && soleApproveUiGate(t)
+          ? 'Owner sole approval for company outgoing transfer audit'
+          : 'Sole-admin approval: no second authorised company-transfer approver is configured.',
+      );
       setSoleAdminTransfer(t);
       return;
     }
@@ -1044,9 +1088,31 @@ export function PayoutLedgerCompanyTransfersPanel({
     ?? kpis?.completed_month_pence
     ?? null;
   const completedCompanyMonth = kpis?.completed_company_transfers_month_pence ?? 0;
+  const companyFundsUnderprotection = evaluateCompanyFundsUnderprotection({
+    provider_available_balance_pence: companyBalance?.provider_available_balance_pence ?? null,
+    protected_driver_liabilities_pence: companyBalance?.driver_liability_pence ?? null,
+    approved_company_payables_pence: kpis?.approved_payables_pending_pence
+      ?? companyBalance?.approved_company_payables_pence
+      ?? null,
+  });
+  const underprotected = companyBalance?.company_funds_underprotected
+    ?? companyFundsUnderprotection.underprotected;
+  const underprotectedMessage = companyBalance?.company_funds_underprotected_message
+    ?? companyFundsUnderprotection.message;
 
   return (
     <div className="space-y-4">
+      {underprotected && underprotectedMessage ? (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Company transfers blocked</AlertTitle>
+          <AlertDescription className="text-sm">
+            {underprotectedMessage} Company transfer create, approve, and execution remain blocked until
+            Revolut source balance covers protected driver liabilities and approved payables. Driver payouts
+            are not blocked by this warning.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <Alert>
         <AlertTitle>Company money only</AlertTitle>
         <AlertDescription>
@@ -2701,22 +2767,12 @@ export function PayoutLedgerCompanyTransfersPanel({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {isOwner
-                && canUiSoleApproveCompanyTransfer({
-                  actor_is_owner: true,
-                  transfer_type: soleAdminTransfer?.transfer_type,
-                  amount_pence: soleAdminTransfer?.amount_pence,
-                })
+              {isOwner && soleApproveUiGate(soleAdminTransfer)
                 ? 'Owner sole approval'
                 : 'Sole-admin approval'}
             </DialogTitle>
             <DialogDescription>
-              {isOwner
-                && canUiSoleApproveCompanyTransfer({
-                  actor_is_owner: true,
-                  transfer_type: soleAdminTransfer?.transfer_type,
-                  amount_pence: soleAdminTransfer?.amount_pence,
-                })
+              {isOwner && soleApproveUiGate(soleAdminTransfer)
                 ? 'As the authorised company Owner, you can approve this transfer without a second approver. The approval will be recorded in the audit trail. Approval does not send the payment.'
                 : 'You are the only authorised company-transfer approver. This £0.01 certification approval will be recorded as a sole-admin override. Approval does not send the payment.'}
             </DialogDescription>
@@ -2728,11 +2784,7 @@ export function PayoutLedgerCompanyTransfersPanel({
               <div>Amount: {formatNullablePence(soleAdminTransfer?.amount_pence ?? null)}</div>
               <div>Payee: {soleAdminTransfer?.recipient_name ?? '—'}</div>
             </div>
-            {!canUiSoleApproveCompanyTransfer({
-              actor_is_owner: isOwner,
-              transfer_type: soleAdminTransfer?.transfer_type,
-              amount_pence: soleAdminTransfer?.amount_pence,
-            }) ? (
+            {!soleApproveUiGate(soleAdminTransfer) ? (
               <Alert>
                 <AlertTitle>
                   {isOwner ? 'Owner sole approval not available for this type' : 'Certification £0.01 only'}
@@ -2767,11 +2819,7 @@ export function PayoutLedgerCompanyTransfersPanel({
               disabled={
                 actionMutation.isPending
                 || soleAdminReason.trim().length < 10
-                || !canUiSoleApproveCompanyTransfer({
-                  actor_is_owner: isOwner,
-                  transfer_type: soleAdminTransfer?.transfer_type,
-                  amount_pence: soleAdminTransfer?.amount_pence,
-                })
+                || !soleApproveUiGate(soleAdminTransfer)
               }
               onClick={() => {
                 if (!soleAdminTransfer) return;
@@ -2786,12 +2834,7 @@ export function PayoutLedgerCompanyTransfersPanel({
             >
               {actionMutation.isPending
                 ? <Loader2 className="h-4 w-4 animate-spin" />
-                : isOwner
-                  && canUiSoleApproveCompanyTransfer({
-                    actor_is_owner: true,
-                    transfer_type: soleAdminTransfer?.transfer_type,
-                    amount_pence: soleAdminTransfer?.amount_pence,
-                  })
+                : isOwner && soleApproveUiGate(soleAdminTransfer)
                 ? 'Approve as owner'
                 : 'Approve as sole administrator'}
             </Button>

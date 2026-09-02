@@ -17,6 +17,14 @@ export const SOLE_ADMIN_CT_SETTING = {
   ALLOWED_TYPES: "sole_admin_company_transfer_allowed_types",
 } as const;
 
+/** Owner self-approval cap — separate from certification sole-admin 1p default. */
+export const SOLE_OWNER_CT_SETTING = {
+  LIMIT_PENCE: "owner_sole_approval_limit_pence",
+} as const;
+
+/** Default £250 — matches company_transfer_approval_single_max_pence. */
+export const SOLE_OWNER_CT_DEFAULT_LIMIT_PENCE = 25_000;
+
 /** Fail-closed default: certification only until explicitly expanded. */
 export const SOLE_ADMIN_CT_DEFAULT_ALLOWED_TYPES = ["CERTIFICATION"] as const;
 
@@ -45,6 +53,8 @@ export const SOLE_ADMIN_CT_REASON = {
   CONFIRMATION_REQUIRED: "SOLE_ADMIN_CONFIRMATION_REQUIRED",
   OVERRIDE_REASON_REQUIRED: "SOLE_ADMIN_OVERRIDE_REASON_REQUIRED",
   NOT_SELF_APPROVAL: "SOLE_ADMIN_NOT_SELF_APPROVAL",
+  HIGH_RISK_TRANSFER_BLOCKED: "SOLE_OWNER_HIGH_RISK_TRANSFER_BLOCKED",
+  MANUAL_OVERRIDE_BLOCKED: "SOLE_OWNER_MANUAL_OVERRIDE_BLOCKED",
 } as const;
 
 export type SoleAdminCtReasonCode =
@@ -74,6 +84,10 @@ export const SOLE_ADMIN_CT_REASON_LABEL: Record<SoleAdminCtReasonCode, string> =
   SOLE_ADMIN_OVERRIDE_REASON_REQUIRED:
     "A full audit override reason is required (min 10 characters)",
   SOLE_ADMIN_NOT_SELF_APPROVAL: "Sole-admin policy applies only to self-approval",
+  SOLE_OWNER_HIGH_RISK_TRANSFER_BLOCKED:
+    "High-risk transfers require a second approver — owner sole approval not permitted",
+  SOLE_OWNER_MANUAL_OVERRIDE_BLOCKED:
+    "Manual override transfers require a second approver — owner sole approval not permitted",
 };
 
 export type SoleAdminCtApprovalAudit = {
@@ -109,6 +123,32 @@ export function parseSoleAdminCtLimitPence(raw: unknown): number | null {
   const n = Number(s);
   if (!Number.isFinite(n) || n < 0) return null;
   return Math.round(n);
+}
+
+export function resolveOwnerSoleApprovalLimitPence(args: {
+  owner_sole_approval_limit_pence?: number | null;
+  single_approval_max_pence?: number | null;
+}): number {
+  const configured = args.owner_sole_approval_limit_pence;
+  if (configured != null && configured >= 0) return Math.round(configured);
+  const singleMax = args.single_approval_max_pence;
+  if (singleMax != null && singleMax >= 0) return Math.round(singleMax);
+  return SOLE_OWNER_CT_DEFAULT_LIMIT_PENCE;
+}
+
+/**
+ * When requester === approver, use sole/owner evaluation instead of blanket self-approve.
+ * LIVE on replaces blanket disable — threshold policy runs in evaluateSoleAdmin…
+ */
+export function shouldUseCompanyTransferSoleAdminSelfApprovalPath(args: {
+  live_company_transfer_execution_enabled: boolean;
+  allow_self_approval: boolean;
+  confirm_sole_admin_approval?: boolean;
+}): boolean {
+  if (args.confirm_sole_admin_approval === true) return true;
+  if (args.live_company_transfer_execution_enabled) return true;
+  if (!args.allow_self_approval) return true;
+  return false;
 }
 
 /** Comma/space-separated types; empty/missing → CERTIFICATION only (fail-closed). */
@@ -150,13 +190,22 @@ export function canUiSoleApproveCompanyTransfer(args: {
   actor_is_owner: boolean;
   transfer_type: string | null | undefined;
   amount_pence: number | null | undefined;
+  owner_sole_approval_limit_pence?: number | null;
+  transfer_high_risk?: boolean;
+  manual_override?: boolean;
 }): boolean {
+  if (args.transfer_high_risk || args.manual_override) return false;
+  const amount = Math.round(Number(args.amount_pence) || 0);
   if (args.actor_is_owner) {
-    return isSoleOwnerAllowedTransferType(args.transfer_type);
+    if (!isSoleOwnerAllowedTransferType(args.transfer_type)) return false;
+    const limit = resolveOwnerSoleApprovalLimitPence({
+      owner_sole_approval_limit_pence: args.owner_sole_approval_limit_pence,
+    });
+    return amount <= limit;
   }
   return (
     String(args.transfer_type ?? "").trim().toUpperCase() === "CERTIFICATION"
-    && Math.round(Number(args.amount_pence) || 0) === 1
+    && amount === 1
   );
 }
 
@@ -165,8 +214,9 @@ export function canUiSoleApproveCompanyTransfer(args: {
  * Call only when requester_id === approver_id. Does not replace four-eyes for others.
  *
  * When `actor_is_owner` is true and type is COMPANY_OUTGOING or CERTIFICATION,
- * Owner bypasses CERTIFICATION+1p / settings type-list / amount-limit / second-approver
- * / policy-enabled gates. All other safety gates still apply.
+ * Owner bypasses CERTIFICATION+1p / settings type-list / second-approver / policy-enabled
+ * gates, but must stay within owner_sole_approval_limit_pence. All other safety gates
+ * still apply (payee verified, funding gate, no provider payment, etc.).
  */
 export function evaluateSoleAdminCompanyTransferSelfApproval(args: {
   policy_enabled: boolean;
@@ -178,8 +228,11 @@ export function evaluateSoleAdminCompanyTransferSelfApproval(args: {
   other_eligible_approver_count: number;
   amount_pence: number;
   limit_pence: number | null;
+  owner_sole_approval_limit_pence?: number | null;
   transfer_type: string | null | undefined;
   allowed_transfer_types?: string[];
+  transfer_high_risk?: boolean;
+  manual_override?: boolean;
   payee_provider_verified: boolean;
   money_source: string | null | undefined;
   funding_gate_allowed: boolean;
@@ -214,8 +267,18 @@ export function evaluateSoleAdminCompanyTransferSelfApproval(args: {
   }
 
   if (ownerTypeOk) {
-    // Owner path: code-authorized; do not require sole-admin settings / 1p / type list.
-    // Role: Owner identity is sufficient (may also be super_admin).
+    const ownerLimit = resolveOwnerSoleApprovalLimitPence({
+      owner_sole_approval_limit_pence: args.owner_sole_approval_limit_pence,
+    });
+    if (amount > ownerLimit) {
+      reasons.push(SOLE_ADMIN_CT_REASON.AMOUNT_OVER_LIMIT);
+    }
+    if (args.transfer_high_risk === true) {
+      reasons.push(SOLE_ADMIN_CT_REASON.HIGH_RISK_TRANSFER_BLOCKED);
+    }
+    if (args.manual_override === true) {
+      reasons.push(SOLE_ADMIN_CT_REASON.MANUAL_OVERRIDE_BLOCKED);
+    }
   } else {
     if (!args.policy_enabled) {
       reasons.push(SOLE_ADMIN_CT_REASON.POLICY_DISABLED);
@@ -289,7 +352,9 @@ export function evaluateSoleAdminCompanyTransferSelfApproval(args: {
           0,
           Math.round(Number(args.other_eligible_approver_count) || 0),
         ),
-        limit_pence: args.limit_pence ?? 0,
+        limit_pence: resolveOwnerSoleApprovalLimitPence({
+          owner_sole_approval_limit_pence: args.owner_sole_approval_limit_pence,
+        }),
         transfer_type: transferType || null,
       },
     };
@@ -313,7 +378,7 @@ export function evaluateSoleAdminCompanyTransferSelfApproval(args: {
       transfer_id: args.transfer_id ?? null,
       transfer_reference: args.transfer_reference ?? null,
       other_eligible_approver_count: 0,
-      limit_pence: args.limit_pence!,
+      limit_pence: args.limit_pence ?? 0,
       transfer_type: transferType || null,
     },
   };

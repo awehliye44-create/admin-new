@@ -13,6 +13,9 @@ import {
   evaluateActiveReservePolicy,
   resolveOperationalReserveAmount,
   validateReservePolicyDraft,
+  validateZeroReserveOwnerActivation,
+  ZERO_RESERVE_OWNER_CONFIRMATION_PHRASE,
+  RECOMMENDED_LAUNCH_RESERVE_PENCE,
   assertFinalCompanyTransferAllowed,
   parsePolicyRow,
 } from "../../../shared/companyOperationalReserveSSOT";
@@ -417,5 +420,38 @@ describe("Slice 10 operational reserve SSOT", () => {
         amount_pence: 1,
       })).toThrow(code);
     }
+  });
+
+  it("£0 fixed reserve activation requires owner audit reason and explicit confirmation", () => {
+    expect(RECOMMENDED_LAUNCH_RESERVE_PENCE).toBe(100);
+    expect(ZERO_RESERVE_OWNER_CONFIRMATION_PHRASE).toContain("no operational/refund reserve");
+
+    expect(validateZeroReserveOwnerActivation({
+      reserve_mode: RESERVE_MODE.FIXED_AMOUNT,
+      reserve_amount_pence: 100,
+      confirm_zero_reserve: false,
+      audit_reason: "Launch testing reserve",
+    })).toEqual({ ok: true });
+
+    expect(validateZeroReserveOwnerActivation({
+      reserve_mode: RESERVE_MODE.FIXED_AMOUNT,
+      reserve_amount_pence: 0,
+      confirm_zero_reserve: false,
+      audit_reason: "Owner accepts zero reserve for launch",
+    }).ok).toBe(false);
+
+    expect(validateZeroReserveOwnerActivation({
+      reserve_mode: RESERVE_MODE.FIXED_AMOUNT,
+      reserve_amount_pence: 0,
+      confirm_zero_reserve: true,
+      audit_reason: "short",
+    }).reason_code).toBe(OPERATIONAL_RESERVE_ERROR.ACTIVATION_AUDIT_REASON_REQUIRED);
+
+    expect(validateZeroReserveOwnerActivation({
+      reserve_mode: RESERVE_MODE.FIXED_AMOUNT,
+      reserve_amount_pence: 0,
+      confirm_zero_reserve: true,
+      audit_reason: "Owner accepts zero reserve for controlled launch",
+    })).toEqual({ ok: true });
   });
 });

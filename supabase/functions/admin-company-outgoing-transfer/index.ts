@@ -6,7 +6,13 @@
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, jsonResponse, requireFinanceExecutionAuth, requireFinancePageReadAuth, buildFinanceActorAuditContext, FINANCE_EXECUTION_PAGE_SLUGS } from "../_shared/adminPaymentGate.ts";
+import { isCompanyTransferReadOnlyAction } from "../_shared/companyFundsAuthoritySSOT.ts";
+import {
+  buildCompanyFundsAuditEnvelope,
+  redactCompanyFundsAuditState,
+  type CompanyFundsActorAuditContext,
+} from "../_shared/companyFundsActorAuditSSOT.ts";
 import {
   assertCompanyTransferMoneySource,
   COMPANY_TRANSFER_CATEGORIES,
@@ -16,6 +22,7 @@ import {
 import {
   DEFAULT_COMPANY_TRANSFER_APPROVAL_TIERS,
   resolveCompanyTransferApprovalsRequiredForCategory,
+  resolveHighRiskApprovalRequirement,
   assertDirectTransferAllowed,
 } from "../_shared/companyOutgoingTransferApprovalSSOT.ts";
 import { resolveLiveCompanyBalanceWithSlice10Gate } from "../_shared/companyBalanceResolveSSOT.ts";
@@ -30,8 +37,11 @@ import {
   parseSoleAdminCtAllowedTransferTypes,
   parseSoleAdminCtLimitPence,
   parseSoleAdminCtSettingEnabled,
+  resolveOwnerSoleApprovalLimitPence,
+  shouldUseCompanyTransferSoleAdminSelfApprovalPath,
   SOLE_ADMIN_CT_ELIGIBLE_APPROVER_ROLES,
   SOLE_ADMIN_CT_SETTING,
+  SOLE_OWNER_CT_SETTING,
   soleAdminCtReasonLabel,
 } from "../_shared/companyTransferSoleAdminApprovalSSOT.ts";
 import {
@@ -255,6 +265,7 @@ async function loadApprovalTiers(supabase: { from: (t: string) => any }) {
       SOLE_ADMIN_CT_SETTING.ENABLED,
       SOLE_ADMIN_CT_SETTING.LIMIT_PENCE,
       SOLE_ADMIN_CT_SETTING.ALLOWED_TYPES,
+      SOLE_OWNER_CT_SETTING.LIMIT_PENCE,
     ]);
   const map: Record<string, unknown> = {};
   for (const row of data ?? []) map[row.setting_key] = row.setting_value;
@@ -266,11 +277,12 @@ async function loadApprovalTiers(supabase: { from: (t: string) => any }) {
     .replace(/^"|"$/g, "")
     .trim()
     .toLowerCase();
+  const singleMax = parse(
+    map.company_transfer_approval_single_max_pence,
+    DEFAULT_COMPANY_TRANSFER_APPROVAL_TIERS.single_max_pence,
+  );
   return {
-    single_max_pence: parse(
-      map.company_transfer_approval_single_max_pence,
-      DEFAULT_COMPANY_TRANSFER_APPROVAL_TIERS.single_max_pence,
-    ),
+    single_max_pence: singleMax,
     dual_max_pence: parse(
       map.company_transfer_approval_dual_max_pence,
       DEFAULT_COMPANY_TRANSFER_APPROVAL_TIERS.dual_max_pence,
@@ -282,6 +294,12 @@ async function loadApprovalTiers(supabase: { from: (t: string) => any }) {
     sole_admin_limit_pence: parseSoleAdminCtLimitPence(
       map[SOLE_ADMIN_CT_SETTING.LIMIT_PENCE],
     ),
+    owner_sole_approval_limit_pence: resolveOwnerSoleApprovalLimitPence({
+      owner_sole_approval_limit_pence: parseSoleAdminCtLimitPence(
+        map[SOLE_OWNER_CT_SETTING.LIMIT_PENCE],
+      ),
+      single_approval_max_pence: singleMax,
+    }),
     sole_admin_allowed_types: parseSoleAdminCtAllowedTransferTypes(
       map[SOLE_ADMIN_CT_SETTING.ALLOWED_TYPES],
     ),
@@ -366,8 +384,24 @@ async function appendAudit(
     attachment_url?: string | null;
     metadata?: Record<string, unknown> | null;
     live_company_transfer_execution_enabled?: boolean;
+    actor_audit?: CompanyFundsActorAuditContext | null;
+    before_state?: Record<string, unknown> | null;
+    after_state?: Record<string, unknown> | null;
+    request_id?: string | null;
+    idempotency_key?: string | null;
   },
 ) {
+  const auditEnvelope = args.actor_audit
+    ? buildCompanyFundsAuditEnvelope({
+      actor: args.actor_audit,
+      action: args.event_type,
+      before_state: redactCompanyFundsAuditState(args.before_state),
+      after_state: redactCompanyFundsAuditState(args.after_state),
+      reason: args.reason ?? null,
+      request_id: args.request_id ?? null,
+      idempotency_key: args.idempotency_key ?? null,
+    })
+    : null;
   await supabase.from("company_outgoing_transfer_audit").insert({
     transfer_id: args.transfer_id,
     actor_id: args.actor_id,
@@ -384,6 +418,7 @@ async function appendAudit(
     attachment_url: args.attachment_url ?? null,
     metadata: {
       ...(args.metadata ?? {}),
+      ...(auditEnvelope ?? {}),
       money_moved: false,
       live_company_transfer_execution_enabled:
         args.live_company_transfer_execution_enabled === true,
@@ -488,15 +523,23 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const gate = await requireAdminOrStaff(req);
+    const body = await req.json().catch(() => ({}));
+    const actionRaw = String((body as { action?: string })?.action ?? "").trim();
+    const pageSlug = FINANCE_EXECUTION_PAGE_SLUGS.COMPANY_OUTGOING_TRANSFERS;
+    const gate = isCompanyTransferReadOnlyAction(actionRaw)
+      ? await requireFinancePageReadAuth(req, pageSlug)
+      : await requireFinanceExecutionAuth(req, {
+        pageSlug,
+        requireStaffFinanceProfile: true,
+      });
     if (!gate.ok) return gate.response;
 
-    const body = await req.json().catch(() => ({}));
     const parsed = InputSchema.safeParse(body);
     if (!parsed.success) {
       return jsonResponse({ success: false, error: "Invalid input", details: parsed.error.flatten() }, 200);
     }
 
+    const actorAudit = buildFinanceActorAuditContext(gate);
     const actorId = gate.userId === "service-role" ? null : gate.userId;
     const input = parsed.data;
     const supabase = gate.supabase;
@@ -505,6 +548,7 @@ serve(async (req) => {
       args: Parameters<typeof appendAudit>[1],
     ) => appendAudit(supabase, {
       ...args,
+      actor_audit: actorAudit,
       live_company_transfer_execution_enabled: liveCompanyExec,
     });
 
@@ -1267,12 +1311,13 @@ serve(async (req) => {
       >["audit"] = null;
 
       if (isSelfApproval) {
-        // LIVE off: allow requester approve for workflow cert (no /pay).
-        // LIVE on: never blanket self-approve — sole-admin exception only.
-        // Explicit confirm_sole_admin_approval always evaluates the sole-admin path
-        // so certification can auto-advance to READY_FOR_EXECUTION.
-        const forceSoleAdmin = input.confirm_sole_admin_approval === true;
-        if (!forceSoleAdmin && (!liveCompanyExec || tiers.allow_self_approval)) {
+        const useSoleAdminPath = shouldUseCompanyTransferSoleAdminSelfApprovalPath({
+          live_company_transfer_execution_enabled: liveCompanyExec,
+          allow_self_approval: tiers.allow_self_approval,
+          confirm_sole_admin_approval: input.confirm_sole_admin_approval,
+        });
+
+        if (!useSoleAdminPath) {
           const selfCheck = assertCompanyTransferSelfApprovalPolicy({
             requester_id: requesterId,
             approver_id: actorId,
@@ -1293,7 +1338,15 @@ serve(async (req) => {
           }
         } else {
           const actorRole = await loadActorStaffRole(supabase, actorId);
-          const actorIsOwner = await loadActorIsOwner(supabase, actorId);
+          const actorIsOwner = gate.actor_is_owner === true
+            || await loadActorIsOwner(supabase, actorId);
+          const transferMeta = (typeof transfer.metadata === "object" && transfer.metadata
+            ? transfer.metadata as Record<string, unknown>
+            : {});
+          const transferHighRisk = resolveHighRiskApprovalRequirement(
+            transfer.category ?? null,
+          ).always_require_approval
+            || transferMeta.force_high_risk === true;
           const otherApprovers = await countOtherEligibleCompanyTransferApprovers(
             supabase,
             requesterId,
@@ -1338,8 +1391,11 @@ serve(async (req) => {
             other_eligible_approver_count: otherApprovers,
             amount_pence: amount,
             limit_pence: tiers.sole_admin_limit_pence,
+            owner_sole_approval_limit_pence: tiers.owner_sole_approval_limit_pence,
             transfer_type: transfer.transfer_type ?? null,
             allowed_transfer_types: tiers.sole_admin_allowed_types,
+            transfer_high_risk: transferHighRisk,
+            manual_override: transferMeta.manual_override === true,
             payee_provider_verified: payeeVerified,
             money_source: transfer.money_source ?? null,
             funding_gate_allowed: fundingGate.allowed,
@@ -2062,7 +2118,11 @@ serve(async (req) => {
     console.error("[admin-company-outgoing-transfer]", err);
     return jsonResponse({
       success: false,
+      ok: false,
       error: err instanceof Error ? err.message : String(err),
-    }, 500);
+      first_visible_error: err instanceof Error ? err.message : String(err),
+      message: err instanceof Error ? err.message : String(err),
+      money_moved: false,
+    }, 200);
   }
 });

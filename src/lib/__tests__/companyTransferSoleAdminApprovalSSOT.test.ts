@@ -5,8 +5,11 @@ import {
   parseSoleAdminCtAllowedTransferTypes,
   parseSoleAdminCtLimitPence,
   parseSoleAdminCtSettingEnabled,
+  resolveOwnerSoleApprovalLimitPence,
+  shouldUseCompanyTransferSoleAdminSelfApprovalPath,
   SOLE_ADMIN_CT_REASON,
   SOLE_OWNER_CT_APPROVAL_POLICY_VERSION,
+  SOLE_OWNER_CT_DEFAULT_LIMIT_PENCE,
 } from "../../../shared/companyTransferSoleAdminApprovalSSOT";
 
 const baseOk = {
@@ -36,6 +39,7 @@ const ownerOutgoing = {
   actor_is_owner: true,
   amount_pence: 111,
   limit_pence: 1,
+  owner_sole_approval_limit_pence: SOLE_OWNER_CT_DEFAULT_LIMIT_PENCE,
   transfer_type: "COMPANY_OUTGOING",
   allowed_transfer_types: ["CERTIFICATION"],
   other_eligible_approver_count: 2,
@@ -197,6 +201,7 @@ describe("companyTransferSoleAdminApprovalSSOT", () => {
       actor_is_owner: true,
       transfer_type: "COMPANY_OUTGOING",
       amount_pence: 111,
+      owner_sole_approval_limit_pence: SOLE_OWNER_CT_DEFAULT_LIMIT_PENCE,
     })).toBe(true);
     expect(canUiSoleApproveCompanyTransfer({
       actor_is_owner: true,
@@ -223,5 +228,36 @@ describe("companyTransferSoleAdminApprovalSSOT", () => {
       transfer_type: "CERTIFICATION",
       amount_pence: 2,
     })).toBe(false);
+  });
+
+  it("Owner over configured limit is blocked on UI and backend", () => {
+    expect(canUiSoleApproveCompanyTransfer({
+      actor_is_owner: true,
+      transfer_type: "COMPANY_OUTGOING",
+      amount_pence: 30_000,
+      owner_sole_approval_limit_pence: 25_000,
+    })).toBe(false);
+    const result = evaluateSoleAdminCompanyTransferSelfApproval({
+      ...ownerOutgoing,
+      amount_pence: 30_000,
+      owner_sole_approval_limit_pence: 25_000,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason_codes).toContain(SOLE_ADMIN_CT_REASON.AMOUNT_OVER_LIMIT);
+  });
+
+  it("LIVE on uses sole/owner path instead of blanket self-approve disable", () => {
+    expect(shouldUseCompanyTransferSoleAdminSelfApprovalPath({
+      live_company_transfer_execution_enabled: true,
+      allow_self_approval: false,
+    })).toBe(true);
+    expect(shouldUseCompanyTransferSoleAdminSelfApprovalPath({
+      live_company_transfer_execution_enabled: false,
+      allow_self_approval: true,
+    })).toBe(false);
+    expect(resolveOwnerSoleApprovalLimitPence({
+      owner_sole_approval_limit_pence: null,
+      single_approval_max_pence: 25_000,
+    })).toBe(25_000);
   });
 });

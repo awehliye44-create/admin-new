@@ -39,7 +39,16 @@ export const OPERATIONAL_RESERVE_ERROR = {
   QUERY_FAILED: "OPERATIONAL_RESERVE_QUERY_FAILED",
   CLASSIFIED_CASH_UNAVAILABLE: "CLASSIFIED_COMPANY_CASH_UNAVAILABLE",
   TRANSFER_BLOCKED: "COMPANY_TRANSFER_BLOCKED_RESERVE_GATE",
+  ZERO_RESERVE_CONFIRMATION_REQUIRED: "ZERO_RESERVE_CONFIRMATION_REQUIRED",
+  ACTIVATION_AUDIT_REASON_REQUIRED: "RESERVE_ACTIVATION_AUDIT_REASON_REQUIRED",
 } as const;
+
+/** Recommended launch/testing fixed reserve — £1.00. */
+export const RECOMMENDED_LAUNCH_RESERVE_PENCE = 100;
+
+/** Owner must type/confirm this exact phrase to activate a £0.00 fixed reserve. */
+export const ZERO_RESERVE_OWNER_CONFIRMATION_PHRASE =
+  "I understand no operational/refund reserve will be protected.";
 
 export type OperationalReserveErrorCode =
   (typeof OPERATIONAL_RESERVE_ERROR)[keyof typeof OPERATIONAL_RESERVE_ERROR];
@@ -87,6 +96,9 @@ export type ResolvedOperationalReserve = {
 /**
  * eligible_company_cash = max(0, source − protected_liabilities − approved_payables)
  * (customer_refund_reserved included in protected sum when present)
+ *
+ * approved_company_payables: AWAITING_APPROVAL + APPROVED company_outgoing_transfers —
+ * company-side obligations deducted before reserve (never driver wallet money).
  */
 export function computeEligibleCompanyCashPence(args: {
   provider_available_balance_pence: number | null;
@@ -248,6 +260,35 @@ export function validateReservePolicyDraft(args: {
         message: "minimum_reserve_pence must be a non-negative integer",
       };
     }
+  }
+  return { ok: true };
+}
+
+/** Owner activation gate for £0 fixed reserve — explicit acknowledgement required. */
+export function validateZeroReserveOwnerActivation(args: {
+  reserve_mode: unknown;
+  reserve_amount_pence?: number | null;
+  confirm_zero_reserve?: boolean;
+  audit_reason?: string | null;
+}): { ok: true } | { ok: false; reason_code: OperationalReserveErrorCode; message: string } {
+  const mode = parseReserveMode(args.reserve_mode);
+  if (mode !== RESERVE_MODE.FIXED_AMOUNT) return { ok: true };
+  const amount = args.reserve_amount_pence == null ? null : Math.round(Number(args.reserve_amount_pence));
+  if (amount !== 0) return { ok: true };
+  const audit = String(args.audit_reason ?? "").trim();
+  if (audit.length < 10) {
+    return {
+      ok: false,
+      reason_code: OPERATIONAL_RESERVE_ERROR.ACTIVATION_AUDIT_REASON_REQUIRED,
+      message: "Owner activation requires an audit reason (min 10 characters)",
+    };
+  }
+  if (args.confirm_zero_reserve !== true) {
+    return {
+      ok: false,
+      reason_code: OPERATIONAL_RESERVE_ERROR.ZERO_RESERVE_CONFIRMATION_REQUIRED,
+      message: `£0.00 reserve requires owner confirmation: "${ZERO_RESERVE_OWNER_CONFIRMATION_PHRASE}"`,
+    };
   }
   return { ok: true };
 }
