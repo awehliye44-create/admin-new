@@ -24,6 +24,13 @@ import {
   rowBelongsInReleasedTab,
 } from "../../../shared/paymentSessionsDisplaySSOT.ts";
 import {
+  buildPaymentSessionsOperationalChipAudits,
+  isVerifiedCurrentActiveHoldRow,
+  rowNeedsActiveReleaseNow,
+  rowNeedsManualRecoveryNow,
+  rowNeedsReleaseFailedNow,
+} from "../../../shared/paymentSessionsOperationalChipsSSOT.ts";
+import {
   classifyCaptureConfirmation,
 } from "../../../shared/paymentSessionsCaptureConfirmationSSOT.ts";
 import { derivePaymentSessionAllowedActions, isOpenTripPaymentRecoverySession } from "../../../shared/paymentSessionsAllowedActionsSSOT.ts";
@@ -41,13 +48,6 @@ import {
   moneyAtRiskInclude,
   type PaymentHoldAttentionClass,
 } from "../../../shared/paymentHoldClassificationSSOT.ts";
-import {
-  aggregateDriverCreditExceptions,
-  buildPaymentSessionDriverCreditFields,
-  isDriverCreditExceptionHealth,
-} from "./driverCreditMonitoringSSOT.ts";
-import { loadDriverCreditPaymentSessionContextByTripId } from "./driverCreditPaymentSessionContextSSOT.ts";
-import { readPersistedCaptureBreakdown } from "../../../shared/paymentSessionsCaptureBreakdownSSOT.ts";
 
 function asPurpose(raw: unknown): PaymentSessionPurpose {
   const v = String(raw ?? "").toUpperCase();
@@ -344,7 +344,7 @@ function mapHoldToSessionRow(
     recovery_attempt_count: extra.recovery_attempt_count ?? hold.recovery_attempt_count ?? 0,
     attention_class: attention,
     classification: display.classification ?? hold.classification,
-    in_active_queue: hold.in_active_queue !== false,
+    in_active_queue: hold.in_active_queue === true,
     amount_display: hold.amount_display
       ?? (capturedAt && capturedAmount == null ? "AMOUNT_UNCONFIRMED" : null),
     action_policy,
@@ -379,170 +379,6 @@ function operatorFacingSessionStatus(args: {
     return "LOCAL BACKFILL REQUIRED";
   }
   return args.canonicalLabel;
-}
-
-async function enrichPaymentSessionsWithDriverCredit(
-  supabase: SupabaseClient,
-  rows: AdminPaymentSessionsListRow[],
-): Promise<AdminPaymentSessionsListRow[]> {
-  const tripIds = [...new Set(
-    rows
-      .map((r) => r.trip_id)
-      .filter((id): id is string => Boolean(id)),
-  )];
-  if (tripIds.length === 0) return rows;
-
-  const { data: trips, error: tripErr } = await supabase
-    .from("trips")
-    .select(
-      "id, driver_id, driver_net_pence, tip_pence, tip_amount_pence, financial_model, status, completed_at",
-    )
-    .in("id", tripIds);
-  if (tripErr) {
-    console.warn("[admin-payment-sessions] driver credit trip fetch skipped", tripErr.message);
-    return rows;
-  }
-
-  const tripById = new Map((trips ?? []).map((t) => [String(t.id), t]));
-
-  const { data: ledgerRows, error: ledgerErr } = await supabase
-    .from("driver_wallet_ledger")
-    .select("related_trip_id, type, amount_pence, driver_id")
-    .in("related_trip_id", tripIds);
-  if (ledgerErr) {
-    console.warn("[admin-payment-sessions] driver credit ledger fetch skipped", ledgerErr.message);
-  }
-
-  const ledgerByTripId = new Map<string, Array<{ type: string; amount_pence: number; driver_id: string | null }>>();
-  for (const entry of ledgerRows ?? []) {
-    const tripId = entry.related_trip_id == null ? null : String(entry.related_trip_id);
-    if (!tripId) continue;
-    const list = ledgerByTripId.get(tripId) ?? [];
-    list.push({
-      type: String(entry.type),
-      amount_pence: Number(entry.amount_pence),
-      driver_id: entry.driver_id == null ? null : String(entry.driver_id),
-    });
-    ledgerByTripId.set(tripId, list);
-  }
-
-  return rows.map((row) => {
-    if (!row.trip_id) return row;
-    const trip = tripById.get(row.trip_id);
-    if (!trip) return row;
-
-    const breakdown = readPersistedCaptureBreakdown(
-      (row as { metadata?: Record<string, unknown> | null }).metadata ?? null,
-    );
-    const tipPence = Math.max(
-      0,
-      Number(breakdown?.tip_pence ?? trip.tip_pence ?? trip.tip_amount_pence ?? 0),
-    );
-    const credit = buildPaymentSessionDriverCreditFields({
-      financial_model: trip.financial_model as string | null,
-      trip_status: (trip.status as string | null) ?? row.trip_status,
-      trip_driver_id: (trip.driver_id as string | null) ?? row.driver_id,
-      driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
-      tip_pence: tipPence,
-      ledger: ledgerByTripId.get(row.trip_id) ?? [],
-      wallet_evidence_available: ledgerErr == null,
-      provider_state: row.provider_state,
-      captured_pence: row.captured_amount_pence,
-      captured_at: row.captured_at ?? (trip.completed_at as string | null),
-      released_pence: row.released_amount_pence,
-      refunded_pence: row.refunded_amount_pence,
-      fee_charged_at: row.captured_at ?? (trip.completed_at as string | null),
-      purpose: row.purpose,
-    });
-
-    return {
-      ...row,
-      driver_credit_display: credit.driver_credit_display,
-      driver_credit_health: credit.driver_credit_health,
-      expected_driver_credit_pence: credit.expected_driver_credit_pence,
-      actual_driver_credit_pence: credit.actual_driver_credit_pence,
-      credit_difference_pence: credit.credit_difference_pence,
-      credit_eligibility_at: credit.credit_eligibility_at,
-    };
-  });
-}
-
-async function enrichCompletedTripsWithDriverCredit(
-  supabase: SupabaseClient,
-  rows: import("../../../shared/adminPaymentSessionsSSOT.ts").AdminPaymentSessionsCompletedTripRow[],
-): Promise<import("../../../shared/adminPaymentSessionsSSOT.ts").AdminPaymentSessionsCompletedTripRow[]> {
-  const tripIds = [...new Set(rows.map((r) => r.trip_id).filter(Boolean))];
-  if (tripIds.length === 0) return rows;
-
-  const { data: trips, error: tripErr } = await supabase
-    .from("trips")
-    .select(
-      "id, driver_id, driver_net_pence, tip_pence, tip_amount_pence, financial_model, status, completed_at",
-    )
-    .in("id", tripIds);
-  if (tripErr) {
-    console.warn("[admin-payment-sessions] completed-trip driver credit fetch skipped", tripErr.message);
-    return rows;
-  }
-
-  const tripById = new Map((trips ?? []).map((t) => [String(t.id), t]));
-
-  const [{ data: ledgerRows, error: ledgerErr }, sessionContextByTripId] = await Promise.all([
-    supabase
-      .from("driver_wallet_ledger")
-      .select("related_trip_id, type, amount_pence, driver_id")
-      .in("related_trip_id", tripIds),
-    loadDriverCreditPaymentSessionContextByTripId(supabase, tripIds),
-  ]);
-
-  const ledgerByTripId = new Map<string, Array<{ type: string; amount_pence: number; driver_id: string | null }>>();
-  for (const entry of ledgerRows ?? []) {
-    const tripId = entry.related_trip_id == null ? null : String(entry.related_trip_id);
-    if (!tripId) continue;
-    const list = ledgerByTripId.get(tripId) ?? [];
-    list.push({
-      type: String(entry.type),
-      amount_pence: Number(entry.amount_pence),
-      driver_id: entry.driver_id == null ? null : String(entry.driver_id),
-    });
-    ledgerByTripId.set(tripId, list);
-  }
-
-  return rows.map((row) => {
-    const trip = tripById.get(row.trip_id);
-    if (!trip) return row;
-
-    const tipPence = Math.max(
-      0,
-      Number(row.tips_pence ?? trip.tip_pence ?? trip.tip_amount_pence ?? 0),
-    );
-    const session = sessionContextByTripId.get(row.trip_id);
-    const credit = buildPaymentSessionDriverCreditFields({
-      financial_model: trip.financial_model as string | null,
-      trip_status: (trip.status as string | null) ?? "completed",
-      trip_driver_id: (trip.driver_id as string | null) ?? row.driver_id,
-      driver_net_pence: row.driver_net_pence ?? (trip.driver_net_pence == null ? null : Number(trip.driver_net_pence)),
-      tip_pence: tipPence,
-      ledger: ledgerByTripId.get(row.trip_id) ?? [],
-      wallet_evidence_available: ledgerErr == null,
-      provider_state: session?.provider_state ?? null,
-      captured_pence: session?.captured_pence ?? row.provider_captured_pence,
-      captured_at: session?.captured_at ?? row.completed_at ?? (trip.completed_at as string | null),
-      released_pence: session?.released_pence ?? row.provider_released_pence,
-      refunded_pence: session?.refunded_pence ?? row.provider_refunded_pence ?? null,
-      fee_charged_at: session?.captured_at ?? row.completed_at ?? (trip.completed_at as string | null),
-      purpose: session?.purpose ?? "trip_fare",
-    });
-
-    return {
-      ...row,
-      driver_credit_health: credit.driver_credit_health,
-      expected_driver_credit_pence: credit.expected_driver_credit_pence,
-      actual_driver_credit_pence: credit.actual_driver_credit_pence,
-      credit_difference_pence: credit.credit_difference_pence,
-      credit_eligibility_at: credit.credit_eligibility_at,
-    };
-  });
 }
 
 export async function listAdminPaymentSessions(
@@ -862,7 +698,7 @@ export async function listAdminPaymentSessions(
     if (request.has_trip === false && row.trip_id) continue;
     if (request.active_hold === true && !rowBelongsInActiveHoldsTab(row)) continue;
     if (request.release_failed === true && row.attention_class !== "RELEASE_FAILED") continue;
-    if (request.recovery_pending === true && row.attention_class !== "RECOVERY_PENDING") continue;
+    if (request.recovery_pending === true && !rowNeedsManualRecoveryNow(row)) continue;
     if (request.legacy_evidence === true && row.purpose !== "LEGACY_EVIDENCE") continue;
     if (request.customer_id && row.customer_id !== request.customer_id) continue;
     if (request.provider_fees_pending === true) {
@@ -1060,15 +896,8 @@ export async function listAdminPaymentSessions(
     page_status = page_status === "PROVIDER_UNAVAILABLE" ? "DEGRADED" : "PARTIAL";
   }
 
-  const fleetCreditRows = await enrichPaymentSessionsWithDriverCredit(
-    supabase,
-    mapped.filter((r) => Boolean(r.trip_id)),
-  );
-  const fleetCreditAgg = aggregateDriverCreditExceptions(fleetCreditRows);
-
   if (tab === "completed_trips_paid") {
-    const all = await enrichCompletedTripsWithDriverCredit(supabase, compare.completed_trip_rows);
-    const creditAgg = aggregateDriverCreditExceptions(all);
+    const all = compare.completed_trip_rows;
     const page = all.slice(offset, offset + limit);
     return {
       success: true,
@@ -1077,11 +906,7 @@ export async function listAdminPaymentSessions(
       rows: [],
       completed_trip_rows: page,
       matching_rows: [],
-      summary: {
-        ...mergedSummary,
-        driver_credit_exception_trip_count: creditAgg.exception_trip_count,
-        driver_credit_exception_difference_pence: creditAgg.total_difference_pence,
-      },
+      summary: mergedSummary,
       filtered_total: all.length,
       has_more: offset + page.length < all.length,
       offset,
@@ -1102,11 +927,7 @@ export async function listAdminPaymentSessions(
       rows: [],
       completed_trip_rows: [],
       matching_rows: page,
-      summary: {
-        ...mergedSummary,
-        driver_credit_exception_trip_count: fleetCreditAgg.exception_trip_count,
-        driver_credit_exception_difference_pence: fleetCreditAgg.total_difference_pence,
-      },
+      summary: mergedSummary,
       filtered_total: all.length,
       has_more: offset + page.length < all.length,
       offset,
@@ -1118,11 +939,16 @@ export async function listAdminPaymentSessions(
   }
 
   const tabRows = mapped.filter((r) => rowMatchesTab(r, tab));
-  const enrichedTabRows = await enrichPaymentSessionsWithDriverCredit(supabase, tabRows);
-  const creditFilteredTabRows = request.driver_credit_exceptions_only === true
-    ? enrichedTabRows.filter((r) => isDriverCreditExceptionHealth(r.driver_credit_health))
-    : enrichedTabRows;
-  const pageRows = creditFilteredTabRows.slice(offset, offset + limit);
+  if (request.driver_credit_exceptions_only === true) {
+    console.warn(
+      "[admin-payment-sessions] driver_credit_exceptions_only ignored — use Financial Reconciliation driver credit audit",
+    );
+  }
+  const operationalFilteredTabRows = applyOperationalChipFilter(
+    tabRows,
+    request.operational_chip ?? null,
+  );
+  const pageRows = operationalFilteredTabRows.slice(offset, offset + limit);
 
   return {
     success: true,
@@ -1131,19 +957,32 @@ export async function listAdminPaymentSessions(
     rows: pageRows,
     completed_trip_rows: [],
     matching_rows: [],
-    summary: {
-      ...mergedSummary,
-      driver_credit_exception_trip_count: fleetCreditAgg.exception_trip_count,
-      driver_credit_exception_difference_pence: fleetCreditAgg.total_difference_pence,
-    },
-    filtered_total: creditFilteredTabRows.length,
-    has_more: offset + pageRows.length < creditFilteredTabRows.length,
+    summary: mergedSummary,
+    filtered_total: operationalFilteredTabRows.length,
+    has_more: offset + pageRows.length < operationalFilteredTabRows.length,
     offset,
     provider_verification_message: refreshFailed
       ? "Provider Sync Pending — showing last verified database state. Verified values were not overwritten."
       : null,
     trip_evidence_message: compare.trip_evidence_message,
   };
+}
+
+function applyOperationalChipFilter(
+  rows: AdminPaymentSessionsListRow[],
+  operationalChip: AdminPaymentSessionsListRequest['operational_chip'],
+): AdminPaymentSessionsListRow[] {
+  if (!operationalChip || operationalChip === null) return rows;
+  if (operationalChip === 'release_pending') {
+    return rows.filter((r) => rowNeedsActiveReleaseNow(r));
+  }
+  if (operationalChip === 'active_holds') {
+    return rows.filter((r) => isVerifiedCurrentActiveHoldRow(r));
+  }
+  if (operationalChip === 'recovery_required') {
+    return rows.filter((r) => rowNeedsManualRecoveryNow(r));
+  }
+  return rows;
 }
 
 function buildPaymentSessionsSummary(
@@ -1154,11 +993,15 @@ function buildPaymentSessionsSummary(
     unknown_count: number;
   },
 ): AdminPaymentSessionsSummary {
+  const activeRows = rows.filter((r) => r.in_active_queue === true);
   const capturedRows = rows.filter((r) => rowBelongsInCapturedTab(r));
   const releasedRows = rows.filter((r) => rowBelongsInReleasedTab(r));
   const refundedRows = rows.filter((r) => rowBelongsInRefundedTab(r));
-  const activeHoldRows = rows.filter((r) => rowBelongsInActiveHoldsTab(r));
-  const recoveryPending = rows.filter((r) => r.attention_class === "RECOVERY_PENDING");
+  const activeHoldRows = activeRows.filter((r) => rowNeedsActiveReleaseNow(r));
+  const verifiedActiveHoldRows = activeRows.filter((r) => isVerifiedCurrentActiveHoldRow(r));
+  const recoveryPending = activeRows.filter((r) => rowNeedsManualRecoveryNow(r));
+  const releaseFailedRows = activeRows.filter((r) => rowNeedsReleaseFailedNow(r));
+  const chipAudits = buildPaymentSessionsOperationalChipAudits(activeRows);
   const failedRecovery = rows.filter((r) =>
     r.attention_class === "RELEASE_FAILED"
     || r.attention_class === "RECOVERY_PENDING"
@@ -1199,7 +1042,7 @@ function buildPaymentSessionsSummary(
   let testSandbox = 0;
   let historicalEvidence = 0;
 
-  for (const r of rows) {
+  for (const r of activeRows) {
     const tripStatus = (r as { trip_status?: string | null }).trip_status ?? null;
     const purpose = String((r as { purpose?: string | null }).purpose ?? "").toLowerCase();
     const bucket = classifyPaymentHoldOperationalBucket({
@@ -1256,13 +1099,18 @@ function buildPaymentSessionsSummary(
 
   return {
     total: rows.length,
-    active_hold_count: activeHoldRows.length,
+    active_hold_count: verifiedActiveHoldRows.length,
+    verified_active_hold_count: verifiedActiveHoldRows.length,
+    actionable_release_pending_count: activeHoldRows.length,
     active_hold_amount_pence: authorised,
     captured_count: capturedRows.length,
     released_count: releasedRows.length,
     refunded_count: refundedRows.length,
     failed_recovery_count: failedRecovery.length,
     recovery_pending_count: recoveryPending.length,
+    manual_recovery_required_count: recoveryPending.length,
+    release_failed_count: releaseFailedRows.length,
+    operational_chip_audit: chipAudits,
     provider_fees_pending_count: feesPending.length,
     total_customer_revenue_captured_pence: revenue,
     total_authorised_pence: authorised,

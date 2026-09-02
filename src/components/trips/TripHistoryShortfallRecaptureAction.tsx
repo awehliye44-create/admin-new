@@ -6,7 +6,7 @@
  * When a recovery checkout exists: show Copy/Open link + Mark paid
  * (Mark paid verifies against Revolut via admin-refresh-payment-sessions).
  */
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -33,6 +33,10 @@ import {
   type TripShortfallRecaptureUiState,
 } from '../../../shared/tripHistoryShortfallRecaptureSSOT';
 import {
+  buildTripHistoryPaymentEvidenceReadModel,
+  type TripHistoryPaymentEvidenceTrip,
+} from '../../../shared/tripHistoryPaymentEvidenceReadModel';
+import {
   parseShortfallRecaptureInvokeFailure,
   shortfallRecaptureUserMessage,
 } from '@/lib/tripHistoryShortfallRecaptureInvoke';
@@ -49,30 +53,27 @@ type OpenRecoverySession = {
   saved_card_state?: string | null;
 };
 
+type PaymentStateResponse = {
+  customer_payable_pence?: number | null;
+  captured_pence?: number | null;
+  refunded_pence?: number | null;
+  authorized_pence?: number | null;
+  outstanding_pence?: number | null;
+  provider_settlement_verified?: boolean | null;
+  payment_status?: string | null;
+  provider_state?: string | null;
+  provider_status?: string | null;
+  open_recovery_session: OpenRecoverySession | null;
+};
+
 type Props = {
-  tripId: string;
-  tripNumber?: string | null;
-  tripStatus: string | null | undefined;
-  paymentMethod?: string | null;
-  financialModel?: string | null;
-  customerPayablePence: number;
-  verifiedCapturedPence: number;
-  netRefundedPence?: number;
-  hasOpenRecoveryAttempt?: boolean;
+  trip: TripHistoryPaymentEvidenceTrip & { id: string; trip_number?: string | null; trip_code?: string | null };
   currencySymbol?: string;
   onComplete?: () => void;
 };
 
 export function TripHistoryShortfallRecaptureAction({
-  tripId,
-  tripNumber,
-  tripStatus,
-  paymentMethod,
-  financialModel,
-  customerPayablePence,
-  verifiedCapturedPence,
-  netRefundedPence = 0,
-  hasOpenRecoveryAttempt = false,
+  trip,
   currencySymbol = '£',
   onComplete,
 }: Props) {
@@ -88,22 +89,61 @@ export function TripHistoryShortfallRecaptureAction({
     staffProfile?.role === 'super_admin'
     || canAccessPage('payments-trip-shortfall-recapture');
 
+  const tripId = trip.id;
+  const tripNumber = trip.trip_number ?? trip.trip_code ?? null;
+
+  const clientEvidence = useMemo(
+    () => buildTripHistoryPaymentEvidenceReadModel({
+      trip,
+      tripStatus: trip.status,
+      adminPermitted,
+    }),
+    [trip, adminPermitted],
+  );
+
   const recoveryQuery = useQuery({
     queryKey: ['admin-payment-state', tripId],
     enabled: Boolean(tripId) && adminPermitted,
     staleTime: 15_000,
-    queryFn: async (): Promise<{ open_recovery_session: OpenRecoverySession | null }> => {
+    queryFn: async (): Promise<PaymentStateResponse> => {
       const { data, error } = await supabase.functions.invoke('admin-get-trip-payment-state', {
         body: { trip_id: tripId },
       });
       if (error) throw new Error((data as { error?: string } | null)?.error || error.message);
-      return {
-        open_recovery_session:
-          ((data as { open_recovery_session?: OpenRecoverySession | null } | null)
-            ?.open_recovery_session) ?? null,
-      };
+      return (data ?? { open_recovery_session: null }) as PaymentStateResponse;
     },
   });
+
+  const evidence = useMemo(() => {
+    const state = recoveryQuery.data;
+    if (!state) return clientEvidence;
+    const captured = Math.max(0, Math.round(Number(state.captured_pence ?? 0)));
+    const refunded = Math.max(0, Math.round(Number(state.refunded_pence ?? 0)));
+    const payable = Math.max(0, Math.round(Number(state.customer_payable_pence ?? 0)));
+    return buildTripHistoryPaymentEvidenceReadModel({
+      trip: {
+        ...trip,
+        final_customer_fare_pence: payable > 0 ? payable : trip.final_customer_fare_pence,
+        capture_amount_pence: captured > 0 ? captured : trip.capture_amount_pence,
+        refund_amount_pence: refunded > 0 ? refunded : trip.refund_amount_pence,
+      },
+      sessions: captured > 0
+        ? [{
+          status: state.payment_status,
+          provider_state: state.provider_state ?? state.provider_status,
+          captured_amount_pence: captured,
+          refunded_amount_pence: refunded,
+          authorised_amount_pence: state.authorized_pence,
+        }]
+        : undefined,
+      providerSettlementVerified: state.provider_settlement_verified,
+      paymentStatus: state.payment_status,
+      providerStatus: state.provider_state ?? state.provider_status,
+      tripStatus: trip.status,
+      adminPermitted,
+      hasOpenRecoveryAttempt: Boolean(state.open_recovery_session),
+    });
+  }, [trip, recoveryQuery.data, clientEvidence, adminPermitted]);
 
   const openRecovery = recoveryQuery.data?.open_recovery_session ?? null;
   const liveCheckoutUrl = checkoutUrl ?? openRecovery?.provider_checkout_url ?? null;
@@ -111,23 +151,24 @@ export function TripHistoryShortfallRecaptureAction({
   const hasLiveOpenRecovery = Boolean(openRecovery) || Boolean(checkoutUrl);
 
   const gate = evaluateTripHistoryShortfallRecaptureEligibility({
-    tripStatus,
-    financialModel,
-    paymentMethod,
-    customerPayablePence,
-    verifiedCapturedTotalPence: verifiedCapturedPence,
-    netRefundedTotalPence: netRefundedPence,
-    providerSettlementVerified: verifiedCapturedPence > 0 && customerPayablePence > 0
-      ? verifiedCapturedPence - netRefundedPence >= customerPayablePence
-      : false,
-    hasOpenRecoveryAttempt: hasOpenRecoveryAttempt
+    tripStatus: trip.status,
+    financialModel: trip.financial_model,
+    paymentMethod: trip.payment_method,
+    customerPayablePence: evidence.customer_discounted_payable_pence,
+    verifiedCapturedTotalPence: evidence.verified_captured_pence,
+    netRefundedTotalPence: evidence.refunded_pence,
+    providerSettlementVerified: evidence.provider_settlement_verified,
+    hasOpenRecoveryAttempt: Boolean(openRecovery)
       || hasLiveOpenRecovery
       || attemptState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.RECAPTURE_PROCESSING
       || attemptState === TRIP_SHORTFALL_RECAPTURE_UI_STATE.CUSTOMER_ACTION_REQUIRED,
     adminPermitted,
   });
 
-  const outstanding = gate.outstanding_shortfall_pence ?? 0;
+  const customerPayablePence = evidence.customer_discounted_payable_pence;
+  const verifiedCapturedPence = evidence.verified_captured_pence;
+  const promotionDiscountPence = evidence.promotion_discount_pence;
+  const outstanding = gate.outstanding_shortfall_pence ?? evidence.outstanding_shortfall_pence ?? 0;
   const label = recaptureActionLabel(outstanding, currencySymbol);
 
   const invalidate = () => {
@@ -521,6 +562,23 @@ export function TripHistoryShortfallRecaptureAction({
   }
 
   if (!gate.eligible || outstanding <= 0) {
+    if (
+      promotionDiscountPence > 0
+      && evidence.net_verified_captured_pence > 0
+      && outstanding <= 0
+    ) {
+      return (
+        <div className="rounded-md border border-emerald-400/50 bg-emerald-500/5 p-3 text-sm">
+          <div className="font-medium text-emerald-800">
+            Promotion applied {currencySymbol}{(promotionDiscountPence / 100).toFixed(2)}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Customer payable {currencySymbol}{(customerPayablePence / 100).toFixed(2)} matches
+            verified capture {currencySymbol}{(verifiedCapturedPence / 100).toFixed(2)} — no shortfall.
+          </p>
+        </div>
+      );
+    }
     if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.PROVIDER_SETTLEMENT_PENDING) {
       return (
         <Badge variant="outline" className="bg-amber-500/10 text-amber-800 border-amber-500/40">

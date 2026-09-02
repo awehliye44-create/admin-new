@@ -7,6 +7,9 @@
 
 import { resolveDiscountPenceFromTrip, resolveTripDisplayFare } from '@/lib/fareDisplaySSOT';
 import {
+  resolveTripHistoryTerminalOutcomeKind,
+} from '../../shared/tripHistoryTerminalOutcomeDisplaySSOT';
+import {
   getPaymentRowCapturedPence,
   getTripDriverNetPence as getTripDriverNetPenceSsot,
   getTripSettlementFarePence as getTripSettlementFarePenceSsot,
@@ -67,6 +70,9 @@ export interface TripCaptureFields {
   /** Terminal fee-only trips (no ride fare). */
   no_show_charge_pence?: number | null;
   cancellation_fee_pence?: number | null;
+  status?: string | null;
+  financial_outcome?: string | null;
+  cancellation_reason?: string | null;
 }
 
 export interface TripSettlementBreakdown {
@@ -89,6 +95,8 @@ export interface TripCaptureStatus {
   tipPence: number;
   paymentCount: number;
   diffPence: number | null;
+  isTerminalFeeOutcome?: boolean;
+  terminalOutcomeKind?: 'NO_SHOW' | 'LATE_PASSENGER_CANCELLATION';
 }
 
 export interface PaymentCaptureRow {
@@ -296,8 +304,12 @@ export function getCapturedTotalPence(trip: TripCaptureFields): number | null {
   return null;
 }
 
-/** Lifecycle extras beyond settlement fare + tip (arrival cancellation, fee_type rows, metadata fees). */
+/** Lifecycle extras beyond settlement fare + tip — never includes terminal no-show/cancel fee. */
 export function getTripLifecycleExtrasPence(trip: TripCaptureFields): number {
+  const terminalFee = Math.max(
+    trip.no_show_charge_pence != null && trip.no_show_charge_pence > 0 ? trip.no_show_charge_pence : 0,
+    trip.cancellation_fee_pence != null && trip.cancellation_fee_pence > 0 ? trip.cancellation_fee_pence : 0,
+  );
   const fromPayments = trip.payment_lifecycle_fees_pence ?? 0;
   const fromMetadata = trip.payment_metadata_lifecycle_fees_pence ?? 0;
   const fromTrip =
@@ -307,9 +319,90 @@ export function getTripLifecycleExtrasPence(trip: TripCaptureFields): number {
       ? trip.arrival_cancellation_fee
       : 0;
 
-  if (fromPayments > 0) return fromPayments;
-  if (fromMetadata > 0) return fromMetadata;
-  return fromTrip;
+  let extras = 0;
+  if (fromPayments > 0) extras = fromPayments;
+  else if (fromMetadata > 0) extras = fromMetadata;
+  else extras = fromTrip;
+
+  // Terminal fee is the customer payable — never stack it again as lifecycle extras.
+  if (terminalFee > 0 && extras > 0 && Math.abs(extras - terminalFee) <= MISMATCH_TOLERANCE_PENCE) {
+    return 0;
+  }
+  return extras;
+}
+
+function resolveTerminalFeeExpectedPence(trip: TripCaptureFields): number {
+  const noShow = trip.no_show_charge_pence != null && trip.no_show_charge_pence > 0
+    ? trip.no_show_charge_pence
+    : 0;
+  const cancelFee = trip.cancellation_fee_pence != null && trip.cancellation_fee_pence > 0
+    ? trip.cancellation_fee_pence
+    : 0;
+  const terminalFee = Math.max(noShow, cancelFee);
+  if (terminalFee > 0) return terminalFee;
+  const captured = getCapturedTotalPence(trip);
+  return captured != null && captured > 0 ? captured : 0;
+}
+
+function tryTerminalFeeCaptureStatus(trip: TripCaptureFields): TripCaptureStatus | null {
+  const terminalKind = resolveTripHistoryTerminalOutcomeKind(trip);
+  if (!terminalKind) return null;
+
+  const fmt = (p: number) => (p / 100).toFixed(2);
+  const tip = getTripTipPence(trip);
+  const expectedFee = resolveTerminalFeeExpectedPence(trip);
+  const expectedTotal = expectedFee + tip;
+  const capturedTotal = getCapturedTotalPence(trip);
+  const paymentCount = getTripPaymentIntentCount(
+    trip.payment_count ?? (capturedTotal != null && capturedTotal > 0 ? 1 : 0),
+    trip.has_shortfall_payment_intent === true,
+  );
+
+  const capturedOk = capturedTotal != null
+    && capturedTotal > 0
+    && capturedTotal >= expectedTotal - MISMATCH_TOLERANCE_PENCE;
+
+  const feeLabel = terminalKind === 'NO_SHOW'
+    ? (capturedOk ? 'No-show fee captured ✓' : 'No-show fee not captured')
+    : (capturedOk ? 'Cancellation fee charged ✓' : 'Cancellation fee not captured');
+
+  const shortLabel = terminalKind === 'NO_SHOW'
+    ? (capturedOk ? 'No-show fee captured' : 'No-show fee not captured')
+    : (capturedOk ? 'Cancellation fee charged' : 'Cancellation fee not captured');
+
+  if (capturedTotal == null || capturedTotal <= 0) {
+    return baseStatus(trip, {
+      kind: expectedFee > 0 ? 'pending_capture' : 'pending',
+      label: feeLabel,
+      shortLabel,
+      isTerminalFeeOutcome: true,
+      terminalOutcomeKind: terminalKind,
+      tooltip: expectedFee > 0
+        ? `Expected terminal fee £${fmt(expectedFee)} — not yet captured in Provider.`
+        : 'Terminal outcome — no customer charge captured.',
+    });
+  }
+
+  if (capturedOk) {
+    return baseStatus(trip, {
+      kind: paymentCount > 1 ? 'captured_split' : 'captured',
+      label: feeLabel,
+      shortLabel,
+      isTerminalFeeOutcome: true,
+      terminalOutcomeKind: terminalKind,
+      tooltip: `Captured £${fmt(capturedTotal)} matches terminal fee £${fmt(expectedFee)} (not ride fare + fee).`,
+    });
+  }
+
+  const diff = capturedTotal - expectedTotal;
+  return baseStatus(trip, {
+    kind: 'capture_mismatch',
+    label: terminalKind === 'NO_SHOW' ? 'No-show fee not fully captured' : 'Cancellation fee not fully captured',
+    shortLabel: shortLabel,
+    isTerminalFeeOutcome: true,
+    terminalOutcomeKind: terminalKind,
+    tooltip: `Expected terminal fee £${fmt(expectedTotal)}; captured £${fmt(capturedTotal)} (${diff > 0 ? '+' : ''}£${fmt(Math.abs(diff))}).`,
+  });
 }
 
 export function getTripDiscountPence(trip: TripCaptureFields): number {
@@ -359,7 +452,8 @@ export function getExpectedCustomerTotalPence(trip: TripCaptureFields): number |
       || statusBlob.includes('noshow')
       || statusBlob.includes('cancel');
     if (captureMatchesFee || feeBelowRide || feeStatus || rideFare <= 0) {
-      return terminalFee + tip + lifecycleExtras;
+      // Terminal fee is the full customer charge — never add lifecycle extras (would double-count fee).
+      return terminalFee + tip;
     }
   }
 
@@ -570,6 +664,9 @@ export function getTripCaptureStatus(trip: TripCaptureFields): TripCaptureStatus
       shortLabel: partial ? 'Partial refund' : 'Refunded',
     });
   }
+
+  const terminalStatus = tryTerminalFeeCaptureStatus(trip);
+  if (terminalStatus) return terminalStatus;
 
   const capturedTotal = getCapturedTotalPence(trip);
   const expectedTotal = getExpectedCustomerTotalPence(trip);

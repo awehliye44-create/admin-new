@@ -225,7 +225,7 @@ export function PaymentControlsCard({
       const [tripRes, paymentsRes, ledgerRes, sessionRes] = await Promise.all([
         supabase
           .from('trips')
-          .select('payment_method, payment_status, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, no_show_charge_pence, cancellation_fee_pence, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence, discount_pence, offer_discount_pence, voucher_discount_pence, discount_source, refund_amount_pence, fare_snapshot_json')
+          .select('payment_method, payment_status, status, financial_outcome, cancellation_reason, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, no_show_charge_pence, cancellation_fee_pence, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence, discount_pence, offer_discount_pence, voucher_discount_pence, discount_source, refund_amount_pence, fare_snapshot_json, provider_fee_pence')
           .eq('id', tripId)
           .single(),
         supabase
@@ -283,12 +283,6 @@ export function PaymentControlsCard({
         summary.capturedTotalPence ?? 0,
         tripCapture,
       );
-      const noShow = tripRes.data?.no_show_charge_pence != null
-        ? Math.max(0, Math.round(Number(tripRes.data.no_show_charge_pence)))
-        : 0;
-      const cancelFee = tripRes.data?.cancellation_fee_pence != null
-        ? Math.max(0, Math.round(Number(tripRes.data.cancellation_fee_pence)))
-        : 0;
       return {
         ...(tripRes.data as TripCaptureFields & {
           authorised_amount_pence?: number | null;
@@ -304,11 +298,7 @@ export function PaymentControlsCard({
         payment_tip_pence: summary.tipFromMeta,
         payment_count: Math.max(summary.paymentCount, sessionCapturedSum > 0 ? 1 : 0),
         has_shortfall_payment_intent: summary.hasShortfallPaymentIntent,
-        payment_lifecycle_fees_pence: Math.max(
-          summary.lifecycleFeesPence,
-          noShow,
-          cancelFee,
-        ),
+        payment_lifecycle_fees_pence: summary.lifecycleFeesPence,
         payment_metadata_lifecycle_fees_pence: summary.metadataLifecycleFeesPence,
         ledger_trip_earning_net_pence: ledgerEarning?.amount_pence ?? null,
         payment_refunded_pence: mergedRefunded > 0 ? mergedRefunded : null,
@@ -464,6 +454,9 @@ export function PaymentControlsCard({
   );
   // Prefer fee / edge payable — never Math.max up to stale ride settlement on no-show.
   const customerPayablePence = (() => {
+    if (captureStatus?.isTerminalFeeOutcome && captureStatus.expectedTotalPence != null) {
+      return captureStatus.expectedTotalPence;
+    }
     const fromState = safePence(state?.customer_payable_pence);
     const fromContext = safePence(customerPayableFromContext);
     if (feePayableHint > 0 && netCapturedPence > 0 && Math.abs(netCapturedPence - feePayableHint) <= 1) {
@@ -693,10 +686,22 @@ export function PaymentControlsCard({
                 </div>
                 {captureStatus.expectedTotalPence != null && captureStatus.capturedTotalPence != null && (
                   <div className="mt-1 text-muted-foreground">
-                    Settlement {formatPence(captureStatus.expectedTotalPence, currency)} (final_fare + tip + fees)
-                    {' · '}
-                    Captured {formatPence(captureStatus.capturedTotalPence, currency)}
-                    {captureStatus.paymentCount > 1 ? ` across ${captureStatus.paymentCount} PIs` : ''}
+                    {captureStatus.isTerminalFeeOutcome
+                      ? (
+                        <>
+                          Expected customer charge {formatPence(captureStatus.expectedTotalPence, currency)} (terminal fee only)
+                          {' · '}
+                          Captured {formatPence(captureStatus.capturedTotalPence, currency)}
+                        </>
+                      )
+                      : (
+                        <>
+                          Settlement {formatPence(captureStatus.expectedTotalPence, currency)} (final_fare + tip + fees)
+                          {' · '}
+                          Captured {formatPence(captureStatus.capturedTotalPence, currency)}
+                          {captureStatus.paymentCount > 1 ? ` across ${captureStatus.paymentCount} PIs` : ''}
+                        </>
+                      )}
                   </div>
                 )}
                 {captureStatus.tooltip && (

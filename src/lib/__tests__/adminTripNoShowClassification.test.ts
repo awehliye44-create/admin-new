@@ -7,6 +7,7 @@ import {
   belongsInMissedCancelled,
   belongsInTripHistory,
   isAdminNoShowTrip,
+  tripHistoryNoShowDisplayLabel,
 } from '../adminTripNoShowClassification';
 import {
   TRIP_HISTORY_FINANCIAL_OUTCOMES,
@@ -74,6 +75,32 @@ describe('admin NO_SHOW page ownership', () => {
         terminal_reason: 'no_show',
       }),
     ).toBe(false);
+    expect(
+      belongsInMissedCancelled({
+        status: 'cancelled',
+        payment_status: 'no_show_fee_captured',
+      }),
+    ).toBe(false);
+  });
+
+  it('tripHistoryNoShowDisplayLabel fallback for charge-only cancelled rows', () => {
+    const row = {
+      status: 'cancelled',
+      financial_outcome: null,
+      no_show_charge_pence: 400,
+      payment_status: null,
+    };
+    expect(isAdminNoShowTrip(row)).toBe(true);
+    expect(tripHistoryNoShowDisplayLabel(row)).toBe('No-show');
+    expect(belongsInTripHistory(row)).toBe(true);
+  });
+
+  it('tripHistoryNoShowDisplayLabel fallback for payment_status no_show', () => {
+    const row = {
+      status: 'cancelled',
+      payment_status: 'no_show_company_compensated',
+    };
+    expect(tripHistoryNoShowDisplayLabel(row)).toBe('No-show');
   });
 
   it('keeps normal customer cancellation in Missed & Cancelled only', () => {
@@ -125,6 +152,16 @@ describe('admin NO_SHOW page ownership', () => {
     const filter = tripHistoryTerminalOrFilter();
     expect(filter).toContain('no_show');
     expect(filter).toContain('NO_SHOW');
+    expect(filter).toContain('no_show_charge_pence.gt.0');
+    expect(filter).toContain('cancellation_reason.eq.no_show');
+  });
+
+  it('Trip History date filter includes charge-only no-show without completed_at', () => {
+    const start = new Date('2026-08-24T00:00:00.000Z');
+    const end = new Date('2026-08-24T23:59:59.999Z');
+    const filter = tripHistoryDateOrFilter(start, end);
+    expect(filter).toContain('no_show_charge_pence.gt.0');
+    expect(filter).toContain('cancellation_reason.eq.no_show');
   });
 
   it('Trip History date filter includes no-show without completed_at via cancelled_at', () => {

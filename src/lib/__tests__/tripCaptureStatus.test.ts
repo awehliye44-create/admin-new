@@ -447,4 +447,80 @@ describe('tripCaptureStatus — discounted and refunded trips', () => {
     };
     expect(getTripCaptureStatus(trip).kind).toBe('captured');
   });
+
+  /** MK-260808-046 — no-show fee only; must not add ride fare + fee. */
+  it('no-show original quote £5, fee £4, captured £4 => OK, no mismatch', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      status: 'no_show',
+      financial_outcome: 'NO_SHOW',
+      accepted_preset_offer_fare_pence: 500,
+      final_fare_pence: 500,
+      final_customer_fare_pence: 400,
+      no_show_charge_pence: 400,
+      payment_captured_pence: 400,
+      payment_lifecycle_fees_pence: 400,
+      payment_count: 1,
+    };
+    expect(getExpectedCustomerTotalPence(trip)).toBe(400);
+    const status = getTripCaptureStatus(trip);
+    expect(status.kind).not.toBe('capture_mismatch');
+    expect(status.kind).toBe('captured');
+    expect(status.isTerminalFeeOutcome).toBe(true);
+    expect(status.shortLabel).toBe('No-show fee captured');
+    expect(status.expectedTotalPence).toBe(400);
+  });
+
+  it('charged cancellation fee £4, captured £4 => OK, no mismatch', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      status: 'cancelled',
+      financial_outcome: 'LATE_PASSENGER_CANCELLATION',
+      cancellation_fee_pence: 400,
+      payment_captured_pence: 400,
+      payment_count: 1,
+    };
+    const status = getTripCaptureStatus(trip);
+    expect(status.kind).toBe('captured');
+    expect(status.isTerminalFeeOutcome).toBe(true);
+    expect(status.shortLabel).toBe('Cancellation fee charged');
+    expect(getOutstandingShortfallPence(trip)).toBe(0);
+  });
+
+  it('no-show fee £4, captured £0 => fee not captured', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'pending',
+      status: 'no_show',
+      financial_outcome: 'NO_SHOW',
+      no_show_charge_pence: 400,
+      payment_captured_pence: 0,
+      payment_count: 0,
+    };
+    const status = getTripCaptureStatus(trip);
+    expect(status.isTerminalFeeOutcome).toBe(true);
+    expect(status.shortLabel).toBe('No-show fee not captured');
+    expect(status.kind).toBe('pending_capture');
+  });
+
+  it('normal completed fare £6.19, promo £0.24, captured £5.95 => OK, no mismatch', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      status: 'completed',
+      financial_outcome: 'COMPLETED',
+      gross_fare_pence: 643,
+      final_fare_pence: 619,
+      final_customer_fare_pence: 595,
+      offer_discount_pence: 24,
+      payment_captured_pence: 595,
+      payment_count: 1,
+    };
+    const status = getTripCaptureStatus(trip);
+    expect(status.kind).toBe('captured');
+    expect(status.isTerminalFeeOutcome).toBeFalsy();
+    expect(getOutstandingShortfallPence(trip)).toBe(0);
+  });
 });

@@ -33,10 +33,18 @@ import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
 import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
 import type { DriverWalletLedgerFilter } from '@/lib/driverWalletLedgerFilters';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
-import { DriverCreditExceptionsBanner } from '@/components/finance/DriverCreditExceptionsBanner';
-import { aggregateDriverCreditExceptions } from '../../shared/driverCreditMonitoringSSOT';
+import { DriverWalletCreditAuditPanel } from '@/components/finance/DriverWalletCreditAuditPanel';
+import { DriverWalletAdjustmentDialog } from '@/components/finance/DriverWalletAdjustmentDialog';
+import { DriverWalletPendingAdjustmentsPanel } from '@/components/finance/DriverWalletPendingAdjustmentsPanel';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { driverWalletAdminAdjustmentsDeployed } from '../../shared/driverWalletManualAdjustmentSSOT';
 
 /** Driver money SSOT. Customer payment → Payment Sessions; bank transfers → Payout Ledger. */
 export default function DriverWalletLedger() {
@@ -224,17 +232,8 @@ export default function DriverWalletLedger() {
   const [driverCreditExceptionsOnly, setDriverCreditExceptionsOnly] = useState(
     searchParams.get('driverCreditExceptions') === '1',
   );
-  const settlementCreditAgg = useMemo(
-    () => aggregateDriverCreditExceptions(
-      (driver?.settlement_history ?? []).map((row) => ({
-        driver_credit_health: row.driver_credit_health,
-        expected_driver_credit_pence: row.expected_driver_credit_pence,
-        actual_driver_credit_pence: row.actual_driver_credit_pence,
-        credit_difference_pence: row.credit_difference_pence,
-      })),
-    ),
-    [driver?.settlement_history],
-  );
+  const [adjustmentDialogOpen, setAdjustmentDialogOpen] = useState(false);
+  const adjustmentsDeployed = driverWalletAdminAdjustmentsDeployed();
   const creditByTripId = useMemo(() => {
     const map: Record<string, {
       driver_credit_health?: string | null;
@@ -318,6 +317,20 @@ export default function DriverWalletLedger() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <ServiceAreaFinanceFilter financialModel="PLATFORM_COLLECTED" value={serviceFilter} onChange={setServiceFilter} />
+            {driverId && adjustmentsDeployed ? (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" onClick={() => setAdjustmentDialogOpen(true)}>
+                      Add adjustment
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs">
+                    Approved goodwill, debt, or correction entries only — not automatic repair for credit audit rows.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : null}
             {driverId ? (
               <Button variant="outline" size="sm" onClick={() => setDriver(null)}>
                 Back to driver list
@@ -328,22 +341,12 @@ export default function DriverWalletLedger() {
 
         <ServiceAreaGatewayStatusFetcher serviceAreaId={serviceFilter.serviceAreaId} />
 
-        <DriverCreditExceptionsBanner
-          exceptionTripCount={settlementCreditAgg.exception_trip_count}
-          totalDifferencePence={settlementCreditAgg.total_difference_pence}
-          onFilterExceptions={() => {
-            if (driverId && tab !== 'settlement') setTab('settlement');
-            setDriverCreditExceptionsOnly((v) => {
-              const nextActive = !v;
-              const next = new URLSearchParams(searchParams);
-              if (nextActive) next.set('driverCreditExceptions', '1');
-              else next.delete('driverCreditExceptions');
-              setSearchParams(next, { replace: true });
-              return nextActive;
-            });
-          }}
-          active={driverCreditExceptionsOnly}
-        />
+        {driverId && driver?.settlement_history?.length ? (
+          <DriverWalletCreditAuditPanel
+            settlementRows={driver.settlement_history}
+            currencyCode={currencyCode}
+          />
+        ) : null}
 
         {showDriverList ? (
           <div className="space-y-6">
@@ -372,6 +375,18 @@ export default function DriverWalletLedger() {
         ) : (
           <>
             {driver ? <DriverWalletAccountHeader driver={driver} currencyCode={currencyCode} /> : null}
+            {driverId && adjustmentsDeployed ? (
+              <DriverWalletPendingAdjustmentsPanel driverId={driverId} currencyCode={currencyCode} />
+            ) : null}
+            {driverId && adjustmentsDeployed ? (
+              <DriverWalletAdjustmentDialog
+                open={adjustmentDialogOpen}
+                onOpenChange={setAdjustmentDialogOpen}
+                driverId={driverId}
+                driverName={driver?.driver_name}
+                currencyCode={currencyCode}
+              />
+            ) : null}
 
             <div className="space-y-3">
               <FinancePeriodFilter

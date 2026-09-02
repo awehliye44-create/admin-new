@@ -28,12 +28,22 @@ export function tripHistoryTerminalOrFilter(
     return 'financial_outcome.eq.COMPLETED,status.eq.completed';
   }
   if (status === 'no_show') {
-    return 'financial_outcome.eq.NO_SHOW,status.eq.no_show';
+    return [
+      'financial_outcome.eq.NO_SHOW',
+      'status.eq.no_show',
+      'no_show_charge_pence.gt.0',
+      'cancellation_reason.eq.no_show',
+    ].join(',');
   }
   if (status === 'late_cancellation') {
     return 'financial_outcome.eq.LATE_PASSENGER_CANCELLATION';
   }
-  return `financial_outcome.in.(${TRIP_HISTORY_FINANCIAL_OUTCOMES.join(',')}),status.in.(${TRIP_HISTORY_STATUSES.join(',')})`;
+  return [
+    `financial_outcome.in.(${TRIP_HISTORY_FINANCIAL_OUTCOMES.join(',')})`,
+    `status.in.(${TRIP_HISTORY_STATUSES.join(',')})`,
+    'no_show_charge_pence.gt.0',
+    'cancellation_reason.eq.no_show',
+  ].join(',');
 }
 
 /**
@@ -50,6 +60,10 @@ export function tripHistoryDateOrFilter(start: Date, end: Date): string {
     `and(completed_at.is.null,financial_outcome.eq.NO_SHOW,cancelled_at.gte.${s},cancelled_at.lte.${e})`,
     `and(completed_at.is.null,cancelled_at.is.null,status.eq.no_show,created_at.gte.${s},created_at.lte.${e})`,
     `and(completed_at.is.null,cancelled_at.is.null,financial_outcome.eq.NO_SHOW,created_at.gte.${s},created_at.lte.${e})`,
+    `and(completed_at.is.null,no_show_charge_pence.gt.0,cancelled_at.gte.${s},cancelled_at.lte.${e})`,
+    `and(completed_at.is.null,cancelled_at.is.null,no_show_charge_pence.gt.0,created_at.gte.${s},created_at.lte.${e})`,
+    `and(completed_at.is.null,cancellation_reason.eq.no_show,cancelled_at.gte.${s},cancelled_at.lte.${e})`,
+    `and(completed_at.is.null,cancelled_at.is.null,cancellation_reason.eq.no_show,created_at.gte.${s},created_at.lte.${e})`,
   ].join(',');
 }
 
@@ -65,9 +79,10 @@ const TRIP_HISTORY_SELECT_BASE = `
   payment_status, payment_method, payment_provider, provider_order_id, provider_payment_id,
   currency_code, estimated_distance_km, estimated_duration_minutes,
   refund_amount_pence, refunded_at,
-  total_stops, created_at, started_at, completed_at, cancelled_at, surge_multiplier, driver_id,
+  total_stops, created_at, started_at, completed_at, cancelled_at, cancellation_reason, surge_multiplier, driver_id,
   driver_location_lat, driver_location_lng, stacked_trip_id,
-  corporate_account_id, region_id, service_area_id,
+  corporate_account_id, region_id, service_area_id, financial_model,
+  cancellation_fee_pence,
   pricing_mode, fare_locked, vehicle_type_id, vehicle_type, fare_engine_config_id,
   waiting_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, total_waiting_charge_pence, waiting_minutes, fare_breakdown,
   tip_pence, tip_amount_pence,

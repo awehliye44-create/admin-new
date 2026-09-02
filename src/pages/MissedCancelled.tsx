@@ -43,9 +43,10 @@ import { fetchPassengerDirectory, hydratePassengerIdentity } from '@/lib/tripPas
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import {
-  formatAdminCommittedCustomerFare,
   resolveAdminCommittedCustomerFarePence,
 } from '@/lib/adminTripCommittedFareDisplay';
+import { enrichTripsWithPaymentDisposition } from '@/lib/adminTripPaymentDisposition';
+import type { AdminTripPaymentDispositionRead } from '../../shared/adminTripPaymentDispositionSSOT';
 import {
   MISSED_CANCELLED_STATUSES,
   belongsInMissedCancelled,
@@ -85,7 +86,12 @@ interface CancelledTrip {
   arrival_cancellation_applied_at: string | null;
   arrival_cancellation_reason: string | null;
   financial_outcome?: string | null;
+  financial_model?: string | null;
+  terminal_reason?: string | null;
+  cancellation_fee_pence?: number | null;
+  payment_status?: string | null;
   no_show_charge_pence?: number | null;
+  payment_disposition?: AdminTripPaymentDispositionRead;
   driver?: {
     id: string;
     first_name: string;
@@ -157,6 +163,7 @@ export default function MissedCancelled() {
           created_at, completed_at, special_instructions, driver_id, service_area_id,
           arrived_at, pickup_waiting_started_at, cancelled_at, cancellation_reason,
           arrival_cancellation_applied, arrival_cancellation_fee, arrival_cancellation_applied_at, arrival_cancellation_reason,
+          financial_model, cancellation_fee_pence, payment_status,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, region_id),
           service_area:service_areas!trips_service_area_id_fkey(id, name, region_id, region:regions(currency_code))
         `, { count: 'exact' })
@@ -169,8 +176,9 @@ export default function MissedCancelled() {
       if (error) throw error;
       const rows = (data || []) as unknown as CancelledTrip[];
       const directory = await fetchPassengerDirectory(rows.map((row) => row.passenger_id));
+      const withDisposition = await enrichTripsWithPaymentDisposition(rows, 'missed_cancelled');
       // Defense in depth: never surface no-show outcomes here (Trip History owns them).
-      const filtered = hydratePassengerIdentity(rows, directory).filter((row) => belongsInMissedCancelled(row));
+      const filtered = hydratePassengerIdentity(withDisposition, directory).filter((row) => belongsInMissedCancelled(row));
       return { rows: filtered, totalCount: count ?? filtered.length };
 
     },
@@ -244,13 +252,28 @@ export default function MissedCancelled() {
     (t) => t.status === 'cancelled' || t.status === 'customer_cancelled',
   ).length;
   const missedCount = trips.filter((t) => t.status === 'missed' || t.status === 'expired').length;
-  const lostRevenueMajor = trips.reduce(
+  const quotedFareImpactMajor = trips.reduce(
     (sum, t) => sum + resolveAdminCommittedCustomerFarePence(t) / 100,
     0,
   );
 
-  const formatTripFare = (trip: CancelledTrip) =>
-    formatAdminCommittedCustomerFare(trip, getCurrencySymbol(resolveTripCurrency(trip)));
+  const formatPaymentDisposition = (trip: CancelledTrip) => {
+    const disposition = trip.payment_disposition;
+    const sym = getCurrencySymbol(resolveTripCurrency(trip));
+    if (!disposition) return '—';
+    const amount = disposition.amount_pence;
+    if (amount != null && amount > 0) {
+      return `${disposition.payment_label} · ${sym}${(amount / 100).toFixed(2)}`;
+    }
+    return disposition.payment_label;
+  };
+
+  const formatQuotedFareImpact = (trip: CancelledTrip) => {
+    const pence = resolveAdminCommittedCustomerFarePence(trip);
+    const sym = getCurrencySymbol(resolveTripCurrency(trip));
+    if (pence <= 0) return '—';
+    return `${sym}${(pence / 100).toFixed(2)}`;
+  };
 
   return (
     <AdminLayout 
@@ -306,7 +329,8 @@ export default function MissedCancelled() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Lost Revenue</p>
+                <p className="text-sm text-muted-foreground">Quoted fare impact</p>
+                <p className="text-[10px] text-muted-foreground">Not charged / not revenue</p>
                 {isMixedCurrency ? (
                   <CurrencyGroupedStats
                     items={trips.map(t => ({
@@ -317,7 +341,7 @@ export default function MissedCancelled() {
                   />
                 ) : (
                   <p className="text-2xl font-bold text-amber-600">
-                    {getCurrencySymbol(resolvedCurrency)}{lostRevenueMajor.toFixed(2)}
+                    {getCurrencySymbol(resolvedCurrency)}{quotedFareImpactMajor.toFixed(2)}
                   </p>
                 )}
               </div>
@@ -415,7 +439,7 @@ export default function MissedCancelled() {
                   <TableHead>Driver</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Reason</TableHead>
-                  <TableHead>Lost Fare</TableHead>
+                  <TableHead>Payment</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -472,8 +496,8 @@ export default function MissedCancelled() {
                           {getCancellationReason(trip)}
                         </span>
                       </TableCell>
-                      <TableCell className="font-medium text-red-600">
-                        {formatTripFare(trip)}
+                      <TableCell className="text-sm">
+                        {formatPaymentDisposition(trip)}
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
                         {formatFinanceDateSafe(trip.created_at, 'MMM d, HH:mm')}
@@ -557,10 +581,17 @@ export default function MissedCancelled() {
                   </p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Lost Fare</Label>
-                  <p className="font-medium text-red-600">
-                    {formatTripFare(selectedTrip)}
+                  <Label className="text-muted-foreground">Payment (Payment Sessions)</Label>
+                  <p className="font-medium">
+                    {formatPaymentDisposition(selectedTrip)}
                   </p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Quoted fare impact</Label>
+                  <p className="font-medium text-muted-foreground">
+                    {formatQuotedFareImpact(selectedTrip)}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">Not charged / not revenue</p>
                 </div>
               </div>
 
@@ -626,10 +657,10 @@ export default function MissedCancelled() {
                   )}
                   {selectedTrip.arrival_cancellation_applied && (
                     <div className="flex justify-between gap-3 text-rose-700 dark:text-rose-400 font-medium">
-                      <span>Arrival cancellation fee applied</span>
+                      <span>Arrival cancellation fee (trip stamp)</span>
                       <span>
                         {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
-                        {((selectedTrip.arrival_cancellation_fee ?? 0) / 100).toFixed(2)}
+                        {Number(selectedTrip.arrival_cancellation_fee ?? 0).toFixed(2)}
                       </span>
                     </div>
                   )}
@@ -647,10 +678,10 @@ export default function MissedCancelled() {
                   <Label className="text-muted-foreground">Fee Breakdown</Label>
                   <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-3">
                     <div className="flex justify-between text-sm font-medium">
-                      <span>Arrival Cancellation Fee</span>
+                      <span>Arrival cancellation fee (trip stamp)</span>
                       <span>
                         {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
-                        {((selectedTrip.arrival_cancellation_fee ?? 0) / 100).toFixed(2)}
+                        {Number(selectedTrip.arrival_cancellation_fee ?? 0).toFixed(2)}
                       </span>
                     </div>
                   </div>

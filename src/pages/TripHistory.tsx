@@ -54,6 +54,7 @@ import {
   buildCanonicalTripEconomicsRead,
 } from '../../shared/paymentSessionsCanonicalReadAdapterSSOT';
 import { resolveAdminCompletedTripCustomerPayablePence } from '@/lib/adminTripCommittedFareDisplay';
+import { buildTripHistoryPaymentEvidenceReadModel } from '../../shared/tripHistoryPaymentEvidenceReadModel';
 import {
   isCardTrip,
   summarizeTripPayments,
@@ -61,6 +62,8 @@ import {
 import { FinancialReconciliationTripLink } from '@/components/finance/FinancialReconciliationTripLink';
 import { FinanceRecoveryPanel } from '@/components/payment/FinanceRecoveryPanel';
 import { TripHistoryShortfallRecaptureAction } from '@/components/trips/TripHistoryShortfallRecaptureAction';
+import { TripHistoryTerminalOutcomePanel } from '@/components/trips/TripHistoryTerminalOutcomePanel';
+import { resolveTripHistoryTerminalOutcomeDisplay } from '../../shared/tripHistoryTerminalOutcomeDisplaySSOT';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
@@ -72,13 +75,17 @@ import {
   type TripHistoryRow,
   type TripHistoryStatusFilter,
 } from '@/lib/tripHistoryQuery';
-import { fetchTripsCaptureSsot } from '@/hooks/financeReconciliationApi';
 import {
   adminNoShowPaymentLabel,
-  adminNoShowStatusLabel,
   adminTripHistoryDisplayAt,
-  isAdminNoShowTrip,
+  tripHistoryNoShowDisplayLabel,
 } from '@/lib/adminTripNoShowClassification';
+import {
+  attachTripPaymentDisposition,
+  loadPaymentSessionsByTripIds,
+} from '@/lib/adminTripPaymentDisposition';
+import type { AdminTripPaymentDispositionRead } from '../../shared/adminTripPaymentDispositionSSOT';
+import { tripHistoryStatusLabel, pickPrimaryPaymentSession } from '../../shared/adminTripPaymentDispositionSSOT';
 
 function getTripMapCenter(trip: CompletedTrip): [number, number] {
   const lng = trip.pickup_longitude ?? trip.dropoff_longitude ?? -0.7594;
@@ -151,53 +158,33 @@ async function enrichTripHistoryPageRows(tripsData: TripHistoryRow[]): Promise<C
     }
   }
 
-  const psByTrip = new Map<string, { captured: number | null; refunded: number | null }>();
-  if (tripIds.length > 0) {
-    const { data: psRows } = await supabase
-      .from('payment_sessions')
-      .select('trip_id, captured_amount_pence, refunded_amount_pence')
-      .in('trip_id', tripIds);
-    for (const row of psRows ?? []) {
-      const tid = String((row as { trip_id?: string }).trip_id ?? '');
-      if (!tid) continue;
-      const cap = (row as { captured_amount_pence?: number | null }).captured_amount_pence;
-      const ref = (row as { refunded_amount_pence?: number | null }).refunded_amount_pence;
-      const prev = psByTrip.get(tid);
-      if (!prev || (cap != null && (prev.captured == null || cap > prev.captured))) {
-        psByTrip.set(tid, {
-          captured: cap != null && Number.isFinite(Number(cap)) ? Math.round(Number(cap)) : null,
-          refunded: ref != null && Number.isFinite(Number(ref)) ? Math.round(Number(ref)) : null,
-        });
-      }
-    }
-  }
-
-  const captureSsotRows = tripIds.length > 0
-    ? await fetchTripsCaptureSsot(tripIds).catch((captureErr) => {
-        console.warn('[TripHistory] Capture SSOT optional fetch failed:', captureErr);
-        return [];
-      })
-    : [];
-  const captureByTrip = new Map(captureSsotRows.map((r) => [r.trip_id, r]));
+  const psByTrip = await loadPaymentSessionsByTripIds(tripIds);
 
   return tripsData.map((trip) => {
     const pay = paymentsMap[trip.id];
-    const capture = captureByTrip.get(trip.id);
-    const ps = psByTrip.get(trip.id);
+    const sessions = psByTrip.get(trip.id) ?? [];
+    const primarySession = pickPrimaryPaymentSession(sessions);
+    const psCaptured = primarySession?.captured_amount_pence != null
+      ? Math.round(Number(primarySession.captured_amount_pence))
+      : null;
+    const psRefunded = primarySession?.refunded_amount_pence != null
+      ? Math.round(Number(primarySession.refunded_amount_pence))
+      : null;
+    const withDisposition = attachTripPaymentDisposition(
+      {
+        ...trip,
+        ps_captured_pence: psCaptured,
+        captured_amount_pence: psCaptured,
+      },
+      sessions,
+      'trip_history',
+    );
     return {
-      ...trip,
+      ...withDisposition,
       trip_stops: stopsMap[trip.id] || [],
-      payment_captured_pence: pay && pay.captured > 0 ? pay.captured : null,
-      ps_captured_pence: ps?.captured ?? null,
-      ps_refunded_pence: ps?.refunded ?? null,
-      payment_authorized_pence: pay?.authorized ?? null,
-      payment_tip_pence: pay?.tip ?? null,
-      payment_count: pay?.count ?? 0,
+      ps_captured_pence: psCaptured,
+      ps_refunded_pence: psRefunded,
       has_shortfall_payment_intent: pay?.hasShortfallPi ?? false,
-      payment_lifecycle_fees_pence: pay?.lifecycleFees ?? 0,
-      payment_metadata_lifecycle_fees_pence: pay?.metadataLifecycleFees ?? 0,
-      settlement_total_pence: capture?.settlement_total_pence ?? null,
-      ledger_trip_earning_net_pence: capture?.ledger_trip_earning_net_pence ?? null,
       invoice_no: (trip.invoice_no as string | null | undefined) ?? null,
       invoice_pdf_url: (trip.invoice_pdf_url as string | null | undefined) ?? null,
       invoice_generated_at: (trip.invoice_generated_at as string | null | undefined) ?? null,
@@ -268,6 +255,10 @@ interface CompletedTrip {
   trip_number: string | null;
   status: string | null;
   financial_outcome: string | null;
+  financial_model?: string | null;
+  terminal_reason?: string | null;
+  cancellation_fee_pence?: number | null;
+  payment_disposition?: AdminTripPaymentDispositionRead;
   passenger_name: string | null;
   passenger_phone: string | null;
   pickup_address: string;
@@ -303,6 +294,7 @@ interface CompletedTrip {
   started_at: string | null;
   completed_at: string | null;
   cancelled_at?: string | null;
+  cancellation_reason?: string | null;
   no_show_charge_pence?: number | null;
   surge_multiplier: number | null;
   driver_id: string | null;
@@ -352,21 +344,10 @@ interface CompletedTrip {
   } | null;
   // Joined trip_stops for display
   trip_stops?: TripStop[];
-  // Legacy payments table — fallback only when Payment Sessions row missing
-  payment_captured_pence?: number | null;
-  /** Payment Sessions SSOT captured / refunded (preferred). */
+  // Shortfall recapture flag only — not used for customer fare display.
+  has_shortfall_payment_intent?: boolean;
   ps_captured_pence?: number | null;
   ps_refunded_pence?: number | null;
-  payment_authorized_pence?: number | null;
-  payment_tip_pence?: number | null;
-  payment_count?: number;
-  has_shortfall_payment_intent?: boolean;
-  payment_lifecycle_fees_pence?: number | null;
-  payment_metadata_lifecycle_fees_pence?: number | null;
-  arrival_cancellation_applied?: boolean | null;
-  arrival_cancellation_fee?: number | null;
-  settlement_total_pence?: number | null;
-  ledger_trip_earning_net_pence?: number | null;
   invoice_no: string | null;
   invoice_pdf_url: string | null;
   invoice_generated_at: string | null;
@@ -867,46 +848,46 @@ export default function TripHistory() {
   };
 
   /**
-   * Final customer payable — Trip Fare stamp only (no page-local reconstruction).
+   * Unified payment evidence — same read model as recapture / Payment status block.
    */
-  const getTripCustomerPayablePence = (trip: CompletedTrip): number =>
-    resolveAdminCompletedTripCustomerPayablePence(trip);
+  const getTripPaymentEvidence = (trip: CompletedTrip) =>
+    buildTripHistoryPaymentEvidenceReadModel({
+      trip,
+      tripStatus: trip.status,
+    });
 
   /**
-   * Provider actual captured amount.
-   * Preferred: Payment Sessions SSOT. Fallback (older/no-session trips): confirmed
-   * payments capture row, then trips.capture_amount_pence when payment_status = captured.
+   * Discounted customer payable (post-promotion) — not pre-promo gross fare.
    */
+  const getTripCustomerPayablePence = (trip: CompletedTrip): number =>
+    getTripPaymentEvidence(trip).customer_discounted_payable_pence
+    || resolveAdminCompletedTripCustomerPayablePence(trip);
+
+  /** Provider captured — Payment Sessions disposition read model only. */
   const getTripProviderCapturedPence = (trip: CompletedTrip): number | null => {
+    const fromEvidence = getTripPaymentEvidence(trip).verified_captured_pence;
+    if (fromEvidence > 0) return fromEvidence;
+    const fromDisposition = trip.payment_disposition?.captured_amount_pence;
+    if (fromDisposition != null && Number.isFinite(Number(fromDisposition))) {
+      return Math.round(Number(fromDisposition));
+    }
     if (trip.ps_captured_pence != null && Number.isFinite(Number(trip.ps_captured_pence))) {
       return Math.round(Number(trip.ps_captured_pence));
-    }
-    const paymentsCaptured = Number(trip.payment_captured_pence);
-    if (Number.isFinite(paymentsCaptured) && paymentsCaptured > 0) {
-      return Math.round(paymentsCaptured);
-    }
-    const status = String(trip.payment_status ?? '').trim().toLowerCase();
-    if (status === 'captured' || status === 'paid') {
-      const tripCaptured = Number(trip.capture_amount_pence);
-      if (Number.isFinite(tripCaptured) && tripCaptured > 0) return Math.round(tripCaptured);
     }
     return null;
   };
 
 
   /** Promotion / voucher discount applied to the customer fare (display only). */
-  const getTripPromotionDiscountPence = (trip: CompletedTrip): number => {
-    const candidates = [trip.offer_discount_pence, trip.voucher_discount_pence, trip.discount_pence];
-    let total = 0;
-    for (const c of candidates) {
-      const n = Number(c);
-      if (Number.isFinite(n) && n > 0) total = Math.max(total, Math.round(n));
-    }
-    return total;
-  };
+  const getTripPromotionDiscountPence = (trip: CompletedTrip): number =>
+    getTripPaymentEvidence(trip).promotion_discount_pence;
 
   /** PS-owned refund only — never reconstruct from trip.refund_amount as primary. */
   const getTripProviderRefundedPence = (trip: CompletedTrip): number | null => {
+    const fromDisposition = trip.payment_disposition?.refunded_amount_pence;
+    if (fromDisposition != null && Number.isFinite(Number(fromDisposition))) {
+      return Math.round(Number(fromDisposition));
+    }
     if (trip.ps_refunded_pence != null && Number.isFinite(Number(trip.ps_refunded_pence))) {
       return Math.round(Number(trip.ps_refunded_pence));
     }
@@ -927,31 +908,13 @@ export default function TripHistory() {
   const getTripCustomerPaidPounds = (trip: CompletedTrip): number =>
     getTripCustomerPaidPence(trip) / 100;
 
-  /** Lifecycle label from payment_status / PS amounts — no local expected vs capture FR. */
-  const getTripPaymentLifecycleLabel = (trip: CompletedTrip): string => {
-    const noShowPay = adminNoShowPaymentLabel(trip, getTripProviderCapturedPence(trip));
-    if (noShowPay) return noShowPay;
-    const refunded = getTripProviderRefundedPence(trip);
-    if (refunded != null && refunded > 0) {
-      return refunded >= (getTripProviderCapturedPence(trip) ?? 0) ? 'Refunded' : 'Partially refunded';
-    }
-    const captured = getTripProviderCapturedPence(trip);
-    if (captured != null && captured > 0) return 'Captured';
-    const status = String(trip.payment_status ?? '').toLowerCase();
-    if (status.includes('author')) return 'Authorised';
-    if (status.includes('pending')) return 'Pending capture';
-    if (status.includes('fail')) return 'Failed';
-    if (status.includes('cancel')) return 'Cancelled';
-    return trip.payment_status || '—';
-  };
+  /** Read-only Payment Sessions disposition label — no local lifecycle calculation. */
+  const getTripPaymentLifecycleLabel = (trip: CompletedTrip): string =>
+    trip.payment_disposition?.payment_label
+    ?? adminNoShowPaymentLabel(trip, getTripProviderCapturedPence(trip))
+    ?? '—';
 
-  const getTripStatusLabel = (trip: CompletedTrip): string => {
-    const noShow = adminNoShowStatusLabel(trip);
-    if (noShow) return noShow;
-    if (trip.status === 'cancelled') return 'Cancelled';
-    if (trip.financial_outcome === 'LATE_PASSENGER_CANCELLATION') return 'Late cancellation';
-    return 'Completed';
-  };
+  const getTripStatusLabel = (trip: CompletedTrip): string => tripHistoryStatusLabel(trip);
 
   /**
    * Resolve currency for a specific trip.
@@ -1381,14 +1344,17 @@ export default function TripHistory() {
                       <div className="font-mono text-sm font-medium text-primary">
                         {getTripDisplayId(trip)}
                       </div>
-                      {isAdminNoShowTrip(trip) ? (
-                        <Badge
-                          variant="outline"
-                          className="mt-1 text-[10px] w-fit bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                        >
-                          {getTripStatusLabel(trip)}
-                        </Badge>
-                      ) : null}
+                      {(() => {
+                        const noShowLabel = tripHistoryNoShowDisplayLabel(trip);
+                        return noShowLabel ? (
+                          <Badge
+                            variant="outline"
+                            className="mt-1 text-[10px] w-fit bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                          >
+                            {noShowLabel}
+                          </Badge>
+                        ) : null;
+                      })()}
                     </TableCell>
                     <TableCell>
                       {trip.corporate_account_id ? (
@@ -1465,11 +1431,11 @@ export default function TripHistory() {
                       <div className="font-medium flex flex-col gap-0.5">
                          {(() => {
                            const sym = getCurrencySymbol(resolveTripCurrency(trip));
-                           const captured = getTripNetChargedPence(trip);
-                           const payable = getTripCustomerPayablePence(trip);
-                           const discount = getTripPromotionDiscountPence(trip);
-                           // Primary SSOT: real captured amount (already net of promotion). Fallback: payable fare stamp.
-                           const shown = captured != null && captured > 0 ? captured : payable;
+                           const evidence = getTripPaymentEvidence(trip);
+                           const captured = evidence.net_verified_captured_pence;
+                           const payable = evidence.customer_discounted_payable_pence;
+                           const discount = evidence.promotion_discount_pence;
+                           const shown = captured > 0 ? captured : payable;
                            const refunded = getTripProviderRefundedPence(trip);
                            if (shown <= 0) {
                              return <span className="text-muted-foreground">—</span>;
@@ -1573,7 +1539,7 @@ export default function TripHistory() {
               {/* Status Badges Row */}
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className={
-                  isAdminNoShowTrip(selectedTrip)
+                  tripHistoryNoShowDisplayLabel(selectedTrip)
                     ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                     : selectedTrip.status === 'cancelled'
                       ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
@@ -1699,12 +1665,22 @@ export default function TripHistory() {
                       </div>
                       {(() => {
                         const eco = buildCanonicalTripEconomicsRead(selectedTrip);
+                        const terminalOutcome = resolveTripHistoryTerminalOutcomeDisplay(selectedTrip);
                         const sym = getCurrencySymbol(resolveTripCurrency(selectedTrip));
                         const fmt = (p: number | null | undefined) =>
                           p != null && p > 0 ? `${sym}${(p / 100).toFixed(2)}` : '—';
                         return (
                           <>
-                            {(eco.original_locked_fare_pence != null || eco.accepted_preset_offer_fare_pence != null) && (
+                            {terminalOutcome ? (
+                              <TripHistoryTerminalOutcomePanel
+                                display={terminalOutcome}
+                                currencySymbol={sym}
+                                tripId={selectedTrip.id}
+                                tripCode={selectedTrip.trip_code}
+                                tripNumber={selectedTrip.trip_number}
+                              />
+                            ) : null}
+                            {!terminalOutcome && (eco.original_locked_fare_pence != null || eco.accepted_preset_offer_fare_pence != null) && (
                               <div>
                                 <Label className="text-xs text-muted-foreground">Original / preset quote (audit)</Label>
                                 <p className="font-medium text-muted-foreground">
@@ -1736,19 +1712,19 @@ export default function TripHistory() {
                                 <p className="font-medium text-red-600">{fmt(selectedTrip.ps_refunded_pence)}</p>
                               </div>
                             )}
-                            {eco.commissionable_fare_pence != null && (
+                            {!terminalOutcome && eco.commissionable_fare_pence != null && (
                               <div>
                                 <Label className="text-xs text-muted-foreground">Commissionable (Settlement)</Label>
                                 <p className="font-medium">{fmt(eco.commissionable_fare_pence)}</p>
                               </div>
                             )}
-                            {eco.commission_pence != null && (
+                            {!terminalOutcome && eco.commission_pence != null && (
                               <div>
                                 <Label className="text-xs text-muted-foreground">Commission (Settlement)</Label>
                                 <p className="font-medium">{fmt(eco.commission_pence)}</p>
                               </div>
                             )}
-                            {eco.driver_net_pence != null && (
+                            {!terminalOutcome && eco.driver_net_pence != null && (
                               <div>
                                 <Label className="text-xs text-muted-foreground">Driver net (Settlement)</Label>
                                 <p className="font-medium">{fmt(eco.driver_net_pence)}</p>
@@ -2014,13 +1990,7 @@ export default function TripHistory() {
 
                   {isCardTrip(selectedTrip) && (
                     <TripHistoryShortfallRecaptureAction
-                      tripId={selectedTrip.id}
-                      tripNumber={selectedTrip.trip_number ?? selectedTrip.trip_code}
-                      tripStatus={selectedTrip.status}
-                      paymentMethod={selectedTrip.payment_method}
-                      financialModel={(selectedTrip as { financial_model?: string | null }).financial_model}
-                      customerPayablePence={getTripCustomerPayablePence(selectedTrip)}
-                      verifiedCapturedPence={getTripProviderCapturedPence(selectedTrip) ?? 0}
+                      trip={selectedTrip}
                       currencySymbol={getCurrencySymbol(resolveTripCurrency(selectedTrip))}
                       onComplete={() => {
                         void refetch();

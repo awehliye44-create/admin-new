@@ -62,6 +62,7 @@ describe('Payment Sessions page ownership', () => {
   it('shows summary cards and operational chips only', () => {
     expect(page).toContain('PaymentSessionsSummaryCards');
     expect(page).toContain('PaymentSessionsOperationalChips');
+    expect(readSrc('src/components/finance/PaymentSessionsSummaryCards.tsx')).not.toContain('Authorised active total');
   });
 
   it('pins PLATFORM_COLLECTED service filter', () => {
@@ -72,6 +73,23 @@ describe('Payment Sessions page ownership', () => {
   it('lazy-mounts active tab list only', () => {
     expect(page).toContain('navTab === t');
     expect(page).not.toContain('PaymentSessionsOverviewTab');
+  });
+});
+
+describe('Payment Sessions list backend SSOT', () => {
+  const listSsot = readSrc('supabase/functions/_shared/adminPaymentSessionsListSSOT.ts');
+
+  it('does not query driver_wallet_ledger or enrich driver credit', () => {
+    expect(listSsot).not.toContain('driver_wallet_ledger');
+    expect(listSsot).not.toContain('enrichPaymentSessionsWithDriverCredit');
+    expect(listSsot).not.toContain('enrichCompletedTripsWithDriverCredit');
+    expect(listSsot).not.toContain('buildPaymentSessionDriverCreditFields');
+    expect(listSsot).not.toContain('aggregateDriverCreditExceptions');
+  });
+
+  it('ignores driver_credit_exceptions_only with FR redirect warning', () => {
+    expect(listSsot).toContain('driver_credit_exceptions_only');
+    expect(listSsot).toContain('Financial Reconciliation');
   });
 });
 

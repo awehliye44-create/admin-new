@@ -66,8 +66,12 @@ export type AdminPaymentSessionsListRequest = {
   payment_session_id?: string | null;
   provider_order_id?: string | null;
   trip_id?: string | null;
-  /** When true, return only rows with driver credit exception health. */
+  /**
+   * @deprecated Driver credit audit lives on Financial Reconciliation — ignored when true.
+   */
   driver_credit_exceptions_only?: boolean | null;
+  /** Operational chip filter — backend applies SSOT predicate before pagination. */
+  operational_chip?: 'release_pending' | 'active_holds' | 'recovery_required' | null;
 };
 
 export type AdminPaymentSessionsListRow = {
@@ -169,7 +173,10 @@ export type AdminPaymentSessionsListRow = {
     can_open_reconciliation?: boolean;
   };
   page_status_hint?: AdminPaymentSessionsPageStatus | null;
-  /** Read-only driver credit monitoring (PLATFORM_COLLECTED captured / terminal-fee sessions). */
+};
+
+/** @deprecated Driver Wallet / FR fields — never populated by Payment Sessions list. */
+export type AdminPaymentSessionsDriverCreditFieldsDeprecated = {
   driver_credit_display?: string | null;
   driver_credit_health?: string | null;
   expected_driver_credit_pence?: number | null;
@@ -232,11 +239,6 @@ export type AdminPaymentSessionsCompletedTripRow = {
   fr_match_status_persisted?: false;
   /** Legacy write-path DTO — read path leaves null; UI uses stamp fields. */
   capture_breakdown?: import("./paymentSessionsCaptureBreakdownSSOT.ts").PaymentSessionCaptureBreakdown | null;
-  driver_credit_health?: string | null;
-  expected_driver_credit_pence?: number | null;
-  actual_driver_credit_pence?: number | null;
-  credit_difference_pence?: number | null;
-  credit_eligibility_at?: string | null;
 };
 
 /** Payment Matching — comparison-only rows. */
@@ -276,12 +278,53 @@ export type AdminPaymentSessionsMatchingRow = {
 export type AdminPaymentSessionsSummary = {
   total: number;
   active_hold_count: number;
+  /** Verified current card holds (operational chip SSOT — count only, not revenue). */
+  verified_active_hold_count?: number;
+  /** Actionable authorised holds needing release now (operational chip SSOT). */
+  actionable_release_pending_count?: number;
   active_hold_amount_pence: number | null;
   captured_count: number;
   released_count: number;
   refunded_count: number;
   failed_recovery_count: number;
   recovery_pending_count: number;
+  /** Unresolved manual recovery rows (operational chip SSOT). */
+  manual_recovery_required_count?: number;
+  /** Active queue release-failed rows (operational chip SSOT). */
+  release_failed_count?: number;
+  /** Row-level audit for operational chips (active queue only). */
+  operational_chip_audit?: {
+    release_pending: Array<{
+      row_id: string;
+      payment_session_id: string | null;
+      provider_state: string | null;
+      authorised_amount_pence: number | null;
+      captured_amount_pence: number | null;
+      released_amount_pence: number | null;
+      refunded_amount_pence: number | null;
+      trip_status: string | null;
+      age_minutes: number;
+      attention_class: string | null;
+      in_active_queue: boolean;
+      provider_hold_active: boolean;
+      actionable_reason: string;
+    }>;
+    recovery_required: Array<{
+      row_id: string;
+      payment_session_id: string | null;
+      provider_state: string | null;
+      authorised_amount_pence: number | null;
+      captured_amount_pence: number | null;
+      released_amount_pence: number | null;
+      refunded_amount_pence: number | null;
+      trip_status: string | null;
+      age_minutes: number;
+      attention_class: string | null;
+      in_active_queue: boolean;
+      provider_hold_active: boolean;
+      actionable_reason: string;
+    }>;
+  };
   provider_fees_pending_count: number;
   /** SUM(confirmed captured_amount_pence) only — never authorisations or trip fares. */
   total_customer_revenue_captured_pence: number | null;
@@ -340,8 +383,11 @@ export type AdminPaymentSessionsSummary = {
   net_onecab_commission_pence: number | null;
   /** SUM trip driver_net_pence — backend only. */
   driver_net_total_pence: number | null;
-  /** Read-only driver credit exceptions across visible session scope. */
+  /**
+   * @deprecated Driver credit exceptions — Financial Reconciliation only; never populated here.
+   */
   driver_credit_exception_trip_count?: number | null;
+  /** @deprecated See driver_credit_exception_trip_count. */
   driver_credit_exception_difference_pence?: number | null;
 };
 
