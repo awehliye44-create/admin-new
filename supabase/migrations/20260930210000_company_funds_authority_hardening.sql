@@ -12,12 +12,12 @@ AS $$
     SELECT 1
     FROM public.staff_profiles sp
     JOIN public.role_page_permissions rpp
-      ON rpp.role = sp.role::text
+      ON rpp.role = sp.role
      AND rpp.page_slug = p_page_slug
      AND rpp.can_access = true
     WHERE sp.user_id = auth.uid()
       AND sp.is_active = true
-      AND sp.role::text = ANY (ARRAY['super_admin', 'admin', 'finance_manager']::text[])
+      AND sp.role = ANY (ARRAY['super_admin', 'admin', 'finance_manager']::public.staff_role[])
   );
 $$;
 
