@@ -1,5 +1,5 @@
 /**
- * Lock: controlled Driver Wallet manual adjustments — park schema safely; flag stays false.
+ * Lock: controlled Driver Wallet manual adjustments — schema park + deployed flag.
  * Enablement auth/copy/matrix covered in driverWalletManualAdjustmentEnablementLock.test.ts.
  */
 import { assert } from "https://deno.land/std@0.224.0/assert/assert.ts";
@@ -23,8 +23,8 @@ Deno.test("driver wallet manual adjustment schema park lock", async () => {
   const eligibility = await read("supabase/functions/_shared/driverPayoutEligibilitySSOT.ts");
   const ledgerPage = await read("src/pages/DriverWalletLedger.tsx");
 
-  // Flag remains parked false.
-  assert(ssot.includes("DRIVER_WALLET_ADMIN_ADJUSTMENTS_DEPLOYED = false"));
+  // Flag enabled; park error path still present for rollback.
+  assert(ssot.includes("DRIVER_WALLET_ADMIN_ADJUSTMENTS_DEPLOYED = true"));
   assert(ssot.includes("driverWalletAdminAdjustmentsDeployed"));
   assert(edge.includes("ADJUSTMENTS_NOT_DEPLOYED"));
   assert(edge.includes("driverWalletAdminAdjustmentsDeployed"));

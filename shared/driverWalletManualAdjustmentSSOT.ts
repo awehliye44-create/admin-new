@@ -60,7 +60,7 @@ export const DRIVER_WALLET_ADJUSTMENT_METADATA_SOURCE = "admin_manual_adjustment
  * - 20260930200000_driver_wallet_admin_manual_adjustments.sql
  * - 20260930210000_company_funds_authority_hardening.sql
  */
-export const DRIVER_WALLET_ADMIN_ADJUSTMENTS_DEPLOYED = false;
+export const DRIVER_WALLET_ADMIN_ADJUSTMENTS_DEPLOYED = true;
 
 export function driverWalletAdminAdjustmentsDeployed(): boolean {
   return DRIVER_WALLET_ADMIN_ADJUSTMENTS_DEPLOYED;

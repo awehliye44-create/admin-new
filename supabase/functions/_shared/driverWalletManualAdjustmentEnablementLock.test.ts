@@ -1,5 +1,5 @@
 /**
- * Lock: Driver Wallet manual adjustment enablement package (flag stays false).
+ * Lock: Driver Wallet manual adjustment enablement package (flag enabled).
  * Auth hardening, ONECAB driver copy, RLS/HTTP matrix, idempotency invariants.
  */
 import { assert } from "https://deno.land/std@0.224.0/assert/assert.ts";
@@ -27,11 +27,11 @@ async function read(rel: string): Promise<string> {
   return await Deno.readTextFile(join(REPO_ROOT, rel));
 }
 
-Deno.test("enablement: flag remains false and edge stays parked", async () => {
-  assertEquals(DRIVER_WALLET_ADMIN_ADJUSTMENTS_DEPLOYED, false);
+Deno.test("enablement: flag is true; park error path retained", async () => {
+  assertEquals(DRIVER_WALLET_ADMIN_ADJUSTMENTS_DEPLOYED, true);
   const edge = await read("supabase/functions/admin-driver-adjustment/index.ts");
   const ssot = await read("shared/driverWalletManualAdjustmentSSOT.ts");
-  assertStringIncludes(ssot, "DRIVER_WALLET_ADMIN_ADJUSTMENTS_DEPLOYED = false");
+  assertStringIncludes(ssot, "DRIVER_WALLET_ADMIN_ADJUSTMENTS_DEPLOYED = true");
   assertStringIncludes(edge, "ADJUSTMENTS_NOT_DEPLOYED");
   assertStringIncludes(edge, "driverWalletAdminAdjustmentsDeployed");
 });

@@ -22,8 +22,8 @@ import {
 import { walletTransactionDisplayTitle } from '../../../shared/walletTransactionTitles.ts';
 
 describe('driverWalletManualAdjustmentSSOT', () => {
-  it('keeps feature parked', () => {
-    expect(DRIVER_WALLET_ADMIN_ADJUSTMENTS_DEPLOYED).toBe(false);
+  it('keeps feature enabled', () => {
+    expect(DRIVER_WALLET_ADMIN_ADJUSTMENTS_DEPLOYED).toBe(true);
   });
 
   it('admin credit +500p increases wallet live balance', () => {
