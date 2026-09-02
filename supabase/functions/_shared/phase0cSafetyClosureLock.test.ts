@@ -49,7 +49,7 @@ Deno.test("DIRECT_PAYOUT_RPC_INVARIANTS_ENFORCED in SQL migration", async () => 
 
 Deno.test("MANUAL_EXTERNAL_RPC_SECURE in SQL migration", async () => {
   const sql = await Deno.readTextFile(
-    new URL("../../migrations/20260901120000_manual_external_payout_completion_atomic.sql", import.meta.url),
+    new URL("../../migrations/20260930240000_manual_external_payout_completion_atomic.sql", import.meta.url),
   );
   for (const check of REQUIRED_MANUAL_RPC_CHECKS) {
     assertStringIncludes(sql, check, `missing ${check}`);

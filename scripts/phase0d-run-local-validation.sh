@@ -53,7 +53,7 @@ psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$REPO/supabase/migrations/20260927180200_p
   | tee "$AUDIT_DIR/migration_lineage.log"
 
 log "Apply migration 1/3 manual external RPC"
-psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$REPO/supabase/migrations/20260901120000_manual_external_payout_completion_atomic.sql" \
+psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$REPO/supabase/migrations/20260930240000_manual_external_payout_completion_atomic.sql" \
   | tee "$AUDIT_DIR/migration_manual_external.log"
 
 log "Apply migration 2/3 payout RPC hardening"
@@ -80,7 +80,7 @@ psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$REPO/supabase/tests/phase0d_view_security
   | tee "$AUDIT_DIR/view_security_tests.log"
 
 log "Test migration idempotency (re-apply 3 migrations)"
-psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$REPO/supabase/migrations/20260901120000_manual_external_payout_completion_atomic.sql" \
+psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$REPO/supabase/migrations/20260930240000_manual_external_payout_completion_atomic.sql" \
   && psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$REPO/supabase/migrations/20260901130000_payout_rpc_invariant_hardening.sql" \
   && psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$REPO/supabase/migrations/20260901140000_model_scoped_driver_financial_summary.sql" \
   | tee "$AUDIT_DIR/idempotency.log"

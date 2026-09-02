@@ -5,7 +5,7 @@ import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.
 
 Deno.test("manual external RPC migration defines idempotency by ref+driver+amount", async () => {
   const sql = await Deno.readTextFile(
-    new URL("../../migrations/20260901120000_manual_external_payout_completion_atomic.sql", import.meta.url),
+    new URL("../../migrations/20260930240000_manual_external_payout_completion_atomic.sql", import.meta.url),
   );
   assertStringIncludes(sql, "finalize_manual_external_payout_completion");
   assertStringIncludes(sql, "DUPLICATE_EXTERNAL_REFERENCE");
