@@ -1,5 +1,6 @@
 /**
  * Lock: controlled Driver Wallet manual adjustments — park schema safely; flag stays false.
+ * Enablement auth/copy/matrix covered in driverWalletManualAdjustmentEnablementLock.test.ts.
  */
 import { assert } from "https://deno.land/std@0.224.0/assert/assert.ts";
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals.ts";
@@ -63,9 +64,11 @@ Deno.test("driver wallet manual adjustment schema park lock", async () => {
   assert(ssot.includes("ADMIN_WALLET_DEBIT"));
   assert(ssot.includes("admin_manual_adjustment"));
   assert(ssot.includes("DRIVER_WALLET_ADJUSTMENT_OWNER_THRESHOLD_PENCE"));
+  assert(ssot.includes("ONECAB adjustment"));
 
-  // Edge remains parked; no PS / PL / Revolut.
+  // Edge remains parked; staff finance profile required; no PS / PL / Revolut.
   assert(edge.includes("requireFinanceExecutionAuth"));
+  assert(edge.includes("requireStaffFinanceProfile: true"));
   assert(edge.includes("DRIVER_WALLET_LEDGER"));
   assert(edge.includes("FINANCIAL_MODEL_VIOLATION"));
   assert(edge.includes("driver_wallet_admin_adjustments"));

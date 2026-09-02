@@ -8,6 +8,7 @@ import {
   corsHeaders,
   requireFinanceExecutionAuth,
   FINANCE_EXECUTION_PAGE_SLUGS,
+  type GateResult,
 } from "../_shared/adminPaymentGate.ts";
 import { resolveCurrencyFromDriver } from "../_shared/regionCurrency.ts";
 import { computeLedgerWalletBalancePence } from "../_shared/onecabFinanceLedger.ts";
@@ -25,6 +26,8 @@ import {
 
 const PAGE_SLUG = FINANCE_EXECUTION_PAGE_SLUGS.DRIVER_WALLET_LEDGER;
 
+type AdjustmentSupabase = GateResult["supabase"];
+
 function json(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -33,9 +36,7 @@ function json(body: Record<string, unknown>, status = 200): Response {
 }
 
 async function loadActorOwnerFlag(
-  supabase: Awaited<ReturnType<typeof requireFinanceExecutionAuth>> extends { ok: true; supabase: infer S }
-    ? S
-    : never,
+  supabase: AdjustmentSupabase,
   userId: string,
 ): Promise<boolean> {
   const { data } = await supabase
@@ -48,9 +49,7 @@ async function loadActorOwnerFlag(
 }
 
 async function assertPlatformCollectedDriver(
-  supabase: Awaited<ReturnType<typeof requireFinanceExecutionAuth>> extends { ok: true; supabase: infer S }
-    ? S
-    : never,
+  supabase: AdjustmentSupabase,
   driverId: string,
 ): Promise<
   | { ok: true; driver: { id: string; service_area_id: string | null } }
@@ -88,9 +87,7 @@ async function assertPlatformCollectedDriver(
 }
 
 async function applyAdjustmentToLedger(
-  supabase: Awaited<ReturnType<typeof requireFinanceExecutionAuth>> extends { ok: true; supabase: infer S }
-    ? S
-    : never,
+  supabase: AdjustmentSupabase,
   args: {
     adjustmentId: string;
     driverId: string;
@@ -159,7 +156,10 @@ serve(async (req) => {
   }
 
   try {
-    const gate = await requireFinanceExecutionAuth(req, { pageSlug: PAGE_SLUG });
+    const gate = await requireFinanceExecutionAuth(req, {
+      pageSlug: PAGE_SLUG,
+      requireStaffFinanceProfile: true,
+    });
     if (!gate.ok) return gate.response;
 
     if (gate.userId === "service-role") {

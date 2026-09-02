@@ -16,6 +16,12 @@ import {
   walletTabHistoryWeeks,
   walletTransactionHistoryCutoffIso,
 } from "../../../shared/driverWalletDisplaySSOT.ts";
+import {
+  DRIVER_WALLET_ADJUSTMENT_METADATA_SOURCE,
+  driverWalletAdjustmentDriverSubtitle,
+  driverWalletAdjustmentDriverTitle,
+  normalizeDriverWalletAdjustmentReasonCategory,
+} from "../../../shared/driverWalletManualAdjustmentSSOT.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -42,6 +48,8 @@ const TYPE_LABELS: Record<string, { title: string; category: string }> = {
   'CASHOUT_FEE': { title: 'Cash-out fee', category: 'payouts' },
   'ADJUSTMENT': { title: 'Adjustment', category: 'adjustments' },
   'MANUAL_ADJUSTMENT': { title: 'Manual adjustment', category: 'adjustments' },
+  'ADMIN_WALLET_CREDIT': { title: 'ONECAB adjustment', category: 'adjustments' },
+  'ADMIN_WALLET_DEBIT': { title: 'ONECAB adjustment', category: 'adjustments' },
   'CHARGEBACK_DEBIT': { title: 'Chargeback adjustment', category: 'adjustments' },
   'BONUS': { title: 'Bonus', category: 'bonuses' },
 };
@@ -111,7 +119,7 @@ Deno.serve(async (req) => {
     } else if (tab === 'payouts') {
       query = query.in('type', ['WEEKLY_PAYOUT', 'EARLY_CASHOUT', 'CASHOUT_FEE']);
     } else if (tab === 'adjustments') {
-      query = query.in('type', ['ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'CHARGEBACK_DEBIT']);
+      query = query.in('type', ['ADJUSTMENT', 'MANUAL_ADJUSTMENT', 'CHARGEBACK_DEBIT', 'ADMIN_WALLET_CREDIT', 'ADMIN_WALLET_DEBIT']);
     } else if (tab === 'bonuses') {
       query = query.in('type', ['BONUS']);
     }
@@ -261,12 +269,31 @@ Deno.serve(async (req) => {
       })
       : entries.map(entry => {
         const typeInfo = TYPE_LABELS[entry.type] || { title: entry.type, category: 'other' };
-        const displayPence = driverWalletDisplayAmountPence(entry.type, entry.amount_pence);
-        const isPositive = driverWalletTransactionIsCredit(entry.type, entry.amount_pence);
+        const displayPence = driverWalletDisplayAmountPence(entry.amount_pence);
+        const isPositive = driverWalletTransactionIsCredit(entry.amount_pence);
+        const metadata = (entry.metadata ?? {}) as Record<string, unknown>;
+        const isAdminAdjustment = entry.type === 'ADMIN_WALLET_CREDIT' || entry.type === 'ADMIN_WALLET_DEBIT';
+        const adminDirection = entry.type === 'ADMIN_WALLET_CREDIT' ? 'CREDIT' : 'DEBIT';
+        const reasonCategory = normalizeDriverWalletAdjustmentReasonCategory(
+          metadata.reason_category != null ? String(metadata.reason_category) : null,
+        );
+        const reasonNote = metadata.reason_note != null ? String(metadata.reason_note) : '';
+        const adminTitle = isAdminAdjustment
+          ? driverWalletAdjustmentDriverTitle(adminDirection)
+          : walletTransactionDisplayTitle(entry.type);
+        const adminSubtitle = isAdminAdjustment && reasonCategory
+          ? driverWalletAdjustmentDriverSubtitle(reasonCategory, reasonNote || String(entry.description ?? ''))
+          : null;
         return {
           id: entry.id,
           type: entry.type,
-          title: walletTransactionDisplayTitle(entry.type, entry.description || typeInfo.title),
+          title: adminTitle,
+          subtitle: adminSubtitle,
+          source_label: isAdminAdjustment && metadata.source === DRIVER_WALLET_ADJUSTMENT_METADATA_SOURCE
+            ? 'ONECAB adjustment'
+            : null,
+          reason_category: reasonCategory,
+          reason_note: reasonNote || null,
           amount_pence: displayPence,
           amount_formatted: formatPence(displayPence),
           is_positive: isPositive,

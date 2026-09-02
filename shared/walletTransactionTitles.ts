@@ -19,6 +19,8 @@ const TITLES: Record<string, string> = {
   CASHOUT_FEE: "Cash-out fee",
   ADJUSTMENT: "Adjustment",
   MANUAL_ADJUSTMENT: "Manual adjustment",
+  ADMIN_WALLET_CREDIT: "ONECAB adjustment",
+  ADMIN_WALLET_DEBIT: "ONECAB adjustment",
   CHARGEBACK_DEBIT: "Chargeback adjustment",
   BONUS: "Bonus",
 };
