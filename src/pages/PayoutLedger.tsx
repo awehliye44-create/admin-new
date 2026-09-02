@@ -1,8 +1,10 @@
 import { Link, useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { ArrowLeft, Download, Info, Loader2, MoreHorizontal, Printer, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useServiceAreas } from '@/hooks/useServiceAreas';
+import { LoadingTimeout } from '@/components/LoadingTimeout';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -226,9 +228,17 @@ export default function PayoutLedger() {
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(
     DEFAULT_SERVICE_AREA_SELECTION,
   );
+  const [financeScopeReady, setFinanceScopeReady] = useState(false);
+  const { isLoading: serviceAreasLoading } = useServiceAreas({ activeOnly: true });
   const [payoutCreditExceptionsOnly, setPayoutCreditExceptionsOnly] = useState(
     searchParams.get('payoutCreditExceptions') === '1',
   );
+
+  // Wait for service-area catalog before first fetch (avoids racing an unscoped reload).
+  useEffect(() => {
+    if (financeScopeReady || serviceAreasLoading) return;
+    setFinanceScopeReady(true);
+  }, [financeScopeReady, serviceAreasLoading]);
 
   const listRequest = useMemo(() => {
     if (topTab === 'overview') {
@@ -292,12 +302,16 @@ export default function PayoutLedger() {
     [driverId, serviceFilter.serviceAreaId],
   );
 
-  const listEnabled = topTab !== 'settings';
+  const listEnabled = topTab !== 'settings' && financeScopeReady;
   const { data, isLoading, isFetching, error, refetch, isError } = useAdminPayoutLedger(
     listRequest,
     listEnabled,
   );
-  const { data: accountData } = useAdminPayoutLedger(accountRequest, Boolean(driverId));
+  const listLoading = !financeScopeReady || isLoading;
+  const { data: accountData } = useAdminPayoutLedger(
+    accountRequest,
+    Boolean(driverId) && financeScopeReady,
+  );
   const items = data?.items ?? [];
   const summary = data?.summary;
   const payoutCreditExceptionCount = summary?.credit_exception_item_count ?? 0;
@@ -313,9 +327,6 @@ export default function PayoutLedger() {
   const companyBatches = data?.company_batches ?? [];
   const companyAuditRows = data?.company_audit_rows ?? [];
   const overview = data?.overview_summary;
-  const companyFundingAudit = data?.company_funding_audit
-    ?? overview?.company_funding_audit
-    ?? [];
   const companyBalance = data?.company_balance ?? overview?.company_balance ?? null;
   // Driver ID SSOT: NEVER fall back to accounts[0]. The accounts_overview endpoint
   // does not filter by driver_id server-side, so index 0 is always the first fleet row
@@ -532,7 +543,7 @@ export default function PayoutLedger() {
               <PayoutLedgerOverviewPanel
                 overview={overview}
                 companyBalance={companyBalance}
-                isLoading={isLoading}
+                isLoading={listLoading}
                 isError={isError && !overview}
                 errorCode={ledgerErrorCode}
                 errorMessage={error instanceof Error ? error.message : error ? String(error) : null}
@@ -546,7 +557,7 @@ export default function PayoutLedger() {
             <FinancePanelErrorBoundary panelName="Company Transfers">
               <PayoutLedgerCompanyTransfersPanel
                 transfers={companyTransfers}
-                isLoading={isLoading}
+                isLoading={listLoading}
                 serviceAreaId={serviceFilter.serviceAreaId}
                 companyBalance={companyBalance}
                 kpis={data?.company_transfer_kpis ?? null}
@@ -559,7 +570,7 @@ export default function PayoutLedger() {
             <FinancePanelErrorBoundary panelName="Failed Transfers">
               <PayoutLedgerCompanyTransfersPanel
                 transfers={companyTransfers}
-                isLoading={isLoading}
+                isLoading={listLoading}
                 failedOnly
                 serviceAreaId={serviceFilter.serviceAreaId}
                 companyBalance={companyBalance}
@@ -693,45 +704,6 @@ export default function PayoutLedger() {
           </TabsContent>
 
           <TabsContent value="audit_history" className="mt-4 space-y-3">
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium">Company-owned cash classification</h3>
-              <p className="text-xs text-muted-foreground">
-                How provisional company liquidity is attributed. Net commission is consumed from Payment Sessions SSOT only — unexplained residue is never labelled commission.
-              </p>
-              {companyFundingAudit.length === 0 ? (
-                <Alert>
-                  <AlertTitle>No company funding classification yet</AlertTitle>
-                  <AlertDescription>
-                    Classification appears when Revolut source balance and Payment Sessions net commission are available on the Overview tab.
-                  </AlertDescription>
-                </Alert>
-              ) : (
-                <div className="overflow-x-auto rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Classification</TableHead>
-                        <TableHead>Label</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Source</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {companyFundingAudit.map((row) => (
-                        <TableRow key={`${row.kind}-${row.label}`}>
-                          <TableCell className="text-xs font-mono">{row.kind}</TableCell>
-                          <TableCell className="text-xs">{row.label}</TableCell>
-                          <TableCell className="text-xs tabular-nums">{formatNullablePence(row.amount_pence)}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground max-w-[280px] truncate" title={row.source}>
-                            {row.source}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </div>
             {items.length > 0 && (
               <div className="space-y-2">
                 <h3 className="text-sm font-medium">Driver payout items (audit view)</h3>
@@ -900,7 +872,7 @@ export default function PayoutLedger() {
               </div>
             )}
 
-            {isLoading ? (
+            {listLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading payout accounts...
               </div>
@@ -1080,7 +1052,7 @@ export default function PayoutLedger() {
               </TabsContent>
 
               <TabsContent value="audit_log" className="mt-4 space-y-3">
-                {isLoading ? (
+                {listLoading ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" /> Loading audit log...
                   </div>
@@ -1183,7 +1155,7 @@ export default function PayoutLedger() {
                       </div>
                     )}
 
-                    {isLoading ? (
+                    {listLoading ? (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" /> Loading payouts...
                       </div>

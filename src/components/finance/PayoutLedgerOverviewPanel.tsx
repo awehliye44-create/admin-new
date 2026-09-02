@@ -1,5 +1,6 @@
 /**
  * Payout Ledger Overview widgets — display-only of backend DTO.
+ * Company funding grid is liquidity/protection only (never PS commission accounting).
  * Never sums financial totals in React.
  */
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -13,16 +14,39 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { formatNullablePence } from '@/lib/formatNullablePence';
+import {
+  PAYOUT_LEDGER_LIQUIDITY_CARD_TITLES as LIQUIDITY,
+  PAYOUT_LEDGER_LIQUIDITY_CARD_TOOLTIPS as LIQUIDITY_TIPS,
+  PAYOUT_LEDGER_LIQUIDITY_SECTION_TITLE,
+  computePayoutLedgerRealAvailableFundsPence,
+} from '@/lib/payoutLedgerLiquidityCardsSSOT';
 import type { AdminPayoutLedgerOverviewSummary } from '../../../shared/adminPayoutLedgerSSOT';
 import type { CompanyBalanceSnapshot } from '../../../shared/companyBalanceSSOT';
-import {
-  COMPANY_BALANCE_ERROR,
-  COMPANY_BALANCE_LABELS,
-  COMPANY_BALANCE_TOOLTIPS,
-} from '../../../shared/companyBalanceSSOT';
-import { UNCLASSIFIED_COMPANY_CASH_STATUS } from '../../../shared/payoutLedgerCompanyFundingSSOT';
+import { COMPANY_BALANCE_ERROR } from '../../../shared/companyBalanceSSOT';
 import { PAYOUT_LEDGER_ERROR } from '../../../shared/payoutLedgerOverviewSSOT';
-import { Info, Loader2, RefreshCw } from 'lucide-react';
+import { Info, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
+import { LoadingTimeout } from '@/components/LoadingTimeout';
+
+/** Optional overview fields returned by newer edges — ignored when absent. */
+type OverviewExtras = {
+  company_funds_scope?: string;
+  company_funds_scope_label?: string | null;
+  protected_driver_liabilities_breakdown?: {
+    total_pence?: number | null;
+    pending_clearing_pence?: number | null;
+  } | null;
+  next_run_at_local?: string | null;
+  schedule_label?: string | null;
+  payout_schedule?: {
+    next_run_at_local?: string | null;
+    schedule_label?: string | null;
+  } | null;
+};
+
+type CompanyBalanceExtras = {
+  company_funds_underprotected?: boolean;
+  company_funds_underprotected_message?: string | null;
+};
 
 function shortDate(value: string | null | undefined): string {
   if (!value) return '—';
@@ -38,6 +62,7 @@ function MetricCard({
   tooltip,
   subtitle,
   statusBadge,
+  setupRequired,
 }: {
   title: string;
   value: string;
@@ -46,9 +71,10 @@ function MetricCard({
   tooltip?: string | null;
   subtitle?: string | null;
   statusBadge?: string | null;
+  setupRequired?: boolean;
 }) {
   return (
-    <Card>
+    <Card data-testid="payout-ledger-metric-card" data-card-title={title}>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-1.5">
           <span>{title}</span>
@@ -67,7 +93,9 @@ function MetricCard({
       <CardContent className="space-y-1">
         {unavailableReason ? (
           <>
-            <div className="text-sm font-semibold text-amber-700">UNAVAILABLE</div>
+            <div className={`text-sm font-semibold ${setupRequired ? 'text-blue-700' : 'text-amber-700'}`}>
+              {setupRequired ? 'SETUP REQUIRED' : 'UNAVAILABLE'}
+            </div>
             <div className="text-xs font-mono text-muted-foreground">{unavailableReason}</div>
           </>
         ) : (
@@ -130,9 +158,12 @@ export function PayoutLedgerOverviewPanel({
 }) {
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading overview...
-      </div>
+      <LoadingTimeout
+        isLoading
+        sectionLabel="payout ledger overview"
+        loadingText="Loading overview..."
+        onRetry={onRetry}
+      />
     );
   }
 
@@ -174,7 +205,10 @@ export function PayoutLedgerOverviewPanel({
     );
   }
 
-  const snap = companyBalance ?? overview.company_balance ?? null;
+  const overviewX = overview as AdminPayoutLedgerOverviewSummary & OverviewExtras;
+  const snap = (companyBalance ?? overview.company_balance ?? null) as
+    | (CompanyBalanceSnapshot & CompanyBalanceExtras)
+    | null;
   const companyReason =
     snap?.status_code
     ?? snap?.unavailable_reason
@@ -198,23 +232,30 @@ export function PayoutLedgerOverviewPanel({
     return raw;
   })();
 
-  // £19.34-style provider cash — never labelled ONECAB Company Balance.
+  // Provider cash — never labelled ONECAB Company Balance / commission.
   const providerCash = moneyOrUnavailable(
     snap?.provider_available_balance_pence
       ?? snap?.provider_cash_balance_pence
       ?? null,
     providerReason,
   );
+  const liabilityBreakdown = overviewX.protected_driver_liabilities_breakdown;
+  const protectedLiabilityPence = snap?.driver_liability_pence
+    ?? liabilityBreakdown?.total_pence
+    ?? null;
   const liability = moneyOrUnavailable(
-    snap?.driver_liability_pence ?? overview.driver_wallet_total_pence,
+    protectedLiabilityPence,
     snap?.sections?.driver_liabilities?.reason_code
       ?? (
-        (snap?.driver_liability_pence ?? overview.driver_wallet_total_pence) == null
+        protectedLiabilityPence == null
           ? COMPANY_BALANCE_ERROR.DRIVER_LIABILITY_QUERY_FAILED
           : null
       ),
   );
-  // Canonical Slice 6 reserved = ACTIVE driver_payout_reservations (same as Driver Payouts tab).
+  const liabilitySubtitle = liabilityBreakdown && liabilityBreakdown.pending_clearing_pence > 0
+    ? `Includes ${formatNullablePence(liabilityBreakdown.pending_clearing_pence)} pending clearing.`
+    : null;
+  // Canonical reserved = ACTIVE driver_payout_reservations (same as Driver Payouts tab).
   const reservedPence = overview.driver_reserved_pence
     ?? snap?.driver_payout_reserved_pence
     ?? null;
@@ -226,52 +267,48 @@ export function PayoutLedgerOverviewPanel({
   const reservedSource =
     'driver_payout_reservations ACTIVE / Driver Wallet Ledger SSOT';
 
+  const underprotected = snap?.company_funds_underprotected === true;
+  const underprotectedMessage = snap?.company_funds_underprotected_message ?? null;
   const reserveConfigured = snap?.operational_reserve_pence != null
     && snap?.sections?.operational_reserve?.status === 'AVAILABLE';
+  const reserveNotConfiguredReason = snap?.sections?.operational_reserve?.reason_code
+    ?? 'OPERATIONAL_RESERVE_NOT_CONFIGURED';
+  const reserveSetupRequired = !reserveConfigured
+    && reserveNotConfiguredReason === 'OPERATIONAL_RESERVE_NOT_CONFIGURED';
   const reserveCard = moneyOrUnavailable(
     reserveConfigured ? snap?.operational_reserve_pence : null,
     snap?.sections?.operational_reserve?.reason_code
       ?? (reserveConfigured ? null : 'OPERATIONAL_RESERVE_NOT_CONFIGURED'),
   );
   const beforeReserve = moneyOrUnavailable(
-    snap?.company_available_before_operational_reserve_pence ?? null,
-    snap?.company_available_before_operational_reserve_pence == null
-      ? 'BEFORE_RESERVE_UNAVAILABLE'
-      : null,
-  );
-  const onecabFunds = moneyOrUnavailable(
-    snap?.company_available_for_transfer_pence
-      ?? overview.company_available_for_transfer_pence,
-    snap?.sections?.company_transfer_available?.reason_code
-      ?? (snap?.company_available_for_transfer_pence == null
-        ? 'OPERATIONAL_RESERVE_NOT_CONFIGURED'
-        : companyReason),
-  );
-  const netCommission = moneyOrUnavailable(
-    overview.onecab_net_commission_available_pence ?? null,
-    overview.onecab_net_commission_available_pence == null
-      ? 'PAYMENT_SESSIONS_NET_COMMISSION_UNAVAILABLE'
-      : null,
-  );
-  // Fail-closed: unclassified only when PS net commission is present (never clone before_reserve).
-  const otherCompanyCash = moneyOrUnavailable(
-    overview.onecab_net_commission_available_pence == null
+    underprotected
+      ? 0
+      : snap?.company_available_before_operational_reserve_pence ?? null,
+    underprotected
       ? null
-      : overview.other_company_owned_cash_pence ?? null,
-    overview.onecab_net_commission_available_pence == null
-      ? 'PAYMENT_SESSIONS_NET_COMMISSION_UNAVAILABLE'
-      : overview.other_company_owned_cash_pence == null
-        ? 'UNCLASSIFIED_COMPANY_CASH_UNAVAILABLE'
+      : snap?.company_available_before_operational_reserve_pence == null
+        ? 'BEFORE_RESERVE_UNAVAILABLE'
         : null,
   );
-  const unclassifiedStatus = overview.onecab_net_commission_available_pence != null
-    && overview.other_company_owned_cash_pence != null
-    && overview.other_company_owned_cash_pence > 0
-    ? UNCLASSIFIED_COMPANY_CASH_STATUS
-    : null;
-  const netCommissionSource = overview.sources?.payment_sessions_net_commission
-    ?? 'Payment Sessions SSOT · summary.net_onecab_commission_pence';
-
+  // Liquidity-only Real Available — ignore onecab_net_commission_available_pence entirely.
+  const realAvailablePence = computePayoutLedgerRealAvailableFundsPence({
+    company_available_before_operational_reserve_pence:
+      snap?.company_available_before_operational_reserve_pence ?? null,
+    operational_reserve_pence: snap?.operational_reserve_pence ?? null,
+    operational_reserve_configured: reserveConfigured,
+    provider_available_balance_pence: snap?.provider_available_balance_pence ?? null,
+    company_funds_underprotected: underprotected,
+  });
+  const onecabFunds = moneyOrUnavailable(
+    realAvailablePence,
+    underprotected
+      ? null
+      : !reserveConfigured
+        ? 'OPERATIONAL_RESERVE_NOT_CONFIGURED'
+        : realAvailablePence == null
+          ? companyReason
+          : null,
+  );
   const driverSource = overview.sources?.driver_wallet ?? 'Driver Wallet Ledger SSOT';
   const payoutSource = overview.sources?.driver_payouts ?? 'payout_items';
   const providerSource = snap?.source_account_label
@@ -280,7 +317,7 @@ export function PayoutLedgerOverviewPanel({
 
   return (
     <TooltipProvider>
-    <div className="space-y-4">
+    <div className="space-y-4" data-testid="payout-ledger-overview-panel">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={overview.status === 'LIVE' ? 'default' : 'secondary'}>
           Overview: {overview.status}
@@ -348,84 +385,113 @@ export function PayoutLedgerOverviewPanel({
           />
           <MetricCard
             title="Next Scheduled Weekly Driver Payout"
-            value={overview.next_run_at_local
-              ?? overview.payout_schedule?.next_run_at_local
+            value={overviewX.next_run_at_local
+              ?? overviewX.payout_schedule?.next_run_at_local
+              ?? overview.next_scheduled_weekly_driver_payout_at
               ?? '—'}
             source="Payout Schedule SSOT"
           />
           <MetricCard
             title="Schedule"
-            value={overview.schedule_label
-              ?? overview.payout_schedule?.schedule_label
+            value={overviewX.schedule_label
+              ?? overviewX.payout_schedule?.schedule_label
               ?? '—'}
             source="Payout Schedule SSOT"
           />
         </div>
       </div>
 
-      <div>
+      <div data-testid="payout-ledger-company-funding">
         <h3 className="text-sm font-medium mb-2">Company funding</h3>
-        <p className="text-xs text-muted-foreground mb-2">
-          Consolidated net payout / liquidity only. Gross commission, provider fees, and revenue labels
-          live on Payment Sessions — not here.
+        {overviewX.company_funds_scope === 'GLOBAL' ? (
+          <p className="text-xs text-muted-foreground mb-2 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5">
+            {overviewX.company_funds_scope_label
+              ?? 'Global company funds — Revolut source is not segregated by service area. Driver liabilities are platform-wide.'}
+          </p>
+        ) : null}
+        <p className="text-xs text-muted-foreground mb-4">
+          Live Revolut liquidity, protected liabilities, and reserves only — not Payment Sessions revenue accounting.
         </p>
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          <MetricCard
-            title={COMPANY_BALANCE_LABELS.REVOLUT_SOURCE_ACCOUNT_BALANCE}
-            value={providerCash.value}
-            source={providerSource}
-            unavailableReason={providerCash.reason}
-            tooltip={COMPANY_BALANCE_TOOLTIPS.REVOLUT_SOURCE_ACCOUNT_BALANCE}
-          />
-          <MetricCard
-            title={COMPANY_BALANCE_LABELS.PROTECTED_DRIVER_LIABILITIES}
-            value={liability.value}
-            source={driverSource}
-            unavailableReason={liability.reason}
-          />
-          <MetricCard
-            title={COMPANY_BALANCE_LABELS.RESERVED_DRIVER_PAYOUTS}
-            value={reserved.value}
-            source={reservedSource}
-            unavailableReason={reserved.reason}
-          />
-          <MetricCard
-            title={COMPANY_BALANCE_LABELS.ONECAB_NET_COMMISSION_AVAILABLE}
-            value={netCommission.value}
-            source={netCommissionSource}
-            unavailableReason={netCommission.reason}
-            tooltip={COMPANY_BALANCE_TOOLTIPS.ONECAB_NET_COMMISSION_AVAILABLE}
-          />
-          <MetricCard
-            title={COMPANY_BALANCE_LABELS.UNCLASSIFIED_COMPANY_CASH}
-            value={otherCompanyCash.value}
-            source="Company funding classification SSOT (before_reserve − net commission)"
-            unavailableReason={otherCompanyCash.reason}
-            tooltip={COMPANY_BALANCE_TOOLTIPS.UNCLASSIFIED_COMPANY_CASH}
-            statusBadge={unclassifiedStatus}
-          />
-          <MetricCard
-            title={COMPANY_BALANCE_LABELS.ONECAB_CASH_AVAILABLE_BEFORE_OPERATIONAL_RESERVE}
-            value={beforeReserve.value}
-            source="Company Balance SSOT"
-            unavailableReason={beforeReserve.reason}
-            tooltip={COMPANY_BALANCE_TOOLTIPS.ONECAB_AVAILABLE_BEFORE_OPERATIONAL_RESERVE}
-            subtitle="Company-owned liquidity before operational reserve. Not all of this amount is current-period commission."
-          />
-          <MetricCard
-            title={COMPANY_BALANCE_LABELS.OPERATIONAL_REFUND_RESERVE}
-            value={reserveCard.value}
-            source="Company Balance SSOT"
-            unavailableReason={reserveCard.reason}
-            tooltip="Configured operational/refund reserve. NOT_CONFIGURED until an admin setting exists — never invent £0."
-          />
-          <MetricCard
-            title={COMPANY_BALANCE_LABELS.ONECAB_AVAILABLE_COMPANY_FUNDS}
-            value={onecabFunds.value}
-            source="Company Balance SSOT"
-            unavailableReason={onecabFunds.reason}
-            tooltip={COMPANY_BALANCE_TOOLTIPS.ONECAB_AVAILABLE_COMPANY_FUNDS}
-          />
+
+        {underprotected && underprotectedMessage ? (
+          <Alert variant="destructive" className="mb-4 py-2">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle className="text-sm">Company funds unavailable</AlertTitle>
+            <AlertDescription className="text-xs space-y-1">
+              <p>{underprotectedMessage}</p>
+              <p className="text-muted-foreground">
+                Do not approve company transfers or treat ONECAB Funds Before Reserve as spendable until
+                Revolut source balance covers protected driver liabilities and approved payables.
+                Driver payouts remain governed separately by payout funding gates.
+              </p>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        <div className="space-y-4">
+          <div>
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+              {PAYOUT_LEDGER_LIQUIDITY_SECTION_TITLE}
+            </h4>
+            <div
+              className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"
+              data-testid="payout-ledger-liquidity-cards"
+            >
+              <MetricCard
+                title={LIQUIDITY.REVOLUT_SOURCE_ACCOUNT_BALANCE}
+                value={providerCash.value}
+                source={providerSource}
+                unavailableReason={providerCash.reason}
+                tooltip={LIQUIDITY_TIPS.REVOLUT_SOURCE_ACCOUNT_BALANCE}
+              />
+              <MetricCard
+                title={LIQUIDITY.PROTECTED_DRIVER_LIABILITIES}
+                value={liability.value}
+                source={driverSource}
+                unavailableReason={liability.reason}
+                tooltip={LIQUIDITY_TIPS.PROTECTED_DRIVER_LIABILITIES}
+                subtitle={liabilitySubtitle}
+              />
+              <MetricCard
+                title={LIQUIDITY.RESERVED_DRIVER_PAYOUTS}
+                value={reserved.value}
+                source={reservedSource}
+                unavailableReason={reserved.reason}
+                tooltip={LIQUIDITY_TIPS.RESERVED_DRIVER_PAYOUTS}
+                subtitle="Subset of protected driver liabilities — shown separately for payout operations."
+              />
+              <MetricCard
+                title={LIQUIDITY.ONECAB_FUNDS_BEFORE_RESERVE}
+                value={beforeReserve.value}
+                source="Company Balance SSOT"
+                unavailableReason={beforeReserve.reason}
+                tooltip={LIQUIDITY_TIPS.ONECAB_FUNDS_BEFORE_RESERVE}
+                subtitle="Revolut source − protected driver liabilities − approved company payables (− refund reserve when set)."
+              />
+              <MetricCard
+                title={LIQUIDITY.OPERATIONAL_REFUND_RESERVE}
+                value={reserveCard.value}
+                source="Company Balance SSOT"
+                unavailableReason={reserveCard.reason}
+                setupRequired={reserveSetupRequired}
+                subtitle={reserveSetupRequired
+                  ? 'Configure and owner-activate in Payout Ledger → Settings. Not a payment failure.'
+                  : undefined}
+                tooltip={LIQUIDITY_TIPS.OPERATIONAL_REFUND_RESERVE}
+              />
+              <MetricCard
+                title={LIQUIDITY.ONECAB_REAL_AVAILABLE_FUNDS}
+                value={onecabFunds.value}
+                source="Company Balance SSOT · liquidity-only"
+                unavailableReason={onecabFunds.reason}
+                setupRequired={reserveSetupRequired}
+                subtitle={reserveSetupRequired
+                  ? 'Requires an active reserve policy. Real Available = Before Reserve − reserve.'
+                  : undefined}
+                tooltip={LIQUIDITY_TIPS.ONECAB_REAL_AVAILABLE_FUNDS}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
