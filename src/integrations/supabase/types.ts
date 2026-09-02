@@ -25897,6 +25897,7 @@ export type Database = {
         Args: { p_phase: string }
         Returns: boolean
       }
+      campaign_heads_up_due_sweep: { Args: never; Returns: undefined }
       can_corporate_user_view_driver: {
         Args: { p_driver_id: string; p_user_id: string }
         Returns: boolean
@@ -26543,6 +26544,14 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: number
       }
+      driver_wallet_captured_at_restamp_suspect: {
+        Args: {
+          p_captured_at: string
+          p_ledger_created_at: string
+          p_trip_completed_at: string
+        }
+        Returns: boolean
+      }
       driver_wallet_eligibility_balances: {
         Args: { p_driver_id: string }
         Returns: {
@@ -26600,6 +26609,16 @@ export type Database = {
           eligible_at: string
           posting_created_at: string
         }[]
+      }
+      driver_wallet_stable_clearing_origin: {
+        Args: {
+          p_capture_time: string
+          p_captured_at: string
+          p_first_captured_at?: string
+          p_ledger_created_at: string
+          p_trip_completed_at: string
+        }
+        Returns: string
       }
       driver_wallet_summary_ssot: {
         Args: { p_driver_id: string; p_service_area_id?: string }
@@ -28440,6 +28459,7 @@ export type Database = {
         }
         Returns: Json
       }
+      sync_current_driver_document_approval: { Args: never; Returns: Json }
       sync_customer_phone_verification: {
         Args: { _user_id: string }
         Returns: undefined
