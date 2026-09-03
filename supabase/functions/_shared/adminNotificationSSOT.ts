@@ -87,7 +87,7 @@ async function listAdminRecipients(supabase: SupabaseClient): Promise<{
     }
   }
 
-  return { userIds, emails: [...new Set(emails)] };
+  return { userIds, emails: Array.from(new Set(emails)) };
 }
 
 function shouldSendPaymentAlert(

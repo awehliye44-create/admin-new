@@ -29,6 +29,7 @@ export type TripHistoryPaymentLayerSession = {
   authorised_amount_pence?: number | null;
   total_authorised_amount_pence?: number | null;
   refunded_amount_pence?: number | null;
+  released_amount_pence?: number | null;
 };
 
 export type TripHistoryPaymentLayerTrip = {

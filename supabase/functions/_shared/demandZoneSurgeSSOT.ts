@@ -436,7 +436,7 @@ export function parseRpcSurgeResolution(data: unknown): SurgeResolution {
     confirmed_demand_level: confirmed,
     applied_multiplier: Number(row.applied_multiplier ?? 1),
     surge_enabled: row.surge_enabled === true,
-    reason: typeof row.reason === 'string' ? row.reason : 'NO_ZONE',
+    reason: (typeof row.reason === 'string' ? row.reason : 'NO_ZONE') as SurgeResolution['reason'],
   };
 }
 

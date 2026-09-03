@@ -316,7 +316,7 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
     const r = evaluateLedgerEntryEligibility(
       revolutTripCredit({
         captured_at: "2026-09-01T20:22:26.000Z",
-        trip_completed_at: "2026-08-15T08:00:00.000Z",
+        completed_at: "2026-08-15T08:00:00.000Z",
         earning_credited_at: "2026-08-15T08:05:00.000Z",
         provider_available_on: null,
         provider_state: "CAPTURED",
@@ -336,7 +336,7 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
         canonical_driver_net_pence: 680,
         captured_amount_pence: 800,
         allocated_amount_pence: 105,
-        trip_completed_at: "2026-08-15T08:00:00.000Z",
+        completed_at: "2026-08-15T08:00:00.000Z",
         earning_credited_at: "2026-08-15T08:05:00.000Z",
         captured_at: "2026-09-01T20:22:26.000Z",
         provider_available_on: null,

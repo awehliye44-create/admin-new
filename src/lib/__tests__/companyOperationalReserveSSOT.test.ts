@@ -440,12 +440,12 @@ describe("Slice 10 operational reserve SSOT", () => {
       audit_reason: "Owner accepts zero reserve for launch",
     }).ok).toBe(false);
 
-    expect(validateZeroReserveOwnerActivation({
+    expect((validateZeroReserveOwnerActivation({
       reserve_mode: RESERVE_MODE.FIXED_AMOUNT,
       reserve_amount_pence: 0,
       confirm_zero_reserve: true,
       audit_reason: "short",
-    }).reason_code).toBe(OPERATIONAL_RESERVE_ERROR.ACTIVATION_AUDIT_REASON_REQUIRED);
+    }) as { reason_code?: string }).reason_code).toBe(OPERATIONAL_RESERVE_ERROR.ACTIVATION_AUDIT_REASON_REQUIRED);
 
     expect(validateZeroReserveOwnerActivation({
       reserve_mode: RESERVE_MODE.FIXED_AMOUNT,
