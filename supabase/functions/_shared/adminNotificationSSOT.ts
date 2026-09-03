@@ -87,7 +87,7 @@ async function listAdminRecipients(supabase: SupabaseClient): Promise<{
     }
   }
 
-  return { userIds, emails: Array.from(new Set(emails)) };
+  return { userIds, emails: emails.filter((email, idx) => emails.indexOf(email) === idx) };
 }
 
 function shouldSendPaymentAlert(
