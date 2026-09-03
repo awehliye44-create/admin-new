@@ -66,7 +66,8 @@ async function listAdminRecipients(supabase: SupabaseClient): Promise<{
     .select("user_id")
     .eq("role", "admin");
 
-  const userIds = [...new Set((roleRows ?? []).map((r) => String(r.user_id)).filter(Boolean))];
+  const allUserIds = (roleRows ?? []).map((r: { user_id: unknown }) => String(r.user_id)).filter(Boolean);
+  const userIds = allUserIds.filter((id, idx) => allUserIds.indexOf(id) === idx);
   const emails: string[] = [];
 
   const fallback = (Deno.env.get("ADMIN_ALERT_EMAILS") ?? "admin@onecab.net,info@onecab.net")
