@@ -1200,13 +1200,14 @@ export async function finalizeBookingAfterPaymentFromSession(
 
   const sessionGate = gatePaymentSessionForTripCreate(session);
   if (!sessionGate.ok) {
+    const gateReason = (sessionGate as { reason: string }).reason;
     console.info("TRIP_CREATION_BLOCKED_PAYMENT_NOT_AUTHORIZED", {
       client_action_id: session.client_action_id,
       provider_order_id: args.providerOrderId,
-      reason: sessionGate.reason,
+      reason: gateReason,
       source: "finalizeBookingAfterPaymentFromSession",
     });
-    return { attempted: false, error: sessionGate.reason };
+    return { attempted: false, error: gateReason };
   }
 
   const bookingSnapshot = session.booking_snapshot as Record<string, unknown> | undefined;

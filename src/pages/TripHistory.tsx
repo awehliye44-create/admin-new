@@ -200,7 +200,7 @@ async function enrichTripHistoryPageRows(tripsData: TripHistoryRow[]): Promise<C
       invoice_outstanding_pence: (trip.invoice_outstanding_pence as number | null | undefined) ?? null,
       invoice_delivery_eligible: (trip.invoice_delivery_eligible as boolean | null | undefined) ?? null,
     };
-  }) as CompletedTrip[];
+  }) as unknown as CompletedTrip[];
 }
 
 function scheduleDialogMapResize(map: mapboxgl.Map): void {

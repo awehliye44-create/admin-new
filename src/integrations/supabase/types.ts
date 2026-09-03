@@ -8222,6 +8222,100 @@ export type Database = {
           },
         ]
       }
+      driver_legal_acceptances: {
+        Row: {
+          accepted_at: string
+          created_at: string
+          document_key: string
+          document_version: string
+          driver_id: string | null
+          id: string
+          user_id: string
+        }
+        Insert: {
+          accepted_at?: string
+          created_at?: string
+          document_key: string
+          document_version: string
+          driver_id?: string | null
+          id?: string
+          user_id: string
+        }
+        Update: {
+          accepted_at?: string
+          created_at?: string
+          document_key?: string
+          document_version?: string
+          driver_id?: string | null
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_legal_acceptances_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_fleet_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_legal_acceptances_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_legal_acceptances_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_legal_acceptances_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_legal_acceptances_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_legal_acceptances_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_legal_acceptances_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_legal_acceptances_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_legal_acceptances_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_live_locations: {
         Row: {
           driver_id: string
@@ -9886,6 +9980,223 @@ export type Database = {
           },
         ]
       }
+      driver_wallet_admin_adjustments: {
+        Row: {
+          amount_pence: number
+          applied_at: string | null
+          approval_reason_codes: string[]
+          approved_by_admin_id: string | null
+          created_at: string
+          created_by_admin_id: string
+          currency: string
+          direction: string
+          driver_id: string
+          evidence_reference: string | null
+          id: string
+          idempotency_key: string
+          ledger_entry_id: string | null
+          ledger_type: string
+          metadata: Json
+          payout_eligible: boolean
+          reason_category: string
+          reason_note: string
+          rejected_at: string | null
+          rejected_by_admin_id: string | null
+          rejection_note: string | null
+          related_payout_item_id: string | null
+          related_trip_id: string | null
+          requires_owner_approval: boolean
+          service_area_id: string | null
+          signed_amount_pence: number | null
+          status: string
+        }
+        Insert: {
+          amount_pence: number
+          applied_at?: string | null
+          approval_reason_codes?: string[]
+          approved_by_admin_id?: string | null
+          created_at?: string
+          created_by_admin_id: string
+          currency?: string
+          direction: string
+          driver_id: string
+          evidence_reference?: string | null
+          id?: string
+          idempotency_key: string
+          ledger_entry_id?: string | null
+          ledger_type: string
+          metadata?: Json
+          payout_eligible?: boolean
+          reason_category: string
+          reason_note: string
+          rejected_at?: string | null
+          rejected_by_admin_id?: string | null
+          rejection_note?: string | null
+          related_payout_item_id?: string | null
+          related_trip_id?: string | null
+          requires_owner_approval?: boolean
+          service_area_id?: string | null
+          signed_amount_pence?: number | null
+          status?: string
+        }
+        Update: {
+          amount_pence?: number
+          applied_at?: string | null
+          approval_reason_codes?: string[]
+          approved_by_admin_id?: string | null
+          created_at?: string
+          created_by_admin_id?: string
+          currency?: string
+          direction?: string
+          driver_id?: string
+          evidence_reference?: string | null
+          id?: string
+          idempotency_key?: string
+          ledger_entry_id?: string | null
+          ledger_type?: string
+          metadata?: Json
+          payout_eligible?: boolean
+          reason_category?: string
+          reason_note?: string
+          rejected_at?: string | null
+          rejected_by_admin_id?: string | null
+          rejection_note?: string | null
+          related_payout_item_id?: string | null
+          related_trip_id?: string | null
+          requires_owner_approval?: boolean
+          service_area_id?: string | null
+          signed_amount_pence?: number | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_fleet_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "driver_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_digital"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_ledger_entry_id_fkey"
+            columns: ["ledger_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_finance_era_legacy_cash"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_related_payout_item_id_fkey"
+            columns: ["related_payout_item_id"]
+            isOneToOne: false
+            referencedRelation: "payout_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_related_trip_id_fkey"
+            columns: ["related_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_wallet_ledger: {
         Row: {
           amount_pence: number
@@ -9894,6 +10205,7 @@ export type Database = {
           description: string | null
           driver_id: string
           id: string
+          metadata: Json
           payment_provider: string | null
           provider_payout_id: string | null
           provider_refund_id: string | null
@@ -9909,6 +10221,7 @@ export type Database = {
           description?: string | null
           driver_id: string
           id?: string
+          metadata?: Json
           payment_provider?: string | null
           provider_payout_id?: string | null
           provider_refund_id?: string | null
@@ -9924,6 +10237,7 @@ export type Database = {
           description?: string | null
           driver_id?: string
           id?: string
+          metadata?: Json
           payment_provider?: string | null
           provider_payout_id?: string | null
           provider_refund_id?: string | null
@@ -10185,6 +10499,8 @@ export type Database = {
           residential_address: string | null
           service_area_id: string | null
           speed: number | null
+          terms_accepted_at: string | null
+          terms_version: string | null
           total_trips: number | null
           updated_at: string
           user_id: string
@@ -10252,6 +10568,8 @@ export type Database = {
           residential_address?: string | null
           service_area_id?: string | null
           speed?: number | null
+          terms_accepted_at?: string | null
+          terms_version?: string | null
           total_trips?: number | null
           updated_at?: string
           user_id: string
@@ -10319,6 +10637,8 @@ export type Database = {
           residential_address?: string | null
           service_area_id?: string | null
           speed?: number | null
+          terms_accepted_at?: string | null
+          terms_version?: string | null
           total_trips?: number | null
           updated_at?: string
           user_id?: string
@@ -25644,6 +25964,8 @@ export type Database = {
           residential_address: string | null
           service_area_id: string | null
           speed: number | null
+          terms_accepted_at: string | null
+          terms_version: string | null
           total_trips: number | null
           updated_at: string
           user_id: string
@@ -26719,6 +27041,7 @@ export type Database = {
           p_region_id: string
           p_residential_address: string
           p_service_area_ids: string[]
+          p_terms_version: string
           p_vehicle_color: string
           p_vehicle_make: string
           p_vehicle_model: string
@@ -28334,6 +28657,10 @@ export type Database = {
         Args: { _action_key: string; _user_id: string }
         Returns: boolean
       }
+      staff_has_company_funds_read_access: {
+        Args: { p_page_slug?: string }
+        Returns: boolean
+      }
       staff_role_of: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["staff_role"]
@@ -28849,12 +29176,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -28878,11 +29205,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -28903,11 +29230,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -28928,11 +29255,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -28945,11 +29272,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

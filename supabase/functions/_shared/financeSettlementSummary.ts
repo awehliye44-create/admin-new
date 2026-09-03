@@ -1005,7 +1005,7 @@ export function mapTripToFinancialAuditRow(
     no_show_charge_pence: row.no_show_charge_pence ?? null,
     gross_fare_pence: row.gross_fare_pence ?? null,
     final_customer_fare_pence: row.final_customer_fare_pence ?? null,
-    locked_base_fare_pence: row.locked_base_fare_pence ?? null,
+    locked_base_fare_pence: (row as { locked_base_fare_pence?: number | null }).locked_base_fare_pence ?? null,
     customer_modification_charge_pence: row.customer_modification_charge_pence ?? null,
     provider_fee_pence: row.provider_fee_pence ?? null,
     settlement_amount_pence: (row as { settlement_amount_pence?: number | null }).settlement_amount_pence ?? null,
