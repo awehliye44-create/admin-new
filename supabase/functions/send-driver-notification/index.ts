@@ -576,7 +576,8 @@ Deno.serve(async (req) => {
                     body: sanitizedBody,
                   },
                   sound: RIDE_OFFER_IOS_ALERT_SOUND,
-                  badge: 1,
+                  // Never increment the home-screen badge — Driver is not a chat app.
+                  badge: 0,
                   // iOS 15+ Focus: must stay so ride offers break through when allowed.
                   // Pairs with app entitlements + UNAuthorizationOptions.timeSensitive — do not remove.
                   'interruption-level': 'time-sensitive',
@@ -602,7 +603,8 @@ Deno.serve(async (req) => {
                     body: sanitizedBody,
                   },
                   sound: 'default',
-                  badge: 1,
+                  // Never increment the home-screen badge — Driver is not a chat app.
+                  badge: 0,
                 },
               },
             };
