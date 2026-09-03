@@ -536,7 +536,7 @@ export function PayoutLedgerCompanyTransfersPanel({
           | { message?: string }
           | null
           | undefined;
-        const reasons = companyTransferGateReasonLabels(data.blocked_reason_codes ?? []);
+        const reasons = companyTransferGateReasonLabels((data.blocked_reason_codes ?? []) as string[]);
         toast.error(
           protection?.message
             ?? reasons[0]
