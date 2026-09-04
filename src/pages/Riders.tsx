@@ -47,6 +47,10 @@ interface Rider {
   rider_status: 'active' | 'disabled' | 'suspended' | 'deleted' | 'pending_verification';
   wallet_balance?: number;
   default_payment_method?: string | null;
+  identity_verified_at?: string | null;
+  identity_provider?: string | null;
+  name_edit_locked?: boolean | null;
+  name_unlocked_at?: string | null;
 }
 
 type StatusFilter = 'all' | 'active' | 'disabled' | 'suspended' | 'deleted';
@@ -80,7 +84,7 @@ export default function Riders() {
       let ridersQ = supabase
         .from('admin_riders_with_trip_stats')
         .select(
-          'id, user_id, customer_code, first_name, last_name, phone, email, created_at, updated_at, rider_status, trip_count, last_trip_at',
+          'id, user_id, customer_code, first_name, last_name, phone, email, created_at, updated_at, rider_status, trip_count, last_trip_at, identity_verified_at, identity_provider, name_edit_locked, name_unlocked_at',
           { count: 'exact' },
         )
         .order('created_at', { ascending: false })
@@ -185,7 +189,7 @@ export default function Riders() {
       const { data, error } = await supabase
         .from('admin_riders_with_trip_stats')
         .select(
-          'id, user_id, customer_code, first_name, last_name, phone, email, created_at, updated_at, rider_status, trip_count, last_trip_at',
+          'id, user_id, customer_code, first_name, last_name, phone, email, created_at, updated_at, rider_status, trip_count, last_trip_at, identity_verified_at, identity_provider, name_edit_locked, name_unlocked_at',
         )
         .eq('id', deepLinkCustomerId)
         .maybeSingle();
@@ -519,7 +523,21 @@ export default function Riders() {
                             {getInitials(rider.first_name, rider.last_name)}
                           </AvatarFallback>
                         </Avatar>
-                        <p className="font-medium">{getFullName(rider)}</p>
+                        <div>
+                          <p className="font-medium">{getFullName(rider)}</p>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {rider.identity_verified_at ? (
+                              <Badge className="bg-emerald-500/10 text-emerald-700 border-emerald-500/30 text-[10px] px-1.5 py-0">
+                                ID verified
+                              </Badge>
+                            ) : null}
+                            {rider.name_edit_locked ? (
+                              <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/30 text-[10px] px-1.5 py-0">
+                                Name locked
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>

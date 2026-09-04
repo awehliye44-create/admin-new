@@ -26,6 +26,7 @@ import {
   Calculator,
   Gift,
   Crown,
+  ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ServiceAreaPaymentConfig } from '@/components/payment/ServiceAreaPaymentConfig';
@@ -41,6 +42,7 @@ import { ServiceAreaTripsTab } from '@/components/payment/ServiceAreaTripsTab';
 import { VehicleTypePricingRow } from '@/components/pricing/VehicleTypePricingRow';
 import { ServiceAreaDriverTiersConfig } from '@/components/pricing/ServiceAreaDriverTiersConfig';
 import { ServiceAreaCommunicationConfig } from '@/components/communication/ServiceAreaCommunicationConfig';
+import { ServiceAreaCustomerIdentityConfig } from '@/components/identity/ServiceAreaCustomerIdentityConfig';
 
 interface VehicleType {
   id: string;
@@ -376,6 +378,10 @@ export default function ServiceAreaPricing() {
             <Phone className="h-4 w-4" />
             Communication (SSOT)
           </TabsTrigger>
+          <TabsTrigger value="customer-identity" className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4" />
+            Customer ID
+          </TabsTrigger>
           <TabsTrigger value="trips" className="flex items-center gap-2">
             <Banknote className="h-4 w-4" />
             Trips & Payments
@@ -535,6 +541,15 @@ export default function ServiceAreaPricing() {
               serviceAreaId={selectedServiceAreaId}
               serviceAreaName={selectedServiceArea?.name}
               currencyCode={regionCurrency}
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="customer-identity">
+          {selectedServiceAreaId && (
+            <ServiceAreaCustomerIdentityConfig
+              serviceAreaId={selectedServiceAreaId}
+              serviceAreaName={selectedServiceArea?.name}
             />
           )}
         </TabsContent>

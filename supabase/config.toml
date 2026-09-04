@@ -308,3 +308,17 @@ verify_jwt = false
 # Public password recovery (driver / customer / corporate) — Resend, not Supabase mailer.
 [functions.request-password-recovery]
 verify_jwt = false
+
+# Customer identity (manual Admin review) — JWT validated inside start/status/submit.
+# Legacy Veriff webhook kept as a soft no-op stub.
+[functions.start-customer-identity-verification]
+verify_jwt = false
+
+[functions.get-customer-identity-verification-status]
+verify_jwt = false
+
+[functions.submit-customer-identity-verification]
+verify_jwt = false
+
+[functions.customer-identity-veriff-webhook]
+verify_jwt = false

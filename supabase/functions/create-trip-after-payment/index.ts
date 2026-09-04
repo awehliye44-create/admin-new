@@ -12,6 +12,7 @@ import {
   logPassengerBookingBlocked,
   passengerNotEligibleResponse,
 } from "../_shared/passengerEligibility.ts";
+import { assertCustomerIdentityBookAllowed } from "../_shared/customerIdentityVeriff.ts";
 import {
   BOOKING_FAILED_NO_TRIP_MESSAGE,
 } from "../_shared/bookingFailurePreauthReversal.ts";
@@ -323,6 +324,27 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         error_code: "SERVICE_AREA_REQUIRED",
       }), {
         status: 422,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const identityGate = await assertCustomerIdentityBookAllowed(
+      supabase,
+      user.id,
+      body.service_area_id,
+    );
+    if (!identityGate.ok) {
+      log("Customer identity verification required", {
+        userId: user.id,
+        serviceAreaId: body.service_area_id,
+        code: identityGate.code,
+      });
+      return new Response(JSON.stringify({
+        error: identityGate.message,
+        error_code: identityGate.code,
+        code: identityGate.code,
+      }), {
+        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

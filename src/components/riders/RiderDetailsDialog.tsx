@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
@@ -10,10 +12,36 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import {
   Phone, Calendar, CreditCard, Car, Clock,
-  Loader2, History, Wallet, Ban, ShieldOff, CheckCircle, Trash2,
+  Loader2, History, Wallet, Ban, ShieldOff, CheckCircle, Trash2, ShieldCheck, Unlock,
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
+
+const IDENTITY_BUCKET = 'customer-identity-documents';
+
+type PendingIdentityRow = {
+  id: string;
+  status: string;
+  document_type: string | null;
+  id_front_path: string | null;
+  id_back_path: string | null;
+  selfie_path: string | null;
+  submitted_at: string | null;
+  created_at: string;
+};
+
+function documentTypeLabel(type: string | null): string {
+  switch (type) {
+    case 'driving_licence':
+      return 'Driving licence';
+    case 'passport':
+      return 'Passport';
+    case 'residence_permit':
+      return 'Residence permit';
+    default:
+      return type || 'Unknown ID';
+  }
+}
 
 interface Rider {
   id: string;
@@ -29,6 +57,10 @@ interface Rider {
   rider_status: 'active' | 'disabled' | 'suspended' | 'deleted' | 'pending_verification';
   wallet_balance?: number;
   default_payment_method?: string | null;
+  identity_verified_at?: string | null;
+  identity_provider?: string | null;
+  name_edit_locked?: boolean | null;
+  name_unlocked_at?: string | null;
 }
 
 interface RiderTrip {
@@ -51,6 +83,14 @@ interface RiderDetailsDialogProps {
 export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }: RiderDetailsDialogProps) {
   const [activeTab, setActiveTab] = useState('overview');
   const [isUpdating, setIsUpdating] = useState(false);
+  const [decideFirstName, setDecideFirstName] = useState('');
+  const [decideLastName, setDecideLastName] = useState('');
+  const [decideNote, setDecideNote] = useState('');
+  const [signedUrls, setSignedUrls] = useState<{
+    front: string | null;
+    back: string | null;
+    selfie: string | null;
+  }>({ front: null, back: null, selfie: null });
 
   const { data: trips = [], isLoading } = useQuery({
     queryKey: ['rider-trips', rider?.id],
@@ -67,6 +107,65 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
     enabled: open && !!rider?.id && activeTab === 'history',
     staleTime: 60_000,
   });
+
+  const {
+    data: pendingIdentity,
+    isLoading: identityLoading,
+    refetch: refetchIdentity,
+  } = useQuery({
+    queryKey: ['rider-identity-pending', rider?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('customer_identity_verifications' as never)
+        .select(
+          'id, status, document_type, id_front_path, id_back_path, selfie_path, submitted_at, created_at',
+        )
+        .eq('customer_id', rider!.id)
+        .in('status', ['submitted', 'processing'] as never)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return (data as PendingIdentityRow | null) ?? null;
+    },
+    enabled: open && !!rider?.id,
+    staleTime: 15_000,
+  });
+
+  useEffect(() => {
+    if (!rider) return;
+    setDecideFirstName(rider.first_name ?? '');
+    setDecideLastName(rider.last_name ?? '');
+    setDecideNote('');
+  }, [rider]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSigned = async () => {
+      if (!pendingIdentity) {
+        setSignedUrls({ front: null, back: null, selfie: null });
+        return;
+      }
+      const sign = async (path: string | null) => {
+        if (!path) return null;
+        const { data, error } = await supabase.storage
+          .from(IDENTITY_BUCKET)
+          .createSignedUrl(path, 3600);
+        if (error || !data?.signedUrl) return null;
+        return data.signedUrl;
+      };
+      const [front, back, selfie] = await Promise.all([
+        sign(pendingIdentity.id_front_path),
+        sign(pendingIdentity.id_back_path),
+        sign(pendingIdentity.selfie_path),
+      ]);
+      if (!cancelled) setSignedUrls({ front, back, selfie });
+    };
+    void loadSigned();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingIdentity]);
 
   if (!rider) return null;
 
@@ -132,6 +231,84 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
     }
   };
 
+  const handleUnlockName = async () => {
+    setIsUpdating(true);
+    try {
+      const { data, error } = await supabase.rpc(
+        'admin_unlock_customer_name_edit' as never,
+        { p_customer_id: rider.id } as never,
+      );
+      if (error) throw error;
+      const result = data as { ok?: boolean } | null;
+      if (!result?.ok) {
+        toast.error('Could not unlock name edits');
+        return;
+      }
+      toast.success('Name edits unlocked for this rider');
+      if (onRiderUpdate) {
+        onRiderUpdate({
+          ...rider,
+          name_edit_locked: false,
+          name_unlocked_at: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      console.error('Error unlocking rider name:', err);
+      toast.error('Failed to unlock name edits');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleDecideIdentity = async (
+    decision: 'approved' | 'declined' | 'resubmission_requested',
+  ) => {
+    if (!pendingIdentity) return;
+    setIsUpdating(true);
+    try {
+      const { data, error } = await supabase.rpc(
+        'admin_decide_customer_identity' as never,
+        {
+          p_verification_id: pendingIdentity.id,
+          p_decision: decision,
+          p_first_name: decideFirstName.trim() || null,
+          p_last_name: decideLastName.trim() || null,
+          p_note: decideNote.trim() || null,
+        } as never,
+      );
+      if (error) throw error;
+      const result = data as { ok?: boolean; code?: string } | null;
+      if (!result?.ok) {
+        toast.error(result?.code || 'Could not save identity decision');
+        return;
+      }
+      if (decision === 'approved') {
+        toast.success('Identity approved — name locked');
+        if (onRiderUpdate) {
+          onRiderUpdate({
+            ...rider,
+            first_name: decideFirstName.trim() || rider.first_name,
+            last_name: decideLastName.trim() || rider.last_name,
+            identity_verified_at: new Date().toISOString(),
+            identity_provider: 'manual',
+            name_edit_locked: true,
+          });
+        }
+      } else if (decision === 'declined') {
+        toast.success('Identity declined');
+      } else {
+        toast.success('Asked rider to resubmit');
+      }
+      setDecideNote('');
+      await refetchIdentity();
+    } catch (err) {
+      console.error('Error deciding identity:', err);
+      toast.error('Failed to save identity decision');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -151,8 +328,19 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
             <div className="flex-1">
               <h3 className="text-xl font-semibold">{getFullName(rider)}</h3>
               <p className="text-sm font-mono text-primary font-medium">{rider.customer_code}</p>
-              <div className="flex items-center gap-2 mt-2">
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
                 {getRiderStatusBadge()}
+                {rider.identity_verified_at ? (
+                  <Badge className="bg-emerald-500/10 text-emerald-700 border-emerald-500/30">
+                    <ShieldCheck className="h-3 w-3 mr-1" />
+                    ID verified
+                  </Badge>
+                ) : null}
+                {rider.name_edit_locked ? (
+                  <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/30">
+                    Name locked
+                  </Badge>
+                ) : null}
                 <Badge variant="outline">
                   <Car className="h-3 w-3 mr-1" />
                   {rider.trip_count || 0} trips
@@ -169,6 +357,120 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
             </TabsList>
 
             <TabsContent value="overview" className="space-y-4">
+              {identityLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground p-3 border rounded-lg">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading identity review…
+                </div>
+              ) : pendingIdentity ? (
+                <div className="space-y-3 p-4 border rounded-lg bg-amber-500/5 border-amber-500/30">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <p className="text-sm font-semibold flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4" />
+                        Identity pending review
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {documentTypeLabel(pendingIdentity.document_type)}
+                        {pendingIdentity.submitted_at
+                          ? ` · submitted ${formatDistanceToNow(new Date(pendingIdentity.submitted_at), { addSuffix: true })}`
+                          : null}
+                      </p>
+                    </div>
+                    <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/30">
+                      {pendingIdentity.status}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {[
+                      { label: 'ID front', url: signedUrls.front },
+                      { label: 'ID back', url: signedUrls.back },
+                      { label: 'Selfie', url: signedUrls.selfie },
+                    ].map((item) =>
+                      item.url ? (
+                        <a
+                          key={item.label}
+                          href={item.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block rounded-md overflow-hidden border bg-background"
+                        >
+                          <img
+                            src={item.url}
+                            alt={item.label}
+                            className="w-full h-36 object-cover"
+                          />
+                          <p className="text-xs text-center py-1 text-muted-foreground">
+                            {item.label}
+                          </p>
+                        </a>
+                      ) : item.label === 'ID back' && !pendingIdentity.id_back_path ? null : (
+                        <div
+                          key={item.label}
+                          className="h-36 rounded-md border flex items-center justify-center text-xs text-muted-foreground"
+                        >
+                          {item.label} unavailable
+                        </div>
+                      ),
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="identity-first-name">First name (on approve)</Label>
+                      <Input
+                        id="identity-first-name"
+                        value={decideFirstName}
+                        onChange={(e) => setDecideFirstName(e.target.value)}
+                        disabled={isUpdating}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="identity-last-name">Last name (on approve)</Label>
+                      <Input
+                        id="identity-last-name"
+                        value={decideLastName}
+                        onChange={(e) => setDecideLastName(e.target.value)}
+                        disabled={isUpdating}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="identity-note">Note (optional)</Label>
+                    <Input
+                      id="identity-note"
+                      value={decideNote}
+                      onChange={(e) => setDecideNote(e.target.value)}
+                      placeholder="Shown internally on decline / resubmit"
+                      disabled={isUpdating}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => void handleDecideIdentity('approved')}
+                      disabled={isUpdating}
+                      className="bg-emerald-600 hover:bg-emerald-700"
+                    >
+                      <CheckCircle className="mr-2 h-4 w-4" />
+                      Approve
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleDecideIdentity('resubmission_requested')}
+                      disabled={isUpdating}
+                    >
+                      Ask to resubmit
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => void handleDecideIdentity('declined')}
+                      disabled={isUpdating}
+                    >
+                      Decline
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                   <Phone className="h-5 w-5 text-muted-foreground" />
@@ -206,6 +508,17 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
 
               {/* Lifecycle Actions */}
               <div className="flex flex-wrap gap-2 pt-4 border-t">
+                {rider.name_edit_locked ? (
+                  <Button
+                    variant="outline"
+                    className="text-emerald-700 hover:text-emerald-800"
+                    onClick={() => void handleUnlockName()}
+                    disabled={isUpdating}
+                  >
+                    <Unlock className="mr-2 h-4 w-4" />
+                    Unlock name edits
+                  </Button>
+                ) : null}
                 {rider.rider_status === 'active' && (
                   <>
                     <Button variant="outline" className="text-amber-600 hover:text-amber-700" onClick={() => handleStatusChange('suspended')} disabled={isUpdating}>
