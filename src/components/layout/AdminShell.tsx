@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminPageAccessGate } from './AdminPageAccessGate';
+import { AdminLiveChatWidget } from '@/components/chat/AdminLiveChatWidget';
 
 /**
  * Persistent admin shell layout.
@@ -31,6 +32,7 @@ export function AdminShell() {
           </Suspense>
         </AdminPageAccessGate>
       </main>
+      <AdminLiveChatWidget />
     </div>
   );
 }
