@@ -24,11 +24,17 @@ import {
 import {
   buildPickupWaitingSnapshot,
   buildStopWaitingSnapshot,
-  computePickupWaitingChargePence,
   loadAdminWaitingConfig,
   resolveFrozenOrLiveWaitingConfig,
   type AdminWaitingConfigSnapshot,
 } from "../_shared/waitingAdminConfig.ts";
+import {
+  closeOpenWaitingSegments,
+  computePickupChargeFromCountedSeconds,
+  computeStopChargeFromCountedSeconds,
+  resolveEffectiveWaitingRadiusMeters,
+  syncWaitingGeofenceClock,
+} from "../_shared/waitingSegmentClock.ts";
 import {
   logStackedPromotionSkipped,
   handleQueuedTripAfterPaymentFailure,
@@ -265,24 +271,37 @@ async function ensurePickupWaitingStarted(
 }
 
 /**
- * Freeze pickup waiting on Start Trip: final amount once, no further ticks.
- * Rounding: completed intervals only (see computePickupWaitingChargePence).
+ * Freeze pickup waiting on Start Trip from counted in-radius seconds only.
+ * Never charge full wall-time from pickup_waiting_started_at.
  */
 async function finalizePickupWaitingOnStartTrip(
   supabase: ReturnType<typeof createClient>,
-  trip: TripWaitingBillingCtx & { id?: string; stop_waiting_charge_pence?: number | null },
+  trip: TripWaitingBillingCtx & {
+    id?: string;
+    stop_waiting_charge_pence?: number | null;
+    pickup_latitude?: number | null;
+    pickup_longitude?: number | null;
+  },
   tripId: string,
   nowIso: string,
+  opts?: {
+    driverLat?: number;
+    driverLng?: number;
+    pickupLat?: number | null;
+    pickupLng?: number | null;
+  },
 ): Promise<{
   pickup_waiting_charge_pence: number;
   intervals_charged: number;
   already_finalized: boolean;
+  counted_seconds: number;
 }> {
   if (trip.pickup_waiting_finalized_at) {
     return {
       pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
       intervals_charged: trip.pickup_waiting_intervals_charged ?? 0,
       already_finalized: true,
+      counted_seconds: 0,
     };
   }
 
@@ -296,12 +315,14 @@ async function finalizePickupWaitingOnStartTrip(
       pickup_waiting_finalized_at: nowIso,
       pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
       pickup_waiting_intervals_charged: 0,
+      pickup_waiting_counted_seconds: 0,
       updated_at: nowIso,
     });
     return {
       pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
       intervals_charged: 0,
       already_finalized: false,
+      counted_seconds: 0,
     };
   }
 
@@ -312,11 +333,41 @@ async function finalizePickupWaitingOnStartTrip(
   );
   const config = resolveFrozenOrLiveWaitingConfig(trip.pickup_waiting_admin_config, live);
 
+  const pickupLat = opts?.pickupLat ?? trip.pickup_latitude ?? null;
+  const pickupLng = opts?.pickupLng ?? trip.pickup_longitude ?? null;
+  const driverId = trip.driver_id ?? null;
+  if (driverId && pickupLat != null && pickupLng != null) {
+    await syncWaitingGeofenceClock(supabase, {
+      tripId,
+      driverId,
+      locationType: 'pickup',
+      target: {
+        lat: pickupLat,
+        lng: pickupLng,
+        radiusMeters: resolveEffectiveWaitingRadiusMeters(
+          config.pickup_radius_meters,
+          config.pickup_radius_enabled,
+        ),
+        radiusEnabled: config.pickup_radius_enabled,
+      },
+      bodyLat: opts?.driverLat ?? null,
+      bodyLng: opts?.driverLng ?? null,
+      nowIso,
+    });
+  }
+
+  const countedSeconds = await closeOpenWaitingSegments(supabase, {
+    tripId,
+    locationType: 'pickup',
+    nowIso,
+  });
+
   if (!config.pickup_paid_waiting_enabled || !config.config_available) {
     await updateTripSafe(supabase, tripId, {
       pickup_waiting_finalized_at: nowIso,
       pickup_waiting_charge_pence: 0,
       pickup_waiting_intervals_charged: 0,
+      pickup_waiting_counted_seconds: countedSeconds,
       free_wait_expires_at:
         trip.free_wait_expires_at ??
         new Date(
@@ -324,20 +375,25 @@ async function finalizePickupWaitingOnStartTrip(
         ).toISOString(),
       updated_at: nowIso,
     });
-    return { pickup_waiting_charge_pence: 0, intervals_charged: 0, already_finalized: false };
+    return {
+      pickup_waiting_charge_pence: 0,
+      intervals_charged: 0,
+      already_finalized: false,
+      counted_seconds: countedSeconds,
+    };
   }
 
-  const elapsedSeconds = Math.max(
-    0,
-    Math.floor((new Date(nowIso).getTime() - new Date(startedAt).getTime()) / 1000),
-  );
-  const paidSeconds = Math.max(0, elapsedSeconds - config.free_pickup_waiting_seconds);
-  const charged = computePickupWaitingChargePence({
-    paidSeconds,
+  const charged = computePickupChargeFromCountedSeconds({
+    countedSeconds,
+    freeWaitSeconds: config.free_pickup_waiting_seconds,
     ratePencePerMinute: config.pickup_paid_waiting_rate_pence_per_minute,
     intervalSeconds: config.waiting_charge_interval_seconds,
     maxMinutes: config.pickup_waiting_max_minutes,
   });
+  const paidSeconds = Math.max(
+    0,
+    countedSeconds - config.free_pickup_waiting_seconds,
+  );
 
   const stopWaiting = trip.stop_waiting_charge_pence ?? 0;
   const updatePayload: Record<string, unknown> = {
@@ -345,20 +401,17 @@ async function finalizePickupWaitingOnStartTrip(
     pickup_waiting_charge_pence: charged.charge_pence,
     pickup_waiting_intervals_charged: charged.intervals_charged,
     pickup_waiting_chargeable_seconds: charged.paid_seconds_capped,
+    pickup_waiting_counted_seconds: countedSeconds,
     pickup_waiting_last_tick_at: nowIso,
     total_waiting_charge_pence: charged.charge_pence + stopWaiting,
     waiting_charge_pence: charged.charge_pence + stopWaiting,
     updated_at: nowIso,
   };
   if (!trip.pickup_paid_waiting_started_at && charged.charge_pence > 0) {
-    updatePayload.pickup_paid_waiting_started_at = new Date(
-      new Date(startedAt).getTime() + config.free_pickup_waiting_seconds * 1000,
-    ).toISOString();
+    updatePayload.pickup_paid_waiting_started_at = nowIso;
   }
   if (!trip.grace_period_expired_at && paidSeconds > 0) {
-    updatePayload.grace_period_expired_at = new Date(
-      new Date(startedAt).getTime() + config.free_pickup_waiting_seconds * 1000,
-    ).toISOString();
+    updatePayload.grace_period_expired_at = nowIso;
   }
 
   await updateTripSafe(supabase, tripId, updatePayload);
@@ -368,13 +421,16 @@ async function finalizePickupWaitingOnStartTrip(
     intervals_charged: charged.intervals_charged,
     interval_seconds: charged.interval_seconds,
     paid_seconds: charged.paid_seconds_capped,
+    counted_in_radius_seconds: countedSeconds,
     rate_pence_per_minute: config.pickup_paid_waiting_rate_pence_per_minute,
+    note: 'charge_from_counted_segments_not_wall_time',
   });
 
   return {
     pickup_waiting_charge_pence: charged.charge_pence,
     intervals_charged: charged.intervals_charged,
     already_finalized: false,
+    counted_seconds: countedSeconds,
   };
 }
 
@@ -498,7 +554,7 @@ function outsideRadiusResponse(
 type ResolvedWaitingRadius = {
   enabled: boolean;
   meters: number | null;
-  source: 'dispatch_settings' | 'stop_waiting_settings' | 'missing';
+  source: 'dispatch_settings' | 'stop_waiting_settings' | 'missing' | 'default_100m';
 };
 
 function resolveWaitingRadius(
@@ -517,7 +573,11 @@ function resolveWaitingRadius(
     : typeof raw === 'number' && raw > 0
       ? 'dispatch_settings'
       : 'missing';
-  const meters = typeof raw === 'number' && raw > 0 ? raw : null;
+  const configured = typeof raw === 'number' && raw > 0 ? raw : null;
+  // When radius is enabled but meters missing/0 → default 100m (normal pickup/stop).
+  const meters = enabled
+    ? resolveEffectiveWaitingRadiusMeters(configured, true)
+    : configured;
 
   if (meters != null) {
     console.log('[stop-workflow] WAITING_RADIUS_BACKEND_USED', {
@@ -525,7 +585,7 @@ function resolveWaitingRadius(
       scope,
       allowed_radius_meters: meters,
       radius_enabled: enabled,
-      source,
+      source: configured != null ? source : 'default_100m',
     });
   } else {
     console.log('[stop-workflow] WAITING_RADIUS_MISSING_CONFIG', {
@@ -535,7 +595,7 @@ function resolveWaitingRadius(
     });
   }
 
-  return { enabled, meters, source };
+  return { enabled, meters, source: configured != null ? source : 'default_100m' as ResolvedWaitingRadius['source'] };
 }
 
 function enrichWaitingRadiusSuccessFields(
@@ -602,7 +662,7 @@ function mergeTripWaitingCtx(
 }
 
 const ARRIVE_WAITING_TRIP_SELECT =
-  "id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, service_area_id, vehicle_type_id, driver_id, updated_at";
+  "id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, pickup_waiting_counted_seconds, stop_waiting_counted_seconds, waiting_geofence_status, waiting_geofence_distance_m, service_area_id, vehicle_type_id, driver_id, updated_at";
 
 function resolveWaitingStatusFromResult(
   waitingResult: PickupWaitingStartResult | StopWaitingStartResult,
@@ -619,6 +679,12 @@ function tripWaitingBillingFields(trip: TripWaitingBillingCtx): Record<string, u
     active_stop_waiting_state: trip.stop_waiting_status ?? null,
     stop_waiting_paid_started_at: trip.stop_waiting_paid_started_at ?? null,
     stop_waiting_charge_pence: trip.stop_waiting_charge_pence ?? 0,
+    pickup_waiting_counted_seconds:
+      (trip as { pickup_waiting_counted_seconds?: number | null }).pickup_waiting_counted_seconds ?? 0,
+    stop_waiting_counted_seconds:
+      (trip as { stop_waiting_counted_seconds?: number | null }).stop_waiting_counted_seconds ?? 0,
+    waiting_geofence_status:
+      (trip as { waiting_geofence_status?: string | null }).waiting_geofence_status ?? null,
   };
 }
 
@@ -741,10 +807,21 @@ async function enrichArrivalWaitingSnapshot(
         ? "free_waiting"
         : "not_started";
   // Timer/free-wait projection must anchor to pickup_waiting_started_at only.
+  // No-show / grace remaining use in-radius counted seconds (segment clock).
+  const pickupCountedSeconds = Math.max(
+    0,
+    Math.floor(
+      Number(
+        (ctx.trip as { pickup_waiting_counted_seconds?: number | null })
+          .pickup_waiting_counted_seconds ?? 0,
+      ),
+    ),
+  );
   const pickupSnapshot = buildPickupWaitingSnapshot({
     driverArrivedAt: waitingStartedAt,
     waitingStatus: waitingStartedAt ? pickupWaitingStatus : "not_started",
     config,
+    countedInRadiusSeconds: waitingStartedAt ? pickupCountedSeconds : null,
   });
 
   const stopArrivedAt = ctx.trip.stop_arrived_at ?? ctx.stop?.arrived_at ?? null;
@@ -779,6 +856,19 @@ async function enrichArrivalWaitingSnapshot(
     no_show_eligible_at: pickupSnapshot.no_show_eligible_at,
     no_show_eligible: pickupSnapshot.no_show_eligible,
     no_show_remaining_seconds: pickupSnapshot.no_show_remaining_seconds,
+    pickup_waiting_counted_seconds: pickupCountedSeconds,
+    stop_waiting_counted_seconds: Math.max(
+      0,
+      Math.floor(
+        Number(
+          (ctx.trip as { stop_waiting_counted_seconds?: number | null })
+            .stop_waiting_counted_seconds ?? 0,
+        ),
+      ),
+    ),
+    waiting_geofence_status:
+      (ctx.trip as { waiting_geofence_status?: string | null }).waiting_geofence_status ??
+      null,
     stop_arrived_at: stopSnapshot.stop_arrived_at,
     stop_waiting_state: stopSnapshot.stop_waiting_state,
     stop_waiting_free_expires_at: stopSnapshot.stop_waiting_free_expires_at,
@@ -860,6 +950,7 @@ async function tryStartPickupWaiting(
       arrived_at?: string | null;
       pickup_waiting_started_at?: string | null;
       service_area_id?: string | null;
+      driver_id?: string | null;
     };
     pickupStop: { id: string; arrived_at?: string | null; waiting_started_at?: string | null } | null | undefined;
     pickupLat: number | null;
@@ -871,14 +962,39 @@ async function tryStartPickupWaiting(
 ): Promise<PickupWaitingStartResult> {
   const { tripId, trip, pickupStop, pickupLat, pickupLng, driverLat, driverLng, now } = ctx;
 
-  if (trip.pickup_waiting_started_at) {
-    return { started: true, waiting_status: 'free_waiting' };
-  }
-
   const settings = await fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null);
   const radius = resolveWaitingRadius('pickup', settings, tripId);
   const radiusEnabled = radius.enabled;
   const radiusMeters = radius.meters;
+
+  const syncPickupClock = async () => {
+    if (!trip.driver_id || pickupLat == null || pickupLng == null) return null;
+    return syncWaitingGeofenceClock(supabase, {
+      tripId,
+      driverId: trip.driver_id,
+      locationType: 'pickup',
+      target: {
+        lat: pickupLat,
+        lng: pickupLng,
+        radiusMeters: resolveEffectiveWaitingRadiusMeters(radiusMeters, radiusEnabled),
+        radiusEnabled,
+      },
+      bodyLat: driverLat ?? null,
+      bodyLng: driverLng ?? null,
+      nowIso: now,
+    });
+  };
+
+  if (trip.pickup_waiting_started_at) {
+    const clock = await syncPickupClock();
+    return {
+      started: true,
+      waiting_status: 'free_waiting',
+      allowed_radius_meters: radiusMeters,
+      distance_meters: clock?.distanceMeters ?? null,
+    };
+  }
+
   console.log('[stop-workflow] WAITING_RADIUS_ADMIN_CONFIG_LOADED', {
     trip_id: tripId,
     scope: 'pickup',
@@ -949,6 +1065,19 @@ async function tryStartPickupWaiting(
     };
   }
 
+  const clock = await syncPickupClock();
+  if (clock) {
+    distanceM = clock.distanceMeters ?? distanceM;
+    outsideRadius = !clock.inside && radiusEnabled;
+    console.log('[stop-workflow] PICKUP_WAITING_GEOFENCE_SYNCED', {
+      trip_id: tripId,
+      status: clock.status,
+      counted_seconds: clock.countedSeconds,
+      used_source: clock.usedSource,
+      trusted_overrides_body: clock.trustedOverridesBody,
+    });
+  }
+
   if (outsideRadius) {
     return {
       started: true,
@@ -960,15 +1089,35 @@ async function tryStartPickupWaiting(
   return { started: true, waiting_status: 'free_waiting' };
 }
 
-/** Radius gate for stop waiting start only — arrival is always recorded separately. */
+/** Start stop waiting session on Arrived; radius only gates money segments. */
 async function tryStartStopWaiting(
   supabase: ReturnType<typeof createClient>,
-  trip: { id: string; service_area_id?: string | null },
+  trip: { id: string; service_area_id?: string | null; driver_id?: string | null },
   stop: TripStopRow,
   driverLat: number | undefined,
   driverLng: number | undefined,
 ): Promise<StopWaitingStartResult> {
   if (stop.waiting_charge_active && stop.waiting_started_at) {
+    // Keep session; refresh geofence clock for pause/resume.
+    if (stop.lat != null && stop.lng != null && trip.driver_id) {
+      const settings = await fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null);
+      const radius = resolveWaitingRadius('stop', settings, trip.id);
+      await syncWaitingGeofenceClock(supabase, {
+        tripId: trip.id,
+        driverId: trip.driver_id,
+        locationType: 'stop',
+        stopId: stop.id,
+        stopIndex: stop.stop_index ?? null,
+        target: {
+          lat: stop.lat,
+          lng: stop.lng,
+          radiusMeters: resolveEffectiveWaitingRadiusMeters(radius.meters, radius.enabled),
+          radiusEnabled: radius.enabled,
+        },
+        bodyLat: driverLat ?? null,
+        bodyLng: driverLng ?? null,
+      });
+    }
     return { started: false, waiting_status: 'free_waiting', graceSeconds: 0 };
   }
 
@@ -986,83 +1135,54 @@ async function tryStartStopWaiting(
     source: radius.source,
   });
 
-  if (!radiusEnabled) {
-    console.log('[stop-workflow] WAITING_RADIUS_CHECK_STARTED', {
-      trip_id: trip.id,
-      scope: 'stop',
-      stop_id: stop.id,
-      radius_enforced: false,
-    });
-    const waitingStart = await startStopWaitingOnArrive(supabase, trip, stop);
-    console.log('[stop-workflow] WAITING_RADIUS_CHECK_INSIDE', {
-      trip_id: trip.id,
-      scope: 'stop',
-      stop_id: stop.id,
-      radius_enforced: false,
-    });
-    return {
-      started: waitingStart.started,
-      waiting_status: waitingStart.started ? 'free_waiting' : 'not_started',
-      graceSeconds: waitingStart.graceSeconds,
-    };
-  }
-
   console.log('[stop-workflow] WAITING_RADIUS_CHECK_STARTED', {
     trip_id: trip.id,
     scope: 'stop',
     stop_id: stop.id,
     driver_lat: driverLat ?? null,
     driver_lng: driverLng ?? null,
+    note: 'workflow_flexible_radius_money_only',
   });
 
-  const check = await checkStopArrivalRadius(
-    supabase,
-    trip.service_area_id ?? null,
-    stop,
-    driverLat,
-    driverLng,
-    trip.id,
-  );
+  // Always start stop waiting session (do not block Arrived / Drive Next).
+  const waitingStart = await startStopWaitingOnArrive(supabase, trip, stop);
 
-  if (!check.ok) {
-    const distanceM =
-      check.current_distance_meters >= 0 ? check.current_distance_meters : null;
-    console.log('[stop-workflow] WAITING_RADIUS_CHECK_OUTSIDE', {
-      trip_id: trip.id,
-      scope: 'stop',
-      stop_id: stop.id,
-      distance_meters: distanceM,
-      allowed_radius_meters: check.required_radius_meters,
+  let distanceM: number | null = null;
+  let allowedRadius: number | null = radiusMeters;
+  if (stop.lat != null && stop.lng != null && trip.driver_id) {
+    const clock = await syncWaitingGeofenceClock(supabase, {
+      tripId: trip.id,
+      driverId: trip.driver_id,
+      locationType: 'stop',
+      stopId: stop.id,
+      stopIndex: stop.stop_index ?? null,
+      target: {
+        lat: stop.lat,
+        lng: stop.lng,
+        radiusMeters: resolveEffectiveWaitingRadiusMeters(radiusMeters, radiusEnabled),
+        radiusEnabled,
+      },
+      bodyLat: driverLat ?? null,
+      bodyLng: driverLng ?? null,
     });
-    console.log('[stop-workflow] WAITING_BLOCKED_OUTSIDE_RADIUS', {
+    distanceM = clock.distanceMeters;
+    allowedRadius = radiusMeters;
+    console.log('[stop-workflow] STOP_WAITING_GEOFENCE_SYNCED', {
       trip_id: trip.id,
-      scope: 'stop',
       stop_id: stop.id,
+      status: clock.status,
+      counted_seconds: clock.countedSeconds,
+      used_source: clock.usedSource,
+      trusted_overrides_body: clock.trustedOverridesBody,
     });
-    console.log('[stop-workflow] WAITING_NOT_CHARGED_OUTSIDE_RADIUS', {
-      trip_id: trip.id,
-      scope: 'stop',
-      stop_id: stop.id,
-    });
-    return {
-      started: false,
-      waiting_status: 'blocked_outside_radius',
-      graceSeconds: 0,
-      allowed_radius_meters: check.required_radius_meters,
-      distance_meters: distanceM,
-    };
   }
 
-  console.log('[stop-workflow] WAITING_RADIUS_CHECK_INSIDE', {
-    trip_id: trip.id,
-    scope: 'stop',
-    stop_id: stop.id,
-  });
-  const waitingStart = await startStopWaitingOnArrive(supabase, trip, stop);
   return {
     started: waitingStart.started,
     waiting_status: waitingStart.started ? 'free_waiting' : 'not_started',
     graceSeconds: waitingStart.graceSeconds,
+    allowed_radius_meters: allowedRadius,
+    distance_meters: distanceM,
   };
 }
 
@@ -1314,69 +1434,103 @@ async function isStopWaitingChargeEnabled(
 }
 
 /**
- * Finalize stop waiting charge (idempotent). Safe to call on every drive_to_next.
+ * Finalize stop waiting from counted in-radius seconds only (idempotent).
  */
 async function finalizeStopWaitingCharge(
   supabase: ReturnType<typeof createClient>,
-  trip: { id: string; service_area_id?: string | null },
+  trip: { id: string; service_area_id?: string | null; driver_id?: string | null },
   stop: {
     id: string;
+    stop_index?: number | null;
+    lat?: number | null;
+    lng?: number | null;
     arrived_at?: string | null;
     waiting_charge_active?: boolean | null;
     waiting_started_at?: string | null;
     waiting_stopped_at?: string | null;
     waiting_total_amount_pence?: number | null;
   },
-): Promise<{ chargePence: number; alreadyFinalized: boolean }> {
+  opts?: { driverLat?: number; driverLng?: number },
+): Promise<{ chargePence: number; alreadyFinalized: boolean; countedSeconds: number }> {
   if (stop.waiting_stopped_at) {
     return {
       chargePence: stop.waiting_total_amount_pence || 0,
       alreadyFinalized: true,
+      countedSeconds: 0,
     };
   }
 
   if (!stop.waiting_charge_active || !stop.waiting_started_at) {
-    return { chargePence: 0, alreadyFinalized: false };
+    return { chargePence: 0, alreadyFinalized: false, countedSeconds: 0 };
   }
 
   const config = await loadAdminWaitingConfig(supabase, trip.service_area_id ?? null);
   const gracePeriod = config.free_stop_waiting_seconds;
   const ratePPM = config.stop_waiting_rate_pence_per_minute;
   const maxMinutes = config.stop_waiting_max_minutes;
+  const nowIso = new Date().toISOString();
 
-  const anchorIso = stop.arrived_at ?? stop.waiting_started_at;
-  const startedAt = new Date(anchorIso).getTime();
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-  console.log("STOP_WAITING_ANCHOR_STOP_ARRIVED_AT", {
-    trip_id: trip.id,
-    stop_id: stop.id,
-    stop_arrived_at: stop.arrived_at ?? null,
-    elapsed_seconds: elapsedSeconds,
-    free_stop_waiting_seconds: gracePeriod,
-  });
-  let chargeableSeconds = Math.max(0, elapsedSeconds - gracePeriod);
-
-  if (maxMinutes && chargeableSeconds / 60 >= maxMinutes) {
-    chargeableSeconds = maxMinutes * 60;
+  if (trip.driver_id && stop.lat != null && stop.lng != null) {
+    await syncWaitingGeofenceClock(supabase, {
+      tripId: trip.id,
+      driverId: trip.driver_id,
+      locationType: 'stop',
+      stopId: stop.id,
+      stopIndex: stop.stop_index ?? null,
+      target: {
+        lat: stop.lat,
+        lng: stop.lng,
+        radiusMeters: resolveEffectiveWaitingRadiusMeters(
+          config.stop_radius_meters,
+          config.stop_radius_enabled,
+        ),
+        radiusEnabled: config.stop_radius_enabled,
+      },
+      bodyLat: opts?.driverLat ?? null,
+      bodyLng: opts?.driverLng ?? null,
+      nowIso,
+    });
   }
 
-  const totalPence = Math.round((chargeableSeconds / 60) * ratePPM);
-  const stoppedAt = new Date().toISOString();
+  const countedSeconds = await closeOpenWaitingSegments(supabase, {
+    tripId: trip.id,
+    locationType: 'stop',
+    stopId: stop.id,
+    nowIso,
+  });
+
+  const charged = computeStopChargeFromCountedSeconds({
+    countedSeconds,
+    freeWaitSeconds: gracePeriod,
+    ratePencePerMinute: ratePPM,
+    maxMinutes,
+  });
+  const totalPence = charged.charge_pence;
+
+  console.log("STOP_WAITING_FINALIZE_COUNTED_SEGMENTS", {
+    trip_id: trip.id,
+    stop_id: stop.id,
+    counted_in_radius_seconds: countedSeconds,
+    free_stop_waiting_seconds: gracePeriod,
+    paid_seconds: charged.paid_seconds,
+    charge_pence: totalPence,
+    note: 'charge_from_counted_segments_not_wall_time',
+  });
 
   await supabase
     .from('trip_stops')
     .update({
       waiting_charge_active: false,
-      waiting_stopped_at: stoppedAt,
+      waiting_stopped_at: nowIso,
       waiting_total_amount_pence: totalPence,
-      waiting_total_seconds: elapsedSeconds,
-      last_waiting_charge_update_at: stoppedAt,
+      waiting_total_seconds: countedSeconds,
+      last_waiting_charge_update_at: nowIso,
     })
     .eq('id', stop.id);
 
   await updateTripTotalWaiting(supabase, trip.id);
 
-  return { chargePence: totalPence, alreadyFinalized: false };
+  return { chargePence: totalPence, alreadyFinalized: false, countedSeconds };
 }
 
 /** Start stop waiting after driver taps Arrive at Stop (no GPS auto-start). */
@@ -2345,9 +2499,18 @@ Deno.serve(async (req) => {
 
         const waitingFinal = await finalizePickupWaitingOnStartTrip(
           supabase,
-          trip as TripWaitingBillingCtx,
+          trip as TripWaitingBillingCtx & {
+            pickup_latitude?: number | null;
+            pickup_longitude?: number | null;
+          },
           trip_id,
           now,
+          {
+            driverLat: typeof driver_lat === 'number' ? driver_lat : undefined,
+            driverLng: typeof driver_lng === 'number' ? driver_lng : undefined,
+            pickupLat: trip.pickup_latitude ?? null,
+            pickupLng: trip.pickup_longitude ?? null,
+          },
         );
 
         if (!waitingFinal.already_finalized) {
@@ -2635,7 +2798,7 @@ Deno.serve(async (req) => {
         const { data: stopForFinalize } = await supabase
           .from('trip_stops')
           .select(
-            'id, waiting_charge_active, waiting_started_at, waiting_stopped_at, waiting_total_amount_pence',
+            'id, stop_index, lat, lng, arrived_at, waiting_charge_active, waiting_started_at, waiting_stopped_at, waiting_total_amount_pence',
           )
           .eq('id', currentStop.id)
           .single();
@@ -2644,6 +2807,10 @@ Deno.serve(async (req) => {
           supabase,
           trip,
           stopForFinalize ?? currentStop,
+          {
+            driverLat: typeof driver_lat === 'number' ? driver_lat : undefined,
+            driverLng: typeof driver_lng === 'number' ? driver_lng : undefined,
+          },
         );
 
         console.log("[stop-workflow] STOP_WAITING_ENDED_BACKEND_ACCEPTED", {
@@ -2776,7 +2943,10 @@ Deno.serve(async (req) => {
             stopRow.waiting_charge_active &&
             !stopRow.waiting_stopped_at
           ) {
-            await finalizeStopWaitingCharge(supabase, trip, stopRow);
+            await finalizeStopWaitingCharge(supabase, trip, stopRow, {
+              driverLat: typeof driver_lat === 'number' ? driver_lat : undefined,
+              driverLng: typeof driver_lng === 'number' ? driver_lng : undefined,
+            });
           }
         }
         await updateTripTotalWaiting(supabase, trip_id);

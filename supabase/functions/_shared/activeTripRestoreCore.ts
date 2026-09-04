@@ -543,6 +543,18 @@ export async function buildRestoreActiveTripPayload(
       ? "not_started"
       : "free_waiting")
     : "not_started";
+  const pickupWaitingCountedSeconds = Math.max(
+    0,
+    Math.floor(Number(trip.pickup_waiting_counted_seconds ?? 0)),
+  );
+  const stopWaitingCountedSeconds = Math.max(
+    0,
+    Math.floor(Number(trip.stop_waiting_counted_seconds ?? 0)),
+  );
+  const waitingGeofenceStatus =
+    typeof trip.waiting_geofence_status === "string"
+      ? trip.waiting_geofence_status
+      : null;
   const pickupSnapshot = buildPickupWaitingSnapshot({
     driverArrivedAt,
     waitingStatus: pickupWaitingStatus as
@@ -551,6 +563,7 @@ export async function buildRestoreActiveTripPayload(
       | "free_waiting"
       | "paid_waiting",
     config,
+    countedInRadiusSeconds: driverArrivedAt ? pickupWaitingCountedSeconds : null,
   });
 
   const currentStop = stops.find((s) => {
@@ -599,6 +612,9 @@ export async function buildRestoreActiveTripPayload(
     can_mark_no_show: pickupSnapshot.no_show_eligible,
     free_pickup_waiting_seconds: config.free_pickup_waiting_seconds,
     free_stop_waiting_seconds: config.free_stop_waiting_seconds,
+    waiting_geofence_status: waitingGeofenceStatus,
+    pickup_waiting_counted_seconds: pickupWaitingCountedSeconds,
+    stop_waiting_counted_seconds: stopWaitingCountedSeconds,
   };
 
   return {
@@ -629,6 +645,9 @@ export async function buildRestoreActiveTripPayload(
     no_show_eligible_at: pickupSnapshot.no_show_eligible_at,
     no_show_eligible: pickupSnapshot.no_show_eligible,
     no_show_remaining_seconds: pickupSnapshot.no_show_remaining_seconds,
+    waiting_geofence_status: waitingGeofenceStatus,
+    pickup_waiting_counted_seconds: pickupWaitingCountedSeconds,
+    stop_waiting_counted_seconds: stopWaitingCountedSeconds,
     trip: enrichedTrip,
   };
 }

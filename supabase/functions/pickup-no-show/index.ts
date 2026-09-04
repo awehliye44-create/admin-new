@@ -20,6 +20,12 @@ import { isCashPayment, settleNoShowFee } from "../_shared/noShowSettlement.ts";
 import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
 import { handleQueuedTripAfterCurrentTripFailure } from "../_shared/stackedRideLifecycle.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import {
+  resolveEffectiveWaitingRadiusMeters,
+  resolveTrustedDriverLocation,
+  syncWaitingGeofenceClock,
+} from "../_shared/waitingSegmentClock.ts";
+import { loadAdminWaitingConfig } from "../_shared/waitingAdminConfig.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 10,
@@ -69,7 +75,7 @@ Deno.serve(async (req) => {
 
     // Legacy payment-intent column intentionally omitted — Revolut is SSOT.
     const tripSelectCols =
-      "id, confirmed_driver_id, passenger_id, status, arrived_at, pickup_arrived_at, service_area_id, vehicle_type_id, pickup_latitude, pickup_longitude, driver_location_lat, driver_location_lng, payment_method, financial_model, currency_code, no_show_charge_pence, completed_at";
+      "id, confirmed_driver_id, passenger_id, status, arrived_at, pickup_arrived_at, service_area_id, vehicle_type_id, pickup_latitude, pickup_longitude, driver_location_lat, driver_location_lng, payment_method, financial_model, currency_code, no_show_charge_pence, completed_at, pickup_waiting_counted_seconds, pickup_waiting_started_at";
 
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
@@ -98,9 +104,18 @@ Deno.serve(async (req) => {
       });
     }
 
-    let resolvedDriverLat = typeof driver_lat === "number" ? driver_lat : undefined;
-    let resolvedDriverLng = typeof driver_lng === "number" ? driver_lng : undefined;
-    if (resolvedDriverLat == null || resolvedDriverLng == null) {
+    const trusted = await resolveTrustedDriverLocation(supabase, driver.id);
+    let resolvedDriverLat =
+      trusted?.lat ??
+      (typeof driver_lat === "number" ? driver_lat : undefined);
+    let resolvedDriverLng =
+      trusted?.lng ??
+      (typeof driver_lng === "number" ? driver_lng : undefined);
+    // Prefer trusted server location; body GPS only when no trusted fix.
+    if (trusted) {
+      resolvedDriverLat = trusted.lat;
+      resolvedDriverLng = trusted.lng;
+    } else if (resolvedDriverLat == null || resolvedDriverLng == null) {
       const { data: driverGeo } = await supabase
         .from("drivers")
         .select("current_lat, current_lng")
@@ -151,12 +166,43 @@ Deno.serve(async (req) => {
       trip.vehicle_type_id,
     );
     const dispatch = await loadNoShowDispatchRules(supabase, trip.service_area_id);
+    const waitingConfig = await loadAdminWaitingConfig(
+      supabase,
+      trip.service_area_id,
+      trip.vehicle_type_id,
+    );
+
+    let countedInRadiusSeconds = Number(trip.pickup_waiting_counted_seconds ?? 0);
+    if (
+      trip.pickup_waiting_started_at &&
+      trip.pickup_latitude != null &&
+      trip.pickup_longitude != null
+    ) {
+      const clock = await syncWaitingGeofenceClock(supabase, {
+        tripId: trip_id,
+        driverId: driver.id,
+        locationType: "pickup",
+        target: {
+          lat: trip.pickup_latitude,
+          lng: trip.pickup_longitude,
+          radiusMeters: resolveEffectiveWaitingRadiusMeters(
+            waitingConfig.pickup_radius_meters,
+            waitingConfig.pickup_radius_enabled,
+          ),
+          radiusEnabled: waitingConfig.pickup_radius_enabled,
+        },
+        bodyLat: typeof driver_lat === "number" ? driver_lat : null,
+        bodyLng: typeof driver_lng === "number" ? driver_lng : null,
+      });
+      countedInRadiusSeconds = clock.countedSeconds;
+    }
 
     const eligibility = evaluateCanMarkNoShow({
       tripStatus: trip.status,
       arrivedAtIso: pickupArrivedAt,
       pricing,
       dispatch,
+      countedInRadiusSeconds,
       driverLat: resolvedDriverLat,
       driverLng: resolvedDriverLng,
       pickupLat: trip.pickup_latitude,

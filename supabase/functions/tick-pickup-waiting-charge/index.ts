@@ -12,11 +12,15 @@ import {
 } from "../_shared/security.ts";
 import { isTripAtPickupStatus, resolveDriverArrivedAtIso } from "../_shared/pickupWaiting.ts";
 import {
-  computePickupWaitingChargePence,
   loadAdminWaitingConfig,
   resolveFrozenOrLiveWaitingConfig,
 } from "../_shared/waitingAdminConfig.ts";
 import { computeLiveTripFarePreview } from "../_shared/liveTripFareSSOT.ts";
+import {
+  computePickupChargeFromCountedSeconds,
+  resolveEffectiveWaitingRadiusMeters,
+  syncWaitingGeofenceClock,
+} from "../_shared/waitingSegmentClock.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 120,
@@ -27,9 +31,8 @@ const RATE_LIMIT_CONFIG = {
 /**
  * TICK PICKUP WAITING CHARGE — Server-authoritative pickup waiting fee.
  *
- * Anchors to pickup_waiting_started_at only.
- * Uses frozen trip.pickup_waiting_admin_config when present.
- * Rounding: completed intervals only (not continuous prorate).
+ * Charge from counted in-radius segment seconds only (trusted GPS).
+ * Wall-time from pickup_waiting_started_at is UI/session only.
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleCORSPreflight();
@@ -70,7 +73,7 @@ Deno.serve(async (req) => {
     }
 
     const tripSelectCols =
-      "id, driver_id, confirmed_driver_id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, service_area_id, vehicle_type_id, pickup_latitude, pickup_longitude, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, grace_period_expired_at, no_show_charge_pence, late_cancel_fee_pence, pickup_waiting_admin_config, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, free_wait_expires_at, final_customer_fare_pence, final_fare_pence, locked_base_fare_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, accepted_commission_percent, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence";
+      "id, driver_id, confirmed_driver_id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, service_area_id, vehicle_type_id, pickup_latitude, pickup_longitude, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, grace_period_expired_at, no_show_charge_pence, late_cancel_fee_pence, pickup_waiting_admin_config, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, free_wait_expires_at, final_customer_fare_pence, final_fare_pence, locked_base_fare_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, accepted_commission_percent, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence, pickup_waiting_counted_seconds, waiting_geofence_status";
 
     const liveFareFields = (row: Record<string, unknown>, pickupChargeOverride?: number) => {
       const preview = computeLiveTripFarePreview({
@@ -87,10 +90,10 @@ Deno.serve(async (req) => {
         driver_tier_commission_percent: row.driver_tier_commission_percent as number | null,
         commission_pct: row.commission_pct as number | null,
         commission_pence: row.commission_pence as number | null,
-      gross_fare_pence: row.gross_fare_pence as number | null,
-      offer_discount_pence: row.offer_discount_pence as number | null,
-      discount_pence: row.discount_pence as number | null,
-    });
+        gross_fare_pence: row.gross_fare_pence as number | null,
+        offer_discount_pence: row.offer_discount_pence as number | null,
+        discount_pence: row.discount_pence as number | null,
+      });
       return {
         final_customer_fare_pence: preview.final_customer_fare_pence,
         pickup_waiting_charge_pence: preview.pickup_waiting_charge_pence,
@@ -110,11 +113,6 @@ Deno.serve(async (req) => {
 
     if (tripErr || !trip) return errorResponse("NOT_FOUND", "Trip not found", 404);
 
-    console.log("PICKUP_WAITING_SELECT_PROD_SAFE", { trip_id, select_cols: tripSelectCols });
-    console.log("DRIVER_ARRIVED_AT_COLUMN_REMOVED_FROM_SELECTS", {
-      function: "tick-pickup-waiting-charge",
-      canonical_arrival_fields: ["pickup_arrived_at", "arrived_at"],
-    });
     if (trip.driver_id !== driver.id && trip.confirmed_driver_id !== driver.id) {
       return errorResponse("FORBIDDEN", "Not your trip", 403);
     }
@@ -139,18 +137,12 @@ Deno.serve(async (req) => {
         pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
         pickup_waiting_intervals_charged: trip.pickup_waiting_intervals_charged ?? 0,
         pickup_waiting_finalized_at: trip.pickup_waiting_finalized_at ?? null,
+        waiting_geofence_status: trip.waiting_geofence_status ?? null,
         ...liveFareFields(trip as Record<string, unknown>),
       });
     }
 
     const pickupArrivedAt = await resolveDriverArrivedAtIso(supabase, trip_id, trip);
-    console.log("PICKUP_ARRIVAL_TIMESTAMP_LOADED", {
-      trip_id,
-      pickup_arrived_at: pickupArrivedAt,
-      trip_pickup_arrived_at: trip.pickup_arrived_at ?? null,
-      trip_arrived_at: trip.arrived_at ?? null,
-      pickup_waiting_started_at: trip.pickup_waiting_started_at ?? null,
-    });
     if (!pickupArrivedAt) {
       return successResponse({ success: true, no_op: true, message: "No arrival time recorded" });
     }
@@ -170,6 +162,7 @@ Deno.serve(async (req) => {
         grace_remaining_seconds: null,
         paid_waiting_active: false,
         pickup_waiting_charge_pence: 0,
+        waiting_geofence_status: "not_started",
         ...liveFareFields(trip as Record<string, unknown>, 0),
       });
     }
@@ -182,16 +175,10 @@ Deno.serve(async (req) => {
     const config = resolveFrozenOrLiveWaitingConfig(trip.pickup_waiting_admin_config, liveConfig);
 
     if (!trip.pickup_waiting_admin_config) {
-      const { error: cfgErr } = await supabase
+      await supabase
         .from("trips")
         .update({ pickup_waiting_admin_config: config })
         .eq("id", trip_id);
-      if (cfgErr) {
-        console.warn("[tick-pickup-waiting-charge] PICKUP_WAITING_ADMIN_CONFIG_BACKFILL_FAILED", {
-          trip_id,
-          message: cfgErr.message,
-        });
-      }
     }
 
     if (!config.config_available) {
@@ -210,32 +197,57 @@ Deno.serve(async (req) => {
     const ratePPM = config.pickup_paid_waiting_rate_pence_per_minute;
     const maxMinutes = config.pickup_waiting_max_minutes;
     const intervalSeconds = config.waiting_charge_interval_seconds;
-    const radiusEnabled = config.pickup_radius_enabled;
-    const radiusMeters = config.pickup_radius_meters;
 
-    const waitingStartMs = new Date(pickupWaitingStartedAt).getTime();
     const nowMs = Date.now();
-    const elapsedSeconds = Math.max(0, Math.floor((nowMs - waitingStartMs) / 1000));
-    const graceExpired = elapsedSeconds >= gracePeriodSeconds;
-    const graceRemainingSeconds = Math.max(0, gracePeriodSeconds - elapsedSeconds);
+    const nowIso = new Date(nowMs).toISOString();
+    const waitingStartMs = new Date(pickupWaitingStartedAt).getTime();
+    const wallElapsedSeconds = Math.max(0, Math.floor((nowMs - waitingStartMs) / 1000));
     const freeWaitExpiresAt =
       trip.free_wait_expires_at ??
       new Date(waitingStartMs + gracePeriodSeconds * 1000).toISOString();
 
-    console.log("PICKUP_WAITING_ANCHOR_PICKUP_WAITING_STARTED_AT", {
-      trip_id,
-      pickup_waiting_started_at: pickupWaitingStartedAt,
-      elapsed_seconds: elapsedSeconds,
-      free_pickup_waiting_seconds: gracePeriodSeconds,
-      waiting_charge_interval_seconds: intervalSeconds,
-      waiting_charge_rounding: "completed_intervals",
-      pickup_grace_source: config.pickup_grace_source,
-    });
+    let geofenceStatus = trip.waiting_geofence_status ?? "paused";
+    let countedSeconds = Number(trip.pickup_waiting_counted_seconds ?? 0);
+
+    if (trip.pickup_latitude != null && trip.pickup_longitude != null) {
+      const clock = await syncWaitingGeofenceClock(supabase, {
+        tripId: trip_id,
+        driverId: driver.id,
+        locationType: "pickup",
+        target: {
+          lat: trip.pickup_latitude,
+          lng: trip.pickup_longitude,
+          radiusMeters: resolveEffectiveWaitingRadiusMeters(
+            config.pickup_radius_meters,
+            config.pickup_radius_enabled,
+          ),
+          radiusEnabled: config.pickup_radius_enabled,
+        },
+        bodyLat: typeof driver_lat === "number" ? driver_lat : null,
+        bodyLng: typeof driver_lng === "number" ? driver_lng : null,
+        nowIso,
+      });
+      geofenceStatus = clock.status;
+      countedSeconds = clock.countedSeconds;
+      console.log("PICKUP_WAITING_GEOFENCE_TICK", {
+        trip_id,
+        status: clock.status,
+        counted_seconds: clock.countedSeconds,
+        used_source: clock.usedSource,
+        trusted_overrides_body: clock.trustedOverridesBody,
+        distance_meters: clock.distanceMeters,
+      });
+    }
+
+    // Free-wait / paid gate uses counted in-radius seconds (not wall elapsed).
+    const graceExpired = countedSeconds >= gracePeriodSeconds;
+    const graceRemainingSeconds = Math.max(0, gracePeriodSeconds - countedSeconds);
 
     if (!graceExpired || !paidWaitingEnabled) {
       return successResponse({
         success: true,
-        elapsed_seconds: elapsedSeconds,
+        elapsed_seconds: wallElapsedSeconds,
+        counted_in_radius_seconds: countedSeconds,
         grace_expired: graceExpired,
         grace_remaining_seconds: graceRemainingSeconds,
         free_wait_expires_at: freeWaitExpiresAt,
@@ -247,6 +259,7 @@ Deno.serve(async (req) => {
         rate_pence_per_minute: ratePPM,
         pickup_arrived_at: pickupArrivedAt,
         pickup_waiting_started_at: pickupWaitingStartedAt,
+        waiting_geofence_status: geofenceStatus,
         admin_waiting_config_snapshot: config,
         ...liveFareFields(trip as Record<string, unknown>, 0),
       });
@@ -258,42 +271,20 @@ Deno.serve(async (req) => {
         no_op: true,
         waiting_config_unavailable: true,
         message: "Charge interval or rate unavailable — fail closed",
-        elapsed_seconds: elapsedSeconds,
+        elapsed_seconds: wallElapsedSeconds,
+        counted_in_radius_seconds: countedSeconds,
         grace_expired: true,
         paid_waiting_enabled: true,
         pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
+        waiting_geofence_status: geofenceStatus,
         admin_waiting_config_snapshot: config,
         ...liveFareFields(trip as Record<string, unknown>),
       });
     }
 
-    if (radiusEnabled && trip.pickup_latitude != null && trip.pickup_longitude != null && radiusMeters > 0) {
-      if (typeof driver_lat !== "number" || typeof driver_lng !== "number") {
-        return errorResponse(
-          "GPS_REQUIRED",
-          "Driver location required for paid pickup waiting (radius enforcement enabled).",
-          400,
-        );
-      }
-      const distance = haversineMeters(driver_lat, driver_lng, trip.pickup_latitude, trip.pickup_longitude);
-      if (distance > radiusMeters) {
-        return successResponse({
-          success: true,
-          no_op: true,
-          reason: "outside_pickup_radius",
-          elapsed_seconds: elapsedSeconds,
-          grace_expired: true,
-          paid_waiting_active: false,
-          pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
-          intervals_charged: trip.pickup_waiting_intervals_charged ?? 0,
-          ...liveFareFields(trip as Record<string, unknown>),
-        });
-      }
-    }
-
-    const paidSeconds = Math.max(0, elapsedSeconds - gracePeriodSeconds);
-    const charged = computePickupWaitingChargePence({
-      paidSeconds,
+    const charged = computePickupChargeFromCountedSeconds({
+      countedSeconds,
+      freeWaitSeconds: gracePeriodSeconds,
       ratePencePerMinute: ratePPM,
       intervalSeconds,
       maxMinutes,
@@ -302,15 +293,15 @@ Deno.serve(async (req) => {
     const prevIntervals = Number(trip.pickup_waiting_intervals_charged ?? 0);
     const prevCharge = Number(trip.pickup_waiting_charge_pence ?? 0);
     const nextChargeAt = new Date(
-      waitingStartMs +
-        (gracePeriodSeconds + (charged.intervals_charged + 1) * charged.interval_seconds) * 1000,
+      nowMs + charged.interval_seconds * 1000,
     ).toISOString();
 
     if (charged.intervals_charged === prevIntervals && charged.charge_pence === prevCharge) {
       return successResponse({
         success: true,
         idempotent: true,
-        elapsed_seconds: elapsedSeconds,
+        elapsed_seconds: wallElapsedSeconds,
+        counted_in_radius_seconds: countedSeconds,
         grace_expired: true,
         grace_remaining_seconds: 0,
         free_wait_expires_at: freeWaitExpiresAt,
@@ -326,40 +317,40 @@ Deno.serve(async (req) => {
         waiting_charge_rounding: "completed_intervals",
         pickup_arrived_at: pickupArrivedAt,
         pickup_waiting_started_at: pickupWaitingStartedAt,
+        waiting_geofence_status: geofenceStatus,
         admin_waiting_config_snapshot: config,
         ...liveFareFields(trip as Record<string, unknown>, charged.charge_pence),
       });
     }
 
-    const now = new Date(nowMs).toISOString();
-    const chargeableStartedAt = new Date(waitingStartMs + gracePeriodSeconds * 1000).toISOString();
     const updateData: Record<string, unknown> = {
       pickup_waiting_charge_pence: charged.charge_pence,
       pickup_waiting_intervals_charged: charged.intervals_charged,
       pickup_waiting_chargeable_seconds: charged.paid_seconds_capped,
-      pickup_waiting_last_tick_at: now,
+      pickup_waiting_counted_seconds: countedSeconds,
+      pickup_waiting_last_tick_at: nowIso,
     };
-    if (!trip.grace_period_expired_at) updateData.grace_period_expired_at = chargeableStartedAt;
+    if (!trip.grace_period_expired_at) updateData.grace_period_expired_at = nowIso;
     if (!trip.pickup_paid_waiting_started_at && charged.charge_pence > 0) {
-      updateData.pickup_paid_waiting_started_at = chargeableStartedAt;
+      updateData.pickup_paid_waiting_started_at = nowIso;
     }
 
     await supabase.from("trips").update(updateData).eq("id", trip_id);
 
     return successResponse({
       success: true,
-      elapsed_seconds: elapsedSeconds,
+      elapsed_seconds: wallElapsedSeconds,
+      counted_in_radius_seconds: countedSeconds,
       grace_expired: true,
       grace_remaining_seconds: 0,
       free_wait_expires_at: freeWaitExpiresAt,
       paid_waiting_enabled: true,
       paid_waiting_active: true,
       paid_seconds: charged.paid_seconds_capped,
-      chargeable_started_at: chargeableStartedAt,
       intervals_charged: charged.intervals_charged,
       charge_interval_seconds: charged.interval_seconds,
       pence_per_interval: charged.pence_per_interval,
-      last_charge_tick_at: now,
+      last_charge_tick_at: nowIso,
       next_charge_at: nextChargeAt,
       capped: charged.paid_seconds_capped >= maxMinutes * 60,
       max_minutes: maxMinutes,
@@ -368,6 +359,7 @@ Deno.serve(async (req) => {
       waiting_charge_rounding: "completed_intervals",
       pickup_arrived_at: pickupArrivedAt,
       pickup_waiting_started_at: pickupWaitingStartedAt,
+      waiting_geofence_status: geofenceStatus,
       admin_waiting_config_snapshot: config,
       ...liveFareFields(trip as Record<string, unknown>, charged.charge_pence),
     });
@@ -376,14 +368,3 @@ Deno.serve(async (req) => {
     return errorResponse("INTERNAL_ERROR", "Internal server error", 500);
   }
 });
-
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-}

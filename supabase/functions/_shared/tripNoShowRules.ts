@@ -1,8 +1,13 @@
 /**
  * No-show eligibility — fare_pricing_settings (lifecycle) + dispatch_settings (GPS radius).
+ * Counted in-radius waiting seconds are required — Arrived wall-time alone is not enough.
  */
 
 import { isTripAtPickupStatus } from "./pickupWaiting.ts";
+import {
+  DEFAULT_WAITING_RADIUS_METERS,
+  noShowEligibleFromCountedSeconds,
+} from "./waitingSegmentClock.ts";
 
 export interface NoShowPricingRules {
   noShowWaitMinutes: number;
@@ -99,10 +104,16 @@ export async function loadNoShowDispatchRules(
   }
 
   const radiusMeters = settings?.pickup_radius_meters;
+  const enabled = (settings?.pickup_radius_enabled as boolean) ?? true;
+  const configured =
+    typeof radiusMeters === "number" && radiusMeters > 0 ? radiusMeters : 0;
   return {
-    pickupRadiusEnabled: (settings?.pickup_radius_enabled as boolean) ?? true,
-    pickupRadiusMeters:
-      typeof radiusMeters === "number" && radiusMeters > 0 ? radiusMeters : 0,
+    pickupRadiusEnabled: enabled,
+    pickupRadiusMeters: enabled
+      ? configured > 0
+        ? configured
+        : DEFAULT_WAITING_RADIUS_METERS
+      : configured,
   };
 }
 
@@ -125,12 +136,24 @@ export function evaluateCanMarkNoShow(input: {
   arrivedAtIso: string | null;
   pricing: NoShowPricingRules;
   dispatch: NoShowDispatchRules;
+  /** Trusted in-radius counted waiting seconds (segment clock). Required for eligibility. */
+  countedInRadiusSeconds: number;
   driverLat?: number;
   driverLng?: number;
   pickupLat?: number | null;
   pickupLng?: number | null;
 }): { canMark: boolean; message: string } {
-  const { tripStatus, arrivedAtIso, pricing, dispatch, driverLat, driverLng, pickupLat, pickupLng } = input;
+  const {
+    tripStatus,
+    arrivedAtIso,
+    pricing,
+    dispatch,
+    countedInRadiusSeconds,
+    driverLat,
+    driverLng,
+    pickupLat,
+    pickupLng,
+  } = input;
 
   if (!isTripAtPickupStatus(tripStatus)) {
     return {
@@ -155,27 +178,34 @@ export function evaluateCanMarkNoShow(input: {
 
   const waitMinutes =
     pricing.noShowWaitMinutes > 0 ? pricing.noShowWaitMinutes : pricing.freeWaitingMinutes;
-  const elapsedMin = minutesSince(arrivedAtIso);
 
-  if (waitMinutes > 0 && elapsedMin < waitMinutes) {
-    const remainingSec = Math.ceil((waitMinutes - elapsedMin) * 60);
+  // No-show requires valid counted in-radius waiting — not Arrived wall-time alone.
+  if (
+    !noShowEligibleFromCountedSeconds({
+      countedSeconds: countedInRadiusSeconds,
+      requiredWaitMinutes: waitMinutes,
+    })
+  ) {
+    const needSec = Math.max(0, waitMinutes) * 60;
+    const remainingSec = Math.max(0, needSec - Math.floor(countedInRadiusSeconds));
     const remMin = Math.floor(remainingSec / 60);
     const remSec = remainingSec % 60;
     console.log("NO_SHOW_BLOCKED_REASON", {
-      reason: "total_wait_not_elapsed",
+      reason: "counted_in_radius_wait_not_elapsed",
       arrived_at: arrivedAtIso,
-      elapsed_minutes: elapsedMin,
-      required_total_minutes_from_arrival: waitMinutes,
+      counted_in_radius_seconds: countedInRadiusSeconds,
+      required_counted_seconds: needSec,
+      wall_elapsed_minutes: minutesSince(arrivedAtIso),
     });
     return {
       canMark: false,
-      message: `No-show is not available yet. ${remMin}:${remSec.toString().padStart(2, "0")} remaining.`,
+      message: `No-show is not available yet. ${remMin}:${remSec.toString().padStart(2, "0")} remaining (in-radius waiting).`,
     };
   }
 
   console.log("NO_SHOW_ELIGIBLE", {
     arrived_at: arrivedAtIso,
-    elapsed_minutes: elapsedMin,
+    counted_in_radius_seconds: countedInRadiusSeconds,
     required_total_minutes_from_arrival: waitMinutes,
   });
 

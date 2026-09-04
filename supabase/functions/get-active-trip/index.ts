@@ -713,6 +713,12 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
           stopWaitingStatus: trip.stop_waiting_status ?? null,
           stopWaitingPaidStartedAt: trip.stop_waiting_paid_started_at ?? null,
           stopChargeTotalPence: trip.stop_charge_total_pence ?? null,
+          waitingGeofenceStatus: trip.waiting_geofence_status ?? null,
+          waiting_geofence_status: trip.waiting_geofence_status ?? null,
+          pickupWaitingCountedSeconds: trip.pickup_waiting_counted_seconds ?? 0,
+          pickup_waiting_counted_seconds: trip.pickup_waiting_counted_seconds ?? 0,
+          stopWaitingCountedSeconds: trip.stop_waiting_counted_seconds ?? 0,
+          stop_waiting_counted_seconds: trip.stop_waiting_counted_seconds ?? 0,
           tripStops: (tripStopsRows ?? []).map((stop) => ({
             id: stop.id,
             stop_index: stop.stop_index,

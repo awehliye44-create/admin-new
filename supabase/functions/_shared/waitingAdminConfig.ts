@@ -353,9 +353,13 @@ export function buildAdminWaitingConfigSnapshot(
     stop_waiting_max_minutes: stopMaxMinutes,
     enable_stop_waiting_charge: enableStopWaiting,
     pickup_radius_enabled: dispatchRow?.pickup_radius_enabled !== false,
-    pickup_radius_meters: asNonNegInt(dispatchRow?.pickup_radius_meters) ?? 0,
+    pickup_radius_meters: (() => {
+      const enabled = dispatchRow?.pickup_radius_enabled !== false;
+      const raw = asNonNegInt(dispatchRow?.pickup_radius_meters) ?? 0;
+      return enabled && raw <= 0 ? 100 : raw;
+    })(),
     stop_radius_enabled: stopRadiusEnabled,
-    stop_radius_meters: stopRadiusMeters,
+    stop_radius_meters: stopRadiusEnabled && stopRadiusMeters <= 0 ? 100 : stopRadiusMeters,
     no_show_fee_pence: Math.max(0, asNonNegInt(fareRow?.no_show_fee_pence) ?? 0),
     no_show_apply_after_arrival_only:
       asBool(fareRow?.no_show_apply_after_arrival_only) ?? true,
@@ -430,9 +434,21 @@ export function buildPickupWaitingSnapshot(input: {
   waitingStatus: "not_started" | "blocked_outside_radius" | "free_waiting" | "paid_waiting" | "unavailable";
   config: AdminWaitingConfigSnapshot;
   nowMs?: number;
+  /**
+   * Trusted in-radius counted waiting seconds (segment clock).
+   * When provided, free-wait remaining + no-show eligibility use counted time —
+   * never Arrived wall-clock alone.
+   */
+  countedInRadiusSeconds?: number | null;
 }): PickupWaitingStateSnapshot {
   const { driverArrivedAt, waitingStatus, config } = input;
   const nowMs = input.nowMs ?? Date.now();
+  const countedRaw = input.countedInRadiusSeconds;
+  const useCounted =
+    countedRaw != null && Number.isFinite(Number(countedRaw));
+  const countedElapsed = useCounted
+    ? Math.max(0, Math.floor(Number(countedRaw)))
+    : null;
 
   if (!config.config_available && waitingStatus === "unavailable") {
     return {
@@ -462,10 +478,15 @@ export function buildPickupWaitingSnapshot(input: {
     };
   }
 
-  const elapsed = elapsedSecondsSince(driverArrivedAt, nowMs);
+  const wallElapsed = elapsedSecondsSince(driverArrivedAt, nowMs);
+  const elapsed = countedElapsed ?? wallElapsed;
   const graceRemaining = Math.max(0, config.free_pickup_waiting_seconds - elapsed);
+  // Wall ISO free-expires remains a session anchor; grace/no-show remaining use counted when set.
   const freeExpiresAt = addSecondsIso(driverArrivedAt, config.free_pickup_waiting_seconds);
-  const noShowEligibleAt = addSecondsIso(driverArrivedAt, config.no_show_waiting_seconds);
+  // Counted path: never advertise a wall-clock eligible_at (Driver UI must use remaining seconds).
+  const noShowEligibleAt = useCounted
+    ? null
+    : addSecondsIso(driverArrivedAt, config.no_show_waiting_seconds);
   const noShowRemaining = Math.max(0, config.no_show_waiting_seconds - elapsed);
   const hasArrivalForNoShow = !config.no_show_apply_after_arrival_only || !!driverArrivedAt;
   const noShowEligible =
