@@ -136,8 +136,11 @@ export function useSupportConversations(
   // Realtime: invalidate on any INSERT or UPDATE to support_conversations or
   // support_messages so the list and unread badges refresh live.
   useEffect(() => {
+    // Topic must be unique per subscriber: realtime-js shares join state by
+    // topic, so a second channel with the same name (widget + page mounted
+    // together) throws "cannot add callbacks after subscribe()".
     const convChannel = supabase
-      .channel("support-conversations-live")
+      .channel(`support-conversations-live-${Math.random().toString(36).slice(2, 10)}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "support_conversations" },
