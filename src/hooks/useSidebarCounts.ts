@@ -101,10 +101,13 @@ async function fetchSidebarCountsOnce(skipCache = false): Promise<SidebarCounts>
           .from('rider_feedback')
           .select('id', { count: 'exact', head: true })
           .in('status', ['pending', 'new']),
+        // Only count current (non-superseded) pending rows — superseded uploads
+        // are already actioned historically and must not inflate the badge.
         supabase
           .from('documents')
           .select('id', { count: 'exact', head: true })
-          .eq('status', 'pending'),
+          .eq('status', 'pending')
+          .eq('is_current', true),
         supabase
           .from('promo_codes')
           .select('id', { count: 'exact', head: true })

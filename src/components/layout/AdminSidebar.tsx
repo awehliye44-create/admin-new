@@ -375,7 +375,7 @@ export function AdminSidebar() {
           <PermissionSection canAccess={canAccessPage} collapsed={isCollapsed} label="Rider Management" slugs={['riders','pending-customer-signups','rider-feedback']}>
             <PermissionNavItem canAccess={canAccessPage} pageSlug="riders" to="/riders" icon={<Users className="h-4 w-4" />} label="Rider List" active={currentPath === '/riders'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="pending-customer-signups" to="/pending-customer-signups" icon={<UserPlus className="h-4 w-4" />} label="Pending Signups" active={currentPath === '/pending-customer-signups'} collapsed={isCollapsed} />
-            <PermissionNavItem canAccess={canAccessPage} pageSlug="rider-feedback" to="/rider-feedback" icon={<MessageSquare className="h-4 w-4" />} label="Rider Feedback" active={currentPath === '/rider-feedback'} badge={counts.pendingFeedback > 0 ? counts.pendingFeedback : undefined} collapsed={isCollapsed} />
+            <PermissionNavItem canAccess={canAccessPage} pageSlug="rider-feedback" to="/rider-feedback" icon={<MessageSquare className="h-4 w-4" />} label="Rider Feedback" active={currentPath === '/rider-feedback'} collapsed={isCollapsed} />
           </PermissionSection>
 
           {/* SUPPORT */}
