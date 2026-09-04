@@ -521,7 +521,24 @@ export default function ActiveTrips() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        // Prefer Edge JSON body over opaque "non-2xx status code".
+        let detail = error.message;
+        try {
+          const ctx = (error as { context?: Response }).context;
+          if (ctx && typeof ctx.json === 'function') {
+            const body = (await ctx.json()) as { error?: string; message?: string };
+            detail = body.error || body.message || detail;
+          }
+        } catch {
+          // keep FunctionsHttpError message
+        }
+        if (cancelResult && typeof cancelResult === 'object') {
+          const body = cancelResult as { error?: string; message?: string };
+          detail = body.error || body.message || detail;
+        }
+        throw new Error(detail || 'Failed to cancel trip');
+      }
       if (cancelResult && typeof cancelResult === 'object') {
         const body = cancelResult as {
           success?: boolean;

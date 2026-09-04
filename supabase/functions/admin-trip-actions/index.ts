@@ -43,11 +43,13 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    // 2) Verify role-based access
+    // 2) Verify role-based access — staff_profiles.user_id is auth.users.id.
+    // Looking up by staff_profiles.id rejects every real admin (403 → generic
+    // "Edge Function returned a non-2xx status code" toast on Active Trips).
     const { data: staff, error: staffErr } = await supabase
       .from("staff_profiles")
       .select("role, is_active")
-      .eq("id", userId)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (staffErr || !staff) {

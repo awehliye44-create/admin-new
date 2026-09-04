@@ -124,6 +124,9 @@ Deno.test("E: admin-trip-actions invokes dispose (idempotent shared path); Activ
   assertStringIncludes(adminSrc, "forceFeePenceOverride: true");
   assertStringIncludes(adminSrc, "feePence: 0");
   assertStringIncludes(adminSrc, "apply_terminal_trip_cancellation");
+  // Staff gate must key auth.users id via user_id — not staff_profiles.id PK.
+  assertStringIncludes(adminSrc, '.eq("user_id", userId)');
+  assertEquals(adminSrc.includes('.eq("id", userId)'), false);
   // Must not invent a second Revolut cancel client
   assertEquals(adminSrc.includes("cancelRevolutOrder"), false);
 
