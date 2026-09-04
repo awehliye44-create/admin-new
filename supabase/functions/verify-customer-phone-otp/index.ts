@@ -90,7 +90,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    const otpType = purpose === "change" ? "phone_change" : "sms";
+    // Signup OTP is dispatched via GoTrue updateUser(phone) → phone_change,
+    // not signInWithOtp → sms. Change uses the same phone_change type.
+    const otpType = "phone_change";
     const { error: verifyError } = await anon.auth.verifyOtp({
       phone: guard.normalizedPhone,
       token,

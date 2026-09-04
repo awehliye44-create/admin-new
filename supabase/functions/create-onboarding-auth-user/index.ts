@@ -35,9 +35,21 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const appType = body.app_type === "driver" ? "driver" : "customer";
 
+    // Customer Create Account collects a single full name; split for Auth metadata.
+    let firstNameRaw = String(body.first_name ?? body.firstName ?? "");
+    let lastNameRaw = String(body.last_name ?? body.lastName ?? "");
+    const fullNameRaw = String(body.full_name ?? body.fullName ?? "").trim();
+    if (fullNameRaw && !firstNameRaw.trim()) {
+      const parts = fullNameRaw.split(/\s+/).filter(Boolean);
+      firstNameRaw = parts[0] ?? "";
+      lastNameRaw = parts.slice(1).join(" ");
+      // Single-token names still need a last_name for shared validators / customers row.
+      if (!lastNameRaw) lastNameRaw = firstNameRaw;
+    }
+
     const validation = validateOnboardingSignup({
-      firstName: String(body.first_name ?? body.firstName ?? ""),
-      lastName: String(body.last_name ?? body.lastName ?? ""),
+      firstName: firstNameRaw,
+      lastName: lastNameRaw,
       email: String(body.email ?? ""),
       phone: String(body.phone ?? ""),
       password: String(body.password ?? ""),
@@ -49,6 +61,9 @@ Deno.serve(async (req) => {
 
     const { firstName, lastName, email, phone } = validation.normalized;
     const password = String(body.password ?? "");
+    // Customer: no email-verification gate — confirm Auth email without GoTrue mailer.
+    // Driver: leave unconfirmed so Resend onboarding verification can run.
+    const confirmEmailOnCreate = appType === "customer";
 
     let addressMetadata: Record<string, string> = {};
     if (appType === "driver") {
@@ -121,7 +136,7 @@ Deno.serve(async (req) => {
     const { data: created, error: createError } = await service.auth.admin.createUser({
       email,
       password,
-      email_confirm: false,
+      email_confirm: confirmEmailOnCreate,
       user_metadata: userMetadata,
     });
 
@@ -138,7 +153,7 @@ Deno.serve(async (req) => {
         const retry = await service.auth.admin.createUser({
           email,
           password,
-          email_confirm: false,
+          email_confirm: confirmEmailOnCreate,
           user_metadata: userMetadata,
         });
         createdUser = retry.data;
@@ -171,9 +186,21 @@ Deno.serve(async (req) => {
         await service.auth.admin.deleteUser(userId).catch(() => undefined);
         return jsonResponse({ error: "Could not start signup. Please try again." }, 500);
       }
+      // Match Customer product: no email-verification gate.
+      const { error: emailVerifiedErr } = await service
+        .from("customers")
+        .update({ email_verified: true })
+        .eq("user_id", userId);
+      if (emailVerifiedErr) {
+        console.warn(
+          "create-onboarding-auth-user customers.email_verified:",
+          emailVerifiedErr.message,
+        );
+      }
       logEvent("CUSTOMER_SIGNUP_PENDING_RECORD_CREATED", {
         user_id: userId,
         status: "pending",
+        email_confirm_on_create: true,
       });
     }
 
@@ -211,11 +238,15 @@ Deno.serve(async (req) => {
       }
       sessionData = otpSession;
 
-      const { error: resetErr } = await service.rpc("reset_auth_user_email_unconfirmed", {
-        _user_id: userId,
-      });
-      if (resetErr) {
-        console.error("create-onboarding-auth-user reset email unconfirmed error:", resetErr);
+      // Driver only: keep Auth email unconfirmed so Resend onboarding verify runs.
+      // Customer was created with email_confirm:true — do not undo that.
+      if (!confirmEmailOnCreate) {
+        const { error: resetErr } = await service.rpc("reset_auth_user_email_unconfirmed", {
+          _user_id: userId,
+        });
+        if (resetErr) {
+          console.error("create-onboarding-auth-user reset email unconfirmed error:", resetErr);
+        }
       }
     }
 
@@ -227,7 +258,8 @@ Deno.serve(async (req) => {
     logEvent(appType === "driver" ? "DRIVER_SIGNUP_AUTH_CREATED" : "CUSTOMER_SIGNUP_AUTH_CREATED", {
       user_id: userId,
       email,
-      email_confirm_reset: true,
+      email_confirm_on_create: confirmEmailOnCreate,
+      email_confirm_reset: !confirmEmailOnCreate,
       method: "create_user_sign_in",
     });
 

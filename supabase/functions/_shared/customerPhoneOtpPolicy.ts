@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { isAccountEmailVerified } from "./onboardingLoginGuard.ts";
 import {
   isValidOnboardingPhone,
   normalizeOnboardingPhone,
@@ -30,7 +29,7 @@ const ELIGIBLE_CHANGE_STATUSES = new Set(["active", "pending_verification"]);
 
 /**
  * Server gate for customer phone OTP send/verify.
- * Invariant: email must be verified before any phone OTP action.
+ * Customers have no email-verification gate — phone OTP must not wait on email.
  */
 export async function assertCustomerPhoneOtpAllowed(
   service: SupabaseClient,
@@ -69,21 +68,8 @@ export async function assertCustomerPhoneOtpAllowed(
     };
   }
 
-  const emailVerified = await isAccountEmailVerified(
-    service,
-    userId,
-    "customer",
-    authUser.email_confirmed_at,
-  );
-
-  if (!emailVerified) {
-    return {
-      ok: false,
-      code: CUSTOMER_PHONE_OTP_BLOCK.EMAIL_NOT_VERIFIED,
-      message: "Verify your email before requesting a phone verification code.",
-      httpStatus: 403,
-    };
-  }
+  // Email confirmation is not required for Customer phone OTP (product rule).
+  // Auth email may be pre-confirmed on admin createUser; do not block on it.
 
   if (purpose === "signup") {
     const { data: pending } = await service

@@ -113,6 +113,7 @@ Deno.serve(async (req) => {
         code: guard.code,
       }));
       if (guard.code === "EMAIL_NOT_VERIFIED") {
+        // Retained for older clients; Customer phone OTP no longer requires email verify.
         await opsLog(service, {
           level: "warn",
           source: "send-customer-phone-otp",
