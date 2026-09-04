@@ -228,8 +228,9 @@ export function useSupportMessages(conversationId: string | null) {
   useEffect(() => {
     if (!conversationId) return;
 
+    // Unique topic per subscriber — see useSupportConversations note above.
     const channel = supabase
-      .channel(`support-messages-${conversationId}`)
+      .channel(`support-messages-${conversationId}-${Math.random().toString(36).slice(2, 10)}`)
       .on(
         "postgres_changes",
         {
