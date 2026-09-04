@@ -42,6 +42,8 @@ export const DISCONNECT_REASON = {
   CALL_BUSY: "CALL_BUSY",
   CALL_NO_ANSWER: "CALL_NO_ANSWER",
   CALL_CANCELLED: "CALL_CANCELLED",
+  /** VoIP start on the same trip replaced an in-flight masked call. */
+  SUPERSEDED_BY_VOIP: "SUPERSEDED_BY_VOIP",
   TRIP_CANCELLED: "TRIP_CANCELLED",
   SESSION_EXPIRED: "SESSION_EXPIRED",
 } as const;

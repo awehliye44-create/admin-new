@@ -29,6 +29,9 @@ export async function createCallLog(
   },
 ): Promise<{ id: string } | null> {
   const callStart = new Date().toISOString();
+  const expiresAt = new Date(
+    Date.parse(callStart) + MAX_CALL_DURATION_SEC * 1000,
+  ).toISOString();
   const { data, error } = await client
     .from("call_masking_call_logs")
     .insert({
@@ -38,6 +41,7 @@ export async function createCallLog(
       destination_e164: row.destination_e164,
       msg91_request_id: row.msg91_request_id ?? null,
       call_start: callStart,
+      expires_at: expiresAt,
       status: "active",
     })
     .select("id")

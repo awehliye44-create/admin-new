@@ -18,6 +18,7 @@ import {
 } from "./tripCallSession.ts";
 import { isTerminalCallStatus, mapVoipLogStatus } from "./tripCallStatus.ts";
 import { assertTripCallStartAllowed } from "./tripCallRateLimit.ts";
+import { DISCONNECT_REASON } from "./callMaskingConfig.ts";
 
 export const VOIP_END_REASON = {
   MAX_DURATION: "CALL_DURATION_LIMIT_REACHED",
@@ -28,6 +29,43 @@ export const VOIP_END_REASON = {
   TIMED_OUT: "TIMED_OUT",
   FAILED: "FAILED",
 } as const;
+
+/**
+ * Explicit VoIP start replaces an in-flight masked CTC/phone session on the
+ * same trip. Without this, a stuck call_masking_call_logs row (often missing
+ * expires_at / missed webhook) returns CALL_ALREADY_ACTIVE forever until the
+ * 240s duration timer — and the driver never receives a VoIP push.
+ */
+export async function supersedeActiveMaskingCallForVoip(
+  client: SupabaseClient,
+  session: ProviderNeutralCallSession,
+): Promise<boolean> {
+  if (session.method !== "call_masking") return false;
+  const now = new Date().toISOString();
+  const baseMs = new Date(session.connectedAt ?? session.startedAt ?? now).getTime();
+  const duration = Number.isFinite(baseMs)
+    ? capDurationSeconds(
+      Math.floor((Date.now() - baseMs) / 1000),
+      TRIP_COMMUNICATION_MAX_DURATION_SECONDS,
+    )
+    : 0;
+
+  const { data: updated } = await client
+    .from("call_masking_call_logs")
+    .update({
+      status: "disconnected",
+      call_end: now,
+      duration_seconds: duration,
+      disconnect_reason: DISCONNECT_REASON.SUPERSEDED_BY_VOIP,
+    })
+    .eq("id", session.callId)
+    .eq("status", "active")
+    .is("call_end", null)
+    .select("id")
+    .maybeSingle();
+
+  return Boolean(updated?.id);
+}
 
 /** Raw active voip_call_logs row for trip-communication-config active_call. */
 export type ActiveVoipCallLogRow = {
@@ -121,7 +159,9 @@ async function loadVoipSession(
 /**
  * Atomically create or reuse a VoIP session for a trip.
  * - Same idempotency key → reuse
- * - Existing active call on trip (any method) → CALL_ALREADY_ACTIVE (or reuse if same voip session + authorised)
+ * - Existing active VoIP on trip → reuse
+ * - Existing active call_masking on trip → supersede (finalize) then create VoIP
+ * - Other concurrent non-VoIP races → CALL_ALREADY_ACTIVE
  */
 export async function createOrReuseVoipSession(
   client: SupabaseClient,
@@ -168,11 +208,16 @@ export async function createOrReuseVoipSession(
         roomName: existing.roomName ?? opaqueVoipRoomName(),
       };
     }
-    return {
-      ok: false,
-      errorCode: TRIP_COMMUNICATION_ERROR.CALL_ALREADY_ACTIVE,
-      message: "A call is already active for this trip",
-    };
+    if (existing.method === "call_masking") {
+      await supersedeActiveMaskingCallForVoip(client, existing);
+      // Fall through and create a fresh VoIP session.
+    } else {
+      return {
+        ok: false,
+        errorCode: TRIP_COMMUNICATION_ERROR.CALL_ALREADY_ACTIVE,
+        message: "A call is already active for this trip",
+      };
+    }
   }
 
   const rate = await assertTripCallStartAllowed(client, input.tripId);
@@ -219,6 +264,35 @@ export async function createOrReuseVoipSession(
           created: false,
           roomName: raced.roomName ?? roomName,
         };
+      }
+      if (raced?.method === "call_masking") {
+        await supersedeActiveMaskingCallForVoip(client, raced);
+        // One retry after clearing masking — avoid looping on persistent races.
+        const retry = await client
+          .from("voip_call_logs")
+          .insert({
+            trip_id: input.tripId,
+            service_area_id: input.serviceAreaId,
+            driver_id: input.driverId,
+            customer_id: input.customerId,
+            status: "requested",
+            provider: "livekit",
+            started_at: now,
+            room_name: roomName,
+            idempotency_key: idempotencyKey,
+            initiator_role: input.initiatorRole,
+            initiator_user_id: input.initiatorUserId,
+            expires_at: expiresAt,
+            participants_joined: 0,
+          })
+          .select("id")
+          .single();
+        if (!retry.error && retry.data?.id) {
+          const session = await loadVoipSession(client, retry.data.id);
+          if (session) {
+            return { ok: true, session, created: true, roomName };
+          }
+        }
       }
       return {
         ok: false,

@@ -54,8 +54,13 @@ async function sweepExpiredMaskingSessions(
 ): Promise<{ scanned: number; terminated: number }> {
   const authKey = Deno.env.get("MSG91_AUTH_KEY")?.trim();
   const nowIso = new Date().toISOString();
+  const orphanCutoffIso = new Date(
+    Date.now() - TRIP_COMMUNICATION_MAX_DURATION_SECONDS * 1000,
+  ).toISOString();
 
-  const { data: rows } = await client
+  // Prefer rows with expires_at <= now; also catch legacy rows that never
+  // stamped expires_at (null) once call_start is older than max duration.
+  const { data: expiredByStamp } = await client
     .from("call_masking_call_logs")
     .select(
       "id, booking_id, call_start, connected_at, expires_at, msg91_uuid, msg91_request_id, termination_attempted_at, session_id",
@@ -65,6 +70,28 @@ async function sweepExpiredMaskingSessions(
     .lte("expires_at", nowIso)
     .order("expires_at", { ascending: true })
     .limit(limit);
+
+  const { data: orphanNullExpiry } = await client
+    .from("call_masking_call_logs")
+    .select(
+      "id, booking_id, call_start, connected_at, expires_at, msg91_uuid, msg91_request_id, termination_attempted_at, session_id",
+    )
+    .eq("status", "active")
+    .is("call_end", null)
+    .is("expires_at", null)
+    .lte("call_start", orphanCutoffIso)
+    .order("call_start", { ascending: true })
+    .limit(limit);
+
+  const seen = new Set<string>();
+  const rows = [...(expiredByStamp ?? []), ...(orphanNullExpiry ?? [])].filter(
+    (row) => {
+      const id = String(row.id ?? "");
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    },
+  );
 
   let terminated = 0;
   for (const row of rows ?? []) {
@@ -141,7 +168,7 @@ async function sweepExpiredMaskingSessions(
     }
   }
 
-  return { scanned: rows?.length ?? 0, terminated };
+  return { scanned: rows.length, terminated };
 }
 
 Deno.serve(async (req) => {
