@@ -18,6 +18,7 @@ export const TEMPORARY_DISPATCH_REJECT_REASONS = new Set<string>([
   "stale_heartbeat",
   "stale_location",
   "lost_connection",
+  "location_frozen",
   "presence_degraded",
   "socket_disconnected",
   "app_background_suspended",
@@ -94,6 +95,9 @@ export function canonicalizeDispatchRejectReason(
       return "stale_heartbeat";
     case "stale_location":
       return "lost_connection";
+    case "location_frozen":
+      // Heartbeat alive, GPS sample aged out — temporary / degradable (MK-260904-003).
+      return "location_frozen";
     case "presence_not_online":
       if (ctx?.appState === "background") return "app_background_suspended";
       return "presence_degraded";
@@ -232,6 +236,7 @@ export const DISPATCHABLE_DEGRADED = "dispatchable_degraded";
 export const DEGRADABLE_HEALTH_REJECT_REASONS = new Set<string>([
   "stale_heartbeat",
   "lost_connection",
+  "location_frozen",
   "presence_degraded",
   "socket_disconnected",
   "app_background_suspended",

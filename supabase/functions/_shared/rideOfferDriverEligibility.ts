@@ -165,16 +165,12 @@ export function evaluateRideOfferDriverEligibility(
     lastHeartbeatAt: presence.last_heartbeat_at ?? null,
     lastGpsSampleAt: presence.last_gps_sample_at ?? d.last_gps_sample_at ?? null,
     speed: presence.speed ?? d.speed ?? null,
+    now: new Date(nowMs),
   });
-  if (locationState === "location_frozen") {
-    return {
-      ...empty("location_frozen"),
-      resolvedLat,
-      resolvedLng,
-      heartbeatAgeSeconds: ageMs != null ? Math.round(ageMs / 1000) : null,
-      presenceAppState: presence.app_state ?? null,
-    };
-  }
+  // MK-260904-003: do NOT hard-exclude location_frozen here. Fresh heartbeat +
+  // aged GPS is degradable (parity with JS auto-dispatch + trip_insert SQL fix).
+  // Coords already required above (no_location). locationState kept for audit.
+  void locationState;
 
   const isForeground = presence.app_state === "foreground";
   const hasHealthyRealtimeSocket =
