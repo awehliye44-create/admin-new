@@ -8,7 +8,7 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 const MIGRATION = new URL(
-  "../../migrations/20260817190000_finalize_driver_onboarding_registration.sql",
+  "../../migrations/20261106160000_release_soft_deleted_driver_vehicle_plates.sql",
   import.meta.url,
 );
 
@@ -23,6 +23,9 @@ Deno.test("finalize RPC is transactional, idempotent, and ownership-checked", as
   assertEquals(sql.includes("ON CONFLICT (driver_id, service_area_id)"), true);
   assertEquals(sql.includes("DRIVER_OWNERSHIP_CONFLICT"), true);
   assertEquals(sql.includes("VEHICLE_OWNERSHIP_CONFLICT"), true);
+  // Soft-deleted drivers must not keep exclusive plate ownership.
+  assertEquals(sql.includes("od.deleted_at IS NULL"), true);
+  assertEquals(sql.includes("drivers_release_vehicles_on_soft_delete"), true);
   assertEquals(sql.includes("GRANT EXECUTE"), true);
   assertEquals(sql.includes("TO authenticated"), true);
 });

@@ -43,4 +43,28 @@ Deno.test("customer phone OTP does not require email verification", () => {
   // Signup OTP from updateUser(phone) must verify as phone_change, not sms.
   assert(verify.includes('otpType = "phone_change"'));
   assertEquals(verify.includes('type: "sms"'), false);
+  // Signup OTP must finalise the customer profile (idempotent) before client Home.
+  assert(verify.includes("finalize_customer_onboarding"));
+  assert(verify.includes("CUSTOMER_FINALIZE_FAILED"));
+});
+
+Deno.test("finalize-customer-onboarding requires phone only — never email gate", () => {
+  const fin = read("supabase/functions/finalize-customer-onboarding/index.ts");
+  assert(fin.includes("pending_phone_verification"));
+  assert(fin.includes("phoneVerified"));
+  assert(fin.includes("finalize_customer_onboarding"));
+  // Must not block activation on Auth email confirmation.
+  assertEquals(fin.includes("!emailVerified || !phoneVerified"), false);
+  assertEquals(fin.includes("pending_verification"), false);
+  assert(fin.includes("Customers have no email-verification gate") || fin.includes("no email-verification gate"));
+});
+
+Deno.test("hosted Auth config disables GoTrue email confirmations", () => {
+  // Public /auth/v1/signup with enable_confirmations=true fails closed when SMTP is broken
+  // ("Error sending confirmation email" → HTTP 500). Customers verify by phone, not email.
+  const cfg = read("supabase/config.toml");
+  assert(cfg.includes("[auth.email]"));
+  assert(cfg.includes("enable_confirmations = false"));
+  // Guard against re-enabling the mailer gate without an intentional config change.
+  assertEquals(/enable_confirmations\s*=\s*true/.test(cfg.split("[auth.email]")[1]?.split("[")[0] ?? ""), false);
 });

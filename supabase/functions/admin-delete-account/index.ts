@@ -151,6 +151,9 @@ Deno.serve(async (req) => {
         500,
       );
     }
+    // Plate release: trg_drivers_release_vehicles_on_soft_delete scrubs
+    // vehicles.license_plate when deleted_at is stamped (see migration
+    // 20261106160000_release_soft_deleted_driver_vehicle_plates.sql).
     profileMode = 'soft_deleted';
   } else {
     const { error: delProfileErr } = await admin

@@ -1,15 +1,22 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+import { nativeAppCorsHeaders as corsHeaders } from "../_shared/security.ts";
 
 function logEvent(event: string, payload: Record<string, unknown>) {
   console.log(event, JSON.stringify(payload));
 }
 
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+/**
+ * Activate Customer profile after phone OTP.
+ * Phone verification is the only gate — never require Auth email confirmation.
+ * Idempotent: safe to retry after timeout / kill-relaunch.
+ */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -22,10 +29,7 @@ Deno.serve(async (req) => {
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     const anon = createClient(supabaseUrl, supabaseAnonKey, {
@@ -35,26 +39,20 @@ Deno.serve(async (req) => {
 
     const { data: { user }, error: userError } = await anon.auth.getUser();
     if (userError || !user) {
-      return new Response(JSON.stringify({ error: "Invalid session" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Invalid session" }, 401);
     }
 
     const { data: authUser } = await service.auth.admin.getUserById(user.id);
-    const emailVerified = !!authUser.user?.email_confirmed_at;
     const phoneVerified = !!authUser.user?.phone_confirmed_at;
 
-    if (!emailVerified || !phoneVerified) {
-      return new Response(JSON.stringify({
+    // Customers have no email-verification gate. Phone OTP is the only onboarding gate.
+    if (!phoneVerified) {
+      return jsonResponse({
         ok: false,
-        reason: "pending_verification",
-        email_verified: emailVerified,
-        phone_verified: phoneVerified,
-      }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+        reason: "pending_phone_verification",
+        phone_verified: false,
+        email_verified: !!authUser.user?.email_confirmed_at,
+      }, 200);
     }
 
     const { data: customerId, error: rpcError } = await service.rpc("finalize_customer_onboarding", {
@@ -63,23 +61,14 @@ Deno.serve(async (req) => {
 
     if (rpcError) {
       console.error("finalize_customer_onboarding error:", rpcError);
-      return new Response(JSON.stringify({ error: rpcError.message }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: rpcError.message }, 400);
     }
 
     logEvent("CUSTOMER_ACTIVATED", { user_id: user.id, customer_id: customerId });
 
-    return new Response(JSON.stringify({ ok: true, customer_id: customerId }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ ok: true, customer_id: customerId });
   } catch (err) {
     console.error("finalize-customer-onboarding error:", err);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: "Internal server error" }, 500);
   }
 });

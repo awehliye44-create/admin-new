@@ -128,16 +128,40 @@ Deno.serve(async (req) => {
         phoneSuffix: guard.normalizedPhone.slice(-4),
       });
     } else {
+      // Signup: activate customers row from pending signup (idempotent).
+      // Phone is the only gate — finalize_customer_onboarding does not require email.
+      const { data: customerId, error: finalizeError } = await service.rpc(
+        "finalize_customer_onboarding",
+        { _user_id: user.id },
+      );
+      if (finalizeError) {
+        console.error("verify-customer-phone-otp finalize error:", finalizeError);
+        return jsonResponse({
+          error: "Phone verified but account activation failed. Please try again.",
+          code: "CUSTOMER_FINALIZE_FAILED",
+        }, 500);
+      }
+
       const { error: syncError } = await service.rpc("sync_customer_phone_verification", {
         _user_id: user.id,
       });
       if (syncError) {
-        console.error("verify-customer-phone-otp signup sync error:", syncError);
-        return jsonResponse({
-          error: "Phone verified but profile sync failed. Please try again.",
-          code: "PHONE_SYNC_FAILED",
-        }, 500);
+        // Row already created by finalize — sync is best-effort mirror.
+        console.warn("verify-customer-phone-otp signup sync warn:", syncError.message);
       }
+
+      console.info("CUSTOMER_PHONE_OTP_VERIFIED", JSON.stringify({
+        user_id: user.id,
+        purpose,
+        phone_suffix: guard.normalizedPhone.slice(-4),
+        customer_id: customerId ?? null,
+      }));
+
+      return jsonResponse({
+        ok: true,
+        phone: guard.normalizedPhone,
+        customer_id: customerId ?? null,
+      });
     }
 
     console.info("CUSTOMER_PHONE_OTP_VERIFIED", JSON.stringify({
