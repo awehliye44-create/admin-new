@@ -17,6 +17,13 @@ export const ADMIN_SUPPORT_INBOX_PAGE_SIZE = 50;
 export const ADMIN_MISSED_CANCELLED_PAGE_SIZE = 100;
 
 /**
+ * Missed/Cancelled range-wide fare-impact aggregate — max lightweight
+ * fare-column rows hydrated for the date-range totals. KPI counts use
+ * head-count queries, not this list.
+ */
+export const ADMIN_MISSED_CANCELLED_STATS_ROW_CAP = 2_000;
+
+/**
  * Dashboard chart series — max completed/cancelled rows hydrated for bucketing.
  * KPI totals use head counts, not this list.
  */

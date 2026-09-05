@@ -85,6 +85,7 @@ export default function Tickets() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
+  const [listPage, setListPage] = useState(0);
   const [selectedTicket, setSelectedTicket] = useState<SupportConversation | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [newReply, setNewReply] = useState('');
@@ -99,17 +100,23 @@ export default function Tickets() {
   });
 
   // Fetch conversations — exclude Live Chat channels (whatsapp / website).
-  const { data: tickets = [], isLoading, refetch } = useQuery({
-    queryKey: ['support-tickets'],
+  const { data: ticketPage, isLoading, refetch } = useQuery({
+    queryKey: ['support-tickets', statusFilter, priorityFilter, listPage],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const from = listPage * ADMIN_SUPPORT_TICKETS_PAGE_SIZE;
+      const to = from + ADMIN_SUPPORT_TICKETS_PAGE_SIZE - 1;
+      let query = supabase
         .from('support_conversations')
         .select(
           'id, subject, status, priority, channel, user_type, customer_id, driver_id, assigned_admin_id, category, trip_id, created_at, updated_at, last_message_at, resolved_at',
+          { count: 'exact' },
         )
-        .not('channel', 'in', '(whatsapp,website)')
+        .not('channel', 'in', '(whatsapp,website)');
+      if (statusFilter !== 'all') query = query.eq('status', statusFilter);
+      if (priorityFilter !== 'all') query = query.eq('priority', priorityFilter);
+      const { data, error, count } = await query
         .order('created_at', { ascending: false })
-        .limit(ADMIN_SUPPORT_TICKETS_PAGE_SIZE);
+        .range(from, to);
 
       if (error) throw error;
       const rows = (data || []) as SupportConversation[];
@@ -126,10 +133,39 @@ export default function Tickets() {
           });
         }
       }
-      return rows.map((r) => ({
-        ...r,
-        customer: r.customer_id ? customerMap[r.customer_id] : undefined,
-      }));
+      return {
+        rows: rows.map((r) => ({
+          ...r,
+          customer: r.customer_id ? customerMap[r.customer_id] : undefined,
+        })),
+        totalCount: count ?? rows.length,
+      };
+    },
+  });
+  const tickets = ticketPage?.rows ?? [];
+  const totalTickets = ticketPage?.totalCount ?? 0;
+
+  // Range-wide KPI counters via head counts — never derived from the loaded page slice.
+  const { data: ticketStats } = useQuery({
+    queryKey: ['support-ticket-stats'],
+    queryFn: async () => {
+      const head = (status?: string) => {
+        let q = supabase
+          .from('support_conversations')
+          .select('id', { count: 'exact', head: true })
+          .not('channel', 'in', '(whatsapp,website)');
+        if (status) q = q.eq('status', status);
+        return q;
+      };
+      const [open, waiting, total] = await Promise.all([head('open'), head('waiting'), head()]);
+      if (open.error) throw open.error;
+      if (waiting.error) throw waiting.error;
+      if (total.error) throw total.error;
+      return {
+        open: open.count ?? 0,
+        waiting: waiting.count ?? 0,
+        total: total.count ?? 0,
+      };
     },
   });
 
@@ -184,6 +220,7 @@ export default function Tickets() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support-tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['support-ticket-stats'] });
       toast.success('Ticket created');
       setIsCreateOpen(false);
       setNewTicket({ user_type: 'rider', subject: '', category: 'General', priority: 'normal', message: '', user_name: '' });
@@ -202,6 +239,7 @@ export default function Tickets() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support-tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['support-ticket-stats'] });
       toast.success('Ticket updated');
     },
     onError: () => toast.error('Failed to update ticket'),
@@ -234,6 +272,7 @@ export default function Tickets() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ticket-messages', selectedTicket?.id] });
       queryClient.invalidateQueries({ queryKey: ['support-tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['support-ticket-stats'] });
       setNewReply('');
       toast.success('Reply sent');
     },
@@ -257,20 +296,20 @@ export default function Tickets() {
     return 'Unknown User';
   };
 
+  // Status/priority are filtered server-side; search narrows the loaded page.
   const filteredTickets = tickets.filter(ticket => {
     const userName = getUserName(ticket);
-    const matchesSearch =
+    return (
       ticket.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
       userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      ticket.id.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || ticket.status === statusFilter;
-    const matchesPriority = priorityFilter === 'all' || ticket.priority === priorityFilter;
-    return matchesSearch && matchesStatus && matchesPriority;
+      ticket.id.toLowerCase().includes(searchTerm.toLowerCase())
+    );
   });
 
-  const openCount = tickets.filter(t => t.status === 'open').length;
-  const inProgressCount = tickets.filter(t => t.status === 'waiting').length;
-  const pendingCount = tickets.filter(t => t.status === 'open' || t.status === 'waiting').length;
+  const openCount = ticketStats?.open ?? 0;
+  const inProgressCount = ticketStats?.waiting ?? 0;
+  const pendingCount = openCount + inProgressCount;
+  const allTicketsTotal = ticketStats?.total ?? totalTickets;
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -348,7 +387,7 @@ export default function Tickets() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Total Tickets</p>
-                  <p className="text-2xl font-bold">{tickets.length}</p>
+                  <p className="text-2xl font-bold">{allTicketsTotal}</p>
                 </div>
                 <Ticket className="h-8 w-8 text-primary opacity-80" />
               </div>
@@ -391,7 +430,7 @@ export default function Tickets() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setListPage(0); }}>
                 <SelectTrigger className="w-full md:w-40">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
@@ -403,7 +442,7 @@ export default function Tickets() {
                   <SelectItem value="closed">Closed</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+              <Select value={priorityFilter} onValueChange={(v) => { setPriorityFilter(v); setListPage(0); }}>
                 <SelectTrigger className="w-full md:w-40">
                   <SelectValue placeholder="Priority" />
                 </SelectTrigger>
@@ -500,13 +539,38 @@ export default function Tickets() {
                     ))}
                     {filteredTickets.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          {tickets.length === 0 ? 'No tickets yet. Create one to get started.' : 'No tickets match your filters.'}
-                        </TableCell>
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        {totalTickets === 0 ? 'No tickets yet. Create one to get started.' : 'No tickets match your filters.'}
+                      </TableCell>
                       </TableRow>
                     )}
                   </TableBody>
                 </Table>
+              </div>
+            )}
+            {!isLoading && totalTickets > 0 && (
+              <div className="flex items-center justify-between mt-4 gap-2 flex-wrap">
+                <p className="text-sm text-muted-foreground">
+                  Page {listPage + 1} · {totalTickets} tickets · up to {ADMIN_SUPPORT_TICKETS_PAGE_SIZE} per page
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={listPage <= 0 || isLoading}
+                    onClick={() => setListPage((p) => Math.max(0, p - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isLoading || tickets.length < ADMIN_SUPPORT_TICKETS_PAGE_SIZE}
+                    onClick={() => setListPage((p) => p + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>

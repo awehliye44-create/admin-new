@@ -13,6 +13,7 @@ import {
   ADMIN_DASHBOARD_LIVE_FLEET_CAP,
   ADMIN_DRIVERS_PAGE_SIZE,
   ADMIN_MISSED_CANCELLED_PAGE_SIZE,
+  ADMIN_MISSED_CANCELLED_STATS_ROW_CAP,
   ADMIN_RIDERS_PAGE_SIZE,
   ADMIN_SCHEDULED_RIDES_CAP,
   ADMIN_SCHEDULED_RIDES_DRIVERS_CAP,
@@ -33,6 +34,7 @@ describe('adminQueryBoundsLock', () => {
     expect(ADMIN_SUPPORT_INBOX_PAGE_SIZE).toBe(50);
     expect(ADMIN_MISSED_CANCELLED_PAGE_SIZE).toBe(100);
     expect(ADMIN_DASHBOARD_CHART_ROW_CAP).toBeLessThanOrEqual(2_000);
+    expect(ADMIN_MISSED_CANCELLED_STATS_ROW_CAP).toBeLessThanOrEqual(2_000);
     expect(ADMIN_DASHBOARD_LIVE_FLEET_CAP).toBeLessThanOrEqual(500);
     expect(ADMIN_ACTIVE_TRIPS_CAP).toBeLessThanOrEqual(500);
     expect(ADMIN_ACTIVE_TRIPS_ONLINE_DRIVERS_CAP).toBeLessThanOrEqual(500);
@@ -101,7 +103,7 @@ describe('adminQueryBoundsLock', () => {
   it('Support Tickets board is limited with explicit columns', () => {
     const src = read('src/pages/Tickets.tsx');
     expect(src).toContain('ADMIN_SUPPORT_TICKETS_PAGE_SIZE');
-    expect(src).toContain('.limit(ADMIN_SUPPORT_TICKETS_PAGE_SIZE)');
+    expect(src).toContain('.range(from, to)');
     expect(src).not.toMatch(/from\('support_conversations'\)\s*\n\s*\.select\('\*'\)/);
     expect(src).not.toMatch(/from\('support_messages'\)\s*\n\s*\.select\('\*'\)/);
   });
