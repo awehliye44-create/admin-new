@@ -115,14 +115,18 @@ Deno.serve(async (req) => {
       p_phone: phone,
       p_email: email,
     });
-    if (!identityErr) {
-      const row = identity as { phone_exists?: boolean; email_exists?: boolean } | null;
-      if (row?.email_exists) {
-        return jsonResponse({ error: "An account with this email already exists. Please sign in instead." }, 409);
-      }
-      if (row?.phone_exists) {
-        return jsonResponse({ error: "This phone number is already registered." }, 409);
-      }
+    if (identityErr) {
+      console.error("create-onboarding-auth-user check_identity_exists error:", identityErr);
+      return jsonResponse({
+        error: "Could not verify if this email or phone is available. Please try again.",
+      }, 500);
+    }
+    const row = identity as { phone_exists?: boolean; email_exists?: boolean } | null;
+    if (row?.email_exists) {
+      return jsonResponse({ error: "An account with this email already exists. Please sign in instead." }, 409);
+    }
+    if (row?.phone_exists) {
+      return jsonResponse({ error: "This phone number is already registered." }, 409);
     }
 
     const userMetadata = {

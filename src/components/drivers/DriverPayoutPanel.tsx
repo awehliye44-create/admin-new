@@ -98,7 +98,9 @@ export function DriverPayoutPanel({
         serviceArea: areaRes.data,
         region: regionRes.data,
         destinations: destinationRes.data ?? [],
+        destinationsError: destinationRes.error?.message ?? null,
         audit: auditRes.data ?? [],
+        auditError: auditRes.error?.message ?? null,
       };
     },
     enabled: Boolean(driverId),
@@ -377,9 +379,24 @@ export function DriverPayoutPanel({
               </p>
             </div>
           ) : (
-            <p className="text-destructive">
-              Payout destination is not configured (PAYOUT_DESTINATION_NOT_CONFIGURED).
-            </p>
+            <div className="space-y-2">
+              <p className="text-destructive">
+                Payout destination is not configured (PAYOUT_DESTINATION_NOT_CONFIGURED).
+              </p>
+              {data?.destinationsError ? (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                  Could not load destinations: {data.destinationsError}
+                </p>
+              ) : null}
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={syncProvider.isPending}
+                onClick={() => syncProvider.mutate()}
+              >
+                Retry Revolut sync
+              </Button>
+            </div>
           )}
         </div>
       )}

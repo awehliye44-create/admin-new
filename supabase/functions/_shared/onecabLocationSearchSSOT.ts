@@ -38,7 +38,8 @@ export type OnecabLocationResult = {
   alternative_names?: string[];
 };
 
-export const LOCATION_SEARCH_MIN_QUERY_LENGTH = 3;
+/** Authoritative min length for Customer + Admin location search (SSOT). */
+export const LOCATION_SEARCH_MIN_QUERY_LENGTH = 2;
 export const LOCATION_SEARCH_DEBOUNCE_MS = 400;
 export const LOCATION_SEARCH_MAX_RESULTS = 8;
 export const LOCATION_SEARCH_EDGE_FN = "search-onecab-locations";

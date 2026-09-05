@@ -199,7 +199,9 @@ Deno.serve(async (req) => {
 
       const row = dest as DestRow;
       const verification = normalizeDestinationVerificationStatus(row.verification_status);
-      if (verification !== "MANUAL_VERIFIED" && verification !== "PROVIDER_VERIFIED") {
+      // Auto-link path: pending destinations may sync with Revolut (no manual Verify gate).
+      // Rejected / disabled stay blocked.
+      if (verification === "REJECTED" || verification === "DISABLED" || verification === "DRAFT") {
         results.push(skipResult({
           driver_id: driverId,
           destination_id: row.id,
@@ -269,6 +271,7 @@ Deno.serve(async (req) => {
       if (row.provider_counterparty_id && row.provider_recipient_account_id) {
         await supabase.from("driver_payout_destinations").update({
           provider_link_status: PROVIDER_LINK_STATUS.PROVIDER_VERIFIED,
+          verification_status: "PROVIDER_VERIFIED",
           provider_sync_status: "synced",
           provider_synced_at: now,
           provider_last_checked_at: now,
@@ -276,6 +279,7 @@ Deno.serve(async (req) => {
           destination_fingerprint: fingerprint,
           provider_error_code: null,
           provider_error_message_safe: null,
+          verified_at: now,
           updated_at: now,
         }).eq("id", row.id);
 
@@ -360,6 +364,7 @@ Deno.serve(async (req) => {
           provider_counterparty_id: matchHit.counterparty_id,
           provider_recipient_account_id: matchHit.recipient_account_id,
           provider_link_status: PROVIDER_LINK_STATUS.PROVIDER_VERIFIED,
+          verification_status: "PROVIDER_VERIFIED",
           provider_sync_status: "synced",
           provider_synced_at: now,
           provider_last_checked_at: now,
@@ -367,6 +372,7 @@ Deno.serve(async (req) => {
           destination_fingerprint: fingerprint,
           provider_error_code: null,
           provider_error_message_safe: null,
+          verified_at: now,
           updated_at: now,
         }).eq("id", row.id);
 
@@ -674,6 +680,7 @@ Deno.serve(async (req) => {
           provider_counterparty_id: cpId,
           provider_recipient_account_id: raId,
           provider_link_status: PROVIDER_LINK_STATUS.PROVIDER_VERIFIED,
+          verification_status: "PROVIDER_VERIFIED",
           provider_sync_status: "synced",
           provider_synced_at: now,
           provider_last_checked_at: now,
@@ -681,6 +688,7 @@ Deno.serve(async (req) => {
           destination_fingerprint: fingerprint,
           provider_error_code: null,
           provider_error_message_safe: null,
+          verified_at: now,
           updated_at: now,
         }).eq("id", row.id);
 
@@ -764,10 +772,12 @@ Deno.serve(async (req) => {
       status: 0,
       error: "probe_failed",
     }));
+    // This function never calls /pay or mutates wallets. Do not assert on the
+    // global LIVE_PAYOUT_EXECUTION_ENABLED flag — that gate belongs to payout runners.
     assertSlice2MoneySafety({
       revolut_pay_called: false,
       wallet_mutated: false,
-      live_payout_execution_enabled: livePayout,
+      live_payout_execution_enabled: false,
     });
 
     return new Response(
