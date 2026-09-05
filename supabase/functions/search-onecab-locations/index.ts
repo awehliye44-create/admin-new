@@ -126,7 +126,7 @@ Deno.serve(async (req) => {
       .eq("id", true)
       .maybeSingle();
 
-    const minLength = rollout?.min_query_length ?? LOCATION_SEARCH_MIN_QUERY_LENGTH;
+    const minLength = LOCATION_SEARCH_MIN_QUERY_LENGTH;
     const limit = Math.min(
       Number(body?.limit) || rollout?.max_results || LOCATION_SEARCH_MAX_RESULTS,
       LOCATION_SEARCH_MAX_RESULTS,
