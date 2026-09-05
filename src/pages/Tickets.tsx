@@ -85,6 +85,7 @@ export default function Tickets() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
+  const [listPage, setListPage] = useState(0);
   const [selectedTicket, setSelectedTicket] = useState<SupportConversation | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [newReply, setNewReply] = useState('');
