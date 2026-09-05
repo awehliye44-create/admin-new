@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { ADMIN_MISSED_CANCELLED_PAGE_SIZE } from '@/lib/adminQueryBounds';
+import { ADMIN_MISSED_CANCELLED_PAGE_SIZE, ADMIN_MISSED_CANCELLED_STATS_ROW_CAP } from '@/lib/adminQueryBounds';
 import { 
   XCircle, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
   Eye, AlertTriangle, Ban, TrendingDown,
@@ -145,14 +145,31 @@ export default function MissedCancelled() {
     }
   }, [dateFilter]);
 
+  // Debounce search so server-side filtering doesn't fire per keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+      setListPage(0);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  const fetchRegionServiceAreaIds = useCallback(async (regionId: string): Promise<string[]> => {
+    const { data, error } = await supabase
+      .from('service_areas')
+      .select('id')
+      .eq('region_id', regionId);
+    if (error) throw error;
+    return (data || []).map((r) => r.id as string);
+  }, []);
+
   const { data: missedPage, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['missed-cancelled', dateFilter, listPage],
+    queryKey: ['missed-cancelled', dateFilter, listPage, statusFilter, serviceFilter.regionId, debouncedSearch],
     queryFn: async () => {
       const { start, end } = getDateRange();
-      
-      const from = listPage * ADMIN_MISSED_CANCELLED_PAGE_SIZE;
-      const to = from + ADMIN_MISSED_CANCELLED_PAGE_SIZE - 1;
-      const { data, error, count } = await supabase
+
+      let query = supabase
         .from('trips')
         .select(`
           id, trip_number, trip_code, status, passenger_id, passenger_name, passenger_phone,
@@ -167,9 +184,32 @@ export default function MissedCancelled() {
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, region_id),
           service_area:service_areas!trips_service_area_id_fkey(id, name, region_id, region:regions(currency_code))
         `, { count: 'exact' })
-        .in('status', [...MISSED_CANCELLED_STATUSES])
         .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString())
+        .lte('created_at', end.toISOString());
+
+      if (statusFilter === 'all') {
+        query = query.in('status', [...MISSED_CANCELLED_STATUSES]);
+      } else {
+        query = query.eq('status', statusFilter);
+      }
+
+      if (serviceFilter.regionId) {
+        const saIds = await fetchRegionServiceAreaIds(serviceFilter.regionId);
+        if (saIds.length === 0) return { rows: [] as CancelledTrip[], totalCount: 0 };
+        query = query.in('service_area_id', saIds);
+      }
+
+      const term = debouncedSearch.replace(/[%(),.\\"]/g, ' ').trim();
+      if (term) {
+        const like = `%${term}%`;
+        query = query.or(
+          `trip_number.ilike.${like},trip_code.ilike.${like},passenger_name.ilike.${like},passenger_phone.ilike.${like},pickup_address.ilike.${like}`,
+        );
+      }
+
+      const from = listPage * ADMIN_MISSED_CANCELLED_PAGE_SIZE;
+      const to = from + ADMIN_MISSED_CANCELLED_PAGE_SIZE - 1;
+      const { data, error, count } = await query
         .order('created_at', { ascending: false })
         .range(from, to);
 
@@ -185,23 +225,72 @@ export default function MissedCancelled() {
     staleTime: 30_000,
   });
 
+  // Range-wide stats (date window + service area) via head counts plus a bounded
+  // lightweight fare-column fetch for the quoted-fare-impact total.
+  const { data: rangeStats } = useQuery({
+    queryKey: ['missed-cancelled-stats', dateFilter, serviceFilter.regionId],
+    queryFn: async () => {
+      const { start, end } = getDateRange();
+      let saIds: string[] | null = null;
+      if (serviceFilter.regionId) {
+        saIds = await fetchRegionServiceAreaIds(serviceFilter.regionId);
+        if (saIds.length === 0) {
+          return { cancelled: 0, missed: 0, fareRows: [] as CancelledTrip[] };
+        }
+      }
+      let cancelledQ = supabase
+        .from('trips')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['cancelled', 'customer_cancelled'])
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString());
+      let missedQ = supabase
+        .from('trips')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['missed', 'expired'])
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString());
+      let fareQ = supabase
+        .from('trips')
+        .select(`
+          id, currency_code,
+          final_customer_fare_pence, final_fare_pence, estimated_total_pence, gross_fare_pence,
+          offer_discount_pence, voucher_discount_pence, promotion_discount_pence, discount_pence, discount_source,
+          fare, estimated_fare, fare_snapshot_json,
+          service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code))
+        `)
+        .in('status', [...MISSED_CANCELLED_STATUSES])
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString())
+        .order('created_at', { ascending: false })
+        .limit(ADMIN_MISSED_CANCELLED_STATS_ROW_CAP);
+      if (saIds) {
+        cancelledQ = cancelledQ.in('service_area_id', saIds);
+        missedQ = missedQ.in('service_area_id', saIds);
+        fareQ = fareQ.in('service_area_id', saIds);
+      }
+      const [cancelledRes, missedRes, fareRes] = await Promise.all([cancelledQ, missedQ, fareQ]);
+      if (cancelledRes.error) throw cancelledRes.error;
+      if (missedRes.error) throw missedRes.error;
+      if (fareRes.error) throw fareRes.error;
+      return {
+        cancelled: cancelledRes.count ?? 0,
+        missed: missedRes.count ?? 0,
+        fareRows: (fareRes.data || []) as unknown as CancelledTrip[],
+      };
+    },
+    staleTime: 30_000,
+  });
+
   const allTrips = missedPage?.rows ?? [];
   const totalCount = missedPage?.totalCount ?? 0;
-  // Filter by selected service area's region
-  const trips = useMemo(() => {
-    if (!serviceFilter.regionId) return allTrips;
-    return allTrips.filter(t => {
-      const tripRegion = t.service_area?.region_id || t.driver?.region_id;
-      return tripRegion === serviceFilter.regionId;
-    });
-  }, [allTrips, serviceFilter.regionId]);
+  const statsFareRows = rangeStats?.fareRows ?? [];
 
-  const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(
-    trips.filter(t => resolveTripCurrency(t)).map(t => ({ currency_code: resolveTripCurrency(t) }))
-  ) || '';
-  const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(
-    trips.filter(t => resolveTripCurrency(t)).map(t => ({ currency_code: resolveTripCurrency(t) }))
-  ) && trips.length > 0;
+  const statsCurrencies = statsFareRows
+    .filter(t => resolveTripCurrency(t))
+    .map(t => ({ currency_code: resolveTripCurrency(t) }));
+  const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(statsCurrencies) || '';
+  const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(statsCurrencies) && statsFareRows.length > 0;
 
   const getStatusConfig = (status: string | null) => {
     switch (status) {
