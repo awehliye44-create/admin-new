@@ -3670,6 +3670,169 @@ export type Database = {
         }
         Relationships: []
       }
+      customer_identity_provider_webhook_events: {
+        Row: {
+          created_at: string
+          event_type: string | null
+          id: string
+          payload: Json
+          processed_at: string | null
+          provider: string
+          provider_event_id: string | null
+          signature_valid: boolean
+          verification_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_type?: string | null
+          id?: string
+          payload?: Json
+          processed_at?: string | null
+          provider?: string
+          provider_event_id?: string | null
+          signature_valid?: boolean
+          verification_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string | null
+          id?: string
+          payload?: Json
+          processed_at?: string | null
+          provider?: string
+          provider_event_id?: string | null
+          signature_valid?: boolean
+          verification_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_identity_provider_webhook_events_verification_id_fkey"
+            columns: ["verification_id"]
+            isOneToOne: false
+            referencedRelation: "customer_identity_verifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_identity_verifications: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          customer_id: string
+          decided_at: string | null
+          device_id: string | null
+          document_type: string | null
+          expires_at: string | null
+          face_match_result: string | null
+          failure_code: string | null
+          id: string
+          id_back_path: string | null
+          id_front_path: string | null
+          image_quality_result: string | null
+          liveness_result: string | null
+          max_attempts: number | null
+          metadata: Json
+          provider: string
+          provider_reference: string | null
+          provider_session_id: string | null
+          reason: string
+          requested_at: string
+          selfie_path: string | null
+          service_area_id: string | null
+          started_at: string | null
+          status: string
+          submitted_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          customer_id: string
+          decided_at?: string | null
+          device_id?: string | null
+          document_type?: string | null
+          expires_at?: string | null
+          face_match_result?: string | null
+          failure_code?: string | null
+          id?: string
+          id_back_path?: string | null
+          id_front_path?: string | null
+          image_quality_result?: string | null
+          liveness_result?: string | null
+          max_attempts?: number | null
+          metadata?: Json
+          provider?: string
+          provider_reference?: string | null
+          provider_session_id?: string | null
+          reason?: string
+          requested_at?: string
+          selfie_path?: string | null
+          service_area_id?: string | null
+          started_at?: string | null
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          customer_id?: string
+          decided_at?: string | null
+          device_id?: string | null
+          document_type?: string | null
+          expires_at?: string | null
+          face_match_result?: string | null
+          failure_code?: string | null
+          id?: string
+          id_back_path?: string | null
+          id_front_path?: string | null
+          image_quality_result?: string | null
+          liveness_result?: string | null
+          max_attempts?: number | null
+          metadata?: Json
+          provider?: string
+          provider_reference?: string | null
+          provider_session_id?: string | null
+          reason?: string
+          requested_at?: string
+          selfie_path?: string | null
+          service_area_id?: string | null
+          started_at?: string | null
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_identity_verifications_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_code_audit"
+            referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "customer_identity_verifications_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_riders_with_trip_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_identity_verifications_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_identity_verifications_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customer_live_locations: {
         Row: {
           accuracy: number | null
@@ -4038,7 +4201,12 @@ export type Database = {
           email_verified_at: string | null
           first_name: string
           id: string
+          identity_provider: string | null
+          identity_verified_at: string | null
           last_name: string
+          name_edit_locked: boolean
+          name_unlocked_at: string | null
+          name_unlocked_by: string | null
           pending_email_change: string | null
           pending_email_change_expires_at: string | null
           pending_email_change_requested_at: string | null
@@ -4065,7 +4233,12 @@ export type Database = {
           email_verified_at?: string | null
           first_name: string
           id?: string
+          identity_provider?: string | null
+          identity_verified_at?: string | null
           last_name: string
+          name_edit_locked?: boolean
+          name_unlocked_at?: string | null
+          name_unlocked_by?: string | null
           pending_email_change?: string | null
           pending_email_change_expires_at?: string | null
           pending_email_change_requested_at?: string | null
@@ -4092,7 +4265,12 @@ export type Database = {
           email_verified_at?: string | null
           first_name?: string
           id?: string
+          identity_provider?: string | null
+          identity_verified_at?: string | null
           last_name?: string
+          name_edit_locked?: boolean
+          name_unlocked_at?: string | null
+          name_unlocked_by?: string | null
           pending_email_change?: string | null
           pending_email_change_expires_at?: string | null
           pending_email_change_requested_at?: string | null
@@ -10503,7 +10681,7 @@ export type Database = {
           terms_version: string | null
           total_trips: number | null
           updated_at: string
-          user_id: string
+          user_id: string | null
           using_platform_business_profile: boolean
           vehicle_edit_request_status: string | null
           vehicle_locked: boolean
@@ -10572,7 +10750,7 @@ export type Database = {
           terms_version?: string | null
           total_trips?: number | null
           updated_at?: string
-          user_id: string
+          user_id?: string | null
           using_platform_business_profile?: boolean
           vehicle_edit_request_status?: string | null
           vehicle_locked?: boolean
@@ -10641,7 +10819,7 @@ export type Database = {
           terms_version?: string | null
           total_trips?: number | null
           updated_at?: string
-          user_id?: string
+          user_id?: string | null
           using_platform_business_profile?: boolean
           vehicle_edit_request_status?: string | null
           vehicle_locked?: boolean
@@ -18437,6 +18615,50 @@ export type Database = {
           },
         ]
       }
+      service_area_customer_identity_settings: {
+        Row: {
+          created_at: string
+          maximum_attempts: number
+          metadata: Json
+          mode: string
+          provider: string
+          provider_workflow_id: string | null
+          service_area_id: string
+          session_expiry_minutes: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          maximum_attempts?: number
+          metadata?: Json
+          mode?: string
+          provider?: string
+          provider_workflow_id?: string | null
+          service_area_id: string
+          session_expiry_minutes?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          maximum_attempts?: number
+          metadata?: Json
+          mode?: string
+          provider?: string
+          provider_workflow_id?: string | null
+          service_area_id?: string
+          session_expiry_minutes?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_customer_identity_settings_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: true
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_area_demand_zone_settings: {
         Row: {
           colour_high: string
@@ -21337,6 +21559,84 @@ export type Database = {
           },
         ]
       }
+      trip_waiting_segments: {
+        Row: {
+          created_at: string
+          distance_meters: number | null
+          ended_at: string | null
+          id: string
+          inside_radius: boolean
+          location_type: string
+          source_location: string | null
+          started_at: string
+          stop_id: string | null
+          stop_index: number | null
+          trip_id: string
+        }
+        Insert: {
+          created_at?: string
+          distance_meters?: number | null
+          ended_at?: string | null
+          id?: string
+          inside_radius?: boolean
+          location_type: string
+          source_location?: string | null
+          started_at: string
+          stop_id?: string | null
+          stop_index?: number | null
+          trip_id: string
+        }
+        Update: {
+          created_at?: string
+          distance_meters?: number | null
+          ended_at?: string | null
+          id?: string
+          inside_radius?: boolean
+          location_type?: string
+          source_location?: string | null
+          started_at?: string
+          stop_id?: string | null
+          stop_index?: number | null
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_waiting_segments_stop_id_fkey"
+            columns: ["stop_id"]
+            isOneToOne: false
+            referencedRelation: "trip_stops"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_waiting_segments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_waiting_segments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_waiting_segments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_waiting_segments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       trips: {
         Row: {
           accepted_commission_percent: number | null
@@ -21548,6 +21848,7 @@ export type Database = {
           pickup_waiting_admin_config: Json | null
           pickup_waiting_charge_pence: number
           pickup_waiting_chargeable_seconds: number
+          pickup_waiting_counted_seconds: number
           pickup_waiting_finalized_at: string | null
           pickup_waiting_intervals_charged: number
           pickup_waiting_last_tick_at: string | null
@@ -21601,6 +21902,7 @@ export type Database = {
           stop_charge_total_pence: number | null
           stop_waiting_charge_amount: number
           stop_waiting_charge_pence: number
+          stop_waiting_counted_seconds: number
           stop_waiting_finalized_at: string | null
           stop_waiting_free_seconds: number | null
           stop_waiting_paid_started_at: string | null
@@ -21624,6 +21926,9 @@ export type Database = {
           vehicle_type_id: string | null
           voucher_discount_pence: number
           waiting_charge_pence: number | null
+          waiting_geofence_checked_at: string | null
+          waiting_geofence_distance_m: number | null
+          waiting_geofence_status: string | null
           waiting_minutes: number | null
           wallet_applied_pence: number | null
           wallet_balance_after: number | null
@@ -21839,6 +22144,7 @@ export type Database = {
           pickup_waiting_admin_config?: Json | null
           pickup_waiting_charge_pence?: number
           pickup_waiting_chargeable_seconds?: number
+          pickup_waiting_counted_seconds?: number
           pickup_waiting_finalized_at?: string | null
           pickup_waiting_intervals_charged?: number
           pickup_waiting_last_tick_at?: string | null
@@ -21892,6 +22198,7 @@ export type Database = {
           stop_charge_total_pence?: number | null
           stop_waiting_charge_amount?: number
           stop_waiting_charge_pence?: number
+          stop_waiting_counted_seconds?: number
           stop_waiting_finalized_at?: string | null
           stop_waiting_free_seconds?: number | null
           stop_waiting_paid_started_at?: string | null
@@ -21915,6 +22222,9 @@ export type Database = {
           vehicle_type_id?: string | null
           voucher_discount_pence?: number
           waiting_charge_pence?: number | null
+          waiting_geofence_checked_at?: string | null
+          waiting_geofence_distance_m?: number | null
+          waiting_geofence_status?: string | null
           waiting_minutes?: number | null
           wallet_applied_pence?: number | null
           wallet_balance_after?: number | null
@@ -22130,6 +22440,7 @@ export type Database = {
           pickup_waiting_admin_config?: Json | null
           pickup_waiting_charge_pence?: number
           pickup_waiting_chargeable_seconds?: number
+          pickup_waiting_counted_seconds?: number
           pickup_waiting_finalized_at?: string | null
           pickup_waiting_intervals_charged?: number
           pickup_waiting_last_tick_at?: string | null
@@ -22183,6 +22494,7 @@ export type Database = {
           stop_charge_total_pence?: number | null
           stop_waiting_charge_amount?: number
           stop_waiting_charge_pence?: number
+          stop_waiting_counted_seconds?: number
           stop_waiting_finalized_at?: string | null
           stop_waiting_free_seconds?: number | null
           stop_waiting_paid_started_at?: string | null
@@ -22206,6 +22518,9 @@ export type Database = {
           vehicle_type_id?: string | null
           voucher_discount_pence?: number
           waiting_charge_pence?: number | null
+          waiting_geofence_checked_at?: string | null
+          waiting_geofence_distance_m?: number | null
+          waiting_geofence_status?: string | null
           waiting_minutes?: number | null
           wallet_applied_pence?: number | null
           wallet_balance_after?: number | null
@@ -23836,8 +24151,12 @@ export type Database = {
           email_verified: boolean | null
           first_name: string | null
           id: string | null
+          identity_provider: string | null
+          identity_verified_at: string | null
           last_name: string | null
           last_trip_at: string | null
+          name_edit_locked: boolean | null
+          name_unlocked_at: string | null
           phone: string | null
           phone_verified: boolean | null
           rider_status: string | null
@@ -25845,6 +26164,16 @@ export type Database = {
         }
         Returns: string
       }
+      admin_decide_customer_identity: {
+        Args: {
+          p_decision: string
+          p_first_name?: string
+          p_last_name?: string
+          p_note?: string
+          p_verification_id: string
+        }
+        Returns: Json
+      }
       admin_driver_financial_summaries: {
         Args: { p_driver_id?: string; p_region_id?: string }
         Returns: {
@@ -25968,7 +26297,7 @@ export type Database = {
           terms_version: string | null
           total_trips: number | null
           updated_at: string
-          user_id: string
+          user_id: string | null
           using_platform_business_profile: boolean
           vehicle_edit_request_status: string | null
           vehicle_locked: boolean
@@ -26049,6 +26378,10 @@ export type Database = {
           _staff_id: string
         }
         Returns: undefined
+      }
+      admin_unlock_customer_name_edit: {
+        Args: { p_customer_id: string }
+        Returns: Json
       }
       admin_update_staff_member: {
         Args: {
@@ -27167,6 +27500,10 @@ export type Database = {
           p_latitude?: number
           p_longitude?: number
         }
+        Returns: Json
+      }
+      get_customer_identity_verification_gate: {
+        Args: { p_service_area_id?: string }
         Returns: Json
       }
       get_customer_lifecycle_debt_pence: {
@@ -28349,6 +28686,14 @@ export type Database = {
       refresh_driver_wallet_reservation_cache: {
         Args: { p_driver_id: string }
         Returns: undefined
+      }
+      region_boundary_centroid_lat: {
+        Args: { p_boundary: Json }
+        Returns: number
+      }
+      region_boundary_centroid_lng: {
+        Args: { p_boundary: Json }
+        Returns: number
       }
       reject_roles_action: {
         Args: { _details: Json; _event_type: string; _reason: string }
