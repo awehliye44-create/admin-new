@@ -220,6 +220,7 @@ export default function Tickets() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support-tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['support-ticket-stats'] });
       toast.success('Ticket created');
       setIsCreateOpen(false);
       setNewTicket({ user_type: 'rider', subject: '', category: 'General', priority: 'normal', message: '', user_name: '' });
@@ -238,6 +239,7 @@ export default function Tickets() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support-tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['support-ticket-stats'] });
       toast.success('Ticket updated');
     },
     onError: () => toast.error('Failed to update ticket'),
@@ -270,6 +272,7 @@ export default function Tickets() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ticket-messages', selectedTicket?.id] });
       queryClient.invalidateQueries({ queryKey: ['support-tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['support-ticket-stats'] });
       setNewReply('');
       toast.success('Reply sent');
     },
@@ -536,13 +539,38 @@ export default function Tickets() {
                     ))}
                     {filteredTickets.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          {tickets.length === 0 ? 'No tickets yet. Create one to get started.' : 'No tickets match your filters.'}
-                        </TableCell>
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        {totalTickets === 0 ? 'No tickets yet. Create one to get started.' : 'No tickets match your filters.'}
+                      </TableCell>
                       </TableRow>
                     )}
                   </TableBody>
                 </Table>
+              </div>
+            )}
+            {!isLoading && totalTickets > 0 && (
+              <div className="flex items-center justify-between mt-4 gap-2 flex-wrap">
+                <p className="text-sm text-muted-foreground">
+                  Page {listPage + 1} · {totalTickets} tickets · up to {ADMIN_SUPPORT_TICKETS_PAGE_SIZE} per page
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={listPage <= 0 || isLoading}
+                    onClick={() => setListPage((p) => Math.max(0, p - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isLoading || tickets.length < ADMIN_SUPPORT_TICKETS_PAGE_SIZE}
+                    onClick={() => setListPage((p) => p + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>
