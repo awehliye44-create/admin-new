@@ -384,7 +384,7 @@ export default function Tickets() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Total Tickets</p>
-                  <p className="text-2xl font-bold">{tickets.length}</p>
+                  <p className="text-2xl font-bold">{allTicketsTotal}</p>
                 </div>
                 <Ticket className="h-8 w-8 text-primary opacity-80" />
               </div>
@@ -427,7 +427,7 @@ export default function Tickets() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setListPage(0); }}>
                 <SelectTrigger className="w-full md:w-40">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
@@ -439,7 +439,7 @@ export default function Tickets() {
                   <SelectItem value="closed">Closed</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+              <Select value={priorityFilter} onValueChange={(v) => { setPriorityFilter(v); setListPage(0); }}>
                 <SelectTrigger className="w-full md:w-40">
                   <SelectValue placeholder="Priority" />
                 </SelectTrigger>
