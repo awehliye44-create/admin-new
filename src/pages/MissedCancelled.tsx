@@ -325,23 +325,14 @@ export default function MissedCancelled() {
     return 'Unknown Reason';
   };
 
-  const filteredTrips = trips.filter(trip => {
-    const matchesSearch = 
-      getTripDisplayId(trip).toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trip.trip_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trip.passenger_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trip.passenger_phone?.includes(searchQuery) ||
-      trip.pickup_address?.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    if (statusFilter === 'all') return matchesSearch;
-    return matchesSearch && trip.status === statusFilter;
-  });
+  // Status, service-area and search filters are applied server-side.
+  const filteredTrips = allTrips;
 
-  const cancelledCount = trips.filter(
-    (t) => t.status === 'cancelled' || t.status === 'customer_cancelled',
-  ).length;
-  const missedCount = trips.filter((t) => t.status === 'missed' || t.status === 'expired').length;
-  const quotedFareImpactMajor = trips.reduce(
+  // Range-wide counters from head-count stats — never derived from the loaded page.
+  const cancelledCount = rangeStats?.cancelled ?? 0;
+  const missedCount = rangeStats?.missed ?? 0;
+  const totalIssues = cancelledCount + missedCount;
+  const quotedFareImpactMajor = statsFareRows.reduce(
     (sum, t) => sum + resolveAdminCommittedCustomerFarePence(t) / 100,
     0,
   );
