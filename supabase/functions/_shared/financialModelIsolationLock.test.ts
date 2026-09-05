@@ -127,5 +127,33 @@ Deno.test("financial model isolation lock", async () => {
   assert(migration.includes("LEDGER_REVERSAL"));
   assert(migration.includes("FROM public.service_areas WHERE id = NEW.service_area_id"));
 
+  // Auth/customer delete must be allowed to SET NULL payment_sessions.customer_id
+  // without re-raising DRIVER_COLLECTED Payment Session create gate.
+  // 20261106130000 is the live fix (120000 wrongly referenced amount_pence).
+  const authDeleteDetach = await read(
+    "supabase/migrations/20261106130000_auth_delete_payment_session_detach_fix.sql",
+  );
+  assert(authDeleteDetach.includes("enforce_payment_session_financial_model"));
+  assert(authDeleteDetach.includes("NEW.customer_id IS NULL"));
+  assert(authDeleteDetach.includes("OLD.customer_id IS NOT NULL"));
+  assert(authDeleteDetach.includes("to_jsonb(NEW) - 'customer_id'"));
+  assert(authDeleteDetach.includes("Detach-only cascade"));
+  assert(!authDeleteDetach.includes("NEW.amount_pence"));
+  assert(!authDeleteDetach.includes("OLD.amount_pence"));
+  assert(
+    authDeleteDetach.includes(
+      "Payment Session forbidden on DRIVER_COLLECTED_COMMISSION_WALLET",
+    ),
+  );
+
+  // Driver Auth delete must detach (SET NULL), not CASCADE-erase finance FKs.
+  const driverAuthDetach = await read(
+    "supabase/migrations/20261106140000_auth_delete_driver_retain_financial_history.sql",
+  );
+  assert(driverAuthDetach.includes("drivers_user_id_fkey"));
+  assert(driverAuthDetach.includes("ON DELETE SET NULL"));
+  assert(driverAuthDetach.includes("drivers_on_auth_detach"));
+  assert(driverAuthDetach.includes("deleted+"));
+
   assertEquals("FINANCIAL_MODEL_VIOLATION", "FINANCIAL_MODEL_VIOLATION");
 });

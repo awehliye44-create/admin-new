@@ -121,19 +121,49 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: `${target} has no linked auth user` }, 422);
   }
 
-  // 5. Hard-delete the role profile row.
-  // FK cascades on dependent tables (trips, wallets, ledger, etc.) are
-  // handled by the existing ON DELETE behavior defined at schema level.
-  const { error: delProfileErr } = await admin
-    .from(profileTable)
-    .delete()
-    .eq('id', profile_id);
+  // 5. Remove the role profile.
+  // Drivers: soft-delete + detach Auth. Commission wallet / payout / settlement
+  // rows keep driver_id (NOT NULL) — hard-deleting the driver aborts Auth delete.
+  // Customers: hard-delete (payment_sessions SET NULL; history retained).
+  let profileMode: 'hard_deleted' | 'soft_deleted' = 'hard_deleted';
 
-  if (delProfileErr) {
-    return jsonResponse(
-      { error: `Failed to delete ${target} profile: ${delProfileErr.message}` },
-      500,
-    );
+  if (target === 'driver') {
+    const { error: softErr } = await admin
+      .from('drivers')
+      .update({
+        user_id: null,
+        deleted_at: new Date().toISOString(),
+        driver_status: 'deleted',
+        is_online: false,
+        first_name: 'Deleted',
+        last_name: 'Driver',
+        email: `deleted+${profile_id}@onecab.invalid`,
+        phone: `deleted:${profile_id}`,
+        profile_photo_url: null,
+        residential_address: null,
+        postcode: null,
+      })
+      .eq('id', profile_id);
+
+    if (softErr) {
+      return jsonResponse(
+        { error: `Failed to soft-delete driver profile: ${softErr.message}` },
+        500,
+      );
+    }
+    profileMode = 'soft_deleted';
+  } else {
+    const { error: delProfileErr } = await admin
+      .from(profileTable)
+      .delete()
+      .eq('id', profile_id);
+
+    if (delProfileErr) {
+      return jsonResponse(
+        { error: `Failed to delete ${target} profile: ${delProfileErr.message}` },
+        500,
+      );
+    }
   }
 
   // 6. Check for any remaining role profiles for this auth user
@@ -165,11 +195,12 @@ Deno.serve(async (req) => {
   if (!hasOtherProfiles) {
     const { error: delAuthErr } = await admin.auth.admin.deleteUser(targetUserId);
     if (delAuthErr) {
-      // Profile is gone but auth deletion failed — surface the error so admin can retry.
+      // Profile is gone/detached but auth deletion failed — surface for retry.
       return jsonResponse(
         {
-          error: `Profile deleted, but failed to remove auth user: ${delAuthErr.message}`,
+          error: `Profile ${profileMode}, but failed to remove auth user: ${delAuthErr.message}`,
           profile_deleted: true,
+          profile_mode: profileMode,
           auth_user_deleted: false,
         },
         500,
@@ -186,6 +217,7 @@ Deno.serve(async (req) => {
       profile_id,
       target,
       reason: reason ?? null,
+      profile_mode: profileMode,
       auth_user_deleted: authUserDeleted,
       remaining_drivers: remainingDrivers ?? 0,
       remaining_customers: remainingCustomers ?? 0,
@@ -198,6 +230,7 @@ Deno.serve(async (req) => {
     success: true,
     target,
     profile_id,
+    profile_mode: profileMode,
     auth_user_deleted: authUserDeleted,
     remaining_profiles: {
       drivers: remainingDrivers ?? 0,
