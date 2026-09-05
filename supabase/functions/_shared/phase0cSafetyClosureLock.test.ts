@@ -80,7 +80,7 @@ Deno.test("model-scoped driver financial summary views exist locally", async () 
   );
   assertStringIncludes(sql, "platform_collected_driver_financial_summary");
   assertStringIncludes(sql, "commission_wallet_driver_financial_summary");
-  assertStringIncludes(sql, "commission_wallet_ledger");
+  assertStringIncludes(sql, "driver_commission_wallet_ledger");
 });
 
 Deno.test("COMMISSION_WALLET_READ_LEAKAGE = 0 on PLATFORM pages", async () => {

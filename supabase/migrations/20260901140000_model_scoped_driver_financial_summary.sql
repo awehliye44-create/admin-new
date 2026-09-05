@@ -1,5 +1,6 @@
--- Phase 0c — model-scoped driver financial summary views (local migration; not deployed).
--- Commission Wallet ledger lives in commission_wallet_ledger — never mixed here.
+-- Phase 0c — model-scoped driver financial summary views.
+-- PLATFORM summary from Driver Wallet evidence only.
+-- Commission Wallet summary from driver_commission_wallet_ledger only — never mixed.
 
 BEGIN;
 
@@ -30,15 +31,19 @@ SELECT
   d.last_name,
   d.email,
   d.region_id,
-  COALESCE(SUM(cwl.amount_pence) FILTER (
-    WHERE cwl.entry_type NOT IN ('ADMIN_DEBIT', 'PAYOUT')
+  COALESCE(SUM(
+    CASE
+      WHEN lower(COALESCE(cwl.direction, 'credit')) = 'debit' THEN -ABS(cwl.amount_minor)
+      ELSE ABS(cwl.amount_minor)
+    END
   ), 0)::bigint AS commission_wallet_balance_pence,
-  COALESCE(SUM(cwl.amount_pence) FILTER (
+  COALESCE(SUM(cwl.amount_minor) FILTER (
     WHERE cwl.entry_type = 'ADMIN_CREDIT'
+      AND lower(COALESCE(cwl.direction, 'credit')) = 'credit'
   ), 0)::bigint AS admin_credit_total_pence,
   COUNT(*) FILTER (WHERE cwl.entry_type = 'ADMIN_CREDIT') AS admin_credit_count
 FROM public.drivers d
-INNER JOIN public.commission_wallet_ledger cwl ON cwl.driver_id = d.id
+INNER JOIN public.driver_commission_wallet_ledger cwl ON cwl.driver_id = d.id
 GROUP BY d.id, d.first_name, d.last_name, d.email, d.region_id;
 
 COMMENT ON VIEW public.commission_wallet_driver_financial_summary IS
