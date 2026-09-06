@@ -92,26 +92,31 @@ async function fetchSidebarCountsOnce(skipCache = false): Promise<SidebarCounts>
           .from('trips')
           .select('id, status, searching_expires_at, driver_id, created_at, trip_code')
           .in('status', [...ACTIVE_TRIP_DB_STATUSES]),
+        // Mirror the Scheduled Rides board exactly: no terminal trips, no cancelled/expired schedules.
         supabase
           .from('trips')
           .select('id', { count: 'exact', head: true })
           .eq('is_scheduled', true)
-          .in('scheduled_status', ['pending', 'confirmed']),
+          .not('status', 'in', '(completed,cancelled,customer_cancelled,expired,expired_no_driver,no_show,declined)')
+          .or('scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)'),
         supabase
           .from('rider_feedback')
           .select('id', { count: 'exact', head: true })
           .in('status', ['pending', 'new']),
-        // Only count current (non-superseded) pending rows — superseded uploads
-        // are already actioned historically and must not inflate the badge.
+        // Only count current (non-superseded) pending rows for live drivers — superseded uploads
+        // and deleted drivers must not inflate the badge.
         supabase
           .from('documents')
-          .select('id', { count: 'exact', head: true })
+          .select('id, drivers!inner(deleted_at)', { count: 'exact', head: true })
           .eq('status', 'pending')
-          .eq('is_current', true),
+          .eq('is_current', true)
+          .is('drivers.deleted_at', null),
+        // Expired codes are no longer active on the Promo Codes page — keep the badge identical.
         supabase
           .from('promo_codes')
           .select('id', { count: 'exact', head: true })
-          .eq('is_active', true),
+          .eq('is_active', true)
+          .or(`valid_until.is.null,valid_until.gte.${new Date().toISOString()}`),
         supabase
           .from('admin_settings')
           .select('setting_value')
@@ -125,8 +130,10 @@ async function fetchSidebarCountsOnce(skipCache = false): Promise<SidebarCounts>
           .is('deleted_at', null),
         supabase
           .from('vehicle_change_requests')
-          .select('id', { count: 'exact', head: true })
-          .eq('status', 'pending'),
+          .select('id, drivers!inner(deleted_at)', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .is('drivers.deleted_at', null),
+
       ]);
 
       let pendingAccountRequests = 0;
