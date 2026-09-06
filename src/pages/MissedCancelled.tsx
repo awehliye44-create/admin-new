@@ -377,7 +377,7 @@ export default function MissedCancelled() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total Issues</p>
-                <p className="text-2xl font-bold">{trips.length}</p>
+                <p className="text-2xl font-bold">{totalIssues}</p>
               </div>
               <AlertTriangle className="h-8 w-8 text-muted-foreground opacity-80" />
             </div>
@@ -413,7 +413,7 @@ export default function MissedCancelled() {
                 <p className="text-[10px] text-muted-foreground">Not charged / not revenue</p>
                 {isMixedCurrency ? (
                   <CurrencyGroupedStats
-                    items={trips.map(t => ({
+                    items={statsFareRows.map(t => ({
                       currency_code: resolveTripCurrency(t) || '???',
                       amount: resolveAdminCommittedCustomerFarePence(t),
                     }))}
