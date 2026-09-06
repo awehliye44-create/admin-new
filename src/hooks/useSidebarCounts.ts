@@ -117,10 +117,12 @@ async function fetchSidebarCountsOnce(skipCache = false): Promise<SidebarCounts>
           .select('setting_value')
           .eq('setting_key', 'account_requests')
           .maybeSingle(),
+        // Only count live drivers awaiting approval — deleted drivers must not inflate the badge.
         supabase
           .from('drivers')
           .select('id', { count: 'exact', head: true })
-          .eq('approval_status', 'pending'),
+          .eq('approval_status', 'pending')
+          .is('deleted_at', null),
         supabase
           .from('vehicle_change_requests')
           .select('id', { count: 'exact', head: true })

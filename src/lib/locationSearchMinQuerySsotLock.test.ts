@@ -3,6 +3,7 @@
  * Stale rollout rows must not reintroduce the client↔Edge "mk" mismatch.
  */
 
+import { describe, expect, it } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
