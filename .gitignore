@@ -52,4 +52,5 @@ secrets/revolut-business/*_private.key
 .rollback-step*/
 .deploy-step*/
 .audit-fr-*/
+.audit-supabase-*/
 .worktrees/
