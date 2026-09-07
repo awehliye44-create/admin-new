@@ -447,6 +447,11 @@ export default function Documents() {
                           <div className="text-xs text-muted-foreground">
                             {doc.driver?.phone || 'No phone'}
                           </div>
+                          {isDeletedDriverDocument(doc) && (
+                            <Badge variant="outline" className="mt-1 bg-zinc-100 text-zinc-700 text-xs">
+                              Removed driver
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell>{getDocumentTypeLabel(doc.document_type)}</TableCell>
                         <TableCell className="font-medium">{doc.document_name}</TableCell>
