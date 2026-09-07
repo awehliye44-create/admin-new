@@ -72,7 +72,13 @@ interface Document {
     first_name: string;
     last_name: string;
     phone: string;
+    deleted_at: string | null;
   } | null;
+}
+
+/** A document belongs to a removed driver when the driver row is soft-deleted or gone. */
+function isDeletedDriverDocument(doc: Document): boolean {
+  return !doc.driver || Boolean(doc.driver.deleted_at);
 }
 
 
