@@ -114,6 +114,8 @@ export default function Documents() {
   const [reviewStatus, setReviewStatus] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [purgeTarget, setPurgeTarget] = useState<{ doc: Document; scope: 'document' | 'driver' } | null>(null);
+  const [isPurging, setIsPurging] = useState(false);
 
   const { data: documents = [], isLoading } = useQuery({
     queryKey: ['documents-review', includeSuperseded],
