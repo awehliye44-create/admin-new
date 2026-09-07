@@ -492,7 +492,7 @@ export default function Documents() {
                                 View Details
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              {doc.status === 'pending' && (
+                              {!isDeletedDriverDocument(doc) && doc.status === 'pending' && (
                                 <>
                                   <DropdownMenuItem 
                                     onClick={() => { 
