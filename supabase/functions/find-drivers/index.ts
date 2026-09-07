@@ -237,22 +237,55 @@ serve(async (req) => {
       });
     }
 
-    // Step 5: Filter by vehicle type if specified
+    // Step 5: Filter by vehicle type if specified.
+    // Align with auto-dispatch:
+    // - default type (ONECAB GO): include all online drivers except explicit is_enabled=false
+    // - non-default (Premium/XL/…): require driver_vehicle_categories.is_enabled=true
     let filteredDriverIds = drivers.map(d => d.id);
     
     if (vehicle_type_id) {
-      const { data: vehicleCategories, error: vcError } = await supabase
-        .from('driver_vehicle_categories')
-        .select('driver_id')
-        .eq('vehicle_type_id', vehicle_type_id)
-        .eq('is_enabled', true)
-        .in('driver_id', filteredDriverIds);
+      const { data: vType, error: vTypeError } = await supabase
+        .from('vehicle_types')
+        .select('is_default')
+        .eq('id', vehicle_type_id)
+        .maybeSingle();
 
-      if (vcError) {
-        console.error('Error fetching vehicle categories:', vcError);
+      if (vTypeError) {
+        console.error('Error fetching vehicle type:', vTypeError);
+      }
+
+      if (vType?.is_default) {
+        const { data: disabledCategories, error: disabledError } = await supabase
+          .from('driver_vehicle_categories')
+          .select('driver_id')
+          .eq('vehicle_type_id', vehicle_type_id)
+          .eq('is_enabled', false)
+          .in('driver_id', filteredDriverIds);
+
+        if (disabledError) {
+          console.error('Error fetching disabled vehicle categories:', disabledError);
+        } else {
+          const disabled = new Set((disabledCategories || []).map((row) => row.driver_id));
+          filteredDriverIds = filteredDriverIds.filter((id) => !disabled.has(id));
+          console.log(
+            'Default vehicle type — drivers after excluding explicit disables:',
+            filteredDriverIds.length,
+          );
+        }
       } else {
-        filteredDriverIds = (vehicleCategories || []).map(vc => vc.driver_id);
-        console.log('Drivers with matching vehicle type:', filteredDriverIds.length);
+        const { data: vehicleCategories, error: vcError } = await supabase
+          .from('driver_vehicle_categories')
+          .select('driver_id')
+          .eq('vehicle_type_id', vehicle_type_id)
+          .eq('is_enabled', true)
+          .in('driver_id', filteredDriverIds);
+
+        if (vcError) {
+          console.error('Error fetching vehicle categories:', vcError);
+        } else {
+          filteredDriverIds = (vehicleCategories || []).map(vc => vc.driver_id);
+          console.log('Drivers with matching vehicle type:', filteredDriverIds.length);
+        }
       }
     }
 

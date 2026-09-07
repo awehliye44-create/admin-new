@@ -85,6 +85,8 @@ Deno.test("corporate BookRide invokes find-drivers SSOT, not drivers.is_online",
 Deno.test("find-drivers remains the availability SSOT (no corporate-only calculator)", async () => {
   const findDrivers = await readAdmin("supabase/functions/find-drivers/index.ts");
   assertEquals(findDrivers.includes("driver_vehicle_categories"), true);
+  assertEquals(findDrivers.includes("is_default"), true);
+  assertEquals(findDrivers.includes("Default vehicle type"), true);
   assertEquals(findDrivers.includes("driver_service_areas"), true);
   assertEquals(findDrivers.includes(".eq('is_online', true)"), true);
   assertEquals(findDrivers.includes(".eq('approval_status', 'approved')"), true);
