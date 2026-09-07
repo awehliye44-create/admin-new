@@ -196,6 +196,15 @@ export async function sendPhoneChangeOtp(
       };
     }
 
+    if (mapped.code === "phone_blocked_by_provider") {
+      return {
+        ok: false,
+        message: PHONE_CHANGE_ERROR_MESSAGES.PHONE_BLOCKED_BY_PROVIDER,
+        code: PHONE_CHANGE_ERROR.PHONE_BLOCKED_BY_PROVIDER,
+        httpStatus: 400,
+      };
+    }
+
     return {
       ok: false,
       message: PHONE_CHANGE_ERROR_MESSAGES.OTP_SEND_FAILED,

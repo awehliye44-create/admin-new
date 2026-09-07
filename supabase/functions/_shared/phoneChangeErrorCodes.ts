@@ -4,6 +4,7 @@ export const PHONE_CHANGE_ERROR = {
   PHONE_ALREADY_IN_USE: "PHONE_ALREADY_IN_USE",
   INVALID_PHONE_FORMAT: "INVALID_PHONE_FORMAT",
   OTP_SEND_FAILED: "OTP_SEND_FAILED",
+  PHONE_BLOCKED_BY_PROVIDER: "PHONE_BLOCKED_BY_PROVIDER",
   AUTH_PHONE_UPDATE_FAILED: "AUTH_PHONE_UPDATE_FAILED",
   PENDING_PHONE_CONFLICT: "PENDING_PHONE_CONFLICT",
   RATE_LIMITED: "RATE_LIMITED",
@@ -21,6 +22,8 @@ export const PHONE_CHANGE_ERROR_MESSAGES: Record<PhoneChangeErrorCode, string> =
   PHONE_ALREADY_IN_USE: "This phone number is already registered.",
   INVALID_PHONE_FORMAT: "Enter a valid UK phone number.",
   OTP_SEND_FAILED: "We couldn't send the verification code. Please try again.",
+  PHONE_BLOCKED_BY_PROVIDER:
+    "This phone number can't receive SMS codes right now (blocked by the SMS provider). Tap Change and try a different number, or contact support.",
   AUTH_PHONE_UPDATE_FAILED: "We couldn't start phone verification. Please try again.",
   PENDING_PHONE_CONFLICT:
     "You already have a pending phone change. Please verify or cancel it first.",

@@ -177,6 +177,22 @@ export function mapOtpErrorToMessage(
     };
   }
 
+  // Twilio Verify 60410 / fraud prefix blocks — not a transient app failure.
+  if (
+    normalized.includes("60410") ||
+    normalized.includes("temporarily blocked") ||
+    normalized.includes("fraudulent") ||
+    normalized.includes("prefix is blocked") ||
+    normalized.includes("blocked for the sms channel")
+  ) {
+    return {
+      phase: "send",
+      code: "phone_blocked_by_provider",
+      message:
+        "This phone number can't receive SMS codes right now (blocked by the SMS provider). Tap Change and try a different number, or contact support.",
+    };
+  }
+
   if (phase === "send") {
     return {
       phase,

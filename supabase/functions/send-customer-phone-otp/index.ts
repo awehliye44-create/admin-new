@@ -164,6 +164,8 @@ Deno.serve(async (req) => {
           ? PHONE_CHANGE_ERROR.RATE_LIMITED
           : mapped.code === "duplicate_phone"
           ? PHONE_CHANGE_ERROR.PHONE_ALREADY_IN_USE
+          : mapped.code === "phone_blocked_by_provider"
+          ? PHONE_CHANGE_ERROR.PHONE_BLOCKED_BY_PROVIDER
           : PHONE_CHANGE_ERROR.OTP_SEND_FAILED;
         const message = code in PHONE_CHANGE_ERROR_MESSAGES
           ? PHONE_CHANGE_ERROR_MESSAGES[code as keyof typeof PHONE_CHANGE_ERROR_MESSAGES]
