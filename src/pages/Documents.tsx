@@ -627,6 +627,32 @@ export default function Documents() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Permanent deletion (data protection) */}
+        <Dialog open={Boolean(purgeTarget)} onOpenChange={(open) => { if (!open) setPurgeTarget(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {purgeTarget?.scope === 'driver'
+                  ? 'Delete all documents for this removed driver?'
+                  : 'Delete this document permanently?'}
+              </DialogTitle>
+              <DialogDescription>
+                This driver has been removed from the platform. The document record and the uploaded
+                file will be erased permanently. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPurgeTarget(null)} disabled={isPurging}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handlePurge} disabled={isPurging}>
+                {isPurging ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                Delete permanently
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AdminLayout>
   );
