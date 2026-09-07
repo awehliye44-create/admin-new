@@ -42,7 +42,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   FileText, Loader2, Search, RefreshCw, MoreHorizontal, Eye, 
   CheckCircle2, XCircle, Clock, AlertTriangle, FileCheck, FileClock,
-  Calendar, ExternalLink, ImageOff
+  Calendar, ExternalLink, ImageOff, Trash2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
