@@ -42,7 +42,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   FileText, Loader2, Search, RefreshCw, MoreHorizontal, Eye, 
   CheckCircle2, XCircle, Clock, AlertTriangle, FileCheck, FileClock,
-  Calendar, ExternalLink, ImageOff
+  Calendar, ExternalLink, ImageOff, Trash2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -72,7 +72,28 @@ interface Document {
     first_name: string;
     last_name: string;
     phone: string;
+    deleted_at: string | null;
   } | null;
+}
+
+/** A document belongs to a removed driver when the driver row is soft-deleted or gone. */
+function isDeletedDriverDocument(doc: Document): boolean {
+  return !doc.driver || Boolean(doc.driver.deleted_at);
+}
+
+/** Resolve the storage object path inside the private driver-documents bucket. */
+function extractDriverDocumentStoragePath(fileUrl: string | null | undefined): string | null {
+  if (!fileUrl) return null;
+  const patterns = [
+    /\/storage\/v1\/object\/(?:public|sign)\/driver-documents\/(.+)/,
+    /\/storage\/v1\/object\/driver-documents\/(.+)/,
+  ];
+  for (const pattern of patterns) {
+    const match = fileUrl.match(pattern);
+    if (match?.[1]) return decodeURIComponent(match[1].split('?')[0]);
+  }
+  if (!fileUrl.startsWith('http')) return fileUrl;
+  return null;
 }
 
 
@@ -108,6 +129,8 @@ export default function Documents() {
   const [reviewStatus, setReviewStatus] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [purgeTarget, setPurgeTarget] = useState<{ doc: Document; scope: 'document' | 'driver' } | null>(null);
+  const [isPurging, setIsPurging] = useState(false);
 
   const { data: documents = [], isLoading } = useQuery({
     queryKey: ['documents-review', includeSuperseded],
@@ -117,7 +140,7 @@ export default function Documents() {
         .from('documents')
         .select(`
           id, driver_id, document_type, document_type_id, document_name, file_url, status, expiry_date, notes, rejection_reason, reviewed_at, reviewed_by, created_at, updated_at, is_current, superseded_by, last_reminded_at, reminder_sent_days, submission_idempotency_key,
-          driver:drivers(id, first_name, last_name, phone)
+          driver:drivers(id, first_name, last_name, phone, deleted_at)
         `)
         .order('created_at', { ascending: false })
         .limit(500);
@@ -135,6 +158,51 @@ export default function Documents() {
 
   const refreshData = () => queryClient.invalidateQueries({ queryKey: ['documents-review'] });
 
+  /** Permanently erase document rows + their stored files (data-protection removal). */
+  const handlePurge = async () => {
+    if (!purgeTarget) return;
+    const { doc, scope } = purgeTarget;
+
+    setIsPurging(true);
+    try {
+      const { data: rows, error: loadErr } = await supabase
+        .from('documents')
+        .select('id, file_url')
+        .eq(scope === 'driver' ? 'driver_id' : 'id', scope === 'driver' ? doc.driver_id : doc.id);
+
+      if (loadErr) throw loadErr;
+
+      const targets = rows ?? [];
+      const paths = targets
+        .map((r) => extractDriverDocumentStoragePath(r.file_url))
+        .filter((p): p is string => Boolean(p));
+
+      if (paths.length > 0) {
+        const { error: storageErr } = await supabase.storage.from('driver-documents').remove(paths);
+        if (storageErr) throw storageErr;
+      }
+
+      const { error: deleteErr } = await supabase
+        .from('documents')
+        .delete()
+        .in('id', targets.map((r) => r.id));
+
+      if (deleteErr) throw deleteErr;
+
+      toast.success(
+        scope === 'driver'
+          ? `Deleted ${targets.length} document${targets.length === 1 ? '' : 's'} for this removed driver`
+          : 'Document permanently deleted',
+      );
+      setPurgeTarget(null);
+      refreshData();
+    } catch (err: any) {
+      console.error('Error deleting documents:', err);
+      toast.error(err.message || 'Failed to delete documents');
+    } finally {
+      setIsPurging(false);
+    }
+  };
 
   const handleReview = async () => {
     if (!selectedDocument || !reviewStatus) {
@@ -379,6 +447,11 @@ export default function Documents() {
                           <div className="text-xs text-muted-foreground">
                             {doc.driver?.phone || 'No phone'}
                           </div>
+                          {isDeletedDriverDocument(doc) && (
+                            <Badge variant="outline" className="mt-1 bg-zinc-100 text-zinc-700 text-xs">
+                              Removed driver
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell>{getDocumentTypeLabel(doc.document_type)}</TableCell>
                         <TableCell className="font-medium">{doc.document_name}</TableCell>
@@ -424,7 +497,7 @@ export default function Documents() {
                                 View Details
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              {doc.status === 'pending' && (
+                              {!isDeletedDriverDocument(doc) && doc.status === 'pending' && (
                                 <>
                                   <DropdownMenuItem 
                                     onClick={() => { 
@@ -452,7 +525,7 @@ export default function Documents() {
                                   </DropdownMenuItem>
                                 </>
                               )}
-                              {doc.status === 'approved' && (
+                              {!isDeletedDriverDocument(doc) && doc.status === 'approved' && (
                                 <DropdownMenuItem 
                                   onClick={() => { 
                                     setSelectedDocument(doc); 
@@ -465,6 +538,24 @@ export default function Documents() {
                                   <XCircle className="h-4 w-4 mr-2" />
                                   Re-reject &amp; Request Re-upload
                                 </DropdownMenuItem>
+                              )}
+                              {isDeletedDriverDocument(doc) && (
+                                <>
+                                  <DropdownMenuItem
+                                    onClick={() => setPurgeTarget({ doc, scope: 'document' })}
+                                    className="text-red-600"
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete this document
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => setPurgeTarget({ doc, scope: 'driver' })}
+                                    className="text-red-600"
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete all documents for this driver
+                                  </DropdownMenuItem>
+                                </>
                               )}
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -537,6 +628,32 @@ export default function Documents() {
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 {reviewStatus === 'approved' ? 'Approve' : 'Reject'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Permanent deletion (data protection) */}
+        <Dialog open={Boolean(purgeTarget)} onOpenChange={(open) => { if (!open) setPurgeTarget(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {purgeTarget?.scope === 'driver'
+                  ? 'Delete all documents for this removed driver?'
+                  : 'Delete this document permanently?'}
+              </DialogTitle>
+              <DialogDescription>
+                This driver has been removed from the platform. The document record and the uploaded
+                file will be erased permanently. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPurgeTarget(null)} disabled={isPurging}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handlePurge} disabled={isPurging}>
+                {isPurging ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                Delete permanently
               </Button>
             </DialogFooter>
           </DialogContent>
