@@ -143,6 +143,51 @@ export default function Documents() {
 
   const refreshData = () => queryClient.invalidateQueries({ queryKey: ['documents-review'] });
 
+  /** Permanently erase document rows + their stored files (data-protection removal). */
+  const handlePurge = async () => {
+    if (!purgeTarget) return;
+    const { doc, scope } = purgeTarget;
+
+    setIsPurging(true);
+    try {
+      const { data: rows, error: loadErr } = await supabase
+        .from('documents')
+        .select('id, file_url')
+        .eq(scope === 'driver' ? 'driver_id' : 'id', scope === 'driver' ? doc.driver_id : doc.id);
+
+      if (loadErr) throw loadErr;
+
+      const targets = rows ?? [];
+      const paths = targets
+        .map((r) => extractDriverDocumentStoragePath(r.file_url))
+        .filter((p): p is string => Boolean(p));
+
+      if (paths.length > 0) {
+        const { error: storageErr } = await supabase.storage.from('driver-documents').remove(paths);
+        if (storageErr) throw storageErr;
+      }
+
+      const { error: deleteErr } = await supabase
+        .from('documents')
+        .delete()
+        .in('id', targets.map((r) => r.id));
+
+      if (deleteErr) throw deleteErr;
+
+      toast.success(
+        scope === 'driver'
+          ? `Deleted ${targets.length} document${targets.length === 1 ? '' : 's'} for this removed driver`
+          : 'Document permanently deleted',
+      );
+      setPurgeTarget(null);
+      refreshData();
+    } catch (err: any) {
+      console.error('Error deleting documents:', err);
+      toast.error(err.message || 'Failed to delete documents');
+    } finally {
+      setIsPurging(false);
+    }
+  };
 
   const handleReview = async () => {
     if (!selectedDocument || !reviewStatus) {
