@@ -520,7 +520,7 @@ export default function Documents() {
                                   </DropdownMenuItem>
                                 </>
                               )}
-                              {doc.status === 'approved' && (
+                              {!isDeletedDriverDocument(doc) && doc.status === 'approved' && (
                                 <DropdownMenuItem 
                                   onClick={() => { 
                                     setSelectedDocument(doc); 
@@ -533,6 +533,24 @@ export default function Documents() {
                                   <XCircle className="h-4 w-4 mr-2" />
                                   Re-reject &amp; Request Re-upload
                                 </DropdownMenuItem>
+                              )}
+                              {isDeletedDriverDocument(doc) && (
+                                <>
+                                  <DropdownMenuItem
+                                    onClick={() => setPurgeTarget({ doc, scope: 'document' })}
+                                    className="text-red-600"
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete this document
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => setPurgeTarget({ doc, scope: 'driver' })}
+                                    className="text-red-600"
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete all documents for this driver
+                                  </DropdownMenuItem>
+                                </>
                               )}
                             </DropdownMenuContent>
                           </DropdownMenu>
