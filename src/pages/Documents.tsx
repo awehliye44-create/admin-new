@@ -81,6 +81,21 @@ function isDeletedDriverDocument(doc: Document): boolean {
   return !doc.driver || Boolean(doc.driver.deleted_at);
 }
 
+/** Resolve the storage object path inside the private driver-documents bucket. */
+function extractDriverDocumentStoragePath(fileUrl: string | null | undefined): string | null {
+  if (!fileUrl) return null;
+  const patterns = [
+    /\/storage\/v1\/object\/(?:public|sign)\/driver-documents\/(.+)/,
+    /\/storage\/v1\/object\/driver-documents\/(.+)/,
+  ];
+  for (const pattern of patterns) {
+    const match = fileUrl.match(pattern);
+    if (match?.[1]) return decodeURIComponent(match[1].split('?')[0]);
+  }
+  if (!fileUrl.startsWith('http')) return fileUrl;
+  return null;
+}
+
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: 'Pending Review', color: 'bg-yellow-100 text-yellow-700', icon: Clock },
