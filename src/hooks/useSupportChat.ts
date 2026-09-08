@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 import { isAdminPageLiveActive } from "@/lib/adminPageVisibility";
 import { ADMIN_SUPPORT_INBOX_PAGE_SIZE } from "@/lib/adminQueryBounds";
 
@@ -132,12 +132,16 @@ export function useSupportConversations(
   pageSize: number = ADMIN_SUPPORT_INBOX_PAGE_SIZE,
 ) {
   const queryClient = useQueryClient();
+  // Unique topic per hook instance: the floating widget and the Live Chat page
+  // mount this hook concurrently, and a shared topic would reject the second
+  // set of postgres_changes bindings after subscribe().
+  const instanceId = useId();
 
   // Realtime: invalidate on any INSERT or UPDATE to support_conversations or
   // support_messages so the list and unread badges refresh live.
   useEffect(() => {
     const convChannel = supabase
-      .channel("support-conversations-live")
+      .channel(`support-conversations-live:${instanceId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "support_conversations" },
@@ -159,7 +163,7 @@ export function useSupportConversations(
     return () => {
       supabase.removeChannel(convChannel);
     };
-  }, [queryClient]);
+  }, [queryClient, instanceId]);
 
   return useQuery({
     queryKey: ["support-conversations", statusFilter, pageSize],
@@ -220,13 +224,14 @@ export function useSupportConversations(
 // Fetch messages for a conversation
 export function useSupportMessages(conversationId: string | null) {
   const queryClient = useQueryClient();
+  const instanceId = useId();
 
   // Real-time subscription
   useEffect(() => {
     if (!conversationId) return;
 
     const channel = supabase
-      .channel(`support-messages-${conversationId}`)
+      .channel(`support-messages-${conversationId}:${instanceId}`)
       .on(
         "postgres_changes",
         {
@@ -245,7 +250,7 @@ export function useSupportMessages(conversationId: string | null) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [conversationId, queryClient]);
+  }, [conversationId, queryClient, instanceId]);
 
   return useQuery({
     queryKey: ["support-messages", conversationId],
