@@ -83,9 +83,10 @@ Deno.serve(async (req) => {
   if (conv.channel !== "whatsapp") {
     return json({ error: "not_a_whatsapp_conversation" }, 400);
   }
-  if (conv.status === "resolved" || conv.status === "closed") {
-    return json({ error: "conversation_closed" }, 400);
-  }
+  // A resolved/closed conversation is reopened when an admin replies — replying
+  // is an explicit intent to continue the conversation.
+  const wasClosed = conv.status === "resolved" || conv.status === "closed";
+
 
   const waId = conv.wa_id as string | null;
   if (!waId) return json({ error: "wa_id_missing" }, 400);
@@ -119,8 +120,13 @@ Deno.serve(async (req) => {
   // ── Update support conversation last_message_at.
   await svcClient
     .from("support_conversations")
-    .update({ last_message_at: nowIso, updated_at: nowIso })
+    .update({
+      last_message_at: nowIso,
+      updated_at: nowIso,
+      ...(wasClosed ? { status: "open" } : {}),
+    })
     .eq("id", convId);
+
 
   // ── Update whatsapp_conversations.last_outbound_at.
   await svcClient
