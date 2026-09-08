@@ -1,5 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
+import {
+  OPERATIONAL_CASH_VIOLATION,
+  completeTripCashDecision,
+  decideStopWorkflowCaller,
+  tripVisibleToDriver,
+} from "../_shared/stopWorkflowSecurity.ts";
 import { getDriverCommissionPct } from "../_shared/commission.ts";
 import { resolveTripFare, type TripFareRow } from "../_shared/tripFareSSOT.ts";
 import {
@@ -1763,45 +1769,39 @@ Deno.serve(async (req) => {
       return validationErrorResponse(validationErrors);
     }
 
-    // SECURITY: Verify authenticated user and derive driver_id from JWT
-    let driver_id: string;
-    
+    // Caller identity is auth.getUser() via requireAuthenticatedUser.
+    // Body driver_id is never an authorization source. No proven internal
+    // service_role caller of stop-workflow exists, so a service-role bearer
+    // without a driver user JWT is denied.
+    let verifiedUserId: string | null = null;
+    let driverIdForUser: string | null = null;
     if (authHeader) {
       const auth = await requireAuthenticatedUser(req, supabaseUrl, anonKey);
-      if (!auth.ok) {
-        return auth.response;
-      }
-      const userId = auth.userId;
-      const user = { id: userId };
-      
-      // Get driver_id from authenticated user
-      const { data: driver, error: driverError } = await supabase
-        .from('drivers')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-      
-      if (driverError || !driver) {
-        console.log("[stop-workflow] Driver not found for user:", user.id);
-        return errorResponse("FORBIDDEN", "Driver account not found for authenticated user", 403);
-      }
-      
-      driver_id = driver.id;
-      
-      // Log if client sent a different driver_id (potential attack attempt)
-      if (requestedDriverId && requestedDriverId !== driver_id) {
-        console.warn("[stop-workflow] SECURITY: Client sent different driver_id. Claimed:", requestedDriverId, "Actual:", driver_id);
-      }
-    } else {
-      // No auth header - check if this is a service role call (internal)
-      if (!requestedDriverId) {
-        return errorResponse("UNAUTHORIZED", "Authentication required", 401);
-      }
-      if (!isValidUUID(requestedDriverId)) {
-        return errorResponse("BAD_REQUEST", "driver_id must be a valid UUID", 400);
-      }
-      driver_id = requestedDriverId;
-      console.warn("[stop-workflow] SECURITY: Unauthenticated request using driver_id from body - this will be deprecated");
+      if (!auth.ok) return auth.response;
+      verifiedUserId = auth.userId;
+      const { data: driver } = await supabase
+        .from("drivers")
+        .select("id")
+        .eq("user_id", auth.userId)
+        .maybeSingle();
+      driverIdForUser = driver?.id ?? null;
+    }
+
+    const caller = decideStopWorkflowCaller({
+      hasAuthorizationHeader: Boolean(authHeader),
+      userId: verifiedUserId,
+      driverIdForUser,
+      bodyDriverId: requestedDriverId,
+    });
+    if (!caller.ok) {
+      return errorResponse(caller.code, caller.message, caller.status);
+    }
+    const driver_id = caller.driverId;
+    if (caller.ignoredBodyDriverId) {
+      console.warn("[stop-workflow] SECURITY: ignored body driver_id spoof", {
+        claimed: requestedDriverId,
+        resolved: driver_id,
+      });
     }
 
     console.log("[stop-workflow] Authorized driver:", driver_id);
@@ -1810,7 +1810,7 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripError } = await supabase
       .from("trips")
       .select(
-        "id, status, dispatch_status, dispatch_mode, service_area_id, vehicle_type_id, region_id, passenger_id, driver_id, confirmed_driver_id, previous_driver_id, pickup_address, dropoff_address, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, arrived_at, pickup_arrived_at, started_at, completed_at, cancelled_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, stop_arrived_at, stop_waiting_started_at, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, payment_status, payment_method, scheduled_at, airport_charge_pence, driver_started_journey_to_pickup_at, special_instructions, stacked_trip_id, tip_window_expires_at, tip_window_closed_at, updated_at",
+        "id, status, dispatch_status, dispatch_mode, service_area_id, vehicle_type_id, region_id, passenger_id, driver_id, confirmed_driver_id, previous_driver_id, pickup_address, dropoff_address, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, arrived_at, pickup_arrived_at, started_at, completed_at, cancelled_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, stop_arrived_at, stop_waiting_started_at, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, financial_model, payment_status, payment_method, cash_authorized_at, scheduled_at, airport_charge_pence, driver_started_journey_to_pickup_at, special_instructions, stacked_trip_id, tip_window_expires_at, tip_window_closed_at, updated_at",
       )
       .eq("id", trip_id)
       .single();
@@ -1820,9 +1820,33 @@ Deno.serve(async (req) => {
       return errorResponse("trip_not_found", "Trip not found", 404);
     }
 
-    // Verify driver authorization — assigned driver only (no offer auto-assign on terminal trips)
+    // Ownership before any trip-status disclosure. Missing and unassigned
+    // trips share trip_not_found so an unrelated driver cannot probe existence.
+    // A pending/accepted offer remains a legitimate first-assignment claim.
     const assignedDriverId =
       trip.confirmed_driver_id ?? trip.driver_id ?? null;
+    let claimOfferId: string | null = null;
+    if (assignedDriverId !== driver_id) {
+      const { data: offer } = await supabase
+        .from("ride_offers")
+        .select("id, status")
+        .eq("trip_id", trip_id)
+        .eq("driver_id", driver_id)
+        .in("status", ["pending", "accepted"])
+        .limit(1)
+        .maybeSingle();
+      const visibility = tripVisibleToDriver({
+        tripExists: true,
+        assignedDriverId,
+        callerDriverId: driver_id,
+        hasPendingOrAcceptedOffer: Boolean(offer),
+      });
+      if (!visibility.visible) {
+        console.log("[stop-workflow] trip_not_found: caller not assigned");
+        return errorResponse("trip_not_found", "Trip not found", 404);
+      }
+      claimOfferId = offer?.id ?? null;
+    }
 
     if (isTripTerminalStatus(trip.status) && action !== "driver_cancel" && action !== "cancel_queued_stacked") {
       const s = normTripStatus(trip.status);
@@ -1839,30 +1863,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const isAuthorized = assignedDriverId === driver_id;
-
-    if (!isAuthorized) {
-      const { data: offer } = await supabase
-        .from('ride_offers')
-        .select('id, status')
-        .eq('trip_id', trip_id)
-        .eq('driver_id', driver_id)
-        .in('status', ['pending', 'accepted'])
-        .limit(1)
-        .maybeSingle();
-
-      if (!offer) {
-        console.log("[stop-workflow] driver_not_assigned. confirmed:", trip.confirmed_driver_id, "requesting:", driver_id);
-        return errorResponse(
-          "driver_not_assigned",
-          assignedDriverId
-            ? "Trip was assigned to another driver"
-            : "Driver is not assigned to this trip",
-          403,
-          { assigned_driver_id: assignedDriverId },
-        );
-      }
-
+    if (claimOfferId) {
       if (isTripTerminalStatus(trip.status)) {
         return errorResponse(
           "trip_terminal",
@@ -1892,7 +1893,7 @@ Deno.serve(async (req) => {
       try {
         const finalize = await finalizeRideAssignmentSideEffects(supabase, {
           tripId: trip_id,
-          offerId: offer.id,
+          offerId: claimOfferId,
           driverId: driver_id,
           source: "edge_stop_workflow_offer_claim",
           acceptedVia: "stop_workflow_offer_claim",
@@ -2930,6 +2931,17 @@ Deno.serve(async (req) => {
           return await respondOk({ success: true, idempotent: true, message: "Trip already completed" });
         }
 
+        // Obsolete PLATFORM_COLLECTED cash. Fail closed before waiting,
+        // status, or ledger writes. DRIVER_COLLECTED cash is not this path.
+        if (completeTripCashDecision(trip) === "fail_closed_operational_cash") {
+          console.error("[stop-workflow]", OPERATIONAL_CASH_VIOLATION, { trip_id });
+          return errorResponse(
+            "FINANCIAL_MODEL_VIOLATION",
+            OPERATIONAL_CASH_VIOLATION,
+            409,
+          );
+        }
+
         const finalStop = stops?.find(s => s.type === 'dropoff');
         if (!finalStop) {
           return errorResponse("NO_DROPOFF", "Final stop not found", 400);
@@ -3058,8 +3070,15 @@ Deno.serve(async (req) => {
 
         const commissionPct = Number(commissionResult);
         const tipAmountPence = fareTrip.tip_amount_pence || fareTrip.tip_pence || 0;
-        const isCash = (fareTrip.payment_method ?? "").toLowerCase() === "cash";
-        const isOperationalCash = isCash && Boolean(fareTrip.cash_authorized_at);
+        const cashDecision = completeTripCashDecision(fareTrip);
+        if (cashDecision === "fail_closed_operational_cash") {
+          console.error("[stop-workflow]", OPERATIONAL_CASH_VIOLATION, { trip_id });
+          return errorResponse(
+            "FINANCIAL_MODEL_VIOLATION",
+            OPERATIONAL_CASH_VIOLATION,
+            409,
+          );
+        }
         const tripFinancialModel =
           String(fareTrip.financial_model ?? "").trim().toUpperCase();
         const mayPostDriverWalletLedger = tripFinancialModel === "PLATFORM_COLLECTED";
@@ -3104,7 +3123,7 @@ Deno.serve(async (req) => {
           driverNetBeforeTip,
           tipAmountPence,
           driverTotalEarnings,
-          isCash,
+          cashDecision,
           needsProviderSettlement,
           provider_order_id: providerOrderId,
           payment_provider: fareTrip.payment_provider ?? null,
@@ -3276,24 +3295,16 @@ Deno.serve(async (req) => {
         const skipCardLedgerInStopWorkflow = needsProviderSettlement;
         if ((commissionableFarePence > 0 || tipAmountPence > 0) && !skipCardLedgerInStopWorkflow && mayPostDriverWalletLedger) {
           stages.mark('wallet_ledger_start');
-          if (isCash && !isOperationalCash) {
-            // Historical legacy cash trips — fare snapshot only; no cash settlement ledger.
-            await Promise.all([
-              supabase.from("trips").update({
-                ...tripSettlementDbColumns(settlement),
-                tip_amount_pence: tipAmountPence,
-                tip_pence: tipAmountPence,
-                final_fare_pence: finalFarePence,
-                final_customer_fare_pence:
-                  nonNegInt(fareTrip.final_customer_fare_pence) || finalFarePence,
-              }).eq("id", trip_id),
-              tripIncrementPromise,
-            ]);
-          } else {
+          if (cashDecision !== "not_cash") {
+            console.error("[stop-workflow]", OPERATIONAL_CASH_VIOLATION, { trip_id, cashDecision });
+            return errorResponse(
+              "FINANCIAL_MODEL_VIOLATION",
+              OPERATIONAL_CASH_VIOLATION,
+              409,
+            );
+          }
           // Check all existing ledger entries in parallel
-          const ledgerTypes = isOperationalCash
-            ? ['CASH_COMMISSION_DEBT', 'CASH_TRIP_EARNING', 'PLATFORM_COMMISSION']
-            : ['TRIP_EARNING_NET', 'PLATFORM_COMMISSION'];
+          const ledgerTypes = ['TRIP_EARNING_NET', 'PLATFORM_COMMISSION'];
           if (tipAmountPence > 0) ledgerTypes.push('DRIVER_TIP_CREDIT');
 
           const existingChecks = await Promise.all(
@@ -3320,42 +3331,13 @@ Deno.serve(async (req) => {
             final_customer_fare_pence:
               nonNegInt(fareTrip.final_customer_fare_pence) || finalFarePence,
           };
-          if (isOperationalCash) {
-            tripFareUpdate.payment_status = "collected_cash";
-          }
           // Card payment_status is owned by finalize-trip-and-capture + provider webhook
 
           parallelOps.push(
             supabase.from("trips").update(tripFareUpdate).eq("id", trip_id),
           );
 
-          if (isOperationalCash) {
-            if (!existsMap['CASH_COMMISSION_DEBT']) {
-              parallelOps.push(
-                supabase.from("driver_wallet_ledger").insert({
-                  driver_id,
-                  related_trip_id: trip_id,
-                  type: 'CASH_COMMISSION_DEBT',
-                  amount_pence: -commissionPence,
-                  currency: ledgerCurrency || 'GBP',
-                  description: `Cash trip commission due (${settlement.tier_percent_used}% of ${cs}${(commissionableFarePence / 100).toFixed(2)})`,
-                })
-              );
-            }
-            if (!existsMap['CASH_TRIP_EARNING']) {
-              const grossCashFare = commissionableFarePence + settlement.airport_charge_pence + settlement.other_pass_through_charges_pence;
-              parallelOps.push(
-                supabase.from("driver_wallet_ledger").insert({
-                  driver_id,
-                  related_trip_id: trip_id,
-                  type: 'CASH_TRIP_EARNING',
-                  amount_pence: grossCashFare,
-                  currency: ledgerCurrency || 'GBP',
-                  description: `Cash trip gross fare collected (${cs}${(grossCashFare / 100).toFixed(2)})`,
-                })
-              );
-            }
-          } else if (!existsMap['TRIP_EARNING_NET']) {
+          if (!existsMap['TRIP_EARNING_NET']) {
             parallelOps.push(
               postTripEarningNetCanonical(supabase, {
                 driverId: driver_id,
@@ -3376,7 +3358,7 @@ Deno.serve(async (req) => {
                 type: 'PLATFORM_COMMISSION',
                 amount_pence: commissionPence,
                 currency: ledgerCurrency || 'GBP',
-                description: `Platform commission ${settlement.tier_percent_used}% on ${cs}${(commissionableFarePence / 100).toFixed(2)} (${isOperationalCash ? 'cash' : 'card'})`,
+                description: `Platform commission ${settlement.tier_percent_used}% on ${cs}${(commissionableFarePence / 100).toFixed(2)} (card)`,
               })
             );
           }
@@ -3397,7 +3379,6 @@ Deno.serve(async (req) => {
           // Fire all ledger inserts + fare update + trip increment in parallel
           parallelOps.push(tripIncrementPromise);
           await Promise.all(parallelOps);
-          }
           stages.mark('wallet_ledger_end');
         } else {
           // No fare — just increment trips
