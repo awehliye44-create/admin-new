@@ -317,8 +317,16 @@ export function useSendMessage() {
 
         const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
         if (!res.ok || !json.ok) {
-          throw new Error(json.error || "WhatsApp send failed");
+          const messages: Record<string, string> = {
+            conversation_not_found: "This conversation no longer exists.",
+            not_a_whatsapp_conversation: "This conversation is not a WhatsApp chat.",
+            wa_id_missing: "No WhatsApp number is linked to this conversation.",
+            outbound_unconfigured: "WhatsApp sending is not configured yet.",
+            meta_send_failed: "WhatsApp rejected the message. The 24-hour reply window may have closed.",
+          };
+          throw new Error(messages[json.error ?? ""] || json.error || "WhatsApp send failed");
         }
+
         return json;
       }
 
