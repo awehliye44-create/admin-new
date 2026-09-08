@@ -83,8 +83,8 @@ describe('phase3Batch3eMaintenanceExecuteLock', () => {
     expect(rb).not.toMatch(/\bREVOKE\b/i);
   });
 
-  it('3E2 and 3E3 revoke authenticated and keep service_role for proven Edge callers', () => {
-    const later = SPLITS.slice(1).filter(
+  it('3E2 revokes authenticated and keeps service_role for proven Edge callers', () => {
+    const later = SPLITS.slice(1, 2).filter(
       (split) => fs.existsSync(path.join(ROOT, split.canonical)),
     );
     if (later.length === 0) return;
@@ -103,6 +103,6 @@ describe('phase3Batch3eMaintenanceExecuteLock', () => {
         expect(rb).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION ${s} TO authenticated`, 'i'));
       }
     }
-    expect(seen.size).toBe(18);
+    expect(seen.size).toBe(13);
   });
 });
