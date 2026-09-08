@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminPageAccessGate } from './AdminPageAccessGate';
@@ -12,6 +12,9 @@ import { AdminLiveChatWidget } from '@/components/chat/AdminLiveChatWidget';
  * Page permission denials replace main content only — never the sidebar.
  */
 export function AdminShell() {
+  const { pathname } = useLocation();
+  const isLiveChatPage = pathname === '/live-chat' || pathname.startsWith('/live-chat/');
+
   return (
     <div className="admin-shell flex h-screen w-full bg-background overflow-hidden">
       <AdminSidebar />
@@ -32,7 +35,7 @@ export function AdminShell() {
           </Suspense>
         </AdminPageAccessGate>
       </main>
-      <AdminLiveChatWidget />
+      {!isLiveChatPage && <AdminLiveChatWidget />}
     </div>
   );
 }
