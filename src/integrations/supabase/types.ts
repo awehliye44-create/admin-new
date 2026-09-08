@@ -27722,6 +27722,11 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: Json
       }
+      assert_driver_wallet_read_access: {
+        Args: { p_driver_id: string }
+        Returns: undefined
+      }
+      assert_finance_payout_ledger_access: { Args: never; Returns: undefined }
       assert_payment_authorized: {
         Args: { _trip_id: string }
         Returns: boolean
@@ -30215,6 +30220,7 @@ export type Database = {
         Args: { p_page_slug?: string }
         Returns: boolean
       }
+      staff_has_page_access: { Args: { p_page_slug: string }; Returns: boolean }
       staff_role_of: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["staff_role"]
