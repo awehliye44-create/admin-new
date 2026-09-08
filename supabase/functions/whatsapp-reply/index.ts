@@ -120,8 +120,13 @@ Deno.serve(async (req) => {
   // ── Update support conversation last_message_at.
   await svcClient
     .from("support_conversations")
-    .update({ last_message_at: nowIso, updated_at: nowIso })
+    .update({
+      last_message_at: nowIso,
+      updated_at: nowIso,
+      ...(wasClosed ? { status: "open" } : {}),
+    })
     .eq("id", convId);
+
 
   // ── Update whatsapp_conversations.last_outbound_at.
   await svcClient
