@@ -1,8 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import {
   handleCORSPreflight,
-  jsonHeaders,
-  securityHeaders,
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
@@ -12,43 +10,40 @@ import {
   isManualEmergencyDispatchOnly,
 } from "../_shared/dispatchOrchestrator.ts";
 import { recordDispatchWaveSnapshot } from "../_shared/recordDispatchWaveSnapshot.ts";
+import { authorizeAdminEmergencyDispatch } from "../_shared/adminEmergencyDispatchAuth.ts";
 
 Deno.serve(async (req) => {
-  const preflight = handleCORSPreflight(req);
-  if (preflight) return preflight;
+  // handleCORSPreflight always returns 204 — only use it for OPTIONS.
+  if (req.method === "OPTIONS") return handleCORSPreflight();
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return errorResponse("UNAUTHORIZED", "Missing authorization", 401);
-    }
-
-    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
+    const gate = await authorizeAdminEmergencyDispatch(req, {
+      supabaseUrl,
+      anonKey: supabaseAnonKey,
     });
-    const token = authHeader.replace("Bearer ", "");
-    const { data: userData, error: userError } = await supabaseAuth.auth.getUser(token);
-    if (userError || !userData?.user) {
-      return errorResponse("UNAUTHORIZED", "Invalid token", 401);
-    }
+    if (!gate.ok) return gate.response;
 
+    // Privileged database work starts only after JWT + user-scoped has_role succeed.
     const supabase = createClient(supabaseUrl, serviceRoleKey);
-    const { data: isAdmin } = await supabase.rpc("has_role", {
-      _user_id: userData.user.id,
-      _role: "admin",
-    });
-    if (!isAdmin) {
-      return errorResponse("FORBIDDEN", "Admin role required", 403);
-    }
 
-    const body = await req.json() as { trip_id?: string };
+    const body = await req.json().catch(() => ({})) as {
+      trip_id?: string;
+      user_id?: string;
+      actor_id?: string;
+      actor_user_id?: string;
+    };
     if (!body?.trip_id) {
       return errorResponse("BAD_REQUEST", "trip_id is required", 400);
     }
+    // Spoofed actor fields are ignored. Authorization used gate.actorUserId only.
+    void body.user_id;
+    void body.actor_id;
+    void body.actor_user_id;
+    void gate.actorUserId;
 
     const settings = await loadDispatchSettings(supabase, null);
     if (!isManualEmergencyDispatchOnly(settings)) {
