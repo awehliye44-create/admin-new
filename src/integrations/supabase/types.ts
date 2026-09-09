@@ -28027,6 +28027,16 @@ export type Database = {
         }
         Returns: Json
       }
+      corporate_new_booking_guard_decision: {
+        Args: {
+          p_account_found: boolean
+          p_original_payment_method: string
+          p_payment_method: string
+          p_payment_type: string
+          p_status: string
+        }
+        Returns: undefined
+      }
       create_driver_vehicle: {
         Args: {
           p_color: string
@@ -30449,6 +30459,16 @@ export type Database = {
       trip_status_is_live_trackable: {
         Args: { p_status: string }
         Returns: boolean
+      }
+      update_corporate_account_profile: {
+        Args: {
+          p_address: string
+          p_company_name: string
+          p_contact_name: string
+          p_contact_phone: string
+          p_corporate_account_id: string
+        }
+        Returns: Json
       }
       update_driver_location: {
         Args: {
