@@ -11,6 +11,10 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
+import {
+  authorizeInternalNotificationRequest,
+  methodNotAllowedResponse,
+} from "../_shared/internalNotificationAuth.ts";
 import { buildRideOfferClientPushData } from "../_shared/rideOfferClientPushData.ts";
 import { RIDE_OFFER_IOS_ALERT_SOUND } from "../_shared/rideOfferPushCopy.ts";
 import {
@@ -201,10 +205,19 @@ Deno.serve(async (req) => {
     return handleCORSPreflight();
   }
 
+  // In-memory IP throttle only — no privileged DB work before auth.
   const clientIP = getClientIP(req);
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
   if (!rateLimitResult.allowed) {
     return rateLimitResponse(rateLimitResult);
+  }
+
+  // Admission before body parse / service-role client construction.
+  const auth = authorizeInternalNotificationRequest(req);
+  if (!auth.ok) return auth.response;
+
+  if (req.method !== "POST") {
+    return methodNotAllowedResponse();
   }
 
   try {
