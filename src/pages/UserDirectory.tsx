@@ -30,7 +30,12 @@ const USER_TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode; c
   corporate: { label: 'Corporate', icon: <Building2 className="h-3.5 w-3.5" />, color: 'bg-amber-500/15 text-amber-600 border-amber-500/30' },
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  profile_incomplete: 'Profile incomplete',
+};
+
 const STATUS_COLORS: Record<string, string> = {
+  profile_incomplete: 'bg-amber-500/15 text-amber-600 border-amber-500/30',
   active: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30',
   approved: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30',
   pending: 'bg-amber-500/15 text-amber-600 border-amber-500/30',
@@ -192,7 +197,7 @@ export default function UserDirectory() {
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className={statusColor}>
-                            {u.status}
+                            {STATUS_LABELS[u.status] || u.status}
                           </Badge>
                         </TableCell>
                         <TableCell>
