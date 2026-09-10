@@ -26983,19 +26983,6 @@ export type Database = {
         }
         Relationships: []
       }
-      user_directory: {
-        Row: {
-          created_at: string | null
-          email: string | null
-          full_name: string | null
-          has_linked_record: boolean | null
-          phone: string | null
-          status: string | null
-          user_id: string | null
-          user_type: string | null
-        }
-        Relationships: []
-      }
       v_finance_era_digital: {
         Row: {
           amount_pence: number | null
@@ -27592,21 +27579,17 @@ export type Database = {
       admin_user_directory: {
         Args: never
         Returns: {
-          created_at: string | null
-          email: string | null
-          full_name: string | null
-          has_linked_record: boolean | null
-          phone: string | null
-          status: string | null
-          user_id: string | null
-          user_type: string | null
+          created_at: string
+          email: string
+          full_name: string
+          has_linked_record: boolean
+          last_sign_in_at: string
+          linked_record_id: string
+          phone: string
+          status: string
+          user_id: string
+          user_type: string
         }[]
-        SetofOptions: {
-          from: "*"
-          to: "user_directory"
-          isOneToOne: false
-          isSetofReturn: true
-        }
       }
       advance_trip_change_after_payment: {
         Args: { p_request_id: string }
