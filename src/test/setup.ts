@@ -1,37 +1,38 @@
 import "@testing-library/jest-dom";
 
-// Mock matchMedia for components that use media queries
-Object.defineProperty(window, "matchMedia", {
-  writable: true,
-  value: (query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: () => {},
-    removeListener: () => {},
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    dispatchEvent: () => false,
-  }),
-});
+// jsdom-only DOM mocks (node environment lock tests skip these)
+if (typeof window !== "undefined") {
+  // Mock matchMedia for components that use media queries
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
 
-// Mock ResizeObserver
-class ResizeObserverMock {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+  // Mock ResizeObserver
+  class ResizeObserverMock {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  window.ResizeObserver = ResizeObserverMock;
+
+  // Mock IntersectionObserver
+  class IntersectionObserverMock {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  window.IntersectionObserver = IntersectionObserverMock as any;
+
+  // Mock scrollTo
+  window.scrollTo = () => {};
 }
-
-window.ResizeObserver = ResizeObserverMock;
-
-// Mock IntersectionObserver
-class IntersectionObserverMock {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-
-window.IntersectionObserver = IntersectionObserverMock as any;
-
-// Mock scrollTo
-window.scrollTo = () => {};

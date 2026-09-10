@@ -29903,6 +29903,14 @@ export type Database = {
         Args: { p_boundary: Json }
         Returns: number
       }
+      reject_corporate_request: {
+        Args: {
+          p_rejection_reason?: string
+          p_request_id: string
+          p_reviewed_by?: string
+        }
+        Returns: undefined
+      }
       reject_roles_action: {
         Args: { _details: Json; _event_type: string; _reason: string }
         Returns: undefined

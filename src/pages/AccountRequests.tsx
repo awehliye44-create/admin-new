@@ -129,20 +129,19 @@ export default function AccountRequests() {
     onError: (err: Error) => toast.error(err.message),
   });
 
-  // Reject
+  // Reject via authorized RPC (A8B13B) — reviewer stamped server-side from auth.uid()
   const rejectMutation = useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
-      const userId = (await supabase.auth.getUser()).data.user?.id;
-      const { error } = await supabase
-        .from('corporate_account_requests')
-        .update({
-          status: 'rejected',
-          rejection_reason: reason || null,
-          reviewed_at: new Date().toISOString(),
-          reviewed_by: userId,
-        })
-        .eq('id', id);
-      if (error) throw error;
+      const { error } = await supabase.rpc('reject_corporate_request', {
+        p_request_id: id,
+        p_rejection_reason: reason || null,
+      });
+      if (error) {
+        if (error.code === '42501' || /not authorized/i.test(error.message)) {
+          throw new Error('You are not authorized to reject account requests.');
+        }
+        throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['corporate-account-requests'] });
@@ -153,7 +152,6 @@ export default function AccountRequests() {
     },
     onError: (err: Error) => toast.error(err.message),
   });
-
   // Suspend
   const suspendMutation = useMutation({
     mutationFn: async (requestId: string) => {
