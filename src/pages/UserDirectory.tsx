@@ -18,7 +18,9 @@ interface DirectoryUser {
   user_type: string;
   status: string;
   has_linked_record: boolean;
+  linked_record_id: string | null;
   created_at: string;
+  last_sign_in_at: string | null;
 }
 
 const USER_TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
@@ -41,14 +43,10 @@ export default function UserDirectory() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
-  const { data: users = [], isLoading } = useQuery({
+  const { data: users = [], isLoading, error } = useQuery({
     queryKey: ['user-directory'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('user_directory' as any)
-        .select('user_id, full_name, email, phone, user_type, status, has_linked_record, created_at')
-        .order('created_at', { ascending: false })
-        .limit(500);
+      const { data, error } = await supabase.rpc('admin_user_directory' as any);
       if (error) throw error;
       return (data || []) as unknown as DirectoryUser[];
     },
