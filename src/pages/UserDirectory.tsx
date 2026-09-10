@@ -18,7 +18,9 @@ interface DirectoryUser {
   user_type: string;
   status: string;
   has_linked_record: boolean;
+  linked_record_id: string | null;
   created_at: string;
+  last_sign_in_at: string | null;
 }
 
 const USER_TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
@@ -28,7 +30,12 @@ const USER_TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode; c
   corporate: { label: 'Corporate', icon: <Building2 className="h-3.5 w-3.5" />, color: 'bg-amber-500/15 text-amber-600 border-amber-500/30' },
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  profile_incomplete: 'Profile incomplete',
+};
+
 const STATUS_COLORS: Record<string, string> = {
+  profile_incomplete: 'bg-amber-500/15 text-amber-600 border-amber-500/30',
   active: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30',
   approved: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30',
   pending: 'bg-amber-500/15 text-amber-600 border-amber-500/30',
@@ -41,14 +48,10 @@ export default function UserDirectory() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
-  const { data: users = [], isLoading } = useQuery({
+  const { data: users = [], isLoading, error } = useQuery({
     queryKey: ['user-directory'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('user_directory' as any)
-        .select('user_id, full_name, email, phone, user_type, status, has_linked_record, created_at')
-        .order('created_at', { ascending: false })
-        .limit(500);
+      const { data, error } = await supabase.rpc('admin_user_directory' as any);
       if (error) throw error;
       return (data || []) as unknown as DirectoryUser[];
     },
@@ -143,6 +146,12 @@ export default function UserDirectory() {
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
+            ) : error ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
+                <Users className="h-10 w-10 mb-3 opacity-40" />
+                <p className="text-sm text-destructive">Could not load the user directory.</p>
+                <p className="text-xs mt-1">Your staff role may not have access to this page.</p>
+              </div>
             ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
                 <Users className="h-10 w-10 mb-3 opacity-40" />
@@ -158,6 +167,7 @@ export default function UserDirectory() {
                     <TableHead>Status</TableHead>
                     <TableHead>Linked Record</TableHead>
                     <TableHead>Joined</TableHead>
+                    <TableHead>Last Sign-In</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -187,18 +197,26 @@ export default function UserDirectory() {
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className={statusColor}>
-                            {u.status}
+                            {STATUS_LABELS[u.status] || u.status}
                           </Badge>
                         </TableCell>
                         <TableCell>
                           {u.has_linked_record ? (
-                            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Linked</Badge>
+                            <div className="space-y-0.5">
+                              <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Linked</Badge>
+                              {u.linked_record_id && (
+                                <p className="text-xs text-muted-foreground font-mono">{u.linked_record_id.slice(0, 8)}…</p>
+                              )}
+                            </div>
                           ) : (
-                            <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20">Unlinked</Badge>
+                            <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20">Not linked</Badge>
                           )}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString() : 'Never'}
                         </TableCell>
                       </TableRow>
                     );
