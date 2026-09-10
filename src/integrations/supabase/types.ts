@@ -29525,6 +29525,7 @@ export type Database = {
           month_usd: number
         }[]
       }
+      onecab_internal_notification_http_headers: { Args: never; Returns: Json }
       ops_acknowledge_alert: {
         Args: { p_alert_id: string; p_user_id: string }
         Returns: undefined
