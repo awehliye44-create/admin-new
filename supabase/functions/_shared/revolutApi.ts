@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
+import { buildUkDriverRevolutCounterpartyBody } from "./revolutUkDriverCounterpartyPayload.ts";
 
 export type RevolutApiError = {
   message: string;
@@ -401,19 +402,14 @@ export async function createRevolutCounterparty(args: {
       iban: id.replace(/\s/g, "").toUpperCase(),
     };
   } else if (args.destinationType === "uk_bank_account") {
-    const digits = id.replace(/\D/g, "");
-    body = {
-      profile_type: "personal",
-      name,
-      bank_country: "GB",
+    // A8B28F-B2R: company holders use company_name + flat UK local fields;
+    // personal holders use individual_name (Revolut Business contract).
+    body = buildUkDriverRevolutCounterpartyBody({
+      accountHolderName: args.accountHolderName,
+      destinationIdentifier: id,
       currency,
-      accounts: [{
-        account_no: digits.slice(6),
-        sort_code: digits.slice(0, 6),
-        currency,
-        country: "GB",
-      }],
-    };
+      bankCountry: "GB",
+    });
   } else {
     body = {
       profile_type: "personal",
