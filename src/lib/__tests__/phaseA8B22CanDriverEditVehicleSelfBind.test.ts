@@ -1,6 +1,6 @@
 /**
- * Lock: Phase A8B22 can_driver_edit_vehicle self-bind draft.
- * If this fails, fix the draft — never delete or soften the lock.
+ * Lock: Phase A8B22 can_driver_edit_vehicle self-bind.
+ * If this fails, fix the migration — never delete or soften the lock.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,7 +27,7 @@ describe('phaseA8B22CanDriverEditVehicleSelfBind', () => {
     const rb = read(ROLLBACK);
     const verify = read(VERIFY);
 
-    expect(sql).toMatch(/NOT APPLIED/i);
+    expect(sql).toMatch(/Applied to ACTIVE_HEALTHY/i);
     expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.can_driver_edit_vehicle\(p_driver_id uuid\)/);
     expect(sql).toMatch(/d\.user_id = auth\.uid\(\)/);
     expect(sql).toMatch(/ERRCODE = '42501'/);
