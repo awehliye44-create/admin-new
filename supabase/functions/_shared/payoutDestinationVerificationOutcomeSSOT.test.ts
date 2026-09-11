@@ -4,10 +4,14 @@
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals.ts";
 import {
+  DRIVER_FACING_VERIFY_FAILED_NEUTRAL,
+  DRIVER_FACING_VERIFY_FAILED_USER_INPUT,
   PAYOUT_DESTINATION_OUTCOME,
   PROVIDER_LINK_FAILURE_CLASS,
   classifyCounterpartyCreateFailure,
+  driverFacingMessageForOutcome,
   httpStatusForOutcome,
+  inferCounterpartyFailureSignals,
   isClientSuccessOutcome,
   resolveSyncUkRevolutOutcome,
 } from "./payoutDestinationVerificationOutcomeSSOT.ts";
@@ -85,5 +89,43 @@ Deno.test("failure classification covers duplicate / input / transient", () => {
   assertEquals(
     classifyCounterpartyCreateFailure({ access_token_missing: true }),
     PROVIDER_LINK_FAILURE_CLASS.PROVIDER_CONFIGURATION_REQUIRED,
+  );
+});
+
+Deno.test("B2R: Revolut 403 / IP whitelist → PROVIDER_CONFIGURATION_REQUIRED not user typo", () => {
+  const signals = inferCounterpartyFailureSignals(
+    "IP address is not whitelisted. Verify IP whitelist configuration in Revolut Business Portal.",
+  );
+  assertEquals(signals.mentions_ip_whitelist, true);
+  assertEquals(
+    classifyCounterpartyCreateFailure({ http_status: 403, ...signals }),
+    PROVIDER_LINK_FAILURE_CLASS.PROVIDER_CONFIGURATION_REQUIRED,
+  );
+  assertEquals(
+    classifyCounterpartyCreateFailure({ http_status: 403 }),
+    PROVIDER_LINK_FAILURE_CLASS.PROVIDER_CONFIGURATION_REQUIRED,
+  );
+  const msg = driverFacingMessageForOutcome(
+    PAYOUT_DESTINATION_OUTCOME.DESTINATION_SAVED_VERIFICATION_FAILED,
+    PROVIDER_LINK_FAILURE_CLASS.PROVIDER_CONFIGURATION_REQUIRED,
+  );
+  assertEquals(msg, DRIVER_FACING_VERIFY_FAILED_NEUTRAL);
+  assertEquals(msg.includes("Check the details"), false);
+});
+
+Deno.test("B2R: only USER_INPUT_CORRECTION_REQUIRED uses details-blame copy", () => {
+  assertEquals(
+    driverFacingMessageForOutcome(
+      PAYOUT_DESTINATION_OUTCOME.DESTINATION_SAVED_VERIFICATION_FAILED,
+      PROVIDER_LINK_FAILURE_CLASS.USER_INPUT_CORRECTION_REQUIRED,
+    ),
+    DRIVER_FACING_VERIFY_FAILED_USER_INPUT,
+  );
+  assertEquals(
+    driverFacingMessageForOutcome(
+      PAYOUT_DESTINATION_OUTCOME.DESTINATION_SAVED_VERIFICATION_FAILED,
+      null,
+    ),
+    DRIVER_FACING_VERIFY_FAILED_NEUTRAL,
   );
 });

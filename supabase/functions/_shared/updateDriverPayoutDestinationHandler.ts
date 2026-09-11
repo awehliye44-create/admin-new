@@ -32,8 +32,11 @@ import {
   classifyCounterpartyCreateFailure,
   driverFacingMessageForOutcome,
   httpStatusForOutcome,
+  inferCounterpartyFailureSignals,
   isClientSuccessOutcome,
+  providerErrorCodeForFailureClass,
   resolveSyncUkRevolutOutcome,
+  safeProviderErrorMessageForFailure,
   type PayoutDestinationOutcome,
   type ProviderLinkFailureClass,
 } from "./payoutDestinationVerificationOutcomeSSOT.ts";
@@ -100,11 +103,37 @@ export type RevolutLinkageDeps = {
   }) => Promise<{ id: string; accounts?: Array<{ id?: string }> }>;
 };
 
+function mergeFailureTruthIntoPayload(
+  existing: unknown,
+  failureClass: ProviderLinkFailureClass | null,
+  httpStatus: number | null,
+): Record<string, unknown> {
+  const base =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? { ...(existing as Record<string, unknown>) }
+      : {};
+  return {
+    ...base,
+    provider_link_failure_class: failureClass,
+    provider_http_status: httpStatus,
+  };
+}
+
+/**
+ * Audit actions allowed by live CHECK today:
+ * created | updated | deactivated | provider_link_blocked | provider_link_synced | reject | disable
+ * B2R maps auto-link success/failure onto synced/blocked so inserts succeed.
+ */
+const AUDIT_ACTION_LINK_SYNCED = "provider_link_synced";
+const AUDIT_ACTION_LINK_BLOCKED = "provider_link_blocked";
+
 /** Exported for mocked Deno tests only — never call provider from production probes. */
 export async function attemptAutoRevolutLinkage(args: {
   supabase: SupabaseClient;
   destinationId: string;
   driverId: string;
+  /** Required for audit NOT NULL changed_by_user_id (initiating driver JWT subject). */
+  actorUserId: string;
   destinationType: string;
   destinationIdentifier: string;
   accountHolderName: string | null;
@@ -133,22 +162,58 @@ export async function attemptAutoRevolutLinkage(args: {
     const accessToken = String(tokenResult?.accessToken ?? "").trim();
     if (!accessToken) {
       const failure_class = classifyCounterpartyCreateFailure({ access_token_missing: true });
+      const provider_error_code = "ACCESS_TOKEN_MISSING";
+      const provider_error_message_safe = safeProviderErrorMessageForFailure({
+        failureClass: failure_class,
+        providerMessageSafe: "Revolut Business access token unavailable for auto-link.",
+      });
+      const { data: cur } = await args.supabase
+        .from("driver_payout_destinations")
+        .select("destination_payload")
+        .eq("id", args.destinationId)
+        .maybeSingle();
       await args.supabase.from("driver_payout_destinations").update({
         verification_status: DESTINATION_STATUS.PENDING_VERIFICATION,
         provider_link_status: PROVIDER_LINK_STATUS.FAILED,
         provider_sync_status: "failed",
         provider_last_checked_at: now,
-        provider_error_code: "ACCESS_TOKEN_MISSING",
-        provider_error_message_safe: "Revolut Business access token unavailable for auto-link.",
+        provider_error_code,
+        provider_error_message_safe,
+        provider_link_failure_class: failure_class,
+        provider_http_status: null,
+        destination_payload: mergeFailureTruthIntoPayload(
+          cur?.destination_payload,
+          failure_class,
+          null,
+        ),
         linkage_version: args.expectedLinkageVersion + 1,
         updated_at: now,
       }).eq("id", args.destinationId).eq("linkage_version", args.expectedLinkageVersion);
+      await args.supabase.from("driver_payout_destination_audit").insert({
+        driver_id: args.driverId,
+        provider: "revolut",
+        action: AUDIT_ACTION_LINK_BLOCKED,
+        new_payload: {
+          provider_link_status: PROVIDER_LINK_STATUS.FAILED,
+          provider_error_code,
+          failure_class,
+          http_status: null,
+        },
+        changed_by_role: "system",
+        changed_by_user_id: args.actorUserId,
+        new_payout_account_id: args.destinationId,
+        metadata: {
+          revolut_pay_called: false,
+          wallet_mutated: false,
+          audit_kind: "provider_auto_link_failed",
+        },
+      });
       return {
         verification_status: DESTINATION_STATUS.PENDING_VERIFICATION,
         provider_link_status: PROVIDER_LINK_STATUS.FAILED,
         provider_counterparty_id: null,
         provider_recipient_account_id: null,
-        provider_error_code: "ACCESS_TOKEN_MISSING",
+        provider_error_code,
         failure_class,
         http_status: null,
       };
@@ -181,6 +246,8 @@ export async function attemptAutoRevolutLinkage(args: {
         provider_last_checked_at: now,
         provider_error_code: null,
         provider_error_message_safe: null,
+        provider_link_failure_class: null,
+        provider_http_status: null,
         verified_at: now,
         linkage_version: args.expectedLinkageVersion + 1,
         updated_at: now,
@@ -206,7 +273,7 @@ export async function attemptAutoRevolutLinkage(args: {
     await args.supabase.from("driver_payout_destination_audit").insert({
       driver_id: args.driverId,
       provider: "revolut",
-      action: "provider_auto_linked",
+      action: AUDIT_ACTION_LINK_SYNCED,
       previous_payload: { verification_status: DESTINATION_STATUS.PENDING_VERIFICATION },
       new_payload: {
         verification_status: DESTINATION_STATUS.PROVIDER_VERIFIED,
@@ -215,8 +282,14 @@ export async function attemptAutoRevolutLinkage(args: {
         has_recipient_ref: true,
       },
       changed_by_role: "system",
+      changed_by_user_id: args.actorUserId,
       new_payout_account_id: args.destinationId,
-      metadata: { revolut_pay_called: false, wallet_mutated: false, auto_on_save: true },
+      metadata: {
+        revolut_pay_called: false,
+        wallet_mutated: false,
+        auto_on_save: true,
+        audit_kind: "provider_auto_linked",
+      },
     });
 
     return {
@@ -231,24 +304,27 @@ export async function attemptAutoRevolutLinkage(args: {
   } catch (err) {
     const http_status = extractHttpStatus(err);
     const msg = safeLinkErrorMessage(err);
+    const signals = inferCounterpartyFailureSignals(msg);
     const failure_class = classifyCounterpartyCreateFailure({
       provider_error_code: "COUNTERPARTY_CREATE_FAILED",
       http_status,
-      mentions_auth: /unauthor|forbidden|401|403|oauth|scope|token/i.test(msg),
-      mentions_duplicate: /duplicate|already exists|conflict|409/i.test(msg),
-      mentions_invalid_input: /invalid|sort|account/i.test(msg),
-      mentions_transient: /timeout|network|429|502|503|500/i.test(msg),
-      mentions_unsupported: /unsupported|currency|country/i.test(msg),
-      mentions_malformed: /malformed|bad request|400/i.test(msg),
+      ...signals,
     });
     // Normalized logs only — never bank details / raw provider body.
     console.error("PAYOUT_DESTINATION_AUTO_LINK_FAILED", failure_class, http_status);
 
-    // Duplicate counterparty requires provider lookup — fail closed (no fabricated verify).
-    const provider_error_code =
-      failure_class === PROVIDER_LINK_FAILURE_CLASS.DUPLICATE_COUNTERPARTY_RECONCILIATION_REQUIRED
-        ? "DUPLICATE_COUNTERPARTY_RECONCILIATION_REQUIRED"
-        : "COUNTERPARTY_CREATE_FAILED";
+    const provider_error_code = providerErrorCodeForFailureClass(failure_class);
+    const provider_error_message_safe = safeProviderErrorMessageForFailure({
+      failureClass: failure_class,
+      providerMessageSafe: msg,
+      httpStatus: http_status,
+    });
+
+    const { data: cur } = await args.supabase
+      .from("driver_payout_destinations")
+      .select("destination_payload")
+      .eq("id", args.destinationId)
+      .maybeSingle();
 
     const { data: failedUpdated } = await args.supabase
       .from("driver_payout_destinations")
@@ -260,10 +336,14 @@ export async function attemptAutoRevolutLinkage(args: {
         provider_sync_status: "failed",
         provider_last_checked_at: now,
         provider_error_code,
-        provider_error_message_safe:
-          failure_class === PROVIDER_LINK_FAILURE_CLASS.DUPLICATE_COUNTERPARTY_RECONCILIATION_REQUIRED
-            ? "Provider reported a conflicting counterparty. Retry is required."
-            : "Provider could not verify this payout account.",
+        provider_error_message_safe,
+        provider_link_failure_class: failure_class,
+        provider_http_status: http_status,
+        destination_payload: mergeFailureTruthIntoPayload(
+          cur?.destination_payload,
+          failure_class,
+          http_status,
+        ),
         linkage_version: args.expectedLinkageVersion + 1,
         updated_at: now,
       })
@@ -288,7 +368,7 @@ export async function attemptAutoRevolutLinkage(args: {
     await args.supabase.from("driver_payout_destination_audit").insert({
       driver_id: args.driverId,
       provider: "revolut",
-      action: "provider_auto_link_failed",
+      action: AUDIT_ACTION_LINK_BLOCKED,
       new_payload: {
         provider_link_status: PROVIDER_LINK_STATUS.FAILED,
         provider_error_code,
@@ -296,8 +376,13 @@ export async function attemptAutoRevolutLinkage(args: {
         http_status,
       },
       changed_by_role: "system",
+      changed_by_user_id: args.actorUserId,
       new_payout_account_id: args.destinationId,
-      metadata: { revolut_pay_called: false, wallet_mutated: false },
+      metadata: {
+        revolut_pay_called: false,
+        wallet_mutated: false,
+        audit_kind: "provider_auto_link_failed",
+      },
     });
 
     return {
@@ -348,7 +433,8 @@ function responseForOutcome(args: {
       success,
       outcome: args.outcome,
       failure_class: args.linkResult.failure_class,
-      message: driverFacingMessageForOutcome(args.outcome),
+      provider_http_status: args.linkResult.http_status,
+      message: driverFacingMessageForOutcome(args.outcome, args.linkResult.failure_class),
       provider: args.provider,
       display_name: args.displayName,
       audit_log_id: args.auditLogId,
@@ -495,6 +581,7 @@ export async function handleUpdateDriverPayoutDestination(
       supabase,
       destinationId: active.id,
       driverId: driver.driver_id,
+      actorUserId: userId,
       destinationType: String(active.destination_type ?? "uk_bank_account"),
       destinationIdentifier,
       accountHolderName: accountHolderName ?? active.account_holder_name ?? null,
@@ -688,6 +775,7 @@ export async function handleUpdateDriverPayoutDestination(
       supabase,
       destinationId: inserted.id,
       driverId: driver.driver_id,
+      actorUserId: userId,
       destinationType,
       destinationIdentifier,
       accountHolderName,

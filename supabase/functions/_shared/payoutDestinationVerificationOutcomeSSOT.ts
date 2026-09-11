@@ -1,6 +1,10 @@
 /**
  * A8B28F shared SSOT — effective payout capability + destination outcomes.
  * Pure. No I/O. Used by Stage B Edge/client and Stage C SQL parity tests.
+ *
+ * A8B28F-B2R: neutral driver copy by default; typo-blame only for explicit
+ * USER_INPUT_CORRECTION_REQUIRED. Config/provider failures must not collapse
+ * into "check the details".
  */
 
 export const PAYOUT_DESTINATION_OUTCOME = {
@@ -27,6 +31,17 @@ export const PROVIDER_LINK_FAILURE_CLASS = {
 
 export type ProviderLinkFailureClass =
   (typeof PROVIDER_LINK_FAILURE_CLASS)[keyof typeof PROVIDER_LINK_FAILURE_CLASS];
+
+/** Neutral default — never implies the driver typed wrong bank details. */
+export const DRIVER_FACING_VERIFY_FAILED_NEUTRAL =
+  "We could not verify this payout account automatically. Please review the details or try again.";
+
+/** Only when failure_class is USER_INPUT_CORRECTION_REQUIRED. */
+export const DRIVER_FACING_VERIFY_FAILED_USER_INPUT =
+  "We could not verify this payout account. Please check your account details and try again.";
+
+export const DRIVER_FACING_SAVE_FAILED_NEUTRAL =
+  "We could not save your payout account. Please review the details or try again.";
 
 export function httpStatusForOutcome(outcome: PayoutDestinationOutcome): number {
   switch (outcome) {
@@ -60,11 +75,17 @@ export function classifyCounterpartyCreateFailure(input: {
   mentions_unsupported?: boolean;
   mentions_malformed?: boolean;
   access_token_missing?: boolean;
+  mentions_ip_whitelist?: boolean;
 }): ProviderLinkFailureClass {
   if (input.access_token_missing || input.provider_error_code === "ACCESS_TOKEN_MISSING") {
     return PROVIDER_LINK_FAILURE_CLASS.PROVIDER_CONFIGURATION_REQUIRED;
   }
-  if (input.mentions_auth || input.http_status === 401 || input.http_status === 403) {
+  if (
+    input.mentions_auth ||
+    input.mentions_ip_whitelist ||
+    input.http_status === 401 ||
+    input.http_status === 403
+  ) {
     return PROVIDER_LINK_FAILURE_CLASS.PROVIDER_CONFIGURATION_REQUIRED;
   }
   if (input.mentions_duplicate || input.http_status === 409) {
@@ -94,6 +115,87 @@ export function classifyCounterpartyCreateFailure(input: {
   return PROVIDER_LINK_FAILURE_CLASS.UNRESOLVED_PROVIDER_CALL_REQUIRED;
 }
 
+/**
+ * Heuristics from provider error text — keep narrow so "account" in generic
+ * messages does not force USER_INPUT_CORRECTION_REQUIRED.
+ */
+export function inferCounterpartyFailureSignals(message: string): {
+  mentions_auth: boolean;
+  mentions_duplicate: boolean;
+  mentions_invalid_input: boolean;
+  mentions_transient: boolean;
+  mentions_unsupported: boolean;
+  mentions_malformed: boolean;
+  mentions_ip_whitelist: boolean;
+} {
+  const msg = String(message ?? "");
+  return {
+    mentions_auth: /unauthor|forbidden|401|403|oauth|scope|token/i.test(msg),
+    mentions_duplicate: /duplicate|already exists|conflict|409/i.test(msg),
+    mentions_invalid_input:
+      /invalid (?:account|sort|details)|sort code.*(?:invalid|incorrect)|account number.*(?:invalid|incorrect)|details? (?:are|is) invalid/i
+        .test(msg),
+    mentions_transient: /timeout|network|429|502|503|500/i.test(msg),
+    mentions_unsupported: /unsupported (?:currency|country|account)|currency not supported|country not supported/i
+      .test(msg),
+    mentions_malformed: /malformed|bad request/i.test(msg),
+    mentions_ip_whitelist: /whitelist|ip address is not|not whitelisted/i.test(msg),
+  };
+}
+
+export function providerErrorCodeForFailureClass(
+  failureClass: ProviderLinkFailureClass | null | undefined,
+  fallback = "COUNTERPARTY_CREATE_FAILED",
+): string {
+  switch (failureClass) {
+    case PROVIDER_LINK_FAILURE_CLASS.PROVIDER_CONFIGURATION_REQUIRED:
+      return "PROVIDER_CONFIGURATION_REQUIRED";
+    case PROVIDER_LINK_FAILURE_CLASS.DUPLICATE_COUNTERPARTY_RECONCILIATION_REQUIRED:
+      return "DUPLICATE_COUNTERPARTY_RECONCILIATION_REQUIRED";
+    case PROVIDER_LINK_FAILURE_CLASS.USER_INPUT_CORRECTION_REQUIRED:
+      return "USER_INPUT_CORRECTION_REQUIRED";
+    case PROVIDER_LINK_FAILURE_CLASS.RETRYABLE_TRANSIENT:
+      return "PROVIDER_TRANSIENT_FAILURE";
+    case PROVIDER_LINK_FAILURE_CLASS.NON_RETRYABLE:
+      return "PROVIDER_NON_RETRYABLE";
+    case PROVIDER_LINK_FAILURE_CLASS.UNRESOLVED_PROVIDER_CALL_REQUIRED:
+      return "UNRESOLVED_PROVIDER_CALL_REQUIRED";
+    default:
+      return fallback;
+  }
+}
+
+/** Persistable safe text — never bank digits / raw provider secrets. */
+export function safeProviderErrorMessageForFailure(args: {
+  failureClass: ProviderLinkFailureClass | null | undefined;
+  providerMessageSafe?: string | null;
+  httpStatus?: number | null;
+}): string {
+  const cls = args.failureClass;
+  const raw = String(args.providerMessageSafe ?? "").trim();
+  if (cls === PROVIDER_LINK_FAILURE_CLASS.DUPLICATE_COUNTERPARTY_RECONCILIATION_REQUIRED) {
+    return "Provider reported a conflicting counterparty. Retry is required.";
+  }
+  if (cls === PROVIDER_LINK_FAILURE_CLASS.PROVIDER_CONFIGURATION_REQUIRED) {
+    if (/whitelist|ip address/i.test(raw)) {
+      return "Provider blocked verification (IP whitelist / configuration). Ops must fix Revolut Business access before retry.";
+    }
+    if (args.httpStatus === 401 || args.httpStatus === 403) {
+      return "Provider configuration blocked verification (HTTP " +
+        String(args.httpStatus) +
+        "). Ops must fix Revolut Business access before retry.";
+    }
+    return "Provider configuration blocked verification. Ops must fix Revolut Business access before retry.";
+  }
+  if (cls === PROVIDER_LINK_FAILURE_CLASS.USER_INPUT_CORRECTION_REQUIRED) {
+    return "Provider rejected the account details. Please review sort code and account number.";
+  }
+  if (cls === PROVIDER_LINK_FAILURE_CLASS.RETRYABLE_TRANSIENT) {
+    return "Provider temporarily unavailable. Please try again in a moment.";
+  }
+  return "Provider could not verify this payout account.";
+}
+
 export function resolveSyncUkRevolutOutcome(args: {
   saveOk: boolean;
   linkStatus: string | null | undefined;
@@ -121,7 +223,10 @@ export function resolveSyncUkRevolutOutcome(args: {
   return PAYOUT_DESTINATION_OUTCOME.DESTINATION_SAVED_VERIFICATION_PENDING;
 }
 
-export function driverFacingMessageForOutcome(outcome: PayoutDestinationOutcome): string {
+export function driverFacingMessageForOutcome(
+  outcome: PayoutDestinationOutcome,
+  failureClass?: ProviderLinkFailureClass | null,
+): string {
   switch (outcome) {
     case PAYOUT_DESTINATION_OUTCOME.DESTINATION_SAVED_AND_VERIFIED:
     case PAYOUT_DESTINATION_OUTCOME.DESTINATION_ALREADY_VERIFIED:
@@ -129,11 +234,14 @@ export function driverFacingMessageForOutcome(outcome: PayoutDestinationOutcome)
     case PAYOUT_DESTINATION_OUTCOME.DESTINATION_SAVED_VERIFICATION_PENDING:
       return "Payout account saved. Verification is still in progress.";
     case PAYOUT_DESTINATION_OUTCOME.DESTINATION_SAVED_VERIFICATION_FAILED:
-      return "We saved your details but could not verify the payout account. Check the details and try again.";
+      if (failureClass === PROVIDER_LINK_FAILURE_CLASS.USER_INPUT_CORRECTION_REQUIRED) {
+        return DRIVER_FACING_VERIFY_FAILED_USER_INPUT;
+      }
+      return DRIVER_FACING_VERIFY_FAILED_NEUTRAL;
     case PAYOUT_DESTINATION_OUTCOME.RETRY_REQUIRED:
       return "Verification could not be completed. Please try again in a moment.";
     default:
-      return "We could not save your payout account. Check the details and try again.";
+      return DRIVER_FACING_SAVE_FAILED_NEUTRAL;
   }
 }
 

@@ -30,6 +30,8 @@ type DestRow = {
   provider_counterparty_id?: string | null;
   provider_recipient_account_id?: string | null;
   provider_error_code?: string | null;
+  provider_error_message_safe?: string | null;
+  destination_payload?: Record<string, unknown>;
 };
 
 function createMockSupabase(state: {
@@ -73,6 +75,16 @@ function createMockSupabase(state: {
           }
           Object.assign(row, pendingUpdate);
           return { data: wantSelect ? { id: row.id } : row, error: null };
+        }
+        if (table === "driver_payout_destinations" && !pendingUpdate && !pendingInsert) {
+          const id = String(filters.id ?? "");
+          const row = state.destinations.get(id);
+          return {
+            data: row
+              ? { id: row.id, destination_payload: (row as DestRow & { destination_payload?: unknown }).destination_payload ?? {} }
+              : null,
+            error: null,
+          };
         }
         return { data: null, error: null };
       },
@@ -164,6 +176,7 @@ Deno.test("mocked Revolut success → verified with refs", async () => {
     supabase,
     destinationId: destId,
     driverId: "drv_synth",
+    actorUserId: "user_synth",
     destinationType: "uk_bank_account",
     destinationIdentifier: "40166412345678",
     accountHolderName: "Synthetic Holder",
@@ -191,7 +204,8 @@ Deno.test("mocked Revolut success → verified with refs", async () => {
   assertEquals(outcome, PAYOUT_DESTINATION_OUTCOME.DESTINATION_SAVED_AND_VERIFIED);
   assertEquals(isClientSuccessOutcome(outcome), true);
   assertEquals(state.destinations.get(destId)?.linkage_version, 2);
-  assertEquals(state.audits.some((a) => a.action === "provider_auto_linked"), true);
+  assertEquals(state.audits.some((a) => a.action === "provider_link_synced"), true);
+  assertEquals(state.audits.some((a) => a.changed_by_user_id === "user_synth"), true);
 });
 
 Deno.test("mocked Revolut failure → FAILED + not pending outcome", async () => {
@@ -205,6 +219,7 @@ Deno.test("mocked Revolut failure → FAILED + not pending outcome", async () =>
     supabase,
     destinationId: destId,
     driverId: "drv_synth",
+    actorUserId: "user_synth",
     destinationType: "uk_bank_account",
     destinationIdentifier: "40166412345678",
     accountHolderName: "Synthetic Holder",
@@ -242,6 +257,7 @@ Deno.test("duplicate counterparty → RETRY_REQUIRED, no fabricated refs", async
     supabase,
     destinationId: destId,
     driverId: "drv_synth",
+    actorUserId: "user_synth",
     destinationType: "uk_bank_account",
     destinationIdentifier: "40166412345678",
     accountHolderName: "Synthetic Holder",
@@ -281,6 +297,7 @@ Deno.test("stale failure cannot overwrite newer verified row", async () => {
     supabase,
     destinationId: destId,
     driverId: "drv_synth",
+    actorUserId: "user_synth",
     destinationType: "uk_bank_account",
     destinationIdentifier: "40166412345678",
     accountHolderName: "Synthetic Holder",
@@ -312,6 +329,7 @@ Deno.test("concurrent success update collision → CONCURRENT_LINK_UPDATE", asyn
     supabase,
     destinationId: destId,
     driverId: "drv_synth",
+    actorUserId: "user_synth",
     destinationType: "uk_bank_account",
     destinationIdentifier: "40166412345678",
     accountHolderName: "Synthetic Holder",
@@ -341,6 +359,7 @@ Deno.test("non-uk destination is not converted to failure (async pending path)",
     supabase,
     destinationId: destId,
     driverId: "drv_synth",
+    actorUserId: "user_synth",
     destinationType: "mobile_money",
     destinationIdentifier: "07000000000",
     accountHolderName: null,
@@ -369,6 +388,77 @@ Deno.test("non-uk destination is not converted to failure (async pending path)",
     }),
     PAYOUT_DESTINATION_OUTCOME.DESTINATION_SAVED_VERIFICATION_PENDING,
   );
+});
+
+Deno.test("B2R: UK company details + Revolut 403 → config class, audit lands, no typo blame", async () => {
+  const destId = "dest_mk0006_style";
+  const state = {
+    destinations: new Map<string, DestRow>([[
+      destId,
+      {
+        id: destId,
+        linkage_version: 1,
+        destination_payload: {
+          destination_type: "uk_bank_account",
+          destination_last4: "3778",
+          account_holder_name: "ONECAB Limited",
+        },
+      } as DestRow,
+    ]]),
+    audits: [] as Array<Record<string, unknown>>,
+  };
+  const supabase = createMockSupabase(state);
+  const result = await attemptAutoRevolutLinkage({
+    supabase,
+    destinationId: destId,
+    driverId: "drv_synth",
+    actorUserId: "user_synth",
+    destinationType: "uk_bank_account",
+    destinationIdentifier: "04000379313778",
+    accountHolderName: "ONECAB Limited",
+    currencyCode: "GBP",
+    expectedLinkageVersion: 1,
+    deps: {
+      ensureToken: async () => ({ accessToken: "synthetic_token" }),
+      createCounterparty: async () => {
+        throw Object.assign(
+          new Error(
+            "IP address is not whitelisted. Verify IP whitelist configuration in Revolut Business Portal.",
+          ),
+          { status: 403 },
+        );
+      },
+    },
+  });
+  assertEquals(result.failure_class, "PROVIDER_CONFIGURATION_REQUIRED");
+  assertEquals(result.http_status, 403);
+  assertEquals(result.provider_error_code, "PROVIDER_CONFIGURATION_REQUIRED");
+  assertEquals(result.provider_link_status, PROVIDER_LINK_STATUS.FAILED);
+  const row = state.destinations.get(destId)! as DestRow & {
+    destination_payload?: Record<string, unknown>;
+    provider_error_message_safe?: string;
+  };
+  assertEquals(row.destination_payload?.provider_link_failure_class, "PROVIDER_CONFIGURATION_REQUIRED");
+  assertEquals(row.destination_payload?.provider_http_status, 403);
+  assertEquals(
+    (row as { provider_link_failure_class?: string }).provider_link_failure_class,
+    "PROVIDER_CONFIGURATION_REQUIRED",
+  );
+  assertEquals((row as { provider_http_status?: number }).provider_http_status, 403);
+  assertEquals(String(row.provider_error_message_safe ?? "").includes("IP whitelist"), true);
+  const blocked = state.audits.find((a) => a.action === "provider_link_blocked");
+  assertEquals(Boolean(blocked), true);
+  assertEquals(blocked?.changed_by_user_id, "user_synth");
+  assertEquals(
+    (blocked?.metadata as { audit_kind?: string } | undefined)?.audit_kind,
+    "provider_auto_link_failed",
+  );
+  const msg = (await import("./payoutDestinationVerificationOutcomeSSOT.ts")).driverFacingMessageForOutcome(
+    PAYOUT_DESTINATION_OUTCOME.DESTINATION_SAVED_VERIFICATION_FAILED,
+    result.failure_class,
+  );
+  assertEquals(msg.includes("Check the details"), false);
+  assertEquals(msg.includes("automatically"), true);
 });
 
 Deno.test("PII/secret scan on handler + entrypoint sources", async () => {
