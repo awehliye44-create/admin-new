@@ -3,8 +3,17 @@
 -- Applied to ACTIVE_HEALTHY.
 --
 -- Target: public.can_driver_edit_vehicle(p_driver_id uuid) RETURNS boolean
--- Baseline body_md5:  49ee9d3d28b6b13d4e341f108eba79e5
--- Proposed body_md5:  25e0661516a3f94821b02a0fabe69cab
+--
+-- Hash convention (do not confuse these):
+--   body_md5 / proposed = md5(pg_proc.prosrc)
+--     baseline:  49ee9d3d28b6b13d4e341f108eba79e5
+--     proposed:  25e0661516a3f94821b02a0fabe69cab
+--   md5(pg_get_functiondef(...)) for the same live proposed body:
+--     6a697ff69ec0513c7bd66c90f2664623
+--     (includes CREATE header; Postgres omits default VOLATILE)
+-- Parent check_vehicle_edit_allowed() — unchanged by this migration:
+--   md5(prosrc)           = f75402c7ca6e1af186cc4656de927f2a
+--   md5(pg_get_functiondef) = 6537e6b1ae01c9dc2c843b08d5b2556f
 --
 -- Vulnerability: SECURITY DEFINER read of drivers.vehicle_locked /
 --   approval_status for ANY p_driver_id with no auth.uid() bind.
@@ -13,9 +22,14 @@
 -- Proven callers:
 --   Driver native authenticatedDriverProfile.fetchCanEditVehicle(own driverId)
 --   SQL trigger parent public.check_vehicle_edit_allowed on public.vehicles
---     (auth EXECUTE revoked; runs as trigger; skips via has_role admin;
---      otherwise calls can_driver_edit_vehicle(NEW.driver_id))
+--     (auth EXECUTE revoked; SECURITY DEFINER → current_user=postgres,
+--      but auth.uid() remains the request JWT)
+--     Admin JWT: has_role(auth.uid(),'admin') bypasses BEFORE the child call
+--     Non-admin JWT (e.g. Driver): child runs with non-null auth.uid()
+--     Null auth.uid() is NOT the normal Driver/Admin trigger path; it applies
+--       only to postgres/no-JWT or service_role-without-sub callers
 --   No Customer / Corporate / Guest / Edge .rpc callers
+--   Admin UI vehicle updates use table UPDATE (parent bypass), not this RPC
 --   Admin uses get_driver_standards (already self|admin bound), not this RPC
 --
 -- Remediation (NEEDS_SELF_BIND):
@@ -23,13 +37,15 @@
 --     drivers.id = p_driver_id AND drivers.user_id = auth.uid()
 --     AND deleted_at IS NULL
 --     else SQLSTATE 42501 'not authorized'
---   When auth.uid() IS NULL, retain legacy lock evaluation for the
---     resolved vehicles trigger / service_role internal path only.
---     This is not an authenticated cross-driver grant.
+--     (covers direct RPC: foreign Driver / Customer / Admin → 42501)
+--   When auth.uid() IS NULL, retain legacy lock evaluation for privilege-only
+--     callers (postgres/no-JWT, service_role-without-sub). This is not an
+--     authenticated cross-driver grant and is not a "normal trigger JWT" path.
 --   Preserve signature, VOLATILE, SECURITY DEFINER, search_path=public,
 --     owner postgres, plpgsql, and baseline ACL.
 --   No current_user, profiles.role, metadata, or explicit service_role branch.
 --   Do not modify check_vehicle_edit_allowed or vehicles RLS.
+--   In-body comments retained verbatim to preserve proposed prosrc MD5.
 --
 -- Expected Advisor change:
 --   authenticated_security_definer_function_executable: unchanged 110

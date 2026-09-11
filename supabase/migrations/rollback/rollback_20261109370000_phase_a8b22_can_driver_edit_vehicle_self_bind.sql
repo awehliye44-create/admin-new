@@ -1,6 +1,7 @@
 -- Rollback Phase A8B22. Restores exact pre-change production body and safe ACL.
--- Production body_md5 before A8B22: 49ee9d3d28b6b13d4e341f108eba79e5
+-- Production body_md5 before A8B22 (md5(prosrc)): 49ee9d3d28b6b13d4e341f108eba79e5
 -- Never GRANT PUBLIC or anon.
+-- Does not modify check_vehicle_edit_allowed (parent prosrc md5 f75402c7…).
 
 BEGIN;
 

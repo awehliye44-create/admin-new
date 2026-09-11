@@ -124,7 +124,8 @@ BEGIN
     RAISE EXCEPTION 'A8B22 SIM HARD STOP: mid auth_secdef=%', v_auth;
   END IF;
 
-  -- Trigger parent unchanged
+  -- Trigger parent unchanged (hash is md5(prosrc); functiondef MD5 is 6537e6b1…)
+  -- Parent still bypasses via has_role(auth.uid(),'admin') before calling the child.
   IF (SELECT md5(p.prosrc) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace AND n.nspname='public'
       WHERE p.proname='check_vehicle_edit_allowed')
      IS DISTINCT FROM 'f75402c7ca6e1af186cc4656de927f2a' THEN
@@ -195,7 +196,9 @@ BEGIN
     NULL;
   END;
 
-  -- no JWT: privilege-only internal path still evaluates lock (trigger/service)
+  -- no JWT: privilege-only path (postgres/no-JWT or service_role-without-sub)
+  -- still evaluates lock. This is NOT the normal Driver/Admin vehicles-trigger
+  -- path — those keep a non-null auth.uid(); Admin bypasses before the child.
   PERFORM set_config('request.jwt.claim.sub', '', true);
   PERFORM set_config('request.jwt.claims', '{}', true);
   IF auth.uid() IS NOT NULL THEN
