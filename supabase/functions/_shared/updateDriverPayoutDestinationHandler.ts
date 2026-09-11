@@ -24,7 +24,7 @@ import {
   validateDestinationIdentifier,
 } from "./driverPayoutDestinationSSOT.ts";
 import { PROVIDER_LINK_STATUS } from "./driverPayoutProviderLinkageSSOT.ts";
-import { createRevolutCounterparty } from "./revolutApi.ts";
+import { createDriverUkBankCounterpartyViaRelay } from "./revolutApi.ts";
 import { ensureFreshRevolutBusinessAccessToken } from "./revolutBusinessAccessTokenRefresh.ts";
 import {
   PAYOUT_DESTINATION_OUTCOME,
@@ -155,7 +155,20 @@ export async function attemptAutoRevolutLinkage(args: {
   }
 
   const ensureToken = args.deps?.ensureToken ?? ensureFreshRevolutBusinessAccessToken;
-  const createCounterparty = args.deps?.createCounterparty ?? createRevolutCounterparty;
+  // Production default: fixed-IP relay only (never direct Edge → b2b.revolut.com).
+  const createCounterparty = args.deps?.createCounterparty ??
+    (async (createArgs) => {
+      if (createArgs.destinationType !== "uk_bank_account") {
+        throw Object.assign(new Error("UNSUPPORTED_DESTINATION_TYPE"), { status: 400 });
+      }
+      return await createDriverUkBankCounterpartyViaRelay({
+        accessToken: createArgs.accessToken,
+        destinationIdentifier: createArgs.destinationIdentifier,
+        accountHolderName: createArgs.accountHolderName,
+        currencyCode: createArgs.currencyCode,
+        destinationId: args.destinationId,
+      });
+    });
 
   try {
     const tokenResult = await ensureToken(args.supabase);

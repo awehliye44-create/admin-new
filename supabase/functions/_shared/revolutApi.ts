@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 import { buildUkDriverRevolutCounterpartyBody } from "./revolutUkDriverCounterpartyPayload.ts";
+import { relayRevolutCreateCounterparty } from "./revolutBusinessRelayClient.ts";
 
 export type RevolutApiError = {
   message: string;
@@ -426,6 +427,62 @@ export async function createRevolutCounterparty(args: {
     "/counterparty",
     { method: "POST", body: JSON.stringify(body) },
   );
+}
+
+/**
+ * A8B28F-B2R Stage 5 — Driver UK bank counterparty create via fixed-IP relay.
+ * Never direct-fetches b2b.revolut.com from Edge (dynamic egress → IP whitelist 403).
+ * Payload still uses Stage 3 company/personal builder.
+ */
+export async function createDriverUkBankCounterpartyViaRelay(args: {
+  accessToken: string;
+  destinationIdentifier: string;
+  accountHolderName: string | null;
+  currencyCode?: string;
+  /** Stable idempotency seed — driver_payout_destinations.id */
+  destinationId: string;
+}): Promise<RevolutCounterparty & { accounts?: Array<{ id?: string }> }> {
+  const body = buildUkDriverRevolutCounterpartyBody({
+    accountHolderName: args.accountHolderName,
+    destinationIdentifier: args.destinationIdentifier,
+    currency: (args.currencyCode || "GBP").toUpperCase(),
+    bankCountry: "GB",
+  });
+  const idempotencyKey = `driver_payout_dest:${String(args.destinationId).trim()}`;
+
+  let res: Response;
+  try {
+    res = await relayRevolutCreateCounterparty({
+      accessToken: args.accessToken,
+      body,
+      idempotencyKey,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "revolut_business_relay_unreachable";
+    throw {
+      message,
+      status: 503,
+      body: { code: "RELAY_UNAVAILABLE" },
+    } satisfies RevolutApiError;
+  }
+
+  const parsed = await parseJsonSafe(res);
+  if (!res.ok) {
+    const parsedErr = parseRevolutErrorBody(parsed);
+    const rawMessage = parsedErr.revolut_message
+      ?? (typeof parsed === "object" && parsed && "message" in parsed
+        ? String((parsed as { message?: string }).message)
+        : typeof parsed === "object" && parsed && "error" in parsed
+        ? String((parsed as { error?: string }).error)
+        : `Revolut Business counterparty create failed (${res.status})`);
+    throw {
+      message: explainRevolutBusinessAuthFailure(rawMessage, args.accessToken),
+      status: res.status,
+      body: parsed,
+    } satisfies RevolutApiError;
+  }
+
+  return parsed as RevolutCounterparty & { accounts?: Array<{ id?: string }> };
 }
 
 export async function executeRevolutPay(args: {

@@ -73,14 +73,18 @@ Deno.test("SSOT exports decrypt + DESTINATION_STATUS for verify/sync", async () 
   assertEquals(typeof decryptDestinationIdentifier, "function");
 });
 
-Deno.test("save handler auto-links Revolut on uk_bank_account (no manual Verify gate)", async () => {
+Deno.test("save handler auto-links Revolut on uk_bank_account via fixed-IP relay", async () => {
   const src = await Deno.readTextFile(
     join(SHARED, "updateDriverPayoutDestinationHandler.ts"),
   );
   assertStringIncludes(src, "attemptAutoRevolutLinkage");
-  assertStringIncludes(src, "createRevolutCounterparty");
+  assertStringIncludes(src, "createDriverUkBankCounterpartyViaRelay");
   assertStringIncludes(src, "PROVIDER_VERIFIED");
   assertStringIncludes(src, "provider_auto_linked");
+  // Must not default to direct Edge createRevolutCounterparty for driver auto-link.
+  assertEquals(src.includes("?? createRevolutCounterparty"), false);
+  assertEquals(/createCounterparty\s*=\s*args\.deps\?\.createCounterparty\s*\?\?\s*createRevolutCounterparty/
+    .test(src), false);
   // B2: sync failure must not report success.
   assertStringIncludes(src, "resolveSyncUkRevolutOutcome");
   assertStringIncludes(src, "httpStatusForOutcome");

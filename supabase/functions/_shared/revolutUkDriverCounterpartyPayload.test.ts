@@ -110,6 +110,23 @@ Deno.test("createRevolutCounterparty wires UK builder; no nested personal accoun
   assert(!ukBranch.includes("accounts:"));
 });
 
+Deno.test("Stage 5: driver UK create uses relay helper, not direct b2b fetch", async () => {
+  const api = await Deno.readTextFile(join(SHARED, "revolutApi.ts"));
+  const handler = await Deno.readTextFile(join(SHARED, "updateDriverPayoutDestinationHandler.ts"));
+  assert(api.includes("export async function createDriverUkBankCounterpartyViaRelay"));
+  assert(api.includes("relayRevolutCreateCounterparty"));
+  assert(handler.includes("createDriverUkBankCounterpartyViaRelay"));
+  assert(!handler.includes("?? createRevolutCounterparty"));
+  const fnStart = api.indexOf("export async function createDriverUkBankCounterpartyViaRelay");
+  const fnEnd = api.indexOf("\nexport async function executeRevolutPay", fnStart);
+  const fn = api.slice(fnStart, fnEnd > fnStart ? fnEnd : undefined);
+  assert(fn.includes("relayRevolutCreateCounterparty"));
+  assert(fn.includes("buildUkDriverRevolutCounterpartyBody"));
+  assert(!fn.includes("revolutBusinessRequest"));
+  assert(!fn.includes("b2b.revolut.com"));
+  assert(!fn.includes("console."));
+});
+
 Deno.test("handler still fail-closed on 409 + stores failure truth columns; no payouts_enabled writes", async () => {
   const handler = await Deno.readTextFile(join(SHARED, "updateDriverPayoutDestinationHandler.ts"));
   assert(handler.includes("provider_link_failure_class"));
