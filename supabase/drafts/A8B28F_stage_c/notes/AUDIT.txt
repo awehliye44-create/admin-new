@@ -1,0 +1,43 @@
+A8B28F Stage C — AUDIT (read-only) before draft apply
+
+Live project: thazislrdkjpvvghtvzo
+MK0006 driver_id: c40dd8a6-f422-40bc-9534-bae7be88b93e
+Active dest: bc707ca9-7036-4885-a010-1e35903444a9 (PROVIDER_VERIFIED + refs)
+Flags today: payout_operational_paused=false, payouts_enabled=false
+Live clearing delay: 27h
+Live balance under legacy gate: available=0, pending=live(425)
+Trip earning: 425p PLATFORM_COLLECTED apple_pay captured 2026-09-07 (cleared under 27h)
+
+SQL functions requiring Stage C cutover (draft 20261109470000):
+- driver_wallet_eligibility_balances — legacy short-circuit → OP short-circuit
+- driver_effective_payout_allowed — drop v_legacy conjunct
+- driver_wallet_summary_ssot — early block remapped (ADMIN_HOLD / FEATURE_DISABLED / etc.)
+- reserve_driver_payout_item — effective helper instead of payouts_enabled
+
+Preserved:
+- 27h clearing math / origin helpers
+- DRIVER_COLLECTED exclusion
+- debt / reservation subtraction
+- no ledger row mutation from cutover itself
+- no manual payouts_enabled flip
+
+Approved presentation matrix (shared SSOT balancePresentation):
+- verified + not paused → available=cleared, withdrawable if effective
+- unverified + not paused → available=cleared, canWithdraw false (verification copy)
+- paused → available=0, pending=live pool, withdraw blocked, paused copy
+- global off → available=cleared, canWithdraw false (FEATURE_DISABLED)
+- suspended/unapproved → fail closed
+
+Expected MK0006 after Stage C apply (no flag mutation):
+- available 425, pending 0, provider_verified true, OP false
+- effective true, early eligible true (fee 50 < 425)
+- ledger still 1 row / 425p
+
+
+SIMULATION (BEGIN/ROLLBACK compact, 2026-09-11):
+MATRIX_OK for A–J. Post-check: legacy gates still live; MK0006 unchanged; ledger 1/425.
+
+Audit finding fixed in Stage C draft:
+- Live driver_status enum is active|disabled|deleted
+- Stage A effective helper only checked suspended/banned/blocked/inactive (misses disabled/deleted)
+- Stage C draft expands fail-closed list to include disabled|deleted

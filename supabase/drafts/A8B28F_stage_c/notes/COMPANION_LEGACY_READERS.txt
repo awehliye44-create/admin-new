@@ -1,0 +1,26 @@
+A8B28F Stage C — companion readers still on legacy (NOT in 20261109470000 SQL)
+
+SQL cutover unlocks Available / effective helper / early block / reserve gate.
+These readers still use drivers.payouts_enabled and need a follow-up draft (Stage C2 / D)
+before Admin/weekly paths match Driver wallet SSOT. Do NOT deploy Edge/app in this step.
+
+Still legacy-gated today:
+1. supabase/functions/_shared/driverPayoutEligibilitySSOT.ts
+   - aggregateDriverPayoutEligibility: payouts_enabled===false → available=0 + ADMIN_HOLD
+   - Target: payout_operational_paused / effectivePayoutAllowed / account_verified split
+2. supabase/functions/_shared/fetchDriverPayoutEligibility.ts — reads drivers.payouts_enabled
+3. supabase/functions/_shared/fetchDriverWalletPayoutSnapshot.ts — payout_blocked / restricted
+4. supabase/functions/admin-weekly-payout-scheduler/index.ts — driver.payouts_enabled !== false
+5. supabase/functions/admin-execute-weekly-payout-occurrence/index.ts — same
+6. shared weeklyDriverPayoutBatchWorkflowSSOT.ts — DRIVER_PAYOUTS_DISABLED from input.payouts_enabled
+7. supabase/functions/_shared/onecabFinanceLedger.ts — driver.payouts_enabled gate
+8. Admin UI: PayoutLedger.tsx / PayoutLedgerSettingsPanel.tsx direct payouts_enabled writes
+   (Stage B dual-write RPC exists; ensure UI callers use it)
+9. useAdminDriverOptions / admin wallet pages — filter/display on payouts_enabled
+10. Driver live resolvePayoutAccountBanner still ORs legacyPayoutsDisabled
+    → draft: stageCWithdrawalReasonMapping.draft.ts + banner OP-only
+
+Global admin_settings.payouts_enabled remains authoritative platform kill-switch (GL).
+
+DRIVER_COLLECTED_COMMISSION_WALLET: eligibility clearing exclusion unchanged in SQL
+(`v_model NOT LIKE '%DRIVER_COLLECTED%'`). Commission wallet tables/writers untouched.

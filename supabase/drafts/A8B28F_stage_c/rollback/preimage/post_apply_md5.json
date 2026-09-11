@@ -1,0 +1,25 @@
+{
+  "project_id": "thazislrdkjpvvghtvzo",
+  "migration_name": "phase_a8b28f_stage_c_wallet_payout_eligibility_cutover",
+  "schema_migrations_version": "20260911203108",
+  "canonical_filename": "20261109470000_phase_a8b28f_stage_c_wallet_payout_eligibility_cutover.sql",
+  "post_apply_md5": {
+    "driver_effective_payout_allowed(uuid)": "404cb5c1f439634dcee48b4784822b50",
+    "driver_wallet_eligibility_balances(uuid)": "8d2820ab77c166aac1ee0a5b73a4569a",
+    "driver_wallet_summary_ssot(uuid,uuid)": "6919564bf205ddea3408b3af2c9983c1",
+    "reserve_driver_payout_item(uuid)": "4d8fb3cdd6bd518f446aebf67fe9658b",
+    "assert_driver_wallet_read_access(uuid)": "85698b56285a8e66ae9a3d21b5c9f0ef"
+  },
+  "mk0006": {
+    "available_pence": 425,
+    "pending_pence": 0,
+    "live_pence": 425,
+    "provider_verified": true,
+    "payout_operational_paused": false,
+    "payouts_enabled_legacy": false,
+    "effective_payout_allowed": true,
+    "early_cash_out_eligible": true,
+    "ledger_n": 1,
+    "ledger_sum_pence": 425
+  }
+}

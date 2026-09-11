@@ -1,0 +1,11 @@
+{
+  "project_id": "thazislrdkjpvvghtvzo",
+  "captured_via": "plugin-supabase-supabase execute_sql (md5 cross-checked)",
+  "md5_pg_get_functiondef": {
+    "public.driver_effective_payout_allowed(uuid)": "89409717cc7b80bae7983f564988ad1b",
+    "public.driver_wallet_eligibility_balances(uuid)": "23af4ebad01e84ead1600e54ab4bef64",
+    "public.driver_wallet_summary_ssot(uuid,uuid)": "e0bc7b3fadc23c20fe6efcf509ae5267",
+    "public.reserve_driver_payout_item(uuid)": "a360c355d3e7d6a8a433b1d0e7a7a99e",
+    "public.assert_driver_wallet_read_access(uuid)": "85698b56285a8e66ae9a3d21b5c9f0ef"
+  }
+}
