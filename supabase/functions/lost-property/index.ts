@@ -19,6 +19,10 @@ import {
   tripInsertFieldsFromFinancialModelSnapshot,
 } from "../_shared/commissionWalletSSOT.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import {
+  authorizeLostPropertyCronRequest,
+  isLostPropertyCronAction,
+} from "../_shared/lostPropertyCronAuth.ts";
 
 async function tripCwSnapshotFields(
   sb: ReturnType<typeof getServiceClient>,
@@ -81,6 +85,13 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   const action = url.searchParams.get("action");
+
+  // A8B27B: cron actions require dedicated internal header before any service work.
+  // Action selector is the query param (not JSON body), so admission can run pre-body.
+  if (isLostPropertyCronAction(action)) {
+    const cronGate = authorizeLostPropertyCronRequest(req);
+    if (!cronGate.ok) return cronGate.response;
+  }
 
   try {
     switch (action) {
@@ -882,7 +893,7 @@ async function adminUnreadCount(req: Request) {
 
 // ==================== CLEANUP PHOTOS ====================
 async function cleanupPhotos(_req: Request) {
-  // This can be called by cron — no auth required (internal)
+  // Admission enforced in Deno.serve for cleanup_photos / expire_chats (A8B27B).
   const sb = getServiceClient();
 
   const { data: cases, error } = await sb.rpc("lost_property_get_cases_for_photo_cleanup");
