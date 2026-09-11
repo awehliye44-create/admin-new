@@ -81,4 +81,8 @@ Deno.test("save handler auto-links Revolut on uk_bank_account (no manual Verify 
   assertStringIncludes(src, "createRevolutCounterparty");
   assertStringIncludes(src, "PROVIDER_VERIFIED");
   assertStringIncludes(src, "provider_auto_linked");
+  // B2: sync failure must not report success.
+  assertStringIncludes(src, "resolveSyncUkRevolutOutcome");
+  assertStringIncludes(src, "httpStatusForOutcome");
+  assertStringIncludes(src, "isClientSuccessOutcome");
 });
