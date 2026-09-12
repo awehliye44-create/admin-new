@@ -25,6 +25,8 @@ export async function ensureRevolutCustomerForBooking(args: {
   userId: string;
   email: string;
   fullName?: string | null;
+  /** Skip customers.revolut_customer_id and create a fresh Merchant customer. */
+  ignoreCachedId?: boolean;
 }): Promise<RevolutCustomerRef | null> {
   const email = args.email.trim().toLowerCase();
   if (!email) return null;
@@ -36,7 +38,7 @@ export async function ensureRevolutCustomerForBooking(args: {
     .maybeSingle();
 
   const existingId = customerRow?.revolut_customer_id as string | null | undefined;
-  if (existingId?.trim()) {
+  if (!args.ignoreCachedId && existingId?.trim()) {
     return {
       id: existingId.trim(),
       email,

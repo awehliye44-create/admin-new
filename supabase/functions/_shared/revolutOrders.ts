@@ -7,6 +7,7 @@ import {
   type RevolutApiError,
 } from "./revolutApi.ts";
 import type { RevolutCustomerRef } from "./revolutCustomers.ts";
+import { buildCreateRevolutOrderRequestBody } from "./revolutPreauthCustomerAttach.ts";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 
 /**
@@ -119,34 +120,21 @@ export interface CreateOrderParams {
  * later same-order increments). Response includes `token` for native checkout.
  */
 export async function createRevolutOrder(p: CreateOrderParams): Promise<RevolutOrder> {
-  const customerPayload =
-    p.customer?.id
-      ? { id: p.customer.id }
-      : p.customer?.email
-      ? {
-        email: p.customer.email,
-        ...(p.customer.full_name ? { full_name: p.customer.full_name } : {}),
-      }
-      : undefined;
-
-  const enableIncrement = p.enableIncrementalAuthorisation !== false;
-
   return await revolutMerchantRequest<RevolutOrder>(
     p.environment,
     p.secretKey,
     "/orders",
     {
       method: "POST",
-      body: JSON.stringify({
-        amount: p.amountMinor,
-        currency: p.currency.toUpperCase(),
-        capture_mode: "manual",
-        ...(enableIncrement ? { authorisation_type: "pre_authorisation" } : {}),
-        merchant_order_ext_ref: p.tripId,
-        description: p.description ?? "ONECAB trip payment",
-        metadata: p.metadata ?? {},
-        ...(customerPayload ? { customer: customerPayload } : {}),
-      }),
+      body: JSON.stringify(buildCreateRevolutOrderRequestBody({
+        amountMinor: p.amountMinor,
+        currency: p.currency,
+        tripId: p.tripId,
+        description: p.description,
+        metadata: p.metadata,
+        customer: p.customer,
+        enableIncrementalAuthorisation: p.enableIncrementalAuthorisation,
+      })),
     },
   );
 }

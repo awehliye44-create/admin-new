@@ -1,6 +1,7 @@
 /**
  * Driver-safe / customer-safe Revolut payment error messages.
  */
+import { REVOLUT_PAYMENT_SETUP_FAILED_MESSAGE } from "./revolutPreauthCustomerAttach.ts";
 
 const FRIENDLY_DEFAULT =
   "We couldn't complete your payment. Please try again or use another payment method.";
@@ -24,6 +25,14 @@ export function humanizeRevolutPreauthCustomerError(raw: string | null | undefin
   }
   if (lower.includes("token missing") || lower.includes("checkout token")) {
     return "Payment setup failed. Please try again.";
+  }
+  if (
+    lower.includes("requested resource is not found")
+    || lower.includes("resource is not found")
+    || lower.includes("resource not found")
+    || lower.includes("endpoint not found")
+  ) {
+    return REVOLUT_PAYMENT_SETUP_FAILED_MESSAGE;
   }
   if (lower.includes("declined") || lower.includes("failed") || lower.includes("suspicious")) {
     return "Your bank or payment provider declined this payment. Please try another card or payment method.";

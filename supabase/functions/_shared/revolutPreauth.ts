@@ -4,6 +4,13 @@ import {
   recordPaymentAuthorizationEvent,
 } from "./dynamicPaymentWorkflow.ts";
 import { humanizeRevolutPreauthCustomerError } from "./revolutCustomerError.ts";
+import { ensureRevolutCustomerForBooking } from "./revolutCustomers.ts";
+import {
+  buildPreauthOrderCreateMetadata,
+  customerForStaleOrderRetry,
+  planStaleCachedCustomerOrderRetry,
+  shouldAttachRevolutCustomerForPreauth,
+} from "./revolutPreauthCustomerAttach.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
 import {
   isRevolutAuthorisedState,
@@ -363,24 +370,27 @@ export async function createRevolutPreauthResponse(
     }
   }
 
-  const orderMetadata = {
-    ...metadataExtra,
-    type: "trip_preauth",
-    estimated_total_pence: String(estimatedTotalPence),
-    buffer_pence: String(bufferPence),
-    payment_method_type: String(paymentMethodType ?? "card"),
-    save_card_eligible: saveCardEligible ? "true" : "false",
-    ...(clientActionId ? { client_action_id: clientActionId } : {}),
-    ...(userId ? { customer_user_id: userId } : {}),
-    ...(resolvedPlatformPaymentMethodId
-      ? { platform_payment_method_id: resolvedPlatformPaymentMethodId }
-      : {}),
-  };
+  const attachRevolutCustomer = shouldAttachRevolutCustomerForPreauth({
+    paymentMethodType,
+    saveCardEligible,
+    savedCardReuse: savedCardContext,
+  });
+  const orderMetadata = buildPreauthOrderCreateMetadata({
+    metadataExtra,
+    estimatedTotalPence,
+    bufferPence,
+    paymentMethodType,
+    saveCardEligible,
+    clientActionId,
+    userId,
+    platformPaymentMethodId: resolvedPlatformPaymentMethodId,
+  });
 
-  let revolutCustomer = null;
-  // Attach Revolut customer on every card booking so payWithPopup can show
-  // "Securely save card details…" (requires customer.id on the order).
-  const needsRevolutCustomer = Boolean(userId && customerEmail?.trim());
+  let revolutCustomer: Awaited<ReturnType<typeof ensureRevolutCustomerForBooking>> = null;
+  // Customer id is for explicit card save and saved-card reuse only.
+  // Apple Pay / Google Pay must not receive customer — a stale cached id 404s POST /orders
+  // before the wallet sheet opens.
+  const needsRevolutCustomer = attachRevolutCustomer && Boolean(userId && customerEmail?.trim());
 
   const [tokenRow, revolutCustomerResolved] = await Promise.all([
     userId && platformPaymentMethodId
@@ -406,11 +416,47 @@ export async function createRevolutPreauthResponse(
     revolutCustomer = revolutCustomerResolved;
     logStep("Revolut customer resolved", {
       hasId: Boolean(revolutCustomer?.id),
-      cached: Boolean(revolutCustomer?.id),
+      attach: attachRevolutCustomer,
+      payment_method_type: paymentMethodType ?? "card",
+    });
+  } else if (!attachRevolutCustomer) {
+    logStep("Revolut customer omitted", {
+      payment_method_type: paymentMethodType ?? "card",
+      save_card_eligible: saveCardEligible,
+      saved_card_reuse: savedCardContext,
     });
   }
 
   let order;
+  const orderCreateFailed = (err: unknown) => {
+    const revolutErr = err as { message?: string; status?: number };
+    // Plain objects thrown by revolutMerchantRequest stringify as [object Object].
+    logStep("Revolut order create failed", {
+      error: revolutErr?.message ?? "unknown",
+      status: revolutErr?.status ?? null,
+    });
+    return new Response(JSON.stringify({
+      error: humanizeRevolutPreauthCustomerError(revolutErr?.message),
+      code: "PAYMENT_SETUP_FAILED",
+      charge_state: "no_charge",
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 402,
+    });
+  };
+  const postPreauthOrder = (
+    customer: { id?: string; email?: string; full_name?: string } | null,
+  ) => createRevolutOrder({
+    environment,
+    secretKey,
+    amountMinor: authorisedAmountPence,
+    currency: paymentCurrency,
+    tripId: tripId ?? idempotencyKeySuffix,
+    description: tripId ? `ONECAB trip ${tripId}` : "ONECAB ride pre-authorisation",
+    metadata: orderMetadata,
+    customer: customer ?? undefined,
+  });
+
   try {
     // Defense in depth: never create a NEW Revolut order without a canonical snapshot.
     // (create-preauth already validates; this blocks any other caller.)
@@ -437,26 +483,44 @@ export async function createRevolutPreauthResponse(
       "revolut_order_created",
       "revolutPreauth.ts:createRevolutOrder",
     );
-    order = await createRevolutOrder({
-      environment,
-      secretKey,
-      amountMinor: authorisedAmountPence,
-      currency: paymentCurrency,
-      tripId: tripId ?? idempotencyKeySuffix,
-      description: tripId ? `ONECAB trip ${tripId}` : "ONECAB ride pre-authorisation",
-      metadata: orderMetadata,
-      customer: revolutCustomer ?? undefined,
-    });
+    const staleCustomerId = revolutCustomer?.id?.trim() || "";
+    try {
+      order = await postPreauthOrder(revolutCustomer);
+    } catch (err) {
+      // First POST failed before payment_session insert. A cached customer 404
+      // means Revolut did not create the order — one refresh retry is safe.
+      const retry = planStaleCachedCustomerOrderRetry({
+        sentCachedCustomerId: Boolean(staleCustomerId),
+        alreadyRetried: false,
+        err,
+      });
+      if (retry !== "refresh_and_retry" || !userId || !customerEmail?.trim()) {
+        return orderCreateFailed(err);
+      }
+      logStep("Stale Revolut customer on order create — refreshing once", {
+        status: (err as { status?: number })?.status ?? null,
+      });
+      const refreshed = await ensureRevolutCustomerForBooking({
+        supabase,
+        environment,
+        secretKey,
+        userId,
+        email: customerEmail,
+        fullName: customerName,
+        ignoreCachedId: true,
+      });
+      const retryCustomer = customerForStaleOrderRetry({
+        staleCustomerId,
+        refreshed,
+      });
+      try {
+        order = await postPreauthOrder(retryCustomer);
+      } catch (retryErr) {
+        return orderCreateFailed(retryErr);
+      }
+    }
   } catch (err) {
-    logStep("Revolut order create failed", { error: String(err) });
-    return new Response(JSON.stringify({
-      error: humanizeRevolutPreauthCustomerError((err as Error)?.message),
-      code: "PAYMENT_SETUP_FAILED",
-      charge_state: "no_charge",
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 402,
-    });
+    return orderCreateFailed(err);
   }
 
   logStep("Revolut order created", {
