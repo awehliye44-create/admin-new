@@ -14,6 +14,7 @@ const InputSchema = z.object({
 function httpStatusForErrorCode(code?: string): number {
   if (code === "CAPTURE_BLOCKED_NEVER_CAPTURE") return 409;
   if (code === ADMIN_CAPTURE_PRECONDITION.TRIP_NOT_COMPLETED) return 409;
+  if (code === ADMIN_CAPTURE_PRECONDITION.TIP_WINDOW_OPEN) return 409;
   if (code === ADMIN_CAPTURE_PRECONDITION.FINANCIAL_MODEL_VIOLATION) return 409;
   if (code === "CAPTURE_BUSY") return 409;
   return 400;

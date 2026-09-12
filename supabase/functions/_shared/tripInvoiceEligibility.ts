@@ -1,5 +1,7 @@
-/** Matches finalize-trip-and-capture tip window SSOT. */
-export const TRIP_INVOICE_TIP_WINDOW_MS = 2 * 60 * 1000;
+/** Matches tip window SSOT (shared/tipWindowConstants.ts). */
+import { TIP_WINDOW_MS } from "../../../shared/tipWindowConstants.ts";
+
+export const TRIP_INVOICE_TIP_WINDOW_MS = TIP_WINDOW_MS;
 
 /** Trip still in progress — auto invoice must never run. */
 const ACTIVE_TRIP_STATUSES = new Set([
@@ -54,6 +56,7 @@ type TripInvoiceGateRow = {
   payment_intent_id?: string | null;
   tip_window_closed_at?: string | null;
   tip_window_expires_at?: string | null;
+  tip_window_status?: string | null;
   invoice_email_sent?: boolean | null;
 };
 
@@ -75,18 +78,16 @@ export function isTipWindowClosedForInvoice(
   trip: TripInvoiceGateRow,
   nowMs = Date.now(),
 ): boolean {
+  void nowMs;
   if (trip.tip_window_closed_at) return true;
 
-  const expiresAt = trip.tip_window_expires_at;
-  if (expiresAt && new Date(expiresAt).getTime() <= nowMs) return true;
-
-  const completedAt = trip.completed_at;
-  if (completedAt) {
-    const elapsed = nowMs - new Date(completedAt).getTime();
-    if (elapsed >= TRIP_INVOICE_TIP_WINDOW_MS) return true;
-  }
-
-  return false;
+  // Stamped window (TIP_WINDOW_MS at complete) must be closed by capture/expiry,
+  // which stamps only the tip the capture covered. Expired-but-unclosed must not
+  // invoice a claimed unpaid tip. An open status blocks even if expires_at is
+  // missing. No stamp and not open → do not delay invoice (excluded channels).
+  if (String(trip.tip_window_status ?? "").trim().toLowerCase() === "open") return false;
+  if (trip.tip_window_expires_at) return false;
+  return true;
 }
 
 export function isPaymentFinalisedForInvoice(trip: TripInvoiceGateRow): boolean {

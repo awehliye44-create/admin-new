@@ -13,6 +13,7 @@ import {
 export const ADMIN_CAPTURE_PRECONDITION = {
   TRIP_NOT_FOUND: "TRIP_NOT_FOUND",
   TRIP_NOT_COMPLETED: "TRIP_NOT_COMPLETED",
+  TIP_WINDOW_OPEN: "TIP_WINDOW_OPEN",
   FINANCIAL_MODEL_VIOLATION: FINANCIAL_MODEL_VIOLATION,
   FINANCIAL_MODEL_NOT_PLATFORM_COLLECTED: "FINANCIAL_MODEL_NOT_PLATFORM_COLLECTED",
   SETTLEMENT_INPUTS_MISSING: "SETTLEMENT_INPUTS_MISSING",
@@ -79,6 +80,19 @@ export function validateAdminCaptureTripPreconditions(args: {
       ok: false,
       error_code: ADMIN_CAPTURE_PRECONDITION.TRIP_NOT_COMPLETED,
       error: "Trip must be completed before admin capture",
+    };
+  }
+
+  // Refuse while a tip-window stamp is unresolved (open or expired-but-unclosed).
+  // Tip-inclusive capture belongs to tip-submit / expiry / remediates — not fare-only admin capture.
+  if (
+    args.trip.tip_window_expires_at &&
+    !args.trip.tip_window_closed_at
+  ) {
+    return {
+      ok: false,
+      error_code: ADMIN_CAPTURE_PRECONDITION.TIP_WINDOW_OPEN,
+      error: "Tip window still unresolved — admin capture deferred until tip submit, skip, or expiry close",
     };
   }
 

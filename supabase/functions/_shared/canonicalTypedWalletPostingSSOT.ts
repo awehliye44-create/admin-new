@@ -5,6 +5,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { creditCapturedCardTripLedger } from "./onecabFinanceLedger.ts";
 import { type TripSettlementTripRow } from "./tripSettlement.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
 import {
   loadTerminalCaptureEvidence,
   postTerminalEntitlementFromSettlement,
@@ -51,10 +52,16 @@ export async function postStampedTripSettlementWalletCredit(
     Math.round(Number(args.trip.driver_net_pence) || 0)
       + Math.round(Number(args.trip.airport_charge_pence) || 0),
   );
-  const tipPence = Math.max(
+  const requestedTip = Math.max(
     0,
     Math.round(Number(args.trip.tip_pence ?? args.trip.tip_amount_pence) || 0),
   );
+  const tipPence = invoiceTipPenceFromConfirmedCapture({
+    paymentMethod: (args.trip as { payment_method?: string | null }).payment_method,
+    captureAmountPence: args.trip.capture_amount_pence,
+    finalFarePence: args.trip.final_fare_pence,
+    requestedTipPence: requestedTip,
+  });
   const pctRaw = Number(args.trip.accepted_commission_percent ?? args.trip.commission_pct);
   return postTripEarningNetCanonical(supabase, {
     driverId: String(args.trip.driver_id),

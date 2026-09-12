@@ -1,3 +1,5 @@
+import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
+
 /**
  * Customer invoice payment SSOT.
  *
@@ -60,6 +62,8 @@ export interface TripPaymentEvidenceTrip {
   gross_fare_pence?: number | null;
   cash_collected_at?: string | null;
   driver_payment_confirmed_at?: string | null;
+  tip_pence?: number | null;
+  tip_amount_pence?: number | null;
 }
 
 export interface PaymentSessionEvidence {
@@ -309,6 +313,12 @@ export function resolveTripInvoicePaymentState(args: {
   const isCash = paymentMethod === "cash" || paymentMethod === "driver_collected";
   if (paymentModel === "DRIVER_COLLECTED_COMMISSION_WALLET" || isCash) {
     const collected = Boolean(trip.cash_collected_at || trip.driver_payment_confirmed_at);
+    const cashTip = invoiceTipPenceFromConfirmedCapture({
+      paymentMethod: trip.payment_method,
+      captureAmountPence: 0,
+      finalFarePence,
+      requestedTipPence: trip.tip_pence ?? trip.tip_amount_pence ?? 0,
+    });
     if (!collected) {
       // Fail closed — never invent a collection.
       return {
@@ -324,7 +334,7 @@ export function resolveTripInvoicePaymentState(args: {
     }
     return {
       ...base,
-      authoritativePaidPence: finalFarePence,
+      authoritativePaidPence: finalFarePence + cashTip,
       outstandingPence: 0,
       paymentClassification: "FULLY_PAID",
       evidenceSource: "driver_collected_state",
@@ -392,8 +402,18 @@ export function resolveTripInvoicePaymentState(args: {
     };
   }
 
+  // A covered passenger tip is collected on top of the fare. A later refund of the
+  // fare must not turn the remaining tip into an unexplained overpayment.
+  const coveredTip = invoiceTipPenceFromConfirmedCapture({
+    paymentMethod: trip.payment_method,
+    captureAmountPence: grossCaptured,
+    finalFarePence,
+    requestedTipPence: trip.tip_pence ?? trip.tip_amount_pence ?? 0,
+  });
+  const explainedPaidPence = Math.max(0, finalFarePence + coveredTip - refunded);
+
   // ── Safety invariant: unexplained overpayment must never render as a clean "PAID" invoice ──
-  if (netPaid > finalFarePence + PAID_TOLERANCE_PENCE) {
+  if (netPaid > explainedPaidPence + PAID_TOLERANCE_PENCE) {
     return {
       ...base,
       authoritativePaidPence: netPaid,

@@ -18,7 +18,7 @@ import {
   releasePaymentSessionFinancialLock,
   type FinancialLockClaim,
 } from "./paymentSessionFinancialLockSSOT.ts";
-import { decideCaptureAfterRetrieve } from "./revolutCaptureIdempotencySSOT.ts";
+import { decideCaptureAfterRetrieve, tripHasConflictingFinalCapture } from "./revolutCaptureIdempotencySSOT.ts";
 import {
   captureRevolutOrder,
   retrieveRevolutOrder,
@@ -233,6 +233,30 @@ export async function executeAdminCaptureTripPayment(args: {
       captureAmountPence = decision.captureAmountPence;
       providerPayload = orderBefore as unknown as Record<string, unknown>;
     } else if (decision.action === "retry_capture") {
+      const storedTripCapture = Math.round(Number(args.trip.capture_amount_pence) || 0);
+      const sessionStatus = String(bookingSession.status ?? "").toLowerCase();
+      const sessionCaptured = (
+        sessionStatus === "captured"
+        || sessionStatus === "completed"
+        || sessionStatus === "capture_confirmed"
+        || sessionStatus === "partial_capture_only"
+      )
+        ? Math.round(Number(bookingSession.captured_amount_pence) || 0)
+        : 0;
+      const confirmed = storedTripCapture > 0 ? storedTripCapture : sessionCaptured;
+      if (tripHasConflictingFinalCapture({
+        confirmedCapturePence: confirmed,
+        requestedCapturePence: decision.captureAmountPence,
+      })) {
+        earlyFail = fail({
+          success: false,
+          error_code: "FINAL_CAPTURE_AMOUNT_CONFLICT",
+          error: "Final capture already confirmed; different amount refused",
+          payment_session_id: paymentSessionId,
+          provider_order_id: orderId,
+        });
+        return earlyFail;
+      }
       const captured = await captureOrder(
         merchant.environment,
         merchant.secretKey,

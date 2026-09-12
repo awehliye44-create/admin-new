@@ -26,7 +26,18 @@ import {
 import { applyCanonicalSettlementAfterCapture } from "../_shared/applyCanonicalSettlementAfterCapture.ts";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
+import { extractConfirmedCaptureAmountPence } from "../../../shared/paymentHoldProviderTerminalPure.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
+import {
+  expiryFareOnlyTipPence,
+  expiredUnclosedTipWindowForbidsTipCapture,
+  isTipWindowOpen,
+  recordedTipPenceAfterCapture,
+  tipCollectedFromConfirmedCapture,
+  tipWindowCloseAllowedAfterFinalize,
+} from "../../../shared/tripPaymentFinalised.ts";
+import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
+import { TIP_WINDOW_STATUS } from "../../../shared/tipWindowConstants.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -243,10 +254,18 @@ serve(async (req) => {
     const tripId = String(row.trip_id);
     const { data: trip } = await supabase
       .from("trips")
-      .select("id, status, driver_id, driver_net_pence, tip_pence, tip_amount_pence, currency_code, currency, provider_order_id, capture_amount_pence")
+      .select("*")
       .eq("id", tripId)
       .maybeSingle();
     if (!trip || String(trip.status ?? "").toLowerCase() !== "completed") continue;
+    if (isTipWindowOpen(trip, Date.now())) {
+      healResults.push({
+        trip_id: tripId,
+        skipped: true,
+        reason: "tip_window_open",
+      });
+      continue;
+    }
 
     if (dryRun) {
       healResults.push({ trip_id: tripId, dry_run: true, action: "would_heal_completed_capture" });
@@ -261,11 +280,22 @@ serve(async (req) => {
         healResults.push({ trip_id: tripId, skipped: true, provider_state: state });
         continue;
       }
-      const amountMinor = Math.round(Number(
-        (order as { amount?: number }).amount
-          ?? row.authorised_amount_pence
-          ?? 0,
-      ));
+      // Confirmed capture only. A hold (authorised_amount / unused buffer) is not
+      // a capture — using it here stamps fare+buffer as collected and can credit
+      // DRIVER_TIP_CREDIT for a tip the card never paid.
+      const confirmedCapture = extractConfirmedCaptureAmountPence(
+        order as unknown as Record<string, unknown>,
+        state,
+      );
+      if (confirmedCapture == null || confirmedCapture <= 0) {
+        healResults.push({
+          trip_id: tripId,
+          skipped: true,
+          reason: "completed_capture_amount_unresolved",
+        });
+        continue;
+      }
+      const amountMinor = confirmedCapture;
       const nowIso = new Date().toISOString();
       await transitionPaymentSession(supabase, {
         sessionId: row.id,
@@ -286,13 +316,36 @@ serve(async (req) => {
         provider_charge_id: row.provider_order_id,
         updated_at: nowIso,
       }).eq("id", tripId);
+      const requestedTip = expiredUnclosedTipWindowForbidsTipCapture(trip)
+        ? expiryFareOnlyTipPence(trip.tip_pence ?? trip.tip_amount_pence)
+        : Math.max(0, Math.round(Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0)));
+      const coveredTip = tipCollectedFromConfirmedCapture({
+        captureAmountPence: amountMinor,
+        farePlusTipPence: computeCaptureAmount(
+          trip as never,
+          "completed",
+          requestedTip,
+        ).capture_amount_pence,
+        requestedTipPence: requestedTip,
+      });
+      if (coveredTip.tipShortfallPence > 0) {
+        await supabase.from("trips").update({
+          tip_amount_pence: coveredTip.tipCollectedPence,
+          tip_pence: coveredTip.tipCollectedPence,
+          updated_at: nowIso,
+        }).eq("id", tripId);
+      }
       if (trip.driver_id) {
         await applyCanonicalSettlementAfterCapture({
           supabase,
           tripId,
-          trip: trip as Record<string, unknown>,
+          trip: {
+            ...(trip as Record<string, unknown>),
+            tip_pence: coveredTip.tipCollectedPence,
+            tip_amount_pence: coveredTip.tipCollectedPence,
+          },
           captureAmountPence: amountMinor,
-          tipPence: Math.max(0, Math.round(Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0))),
+          tipPence: coveredTip.tipCollectedPence,
           mode: "recovery",
         });
       }
@@ -380,12 +433,24 @@ serve(async (req) => {
     const tripId = String(row.trip_id);
     const { data: trip } = await supabase
       .from("trips")
-      .select("id, status, payment_status, completed_at")
+      .select(
+        "id, status, payment_status, completed_at, tip_window_expires_at, tip_window_closed_at, tip_window_status, tip_amount_pence, tip_pence",
+      )
       .eq("id", tripId)
       .maybeSingle();
     if (!trip || String(trip.status ?? "").toLowerCase() !== "completed") continue;
     const pay = String(trip.payment_status ?? "").toLowerCase();
     if (!COMPLETED_CAPTURE_RETRY_PAYMENT_STATUSES.has(pay)) continue;
+    // Tip-deferred trips must stay AUTHORISED until tip submit / skip / expiry.
+    // Never fare-capture mid-window (defeats the 20-minute tip deferral).
+    if (isTipWindowOpen(trip, nowMs)) {
+      retryResults.push({
+        trip_id: tripId,
+        skipped: true,
+        reason: "tip_window_open",
+      });
+      continue;
+    }
     const completedAt = trip.completed_at ? Date.parse(String(trip.completed_at)) : NaN;
     if (!Number.isFinite(completedAt) || (nowMs - completedAt) < COMPLETED_AUTHORISED_RETRY_GRACE_MS) {
       retryResults.push({
@@ -395,22 +460,57 @@ serve(async (req) => {
       });
       continue;
     }
+    const expiredUnclosed = expiredUnclosedTipWindowForbidsTipCapture(trip, nowMs);
     if (dryRun) {
       retryResults.push({
         trip_id: tripId,
         dry_run: true,
-        action: "would_retry_completed_authorised_capture",
+        action: expiredUnclosed
+          ? "would_retry_completed_authorised_capture_fare_only"
+          : "would_retry_completed_authorised_capture",
+        tip_pence: expiredUnclosed
+          ? expiryFareOnlyTipPence(trip.tip_amount_pence ?? trip.tip_pence)
+          : Math.max(0, Math.round(Number(trip.tip_amount_pence ?? trip.tip_pence ?? 0) || 0)),
         payment_status: trip.payment_status,
       });
       continue;
+    }
+    const tipPence = expiredUnclosed
+      ? expiryFareOnlyTipPence(trip.tip_amount_pence ?? trip.tip_pence)
+      : Math.max(
+        0,
+        Math.round(Number(trip.tip_amount_pence ?? trip.tip_pence ?? 0) || 0),
+      );
+    if (expiredUnclosed) {
+      await supabase.from("trips").update({
+        tip_amount_pence: 0,
+        tip_pence: 0,
+        updated_at: new Date(nowMs).toISOString(),
+      }).eq("id", tripId).is("tip_window_closed_at", null);
     }
     const rec = await invokeFinalizeTripCapture({
       supabaseUrl,
       serviceRoleKey,
       tripId,
-      tipPence: 0,
+      tipPence,
       source: "sweep-revolut-stale-holds:completed_authorised_retry",
     });
+    if (
+      tipWindowCloseAllowedAfterFinalize(rec.body)
+      && trip.tip_window_expires_at
+      && !trip.tip_window_closed_at
+    ) {
+      const collected = expiredUnclosed
+        ? expiryFareOnlyTipPence(rec.body?.tip_collected_pence)
+        : (recordedTipPenceAfterCapture(rec.body?.tip_collected_pence) ?? 0);
+      await supabase.from("trips").update({
+        tip_amount_pence: collected,
+        tip_pence: collected,
+        tip_window_closed_at: new Date(nowMs).toISOString(),
+        tip_window_status: TIP_WINDOW_STATUS.CLOSED,
+        updated_at: new Date(nowMs).toISOString(),
+      }).eq("id", tripId).is("tip_window_closed_at", null);
+    }
     retryResults.push({
       trip_id: tripId,
       action: "retry_completed_authorised_capture",

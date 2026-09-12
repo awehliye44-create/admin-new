@@ -277,23 +277,14 @@ export async function creditCapturedCardTripLedger(
         { code: "WALLET_AMOUNT_MISMATCH" },
       );
     }
-    const recovery = await applyCardDebtRecoveryOnCapture(supabase, {
-      driverId: args.driverId,
-      tripId: args.tripId,
-      paymentId: args.paymentId,
-      cardDriverCreditPence: args.driverNetPence + args.tipPence,
-      currency,
-    });
-    return { credited: true, recovery_pence: recovery.recovery_pence };
-  }
-  if (readbackBefore.count > 1) {
+    // TEN already posted (e.g. tip-window deferral at complete). Do NOT return early —
+    // DRIVER_TIP_CREDIT must still be allowed when tipPence > 0 and no tip row exists.
+  } else if (readbackBefore.count > 1) {
     throw Object.assign(
       new Error(`duplicate TRIP_EARNING_NET rows for trip ${args.tripId}`),
       { code: "DUPLICATE_WALLET_CREDIT" },
     );
-  }
-
-  if (args.driverNetPence > 0) {
+  } else if (args.driverNetPence > 0) {
     const { error } = await supabase.from("driver_wallet_ledger").insert({
       driver_id: args.driverId,
       related_trip_id: args.tripId,

@@ -68,6 +68,27 @@ export function applyRefundToTripAmounts(args: {
   };
 }
 
+/**
+ * Claw back DRIVER_TIP_CREDIT only for the part of a refund that exceeds the fare.
+ * A fare-only refund must not reverse the tip. Missing fare falls back to
+ * captured minus the credited tip so a hold-sized capture basis cannot hide
+ * a tip refund, and a missing fare cannot treat the whole refund as tip.
+ */
+export function capturedTipReversalPence(args: {
+  cumulativeRefundedPence: number;
+  farePence: number;
+  capturedPence: number;
+  tipCreditPence: number;
+}): number {
+  const tip = Math.max(0, Math.round(Number(args.tipCreditPence) || 0));
+  if (tip <= 0) return 0;
+  const refund = Math.max(0, Math.round(Number(args.cumulativeRefundedPence) || 0));
+  const captured = Math.max(0, Math.round(Number(args.capturedPence) || 0));
+  let fare = Math.max(0, Math.round(Number(args.farePence) || 0));
+  if (fare <= 0) fare = Math.max(0, captured - Math.min(tip, captured));
+  return Math.min(tip, Math.max(0, refund - fare));
+}
+
 export function computeNetPaidAfterRefund(args: {
   customerPaidPence: number;
   refundPence: number;

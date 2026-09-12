@@ -6,6 +6,22 @@
 import type { RevolutOrder } from "./revolutOrders.ts";
 import { revolutProviderAuthorisedTotalPence } from "./revolutOrders.ts";
 import { buildCaptureBusinessKey } from "./revolutIncrementAuthorisationSSOT.ts";
+import { extractConfirmedCaptureAmountPence } from "../../../shared/paymentHoldProviderTerminalPure.ts";
+
+/**
+ * Trip-level final capture guard.
+ * A confirmed positive capture is final. A later request for a different amount
+ * must not POST another capture. Same amount stays an idempotent reconcile. 1p tolerance.
+ */
+export function tripHasConflictingFinalCapture(args: {
+  confirmedCapturePence: number | null | undefined;
+  requestedCapturePence: number;
+}): boolean {
+  const confirmed = Math.round(Number(args.confirmedCapturePence));
+  if (!Number.isFinite(confirmed) || confirmed <= 0) return false;
+  const requested = Math.max(0, Math.round(Number(args.requestedCapturePence) || 0));
+  return Math.abs(confirmed - requested) > 1;
+}
 
 export type CaptureAfterRetrieveDecision =
   | {
@@ -62,10 +78,24 @@ export function decideCaptureAfterRetrieve(args: {
   const authorised = revolutProviderAuthorisedTotalPence(args.order);
 
   if (state === "COMPLETED" || state === "CAPTURED") {
-    const captured = authorised > 0 ? authorised : finalFare;
+    // Confirmed capture only. A hold / authorised total must not become the
+    // final capture and then block or invent a different amount.
+    const extracted = extractConfirmedCaptureAmountPence(
+      args.order as unknown as Record<string, unknown>,
+      state,
+    );
+    if (extracted == null || extracted <= 0) {
+      return {
+        action: "shortfall_unusable",
+        captureAmountPence: 0,
+        providerState: state,
+        businessKey,
+        remainingShortfallPence: finalFare,
+      };
+    }
     return {
       action: "reconcile_already_captured",
-      captureAmountPence: captured,
+      captureAmountPence: extracted,
       providerState: state,
       businessKey,
     };

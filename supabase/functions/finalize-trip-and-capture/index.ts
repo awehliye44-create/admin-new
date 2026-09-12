@@ -10,11 +10,50 @@ import {
   durableSettlementColumns,
   needsDurableSettlementPersist,
 } from "../../../shared/durableSettlementOutcomeSSOT.ts";
+import { isTipWindowOpen } from "../../../shared/tripPaymentFinalised.ts";
+import { extractBearerToken } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+/** Open-window capture only from tip-submit invoke (service role + claimed tip match). */
+function allowOpenTipWindowCapture(args: {
+  req: Request;
+  source: string;
+  tipPence: number;
+  trip: Record<string, unknown>;
+  nowMs: number;
+}): boolean {
+  if (args.source !== "submit_customer_trip_tip") return false;
+  if (!isTipWindowOpen(args.trip as {
+    tip_window_expires_at?: string | null;
+    tip_window_closed_at?: string | null;
+    tip_window_status?: string | null;
+  }, args.nowMs)) {
+    return false;
+  }
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const bearer = extractBearerToken(args.req);
+  if (!serviceRoleKey || !bearer || !timingSafeEqual(bearer, serviceRoleKey)) {
+    return false;
+  }
+  const claimedTip = Math.max(
+    0,
+    Math.round(Number(args.trip.tip_amount_pence ?? args.trip.tip_pence ?? 0) || 0),
+  );
+  return args.tipPence === claimedTip;
+}
 
 async function persistDurableOutcome(
   supabase: ReturnType<typeof createClient>,
@@ -47,6 +86,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const trip_id = body.trip_id ?? body.tripId;
     const tipPence = Math.max(0, Math.round(Number(body.tip_pence ?? body.tipPence ?? 0)));
+    const source = String(body.source ?? "").trim();
     if (!trip_id) {
       return new Response(JSON.stringify({ success: false, error: "trip_id is required" }), {
         status: 400,
@@ -94,6 +134,29 @@ Deno.serve(async (req) => {
       });
     }
 
+    const nowMs = Date.now();
+    // Tip submit may capture while the window is still open (then closes after success).
+    // Bypass requires service-role bearer + tip_pence matching the claimed trip tip.
+    // All other callers must wait until the window is closed or expired.
+    const allowOpenTipWindow = allowOpenTipWindowCapture({
+      req,
+      source,
+      tipPence,
+      trip: trip as Record<string, unknown>,
+      nowMs,
+    });
+    if (!allowOpenTipWindow && isTipWindowOpen(trip, nowMs)) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Tip window still open — capture deferred",
+        error_code: "TIP_WINDOW_OPEN",
+        status: "tip_window_open",
+      }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const provider = String(trip.payment_provider ?? "").toLowerCase();
     const orderId = tripProviderOrderId(trip);
     if (provider !== "revolut" && !orderId) {
@@ -119,6 +182,7 @@ Deno.serve(async (req) => {
         supabase: supabaseClient,
         trip,
         tipPence,
+        allowOpenTipWindow,
       });
     } catch (captureErr) {
       const message = captureErr instanceof Error ? captureErr.message : String(captureErr);

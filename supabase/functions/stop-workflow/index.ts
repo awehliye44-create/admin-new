@@ -64,6 +64,13 @@ import {
   finishEdgeRequestLog,
 } from "../_shared/edgeRequestTiming.ts";
 import { invokeFinalizeTripCapture as invokeFinalizeTripCaptureWithRetry } from "../_shared/invokeFinalizeTripCapture.ts";
+import { postTripEarningNetCanonical } from "../_shared/canonicalTypedWalletPostingSSOT.ts";
+import { isCustomerAppTipChannelEligible } from "../_shared/tipChannelEligibilitySSOT.ts";
+import {
+  TIP_WINDOW_MS,
+  TIP_WINDOW_STATUS,
+} from "../../../shared/tipWindowConstants.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
 import {
   isCardPaymentMethod,
   recordTripCaptureFailure,
@@ -72,7 +79,6 @@ import {
 import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
-import { postTripEarningNetCanonical } from "../_shared/canonicalTypedWalletPostingSSOT.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -668,7 +674,7 @@ function mergeTripWaitingCtx(
 }
 
 const ARRIVE_WAITING_TRIP_SELECT =
-  "id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, pickup_waiting_counted_seconds, stop_waiting_counted_seconds, waiting_geofence_status, waiting_geofence_distance_m, service_area_id, vehicle_type_id, driver_id, updated_at";
+  "id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, pickup_waiting_counted_seconds, stop_waiting_counted_seconds, waiting_geofence_status, waiting_geofence_distance_m, service_area_id, vehicle_type_id, driver_id, financial_model, updated_at";
 
 function resolveWaitingStatusFromResult(
   waitingResult: PickupWaitingStartResult | StopWaitingStartResult,
@@ -1279,24 +1285,6 @@ async function writeFareAudit(
   }
 }
 
-const TIP_WINDOW_MS = 2 * 60 * 1000;
-
-/** True while customer may still add a tip (server SSOT + completed_at fallback). */
-function isTipWindowOpen(trip: {
-  tip_window_expires_at?: string | null;
-  tip_window_closed_at?: string | null;
-  completed_at?: string | null;
-}): boolean {
-  if (trip.tip_window_closed_at) return false;
-  if (trip.tip_window_expires_at) {
-    return new Date(trip.tip_window_expires_at).getTime() > Date.now();
-  }
-  if (trip.completed_at) {
-    return Date.now() - new Date(trip.completed_at).getTime() < TIP_WINDOW_MS;
-  }
-  return false;
-}
-
 /** Card trips must capture via finalize-trip-and-capture — never mark captured without provider capture. */
 async function invokeFinalizeTripCapture(
   supabaseUrl: string,
@@ -1698,7 +1686,7 @@ Deno.serve(async (req) => {
           supabase
             .from("trips")
             .select(
-              "id, status, dispatch_status, arrived_at, pickup_arrived_at, started_at, completed_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, driver_id, payment_status, payment_method, updated_at",
+              "id, status, dispatch_status, arrived_at, pickup_arrived_at, started_at, completed_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, driver_id, financial_model, payment_status, payment_method, updated_at",
             )
             .eq("id", trip_id)
             .maybeSingle(),
@@ -1810,7 +1798,7 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripError } = await supabase
       .from("trips")
       .select(
-        "id, status, dispatch_status, dispatch_mode, service_area_id, vehicle_type_id, region_id, passenger_id, driver_id, confirmed_driver_id, previous_driver_id, pickup_address, dropoff_address, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, arrived_at, pickup_arrived_at, started_at, completed_at, cancelled_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, stop_arrived_at, stop_waiting_started_at, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, financial_model, payment_status, payment_method, cash_authorized_at, scheduled_at, airport_charge_pence, driver_started_journey_to_pickup_at, special_instructions, stacked_trip_id, tip_window_expires_at, tip_window_closed_at, updated_at",
+        "id, status, dispatch_status, dispatch_mode, service_area_id, vehicle_type_id, region_id, passenger_id, driver_id, confirmed_driver_id, previous_driver_id, pickup_address, dropoff_address, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, arrived_at, pickup_arrived_at, started_at, completed_at, cancelled_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, stop_arrived_at, stop_waiting_started_at, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, financial_model, payment_status, payment_method, payment_provider, provider_order_id, payment_intent_id, payment_session_id, booking_source, corporate_account_id, tip_amount_pence, tip_pence, cash_authorized_at, scheduled_at, airport_charge_pence, driver_started_journey_to_pickup_at, special_instructions, stacked_trip_id, tip_window_expires_at, tip_window_closed_at, updated_at",
       )
       .eq("id", trip_id)
       .single();
@@ -2208,6 +2196,7 @@ Deno.serve(async (req) => {
               status: trip.status,
               arrived_at: trip.arrived_at,
               pickup_waiting_started_at: billingTrip.pickup_waiting_started_at,
+              financial_model: trip.financial_model,
             },
           }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id }));
         }
@@ -2983,6 +2972,97 @@ Deno.serve(async (req) => {
           .filter(s => s.status !== 'completed' && s.status !== 'skipped')
           .map(s => s.id);
 
+        // Stamp the tip window in the same write as status=completed. The invoice
+        // trigger fires on that status change and re-reads the committed row; a
+        // later stamp loses the race and can email before capture.
+        const tripForTipWindow = (tripBeforeComplete ?? trip) as Record<string, unknown>;
+        // Capture and expiry both require provider_order_id. A session-only trip
+        // must not open a window they cannot close.
+        let tipWindowOrderId = String(tripForTipWindow.provider_order_id ?? "").trim();
+        let tipWindowOnComplete: {
+          tip_window_opened_at: string;
+          tip_window_expires_at: string;
+          tip_window_status: string;
+          tip_window_closed_at: null;
+        } | null = null;
+        if (
+          requiresProviderSettlement(tripForTipWindow)
+          && String(tripForTipWindow.financial_model ?? "").trim().toUpperCase() === "PLATFORM_COLLECTED"
+          && isCardPaymentMethod(tripForTipWindow.payment_method)
+          && isCustomerAppTipChannelEligible({
+            booking_source: tripForTipWindow.booking_source as string | null,
+            corporate_account_id: tripForTipWindow.corporate_account_id as string | null,
+          })
+          && tripForTipWindow.service_area_id
+          && (tipWindowOrderId || tripForTipWindow.payment_session_id)
+        ) {
+          if (!tipWindowOrderId && tripForTipWindow.payment_session_id) {
+            const { data: tipSession, error: tipSessionErr } = await supabase
+              .from("payment_sessions")
+              .select("provider_order_id")
+              .eq("id", String(tripForTipWindow.payment_session_id))
+              .maybeSingle();
+            if (tipSessionErr) {
+              console.error("[stop-workflow] tip window order lookup failed before completion", {
+                trip_id,
+                error: tipSessionErr.message,
+              });
+              return errorResponse(
+                "TIP_WINDOW_STAMP_UNAVAILABLE",
+                "Unable to open the tip window. Please try again.",
+                503,
+              );
+            }
+            tipWindowOrderId = String(tipSession?.provider_order_id ?? "").trim();
+            if (tipWindowOrderId) tripForTipWindow.provider_order_id = tipWindowOrderId;
+          }
+          if (!tipWindowOrderId) {
+            // No order to capture later. Do not stamp a window expiry cannot close.
+            console.error("[stop-workflow] tip window skipped; no provider order", { trip_id });
+          }
+        }
+        if (
+          tipWindowOrderId
+          && requiresProviderSettlement(tripForTipWindow)
+          && String(tripForTipWindow.financial_model ?? "").trim().toUpperCase() === "PLATFORM_COLLECTED"
+          && isCardPaymentMethod(tripForTipWindow.payment_method)
+          && isCustomerAppTipChannelEligible({
+            booking_source: tripForTipWindow.booking_source as string | null,
+            corporate_account_id: tripForTipWindow.corporate_account_id as string | null,
+          })
+          && tripForTipWindow.service_area_id
+        ) {
+          const { data: tipAreaEarly, error: tipAreaEarlyErr } = await supabase
+            .from("service_areas")
+            .select("tips_enabled")
+            .eq("id", tripForTipWindow.service_area_id as string)
+            .maybeSingle();
+          if (tipAreaEarlyErr) {
+            // Do not complete until we know whether to stamp the window.
+            // A failed read used to complete with no stamp, and the invoice
+            // trigger could then run before capture.
+            console.error("[stop-workflow] tips_enabled read failed before completion", {
+              trip_id,
+              error: tipAreaEarlyErr.message,
+            });
+            return errorResponse(
+              "TIP_WINDOW_STAMP_UNAVAILABLE",
+              "Unable to open the tip window. Please try again.",
+              503,
+            );
+          }
+          if (tipAreaEarly?.tips_enabled === true) {
+            tipWindowOnComplete = {
+              tip_window_opened_at: now,
+              tip_window_expires_at: new Date(
+                new Date(now).getTime() + TIP_WINDOW_MS,
+              ).toISOString(),
+              tip_window_status: TIP_WINDOW_STATUS.OPEN,
+              tip_window_closed_at: null,
+            };
+          }
+        }
+
         stages.mark('completion_writes_start');
         const [, , commissionResult, driverRegionResult] = await Promise.all([
           incompleteStopIds.length > 0
@@ -3015,6 +3095,10 @@ Deno.serve(async (req) => {
               stop_charge_total_pence: resolvedFare.stop_waiting_charge_pence,
               total_waiting_charge_pence: totalWaitingPence,
               waiting_charge_pence: totalWaitingPence,
+              ...(tipWindowOrderId && !String((tripBeforeComplete ?? trip).provider_order_id ?? "").trim()
+                ? { provider_order_id: tipWindowOrderId }
+                : {}),
+              ...(tipWindowOnComplete ?? {}),
               updated_at: now,
             })
             .eq("id", trip_id),
@@ -3138,11 +3222,120 @@ Deno.serve(async (req) => {
           .eq("id", driver_id);
 
         // P0: Revolut card / Apple Pay / Google Pay — capture via existing finalize-trip-and-capture.
-        // Driver wallet must NOT be credited here before provider-confirmed capture.
-        // Persist settlement columns BEFORE finalize so applyCanonicalSettlementAfterCapture
-        // can credit TRIP_EARNING_NET from trips.driver_net_pence (existing SSOT).
+        // Tip-eligible Customer App card trips: defer capture for TIP_WINDOW_MS, post TEN immediately.
+        // Other channels: capture immediately; TEN after provider-confirmed capture.
         if (needsProviderSettlement) {
           stages.mark('payment_capture_start');
+          let tipsEnabledForArea = false;
+          if (fareTrip.service_area_id) {
+            const { data: tipArea } = await supabase
+              .from("service_areas")
+              .select("tips_enabled")
+              .eq("id", fareTrip.service_area_id)
+              .maybeSingle();
+            tipsEnabledForArea = tipArea?.tips_enabled === true;
+          }
+          const deferCaptureForTipWindow =
+            Boolean(providerOrderId) &&
+            tipsEnabledForArea &&
+            mayPostDriverWalletLedger &&
+            isCardPaymentMethodFlag &&
+            isCustomerAppTipChannelEligible({
+              booking_source: fareTrip.booking_source,
+              corporate_account_id: fareTrip.corporate_account_id,
+            });
+
+          let tipWindowDeferred = false;
+          if (deferCaptureForTipWindow) {
+            const completedAtIso = String(fareTrip.completed_at ?? now);
+            const expiresAtIso = new Date(
+              new Date(completedAtIso).getTime() + TIP_WINDOW_MS,
+            ).toISOString();
+            const { error: tipWindowStampErr } = await supabase.from("trips").update({
+              ...tripSettlementDbColumns(settlement),
+              tip_amount_pence: tipAmountPence,
+              tip_pence: tipAmountPence,
+              final_fare_pence: finalFarePence,
+              final_customer_fare_pence:
+                nonNegInt(fareTrip.final_customer_fare_pence) || finalFarePence,
+              tip_window_opened_at: completedAtIso,
+              tip_window_expires_at: expiresAtIso,
+              tip_window_status: TIP_WINDOW_STATUS.OPEN,
+              tip_window_closed_at: null,
+              updated_at: new Date().toISOString(),
+            }).eq("id", trip_id);
+
+            if (tipWindowStampErr && !tipWindowOnComplete) {
+              // Fail open to immediate capture — never skip both stamp and finalize.
+              // If the completion write already opened the window, do not capture here.
+              console.error("[stop-workflow] tip window stamp failed; capturing immediately", {
+                trip_id,
+                error: tipWindowStampErr.message,
+              });
+            } else {
+              tipWindowDeferred = true;
+              const tenPence = Math.max(
+                0,
+                settlement.driver_net_pence + settlement.airport_charge_pence,
+              );
+              if (tenPence > 0) {
+                try {
+                  await postTripEarningNetCanonical(supabase, {
+                    driverId: driver_id,
+                    tripId: trip_id,
+                    driverNetPence: tenPence,
+                    tipPence: 0,
+                    currency: ledgerCurrency ?? "GBP",
+                    commissionPct: settlement.tier_percent_used,
+                    paymentId: providerOrderId,
+                  });
+                } catch (tenErr) {
+                  console.error("[stop-workflow] deferred tip-window TEN post failed", {
+                    trip_id,
+                    error: tenErr instanceof Error ? tenErr.message : String(tenErr),
+                  });
+                }
+              }
+
+              console.log("[PAYMENT_AUDIT]", JSON.stringify({
+                stage: "tip_window_capture_deferred",
+                trip_id,
+                provider_order_id: providerOrderId,
+                tip_window_expires_at: expiresAtIso,
+                tip_window_ms: TIP_WINDOW_MS,
+                driver_net_pence: settlement.driver_net_pence,
+                source: "stop-workflow:complete_trip",
+              }));
+            }
+          }
+          if (!tipWindowDeferred && tipWindowOnComplete) {
+            // Completion write already opened the window. Do not finalize — that
+            // capture is refused while the window is open and would miss TEN.
+            tipWindowDeferred = true;
+            const tenPence = Math.max(
+              0,
+              settlement.driver_net_pence + settlement.airport_charge_pence,
+            );
+            if (tenPence > 0) {
+              try {
+                await postTripEarningNetCanonical(supabase, {
+                  driverId: driver_id,
+                  tripId: trip_id,
+                  driverNetPence: tenPence,
+                  tipPence: 0,
+                  currency: ledgerCurrency ?? "GBP",
+                  commissionPct: settlement.tier_percent_used,
+                  paymentId: providerOrderId,
+                });
+              } catch (tenErr) {
+                console.error("[stop-workflow] deferred tip-window TEN post failed", {
+                  trip_id,
+                  error: tenErr instanceof Error ? tenErr.message : String(tenErr),
+                });
+              }
+            }
+          }
+          if (!tipWindowDeferred) {
           await supabase.from("trips").update({
             ...tripSettlementDbColumns(settlement),
             tip_amount_pence: tipAmountPence,
@@ -3273,6 +3466,7 @@ Deno.serve(async (req) => {
               }).eq("id", trip_id);
             }
           }
+          }
         } else if (isCardPaymentMethodFlag && !needsProviderSettlement) {
           // Card trip without usable provider order/session — persist explicit failure.
           console.error("[stop-workflow] card trip missing provider settlement identity", {
@@ -3303,9 +3497,16 @@ Deno.serve(async (req) => {
               409,
             );
           }
+          // No provider capture on this path. A claimed tip is not collected money.
+          const ledgerTipPence = invoiceTipPenceFromConfirmedCapture({
+            paymentMethod: fareTrip.payment_method,
+            captureAmountPence: fareTrip.capture_amount_pence,
+            finalFarePence: finalFarePence,
+            requestedTipPence: tipAmountPence,
+          });
           // Check all existing ledger entries in parallel
           const ledgerTypes = ['TRIP_EARNING_NET', 'PLATFORM_COMMISSION'];
-          if (tipAmountPence > 0) ledgerTypes.push('DRIVER_TIP_CREDIT');
+          if (ledgerTipPence > 0) ledgerTypes.push('DRIVER_TIP_CREDIT');
 
           const existingChecks = await Promise.all(
             ledgerTypes.map(type =>
@@ -3343,10 +3544,22 @@ Deno.serve(async (req) => {
                 driverId: driver_id,
                 tripId: trip_id,
                 driverNetPence: driverNetBeforeTip + settlement.airport_charge_pence,
-                tipPence: tipAmountPence,
+                tipPence: ledgerTipPence,
                 currency: ledgerCurrency || 'GBP',
                 commissionPct: settlement.tier_percent_used,
               }).then(() => ({ data: null, error: null })),
+            );
+          } else if (ledgerTipPence > 0 && !existsMap['DRIVER_TIP_CREDIT']) {
+            // TEN already posted. Canonical poster was skipped, so add the covered tip only.
+            parallelOps.push(
+              supabase.from("driver_wallet_ledger").insert({
+                driver_id,
+                related_trip_id: trip_id,
+                type: 'DRIVER_TIP_CREDIT',
+                amount_pence: ledgerTipPence,
+                currency: ledgerCurrency || 'GBP',
+                description: `Tip from passenger (${cs}${(ledgerTipPence / 100).toFixed(2)})`,
+              })
             );
           }
 
@@ -3359,19 +3572,6 @@ Deno.serve(async (req) => {
                 amount_pence: commissionPence,
                 currency: ledgerCurrency || 'GBP',
                 description: `Platform commission ${settlement.tier_percent_used}% on ${cs}${(commissionableFarePence / 100).toFixed(2)} (card)`,
-              })
-            );
-          }
-
-          if (tipAmountPence > 0 && !existsMap['DRIVER_TIP_CREDIT']) {
-            parallelOps.push(
-              supabase.from("driver_wallet_ledger").insert({
-                driver_id,
-                related_trip_id: trip_id,
-                type: 'DRIVER_TIP_CREDIT',
-                amount_pence: tipAmountPence,
-                currency: ledgerCurrency || 'GBP',
-                description: `Tip from passenger (${cs}${(tipAmountPence / 100).toFixed(2)})`,
               })
             );
           }

@@ -16,6 +16,14 @@ import { releaseHoldOnTripTerminal } from "../_shared/holdReleaseSSOT.ts";
 import { markPaymentSessionReleased } from "../_shared/paymentSessionSSOT.ts";
 import { finalizeRevolutTripCapture } from "../_shared/finalizeRevolutTripCapture.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
+import { TIP_WINDOW_STATUS } from "../../../shared/tipWindowConstants.ts";
+import {
+  expiryFareOnlyTipPence,
+  expiredUnclosedTipWindowForbidsTipCapture,
+  invoiceTipPenceFromConfirmedCapture,
+  recordedTipPenceAfterCapture,
+  tipWindowCloseAllowedAfterFinalize,
+} from "../../../shared/tripPaymentFinalised.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid().optional(),
@@ -75,25 +83,42 @@ serve(async (req) => {
       providerUnknown = true;
     }
 
-    const canonicalPayable = Math.max(
-      0,
-      Number(trip.final_customer_fare_pence ?? trip.final_fare_pence ?? 0)
-        + Number(trip.waiting_charge_pence ?? trip.total_waiting_charge_pence ?? 0)
-        + Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0),
-    );
-
     const { data: paymentSession } = orderId
       ? await supabase.from("payment_sessions").select(
         "id,status,provider_state,released_amount_pence,captured_amount_pence,authorised_amount_pence,refunded_amount_pence",
       ).eq("provider_order_id", orderId).maybeSingle()
       : { data: null };
 
+    // Decision payable uses only a tip the confirmed capture actually covers.
+    // An unpaid claim must not classify a fare-only capture as still short
+    // (that sends admin into recovery / a second order for a declined tip).
+    const tripCapturedPence = Math.max(0, Math.round(Number(trip.capture_amount_pence) || 0));
+    const sessionCapturedPence = Math.max(
+      0,
+      Math.round(Number(paymentSession?.captured_amount_pence) || 0),
+    );
+    // Lower confirmed capture wins when both exist so a hold written onto
+    // trips.capture_amount_pence cannot make an unpaid tip look collected.
+    const confirmedCapturePence = tripCapturedPence > 0 && sessionCapturedPence > 0
+      ? Math.min(tripCapturedPence, sessionCapturedPence)
+      : (sessionCapturedPence || tripCapturedPence);
+    const coveredTipPence = invoiceTipPenceFromConfirmedCapture({
+      paymentMethod: trip.payment_method,
+      captureAmountPence: confirmedCapturePence,
+      finalFarePence: trip.final_fare_pence ?? trip.final_customer_fare_pence,
+      requestedTipPence: trip.tip_pence ?? trip.tip_amount_pence,
+    });
+    const completedPayablePence = Math.max(
+      0,
+      Number(trip.final_customer_fare_pence ?? trip.final_fare_pence ?? 0)
+        + Number(trip.waiting_charge_pence ?? trip.total_waiting_charge_pence ?? 0)
+        + coveredTipPence,
+    );
+
     const decision = resolveTripPaymentOutcome({
       trip_status: trip.status,
       canonical_payable_pence: String(trip.status).toLowerCase() === "completed"
-        ? (Number(trip.final_customer_fare_pence ?? trip.final_fare_pence ?? 0)
-          + Number(trip.waiting_charge_pence ?? 0)
-          + Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0))
+        ? completedPayablePence
         : null,
       final_fare_pence: trip.final_fare_pence,
       cancellation_fee_pence: trip.cancellation_fee_pence
@@ -240,24 +265,62 @@ serve(async (req) => {
           decision,
         }, 200);
       }
-      // Prefer in-process Revolut capture (avoids edge-to-edge BOOT_ERROR cold starts).
+      // Open window keeps a claim for Submit. After expiry the claim is stale —
+      // fare only, same as capture-expired-tip-windows. Do not wipe an open-window claim.
+      const expiredUnclosed = expiredUnclosedTipWindowForbidsTipCapture(trip);
+      const tipPence = expiredUnclosed
+        ? expiryFareOnlyTipPence(trip.tip_amount_pence ?? trip.tip_pence)
+        : Math.max(
+          0,
+          Math.round(Number(trip.tip_amount_pence ?? trip.tip_pence ?? 0) || 0),
+        );
+      if (expiredUnclosed) {
+        await supabase.from("trips").update({
+          tip_amount_pence: 0,
+          tip_pence: 0,
+          updated_at: new Date().toISOString(),
+        }).eq("id", trip.id).is("tip_window_closed_at", null);
+      }
       let capture: { ok: boolean; error?: string; body?: Record<string, unknown> };
       try {
         const revolutResult = await finalizeRevolutTripCapture({
           supabase,
-          trip: trip as Record<string, unknown>,
-          tipPence: 0,
+          trip: {
+            ...(trip as Record<string, unknown>),
+            tip_amount_pence: tipPence,
+            tip_pence: tipPence,
+          },
+          tipPence,
         });
         capture = {
           ok: Boolean(revolutResult.success),
           error: revolutResult.error ?? revolutResult.message,
           body: revolutResult as unknown as Record<string, unknown>,
         };
+        const captureStatus = String(revolutResult.status ?? "").toLowerCase();
         if (!revolutResult.success) {
+          // Tip-window deferral is intentional — never stamp capture_failed mid-window.
+          if (captureStatus !== "tip_window_open") {
+            await supabase.from("trips").update({
+              payment_status: "capture_failed",
+              updated_at: new Date().toISOString(),
+            }).eq("id", trip.id);
+          }
+        } else if (
+          trip.tip_window_expires_at
+          && !trip.tip_window_closed_at
+          && tipWindowCloseAllowedAfterFinalize(revolutResult as unknown as Record<string, unknown>)
+        ) {
+          const collected = expiredUnclosed
+            ? expiryFareOnlyTipPence(revolutResult.tip_collected_pence)
+            : (recordedTipPenceAfterCapture(revolutResult.tip_collected_pence) ?? 0);
           await supabase.from("trips").update({
-            payment_status: "capture_failed",
+            tip_amount_pence: collected,
+            tip_pence: collected,
+            tip_window_closed_at: new Date().toISOString(),
+            tip_window_status: TIP_WINDOW_STATUS.CLOSED,
             updated_at: new Date().toISOString(),
-          }).eq("id", trip.id);
+          }).eq("id", trip.id).is("tip_window_closed_at", null);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -268,7 +331,15 @@ serve(async (req) => {
         }).eq("id", trip.id);
       }
       captureResult = capture;
-      actionTaken = capture.ok ? "capture_invoked" : "capture_failed";
+      const tipWindowDeferred =
+        !capture.ok &&
+        String((capture.body as { status?: string } | undefined)?.status ?? "")
+          .toLowerCase() === "tip_window_open";
+      actionTaken = capture.ok
+        ? "capture_invoked"
+        : tipWindowDeferred
+        ? "tip_window_deferred"
+        : "capture_failed";
       if (orderId) {
         try {
           const merchant = await resolveRevolutMerchantContext(supabase, "live");
@@ -278,11 +349,13 @@ serve(async (req) => {
       }
       if (!capture.ok) {
         await supabase.from("admin_payment_audit").insert({
-          action: "trip_payment_remediation_capture_failed",
+          action: tipWindowDeferred
+            ? "trip_payment_remediation_tip_window_deferred"
+            : "trip_payment_remediation_capture_failed",
           trip_id: trip.id,
           provider: "revolut",
           provider_payment_id: orderId || null,
-          reason: String(capture.error ?? "capture_failed"),
+          reason: String(capture.error ?? (tipWindowDeferred ? "tip_window_open" : "capture_failed")),
           metadata: { ...auditBase, capture },
         });
         return jsonResponse({
@@ -292,6 +365,7 @@ serve(async (req) => {
           trip_code: trip.trip_code,
           decision,
           action_taken: actionTaken,
+          error_code: tipWindowDeferred ? "TIP_WINDOW_OPEN" : undefined,
           provider_state_before: providerState,
           provider_state_after: providerStateAfter,
           capture,

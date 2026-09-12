@@ -7,6 +7,8 @@ import {
 } from "./tripSettlementFinanceSSOT.ts";
 import type { InvoiceLineItem, TripInvoicePayload } from "./tripInvoiceTypes.ts";
 import { computeNetPaidAfterRefund, resolveRefundStatus } from "../../../shared/providerRefundSSOT.ts";
+import { isCashTripPaymentMethod } from "../../../shared/tripPaymentFinalised.ts";
+import { receiptTipPence } from "./receiptTipSSOT.ts";
 
 function formatPaymentMethod(method: string | null | undefined): string {
   const m = (method ?? "").trim().toLowerCase();
@@ -118,6 +120,8 @@ function resolveNonModExtraFeesPence(trip: Record<string, unknown>): number {
 function buildLineItems(
   trip: Record<string, unknown>,
   _tripStops?: Array<{ stop_index?: number | null; type?: string | null; waiting_total_amount_pence?: number | null }>,
+  payments: PaymentCaptureFields[] = [],
+  refundPence = 0,
 ): InvoiceLineItem[] {
   const tripDate = formatDateOnly((trip.completed_at as string) ?? (trip.created_at as string));
   const items: InvoiceLineItem[] = [];
@@ -138,7 +142,7 @@ function buildLineItems(
       return;
     }
     if (amountPence === 0 && description === "Discount") return;
-    if (amountPence < 0 && description !== "Discount") return;
+    if (amountPence < 0 && description !== "Discount" && description !== "Refund") return;
     items.push({
       index: idx++,
       description,
@@ -157,7 +161,7 @@ function buildLineItems(
   const waitingPence = resolveWaitingChargePence(trip);
   const routeChangePence = nonNegPence(trip.customer_modification_charge_pence);
   const extraFeesPence = resolveNonModExtraFeesPence(trip);
-  const tip = Math.max(0, Math.round(Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0)));
+  const tip = receiptTipPence(trip, payments);
 
   // Original fare + discount are explanatory only — ride fare after promotion is the billable base.
   push("Original fare", originalFarePence, 1, false);
@@ -167,6 +171,8 @@ function buildLineItems(
   if (routeChangePence !== 0) push("Route change / added stop", routeChangePence);
   if (extraFeesPence > 0) push("Extra fees", extraFeesPence);
   if (tip > 0) push("Tip", tip);
+  const refund = Math.max(0, Math.round(refundPence));
+  if (refund > 0) push("Refund", -refund);
 
   if (items.length === 0) {
     const fallback = resolveTotalPaidPence(trip, []);
@@ -209,7 +215,14 @@ function resolveTotalPaidPence(
   const settlement = getTripSettlementFarePence(tripSettlementFields(trip), {
     paymentCapturedPence: paymentCaptured,
   });
-  if (settlement > 0) return settlement;
+  if (settlement > 0) {
+    if (!isCashTripPaymentMethod(trip.payment_method as string | null | undefined)) {
+      return settlement;
+    }
+    // Cash fare excludes the recorded tip. The tip line is already on the receipt.
+    const tip = receiptTipPence(trip, payments);
+    return settlement + tip;
+  }
 
   return computeInvoiceSubtotalPence(lineItems);
 }
@@ -317,7 +330,7 @@ export async function buildTripInvoicePayload(
     .filter((stop) => stop.type === "stop" && stop.address)
     .map((stop) => stop.address as string);
 
-  const lineItems = buildLineItems(trip, tripStops ?? []);
+  const lineItems = buildLineItems(trip, tripStops ?? [], payments ?? [], refundAmountPence);
   const billableSubtotalPence = computeInvoiceSubtotalPence(lineItems);
   const taxRatePercent = 0;
   const taxPence = 0;

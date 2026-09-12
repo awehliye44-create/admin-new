@@ -4,7 +4,7 @@
  */
 
 export const ASSIGNED_NEGOTIATION_TRIP_SELECT =
-  "id, status, dispatch_status, driver_id, confirmed_driver_id, negotiation_owner_driver_id, fare, gross_fare_pence, final_fare_pence, final_customer_fare_pence, fare_locked, commission_pence, driver_net_pence, driver_tier_commission_percent, fare_snapshot_json";
+  "id, status, dispatch_status, driver_id, confirmed_driver_id, negotiation_owner_driver_id, fare, gross_fare_pence, final_fare_pence, final_customer_fare_pence, fare_locked, commission_pence, driver_net_pence, driver_tier_commission_percent, fare_snapshot_json, financial_model";
 
 export type AssignedNegotiationSnapshot = {
   id: string;
@@ -24,6 +24,8 @@ export type AssignedNegotiationSnapshot = {
   driver_tier_commission_percent: number | null;
   fare_source: string | null;
   negotiation_status: "closed";
+  /** Stamped trips.financial_model. Omitted when the source row did not include it. */
+  financial_model?: string;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -52,6 +54,7 @@ export function buildAssignedNegotiationSnapshot(
     asString(snapshotJson?.fare_source) ??
     asString(extras?.fareSource) ??
     null;
+  const financialModel = asString(tripAfter.financial_model);
   return {
     id,
     trip_id: id,
@@ -70,6 +73,8 @@ export function buildAssignedNegotiationSnapshot(
     driver_tier_commission_percent: asNumber(tripAfter.driver_tier_commission_percent),
     fare_source: fareSource,
     negotiation_status: "closed",
+    // Omit when the source row did not carry a stamp — a null key would wipe the client.
+    ...(financialModel ? { financial_model: financialModel } : {}),
   };
 }
 

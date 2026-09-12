@@ -14,6 +14,11 @@ import {
   resolveTripInvoicePaymentState,
   type TripInvoicePaymentState,
 } from "./tripInvoicePaymentStateSSOT.ts";
+import { isTipWindowClosedForInvoice } from "./tripInvoiceEligibility.ts";
+import {
+  invoiceTipPenceFromConfirmedCapture,
+  tipPenceRemainingAfterRefund,
+} from "../../../shared/tripPaymentFinalised.ts";
 
 const BUCKET = "trip-invoices";
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -39,6 +44,7 @@ export interface TripInvoiceRow {
   capture_amount_pence: number | null;
   extras_pence: number | null;
   tip_pence: number | null;
+  tip_amount_pence?: number | null;
   discount_pence: number | null;
   offer_discount_pence: number | null;
   total_waiting_charge_pence: number | null;
@@ -51,15 +57,20 @@ export interface TripInvoiceRow {
   invoice_email_status: string | null;
   invoice_email_sent_at: string | null;
   invoice_total_paid_pence: number | null;
+  refund_amount_pence?: number | null;
+  refunded_at?: string | null;
   payment_status: string | null;
   payment_collection_model: string | null;
   financial_model: string | null;
   cash_collected_at: string | null;
   driver_payment_confirmed_at: string | null;
+  tip_window_closed_at?: string | null;
+  tip_window_expires_at?: string | null;
+  tip_window_status?: string | null;
 }
 
 const TRIP_COLUMNS =
-  "id, trip_number, trip_code, passenger_id, passenger_name, status, payment_method, currency_code, currency, completed_at, created_at, pickup_address, dropoff_address, base_fare_pence, gross_fare_pence, final_fare_pence, final_customer_fare_pence, capture_amount_pence, extras_pence, tip_pence, discount_pence, offer_discount_pence, total_waiting_charge_pence, airport_charge_pence, invoice_no, invoice_pdf_path, invoice_pdf_url, invoice_generated_at, invoice_email_sent, invoice_email_status, invoice_email_sent_at, invoice_total_paid_pence, payment_status, payment_collection_model, financial_model, cash_collected_at, driver_payment_confirmed_at";
+  "id, trip_number, trip_code, passenger_id, passenger_name, status, payment_method, currency_code, currency, completed_at, created_at, pickup_address, dropoff_address, base_fare_pence, gross_fare_pence, final_fare_pence, final_customer_fare_pence, capture_amount_pence, extras_pence, tip_pence, tip_amount_pence, discount_pence, offer_discount_pence, total_waiting_charge_pence, airport_charge_pence, invoice_no, invoice_pdf_path, invoice_pdf_url, invoice_generated_at, invoice_email_sent, invoice_email_status, invoice_email_sent_at, invoice_total_paid_pence, refund_amount_pence, refunded_at, payment_status, payment_collection_model, financial_model, cash_collected_at, driver_payment_confirmed_at, tip_window_closed_at, tip_window_expires_at, tip_window_status";
 
 export function currencySymbol(code: string): string {
   if (code === "GBP") return "£";
@@ -174,6 +185,8 @@ export async function loadTripInvoicePaymentState(
       final_customer_fare_pence: trip.final_customer_fare_pence,
       final_fare_pence: trip.final_fare_pence,
       gross_fare_pence: trip.gross_fare_pence,
+      tip_pence: trip.tip_pence,
+      tip_amount_pence: trip.tip_amount_pence,
       cash_collected_at: trip.cash_collected_at,
       driver_payment_confirmed_at: trip.driver_payment_confirmed_at,
     },
@@ -188,15 +201,25 @@ interface InvoiceLine {
 }
 
 /** Line items exactly as the existing ONECAB customer invoice lays them out. */
-function buildLines(trip: TripInvoiceRow, totalFarePence: number): InvoiceLine[] {
+function buildLines(
+  trip: TripInvoiceRow,
+  totalFarePence: number,
+  coveredTipPence: number,
+  refundPence = 0,
+): InvoiceLine[] {
   const total = totalFarePence;
+  const refund = Math.max(0, Math.round(refundPence));
+  // Reconstruct pre-refund collected so a fare refund is a line, not a cheaper ride.
+  const grossCollected = total + refund;
   const waiting = trip.total_waiting_charge_pence ?? 0;
   const extras = trip.extras_pence ?? 0;
   const airport = trip.airport_charge_pence ?? 0;
-  const tip = trip.tip_pence ?? 0;
+  // Same covered tip as the total. trips.capture_amount_pence can be a hold
+  // or a fare-only capture and must not invent a tip line.
+  const tip = Math.max(0, Math.round(coveredTipPence));
   const discount = (trip.discount_pence ?? 0) + (trip.offer_discount_pence ?? 0);
 
-  const rideFare = Math.max(total - waiting - extras - airport - tip, 0);
+  const rideFare = Math.max(grossCollected - waiting - extras - airport - tip, 0);
   const originalFare = trip.base_fare_pence && trip.base_fare_pence > 0
     ? trip.base_fare_pence
     : rideFare + discount;
@@ -207,7 +230,28 @@ function buildLines(trip: TripInvoiceRow, totalFarePence: number): InvoiceLine[]
   if (airport > 0) lines.push({ label: "Airport charge", amountPence: airport });
   if (extras > 0) lines.push({ label: "Extra charges", amountPence: extras });
   if (tip > 0) lines.push({ label: "Tip", amountPence: tip });
+  if (refund > 0) lines.push({ label: "Refund", amountPence: -refund });
   return lines;
+}
+
+/** Stored PDF still shows the pre-refund total. */
+function invoicePdfStaleAfterRefund(
+  trip: TripInvoiceRow,
+  paymentState: TripInvoicePaymentState,
+): boolean {
+  const refunded = Math.max(0, Math.round(paymentState.refundedPence));
+  if (refunded <= 0) return false;
+  const net = Math.max(0, Math.round(paymentState.authoritativePaidPence));
+  const stamped = trip.invoice_total_paid_pence;
+  if (typeof stamped === "number" && Number.isFinite(stamped) && Math.abs(stamped - net) > 1) {
+    return true;
+  }
+  const refundedAt = Date.parse(String(trip.refunded_at ?? ""));
+  const generatedAt = Date.parse(String(trip.invoice_generated_at ?? ""));
+  if (Number.isFinite(refundedAt) && Number.isFinite(generatedAt)) {
+    return refundedAt > generatedAt + 1000;
+  }
+  return stamped == null || !Number.isFinite(Number(stamped));
 }
 
 function formatDate(value: string | null): string {
@@ -241,10 +285,41 @@ interface RenderArgs {
   paymentState: TripInvoicePaymentState;
 }
 
+function invoiceTotalPence(_trip: TripInvoiceRow, paymentState: TripInvoicePaymentState): number {
+  // Net collected, after refund. Reconstructing fare+tip hides a fare refund
+  // and drops a tip that the refund did not claw.
+  return Math.max(0, Math.round(paymentState.authoritativePaidPence));
+}
+
+function invoiceTipLinePence(trip: TripInvoiceRow, paymentState: TripInvoicePaymentState): number {
+  const gross = Math.max(
+    0,
+    Math.round(paymentState.authoritativePaidPence) + Math.round(paymentState.refundedPence),
+  );
+  const requestedTipPence = trip.tip_pence ?? trip.tip_amount_pence ?? 0;
+  const remaining = tipPenceRemainingAfterRefund({
+    paymentMethod: trip.payment_method,
+    grossCapturePence: gross,
+    finalFarePence: paymentState.finalFarePence,
+    requestedTipPence,
+    refundedPence: paymentState.refundedPence,
+  });
+  // Collected tip, not the post-claw remainder. The Refund line is the claw.
+  // Using remaining here would inflate the ride fare by the clawed tip.
+  const collected = invoiceTipPenceFromConfirmedCapture({
+    paymentMethod: trip.payment_method,
+    captureAmountPence: gross,
+    finalFarePence: paymentState.finalFarePence,
+    requestedTipPence,
+  });
+  return collected > 0 ? collected : remaining;
+}
+
 function buildHtmlData(args: RenderArgs): TripInvoiceHtmlData {
   const { trip, invoiceNo, currency, company, tagline, customerName, customerEmail, paymentState } = args;
   const dateLabel = formatDate(trip.completed_at ?? trip.created_at);
-  const total = paymentState.finalFarePence;
+  const total = invoiceTotalPence(trip, paymentState);
+  const coveredTip = invoiceTipLinePence(trip, paymentState);
 
   return {
     invoiceNo,
@@ -258,12 +333,16 @@ function buildHtmlData(args: RenderArgs): TripInvoiceHtmlData {
     customerEmail: customerEmail || "—",
     pickupLine: `${trip.pickup_address ?? "—"} — ${formatDateTime(trip.completed_at ?? trip.created_at)}`,
     dropoffLine: `${trip.dropoff_address ?? "—"} — ${formatDateTime(trip.completed_at ?? trip.created_at)}`,
-    items: buildLines(trip, total).map((line) => ({
+    items: buildLines(trip, total, coveredTip, paymentState.refundedPence).map((line) => ({
       description: line.label,
       date: dateLabel,
       qty: 1,
-      unit: money(line.amountPence, currency),
-      amount: money(line.amountPence, currency),
+      unit: line.amountPence < 0
+        ? `-${money(line.amountPence, currency)}`
+        : money(line.amountPence, currency),
+      amount: line.amountPence < 0
+        ? `-${money(line.amountPence, currency)}`
+        : money(line.amountPence, currency),
     })),
     subtotal: money(total, currency),
     taxLabel: "TAX (0%)",
@@ -465,7 +544,7 @@ function buildEmailHtml(args: {
       <table style="width:100%;font-size:14px;border-collapse:collapse">
         <tr><td style="padding:6px 0;color:#6b7280">Pickup</td><td style="padding:6px 0;text-align:right">${args.pickup}</td></tr>
         <tr><td style="padding:6px 0;color:#6b7280">Drop-off</td><td style="padding:6px 0;text-align:right">${args.dropoff}</td></tr>
-        <tr><td style="padding:12px 0;font-weight:bold;border-top:1px solid #e6e8ee">Total fare</td><td style="padding:12px 0;text-align:right;font-weight:bold;border-top:1px solid #e6e8ee">${args.totalFare}</td></tr>
+        <tr><td style="padding:12px 0;font-weight:bold;border-top:1px solid #e6e8ee">Total paid</td><td style="padding:12px 0;text-align:right;font-weight:bold;border-top:1px solid #e6e8ee">${args.totalFare}</td></tr>
         <tr><td style="padding:6px 0;color:#6b7280">Amount paid</td><td style="padding:6px 0;text-align:right">${args.paid}</td></tr>
         <tr><td style="padding:6px 0;color:#6b7280">Outstanding balance</td><td style="padding:6px 0;text-align:right">${args.outstanding}</td></tr>
         <tr><td style="padding:6px 0;color:#6b7280">Payment status</td><td style="padding:6px 0;text-align:right;font-weight:bold">${args.statusLabel}</td></tr>
@@ -510,7 +589,8 @@ export async function ensureTripInvoicePdf(
   paymentState: TripInvoicePaymentState,
   opts: { force?: boolean } = {},
 ): Promise<{ trip: TripInvoiceRow; url: string | null; path: string }> {
-  if (!opts.force && trip.invoice_pdf_path && trip.invoice_generated_at) {
+  const refreshAfterRefund = invoicePdfStaleAfterRefund(trip, paymentState);
+  if (!opts.force && !refreshAfterRefund && trip.invoice_pdf_path && trip.invoice_generated_at) {
     const url = await signedUrl(supabase, trip.invoice_pdf_path);
     if (url) {
       await supabase.from("trips").update({ invoice_pdf_url: url }).eq("id", trip.id);
@@ -570,7 +650,7 @@ export async function ensureTripInvoicePdf(
     invoice_payment_evidence_ids: paymentState.providerTransactionIds,
     invoice_payment_resolved_at: paymentState.resolvedAt,
   };
-  if (opts.force && trip.invoice_generated_at) patch.invoice_regenerated_at = nowIso;
+  if ((opts.force || refreshAfterRefund) && trip.invoice_generated_at) patch.invoice_regenerated_at = nowIso;
 
   const { error: updateError } = await supabase.from("trips").update(patch).eq("id", trip.id);
   if (updateError) throw new Error(updateError.message);
@@ -617,7 +697,7 @@ export async function sendTripInvoiceEmail(
       companyName,
       invoiceNo,
       tripRef: tripDisplayId(trip),
-      totalFare: money(paymentState.finalFarePence, currency),
+      totalFare: money(invoiceTotalPence(trip, paymentState), currency),
       paid: money(paymentState.authoritativePaidPence, currency),
       outstanding: money(paymentState.outstandingPence, currency),
       statusLabel: paymentClassificationLabel(paymentState.paymentClassification),
@@ -664,6 +744,16 @@ export async function handleTripInvoiceAction(
 ): Promise<TripInvoiceResult> {
   const trip = await fetchTrip(supabase, tripId);
   if (!trip) return { success: false, ok: false, error: "Trip not found" };
+
+  if (!isTipWindowClosedForInvoice(trip)) {
+    return {
+      success: false,
+      ok: false,
+      skipped: true,
+      stage: "tip_window_open",
+      error: "Invoice deferred (tip_window_open)",
+    };
+  }
 
   const isCountable = ["completed", "no_show"].includes(trip.status);
   if (!isCountable && action === "generate") {

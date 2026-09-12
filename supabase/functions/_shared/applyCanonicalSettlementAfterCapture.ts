@@ -35,6 +35,7 @@ import {
   tripSettlementDbColumns,
   type TripSettlementTripRow,
 } from "./tripSettlement.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
 
 /** Saved stamps only — never calls tripSettlement.ts. */
 export function recoveryWalletCreditFromSavedStamps(trip: Record<string, unknown>): {
@@ -69,26 +70,47 @@ function supabaseErrorParts(err: unknown): { message: string; code: string | nul
   return { message: err instanceof Error ? err.message : String(err), code: null };
 }
 
+function coveredTipPenceAfterCapture(
+  trip: Record<string, unknown>,
+  captureAmountPence: number,
+  tipPenceArg?: number,
+): number {
+  const requested = tipPenceArg != null
+    ? Math.max(0, Math.round(Number(tipPenceArg) || 0))
+    : Math.max(0, Math.round(Number(trip.tip_pence ?? trip.tip_amount_pence) || 0));
+  // Caller amount wins when present. trips.capture_amount_pence can be a
+  // stamped hold; taking the max would treat unused buffer as a collected tip.
+  const callerCaptured = Math.round(Number(captureAmountPence) || 0);
+  const captured = callerCaptured > 0
+    ? callerCaptured
+    : Math.round(Number(trip.capture_amount_pence) || 0);
+  return invoiceTipPenceFromConfirmedCapture({
+    paymentMethod: trip.payment_method as string | null | undefined,
+    captureAmountPence: captured,
+    finalFarePence: trip.final_fare_pence as number | null | undefined,
+    requestedTipPence: requested,
+  });
+}
+
 function resolveExpectedEntitlementPence(
   trip: Record<string, unknown>,
   mode: "fresh_capture" | "recovery",
   captureAmountPence: number,
   tipPenceArg?: number,
 ): { expectedCredit: number; tipPence: number; commissionPct?: number } {
+  const coveredTip = coveredTipPenceAfterCapture(trip, captureAmountPence, tipPenceArg);
   if (mode === "recovery") {
     const saved = recoveryWalletCreditFromSavedStamps(trip);
     return {
       expectedCredit: saved.expectedCredit,
-      tipPence: tipPenceArg != null
-        ? Math.max(0, Math.round(Number(tipPenceArg) || 0))
-        : saved.tipPence,
+      tipPence: coveredTip,
       commissionPct: saved.commissionPct,
     };
   }
   const credit = resolveCapturedTripEarningNetPence({
     trip: trip as TripSettlementTripRow,
     captureAmountPence,
-    tipPence: tipPenceArg,
+    tipPence: coveredTip,
   });
   return {
     expectedCredit: credit.driverNetPence,
@@ -387,18 +409,21 @@ export async function applyCanonicalSettlementAfterCapture(args: {
   let tipPence: number;
   let commissionPct: number | undefined;
 
+  const coveredTip = coveredTipPenceAfterCapture(
+    args.trip,
+    args.captureAmountPence,
+    args.tipPence,
+  );
   if (mode === "recovery") {
     const saved = recoveryWalletCreditFromSavedStamps(args.trip);
     expectedCredit = saved.expectedCredit;
-    tipPence = args.tipPence != null
-      ? Math.max(0, Math.round(Number(args.tipPence) || 0))
-      : saved.tipPence;
+    tipPence = coveredTip;
     commissionPct = saved.commissionPct;
   } else {
     const credit = resolveCapturedTripEarningNetPence({
       trip: args.trip as TripSettlementTripRow,
       captureAmountPence: args.captureAmountPence,
-      tipPence: args.tipPence,
+      tipPence: coveredTip,
     });
     if (credit.settlement) {
       const existingSnap = args.trip.fare_snapshot_json;
