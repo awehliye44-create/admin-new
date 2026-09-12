@@ -81,22 +81,37 @@ serve(async (req) => {
     }
 
     const rows = data ?? [];
-    const cards = rows
-      .filter((row) => {
-        const status = String(row.tokenization_status ?? "");
-        if (status === "tokenization_failed" || status === "removed") return false;
-        const hasRef = Boolean(String(row.provider_payment_method_id ?? "").trim());
-        if (!hasRef) return false;
-        if (status === "active" || status === "verified") return true;
-        return row.revolut_verified === true;
-      })
-      .map((row) => ({
-        platform_payment_method_id: row.platform_payment_method_id,
-        brand: row.brand,
-        last4: row.last4,
-        exp_month: row.exp_month,
-        exp_year: row.exp_year,
-      }));
+    const seenProvider = new Set<string>();
+    const seenFingerprint = new Set<string>();
+    const usableRows = rows.filter((row) => {
+      const status = String(row.tokenization_status ?? "");
+      if (status === "tokenization_failed" || status === "removed") return false;
+      const hasRef = Boolean(String(row.provider_payment_method_id ?? "").trim());
+      if (!hasRef) return false;
+      if (status !== "active" && status !== "verified" && row.revolut_verified !== true) {
+        return false;
+      }
+      const providerId = String(row.provider_payment_method_id ?? "").trim();
+      if (seenProvider.has(providerId)) return false;
+      seenProvider.add(providerId);
+      const fingerprint = [
+        String(row.brand ?? "").trim().toLowerCase(),
+        String(row.last4 ?? "").trim(),
+        String(row.exp_month ?? ""),
+        String(row.exp_year ?? ""),
+      ].join("|");
+      if (String(row.last4 ?? "").trim() && seenFingerprint.has(fingerprint)) return false;
+      if (String(row.last4 ?? "").trim()) seenFingerprint.add(fingerprint);
+      return true;
+    });
+    const cards = usableRows.map((row) => ({
+      platform_payment_method_id: row.platform_payment_method_id,
+      provider_payment_method_id: row.provider_payment_method_id,
+      brand: row.brand,
+      last4: row.last4,
+      exp_month: row.exp_month,
+      exp_year: row.exp_year,
+    }));
 
     const unusable_cards = rows
       .filter((row) => String(row.tokenization_status ?? "") === "tokenization_failed")

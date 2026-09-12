@@ -529,6 +529,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         customerEmail: user.email,
         customerName: customerFullName,
         platformPaymentMethodId: body.payment_method_id ?? null,
+        savePaymentMethod: body.save_payment_method === true,
         bookingSnapshot:
           body.booking_snapshot && typeof body.booking_snapshot === "object"
             ? body.booking_snapshot as Record<string, unknown>

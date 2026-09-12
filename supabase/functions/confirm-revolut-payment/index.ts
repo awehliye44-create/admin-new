@@ -120,7 +120,7 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
             platformPaymentMethodId: platformPmId,
             orderMetadata: order.metadata ?? undefined,
             pollProfile: "booking",
-            markFailedOnMiss: false,
+            markFailedOnMiss: true,
           }).then((capture) => {
             if (capture.captured) {
               console.info("[confirm-revolut-payment] payment_method.provider_confirmed_deferred", {

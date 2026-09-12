@@ -25,7 +25,7 @@ import {
   lookupProviderPaymentMethodToken,
   ONECAB_PENDING_PLATFORM_PM_PREFIX,
 } from "./customerSavedPaymentMethodTokens.ts";
-import { ensureRevolutCustomerForBooking } from "./revolutCustomers.ts";
+import { countUsableSavedRevolutCards, MAX_SAVED_REVOLUT_CARDS } from "./revolutSavedCardVault.ts";
 import { upsertPaymentSessionPending, markPaymentSessionAuthorised, loadPaymentSession } from "./paymentSessionSSOT.ts";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 import { createBookingWaterfallCollector } from "./bookingWaterfallTelemetry.ts";
@@ -63,6 +63,8 @@ export type RevolutPreauthInput = {
   customerId?: string | null;
   customerEmail?: string | null;
   customerName?: string | null;
+  /** Explicit rider opt-in. False/absent must not allocate a new vault id or save flag. */
+  savePaymentMethod?: boolean;
   corsHeaders: Record<string, string>;
   logStep: (step: string, details?: unknown) => void;
 };
@@ -89,6 +91,7 @@ export async function createRevolutPreauthResponse(
     customerId,
     customerEmail,
     customerName,
+    savePaymentMethod,
     corsHeaders,
     logStep,
   } = input;
@@ -139,21 +142,32 @@ export async function createRevolutPreauthResponse(
     tripId,
     clientActionId,
   });
-  // New-card booking (no saved platform PM): allocate pending vault id so
-  // confirm/webhook can persist Revolut savePaymentMethodFor tokens.
-  // Saved-card booking already passes platformPaymentMethodId.
+  // New-card booking allocates a pending vault id only when the rider opted in
+  // to save and is under MAX_SAVED_REVOLUT_CARDS. Saved-card booking already
+  // passes platformPaymentMethodId and must not save again.
   const methodType = String(paymentMethodType ?? "card").toLowerCase();
   let resolvedPlatformPaymentMethodId = platformPaymentMethodId?.trim() || null;
+  let saveCardEligible = false;
   if (
     !resolvedPlatformPaymentMethodId
+    && savePaymentMethod === true
     && userId
     && (methodType === "card" || methodType === "")
   ) {
-    resolvedPlatformPaymentMethodId =
-      `${ONECAB_PENDING_PLATFORM_PM_PREFIX}${crypto.randomUUID()}`;
-    logStep("Allocated pending platform payment method for card save", {
-      platformPaymentMethodId: resolvedPlatformPaymentMethodId,
-    });
+    const usable = await countUsableSavedRevolutCards(supabase, userId);
+    if (usable >= MAX_SAVED_REVOLUT_CARDS) {
+      logStep("Booking card save skipped — vault cap", {
+        usable,
+        max: MAX_SAVED_REVOLUT_CARDS,
+      });
+    } else {
+      saveCardEligible = true;
+      resolvedPlatformPaymentMethodId =
+        `${ONECAB_PENDING_PLATFORM_PM_PREFIX}${crypto.randomUUID()}`;
+      logStep("Allocated pending platform payment method for explicit card save", {
+        platformPaymentMethodId: resolvedPlatformPaymentMethodId,
+      });
+    }
   }
   const savedCardContext = Boolean(platformPaymentMethodId);
   let paymentSessionId: string | null = null;
@@ -355,6 +369,7 @@ export async function createRevolutPreauthResponse(
     estimated_total_pence: String(estimatedTotalPence),
     buffer_pence: String(bufferPence),
     payment_method_type: String(paymentMethodType ?? "card"),
+    save_card_eligible: saveCardEligible ? "true" : "false",
     ...(clientActionId ? { client_action_id: clientActionId } : {}),
     ...(userId ? { customer_user_id: userId } : {}),
     ...(resolvedPlatformPaymentMethodId

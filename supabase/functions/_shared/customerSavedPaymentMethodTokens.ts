@@ -70,6 +70,7 @@ export async function upsertProviderPaymentMethodToken(
     last4?: string | null;
     expMonth?: number | null;
     expYear?: number | null;
+    providerCustomerId?: string | null;
     verifiedAt?: string | null;
     tokenizationStatus?: TokenizationStatus;
   },
@@ -122,6 +123,7 @@ export async function upsertProviderPaymentMethodToken(
       last4: args.last4 ?? null,
       exp_month: args.expMonth ?? null,
       exp_year: args.expYear ?? null,
+      provider_customer_id: args.providerCustomerId ?? null,
       verified_at: verifiedAt,
       revolut_verified: revolutVerified,
       tokenization_status: tokenizationStatus,
@@ -235,6 +237,36 @@ export async function resolvePlatformPaymentMethodIdForOrder(
   return fromSession || null;
 }
 
+function readCardExpiry(paymentMethod: Record<string, unknown> | null | undefined): {
+  expMonth: number | null;
+  expYear: number | null;
+} {
+  if (!paymentMethod) return { expMonth: null, expYear: null };
+  const monthRaw = paymentMethod.card_expiry_month
+    ?? paymentMethod.expiry_month
+    ?? paymentMethod.exp_month;
+  const yearRaw = paymentMethod.card_expiry_year
+    ?? paymentMethod.expiry_year
+    ?? paymentMethod.exp_year;
+  const expMonth = typeof monthRaw === "number" ? monthRaw : Number(monthRaw);
+  const expYear = typeof yearRaw === "number" ? yearRaw : Number(yearRaw);
+  return {
+    expMonth: Number.isFinite(expMonth) && expMonth > 0 ? expMonth : null,
+    expYear: Number.isFinite(expYear) && expYear > 0 ? expYear : null,
+  };
+}
+
+function classifyCaptureMiss(input: {
+  paymentCount: number;
+  sawOneTimePaymentMethodId: boolean;
+  sawReusableSavedMethodId: boolean;
+}): string {
+  if (input.sawReusableSavedMethodId) return "captured";
+  if (input.paymentCount <= 0) return "no_payments_on_order";
+  if (input.sawOneTimePaymentMethodId) return "one_time_payment_method_id_not_reusable";
+  return "saved_payment_method_id_missing";
+}
+
 export async function captureRevolutProviderTokenFromOrder(
   supabase: SupabaseClient,
   args: {
@@ -279,6 +311,9 @@ export async function captureRevolutProviderTokenFromOrder(
   const pollDelaysMs = args.pollProfile === "setup"
     ? [0, 400, 900, 1800, 3200]
     : [0, 100, 250, 500];
+  let paymentCount = 0;
+  let sawOneTimePaymentMethodId = false;
+  let sawReusableSavedMethodId = false;
   for (const delayMs of pollDelaysMs) {
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -295,9 +330,21 @@ export async function captureRevolutProviderTokenFromOrder(
     }
 
     for (const payment of payments) {
+      paymentCount += 1;
+      const oneTimeId = String(payment.payment_method?.id ?? "").trim();
+      if (oneTimeId) sawOneTimePaymentMethodId = true;
       const savedPmId = extractRevolutSavedCardPaymentMethodId(payment);
       if (!savedPmId) continue;
+      sawReusableSavedMethodId = true;
       const cardPm = payments.find((row) => row.payment_method?.type === "card") ?? payment;
+      const expiry = readCardExpiry(
+        (cardPm.payment_method ?? null) as Record<string, unknown> | null,
+      );
+      const { data: customerRow } = await supabase
+        .from("customers")
+        .select("revolut_customer_id")
+        .eq("user_id", args.userId)
+        .maybeSingle();
       const ok = await upsertProviderPaymentMethodToken(supabase, {
         userId: args.userId,
         platformPaymentMethodId: platformPmId,
@@ -307,6 +354,9 @@ export async function captureRevolutProviderTokenFromOrder(
         last4: cardPm.payment_method?.card_last_four
           ?? cardPm.payment_method?.last_four
           ?? null,
+        expMonth: expiry.expMonth,
+        expYear: expiry.expYear,
+        providerCustomerId: String(customerRow?.revolut_customer_id ?? "").trim() || null,
         tokenizationStatus: "verified",
       });
       if (ok) {
@@ -330,9 +380,34 @@ export async function captureRevolutProviderTokenFromOrder(
     }
   }
 
+  const missReason = classifyCaptureMiss({
+    paymentCount,
+    sawOneTimePaymentMethodId,
+    sawReusableSavedMethodId,
+  });
   console.warn("[customerSavedPaymentMethodTokens] no reusable Revolut reference on order", {
     orderId: args.orderId,
     platformPaymentMethodId: platformPmId,
+    reason: missReason,
+    paymentCount,
+    sawOneTimePaymentMethodId,
+  });
+
+  await supabase.from("admin_payment_audit").insert({
+    action: "revolut_saved_method_capture_miss",
+    provider: "revolut",
+    provider_payment_id: args.orderId,
+    metadata: {
+      platform_payment_method_id: platformPmId,
+      reason: missReason,
+      payment_count: paymentCount,
+      saw_one_time_payment_method_id: sawOneTimePaymentMethodId,
+      note: "payment_method.id is a one-time payment reference and must not be stored as a reusable card.",
+    },
+  }).then(({ error }) => {
+    if (error) {
+      console.warn("[customerSavedPaymentMethodTokens] capture-miss audit failed", error.message);
+    }
   });
 
   if (args.markFailedOnMiss) {

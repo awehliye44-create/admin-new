@@ -209,3 +209,26 @@ export async function countSavedRevolutCards(
   if (error) throw error;
   return count ?? 0;
 }
+
+/** Usable booking vault rows. Removed and failed tokens do not consume the cap. */
+export async function countUsableSavedRevolutCards(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("customer_saved_payment_method_tokens")
+    .select("provider_payment_method_id, tokenization_status, revolut_verified")
+    .eq("user_id", userId)
+    .eq("payment_provider", "revolut");
+  if (error) throw error;
+  const seen = new Set<string>();
+  for (const row of data ?? []) {
+    const status = String(row.tokenization_status ?? "");
+    if (status === "removed" || status === "tokenization_failed" || status === "pending") continue;
+    if (status !== "active" && status !== "verified" && row.revolut_verified !== true) continue;
+    const providerId = String(row.provider_payment_method_id ?? "").trim();
+    if (!providerId || seen.has(providerId)) continue;
+    seen.add(providerId);
+  }
+  return seen.size;
+}

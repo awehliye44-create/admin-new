@@ -273,21 +273,26 @@ export function buildBookingPostCommitTasks(ctx: BookingPostCommitContext): Prom
 
   if (ctx.paymentProvider === "revolut") {
     const platformPaymentMethodId = ctx.preauthMetadata.platform_payment_method_id ?? null;
-    tasks.push((async () => {
-      try {
-        const merchant = await resolveRevolutMerchantContext(ctx.supabase, "live");
-        await finalizeRevolutTokenCapture(ctx.supabase, {
-          environment: merchant.environment,
-          secretKey: merchant.secretKey,
-          orderId: ctx.paymentRefId,
-          userId: ctx.userId,
-          platformPaymentMethodId,
-          orderMetadata: ctx.preauthMetadata,
-        });
-      } catch (e) {
-        ctx.log("post-commit Revolut token capture warning", { error: String(e) });
-      }
-    })());
+    const saveRequested = ctx.preauthMetadata.save_card_eligible === "true";
+    if (saveRequested && platformPaymentMethodId) {
+      tasks.push((async () => {
+        try {
+          const merchant = await resolveRevolutMerchantContext(ctx.supabase, "live");
+          await finalizeRevolutTokenCapture(ctx.supabase, {
+            environment: merchant.environment,
+            secretKey: merchant.secretKey,
+            orderId: ctx.paymentRefId,
+            userId: ctx.userId,
+            platformPaymentMethodId,
+            orderMetadata: ctx.preauthMetadata,
+            markFailedOnMiss: true,
+            pollProfile: "booking",
+          });
+        } catch (e) {
+          ctx.log("post-commit Revolut token capture warning", { error: String(e) });
+        }
+      })());
+    }
   }
 
   if (!ctx.isScheduled) {
