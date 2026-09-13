@@ -33,8 +33,11 @@ import {
   enrichOfferSnapshotDriverNet,
 } from "../_shared/driverOfferNetPreview.ts";
 import {
+  decideAlreadyOfferedRestamp,
   resolvePersistedAirportChargePence,
   stampOfferSnapshotAirportPassThrough,
+  type AlreadyOfferedRestampDecision,
+  type ExistingOfferForRestamp,
 } from "../_shared/airportChargeFareSplitSSOT.ts";
 import {
   recordDispatchWaveSnapshot,
@@ -295,6 +298,61 @@ function isWithinSchedule(timezone: string, windows: any[]): boolean {
   } catch {
     return true;
   }
+}
+
+/**
+ * Existing pending offer: restamp calculated snapshot fields only.
+ * Does not insert, notify, extend expiry, or change status/wave.
+ */
+async function applyAlreadyOfferedAirportRestamp(
+  supabase: { from: (table: string) => any },
+  trip: { id: string } & Parameters<typeof decideAlreadyOfferedRestamp>[0]["trip"],
+  nowIso: string,
+): Promise<AlreadyOfferedRestampDecision> {
+  const closed = (reason: string): AlreadyOfferedRestampDecision => ({
+    action: "fail_closed",
+    reason,
+    createOffer: false,
+    notify: false,
+    extendExpiry: false,
+    updates: [],
+  });
+  const { data, error } = await supabase
+    .from("ride_offers")
+    .select(
+      "id, status, is_stacked, expires_at, dispatch_wave, effective_commission_percent, offer_snapshot, offered_driver_net_pence",
+    )
+    .eq("trip_id", trip.id)
+    .eq("status", "pending")
+    .gt("expires_at", nowIso);
+  if (error) return closed("offer_read_failed");
+
+  const decision = decideAlreadyOfferedRestamp({
+    nowMs: Date.parse(nowIso),
+    trip,
+    offers: (data ?? []) as ExistingOfferForRestamp[],
+  });
+  if (decision.action !== "restamp") return decision;
+
+  for (const update of decision.updates) {
+    let query = supabase
+      .from("ride_offers")
+      .update({
+        offer_snapshot: update.offer_snapshot,
+        offered_driver_net_pence: update.offered_driver_net_pence,
+      })
+      .eq("id", update.id)
+      .eq("trip_id", trip.id)
+      .eq("status", "pending")
+      .gt("expires_at", nowIso)
+      .or("is_stacked.eq.false,is_stacked.is.null");
+    if (update.match_dispatch_wave != null) {
+      query = query.eq("dispatch_wave", update.match_dispatch_wave);
+    }
+    const { data: written, error: writeErr } = await query.select("id");
+    if (writeErr || !written?.length) return closed("restamp_write_failed");
+  }
+  return decision;
 }
 
 Deno.serve(async (req) => {
@@ -627,19 +685,40 @@ Deno.serve(async (req) => {
           (o) => !o.offer_options || (Array.isArray(o.offer_options) && o.offer_options.length < 3),
         );
         if (!needsPresetEnrichment) {
+          const restamp = await applyAlreadyOfferedAirportRestamp(supabase, trip, nowIso);
+          if (restamp.action === "fail_closed") {
+            console.error("[auto-dispatch] airport offer stamp unrepresentable", {
+              trip_id,
+              reason: restamp.reason,
+            });
+            abortDispatch("AIRPORT_OFFER_STAMP_UNREPRESENTABLE", {
+              reason: restamp.reason,
+              active_offer_count: activeOffers.length,
+            });
+            return errorResponse(
+              "AIRPORT_OFFER_STAMP_UNREPRESENTABLE",
+              "Airport charge could not be represented on the existing offer",
+              409,
+              { trip_id, reason: restamp.reason },
+            );
+          }
           console.log("[auto-dispatch] Trip already has active offers with presets, skipping dispatch", {
             trip_id,
             active_offer_count: activeOffers.length,
+            offers_restamped: restamp.updates.length,
             trip_status: trip.status,
           });
           abortDispatch("TRIP_ALREADY_OFFERED", {
             active_offer_count: activeOffers.length,
+            offers_restamped: restamp.updates.length,
+            restamp_reason: restamp.reason,
             trip_status: trip.status,
           });
           return successResponse({
             success: true,
             trip_id,
-            message: "Trip already offered"
+            message: "Trip already offered",
+            offers_restamped: restamp.updates.length,
           });
         }
         enrichExistingOffersMode = true;

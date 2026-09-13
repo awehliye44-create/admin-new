@@ -1,2 +1,9 @@
-DO NOT APPLY. DO NOT db push. DO NOT copy into supabase/migrations.
-This folder is a draft. Applying it is a separate approval.
+Release candidate prepared. Do not apply, db push, or deploy until the release order is approved.
+
+Canonical migration, still absent from schema_migrations:
+  supabase/migrations/20261112170000_airport_charge_offer_stamp.sql
+
+20261112160000 is not available. It is applied as driver_tip_thanks.
+
+Rollback, if that migration is later applied:
+  supabase/migrations/rollback/rollback_20261112170000_airport_charge_offer_stamp.sql

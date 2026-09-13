@@ -324,3 +324,307 @@ export function stampOfferSnapshotAirportPassThrough(input: {
 
   return { snapshot: next, offeredDriverNetPence: split.driverNetPence };
 }
+
+export type ExistingOfferForRestamp = {
+  id: string;
+  status: string;
+  is_stacked?: boolean | null;
+  expires_at: string | null;
+  dispatch_wave: number | null;
+  /** Already resolved by the offer's wave helper. Not a default rate. */
+  effective_commission_percent: number | null;
+  offer_snapshot: Record<string, unknown> | null;
+  offered_driver_net_pence: number | null;
+};
+
+export type PendingOfferRestampUpdate = {
+  id: string;
+  offer_snapshot: Record<string, unknown>;
+  offered_driver_net_pence: number;
+  /** Filter only. Never written. */
+  match_dispatch_wave: number | null;
+};
+
+/**
+ * When auto-dispatch finds an existing pending offer, restamp its calculated
+ * snapshot instead of creating another offer. Updates snapshot fields and
+ * offered_driver_net_pence only. Does not notify, extend expiry, or revive
+ * revoked/accepted/expired rows. Airport 0 leaves the offer unchanged.
+ *
+ * Rate is the offer's already-resolved wave percent, else the caller-supplied
+ * wave helper. Never a baked-in rate.
+ */
+export function planExistingPendingOfferRestamp(input: {
+  nowMs: number;
+  payablePence: number;
+  airportPence: number;
+  otherPassThroughPence?: number;
+  offers: ExistingOfferForRestamp[];
+  resolveWavePercent: (wave: number) => number;
+  /** Live restamp must not invent a rate when the offer has none. */
+  requireStoredCommissionPercent?: boolean;
+}): {
+  createOffer: false;
+  notify: false;
+  extendExpiry: false;
+  updates: PendingOfferRestampUpdate[];
+  skipped: Array<{ id: string; reason: string }>;
+} {
+  const airport = Math.max(0, Math.round(Number(input.airportPence) || 0));
+  const payable = Math.max(0, Math.round(Number(input.payablePence) || 0));
+  const other = Math.max(0, Math.round(Number(input.otherPassThroughPence) || 0));
+  const updates: PendingOfferRestampUpdate[] = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
+
+  if (airport <= 0) {
+    return {
+      createOffer: false,
+      notify: false,
+      extendExpiry: false,
+      updates,
+      skipped: input.offers.map((offer) => ({ id: offer.id, reason: "airport_absent" })),
+    };
+  }
+
+  for (const offer of input.offers) {
+    if (offer.status !== "pending") {
+      skipped.push({ id: offer.id, reason: "not_pending" });
+      continue;
+    }
+    if (offer.is_stacked === true) {
+      skipped.push({ id: offer.id, reason: "stacked" });
+      continue;
+    }
+    const expiresMs = offer.expires_at ? Date.parse(offer.expires_at) : Number.NaN;
+    if (!Number.isFinite(expiresMs) || expiresMs <= input.nowMs) {
+      skipped.push({ id: offer.id, reason: "expired" });
+      continue;
+    }
+
+    const snapshot = offer.offer_snapshot ? { ...offer.offer_snapshot } : {};
+    const customer = Math.max(
+      0,
+      Math.round(Number(snapshot.baseFarePence ?? payable) || 0),
+    );
+    const storedRate = offer.effective_commission_percent;
+    const hasStoredRate = storedRate != null && Number.isFinite(Number(storedRate));
+    if (!hasStoredRate && input.requireStoredCommissionPercent) {
+      skipped.push({ id: offer.id, reason: "rate_unresolved" });
+      continue;
+    }
+    const commissionPercent = hasStoredRate
+      ? commissionPercentFromActiveWave({ effectivePercent: Number(storedRate) })
+      : commissionPercentFromActiveWave({
+        effectivePercent: input.resolveWavePercent(
+          Math.round(Number(offer.dispatch_wave) || 0) > 0
+            ? Math.round(Number(offer.dispatch_wave))
+            : 1,
+        ),
+      });
+
+    const stamped = stampOfferSnapshotAirportPassThrough({
+      snapshot,
+      customerGrossPence: customer,
+      airportPence: airport,
+      otherPassThroughPence: other,
+      commissionPercent,
+    });
+    if (stamped.offeredDriverNetPence == null) {
+      skipped.push({ id: offer.id, reason: "no_net" });
+      continue;
+    }
+    const already = offerSnapshotRepresentsAirport({
+      snapshot,
+      airportPence: airport,
+      offeredDriverNetPence: offer.offered_driver_net_pence,
+      expectedNetPence: stamped.offeredDriverNetPence,
+    });
+    if (already) {
+      skipped.push({ id: offer.id, reason: "already_stamped" });
+      continue;
+    }
+    if (!offerSnapshotRepresentsAirport({
+      snapshot: stamped.snapshot,
+      airportPence: airport,
+      offeredDriverNetPence: stamped.offeredDriverNetPence,
+      expectedNetPence: stamped.offeredDriverNetPence,
+    })) {
+      skipped.push({ id: offer.id, reason: "stamp_unrepresentable" });
+      continue;
+    }
+    updates.push({
+      id: offer.id,
+      offer_snapshot: stamped.snapshot,
+      offered_driver_net_pence: stamped.offeredDriverNetPence,
+      match_dispatch_wave: offer.dispatch_wave,
+    });
+  }
+
+  return {
+    createOffer: false,
+    notify: false,
+    extendExpiry: false,
+    updates,
+    skipped,
+  };
+}
+
+function offerSnapshotRepresentsAirport(input: {
+  snapshot: Record<string, unknown>;
+  airportPence: number;
+  offeredDriverNetPence: number | null;
+  expectedNetPence: number;
+}): boolean {
+  const extras = input.snapshot.route_extra_items;
+  const chip = Array.isArray(extras)
+    ? extras.find((item) => item && typeof item === "object" && (item as { type?: string }).type === "airport")
+    : null;
+  const chipAmount = chip && typeof chip === "object"
+    ? Number((chip as { amount_pence?: unknown }).amount_pence)
+    : Number.NaN;
+  return input.offeredDriverNetPence === input.expectedNetPence
+    && Number(input.snapshot.airport_charge_pence) === input.airportPence
+    && chipAmount === input.airportPence;
+}
+
+export type PersistedAirportSplitAssessment =
+  | {
+    ok: true;
+    reason: "airport_absent";
+    airportPence: 0;
+    payablePence: number;
+  }
+  | {
+    ok: true;
+    reason: "split_persisted";
+    airportPence: number;
+    payablePence: number;
+    commissionablePence: number;
+    otherPassThroughPence: number;
+  }
+  | {
+    ok: false;
+    reason: "airport_not_on_column" | "split_mismatch";
+  };
+
+function nonNegInt(value: unknown): number {
+  const n = Math.round(Number(value) || 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * A known airport charge is representable only when the column matches the
+ * quote and the payable already includes that amount. Otherwise fail closed.
+ */
+export function assessPersistedAirportSplit(trip: {
+  airport_charge_pence?: number | null;
+  commissionable_fare_pence?: number | null;
+  final_fare_pence?: number | null;
+  final_customer_fare_pence?: number | null;
+  other_pass_through_charges_pence?: number | null;
+  fare_breakdown?: unknown;
+  fare_snapshot_json?: unknown;
+}): PersistedAirportSplitAssessment {
+  const breakdown = asRecord(trip.fare_breakdown);
+  const snapshot = asRecord(trip.fare_snapshot_json);
+  const quoteAirport = resolveQuoteAirportChargePence(breakdown)
+    || resolveQuoteAirportChargePence(snapshot);
+  const columnAirport = positiveInt(trip.airport_charge_pence) ?? 0;
+  const payable = nonNegInt(trip.final_customer_fare_pence) || nonNegInt(trip.final_fare_pence);
+  if (quoteAirport <= 0 && columnAirport <= 0) {
+    return { ok: true, reason: "airport_absent", airportPence: 0, payablePence: payable };
+  }
+  if (columnAirport <= 0 || (quoteAirport > 0 && columnAirport !== quoteAirport)) {
+    return { ok: false, reason: "airport_not_on_column" };
+  }
+  const other = nonNegInt(trip.other_pass_through_charges_pence);
+  const storedCommissionable = trip.commissionable_fare_pence == null
+    ? null
+    : Math.max(0, Math.round(Number(trip.commissionable_fare_pence) || 0));
+  const quoteRide = resolveQuoteRideFarePence(breakdown) || resolveQuoteRideFarePence(snapshot);
+  const quoteFinal = resolveQuoteFinalFarePence(breakdown) || resolveQuoteFinalFarePence(snapshot);
+  const storedAddsUp = storedCommissionable != null
+    && payable === storedCommissionable + columnAirport + other;
+  if (storedCommissionable != null && !storedAddsUp) {
+    return { ok: false, reason: "split_mismatch" };
+  }
+  const quoteAddsUp = quoteRide > 0
+    && quoteFinal === quoteRide + columnAirport
+    && payable === quoteFinal + other;
+  if (!storedAddsUp && !quoteAddsUp) {
+    return { ok: false, reason: "split_mismatch" };
+  }
+  return {
+    ok: true,
+    reason: "split_persisted",
+    airportPence: columnAirport,
+    payablePence: payable,
+    commissionablePence: storedCommissionable ?? Math.max(0, payable - columnAirport - other),
+    otherPassThroughPence: other,
+  };
+}
+
+export type AlreadyOfferedRestampDecision = {
+  action: "unchanged" | "restamp" | "fail_closed";
+  reason: string;
+  createOffer: false;
+  notify: false;
+  extendExpiry: false;
+  updates: PendingOfferRestampUpdate[];
+};
+
+/**
+ * Pending, unexpired, non-stacked offers only. Uses the offer's stored wave
+ * percent. Does not create, notify, extend expiry, or revive other statuses.
+ */
+export function decideAlreadyOfferedRestamp(input: {
+  nowMs: number;
+  trip: Parameters<typeof assessPersistedAirportSplit>[0];
+  offers: ExistingOfferForRestamp[];
+}): AlreadyOfferedRestampDecision {
+  const empty = {
+    createOffer: false as const,
+    notify: false as const,
+    extendExpiry: false as const,
+    updates: [] as PendingOfferRestampUpdate[],
+  };
+  const split = assessPersistedAirportSplit(input.trip);
+  if (!split.ok) {
+    return { ...empty, action: "fail_closed", reason: split.reason };
+  }
+  if (split.reason === "airport_absent") {
+    return { ...empty, action: "unchanged", reason: "airport_absent" };
+  }
+
+  const plan = planExistingPendingOfferRestamp({
+    nowMs: input.nowMs,
+    payablePence: split.payablePence,
+    airportPence: split.airportPence,
+    otherPassThroughPence: split.otherPassThroughPence,
+    offers: input.offers,
+    resolveWavePercent: () => Number.NaN,
+    requireStoredCommissionPercent: true,
+  });
+  const blocking = plan.skipped.filter((row) =>
+    row.reason === "rate_unresolved"
+    || row.reason === "no_net"
+    || row.reason === "stamp_unrepresentable"
+  );
+  if (blocking.length > 0) {
+    return { ...empty, action: "fail_closed", reason: blocking[0].reason };
+  }
+  const restampedOrAlready = plan.updates.length
+    + plan.skipped.filter((row) => row.reason === "already_stamped").length;
+  if (restampedOrAlready === 0) {
+    return { ...empty, action: "fail_closed", reason: "no_pending_offer_for_stamp" };
+  }
+  if (plan.updates.length === 0) {
+    return { ...empty, action: "unchanged", reason: "already_stamped" };
+  }
+  return {
+    ...empty,
+    action: "restamp",
+    reason: "split_persisted",
+    updates: plan.updates,
+  };
+}

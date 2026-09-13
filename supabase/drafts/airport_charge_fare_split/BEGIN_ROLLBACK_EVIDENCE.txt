@@ -1,0 +1,60 @@
+BEGIN/ROLLBACK evidence for 20261112170000_airport_charge_offer_stamp.sql
+version_20261112160000_not_used=occupied_by_driver_tip_thanks
+schema_migrations_20261112170000_before=absent
+schema_migrations_20261112170000_after=absent
+session_exit=0
+before_stamp_md5=849e787bb30b57e94f6b1bd85958860a
+after_stamp_md5=849e787bb30b57e94f6b1bd85958860a
+stamp_unchanged=True
+before_compute_md5=963a91acce85c58be6ebd0313eb1794c
+after_compute_md5=963a91acce85c58be6ebd0313eb1794c
+compute_unchanged=True
+before_mk=2026-09-13 11:12:01.348917+00|62197310|700|7000
+after_mk=2026-09-13 11:12:01.348917+00|62197310|700|7000
+mk_unchanged=True
+before_offers=1
+after_offers=1
+offers_unchanged=True
+before_triggers=tr_send_push_on_ride_offer_insert:O,tr_stamp_offer_presets:O,tr_trips_dispatch_after_insert:O
+after_triggers=tr_send_push_on_ride_offer_insert:O,tr_stamp_offer_presets:O,tr_trips_dispatch_after_insert:O
+triggers_unchanged=True
+restore=not_needed
+--- session output ---
+BEGIN
+   isolation    | in_transaction 
+----------------+----------------
+ read committed | t
+(1 row)
+
+CREATE FUNCTION
+CREATE TABLE
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+DO
+CREATE TABLE
+CREATE TRIGGER
+SELECT 1
+DO
+CREATE FUNCTION
+DO
+INSERT 0 1
+          case_name           | ok |                                       detail                                        
+------------------------------+----+-------------------------------------------------------------------------------------
+ accepted_not_revived         | t  | accepted returned unchanged
+ airport_zero_unchanged       | t  | base=500 net=425 expected=425 rate=15
+ expired_not_revived          | t  | expired returned unchanged
+ function_parsed              | t  | parsed replacement contains quote fallback, wave helper, pending skip, stacked skip
+ json_fallback                | t  | quote major units and explicit pence; not a constant
+ mk_column_split              | t  | airport=700 base=7700 commissionable=7000 rate=15 net=6650 expected=6650
+ no_hardcoded_airport_or_rate | t  | replacement body has no 700 or 15 literal
+ no_notify_or_http            | t  | replacement body has no notify or HTTP call
+ no_public_offer_insert       | t  | public ride_offers count unchanged during probes
+ preset_7800_net              | t  | airport=700 rate=15 preset_net=6735 expected=6735 offered_net=6650
+ revoked_not_revived          | t  | revoked returned unchanged
+ stacked_unchanged            | t  | stacked returned before stamp
+ wave_rate_dynamic            | t  | wave1=15 wave2=13
+(13 rows)
+
+ROLLBACK
+

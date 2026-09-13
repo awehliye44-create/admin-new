@@ -8,13 +8,18 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   airportAlreadyInsidePayable,
+  assessPersistedAirportSplit,
   bookingFareSplitFromQuote,
   commissionPercentFromActiveWave,
+  decideAlreadyOfferedRestamp,
   decideDispatchAfterFareEnrich,
   driverNetFromActiveWave,
+  planExistingPendingOfferRestamp,
   stampOfferSnapshotAirportPassThrough,
+  type ExistingOfferForRestamp,
   type WaveCommissionRate,
 } from "../supabase/functions/_shared/airportChargeFareSplitSSOT.ts";
+import { draftAlreadyOfferedRestamp } from "../supabase/drafts/airport_charge_fare_split/autoDispatchRestampExistingPendingOffer.draft.ts";
 import {
   computeCaptureAmount,
   computeFinalFarePence,
@@ -286,4 +291,217 @@ describe("airport charge fare split", () => {
     expect(computeFinalFarePence(foldedModification)).toBe(7966);
     expect(computeFinalFarePence(foldedModification)).not.toBe(8666);
   });
+
+  it("restamps the early pending offer after the trip split is persisted, once", () => {
+    const payablePence = 7700;
+    const airportPence = 700;
+    const commissionablePence = payablePence - airportPence;
+    const wave = mockedActiveWave(15);
+    const rate = commissionPercentFromActiveWave(wave);
+    const expectedNet = driverNetFromActiveWave({
+      customerPence: payablePence,
+      airportPence,
+      wave,
+    });
+    const presetGrossPence = 7800;
+    const presetCommissionable = presetGrossPence - airportPence;
+    const presetNet = presetCommissionable
+      - Math.round((presetCommissionable * rate) / 100)
+      + airportPence;
+    const offerId = "existing-pending-offer";
+    const expiresAt = "2026-09-13T11:16:27.940Z";
+    const earlyOffer: ExistingOfferForRestamp = {
+      id: offerId,
+      status: "pending",
+      is_stacked: false,
+      expires_at: expiresAt,
+      dispatch_wave: 1,
+      effective_commission_percent: rate,
+      offered_driver_net_pence: payablePence - Math.round((payablePence * rate) / 100),
+      offer_snapshot: {
+        baseFarePence: payablePence,
+        trigger_reason: "trip_insert",
+        preset_options: [{ key: "standard", grossFarePence: presetGrossPence }],
+      },
+    };
+    const revoked = {
+      ...earlyOffer,
+      id: "revoked-offer",
+      status: "revoked",
+    };
+    let offers = [earlyOffer];
+    let notifications = 1;
+
+    const split = bookingFareSplitFromQuote({
+      payablePence,
+      fareBreakdown: quote,
+    });
+    expect(split).toEqual({
+      airport_charge_pence: airportPence,
+      commissionable_fare_pence: commissionablePence,
+    });
+
+    const command = draftAlreadyOfferedRestamp({
+      tripId: "trip-early-offer",
+      nowMs: Date.parse("2026-09-13T11:11:29.000Z"),
+      payablePence,
+      airportPence: split!.airport_charge_pence,
+      offers: [...offers, revoked],
+      resolveWavePercent: () => {
+        throw new Error("stored wave rate must be reused");
+      },
+    });
+
+    expect(command.createOffer).toBe(false);
+    expect(command.notify).toBe(false);
+    expect(command.extendExpiry).toBe(false);
+    expect(command.updates).toHaveLength(1);
+    expect(command.updates[0].id).toBe(offerId);
+    expect(command.updates[0].offered_driver_net_pence).toBe(expectedNet.driverNetPence);
+    expect(command.updates[0].offer_snapshot.airport_charge_pence).toBe(airportPence);
+    expect(command.updates[0].offer_snapshot.route_extra_items).toEqual([
+      { type: "airport", label: "Airport", amount_pence: airportPence },
+    ]);
+    const preset = (command.updates[0].offer_snapshot.preset_options as Array<Record<string, number>>)[0];
+    expect(preset.grossFarePence).toBe(presetGrossPence);
+    expect(preset.driverNetPence).toBe(presetNet);
+    expect(presetNet).toBe(6735);
+
+    offers = offers.map((row) => row.id === offerId
+      ? {
+        ...row,
+        offered_driver_net_pence: command.updates[0].offered_driver_net_pence,
+        offer_snapshot: command.updates[0].offer_snapshot,
+        expires_at: expiresAt,
+        status: "pending",
+      }
+      : row);
+    notifications += command.notify ? 1 : 0;
+
+    expect(offers).toHaveLength(1);
+    expect(offers[0].status).toBe("pending");
+    expect(offers[0].expires_at).toBe(expiresAt);
+    expect(offers[0].offered_driver_net_pence).toBe(expectedNet.driverNetPence);
+    expect(chipFromPence(airportPence)).toBe("Airport +£7");
+    expect(notifications).toBe(1);
+
+    const again = planExistingPendingOfferRestamp({
+      nowMs: Date.parse("2026-09-13T11:11:30.000Z"),
+      payablePence,
+      airportPence,
+      offers,
+      resolveWavePercent: () => wave.effectivePercent,
+    });
+    expect(again.updates).toEqual([]);
+    expect(again.skipped).toEqual([{ id: offerId, reason: "already_stamped" }]);
+    expect(again.notify).toBe(false);
+    expect(again.createOffer).toBe(false);
+
+    const draft = readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        "../supabase/drafts/airport_charge_fare_split/autoDispatchRestampExistingPendingOffer.draft.ts",
+      ),
+      "utf8",
+    );
+    expect(draft).toContain("decideAlreadyOfferedRestamp");
+    expect(draft).toContain("Do not use storedRound + 1");
+    expect(draft).not.toMatch(/from\("ride_offers"\)\.insert|functions\.invoke|expires_at:/);
+    expect(draft).not.toMatch(/\b(700|15)\b/);
+
+    const dispatch = readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        "../supabase/functions/auto-dispatch/index.ts",
+      ),
+      "utf8",
+    );
+    const restampAt = dispatch.indexOf("async function applyAlreadyOfferedAirportRestamp");
+    const alreadyOfferedAt = dispatch.indexOf('message: "Trip already offered"');
+    const createOffersAt = dispatch.indexOf("p_offers: offersToCreate");
+    const restampFn = dispatch.slice(restampAt, dispatch.indexOf("Deno.serve", restampAt));
+    expect(restampAt).toBeGreaterThan(-1);
+    expect(alreadyOfferedAt).toBeGreaterThan(restampAt);
+    expect(createOffersAt).toBeGreaterThan(alreadyOfferedAt);
+    expect(dispatch).toContain("AIRPORT_OFFER_STAMP_UNREPRESENTABLE");
+    expect(restampFn).toContain("offer_snapshot: update.offer_snapshot");
+    expect(restampFn).toContain("offered_driver_net_pence: update.offered_driver_net_pence");
+    expect(restampFn).not.toMatch(/functions\.invoke|\.insert\(|expires_at:/);
+    expect(restampFn).not.toMatch(/\b(700|15)\b/);
+  });
+
+  it("fails closed when a known airport charge is not on the trip column", () => {
+    const decision = decideAlreadyOfferedRestamp({
+      nowMs: Date.parse("2026-09-13T11:11:29.000Z"),
+      trip: {
+        airport_charge_pence: 0,
+        final_fare_pence: 7700,
+        commissionable_fare_pence: 7700,
+        fare_breakdown: quote,
+      },
+      offers: [pendingOffer()],
+    });
+    expect(decision.action).toBe("fail_closed");
+    expect(decision.reason).toBe("airport_not_on_column");
+    expect(decision.createOffer).toBe(false);
+    expect(decision.notify).toBe(false);
+    expect(decision.updates).toEqual([]);
+  });
+
+  it("fails closed when the persisted split does not add up or the wave rate is missing", () => {
+    expect(assessPersistedAirportSplit({
+      airport_charge_pence: 700,
+      commissionable_fare_pence: 7700,
+      final_fare_pence: 7700,
+      fare_breakdown: quote,
+    }).ok).toBe(false);
+
+    const missingRate = decideAlreadyOfferedRestamp({
+      nowMs: Date.parse("2026-09-13T11:11:29.000Z"),
+      trip: persistedSplit(),
+      offers: [{ ...pendingOffer(), effective_commission_percent: null }],
+    });
+    expect(missingRate.action).toBe("fail_closed");
+    expect(missingRate.reason).toBe("rate_unresolved");
+    expect(missingRate.notify).toBe(false);
+    expect(missingRate.createOffer).toBe(false);
+
+    const stackedOnly = decideAlreadyOfferedRestamp({
+      nowMs: Date.parse("2026-09-13T11:11:29.000Z"),
+      trip: persistedSplit(),
+      offers: [{ ...pendingOffer(), is_stacked: true }],
+    });
+    expect(stackedOnly.action).toBe("fail_closed");
+    expect(stackedOnly.reason).toBe("no_pending_offer_for_stamp");
+    expect(stackedOnly.updates).toEqual([]);
+  });
 });
+
+function persistedSplit() {
+  return {
+    airport_charge_pence: 700,
+    commissionable_fare_pence: 7000,
+    final_fare_pence: 7700,
+    final_customer_fare_pence: 7700,
+    fare_breakdown: quote,
+  };
+}
+
+function pendingOffer(): ExistingOfferForRestamp {
+  return {
+    id: "existing-pending-offer",
+    status: "pending",
+    is_stacked: false,
+    expires_at: "2026-09-13T11:16:27.940Z",
+    dispatch_wave: 1,
+    effective_commission_percent: 15,
+    offered_driver_net_pence: 6545,
+    offer_snapshot: { baseFarePence: 7700 },
+  };
+}
+
+function chipFromPence(amountPence: number): string {
+  const pounds = amountPence / 100;
+  const text = Number.isInteger(pounds) ? String(pounds) : pounds.toFixed(2);
+  return `Airport +£${text}`;
+}
