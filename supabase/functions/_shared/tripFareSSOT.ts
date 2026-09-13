@@ -6,7 +6,7 @@
  *   + arrival_waiting_charge_pence   (trips.pickup_waiting_charge_pence)
  *   + stop_waiting_charge_pence
  *   + customer_modification_charge_pence
- *   + airport_charge_pence
+ *   + airport_charge_pence            (only when not already inside the locked payable)
  *   + pass_through_charge_pence      (trips.other_pass_through_charges_pence)
  *   - discount_pence
  *
@@ -23,6 +23,11 @@ import {
   type DriverCommissionBreakdown,
 } from "./commission-breakdown.ts";
 import { resolveTripDisplayFare } from "./tripDisplayFareSSOT.ts";
+import {
+  airportAlreadyInsidePayable,
+  resolveQuoteFinalFarePence,
+  resolveQuoteRideFarePence,
+} from "./airportChargeFareSplitSSOT.ts";
 
 export type TripFareRow = {
   final_fare_pence?: number | null;
@@ -57,6 +62,8 @@ export type TripFareRow = {
   estimated_total_pence?: number | null;
   fare_breakdown?: Record<string, unknown> | null;
   fare_snapshot_json?: Record<string, unknown> | null;
+  /** Ride fare excluding airport, when the booking quote split was persisted. */
+  commissionable_fare_pence?: number | null;
 };
 
 export type CaptureScenario = "completed" | "card_no_show" | "cancelled_before_charge";
@@ -286,6 +293,36 @@ export function isDiscountAlreadyInLockedRideBase(trip: TripFareRow): boolean {
   return false;
 }
 
+/**
+ * Locked payable already includes airport when the quote split adds up to it
+ * (commissionable + airport, or tripFare + airportCharge). A ride-only payable
+ * still receives airport once. Never adds a second copy (7700 + airport).
+ */
+export function isAirportAlreadyInRideBase(
+  trip: TripFareRow,
+  rideBasePence?: number,
+): boolean {
+  const airport = resolveAirportChargePence(trip);
+  const rideBase = rideBasePence != null
+    ? Math.max(0, Math.round(rideBasePence))
+    : resolveRideFareBasePence(trip);
+  const breakdown = trip.fare_breakdown ?? null;
+  const snapshot = trip.fare_snapshot_json ?? null;
+  // Modification already inside the locked payable is not an airport column.
+  // Waiting stays out of this extra unless a caller has proved it is folded in.
+  const foldedExtra = isModificationAlreadyInRideBase(trip, rideBase)
+    ? resolveCustomerModificationChargePence(trip)
+    : 0;
+  return airportAlreadyInsidePayable({
+    payablePence: rideBase,
+    airportPence: airport,
+    commissionableFarePence: trip.commissionable_fare_pence,
+    quoteRideFarePence: resolveQuoteRideFarePence(breakdown) || resolveQuoteRideFarePence(snapshot),
+    quoteFinalFarePence: resolveQuoteFinalFarePence(breakdown) || resolveQuoteFinalFarePence(snapshot),
+    extraAlreadyInPayablePence: foldedExtra,
+  });
+}
+
 export function computeFinalFarePence(trip: TripFareRow): number {
   const rideBase = resolveRideFareBasePence(trip);
   const arrivalWaiting = resolveArrivalWaitingChargePence(trip);
@@ -293,7 +330,8 @@ export function computeFinalFarePence(trip: TripFareRow): number {
   const modificationRaw = resolveCustomerModificationChargePence(trip);
   const modificationAlreadyIncluded = isModificationAlreadyInRideBase(trip, rideBase);
   const modification = modificationAlreadyIncluded ? 0 : modificationRaw;
-  const airport = resolveAirportChargePence(trip);
+  const airportRaw = resolveAirportChargePence(trip);
+  const airport = isAirportAlreadyInRideBase(trip, rideBase) ? 0 : airportRaw;
   const passThrough = resolvePassThroughChargePence(trip);
   const discount = resolveDiscountPence(trip);
 

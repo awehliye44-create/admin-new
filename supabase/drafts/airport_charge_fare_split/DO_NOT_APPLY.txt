@@ -1,0 +1,2 @@
+DO NOT APPLY. DO NOT db push. DO NOT copy into supabase/migrations.
+This folder is a draft. Applying it is a separate approval.

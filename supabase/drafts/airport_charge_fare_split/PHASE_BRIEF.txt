@@ -1,0 +1,28 @@
+DRAFT ONLY. Not applied. Not in supabase/migrations. Do not db push. Do not deploy. Do not commit unless asked.
+
+Why
+Route pricing already splits ride fare and airport. Booking persist folded both into final_fare_pence and left trips.airport_charge_pence = 0. Offer insert then called compute_driver_net_preview_from_gross(payable, airport=0), so airport was commissioned. Completion can add quote airport on top of an already-inclusive payable.
+
+Before
+  payable = ride + airport
+  airport_charge_pence = 0
+  commissionable = payable
+  commission = round(payable * wave_rate / 100)
+  driver_net = payable - commission
+
+After
+  payable stays the quote total (includes airport)
+  airport_charge_pence = quote airport
+  commissionable = payable - airport - other_non_commissionable
+  commission = round(commissionable * wave_rate / 100)
+  driver_net = commissionable - commission + airport + other pass-through
+
+Wave rate is resolve_wave_commission_percent / resolveWaveCommission. No hardcoded airport amount or rate.
+
+Edge path fails closed: a quote airport or route pass-through above zero must be written and read back before auto-dispatch. A failed write sets broadcast_enabled false and does not call invokeAutoDispatch. Airport zero keeps the previous fail-open dispatch. This draft SQL is not required for that gate and is not applied.
+
+SQL in this folder
+Unapplied replacement for tr_stamp_offer_presets_fn. Fallback airport from fare_breakdown if the column is still 0. Same formula. Rollback is restoring the function body from supabase/migrations/20260924150000_stamp_net_display_when_wave_equals_gross.sql.
+
+Completion
+If the locked payable already equals ride + airport, do not add airport again.

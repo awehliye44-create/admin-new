@@ -20,6 +20,11 @@ import {
 } from "./dispatch-settings.ts";
 import { invokeAutoDispatch } from "./dispatchOrchestrator.ts";
 import { applyBookingFareToTripData } from "./persist-booking-fare.ts";
+import {
+  decideDispatchAfterFareEnrich,
+  resolveQuoteAirportChargePence,
+  type FareEnrichDispatchDecision,
+} from "./airportChargeFareSplitSSOT.ts";
 import { resolveBestOfferForTrip } from "./resolve-offer.ts";
 import { resolvePersonalVoucherForTrip } from "./resolve-personal-voucher.ts";
 import {
@@ -100,7 +105,15 @@ function buildTripStops(tripId: string, body: BookingCommitBody): TripStopRow[] 
   return stops;
 }
 
-async function enrichTripFareAsync(ctx: BookingPostCommitContext): Promise<void> {
+const AIRPORT_ABSENT_DISPATCH: FareEnrichDispatchDecision = {
+  allowDispatch: true,
+  holdBroadcast: false,
+  reason: "airport_absent",
+};
+
+async function enrichTripFareAsync(
+  ctx: BookingPostCommitContext,
+): Promise<FareEnrichDispatchDecision> {
   const { body, supabase, tripId, log } = ctx;
   let appliedOfferId: string | null = null;
   let appliedDiscountPence = 0;
@@ -259,16 +272,67 @@ async function enrichTripFareAsync(ctx: BookingPostCommitContext): Promise<void>
     }
   }
 
+  const quoteAirportPence = resolveQuoteAirportChargePence(fareBreakdownJson);
   const { error } = await supabase.from("trips").update(patch).eq("id", tripId);
   if (error) {
     log("post-commit trip fare patch warning", { error: error.message });
   }
+
+  let persistedAirportPence: number | null = null;
+  let updateFailed = Boolean(error);
+  if (!updateFailed && quoteAirportPence > 0) {
+    const { data: written, error: readErr } = await supabase
+      .from("trips")
+      .select("airport_charge_pence")
+      .eq("id", tripId)
+      .maybeSingle();
+    if (readErr || !written) {
+      updateFailed = true;
+      log("AIRPORT_FARE_PERSIST_READBACK_FAILED", {
+        trip_id: tripId,
+        error: readErr?.message ?? "missing_row",
+      });
+    } else {
+      persistedAirportPence = Number(written.airport_charge_pence);
+    }
+  }
+
+  const decision = decideDispatchAfterFareEnrich({
+    quoteAirportPence,
+    persistedAirportPence,
+    updateFailed,
+  });
+  if (decision.holdBroadcast) {
+    log("AIRPORT_FARE_PERSIST_FAILED_DISPATCH_BLOCKED", {
+      trip_id: tripId,
+      quote_airport_pence: quoteAirportPence,
+      persisted_airport_pence: persistedAirportPence,
+      update_error: error?.message ?? null,
+    });
+    const { error: holdErr } = await supabase
+      .from("trips")
+      .update({
+        broadcast_enabled: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", tripId);
+    if (holdErr) {
+      log("AIRPORT_FARE_PERSIST_HOLD_FAILED", {
+        trip_id: tripId,
+        error: holdErr.message,
+      });
+    }
+  }
+  return decision;
 }
 
 export function buildBookingPostCommitTasks(ctx: BookingPostCommitContext): PromiseLike<unknown>[] {
   const tripStops = buildTripStops(ctx.tripId, ctx.body);
+  // Fare enrich writes airport_charge_pence before dispatch. Offer insert stamps
+  // net from that column; running them in parallel commissions the folded payable.
+  const fareEnrich = enrichTripFareAsync(ctx);
   const tasks: PromiseLike<unknown>[] = [
-    enrichTripFareAsync(ctx),
+    fareEnrich,
   ];
 
   if (ctx.paymentProvider === "revolut") {
@@ -297,6 +361,19 @@ export function buildBookingPostCommitTasks(ctx: BookingPostCommitContext): Prom
 
   if (!ctx.isScheduled) {
     tasks.push((async () => {
+      const enrich = await fareEnrich.catch((e) => {
+        ctx.log("fare enrich before dispatch", { err: String(e) });
+        // Unknown throw has no quote airport. Normal trips still dispatch.
+        // A known airport persist failure returns airport_persist_failed instead of throwing.
+        return AIRPORT_ABSENT_DISPATCH;
+      });
+      if (!enrich.allowDispatch) {
+        ctx.log("AIRPORT_FARE_PERSIST_FAILED_DISPATCH_BLOCKED", {
+          trip_id: ctx.tripId,
+          reason: enrich.reason,
+        });
+        return;
+      }
       ctx.bookingWaterfall.startStep(
         "dispatch_started",
         "bookingPostCommit.ts:invokeAutoDispatch",

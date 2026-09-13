@@ -33,6 +33,10 @@ import {
   enrichOfferSnapshotDriverNet,
 } from "../_shared/driverOfferNetPreview.ts";
 import {
+  resolvePersistedAirportChargePence,
+  stampOfferSnapshotAirportPassThrough,
+} from "../_shared/airportChargeFareSplitSSOT.ts";
+import {
   recordDispatchWaveSnapshot,
   type DispatchWaveSnapshotStage,
 } from "../_shared/recordDispatchWaveSnapshot.ts";
@@ -2704,6 +2708,50 @@ Deno.serve(async (req) => {
         enrich_result: enrichResult ?? null,
         enrich_error: enrichErr?.message ?? null,
       });
+    }
+
+    // Airport is customer-payable pass-through. Stamp chip + nets after the
+    // insert trigger / preset enrich, which replace preset_options. Rate is the
+    // wave already resolved above — not a constant. No payment or wallet write.
+    const airportPassThroughPence = resolvePersistedAirportChargePence(trip);
+    if (airportPassThroughPence > 0 && createdOffers.length > 0) {
+      const offerIds = createdOffers.map((o) => o.id).filter(Boolean);
+      const { data: stampedRows, error: stampReadErr } = await supabase
+        .from("ride_offers")
+        .select("id, offer_snapshot")
+        .in("id", offerIds);
+      if (stampReadErr) {
+        console.warn("[auto-dispatch] airport pass-through stamp read failed", stampReadErr.message);
+      }
+      const otherPassThroughPence = Math.max(
+        0,
+        Math.round(Number(trip.other_pass_through_charges_pence ?? 0) || 0),
+      );
+      for (const row of stampedRows ?? []) {
+        const snapshot = (row.offer_snapshot ?? {}) as Record<string, unknown>;
+        const customerGrossPence = Number(snapshot.baseFarePence ?? baseFarePence);
+        const stamped = stampOfferSnapshotAirportPassThrough({
+          snapshot,
+          customerGrossPence,
+          airportPence: airportPassThroughPence,
+          otherPassThroughPence,
+          commissionPercent: waveCommission.effectivePercent,
+        });
+        if (stamped.offeredDriverNetPence == null) continue;
+        const { error: stampWriteErr } = await supabase
+          .from("ride_offers")
+          .update({
+            offer_snapshot: stamped.snapshot,
+            offered_driver_net_pence: stamped.offeredDriverNetPence,
+          })
+          .eq("id", row.id);
+        if (stampWriteErr) {
+          console.warn("[auto-dispatch] airport pass-through stamp write failed", {
+            offer_id: row.id,
+            error: stampWriteErr.message,
+          });
+        }
+      }
     }
 
     // ââ UNIFIED WAVE SNAPSHOT â one complete audit row per dispatch wave ââââââ

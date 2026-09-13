@@ -2,7 +2,11 @@
  * Server-side driver net preview for ride offers (not settlement).
  * Commission SSOT: base service-area/global dispatch commission − wave reduction (monotonic floor).
  */
-import { calculateCommissionSplit } from "./commission.ts";
+import {
+  buildAirportRouteExtraItems,
+  driverNetFromCustomerTotal,
+  resolveQuoteAirportChargePence,
+} from "./airportChargeFareSplitSSOT.ts";
 
 export function computeDriverNetPreviewPence(
   grossFarePence: number,
@@ -10,10 +14,11 @@ export function computeDriverNetPreviewPence(
   airportChargePence = 0,
 ): number {
   if (grossFarePence <= 0) return 0;
-  const split = calculateCommissionSplit(grossFarePence, commissionPercent, {
-    airport_charge_pence: airportChargePence,
-  });
-  return split.driverNetPence;
+  return driverNetFromCustomerTotal({
+    customerPence: grossFarePence,
+    airportPence: airportChargePence,
+    commissionPercent,
+  }).driverNetPence;
 }
 
 export function enrichOfferSnapshotDriverNet(
@@ -27,12 +32,22 @@ export function enrichOfferSnapshotDriverNet(
   const commissionPct = Number(commissionPercent);
   if (!Number.isFinite(commissionPct) || commissionPct < 0 || baseFarePence <= 0) return base;
 
-  const airportPence = Number(
-    base.airport_charge_pence ?? base.airportChargePence ?? 0,
-  ) || 0;
+  const airportPence = resolveQuoteAirportChargePence(base);
+  const otherPassThroughPence = Math.max(
+    0,
+    Math.round(Number(base.other_pass_through_charges_pence ?? base.otherPassThroughChargesPence ?? 0) || 0),
+  );
+  const extras = buildAirportRouteExtraItems(airportPence);
+  if (extras.length > 0) {
+    base.airport_charge_pence = airportPence;
+    if (!Array.isArray(base.route_extra_items)) base.route_extra_items = extras;
+  }
 
-  const split = calculateCommissionSplit(baseFarePence, commissionPct, {
-    airport_charge_pence: airportPence,
+  const split = driverNetFromCustomerTotal({
+    customerPence: baseFarePence,
+    airportPence,
+    otherPassThroughPence,
+    commissionPercent: commissionPct,
   });
   const driverNet = split.driverNetPence;
 
@@ -63,8 +78,11 @@ export function enrichOfferSnapshotDriverNet(
       const row = item as Record<string, unknown>;
       const gross = Number(row.grossFarePence ?? row.gross_fare_pence ?? 0);
       if (!Number.isFinite(gross) || gross <= 0) return item;
-      const presetSplit = calculateCommissionSplit(Math.round(gross), commissionPct, {
-        airport_charge_pence: airportPence,
+      const presetSplit = driverNetFromCustomerTotal({
+        customerPence: Math.round(gross),
+        airportPence,
+        otherPassThroughPence,
+        commissionPercent: commissionPct,
       });
       const net = presetSplit.driverNetPence;
       return {

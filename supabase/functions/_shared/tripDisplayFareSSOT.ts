@@ -7,6 +7,8 @@
  *   → gross_fare_pence - discount → gross_fare_pence
  */
 
+import { bookingFareSplitFromQuote } from "./airportChargeFareSplitSSOT.ts";
+
 export const BOOKING_PRICING_VERSION = "booking_financial_v1" as const;
 
 export type DiscountSource = "personal_voucher" | "global_offer" | null;
@@ -394,6 +396,17 @@ export function applyBookingFinancialSnapshotToTripData(
   tripData.pricing_source = snapshot.pricing_source;
   tripData.created_pricing_hash = snapshot.created_pricing_hash;
   tripData.fare_snapshot_json = snapshot.fare_snapshot_json;
+
+  const fareSplit = bookingFareSplitFromQuote({
+    payablePence: snapshot.final_fare_pence,
+    fareBreakdown: fareSnapshotJson,
+  });
+  if (fareSplit) {
+    tripData.airport_charge_pence = fareSplit.airport_charge_pence;
+    tripData.commissionable_fare_pence = fareSplit.commissionable_fare_pence;
+    snapshot.fare_snapshot_json.airport_charge_pence = fareSplit.airport_charge_pence;
+    snapshot.fare_snapshot_json.commissionable_fare_pence = fareSplit.commissionable_fare_pence;
+  }
 
   if (input.appliedOfferId && snapshot.discount_source === "global_offer") {
     tripData.applied_offer_id = input.appliedOfferId;
