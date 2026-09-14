@@ -20,6 +20,8 @@ import {
   shareTripInvoicePdf,
 } from '@/lib/tripInvoiceActions';
 import { getTripDisplayId } from '@/lib/tripUtils';
+import { getTripInvoiceEmailBadge } from '@/lib/tripInvoiceEmailStatus';
+import { SendTripReceiptDialog } from '@/components/trips/SendTripReceiptDialog';
 
 export interface TripInvoiceFields {
   id: string;
@@ -33,6 +35,8 @@ export interface TripInvoiceFields {
   invoice_email_sent_at: string | null;
   invoice_email_status: string | null;
   invoice_email_error: string | null;
+  invoice_email_log_status?: string | null;
+  invoice_email_log_sent_at?: string | null;
   invoice_pdf_error: string | null;
   invoice_total_paid_pence: number | null;
   invoice_regenerated_at: string | null;
@@ -44,45 +48,6 @@ export interface TripInvoiceFields {
 
 function hasSuccessfulInvoicePdf(trip: TripInvoiceFields): boolean {
   return Boolean(trip.invoice_generated_at || trip.invoice_pdf_url);
-}
-
-function getInvoiceStatusLabel(trip: TripInvoiceFields): { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' } {
-  const pdfReady = hasSuccessfulInvoicePdf(trip);
-  const emailSent = Boolean(trip.invoice_email_sent || trip.invoice_email_status === 'sent');
-  const classification = trip.invoice_payment_classification ?? null;
-
-  // Payment truth first — a completed trip is not proof of payment.
-  if (!pdfReady && classification) {
-    if (classification === 'PAYMENT_FAILED' || classification === 'UNPAID') {
-      return { label: 'Blocked — payment failed', variant: 'destructive' };
-    }
-    if (classification === 'RECONCILIATION_REQUIRED' || classification === 'REFUNDED' || classification === 'PARTIALLY_REFUNDED') {
-      return { label: 'Blocked — reconciliation required', variant: 'destructive' };
-    }
-    if (classification === 'PAYMENT_PENDING') {
-      return { label: 'Not ready — payment pending', variant: 'outline' };
-    }
-    if (classification === 'PARTIALLY_PAID') {
-      return { label: 'Ready — partially paid', variant: 'secondary' };
-    }
-    if (classification === 'FULLY_PAID') {
-      return { label: 'Ready — fully paid', variant: 'secondary' };
-    }
-  }
-
-  if (emailSent && pdfReady) {
-    return { label: 'Sent', variant: 'default' };
-  }
-  if (trip.invoice_pdf_error && !pdfReady) {
-    return { label: 'Failed', variant: 'destructive' };
-  }
-  if (pdfReady && trip.invoice_email_status === 'failed') {
-    return { label: 'PDF Ready / Email Failed', variant: 'destructive' };
-  }
-  if (pdfReady) {
-    return { label: emailSent ? 'Sent' : 'Generated', variant: emailSent ? 'default' : 'secondary' };
-  }
-  return { label: 'Pending', variant: 'outline' };
 }
 
 function formatPaymentMethod(method: string | null | undefined): string {
@@ -102,12 +67,14 @@ const INVOICE_ACTION_FAILED = 'Invoice action failed. Please try again or check 
 interface TripInvoiceCardProps {
   trip: TripInvoiceFields;
   onUpdated?: () => void;
+  onSendingChange?: (sending: boolean) => void;
   compact?: boolean;
 }
 
-export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoiceCardProps) {
+export function TripInvoiceCard({ trip, onUpdated, onSendingChange, compact = false }: TripInvoiceCardProps) {
   const [loading, setLoading] = useState<string | null>(null);
-  const status = getInvoiceStatusLabel(trip);
+  const [sendOpen, setSendOpen] = useState(false);
+  const status = getTripInvoiceEmailBadge(trip, loading === 'receipt');
   const tripLabel = getTripDisplayId(trip);
 
   const runAction = async (key: string, action: InvoiceAction, onSuccess?: (result: InvoiceActionResult) => void) => {
@@ -119,8 +86,6 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
         toast.success('Invoice downloaded successfully');
       } else if (action === 'regenerate') {
         toast.success('Invoice PDF generated successfully');
-      } else if (action === 'resend_email') {
-        toast.success('Invoice email sent successfully');
       } else {
         toast.success(result.message ?? 'Invoice action completed');
       }
@@ -190,7 +155,7 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Email Status</Label>
-          <p>{trip.invoice_email_status || (trip.invoice_email_sent ? 'sent' : '—')}</p>
+          <p>{status.label}</p>
         </div>
         {trip.invoice_email_sent_at && (
           <div className="col-span-2">
@@ -261,20 +226,36 @@ export function TripInvoiceCard({ trip, onUpdated, compact = false }: TripInvoic
           {loading === 'share' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Share2 className="h-4 w-4 mr-1" />}
           Share PDF
         </Button>
-        <Button size="sm" variant="outline" onClick={() => runAction('resend', 'resend_email')} disabled={!!loading}>
-          {loading === 'resend' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Mail className="h-4 w-4 mr-1" />}
-          Resend Email
+        <Button size="sm" variant="outline" onClick={() => setSendOpen(true)} disabled={!!loading}>
+          <Mail className="h-4 w-4 mr-1" />
+          Send receipt
         </Button>
         <Button size="sm" variant="secondary" onClick={() => runAction('regenerate', 'regenerate')} disabled={!!loading}>
           {loading === 'regenerate' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
           Regenerate PDF
         </Button>
       </div>
+      <SendTripReceiptDialog
+        tripId={trip.id}
+        open={sendOpen}
+        onOpenChange={setSendOpen}
+        onSendingChange={(busy) => {
+          setLoading(busy ? 'receipt' : null);
+          onSendingChange?.(busy);
+        }}
+        onSent={() => onUpdated?.()}
+      />
     </div>
   );
 }
 
-export function TripInvoiceStatusBadge({ trip }: { trip: TripInvoiceFields }) {
-  const status = getInvoiceStatusLabel(trip);
+export function TripInvoiceStatusBadge({
+  trip,
+  sending = false,
+}: {
+  trip: TripInvoiceFields;
+  sending?: boolean;
+}) {
+  const status = getTripInvoiceEmailBadge(trip, sending);
   return <Badge variant={status.variant} className="text-[10px]">{status.label}</Badge>;
 }

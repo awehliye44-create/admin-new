@@ -3,6 +3,16 @@ import { toast } from 'sonner';
 
 export type InvoiceAction = 'download' | 'view' | 'resend_email' | 'regenerate';
 
+export type SendTripReceiptResult = {
+  success?: boolean;
+  status?: 'sent' | 'sending' | 'failed';
+  idempotent?: boolean;
+  error?: string;
+  message?: string;
+  invoice_email_status?: string;
+  invoice_email_sent_at?: string | null;
+};
+
 export interface InvoiceActionResult {
   success?: boolean;
   ok?: boolean;
@@ -57,6 +67,43 @@ export async function invokeInvoiceAction(tripId: string, action: InvoiceAction)
   }
 
   return result;
+}
+
+const receiptInFlight = new Map<string, Promise<SendTripReceiptResult>>();
+
+/** Manual receipt email. In-flight map stops a second tap from issuing a second request. */
+export function sendTripReceiptEmail(tripId: string, email: string): Promise<SendTripReceiptResult> {
+  const key = `${tripId}:${email.trim().toLowerCase()}`;
+  const existing = receiptInFlight.get(key);
+  if (existing) return existing;
+
+  const request = (async () => {
+    const { data, error } = await supabase.functions.invoke('send-trip-receipt', {
+      body: { trip_id: tripId, email: email.trim() },
+    });
+    if (error) {
+      const ctx = (error as { context?: Response })?.context;
+      if (ctx) {
+        try {
+          const payload = await ctx.json();
+          if (payload?.error) throw new Error(payload.error);
+        } catch (parseError) {
+          if (parseError instanceof Error && parseError.message !== error.message) throw parseError;
+        }
+      }
+      throw new Error(error.message || 'Could not send receipt');
+    }
+    const result = (data ?? {}) as SendTripReceiptResult;
+    if (result.success === false || result.status === 'failed') {
+      throw new Error(result.error || result.message || 'Could not send receipt');
+    }
+    return result;
+  })().finally(() => {
+    if (receiptInFlight.get(key) === request) receiptInFlight.delete(key);
+  });
+
+  receiptInFlight.set(key, request);
+  return request;
 }
 
 export function openInvoiceUrl(url?: string | null): void {

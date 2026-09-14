@@ -10,7 +10,7 @@ export async function invokeTripInvoiceProcess(
   supabaseUrl: string,
   serviceKey: string,
   tripId: string,
-  action: "auto" | "regenerate" | "resend" | "generate_only" = "auto",
+  action: "generate_only" | "regenerate" | "resend" = "generate_only",
 ): Promise<void> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/trip-invoice-process`, {
@@ -42,7 +42,7 @@ export async function invokeTripInvoiceProcess(
 }
 
 /**
- * Hard-gated auto invoice — only after completed trip, closed tip window, final payment, and not yet sent.
+ * Store an invoice PDF after the tip window closes. Never sends email.
  */
 export async function maybeInvokeAutoTripInvoice(
   supabase: SupabaseClient,
@@ -92,5 +92,6 @@ export async function maybeInvokeAutoTripInvoice(
     return;
   }
 
-  await invokeTripInvoiceProcess(supabaseUrl, serviceKey, tripId, "auto");
+  // Store the invoice record only. Receipt email is a manual customer/admin action.
+  await invokeTripInvoiceProcess(supabaseUrl, serviceKey, tripId, "generate_only");
 }

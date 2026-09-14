@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -53,7 +53,6 @@ import { getTripDisplayId } from '@/lib/tripUtils';
 import {
   buildCanonicalTripEconomicsRead,
 } from '../../shared/paymentSessionsCanonicalReadAdapterSSOT';
-import { resolveAdminCompletedTripCustomerPayablePence } from '@/lib/adminTripCommittedFareDisplay';
 import { buildTripHistoryPaymentEvidenceReadModel } from '../../shared/tripHistoryPaymentEvidenceReadModel';
 import {
   isCardTrip,
@@ -159,6 +158,7 @@ async function enrichTripHistoryPageRows(tripsData: TripHistoryRow[]): Promise<C
   }
 
   const psByTrip = await loadPaymentSessionsByTripIds(tripIds);
+  const emailLogByTrip = await loadLatestInvoiceEmailLog(tripIds);
 
   return tripsData.map((trip) => {
     const pay = paymentsMap[trip.id];
@@ -192,6 +192,8 @@ async function enrichTripHistoryPageRows(tripsData: TripHistoryRow[]): Promise<C
       invoice_email_sent_at: (trip.invoice_email_sent_at as string | null | undefined) ?? null,
       invoice_email_status: (trip.invoice_email_status as string | null | undefined) ?? null,
       invoice_email_error: (trip.invoice_email_error as string | null | undefined) ?? null,
+      invoice_email_log_status: emailLogByTrip.get(trip.id)?.status ?? null,
+      invoice_email_log_sent_at: emailLogByTrip.get(trip.id)?.sent_at ?? null,
       invoice_pdf_error: (trip.invoice_pdf_error as string | null | undefined) ?? null,
       invoice_total_paid_pence: (trip.invoice_total_paid_pence as number | null | undefined) ?? null,
       invoice_regenerated_at: (trip.invoice_regenerated_at as string | null | undefined) ?? null,
@@ -201,6 +203,29 @@ async function enrichTripHistoryPageRows(tripsData: TripHistoryRow[]): Promise<C
       invoice_delivery_eligible: (trip.invoice_delivery_eligible as boolean | null | undefined) ?? null,
     };
   }) as unknown as CompletedTrip[];
+}
+
+/** Latest receipt-email log per trip. Failure must not hide the trip list. */
+async function loadLatestInvoiceEmailLog(
+  tripIds: string[],
+): Promise<Map<string, { status: string | null; sent_at: string | null }>> {
+  const latest = new Map<string, { status: string | null; sent_at: string | null }>();
+  if (tripIds.length === 0) return latest;
+  const { data, error } = await supabase
+    .from('invoice_email_outbox')
+    .select('trip_id, status, sent_at, created_at')
+    .in('trip_id', tripIds)
+    .order('created_at', { ascending: false });
+  if (error || !data) return latest;
+  for (const row of data) {
+    const tripId = row.trip_id as string;
+    if (!tripId || latest.has(tripId)) continue;
+    latest.set(tripId, {
+      status: (row.status as string | null) ?? null,
+      sent_at: (row.sent_at as string | null) ?? null,
+    });
+  }
+  return latest;
 }
 
 function scheduleDialogMapResize(map: mapboxgl.Map): void {
@@ -319,6 +344,9 @@ interface CompletedTrip {
   fare_breakdown: Record<string, unknown> | null;
   tip_pence: number | null;
   tip_amount_pence: number | null;
+  airport_charge_pence?: number | null;
+  other_pass_through_charges_pence?: number | null;
+  outstanding_balance_pence?: number | null;
   commissionable_fare_pence?: number | null;
   locked_base_fare_pence?: number | null;
   accepted_preset_offer_fare_pence?: number | null;
@@ -355,6 +383,8 @@ interface CompletedTrip {
   invoice_email_sent_at: string | null;
   invoice_email_status: string | null;
   invoice_email_error: string | null;
+  invoice_email_log_status?: string | null;
+  invoice_email_log_sent_at?: string | null;
   invoice_pdf_error: string | null;
   invoice_total_paid_pence: number | null;
   invoice_regenerated_at: string | null;
@@ -366,7 +396,9 @@ interface CompletedTrip {
 
 export default function TripHistory() {
   usePageLoadTelemetry('TripHistory');
+  const queryClient = useQueryClient();
   const { session, isAuthReady } = useAuth();
+  const [sendingReceiptIds, setSendingReceiptIds] = useState<Record<string, boolean>>({});
   const [searchParams, setSearchParams] = useSearchParams();
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -509,6 +541,49 @@ export default function TripHistory() {
     setAppendedRows([]);
     void refetch();
   }, [refetch]);
+
+  const markReceiptSent = useCallback((tripId: string, sentAt: string) => {
+    const patch = (trip: CompletedTrip): CompletedTrip =>
+      trip.id === tripId
+        ? {
+            ...trip,
+            invoice_email_sent: true,
+            invoice_email_sent_at: sentAt,
+            invoice_email_status: 'sent',
+            invoice_email_error: null,
+            invoice_email_log_status: 'sent',
+            invoice_email_log_sent_at: sentAt,
+          }
+        : trip;
+    setSelectedTrip((current) => (current && current.id === tripId ? patch(current) : current));
+    setAppendedRows((rows) => rows.map(patch));
+    queryClient.setQueriesData({ queryKey: ['trip-history'] }, (old: unknown) => {
+      if (!old || typeof old !== 'object' || !('trips' in old)) return old;
+      const page = old as { trips: CompletedTrip[] };
+      return { ...page, trips: page.trips.map(patch) };
+    });
+    setSendingReceiptIds((current) => ({ ...current, [tripId]: false }));
+  }, [queryClient]);
+
+  const markReceiptFailed = useCallback((tripId: string) => {
+    const patch = (trip: CompletedTrip): CompletedTrip =>
+      trip.id === tripId
+        ? {
+            ...trip,
+            invoice_email_status: 'failed',
+            invoice_email_log_status: 'failed',
+            invoice_email_error: 'Could not send receipt',
+          }
+        : trip;
+    setSelectedTrip((current) => (current && current.id === tripId ? patch(current) : current));
+    setAppendedRows((rows) => rows.map(patch));
+    queryClient.setQueriesData({ queryKey: ['trip-history'] }, (old: unknown) => {
+      if (!old || typeof old !== 'object' || !('trips' in old)) return old;
+      const page = old as { trips: CompletedTrip[] };
+      return { ...page, trips: page.trips.map(patch) };
+    });
+    setSendingReceiptIds((current) => ({ ...current, [tripId]: false }));
+  }, [queryClient]);
 
   const loadMoreTrips = useCallback(async () => {
     if (!hasMore || !nextCursor || isLoadingMore) return;
@@ -855,13 +930,6 @@ export default function TripHistory() {
       trip,
       tripStatus: trip.status,
     });
-
-  /**
-   * Discounted customer payable (post-promotion) — not pre-promo gross fare.
-   */
-  const getTripCustomerPayablePence = (trip: CompletedTrip): number =>
-    getTripPaymentEvidence(trip).customer_discounted_payable_pence
-    || resolveAdminCompletedTripCustomerPayablePence(trip);
 
   /** Provider captured — Payment Sessions disposition read model only. */
   const getTripProviderCapturedPence = (trip: CompletedTrip): number | null => {
@@ -1483,7 +1551,7 @@ export default function TripHistory() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <TripInvoiceStatusBadge trip={trip} />
+                      <TripInvoiceStatusBadge trip={trip} sending={Boolean(sendingReceiptIds[trip.id])} />
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {(() => {
@@ -1498,6 +1566,11 @@ export default function TripHistory() {
                         trip={trip}
                         onView={() => handleViewTrip(trip)}
                         onInvoiceUpdated={fetchData}
+                        onReceiptSendingChange={(sending) =>
+                          setSendingReceiptIds((current) => ({ ...current, [trip.id]: sending }))
+                        }
+                        onReceiptSent={(sentAt) => markReceiptSent(trip.id, sentAt)}
+                        onReceiptFailed={() => markReceiptFailed(trip.id)}
                       />
                     </TableCell>
                   </TableRow>
@@ -1640,15 +1713,31 @@ export default function TripHistory() {
                         </div>
                       ) : null}
                       <div>
-                        <Label className="text-xs text-muted-foreground">Final customer payable (Trip Fare)</Label>
+                        <Label className="text-xs text-muted-foreground">Ride fare</Label>
                         <p className="font-medium">
-                          {getTripCustomerPayablePence(selectedTrip) > 0
-                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(getTripCustomerPayablePence(selectedTrip) / 100).toFixed(2)}`
+                          {selectedTrip.final_fare_pence != null && selectedTrip.final_fare_pence > 0
+                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(selectedTrip.final_fare_pence / 100).toFixed(2)}`
                             : '—'}
                         </p>
                       </div>
+                      {(selectedTrip.tip_pence ?? selectedTrip.tip_amount_pence ?? 0) > 0 ? (
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Tip</Label>
+                          <p className="font-medium">
+                            {`${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(((selectedTrip.tip_pence ?? selectedTrip.tip_amount_pence) ?? 0) / 100).toFixed(2)}`}
+                          </p>
+                        </div>
+                      ) : null}
+                      {(selectedTrip.airport_charge_pence ?? 0) > 0 ? (
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Airport charge</Label>
+                          <p className="font-medium">
+                            {`${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${((selectedTrip.airport_charge_pence ?? 0) / 100).toFixed(2)}`}
+                          </p>
+                        </div>
+                      ) : null}
                       <div>
-                        <Label className="text-xs text-muted-foreground">Provider captured (Payment Sessions)</Label>
+                        <Label className="text-xs text-muted-foreground">Provider captured</Label>
                         <p className={`font-medium ${(getTripProviderCapturedPence(selectedTrip) ?? 0) > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
                           {getTripProviderCapturedPence(selectedTrip) != null
                             ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${((getTripProviderCapturedPence(selectedTrip) ?? 0) / 100).toFixed(2)}`
@@ -1714,7 +1803,7 @@ export default function TripHistory() {
                             )}
                             {!terminalOutcome && eco.commissionable_fare_pence != null && (
                               <div>
-                                <Label className="text-xs text-muted-foreground">Commissionable (Settlement)</Label>
+                                <Label className="text-xs text-muted-foreground">Commissionable fare</Label>
                                 <p className="font-medium">{fmt(eco.commissionable_fare_pence)}</p>
                               </div>
                             )}
@@ -1736,7 +1825,10 @@ export default function TripHistory() {
                       <div className="col-span-2">
                         <Label className="text-xs text-muted-foreground">Invoice</Label>
                         <div className="mt-0.5">
-                          <TripInvoiceStatusBadge trip={selectedTrip} />
+                          <TripInvoiceStatusBadge
+                            trip={selectedTrip}
+                            sending={Boolean(sendingReceiptIds[selectedTrip.id])}
+                          />
                         </div>
                       </div>
                     </div>
@@ -2093,6 +2185,9 @@ export default function TripHistory() {
               {selectedTrip.id && (
                 <TripInvoiceCard
                   trip={selectedTrip}
+                  onSendingChange={(sending) =>
+                    setSendingReceiptIds((current) => ({ ...current, [selectedTrip.id]: sending }))
+                  }
                   onUpdated={async () => {
                     fetchData();
                     const { data } = await supabase
@@ -2107,6 +2202,9 @@ export default function TripHistory() {
                       .single();
                     if (data) {
                       setSelectedTrip((prev) => (prev ? { ...prev, ...data } : prev));
+                      if (data.invoice_email_sent_at) {
+                        markReceiptSent(selectedTrip.id, data.invoice_email_sent_at);
+                      }
                     }
                   }}
                 />
