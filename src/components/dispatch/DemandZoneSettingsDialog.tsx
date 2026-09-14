@@ -185,13 +185,25 @@ export function DemandZoneSettingsDialog({
         step={step}
         className="w-28"
         disabled={!enabled}
-        value={String(form[key] ?? '')}
-        onChange={(e) =>
-          set(key, numField(e.target.value, Number(DEMAND_ZONE_SETTINGS_DEFAULTS[key as keyof typeof DEMAND_ZONE_SETTINGS_DEFAULTS] ?? 0)) as never)
-        }
+        value={drafts[key as string] ?? String(form[key] ?? '')}
+        onChange={(e) => {
+          const raw = e.target.value;
+          setDrafts((prev) => ({ ...prev, [key as string]: raw }));
+          if (raw.trim() === '') return;
+          const n = Number(raw);
+          if (Number.isFinite(n)) set(key, n as never);
+        }}
+        onBlur={() => {
+          setDrafts((prev) => {
+            const next = { ...prev };
+            delete next[key as string];
+            return next;
+          });
+        }}
       />
     </div>
   );
+
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
