@@ -7,10 +7,10 @@
  * this function:
  *   - requires NO Supabase user session (public WhatsApp guest)
  *   - creates a Revolut order (manual capture, pre_authorisation) via the shared SSOT
- *   - creates an anonymous Supabase auth user so the webhook finalize path works unchanged
- *   - persists a payment_sessions row with booking_snapshot so revolut-webhook can call
- *     create-trip-after-payment via the internal finalize path after Revolut redirects
- *   - returns checkout_url for browser redirect
+ *   - resolves the passenger from the signed WhatsApp continuation token (not a form phone)
+ *   - links or creates a customers row that create-trip-after-payment can accept
+ *   - persists a payment_sessions row so revolut-webhook calls create-trip-after-payment
+ *   - returns checkout_url; Revolut returns the browser to redirect_url
  *
  * Payment model gate (hard rule):
  *   PLATFORM_COLLECTED / PLATFORM_PREPAID → proceed, create Revolut order
@@ -45,10 +45,23 @@ import {
   getRevolutMerchantConfigFromVault,
 } from "../_shared/revolutOrders.ts";
 import { upsertPaymentSessionPending } from "../_shared/paymentSessionSSOT.ts";
+import { evaluateCustomerOnboardingLogin } from "../_shared/onboardingLoginGuard.ts";
+import { readWhatsAppPublicOrigin } from "../_shared/whatsappWorkflow.ts";
 import {
   buildWhatsAppContinuationSigningMaterial,
   verifyWhatsAppContinuationToken,
 } from "../_shared/whatsappContinuationToken.ts";
+import { edgeFunctionInvokeHeaders } from "../_shared/edgeFunctionInvokeHeaders.ts";
+import {
+  buildWhatsAppCheckoutRedirectUrl,
+  buildWhatsAppGuestBookingSnapshot,
+  isBlockedRiderStatus,
+  phonesExactlyMatch,
+  resolveWhatsAppCheckoutPaymentMethod,
+  splitPassengerName,
+  whatsAppWaIdToE164,
+  type ServiceAreaDigitalPaymentFlags,
+} from "../_shared/whatsappGuestBookingSSOT.ts";
 
 interface GuestPaymentRequest {
   source?: string;
@@ -67,9 +80,10 @@ interface GuestPaymentRequest {
   waypoints?: Array<{ lat: number; lng: number }>;
   scheduled_at?: string | null;
   customer_name: string;
-  customer_phone: string;
+  /** Ignored. Phone comes from the signed WhatsApp continuation token. */
+  customer_phone?: string;
   client_request_id: string;
-  return_url: string;
+  return_url?: string;
   /** Optional signed WhatsApp continuation token (?wa=) — stamps wa_id into snapshot. */
   continuation_token?: string;
 }
@@ -95,6 +109,296 @@ function getClientIP(req: Request): string {
     req.headers.get("x-real-ip") ??
     "unknown"
   );
+}
+
+async function resolveAuthoritativeFare(
+  supabaseUrl: string,
+  invokeHeaders: Record<string, string>,
+  input: {
+    serviceAreaId: string;
+    vehicleTypeId: string;
+    pickupLat: number;
+    pickupLng: number;
+    dropoffLat: number;
+    dropoffLng: number;
+    stops: Array<{ lat: number; lng: number }>;
+  },
+): Promise<{ amountPence: number; distanceKm: number; durationMin: number } | { error: string }> {
+  const routeRes = await fetch(`${supabaseUrl}/functions/v1/calculate-route`, {
+    method: "POST",
+    headers: invokeHeaders,
+    body: JSON.stringify({
+      originLat: input.pickupLat,
+      originLng: input.pickupLng,
+      destLat: input.dropoffLat,
+      destLng: input.dropoffLng,
+      intermediateStops: input.stops,
+    }),
+  });
+  const route = await routeRes.json().catch(() => ({})) as {
+    success?: boolean;
+    distanceKm?: number;
+    durationMinutes?: number;
+    error?: string;
+  };
+  if (!routeRes.ok || route.success === false || typeof route.distanceKm !== "number") {
+    return { error: route.error || "Route could not be priced" };
+  }
+  const fareRes = await fetch(`${supabaseUrl}/functions/v1/calculate-fare`, {
+    method: "POST",
+    headers: invokeHeaders,
+    body: JSON.stringify({
+      service_area_id: input.serviceAreaId,
+      estimated_distance_km: route.distanceKm,
+      estimated_duration_min: route.durationMinutes ?? 0,
+      vehicle_type_id: input.vehicleTypeId,
+      pickup: { lat: input.pickupLat, lng: input.pickupLng },
+      dropoff: { lat: input.dropoffLat, lng: input.dropoffLng },
+      stops: input.stops,
+    }),
+  });
+  const fare = await fareRes.json().catch(() => ({})) as {
+    success?: boolean;
+    error?: string;
+    vehicleFares?: Array<{
+      vehicleTypeId?: string;
+      fare?: { totalFarePence?: number };
+    }>;
+  };
+  if (!fareRes.ok || fare.success === false) {
+    return { error: fare.error || "Fare could not be calculated" };
+  }
+  const match = (fare.vehicleFares ?? []).find((row) => row.vehicleTypeId === input.vehicleTypeId);
+  const amountPence = match?.fare?.totalFarePence;
+  if (typeof amountPence !== "number" || amountPence < 50) {
+    return { error: "Selected vehicle has no payable fare" };
+  }
+  return {
+    amountPence: Math.round(amountPence),
+    distanceKm: route.distanceKm,
+    durationMin: route.durationMinutes ?? 0,
+  };
+}
+
+type GuestIdentity =
+  | { ok: true; userId: string; customerId: string; createdGuestUser: boolean }
+  | { ok: false; error: string; status: number; code: string };
+
+function isPhoneAlreadyRegistered(message: string | undefined): boolean {
+  const text = (message ?? "").toLowerCase();
+  return text.includes("already registered") || text.includes("phone_exists");
+}
+
+async function findAuthUserIdByPhone(
+  supabase: { rpc: (fn: string, args: Record<string, string>) => Promise<{ data: unknown; error: { message?: string } | null }> },
+  phone: string,
+): Promise<string | null> {
+  const { data, error } = await supabase.rpc("auth_user_id_by_exact_phone", { p_phone: phone });
+  if (error || typeof data !== "string" || data.length === 0) return null;
+  return data;
+}
+
+async function reuseRegisteredPhoneOwner(
+  supabase: any,
+  input: { phone: string; displayName: string },
+): Promise<GuestIdentity> {
+  const userId = await findAuthUserIdByPhone(supabase, input.phone);
+  if (!userId) {
+    console.error(JSON.stringify({
+      event: "PHONE_ALREADY_REGISTERED",
+      outcome: "auth_user_not_found",
+    }));
+    return {
+      ok: false,
+      error: "This number already has a ONECAB account. Open the app to finish booking.",
+      status: 409,
+      code: "PHONE_ALREADY_REGISTERED",
+    };
+  }
+
+  const { data: existingCustomer } = await supabase
+    .from("customers")
+    .select("id, rider_status")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  let customerId = existingCustomer?.id as string | undefined;
+  let createdCustomer = false;
+  if (existingCustomer && isBlockedRiderStatus(existingCustomer.rider_status)) {
+    return { ok: false, error: "This account cannot book a ride", status: 403, code: "PHONE_ALREADY_REGISTERED" };
+  }
+  if (!customerId) {
+    const names = splitPassengerName(input.displayName);
+    const nowIso = new Date().toISOString();
+    const { data: inserted, error: insertErr } = await supabase
+      .from("customers")
+      .insert({
+        user_id: userId,
+        first_name: names.firstName,
+        last_name: names.lastName,
+        phone: input.phone,
+        phone_verified: true,
+        phone_verified_at: nowIso,
+        email_verified: true,
+        email_verified_at: nowIso,
+        rider_status: "active",
+      })
+      .select("id")
+      .single();
+    if (insertErr || !inserted?.id) {
+      const insertReason = insertErr?.message === "phone_already_in_use"
+        ? "phone_already_in_use"
+        : "customer_insert_failed";
+      console.error(JSON.stringify({
+        event: "PHONE_ALREADY_REGISTERED",
+        outcome: "customer_insert_failed",
+        reason: insertReason,
+      }));
+      return {
+        ok: false,
+        error: "This number already has a ONECAB account. Open the app to finish booking.",
+        status: 409,
+        code: "PHONE_ALREADY_REGISTERED",
+      };
+    }
+    customerId = inserted.id;
+    createdCustomer = true;
+  }
+
+  const guard = await evaluateCustomerOnboardingLogin(supabase, userId);
+  if (!guard.app_access_allowed) {
+    if (createdCustomer) {
+      await supabase.from("customers").delete().eq("id", customerId);
+    }
+    console.error(JSON.stringify({
+      event: "PHONE_ALREADY_REGISTERED",
+      outcome: "guard_blocked",
+      block_code: guard.block_code,
+    }));
+    return {
+      ok: false,
+      error: "This number already has a ONECAB account. Open the app to finish booking.",
+      status: 409,
+      code: "PHONE_ALREADY_REGISTERED",
+    };
+  }
+
+  console.info(JSON.stringify({
+    event: "PHONE_ALREADY_REGISTERED",
+    outcome: "reused_existing_auth_user",
+  }));
+  return { ok: true, userId, customerId, createdGuestUser: false };
+}
+
+async function ensureWhatsAppGuestCustomer(
+  supabase: any,
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  input: { phone: string; waId: string; displayName: string; clientRequestId: string },
+): Promise<GuestIdentity> {
+  const digits = input.phone.replace(/\D/g, "");
+  const { data: candidates } = await supabase
+    .from("customers")
+    .select("id, user_id, phone, rider_status")
+    .ilike("phone", `%${digits.slice(-10)}`)
+    .is("deleted_at", null)
+    .limit(8);
+
+  const existing = (candidates ?? []).find((row: {
+    id: string;
+    user_id: string;
+    phone: string | null;
+    rider_status: string | null;
+  }) => phonesExactlyMatch(row.phone, input.phone));
+  if (existing) {
+    if (isBlockedRiderStatus(existing.rider_status)) {
+      return { ok: false, error: "This account cannot book a ride", status: 403, code: "PHONE_ALREADY_REGISTERED" };
+    }
+    const guard = await evaluateCustomerOnboardingLogin(supabase, existing.user_id);
+    if (!guard.app_access_allowed) {
+      return {
+        ok: false,
+        error: "This number already has a ONECAB account. Open the app to finish booking.",
+        status: 409,
+        code: "PHONE_ALREADY_REGISTERED",
+      };
+    }
+    return {
+      ok: true,
+      userId: existing.user_id,
+      customerId: existing.id,
+      createdGuestUser: false,
+    };
+  }
+
+  const safeRequestId = input.clientRequestId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 48) || crypto.randomUUID();
+  const names = splitPassengerName(input.displayName);
+  const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+    email: `wa-guest+${safeRequestId}@guest.onecab.internal`,
+    phone: input.phone,
+    email_confirm: true,
+    phone_confirm: true,
+    app_metadata: {
+      guest: true,
+      booking_source: "whatsapp_booking",
+      wa_id: input.waId,
+    },
+    user_metadata: {
+      full_name: input.displayName,
+      phone: input.phone,
+    },
+  });
+  if (createErr || !created.user?.id) {
+    if (isPhoneAlreadyRegistered(createErr?.message)) {
+      return await reuseRegisteredPhoneOwner(supabase, input);
+    }
+    console.error(JSON.stringify({
+      event: "GUEST_IDENTITY_CREATE_FAILED",
+      code: "PAYMENT_SESSION_CREATE_FAILED",
+    }));
+    return { ok: false, error: "Failed to initialise guest session", status: 500, code: "PAYMENT_SESSION_CREATE_FAILED" };
+  }
+
+  const nowIso = new Date().toISOString();
+  const { data: customer, error: customerErr } = await supabase
+    .from("customers")
+    .insert({
+      user_id: created.user.id,
+      first_name: names.firstName,
+      last_name: names.lastName,
+      phone: input.phone,
+      phone_verified: true,
+      phone_verified_at: nowIso,
+      email_verified: true,
+      email_verified_at: nowIso,
+      rider_status: "active",
+    })
+    .select("id")
+    .single();
+
+  if (customerErr || !customer?.id) {
+    await supabase.auth.admin.deleteUser(created.user.id).catch(() => {});
+    console.error(JSON.stringify({
+      event: "GUEST_CUSTOMER_INSERT_FAILED",
+      code: "PAYMENT_SESSION_CREATE_FAILED",
+    }));
+    return { ok: false, error: "Failed to initialise guest session", status: 500, code: "PAYMENT_SESSION_CREATE_FAILED" };
+  }
+
+  const guard = await evaluateCustomerOnboardingLogin(supabase, created.user.id);
+  if (!guard.app_access_allowed) {
+    await supabase.from("customers").delete().eq("id", customer.id);
+    await supabase.auth.admin.deleteUser(created.user.id).catch(() => {});
+    return { ok: false, error: "WhatsApp booking could not be verified", status: 403, code: "PHONE_ALREADY_REGISTERED" };
+  }
+
+  return {
+    ok: true,
+    userId: created.user.id,
+    customerId: customer.id,
+    createdGuestUser: true,
+  };
 }
 
 function json(payload: Record<string, unknown>, status = 200): Response {
@@ -130,7 +434,6 @@ Deno.serve(async (req) => {
   const {
     service_area_id,
     vehicle_type_id,
-    amount,
     currency,
     payment_method = "card",
     pickup_address,
@@ -140,12 +443,8 @@ Deno.serve(async (req) => {
     dropoff_lat,
     dropoff_lng,
     stops = [],
-    waypoints = [],
-    scheduled_at = null,
     customer_name,
-    customer_phone,
     client_request_id,
-    return_url,
     continuation_token,
   } = body;
 
@@ -153,34 +452,47 @@ Deno.serve(async (req) => {
   if (!service_area_id || !vehicle_type_id) {
     return json({ error: "service_area_id and vehicle_type_id are required" }, 400);
   }
-  if (typeof amount !== "number" || amount < 50) {
-    return json({ error: "amount must be an integer of at least 50 (pence)" }, 400);
-  }
   if (!currency) return json({ error: "currency is required" }, 400);
-  if (!customer_name?.trim()) return json({ error: "customer_name is required" }, 400);
-  if (!customer_phone?.trim()) return json({ error: "customer_phone is required" }, 400);
+  if (!customer_name?.trim() || customer_name.trim().length < 2) {
+    return json({ error: "customer_name is required" }, 400);
+  }
   if (!client_request_id) return json({ error: "client_request_id is required" }, 400);
-  if (!return_url) return json({ error: "return_url is required" }, 400);
+  if (!pickup_address?.trim() || !dropoff_address?.trim()) {
+    return json({ error: "pickup and dropoff addresses are required" }, 400);
+  }
   if (typeof pickup_lat !== "number" || typeof pickup_lng !== "number") {
     return json({ error: "pickup_lat / pickup_lng are required" }, 400);
   }
   if (typeof dropoff_lat !== "number" || typeof dropoff_lng !== "number") {
     return json({ error: "dropoff_lat / dropoff_lng are required" }, 400);
   }
+  if (typeof continuation_token !== "string" || !continuation_token.trim()) {
+    return json({ error: "A secure WhatsApp booking link is required" }, 401);
+  }
 
-  let resolvedWaId: string | null = null;
-  if (typeof continuation_token === "string" && continuation_token.trim()) {
-    const verifyToken = Deno.env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN")?.trim() ?? "";
-    const phoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID")?.trim() ?? "";
-    if (verifyToken && phoneNumberId) {
-      const claims = await verifyWhatsAppContinuationToken(
-        continuation_token.trim(),
-        buildWhatsAppContinuationSigningMaterial({ verifyToken, phoneNumberId }),
-      );
-      if (claims?.purpose === "book" && claims.waId) {
-        resolvedWaId = claims.waId;
-      }
-    }
+  const verifyToken = Deno.env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN")?.trim() ?? "";
+  const phoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID")?.trim() ?? "";
+  if (!verifyToken || !phoneNumberId) {
+    return json({ error: "WhatsApp booking is unavailable" }, 503);
+  }
+  const claims = await verifyWhatsAppContinuationToken(
+    continuation_token.trim(),
+    buildWhatsAppContinuationSigningMaterial({ verifyToken, phoneNumberId }),
+  );
+  if (!claims || claims.purpose !== "book" || !claims.waId) {
+    return json({ error: "Invalid or expired WhatsApp booking link", code: "INVALID_CONTINUATION_TOKEN" }, 401);
+  }
+  const resolvedWaId = claims.waId;
+  const passengerPhone = whatsAppWaIdToE164(resolvedWaId);
+  if (!passengerPhone) {
+    return json({ error: "WhatsApp identity could not be resolved" }, 401);
+  }
+  const redirectUrl = buildWhatsAppCheckoutRedirectUrl(
+    readWhatsAppPublicOrigin(),
+    continuation_token.trim(),
+  );
+  if (!redirectUrl) {
+    return json({ error: "Booking return URL is not configured" }, 503);
   }
 
   // === Idempotency: check for existing session with same client_request_id ===
@@ -235,7 +547,7 @@ Deno.serve(async (req) => {
       `[create-guest-payment-intent] INVALID_FINANCIAL_CONFIG sa=${service_area_id}`,
       saRow.financial_model, saRow.customer_payment_policy, saRow.commission_wallet_enabled,
     );
-    return json({ error: "INVALID_FINANCIAL_CONFIG" }, 400);
+    return json({ error: "INVALID_FINANCIAL_CONFIG", code: "FINANCIAL_MODEL_VIOLATION" }, 400);
   }
 
   const skipPreauth = shouldSkipPlatformPreauthForCommissionWallet(saConfig);
@@ -248,110 +560,133 @@ Deno.serve(async (req) => {
     }, 400);
   }
 
-  // === Create anonymous Supabase user so webhook finalize path works ===
-  // revolut-webhook → finalizeBookingAfterPaymentFromSession → create-trip-after-payment
-  // requires payment_sessions.user_id to be a valid auth.users row.
-  // GoTrue requires email or phone — use a non-deliverable synthetic guest email.
-  const safeRequestId = client_request_id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 48) || crypto.randomUUID();
-  const guestEmail = `wa-guest+${safeRequestId}@guest.onecab.internal`;
-  const { data: anonUser, error: anonErr } = await supabase.auth.admin.createUser({
-    email: guestEmail,
-    email_confirm: true,
-    app_metadata: {
-      guest: true,
-      booking_source: "whatsapp_booking",
-      customer_name: customer_name.trim(),
-      customer_phone: customer_phone.trim(),
-      client_request_id,
-      wa_id: resolvedWaId,
-    },
-    user_metadata: {
-      full_name: customer_name.trim(),
-      phone: customer_phone.trim(),
-    },
-  });
-
-  if (anonErr || !anonUser?.user?.id) {
-    console.error("[create-guest-payment-intent] failed to create anon user:", anonErr?.message, anonErr);
-    return json({ error: "Failed to initialise guest session" }, 500);
+  const { data: pmRow } = await supabase
+    .from("service_area_payment_methods")
+    .select("card_enabled, apple_pay_enabled, google_pay_enabled")
+    .eq("service_area_id", service_area_id)
+    .maybeSingle();
+  const paymentFlags: ServiceAreaDigitalPaymentFlags = {
+    card: pmRow?.card_enabled ?? true,
+    applePay: pmRow?.apple_pay_enabled ?? false,
+    googlePay: pmRow?.google_pay_enabled ?? false,
+  };
+  const resolvedPaymentMethod = resolveWhatsAppCheckoutPaymentMethod(payment_method, paymentFlags);
+  if (!resolvedPaymentMethod) {
+    return json({ error: "That payment method is not available in this area" }, 400);
   }
 
-  const guestUserId = anonUser.user.id;
-  const resolvedCurrency = (saRow.currency_code ?? currency).toUpperCase();
+  const invokeHeaders = edgeFunctionInvokeHeaders(req);
+  if (!invokeHeaders) {
+    return json({ error: "Fare service is unavailable" }, 503);
+  }
+  const priced = await resolveAuthoritativeFare(supabaseUrl, invokeHeaders, {
+    serviceAreaId: service_area_id,
+    vehicleTypeId: vehicle_type_id,
+    pickupLat: pickup_lat,
+    pickupLng: pickup_lng,
+    dropoffLat: dropoff_lat,
+    dropoffLng: dropoff_lng,
+    stops: stops.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
+  });
+  if ("error" in priced) {
+    return json({ error: priced.error, code: "FARE_REVALIDATION_FAILED" }, 422);
+  }
 
-  // === Create Revolut order (manual capture, pre_authorisation) ===
+  const identity = await ensureWhatsAppGuestCustomer(supabase, supabaseUrl, serviceRoleKey, {
+    phone: passengerPhone,
+    waId: resolvedWaId,
+    displayName: customer_name.trim(),
+    clientRequestId: client_request_id,
+  });
+  if (!identity.ok) {
+    console.error(JSON.stringify({
+      event: "GUEST_IDENTITY_REJECTED",
+      code: identity.code,
+      status: identity.status,
+    }));
+    return json({ error: identity.error, code: identity.code }, identity.status);
+  }
+
+  const guestUserId = identity.userId;
+  const guestCustomerId = identity.customerId;
+  let createdGuestUser = identity.createdGuestUser;
+
+  const resolvedCurrency = (saRow.currency_code ?? currency).toUpperCase();
+  const discardNewGuest = async () => {
+    if (!createdGuestUser) return;
+    await supabase.from("customers").delete().eq("id", guestCustomerId);
+    await supabase.auth.admin.deleteUser(guestUserId).catch(() => {});
+  };
+
   let order;
   try {
     const { environment, secretKey } = await getRevolutMerchantConfigFromVault(supabase);
     order = await createRevolutOrder({
       environment,
       secretKey,
-      amountMinor: Math.round(amount),
+      amountMinor: priced.amountPence,
       currency: resolvedCurrency,
-      tripId: client_request_id,   // merchant_order_ext_ref — no trip yet
+      tripId: client_request_id,
       description: `ONECAB WhatsApp booking – ${customer_name.trim()}`,
       metadata: {
         booking_source: "whatsapp_booking",
         service_area_id,
         vehicle_type_id,
         customer_name: customer_name.trim(),
-        customer_phone: customer_phone.trim(),
         client_request_id,
         guest_user_id: guestUserId,
       },
       enableIncrementalAuthorisation: true,
+      redirectUrl,
     });
   } catch (err) {
-    console.error("[create-guest-payment-intent] Revolut order creation failed:", err);
-    // Clean up the guest user we just created
-    await supabase.auth.admin.deleteUser(guestUserId).catch(() => {});
-    return json({ error: "Payment provider order creation failed" }, 502);
+    console.error(JSON.stringify({ event: "REVOLUT_ORDER_CREATE_FAILED", code: "REVOLUT_ORDER_CREATE_FAILED" }));
+    await discardNewGuest();
+    return json({ error: "Payment provider order creation failed", code: "REVOLUT_ORDER_CREATE_FAILED" }, 502);
   }
 
   if (!order.id || !order.checkout_url) {
-    await supabase.auth.admin.deleteUser(guestUserId).catch(() => {});
-    return json({ error: "The payment provider did not return a checkout link." }, 502);
+    await discardNewGuest();
+    return json({ error: "The payment provider did not return a checkout link.", code: "CHECKOUT_URL_MISSING" }, 502);
   }
 
-  // === Build booking snapshot (passed through to create-trip-after-payment by webhook) ===
-  const bookingSnapshot: Record<string, unknown> = {
-    booking_source: "whatsapp_booking",
-    vehicle_type_id,
-    service_area_id,
-    estimated_fare_pence: Math.round(amount),
+  const bookingSnapshot = buildWhatsAppGuestBookingSnapshot({
+    serviceAreaId: service_area_id,
+    vehicleTypeId: vehicle_type_id,
+    amountPence: priced.amountPence,
     currency: resolvedCurrency,
-    payment_method_type: payment_method,
-    pickup_address: pickup_address ?? null,
-    pickup_lat,
-    pickup_lng,
-    dropoff_address: dropoff_address ?? null,
-    dropoff_lat,
-    dropoff_lng,
-    stops: stops.map((s, i) => ({ sequence: i, address: s.address ?? null, lat: s.lat, lng: s.lng })),
-    waypoints: waypoints.map((w) => ({ lat: w.lat, lng: w.lng })),
-    scheduled_at: scheduled_at ?? null,
-    customer_name: customer_name.trim(),
-    customer_phone: customer_phone.trim(),
-    client_action_id: client_request_id,
-    return_url,
-    wa_id: resolvedWaId,
-    // Fields used by create-trip-after-payment
-    pickup: { lat: pickup_lat, lng: pickup_lng, address: pickup_address ?? "" },
-    dropoff: { lat: dropoff_lat, lng: dropoff_lng, address: dropoff_address ?? "" },
-  };
+    paymentMethod: resolvedPaymentMethod,
+    pickupAddress: pickup_address.trim(),
+    pickupLat: pickup_lat,
+    pickupLng: pickup_lng,
+    dropoffAddress: dropoff_address.trim(),
+    dropoffLat: dropoff_lat,
+    dropoffLng: dropoff_lng,
+    stops,
+    estimatedDistanceKm: priced.distanceKm,
+    estimatedDurationMin: priced.durationMin,
+    passengerName: customer_name.trim(),
+    passengerPhone,
+    customerId: guestCustomerId,
+    clientActionId: client_request_id,
+    providerOrderId: order.id,
+    continuationToken: continuation_token.trim(),
+    waId: resolvedWaId,
+    redirectUrl,
+  });
 
-  // === Persist payment session ===
   const { sessionId, error: sessionError } = await upsertPaymentSessionPending(supabase, {
     clientActionId: client_request_id,
     userId: guestUserId,
+    customerId: guestCustomerId,
     serviceAreaId: service_area_id,
     paymentProvider: "revolut",
     providerOrderId: order.id,
-    estimatedTotalPence: Math.round(amount),
-    paymentMethod: payment_method,
+    estimatedTotalPence: priced.amountPence,
+    paymentMethod: resolvedPaymentMethod,
     bookingSnapshot,
     fareSnapshot: {
-      estimated_fare_pence: Math.round(amount),
+      estimated_fare_pence: priced.amountPence,
       currency: resolvedCurrency,
       vehicle_type_id,
       service_area_id,
@@ -359,21 +694,21 @@ Deno.serve(async (req) => {
     metadata: {
       booking_source: "whatsapp_booking",
       guest_user_id: guestUserId,
+      customer_id: guestCustomerId,
       customer_name: customer_name.trim(),
-      customer_phone: customer_phone.trim(),
       wa_id: resolvedWaId,
     },
   });
 
   if (sessionError || !sessionId) {
     console.error("[create-guest-payment-intent] payment session persist failed:", sessionError);
-    await supabase.auth.admin.deleteUser(guestUserId).catch(() => {});
-    return json({ error: "Failed to persist payment session" }, 500);
+    await discardNewGuest();
+    return json({ error: "Failed to persist payment session", code: "PAYMENT_SESSION_CREATE_FAILED" }, 500);
   }
 
   console.log(
     `[create-guest-payment-intent] order=${order.id} sa=${service_area_id}` +
-    ` amount=${Math.round(amount)}${resolvedCurrency} guest=${guestUserId} session=${sessionId}`,
+    ` amount=${priced.amountPence}${resolvedCurrency} guest=${guestUserId} session=${sessionId}`,
   );
 
   return json({

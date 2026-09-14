@@ -261,6 +261,18 @@ verify_jwt = false
 [functions.whatsapp-webhook]
 verify_jwt = false
 
+# WhatsApp hosted checkout — public, identity is the signed continuation token.
+[functions.create-guest-payment-intent]
+verify_jwt = false
+
+# WhatsApp tracking token — public, access is the signed token only.
+[functions.guest-trip-status]
+verify_jwt = false
+
+# WhatsApp trip actions — signed tracking token, then existing customer functions.
+[functions.guest-trip-action]
+verify_jwt = false
+
 # WhatsApp admin reply — Admin JWT checked inside; never exposes Meta token to browser.
 [functions.whatsapp-reply]
 verify_jwt = false
@@ -271,6 +283,10 @@ verify_jwt = false
 
 # WhatsApp booking-session expiry sweep — service-role Bearer checked inside.
 [functions.whatsapp-session-expire]
+verify_jwt = false
+
+# WhatsApp booking fares — public proxy to calculate-fare. No user JWT.
+[functions.whatsapp-booking-fares]
 verify_jwt = false
 
 # Special Offers feeds — JWT validated inside the function (driver vs customer audience).

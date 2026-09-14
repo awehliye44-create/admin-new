@@ -24,6 +24,7 @@ import {
   readWhatsAppSendCredentials,
   sendWhatsAppTextMessage,
 } from "../_shared/whatsappOutbound.ts";
+import { whatsappExpiryActionForWa } from "../_shared/whatsappTripLifecycleMessages.ts";
 
 const EXPIRY_MESSAGE =
   "*ONECAB*\nYour booking session has expired.\n\nPlease start a new booking if you still need a ride.";
@@ -106,6 +107,18 @@ Deno.serve(async (req) => {
     if (claimErr || !claimed) {
       // Already claimed by a concurrent invocation — skip.
       results.push({ wa_id_suffix: waId.slice(-6), result: "already_claimed" });
+      continue;
+    }
+
+    // A booked trip is not an abandoned wizard. Do not tell them the session
+    // expired while that trip is active, and thank them if it already completed.
+    const action = await whatsappExpiryActionForWa(svcClient, waId);
+    if (action === "hold_active") {
+      results.push({ wa_id_suffix: waId.slice(-6), result: "skipped_active_trip" });
+      continue;
+    }
+    if (action === "thank") {
+      results.push({ wa_id_suffix: waId.slice(-6), result: "completed_thanks" });
       continue;
     }
 
