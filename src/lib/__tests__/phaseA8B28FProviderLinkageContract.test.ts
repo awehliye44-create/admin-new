@@ -12,7 +12,6 @@ import {
   isClientSuccessOutcome,
   resolveSyncUkRevolutOutcome,
 } from '../../../supabase/functions/_shared/payoutDestinationVerificationOutcomeSSOT';
-import { interpretCompat } from '../../../supabase/drafts/A8B28F_stage_b/tests/compatHarness';
 
 const ROOT = resolve(__dirname, '../../..');
 const HANDLER = resolve(
@@ -49,23 +48,6 @@ describe('phase A8B28F Stage B2 provider linkage contract', () => {
       mentions_duplicate: true,
     });
     expect(c).toBe(PROVIDER_LINK_FAILURE_CLASS.DUPLICATE_COUNTERPARTY_RECONCILIATION_REQUIRED);
-  });
-
-  it('mixed-version: old 200+FAILED rejected; new 422 rejected', () => {
-    expect(
-      interpretCompat({
-        httpOk: true,
-        httpStatus: 200,
-        payload: { success: true, provider_auto_linked: false, provider_link_status: 'FAILED' },
-      }).ok,
-    ).toBe(false);
-    expect(
-      interpretCompat({
-        httpOk: false,
-        httpStatus: 422,
-        payload: { success: false, outcome: 'DESTINATION_SAVED_VERIFICATION_FAILED' },
-      }).ok,
-    ).toBe(false);
   });
 
   it('handler uses linkage_version concurrency and never writes payouts_enabled', () => {

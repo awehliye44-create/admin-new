@@ -4085,6 +4085,7 @@ export type Database = {
           last4: string | null
           payment_provider: string
           platform_payment_method_id: string
+          provider_customer_id: string | null
           provider_payment_method_id: string
           revolut_verified: boolean
           tokenization_status: string
@@ -4101,6 +4102,7 @@ export type Database = {
           last4?: string | null
           payment_provider: string
           platform_payment_method_id: string
+          provider_customer_id?: string | null
           provider_payment_method_id: string
           revolut_verified?: boolean
           tokenization_status?: string
@@ -4117,6 +4119,7 @@ export type Database = {
           last4?: string | null
           payment_provider?: string
           platform_payment_method_id?: string
+          provider_customer_id?: string | null
           provider_payment_method_id?: string
           revolut_verified?: boolean
           tokenization_status?: string
@@ -8987,7 +8990,7 @@ export type Database = {
         Row: {
           action: string
           changed_by_role: string | null
-          changed_by_user_id: string
+          changed_by_user_id: string | null
           created_at: string
           destination_type: string | null
           device_id: string | null
@@ -9004,7 +9007,7 @@ export type Database = {
         Insert: {
           action: string
           changed_by_role?: string | null
-          changed_by_user_id: string
+          changed_by_user_id?: string | null
           created_at?: string
           destination_type?: string | null
           device_id?: string | null
@@ -9021,7 +9024,7 @@ export type Database = {
         Update: {
           action?: string
           changed_by_role?: string | null
-          changed_by_user_id?: string
+          changed_by_user_id?: string | null
           created_at?: string
           destination_type?: string | null
           device_id?: string | null
@@ -9168,8 +9171,10 @@ export type Database = {
           provider_counterparty_id: string | null
           provider_error_code: string | null
           provider_error_message_safe: string | null
+          provider_http_status: number | null
           provider_idempotency_key: string | null
           provider_last_checked_at: string | null
+          provider_link_failure_class: string | null
           provider_link_status: string | null
           provider_recipient_account_id: string | null
           provider_sync_status: string | null
@@ -9207,8 +9212,10 @@ export type Database = {
           provider_counterparty_id?: string | null
           provider_error_code?: string | null
           provider_error_message_safe?: string | null
+          provider_http_status?: number | null
           provider_idempotency_key?: string | null
           provider_last_checked_at?: string | null
+          provider_link_failure_class?: string | null
           provider_link_status?: string | null
           provider_recipient_account_id?: string | null
           provider_sync_status?: string | null
@@ -9246,8 +9253,10 @@ export type Database = {
           provider_counterparty_id?: string | null
           provider_error_code?: string | null
           provider_error_message_safe?: string | null
+          provider_http_status?: number | null
           provider_idempotency_key?: string | null
           provider_last_checked_at?: string | null
+          provider_link_failure_class?: string | null
           provider_link_status?: string | null
           provider_recipient_account_id?: string | null
           provider_sync_status?: string | null
@@ -10564,6 +10573,61 @@ export type Database = {
           },
         ]
       }
+      driver_tip_thanks: {
+        Row: {
+          created_at: string
+          customer_dismissed_at: string | null
+          driver_id: string
+          id: string
+          ledger_id: string
+          notification_dispatched_at: string | null
+          sent_at: string
+          trip_id: string
+        }
+        Insert: {
+          created_at?: string
+          customer_dismissed_at?: string | null
+          driver_id: string
+          id?: string
+          ledger_id: string
+          notification_dispatched_at?: string | null
+          sent_at?: string
+          trip_id: string
+        }
+        Update: {
+          created_at?: string
+          customer_dismissed_at?: string | null
+          driver_id?: string
+          id?: string
+          ledger_id?: string
+          notification_dispatched_at?: string | null
+          sent_at?: string
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_tip_thanks_ledger_id_fkey"
+            columns: ["ledger_id"]
+            isOneToOne: true
+            referencedRelation: "driver_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_tip_thanks_ledger_id_fkey"
+            columns: ["ledger_id"]
+            isOneToOne: true
+            referencedRelation: "v_finance_era_digital"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_tip_thanks_ledger_id_fkey"
+            columns: ["ledger_id"]
+            isOneToOne: true
+            referencedRelation: "v_finance_era_legacy_cash"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_vehicle_categories: {
         Row: {
           created_at: string
@@ -11215,6 +11279,7 @@ export type Database = {
           location_source: string | null
           onboarding_complete: boolean | null
           online_since: string | null
+          payout_operational_paused: boolean
           payouts_enabled: boolean | null
           pending_email_change: string | null
           pending_email_change_expires_at: string | null
@@ -11284,6 +11349,7 @@ export type Database = {
           location_source?: string | null
           onboarding_complete?: boolean | null
           online_since?: string | null
+          payout_operational_paused?: boolean
           payouts_enabled?: boolean | null
           pending_email_change?: string | null
           pending_email_change_expires_at?: string | null
@@ -11353,6 +11419,7 @@ export type Database = {
           location_source?: string | null
           onboarding_complete?: boolean | null
           online_since?: string | null
+          payout_operational_paused?: boolean
           payouts_enabled?: boolean | null
           pending_email_change?: string | null
           pending_email_change_expires_at?: string | null
@@ -22761,6 +22828,8 @@ export type Database = {
           tip_pence: number | null
           tip_window_closed_at: string | null
           tip_window_expires_at: string | null
+          tip_window_opened_at: string | null
+          tip_window_status: string | null
           total_authorized_amount_pence: number | null
           total_stops: number | null
           total_waiting_charge_pence: number
@@ -23057,6 +23126,8 @@ export type Database = {
           tip_pence?: number | null
           tip_window_closed_at?: string | null
           tip_window_expires_at?: string | null
+          tip_window_opened_at?: string | null
+          tip_window_status?: string | null
           total_authorized_amount_pence?: number | null
           total_stops?: number | null
           total_waiting_charge_pence?: number
@@ -23353,6 +23424,8 @@ export type Database = {
           tip_pence?: number | null
           tip_window_closed_at?: string | null
           tip_window_expires_at?: string | null
+          tip_window_opened_at?: string | null
+          tip_window_status?: string | null
           total_authorized_amount_pence?: number | null
           total_stops?: number | null
           total_waiting_charge_pence?: number
@@ -27319,6 +27392,10 @@ export type Database = {
         Args: { p_smoke_run_id: string }
         Returns: Json
       }
+      activate_paid_corporate_trip: {
+        Args: { p_trip_id: string }
+        Returns: undefined
+      }
       active_super_admin_count: { Args: never; Returns: number }
       adjust_merchant_credits: {
         Args: { _delta: number; _merchant_id: string; _notes?: string }
@@ -27454,6 +27531,7 @@ export type Database = {
           location_source: string | null
           onboarding_complete: boolean | null
           online_since: string | null
+          payout_operational_paused: boolean
           payouts_enabled: boolean | null
           pending_email_change: string | null
           pending_email_change_expires_at: string | null
@@ -27535,6 +27613,10 @@ export type Database = {
       admin_save_driver_special_offer: {
         Args: { p_offer: Json; p_service_area_ids?: string[] }
         Returns: string
+      }
+      admin_set_driver_payout_operational_pause: {
+        Args: { p_driver_id: string; p_paused: boolean; p_reason: string }
+        Returns: Json
       }
       admin_set_role_action_permission: {
         Args: {
@@ -27726,6 +27808,10 @@ export type Database = {
       audit_payment_session_amounts: {
         Args: { p_session_id: string }
         Returns: Json
+      }
+      auth_user_id_by_exact_phone: {
+        Args: { p_phone: string }
+        Returns: string
       }
       backfill_driver_commission_wallet_accounts: { Args: never; Returns: Json }
       bearing_deg: {
@@ -28060,6 +28146,11 @@ export type Database = {
       }
       detect_driver_commitment_monitoring: { Args: never; Returns: undefined }
       detect_driver_problems: { Args: never; Returns: undefined }
+      discard_unpaid_corporate_trip: {
+        Args: { p_trip_id: string }
+        Returns: undefined
+      }
+      dismiss_driver_tip_thanks: { Args: { p_id: string }; Returns: boolean }
       dispatch_effective_radius_meters: {
         Args: {
           p_round: number
@@ -28230,6 +28321,10 @@ export type Database = {
           socket_connected: boolean
         }[]
       }
+      driver_effective_payout_allowed: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
       driver_freshness_reason: {
         Args: {
           p_driver_id: string
@@ -28241,6 +28336,10 @@ export type Database = {
         Returns: string
       }
       driver_has_accepted_active_or_stacked_work: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
+      driver_has_provider_verified_payout_destination: {
         Args: { p_driver_id: string }
         Returns: boolean
       }
@@ -28385,6 +28484,16 @@ export type Database = {
         Returns: Json
       }
       driver_signup_country_label: { Args: { p_code: string }; Returns: string }
+      driver_tip_thanks_decision: {
+        Args: { p_driver_id: string; p_ledger_id: string }
+        Returns: {
+          code: string
+          ok: boolean
+          passenger_id: string
+          sent_at: string
+          trip_id: string
+        }[]
+      }
       driver_wallet_active_reservation_pence: {
         Args: { p_driver_id: string }
         Returns: number
@@ -28888,6 +28997,10 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: Json
       }
+      get_driver_document_eligibility_internal: {
+        Args: { p_driver_id: string }
+        Returns: Json
+      }
       get_driver_feedback_analytics: {
         Args: { p_driver_id: string }
         Returns: Json
@@ -29364,8 +29477,22 @@ export type Database = {
         Returns: Json
       }
       list_driver_signup_countries: { Args: never; Returns: Json }
+      list_driver_tip_thanks_actions: {
+        Args: { p_ledger_ids: string[] }
+        Returns: {
+          can_send: boolean
+          ledger_id: string
+          sent_at: string
+        }[]
+      }
       list_driver_trip_history: { Args: { p_limit?: number }; Returns: Json }
       list_enabled_otp_country_codes: { Args: never; Returns: Json }
+      list_pending_driver_tip_thanks: {
+        Args: never
+        Returns: {
+          id: string
+        }[]
+      }
       lock_driver_vehicle: { Args: { p_driver_id: string }; Returns: undefined }
       log_audit_event: {
         Args: {
@@ -29507,6 +29634,10 @@ export type Database = {
           day_usd: number
           month_usd: number
         }[]
+      }
+      onecab_internal_lost_property_cron_http_headers: {
+        Args: never
+        Returns: Json
       }
       onecab_internal_notification_http_headers: { Args: never; Returns: Json }
       ops_acknowledge_alert: {

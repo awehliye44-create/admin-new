@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -38,11 +38,6 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   serviceAreaId: string;
   serviceAreaName: string;
-}
-
-function numField(value: string, fallback: number): number {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
 }
 
 export function DemandZoneSettingsDialog({
@@ -85,10 +80,23 @@ export function DemandZoneSettingsDialog({
     },
   });
 
+  // Raw text buffers so typing decimals ("1." → "1.15") is never re-formatted mid-edit.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const hydratedFor = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      hydratedFor.current = null;
+      return;
+    }
+    if (isLoading) return;
+    const key = serviceAreaId || ALL_SERVICE_AREAS;
+    if (hydratedFor.current === key) return;
+    hydratedFor.current = key;
     setForm(settings ? { ...BLANK, ...settings } : BLANK);
-  }, [open, settings]);
+    setDrafts({});
+  }, [open, isLoading, settings, serviceAreaId]);
+
 
   const validation = useMemo(
     () => validateDemandZoneSettings({ ...form, service_area_id: serviceAreaId }),
@@ -172,13 +180,25 @@ export function DemandZoneSettingsDialog({
         step={step}
         className="w-28"
         disabled={!enabled}
-        value={String(form[key] ?? '')}
-        onChange={(e) =>
-          set(key, numField(e.target.value, Number(DEMAND_ZONE_SETTINGS_DEFAULTS[key as keyof typeof DEMAND_ZONE_SETTINGS_DEFAULTS] ?? 0)) as never)
-        }
+        value={drafts[key as string] ?? String(form[key] ?? '')}
+        onChange={(e) => {
+          const raw = e.target.value;
+          setDrafts((prev) => ({ ...prev, [key as string]: raw }));
+          if (raw.trim() === '') return;
+          const n = Number(raw);
+          if (Number.isFinite(n)) set(key, n as never);
+        }}
+        onBlur={() => {
+          setDrafts((prev) => {
+            const next = { ...prev };
+            delete next[key as string];
+            return next;
+          });
+        }}
       />
     </div>
   );
+
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
