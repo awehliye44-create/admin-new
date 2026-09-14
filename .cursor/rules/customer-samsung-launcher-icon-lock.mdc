@@ -1,0 +1,20 @@
+---
+description: Never change the ONECAB Customer Samsung launcher icon
+alwaysApply: true
+---
+
+# Customer Samsung launcher icon lock
+
+The Customer app on Samsung (`com.onecab.customer`) must keep the iOS customer mark filling the circle: whole ONE/CAB and green border, letters uncut.
+
+## Never
+
+- Swap the launcher to the tiny notification brand mark (`onecab_notification_brand_mark`)
+- Pad the mark down so the home icon looks tiny
+- Full-bleed it so the circle crops the letters
+- Rebuild or reinstall a customer APK that replaces `mipmap/ic_launcher*`
+- Run Expo prebuild that regenerates those mipmaps
+
+Source of truth is the locked files in `onecab-customer-native` (`assets/images/android-icon-foreground.png` and `android/app/src/main/res/mipmap-*/ic_launcher*.png`). Lock test: `src/shared/lib/androidLauncherIconLock.test.ts`.
+
+**If the test fails, restore those files. Never delete or soften the lock.**
