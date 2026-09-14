@@ -155,6 +155,14 @@ Deno.test("continuation tokens are signed and expire deterministically", async (
     await verifyWhatsAppContinuationToken(token, material, 1_700_000_300),
     null,
   );
+  const expiredBook = await verifyWhatsAppContinuationToken(
+    token,
+    material,
+    1_700_000_300,
+    { allowExpired: true },
+  );
+  assertEquals(expiredBook?.purpose, "book");
+  assertEquals(expiredBook?.waId, "447700900000");
 });
 
 Deno.test("edge function keeps secrets server-side and disables Supabase JWT", () => {
@@ -557,6 +565,11 @@ Deno.test("sendBookContinuation sets booking_session_expires_at on success", () 
   assert(workflow.includes("booking_session_started_at"));
 });
 
+Deno.test("created WhatsApp trip leaves the booking wizard so expiry cannot fire", () => {
+  const finalize = readSrc("supabase/functions/_shared/whatsappGuestBookingFinalize.ts");
+  assert(finalize.includes("bindWhatsAppConversationToCreatedTrip"));
+});
+
 Deno.test("successful booking closes wizard state — does NOT stay book until ride completes", () => {
   // After sendBookContinuation succeeds, workflow_state = 'book' with expiry.
   // The booking wizard is independent of the trip. When the customer stops
@@ -564,7 +577,8 @@ Deno.test("successful booking closes wizard state — does NOT stay book until r
   // Verified by: expiry sweep only resets workflow_state and booking_session_* cols,
   // never modifies trips table.
   const expire = readSrc("supabase/functions/whatsapp-session-expire/index.ts");
-  assert(!expire.includes("trips"), "expiry sweep must NOT touch trips table");
+  assert(!expire.includes('.from("trips")'), "expiry sweep must not mutate trips itself");
+  assert(expire.includes("skipped_active_trip"));
   assert(expire.includes("workflow_state: \"idle\""));
   assert(expire.includes("booking_session_started_at: null"));
   assert(expire.includes("booking_session_expires_at: null"));

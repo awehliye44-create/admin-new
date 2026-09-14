@@ -190,7 +190,10 @@ Deno.test("presetNegotiationEligibility: WHATSAPP_BOOKING_SOURCE is canonical co
   assert(src.includes('WHATSAPP_BOOKING_SOURCE = "whatsapp_booking"'), "must define canonical constant");
 });
 
-Deno.test("create-trip-after-payment: forwards the referer header for booking_source stamping", () => {
+Deno.test("create-trip-after-payment: forwards booking snapshot source, not only fare snapshot", () => {
   const src = readFunction("create-trip-after-payment");
-  assert(src.includes('req.headers.get("referer")'), "must forward referer header");
+  assert(src.includes("loadedPaymentSession?.booking_snapshot"), "must read payment session booking snapshot");
+  assert(src.includes("bookingSnapshot: sessionBookingSnapshot"), "must pass booking snapshot into trip insert");
+  const ssot = readShared("bookingSSOT.ts");
+  assert(ssot.includes("bookingSourceFromSnapshots"), "insert must prefer booking snapshot source");
 });
