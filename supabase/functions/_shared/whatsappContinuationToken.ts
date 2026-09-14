@@ -90,6 +90,7 @@ export async function verifyWhatsAppContinuationToken(
   token: string,
   signingMaterial: string,
   nowSeconds = Math.floor(Date.now() / 1000),
+  options?: { allowExpired?: boolean },
 ): Promise<WhatsAppContinuationClaims | null> {
   const dot = token.indexOf(".");
   if (dot <= 0) return null;
@@ -106,7 +107,8 @@ export async function verifyWhatsAppContinuationToken(
   const [purpose, waId, tripIdRaw, expRaw] = parts;
   if (purpose !== "book" && purpose !== "track") return null;
   const exp = Number(expRaw);
-  if (!Number.isFinite(exp) || exp <= nowSeconds) return null;
+  if (!Number.isFinite(exp)) return null;
+  if (exp <= nowSeconds && !options?.allowExpired) return null;
   if (!waId.trim()) return null;
 
   return {

@@ -22,6 +22,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { corsHeaders } from "../_shared/corsHeaders.ts";
+import { edgeFunctionInvokeHeaders } from "../_shared/edgeFunctionInvokeHeaders.ts";
 import {
   classifyServiceAreaFinancialPairing,
   shouldSkipPlatformPreauthForCommissionWallet,
@@ -132,13 +133,19 @@ Deno.serve(async (req) => {
     if (pickup) fareReqBody.pickup = pickup;
     if (dropoff) fareReqBody.dropoff = dropoff;
 
+    const invokeHeaders = edgeFunctionInvokeHeaders(req);
+    if (!invokeHeaders) {
+      return respond({
+        success: false,
+        error: "Fare service is unavailable",
+        booking_workflow,
+        financial_model,
+        customer_payment_policy,
+      });
+    }
     const fareRes = await fetch(calculateFareUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-        apikey: Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      },
+      headers: invokeHeaders,
       body: JSON.stringify(fareReqBody),
     });
 
