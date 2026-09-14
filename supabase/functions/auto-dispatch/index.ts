@@ -51,7 +51,9 @@ import {
   computeDispatchRecheckAdminLabel,
   DISPATCHABLE_DEGRADED,
   evaluateDispatchableReadiness,
+  indexAuthoritativeDriverPushTokens,
   isDispatchRecheckableReason,
+  nroDeliveryIsPushReady,
 } from "../_shared/dispatchEligibilityPolicy.ts";
 import { reconcileTripServiceAreaFromPickup } from "../_shared/resolveTripServiceArea.ts";
 import {
@@ -1248,28 +1250,36 @@ Deno.serve(async (req) => {
 
     const { data: pushTokenRows, error: pushTokensError } = await supabase
       .from("push_tokens")
-      .select("driver_id, platform, updated_at")
-      .eq("app_type", "driver");
+      .select("driver_id, platform, updated_at, is_active, device_id")
+      .eq("app_type", "driver")
+      .eq("is_active", true);
 
-    if (driversError || presenceError || pushTokensError) {
+    const { data: activeDeviceRows, error: activeDevicesError } = await supabase
+      .from("driver_active_devices")
+      .select("driver_id, device_id");
+
+    if (driversError || presenceError || pushTokensError || activeDevicesError) {
       console.error(
         "[auto-dispatch] Error fetching drivers:",
-        driversError || presenceError || pushTokensError,
+        driversError || presenceError || pushTokensError || activeDevicesError,
       );
       abortDispatch("DB_ERROR_FETCH_DRIVERS", {
-        error: (driversError || presenceError || pushTokensError)?.message ?? null,
+        error: (driversError || presenceError || pushTokensError || activeDevicesError)?.message ?? null,
       });
       return errorResponse("DB_ERROR", "Failed to fetch drivers", 500);
     }
 
     const presenceMap = new Map((presenceDrivers || []).map(p => [p.driver_id, p]));
-    const pushTokenMap = new Map<string, Array<{ platform: string; updated_at: string }>>();
-    for (const row of pushTokenRows || []) {
-      if (!row?.driver_id || !row?.platform) continue;
-      const existing = pushTokenMap.get(row.driver_id) || [];
-      existing.push({ platform: row.platform, updated_at: row.updated_at });
-      pushTokenMap.set(row.driver_id, existing);
-    }
+    const pushTokenMap = indexAuthoritativeDriverPushTokens(
+      (pushTokenRows || []) as Array<{
+        driver_id: string;
+        platform: string;
+        updated_at: string;
+        is_active: boolean;
+        device_id: string | null;
+      }>,
+      (activeDeviceRows || []) as Array<{ driver_id: string; device_id: string | null }>,
+    );
 
     /** SSOT: drivers on active trips must never receive idle (non-stacked) offers. */
     activeTripDriverIds = await loadActiveTripDriverIds(supabase);
@@ -2961,7 +2971,11 @@ Deno.serve(async (req) => {
     // Per-driver eligibility audit (offer created)
     for (const o of createdOffers || []) {
       const drv = uniqueDrivers.find(d => d.id === o.driver_id) as any;
-      const hasNativeToken = !!drv?.has_registered_push_token || !!drv?.has_presence_push_token;
+      const pushProof = nroDeliveryIsPushReady({
+        hasAuthoritativePushToken: !!drv?.has_registered_push_token,
+        socketConnected: drv?.socket_connected ?? null,
+        socketFresh: false,
+      });
       const priorRecovery = priorRecheckByDriver.get(o.driver_id);
       logEligibility(o.driver_id, true, "eligible", {
         offer_id: o.id,
@@ -2973,8 +2987,9 @@ Deno.serve(async (req) => {
         driver_service_area_id: drv?.service_area_id ?? null,
         delivery: {
           ride_offer_row_realtime_broadcast: true,
-          push_enqueued_via_insert_trigger: true,
-          registered_native_push: hasNativeToken,
+          push_enqueued_via_insert_trigger: pushProof.pushReady,
+          registered_native_push: pushProof.pushReady,
+          push_readiness_proof: pushProof.proof,
           presence_push_token_hint: !!drv?.has_presence_push_token,
           app_state: drv?.app_state ?? null,
           registered_push_platforms: drv?.registered_push_platforms ?? [],
@@ -3078,7 +3093,11 @@ Deno.serve(async (req) => {
         if (autoAccepted && offer.driver_id === nearestAutoAcceptOffer?.driver_id) continue;
         if (autoAccepted) continue;
 
-        const hasNativeToken = !!driver.has_registered_push_token || !!driver.has_presence_push_token;
+        const hasNativeToken = nroDeliveryIsPushReady({
+          hasAuthoritativePushToken: !!driver.has_registered_push_token,
+          socketConnected: driver.socket_connected ?? null,
+          socketFresh: false,
+        }).pushReady;
         if (!hasNativeToken) {
           // Log push skipped (no token)
           auditPromises.push(

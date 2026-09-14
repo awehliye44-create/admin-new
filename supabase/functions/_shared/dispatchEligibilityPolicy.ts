@@ -340,3 +340,56 @@ export function evaluateDispatchableReadiness(args: {
 
 /** Active offer statuses that block creating another offer for the same trip. */
 export const ACTIVE_OFFER_BLOCKING_STATUSES = ["pending", "accepted", "countered"] as const;
+
+export type AuthoritativePushTokenRow = {
+  driver_id: string;
+  platform: string;
+  updated_at: string;
+  is_active: boolean;
+  device_id: string | null;
+};
+
+/**
+ * Push readiness is an active token on the claimed device only.
+ * Inactive rows (device_unbound_logout) and a stale socket are not a token.
+ */
+export function indexAuthoritativeDriverPushTokens(
+  tokens: AuthoritativePushTokenRow[],
+  activeDevices: Array<{ driver_id: string; device_id: string | null }>,
+): Map<string, Array<{ platform: string; updated_at: string }>> {
+  const activeByDriver = new Map<string, string>();
+  for (const device of activeDevices) {
+    const deviceId = typeof device.device_id === "string" ? device.device_id : "";
+    if (!device.driver_id || !deviceId) continue;
+    activeByDriver.set(device.driver_id, deviceId);
+  }
+
+  const map = new Map<string, Array<{ platform: string; updated_at: string }>>();
+  for (const row of tokens) {
+    if (!row?.driver_id || !row.platform) continue;
+    if (row.is_active !== true) continue;
+    const claimed = activeByDriver.get(row.driver_id);
+    if (!claimed || row.device_id !== claimed) continue;
+    const existing = map.get(row.driver_id) ?? [];
+    existing.push({ platform: row.platform, updated_at: row.updated_at });
+    map.set(row.driver_id, existing);
+  }
+  return map;
+}
+
+/**
+ * A stale or missing socket is never proof that an NRO push can be delivered.
+ * Presence token hints are not the send path.
+ */
+export function nroDeliveryIsPushReady(input: {
+  hasAuthoritativePushToken: boolean;
+  socketConnected?: boolean | null;
+  socketFresh?: boolean;
+}): { pushReady: boolean; proof: "authoritative_push" | "none" } {
+  void input.socketConnected;
+  void input.socketFresh;
+  if (input.hasAuthoritativePushToken) {
+    return { pushReady: true, proof: "authoritative_push" };
+  }
+  return { pushReady: false, proof: "none" };
+}
