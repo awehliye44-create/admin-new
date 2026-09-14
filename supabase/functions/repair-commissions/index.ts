@@ -8,6 +8,7 @@ import {
 } from "../_shared/tripSettlement.ts";
 import { tripBlocksDriverWalletLedgerPosting } from "../_shared/commissionWalletDeduction.ts";
 import { repairMissingTripEarningNet } from '../_shared/canonicalTypedWalletPostingSSOT.ts';
+import { invoiceTipPenceFromConfirmedCapture } from '../../../shared/tripPaymentFinalised.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -173,7 +174,15 @@ serve(async (req) => {
         }
         correctPct = commissionCache[commissionCacheKey].commission_pct;
       }
-      const tipPence = Math.max(0, Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0));
+      const requestedTip = Math.max(0, Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0));
+      // Card tip is collected only when capture covers fare+requested. A zero
+      // capture must not book the claimed tip into driver_net / TEN.
+      const tipPence = invoiceTipPenceFromConfirmedCapture({
+        paymentMethod: trip.payment_method,
+        captureAmountPence: trip.capture_amount_pence,
+        finalFarePence: trip.final_fare_pence,
+        requestedTipPence: requestedTip,
+      });
       const airportPence = Math.max(0, Number(trip.airport_charge_pence ?? 0));
       const finalFare = Math.max(
         0,

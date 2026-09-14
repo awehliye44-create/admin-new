@@ -13,6 +13,7 @@ import {
   extractPresetOptionsFromOffer,
   MIN_PRESET_OPTIONS,
 } from "../_shared/presetOptionsCanonical.ts";
+import { isPresetNegotiationFeatureEnabled } from "../_shared/presetNegotiationEligibility.ts";
 import {
   logRequestDuration,
   startRequestTimer,
@@ -96,6 +97,11 @@ function hasAddress(value: unknown): boolean {
   return !["pickup", "dropoff", "drop-off", "tap to view details", "—", "-", "n/a"].includes(lower);
 }
 
+function snapshotFlagTrue(snapshot: unknown, key: string): boolean {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return false;
+  return (snapshot as Record<string, unknown>)[key] === true;
+}
+
 function offerNeedsPresetChips(offer: OfferRow): boolean {
   if (offer.is_stacked === true) return false;
   if (offer.delivery_phase === "scan_and_go") return false;
@@ -106,7 +112,8 @@ function offerNeedsPresetChips(offer: OfferRow): boolean {
   if (offer.offer_type === "scan_and_go") return false;
   const ns = String(offer.negotiation_status ?? "").toLowerCase();
   if (ns && ns !== "sent_to_driver") return false;
-  return true;
+  // Chip presence is not eligibility. Repair only an offer already stamped eligible.
+  return snapshotFlagTrue(snap, "negotiation_eligible") && snapshotFlagTrue(snap, "presets_enabled");
 }
 
 function evaluateSnapshotComplete(offer: OfferRow, trip: TripRow | null): boolean {
@@ -211,7 +218,48 @@ Deno.serve(async (req) => {
     }
 
     const tripId = String(offer.trip_id ?? trip?.id ?? "");
-    if (offerNeedsPresetChips(offer) && tripId) {
+    const serviceAreaId = typeof trip?.service_area_id === "string" ? trip.service_area_id : null;
+    let featureEnabled = false;
+    if (serviceAreaId) {
+      const [{ data: presetConfig }, { data: areaSettings }] = await Promise.all([
+        serviceClient
+          .from("preset_offer_configs")
+          .select("is_enabled")
+          .eq("service_area_id", serviceAreaId)
+          .maybeSingle(),
+        serviceClient
+          .from("dispatch_settings")
+          .select("fare_negotiation_enabled")
+          .eq("service_area_id", serviceAreaId)
+          .maybeSingle(),
+      ]);
+      featureEnabled = isPresetNegotiationFeatureEnabled({
+        presetConfigEnabled: presetConfig?.is_enabled === true,
+        fareNegotiationEnabled: areaSettings?.fare_negotiation_enabled,
+      });
+    }
+
+    const negotiationStatus = String(offer.negotiation_status ?? "").toLowerCase();
+    const liveNegotiation = [
+      "waiting_customer",
+      "waiting_driver_final",
+      "declined_customer_awaiting_driver",
+    ].includes(negotiationStatus);
+    if (!featureEnabled && !liveNegotiation && offer.offer_snapshot && typeof offer.offer_snapshot === "object") {
+      offer = {
+        ...offer,
+        offer_options: null,
+        offer_snapshot: {
+          ...(offer.offer_snapshot as Record<string, unknown>),
+          presets_enabled: false,
+          negotiation_eligible: false,
+          negotiationAllowed: false,
+          preset_options: [],
+        },
+      };
+    }
+
+    if (offerNeedsPresetChips(offer) && tripId && featureEnabled) {
       const presetCount = extractPresetOptionsFromOffer({
         offer_snapshot: offer.offer_snapshot,
         offer_options: offer.offer_options as number[] | null | undefined,

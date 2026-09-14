@@ -256,6 +256,36 @@ describe('capture mirror dedupe — payments row mirrors payment_sessions captur
     expect(state.authoritativePaidPence).toBe(700);
   });
 
+  it('covered tip is not an overpayment; extra above fare+tip still blocks', () => {
+    const covered = resolveTripInvoicePaymentState({
+      trip: cardTrip({ final_fare_pence: 716, tip_pence: 200, tip_amount_pence: 200 }),
+      paymentSessions: [
+        { trip_id: 'trip-a', status: 'captured', captured_amount_pence: 916, provider_order_id: 'ord-tip' },
+      ],
+    });
+    expect(covered.paymentClassification).toBe('FULLY_PAID');
+    expect(covered.authoritativePaidPence).toBe(916);
+    expect(covered.invoiceEligible).toBe(true);
+
+    const unpaidClaim = resolveTripInvoicePaymentState({
+      trip: cardTrip({ final_fare_pence: 716, tip_pence: 200, tip_amount_pence: 200 }),
+      paymentSessions: [
+        { trip_id: 'trip-a', status: 'captured', captured_amount_pence: 716, provider_order_id: 'ord-fare' },
+      ],
+    });
+    expect(unpaidClaim.paymentClassification).toBe('FULLY_PAID');
+    expect(unpaidClaim.authoritativePaidPence).toBe(716);
+
+    const stillOver = resolveTripInvoicePaymentState({
+      trip: cardTrip({ final_fare_pence: 716, tip_pence: 200, tip_amount_pence: 200 }),
+      paymentSessions: [
+        { trip_id: 'trip-a', status: 'captured', captured_amount_pence: 982, provider_order_id: 'ord-over-tip' },
+      ],
+    });
+    expect(stillOver.paymentClassification).toBe('RECONCILIATION_REQUIRED');
+    expect(stillOver.invoiceEligible).toBe(false);
+  });
+
   it('OVERPAYMENT — unexplained 982 against 716 fare blocks the invoice', () => {
     const state = resolveTripInvoicePaymentState({
       trip: cardTrip({ final_fare_pence: 716 }),

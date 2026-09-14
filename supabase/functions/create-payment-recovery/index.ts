@@ -48,6 +48,7 @@ import {
 import { requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
 import { readTripFinancialModelStamp } from "../_shared/commissionWalletSSOT.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
+import { extractConfirmedCaptureAmountPence } from "../../../shared/paymentHoldProviderTerminalPure.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -68,7 +69,7 @@ Deno.serve(async (req) => {
     // --- Load trip ---
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
-      .select("id, trip_number, status, passenger_id, service_area_id, driver_id, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, capture_amount_pence, currency_code, payment_status, financial_model")
+      .select("id, trip_number, status, passenger_id, service_area_id, driver_id, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, capture_amount_pence, currency_code, payment_status, financial_model, tip_window_expires_at, tip_window_closed_at")
       .eq("id", trip_id)
       .maybeSingle();
     if (tripErr || !trip) return errorResponse("Trip not found", 404, undefined, "TRIP_NOT_FOUND");
@@ -99,6 +100,15 @@ Deno.serve(async (req) => {
       );
     }
 
+    if (trip.tip_window_expires_at && !trip.tip_window_closed_at) {
+      return errorResponse(
+        "Tip window still unresolved — recovery deferred until tip submit, skip, or expiry close",
+        409,
+        undefined,
+        "TIP_WINDOW_OPEN",
+      );
+    }
+
     // --- Provider refresh on parent order (when linked) before charging ---
     if (parent_session_id) {
       const { data: parentSess } = await supabase
@@ -112,7 +122,10 @@ Deno.serve(async (req) => {
           
           const order = await retrieveRevolutOrder(environment, secretKey, parentSess.provider_order_id);
           const orderState = String(order.state ?? "").toUpperCase();
-          const orderAmt = typeof order.amount === "number" ? Math.round(order.amount) : null;
+          const confirmedCapture = extractConfirmedCaptureAmountPence(
+            order as unknown as Record<string, unknown>,
+            orderState,
+          );
           const nowIso = new Date().toISOString();
           const parentPatch: Record<string, unknown> = {
             provider_state: orderState || parentSess.provider_state,
@@ -122,11 +135,11 @@ Deno.serve(async (req) => {
           };
           if (
             (orderState === "COMPLETED" || orderState === "CAPTURED")
-            && orderAmt != null
-            && orderAmt > 0
+            && confirmedCapture != null
+            && confirmedCapture > 0
             && (parentSess.captured_amount_pence == null || Number(parentSess.captured_amount_pence) <= 0)
           ) {
-            parentPatch.captured_amount_pence = orderAmt;
+            parentPatch.captured_amount_pence = confirmedCapture;
             parentPatch.captured_at = nowIso;
             parentPatch.status = "captured";
           }

@@ -112,6 +112,8 @@ export interface CreateOrderParams {
    * so same-order incremental authorisation is eligible later.
    */
   enableIncrementalAuthorisation?: boolean;
+  /** Hosted checkout return after successful authorisation. */
+  redirectUrl?: string | null;
 }
 
 /**
@@ -134,6 +136,7 @@ export async function createRevolutOrder(p: CreateOrderParams): Promise<RevolutO
         metadata: p.metadata,
         customer: p.customer,
         enableIncrementalAuthorisation: p.enableIncrementalAuthorisation,
+        redirectUrl: p.redirectUrl,
       })),
     },
   );

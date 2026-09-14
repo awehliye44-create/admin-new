@@ -22761,6 +22761,8 @@ export type Database = {
           tip_pence: number | null
           tip_window_closed_at: string | null
           tip_window_expires_at: string | null
+          tip_window_opened_at: string | null
+          tip_window_status: string | null
           total_authorized_amount_pence: number | null
           total_stops: number | null
           total_waiting_charge_pence: number
@@ -23057,6 +23059,8 @@ export type Database = {
           tip_pence?: number | null
           tip_window_closed_at?: string | null
           tip_window_expires_at?: string | null
+          tip_window_opened_at?: string | null
+          tip_window_status?: string | null
           total_authorized_amount_pence?: number | null
           total_stops?: number | null
           total_waiting_charge_pence?: number
@@ -23353,6 +23357,8 @@ export type Database = {
           tip_pence?: number | null
           tip_window_closed_at?: string | null
           tip_window_expires_at?: string | null
+          tip_window_opened_at?: string | null
+          tip_window_status?: string | null
           total_authorized_amount_pence?: number | null
           total_stops?: number | null
           total_waiting_charge_pence?: number

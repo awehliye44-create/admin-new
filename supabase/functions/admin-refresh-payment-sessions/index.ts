@@ -6,6 +6,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsHeaders, jsonResponse, requireAdminOrStaff, type GateError } from "../_shared/adminPaymentGate.ts";
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { creditCapturedCardTripLedger } from "../_shared/onecabFinanceLedger.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
+import { extractConfirmedCaptureAmountPence } from "../../../shared/paymentHoldProviderTerminalPure.ts";
 import { logAuditEvent } from "../_shared/security.ts";
 import {
   sumVerifiedCapturedFromSessions,
@@ -187,16 +189,24 @@ serve(async (req) => {
         const order = await retrieveRevolutOrder(environment, secretKey, s.provider_order_id!);
         const stateUpper = String(order.state ?? "").toUpperCase();
         const purpose = String(s.purpose ?? "").toUpperCase();
-        const amountMinor = typeof order.amount === "number"
-          ? Math.round(order.amount)
-          : typeof order.completed_amount === "number"
-            ? Math.round(order.completed_amount)
-            : null;
+        // COMPLETED order.amount can still be the hold. Prefer the confirmed
+        // payment amount so an unused buffer is not a collected tip.
+        const confirmedCapture = ["COMPLETED", "CAPTURED"].includes(stateUpper)
+          ? extractConfirmedCaptureAmountPence(
+            order as unknown as Record<string, unknown>,
+            stateUpper,
+          )
+          : null;
+        const amountMinor = confirmedCapture != null && confirmedCapture > 0
+          ? confirmedCapture
+          : null;
 
         if (purpose === "PAYMENT_RECOVERY" && stateUpper === "COMPLETED" && s.trip_id) {
+          // Never treat the recovery hold as captured. Missing provider amount
+          // may use a previously persisted capture only.
           const recoveryCapture = amountMinor != null && amountMinor > 0
             ? amountMinor
-            : Math.round(Number(s.captured_amount_pence ?? s.authorised_amount_pence ?? 0));
+            : Math.round(Number(s.captured_amount_pence ?? 0));
 
           if (recoveryCapture <= 0) {
             results.push({
@@ -225,7 +235,7 @@ serve(async (req) => {
 
           const { data: tripRow } = await gate.supabase
             .from("trips")
-            .select("final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, estimated_total_pence, capture_amount_pence, authorised_amount_pence, payment_provider, payment_method, driver_id, driver_net_pence, tip_pence, currency_code")
+            .select("final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, estimated_total_pence, capture_amount_pence, authorised_amount_pence, payment_provider, payment_method, driver_id, driver_net_pence, tip_pence, tip_amount_pence, currency_code")
             .eq("id", s.trip_id)
             .maybeSingle();
 
@@ -327,7 +337,12 @@ serve(async (req) => {
                 driverId: tripRow.driver_id,
                 tripId: s.trip_id,
                 driverNetPence: Math.max(0, Math.round(Number(tripRow.driver_net_pence ?? 0))),
-                tipPence: Math.max(0, Math.round(Number(tripRow.tip_pence ?? 0))),
+                tipPence: invoiceTipPenceFromConfirmedCapture({
+                  paymentMethod: tripRow.payment_method,
+                  captureAmountPence: Math.max(0, originalCaptured) + Math.max(0, recoveryCapture),
+                  finalFarePence: tripRow.final_fare_pence,
+                  requestedTipPence: tripRow.tip_pence ?? tripRow.tip_amount_pence,
+                }),
                 currency: String(tripRow.currency_code ?? "GBP"),
                 paymentId: s.id,
               });

@@ -5,6 +5,7 @@ import {
   getTripDriverNetPence,
   getTripSettlementFarePence,
 } from "../_shared/tripSettlementFinanceSSOT.ts";
+import { tipPenceRemainingAfterRefund } from "../../../shared/tripPaymentFinalised.ts";
 import {
   isTripUuid,
   NO_MATCH_TRIP_ID,
@@ -100,6 +101,7 @@ serve(async (req) => {
         refunded_at,
         extras_pence,
         tip_pence,
+        tip_amount_pence,
         created_at,
         completed_at,
         status,
@@ -248,7 +250,15 @@ serve(async (req) => {
         commission: t.commission_pence || 0,
         driverNet,
         extras: t.extras_pence || 0,
-        tip: t.tip_pence || 0,
+        tip: tipPenceRemainingAfterRefund({
+          paymentMethod: t.payment_method as string | null,
+          grossCapturePence: paymentCaptured > 0
+            ? paymentCaptured
+            : (t.capture_amount_pence as number | null),
+          finalFarePence: t.final_fare_pence as number | null,
+          requestedTipPence: Number(t.tip_pence ?? t.tip_amount_pence ?? 0),
+          refundedPence: Number(t.refund_amount_pence) || 0,
+        }),
         providerPaymentIntentId: t.provider_payment_id,
         providerChargeId: t.provider_charge_id,
       };

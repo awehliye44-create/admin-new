@@ -85,7 +85,7 @@ const TRIP_HISTORY_SELECT_BASE = `
   cancellation_fee_pence,
   pricing_mode, fare_locked, vehicle_type_id, vehicle_type, fare_engine_config_id,
   waiting_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, total_waiting_charge_pence, waiting_minutes, fare_breakdown,
-  tip_pence, tip_amount_pence,
+  tip_pence, tip_amount_pence, airport_charge_pence, other_pass_through_charges_pence, outstanding_balance_pence,
   arrival_cancellation_applied, arrival_cancellation_fee,
   driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
   service_area_join:service_areas!trips_service_area_id_fkey(region_id, region:regions(currency_code, distance_unit))

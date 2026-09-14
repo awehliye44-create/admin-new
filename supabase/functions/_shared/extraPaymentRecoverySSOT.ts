@@ -7,6 +7,7 @@ import {
   sumPaymentsCapturedPence,
   type PaymentCaptureFields,
 } from "./tripSettlementFinanceSSOT.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
 
 export const EXTRA_PAYMENT_TOLERANCE_PENCE = 1;
 
@@ -14,14 +15,20 @@ export type ExtraPaymentTripFields = {
   final_fare_pence?: number | null;
   tip_pence?: number | null;
   tip_amount_pence?: number | null;
+  payment_method?: string | null;
+  capture_amount_pence?: number | null;
   arrival_cancellation_applied?: boolean | null;
   arrival_cancellation_fee?: number | null;
   outstanding_balance_pence?: number | null;
-  capture_amount_pence?: number | null;
 };
 
 export function getTripTipPenceServer(trip: ExtraPaymentTripFields): number {
-  return Math.max(0, trip.tip_pence ?? trip.tip_amount_pence ?? 0);
+  return invoiceTipPenceFromConfirmedCapture({
+    paymentMethod: trip.payment_method,
+    captureAmountPence: trip.capture_amount_pence,
+    finalFarePence: trip.final_fare_pence,
+    requestedTipPence: trip.tip_pence ?? trip.tip_amount_pence ?? 0,
+  });
 }
 
 /** Settlement total the customer owes (fare + tip + trip-level lifecycle extras). */

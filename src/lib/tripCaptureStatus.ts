@@ -15,6 +15,7 @@ import {
   getTripSettlementFarePence as getTripSettlementFarePenceSsot,
   isCardTrip,
 } from '@/lib/tripSettlementFinanceSSOT';
+import { invoiceTipPenceFromConfirmedCapture } from '../../shared/tripPaymentFinalised';
 
 export { isCardTrip, getPaymentRowCapturedPence } from '@/lib/tripSettlementFinanceSSOT';
 
@@ -126,13 +127,25 @@ const METADATA_LIFECYCLE_FEE_KEYS = [
   'lifecycle_fee_pence',
 ] as const;
 
-export function getTripTipPence(trip: TripCaptureFields): number {
+function requestedTipPence(trip: TripCaptureFields): number {
   if (trip.tip_pence != null && trip.tip_pence > 0) return trip.tip_pence;
   if (trip.tip_amount_pence != null && trip.tip_amount_pence > 0) return trip.tip_amount_pence;
   if (trip.payment_tip_pence != null && trip.payment_tip_pence > 0) return trip.payment_tip_pence;
   const fb = trip.fare_breakdown as Record<string, number> | null;
   if (fb?.tip_pence != null && fb.tip_pence > 0) return fb.tip_pence;
   return 0;
+}
+
+/** Tip the confirmed capture actually covers. An unpaid claim is not owed. */
+export function getTripTipPence(trip: TripCaptureFields): number {
+  const requested = requestedTipPence(trip);
+  if (requested <= 0) return 0;
+  return invoiceTipPenceFromConfirmedCapture({
+    paymentMethod: trip.payment_method,
+    captureAmountPence: getCapturedTotalPence(trip),
+    finalFarePence: trip.final_fare_pence,
+    requestedTipPence: requested,
+  });
 }
 
 /** Display ride fare in pence (excludes tip; may exclude waiting pass-through). */

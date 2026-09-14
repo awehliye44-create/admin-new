@@ -9,6 +9,7 @@ import {
 } from "../_shared/revolutOrders.ts";
 import { applyProviderRefundToOnecab } from "../_shared/applyProviderRefund.ts";
 import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
+import { extractConfirmedCaptureAmountPence } from "../../../shared/paymentHoldProviderTerminalPure.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -22,6 +23,12 @@ type ProviderRefundOutcome = {
   id: string;
   amount?: number;
 };
+
+function positiveCapturedPence(raw: unknown): number | null {
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
 
 function extractExistingRevolutRefund(
   order: Record<string, unknown>,
@@ -77,12 +84,15 @@ serve(async (req) => {
       return jsonResponse({ error: `Cannot refund — Revolut order state is "${state}" (must be COMPLETED)` }, 400);
     }
 
-    const captured = Math.max(
-      0,
-      trip.capture_amount_pence
-        ?? sessionRow?.captured_amount_pence
-        ?? Number(orderBefore.amount ?? 0),
+    const confirmedCapture = extractConfirmedCaptureAmountPence(
+      orderBefore as unknown as Record<string, unknown>,
+      orderBefore.state,
     );
+    const sessionCaptured = positiveCapturedPence(sessionRow?.captured_amount_pence);
+    const tripCaptured = positiveCapturedPence(trip.capture_amount_pence);
+    // Provider-confirmed capture wins. A stored hold must not be refunded as
+    // if it had been captured.
+    const captured = confirmedCapture ?? sessionCaptured ?? tripCaptured ?? 0;
     const alreadyRefunded = Math.max(
       0,
       trip.refund_amount_pence
