@@ -525,6 +525,8 @@ function buildEmailHtml(args: {
   companyName: string;
   invoiceNo: string;
   tripRef: string;
+  totalLabel: string;
+  amountLabel: string;
   totalFare: string;
   paid: string;
   outstanding: string;
@@ -544,8 +546,8 @@ function buildEmailHtml(args: {
       <table style="width:100%;font-size:14px;border-collapse:collapse">
         <tr><td style="padding:6px 0;color:#6b7280">Pickup</td><td style="padding:6px 0;text-align:right">${args.pickup}</td></tr>
         <tr><td style="padding:6px 0;color:#6b7280">Drop-off</td><td style="padding:6px 0;text-align:right">${args.dropoff}</td></tr>
-        <tr><td style="padding:12px 0;font-weight:bold;border-top:1px solid #e6e8ee">Total paid</td><td style="padding:12px 0;text-align:right;font-weight:bold;border-top:1px solid #e6e8ee">${args.totalFare}</td></tr>
-        <tr><td style="padding:6px 0;color:#6b7280">Amount paid</td><td style="padding:6px 0;text-align:right">${args.paid}</td></tr>
+        <tr><td style="padding:12px 0;font-weight:bold;border-top:1px solid #e6e8ee">${args.totalLabel}</td><td style="padding:12px 0;text-align:right;font-weight:bold;border-top:1px solid #e6e8ee">${args.totalFare}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">${args.amountLabel}</td><td style="padding:6px 0;text-align:right">${args.paid}</td></tr>
         <tr><td style="padding:6px 0;color:#6b7280">Outstanding balance</td><td style="padding:6px 0;text-align:right">${args.outstanding}</td></tr>
         <tr><td style="padding:6px 0;color:#6b7280">Payment status</td><td style="padding:6px 0;text-align:right;font-weight:bold">${args.statusLabel}</td></tr>
       </table>
@@ -587,7 +589,7 @@ export async function ensureTripInvoicePdf(
   supabase: SupabaseClient,
   trip: TripInvoiceRow,
   paymentState: TripInvoicePaymentState,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; authorisedHoldPence?: number } = {},
 ): Promise<{ trip: TripInvoiceRow; url: string | null; path: string }> {
   const refreshAfterRefund = invoicePdfStaleAfterRefund(trip, paymentState);
   if (!opts.force && !refreshAfterRefund && trip.invoice_pdf_path && trip.invoice_generated_at) {
@@ -616,6 +618,10 @@ export async function ensureTripInvoicePdf(
     address: formatCompanyAddress(branding.company),
   };
 
+  const holdPence = Math.max(0, Math.round(opts.authorisedHoldPence ?? 0));
+  const displayState = holdPence > 0
+    ? { ...paymentState, authoritativePaidPence: paymentState.finalFarePence, outstandingPence: 0 }
+    : paymentState;
   const pdfBytes = await renderPdf({
     trip,
     invoiceNo: invoiceNo!,
@@ -624,14 +630,26 @@ export async function ensureTripInvoicePdf(
     tagline: branding.branding.tagline,
     customerName: trip.passenger_name || "Customer",
     customerEmail: (await resolveCustomerEmail(supabase, trip.passenger_id)) ?? "",
-    paymentState,
+    paymentState: displayState,
   });
 
-  const path = `${trip.id}/${invoiceNo}.pdf`;
+  // A hold receipt is not the captured invoice. Keep the canonical PDF free
+  // so capture can still store the paid document later.
+  const path = holdPence > 0
+    ? `${trip.id}/receipt-hold-${Date.now()}.pdf`
+    : `${trip.id}/${invoiceNo}.pdf`;
   const { error: uploadError } = await supabase.storage
     .from(BUCKET)
     .upload(path, pdfBytes, { contentType: "application/pdf", upsert: true });
   if (uploadError) throw new Error(`Invoice upload failed: ${uploadError.message}`);
+
+  if (holdPence > 0) {
+    const url = await signedUrl(supabase, path);
+    if (!trip.invoice_no && invoiceNo) {
+      await supabase.from("trips").update({ invoice_no: invoiceNo }).eq("id", trip.id);
+    }
+    return { trip: { ...trip, invoice_no: invoiceNo ?? trip.invoice_no }, url, path };
+  }
 
   const url = await signedUrl(supabase, path);
   const nowIso = new Date().toISOString();
@@ -660,14 +678,20 @@ export async function ensureTripInvoicePdf(
   return { trip: { ...trip, ...patch } as TripInvoiceRow, url, path };
 }
 
-/** Email the invoice PDF to the trip passenger. */
+/** Email the invoice PDF. Address override is required for a manual customer/admin send. */
 export async function sendTripInvoiceEmail(
   supabase: SupabaseClient,
   trip: TripInvoiceRow,
   pdfPath: string,
   paymentState: TripInvoicePaymentState,
+  opts: {
+    toEmail?: string;
+    sentBy?: string | null;
+    source?: "customer_app" | "admin_panel";
+    authorisedHoldPence?: number;
+  } = {},
 ): Promise<{ ok: boolean; error?: string; email?: string }> {
-  const email = await resolveCustomerEmail(supabase, trip.passenger_id);
+  const email = opts.toEmail?.trim() || await resolveCustomerEmail(supabase, trip.passenger_id);
   if (!email) {
     const message = "No email address on the passenger account";
     await supabase
@@ -688,6 +712,8 @@ export async function sendTripInvoiceEmail(
   const companyName = branding.company.name || "ONECAB";
   const invoiceNo = trip.invoice_no ?? "";
 
+  const holdPence = Math.max(0, Math.round(opts.authorisedHoldPence ?? 0));
+  const fareLabel = money(holdPence > 0 ? paymentState.finalFarePence : invoiceTotalPence(trip, paymentState), currency);
   const result = await sendResendEmail({
     to: email,
     subject: paymentState.paymentClassification === "PARTIALLY_PAID"
@@ -697,10 +723,12 @@ export async function sendTripInvoiceEmail(
       companyName,
       invoiceNo,
       tripRef: tripDisplayId(trip),
-      totalFare: money(invoiceTotalPence(trip, paymentState), currency),
-      paid: money(paymentState.authoritativePaidPence, currency),
-      outstanding: money(paymentState.outstandingPence, currency),
-      statusLabel: paymentClassificationLabel(paymentState.paymentClassification),
+      totalLabel: holdPence > 0 ? "Trip fare" : "Total paid",
+      amountLabel: holdPence > 0 ? "Card authorised" : "Amount paid",
+      totalFare: fareLabel,
+      paid: holdPence > 0 ? money(holdPence, currency) : money(paymentState.authoritativePaidPence, currency),
+      outstanding: holdPence > 0 ? "Capture follows the tip window" : money(paymentState.outstandingPence, currency),
+      statusLabel: holdPence > 0 ? "Authorised" : paymentClassificationLabel(paymentState.paymentClassification),
       date: formatDate(trip.completed_at ?? trip.created_at),
       pickup: trip.pickup_address ?? "—",
       dropoff: trip.dropoff_address ?? "—",
@@ -730,12 +758,33 @@ export async function sendTripInvoiceEmail(
       invoice_email_error: null,
     })
     .eq("id", trip.id);
-  await logEvent(supabase, trip.id, "email", "sent", email, { provider_id: result.id });
+  if (opts.source) {
+    const { error: auditError } = await supabase.from("trips").update({
+      invoice_email_recipient: email,
+      invoice_email_sent_by: opts.sentBy ?? null,
+      invoice_email_source: opts.source,
+    }).eq("id", trip.id);
+    if (auditError) {
+      console.warn("[TRIP_INVOICE] receipt_audit_write_failed", auditError.message);
+    }
+  }
+  await logEvent(supabase, trip.id, "email", "sent", email, {
+    provider_id: result.id,
+    source: opts.source ?? "legacy",
+    sent_by: opts.sentBy ?? null,
+  });
 
   return { ok: true, email };
 }
 
-export type TripInvoiceAction = "generate" | "regenerate" | "view" | "download" | "resend_email" | "send_email";
+export type TripInvoiceAction =
+  | "generate"
+  | "generate_only"
+  | "regenerate"
+  | "view"
+  | "download"
+  | "resend_email"
+  | "send_email";
 
 export async function handleTripInvoiceAction(
   supabase: SupabaseClient,
@@ -756,7 +805,7 @@ export async function handleTripInvoiceAction(
   }
 
   const isCountable = ["completed", "no_show"].includes(trip.status);
-  if (!isCountable && action === "generate") {
+  if (!isCountable && (action === "generate" || action === "generate_only")) {
     return { success: false, ok: false, error: "Invoice is only available for completed trips", skipped: true };
   }
 
@@ -797,21 +846,12 @@ export async function handleTripInvoiceAction(
     }
 
     const force = action === "regenerate";
-    const { trip: updated, url, path } = await ensureTripInvoicePdf(supabase, trip, paymentState, { force });
+    const { url } = await ensureTripInvoicePdf(supabase, trip, paymentState, { force });
 
-    let emailed = false;
-    let emailError: string | undefined;
-    const shouldEmail =
-      action === "resend_email" ||
-      action === "send_email" ||
-      action === "regenerate" ||
-      (action === "generate" && !updated.invoice_email_sent);
-
-    if (shouldEmail) {
-      const emailResult = await sendTripInvoiceEmail(supabase, updated, path, paymentState);
-      emailed = emailResult.ok;
-      emailError = emailResult.error;
-    }
+    const emailed = false;
+    // Receipt email is send-trip-receipt only. This path stores the PDF.
+    const shouldEmail = false;
+    void shouldEmail;
 
     const fresh = await fetchTrip(supabase, tripId);
     return {
@@ -826,7 +866,6 @@ export async function handleTripInvoiceAction(
       invoice_email_status: fresh?.invoice_email_status ?? undefined,
       invoice_email_sent_at: fresh?.invoice_email_sent_at ?? undefined,
       emailed,
-      ...(emailError && !emailed ? { error: emailError } : {}),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

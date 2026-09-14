@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Eye, Download, Share2, FileText, Loader2 } from 'lucide-react';
+import { Eye, Download, Share2, FileText, Loader2, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { TripInvoiceFields } from '@/components/trips/TripInvoiceCard';
 import {
@@ -10,6 +10,7 @@ import {
   viewTripInvoicePdf,
 } from '@/lib/tripInvoiceActions';
 import { getTripDisplayId } from '@/lib/tripUtils';
+import { SendTripReceiptDialog } from '@/components/trips/SendTripReceiptDialog';
 
 interface TripHistoryRowActionsProps {
   trip: TripInvoiceFields & {
@@ -19,8 +20,20 @@ interface TripHistoryRowActionsProps {
   onInvoiceUpdated?: () => void;
 }
 
-export function TripHistoryRowActions({ trip, onView, onInvoiceUpdated }: TripHistoryRowActionsProps) {
+export function TripHistoryRowActions({
+  trip,
+  onView,
+  onInvoiceUpdated,
+  onReceiptSendingChange,
+  onReceiptSent,
+  onReceiptFailed,
+}: TripHistoryRowActionsProps & {
+  onReceiptSendingChange?: (sending: boolean) => void;
+  onReceiptSent?: (sentAt: string) => void;
+  onReceiptFailed?: () => void;
+}) {
   const [loading, setLoading] = useState<string | null>(null);
+  const [sendOpen, setSendOpen] = useState(false);
   const tripLabel = getTripDisplayId(trip);
 
   const run = async (key: string, fn: () => Promise<void>) => {
@@ -101,6 +114,21 @@ export function TripHistoryRowActions({ trip, onView, onInvoiceUpdated }: TripHi
               variant="ghost"
               size="sm"
               disabled={!!loading}
+              aria-label="Send receipt"
+              onClick={() => setSendOpen(true)}
+            >
+              <Mail className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Send receipt</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!!loading}
               aria-label="Open invoice"
               onClick={() =>
                 run('view', async () => {
@@ -118,6 +146,17 @@ export function TripHistoryRowActions({ trip, onView, onInvoiceUpdated }: TripHi
           <TooltipContent>Open invoice</TooltipContent>
         </Tooltip>
       </div>
+      <SendTripReceiptDialog
+        tripId={trip.id}
+        open={sendOpen}
+        onOpenChange={setSendOpen}
+        onSendingChange={onReceiptSendingChange}
+        onSent={(sentAt) => {
+          onReceiptSent?.(sentAt);
+          onInvoiceUpdated?.();
+        }}
+        onFailed={onReceiptFailed}
+      />
     </TooltipProvider>
   );
 }

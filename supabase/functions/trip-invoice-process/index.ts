@@ -4,6 +4,7 @@ import { handleTripInvoiceAction, type TripInvoiceAction } from "../_shared/trip
 
 const VALID_ACTIONS = new Set<TripInvoiceAction>([
   "generate",
+  "generate_only",
   "regenerate",
   "view",
   "download",
@@ -57,7 +58,7 @@ Deno.serve(async (req) => {
   console.log("[TRIP_INVOICE] entry", JSON.stringify({ sweep: body.sweep === true, internal }));
 
 
-  // Automatic sweep: invoked by pg_cron for completed trips missing an invoice email.
+  // Legacy cron body. Store a missing PDF only — never email.
   if (body.sweep === true) {
     if (!internal) return json({ success: false, ok: false, error: "Unauthorized" }, 401);
     const supabase = serviceClient();
@@ -67,20 +68,24 @@ Deno.serve(async (req) => {
       .select("id")
       .eq("status", "completed")
       .gte("completed_at", since)
-      .or("invoice_email_sent.is.null,invoice_email_sent.eq.false")
-      .or("invoice_email_status.is.null,invoice_email_status.neq.sent")
+      .is("invoice_generated_at", null)
       .order("completed_at", { ascending: true })
       .limit(SWEEP_LIMIT);
 
     if (error) return json({ success: false, ok: false, error: error.message }, 500);
 
-    const results: Array<{ trip_id: string; ok: boolean; error?: string }> = [];
+    const results: Array<{ trip_id: string; ok: boolean; emailed: false; error?: string }> = [];
     for (const row of data ?? []) {
-      const result = await handleTripInvoiceAction(supabase, row.id as string, "generate");
-      results.push({ trip_id: row.id as string, ok: Boolean(result.emailed), error: result.error });
+      const result = await handleTripInvoiceAction(supabase, row.id as string, "generate_only");
+      results.push({
+        trip_id: row.id as string,
+        ok: result.success === true,
+        emailed: false,
+        error: result.error,
+      });
     }
-    console.log("[TRIP_INVOICE] sweep", JSON.stringify({ picked: data?.length ?? 0, results }));
-    return json({ success: true, ok: true, processed: results.length, results });
+    console.log("[TRIP_INVOICE] sweep_store_only", JSON.stringify({ picked: data?.length ?? 0, results }));
+    return json({ success: true, ok: true, emailed: false, processed: results.length, results });
   }
 
   const tripId = (body.trip_id ?? body.tripId ?? body.bookingId ?? body.booking_id) as string | undefined;
@@ -88,6 +93,16 @@ Deno.serve(async (req) => {
 
   if (!tripId) return json({ success: false, ok: false, error: "Missing trip_id" }, 400);
   if (!VALID_ACTIONS.has(action)) return json({ success: false, ok: false, error: `Invalid action: ${action}` }, 400);
+
+  // This function stores the invoice only. Email is send-trip-receipt.
+  if (action === "send_email" || action === "resend_email") {
+    return json({
+      success: false,
+      ok: false,
+      emailed: false,
+      error: "Receipt email requires a manual customer or admin action",
+    }, 403);
+  }
 
   let supabase;
   if (internal) {

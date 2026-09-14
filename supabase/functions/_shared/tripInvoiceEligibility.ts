@@ -100,7 +100,10 @@ export function isPaymentFinalisedForInvoice(trip: TripInvoiceGateRow): boolean 
   return false;
 }
 
-/** Auto customer email — completed trip only, tip window closed, payment final, once. */
+/**
+ * Whether a completed trip is ready to store an invoice PDF.
+ * Must never be used to send email. Receipt email is send-trip-receipt only.
+ */
 export function canAutoSendCustomerInvoice(
   trip: TripInvoiceGateRow,
   nowMs = Date.now(),

@@ -2,8 +2,8 @@
  * Retry pending customer trip invoices after tip-window / webhook misses.
  *
  * Replaces the invoice-retry portion of retired sweep-stale-payment-intents.
- * Does not mutate payment intents — only invokes the canonical invoice owner
- * (`maybeInvokeAutoTripInvoice` → `trip-invoice-process`).
+ * Does not mutate payment intents and does not email.
+ * Stores a missing invoice PDF only (`generate_only`).
  *
  * Body (optional): { dry_run?: boolean, limit?: number }
  */
@@ -14,10 +14,7 @@ import {
   isTipWindowClosedForInvoice,
   isTripCompletedForCustomerInvoice,
 } from "../_shared/tripInvoiceEligibility.ts";
-import {
-  invokeTripInvoiceProcess,
-  maybeInvokeAutoTripInvoice,
-} from "../_shared/tripInvoiceTrigger.ts";
+import { invokeTripInvoiceProcess } from "../_shared/tripInvoiceTrigger.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,7 +51,7 @@ Deno.serve(async (req) => {
     const { data: candidates, error } = await supabase
       .from("trips")
       .select(
-        "id, status, completed_at, payment_method, payment_status, payment_provider, provider_order_id, capture_amount_pence, invoice_email_sent, invoice_email_status, invoice_generated_at, invoice_pdf_url, tip_window_closed_at, tip_window_expires_at",
+        "id, status, completed_at, payment_method, payment_status, payment_provider, provider_order_id, capture_amount_pence, invoice_email_sent, invoice_email_status, invoice_generated_at, invoice_pdf_url, tip_window_closed_at, tip_window_expires_at, tip_window_status",
       )
       .eq("status", "completed")
       .eq("invoice_email_sent", false)
@@ -94,22 +91,17 @@ Deno.serve(async (req) => {
       if (dryRun) {
         results.push({
           trip_id: tripId,
-          action: autoGate.ok ? "would_auto" : pdfFallback ? "would_generate_only" : "would_skip",
+          action: autoGate.ok || pdfFallback ? "would_generate_only" : "would_skip",
           reason: autoGate.reason ?? null,
         });
         continue;
       }
 
       if (autoGate.ok) {
-        await maybeInvokeAutoTripInvoice(
-          supabase,
-          supabaseUrl,
-          serviceKey,
-          tripId,
-          "sweep-pending-trip-invoices",
-        );
+        // Eligible to store the invoice PDF. Never email from this sweep.
+        await invokeTripInvoiceProcess(supabaseUrl, serviceKey, tripId, "generate_only");
         invoked++;
-        results.push({ trip_id: tripId, action: "auto" });
+        results.push({ trip_id: tripId, action: "generate_only" });
         continue;
       }
 

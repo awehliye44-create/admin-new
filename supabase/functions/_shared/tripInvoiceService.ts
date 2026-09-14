@@ -1,35 +1,24 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { fetchCompanyBranding, formatCompanyAddress } from "./companyBranding.ts";
-import { formatResendFromAddress, sendResendEmail } from "./resendMail.ts";
 import {
   buildTripInvoicePayload,
   invoicePdfFileName,
   resolveCustomerEmail,
-  resolveCustomerUserId,
 } from "./tripInvoiceData.ts";
-import { buildTripInvoiceEmailHtml } from "./tripInvoiceHtml.ts";
 import { buildTripInvoicePdf } from "./tripInvoicePdf.ts";
 import type { TripInvoiceAction, TripInvoiceResponse } from "./tripInvoiceTypes.ts";
 import {
   canAutoSendCustomerInvoice,
   isPaymentFinalisedForInvoice,
+  isTipWindowClosedForInvoice,
   isTripCompletedForCustomerInvoice,
 } from "./tripInvoiceEligibility.ts";
-import {
-  buildSinglePdfAttachment,
-  claimInvoiceEmailOutboxSend,
-  CUSTOMER_TRIP_RECEIPT_ADMIN_RESEND_EMAIL_TYPE,
-  CUSTOMER_TRIP_RECEIPT_EMAIL_TYPE,
-  hasAutoCustomerReceiptBeenSent,
-  markInvoiceEmailOutboxFailed,
-  markInvoiceEmailOutboxSent,
-} from "./invoiceEmailOutbox.ts";
 
 const BUCKET = "trip-invoices";
 
 const TRIP_SELECT = `
   id, trip_code, status, financial_outcome, payment_method, payment_status, provider_order_id, payment_intent_id,
-  tip_window_closed_at, tip_window_expires_at,
+  tip_window_closed_at, tip_window_expires_at, tip_window_status,
   passenger_id, passenger_name, passenger_phone,
   pickup_address, dropoff_address, started_at, completed_at, created_at,
   driver_id, fare, estimated_fare, final_fare_pence, final_customer_fare_pence,
@@ -86,19 +75,6 @@ async function logEvent(
   if (error) {
     console.warn("[TRIP_INVOICE] log_event_failed", error.message);
   }
-}
-
-async function syncTripInvoiceEmailFlags(
-  supabase: SupabaseClient,
-  tripId: string,
-  patch: Record<string, unknown>,
-): Promise<void> {
-  await supabase.from("trips").update(patch).eq("id", tripId);
-}
-
-function moneyDisplay(pence: number, currency: string): string {
-  const sym = currency === "GBP" ? "£" : "$";
-  return `${sym}${(pence / 100).toFixed(2)}`;
 }
 
 function normalizeAction(action: TripInvoiceAction): TripInvoiceAction {
@@ -334,303 +310,45 @@ async function clearStalePdfError(
   return data ?? { ...trip, invoice_pdf_error: null };
 }
 
+/** A refund after the PDF was written must not keep serving the pre-refund total. */
+function invoiceStoredBeforeRefund(trip: Record<string, unknown>): boolean {
+  const refunded = Math.max(0, Math.round(Number(trip.refund_amount_pence) || 0));
+  if (refunded <= 0 || !trip.invoice_pdf_path) return false;
+  const generatedAt = Date.parse(String(trip.invoice_generated_at ?? ""));
+  const regeneratedAt = Date.parse(String(trip.invoice_regenerated_at ?? ""));
+  const pdfAt = Number.isFinite(regeneratedAt) ? regeneratedAt : generatedAt;
+  const refundedAt = Date.parse(String(trip.refunded_at ?? ""));
+  if (Number.isFinite(refundedAt) && Number.isFinite(pdfAt)) {
+    return refundedAt > pdfAt + 1000;
+  }
+  // refunded_at missing: refresh once, then invoice_regenerated_at stops the loop.
+  return !Number.isFinite(regeneratedAt);
+}
+
 async function ensurePdf(
   supabase: SupabaseClient,
   trip: Record<string, unknown>,
   forceRegenerate: boolean,
 ): Promise<Record<string, unknown>> {
-  if (!forceRegenerate && trip.invoice_pdf_path && trip.invoice_generated_at) {
+  const refreshAfterRefund = invoiceStoredBeforeRefund(trip);
+  if (!forceRegenerate && !refreshAfterRefund && trip.invoice_pdf_path && trip.invoice_generated_at) {
     return clearStalePdfError(supabase, trip);
   }
-  return generateInvoicePdf(supabase, trip, forceRegenerate);
+  return generateInvoicePdf(supabase, trip, forceRegenerate || refreshAfterRefund);
 }
 
 async function sendInvoiceEmail(
-  supabase: SupabaseClient,
+  _supabase: SupabaseClient,
   trip: Record<string, unknown>,
-  forceResend: boolean,
+  _forceResend: boolean,
 ): Promise<TripInvoiceResponse> {
-  const tripId = trip.id as string;
-
-  try {
-    const recipientUserId = await resolveCustomerUserId(
-      supabase,
-      (trip.passenger_id as string) ?? null,
-    );
-    if (!recipientUserId) {
-      await syncTripInvoiceEmailFlags(supabase, tripId, {
-        invoice_email_sent: false,
-        invoice_email_status: "failed",
-        invoice_email_error: "Customer account could not be resolved",
-      });
-      return toResponse(trip, {
-        success: false,
-        ok: false,
-        error: "Customer account could not be resolved",
-        stage: "email_sending",
-        invoice_email_status: "failed",
-      });
-    }
-
-    if (!forceResend) {
-      const alreadySent = trip.invoice_email_sent
-        || await hasAutoCustomerReceiptBeenSent(supabase, tripId, recipientUserId);
-      if (alreadySent) {
-        return toResponse(trip, {
-          success: true,
-          message: "Invoice email already sent",
-          invoice_email_status: "sent",
-        });
-      }
-    }
-
-    const email = await resolveCustomerEmail(supabase, (trip.passenger_id as string) ?? null);
-    if (!email) {
-      await syncTripInvoiceEmailFlags(supabase, tripId, {
-        invoice_email_sent: false,
-        invoice_email_status: "failed",
-        invoice_email_error: "Customer account email could not be resolved",
-      });
-      return toResponse(trip, {
-        success: false,
-        ok: false,
-        error: "Customer account email could not be resolved",
-        stage: "email_sending",
-        invoice_email_status: "failed",
-      });
-    }
-
-    const storagePath = trip.invoice_pdf_path as string;
-    if (!storagePath) {
-      return toResponse(trip, {
-        success: false,
-        ok: false,
-        error: "Invoice PDF not generated",
-        stage: "email_sending",
-      });
-    }
-
-    if (!storagePath.endsWith(".pdf")) {
-      return toResponse(trip, {
-        success: false,
-        ok: false,
-        error: "Invoice storage path must reference a PDF file",
-        stage: "email_sending",
-      });
-    }
-
-    const emailType = forceResend
-      ? CUSTOMER_TRIP_RECEIPT_ADMIN_RESEND_EMAIL_TYPE
-      : CUSTOMER_TRIP_RECEIPT_EMAIL_TYPE;
-
-    let outboxClaim;
-    if (forceResend) {
-      const { data: inserted, error: insertError } = await supabase
-        .from("invoice_email_outbox")
-        .insert({
-          trip_id: tripId,
-          recipient_user_id: recipientUserId,
-          recipient_email: email,
-          email_type: emailType,
-          pdf_storage_path: storagePath,
-          status: "sending",
-          metadata: { admin_resend: true },
-        })
-        .select("id, trip_id, recipient_user_id, recipient_email, email_type, pdf_storage_path, status, sent_at, provider_message_id, retry_count, error_message, metadata")
-        .single();
-      if (insertError || !inserted) {
-        throw new Error(insertError?.message ?? "Failed to create admin resend outbox row");
-      }
-      outboxClaim = { ok: true as const, reason: "claimed" as const, row: inserted };
-    } else {
-      outboxClaim = await claimInvoiceEmailOutboxSend(supabase, {
-        tripId,
-        recipientUserId,
-        recipientEmail: email,
-        emailType,
-        pdfStoragePath: storagePath,
-      });
-    }
-
-    if (!outboxClaim.ok) {
-      const message = outboxClaim.reason === "already_sent"
-        ? "Invoice email already sent"
-        : "Invoice email send already in progress";
-      return toResponse(outboxClaim.row ?? trip, {
-        success: true,
-        message,
-        invoice_email_status: outboxClaim.reason === "already_sent" ? "sent" : "sending",
-      });
-    }
-
-    const outboxRow = outboxClaim.row;
-    await syncTripInvoiceEmailFlags(supabase, tripId, {
-      invoice_email_status: "sending",
-      invoice_email_error: null,
-    });
-
-    const { data: fileData, error: dlErr } = await supabase.storage.from(BUCKET).download(storagePath);
-    if (dlErr || !fileData) {
-      const msg = dlErr?.message ?? "Failed to download invoice PDF";
-      await markInvoiceEmailOutboxFailed(supabase, outboxRow.id, msg);
-      await syncTripInvoiceEmailFlags(supabase, tripId, {
-        invoice_email_sent: false,
-        invoice_email_status: "failed",
-        invoice_email_error: msg,
-      });
-      return toResponse(trip, {
-        success: false,
-        ok: false,
-        error: msg,
-        stage: "email_sending",
-        invoice_email_status: "failed",
-      });
-    }
-
-    const pdfBytes = new Uint8Array(await fileData.arrayBuffer());
-    if (
-      pdfBytes.length < 5
-      || pdfBytes[0] !== 0x25
-      || pdfBytes[1] !== 0x50
-      || pdfBytes[2] !== 0x44
-      || pdfBytes[3] !== 0x46
-    ) {
-      const msg = "Stored invoice file is not a valid PDF";
-      await markInvoiceEmailOutboxFailed(supabase, outboxRow.id, msg);
-      await syncTripInvoiceEmailFlags(supabase, tripId, {
-        invoice_email_sent: false,
-        invoice_email_status: "failed",
-        invoice_email_error: msg,
-      });
-      return toResponse(trip, {
-        success: false,
-        ok: false,
-        error: msg,
-        stage: "email_sending",
-        invoice_email_status: "failed",
-      });
-    }
-
-    const invoiceNo = (trip.invoice_no as string) ?? "INV-UNKNOWN";
-    const tripCode = (trip.trip_code as string) ?? tripId;
-    const payload = await buildTripInvoicePayload(supabase, trip, invoiceNo);
-    const totalPaid = moneyDisplay(payload.totalPaidPence, payload.currency);
-    const companyBranding = await fetchCompanyBranding(supabase);
-    const fromAddress = formatResendFromAddress(
-      companyBranding.company.name || companyBranding.company.legalName,
-      companyBranding.company.email,
-    );
-
-    const { html, text } = buildTripInvoiceEmailHtml({
-      customerName: payload.customerName,
-      tripId: tripCode,
-      invoiceNo,
-      paymentMethod: payload.paymentMethod,
-      totalPaid,
-      tripDateTime: payload.dropoffAt || payload.pickupAt || payload.invoiceDate,
-      pickupAddress: payload.pickupAddress,
-      dropoffAddress: payload.dropoffAddress,
-      companyName: companyBranding.company.name || companyBranding.company.legalName || "ONECAB",
-      companyAddress: formatCompanyAddress(companyBranding.company) || companyBranding.company.address,
-      companyPhone: companyBranding.company.phone,
-      companyEmail: companyBranding.company.email,
-      companyWebsite: companyBranding.company.website,
-      logoUrl: companyBranding.branding.logoUrl || undefined,
-      tagline: companyBranding.branding.tagline || undefined,
-    });
-
-    const fileName = invoicePdfFileName(invoiceNo, tripCode);
-    const attachments = buildSinglePdfAttachment(pdfBytes, fileName);
-
-    log("email_sending_started", {
-      trip_id: tripId,
-      to: email,
-      invoice_no: invoiceNo,
-      attachment: fileName,
-      outbox_id: outboxRow.id,
-      email_type: emailType,
-      attachment_count: attachments.length,
-    });
-
-    const sendResult = await sendResendEmail({
-      to: email,
-      subject: `Your ONECAB Trip Receipt — ${invoiceNo}`,
-      html,
-      text,
-      from: fromAddress,
-      replyTo: companyBranding.company.email || undefined,
-      attachments,
-      tag: "trip_invoice",
-    });
-
-    const now = new Date().toISOString();
-    if (!sendResult.ok) {
-      log("email_failed", { trip_id: tripId, error: sendResult.message, outbox_id: outboxRow.id });
-      await markInvoiceEmailOutboxFailed(supabase, outboxRow.id, sendResult.message);
-      await syncTripInvoiceEmailFlags(supabase, tripId, {
-        invoice_email_sent: false,
-        invoice_email_status: "failed",
-        invoice_email_error: sendResult.message,
-      });
-      await logEvent(supabase, tripId, "email_sent", "failed", sendResult.message, {
-        outbox_id: outboxRow.id,
-        email_type: emailType,
-      });
-      return toResponse(trip, {
-        success: false,
-        ok: false,
-        error: sendResult.message,
-        stage: "email_sending",
-        invoice_email_status: "failed",
-      });
-    }
-
-    await markInvoiceEmailOutboxSent(supabase, outboxRow.id, sendResult.id ?? null);
-    log("email_sent", {
-      trip_id: tripId,
-      invoice_no: invoiceNo,
-      to: email,
-      outbox_id: outboxRow.id,
-      provider_message_id: sendResult.id ?? null,
-    });
-
-    await syncTripInvoiceEmailFlags(supabase, tripId, {
-      invoice_email_sent: true,
-      invoice_email_sent_at: now,
-      invoice_email_status: "sent",
-      invoice_email_error: null,
-      invoice_pdf_error: null,
-    });
-    await logEvent(supabase, tripId, "email_sent", "success", `Sent to ${email}`, {
-      outbox_id: outboxRow.id,
-      provider_message_id: sendResult.id ?? null,
-      email_type: emailType,
-      attachment_count: 1,
-    });
-
-    const { data: refreshed } = await supabase.from("trips").select(TRIP_SELECT).eq("id", tripId).single();
-    return toResponse(refreshed ?? trip, {
-      success: true,
-      message: forceResend ? "Invoice email resent" : "Invoice email sent",
-      invoice_email_sent_at: now,
-      invoice_email_status: "sent",
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log("email_unexpected_error", { trip_id: tripId, error: message });
-    await syncTripInvoiceEmailFlags(supabase, tripId, {
-      invoice_email_status: "failed",
-      invoice_email_error: message,
-    });
-    await logEvent(supabase, tripId, "email_sent", "failed", message);
-    return toResponse(trip, {
-      success: false,
-      ok: false,
-      error: message,
-      stage: "email_sending",
-      invoice_email_status: "failed",
-    });
-  }
+  // Receipt email is send-trip-receipt only. This service stores the PDF.
+  return toResponse(trip, {
+    success: false,
+    ok: false,
+    emailed: false,
+    error: "Receipt email requires a manual customer or admin action",
+  });
 }
 
 export async function handleTripInvoiceAction(
@@ -653,6 +371,21 @@ export async function handleTripInvoiceAction(
   }
 
   log("booking_found", { trip_id: tripId, status: trip.status, invoice_no: trip.invoice_no });
+
+  // View/download/regenerate must not freeze a receipt while a stamped tip
+  // window is still open — auto-send already waits; customer receipt must too.
+  if (!isTipWindowClosedForInvoice(trip)) {
+    log("tip_window_open", { trip_id: tripId, action });
+    return {
+      success: false,
+      ok: false,
+      trip_id: tripId,
+      bookingId: tripId,
+      skipped: true,
+      stage: "tip_window_open",
+      error: "Receipt is not available until the tip window closes",
+    };
+  }
 
   if (isAutoInvoiceAction(action)) {
     const autoGate = canAutoSendCustomerInvoice(trip);
@@ -725,8 +458,7 @@ export async function handleTripInvoiceAction(
     }
 
     if (action === "resend_email") {
-      const updated = await ensurePdf(supabase, trip, false);
-      return sendInvoiceEmail(supabase, updated, true);
+      return sendInvoiceEmail(supabase, trip, true);
     }
 
     if (action === "generate_only") {
@@ -743,18 +475,8 @@ export async function handleTripInvoiceAction(
       });
     }
 
-    // auto / generate (default): PDF + email if not sent
+    // auto / generate: store the invoice PDF only. Email is send-trip-receipt.
     const updated = await ensurePdf(supabase, trip, false);
-    const recipientUserId = await resolveCustomerUserId(
-      supabase,
-      (updated.passenger_id as string) ?? null,
-    );
-    const alreadySent = Boolean(updated.invoice_email_sent)
-      || (recipientUserId
-        && await hasAutoCustomerReceiptBeenSent(supabase, tripId, recipientUserId));
-    if (!alreadySent) {
-      return sendInvoiceEmail(supabase, updated, false);
-    }
     const urls = await getSignedUrls(supabase, updated.invoice_pdf_path as string, {
       invoiceNo: updated.invoice_no as string,
       mode: "view",
@@ -763,24 +485,15 @@ export async function handleTripInvoiceAction(
       success: true,
       pdf_url: urls.pdf_url,
       pdfUrl: urls.pdf_url,
-      message: "Invoice already generated",
+      message: "Invoice PDF stored. Receipt email is sent only after a manual request.",
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const isEmailAction = action === "resend_email" || action === "generate" || action === "auto";
-    const hasPdf = Boolean(trip.invoice_pdf_path || trip.invoice_pdf_url);
-    const stage = isEmailAction && hasPdf ? "email_sending" : "pdf_generation";
+    const stage = "pdf_generation";
 
     log("error", { trip_id: tripId, action, stage, error: message, hasPdf });
 
-    if (stage === "email_sending") {
-      await supabase.from("trips").update({
-        invoice_email_status: "failed",
-        invoice_email_error: message,
-      }).eq("id", tripId);
-    } else {
-      await supabase.from("trips").update({ invoice_pdf_error: message }).eq("id", tripId);
-    }
+    await supabase.from("trips").update({ invoice_pdf_error: message }).eq("id", tripId);
 
     await logEvent(supabase, tripId, "action_failed", "failed", message, { action, stage });
     return {
