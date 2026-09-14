@@ -36,12 +36,20 @@ serve(async (req) => {
       .from("trips")
       .select(
         "id, trip_number, passenger_id, driver_id, provider_order_id, outstanding_balance_pence, "
-        + "capture_amount_pence, final_fare_pence, tip_pence, tip_amount_pence, payment_status, "
+        + "capture_amount_pence, final_fare_pence, tip_pence, tip_amount_pence, payment_status, payment_method, "
+        + "tip_window_expires_at, tip_window_closed_at, "
         + "payment_coverage_status, currency_code, currency, arrival_cancellation_applied, arrival_cancellation_fee",
       )
       .eq("id", trip_id)
       .single();
     if (tripErr || !trip) return jsonResponse({ error: "Trip not found" }, 404);
+
+    if (trip.tip_window_expires_at && !trip.tip_window_closed_at) {
+      return jsonResponse({
+        error: "Tip window still unresolved — extra payment deferred until tip submit, skip, or expiry close",
+        error_code: "TIP_WINDOW_OPEN",
+      }, 409);
+    }
 
     const { data: paymentRows, error: paymentsErr } = await gate.supabase
       .from("payments")

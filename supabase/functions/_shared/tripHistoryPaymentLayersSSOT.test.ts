@@ -141,6 +141,27 @@ Deno.test("layers: cancellation / arrival fee payable when no final fare", () =>
   assertEquals(arrival.payable_pence, 400);
 });
 
+Deno.test("layers: collected tip is payable, not an overpayment", () => {
+  const layers = resolveTripHistoryPaymentLayers({
+    sessions: [{
+      status: "captured",
+      provider_state: "COMPLETED",
+      captured_amount_pence: 916,
+    }],
+    trip: {
+      payment_method: "card",
+      final_fare_pence: 716,
+      final_customer_fare_pence: 716,
+      tip_pence: 200,
+      tip_amount_pence: 200,
+      capture_amount_pence: 716,
+    },
+  });
+  assertEquals(layers.captured_pence, 916);
+  assertEquals(layers.customer_payable_pence, 916);
+  assertEquals(Math.max(0, layers.captured_pence - layers.customer_payable_pence), 0);
+});
+
 Deno.test("layers: never invent capture from fare alone", () => {
   const layers = resolveTripHistoryPaymentLayers({
     sessions: [],

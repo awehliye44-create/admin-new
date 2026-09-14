@@ -538,6 +538,8 @@ export type TripFinancialAuditRow = {
   ride_fare_pence?: number | null;
   airport_charge_pence?: number | null;
   tip_pence?: number | null;
+  /** Trip stamp. Excludes tip and airport. Not fare + tip. */
+  commissionable_fare_pence?: number | null;
   /** Pre-capture authorisation / hold amount when known. */
   authorised_pence?: number | null;
   /** Released hold amount when known (null = unconfirmed). */
@@ -1234,6 +1236,7 @@ export function mapTripToFinancialAuditRow(
     ride_fare_pence: rideFareForCapture,
     airport_charge_pence: airportPence,
     tip_pence: tipPence,
+    commissionable_fare_pence: row.commissionable_fare_pence ?? null,
     authorised_pence: authorisedPence,
     released_pence: releasedPence,
     fee_status,

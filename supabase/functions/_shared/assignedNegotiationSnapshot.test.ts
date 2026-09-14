@@ -31,6 +31,24 @@ Deno.test("assigned snapshot uses agreed fare, same driver ids, and closed negot
   assertEquals(snap?.driver_net_pence, 548);
   assertEquals(snap?.fare_source, "customer_counter_offer");
   assertEquals(snap?.negotiation_status, "closed");
+  assertEquals(snap?.financial_model, undefined);
+});
+
+Deno.test("assigned snapshot passes through stamped financial_model and does not invent it", () => {
+  const stamped = buildAssignedNegotiationSnapshot({
+    id: "trip-fm",
+    status: "driver_assigned",
+    financial_model: "DRIVER_COLLECTED_COMMISSION_WALLET",
+    payment_method: "card",
+  });
+  assertEquals(stamped?.financial_model, "DRIVER_COLLECTED_COMMISSION_WALLET");
+
+  const omitted = buildAssignedNegotiationSnapshot({
+    id: "trip-omitted",
+    status: "driver_assigned",
+    payment_method: "card",
+  });
+  assertEquals(Object.prototype.hasOwnProperty.call(omitted, "financial_model"), false);
 });
 
 Deno.test("assigned snapshot does not restore quote or driver-offer fare when final is £Z", () => {

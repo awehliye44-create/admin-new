@@ -83,6 +83,20 @@ export function isWhatsAppBookingRequest(headers: {
   return false;
 }
 
+/**
+ * Channel stamp lives on the booking snapshot, not the fare snapshot.
+ * Fare snapshot has no booking_source; omitting it made inserts fall through
+ * to trips.booking_source default 'admin' and skipped the tip window.
+ */
+export function bookingSourceFromSnapshots(args: {
+  bookingSnapshot?: { booking_source?: unknown } | null;
+  fareSnapshot?: { booking_source?: unknown } | null;
+}): unknown {
+  const fromBooking = args.bookingSnapshot?.booking_source;
+  if (String(fromBooking ?? "").trim()) return fromBooking;
+  return args.fareSnapshot?.booking_source;
+}
+
 export function resolvePersistedTripBookingSource(input: {
   bodySource?: unknown;
   snapshotSource?: unknown;
@@ -266,6 +280,21 @@ export function resolvePresetNegotiation(args: {
   };
 }
 
+/**
+ * Admin Preset Negotiation SSOT is preset_offer_configs.is_enabled.
+ * fare_negotiation_enabled === false is an additional fail-closed gate.
+ * Missing is_enabled is off. Missing fare_negotiation_enabled does not invent ON
+ * by itself — the preset config switch is required.
+ */
+export function isPresetNegotiationFeatureEnabled(args: {
+  presetConfigEnabled: boolean | null | undefined;
+  fareNegotiationEnabled: boolean | null | undefined;
+}): boolean {
+  if (args.presetConfigEnabled !== true) return false;
+  if (args.fareNegotiationEnabled === false) return false;
+  return true;
+}
+
 /** Named eligibility gate — false for scheduled / Corporate / WhatsApp / stacked. */
 export function isPresetNegotiationEligible(
   trip: ScheduledTripLike,
@@ -297,7 +326,6 @@ export function presetNegotiationSnapshotFields(args: {
   presetOptions: PresetOptionCanonical[];
   countdownSeconds: number | null;
 }): Record<string, unknown> {
-  const firstKey = args.presetOptions[0]?.key ?? null;
   const fields: Record<string, unknown> = {
     baseFarePence: args.baseFarePence,
     preset_options: args.presetOptions,
@@ -310,10 +338,6 @@ export function presetNegotiationSnapshotFields(args: {
   if (args.countdownSeconds != null) {
     fields.countdown_seconds = args.countdownSeconds;
     fields.presetCountdownSeconds = args.countdownSeconds;
-  }
-  if (firstKey) {
-    // Visual preselect only — never auto-submit / auto-assign.
-    fields.default_selected_offer_id = firstKey;
   }
   return fields;
 }

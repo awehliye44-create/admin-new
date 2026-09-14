@@ -29,6 +29,8 @@ Deno.test("sweep retries completed AUTHORISED via finalize, never dispose/void",
   assertEquals(retryBlock.includes("disposeTerminalTripPayment"), false);
   assertEquals(retryBlock.includes("releaseHoldForPaymentSession"), false);
   assertEquals(retryBlock.includes("cancelRevolutOrder"), false);
+  assertStringIncludes(retryBlock, "tip_window_open");
+  assertStringIncludes(retryBlock, "isTipWindowOpen");
   assertStringIncludes(src, "heal_captured_authorised_snapshot");
   assertStringIncludes(src, "sweep_captured_authorised_snapshot");
 });

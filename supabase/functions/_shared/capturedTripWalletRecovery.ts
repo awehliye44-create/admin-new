@@ -36,6 +36,7 @@ import {
   paymentSessionAllowsWalletPosting,
 } from "./postCaptureSettlementBoundary.ts";
 import { creditCapturedCardTripLedger } from "./onecabFinanceLedger.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
 import { SERVICE_AREA_FINANCIAL_MODEL } from "./commissionWalletSSOT.ts";
 import { classifyFrPromotionApplication } from "./frPerTripAuditSSOT.ts";
 import { DEFAULT_PAYOUT_CLEARING_DELAY_HOURS } from "./driverPayoutEligibilitySSOT.ts";
@@ -243,7 +244,7 @@ async function countExact(
 export const TRIP_WALLET_RECOVERY_SELECT =
   "id, trip_code, status, driver_id, financial_model, driver_net_pence, airport_charge_pence, " +
   "commission_pct, accepted_commission_percent, driver_tier_commission_percent, " +
-  "tip_pence, tip_amount_pence, currency_code, currency, provider_order_id, created_at, " +
+  "tip_pence, tip_amount_pence, payment_method, currency_code, currency, provider_order_id, created_at, " +
   "commissionable_fare_pence, commission_pence, final_fare_pence, offer_discount_pence, discount_source, " +
   "locked_base_fare_pence, fare_snapshot_json, customer_modification_charge_pence";
 
@@ -321,7 +322,7 @@ export async function recoverCapturedTripWallet(
     Math.round(Number(trip.driver_net_pence) || 0)
       + Math.round(Number(trip.airport_charge_pence) || 0),
   );
-  const tipPence = Math.max(
+  const requestedTip = Math.max(
     0,
     Math.round(Number(trip.tip_pence ?? trip.tip_amount_pence) || 0),
   );
@@ -462,6 +463,12 @@ export async function recoverCapturedTripWallet(
   }
 
   const capturedAmount = Math.round(Number(session.captured_amount_pence) || 0);
+  const tipPence = invoiceTipPenceFromConfirmedCapture({
+    paymentMethod: trip.payment_method,
+    captureAmountPence: capturedAmount,
+    finalFarePence: trip.final_fare_pence,
+    requestedTipPence: requestedTip,
+  });
   const commissionAfter = savedCommissionAfterPromotionPence(trip as Record<string, unknown>);
   const identityRhs = expectedCredit + (commissionAfter ?? 0) + tipPence;
   if (commissionAfter == null || capturedAmount !== identityRhs) {

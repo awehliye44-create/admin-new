@@ -10,17 +10,24 @@ Deno.test("second-chance phase reuses declined_customer_awaiting_driver", () => 
   assertEquals(DRIVER_SECOND_CHANCE_PHASE, "declined_customer_awaiting_driver");
 });
 
-Deno.test("Customer view hides negotiation controls during Driver second chance", () => {
+Deno.test("Customer view shows second chance without decision controls", () => {
   const view = buildCustomerNegotiationView({
     offer: {
       id: "offer-1",
       negotiation_status: "declined_customer_awaiting_driver",
       driver_offer_fare: 650,
-      offer_snapshot: { countdown_seconds: 25 },
+      offer_snapshot: {
+        countdown_seconds: 25,
+        preset_options: [{ key: "P2", grossFarePence: 700, label: "+£2.50" }],
+      },
     },
     originalFarePence: 450,
   });
-  assertEquals(view, null);
+  assertEquals(view?.phase, "declined_customer_awaiting_driver");
+  assertEquals(view?.original_fare_pence, 450);
+  assertEquals(view?.remaining_options, []);
+  assertEquals(view?.customer_is_decision_maker, false);
+  assertEquals(view?.countdown_seconds, null);
 });
 
 Deno.test("Decline, timeout, and ignore share one enterDriverSecondChance helper", async () => {

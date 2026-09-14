@@ -955,6 +955,8 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       : null;
     const sessionFareSnapshot = (loadedPaymentSession?.fare_snapshot as Record<string, unknown> | undefined)
       ?? null;
+    const sessionBookingSnapshot = (loadedPaymentSession?.booking_snapshot as Record<string, unknown> | undefined)
+      ?? null;
 
     const grossFarePence = body.original_estimated_fare != null && body.original_estimated_fare > 0
       ? Math.round(body.original_estimated_fare * 100)
@@ -1015,6 +1017,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       preauthAmountPence: preauthAmount,
       paymentSessionId: skipPlatformPreauth ? null : paymentSessionId,
       sessionFareSnapshot,
+      bookingSnapshot: sessionBookingSnapshot,
       requestReferer: req.headers.get("referer") ?? req.headers.get("referrer"),
       requestOrigin: req.headers.get("origin"),
       scheduledDispatchConfig,

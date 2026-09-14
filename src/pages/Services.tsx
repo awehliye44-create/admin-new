@@ -920,7 +920,7 @@ export default function Services() {
                   <TableHead>Inherited Settings</TableHead>
                   <TableHead>Pricing Status</TableHead>
                   <TableHead>Drivers</TableHead>
-                  <TableHead>Tips</TableHead>
+                  <TableHead title="Customer App card: 20-minute tip window">Tips</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -1001,6 +1001,7 @@ export default function Services() {
                           <Switch
                             checked={area.tips_enabled === true}
                             onCheckedChange={() => toggleTipsEnabled(area)}
+                            title="Customer App card trips: 20-minute tip window, then fare capture. WhatsApp/guest/corporate always capture immediately."
                           />
                           <Badge
                             variant="outline"
@@ -1009,6 +1010,7 @@ export default function Services() {
                                 ? 'border-amber-200 bg-amber-50 text-amber-800'
                                 : 'border-gray-200 bg-gray-50 text-gray-600'
                             }
+                            title="Passenger tips — 20-minute post-trip window on Customer App card trips only"
                           >
                             <Gift className="h-3 w-3 mr-1" />
                             {area.tips_enabled ? 'On' : 'Off'}

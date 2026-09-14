@@ -71,8 +71,7 @@ export function PaymentSessionsRowActions({
     && captureConfirmation.difference_pence > 0;
   /** Every linked trip gets a manual refund entry — not only overcapture SSOT. */
   const canRefund = Boolean(row.trip_id);
-  const outstandingForAction = row.outstanding_pence
-    ?? captureConfirmation.outstanding_pence;
+  const outstandingForAction = row.outstanding_pence;
   const captureFullyConfirmed =
     (row.action_classification === 'CAPTURED_CONFIRMED'
       || row.action_classification === 'CAPTURE_CONFIRMED'

@@ -15,6 +15,7 @@
  */
 
 import { resolveCanonicalCustomerPayablePence } from "./paymentSessionsCaptureConfirmationSSOT.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
 import {
   isVerifiedSettledCaptureSession,
   sumVerifiedCapturedFromSessions,
@@ -46,6 +47,7 @@ export type TripHistoryPaymentLayerTrip = {
   outstanding_balance_pence?: number | null;
   tip_pence?: number | null;
   tip_amount_pence?: number | null;
+  payment_method?: string | null;
   payment_status?: string | null;
   provider_status?: string | null;
   financial_outcome?: string | null;
@@ -172,11 +174,27 @@ function looksLikeTerminalFeeTrip(trip: TripHistoryPaymentLayerTrip): boolean {
  * When a ride hold (£4.80) is partially captured as a no-show fee (£4.00),
  * payable must be the fee — never the original hold / stale final_fare.
  */
+function coveredTipPence(
+  trip: TripHistoryPaymentLayerTrip,
+  fareBasePence: number,
+  capturedPence?: number | null,
+): number {
+  const fromEvidence = positivePence(capturedPence);
+  // Panel capture wins. A fare-only trips.capture_amount_pence must not hide a
+  // tip the session/payment evidence already collected (looks like overpayment).
+  const captured = fromEvidence > 0 ? fromEvidence : positivePence(trip.capture_amount_pence);
+  return invoiceTipPenceFromConfirmedCapture({
+    paymentMethod: trip.payment_method,
+    captureAmountPence: captured,
+    finalFarePence: fareBasePence,
+    requestedTipPence: trip.tip_pence ?? trip.tip_amount_pence ?? 0,
+  });
+}
+
 export function resolveTripHistoryCustomerPayablePence(
   trip: TripHistoryPaymentLayerTrip,
   capturedPence?: number | null,
 ): { payable_pence: number; source: string } {
-  const tip = positivePence(trip.tip_pence ?? trip.tip_amount_pence);
   const arrivalFee = arrivalCancellationPence(trip);
   const noShow = positivePence(trip.no_show_charge_pence);
   const cancelFee = Math.max(positivePence(trip.cancellation_fee_pence), arrivalFee);
@@ -198,7 +216,7 @@ export function resolveTripHistoryCustomerPayablePence(
 
     if (preferFee) {
       return {
-        payable_pence: terminalFee + tip,
+        payable_pence: terminalFee + coveredTipPence(trip, terminalFee, captured),
         source: noShow >= cancelFee ? "no_show_charge_pence" : "cancellation_fee_pence",
       };
     }
@@ -221,18 +239,22 @@ export function resolveTripHistoryCustomerPayablePence(
       || canonical.source === "cancellation_fee_pence"
     ) {
       return {
-        payable_pence: canonical.payable_pence + tip,
+        payable_pence: canonical.payable_pence + coveredTipPence(trip, canonical.payable_pence, captured),
         source: canonical.source,
       };
     }
     return {
-      payable_pence: canonical.payable_pence + (canonical.source.startsWith("final") ? tip : 0),
+      payable_pence: canonical.payable_pence + (
+        canonical.source.startsWith("final")
+          ? coveredTipPence(trip, canonical.payable_pence, captured)
+          : 0
+      ),
       source: canonical.source,
     };
   }
 
   if (arrivalFee > 0) {
-    return { payable_pence: arrivalFee + tip, source: "arrival_cancellation_fee" };
+    return { payable_pence: arrivalFee + coveredTipPence(trip, arrivalFee, captured), source: "arrival_cancellation_fee" };
   }
 
   return { payable_pence: 0, source: canonical.source };

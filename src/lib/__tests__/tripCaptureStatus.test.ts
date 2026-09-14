@@ -6,6 +6,7 @@ import {
   getTripDriverNetPence,
   getTripSettlementBreakdown,
   getTripSettlementFarePence,
+  getTripTipPence,
   summarizeTripPayments,
   type TripCaptureFields,
 } from '../tripCaptureStatus';
@@ -114,6 +115,21 @@ describe('tripCaptureStatus — prod screenshot trips', () => {
       payment_count: 1,
     };
     expect(getTripCaptureStatus(trip).kind).toBe('captured');
+  });
+
+  it('unpaid claimed tip does not create a capture shortfall', () => {
+    const trip: TripCaptureFields = {
+      payment_method: 'card',
+      payment_status: 'captured',
+      final_fare_pence: 1000,
+      tip_pence: 200,
+      capture_amount_pence: 1000,
+      payment_captured_pence: 1000,
+      payment_count: 1,
+    };
+    expect(getTripTipPence(trip)).toBe(0);
+    expect(getExpectedCustomerTotalPence(trip)).toBe(1000);
+    expect(getOutstandingShortfallPence(trip)).toBe(0);
   });
 
   it('never flags mismatch when captured meets or exceeds expected', () => {

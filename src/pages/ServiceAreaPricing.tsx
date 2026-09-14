@@ -472,8 +472,8 @@ export default function ServiceAreaPricing() {
                   <div>
                     <h3 className="text-lg font-semibold">Passenger tips</h3>
                     <p className="text-sm text-muted-foreground">
-                      When enabled, card trips show a tip step after completion and defer fare capture for the 2-minute tip window.
-                      When disabled, passengers rate only and fare captures immediately at trip end.
+                      When enabled, Customer App card trips show a tip step after completion and defer fare capture for the 20-minute tip window.
+                      When disabled, passengers rate only and fare captures immediately at trip end. WhatsApp, guest, and corporate trips always capture immediately.
                     </p>
                   </div>
                 </div>

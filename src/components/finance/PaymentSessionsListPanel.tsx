@@ -115,6 +115,10 @@ export function PaymentSessionsListPanel({
 
   return (
     <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Customer payable and outstanding shortfall come from the payment-state list fields.
+        This table does not recompute them from ride fare + tip.
+      </p>
       <div className="overflow-x-auto rounded-md border">
         <Table>
           <TableHeader>
@@ -125,7 +129,9 @@ export function PaymentSessionsListPanel({
               <TableHead>Customer</TableHead>
               <TableHead>Payment method</TableHead>
               <TableHead>Authorised</TableHead>
-              <TableHead>Captured</TableHead>
+              <TableHead>Provider captured</TableHead>
+              <TableHead>Customer payable</TableHead>
+              <TableHead>Outstanding shortfall</TableHead>
               <TableHead>Released</TableHead>
               <TableHead>Refunded</TableHead>
               <TableHead>Provider fee</TableHead>
@@ -171,6 +177,12 @@ export function PaymentSessionsListPanel({
                     </TableCell>
                     <TableCell className="text-xs tabular-nums">
                       {formatNullablePence(row.captured_amount_pence)}
+                    </TableCell>
+                    <TableCell className="text-xs tabular-nums">
+                      {formatNullablePence(row.customer_payable_pence)}
+                    </TableCell>
+                    <TableCell className="text-xs tabular-nums">
+                      {formatNullablePence(row.outstanding_pence)}
                     </TableCell>
                     <TableCell className="text-xs tabular-nums">
                       {formatNullablePence(row.released_amount_pence)}
