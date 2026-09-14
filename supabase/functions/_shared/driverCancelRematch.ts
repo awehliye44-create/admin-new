@@ -85,13 +85,13 @@ export const TRIP_ASSIGNED_DRIVER_COLUMN = "confirmed_driver_id" as const;
 
 /**
  * Safe trip columns for driver-cancel/rematch.
- * Never select retired trips.scan_go / trips.locked_driver_id (dropped; 42703 was mapped to "Trip not found").
+ * Never select dropped assignment columns. A schema error must not be reported as a missing trip.
  * Never select trips.driver_id — assignment SSOT is confirmed_driver_id.
  */
 export const TRIP_CANCEL_REMATCH_SELECT =
   "id, status, stacked_trip_id, cancelled_driver_ids, excluded_driver_ids, passenger_id, confirmed_driver_id, service_area_id, cancel_reason, cancelled_by, searching_expires_at, current_broadcast_round, dispatch_mode, scheduled_status, is_scheduled, scheduled_at";
 
-const RETIRED_REMATCH_COLUMNS = ["trips.scan_go", "trips.locked_driver_id"] as const;
+const RETIRED_REMATCH_COLUMNS = ["trips.retired_dispatch_flag", "trips.retired_assignment_lock"] as const;
 
 export function logTripAssignedDriverFieldResolved(context: string): void {
   console.log("DRIVER_CANCEL_SCHEMA_DRIVER_FIELD_RESOLVED", JSON.stringify({

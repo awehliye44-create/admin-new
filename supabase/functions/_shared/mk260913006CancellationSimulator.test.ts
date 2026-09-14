@@ -505,6 +505,8 @@ Deno.test("live cancel and rematch sources do not select retired columns", async
   const resume = await Deno.readTextFile(
     new URL("../customer-resume-driver-search/index.ts", import.meta.url),
   );
+  assertEquals(rematch.includes("scan_go"), false);
+  assertEquals(rematch.includes("locked_driver_id"), false);
   assertEquals(/select\([^)]*scan_go/.test(rematch), false);
   assertEquals(driverCancel.includes("if (tripError || !trip)"), false);
   assertStringIncludes(driverCancel, "classifyTripLookupFailure");
