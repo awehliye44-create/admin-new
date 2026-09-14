@@ -51,6 +51,7 @@ import {
   computeDispatchRecheckAdminLabel,
   DISPATCHABLE_DEGRADED,
   evaluateDispatchableReadiness,
+  classifyNroPushSkip,
   indexAuthoritativeDriverPushTokens,
   isDispatchRecheckableReason,
   nroDeliveryIsPushReady,
@@ -1250,9 +1251,8 @@ Deno.serve(async (req) => {
 
     const { data: pushTokenRows, error: pushTokensError } = await supabase
       .from("push_tokens")
-      .select("driver_id, platform, updated_at, is_active, device_id")
-      .eq("app_type", "driver")
-      .eq("is_active", true);
+      .select("driver_id, platform, updated_at, is_active, device_id, last_failure_reason")
+      .eq("app_type", "driver");
 
     const { data: activeDeviceRows, error: activeDevicesError } = await supabase
       .from("driver_active_devices")
@@ -1277,9 +1277,43 @@ Deno.serve(async (req) => {
         updated_at: string;
         is_active: boolean;
         device_id: string | null;
+        last_failure_reason: string | null;
       }>,
       (activeDeviceRows || []) as Array<{ driver_id: string; device_id: string | null }>,
     );
+    const activeDeviceByDriver = new Map(
+      ((activeDeviceRows || []) as Array<{ driver_id: string; device_id: string | null }>)
+        .filter((row) => row.driver_id && row.device_id)
+        .map((row) => [row.driver_id, row.device_id as string]),
+    );
+    const pushSkipReasonByDriver = new Map<string, ReturnType<typeof classifyNroPushSkip>>();
+    const pushTokensByDriver = new Map<string, Array<{
+      driver_id: string;
+      platform: string;
+      updated_at: string;
+      is_active: boolean;
+      device_id: string | null;
+      last_failure_reason: string | null;
+    }>>();
+    for (const row of (pushTokenRows || []) as Array<{
+      driver_id: string;
+      platform: string;
+      updated_at: string;
+      is_active: boolean;
+      device_id: string | null;
+      last_failure_reason: string | null;
+    }>) {
+      if (!row?.driver_id) continue;
+      const existing = pushTokensByDriver.get(row.driver_id) ?? [];
+      existing.push(row);
+      pushTokensByDriver.set(row.driver_id, existing);
+    }
+    for (const [driverId, tokens] of pushTokensByDriver) {
+      pushSkipReasonByDriver.set(driverId, classifyNroPushSkip({
+        tokens,
+        activeDeviceId: activeDeviceByDriver.get(driverId) ?? null,
+      }));
+    }
 
     /** SSOT: drivers on active trips must never receive idle (non-stacked) offers. */
     activeTripDriverIds = await loadActiveTripDriverIds(supabase);
@@ -1355,6 +1389,10 @@ Deno.serve(async (req) => {
       const coordsPair = coordsForDispatch(presence, d);
       const registeredPushTokens = pushTokenMap.get(d.id) || [];
       const hasRegisteredPushToken = registeredPushTokens.length > 0;
+      const pushSkipReason = classifyNroPushSkip({
+        tokens: pushTokensByDriver.get(d.id) ?? [],
+        activeDeviceId: activeDeviceByDriver.get(d.id) ?? null,
+      });
       const hasPresencePushToken = !!presence.push_token;
       const hasRealtimeFresh = realtimeFresh(presence, realtimeCutoffIso);
       const isForeground = presence.app_state === "foreground";
@@ -1371,13 +1409,14 @@ Deno.serve(async (req) => {
         driverOnlineIntent,
         isOnline: backendAvailabilityOnline,
         hasRegisteredPushToken,
-        hasRealtimeFresh,
+        // A socket, stale or fresh, is not an NRO delivery endpoint.
+        hasRealtimeFresh: false,
         hasCoords: !!coordsPair,
         appState: presence.app_state ?? null,
       });
 
       if (!readiness.eligible) {
-        logEligibility(d.id, false, readiness.hardRejectReason ?? "unknown", {
+        logEligibility(d.id, false, pushSkipReason ?? readiness.hardRejectReason ?? "unknown", {
           last_heartbeat_at: presence.last_heartbeat_at,
           last_seen_at_driver: d.last_seen_at ?? null,
           last_location_at: presence.last_location_at,
@@ -1391,6 +1430,8 @@ Deno.serve(async (req) => {
           last_socket_pong_at: presence.last_socket_pong_at ?? null,
           health_issues_raw: healthIssuesRaw,
           max_age_seconds: heartbeatMaxAgeSeconds,
+          push_skip_reason: pushSkipReason,
+          push_enqueued_via_insert_trigger: false,
         });
         continue;
       }
@@ -2990,6 +3031,10 @@ Deno.serve(async (req) => {
           push_enqueued_via_insert_trigger: pushProof.pushReady,
           registered_native_push: pushProof.pushReady,
           push_readiness_proof: pushProof.proof,
+          push_skip_reason: pushProof.pushReady ? null : (pushSkipReasonByDriver.get(o.driver_id) ?? classifyNroPushSkip({
+            tokens: pushTokensByDriver.get(o.driver_id) ?? [],
+            activeDeviceId: activeDeviceByDriver.get(o.driver_id) ?? null,
+          })),
           presence_push_token_hint: !!drv?.has_presence_push_token,
           app_state: drv?.app_state ?? null,
           registered_push_platforms: drv?.registered_push_platforms ?? [],
@@ -3109,7 +3154,10 @@ Deno.serve(async (req) => {
               p_source: "edge_auto_dispatch",
               p_detail: {
                 push_type: "initial",
-                reason: "no_registered_push_token",
+                reason: pushSkipReasonByDriver.get(driver.id) ?? classifyNroPushSkip({
+                  tokens: pushTokensByDriver.get(driver.id) ?? [],
+                  activeDeviceId: activeDeviceByDriver.get(driver.id) ?? null,
+                }),
                 broadcast_round: currentRound,
               },
             })).then(({ error }: { error: unknown }) => {

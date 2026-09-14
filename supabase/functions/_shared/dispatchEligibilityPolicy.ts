@@ -347,7 +347,32 @@ export type AuthoritativePushTokenRow = {
   updated_at: string;
   is_active: boolean;
   device_id: string | null;
+  last_failure_reason?: string | null;
 };
+
+/** Inactive, unbound, logout-unbound, or permanently failed tokens are not a delivery endpoint. */
+const UNUSABLE_PUSH_FAILURE_REASONS = new Set([
+  "device_unbound_logout",
+  "unbound",
+  "logout",
+  "permanently_failed",
+  "permanent_failure",
+]);
+
+export function isUsableDriverPushToken(row: {
+  is_active: boolean;
+  last_failure_reason?: string | null;
+}): boolean {
+  if (row.is_active !== true) return false;
+  const reason = (row.last_failure_reason ?? "").trim().toLowerCase();
+  return !UNUSABLE_PUSH_FAILURE_REASONS.has(reason);
+}
+
+export type NroPushSkipReason =
+  | "push_skipped_no_active_device"
+  | "push_skipped_no_active_token"
+  | "push_skipped_inactive_token"
+  | "push_skipped_token_device_mismatch";
 
 /**
  * Push readiness is an active token on the claimed device only.
@@ -367,7 +392,7 @@ export function indexAuthoritativeDriverPushTokens(
   const map = new Map<string, Array<{ platform: string; updated_at: string }>>();
   for (const row of tokens) {
     if (!row?.driver_id || !row.platform) continue;
-    if (row.is_active !== true) continue;
+    if (!isUsableDriverPushToken(row)) continue;
     const claimed = activeByDriver.get(row.driver_id);
     if (!claimed || row.device_id !== claimed) continue;
     const existing = map.get(row.driver_id) ?? [];
@@ -375,6 +400,35 @@ export function indexAuthoritativeDriverPushTokens(
     map.set(row.driver_id, existing);
   }
   return map;
+}
+
+/**
+ * Why this driver is not a trusted NRO endpoint.
+ * Null means the claimed device has a usable active token.
+ * A stale socket or stale heartbeat is never a substitute.
+ */
+export function classifyNroPushSkip(input: {
+  tokens: AuthoritativePushTokenRow[];
+  activeDeviceId: string | null | undefined;
+}): NroPushSkipReason | null {
+  const tokens = input.tokens ?? [];
+  const claimed = typeof input.activeDeviceId === "string" ? input.activeDeviceId.trim() : "";
+  const usable = tokens.filter((row) => isUsableDriverPushToken(row));
+
+  if (!claimed) return "push_skipped_no_active_device";
+
+  const usableOnClaimed = usable.filter((row) => row.device_id === claimed);
+  if (usableOnClaimed.length > 0) return null;
+
+  const anyOnClaimed = tokens.filter((row) => row.device_id === claimed);
+  if (anyOnClaimed.length > 0) return "push_skipped_inactive_token";
+  if (usable.some((row) => row.device_id && row.device_id !== claimed)) {
+    return "push_skipped_token_device_mismatch";
+  }
+  if (tokens.some((row) => !isUsableDriverPushToken(row))) {
+    return "push_skipped_inactive_token";
+  }
+  return "push_skipped_no_active_token";
 }
 
 /**

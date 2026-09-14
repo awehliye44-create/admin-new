@@ -1,5 +1,5 @@
 /**
- * Lock: killed-state iOS NRO sound + Android channel must stay WAV / v3 end-to-end.
+ * Lock: killed-state iOS NRO sound + Android channel must stay WAV / v4 end-to-end.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,13 +12,13 @@ function read(rel: string): string {
 }
 
 describe('rideOfferKilledStateSoundLock', () => {
-  it('Edge push SSOT uses onecab_new_ride_offer.wav and v3 channel — never CAF', () => {
+  it('Edge push SSOT uses onecab_new_ride_offer.wav and v4 channel — never CAF', () => {
     const copy = read('supabase/functions/_shared/rideOfferPushCopy.ts');
     expect(copy).toContain(
       "export const RIDE_OFFER_IOS_ALERT_SOUND = 'onecab_new_ride_offer.wav'",
     );
     expect(copy).toContain(
-      "export const RIDE_OFFER_ANDROID_CHANNEL_ID = 'onecab_new_ride_offers_v3'",
+      "export const RIDE_OFFER_ANDROID_CHANNEL_ID = 'onecab_new_ride_offers_v4'",
     );
     expect(copy).not.toContain('ride_offer_alert.caf');
     // Canonical constant must be the live WAV (historical wrong filename may appear in comments only).

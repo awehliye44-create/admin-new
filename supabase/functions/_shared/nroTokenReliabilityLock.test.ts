@@ -7,6 +7,7 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 import {
+  classifyNroPushSkip,
   evaluateDispatchableReadiness,
   indexAuthoritativeDriverPushTokens,
   nroDeliveryIsPushReady,
@@ -105,6 +106,64 @@ Deno.test("MK-260914-003: stale heartbeat + inactive token is not dispatchable v
   });
   assertEquals(proof.pushReady, false);
   assertEquals(proof.proof, "none");
+});
+
+Deno.test("logout-unbound token is not a trusted endpoint", () => {
+  const reason = classifyNroPushSkip({
+    tokens: [
+      {
+        driver_id: DRIVER,
+        platform: "ios",
+        updated_at: "2026-09-07T18:52:30.731Z",
+        is_active: false,
+        device_id: "ios-430b-unbound",
+        last_failure_reason: "device_unbound_logout",
+      },
+    ],
+    activeDeviceId: null,
+  });
+  assertEquals(reason, "push_skipped_no_active_device");
+});
+
+Deno.test("claimed device with only an inactive token is push_skipped_inactive_token", () => {
+  const reason = classifyNroPushSkip({
+    tokens: [
+      {
+        driver_id: DRIVER,
+        platform: "android",
+        updated_at: "2026-09-14T07:00:00.000Z",
+        is_active: false,
+        device_id: "android-session-1",
+        last_failure_reason: "device_unbound_logout",
+      },
+    ],
+    activeDeviceId: "android-session-1",
+  });
+  assertEquals(reason, "push_skipped_inactive_token");
+});
+
+Deno.test("token on another live device is not stolen", () => {
+  const reason = classifyNroPushSkip({
+    tokens: [
+      {
+        driver_id: DRIVER,
+        platform: "android",
+        updated_at: "2026-09-14T07:00:00.000Z",
+        is_active: true,
+        device_id: "other-phone",
+      },
+    ],
+    activeDeviceId: "this-session",
+  });
+  assertEquals(reason, "push_skipped_token_device_mismatch");
+});
+
+Deno.test("claimed device with no token row is push_skipped_no_active_token", () => {
+  const reason = classifyNroPushSkip({
+    tokens: [],
+    activeDeviceId: "android-session-1",
+  });
+  assertEquals(reason, "push_skipped_no_active_token");
 });
 
 Deno.test("stale socket does not prove NRO push readiness", () => {
