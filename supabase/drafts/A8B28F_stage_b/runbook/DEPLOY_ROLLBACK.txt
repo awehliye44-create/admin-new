@@ -1,0 +1,37 @@
+A8B28F Stage B — DEPLOY / ROLLBACK (DOCUMENT ONLY — NOT EXECUTED)
+
+Prerequisites
+- Stage A live: 20261109430000 / commit 93a43e98
+- Stage C 20261109440000 NOT approved
+- SECDEF A8B28 paused
+
+Deploy order (explicit approval each step)
+1. Apply B1 Admin pause RPC migration
+   Artifact: drafts/A8B28F_stage_b/B1/20261109450000_phase_a8b28f_admin_payout_operational_pause_rpc.sql
+   Rollback: B1/rollback/rollback_20261109450000_...sql
+2. Deploy provider-linkage Edge fix (B2)
+   Copy shared/payoutDestinationVerificationOutcomeSSOT.ts → functions/_shared/
+   Copy B2/updateDriverPayoutDestinationHandler.ts → functions/_shared/
+   Copy B2/update-driver-payout-destination.index.ts → functions/update-driver-payout-destination/index.ts
+   Rollback: redeploy previous v110 bundle (ezbr_sha256 a961818d…)
+3. Deploy Admin manual-verify prohibition (B3)
+   Copy B3/admin-verify-driver-payout-destination.index.ts → functions/admin-verify-driver-payout-destination/index.ts
+   Rollback: redeploy previous v126 bundle (ezbr_sha256 c92a2b5b…)
+4. Deploy Admin UI pause RPC caller (B5)
+   Wire adminSetDriverPayoutOperationalPause; hide Verify control
+   Rollback: ship previous Admin bundle (direct payouts_enabled writes remain effective with B1 present)
+5. Ship Driver app mapper/banner/submit interpreter (B4)
+   Rollback: previous Driver build; Edge 422 still fails closed for old clients
+6. Verify mixed-version behavior (matrix in STAGE_B_REPORT)
+7. Controlled MK0006 retry ONLY under separate approval (not part of Stage B)
+8. Stage C remains blocked until Driver UI adoption proven
+
+Rollback order (reverse)
+5 → 4 → 3 → 2 → 1
+Always fail closed: never fabricate PROVIDER_VERIFIED / MANUAL_VERIFIED on rollback.
+
+Hard restrictions during Stage B
+- No Revolut calls for recovery
+- No MK0006 mutation
+- No wallet eligibility / clearing function changes
+- No Stage C apply

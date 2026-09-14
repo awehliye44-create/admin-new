@@ -1,0 +1,44 @@
+A8B28F-B2R — Provider failure truth + copy + UK company payload draft
+=====================================================================
+
+Status: DRAFT / CODE READY — NOT DEPLOYED — NOT APPLIED — NO REVOLUT CALL — NO MK0006 RETRY
+
+OPS BLOCKER (must fix before any real retry)
+-------------------------------------------
+Revolut Business IP whitelist blocked counterparty create with HTTP 403.
+MK0006 afternoon retries logged:
+  PAYOUT_DESTINATION_AUTO_LINK_FAILED PROVIDER_CONFIGURATION_REQUIRED 403
+Morning archived row still holds:
+  "IP address is not whitelisted. Verify IP whitelist configuration in Revolut Business Portal."
+Bank details for MK0006 matched the screenshot (ONECAB Limited / 040003 / …3778).
+Classification: PROVIDER_LINKAGE_OR_PAYLOAD_FAILURE / PROVIDER_CONFIGURATION_REQUIRED
+— NOT USER_DETAILS_WRONG.
+
+This package
+------------
+1) Edge SSOT + handler (live tree, undeployed):
+   - Neutral driver message by default
+   - Typo-blame only for USER_INPUT_CORRECTION_REQUIRED
+   - Persist failure_class + http_status into destination_payload
+   - Truthful provider_error_code / provider_error_message_safe for config failures
+   - Audit insert uses allowed action provider_link_blocked + changed_by_user_id
+
+2) Driver interpretPayoutSubmitResponse:
+   - Same neutral default copy; no "Check the details" fallback
+
+3) Draft migration 20261109460000 (NOT APPLIED):
+   - provider_link_failure_class / provider_http_status columns
+   - Expand audit action CHECK
+   - Nullable changed_by_user_id
+
+4) Draft UK company Revolut payload builder (NOT WIRED into createRevolutCounterparty):
+   - Limited/Ltd/PLC → company_name flat UK body
+   - Individuals → individual_name
+
+Do not
+------
+- call Revolut / retry MK0006
+- fabricate PROVIDER_VERIFIED
+- mutate wallet ledger
+- apply Stage C
+- deploy Edge / apply migration until approved

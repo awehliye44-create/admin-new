@@ -1,0 +1,49 @@
+A8B28F — complete payouts_enabled reader/writer inventory
+Migrate target key:
+  OP  = payout_operational_paused
+  PD  = provider-derived destination capability
+  GL  = global admin_settings.payouts_enabled
+  EF  = effective_payout_allowed (SSOT helper)
+  LEG = keep legacy until Stage C/D
+  TEST/HIST = test or historical migration only
+
+WRITERS
+1. Trigger enforce_driver_self_insert_defaults (migration 20260716070203) — forces false on non-admin insert → Stage B+: also set OP=false; keep legacy false
+2. Admin PayoutLedgerSettingsPanel.driverOverrideMutation — direct drivers.update({payouts_enabled}) → Stage B: call admin_set_driver_payout_operational_pause (dual-write OP+legacy)
+3. Admin PayoutLedger.updatePayoutPause — direct drivers.update({payouts_enabled: row.paused}) → Stage B: same RPC dual-write
+4. Column default false / bootstrap tests — HIST
+5. NO Edge auto-link / provider verification writer today — must remain none (PD only)
+
+READERS — wallet / withdraw
+6. driver_wallet_eligibility_balances — short-circuit available=0 → Stage A LEG; Stage C OP only (not PD)
+7. get_driver_own_wallet_summary / economic_earned_at variants — payouts_enabled→DRIVER_SUSPENDED mislabel; dest verified separate → Stage B/C: OP→pause reason; PD→PAYOUT_ACCOUNT_NOT_VERIFIED; EF for withdraw
+8. driver_withdraw_reserve / early cashout SQL (20260814120000+) — reads payouts_enabled → EF
+9. driverPayoutEligibilitySSOT.aggregate (payouts_enabled→ADMIN_HOLD; account_verified separate) → OP + PD
+10. fetchDriverPayoutEligibility — reads drivers.payouts_enabled → OP/EF
+11. fetchDriverWalletPayoutSnapshot — payout_blocked / restricted → OP + PD
+12. Driver walletAdapter / withdrawEligibility / WalletBalanceCard — available_balance_pence + canWithdraw from early_* → Stage B UX; EF
+
+READERS — scheduler / batch / ledger
+13. admin-weekly-payout-scheduler — driver.payouts_enabled !== false + controlCentre GL → EF + GL
+14. admin-execute-weekly-payout-occurrence — same → EF + GL
+15. weeklyDriverPayoutBatchWorkflowSSOT — DRIVER_PAYOUTS_DISABLED + PROVIDER_LINKAGE_REQUIRED → EF + PD + GL
+16. payoutControlCentreSettingsSSOT / payoutScheduleSSOT — GL admin_settings.payouts_enabled → GL
+17. adminPayoutLedgerOverviewSSOT / AccountsOverview — pausedAccount = payouts_enabled===false → OP
+18. admin-driver-settlements / admin-driver-wallet-detail — canPayout uses payouts_enabled + GL → EF
+19. admin-payment-detail — display payoutsEnabled → OP (display)
+20. onecabFinanceLedger (shared + functions) — gate → EF
+21. manualPayoutGate / useAdminDriverOptions / DriverDetailsDialog / useDriverWallet* — UI filters → OP display; EF where acting
+
+READERS — settings / reporting
+22. Driver payout settings payload — may expose capability separately; do not treat legacy alone as verified → PD
+23. Finance fleet overview merges available/pending — unchanged math; OP only affects Stage C available gate
+
+GLOBAL SETTING
+24. admin_settings.payouts_enabled (seed migrations 20260116 / 20260831) — GL only; not per-driver
+25. PayoutLedgerSettingsPanel platform toggle writes admin_settings — GL
+
+TESTS / LOCKS
+26. All *manualPayoutGate*, *weeklyDriverPayout*, *driverPayoutEligibility*, *walletPayoutControlCentre* tests — update to OP/EF in Stage B/C
+27. phase0d_local_bootstrap payouts_enabled default — HIST
+
+OMISSION RULE: any new reader/writer of drivers.payouts_enabled after Stage B is forbidden except dual-write inside admin_set_driver_payout_operational_pause until Stage D.

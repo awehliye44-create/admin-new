@@ -1,0 +1,29 @@
+A8B28F deployment / rollback runbook (NOT EXECUTED)
+
+Hashes (pre-revision baseline)
+- updateDriverPayoutDestinationHandler.ts local sha256 a67fd0ae…
+- update-driver-payout-destination/index.ts local sha256 fa85fdde…
+- Deployed update-driver-payout-destination v110 ezbr_sha256 a961818d… verify_jwt=false
+- Deployed admin-verify-driver-payout-destination v126 ezbr_sha256 c92a2b5b…
+- Deployed admin-sync-driver-payout-provider-linkage v136 ezbr_sha256 e8a77c4f…
+- Git HEAD 966a44b6; latest applied migration 20261109410000
+- Paused A8B28 reserves 20261109420000 — Stage A uses 20261109430000; Stage C 20261109440000
+
+Order
+1) Stage A apply 20261109430000 (additive). Verify: column exists; backfill count=1; eligibility balances unchanged for all drivers; MK0006 unchanged.
+2) Stage B deploy Edge handler + admin-verify forbid + Driver mapper/adapter/wallet notice + Admin dual-write RPC usage.
+   Mixed-version: old Admin direct write still pauses via legacy flag; new RPC dual-writes.
+3) Verify Stage B in prod with canary: submit failure returns 422; Admin verify forbidden; wallet copy for blocked available.
+4) Stage C apply 20261109440000 ONLY after Stage B live everywhere. Verify balances cohort-by-cohort.
+5) Stage D later: stop writing legacy payouts_enabled except mirrors; monitor; then deprecate.
+
+Rollback
+- Stage C: restore eligibility gate to payouts_enabled (rollback SQL).
+- Stage B: redeploy previous Edge versions (v110 / v126).
+- Stage A: run stageA rollback (drop helpers/column) ONLY if Stage B/C not depending on column.
+
+MK0006 recovery (after all stages + explicit approval)
+- Driver retry or authorized idempotent provider reconcile
+- Prove PROVIDER_VERIFIED + refs
+- Then withdrawable if EF passes and threshold ok
+- Never Admin manual verify; never mutate ledger

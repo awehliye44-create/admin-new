@@ -1,0 +1,54 @@
+A8B28F Stage C companion — DRAFT ONLY (no deploy)
+
+Goal
+----
+Align remaining Driver / Edge / Admin readers with Stage C SQL model already live:
+  Available  = cleared PLATFORM earnings (OP pause may zero Available)
+  Pending    = uncleared clearing only (when not OP-paused)
+  Withdraw   = available + provider verified + NOT OP paused + global on + approved/not disabled
+  Unverified = may show Available; canWithdraw false
+  Legacy drivers.payouts_enabled MUST NOT drive pause banner / eligibility short-circuit / account_verified
+
+Hard rules
+----------
+- No ledger math / 27h clearing / DRIVER_COLLECTED commission wallet changes
+- No manual flag flips / MK0006 mutation
+- No app/Edge/Admin deploy until explicit approval
+
+Expected MK0006 after companion deploy
+--------------------------------------
+- Home: NO "Payouts temporarily paused" (OP=false even if legacy payouts_enabled=false)
+- Wallet: Available £4.25 / Pending £0.00
+- Withdraw CTA enabled (wallet summary canWithdraw true)
+- Payout account shows verified
+
+Draft map
+---------
+Driver:
+  drafts/A8B28F_stage_c_companion/resolvePayoutAccountBanner.draft.ts
+  drafts/A8B28F_stage_c_companion/usePayoutAccountBanner.draft.ts
+  drafts/A8B28F_stage_c_companion/withdrawalTerminology.draft.ts
+  drafts/A8B28F_stage_c_companion/resolvePayoutAccountBanner.test.draft.ts
+
+Edge:
+  supabase/drafts/A8B28F_stage_c_companion/edge/driverPayoutEligibilitySSOT.draft.ts
+  supabase/drafts/A8B28F_stage_c_companion/edge/fetchDriverPayoutEligibility.draft.ts
+  supabase/drafts/A8B28F_stage_c_companion/edge/weeklyDriverPayoutBatchWorkflowSSOT.draft.ts
+  supabase/drafts/A8B28F_stage_c_companion/edge/schedulerOccurrencePatch.notes.ts
+  supabase/drafts/A8B28F_stage_c_companion/edge/onecabFinanceLedger.draft.ts
+  supabase/drafts/A8B28F_stage_c_companion/edge/fetchDriverWalletPayoutSnapshot.notes.ts
+
+Admin:
+  supabase/drafts/A8B28F_stage_c_companion/admin/PayoutLedger.pause.draft.ts
+  supabase/drafts/A8B28F_stage_c_companion/admin/PayoutLedgerSettingsPanel.override.draft.ts
+  supabase/drafts/A8B28F_stage_c_companion/admin/manualPayoutGate.draft.ts
+  supabase/drafts/A8B28F_stage_c_companion/admin/accountsOverviewPaused.notes.ts
+  (reuse Stage B5 adminSetDriverPayoutOperationalPause.ts)
+
+Tests / inventory:
+  notes/INVENTORY.txt
+  tests/phaseA8B28FStageCCompanion.simulation.ts
+  src/lib/__tests__/phaseA8B28FStageCCompanionDraftLock.test.ts (source-lock)
+
+Global admin_settings.payouts_enabled remains the platform kill-switch (not per-driver).
+Stage B dual-write RPC keeps writing legacy column for back-compat until Stage D deprecate.

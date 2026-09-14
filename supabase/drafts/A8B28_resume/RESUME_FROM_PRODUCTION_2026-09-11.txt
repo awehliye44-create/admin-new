@@ -1,0 +1,34 @@
+Security warning track — resumed after A8B28F Driver Phase 1 closure
+=====================================================================
+Resumed at: 2026-09-11 (local)
+Project: thazislrdkjpvvghtvzo
+
+Production Security Advisor (get_advisors type=security)
+- ERROR: 0
+- WARN (1 category): authenticated_security_definer_function_executable
+  findings: 111
+  remediation: https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable
+- INFO (1 category): rls_enabled_no_policy
+  findings: 6 tables (historical_settlement_correction_audit, onecab_assistant_*, whatsapp_*)
+
+Live catalog counts
+- public SECURITY DEFINER with authenticated EXECUTE: 111
+- public SECURITY DEFINER with anon EXECUTE: 0
+
+Resume target (next phase, NOT applied)
+- Phase A8B28: can_corporate_user_view_driver self-bind
+- Migration: 20261109420000_phase_a8b28_can_corporate_user_view_driver_self_bind.sql
+- Status: draft ready; reserved timestamp; NOT in schema_migrations
+- Live baseline md5(prosrc): b000bb084232102300009c2a03d9bcb0 (matches draft HARD STOP)
+- ACL: {postgres=X, authenticated=X, service_role=X}; anon/PUBLIC absent
+- BEGIN/ROLLBACK sim on production: A8B28_SIM_OK (proposed md5 80c738f1…; durable state unchanged)
+- Expected Advisor after apply: still 111 (body-only; EXECUTE retained)
+- Count note: draft previously assumed 110; refreshed to 111 after A8B28F added
+  admin_set_driver_payout_operational_pause
+
+Explicitly NOT done on resume
+- Did not apply A8B28 migration
+- Did not apply Edge/Admin companion
+- Did not mutate finance / MK0006
+
+Awaiting explicit approval to apply A8B28.
