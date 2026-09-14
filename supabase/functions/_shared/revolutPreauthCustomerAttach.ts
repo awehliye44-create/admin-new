@@ -90,6 +90,8 @@ export type CreateRevolutOrderBodyInput = {
   metadata?: Record<string, string>;
   customer?: RevolutOrderCustomerRef | null;
   enableIncrementalAuthorisation?: boolean;
+  /** Hosted checkout return. Omitted unless set, so Customer App orders are unchanged. */
+  redirectUrl?: string | null;
 };
 
 /** Merchant POST /orders body. `customer` is absent unless a customer ref was supplied. */
@@ -107,6 +109,7 @@ export function buildCreateRevolutOrderRequestBody(
     description: p.description ?? "ONECAB trip payment",
     metadata: p.metadata ?? {},
     ...(customer ? { customer } : {}),
+    ...(p.redirectUrl?.trim() ? { redirect_url: p.redirectUrl.trim() } : {}),
   };
 }
 

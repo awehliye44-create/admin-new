@@ -41,6 +41,11 @@ import {
   shortfallRecaptureUserMessage,
 } from '@/lib/tripHistoryShortfallRecaptureInvoke';
 import { useStaffProfile } from '@/hooks/useStaffProfile';
+import { resolveTripHistoryShortfallFromPaymentState } from '@/lib/tripHistoryShortfallPaymentState';
+import {
+  recaptureAllowedFromSsotOutstanding,
+  type PaymentStateMoneyBreakdown,
+} from '../../../shared/paymentStateMoneyBreakdownSSOT';
 
 type OpenRecoverySession = {
   id: string;
@@ -59,6 +64,13 @@ type PaymentStateResponse = {
   refunded_pence?: number | null;
   authorized_pence?: number | null;
   outstanding_pence?: number | null;
+  outstanding_shortfall_pence?: number | null;
+  fare_pence?: number | null;
+  tip_pence?: number | null;
+  airport_charge_pence?: number | null;
+  commissionable_fare_pence?: number | null;
+  show_recapture?: boolean | null;
+  money_breakdown?: PaymentStateMoneyBreakdown | null;
   provider_settlement_verified?: boolean | null;
   payment_status?: string | null;
   provider_state?: string | null;
@@ -66,8 +78,16 @@ type PaymentStateResponse = {
   open_recovery_session: OpenRecoverySession | null;
 };
 
+type TripHistoryShortfallTrip = TripHistoryPaymentEvidenceTrip & {
+  id: string;
+  trip_number?: string | null;
+  trip_code?: string | null;
+  airport_charge_pence?: number | null;
+  commissionable_fare_pence?: number | null;
+};
+
 type Props = {
-  trip: TripHistoryPaymentEvidenceTrip & { id: string; trip_number?: string | null; trip_code?: string | null };
+  trip: TripHistoryShortfallTrip;
   currencySymbol?: string;
   onComplete?: () => void;
 };
@@ -114,36 +134,38 @@ export function TripHistoryShortfallRecaptureAction({
     },
   });
 
-  const evidence = useMemo(() => {
+  const evidence = clientEvidence;
+
+  // Payment-state payable already includes tip / airport / other non-commissionable
+  // amounts. Do not write it back as fare and add tip_pence again.
+  const paymentStateShortfall = useMemo(() => {
     const state = recoveryQuery.data;
-    if (!state) return clientEvidence;
-    const captured = Math.max(0, Math.round(Number(state.captured_pence ?? 0)));
-    const refunded = Math.max(0, Math.round(Number(state.refunded_pence ?? 0)));
-    const payable = Math.max(0, Math.round(Number(state.customer_payable_pence ?? 0)));
-    return buildTripHistoryPaymentEvidenceReadModel({
-      trip: {
-        ...trip,
-        final_customer_fare_pence: payable > 0 ? payable : trip.final_customer_fare_pence,
-        capture_amount_pence: captured > 0 ? captured : trip.capture_amount_pence,
-        refund_amount_pence: refunded > 0 ? refunded : trip.refund_amount_pence,
-      },
-      sessions: captured > 0
-        ? [{
-          status: state.payment_status,
-          provider_state: state.provider_state ?? state.provider_status,
-          captured_amount_pence: captured,
-          refunded_amount_pence: refunded,
-          authorised_amount_pence: state.authorized_pence,
-        }]
-        : undefined,
-      providerSettlementVerified: state.provider_settlement_verified,
-      paymentStatus: state.payment_status,
-      providerStatus: state.provider_state ?? state.provider_status,
-      tripStatus: trip.status,
-      adminPermitted,
-      hasOpenRecoveryAttempt: Boolean(state.open_recovery_session),
+    if (!state) return null;
+    const fromResponse = state.money_breakdown;
+    return resolveTripHistoryShortfallFromPaymentState({
+      farePence: fromResponse?.fare_pence ?? state.fare_pence ?? trip.final_fare_pence,
+      tipPence: fromResponse?.tip_pence ?? state.tip_pence ?? trip.tip_pence ?? trip.tip_amount_pence,
+      airportChargePence: fromResponse?.airport_charge_pence ?? state.airport_charge_pence ?? trip.airport_charge_pence,
+      commissionableFarePence: fromResponse?.commissionable_fare_pence
+        ?? state.commissionable_fare_pence
+        ?? trip.commissionable_fare_pence,
+      customerPayablePence: fromResponse?.customer_payable_pence ?? state.customer_payable_pence,
+      verifiedCapturedPence: fromResponse?.verified_captured_pence ?? state.captured_pence,
+      refundedPence: fromResponse?.verified_refunded_pence ?? state.refunded_pence,
+      paymentStateOutstandingPence: fromResponse?.outstanding_shortfall_pence
+        ?? state.outstanding_shortfall_pence
+        ?? state.outstanding_pence,
+      storedOutstandingBalancePence: trip.outstanding_balance_pence,
     });
-  }, [trip, recoveryQuery.data, clientEvidence, adminPermitted]);
+  }, [
+    recoveryQuery.data,
+    trip.airport_charge_pence,
+    trip.commissionable_fare_pence,
+    trip.final_fare_pence,
+    trip.outstanding_balance_pence,
+    trip.tip_amount_pence,
+    trip.tip_pence,
+  ]);
 
   const openRecovery = recoveryQuery.data?.open_recovery_session ?? null;
   const liveCheckoutUrl = checkoutUrl ?? openRecovery?.provider_checkout_url ?? null;
@@ -154,9 +176,13 @@ export function TripHistoryShortfallRecaptureAction({
     tripStatus: trip.status,
     financialModel: trip.financial_model,
     paymentMethod: trip.payment_method,
-    customerPayablePence: evidence.customer_discounted_payable_pence,
-    verifiedCapturedTotalPence: evidence.verified_captured_pence,
-    netRefundedTotalPence: evidence.refunded_pence,
+    customerPayablePence: paymentStateShortfall?.customerPayablePence
+      ?? evidence.customer_discounted_payable_pence,
+    verifiedCapturedTotalPence: paymentStateShortfall?.verifiedCapturedPence
+      ?? evidence.verified_captured_pence,
+    netRefundedTotalPence: recoveryQuery.data
+      ? Math.max(0, Math.round(Number(recoveryQuery.data.refunded_pence ?? 0)))
+      : evidence.refunded_pence,
     providerSettlementVerified: evidence.provider_settlement_verified,
     hasOpenRecoveryAttempt: Boolean(openRecovery)
       || hasLiveOpenRecovery
@@ -165,10 +191,13 @@ export function TripHistoryShortfallRecaptureAction({
     adminPermitted,
   });
 
-  const customerPayablePence = evidence.customer_discounted_payable_pence;
-  const verifiedCapturedPence = evidence.verified_captured_pence;
   const promotionDiscountPence = evidence.promotion_discount_pence;
-  const outstanding = gate.outstanding_shortfall_pence ?? evidence.outstanding_shortfall_pence ?? 0;
+  const outstanding = paymentStateShortfall?.outstandingShortfallPence ?? 0;
+  // Never enable Recapture from a locally recomputed shortfall (fare + tip overlay).
+  const showRecapture = Boolean(paymentStateShortfall)
+    && recaptureAllowedFromSsotOutstanding(outstanding)
+    && paymentStateShortfall.showRecapture
+    && gate.eligible;
   const label = recaptureActionLabel(outstanding, currencySymbol);
 
   const invalidate = () => {
@@ -363,12 +392,79 @@ export function TripHistoryShortfallRecaptureAction({
   });
   const effectiveUi = resolvedUi.ui_state;
   const showPaymentLink = resolvedUi.show_payment_link;
+  const breakdown = paymentStateShortfall?.breakdown ?? null;
+  const formatAmount = (pence: number) => `${currencySymbol}${(pence / 100).toFixed(2)}`;
+  const paymentStatePanel = breakdown ? (
+    <div
+      className={`rounded-md border p-3 space-y-2 text-sm ${
+        showRecapture
+          ? 'border-amber-400/60 bg-amber-500/5'
+          : 'border-border bg-muted/30'
+      }`}
+    >
+      <div className="font-medium">
+        {showRecapture ? 'Customer payment shortfall' : 'Customer payment'}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+        <div>
+          <div className="text-muted-foreground">Ride fare</div>
+          <div className="font-semibold">{formatAmount(breakdown.fare_pence)}</div>
+        </div>
+        {breakdown.tip_pence > 0 ? (
+          <div>
+            <div className="text-muted-foreground">Tip</div>
+            <div className="font-semibold">{formatAmount(breakdown.tip_pence)}</div>
+          </div>
+        ) : null}
+        {breakdown.airport_charge_pence > 0 ? (
+          <div>
+            <div className="text-muted-foreground">Airport charge</div>
+            <div className="font-semibold">{formatAmount(breakdown.airport_charge_pence)}</div>
+          </div>
+        ) : null}
+        {breakdown.non_commissionable_total_pence > 0 ? (
+          <div>
+            <div className="text-muted-foreground">Non-commissionable total</div>
+            <div className="font-semibold">{formatAmount(breakdown.non_commissionable_total_pence)}</div>
+          </div>
+        ) : null}
+        <div>
+          <div className="text-muted-foreground">Customer payable</div>
+          <div className="font-semibold">{formatAmount(breakdown.customer_payable_pence)}</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">Commissionable fare</div>
+          <div className="font-semibold">{formatAmount(breakdown.commissionable_fare_pence)}</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">Verified captured</div>
+          <div className={`font-semibold ${breakdown.verified_captured_pence > 0 ? 'text-green-700' : 'text-muted-foreground'}`}>
+            {formatAmount(breakdown.verified_captured_pence)}
+          </div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">Outstanding shortfall</div>
+          <div className={`font-semibold ${breakdown.outstanding_shortfall_pence > 0 ? 'text-amber-700' : ''}`}>
+            {formatAmount(breakdown.outstanding_shortfall_pence)}
+          </div>
+        </div>
+      </div>
+      {!showRecapture ? (
+        <p className="text-xs text-muted-foreground">
+          Recapture stays hidden. Outstanding comes from payment-state, not a local fare + tip total.
+        </p>
+      ) : null}
+    </div>
+  ) : null;
 
   if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID) {
     return (
-      <Badge variant="outline" className="bg-green-500/10 text-green-700 border-green-500/30">
-        {recaptureAttemptBadgeLabel(effectiveUi)}
-      </Badge>
+      <div className="space-y-2">
+        <Badge variant="outline" className="bg-green-500/10 text-green-700 border-green-500/30">
+          {recaptureAttemptBadgeLabel(effectiveUi)}
+        </Badge>
+        {paymentStatePanel}
+      </div>
     );
   }
 
@@ -561,65 +657,51 @@ export function TripHistoryShortfallRecaptureAction({
     );
   }
 
-  if (!gate.eligible || outstanding <= 0) {
+  if (!showRecapture) {
     if (
       promotionDiscountPence > 0
-      && evidence.net_verified_captured_pence > 0
+      && paymentStateShortfall
       && outstanding <= 0
     ) {
       return (
-        <div className="rounded-md border border-emerald-400/50 bg-emerald-500/5 p-3 text-sm">
-          <div className="font-medium text-emerald-800">
-            Promotion applied {currencySymbol}{(promotionDiscountPence / 100).toFixed(2)}
+        <div className="space-y-2">
+          <div className="rounded-md border border-emerald-400/50 bg-emerald-500/5 p-3 text-sm">
+            <div className="font-medium text-emerald-800">
+              Promotion applied {formatAmount(promotionDiscountPence)}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Customer payable {formatAmount(breakdown?.customer_payable_pence ?? 0)} matches
+              verified capture {formatAmount(breakdown?.verified_captured_pence ?? 0)} — no shortfall.
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            Customer payable {currencySymbol}{(customerPayablePence / 100).toFixed(2)} matches
-            verified capture {currencySymbol}{(verifiedCapturedPence / 100).toFixed(2)} — no shortfall.
-          </p>
+          {paymentStatePanel}
         </div>
       );
     }
-    if (effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.PROVIDER_SETTLEMENT_PENDING) {
+    if (
+      !paymentStateShortfall
+      && effectiveUi === TRIP_SHORTFALL_RECAPTURE_UI_STATE.PROVIDER_SETTLEMENT_PENDING
+    ) {
       return (
         <Badge variant="outline" className="bg-amber-500/10 text-amber-800 border-amber-500/40">
           Provider settlement pending
         </Badge>
       );
     }
-    return null;
+    return paymentStatePanel;
   }
 
   return (
     <>
-      <div className="rounded-md border border-amber-400/60 bg-amber-500/5 p-3 space-y-2 text-sm">
-        <div className="font-medium">Customer payment shortfall</div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-          <div>
-            <div className="text-muted-foreground">Customer payable</div>
-            <div className="font-semibold">
-              {currencySymbol}{(customerPayablePence / 100).toFixed(2)}
-            </div>
-          </div>
-          <div>
-            <div className="text-muted-foreground">Verified captured</div>
-            <div className={`font-semibold ${verifiedCapturedPence > 0 ? 'text-green-700' : 'text-muted-foreground'}`}>
-              {currencySymbol}{(verifiedCapturedPence / 100).toFixed(2)}
-            </div>
-          </div>
-          <div>
-            <div className="text-muted-foreground">Outstanding shortfall</div>
-            <div className="font-semibold text-amber-700">
-              {currencySymbol}{(outstanding / 100).toFixed(2)}
-            </div>
-          </div>
-        </div>
+      <div className="space-y-2">
+        {paymentStatePanel}
         <p className="text-xs text-muted-foreground">
           Recapture first attempts an off-session charge on the customer's saved card. If the card is
           missing or the issuer requires authentication, a Revolut payment link is created instead.
         </p>
         <Button
           size="sm"
-          disabled={mutation.isPending}
+          disabled={mutation.isPending || !showRecapture || outstanding <= 0}
           onClick={() => setConfirmOpen(true)}
         >
           {mutation.isPending ? (

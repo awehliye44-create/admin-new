@@ -12,7 +12,10 @@ import {
 } from "./presetOptionsCanonical.ts";
 import { normalizeCountdownSeconds } from "./presetNegotiationEligibility.ts";
 
-export type CustomerNegotiationPhase = "waiting_customer" | "waiting_driver_final";
+export type CustomerNegotiationPhase =
+  | "waiting_customer"
+  | "waiting_driver_final"
+  | "declined_customer_awaiting_driver";
 
 export type CustomerNegotiationView = {
   offer_id: string;
@@ -24,6 +27,8 @@ export type CustomerNegotiationView = {
   expires_at: string | null;
   negotiation_expires_at: string | null;
   countdown_seconds: number | null;
+  /** True only while Customer is the decision maker. Second chance is informational. */
+  customer_is_decision_maker: boolean;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -62,35 +67,47 @@ export function buildCustomerNegotiationView(args: {
       ? "waiting_customer"
       : status === "waiting_driver_final"
       ? "waiting_driver_final"
+      : status === "declined_customer_awaiting_driver"
+      ? "declined_customer_awaiting_driver"
       : null;
   if (!phase) return null;
 
   const driverOffer = Math.round(Number(args.offer.driver_offer_fare ?? 0));
-  if (!Number.isFinite(driverOffer) || driverOffer <= 0) return null;
+  if (phase !== "declined_customer_awaiting_driver") {
+    if (!Number.isFinite(driverOffer) || driverOffer <= 0) return null;
+  }
 
-  const presets = extractPresetOptionsFromOffer(args.offer);
-  const { remainingOptions } = buildNegotiationFromPresetOptions(
-    presets,
-    driverOffer,
-  );
+  const customerIsDecisionMaker = phase === "waiting_customer";
+  const presets = customerIsDecisionMaker
+    ? extractPresetOptionsFromOffer(args.offer)
+    : [];
+  const { remainingOptions } = customerIsDecisionMaker
+    ? buildNegotiationFromPresetOptions(presets, driverOffer)
+    : { remainingOptions: [] as PresetOptionCanonical[] };
   const expiresAt =
-    phase === "waiting_driver_final"
-      ? args.offer.driver_respond_by ?? args.offer.negotiation_expires_at ?? args.offer.expires_at
-      : args.offer.customer_respond_by ?? args.offer.negotiation_expires_at ?? args.offer.expires_at;
+    phase === "waiting_customer"
+      ? args.offer.customer_respond_by ?? args.offer.negotiation_expires_at ?? args.offer.expires_at
+      : args.offer.driver_respond_by ??
+        args.offer.negotiation_expires_at ??
+        args.offer.expires_at;
 
   return {
     offer_id: args.offer.id,
     phase,
     original_fare_pence: args.originalFarePence,
-    driver_offer_pence: driverOffer,
+    driver_offer_pence: Number.isFinite(driverOffer) && driverOffer > 0 ? driverOffer : 0,
     customer_counter_pence:
       Number(args.offer.customer_counter_fare) > 0
         ? Math.round(Number(args.offer.customer_counter_fare))
         : null,
-    remaining_options: remainingOptions.slice(0, 2),
+    remaining_options: customerIsDecisionMaker ? remainingOptions.slice(0, 2) : [],
     expires_at: expiresAt ?? null,
     negotiation_expires_at: expiresAt ?? null,
-    countdown_seconds: snapshotCountdownSeconds(args.offer.offer_snapshot),
+    countdown_seconds:
+      phase === "declined_customer_awaiting_driver"
+        ? null
+        : snapshotCountdownSeconds(args.offer.offer_snapshot),
+    customer_is_decision_maker: customerIsDecisionMaker,
   };
 }
 
@@ -105,7 +122,11 @@ export async function loadCustomerNegotiationView(
       "id, negotiation_status, driver_offer_fare, customer_counter_fare, customer_respond_by, driver_respond_by, negotiation_expires_at, expires_at, offer_snapshot",
     )
     .eq("trip_id", tripId)
-    .in("negotiation_status", ["waiting_customer", "waiting_driver_final"])
+    .in("negotiation_status", [
+      "waiting_customer",
+      "waiting_driver_final",
+      "declined_customer_awaiting_driver",
+    ])
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();

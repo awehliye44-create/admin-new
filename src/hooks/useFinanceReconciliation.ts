@@ -329,6 +329,7 @@ export interface TripFinancialAuditRow {
   ride_fare_pence?: number | null;
   airport_charge_pence?: number | null;
   tip_pence?: number | null;
+  commissionable_fare_pence?: number | null;
   authorised_pence?: number | null;
   released_pence?: number | null;
   fee_status?: 'PENDING_PROVIDER_FEE' | 'CONFIRMED' | null;

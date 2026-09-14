@@ -2427,7 +2427,8 @@ Deno.serve(async (req) => {
       !negotiationDisabledForTrip &&
       !sourceBlock &&
       !isScanAndGo &&
-      !isCustomZoneTrip;
+      !isCustomZoneTrip &&
+      dispatchSettings.fare_negotiation_enabled !== false;
 
     console.log("[auto-dispatch] Preset eligibility:", {
       ride_id: trip_id,

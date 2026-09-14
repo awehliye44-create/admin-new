@@ -16,6 +16,8 @@ import {
 import { revolutMerchantRequest, extractRevolutProviderFeeMinor } from "../_shared/revolutApi.ts";
 import { logAuditEvent } from "../_shared/security.ts";
 import { creditCapturedCardTripLedger } from "../_shared/onecabFinanceLedger.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
+import { extractConfirmedCaptureAmountPence } from "../../../shared/paymentHoldProviderTerminalPure.ts";
 import {
   sumVerifiedCapturedFromSessions,
   sumVerifiedRefundedFromSessions,
@@ -32,6 +34,8 @@ import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPayme
 import { resolvePaymentSessionCaptureAdvanceExtras } from "../_shared/paymentSessionCaptureTimestampSSOT.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import { persistProviderFeeAndMaybeResumeTerminalSettlement } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
+import { finalizeWhatsAppGuestBookingFromSession } from "../_shared/whatsappGuestBookingFinalize.ts";
+import { isWhatsAppGuestBookingSession } from "../_shared/whatsappGuestBookingSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -85,6 +89,22 @@ function numericMinor(...values: unknown[]): number | null {
     }
   }
   return null;
+}
+
+/** Confirmed capture from the order retrieve. Never the event amount, which can be the hold. */
+async function resolveConfirmedCaptureMinor(orderId: string): Promise<number | null> {
+  try {
+    const { secretKey, environment } = getRevolutMerchantConfig();
+    const order = await retrieveRevolutOrder(environment, secretKey, orderId);
+    const confirmed = extractConfirmedCaptureAmountPence(
+      order as unknown as Record<string, unknown>,
+      order.state,
+    );
+    return confirmed != null && confirmed > 0 ? confirmed : null;
+  } catch (error) {
+    console.error(`[revolut-webhook] confirmed capture lookup failed for ${orderId}:`, (error as Error).message);
+    return null;
+  }
 }
 
 async function resolveAuthorisedAmountMinor(
@@ -202,6 +222,7 @@ Deno.serve(async (req) => {
   // Locate the trip. Prefer provider_order_id, fall back to the ext_ref (trip id)
   // written by create-payment-intent. For recovery orders, use the linked session's trip.
   let tripId: string | null = null;
+  let whatsappFinalizeNeedsRetry = false;
   if (recoverySession?.trip_id) {
     tripId = recoverySession.trip_id;
   } else {
@@ -233,11 +254,16 @@ Deno.serve(async (req) => {
       null;
     if (recoveryNextStatus) {
       const nowIso = new Date().toISOString();
-      const capturedAmt = (event.data as { captured_amount?: unknown; amount?: unknown } | undefined);
-      const amt =
-        typeof capturedAmt?.captured_amount === "number" ? capturedAmt.captured_amount :
-        typeof capturedAmt?.amount === "number" ? capturedAmt.amount :
-        null;
+      const explicitCaptured = numericMinor(
+        (event.data as { captured_amount?: unknown } | undefined)?.captured_amount,
+      );
+      let amt: number | null = null;
+      if (recoveryNextStatus === "RECOVERY_COMPLETED" && orderId) {
+        amt = await resolveConfirmedCaptureMinor(orderId);
+      }
+      if (amt == null && explicitCaptured != null && explicitCaptured > 0) {
+        amt = explicitCaptured;
+      }
 
       if (recoveryNextStatus === "RECOVERY_COMPLETED" && recoverySession.trip_id) {
         const { data: recoveryFull } = await supabase
@@ -252,7 +278,7 @@ Deno.serve(async (req) => {
 
         const { data: tripRow } = await supabase
           .from("trips")
-          .select("final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, estimated_total_pence, capture_amount_pence, authorised_amount_pence, payment_provider, payment_method, driver_id, driver_net_pence, tip_pence, currency_code")
+            .select("final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, estimated_total_pence, capture_amount_pence, authorised_amount_pence, payment_provider, payment_method, driver_id, driver_net_pence, tip_pence, tip_amount_pence, currency_code")
           .eq("id", recoverySession.trip_id)
           .maybeSingle();
 
@@ -364,7 +390,12 @@ Deno.serve(async (req) => {
               driverId: tripRow.driver_id,
               tripId: recoverySession.trip_id,
               driverNetPence: Math.max(0, Math.round(Number(tripRow.driver_net_pence ?? 0))),
-              tipPence: Math.max(0, Math.round(Number(tripRow.tip_pence ?? 0))),
+              tipPence: invoiceTipPenceFromConfirmedCapture({
+                paymentMethod: tripRow.payment_method,
+                captureAmountPence: Math.max(0, originalCaptured) + Math.max(0, recoveryCapture),
+                finalFarePence: tripRow.final_fare_pence,
+                requestedTipPence: tripRow.tip_pence ?? tripRow.tip_amount_pence,
+              }),
               currency: String(tripRow.currency_code ?? "GBP"),
               paymentId: recoverySession.id,
             });
@@ -444,7 +475,7 @@ Deno.serve(async (req) => {
       const { data: session } = await supabase
         .from("payment_sessions")
         .select(
-          "id, trip_id, status, authorised_amount_pence, captured_amount_pence, captured_at, provider_state, failure_reason, metadata, financial_operation_state, purpose, refunded_amount_pence, hold_release_state, provider_capture_id, provider_order_id",
+          "id, trip_id, user_id, client_action_id, status, authorised_amount_pence, captured_amount_pence, captured_at, provider_state, failure_reason, metadata, booking_snapshot, financial_operation_state, purpose, refunded_amount_pence, hold_release_state, provider_capture_id, provider_order_id",
         )
         .eq("provider_order_id", orderId)
         .eq("purpose", "RIDE_BOOKING")
@@ -459,10 +490,13 @@ Deno.serve(async (req) => {
             ? session.metadata as Record<string, unknown>
             : {};
 
-        const eventCaptured = numericMinor(
-          (event.data as { captured_amount?: unknown; amount?: unknown } | undefined)?.captured_amount,
-          (event.data as { captured_amount?: unknown; amount?: unknown } | undefined)?.amount,
+        let eventCaptured = numericMinor(
+          (event.data as { captured_amount?: unknown } | undefined)?.captured_amount,
         );
+        if (["COMPLETED", "CAPTURED"].includes(stateUpper) && orderId) {
+          const confirmed = await resolveConfirmedCaptureMinor(orderId);
+          if (confirmed != null) eventCaptured = confirmed;
+        }
 
         // Stronger terminal provider states must not be overwritten by weaker/stale events.
         const priorProvider = String(session.provider_state ?? "").toUpperCase();
@@ -595,10 +629,6 @@ Deno.serve(async (req) => {
 
         // P0: never auto-finalise superseded / orphaned / already-trip sessions.
         const sessionStatus = String(session.status ?? "").toLowerCase();
-        const sessionMeta =
-          session.metadata && typeof session.metadata === "object"
-            ? (session.metadata as Record<string, unknown>)
-            : {};
         const alreadyOrphaned =
           sessionStatus === "payment_orphaned" ||
           sessionStatus === "orphan_authorisation" ||
@@ -606,6 +636,48 @@ Deno.serve(async (req) => {
           sessionMeta.never_capture === true;
 
         if (
+          ["AUTHORISED", "AUTHORIZED", "COMPLETED", "CAPTURED"].includes(stateUpper) &&
+          !session.trip_id &&
+          !alreadyOrphaned &&
+          !["cancelled", "failed", "released"].includes(sessionStatus)
+          && isWhatsAppGuestBookingSession(session)
+        ) {
+          const waFinalize = await finalizeWhatsAppGuestBookingFromSession(
+            supabase,
+            session as Record<string, unknown>,
+            {
+              providerOrderId: orderId,
+              supabaseUrl: Deno.env.get("SUPABASE_URL") ?? "",
+              serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+            },
+          );
+          if (waFinalize.tripId) {
+            finaliseTripId = waFinalize.tripId;
+            tripId = waFinalize.tripId;
+            console.log(
+              `[revolut-webhook] whatsapp CTAP session=${session.id} trip=${waFinalize.tripId} dispatch=${waFinalize.dispatched === true}`,
+            );
+          } else {
+            whatsappFinalizeNeedsRetry = true;
+            console.error(
+              `[revolut-webhook] whatsapp CTAP failed session=${session.id}:`,
+              waFinalize.error ?? "dispatch_not_invoked",
+            );
+            await supabase
+              .from("payment_sessions")
+              .update({
+                recovery_attempt_count: 1,
+                last_recovery_attempt_at: nowIso,
+                metadata: {
+                  ...sessionMeta,
+                  last_auto_recovery_error: waFinalize.error ?? "trip_not_created",
+                  last_auto_recovery_error_at: nowIso,
+                  trip_writer: "create-trip-after-payment",
+                },
+              })
+              .eq("id", session.id);
+          }
+        } else if (
           ["AUTHORISED", "AUTHORIZED", "COMPLETED", "CAPTURED"].includes(stateUpper) &&
           !session.trip_id &&
           !alreadyOrphaned &&
@@ -837,6 +909,17 @@ Deno.serve(async (req) => {
   console.log(
     `[revolut-webhook] verified event=${eventName ?? "?"} order=${orderId ?? "?"} trip=${tripId ?? "?"} → status=${nextStatus ?? "none"}`,
   );
+
+  if (whatsappFinalizeNeedsRetry) {
+    return new Response(JSON.stringify({
+      received: false,
+      retry: "whatsapp_trip_create",
+      applied_status: nextStatus,
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   return new Response(JSON.stringify({ received: true, applied_status: nextStatus }), {
     status: 200,

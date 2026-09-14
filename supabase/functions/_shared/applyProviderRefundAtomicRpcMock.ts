@@ -4,6 +4,7 @@
  */
 import {
   applyRefundToTripAmounts,
+  capturedTipReversalPence,
   resolveRefundStatus,
   resolveTripPaymentStatusFromRefund,
 } from "./providerRefundSSOT.ts";
@@ -166,8 +167,21 @@ export function simulateAtomicRpc(
     driverNetPence: Number(state.tripRow.driver_net_pence ?? 0),
   });
 
+  const tipCredit = state.ledgerRows
+    .filter((r) =>
+      r.related_trip_id === state.tripRow.id
+      && r.type === "DRIVER_TIP_CREDIT"
+      && (state.tripRow.driver_id == null || r.driver_id === state.tripRow.driver_id)
+    )
+    .reduce((sum, r) => sum + Math.max(0, Number(r.amount_pence ?? 0)), 0);
+  const tipReversal = capturedTipReversalPence({
+    cumulativeRefundedPence: cumulative,
+    farePence: Number(state.tripRow.final_fare_pence ?? 0),
+    capturedPence: captured,
+    tipCreditPence: tipCredit,
+  });
   const priorDebitSum = authoritativeDebitSum(state);
-  let missing = Math.max(0, adjusted.driver_reversal_pence - priorDebitSum);
+  let missing = Math.max(0, adjusted.driver_reversal_pence + tipReversal - priorDebitSum);
   let inserted = 0;
   let ledgerId: string | null = existingDebit ? String(existingDebit.id) : null;
 

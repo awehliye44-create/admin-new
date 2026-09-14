@@ -24,9 +24,7 @@ import { formatMoneyMinor } from '@/lib/formatMoneyMinor';
 import { FinanceRecoveryMismatchSummary } from '@/components/payment/FinanceRecoveryMismatchSummary';
 import { FinanceTripActionsPanel } from '@/components/finance/FinanceTripActionsPanel';
 import {
-  captureStatusColorClass,
   getCapturedTotalPence,
-  getExpectedCustomerTotalPence,
   getTripCaptureStatus,
   getTripSettlementBreakdown,
   getTripTipPence,
@@ -36,8 +34,12 @@ import {
 } from '@/lib/tripCaptureStatus';
 import {
   paymentCoverageBadgeLabel,
-  computeOutstandingShortfallPence,
 } from '../../../shared/tripHistoryShortfallRecaptureSSOT';
+import {
+  recaptureAllowedFromSsotOutstanding,
+  buildPaymentStateMoneyBreakdown,
+  type PaymentStateMoneyBreakdown,
+} from '../../../shared/paymentStateMoneyBreakdownSSOT';
 
 interface PaymentState {
   trip_id: string;
@@ -70,6 +72,14 @@ interface PaymentState {
   onecab_net_pence: number;
   driver_net_pence: number | null;
   outstanding_pence?: number;
+  outstanding_shortfall_pence?: number;
+  fare_pence?: number;
+  tip_pence?: number;
+  airport_charge_pence?: number;
+  non_commissionable_total_pence?: number;
+  commissionable_fare_pence?: number;
+  show_recapture?: boolean;
+  money_breakdown?: PaymentStateMoneyBreakdown | null;
   capture_mismatch?: boolean;
   ssot_source?: string;
   provider_transfer_id: string | null;
@@ -445,40 +455,41 @@ export function PaymentControlsCard({
     safePence(ctx?.final_fare_pence),
     safePence(ctx?.settlement_total_pence),
   );
-  const customerPayableFromContext = captureContextForStatus
-    ? getExpectedCustomerTotalPence(captureContextForStatus)
-    : null;
   const feePayableHint = Math.max(
     safePence(ctx?.no_show_charge_pence),
     safePence((ctx as { cancellation_fee_pence?: number | null } | undefined)?.cancellation_fee_pence),
   );
-  // Prefer fee / edge payable — never Math.max up to stale ride settlement on no-show.
+  const moneyBreakdown = state
+    ? (state.money_breakdown ?? buildPaymentStateMoneyBreakdown({
+      farePence: state.fare_pence ?? state.final_fare_pence,
+      tipPence: state.tip_pence ?? getTripTipPence(ctx ?? {}),
+      airportChargePence: state.airport_charge_pence,
+      commissionableFarePence: state.commissionable_fare_pence,
+      customerPayablePence: state.customer_payable_pence,
+      verifiedCapturedPence: state.captured_pence,
+      verifiedRefundedPence: state.refunded_pence,
+      outstandingShortfallPence: state.outstanding_shortfall_pence ?? state.outstanding_pence,
+    }))
+    : null;
+  // Payment-state is the only payable. Do not Math.max it with a local fare + tip total.
   const customerPayablePence = (() => {
+    if (moneyBreakdown) return moneyBreakdown.customer_payable_pence;
     if (captureStatus?.isTerminalFeeOutcome && captureStatus.expectedTotalPence != null) {
       return captureStatus.expectedTotalPence;
     }
-    const fromState = safePence(state?.customer_payable_pence);
-    const fromContext = safePence(customerPayableFromContext);
     if (feePayableHint > 0 && netCapturedPence > 0 && Math.abs(netCapturedPence - feePayableHint) <= 1) {
       return feePayableHint;
     }
-    if (fromState > 0 && fromContext > 0) return Math.min(fromState, fromContext);
-    return Math.max(fromState, fromContext, safePence(state?.final_customer_fare_pence));
+    return 0;
   })();
-  const displayPayablePence = customerPayablePence > 0
-    ? customerPayablePence
-    : settlementTotalPence;
+  const displayPayablePence = customerPayablePence;
   const settlementBreakdown = ctx ? getTripSettlementBreakdown(ctx) : null;
   const driverNetPence = state?.driver_net_pence ?? null;
   const quotedEstimatePence = Math.max(0, Math.round((ctx?.estimated_fare ?? 0) * 100));
-  const computedOutstandingPence = computeOutstandingShortfallPence({
-    customerPayablePence: displayPayablePence > 0 ? displayPayablePence : null,
-    verifiedCapturedTotalPence: netCapturedPence > 0 ? netCapturedPence : null,
-    netRefundedTotalPence: refundedPence,
-  });
-  // Prefer server outstanding when UI has no payable/capture evidence yet.
-  const extraDuePence = computedOutstandingPence
-    ?? (typeof state?.outstanding_pence === 'number' ? Math.max(0, state.outstanding_pence) : 0);
+  const extraDuePence = moneyBreakdown
+    ? moneyBreakdown.outstanding_shortfall_pence
+    : 0;
+  const showExtraCharge = recaptureAllowedFromSsotOutstanding(extraDuePence);
   const releasedBufferPence = Math.max(0, authorisedPence - capturedPence);
   const providerStateBlob = String(
     state?.provider_state ?? state?.provider_status ?? state?.payment_status ?? '',
@@ -656,7 +667,7 @@ export function PaymentControlsCard({
                 settlementTotalPence={settlementTotalPence}
                 outstandingPence={extraDuePence}
                 currency={currency}
-                showActions={extraDuePence > 0 && !isLegacyIncomplete}
+                showActions={showExtraCharge && !isLegacyIncomplete}
                 onAction={(action) => {
                   if (action === 'extra_payment') openExtraPayment();
                   else {
@@ -670,50 +681,31 @@ export function PaymentControlsCard({
               />
             )}
 
-            {/* Capture confirmation — payments SSOT vs fare + tip */}
-            {captureStatus && isCardTrip(captureContext!) && (
+            {/* Capture confirmation — payment-state SSOT, not fare + tip */}
+            {moneyBreakdown ? (
               <div
                 className={`rounded-md border px-3 py-2 text-xs ${
-                  captureStatus.kind === 'capture_mismatch'
+                  moneyBreakdown.outstanding_shortfall_pence > 0
                     ? 'border-amber-400 bg-amber-500/10 text-amber-800'
-                    : captureStatus.kind === 'captured' || captureStatus.kind === 'captured_split'
-                      ? 'border-green-500/40 bg-green-500/10 text-green-800'
-                      : 'border-muted bg-muted/30 text-muted-foreground'
+                    : 'border-green-500/40 bg-green-500/10 text-green-800'
                 }`}
               >
-                <div className={`font-medium ${captureStatusColorClass(captureStatus.kind)}`}>
-                  {captureStatus.label}
+                <div className="font-medium">
+                  {moneyBreakdown.outstanding_shortfall_pence > 0 ? 'Outstanding shortfall' : 'Captured'}
                 </div>
-                {captureStatus.expectedTotalPence != null && captureStatus.capturedTotalPence != null && (
-                  <div className="mt-1 text-muted-foreground">
-                    {captureStatus.isTerminalFeeOutcome
-                      ? (
-                        <>
-                          Expected customer charge {formatPence(captureStatus.expectedTotalPence, currency)} (terminal fee only)
-                          {' · '}
-                          Captured {formatPence(captureStatus.capturedTotalPence, currency)}
-                        </>
-                      )
-                      : (
-                        <>
-                          Settlement {formatPence(captureStatus.expectedTotalPence, currency)} (final_fare + tip + fees)
-                          {' · '}
-                          Captured {formatPence(captureStatus.capturedTotalPence, currency)}
-                          {captureStatus.paymentCount > 1 ? ` across ${captureStatus.paymentCount} PIs` : ''}
-                        </>
-                      )}
-                  </div>
-                )}
-                {captureStatus.tooltip && (
-                  <div className="mt-1 text-muted-foreground">{captureStatus.tooltip}</div>
-                )}
-                {captureStatus.kind === 'captured_split' && (
-                  <div className="mt-1 text-muted-foreground">
-                    Split capture: primary PI plus shortfall PI (auth cap) — combined total is settlement source of truth.
-                  </div>
-                )}
+                <div className="mt-1 text-muted-foreground">
+                  Customer payable {formatPence(moneyBreakdown.customer_payable_pence, currency)}
+                  {' · '}
+                  Provider captured {formatPence(moneyBreakdown.verified_captured_pence, currency)}
+                  {' · '}
+                  Outstanding shortfall {formatPence(moneyBreakdown.outstanding_shortfall_pence, currency)}
+                </div>
               </div>
-            )}
+            ) : captureStatus && isCardTrip(captureContext!) ? (
+              <div className="rounded-md border border-muted bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                Payment state unavailable — payable and shortfall are not calculated on this page.
+              </div>
+            ) : null}
 
             {/* Status row */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -800,19 +792,31 @@ export function PaymentControlsCard({
                 )}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1">
-                {quotedEstimatePence > 0 && quotedEstimatePence !== settlementTotalPence && (
+                {quotedEstimatePence > 0 && quotedEstimatePence !== displayPayablePence && (
                   <div className="flex justify-between col-span-full">
                     <span className="text-muted-foreground">Quoted / Estimated</span>
                     <span>{formatPence(quotedEstimatePence, currency)}</span>
                   </div>
                 )}
-                <div className="flex justify-between"><span className="text-muted-foreground">{displayPayablePence < settlementTotalPence ? 'Customer payable' : 'Final Settlement Total'}</span><span>{formatPence(displayPayablePence, currency)}</span></div>
+                {moneyBreakdown ? (
+                  <>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Ride fare</span><span>{formatPence(moneyBreakdown.fare_pence, currency)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Tip</span><span>{formatPence(moneyBreakdown.tip_pence, currency)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Non-commissionable total</span><span>{formatPence(moneyBreakdown.non_commissionable_total_pence, currency)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Customer payable</span><span>{formatPence(moneyBreakdown.customer_payable_pence, currency)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Commissionable fare</span><span>{formatPence(moneyBreakdown.commissionable_fare_pence, currency)}</span></div>
+                  </>
+                ) : (
+                  <div className="flex justify-between col-span-full"><span className="text-muted-foreground">Customer payable</span><span>Payment state unavailable</span></div>
+                )}
                 <div className="flex justify-between"><span className="text-muted-foreground">Authorised hold</span><span>{formatPence(authorisedPence, currency)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Captured</span><span>{formatPence(capturedPence, currency)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Provider captured</span><span>{formatPence(capturedPence, currency)}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Released buffer</span><span>{formatPence(releasedBufferPence, currency)}</span></div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Outstanding amount</span>
-                  <span className={extraDuePence > 0 ? 'text-amber-700 font-semibold' : ''}>{formatPence(extraDuePence, currency)}</span>
+                  <span className="text-muted-foreground">Outstanding shortfall</span>
+                  <span className={extraDuePence > 0 ? 'text-amber-700 font-semibold' : ''}>
+                    {moneyBreakdown ? formatPence(extraDuePence, currency) : '—'}
+                  </span>
                 </div>
               </div>
               {isLegacyTrip && (
@@ -837,7 +841,13 @@ export function PaymentControlsCard({
             {/* Detailed finance breakdown — Financial Reconciliation (SSOT) only */}
             {isFinanceVariant ? (
             <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1.5">
-              <div className="flex justify-between"><span className="text-muted-foreground">{displayPayablePence < settlementTotalPence ? 'Customer payable' : 'Final Settlement Total'}</span><span>{formatPence(isFinanceVariant ? settlementTotalPence : displayPayablePence, currency)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Ride fare</span><span>{formatPence(moneyBreakdown?.fare_pence ?? 0, currency)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Tip</span><span>{formatPence(moneyBreakdown?.tip_pence ?? 0, currency)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Non-commissionable total</span><span>{formatPence(moneyBreakdown?.non_commissionable_total_pence ?? 0, currency)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Customer payable</span><span>{formatPence(moneyBreakdown?.customer_payable_pence ?? displayPayablePence, currency)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Commissionable fare</span><span>{formatPence(moneyBreakdown?.commissionable_fare_pence ?? 0, currency)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Provider captured</span><span>{formatPence(capturedPence, currency)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Outstanding shortfall</span><span>{moneyBreakdown ? formatPence(extraDuePence, currency) : '—'}</span></div>
               {settlementBreakdown?.showBreakdown && settlementBreakdown.waitingPence > 0 && (
                 <div className="flex justify-between"><span className="text-muted-foreground">Waiting time</span><span>{formatPence(settlementBreakdown.waitingPence, currency)}</span></div>
               )}

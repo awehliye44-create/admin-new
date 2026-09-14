@@ -10,8 +10,10 @@ import {
   PRESET_SLOT_COUNT,
 } from "./presetOptionsCanonical.ts";
 import {
+  bookingSourceFromSnapshots,
   isCorporateTripIneligibleForPresetNegotiation,
   isPresetNegotiationEligible,
+  isPresetNegotiationFeatureEnabled,
   isScheduledTripIneligibleForPresetNegotiation,
   isWhatsAppTripIneligibleForPresetNegotiation,
   presetNegotiationSnapshotFields,
@@ -283,6 +285,37 @@ Deno.test("Admin countdown_seconds is used even when the display toggle is off",
   assertEquals(result.countdownSeconds, 25);
 });
 
+Deno.test("preset negotiation feature fails closed unless the service-area switch is on", () => {
+  assertEquals(
+    isPresetNegotiationFeatureEnabled({
+      presetConfigEnabled: false,
+      fareNegotiationEnabled: true,
+    }),
+    false,
+  );
+  assertEquals(
+    isPresetNegotiationFeatureEnabled({
+      presetConfigEnabled: null,
+      fareNegotiationEnabled: true,
+    }),
+    false,
+  );
+  assertEquals(
+    isPresetNegotiationFeatureEnabled({
+      presetConfigEnabled: true,
+      fareNegotiationEnabled: false,
+    }),
+    false,
+  );
+  assertEquals(
+    isPresetNegotiationFeatureEnabled({
+      presetConfigEnabled: true,
+      fareNegotiationEnabled: true,
+    }),
+    true,
+  );
+});
+
 Deno.test("snapshot never enables countdown_auto_select", () => {
   const snap = presetNegotiationSnapshotFields({
     baseFarePence: 1000,
@@ -294,6 +327,7 @@ Deno.test("snapshot never enables countdown_auto_select", () => {
     ),
   });
   assertEquals(snap.countdown_auto_select, false);
+  assertEquals(snap.default_selected_offer_id, undefined);
   assertEquals(snap.presets_enabled, true);
   assertEquals(snap.negotiationAllowed, true);
   assertEquals(snap.negotiation_eligible, true);
@@ -341,6 +375,26 @@ Deno.test("guest and WhatsApp referer persist as ineligible sources", () => {
       snapshotSource: "choose_ride",
     }),
     "choose_ride",
+  );
+  assertEquals(
+    bookingSourceFromSnapshots({
+      bookingSnapshot: { booking_source: "choose_ride" },
+      fareSnapshot: {},
+    }),
+    "choose_ride",
+  );
+  assertEquals(
+    resolvePersistedTripBookingSource({
+      snapshotSource: bookingSourceFromSnapshots({
+        bookingSnapshot: { booking_source: "choose_ride" },
+        fareSnapshot: { booking_source: "admin" },
+      }),
+    }),
+    "choose_ride",
+  );
+  assertEquals(
+    bookingSourceFromSnapshots({ bookingSnapshot: {}, fareSnapshot: {} }),
+    undefined,
   );
 });
 

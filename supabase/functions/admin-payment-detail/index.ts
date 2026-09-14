@@ -9,6 +9,7 @@ import {
 } from "../_shared/tripSettlementFinanceSSOT.ts";
 import { tripBlocksDriverWalletLedgerPosting } from "../_shared/commissionWalletDeduction.ts";
 import { postStampedTripSettlementWalletCredit } from "../_shared/canonicalTypedWalletPostingSSOT.ts";
+import { tipPenceRemainingAfterRefund } from "../../../shared/tripPaymentFinalised.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -259,7 +260,13 @@ serve(async (req) => {
     // Calculate fare breakdown — settlement SSOT for finance display
     const estimatedFare = trip.estimated_fare ? Math.round(trip.estimated_fare * 100) : (trip.estimated_fare_pence ?? 0);
     const extras = trip.extras_pence || 0;
-    const tip = trip.tip_pence || 0;
+    const tip = tipPenceRemainingAfterRefund({
+      paymentMethod: trip.payment_method,
+      grossCapturePence: paymentCaptured > 0 ? paymentCaptured : trip.capture_amount_pence,
+      finalFarePence: trip.final_fare_pence,
+      requestedTipPence: trip.tip_pence ?? trip.tip_amount_pence ?? 0,
+      refundedPence: trip.refund_amount_pence ?? 0,
+    });
     const waitingChargePence = Math.max(
       0,
       trip.total_waiting_charge_pence

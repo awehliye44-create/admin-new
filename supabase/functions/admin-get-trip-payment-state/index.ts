@@ -22,6 +22,8 @@ import {
 import { readSavedCardAttemptFromSessionMetadata } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { resolveCustomerPayablePenceForAudit } from "../_shared/extraPaymentRecoverySSOT.ts";
 import { resolveTripHistoryPaymentLayers } from "../_shared/tripHistoryPaymentLayersSSOT.ts";
+import { extractConfirmedCaptureAmountPence } from "../../../shared/paymentHoldProviderTerminalPure.ts";
+import { buildPaymentStateMoneyBreakdown } from "../../../shared/paymentStateMoneyBreakdownSSOT.ts";
 
 const InputSchema = z.object({ trip_id: z.string().uuid() });
 
@@ -230,8 +232,15 @@ serve(async (req) => {
         authorized_pence = Math.max(authorized_pence, providerLiveAuthorised);
         const state = String(order.state ?? '').toUpperCase();
         if (state === 'COMPLETED' || state === 'REFUNDED') {
-          providerLiveCaptured = nonNegPence(trip.capture_amount_pence ?? order.amount ?? 0);
-          captured_pence = Math.max(captured_pence, providerLiveCaptured);
+          const confirmed = extractConfirmedCaptureAmountPence(
+            order as unknown as Record<string, unknown>,
+            state,
+          );
+          if (confirmed != null && confirmed > 0) {
+            // Completed payment amount wins over a stored hold.
+            providerLiveCaptured = confirmed;
+            captured_pence = confirmed;
+          }
         }
         provider_state = state.toLowerCase() || null;
         provider_currency_code = provider_currency;
@@ -330,6 +339,21 @@ serve(async (req) => {
     const outstanding_pence = customer_payable_pence > 0
       ? Math.max(0, customer_payable_pence - netCaptured)
       : nonNegPence(auditRow.outstanding_pence);
+
+    // Display breakdown only. Payable and outstanding above are unchanged.
+    // fare_pence is the ride stamp — never an alias of customer_payable_pence.
+    const money_breakdown = buildPaymentStateMoneyBreakdown({
+      farePence: trip.final_fare_pence,
+      tipPence: trip.tip_pence ?? trip.tip_amount_pence,
+      airportChargePence: trip.airport_charge_pence,
+      otherPassThroughPence: trip.other_pass_through_charges_pence,
+      commissionableFarePence: trip.commissionable_fare_pence,
+      customerPayablePence: customer_payable_pence,
+      verifiedCapturedPence: captured_pence,
+      verifiedRefundedPence: refunded_pence,
+      outstandingShortfallPence: outstanding_pence,
+      storedOutstandingBalancePence: trip.outstanding_balance_pence,
+    });
 
     const provider_settlement_warning_severity = getSettlementWarningSeverity(
       provider_settlement_verified,
@@ -439,10 +463,21 @@ serve(async (req) => {
       refundable_pence: refundableAmount,
       refund_status: refundStatus,
       net_captured_pence: Math.max(0, captured_pence - refunded_pence),
-      final_customer_fare_pence: customer_payable_pence > 0
-        ? customer_payable_pence
-        : (final_customer_fare_pence || final_fare_pence),
+      // Ride stamp only. Do not alias this to customer_payable_pence — clients
+      // that add tip onto it double-count (MK-260912-005 showed £7.00).
+      final_customer_fare_pence,
+      fare_pence: money_breakdown.fare_pence,
+      tip_pence: money_breakdown.tip_pence,
+      airport_charge_pence: money_breakdown.airport_charge_pence,
+      non_commissionable_total_pence: money_breakdown.non_commissionable_total_pence,
       customer_payable_pence,
+      verified_captured_pence: money_breakdown.verified_captured_pence,
+      verified_refunded_pence: money_breakdown.verified_refunded_pence,
+      verified_net_charged_pence: money_breakdown.verified_net_charged_pence,
+      outstanding_shortfall_pence: money_breakdown.outstanding_shortfall_pence,
+      commissionable_fare_pence: money_breakdown.commissionable_fare_pence,
+      show_recapture: money_breakdown.show_recapture,
+      money_breakdown,
       final_fare_pence,
       settlement_total_pence: settlement_display_pence,
       gross_fare_pence: auditRow.gross_fare_pence,

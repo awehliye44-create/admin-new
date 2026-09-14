@@ -1,4 +1,5 @@
 import { type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { broadcastCustomerDeclinedOffer } from "./driverNegotiationBroadcast.ts";
 import { buildDriverNegotiationPushData } from "./driverNegotiationPush.ts";
 import { resolveNegotiationBaseFarePence } from "./negotiationBaseFare.ts";
 import {
@@ -168,6 +169,18 @@ export async function enterDriverSecondChanceAtOriginalFare(
       } catch (pushErr) {
         console.warn("[customerNegotiationGrace] second_chance push failed:", pushErr);
       }
+    }
+    try {
+      await broadcastCustomerDeclinedOffer(supabase, {
+        id: params.offer_id,
+        trip_id: params.trip_id,
+        driver_id: params.driver_id,
+        negotiation_status: DRIVER_SECOND_CHANCE_PHASE,
+        grace_window_expires_at: grace.grace_window_expires_at,
+        negotiation_expires_at: grace.negotiation_expires_at,
+      });
+    } catch (broadcastErr) {
+      console.warn("[customerNegotiationGrace] second_chance broadcast failed:", broadcastErr);
     }
   }
 

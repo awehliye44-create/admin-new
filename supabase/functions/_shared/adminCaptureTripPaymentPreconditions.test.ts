@@ -72,3 +72,38 @@ Deno.test("−1p capture mismatch fails closed", () => {
   assertStrictEquals(r.ok, false);
   if (!r.ok) assertStrictEquals(r.error_code, ADMIN_CAPTURE_PRECONDITION.CAPTURE_AMOUNT_MISMATCH);
 });
+
+Deno.test("blocks admin capture while tip window open", () => {
+  const r = validateAdminCaptureTripPreconditions({
+    trip: {
+      ...TRIP,
+      tip_window_expires_at: new Date(Date.now() + 60_000).toISOString(),
+      tip_window_closed_at: null,
+    },
+  });
+  assertStrictEquals(r.ok, false);
+  if (!r.ok) assertStrictEquals(r.error_code, ADMIN_CAPTURE_PRECONDITION.TIP_WINDOW_OPEN);
+});
+
+Deno.test("blocks admin capture when tip window expired but unclosed", () => {
+  const r = validateAdminCaptureTripPreconditions({
+    trip: {
+      ...TRIP,
+      tip_window_expires_at: new Date(Date.now() - 60_000).toISOString(),
+      tip_window_closed_at: null,
+    },
+  });
+  assertStrictEquals(r.ok, false);
+  if (!r.ok) assertStrictEquals(r.error_code, ADMIN_CAPTURE_PRECONDITION.TIP_WINDOW_OPEN);
+});
+
+Deno.test("allows admin capture after tip window closed", () => {
+  const r = validateAdminCaptureTripPreconditions({
+    trip: {
+      ...TRIP,
+      tip_window_expires_at: new Date(Date.now() - 60_000).toISOString(),
+      tip_window_closed_at: new Date().toISOString(),
+    },
+  });
+  assertStrictEquals(r.ok, true);
+});

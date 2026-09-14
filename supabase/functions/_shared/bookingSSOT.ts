@@ -5,7 +5,10 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { buildTripPaymentSyncPatch } from "./dynamicPaymentWorkflow.ts";
-import { resolvePersistedTripBookingSource } from "./presetNegotiationEligibility.ts";
+import {
+  bookingSourceFromSnapshots,
+  resolvePersistedTripBookingSource,
+} from "./presetNegotiationEligibility.ts";
 import {
   computeScheduledDispatchAnchors,
   resolveScheduledDispatchConfig,
@@ -112,6 +115,8 @@ export type MinimalTripBuildInput = {
   preauthAmountPence: number;
   paymentSessionId?: string | null;
   sessionFareSnapshot?: Record<string, unknown> | null;
+  /** payment_sessions.booking_snapshot — source of booking_source. Fare snapshot does not carry it. */
+  bookingSnapshot?: Record<string, unknown> | null;
   requestReferer?: string | null;
   requestOrigin?: string | null;
   /** Immutable pipeline stamp selected from SA before insert. */
@@ -328,7 +333,10 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
 
   const persistedBookingSource = resolvePersistedTripBookingSource({
     bodySource: body.booking_source,
-    snapshotSource: sessionSnap?.booking_source,
+    snapshotSource: bookingSourceFromSnapshots({
+      bookingSnapshot: input.bookingSnapshot,
+      fareSnapshot: sessionSnap,
+    }),
     referer: input.requestReferer,
     origin: input.requestOrigin,
   });

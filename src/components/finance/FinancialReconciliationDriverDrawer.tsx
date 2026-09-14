@@ -669,8 +669,18 @@ export function FinancialReconciliationDriverDrawer({
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs rounded-md border p-3 bg-muted/20">
-                <div><span className="text-muted-foreground">Provider captured:</span> {fmt(selectedTrip.captured_pence)}</div>
+                <div><span className="text-muted-foreground">Ride fare:</span> {fmt(selectedTrip.ride_fare_pence ?? selectedTrip.final_fare_pence)}</div>
+                <div><span className="text-muted-foreground">Tip:</span> {fmt(selectedTrip.tip_pence)}</div>
+                <div><span className="text-muted-foreground">Airport charge:</span> {fmt(selectedTrip.airport_charge_pence)}</div>
+                <div><span className="text-muted-foreground">Non-commissionable total:</span> {fmt(
+                  (selectedTrip.tip_pence != null || selectedTrip.airport_charge_pence != null)
+                    ? Math.max(0, Number(selectedTrip.tip_pence ?? 0)) + Math.max(0, Number(selectedTrip.airport_charge_pence ?? 0))
+                    : null
+                )}</div>
                 <div><span className="text-muted-foreground">Customer payable:</span> {fmt(selectedTrip.settlement_total_pence ?? selectedTrip.customer_paid_pence)}</div>
+                <div><span className="text-muted-foreground">Commissionable fare:</span> {fmt(selectedTrip.commissionable_fare_pence)}</div>
+                <div><span className="text-muted-foreground">Provider captured:</span> {fmt(selectedTrip.captured_pence)}</div>
+                <div><span className="text-muted-foreground">Outstanding shortfall:</span> {fmt(selectedTrip.outstanding_pence)}</div>
                 <div><span className="text-muted-foreground">Refunded:</span> {fmt(selectedTrip.refunded_pence)}</div>
                 <div><span className="text-muted-foreground">Variance:</span> {fmt(selectedTrip.variance_pence)}</div>
                 <div><span className="text-muted-foreground">Driver net:</span> {fmt(selectedTrip.driver_net_pence)}</div>

@@ -32,7 +32,7 @@ import {
   CUSTOMER_NEW_FARE_OFFER_TITLE,
   customerNewFareOfferBody,
 } from "../_shared/negotiationPushCopy.ts";
-import { presetNegotiationOfferIneligibility, presetNegotiationSourceIneligibility } from "../_shared/presetNegotiationEligibility.ts";
+import { isPresetNegotiationFeatureEnabled, presetNegotiationOfferIneligibility, presetNegotiationSourceIneligibility } from "../_shared/presetNegotiationEligibility.ts";
 import {
   loadServiceAreaNegotiationCountdown,
   resolveNegotiationDeadlineIso,
@@ -184,6 +184,44 @@ Deno.serve(async (req) => {
     });
     if (sourceBlock) {
       return errorResponse("DISABLED", sourceBlock.message, 403, { reason: sourceBlock.reason });
+    }
+
+    const serviceAreaId = (trip as { service_area_id?: string | null }).service_area_id ?? null;
+    if (!serviceAreaId) {
+      return errorResponse("DISABLED", "Preset negotiation is not enabled for this service area", 403, {
+        reason: "missing_service_area",
+      });
+    }
+    const [{ data: presetConfig }, { data: areaSettings }] = await Promise.all([
+      supabase
+        .from("preset_offer_configs")
+        .select("is_enabled")
+        .eq("service_area_id", serviceAreaId)
+        .maybeSingle(),
+      supabase
+        .from("dispatch_settings")
+        .select("fare_negotiation_enabled")
+        .eq("service_area_id", serviceAreaId)
+        .maybeSingle(),
+    ]);
+    const negotiationStatus = String(
+      (offer as { negotiation_status?: string | null }).negotiation_status ?? "",
+    ).toLowerCase();
+    const alreadyLiveNegotiation = [
+      "waiting_customer",
+      "waiting_driver_final",
+      "declined_customer_awaiting_driver",
+    ].includes(negotiationStatus);
+    if (
+      !alreadyLiveNegotiation &&
+      !isPresetNegotiationFeatureEnabled({
+        presetConfigEnabled: presetConfig?.is_enabled === true,
+        fareNegotiationEnabled: areaSettings?.fare_negotiation_enabled,
+      })
+    ) {
+      return errorResponse("DISABLED", "Preset negotiation is not enabled for this service area", 403, {
+        reason: "offers_disabled",
+      });
     }
 
     let offerForPresets = offer;
