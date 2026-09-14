@@ -1,0 +1,22 @@
+A8B28F Stage B — B4 Driver app checklist
+
+Live paths (already updated in working tree; NOT committed):
+- src/features/wallet/lib/resolvePayoutAccountBanner.ts
+- src/features/wallet/lib/resolvePayoutAccountBanner.test.ts
+- src/features/wallet/components/PayoutAccountBanner.tsx
+- src/features/wallet/hooks/usePayoutAccountBanner.ts
+- src/features/wallet/lib/walletClearedButBlockedCopy.ts
+- src/features/home/DriverHomeScreen.tsx (banner mount)
+- src/features/wallet/screens/WalletScreen.tsx (banner mount)
+- src/features/settings/lib/mapPayoutAccountStatus.ts (FAILED ≠ Pending)
+- src/features/settings/lib/interpretPayoutSubmitResponse.ts
+- src/features/settings/data/payoutSettingsAdapter.ts (mixed-version reject)
+- src/features/wallet/data/walletAdapter.ts (cleared-but-blocked copy)
+
+Financial-model gate:
+- Banner only when service_areas.financial_model includes PLATFORM_COLLECTED
+- Commission Wallet-only → no banner
+
+Driving workflows:
+- Banner never in goOnlinePermissionGate hard blockers
+- goOnlineBlocked remains profilePendingApproval only

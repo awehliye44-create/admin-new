@@ -1,0 +1,44 @@
+A8B28F Stage C companion — remaining legacy drivers.payouts_enabled inventory
+
+Legend:
+  OP  = payout_operational_paused
+  PD  = provider-verified destination
+  GL  = admin_settings.payouts_enabled (global)
+  EF  = driver_effective_payout_allowed / effectivePayoutAllowed
+  LEG = legacy drivers.payouts_enabled (REMOVE as readiness gate)
+  KEEP= display-only / dual-write residual until Stage D
+
+DRIVER APP (onecab-driver-native)
+1. resolvePayoutAccountBanner.ts — LEG OR into pause banner → OP only
+2. usePayoutAccountBanner.ts — selects payouts_enabled; maps legacyPayoutsDisabled → drop select/map
+3. resolvePayoutAccountBanner.test.ts — rewrite legacy→paused cases to OP-only
+4. withdrawalTerminology.ts — add ADMIN_HOLD paused copy (today falls through default)
+5. authenticatedDriverProfile* — KEEP field for display/telemetry; MUST NOT gate Home/Wallet/withdraw
+6. walletAdapter / WalletScreen — already uses summary early_* / canWithdraw (SSOT) — no LEG gate (OK)
+
+EDGE
+7. driverPayoutEligibilitySSOT.aggregate — LEG short-circuit avail=0 → OP short-circuit; account_verified false must NOT zero Available (Stage C matrix)
+8. fetchDriverPayoutEligibility — select OP + PD; stop tying account_verified to LEG
+9. fetchDriverWalletPayoutSnapshot — payout_blocked / restricted / revolut accountVerified from LEG → OP + PD
+10. weeklyDriverPayoutBatchWorkflowSSOT.evaluateDriverBatchEligibility — DRIVER_PAYOUTS_DISABLED from LEG → OP (reason OPERATIONAL_PAUSE or keep alias)
+11. admin-weekly-payout-scheduler — pass driver.payouts_enabled → pass !OP; fix held statuses to include disabled/deleted
+12. admin-execute-weekly-payout-occurrence — same as 11
+13. onecabFinanceLedger.derivePayoutEligibility — LEG → EF inputs (OP + PD + GL); Connect-era fields optional
+14. adminPayoutLedgerAccountsOverviewSSOT — pausedAccount = LEG → OP; distinguish unverified
+15. adminPayoutLedgerOverviewSSOT — paused = LEG → OP
+16. admin-driver-wallet-detail / admin-driver-settlements — canPayout uses LEG → OP + PD + GL (or EF RPC)
+17. admin-payment-detail — display payoutsEnabled → also expose OP (display)
+18. payoutControlCentreSettingsSSOT.payouts_enabled — KEEP (GL only)
+
+ADMIN UI
+19. PayoutLedger.tsx updatePayoutPause — direct LEG write → admin_set_driver_payout_operational_pause (B5 draft)
+20. PayoutLedgerSettingsPanel driverOverrideMutation — same RPC
+21. manualPayoutGate.ts — LEG as onboarding/pause → OP (+ PD where needed)
+22. useAdminDriverOptions payoutsEnabledOnly filter → OP / EF
+23. useDriverWallet / useDriverWalletSsot — expose OP; stop treating LEG as paused
+
+OUT OF SCOPE / KEEP
+- Stage B dual-write still sets LEG = !OP (compatibility)
+- Column remains until Stage D
+- DRIVER_COLLECTED commission wallet writers/readers unchanged
+- Clearing delay / PLATFORM math unchanged

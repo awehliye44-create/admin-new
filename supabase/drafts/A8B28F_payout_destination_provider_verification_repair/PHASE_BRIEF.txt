@@ -1,0 +1,29 @@
+A8B28F REVISION 2 — implementation-ready drafts (NOT APPLIED)
+
+Accepted root cause:
+- COUNTERPARTY_CREATE_FAILED + false success UI
+- Option B (mixed meanings of drivers.payouts_enabled)
+- Admin must not manually verify
+- MK0006 ledger/clearing healthy; do not mutate recovery here
+
+Staged plan (mandatory order):
+  Stage A  20261109430000  additive column + conservative backfill + helper + dual-write RPC
+                           NO eligibility behavior change; zero balance impact
+  Stage B  code-only       Admin/Edge/Driver contracts; still legacy eligibility
+  Stage C  20261109440000  eligibility cutover ONLY after Stage B live
+  Stage D  later           deprecate payouts_enabled after monitoring
+
+Paused SECDEF A8B28 keeps 20261109420000. Do not reuse.
+
+Available vs Withdrawable (product proof):
+  - Headline WalletBalanceCard = "Available balance" ← available_balance_pence
+  - Status "Available to withdraw" ONLY when canWithdraw=true
+  - SSOT: available = cleared unpaid pool; withdraw gated separately
+    (dest verified, payouts_enabled/pause, global, min, etc.)
+  - RISK: client short-circuits available<=0 → "No funds" BEFORE
+    PAYOUT_ACCOUNT_NOT_VERIFIED; and payouts_enabled=false zeros Available
+    so verification failure masquerades as clearing Pending.
+  - Stage B MUST ship UX that when available>0 && !canWithdraw shows
+    verification/pause reason — NOT "Available to withdraw".
+  - Stage C may then place cleared funds into Available for unverified
+    drivers. Until Stage B UX is live, Stage C MUST NOT ship.
