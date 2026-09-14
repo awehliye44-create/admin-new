@@ -85,10 +85,23 @@ export function DemandZoneSettingsDialog({
     },
   });
 
+  // Raw text buffers so typing decimals ("1." → "1.15") is never re-formatted mid-edit.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const hydratedFor = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      hydratedFor.current = null;
+      return;
+    }
+    if (isLoading) return;
+    const key = serviceAreaId || ALL_SERVICE_AREAS;
+    if (hydratedFor.current === key) return;
+    hydratedFor.current = key;
     setForm(settings ? { ...BLANK, ...settings } : BLANK);
-  }, [open, settings]);
+    setDrafts({});
+  }, [open, isLoading, settings, serviceAreaId]);
+
 
   const validation = useMemo(
     () => validateDemandZoneSettings({ ...form, service_area_id: serviceAreaId }),
