@@ -53,6 +53,7 @@ import { getTripDisplayId } from '@/lib/tripUtils';
 import {
   buildCanonicalTripEconomicsRead,
 } from '../../shared/paymentSessionsCanonicalReadAdapterSSOT';
+import { resolveAdminCompletedTripCustomerPayablePence } from '@/lib/adminTripCommittedFareDisplay';
 import { buildTripHistoryPaymentEvidenceReadModel } from '../../shared/tripHistoryPaymentEvidenceReadModel';
 import {
   isCardTrip,
@@ -931,6 +932,13 @@ export default function TripHistory() {
       tripStatus: trip.status,
     });
 
+  /**
+   * Discounted customer payable (post-promotion) — not pre-promo gross fare.
+   */
+  const getTripCustomerPayablePence = (trip: CompletedTrip): number =>
+    getTripPaymentEvidence(trip).customer_discounted_payable_pence
+    || resolveAdminCompletedTripCustomerPayablePence(trip);
+
   /** Provider captured — Payment Sessions disposition read model only. */
   const getTripProviderCapturedPence = (trip: CompletedTrip): number | null => {
     const fromEvidence = getTripPaymentEvidence(trip).verified_captured_pence;
@@ -1713,29 +1721,13 @@ export default function TripHistory() {
                         </div>
                       ) : null}
                       <div>
-                        <Label className="text-xs text-muted-foreground">Ride fare</Label>
+                        <Label className="text-xs text-muted-foreground">Final customer payable (Trip Fare)</Label>
                         <p className="font-medium">
-                          {selectedTrip.final_fare_pence != null && selectedTrip.final_fare_pence > 0
-                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(selectedTrip.final_fare_pence / 100).toFixed(2)}`
+                          {getTripCustomerPayablePence(selectedTrip) > 0
+                            ? `${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(getTripCustomerPayablePence(selectedTrip) / 100).toFixed(2)}`
                             : '—'}
                         </p>
                       </div>
-                      {(selectedTrip.tip_pence ?? selectedTrip.tip_amount_pence ?? 0) > 0 ? (
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Tip</Label>
-                          <p className="font-medium">
-                            {`${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${(((selectedTrip.tip_pence ?? selectedTrip.tip_amount_pence) ?? 0) / 100).toFixed(2)}`}
-                          </p>
-                        </div>
-                      ) : null}
-                      {(selectedTrip.airport_charge_pence ?? 0) > 0 ? (
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Airport charge</Label>
-                          <p className="font-medium">
-                            {`${getCurrencySymbol(resolveTripCurrency(selectedTrip))}${((selectedTrip.airport_charge_pence ?? 0) / 100).toFixed(2)}`}
-                          </p>
-                        </div>
-                      ) : null}
                       <div>
                         <Label className="text-xs text-muted-foreground">Provider captured</Label>
                         <p className={`font-medium ${(getTripProviderCapturedPence(selectedTrip) ?? 0) > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
