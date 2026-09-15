@@ -64,7 +64,7 @@ Deno.test("ALREADY_APPLIED maps to success idempotent", () => {
   assertEquals(r.code, "ALREADY_APPLIED");
 });
 
-Deno.test("draft migration contains atomic claim + unique auth index", async () => {
+Deno.test("canonical migration contains atomic claim + unique auth index", async () => {
   const sql = await Deno.readTextFile(
     new URL(
       "../../migrations/20261112180000_atomic_fare_increase_modification_claim.sql",
@@ -76,5 +76,6 @@ Deno.test("draft migration contains atomic claim + unique auth index", async () 
   assertStringIncludes(sql, "trip_has_unresolved_fare_increase_modification");
   assertStringIncludes(sql, "FOR UPDATE");
   assertStringIncludes(sql, "ADDITIONAL_AUTHORISATION_CONFIRMED");
-  assertStringIncludes(sql, "DRAFT / REVIEW ONLY — DO NOT APPLY TO PRODUCTION");
+  assertStringIncludes(sql, "Migration 20261112180000");
+  assertEquals(sql.includes("DRAFT / REVIEW ONLY — DO NOT APPLY TO PRODUCTION"), false);
 });

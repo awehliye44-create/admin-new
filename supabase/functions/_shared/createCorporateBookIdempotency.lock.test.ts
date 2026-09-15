@@ -43,14 +43,15 @@ Deno.test("wallet/invoice fail closed with unavailable not 501 success", () => {
   assert(!/\b501\b/.test(code));
 });
 
-Deno.test("draft claim migration present and marked not applied", async () => {
+Deno.test("canonical claim migration present with advisory lock RPC", async () => {
   const mig = await Deno.readTextFile(
     join(
       REPO_ROOT,
       "supabase/migrations/20261112190000_corporate_schedule_hold_claim.sql",
     ),
   );
-  assert(mig.includes("DRAFT REVIEW ONLY"));
+  assert(mig.includes("Migration 20261112190000"));
   assert(mig.includes("claim_corporate_schedule_hold"));
   assert(mig.includes("pg_advisory_lock"));
+  assert(!mig.includes("DRAFT REVIEW ONLY"));
 });
