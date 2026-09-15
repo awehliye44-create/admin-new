@@ -22676,8 +22676,11 @@ export type Database = {
           invoice_delivery_eligible: boolean | null
           invoice_delivery_status: string | null
           invoice_email_error: string | null
+          invoice_email_recipient: string | null
           invoice_email_sent: boolean
           invoice_email_sent_at: string | null
+          invoice_email_sent_by: string | null
+          invoice_email_source: string | null
           invoice_email_status: string | null
           invoice_generated_at: string | null
           invoice_no: string | null
@@ -22974,8 +22977,11 @@ export type Database = {
           invoice_delivery_eligible?: boolean | null
           invoice_delivery_status?: string | null
           invoice_email_error?: string | null
+          invoice_email_recipient?: string | null
           invoice_email_sent?: boolean
           invoice_email_sent_at?: string | null
+          invoice_email_sent_by?: string | null
+          invoice_email_source?: string | null
           invoice_email_status?: string | null
           invoice_generated_at?: string | null
           invoice_no?: string | null
@@ -23272,8 +23278,11 @@ export type Database = {
           invoice_delivery_eligible?: boolean | null
           invoice_delivery_status?: string | null
           invoice_email_error?: string | null
+          invoice_email_recipient?: string | null
           invoice_email_sent?: boolean
           invoice_email_sent_at?: string | null
+          invoice_email_sent_by?: string | null
+          invoice_email_source?: string | null
           invoice_email_status?: string | null
           invoice_generated_at?: string | null
           invoice_no?: string | null
