@@ -1,6 +1,9 @@
+-- DRAFT REVIEW ONLY — NOT APPLIED until Ahmed approves.
+-- Former invalid filename 20260915120000 REJECTED (collides with accept_stacked_ride on main + live schema_migrations).
+-- Assigned unused version 20261112190000 after live max 20261112170000 + A4 candidate 20261112180000.
 -- DRAFT REVIEW ONLY — NOT APPLIED / NOT in schema_migrations until Ahmed approves.
 -- Atomic corporate schedule hold: advisory lock per org + hold row + overlap recheck.
--- Rollback companion: rollback_20260915120000_corporate_schedule_hold_claim.sql
+-- Rollback companion: rollback_20261112190000_corporate_schedule_hold_claim.sql
 
 CREATE TABLE IF NOT EXISTS public.corporate_schedule_holds (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
