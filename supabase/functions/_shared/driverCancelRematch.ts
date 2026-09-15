@@ -83,16 +83,73 @@ export function resolveNextRematchBroadcastRound(
  */
 export const TRIP_ASSIGNED_DRIVER_COLUMN = "confirmed_driver_id" as const;
 
-/** Safe trip columns for driver-cancel/rematch (no trips.driver_id). */
+/**
+ * Safe trip columns for driver-cancel/rematch.
+ * Never select dropped assignment columns. A schema error must not be reported as a missing trip.
+ * Never select trips.driver_id — assignment SSOT is confirmed_driver_id.
+ */
 export const TRIP_CANCEL_REMATCH_SELECT =
-  "id, status, stacked_trip_id, cancelled_driver_ids, excluded_driver_ids, passenger_id, confirmed_driver_id, scan_go, locked_driver_id, service_area_id, cancel_reason, cancelled_by, searching_expires_at, current_broadcast_round, dispatch_mode, scheduled_status, is_scheduled, scheduled_at";
+  "id, status, stacked_trip_id, cancelled_driver_ids, excluded_driver_ids, passenger_id, confirmed_driver_id, service_area_id, cancel_reason, cancelled_by, searching_expires_at, current_broadcast_round, dispatch_mode, scheduled_status, is_scheduled, scheduled_at";
+
+const RETIRED_REMATCH_COLUMNS = ["trips.retired_dispatch_flag", "trips.retired_assignment_lock"] as const;
 
 export function logTripAssignedDriverFieldResolved(context: string): void {
   console.log("DRIVER_CANCEL_SCHEMA_DRIVER_FIELD_RESOLVED", JSON.stringify({
     field: TRIP_ASSIGNED_DRIVER_COLUMN,
     context,
-    omitted_columns: ["trips.driver_id"],
+    omitted_columns: ["trips.driver_id", ...RETIRED_REMATCH_COLUMNS],
   }));
+}
+
+/** Postgres/PostgREST schema failures must not be reported as a missing trip. */
+const SCHEMA_LOOKUP_CODES = new Set(["42703", "42P01", "42702", "42883", "PGRST204"]);
+
+export type TripLookupFailure =
+  | { kind: "schema"; httpStatus: 500; error: "SCHEMA_ERROR"; message: string }
+  | { kind: "internal"; httpStatus: 500; error: "INTERNAL_ERROR"; message: string };
+
+export function classifyTripLookupFailure(
+  error: { code?: string | null; message?: string | null } | null | undefined,
+): TripLookupFailure | null {
+  if (!error) return null;
+  const code = String(error.code ?? "").trim();
+  const raw = String(error.message ?? "").trim();
+  const schema = SCHEMA_LOOKUP_CODES.has(code)
+    || /does not exist|schema cache|undefined column/i.test(raw);
+  if (schema) {
+    return {
+      kind: "schema",
+      httpStatus: 500,
+      error: "SCHEMA_ERROR",
+      message: "Trip lookup failed because of a schema mismatch",
+    };
+  }
+  return {
+    kind: "internal",
+    httpStatus: 500,
+    error: "INTERNAL_ERROR",
+    message: "Trip lookup failed",
+  };
+}
+
+function idListIncludes(ids: unknown, driverId: string): boolean {
+  return Array.isArray(ids) && ids.some((id) => id === driverId);
+}
+
+/**
+ * Second cancel after a successful rematch must not insert another exclusion
+ * or revoke/create offer rows. Same trip stays searching_new_driver.
+ */
+export function isIdempotentDriverRematchReplay(args: {
+  status: string | null | undefined;
+  driverId: string;
+  cancelledDriverIds: unknown;
+  excludedDriverIds: unknown;
+}): boolean {
+  const status = String(args.status ?? "").trim().toLowerCase();
+  if (status !== "searching_new_driver") return false;
+  return idListIncludes(args.cancelledDriverIds, args.driverId)
+    || idListIncludes(args.excludedDriverIds, args.driverId);
 }
 
 export function getTripAssignedDriverId(
