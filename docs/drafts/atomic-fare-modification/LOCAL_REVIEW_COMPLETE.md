@@ -16,8 +16,10 @@
 | Premium worktree | `/Users/admin/ONECAB/_recovery/atomic-fare-mod-20260915/worktrees/premium` |
 | Premium base SHA | `b7692483eecbbdc3fe329e8de9b2129d23457c4e` (`origin/main`) |
 | Recovery root | `/Users/admin/ONECAB/_recovery/atomic-fare-mod-20260915` |
+| Admin patch SHA | `8b4ba29dbd71a1955da667b7034894d2880f24ba` |
+| Premium patch SHA | `a5f018071743646ff142585fb178bc4b2d2d2380` |
 
-Patch SHAs are recorded in `notes/patch_shas.txt` after the local commits.
+Admin patch SHA: `8b4ba29dbd71a1955da667b7034894d2880f24ba`. Premium patch SHA: `a5f018071743646ff142585fb178bc4b2d2d2380`.
 
 ## Migration version registry
 
