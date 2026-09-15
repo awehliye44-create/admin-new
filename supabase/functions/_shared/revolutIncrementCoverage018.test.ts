@@ -108,7 +108,8 @@ Deno.test("E. GET still 495 after increment attempt → insufficient", () => {
   assertEquals(coverage.class, "insufficient");
 });
 
-Deno.test("020. AUTHORISED order + processing increment new_amount covers target", () => {
+Deno.test("020→002. AUTHORISED order + processing increment NEVER confirms coverage", () => {
+  // MK-260915-002: issuer declined the delta after processing was treated as confirmed.
   const mk020Shape: RevolutOrder = {
     id: "6a807060-951e-abbb-8e5e-05061401655f",
     state: "AUTHORISED",
@@ -121,8 +122,9 @@ Deno.test("020. AUTHORISED order + processing increment new_amount covers target
   };
   assertEquals(revolutProviderAuthorisedTotalPence(mk020Shape), 450);
   const coverage = classifyIncrementCoverage(mk020Shape, 650);
-  assertEquals(coverage.class, "confirmed");
-  assertEquals(coverage.authorisedTotalPence, 650);
+  assertEquals(coverage.class, "processing");
+  assertEquals(coverage.authorisedTotalPence, 450);
+  assertEquals(coverage.class === "confirmed", false);
 });
 
 Deno.test("F. GET pending/processing → unknown/processing, not decline", () => {

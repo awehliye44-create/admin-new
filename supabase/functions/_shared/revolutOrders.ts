@@ -112,6 +112,8 @@ export interface CreateOrderParams {
    * so same-order incremental authorisation is eligible later.
    */
   enableIncrementalAuthorisation?: boolean;
+  /** Hosted checkout return after successful authorisation. */
+  redirectUrl?: string | null;
 }
 
 /**
@@ -134,6 +136,7 @@ export async function createRevolutOrder(p: CreateOrderParams): Promise<RevolutO
         metadata: p.metadata,
         customer: p.customer,
         enableIncrementalAuthorisation: p.enableIncrementalAuthorisation,
+        redirectUrl: p.redirectUrl,
       })),
     },
   );
@@ -430,8 +433,32 @@ export type IncrementCoverageClass =
   | "unknown";
 
 /**
+ * Non-terminal / unsettled increment states. Never count these as confirmed
+ * payment coverage — MK-260915-002: AUTHORISED order + processing increment was
+ * treated as confirmed, modification applied, then issuer declined the delta.
+ */
+export function isUnsettledIncrementState(state: unknown): boolean {
+  const s = String(state ?? "").toLowerCase();
+  return (
+    s === "processing"
+    || s === "pending"
+    || s === "initiated"
+    || s === "requested"
+    || s === "unknown"
+    || s === ""
+  );
+}
+
+/**
  * Classify whether a retrieved/POST order covers the requested increment target.
- * Processing increment new_amount is not treated as confirmed.
+ *
+ * Confirmed only when provider-authoritative authorised TOTAL covers the target
+ * (payments[].authorised_amount and/or incremental_authorisations in an
+ * authorised state via revolutProviderAuthorisedTotalPence).
+ *
+ * Processing / pending / initiated / requested / unknown increment states
+ * NEVER count as confirmed — even if order.state is AUTHORISED and new_amount
+ * covers the target (MK-260915-002 supersedes MK-260815-020 for coverage).
  */
 export function classifyIncrementCoverage(
   order: RevolutOrder | null | undefined,
@@ -449,9 +476,28 @@ export function classifyIncrementCoverage(
     const amount = positiveMinorUnits(increment?.new_amount ?? increment?.amount);
     return isRevolutAuthorisedState(increment?.state) && amount >= target;
   });
-  const incrementProcessing = increments.some((increment) => {
+  const incrementUnsettled = increments.some((increment) => {
     const s = String(increment?.state ?? "").toLowerCase();
-    return s === "processing" || s === "pending";
+    if (s === "declined" || s === "failed") return false;
+    if (isRevolutAuthorisedState(increment?.state)) return false;
+    return (
+      isUnsettledIncrementState(increment?.state)
+      || s === "processing"
+      || s === "pending"
+      || s === "initiated"
+      || s === "requested"
+    );
+  });
+  const hasUnsettledCoveringIncrement = increments.some((increment) => {
+    const amount = positiveMinorUnits(increment?.new_amount ?? increment?.amount);
+    if (amount < target) return false;
+    const s = String(increment?.state ?? "").toLowerCase();
+    return (
+      s === "processing"
+      || s === "pending"
+      || s === "initiated"
+      || s === "requested"
+    );
   });
   const incrementDeclined = increments.some((increment) => {
     const s = String(increment?.state ?? "").toLowerCase();
@@ -459,23 +505,14 @@ export function classifyIncrementCoverage(
   });
   const paymentCovering = (Array.isArray(order.payments) ? order.payments : [])
     .some((payment) => positiveMinorUnits(payment?.authorised_amount) >= target);
-  // MK-260815-020: increment POST 200 leaves incremental_authorisations
-  // state=processing and payments still on the original hold, while the
-  // card already shows new_amount. Order stays AUTHORISED. Treat covering
-  // processing/pending new_amount as the accepted TOTAL (never a delta).
-  let acceptedIncrementTotal = 0;
-  for (const increment of increments) {
-    const s = String(increment?.state ?? "").toLowerCase();
-    if (s === "declined" || s === "failed") continue;
-    if (
-      !isRevolutAuthorisedState(increment?.state)
-      && s !== "processing"
-      && s !== "pending"
-    ) {
-      continue;
-    }
-    const amount = positiveMinorUnits(increment?.new_amount ?? increment?.amount);
-    if (amount > acceptedIncrementTotal) acceptedIncrementTotal = amount;
+
+  // Unsettled covering increment or order-level processing → never confirmed.
+  if (hasUnsettledCoveringIncrement || state === "PROCESSING" || state === "PENDING") {
+    return { class: "processing", authorisedTotalPence };
+  }
+
+  if (incrementUnsettled && authorisedTotalPence < target) {
+    return { class: "processing", authorisedTotalPence };
   }
 
   if (
@@ -489,20 +526,9 @@ export function classifyIncrementCoverage(
     return { class: "confirmed", authorisedTotalPence };
   }
 
-  if (isRevolutAuthorisedState(state) && acceptedIncrementTotal >= target) {
-    return {
-      class: "confirmed",
-      authorisedTotalPence: Math.max(authorisedTotalPence, acceptedIncrementTotal),
-    };
-  }
-
-  if (state === "PROCESSING" || state === "PENDING" || incrementProcessing) {
-    return { class: "processing", authorisedTotalPence };
-  }
-
   if (
     authorisedTotalPence < target
-    && !incrementProcessing
+    && !incrementUnsettled
     && state !== "PROCESSING"
     && state !== "PENDING"
     && (isRevolutAuthorisedState(state) || incrementDeclined)
