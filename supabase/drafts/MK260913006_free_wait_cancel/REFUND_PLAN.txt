@@ -1,0 +1,97 @@
+MK-260913-006 refund plan — DRAFT ONLY
+Preflight: 2026-09-13 read-only. Do not execute until explicit approval.
+No Edge deploy. No SQL write. No Revolut call from this file.
+
+Confirmed
+  trip id: c7ce4f1a-897a-41f0-8d26-2ec9df72a062
+  public number: MK-260913-006
+  status: cancelled
+  payment session: f4ad76a3-fd85-49fa-9ace-33be1baf5c52
+  provider order: 6aa6cf84-2fef-a6a5-b0dc-c2746911a045
+  stored provider_state: COMPLETED
+  stored captured_amount_pence: 400
+  stored provider_state_verified_at: 2026-09-13 16:37:07.252+00
+  stored provider_state_verified_by: terminal_disposition
+  payment_session_refunds: 0
+  refunded_amount_pence: null
+  refunded_at: null
+  provider_refund_id: null
+  driver_wallet_ledger: 0 rows
+  driver_commission_wallet_ledger: 0 rows
+  payout_items: 0
+  outstanding_balance_pence: 0
+  shortfall_pence: null
+  recovery_required: false
+
+Do not treat the local fix as deployed.
+  driver-cancel-before-pickup v294 still selects scan_go and maps lookup errors to NOT_FOUND.
+  cancel-trip v631 still has cancelled_after_arrival_grace.
+  The fix is an uncommitted local diff. There is no fixed commit.
+
+Amount
+  Refund exactly 400p.
+  Idempotency key: mk260913006:refund:400:6aa6cf84-2fef-a6a5-b0dc-c2746911a045
+  Before any provider call, re-read refunds and payment_sessions.
+  If a refund row, provider_refund_id, or refunded_amount_pence >= 400 exists, stop.
+  One refund only. A replay refunds 0.
+  Do not capture again. Do not release again. The order is already COMPLETED.
+  A second capture or release attempt is a stop condition, not a retry.
+
+After a successful provider refund of exactly 400p, reconcile locally in one approved step:
+
+  payment_session_refunds
+    insert one row for session f4ad76a3-fd85-49fa-9ace-33be1baf5c52
+    amount_pence = 400
+    status = confirmed only after the provider refund id exists
+    provider_refund_id = provider refund id
+    provider_payment_id = 6aa6cf84-2fef-a6a5-b0dc-c2746911a045
+    metadata.idempotency_key = mk260913006:refund:400:6aa6cf84-2fef-a6a5-b0dc-c2746911a045
+    If that key or provider_refund_id already exists, do not insert a second row.
+
+  payment_sessions
+    refunded_amount_pence = 400
+    refunded_at = provider confirmation time
+    provider_refund_id = provider refund id
+    provider_state = REFUNDED only if the provider retrieve says so
+    captured_amount_pence stays 400
+    status must leave dispatching
+    do not set status = cancelled (that trigger rejects a COMPLETED/AUTHORISED session)
+    preferred status = PARTIAL_CAPTURE_ONLY
+    outstanding/shortfall stay 0
+    recovery_required stays false
+    metadata.terminal_disposition_pending = false
+    metadata.void_full = false
+    metadata.fee_pence must not stay 0
+    metadata.refunded_amount_pence = 400
+    metadata.refund_idempotency_key = mk260913006:refund:400:6aa6cf84-2fef-a6a5-b0dc-c2746911a045
+    metadata must not keep provider_action void_full or fee_amount_pence 0 as the executed outcome
+
+  trips
+    payment_status = refunded
+    financial_outcome = CANCELLED_NO_FEE
+    capture_amount_pence stays 400 (what was captured, now refunded)
+    cancellation_fee_pence stays 0
+    outstanding_balance_pence stays 0
+    arrival_cancellation_applied stays false
+    do not set a shortfall
+    do not reopen an authorisation
+
+  admin_payment_audit
+    one row: action refund
+    amount_pence_before = 400
+    amount_pence_after = 0
+    delta_pence = -400
+    provider = revolut
+    provider_payment_id = 6aa6cf84-2fef-a6a5-b0dc-c2746911a045
+    metadata.idempotency_key = mk260913006:refund:400:6aa6cf84-2fef-a6a5-b0dc-c2746911a045
+    If that audit key already exists, do not insert a second row.
+
+Do not touch
+  driver_wallet_ledger
+  driver_commission_wallet_ledger
+  payout_items
+
+Not part of this plan
+  Deploying the cancel/rematch fix.
+  Replaying driver rematch. The trip is already cancelled.
+  A second capture or a release of the unused 400p remainder.

@@ -69,6 +69,11 @@ export type TerminalTripEvidence = {
   provider: string;
   /** Decision clock — backend now / cancelled_at; never device clock. */
   decision_at?: string | null;
+  /**
+   * Server counted in-radius pickup-waiting seconds.
+   * Missing is incomplete evidence — do not treat as expired.
+   */
+  pickup_waiting_counted_seconds?: number | null;
 };
 
 export type TerminalPaymentDecision = {
@@ -175,6 +180,47 @@ function isDriverInitiatedNonNoShow(
  * Resolve free-waiting expiry from trip stamp or arrived_at + configured minutes.
  * Returns null when evidence is incomplete (do not invent).
  */
+/**
+ * Arrival cancellation is eligible only after free pickup waiting has expired
+ * on the server clock AND counted in-radius seconds. A null
+ * cancellation_grace_expires_at is not a fee gate. Arrival alone is not enough
+ * when the policy requires free waiting to expire (the default).
+ */
+export function isArrivalCancellationFeeEligible(args: {
+  arrivedAtMs: number | null;
+  cancelledAtMs: number;
+  freeExpiresMs: number | null;
+  requireFreeWaitExpired: boolean;
+  freeWaitingMinutes: number | null;
+  countedInRadiusSeconds: number | null;
+}): boolean {
+  if (args.arrivedAtMs == null || args.cancelledAtMs < args.arrivedAtMs) return false;
+  if (!args.requireFreeWaitExpired) return true;
+  if (args.freeExpiresMs == null || args.cancelledAtMs < args.freeExpiresMs) return false;
+  const minutes = Number(args.freeWaitingMinutes);
+  if (!Number.isFinite(minutes) || minutes < 0) return false;
+  if (args.countedInRadiusSeconds == null || !Number.isFinite(args.countedInRadiusSeconds)) {
+    return false;
+  }
+  return args.countedInRadiusSeconds >= Math.round(minutes * 60);
+}
+
+/**
+ * Positive force-fee must not replace a canonical no-fee decision.
+ * Admin force of 0 (full release) is still applied.
+ */
+export function shouldApplyForceFeeOverride(args: {
+  force: boolean;
+  feePence: number | null | undefined;
+  dispositionReason: string;
+}): boolean {
+  if (!args.force || args.feePence == null) return false;
+  const fee = Math.round(Number(args.feePence));
+  if (!Number.isFinite(fee)) return false;
+  if (args.dispositionReason === "NO_FEE_FULL_RELEASE" && fee > 0) return false;
+  return true;
+}
+
 export function resolveFreeWaitingExpiresAtMs(args: {
   arrived_at: string | null;
   free_wait_expires_at: string | null;
@@ -372,12 +418,22 @@ export function resolveTerminalPaymentDecision(args: {
         });
       }
 
-      const freeWaitExpired =
-        !requireFreeWaitExpired ||
-        (freeExpiresMs != null && cancelledAtMs >= freeExpiresMs);
+      const countedRaw = evidence.pickup_waiting_counted_seconds;
+      const countedInRadiusSeconds = countedRaw == null || !Number.isFinite(Number(countedRaw))
+        ? null
+        : Math.max(0, Math.round(Number(countedRaw)));
+      const arrivalFeeEligible = isArrivalCancellationFeeEligible({
+        arrivedAtMs,
+        cancelledAtMs,
+        freeExpiresMs,
+        requireFreeWaitExpired,
+        freeWaitingMinutes: config.free_waiting_minutes,
+        countedInRadiusSeconds,
+      });
 
-      // Boundary: cancelled_at >= free_waiting_expires_at qualifies.
-      if (freeWaitExpired && arrivedAtMs != null && cancelledAtMs >= arrivedAtMs) {
+      // Boundary: cancelled_at >= free_waiting_expires_at AND counted seconds
+      // cover the free-wait duration. Paused out-of-radius time does not.
+      if (arrivalFeeEligible) {
         const fee = pence(config.arrival_cancellation_fee_pence);
         if (fee > 0) {
           return buildDecision({
@@ -392,6 +448,7 @@ export function resolveTerminalPaymentDecision(args: {
               arrived_at: evidence.arrived_at,
               free_wait_expires_at_ms: freeExpiresMs,
               cancelled_at_ms: cancelledAtMs,
+              pickup_waiting_counted_seconds: countedInRadiusSeconds,
               arrival_cancellation_fee_pence: config.arrival_cancellation_fee_pence,
             },
           });
@@ -445,42 +502,22 @@ export function resolveTerminalPaymentDecision(args: {
     } else if (applyAfterArrivalOnly && arrivedAtMs == null) {
       // pre-arrival free when policy says after-arrival-only
     } else if (arrivedAtMs == null) {
-      // Pre-arrival — mirrors cancel-trip: within grace → 0; else cancellation_fee_pence.
+      // Pre-arrival only. Post-arrival fees are arrival-cancellation (section 2)
+      // or no-show. cancellation_grace_expires_at is not written; a null stamp
+      // must not be treated as expired.
       const graceMs = parseMs(evidence.cancellation_grace_expires_at);
-      const withinGrace = graceMs != null && cancelledAtMs <= graceMs;
-      if (!withinGrace && cancelFee > 0) {
+      if (graceMs != null && cancelledAtMs > graceMs && cancelFee > 0) {
         return buildDecision({
           reason: "OTHER_CANCELLATION_FEE",
           feeType: "cancellation",
           feeAmount: cancelFee,
           evidence,
-          terminalReason: withinGrace ? "post_booking_grace" : "cancelled_after_grace",
+          terminalReason: "cancelled_after_grace",
           providerAction: "partial_capture_fee",
           feePolicyId: args.feePolicyId,
           extraEvidence: {
             cancellation_grace_expires_at: evidence.cancellation_grace_expires_at,
             cancellation_fee_pence: config.cancellation_fee_pence,
-          },
-        });
-      }
-    } else {
-      // Post-arrival but arrival-cancellation did not win (disabled / still in free wait).
-      // Existing policy: within cancellation_grace_expires_at → 0; else cancellation_fee_pence.
-      const graceMs = parseMs(evidence.cancellation_grace_expires_at);
-      const withinGrace = graceMs != null && cancelledAtMs <= graceMs;
-      if (!withinGrace && cancelFee > 0) {
-        return buildDecision({
-          reason: "OTHER_CANCELLATION_FEE",
-          feeType: "cancellation",
-          feeAmount: cancelFee,
-          evidence,
-          terminalReason: "cancelled_after_arrival_grace",
-          providerAction: "partial_capture_fee",
-          feePolicyId: args.feePolicyId,
-          extraEvidence: {
-            cancellation_grace_expires_at: evidence.cancellation_grace_expires_at,
-            cancellation_fee_pence: config.cancellation_fee_pence,
-            arrived_at: evidence.arrived_at,
           },
         });
       }
