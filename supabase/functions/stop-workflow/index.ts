@@ -85,6 +85,7 @@ import {
 } from "../_shared/digitalPaymentCapture.ts";
 import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { notifyWhatsAppTripCompleted } from "../_shared/whatsappTripLifecycleMessages.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 
 const RATE_LIMIT_CONFIG = {
@@ -2991,6 +2992,30 @@ Deno.serve(async (req) => {
           return await respondOk({ success: true, idempotent: true, message: "Trip already completed" });
         }
 
+        // Block completion while a fare-increase modification is unresolved.
+        // Does not change a valid original trip fare.
+        {
+          const { data: unresolvedIncrease, error: unresolvedErr } = await supabase.rpc(
+            "trip_has_unresolved_fare_increase_modification",
+            { p_trip_id: trip_id },
+          );
+          if (unresolvedErr) {
+            console.error("[stop-workflow] unresolved fare-increase check failed", unresolvedErr);
+            return errorResponse(
+              "UNRESOLVED_MODIFICATION_CHECK_FAILED",
+              "Unable to verify trip modifications before completion",
+              503,
+            );
+          }
+          if (unresolvedIncrease === true) {
+            return errorResponse(
+              "UNRESOLVED_FARE_INCREASE_MODIFICATION",
+              "Trip has an unresolved fare-increase modification; completion is blocked",
+              409,
+            );
+          }
+        }
+
         // Obsolete PLATFORM_COLLECTED cash. Fail closed before waiting,
         // status, or ledger writes. DRIVER_COLLECTED cash is not this path.
         if (completeTripCashDecision(trip) === "fail_closed_operational_cash") {
@@ -3712,6 +3737,11 @@ Deno.serve(async (req) => {
           tripId: trip_id,
           event: "trip_completed",
         });
+        try {
+          await notifyWhatsAppTripCompleted(supabase, trip_id);
+        } catch (thanksErr) {
+          console.warn("[stop-workflow] WhatsApp thanks failed (non-fatal)", thanksErr);
+        }
         stages.mark('notification_end');
         stages.mark('response_ready');
         completeTripStagesMs = stages.snapshot();
