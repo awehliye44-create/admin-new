@@ -119,3 +119,9 @@ See `notes/secret_binary_scan.txt` in the recovery root.
 ## Stop
 
 Workstream preserved. Resume **dirty-repository recovery** on the original working trees; do not continue feature implementation. MK-260915-002 remains frozen evidence.
+
+
+## Final patch SHAs (recovery)
+
+- Admin: `052fcbc67ac2e5fd248fe3bc6c4a75be0ebf60f7`
+- Premium: `a5f018071743646ff142585fb178bc4b2d2d2380`
