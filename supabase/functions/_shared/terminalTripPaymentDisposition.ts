@@ -31,14 +31,96 @@ import {
 import { resolveTripPaymentProvider, tripProviderOrderId } from "./tripPaymentProviderSSOT.ts";
 import {
   resolveTerminalPaymentDecision,
+  shouldApplyForceFeeOverride,
   type FarePricingFeeConfig,
   type TerminalPaymentDecision,
 } from "./terminalFeeDecisionSSOT.ts";
+import {
+  claimPaymentSessionFinancialLock,
+  releasePaymentSessionFinancialLock,
+} from "./paymentSessionFinancialLockSSOT.ts";
 import { shouldBlockPrematureScheduledSearchHoldRelease } from "./scheduledHandoverHoldLock.ts";
 import { transitionPaymentSession } from "./paymentSessionTransitionFacade.ts";
 
 export type { TerminalPaymentDecision, FarePricingFeeConfig } from "./terminalFeeDecisionSSOT.ts";
 export { resolveTerminalPaymentDecision } from "./terminalFeeDecisionSSOT.ts";
+
+/**
+ * Session status for a finished terminal disposition.
+ * Must not be `cancelled`: prevent_authorised_session_client_cancel rejects
+ * status→cancelled while provider_state is AUTHORISED or COMPLETED, which left
+ * sessions dispatching after a successful provider capture.
+ */
+export function terminalPaymentSessionStatus(
+  capturedFeePence: number,
+): "PARTIAL_CAPTURE_ONLY" | "released" {
+  return capturedFeePence > 0 ? "PARTIAL_CAPTURE_ONLY" : "released";
+}
+
+/**
+ * Stored session metadata must match the provider result.
+ * A completed capture must not keep fee 0 / void_full / pending from the
+ * pre-capture decision (MK-260913-006).
+ */
+export function buildTerminalDispositionMetadata(args: {
+  priorMeta?: Record<string, unknown> | null;
+  dispositionKey: string;
+  decision?: TerminalPaymentDecision | null;
+  capturedFeePence: number;
+  nowIso: string;
+}): Record<string, unknown> {
+  const prior = args.priorMeta ?? {};
+  const captured = Math.max(0, Math.round(args.capturedFeePence));
+  const providerCaptured = captured > 0;
+  const executedDecision = providerCaptured
+    ? {
+      ...(args.decision ?? {}),
+      fee_amount_pence: captured,
+      capture_required_pence: captured,
+      provider_action: "partial_capture_fee" as const,
+      disposition_reason: args.decision?.disposition_reason === "NO_FEE_FULL_RELEASE"
+        ? "PROVIDER_CAPTURE_RECONCILED"
+        : args.decision?.disposition_reason,
+    }
+    : args.decision ?? prior.terminal_disposition_decision;
+  return {
+    ...prior,
+    terminal_disposition_key: args.dispositionKey,
+    terminal_disposition_pending: false,
+    terminal_disposition_final: true,
+    terminal_disposition_fee_pence: captured,
+    terminal_disposition_provider_action: providerCaptured
+      ? "partial_capture_fee"
+      : (args.decision?.provider_action ?? prior.terminal_disposition_provider_action ?? "void_full"),
+    terminal_disposition_reason: providerCaptured
+      ? (executedDecision as { disposition_reason?: string }).disposition_reason
+      : (args.decision?.disposition_reason ?? prior.terminal_disposition_reason),
+    terminal_disposition_decision: executedDecision,
+    terminal_disposition_final_at: args.nowIso,
+    void_full: providerCaptured ? false : args.decision?.provider_action === "void_full",
+    fee_pence: captured,
+    pending: false,
+  };
+}
+
+export function sessionMetadataContradictsCapture(
+  metadata: Record<string, unknown> | null | undefined,
+  capturedFeePence: number,
+): boolean {
+  if (capturedFeePence <= 0) return false;
+  const meta = metadata ?? {};
+  if (meta.terminal_disposition_pending === true || meta.pending === true) return true;
+  if (meta.void_full === true) return true;
+  if (meta.terminal_disposition_provider_action === "void_full") return true;
+  if (Number(meta.terminal_disposition_fee_pence ?? meta.fee_pence ?? 0) === 0) return true;
+  const decision = meta.terminal_disposition_decision;
+  if (decision && typeof decision === "object") {
+    const row = decision as Record<string, unknown>;
+    if (row.provider_action === "void_full") return true;
+    if (Number(row.fee_amount_pence ?? row.capture_required_pence ?? 0) === 0) return true;
+  }
+  return false;
+}
 
 const TERMINAL_NON_COMPLETED = new Set([
   "cancelled",
@@ -244,49 +326,52 @@ async function reconcileSessionCancelled(
     providerState: string;
     dispositionKey: string;
     capturedFeePence?: number;
+    priorMeta?: Record<string, unknown>;
+    decision?: TerminalPaymentDecision;
   },
 ): Promise<boolean> {
   const { sessionId, tripId, orderId, authPence, providerState, dispositionKey, capturedFeePence = 0 } = args;
   const released = Math.max(0, authPence - capturedFeePence);
+  const nowIso = new Date().toISOString();
+  const sessionStatus = terminalPaymentSessionStatus(capturedFeePence);
+  const priorMeta = args.priorMeta ?? {};
+  const executedDecision = args.decision;
 
-  // provider_state first (prevent_authorised_session_client_cancel)
+  // One write: provider evidence + non-cancelled status + final disposition.
+  // status=cancelled is rejected by prevent_authorised_session_client_cancel
+  // once provider_state is AUTHORISED/COMPLETED.
   const { error: e1 } = await supabase
     .from("payment_sessions")
     .update({
       provider_state: providerState,
       captured_amount_pence: capturedFeePence,
       released_amount_pence: released,
-      released_at: new Date().toISOString(),
-      provider_state_verified_at: new Date().toISOString(),
+      released_at: nowIso,
+      captured_at: capturedFeePence > 0 ? nowIso : null,
+      provider_state_verified_at: nowIso,
       provider_state_verified_by: "terminal_disposition",
-      updated_at: new Date().toISOString(),
+      status: sessionStatus,
+      hold_release_state: "released",
+      hold_terminal_reason: capturedFeePence > 0 ? "terminal_fee_partial_capture" : "terminal_no_fee_void",
+      release_evidence_status: "CONFIRMED",
+      release_evidence_source: "revolut_merchant_get_order",
+      release_verified_at: nowIso,
+      provider_release_reference: orderId,
+      metadata: buildTerminalDispositionMetadata({
+        priorMeta,
+        dispositionKey,
+        decision: executedDecision,
+        capturedFeePence,
+        nowIso,
+      }),
+      updated_at: nowIso,
     })
     .eq("id", sessionId)
     .eq("trip_id", tripId)
     .eq("provider_order_id", orderId);
 
   if (e1) {
-    console.error("[terminalDisposition] provider_state update failed", e1);
-    return false;
-  }
-
-  const { error: e2 } = await supabase
-    .from("payment_sessions")
-    .update({
-      status: "cancelled",
-      hold_release_state: "released",
-      hold_terminal_reason: capturedFeePence > 0 ? "terminal_fee_partial_capture" : "terminal_no_fee_void",
-      release_evidence_status: "CONFIRMED",
-      release_evidence_source: "revolut_merchant_get_order",
-      release_verified_at: new Date().toISOString(),
-      provider_release_reference: orderId,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", sessionId)
-    .eq("provider_state", providerState);
-
-  if (e2) {
-    console.error("[terminalDisposition] status update failed", e2);
+    console.error("[terminalDisposition] session reconcile failed", e1);
     return false;
   }
 
@@ -297,7 +382,7 @@ async function reconcileSessionCancelled(
         ? (mapRevolutStateToPaymentStatus("COMPLETED") ?? "captured")
         : "cancelled",
       capture_amount_pence: capturedFeePence,
-      updated_at: new Date().toISOString(),
+      updated_at: nowIso,
     })
     .eq("id", tripId);
 
@@ -327,20 +412,20 @@ async function markDispositionFinal(
   priorMeta: Record<string, unknown>,
   dispositionKey: string,
   decision: TerminalPaymentDecision,
+  capturedFeePence: number,
 ): Promise<void> {
+  const nowIso = new Date().toISOString();
   await transitionPaymentSession(supabase, {
     sessionId,
     patch: {
-      metadata: {
-        ...priorMeta,
-        terminal_disposition_key: dispositionKey,
-        terminal_disposition_pending: false,
-        terminal_disposition_final: true,
-        terminal_disposition_reason: decision.disposition_reason,
-        terminal_disposition_decision: decision,
-        terminal_disposition_final_at: new Date().toISOString(),
-      },
-      updated_at: new Date().toISOString(),
+      metadata: buildTerminalDispositionMetadata({
+        priorMeta,
+        dispositionKey,
+        decision,
+        capturedFeePence,
+        nowIso,
+      }),
+      updated_at: nowIso,
     },
     source: "terminal_disposition",
   });
@@ -362,7 +447,7 @@ export async function disposeTerminalTripPayment(
     .select(
       // Provider-neutral / Revolut identifiers only — never select removed provider PI columns
       // (legacy PI select caused PostgREST 400 → false trip_not_found).
-      "id, status, started_at, arrived_at, free_wait_expires_at, cancelled_at, cancelled_by, cancellation_reason, scheduled_at, cancellation_grace_expires_at, driver_id, confirmed_driver_id, service_area_id, vehicle_type_id, payment_provider, provider_order_id, payment_session_id, authorised_amount_pence, cancellation_fee_pence, no_show_charge_pence, payment_status, arrival_cancellation_applied, dispatch_mode, scheduled_status, is_scheduled",
+      "id, status, started_at, arrived_at, free_wait_expires_at, cancelled_at, cancelled_by, cancellation_reason, scheduled_at, cancellation_grace_expires_at, driver_id, confirmed_driver_id, service_area_id, vehicle_type_id, payment_provider, provider_order_id, payment_session_id, authorised_amount_pence, cancellation_fee_pence, no_show_charge_pence, payment_status, arrival_cancellation_applied, dispatch_mode, scheduled_status, is_scheduled, pickup_waiting_counted_seconds",
     )
     .eq("id", args.tripId)
     .maybeSingle();
@@ -429,12 +514,19 @@ export async function disposeTerminalTripPayment(
       payment_session_id: (paymentSession?.id as string | null) ?? null,
       provider: provider ?? "unknown",
       decision_at: new Date().toISOString(),
+      pickup_waiting_counted_seconds: trip.pickup_waiting_counted_seconds == null
+        ? null
+        : Number(trip.pickup_waiting_counted_seconds),
     },
     config,
     feePolicyId,
   });
 
-  if (args.forceFeePenceOverride && args.feePence != null) {
+  if (shouldApplyForceFeeOverride({
+    force: args.forceFeePenceOverride === true,
+    feePence: args.feePence,
+    dispositionReason: decision.disposition_reason,
+  })) {
     const fee = Math.max(0, Math.round(Number(args.feePence)));
     const remaining = Math.max(0, authPenceLocal - priorCaptured);
     const capture = fee > 0 ? Math.min(fee, remaining) : 0;
@@ -451,6 +543,12 @@ export async function disposeTerminalTripPayment(
         : (decision.provider_action === "skip" ? "skip" : "void_full"),
       decision_evidence: { ...decision.decision_evidence, force_fee_override: true },
     };
+  } else if (args.forceFeePenceOverride && args.feePence != null && Number(args.feePence) > 0) {
+    console.log("TERMINAL_FEE_OVERRIDE_IGNORED_NO_FEE", JSON.stringify({
+      trip_id: args.tripId,
+      disposition_reason: decision.disposition_reason,
+      ignored_fee_pence: args.feePence,
+    }));
   }
 
   const dispositionKey = decision.idempotency_key;
@@ -584,47 +682,6 @@ export async function disposeTerminalTripPayment(
     );
   }
 
-  if (paymentSession?.id) {
-    await transitionPaymentSession(supabase, {
-      sessionId: paymentSession.id as string,
-      patch: {
-        metadata: {
-          ...priorMeta,
-          terminal_disposition_key: dispositionKey,
-          terminal_disposition_pending: true,
-          terminal_disposition_reason: decision.disposition_reason,
-          terminal_disposition_decision: decision,
-          terminal_disposition_pending_at: new Date().toISOString(),
-        },
-        updated_at: new Date().toISOString(),
-      },
-      source: "terminal_disposition",
-    });
-  }
-
-  const tripFeePatch: Record<string, unknown> = {
-    cancellation_fee_pence: decision.disposition_reason === "CUSTOMER_NO_SHOW"
-      ? 0
-      : decision.fee_amount_pence,
-    updated_at: new Date().toISOString(),
-  };
-  if (decision.disposition_reason === "CUSTOMER_NO_SHOW") {
-    tripFeePatch.no_show_charge_pence = decision.fee_amount_pence;
-    tripFeePatch.cancellation_fee_pence = decision.fee_amount_pence;
-  }
-  if (decision.disposition_reason === "ARRIVAL_CANCELLATION_FEE") {
-    tripFeePatch.arrival_cancellation_applied = true;
-    tripFeePatch.arrival_cancellation_fee = decision.fee_amount_pence / 100;
-    tripFeePatch.arrival_cancellation_applied_at = new Date().toISOString();
-    tripFeePatch.arrival_cancellation_reason = "ARRIVAL_CANCELLATION_FEE";
-    tripFeePatch.cancellation_fee_pence = decision.fee_amount_pence;
-  }
-  if (decision.disposition_reason === "LATE_PASSENGER_CANCELLATION") {
-    tripFeePatch.late_cancel_fee_pence = decision.fee_amount_pence;
-    tripFeePatch.cancellation_fee_pence = decision.fee_amount_pence;
-  }
-  await supabase.from("trips").update(tripFeePatch).eq("id", args.tripId);
-
   const { secretKey, environment } = getRevolutMerchantConfig();
 
   let orderBefore;
@@ -661,10 +718,12 @@ export async function disposeTerminalTripPayment(
         authPence,
         providerState: stateBefore === "CANCELED" ? "CANCELLED" : stateBefore,
         dispositionKey,
+        priorMeta,
+        decision,
       })
       : true;
     if (ok && paymentSession?.id) {
-      await markDispositionFinal(supabase, paymentSession.id as string, priorMeta, dispositionKey, decision);
+      await markDispositionFinal(supabase, paymentSession.id as string, priorMeta, dispositionKey, decision, 0);
     }
     return {
       outcome: ok ? "ALREADY_RELEASED_RECONCILED" : "LOCAL_RECONCILIATION_FAILED_AFTER_PROVIDER_SUCCESS",
@@ -688,10 +747,12 @@ export async function disposeTerminalTripPayment(
         providerState: "COMPLETED",
         dispositionKey,
         capturedFeePence: completedAmt,
+        priorMeta,
+        decision,
       })
       : true;
     if (ok && paymentSession?.id) {
-      await markDispositionFinal(supabase, paymentSession.id as string, priorMeta, dispositionKey, decision);
+      await markDispositionFinal(supabase, paymentSession.id as string, priorMeta, dispositionKey, decision, completedAmt);
     }
     return {
       outcome: ok ? "FEE_CAPTURED_AND_REMAINDER_RELEASED" : "LOCAL_RECONCILIATION_FAILED_AFTER_PROVIDER_SUCCESS",
@@ -730,6 +791,73 @@ export async function disposeTerminalTripPayment(
     };
   }
 
+  // Stamp the computed fee only after retrieve shows the order is still open.
+  // An already-captured order must not be rewritten as fee 0 / void_full / pending first.
+  const tripFeePatch: Record<string, unknown> = {
+    cancellation_fee_pence: decision.disposition_reason === "CUSTOMER_NO_SHOW"
+      ? 0
+      : decision.fee_amount_pence,
+    updated_at: new Date().toISOString(),
+  };
+  if (decision.disposition_reason === "CUSTOMER_NO_SHOW") {
+    tripFeePatch.no_show_charge_pence = decision.fee_amount_pence;
+    tripFeePatch.cancellation_fee_pence = decision.fee_amount_pence;
+  }
+  if (decision.disposition_reason === "ARRIVAL_CANCELLATION_FEE") {
+    tripFeePatch.arrival_cancellation_applied = true;
+    tripFeePatch.arrival_cancellation_fee = decision.fee_amount_pence / 100;
+    tripFeePatch.arrival_cancellation_applied_at = new Date().toISOString();
+    tripFeePatch.arrival_cancellation_reason = "ARRIVAL_CANCELLATION_FEE";
+    tripFeePatch.cancellation_fee_pence = decision.fee_amount_pence;
+  }
+  if (decision.disposition_reason === "LATE_PASSENGER_CANCELLATION") {
+    tripFeePatch.late_cancel_fee_pence = decision.fee_amount_pence;
+    tripFeePatch.cancellation_fee_pence = decision.fee_amount_pence;
+  }
+  await supabase.from("trips").update(tripFeePatch).eq("id", args.tripId);
+
+  if (paymentSession?.id) {
+    await transitionPaymentSession(supabase, {
+      sessionId: paymentSession.id as string,
+      patch: {
+        metadata: {
+          ...priorMeta,
+          terminal_disposition_key: dispositionKey,
+          terminal_disposition_in_progress: true,
+          terminal_disposition_pending_at: new Date().toISOString(),
+        },
+        updated_at: new Date().toISOString(),
+      },
+      source: "terminal_disposition",
+    });
+  }
+
+  let dispositionLockOwner: string | null = null;
+  if (paymentSession?.id) {
+    dispositionLockOwner = `terminal_disposition:${dispositionKey}`;
+    const claim = await claimPaymentSessionFinancialLock(supabase, {
+      paymentSessionId: String(paymentSession.id),
+      owner: dispositionLockOwner,
+      state: feePence > 0 ? "CAPTURING" : "RECONCILING",
+      operationKey: dispositionKey,
+    });
+    if (!claim.ok) {
+      console.log("TERMINAL_DISPOSITION_CLAIM_BUSY", JSON.stringify({
+        trip_id: args.tripId,
+        disposition_key: dispositionKey,
+        reason: claim.reason,
+      }));
+      return {
+        outcome: "PROVIDER_PENDING_RECONCILIATION",
+        trip_id: args.tripId,
+        disposition_key: dispositionKey,
+        decision,
+        message: "disposition_already_in_progress",
+        provider_order_id_mask: maskOrderId(orderId),
+      };
+    }
+  }
+
   try {
     if (
       decision.provider_action === "partial_capture_fee" ||
@@ -760,15 +888,12 @@ export async function disposeTerminalTripPayment(
             providerState: stateAfterCap === "COMPLETED" ? "COMPLETED" : stateAfterCap,
             dispositionKey,
             capturedFeePence: fee,
+            priorMeta,
+            decision,
           })
           : true;
-        await supabase.from("trips").update({
-          payment_status: "captured",
-          capture_amount_pence: fee,
-          updated_at: new Date().toISOString(),
-        }).eq("id", args.tripId);
         if (ok && paymentSession?.id) {
-          await markDispositionFinal(supabase, paymentSession.id as string, priorMeta, dispositionKey, decision);
+          await markDispositionFinal(supabase, paymentSession.id as string, priorMeta, dispositionKey, decision, fee);
         }
         return {
           outcome: ok ? "FEE_CAPTURED_AND_REMAINDER_RELEASED" : "LOCAL_RECONCILIATION_FAILED_AFTER_PROVIDER_SUCCESS",
@@ -835,10 +960,12 @@ export async function disposeTerminalTripPayment(
         authPence,
         providerState: "CANCELLED",
         dispositionKey,
+        priorMeta,
+        decision,
       })
       : true;
     if (ok && paymentSession?.id) {
-      await markDispositionFinal(supabase, paymentSession.id as string, priorMeta, dispositionKey, decision);
+      await markDispositionFinal(supabase, paymentSession.id as string, priorMeta, dispositionKey, decision, 0);
     }
     return {
       outcome: ok ? "RELEASED_AND_RECONCILED" : "LOCAL_RECONCILIATION_FAILED_AFTER_PROVIDER_SUCCESS",
@@ -864,10 +991,12 @@ export async function disposeTerminalTripPayment(
             authPence,
             providerState: "CANCELLED",
             dispositionKey,
+            priorMeta,
+            decision,
           })
           : true;
         if (ok && paymentSession?.id) {
-          await markDispositionFinal(supabase, paymentSession.id as string, priorMeta, dispositionKey, decision);
+          await markDispositionFinal(supabase, paymentSession.id as string, priorMeta, dispositionKey, decision, 0);
         }
         return {
           outcome: ok ? "ALREADY_RELEASED_RECONCILED" : "LOCAL_RECONCILIATION_FAILED_AFTER_PROVIDER_SUCCESS",
@@ -892,10 +1021,12 @@ export async function disposeTerminalTripPayment(
             providerState: "COMPLETED",
             dispositionKey,
             capturedFeePence: completedAfter,
+            priorMeta,
+            decision,
           })
           : true;
         if (ok && paymentSession?.id) {
-          await markDispositionFinal(supabase, paymentSession.id as string, priorMeta, dispositionKey, decision);
+          await markDispositionFinal(supabase, paymentSession.id as string, priorMeta, dispositionKey, decision, completedAfter);
         }
         return {
           outcome: ok ? "FEE_CAPTURED_AND_REMAINDER_RELEASED" : "LOCAL_RECONCILIATION_FAILED_AFTER_PROVIDER_SUCCESS",
@@ -928,6 +1059,16 @@ export async function disposeTerminalTripPayment(
         message: (e as Error).message,
         provider_order_id_mask: maskOrderId(orderId),
       };
+    }
+  } finally {
+    if (dispositionLockOwner && paymentSession?.id) {
+      await releasePaymentSessionFinancialLock(supabase, {
+        paymentSessionId: String(paymentSession.id),
+        owner: dispositionLockOwner,
+        nextState: "IDLE",
+      }).catch((err) => {
+        console.warn("[terminalDisposition] lock release failed", err);
+      });
     }
   }
 }

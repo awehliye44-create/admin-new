@@ -184,6 +184,32 @@ export async function executeRevolutTripCompletionCapture(args: {
     };
   }
 
+  // Block capture while a fare-increase modification is still unresolved.
+  // Does not mutate the original trip fare.
+  const { data: unresolvedIncrease, error: unresolvedErr } = await args.supabase.rpc(
+    "trip_has_unresolved_fare_increase_modification",
+    { p_trip_id: tripId },
+  );
+  if (unresolvedErr) {
+    console.error("UNRESOLVED_FARE_INCREASE_CHECK_FAILED", unresolvedErr);
+    return {
+      success: false,
+      status: "unresolved_modification_check_failed",
+      capture_amount_pence: 0,
+      provider_order_id: orderId,
+      error: "Unable to verify trip modifications before capture",
+    };
+  }
+  if (unresolvedIncrease === true) {
+    return {
+      success: false,
+      status: "unresolved_fare_increase_modification",
+      capture_amount_pence: 0,
+      provider_order_id: orderId,
+      error: "Trip has an unresolved fare-increase modification; completion capture blocked",
+    };
+  }
+
   const safeTipPence = Math.max(0, Math.round(args.tipPence ?? 0));
   const tripForFare = { ...args.trip, tip_pence: safeTipPence, tip_amount_pence: safeTipPence };
   const resolvedFare = resolveTripFare(tripForFare, safeTipPence);

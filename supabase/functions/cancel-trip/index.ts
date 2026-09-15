@@ -11,6 +11,11 @@ import {
 } from "../_shared/security.ts";
 import { requireUser } from "../_shared/internalAuth.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
+import {
+  isArrivalCancellationFeeEligible,
+  resolveFreeWaitingExpiresAtMs,
+} from "../_shared/terminalFeeDecisionSSOT.ts";
+import { noShowEligibleFromCountedSeconds } from "../_shared/waitingSegmentClock.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 
@@ -76,7 +81,7 @@ serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at"
+        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, pickup_waiting_counted_seconds, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at"
       )
       .eq("id", trip_id)
       .maybeSingle();
@@ -140,7 +145,7 @@ serve(async (req) => {
     const fpsQuery = supabase
       .from("fare_pricing_settings")
       .select(
-        "cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence"
+        "cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence, arrival_cancellation_enabled, arrival_cancellation_fee_pence, arrival_cancellation_apply_after_free_waiting_expired, arrival_cancellation_after_arrival_only, free_waiting_minutes"
       )
       .eq("service_area_id", trip.service_area_id);
 
@@ -186,17 +191,17 @@ serve(async (req) => {
         return errorResponse("No-show can only be triggered after driver arrival", 400);
       }
 
-      // Check if enough waiting time has passed
-      if (trip.arrived_at) {
-        const arrivedAt = new Date(trip.arrived_at);
-        const waitedMinutes = (now.getTime() - arrivedAt.getTime()) / 60000;
-
-        if (waitedMinutes < noShowWaitTimeMinutes) {
-          return errorResponse(
-            `Must wait ${noShowWaitTimeMinutes} minutes before no-show. Waited: ${Math.floor(waitedMinutes)} min`,
-            400
-          );
-        }
+      // Counted in-radius seconds only. Wall-clock since arrival advances
+      // while the driver is outside the pickup radius and must not qualify.
+      const countedNoShowSeconds = Number(trip.pickup_waiting_counted_seconds ?? 0);
+      if (!noShowEligibleFromCountedSeconds({
+        countedSeconds: Number.isFinite(countedNoShowSeconds) ? countedNoShowSeconds : 0,
+        requiredWaitMinutes: Number(noShowWaitTimeMinutes ?? 0),
+      })) {
+        return errorResponse(
+          `Must wait ${noShowWaitTimeMinutes} in-radius minutes before no-show. Counted: ${Math.floor(countedNoShowSeconds)}s`,
+          400
+        );
       }
 
       appliedFee = noShowFeePence;
@@ -272,11 +277,13 @@ serve(async (req) => {
             const graceExpires = trip.cancellation_grace_expires_at
               ? new Date(trip.cancellation_grace_expires_at)
               : null;
+            const graceWritten = graceExpires != null && !Number.isNaN(graceExpires.getTime());
 
-            if (graceExpires && now <= graceExpires) {
+            // Null grace is not written anywhere. Do not treat it as expired.
+            if (!graceWritten || now <= graceExpires!) {
               appliedFee = 0;
               feeType = "none";
-              cancellationReasonFinal = "post_booking_grace";
+              cancellationReasonFinal = graceWritten ? "post_booking_grace" : (reason || "cancelled_pre_arrival_no_grace_stamp");
               financialOutcome = "CANCELLED_NO_FEE";
             } else {
               appliedFee = cancellationFeePence;
@@ -286,22 +293,40 @@ serve(async (req) => {
             }
           }
         }
-        // PHASE B: Post-arrival cancellation
+        // PHASE B: Post-arrival cancellation.
+        // Arrival alone is not a fee. cancellation_grace_expires_at is not written
+        // and must not gate this. Arrival fee applies only after free waiting expired
+        // on free_wait_expires_at AND counted in-radius seconds.
         else if (driverArrived) {
-          const arrivalGraceExpires = trip.cancellation_grace_expires_at
-            ? new Date(trip.cancellation_grace_expires_at)
-            : null;
-
-          if (arrivalGraceExpires && now <= arrivalGraceExpires) {
+          const freeExpiresMs = resolveFreeWaitingExpiresAtMs({
+            arrived_at: trip.arrived_at ?? null,
+            free_wait_expires_at: trip.free_wait_expires_at ?? null,
+            free_waiting_minutes: fps.free_waiting_minutes ?? null,
+          });
+          const countedRaw = trip.pickup_waiting_counted_seconds;
+          const countedInRadiusSeconds = countedRaw == null || !Number.isFinite(Number(countedRaw))
+            ? null
+            : Math.max(0, Math.round(Number(countedRaw)));
+          const arrivalFeeEligible = fps.arrival_cancellation_enabled === true
+            && isArrivalCancellationFeeEligible({
+              arrivedAtMs: trip.arrived_at ? new Date(trip.arrived_at).getTime() : null,
+              cancelledAtMs: now.getTime(),
+              freeExpiresMs,
+              requireFreeWaitExpired: fps.arrival_cancellation_apply_after_free_waiting_expired !== false,
+              freeWaitingMinutes: fps.free_waiting_minutes ?? null,
+              countedInRadiusSeconds,
+            });
+          const arrivalFeePence = Math.max(0, Math.round(Number(fps.arrival_cancellation_fee_pence ?? 0)));
+          if (arrivalFeeEligible && arrivalFeePence > 0) {
+            appliedFee = arrivalFeePence;
+            feeType = "arrival_cancellation";
+            cancellationReasonFinal = reason || "arrival_cancellation_fee";
+            financialOutcome = "CANCELLED_WITH_FEE";
+          } else {
             appliedFee = 0;
             feeType = "none";
-            cancellationReasonFinal = "arrival_grace_period";
+            cancellationReasonFinal = reason || "cancelled_during_free_waiting";
             financialOutcome = "CANCELLED_NO_FEE";
-          } else {
-            appliedFee = cancellationFeePence;
-            feeType = "cancellation";
-            cancellationReasonFinal = reason || "cancelled_after_arrival_grace";
-            financialOutcome = "CANCELLED_WITH_FEE";
           }
         }
         // No driver assigned → always free
@@ -398,6 +423,7 @@ serve(async (req) => {
     // Fee ordering: use cancel-trip's already-computed appliedFee —
     // fee > 0 → disposer partial-captures then releases remainder;
     // fee = 0 → void full unused authorisation. Do not invent a second fee policy.
+    let holdDisposition: { outcome?: string; captured_fee_pence?: number } | null = null;
     try {
       const dispositionReason =
         cancelled_by === "admin"
@@ -405,10 +431,12 @@ serve(async (req) => {
           : cancelled_by === "driver"
           ? "driver_cancel_terminal" as const
           : "customer_cancel" as const;
-      const holdDisposition = await disposeTerminalTripPayment(supabase, {
+      holdDisposition = await disposeTerminalTripPayment(supabase, {
         tripId: trip_id,
         reason: dispositionReason,
         feePence: appliedFee,
+        // Positive override of NO_FEE_FULL_RELEASE is ignored in dispose.
+        // Keep the flag so admin fee=0 full-release and existing lock tests stay wired.
         forceFeePenceOverride: true,
       });
       console.log("[PAYMENT_AUDIT] cancel-trip hold disposition", {
@@ -424,8 +452,32 @@ serve(async (req) => {
       );
     }
 
-    // Record financial outcome if fee > 0
-    if (appliedFee > 0 && trip.driver_id) {
+    const capturedFeePence = Math.max(0, Math.round(Number(holdDisposition?.captured_fee_pence ?? 0)));
+    const captureConfirmed = capturedFeePence > 0 && (
+      holdDisposition?.outcome === "FEE_CAPTURED_AND_REMAINDER_RELEASED" ||
+      holdDisposition?.outcome === "LOCAL_RECONCILIATION_FAILED_AFTER_PROVIDER_SUCCESS"
+    );
+    const providerFailed = holdDisposition == null || holdDisposition.outcome === "PROVIDER_FAILED";
+
+    // Provider failure must not leave a charged fee or credit a wallet.
+    if (appliedFee > 0 && providerFailed) {
+      appliedFee = 0;
+      feeType = "none";
+      financialOutcome = "CANCELLED_NO_FEE";
+      await supabase.from("trips").update({
+        cancellation_fee_pence: 0,
+        financial_outcome: "CANCELLED_NO_FEE",
+        arrival_cancellation_applied: false,
+        updated_at: new Date().toISOString(),
+      }).eq("id", trip_id);
+      console.error("[cancel-trip] provider failed — fee stamp cleared, no wallet credit", { trip_id });
+    }
+
+    // Arrival cancellation captures the configured fee only. No policy flag
+    // credits the driver wallet for that fee. No-show and late-cancel keep
+    // their existing settlement, and only after the provider capture is confirmed.
+    const creditsDriverWallet = feeType === "no_show" || feeType === "late_cancellation";
+    if (captureConfirmed && creditsDriverWallet && appliedFee > 0 && trip.driver_id) {
       const outcomeType = feeType === "no_show" ? "NO_SHOW" 
         : feeType === "late_cancellation" ? "LATE_PASSENGER_CANCELLATION" 
         : "LATE_PASSENGER_CANCELLATION";
