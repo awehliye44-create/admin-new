@@ -1,8 +1,6 @@
--- DRAFT / REVIEW ONLY — DO NOT APPLY TO PRODUCTION
--- Candidate migration version: 20261112180000 (VERIFY against live schema_migrations before apply)
--- Former invalid filename 20260915120000 remains REJECTED (collides with stacked-ride migration).
--- Status: LOCAL_REVIEW_COMPLETE packaging onto origin/main — still not production-ready until Ahmed approves version + apply.
--- Source evidence tip: 06d40440 (rescue/local-atomic-fare-modification-20260915)
+-- Migration 20261112180000: atomic fare-increase modification claim
+-- Former invalid filename 20260915120000 REJECTED (collides with stacked-ride migration).
+-- Rollback: rollback/rollback_20261112180000_atomic_fare_increase_modification_claim.sql
 --
 BEGIN;
 

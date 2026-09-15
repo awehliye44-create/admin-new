@@ -47,7 +47,7 @@ Deno.test("draft claim migration present and marked not applied", async () => {
   const mig = await Deno.readTextFile(
     join(
       REPO_ROOT,
-      "supabase/migrations/_draft_review_only/20261112190000_corporate_schedule_hold_claim.sql",
+      "supabase/migrations/20261112190000_corporate_schedule_hold_claim.sql",
     ),
   );
   assert(mig.includes("DRAFT REVIEW ONLY"));

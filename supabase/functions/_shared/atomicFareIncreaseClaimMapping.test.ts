@@ -67,7 +67,7 @@ Deno.test("ALREADY_APPLIED maps to success idempotent", () => {
 Deno.test("draft migration contains atomic claim + unique auth index", async () => {
   const sql = await Deno.readTextFile(
     new URL(
-      "../../migrations/_draft_review_only/20261112180000_atomic_fare_increase_modification_claim.sql",
+      "../../migrations/20261112180000_atomic_fare_increase_modification_claim.sql",
       import.meta.url,
     ),
   );
