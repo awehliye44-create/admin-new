@@ -106,15 +106,21 @@ export function DemandZoneSettingsDialog({
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!validation.valid) throw new Error(validation.errors.join(' · '));
-      const { error } = await supabase.rpc('admin_save_demand_zone_settings', {
+      const { data, error } = await supabase.rpc('admin_save_demand_zone_settings', {
         _service_area_id: serviceAreaId,
         _settings: JSON.parse(JSON.stringify(form)),
       });
       if (error) throw error;
+      const saved = data as unknown as DemandZoneSettings | null;
+      if (!saved || saved.surge_enabled !== form.surge_enabled) {
+        throw new Error('The automatic surge setting was not saved. Please try again.');
+      }
+      return saved;
     },
-    onSuccess: async () => {
+    onSuccess: async (saved) => {
+      setForm({ ...BLANK, ...saved });
+      queryClient.setQueryData(['demand-zone-settings', serviceAreaId], saved);
       toast({ title: 'Settings saved', description: `${serviceAreaName} demand-zone settings updated.` });
-      await queryClient.invalidateQueries({ queryKey: ['demand-zone-settings', serviceAreaId] });
       await queryClient.invalidateQueries({ queryKey: ['demand-zone-settings-all'] });
       await queryClient.invalidateQueries({ queryKey: ['driver-demand-zones'] });
       await queryClient.invalidateQueries({ queryKey: ['demand-zone-audit'] });
@@ -127,6 +133,17 @@ export function DemandZoneSettingsDialog({
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  const setSurgeEnabled = (enabled: boolean) => {
+    setForm((prev) => ({
+      ...prev,
+      surge_enabled: enabled,
+      // A newly configured service area has null optional multipliers. Enabling surge
+      // must create a valid neutral configuration instead of making Save unavailable.
+      multiplier_medium: enabled ? (prev.multiplier_medium ?? prev.multiplier_low ?? 1) : prev.multiplier_medium,
+      multiplier_high: enabled ? (prev.multiplier_high ?? prev.multiplier_medium ?? prev.multiplier_low ?? 1) : prev.multiplier_high,
+    }));
+  };
 
   const colourRow = (
     label: string,
@@ -274,7 +291,7 @@ export function DemandZoneSettingsDialog({
                 <Switch
                   checked={form.surge_enabled}
                   disabled={!canSurge}
-                  onCheckedChange={(v) => set('surge_enabled', v)}
+                  onCheckedChange={setSurgeEnabled}
                 />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
