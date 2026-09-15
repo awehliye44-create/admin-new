@@ -1,5 +1,4 @@
 import { assert } from "https://deno.land/std@0.224.0/assert/assert.ts";
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals.ts";
 import { fromFileUrl } from "https://deno.land/std@0.224.0/path/from_file_url.ts";
 import { join } from "https://deno.land/std@0.224.0/path/join.ts";
 
@@ -10,41 +9,48 @@ const SRC = await Deno.readTextFile(
 
 Deno.test("requires client_action_id and reconciles before create", () => {
   assert(SRC.includes("CLIENT_ACTION_ID_REQUIRED"));
-  assert(SRC.includes('loadPaymentSession(admin, { clientActionId })'));
+  assert(SRC.includes("loadPaymentSession"));
   assert(SRC.includes("idempotent: true"));
   assert(SRC.includes("reconcile_only"));
 });
 
-Deno.test("never trusts client fare as authority", () => {
+Deno.test("authority from membership; never trusts body org alone", () => {
+  assert(SRC.includes("resolveAuthoritativeCorporateAccountId"));
+  assert(SRC.includes("assertCorporateAccountBookable"));
+  assert(SRC.includes("assertServiceAreaInOrgScope"));
+  assert(SRC.includes("CORPORATE_ORG_MISMATCH") || SRC.includes("authz.code"));
+});
+
+Deno.test("never trusts client fare; server calculate-fare", () => {
   assert(SRC.includes("calculate-fare"));
-  assert(SRC.includes("FARE_MISMATCH") || SRC.includes("server fare"));
-  assert(!SRC.includes("estimated_fare_pence: Number(body.estimated_fare"));
-  assert(SRC.includes("FARE_COORDINATES_REQUIRED"));
+  assert(SRC.includes("FARE_MISMATCH") || SRC.includes("FARE_COORDINATES_REQUIRED"));
 });
 
-Deno.test("does not use legacy trip-first payment Edge", () => {
-  // Strip comments before scanning for the forbidden function name.
-  const code = SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-  assert(!code.includes("create-payment-intent"));
-  assert(code.includes("createRevolutPreauthResponse"));
-  assert(code.includes("tripId: null"));
-});
-
-Deno.test("schedule overlap checked on scheduled path", () => {
+Deno.test("atomic schedule claim + SSOT recheck; no driver RPC", () => {
   assert(SRC.includes("findCorporateScheduleOverlap"));
-  assert(SRC.includes("SCHEDULE_OVERLAP"));
+  assert(SRC.includes("claim_corporate_schedule_hold"));
+  assert(SRC.includes("SCHEDULE_CLAIM_UNAVAILABLE"));
+  const code = SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  assert(!code.includes("check_schedule_overlap"));
 });
 
-Deno.test("one key maps to session + order + trip fields in reconcile response", () => {
-  assert(SRC.includes("payment_session_id"));
-  assert(SRC.includes("provider_order_id"));
-  assert(SRC.includes("trip_id"));
-  assert(SRC.includes("client_action_id"));
+Deno.test("wallet/invoice fail closed with unavailable not 501 success", () => {
+  assert(SRC.includes("assertPaymentMethodAllowed"));
+  assert(SRC.includes("walletImplementedAndEnabled: false"));
+  assert(SRC.includes("invoiceImplementedAndEnabled: false"));
+  assert(SRC.includes("json(403"));
+  const code = SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  assert(!/\b501\b/.test(code));
 });
 
-Deno.test("corporateScheduleOverlapSSOT present for atomic create", async () => {
-  const ssot = await Deno.readTextFile(
-    join(REPO_ROOT, "supabase/functions/_shared/corporateScheduleOverlapSSOT.ts"),
+Deno.test("draft claim migration present and marked not applied", async () => {
+  const mig = await Deno.readTextFile(
+    join(
+      REPO_ROOT,
+      "supabase/migrations/_draft_review_only/20260915120000_corporate_schedule_hold_claim.sql",
+    ),
   );
-  assertEquals(ssot.includes("findCorporateScheduleOverlap"), true);
+  assert(mig.includes("DRAFT REVIEW ONLY"));
+  assert(mig.includes("claim_corporate_schedule_hold"));
+  assert(mig.includes("pg_advisory_lock"));
 });

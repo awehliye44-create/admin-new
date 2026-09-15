@@ -1,13 +1,12 @@
 /**
  * Corporate booking idempotency companion (payment-first).
  *
- * One stable client_action_id → one payment_session → one provider order →
- * at most one trip (via existing create-trip-after-payment / session finalize).
+ * Authority: membership + account status + assigned service area from server.
+ * Never trusts client organisation_id / service_area / currency / fare.
  *
- * Never trusts client-supplied fare amounts as authority — re-quotes via
- * calculate-fare when coordinates are present; otherwise refuses.
- *
- * Does NOT use the legacy trip-first payment Edge.
+ * Scheduled path: rechecks overlap via corporateScheduleOverlapSSOT AND claims
+ * the window via claim_corporate_schedule_hold (draft RPC) before payment state.
+ * Does NOT call driver check_schedule_overlap.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { loadPaymentSession } from "../_shared/paymentSessionSSOT.ts";
@@ -16,6 +15,13 @@ import {
   findCorporateScheduleOverlap,
   type CorporateOverlapTrip,
 } from "../_shared/corporateScheduleOverlapSSOT.ts";
+import {
+  resolveAuthoritativeCorporateAccountId,
+  assertCorporateAccountBookable,
+  assertServiceAreaInOrgScope,
+  assertClientActionIdOrgBound,
+  assertPaymentMethodAllowed,
+} from "../_shared/corporateBookAuthoritySSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,8 +57,8 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const clientActionId = String(body.client_action_id ?? "").trim();
-    const corporateAccountId = String(body.corporate_account_id ?? "").trim();
-    const serviceAreaId = String(body.service_area_id ?? "").trim();
+    const requestedOrgId = String(body.corporate_account_id ?? "").trim();
+    const requestedServiceAreaId = String(body.service_area_id ?? "").trim();
     const vehicleTypeId = String(body.vehicle_type_id ?? "").trim();
     const paymentMethod = String(body.payment_method ?? "card").toLowerCase();
     const scheduledAt = body.scheduled_at ? String(body.scheduled_at) : null;
@@ -61,45 +67,113 @@ Deno.serve(async (req) => {
     if (!clientActionId) {
       return json(400, { error: "client_action_id is required", code: "CLIENT_ACTION_ID_REQUIRED" });
     }
-    if (!corporateAccountId || !serviceAreaId) {
-      return json(400, { error: "corporate_account_id and service_area_id are required" });
-    }
 
     const admin = createClient(supabaseUrl, serviceKey);
 
-    const { data: membership } = await admin
+    // ── Membership from authenticated identity (do not trust body org) ────
+    const { data: membershipRows } = await admin
       .from("corporate_user_accounts")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("corporate_account_id", corporateAccountId)
+      .select("corporate_account_id, role, user_id")
+      .eq("user_id", user.id);
+
+    const authz = resolveAuthoritativeCorporateAccountId({
+      memberships: (membershipRows ?? []).map((r: any) => ({
+        userId: String(r.user_id ?? user.id),
+        corporateAccountId: String(r.corporate_account_id),
+        role: String(r.role ?? "member"),
+      })),
+      requestedCorporateAccountId: requestedOrgId,
+      userId: user.id,
+    });
+    if (!authz.ok) {
+      return json(403, { error: "Forbidden", code: authz.code });
+    }
+    const corporateAccountId = authz.corporateAccountId;
+
+    const { data: account } = await admin
+      .from("corporate_accounts")
+      .select("id, status, service_area_id")
+      .eq("id", corporateAccountId)
       .maybeSingle();
-    if (!membership) {
-      return json(403, { error: "Forbidden", code: "CORPORATE_ACCESS_DENIED" });
+
+    const bookable = assertCorporateAccountBookable(account as any);
+    if (!bookable.ok) {
+      return json(403, { error: "Organisation not bookable", code: bookable.code });
     }
 
-    // ── Reconcile first (unknown outcome / retry / refresh) ───────────────
+    const assignedSa = String((account as any)?.service_area_id ?? "");
+    const { data: sa } = await admin
+      .from("service_areas")
+      .select("id, currency, financial_model")
+      .eq("id", assignedSa)
+      .maybeSingle();
+
+    const saGate = assertServiceAreaInOrgScope({
+      account: account as any,
+      requestedServiceAreaId: requestedServiceAreaId || assignedSa,
+      serviceArea: sa as any,
+      clientCurrency: body.client_currency ?? body.currency ?? null,
+    });
+    if (!saGate.ok) {
+      return json(403, { error: "Service area / currency out of scope", code: saGate.code });
+    }
+    const serviceAreaId = assignedSa;
+    const currency = saGate.currency;
+
+    const payGate = assertPaymentMethodAllowed({
+      method: paymentMethod,
+      cardEnabled: true,
+      walletImplementedAndEnabled: false,
+      invoiceImplementedAndEnabled: false,
+    });
+    if (!payGate.ok) {
+      return json(403, {
+        error: "Payment method unavailable for Corporate bookings",
+        code: payGate.code,
+        message: "Card payment is the only supported method for this release.",
+      });
+    }
+
+    // ── Reconcile first ───────────────────────────────────────────────────
     const existingSession = await loadPaymentSession(admin, { clientActionId });
     if (existingSession) {
-      const tripId = existingSession.trip_id ? String(existingSession.trip_id) : null;
+      const sessionOrg = String(
+        (existingSession.metadata as any)?.corporate_account_id ??
+          (existingSession.booking_snapshot as any)?.corporate_account_id ??
+          "",
+      );
+      const reuse = assertClientActionIdOrgBound({
+        sessionCorporateAccountId: sessionOrg || null,
+        authoritativeCorporateAccountId: corporateAccountId,
+      });
+      if (!reuse.ok) {
+        return json(403, { error: "Forbidden", code: reuse.code });
+      }
       return json(200, {
         client_action_id: clientActionId,
         payment_session_id: existingSession.id,
         provider_order_id: existingSession.provider_order_id ?? null,
         provider_checkout_token: existingSession.provider_checkout_token ??
           existingSession.provider_client_token ?? null,
-        trip_id: tripId,
+        trip_id: existingSession.trip_id ? String(existingSession.trip_id) : null,
         status: existingSession.status,
         idempotent: true,
       });
     }
 
-    // Trip already stamped with this key (wallet/cash or prior finalize)
     const { data: existingTrip } = await admin
       .from("trips")
-      .select("id, status, provider_order_id")
+      .select("id, status, provider_order_id, corporate_account_id")
       .eq("client_action_id", clientActionId)
       .maybeSingle();
     if (existingTrip) {
+      const reuse = assertClientActionIdOrgBound({
+        sessionCorporateAccountId: String((existingTrip as any).corporate_account_id ?? ""),
+        authoritativeCorporateAccountId: corporateAccountId,
+      });
+      if (!reuse.ok) {
+        return json(403, { error: "Forbidden", code: reuse.code });
+      }
       return json(200, {
         client_action_id: clientActionId,
         payment_session_id: null,
@@ -118,15 +192,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── Schedule overlap (atomic with create path) ────────────────────────
+    // ── Schedule: SSOT recheck + atomic claim before payment ──────────────
+    const durationMinutes = Math.max(1, Number(body.estimated_duration_minutes ?? 30));
     if (scheduledAt) {
       if (!Number.isFinite(Date.parse(scheduledAt))) {
         return json(400, { error: "scheduled_at must be a valid ISO timestamp" });
       }
-      const durationMinutes = Math.max(
-        1,
-        Number(body.estimated_duration_minutes ?? 30),
-      );
+
       const { data: rows, error: ovErr } = await admin
         .from("trips")
         .select("id, scheduled_at, estimated_duration_minutes, status, passenger_id, corporate_account_id")
@@ -144,9 +216,40 @@ Deno.serve(async (req) => {
       if (overlap.has_conflict) {
         return json(409, { ...overlap, code: "SCHEDULE_OVERLAP" });
       }
+
+      // Atomic claim (draft RPC). Fail closed if unavailable — never race open.
+      const { data: claim, error: claimErr } = await admin.rpc("claim_corporate_schedule_hold", {
+        p_corporate_account_id: corporateAccountId,
+        p_client_action_id: clientActionId,
+        p_scheduled_at: scheduledAt,
+        p_duration_minutes: durationMinutes,
+        p_buffer_minutes: 15,
+      });
+
+      if (claimErr) {
+        const msg = String(claimErr.message ?? claimErr);
+        if (/could not find|PGRST202|does not exist|schema cache/i.test(msg)) {
+          return json(503, {
+            error: "Schedule claim RPC not applied",
+            code: "SCHEDULE_CLAIM_UNAVAILABLE",
+            message: "Authoritative schedule locking is not enabled in this environment yet.",
+          });
+        }
+        return json(500, { error: "Schedule claim failed", code: "SCHEDULE_CLAIM_FAILED" });
+      }
+
+      const claimBody = claim as Record<string, unknown>;
+      if (claimBody?.ok === false || claimBody?.code === "SCHEDULE_OVERLAP") {
+        return json(409, {
+          has_conflict: true,
+          code: "SCHEDULE_OVERLAP",
+          conflicting_trip_id: claimBody.conflicting_trip_id ?? null,
+          conflicting_client_action_id: claimBody.conflicting_client_action_id ?? null,
+        });
+      }
     }
 
-    // ── Server-authoritative fare (never trust client amount) ─────────────
+    // ── Server fare ───────────────────────────────────────────────────────
     const pickupLat = Number(body.pickup_latitude);
     const pickupLng = Number(body.pickup_longitude);
     const dropoffLat = Number(body.dropoff_latitude);
@@ -176,10 +279,7 @@ Deno.serve(async (req) => {
     });
     const fareBody = await fareRes.json().catch(() => ({}));
     if (!fareRes.ok) {
-      return json(502, {
-        error: "Unable to calculate fare",
-        code: "FARE_QUOTE_FAILED",
-      });
+      return json(502, { error: "Unable to calculate fare", code: "FARE_QUOTE_FAILED" });
     }
     const estimatedFarePence = Math.round(
       Number(
@@ -191,8 +291,6 @@ Deno.serve(async (req) => {
     if (!Number.isFinite(estimatedFarePence) || estimatedFarePence <= 0) {
       return json(502, { error: "Invalid server fare quote", code: "FARE_QUOTE_INVALID" });
     }
-
-    // Reject mismatched client display amount if provided (informational only)
     if (body.client_displayed_fare_pence != null) {
       const clientPence = Math.round(Number(body.client_displayed_fare_pence));
       if (Number.isFinite(clientPence) && Math.abs(clientPence - estimatedFarePence) > 1) {
@@ -204,30 +302,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (paymentMethod !== "card") {
-      // Wallet/invoice: still require the key; trip insert stays on a follow-up
-      // path once card idempotency lands. Fail closed rather than trip-first insert.
-      return json(501, {
-        error: "Non-card corporate booking via create-corporate-book is not enabled in this companion yet",
-        code: "PAYMENT_METHOD_NOT_IMPLEMENTED",
-        client_action_id: clientActionId,
-      });
-    }
-
-    const { data: sa } = await admin
-      .from("service_areas")
-      .select("id, currency, financial_model")
-      .eq("id", serviceAreaId)
-      .maybeSingle();
-    const currency = String((sa as any)?.currency ?? "GBP").toUpperCase();
-    const financialModel = String((sa as any)?.financial_model ?? "");
-    if (financialModel && financialModel !== "PLATFORM_COLLECTED") {
-      return json(409, {
-        error: "Corporate card preauth requires PLATFORM_COLLECTED",
-        code: "FINANCIAL_MODEL_VIOLATION",
-      });
-    }
-
     const logStep = (step: string, details?: unknown) => {
       console.log(JSON.stringify({ fn: "create-corporate-book", step, details }));
     };
@@ -237,16 +311,8 @@ Deno.serve(async (req) => {
       corporate_account_id: corporateAccountId,
       service_area_id: serviceAreaId,
       vehicle_type_id: vehicleTypeId,
-      pickup: {
-        address: body.pickup_address ?? "",
-        lat: pickupLat,
-        lng: pickupLng,
-      },
-      dropoff: {
-        address: body.dropoff_address ?? "",
-        lat: dropoffLat,
-        lng: dropoffLng,
-      },
+      pickup: { address: body.pickup_address ?? "", lat: pickupLat, lng: pickupLng },
+      dropoff: { address: body.dropoff_address ?? "", lat: dropoffLat, lng: dropoffLng },
       passenger_name: body.passenger_name ?? null,
       passenger_phone: body.passenger_phone ?? null,
       scheduled_at: scheduledAt,
@@ -254,13 +320,6 @@ Deno.serve(async (req) => {
       payment_intent_id: null,
     };
 
-    const fareSnapshot = {
-      estimated_fare_pence: estimatedFarePence,
-      currency,
-      source: "calculate-fare",
-    };
-
-    // Payment-first Revolut preauth keyed by client_action_id (session upsert onConflict).
     return await createRevolutPreauthResponse({
       supabase: admin,
       environment: (Deno.env.get("REVOLUT_ENVIRONMENT") as "sandbox" | "production") || "sandbox",
@@ -283,7 +342,11 @@ Deno.serve(async (req) => {
       paymentMethodType: "card",
       userId: user.id,
       bookingSnapshot,
-      fareSnapshot,
+      fareSnapshot: {
+        estimated_fare_pence: estimatedFarePence,
+        currency,
+        source: "calculate-fare",
+      },
       customerEmail: user.email ?? null,
       customerName: body.passenger_name ? String(body.passenger_name) : null,
       corsHeaders,
