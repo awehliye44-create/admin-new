@@ -4,10 +4,6 @@ import {
   invokePreauthUpdateOnModification,
   upsertTripRoutePolyline,
 } from "../_shared/tripModificationApply.ts";
-import {
-  decideFromPreauthInvokeResult,
-  isAlreadyAppliedModification,
-} from "../_shared/tripModificationPaymentGateSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,13 +13,6 @@ const corsHeaders = {
 function isCashPaymentMethod(method: unknown): boolean {
   const m = String(method ?? "").toLowerCase();
   return m === "cash" || m === "cash_only" || m.includes("cash");
-}
-
-function json(payload: Record<string, unknown>, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
 }
 
 Deno.serve(async (req) => {
@@ -38,7 +27,10 @@ Deno.serve(async (req) => {
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return json({ error: "Missing authorization" }, 401);
+      return new Response(JSON.stringify({ error: "Missing authorization" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
@@ -48,13 +40,19 @@ Deno.serve(async (req) => {
 
     const { data: { user }, error: userError } = await supabaseUser.auth.getUser();
     if (userError || !user) {
-      return json({ error: "Unauthorized" }, 401);
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const body = await req.json();
     const requestId = body.requestId ?? body.request_id;
     if (!requestId) {
-      return json({ error: "requestId is required" }, 400);
+      return new Response(JSON.stringify({ error: "requestId is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const { data: changeRequest, error: requestError } = await supabase
@@ -64,7 +62,10 @@ Deno.serve(async (req) => {
       .single();
 
     if (requestError || !changeRequest) {
-      return json({ error: "Modification request not found" }, 404);
+      return new Response(JSON.stringify({ error: "Modification request not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const trip = changeRequest.trips as Record<string, unknown>;
@@ -75,26 +76,16 @@ Deno.serve(async (req) => {
       .single();
 
     if (!customer || trip.passenger_id !== customer.id) {
-      return json({ error: "Not authorized" }, 403);
-    }
-
-    // Idempotent duplicate confirmation — never re-add the fare delta.
-    if (isAlreadyAppliedModification(changeRequest.status)) {
-      return json({
-        success: true,
-        requestId,
-        status: changeRequest.status,
-        paymentStatus: changeRequest.payment_status,
-        requiresApproval: changeRequest.requires_approval,
-        navigationImpacted: changeRequest.navigation_impacted,
-        alreadyConfirmed: true,
-        alreadyApplied: true,
+      return new Response(JSON.stringify({ error: "Not authorized" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    if (!["payment_required", "payment_pending", "payment_confirmed"].includes(changeRequest.status)) {
-      if (["pending_driver_approval", "approved"].includes(changeRequest.status)) {
-        return json({
+    if (!["payment_required", "payment_pending"].includes(changeRequest.status)) {
+      // Idempotent: already advanced.
+      if (["pending_driver_approval", "approved", "applied"].includes(changeRequest.status)) {
+        return new Response(JSON.stringify({
           success: true,
           requestId,
           status: changeRequest.status,
@@ -102,39 +93,43 @@ Deno.serve(async (req) => {
           requiresApproval: changeRequest.requires_approval,
           navigationImpacted: changeRequest.navigation_impacted,
           alreadyConfirmed: true,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      return json({
+      return new Response(JSON.stringify({
         error: "Request is not awaiting payment confirmation",
         currentStatus: changeRequest.status,
-      }, 400);
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const fareDelta = Number(changeRequest.fare_delta_pence ?? 0);
     if (fareDelta <= 0) {
+      // Should not be in payment_required, but advance safely.
       const { data: advanced, error: advanceError } = await supabase.rpc(
         "advance_trip_change_after_payment",
         { p_request_id: requestId },
       );
       if (advanceError) throw advanceError;
-      return json({
+      return new Response(JSON.stringify({
         success: true,
         requestId,
         status: advanced?.status ?? "applied",
         paymentStatus: "not_required",
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // MODIFICATION_REQUESTED → PAYMENT_PENDING (do not mutate trip yet).
     await supabase
       .from("trip_change_requests")
-      .update({
-        status: "payment_pending",
-        payment_status: "pending",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", requestId)
-      .in("status", ["payment_required", "payment_pending"]);
+      .update({ status: "payment_pending", payment_status: "pending", updated_at: new Date().toISOString() })
+      .eq("id", requestId);
 
     const newFarePence = Number(
       changeRequest.new_fare_pence
@@ -143,221 +138,119 @@ Deno.serve(async (req) => {
         ?? 0,
     );
 
-    if (!newFarePence || newFarePence <= 0) {
+    try {
+      if (isCashPaymentMethod(trip.payment_method)) {
+        // Cash: mark increase only — no card top-up.
+        console.log("TRIP_MOD_PAYMENT_CASH_CONFIRMED", { requestId, tripId: trip.id, fareDelta });
+      } else {
+        const preauthResult = await invokePreauthUpdateOnModification(
+          supabase,
+          String(trip.id),
+          newFarePence,
+        ) as Record<string, unknown> | null;
+
+        if (!newFarePence || newFarePence <= 0) {
+          throw new Error("Payable total missing for paid trip modification");
+        }
+
+        const coverage = String(preauthResult?.payment_coverage_status ?? "");
+        const success = preauthResult?.success === true && preauthResult?.skipped !== true;
+        const insufficient =
+          coverage === "authorization_insufficient"
+          || coverage === "under_authorized"
+          || coverage === "under_captured"
+          || Boolean(preauthResult?.warning);
+
+        if (!success || insufficient) {
+          throw new Error(
+            typeof preauthResult?.warning === "string"
+              ? preauthResult.warning
+              : typeof preauthResult?.error === "string"
+                ? preauthResult.error
+                : "Payment authorization failed for fare increase",
+          );
+        }
+
+        // Fail closed: capturable/authorized must cover new payable before apply (MK-260704-002).
+        const authorisedPence = Number(
+          preauthResult?.authorised_amount_pence
+            ?? preauthResult?.total_authorized_amount_pence
+            ?? preauthResult?.amount_capturable
+            ?? 0,
+        );
+        const capturablePence = Number(
+          preauthResult?.amount_capturable ?? authorisedPence,
+        );
+        const coveredPence = Math.max(
+          Number.isFinite(authorisedPence) ? authorisedPence : 0,
+          Number.isFinite(capturablePence) ? capturablePence : 0,
+        );
+        if (coveredPence < newFarePence) {
+          throw new Error(
+            `Authorization insufficient: capturable ${coveredPence}p < payable ${newFarePence}p`,
+          );
+        }
+      }
+    } catch (payError) {
+      const message = payError instanceof Error ? payError.message : String(payError);
+      console.error("TRIP_MOD_PAYMENT_FAILED", { requestId, message });
+
       await supabase
         .from("trip_change_requests")
         .update({
           status: "payment_failed",
           payment_status: "failed",
-          rejection_reason: "Payable total missing for paid trip modification",
           updated_at: new Date().toISOString(),
+          rejection_reason: message,
         })
         .eq("id", requestId);
-      return json({
+
+      return new Response(JSON.stringify({
         success: false,
         error: "Payment confirmation failed",
-        details: "Payable total missing for paid trip modification",
+        details: message,
         status: "payment_failed",
         requestId,
-        paymentProcessing: false,
-      }, 402);
+      }), {
+        status: 402,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    let gate = decideFromPreauthInvokeResult({
-      success: false,
-      requiredPayablePence: newFarePence,
-      authorisedAmountPence: 0,
-      paymentCoverageStatus: "authorization_insufficient",
-    });
+    // Payment confirmed → driver_pending or atomic apply (via status=approved trigger).
+    const { data: advanced, error: advanceError } = await supabase.rpc(
+      "advance_trip_change_after_payment",
+      { p_request_id: requestId },
+    );
 
-    if (isCashPaymentMethod(trip.payment_method)) {
-      console.log("TRIP_MOD_PAYMENT_CASH_CONFIRMED", { requestId, tripId: trip.id, fareDelta });
-      gate = {
-        phase: "PROVIDER_CONFIRMED",
-        mayApply: true,
-        paymentStatus: "confirmed",
-        requestStatus: "payment_confirmed",
-        authorisedTotalPence: newFarePence,
-      };
-    } else {
-      let preauthResult: Record<string, unknown> | null = null;
-      try {
-        preauthResult = await invokePreauthUpdateOnModification(
-          supabase,
-          String(trip.id),
-          newFarePence,
-        ) as Record<string, unknown> | null;
-      } catch (invokeErr) {
-        const message = invokeErr instanceof Error ? invokeErr.message : String(invokeErr);
-        gate = decideFromPreauthInvokeResult({
-          success: false,
-          requiredPayablePence: newFarePence,
-          authorisedAmountPence: 0,
-          paymentCoverageStatus: "authorization_reconciliation_pending",
-          errorCode: /timeout/i.test(message)
-            ? "TIMEOUT"
-            : /network|fetch/i.test(message)
-            ? "NETWORK"
-            : "AUTHORISATION_RECONCILIATION_PENDING",
-          warning: message,
-        });
-        preauthResult = null;
-      }
-
-      if (preauthResult) {
-        gate = decideFromPreauthInvokeResult({
-          success: preauthResult.success === true,
-          skipped: preauthResult.skipped === true,
-          paymentCoverageStatus: typeof preauthResult.payment_coverage_status === "string"
-            ? preauthResult.payment_coverage_status
-            : null,
-          authorisedAmountPence: Number(
-            preauthResult.authorised_amount_pence
-              ?? preauthResult.total_authorized_amount_pence
-              ?? preauthResult.amount_capturable
-              ?? 0,
-          ),
-          requiredPayablePence: newFarePence,
-          errorCode: typeof preauthResult.error_code === "string"
-            ? preauthResult.error_code
-            : null,
-          warning: typeof preauthResult.warning === "string"
-            ? preauthResult.warning
-            : typeof preauthResult.error === "string"
-            ? preauthResult.error
-            : null,
-        });
-      }
-    }
-
-    if (!gate.mayApply) {
-      const pending = gate.phase === "PAYMENT_PENDING";
+    if (advanceError) {
+      console.error("TRIP_MOD_ADVANCE_FAILED", advanceError);
       await supabase
         .from("trip_change_requests")
         .update({
-          status: gate.requestStatus,
-          payment_status: gate.paymentStatus,
-          rejection_reason: pending
-            ? `payment_${gate.reason}`
-            : `payment_${gate.reason}`,
+          status: "payment_failed",
+          payment_status: "failed",
+          rejection_reason: advanceError.message,
           updated_at: new Date().toISOString(),
         })
         .eq("id", requestId);
 
-      console.log(pending ? "TRIP_MOD_PAYMENT_PENDING" : "TRIP_MOD_PAYMENT_FAILED", {
-        requestId,
-        tripId: trip.id,
-        phase: gate.phase,
-        reason: gate.reason,
-        authorised: gate.authorisedTotalPence,
-        required: newFarePence,
-      });
-
-      // Trip destination / fare / financial snapshot remain unchanged.
-      return json({
+      return new Response(JSON.stringify({
         success: false,
-        error: pending
-          ? "Payment is still processing. Your trip has not been changed."
-          : "Payment confirmation failed",
-        status: gate.requestStatus,
-        paymentStatus: gate.paymentStatus,
-        paymentProcessing: pending,
-        paymentPhase: gate.phase,
-        authorisedTotalPence: gate.authorisedTotalPence,
-        requiredPayablePence: newFarePence,
-        requestId,
-        tripUnchanged: true,
-      }, pending ? 202 : 402);
-    }
-
-    // PROVIDER_CONFIRMED → single DB transaction claim+apply (atomic).
-    const expectedPrevious = Number(changeRequest.original_fare_pence ?? 0);
-    const expectedTripStatus = String(trip.status ?? "").toLowerCase();
-    const { data: claimResult, error: claimError } = await supabase.rpc(
-      "claim_and_apply_fare_increase_modification",
-      {
-        p_trip_id: trip.id,
-        p_request_id: requestId,
-        p_expected_original_fare_pence: expectedPrevious,
-        p_expected_trip_status: expectedTripStatus,
-        p_required_authorised_total_pence: newFarePence,
-        p_provider_confirmed: true,
-        p_authorised_total_pence: gate.authorisedTotalPence,
-      },
-    );
-
-    if (claimError) {
-      const msg = String(claimError.message ?? claimError.details ?? "");
-      const code = msg.includes("ALREADY_APPLIED")
-        ? "ALREADY_APPLIED"
-        : msg.includes("PAYMENT_NOT_CONFIRMED")
-        ? "PAYMENT_NOT_CONFIRMED"
-        : msg.includes("STALE_MODIFICATION")
-        ? "STALE_MODIFICATION"
-        : "CLAIM_FAILED";
-
-      console.error("TRIP_MOD_ATOMIC_CLAIM_FAILED", { requestId, tripId: trip.id, code, msg });
-
-      if (code === "ALREADY_APPLIED") {
-        return json({
-          success: true,
-          requestId,
-          status: "applied",
-          paymentStatus: "confirmed",
-          paymentPhase: "MODIFICATION_APPLIED",
-          alreadyConfirmed: true,
-          alreadyApplied: true,
-        });
-      }
-
-      if (code === "PAYMENT_NOT_CONFIRMED") {
-        await supabase
-          .from("trip_change_requests")
-          .update({
-            status: "payment_pending",
-            payment_status: "pending",
-            rejection_reason: "payment_not_confirmed_at_claim",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", requestId)
-          .in("status", ["payment_required", "payment_pending", "payment_confirmed"]);
-
-        return json({
-          success: false,
-          error: "Payment is still processing. Your trip has not been changed.",
-          status: "payment_pending",
-          paymentStatus: "pending",
-          paymentProcessing: true,
-          paymentPhase: "PAYMENT_PENDING",
-          requestId,
-          tripUnchanged: true,
-        }, 202);
-      }
-
-      return json({
-        success: false,
-        error: "Trip fare changed before this modification could apply. Re-check fare impact.",
+        error: "Failed to apply modification after payment",
+        details: advanceError.message,
         status: "payment_failed",
-        claimCode: code,
-        requestId,
-        tripUnchanged: true,
-        concurrentOrStale: true,
-      }, 409);
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    const claim = (claimResult ?? {}) as Record<string, unknown>;
-    const claimCode = String(claim.code ?? "MODIFICATION_APPLIED");
-    const finalStatus = String(claim.request_status ?? "applied");
-
+    const finalStatus = advanced?.status ?? "applied";
     let updatedTrip: Record<string, unknown> | null = null;
     let tripUpdated: Record<string, unknown> | null = null;
 
-    if (
-      claimCode === "MODIFICATION_APPLIED"
-      || claimCode === "ALREADY_APPLIED"
-      || finalStatus === "applied"
-      || finalStatus === "approved"
-    ) {
+    if (finalStatus === "applied" || finalStatus === "approved") {
       const afterSnapshot = (changeRequest.after_route_snapshot ?? {}) as Record<string, unknown>;
       const farePreview = afterSnapshot.fare_preview as Record<string, unknown> | undefined;
       const polyline =
@@ -376,6 +269,7 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Re-read status (apply trigger may have set applied).
     const { data: latest } = await supabase
       .from("trip_change_requests")
       .select("status, payment_status, requires_approval, navigation_impacted")
@@ -386,29 +280,30 @@ Deno.serve(async (req) => {
       requestId,
       tripId: trip.id,
       status: latest?.status ?? finalStatus,
-      claimCode,
       navigationImpacted: latest?.navigation_impacted,
-      authorisedTotalPence: gate.authorisedTotalPence,
     });
 
-    return json({
+    return new Response(JSON.stringify({
       success: true,
       requestId,
       status: latest?.status ?? finalStatus,
       paymentStatus: latest?.payment_status ?? "confirmed",
-      paymentPhase: "MODIFICATION_APPLIED",
-      claimCode,
-      alreadyApplied: claimCode === "ALREADY_APPLIED",
       requiresApproval: latest?.requires_approval ?? false,
       navigationImpacted: latest?.navigation_impacted ?? false,
       trip: updatedTrip,
       tripUpdated,
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
     console.error("confirm-trip-modification-payment error:", error);
-    return json({
+    return new Response(JSON.stringify({
       error: "Internal server error",
       details: error instanceof Error ? error.message : "Unknown error",
-    }, 500);
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });

@@ -56,13 +56,6 @@ import {
   type TripStopRecord,
 } from "../_shared/tripLifecycle.ts";
 import {
-  arrivePickupClaimPredicates,
-  claimStopLifecycleWrite,
-  claimTripLifecycleWrite,
-  completeTripClaimPredicates,
-  startTripClaimPredicates,
-} from "../_shared/tripLifecycleConditionalWrite.ts";
-import {
   logRequestDuration,
   startRequestTimer,
   withDuration,
@@ -85,7 +78,6 @@ import {
 } from "../_shared/digitalPaymentCapture.ts";
 import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
-import { notifyWhatsAppTripCompleted } from "../_shared/whatsappTripLifecycleMessages.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 
 const RATE_LIMIT_CONFIG = {
@@ -2321,29 +2313,16 @@ Deno.serve(async (req) => {
           return errorResponse("UPDATE_FAILED", "Failed to update pickup stop", 500);
         }
 
-        const arriveClaim = await claimTripLifecycleWrite(
-          supabase,
-          trip_id,
-          {
-            status: CANONICAL_ARRIVED_STATUS,
-            arrived_at: now,
-            pickup_arrived_at: now,
-            updated_at: now,
-          },
-          arrivePickupClaimPredicates(),
-        );
-        if (!arriveClaim.ok) {
-          console.error("[stop-workflow] ARRIVED_RPC_ERROR trip:", arriveClaim.error);
-          return errorResponse("rpc_error", "Failed to update trip status", 500, arriveClaim.error);
-        }
-        if (!arriveClaim.claimed) {
-          console.log("[stop-workflow] Arrive claim lost — already arrived (idempotent)", { trip_id });
-          return await respondOk({
-            success: true,
-            idempotent: true,
-            action: 'arrive_pickup',
-            message: "Already arrived at pickup",
-          });
+        const { error: tripUpdateError } = await updateTripSafe(supabase, trip_id, {
+          status: CANONICAL_ARRIVED_STATUS,
+          arrived_at: now,
+          pickup_arrived_at: now,
+          updated_at: now,
+        });
+
+        if (tripUpdateError) {
+          console.error("[stop-workflow] ARRIVED_RPC_ERROR trip:", tripUpdateError);
+          return errorResponse("rpc_error", "Failed to update trip status", 500, tripUpdateError);
         }
 
         console.log("[stop-workflow] ARRIVAL_MARKED_PICKUP_SUCCESS", {
@@ -2557,55 +2536,44 @@ Deno.serve(async (req) => {
         const nextStop = stops?.find(s => s.stop_index === 1);
         const totalStops = stops?.length || 0;
 
-        const startPayload = nextStop
-          ? {
-              started_at: now,
-              status: 'in_progress' as TripStatus,
-              current_stop_index: 1,
-              current_destination_index: 1,
-              current_destination_type: nextStop.type,
-              current_stop_id: nextStop.id,
-              stop_waiting_status: 'none',
-              stop_arrived_at: null,
-              stop_waiting_started_at: null,
-              stop_waiting_paid_started_at: null,
-              stop_waiting_finalized_at: null,
-              stop_waiting_charge_amount: 0,
-              updated_at: now,
-            }
-          : {
-              started_at: now,
-              status: 'in_progress' as TripStatus,
-              updated_at: now,
-            };
-
-        const startClaim = await claimTripLifecycleWrite(
-          supabase,
-          trip_id,
-          startPayload,
-          startTripClaimPredicates(),
-        );
-        if (!startClaim.ok) {
-          console.error("[stop-workflow] START_TRIP trip update failed:", startClaim.error);
-          return errorResponse("rpc_error", "Failed to start trip", 500, startClaim.error);
-        }
-        if (!startClaim.claimed) {
-          console.log("[stop-workflow] Start claim lost — already started (idempotent)", { trip_id });
-          return await respondOk({
-            success: true,
-            idempotent: true,
-            message: "Trip already started",
-            pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
-            pickup_waiting_finalized_at: trip.pickup_waiting_finalized_at ?? null,
-          });
-        }
-
         if (nextStop) {
           // Set next stop as current
           await supabase
             .from("trip_stops")
             .update({ status: 'current' as StopStatus, updated_at: now })
             .eq("id", nextStop.id);
+
+          const { error: startTripUpdateError } = await updateTripSafe(supabase, trip_id, {
+            started_at: now,
+            status: 'in_progress' as TripStatus,
+            current_stop_index: 1,
+            current_destination_index: 1,
+            current_destination_type: nextStop.type,
+            current_stop_id: nextStop.id,
+            stop_waiting_status: 'none',
+            stop_arrived_at: null,
+            stop_waiting_started_at: null,
+            stop_waiting_paid_started_at: null,
+            stop_waiting_finalized_at: null,
+            stop_waiting_charge_amount: 0,
+            updated_at: now,
+          });
+
+          if (startTripUpdateError) {
+            console.error("[stop-workflow] START_TRIP trip update failed:", startTripUpdateError);
+            return errorResponse("rpc_error", "Failed to start trip", 500, startTripUpdateError);
+          }
+        } else {
+          const { error: startTripUpdateError } = await updateTripSafe(supabase, trip_id, {
+            started_at: now,
+            status: 'in_progress' as TripStatus,
+            updated_at: now,
+          });
+
+          if (startTripUpdateError) {
+            console.error("[stop-workflow] START_TRIP trip update failed:", startTripUpdateError);
+            return errorResponse("rpc_error", "Failed to start trip", 500, startTripUpdateError);
+          }
         }
 
         console.log("[stop-workflow] START_TRIP success, next stop:", nextStop?.stop_index || 'none', {
@@ -2695,29 +2663,10 @@ Deno.serve(async (req) => {
         }
 
         // Record arrival first — waiting start is radius-gated separately
-        const arriveStopClaim = await claimStopLifecycleWrite(
-          supabase,
-          currentStop.id,
-          { status: 'current' as StopStatus, arrived_at: now, updated_at: now },
-          { arrivedAtIsNull: true },
-        );
-        if (!arriveStopClaim.ok) {
-          return errorResponse("UPDATE_FAILED", "Failed to update stop arrival", 500, arriveStopClaim.error);
-        }
-        if (!arriveStopClaim.claimed) {
-          console.log("[stop-workflow] Already arrived at stop (idempotent claim)", {
-            trip_id,
-            stop_id: currentStop.id,
-          });
-          return await respondOk({
-            success: true,
-            idempotent: true,
-            action: 'arrive_stop',
-            arrival_status: 'arrived',
-            stop_id: currentStop.id,
-            stop_index: currentStop.stop_index,
-          });
-        }
+        await supabase
+          .from("trip_stops")
+          .update({ status: 'current' as StopStatus, arrived_at: now, updated_at: now })
+          .eq("id", currentStop.id);
 
         await syncTripDestinationFields(supabase, trip_id, currentStop, {
           stop_arrived_at: now,
@@ -2888,37 +2837,16 @@ Deno.serve(async (req) => {
           updated_at: now,
         });
 
-        // Mark current stop completed (CAS — do not re-advance on concurrent Drive Next)
-        const driveNextClaim = await claimStopLifecycleWrite(
-          supabase,
-          currentStop.id,
-          {
+        // Mark current stop completed (do not re-finalize waiting on retry)
+        await supabase
+          .from("trip_stops")
+          .update({
             status: 'completed' as StopStatus,
             arrived_at: currentStop.arrived_at || now,
             completed_at: now,
             updated_at: now,
-          },
-          { statusNeq: 'completed' },
-        );
-        if (!driveNextClaim.ok) {
-          return errorResponse("UPDATE_FAILED", "Failed to complete stop", 500, driveNextClaim.error);
-        }
-        if (!driveNextClaim.claimed) {
-          const alreadyNext = stops?.find(
-            (s) => s.stop_index > currentIndex && s.status === 'current',
-          );
-          console.log("[stop-workflow] drive_to_next claim lost — already advanced (idempotent)");
-          return await respondOk({
-            success: true,
-            idempotent: true,
-            claimed: false,
-            action: workflowAction,
-            previous_index: currentIndex,
-            new_index: alreadyNext?.stop_index ?? currentIndex,
-            is_final: alreadyNext?.type === 'dropoff',
-            waiting_charge_pence: finalizeResult.chargePence,
-          });
-        }
+          })
+          .eq("id", currentStop.id);
 
         // Find next available stop (skip any SKIPPED)
         const nextStops = stops?.filter(s => s.stop_index > currentIndex && s.status !== 'skipped') || [];
@@ -2990,30 +2918,6 @@ Deno.serve(async (req) => {
           stages.mark('idempotent_already_completed');
           completeTripStagesMs = stages.snapshot();
           return await respondOk({ success: true, idempotent: true, message: "Trip already completed" });
-        }
-
-        // Block completion while a fare-increase modification is unresolved.
-        // Does not change a valid original trip fare.
-        {
-          const { data: unresolvedIncrease, error: unresolvedErr } = await supabase.rpc(
-            "trip_has_unresolved_fare_increase_modification",
-            { p_trip_id: trip_id },
-          );
-          if (unresolvedErr) {
-            console.error("[stop-workflow] unresolved fare-increase check failed", unresolvedErr);
-            return errorResponse(
-              "UNRESOLVED_MODIFICATION_CHECK_FAILED",
-              "Unable to verify trip modifications before completion",
-              503,
-            );
-          }
-          if (unresolvedIncrease === true) {
-            return errorResponse(
-              "UNRESOLVED_FARE_INCREASE_MODIFICATION",
-              "Trip has an unresolved fare-increase modification; completion is blocked",
-              409,
-            );
-          }
         }
 
         // Obsolete PLATFORM_COLLECTED cash. Fail closed before waiting,
@@ -3160,56 +3064,7 @@ Deno.serve(async (req) => {
         }
 
         stages.mark('completion_writes_start');
-        const completionPayload = {
-          status: 'completed' as TripStatus,
-          // SSOT: dispatch_status must be 'completed' simultaneously with status='completed'.
-          // Admin panel reads dispatch_status — without this, trips appear stuck in prior state.
-          // promote_stacked_trip also sets 'completed' on Trip A; this is the primary write.
-          dispatch_status: 'completed',
-          completed_at: now,
-          fare: finalFareMajor,
-          estimated_fare: finalFareMajor,
-          final_fare_pence: finalFarePence,
-          final_customer_fare_pence:
-            nonNegInt((tripBeforeComplete ?? trip).final_customer_fare_pence) || finalFarePence,
-          pickup_waiting_charge_pence: resolvedFare.arrival_waiting_charge_pence,
-          stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
-          stop_charge_total_pence: resolvedFare.stop_waiting_charge_pence,
-          total_waiting_charge_pence: totalWaitingPence,
-          waiting_charge_pence: totalWaitingPence,
-          ...(tipWindowOrderId && !String((tripBeforeComplete ?? trip).provider_order_id ?? "").trim()
-            ? { provider_order_id: tipWindowOrderId }
-            : {}),
-          ...(tipWindowOnComplete ?? {}),
-          updated_at: now,
-        };
-
-        // CAS claim: only the first Complete may flip status and continue into money/counters.
-        const completionClaim = await claimTripLifecycleWrite(
-          supabase,
-          trip_id,
-          completionPayload,
-          completeTripClaimPredicates(),
-        );
-        if (!completionClaim.ok) {
-          console.error("[stop-workflow] completion claim failed:", completionClaim.error);
-          return errorResponse("rpc_error", "Failed to complete trip", 500, completionClaim.error);
-        }
-        if (!completionClaim.claimed) {
-          console.log("[stop-workflow] Completion claim lost — already completed (idempotent)", {
-            trip_id,
-          });
-          stages.mark('idempotent_claim_lost');
-          completeTripStagesMs = stages.snapshot();
-          return await respondOk({
-            success: true,
-            idempotent: true,
-            claimed: false,
-            message: "Trip already completed",
-          });
-        }
-
-        const [, commissionResult, driverRegionResult] = await Promise.all([
+        const [, , commissionResult, driverRegionResult] = await Promise.all([
           incompleteStopIds.length > 0
             ? supabase
                 .from("trip_stops")
@@ -3221,6 +3076,32 @@ Deno.serve(async (req) => {
                 })
                 .in("id", incompleteStopIds)
             : Promise.resolve(),
+          supabase
+            .from("trips")
+            .update({
+              status: 'completed' as TripStatus,
+              // SSOT: dispatch_status must be 'completed' simultaneously with status='completed'.
+              // Admin panel reads dispatch_status — without this, trips appear stuck in prior state.
+              // promote_stacked_trip also sets 'completed' on Trip A; this is the primary write.
+              dispatch_status: 'completed',
+              completed_at: now,
+              fare: finalFareMajor,
+              estimated_fare: finalFareMajor,
+              final_fare_pence: finalFarePence,
+              final_customer_fare_pence:
+                nonNegInt((tripBeforeComplete ?? trip).final_customer_fare_pence) || finalFarePence,
+              pickup_waiting_charge_pence: resolvedFare.arrival_waiting_charge_pence,
+              stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
+              stop_charge_total_pence: resolvedFare.stop_waiting_charge_pence,
+              total_waiting_charge_pence: totalWaitingPence,
+              waiting_charge_pence: totalWaitingPence,
+              ...(tipWindowOrderId && !String((tripBeforeComplete ?? trip).provider_order_id ?? "").trim()
+                ? { provider_order_id: tipWindowOrderId }
+                : {}),
+              ...(tipWindowOnComplete ?? {}),
+              updated_at: now,
+            })
+            .eq("id", trip_id),
           getDriverCommissionPct(supabase, driver_id, (tripBeforeComplete ?? trip).service_area_id),
           supabase
             .from('drivers')
@@ -3737,11 +3618,6 @@ Deno.serve(async (req) => {
           tripId: trip_id,
           event: "trip_completed",
         });
-        try {
-          await notifyWhatsAppTripCompleted(supabase, trip_id);
-        } catch (thanksErr) {
-          console.warn("[stop-workflow] WhatsApp thanks failed (non-fatal)", thanksErr);
-        }
         stages.mark('notification_end');
         stages.mark('response_ready');
         completeTripStagesMs = stages.snapshot();
