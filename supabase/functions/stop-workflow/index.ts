@@ -85,7 +85,6 @@ import {
 } from "../_shared/digitalPaymentCapture.ts";
 import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
-import { notifyWhatsAppTripCompleted } from "../_shared/whatsappTripLifecycleMessages.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 
 const RATE_LIMIT_CONFIG = {
@@ -3737,11 +3736,6 @@ Deno.serve(async (req) => {
           tripId: trip_id,
           event: "trip_completed",
         });
-        try {
-          await notifyWhatsAppTripCompleted(supabase, trip_id);
-        } catch (thanksErr) {
-          console.warn("[stop-workflow] WhatsApp thanks failed (non-fatal)", thanksErr);
-        }
         stages.mark('notification_end');
         stages.mark('response_ready');
         completeTripStagesMs = stages.snapshot();
