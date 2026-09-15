@@ -521,10 +521,10 @@ export async function executeSameOrderIncrement(args: {
         ? session.metadata as Record<string, unknown>
         : {};
       const priorCoverage = classifyIncrementCoverage(order, plan.targetTotalPence);
-      // Only provider-confirmed coverage may unlock ADDITIONAL_AUTHORISATION_CONFIRMED.
-      // Never treat processing/pending new_amount or a raw providerTotal guess as confirmed.
       const confirmedFromPrior = priorCoverage.class === "confirmed"
         ? priorCoverage.authorisedTotalPence
+        : providerTotal >= plan.targetTotalPence
+        ? providerTotal
         : 0;
       if (confirmedFromPrior >= plan.targetTotalPence) {
         const persisted = await persistConfirmedIncrementProjection({

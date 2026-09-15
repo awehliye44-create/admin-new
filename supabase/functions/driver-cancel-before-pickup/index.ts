@@ -12,9 +12,7 @@ import {
   buildDriverCancelRematchBroadcastPatch,
   buildSearchCycleId,
   resolveNextRematchBroadcastRound,
-  classifyTripLookupFailure,
   isDriverAssignedToTrip,
-  isIdempotentDriverRematchReplay,
   isPrePickupDriverRematchEligibleDbStatus,
   logTripAssignedDriverFieldResolved,
   PRE_PICKUP_DRIVER_REMATCH_DB_STATUSES,
@@ -99,43 +97,9 @@ Deno.serve(async (req) => {
       .eq("id", body.tripId)
       .maybeSingle();
 
-    if (tripError) {
-      const classified = classifyTripLookupFailure(tripError);
-      console.error("[driver-cancel-before-pickup] trip lookup failed", {
-        trip_id: body.tripId,
-        kind: classified?.kind ?? "internal",
-        code: tripError.code ?? null,
-        message: tripError.message ?? null,
-      });
-      return errorResponse(
-        classified?.error ?? "INTERNAL_ERROR",
-        classified?.message ?? "Trip lookup failed",
-        classified?.httpStatus ?? 500,
-      );
-    }
-    if (!trip) {
+    if (tripError || !trip) {
+      console.error("[driver-cancel-before-pickup] trip lookup failed", tripError);
       return errorResponse("NOT_FOUND", "Trip not found", 404);
-    }
-
-    if (isIdempotentDriverRematchReplay({
-      status: trip.status,
-      driverId: driver.id,
-      cancelledDriverIds: trip.cancelled_driver_ids,
-      excludedDriverIds: trip.excluded_driver_ids,
-    })) {
-      console.log("DRIVER_CANCEL_REMATCH_IDEMPOTENT", JSON.stringify({
-        trip_id: body.tripId,
-        driver_id: driver.id,
-        status: trip.status,
-      }));
-      return successResponse({
-        success: true,
-        idempotent: true,
-        tripId: body.tripId,
-        trip_id: body.tripId,
-        status: "searching_new_driver",
-        outcome: "rematch",
-      });
     }
 
     const assignedDriverId = trip.confirmed_driver_id;

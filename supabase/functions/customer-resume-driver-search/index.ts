@@ -11,7 +11,6 @@ import {
 } from "../_shared/scheduledHandoverHoldLock.ts";
 import {
   buildClearTripAssignmentPatch,
-  classifyTripLookupFailure,
   resolveNextRematchBroadcastRound,
   getTripAssignedDriverId,
   logTripAssignedDriverFieldResolved,
@@ -87,23 +86,7 @@ Deno.serve(async (req) => {
       .eq("id", body.tripId)
       .maybeSingle();
 
-    if (tripErr) {
-      const classified = classifyTripLookupFailure(tripErr);
-      console.error("[customer-resume-driver-search] trip lookup failed", {
-        trip_id: body.tripId,
-        kind: classified?.kind ?? "internal",
-        code: tripErr.code ?? null,
-        message: tripErr.message ?? null,
-      });
-      return new Response(JSON.stringify({
-        error: classified?.error ?? "INTERNAL_ERROR",
-        message: classified?.message ?? "Trip lookup failed",
-      }), {
-        status: classified?.httpStatus ?? 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    if (!trip) {
+    if (tripErr || !trip) {
       return new Response(JSON.stringify({ error: "Trip not found" }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -187,6 +170,7 @@ Deno.serve(async (req) => {
           negotiation_locked_until: null,
           negotiation_status: null,
           current_negotiation_id: null,
+          locked_driver_id: null,
           cancel_reason: null,
           cancelled_by: null,
           updated_at: nowIso,
