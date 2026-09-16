@@ -21,6 +21,10 @@ import {
   tripInsertFieldsFromFinancialModelSnapshot,
   type TripFinancialModelSnapshot,
 } from "./commissionWalletSSOT.ts";
+import {
+  resolveBookingIntermediateStops,
+  totalStopsFromIntermediateCount,
+} from "./fareQuoteStops.ts";
 
 export type BookingLocation = {
   address: string;
@@ -166,13 +170,26 @@ export function resolveTripPassengerIdentity(input: {
 export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<string, unknown> {
   const { body, customerId } = input;
   const isScheduled = body.when === "SCHEDULED";
-  const intermediateStops = body.stops || [];
-  const totalStops = 1 + intermediateStops.length + 1;
-  const tripCode = Math.floor(100000 + Math.random() * 900000).toString();
-
   // P0 #1: prefer payment session fare_snapshot net payable over body floats.
   // Never fall through to gross when session already locked customer payable + discount.
   const sessionSnap = input.sessionFareSnapshot ?? null;
+  const fareQuoteId =
+    typeof sessionSnap?.fare_quote_id === "string"
+      ? sessionSnap.fare_quote_id
+      : typeof sessionSnap?.fareQuoteId === "string"
+      ? sessionSnap.fareQuoteId
+      : null;
+  // Prefer body.stops; recover vias from the charged fare fingerprint when the
+  // client omitted them (MK-260916 Driver +N chip / empty trips.stops).
+  const intermediateStops = resolveBookingIntermediateStops({
+    bodyStops: body.stops,
+    fareQuoteId,
+  });
+  const totalStops = totalStopsFromIntermediateCount(intermediateStops.length);
+  // Keep body.stops aligned so post-commit trip_stops insert matches the trip row.
+  body.stops = intermediateStops;
+  const tripCode = Math.floor(100000 + Math.random() * 900000).toString();
+
   const sessionInt = (...keys: string[]): number => {
     if (!sessionSnap) return 0;
     for (const key of keys) {

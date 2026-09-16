@@ -931,9 +931,6 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         ? String(body.pre_assigned_driver_id).trim()
         : null;
 
-    const intermediateStops = body.stops || [];
-    const totalStops = 1 + intermediateStops.length + 1;
-
     // Never create a trip without a valid fare
     if (!body.estimated_fare || body.estimated_fare <= 0) {
       console.error("Rejected — no valid fare provided:", body.estimated_fare);
@@ -1026,6 +1023,15 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       tripData.pre_assigned_driver_id = preAssignedDriverId;
       log("pre_assigned_driver_id set", { id: preAssignedDriverId });
     }
+
+    const totalStops =
+      typeof tripData.total_stops === "number" && Number.isFinite(tripData.total_stops)
+        ? Number(tripData.total_stops)
+        : 2;
+    log("trip_stops_resolved", {
+      total_stops: totalStops,
+      via_count: Array.isArray(body.stops) ? body.stops.length : 0,
+    });
 
     log("Inserting trip (minimal SSOT commit)");
     bookingWaterfall.startStep("trip_inserted", "create-trip-after-payment/index.ts:trips.insert");

@@ -2347,6 +2347,31 @@ Deno.serve(async (req) => {
       effective_commission_percent: waveCommission.effectivePercent,
     };
 
+    // Driver offer card +N chip — never stamp total_stops:0 (DB default / unset).
+    const tripStopsJson = Array.isArray((trip as { stops?: unknown }).stops)
+      ? (trip as { stops: unknown[] }).stops
+      : [];
+    const tripTotalStopsCol = Number((trip as { total_stops?: number }).total_stops);
+    const resolvedOfferTotalStops =
+      Number.isFinite(tripTotalStopsCol) && tripTotalStopsCol > 0
+        ? tripTotalStopsCol
+        : tripStopsJson.length > 0
+        ? tripStopsJson.length + 2
+        : null;
+    const stopSnapshotFields =
+      resolvedOfferTotalStops != null
+        ? {
+          total_stops: resolvedOfferTotalStops,
+          totalStops: resolvedOfferTotalStops,
+          ...(resolvedOfferTotalStops > 2
+            ? {
+              has_multiple_stops: true,
+              intermediate_stops: tripStopsJson,
+            }
+            : {}),
+        }
+        : {};
+
     // 7a. Preset Fare Offers — Admin config + SSOT eligibility (no hardcoded chips).
     let offerOptions: number[] | null = null;
     let offerSnapshot: Record<string, unknown> | null = null;
@@ -2463,6 +2488,7 @@ Deno.serve(async (req) => {
               countdownSeconds: resolved.countdownSeconds,
             }),
             ...dispatchSnapshotFields,
+            ...stopSnapshotFields,
           };
           // Initial offer TTL stays dispatch offer_expiry_seconds.
           // Admin countdown_seconds is stamped later as the negotiation response window.
@@ -2490,6 +2516,7 @@ Deno.serve(async (req) => {
           : ((trip as { fare_snapshot_json?: { fare_source?: string } }).fare_snapshot_json?.fare_source
             ?? "rebroadcast_standard"),
         ...dispatchSnapshotFields,
+        ...stopSnapshotFields,
       };
       if (sourceBlock) presetEligibilityResult = sourceBlock.reason;
     }
@@ -2654,6 +2681,7 @@ Deno.serve(async (req) => {
             ...tripFareSnapshotFields,
             ...stackedOfferNegotiationLockFields(),
             ...dispatchSnapshotFields,
+            ...stopSnapshotFields,
           },
           driver,
           waveCommission.effectivePercent,
@@ -2662,7 +2690,7 @@ Deno.serve(async (req) => {
         )
         : enrichOfferSnapshotDriverNet(
           (presetEligibilityResult === "attached" && offerSnapshot)
-            ? { ...offerSnapshot, ...dispatchSnapshotFields }
+            ? { ...offerSnapshot, ...dispatchSnapshotFields, ...stopSnapshotFields }
             : {
                 baseFarePence,
                 ...tripFareSnapshotFields,
@@ -2678,6 +2706,7 @@ Deno.serve(async (req) => {
                   (trip as { fare_snapshot_json?: { fare_source?: string } }).fare_snapshot_json?.fare_source
                   ?? "standard_only_fallback",
                 ...dispatchSnapshotFields,
+                ...stopSnapshotFields,
               },
           driver,
           waveCommission.effectivePercent,
@@ -3149,12 +3178,11 @@ Deno.serve(async (req) => {
           pickupAddress: trip.pickup_address ?? '',
           dropoffAddress: trip.dropoff_address ?? '',
           pickup_summary: pickupSummaryForRideOfferPush(trip.pickup_address),
-          ...(typeof (trip as { total_stops?: number }).total_stops === 'number' &&
-          Number.isFinite((trip as { total_stops: number }).total_stops)
+          ...(resolvedOfferTotalStops != null
             ? {
-              total_stops: String((trip as { total_stops: number }).total_stops),
-              totalStops: String((trip as { total_stops: number }).total_stops),
-              ...(Number((trip as { total_stops: number }).total_stops) > 2
+              total_stops: String(resolvedOfferTotalStops),
+              totalStops: String(resolvedOfferTotalStops),
+              ...(resolvedOfferTotalStops > 2
                 ? { has_multiple_stops: 'true' }
                 : {}),
             }
