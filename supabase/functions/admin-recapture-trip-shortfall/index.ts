@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
         ? Math.round(Number(body.expected_shortfall_pence))
         : null);
 
-    const { data: trip, error: tripErr } = await gate.supabase
+    const { data: tripRow, error: tripErr } = await gate.supabase
       .from("trips")
       .select(
         "id, trip_number, status, passenger_id, service_area_id, payment_method, payment_status, "
@@ -101,9 +101,12 @@ Deno.serve(async (req) => {
       .eq("id", tripId)
       .maybeSingle();
 
-    if (tripErr || !trip) {
+    if (tripErr || !tripRow) {
       return jsonResponse({ error: "Trip not found", code: "TRIP_NOT_FOUND" }, 404);
     }
+
+    // Wide select strings defeat generated row typing — treat as an untyped record.
+    const trip = tripRow as Record<string, never> as Record<string, string & number & null>;
 
     const financialModel = readTripFinancialModelStamp(
       trip.financial_model as string | null,
