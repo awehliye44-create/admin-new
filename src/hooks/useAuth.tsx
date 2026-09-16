@@ -40,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminCheckUnavailable, setAdminCheckUnavailable] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
 
@@ -59,12 +60,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq('role', 'admin')
         .maybeSingle()
         .then(({ data, error }) => {
-          if (!error) {
-            const result = !!data;
-            adminCache.current = { userId, isAdmin: result };
-            setIsAdmin(result);
+          if (error) {
+            // Backend unreachable / errored — keep cached value, surface unavailability
+            setAdminCheckUnavailable(true);
+            return;
           }
-          // On error, keep cached value — don't flip to false
+          const result = !!data;
+          adminCache.current = { userId, isAdmin: result };
+          setAdminCheckUnavailable(false);
+          setIsAdmin(result);
         });
       return adminCache.current.isAdmin;
     }
@@ -80,17 +84,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error('Error checking admin role:', error);
-        return adminCache.current?.userId === userId ? adminCache.current.isAdmin : false;
+        setAdminCheckUnavailable(true);
+        return false;
       }
 
       const result = !!data;
       adminCache.current = { userId, isAdmin: result };
+      setAdminCheckUnavailable(false);
       return result;
     } catch (err) {
       console.error('Error in checkAdminRole:', err);
-      return adminCache.current?.userId === userId ? adminCache.current.isAdmin : false;
+      setAdminCheckUnavailable(true);
+      return false;
     }
   }, []);
+
+  const recheckAdmin = useCallback(async () => {
+    const userId = user?.id;
+    if (!userId) return;
+    setAdminCheckUnavailable(false);
+    const result = await checkAdminRole(userId);
+    setIsAdmin(result);
+  }, [user?.id, checkAdminRole]);
 
   useEffect(() => {
     let mounted = true;
