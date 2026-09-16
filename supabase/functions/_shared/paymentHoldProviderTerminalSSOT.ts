@@ -28,7 +28,7 @@ import {
   upsertPaymentSessionRefund,
 } from "./paymentSessionSSOT.ts";
 import { persistConfirmedProviderCapture } from "./persistConfirmedProviderCapture.ts";
-import { extractProviderFeePence } from "../../../shared/paymentCaptureEvidenceSSOT.ts";
+import { extractProviderFeePence } from "./paymentCaptureEvidenceSSOT.ts";
 import {
   transitionPaymentSession,
   type PaymentSessionTransitionSource,

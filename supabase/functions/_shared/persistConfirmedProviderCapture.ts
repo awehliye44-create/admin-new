@@ -9,11 +9,11 @@ import {
   isValidConfirmedCapturePence,
   resolveCaptureAmountToPersist,
   shouldRepairCaptureEvidence,
-} from "../../../shared/paymentCaptureEvidenceSSOT.ts";
+} from "./paymentCaptureEvidenceSSOT.ts";
 import {
   buildTripPaymentProjectionAfterCapture,
   resolveCanonicalCustomerPayablePence,
-} from "../../../shared/paymentSessionsCaptureConfirmationSSOT.ts";
+} from "./paymentSessionsCaptureConfirmationSSOT.ts";
 import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "./paymentHoldProviderTerminalPure.ts";
 import { markPaymentSessionCaptured } from "./paymentSessionSSOT.ts";
 import { transitionPaymentSession } from "./paymentSessionTransitionFacade.ts";

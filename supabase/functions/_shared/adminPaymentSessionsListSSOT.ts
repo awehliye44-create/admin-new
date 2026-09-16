@@ -32,9 +32,9 @@ import {
 } from "./paymentSessionsOperationalChipsSSOT.ts";
 import {
   classifyCaptureConfirmation,
-} from "../../../shared/paymentSessionsCaptureConfirmationSSOT.ts";
+} from "./paymentSessionsCaptureConfirmationSSOT.ts";
 import { derivePaymentSessionAllowedActions, isOpenTripPaymentRecoverySession } from "./paymentSessionsAllowedActionsSSOT.ts";
-import { isValidConfirmedCapturePence } from "../../../shared/paymentCaptureEvidenceSSOT.ts";
+import { isValidConfirmedCapturePence } from "./paymentCaptureEvidenceSSOT.ts";
 import {
   buildCanonicalTripEconomicsRead,
 } from "./paymentSessionsCanonicalReadAdapterSSOT.ts";

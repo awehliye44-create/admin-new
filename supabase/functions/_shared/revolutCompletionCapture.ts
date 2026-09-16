@@ -35,7 +35,7 @@ import {
 } from "./paymentSessionSSOT.ts";
 import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "./paymentHoldProviderTerminalPure.ts";
 import { tipCollectedFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
-import { extractProviderFeePence } from "../../../shared/paymentCaptureEvidenceSSOT.ts";
+import { extractProviderFeePence } from "./paymentCaptureEvidenceSSOT.ts";
 import {
   RELEASE_EVIDENCE_SOURCE,
 } from "./paymentSessionReleaseEvidenceSSOT.ts";
