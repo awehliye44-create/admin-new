@@ -90,6 +90,8 @@ export type CreateRevolutOrderBodyInput = {
   metadata?: Record<string, string>;
   customer?: RevolutOrderCustomerRef | null;
   enableIncrementalAuthorisation?: boolean;
+  /** Hosted checkout return URL — mapped to Revolut's `redirect_url` field. */
+  redirectUrl?: string | null;
 };
 
 /** Merchant POST /orders body. `customer` is absent unless a customer ref was supplied. */
@@ -98,6 +100,7 @@ export function buildCreateRevolutOrderRequestBody(
 ): Record<string, unknown> {
   const customer = buildRevolutOrderCustomerField(p.customer);
   const enableIncrement = p.enableIncrementalAuthorisation !== false;
+  const redirectUrl = typeof p.redirectUrl === "string" ? p.redirectUrl.trim() : "";
   return {
     amount: p.amountMinor,
     currency: p.currency.toUpperCase(),
@@ -107,6 +110,7 @@ export function buildCreateRevolutOrderRequestBody(
     description: p.description ?? "ONECAB trip payment",
     metadata: p.metadata ?? {},
     ...(customer ? { customer } : {}),
+    ...(redirectUrl ? { redirect_url: redirectUrl } : {}),
   };
 }
 
