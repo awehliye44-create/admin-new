@@ -5,6 +5,7 @@
 import { Label } from '@/components/ui/label';
 import {
   formatSignedStoredPenceOrUnknown,
+  formatStoredPenceOrUnavailable,
   formatStoredPenceOrUnknown,
   isPositiveStoredPence,
   nullableStoredPence,
@@ -184,9 +185,21 @@ export function TripHistoryFinancialBreakdown({
               value={formatStoredPenceOrUnknown(evidence.refundedPence, currencyCode)}
               tone="danger"
             />
-          ) : evidence.refundedPence == null ? (
-            <Field label="Refunded" value="Unknown" />
-          ) : null}
+          ) : evidence.refundedPence === 0 ? (
+            <Field
+              label="Refunded"
+              value={formatStoredPenceOrUnknown(0, currencyCode)}
+            />
+          ) : (
+            <Field
+              label="Refunded"
+              value={formatStoredPenceOrUnavailable(
+                null,
+                currencyCode,
+                'Payment Session refund evidence not loaded',
+              )}
+            />
+          )}
           <Field
             label="Net paid"
             value={formatStoredPenceOrUnknown(evidence.netPaidPence, currencyCode)}
@@ -269,11 +282,25 @@ export function TripHistoryFinancialBreakdown({
             />
             <Field
               label="Actual wallet credit"
-              value={formatStoredPenceOrUnknown(actualWallet, currencyCode)}
+              value={formatStoredPenceOrUnavailable(
+                actualWallet,
+                currencyCode,
+                actualWallet == null
+                  ? 'Wallet ledger credit not loaded on this panel'
+                  : null,
+              )}
             />
             <Field
               label="Difference"
-              value={formatSignedStoredPenceOrUnknown(difference, currencyCode)}
+              value={
+                difference == null
+                  ? formatStoredPenceOrUnavailable(
+                    null,
+                    currencyCode,
+                    'Requires expected and actual wallet credit',
+                  )
+                  : formatSignedStoredPenceOrUnknown(difference, currencyCode)
+              }
             />
           </div>
         </div>

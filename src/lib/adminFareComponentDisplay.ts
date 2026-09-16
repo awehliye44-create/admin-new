@@ -6,6 +6,7 @@
 import { formatMoneyMinor } from '@/lib/formatMoneyMinor';
 
 export const ADMIN_FARE_COMPONENT_UNKNOWN = 'Unknown';
+export const ADMIN_FARE_COMPONENT_UNAVAILABLE = 'Unavailable';
 
 /** True when a stored minor-unit value is present and strictly greater than zero. */
 export function isPositiveStoredPence(pence: number | null | undefined): boolean {
@@ -32,6 +33,24 @@ export function formatStoredPenceOrUnknown(
 ): string {
   const n = nullableStoredPence(pence);
   if (n == null) return ADMIN_FARE_COMPONENT_UNKNOWN;
+  return formatMoneyMinor(n, currency, 'en-GB', 2);
+}
+
+/**
+ * Prefer Unavailable (+ optional reason) when evidence was not loaded.
+ * Still never invent £0 for missing values.
+ */
+export function formatStoredPenceOrUnavailable(
+  pence: number | null | undefined,
+  currency = 'GBP',
+  reason?: string | null,
+): string {
+  const n = nullableStoredPence(pence);
+  if (n == null) {
+    return reason
+      ? `${ADMIN_FARE_COMPONENT_UNAVAILABLE} — ${reason}`
+      : ADMIN_FARE_COMPONENT_UNAVAILABLE;
+  }
   return formatMoneyMinor(n, currency, 'en-GB', 2);
 }
 

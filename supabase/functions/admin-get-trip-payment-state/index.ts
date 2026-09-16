@@ -439,10 +439,11 @@ serve(async (req) => {
       refundable_pence: refundableAmount,
       refund_status: refundStatus,
       net_captured_pence: Math.max(0, captured_pence - refunded_pence),
-      final_customer_fare_pence: customer_payable_pence > 0
-        ? customer_payable_pence
-        : (final_customer_fare_pence || final_fare_pence),
+      // Tip-exclusive trip stamp only — never overwrite with tip-inclusive aggregate.
+      final_customer_fare_pence: final_customer_fare_pence || final_fare_pence,
+      // Tip-inclusive authoritative aggregate — use once; do not add tip again.
       customer_payable_pence,
+      customer_payable_source: paymentLayers.payable_source,
       final_fare_pence,
       settlement_total_pence: settlement_display_pence,
       gross_fare_pence: auditRow.gross_fare_pence,

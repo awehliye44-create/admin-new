@@ -1,20 +1,17 @@
 /**
  * Trip History — unified read-only payment evidence for list, detail, and recapture.
  *
- * Single source for:
- * - discounted customer payable (never pre-promo gross as shortfall basis)
- * - verified captured (Payment Sessions → trip capture → legacy payments)
- * - outstanding shortfall (payable − net captured)
- * - recapture eligibility
- *
- * Must align with Payment status (read-only) / resolveTripHistoryPaymentLayers.
+ * Delegates payable/shortfall ownership to customerShortfallEvidenceSSOT
+ * (never tip-double-count; never fold heuristics).
  */
 
 import type { AdminTripPaymentDispositionRead } from "./adminTripPaymentDispositionSSOT.ts";
 import {
-  computeOutstandingShortfallPence,
-  evaluateTripHistoryShortfallRecaptureEligibility,
-  isVerifiedSettledCaptureSession,
+  buildCustomerShortfallEvidence,
+  CUSTOMER_PAYABLE_SOURCE,
+  FARE_FIELD_CONTRACT,
+} from "./customerShortfallEvidenceSSOT.ts";
+import {
   paymentCoverageBadgeLabel,
   type TripShortfallRecaptureUiState,
 } from "./tripHistoryShortfallRecaptureSSOT.ts";
@@ -32,6 +29,7 @@ export type TripHistoryPaymentEvidenceTrip = TripHistoryPaymentLayerTrip & {
   voucher_discount_pence?: number | null;
   discount_pence?: number | null;
   gross_fare_pence?: number | null;
+  airport_charge_pence?: number | null;
   payment_disposition?: AdminTripPaymentDispositionRead | null;
 };
 
@@ -47,6 +45,14 @@ export type BuildTripHistoryPaymentEvidenceArgs = {
   tripStatus?: string | null;
   adminPermitted?: boolean;
   hasOpenRecoveryAttempt?: boolean;
+  /**
+   * Tip-inclusive Edge payable already resolved once.
+   * When set, used exactly once — never re-derived via final_* + tip.
+   */
+  customer_payable_pence?: number | null;
+  /** @deprecated use customer_payable_pence */
+  authoritativeCustomerPayablePence?: number | null;
+  fare_field_contract?: typeof FARE_FIELD_CONTRACT[keyof typeof FARE_FIELD_CONTRACT] | null;
 };
 
 export type TripHistoryPaymentEvidenceReadModel = {
@@ -64,6 +70,11 @@ export type TripHistoryPaymentEvidenceReadModel = {
   recapture_eligible: boolean;
   recapture_ui_state: TripShortfallRecaptureUiState;
   recapture_reject_reason: string | null;
+  evidence_complete: boolean;
+  unavailable_reason: string | null;
+  fare_component_pence: number | null;
+  tip_component_pence: number | null;
+  airport_component_pence: number | null;
 };
 
 function positivePence(value: unknown): number {
@@ -112,37 +123,6 @@ export function resolveTripHistoryPromotionDiscountPence(
   return 0;
 }
 
-function inferProviderSettlementVerified(args: {
-  customerPayablePence: number;
-  netCapturedPence: number;
-  capturedPence: number;
-  evidenceSource: string;
-  paymentStatus?: string | null;
-  providerStatus?: string | null;
-  explicit?: boolean | null;
-}): boolean {
-  if (args.explicit === true) return true;
-  if (args.capturedPence <= 0 || args.evidenceSource === "none") return false;
-  const payable = args.customerPayablePence;
-  if (payable > 0 && args.netCapturedPence >= payable - 1) {
-    const blob = `${args.paymentStatus ?? ""} ${args.providerStatus ?? ""}`.toLowerCase();
-    if (
-      blob.includes("cancel")
-      || blob.includes("fail")
-      || blob.includes("void")
-      || blob.includes("expired")
-    ) {
-      return false;
-    }
-    return true;
-  }
-  return isVerifiedSettledCaptureSession({
-    status: args.paymentStatus,
-    provider_state: args.providerStatus,
-    captured_amount_pence: args.capturedPence,
-  });
-}
-
 export function buildTripHistoryPaymentEvidenceReadModel(
   args: BuildTripHistoryPaymentEvidenceArgs,
 ): TripHistoryPaymentEvidenceReadModel {
@@ -158,11 +138,52 @@ export function buildTripHistoryPaymentEvidenceReadModel(
     providerAuthorisedPence: args.providerAuthorisedPence,
   });
 
-  const customer_discounted_payable_pence = layers.customer_payable_pence;
+  const explicitPayable = positivePence(
+    args.customer_payable_pence ?? args.authoritativeCustomerPayablePence,
+  );
+
+  const shortfall = buildCustomerShortfallEvidence({
+    final_customer_fare_pence: args.trip.final_customer_fare_pence,
+    final_fare_pence: args.trip.final_fare_pence,
+    locked_base_fare_pence: args.trip.locked_base_fare_pence,
+    tip_pence: args.trip.tip_pence,
+    tip_amount_pence: args.trip.tip_amount_pence,
+    airport_charge_pence: args.trip.airport_charge_pence,
+    no_show_charge_pence: args.trip.no_show_charge_pence,
+    cancellation_fee_pence: args.trip.cancellation_fee_pence,
+    payment_status: args.paymentStatus
+      ?? args.trip.payment_disposition?.payment_status
+      ?? args.trip.payment_status,
+    financial_outcome: args.trip.financial_outcome,
+    status: args.tripStatus ?? args.trip.status,
+    financial_model: args.trip.financial_model,
+    payment_method: args.trip.payment_method,
+    capture_amount_pence: args.trip.capture_amount_pence,
+    customer_payable_pence: explicitPayable > 0 ? explicitPayable : null,
+    customer_payable_source: explicitPayable > 0
+      ? CUSTOMER_PAYABLE_SOURCE.AUTHORITATIVE_CUSTOMER_PAYABLE
+      : null,
+    fare_field_contract: args.fare_field_contract
+      ?? (explicitPayable > 0
+        ? FARE_FIELD_CONTRACT.AUTHORITATIVE_AGGREGATE
+        : FARE_FIELD_CONTRACT.TIP_EXCLUSIVE_FINAL),
+    sessions,
+    trip_capture_fallback_pence: args.trip.capture_amount_pence,
+    providerSettlementVerified: args.providerSettlementVerified,
+    hasOpenRecoveryAttempt: args.hasOpenRecoveryAttempt,
+    adminPermitted: args.adminPermitted,
+  });
+
+  const customer_discounted_payable_pence =
+    shortfall.authoritative_customer_payable_pence ?? 0;
   const promotion_discount_pence = resolveTripHistoryPromotionDiscountPence(args.trip);
-  const verified_captured_pence = layers.captured_pence;
-  const refunded_pence = layers.refunded_pence;
+  const verified_captured_pence = Math.max(
+    shortfall.verified_captured_pence,
+    layers.captured_pence,
+  );
+  const refunded_pence = Math.max(shortfall.verified_refunded_pence, layers.refunded_pence);
   const net_verified_captured_pence = Math.max(0, verified_captured_pence - refunded_pence);
+  const outstanding_shortfall_pence = shortfall.outstanding_shortfall_pence ?? 0;
 
   const paymentStatus = args.paymentStatus
     ?? args.trip.payment_disposition?.payment_status
@@ -170,21 +191,10 @@ export function buildTripHistoryPaymentEvidenceReadModel(
   const providerStatus = args.providerStatus
     ?? args.trip.payment_disposition?.provider_state;
 
-  const provider_settlement_verified = inferProviderSettlementVerified({
-    customerPayablePence: customer_discounted_payable_pence,
-    netCapturedPence: net_verified_captured_pence,
-    capturedPence: verified_captured_pence,
-    evidenceSource: layers.evidence_source,
-    paymentStatus,
-    providerStatus,
-    explicit: args.providerSettlementVerified,
-  });
-
-  const outstanding_shortfall_pence = computeOutstandingShortfallPence({
-    customerPayablePence: customer_discounted_payable_pence,
-    verifiedCapturedTotalPence: verified_captured_pence,
-    netRefundedTotalPence: refunded_pence,
-  }) ?? 0;
+  const provider_settlement_verified = args.providerSettlementVerified === true
+    || (verified_captured_pence > 0
+      && outstanding_shortfall_pence === 0
+      && shortfall.evidence_complete);
 
   const coverage = paymentCoverageBadgeLabel({
     customerPayablePence: customer_discounted_payable_pence,
@@ -195,18 +205,6 @@ export function buildTripHistoryPaymentEvidenceReadModel(
     providerStatus,
   });
 
-  const recapture = evaluateTripHistoryShortfallRecaptureEligibility({
-    tripStatus: args.tripStatus ?? args.trip.status,
-    financialModel: args.trip.financial_model,
-    paymentMethod: args.trip.payment_method,
-    customerPayablePence: customer_discounted_payable_pence,
-    verifiedCapturedTotalPence: verified_captured_pence,
-    netRefundedTotalPence: refunded_pence,
-    providerSettlementVerified: provider_settlement_verified,
-    hasOpenRecoveryAttempt: args.hasOpenRecoveryAttempt,
-    adminPermitted: args.adminPermitted,
-  });
-
   return {
     customer_discounted_payable_pence,
     promotion_discount_pence,
@@ -215,12 +213,18 @@ export function buildTripHistoryPaymentEvidenceReadModel(
     refunded_pence,
     outstanding_shortfall_pence,
     provider_settlement_verified,
-    payable_source: layers.payable_source,
+    payable_source: shortfall.payable_source,
     evidence_source: layers.evidence_source,
     coverage_label: coverage.label,
     coverage_tone: coverage.tone,
-    recapture_eligible: recapture.eligible,
-    recapture_ui_state: recapture.ui_state,
-    recapture_reject_reason: recapture.reject_reason,
+    recapture_eligible: shortfall.recapture_eligible,
+    recapture_ui_state: (shortfall.recapture_ui_state
+      ?? (coverage.tone === "fully_paid" ? "fully_paid" : "not_eligible")) as TripShortfallRecaptureUiState,
+    recapture_reject_reason: shortfall.reject_code,
+    evidence_complete: shortfall.evidence_complete,
+    unavailable_reason: shortfall.unavailable_reason,
+    fare_component_pence: shortfall.fare_component_pence,
+    tip_component_pence: shortfall.tip_component_pence,
+    airport_component_pence: shortfall.airport_component_pence,
   };
 }
