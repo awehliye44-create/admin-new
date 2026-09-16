@@ -2,11 +2,15 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
 import {
-  earningsAttributionInstant,
   londonCivilDateKey,
   mergeBackendEconomicFields,
 } from "../_shared/economicEarnedAtSSOT.ts";
 import { economicFieldsByLedgerOrTrip, loadDriverWalletEconomicFields } from "../_shared/loadDriverWalletEconomicFields.ts";
+import {
+  isTodayEarningsEligibleRow,
+  todayEarningsAmountPence,
+  todayEarningsAttributionInstant,
+} from "../_shared/todayEarningsSsot.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -122,7 +126,9 @@ Deno.serve(async (req) => {
     const currencyCode = (driver as any).regions?.currency_code || null;
 
     // ── Parallel: materialised wallet balance + period earnings from ledger ──
-    const earningTypes = ['TRIP_EARNING_NET', 'DRIVER_TIP_CREDIT'];
+    // Today/period totals use posting-time SSOT (todayEarningsSsot). Available /
+    // Pending still come from payout-eligibility (27h clearing) — separate clocks.
+    const earningTypes = ['TRIP_EARNING_NET', 'DRIVER_TIP_CREDIT', 'NO_SHOW_FEE', 'REFUND_DEBIT'];
     const reportingOnlyTypes = '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")';
 
     const [lifetimeResult, ledgerResult, economicFields, eligibility] = await Promise.all([
@@ -193,11 +199,12 @@ Deno.serve(async (req) => {
     }
 
     for (const entry of entries) {
-      const attributedIso = earningsAttributionInstant(entry);
+      if (!isTodayEarningsEligibleRow(entry)) continue;
+      const attributedIso = todayEarningsAttributionInstant(entry);
       if (!attributedIso) continue;
 
       const entryLocalDate = londonCivilDateKey(attributedIso) ?? lf.format(new Date(attributedIso));
-      const amount = entry.amount_pence ?? 0;
+      const amount = todayEarningsAmountPence(entry);
       const tripId = entry.related_trip_id;
       const isCard = entry.type === 'TRIP_EARNING_NET';
       const isTip = entry.type === 'DRIVER_TIP_CREDIT';
