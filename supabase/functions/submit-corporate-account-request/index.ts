@@ -11,7 +11,7 @@ import {
   SERVICE_AREA_COUNTRY_MISMATCH,
   assertServiceAreaCountryMatch,
   normalizeIsoCountryCode,
-} from "../../../shared/corporateServiceAreaCountrySSOT.ts";
+} from "../_shared/corporateServiceAreaCountrySSOT.ts";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_BODY_BYTES = 16_384;

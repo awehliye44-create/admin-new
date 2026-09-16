@@ -7,7 +7,7 @@ import {
   EARLY_CASHOUT_SETTLEMENT_BLOCKED_MESSAGE,
   formatMinCashoutMessage,
   MIN_CASHOUT_AMOUNT_PENCE,
-} from '../../../shared/earlyCashout.ts';
+} from './earlyCashout.ts';
 import {
   computeCashCommissionOutstanding,
   computeLedgerWalletBalancePence,

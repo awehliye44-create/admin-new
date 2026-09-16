@@ -8,7 +8,7 @@ import {
 import {
   durableSettlementColumns,
   needsDurableSettlementPersist,
-} from "../../../shared/durableSettlementOutcomeSSOT.ts";
+} from "../../functions/_shared/durableSettlementOutcomeSSOT.ts";
 import { planRevolutCompletionCapture } from "../../functions/_shared/revolutPaymentHoldSSOT.ts";
 import { decideCaptureAfterRetrieve } from "../../functions/_shared/revolutCaptureIdempotencySSOT.ts";
 import { safeCaptureAfterIncrementDecline } from "../../functions/_shared/paymentRecoveryGuardSSOT.ts";

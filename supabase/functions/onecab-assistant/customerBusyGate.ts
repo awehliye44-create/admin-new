@@ -10,7 +10,7 @@ import {
   isRestoreTerminalTripStatus,
   normalizeRestoreTripStatus,
   RESTORE_ASSIGNED_ACTIVE_STATUSES,
-} from "../../../shared/activeTripRestoreSSOT.ts";
+} from "../_shared/activeTripRestoreSSOT.ts";
 import {
   isScheduledHandoverOpenJobStatus,
   isScheduledInstantConversionPending,

@@ -35,9 +35,9 @@ import {
   recordedTipPenceAfterCapture,
   tipCollectedFromConfirmedCapture,
   tipWindowCloseAllowedAfterFinalize,
-} from "../../../shared/tripPaymentFinalised.ts";
+} from "../_shared/tripPaymentFinalised.ts";
 import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
-import { TIP_WINDOW_STATUS } from "../../../shared/tipWindowConstants.ts";
+import { TIP_WINDOW_STATUS } from "../_shared/tipWindowConstants.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",

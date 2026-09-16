@@ -12,7 +12,7 @@ import {
   validationErrorResponse,
 } from "../_shared/security.ts";
 import { sendManualTripReceipt } from "../_shared/manualTripReceiptSend.ts";
-import { normalizeReceiptEmail } from "../../../shared/manualTripReceiptSSOT.ts";
+import { normalizeReceiptEmail } from "../_shared/manualTripReceiptSSOT.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {

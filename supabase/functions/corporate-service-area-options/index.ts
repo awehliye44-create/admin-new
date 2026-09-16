@@ -8,7 +8,7 @@ import { geocodeCorporateAddress } from "../_shared/corporateAddressGeocode.ts";
 import {
   CORPORATE_SERVICE_UNAVAILABLE_MESSAGE,
   normalizeIsoCountryCode,
-} from "../../../shared/corporateServiceAreaCountrySSOT.ts";
+} from "../_shared/corporateServiceAreaCountrySSOT.ts";
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {

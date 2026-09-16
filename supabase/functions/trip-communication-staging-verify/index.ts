@@ -22,7 +22,7 @@ import {
   voipParticipantIdentity,
   capDurationSeconds,
 } from "../_shared/tripCallSession.ts";
-import { TRIP_COMMUNICATION_MAX_DURATION_SECONDS } from "../../../shared/tripCommunicationSsot.ts";
+import { TRIP_COMMUNICATION_MAX_DURATION_SECONDS } from "../_shared/tripCommunicationSsot.ts";
 
 const MSG91_HANGUP_URLS = [
   "https://control.msg91.com/api/v5/voice/call/hangup",

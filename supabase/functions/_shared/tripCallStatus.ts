@@ -2,8 +2,8 @@
  * Provider-neutral status mapping for LiveKit VoIP and MSG91 call masking.
  * Clients never see raw provider statuses.
  */
-import type { TripCommunicationCallStatus } from "../../../shared/tripCommunicationSsot.ts";
-import { TRIP_COMMUNICATION_ACTIVE_STATUSES } from "../../../shared/tripCommunicationSsot.ts";
+import type { TripCommunicationCallStatus } from "./tripCommunicationSsot.ts";
+import { TRIP_COMMUNICATION_ACTIVE_STATUSES } from "./tripCommunicationSsot.ts";
 
 const TERMINAL: ReadonlySet<TripCommunicationCallStatus> = new Set([
   "completed",

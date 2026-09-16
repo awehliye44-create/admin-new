@@ -7,8 +7,8 @@ import {
   REVOLUT_PAY_REQUEST_ID_MAX_LEN,
   canonicalCompanyTransferIdempotencyKey,
   canonicalCompanyTransferProviderRequestId,
-} from "../../../shared/companyTransferSubmissionSSOT.ts";
-import { resolveCompanyTransferProviderReference } from "../../../shared/companyTransferPaymentReferenceSSOT.ts";
+} from "./companyTransferSubmissionSSOT.ts";
+import { resolveCompanyTransferProviderReference } from "./companyTransferPaymentReferenceSSOT.ts";
 
 export {
   REVOLUT_PAY_REQUEST_ID_MAX_LEN,

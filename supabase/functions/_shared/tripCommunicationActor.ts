@@ -3,7 +3,7 @@
  * Looks up profiles with service role, then applies shared participant SSOT.
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import { resolveTripCommunicationParticipant } from "../../../shared/tripCommunicationSsot.ts";
+import { resolveTripCommunicationParticipant } from "./tripCommunicationSsot.ts";
 
 export type TripCommunicationActor = {
   role: "driver" | "customer";

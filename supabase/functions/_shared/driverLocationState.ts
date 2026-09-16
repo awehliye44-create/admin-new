@@ -10,4 +10,4 @@ export {
   isDriverLocationFrozen,
   type DriverLocationState,
   type DriverLocationStateInput,
-} from "../../../shared/driverLocationStateSSOT.ts";
+} from "./driverLocationStateSSOT.ts";

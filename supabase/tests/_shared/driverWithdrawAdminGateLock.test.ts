@@ -5,7 +5,7 @@ import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.
 import {
   evaluateDriverWithdrawExecutionGate,
   evaluateSlice7FlagGate,
-} from "../../../shared/driverPayoutSubmissionSSOT.ts";
+} from "../../functions/_shared/driverPayoutSubmissionSSOT.ts";
 
 function envOf(map: Record<string, string | undefined>) {
   return { get: (k: string) => map[k] };

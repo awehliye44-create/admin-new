@@ -4,7 +4,7 @@ import { loadCustomerNegotiationView } from "../_shared/customerNegotiationView.
 import { buildServiceAreaConfigPayload } from "../_shared/serviceAreaConfigSSOT.ts";
 import { buildTripCommunicationConfigForTrip } from "../_shared/tripCommunicationConfigBuilder.ts";
 import { computeLiveTripFarePreview } from "../_shared/liveTripFareSSOT.ts";
-import { getCurrencySymbol } from "../../../shared/currency.ts";
+import { getCurrencySymbol } from "../_shared/currency.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { releaseHoldOnTripTerminal } from "../_shared/holdReleaseSSOT.ts";
 import {

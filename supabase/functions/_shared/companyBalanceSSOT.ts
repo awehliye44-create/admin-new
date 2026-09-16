@@ -16,13 +16,13 @@ import {
 import {
   COMPANY_FUNDS_UNDERPROTECTED,
   evaluateCompanyFundsUnderprotection,
-} from "../../../shared/companyFundsUnderprotectionSSOT.ts";
+} from "./companyFundsUnderprotectionSSOT.ts";
 
 export {
   COMPANY_FUNDS_UNDERPROTECTED,
   evaluateCompanyFundsUnderprotection,
   type CompanyFundsUnderprotectionEvaluation,
-} from "../../../shared/companyFundsUnderprotectionSSOT.ts";
+} from "./companyFundsUnderprotectionSSOT.ts";
 
 export const COMPANY_BALANCE_ERROR = {
   SOURCE_UNAVAILABLE: "COMPANY_BALANCE_SOURCE_UNAVAILABLE",

@@ -7,7 +7,7 @@ import { RoomServiceClient } from "npm:livekit-server-sdk@2.9.1";
 import {
   TRIP_COMMUNICATION_ERROR,
   TRIP_COMMUNICATION_MAX_DURATION_SECONDS,
-} from "../../../shared/tripCommunicationSsot.ts";
+} from "./tripCommunicationSsot.ts";
 import {
   capDurationSeconds,
   computeExpiresAtFromConnected,

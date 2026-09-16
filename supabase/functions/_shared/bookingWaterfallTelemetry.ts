@@ -7,7 +7,7 @@ import {
   type BookingWaterfallStep,
   buildBookingWaterfallStepRecord,
   previousStepFromOrder,
-} from "../../../shared/bookingWaterfallSSOT.ts";
+} from "./bookingWaterfallSSOT.ts";
 
 export type { BookingWaterfallServerStepInput };
 

@@ -9,7 +9,7 @@ import {
   type TripCommunicationActiveCallProjection,
   type TripCommunicationCallStatus,
   type TripCommunicationMethodType,
-} from "../../../shared/tripCommunicationSsot.ts";
+} from "./tripCommunicationSsot.ts";
 import {
   mapMaskingLogStatus,
   mapVoipLogStatus,

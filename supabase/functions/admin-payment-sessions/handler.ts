@@ -116,7 +116,7 @@ export const defaultAdminPaymentSessionsDeps: AdminPaymentSessionsHandlerDeps = 
   inspectProviderOrder: async ({ supabase, orderId }) => {
     const { retrieveRevolutOrder } = await import("../_shared/revolutOrders.ts");
     const { resolveRevolutMerchantContext } = await import("../_shared/revolutMerchantContext.ts");
-    const { sanitiseRevolutOrder } = await import("../../../shared/sanitisedProviderSnapshot.ts");
+    const { sanitiseRevolutOrder } = await import("../_shared/sanitisedProviderSnapshot.ts");
     const merchant = await resolveRevolutMerchantContext(supabase, "live");
     const order = await retrieveRevolutOrder(
       merchant.environment,

@@ -9,7 +9,7 @@ import {
   REVOLUT_PAY_REQUEST_ID_MAX_LEN,
   canonicalIdempotencyKey,
   canonicalProviderRequestId,
-} from "../../../shared/driverPayoutSubmissionSSOT.ts";
+} from "./driverPayoutSubmissionSSOT.ts";
 
 /** @see shared/driverPayoutSubmissionSSOT — oc-dp:{uuidhex} ≤40 for Revolut /pay */
 export {

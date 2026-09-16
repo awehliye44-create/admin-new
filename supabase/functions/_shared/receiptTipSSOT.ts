@@ -4,7 +4,7 @@
  * only when no payment row has a captured amount. A hold-sized trip stamp must
  * not print a tip the payments table did not collect.
  */
-import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "./tripPaymentFinalised.ts";
 import {
   sumPaymentsCapturedPence,
   type PaymentCaptureFields,

@@ -4,7 +4,7 @@ import { corsHeaders, jsonResponse, requireAdminOrStaff, type GateError } from "
 import { listAdminPayoutLedger } from "../_shared/adminPayoutLedgerListSSOT.ts";
 import { buildPayoutLedgerAccountsOverview } from "../_shared/adminPayoutLedgerAccountsOverviewSSOT.ts";
 import { buildPayoutLedgerOverview } from "../_shared/adminPayoutLedgerOverviewSSOT.ts";
-import { PAYOUT_LEDGER_ERROR } from "../../../shared/payoutLedgerOverviewSSOT.ts";
+import { PAYOUT_LEDGER_ERROR } from "../_shared/payoutLedgerOverviewSSOT.ts";
 import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 
 function livePayoutFlag(): boolean {

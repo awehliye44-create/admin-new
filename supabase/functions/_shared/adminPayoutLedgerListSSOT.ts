@@ -12,20 +12,20 @@ import type {
   CompanyOutgoingAuditRow,
   CompanyOutgoingBatchRow,
   CompanyOutgoingTransferRow,
-} from "../../../shared/adminPayoutLedgerSSOT.ts";
+} from "./adminPayoutLedgerSSOT.ts";
 import { buildPayoutLedgerOverview } from "./adminPayoutLedgerOverviewSSOT.ts";
 import { resolveLiveCompanyBalanceWithSlice10Gate } from "./companyBalanceResolveSSOT.ts";
-import { sumCompletedDriverPayoutsThisMonthPence } from "../../../shared/payoutLedgerCompanyFundingSSOT.ts";
+import { sumCompletedDriverPayoutsThisMonthPence } from "./payoutLedgerCompanyFundingSSOT.ts";
 import {
   COMPANY_TRANSFERS_EMPTY_COPY,
   aggregateDriverPayoutBatchStatus,
   resolveDriverPayoutItemDisplayPresentation,
-} from "../../../shared/driverPayoutBatchDisplaySSOT.ts";
+} from "./driverPayoutBatchDisplaySSOT.ts";
 import {
   itemMatchesPayoutLedgerLifecycleTab,
   itemMatchesPayoutLedgerStatusTab,
-} from "../../../shared/payoutLedgerNavigationSSOT.ts";
-import { orchestratorBlockerLabel } from "../../../shared/weeklyPayoutOrchestratorSSOT.ts";
+} from "./payoutLedgerNavigationSSOT.ts";
+import { orchestratorBlockerLabel } from "./weeklyPayoutOrchestratorSSOT.ts";
 import { resolvePlatformCollectedDriverIds } from "./platformCollectedDriverScope.ts";
 import {
   buildPaymentSessionDriverCreditFields,
@@ -504,7 +504,7 @@ async function listCompanyTransfers(
   } catch (err) {
     console.warn("[admin-payout-ledger] company balance resolve failed", err);
     const { resolveCompanyBalanceSnapshot, COMPANY_BALANCE_ERROR } = await import(
-      "../../../shared/companyBalanceSSOT.ts"
+      "./companyBalanceSSOT.ts"
     );
     companyBalance = resolveCompanyBalanceSnapshot({
       currency: "GBP",

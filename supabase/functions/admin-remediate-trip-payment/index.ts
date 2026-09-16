@@ -9,21 +9,21 @@ import { corsHeaders, jsonResponse, requireAdminOrStaff } from "../_shared/admin
 import {
   resolveTripPaymentOutcome,
   TRIP_PAYMENT_OUTCOME,
-} from "../../../shared/resolveTripPaymentOutcomeSSOT.ts";
+} from "../_shared/resolveTripPaymentOutcomeSSOT.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
 import { retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { releaseHoldOnTripTerminal } from "../_shared/holdReleaseSSOT.ts";
 import { markPaymentSessionReleased } from "../_shared/paymentSessionSSOT.ts";
 import { finalizeRevolutTripCapture } from "../_shared/finalizeRevolutTripCapture.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
-import { TIP_WINDOW_STATUS } from "../../../shared/tipWindowConstants.ts";
+import { TIP_WINDOW_STATUS } from "../_shared/tipWindowConstants.ts";
 import {
   expiryFareOnlyTipPence,
   expiredUnclosedTipWindowForbidsTipCapture,
   invoiceTipPenceFromConfirmedCapture,
   recordedTipPenceAfterCapture,
   tipWindowCloseAllowedAfterFinalize,
-} from "../../../shared/tripPaymentFinalised.ts";
+} from "../_shared/tripPaymentFinalised.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid().optional(),

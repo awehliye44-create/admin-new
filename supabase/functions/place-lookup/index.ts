@@ -9,17 +9,17 @@ import {
   isPostcodeLikeQuery,
   isStreetLikeQuery,
   mapMapboxSuggestToRow,
-} from "../../../shared/placeSuggestionFilter.ts";
+} from "../_shared/placeSuggestionFilter.ts";
 import {
   extractUkPostcodeFromText,
   normalizeUkPostcodeQuery,
   ukOutwardAreasMatch,
-} from "../../../shared/ukPostcodeSearch.ts";
+} from "../_shared/ukPostcodeSearch.ts";
 import {
   choosePinnedPoi,
   looksLikeStreetAddressName,
   normalizeV6StreetAddress,
-} from "../../../shared/pinnedPoiSelection.ts";
+} from "../_shared/pinnedPoiSelection.ts";
 
 /**
  * place-lookup — Mapbox-backed.

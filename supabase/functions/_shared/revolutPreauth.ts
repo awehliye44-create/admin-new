@@ -40,7 +40,7 @@ import {
   isRevolutBookingPreauthHoldState,
 } from "./revolutPaymentConfirmation.ts";
 import { isRevolutWrongCaptureBeforeTripComplete } from "./revolutPreauthReleaseSSOT.ts";
-import { validateCanonicalBookingSnapshot } from "../../../shared/bookingSnapshotSSOT.ts";
+import { validateCanonicalBookingSnapshot } from "./bookingSnapshotSSOT.ts";
 import { assertBookingPreauthAmount } from "./bookingPreauthAmountGuardSSOT.ts";
 import {
   authorisedHoldMatchesBooking,
@@ -1022,7 +1022,7 @@ function revolutSavedCardAuthorisedResponse(args: {
   idempotent?: boolean;
   paymentSessionId?: string | null;
   corsHeaders: Record<string, string>;
-  waterfallFragment?: { booking_waterfall: import("../../../shared/bookingWaterfallSSOT.ts").BookingWaterfallServerStepInput[] };
+  waterfallFragment?: { booking_waterfall: import("./bookingWaterfallSSOT.ts").BookingWaterfallServerStepInput[] };
   holdStartedAt?: number;
 }): Response {
   return new Response(JSON.stringify({
@@ -1058,7 +1058,7 @@ function revolutPreauthJsonResponse(args: {
   savedCardBlockingReason?: string | null;
   paymentSessionId?: string | null;
   corsHeaders: Record<string, string>;
-  waterfallFragment?: { booking_waterfall: import("../../../shared/bookingWaterfallSSOT.ts").BookingWaterfallServerStepInput[] };
+  waterfallFragment?: { booking_waterfall: import("./bookingWaterfallSSOT.ts").BookingWaterfallServerStepInput[] };
   holdStartedAt?: number;
 }): Response {
   const token = args.order.token ?? null;

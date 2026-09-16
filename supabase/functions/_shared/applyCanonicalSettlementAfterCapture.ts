@@ -35,7 +35,7 @@ import {
   tripSettlementDbColumns,
   type TripSettlementTripRow,
 } from "./tripSettlement.ts";
-import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "./tripPaymentFinalised.ts";
 
 /** Saved stamps only — never calls tripSettlement.ts. */
 export function recoveryWalletCreditFromSavedStamps(trip: Record<string, unknown>): {

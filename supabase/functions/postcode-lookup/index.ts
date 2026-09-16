@@ -1,11 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { corsHeaders } from "../_shared/corsHeaders.ts";
-import { distanceMeters } from "../../../shared/placeSuggestionFilter.ts";
+import { distanceMeters } from "../_shared/placeSuggestionFilter.ts";
 import {
   normalizeUkPostcodeQuery,
   scoreUkPostcodeSuggestion,
   ukOutwardAreasMatch,
-} from "../../../shared/ukPostcodeSearch.ts";
+} from "../_shared/ukPostcodeSearch.ts";
 
 interface LocationBias {
   lat: number;

@@ -10,8 +10,8 @@ import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 import {
   durableSettlementColumns,
   needsDurableSettlementPersist,
-} from "../../../shared/durableSettlementOutcomeSSOT.ts";
-import { isTipWindowOpen } from "../../../shared/tripPaymentFinalised.ts";
+} from "../_shared/durableSettlementOutcomeSSOT.ts";
+import { isTipWindowOpen } from "../_shared/tripPaymentFinalised.ts";
 import { extractBearerToken } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {

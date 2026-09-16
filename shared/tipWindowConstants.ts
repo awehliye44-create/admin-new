@@ -1,10 +1,6 @@
-/** Post-trip tip window duration (customer optional tip UI). Backend authority. */
-export const TIP_WINDOW_MS = 20 * 60 * 1000;
+/**
+ * Single source of truth lives under supabase/functions/_shared (bundled with edge deploys).
+ * Re-exported here for frontend/test imports.
+ */
 
-export const TIP_WINDOW_STATUS = {
-  OPEN: "open",
-  CLOSED: "closed",
-} as const;
-
-export type TipWindowStatus =
-  (typeof TIP_WINDOW_STATUS)[keyof typeof TIP_WINDOW_STATUS];
+export * from "../supabase/functions/_shared/tipWindowConstants.ts";

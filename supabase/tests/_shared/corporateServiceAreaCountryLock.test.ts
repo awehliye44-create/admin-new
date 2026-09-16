@@ -5,7 +5,7 @@ import {
   assertServiceAreaCountryMatch,
   normalizeIsoCountryCode,
   serviceAreaCountryMatches,
-} from "../../../shared/corporateServiceAreaCountrySSOT.ts";
+} from "../../functions/_shared/corporateServiceAreaCountrySSOT.ts";
 
 async function read(pathFromRepoRoot: string): Promise<string> {
   const repoRoot = new URL("../../../", import.meta.url);

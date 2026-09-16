@@ -6,7 +6,7 @@ import {
   P95_TARGET_MS,
   timeoutBudgetForAction,
   type PerformanceStatus,
-} from "../../../shared/performanceHealthControl.ts";
+} from "./performanceHealthControl.ts";
 import { opsLog } from "./opsLog.ts";
 
 export function startRequestTimer(): () => number {

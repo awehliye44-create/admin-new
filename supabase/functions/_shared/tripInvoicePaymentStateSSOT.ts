@@ -1,4 +1,4 @@
-import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "./tripPaymentFinalised.ts";
 
 /**
  * Customer invoice payment SSOT.

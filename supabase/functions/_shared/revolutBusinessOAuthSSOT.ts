@@ -23,7 +23,7 @@ import {
   resolveRevolutBusinessRedirectUri,
   type RevolutBusinessDiagnosticsDto,
   type RevolutBusinessRelayDiagnostics,
-} from "../../../shared/revolutBusinessOAuthSSOT.ts";
+} from "./revolutBusinessOAuthSSOT.ts";
 import { listCompanyBalanceAccounts } from "./companyBalanceResolveSSOT.ts";
 import {
   assertRevolutBusinessRelayConfigured,

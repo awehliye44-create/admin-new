@@ -9,7 +9,7 @@ import {
   isRestoreActiveTripStatus,
   isRestoreTerminalTripStatus,
   normalizeRestoreTripStatus,
-} from "../../../shared/activeTripRestoreSSOT.ts";
+} from "../_shared/activeTripRestoreSSOT.ts";
 import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
 
 export const DRIVER_ASSISTANT_UNAVAILABLE_DURING_TRIP =

@@ -12,4 +12,4 @@ export {
   type WaafiSandboxCreatePaymentInput,
   type WaafiSandboxCreatePaymentResult,
   type WaafiSandboxWebhookPayload,
-} from "../../../../shared/waafiSandboxAdapterSSOT.ts";
+} from "../waafiSandboxAdapterSSOT.ts";

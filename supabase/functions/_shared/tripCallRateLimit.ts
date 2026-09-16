@@ -7,7 +7,7 @@
  * - max start attempts per trip per rolling window: 20 / 60 minutes
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import { TRIP_COMMUNICATION_ERROR } from "../../../shared/tripCommunicationSsot.ts";
+import { TRIP_COMMUNICATION_ERROR } from "./tripCommunicationSsot.ts";
 
 export const TRIP_CALL_RATE_LIMITS = {
   /** Seconds after a failed/missed/cancelled terminal call before a new start is allowed. */

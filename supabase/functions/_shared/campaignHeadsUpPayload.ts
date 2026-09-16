@@ -4,7 +4,7 @@
  * Apps parse `type === campaign_heads_up` (layer === campaign).
  */
 
-import { scrubCampaignTaxiBranding } from "../../../shared/campaignHeadsUpTemplates.ts";
+import { scrubCampaignTaxiBranding } from "./campaignHeadsUpTemplates.ts";
 
 export const CAMPAIGN_PUSH_LAYER = "campaign";
 export const CAMPAIGN_PUSH_TYPE = "campaign_heads_up";

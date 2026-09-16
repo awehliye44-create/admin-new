@@ -9,7 +9,7 @@ import {
   resolveOperationalReserveAmount,
   type CompanyOperationalReservePolicy,
   type ResolvedOperationalReserve,
-} from "../../../shared/companyOperationalReserveSSOT.ts";
+} from "./companyOperationalReserveSSOT.ts";
 
 export async function loadActiveOperationalReservePolicy(
   supabase: SupabaseClient,

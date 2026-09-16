@@ -12,7 +12,7 @@ import {
   evaluateComputedZonesForServiceArea,
   type TripForDemand,
 } from "../_shared/computeDriverDemandZones.ts";
-import { OPEN_TRIP_DEMAND_STATUSES, type DemandLevel } from "../../../shared/demandZoneSurgeSSOT.ts";
+import { OPEN_TRIP_DEMAND_STATUSES, type DemandLevel } from "../_shared/demandZoneSurgeSSOT.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 30,

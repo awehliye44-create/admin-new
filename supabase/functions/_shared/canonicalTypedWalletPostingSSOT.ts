@@ -5,7 +5,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { creditCapturedCardTripLedger } from "./onecabFinanceLedger.ts";
 import { type TripSettlementTripRow } from "./tripSettlement.ts";
-import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "./tripPaymentFinalised.ts";
 import {
   loadTerminalCaptureEvidence,
   postTerminalEntitlementFromSettlement,

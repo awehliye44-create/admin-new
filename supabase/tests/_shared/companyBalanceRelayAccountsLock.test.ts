@@ -15,7 +15,7 @@ import {
   listCompanyBalanceAccounts,
   normalizeRelayAccountsBody,
 } from "../../functions/_shared/companyBalanceResolveSSOT.ts";
-import { evaluateSourceAccountGate, SUBMISSION_ERROR } from "../../../shared/driverPayoutSubmissionSSOT.ts";
+import { evaluateSourceAccountGate, SUBMISSION_ERROR } from "../../functions/_shared/driverPayoutSubmissionSSOT.ts";
 
 const RESOLVE = new URL("../../functions/_shared/companyBalanceResolveSSOT.ts", import.meta.url);
 const WITHDRAW = new URL("../../functions/driver-withdraw/index.ts", import.meta.url);

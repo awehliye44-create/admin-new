@@ -4,24 +4,24 @@ import {
   mergePayoutTabTransactions,
   paginatePayoutTransactions,
   type WalletPayoutTransaction,
-} from "../../../shared/walletPayoutTransactions.ts";
+} from "../_shared/walletPayoutTransactions.ts";
 import {
   walletTransactionDisplayTitle,
   WALLET_TRIPS_TAB_LEDGER_TYPES,
-} from "../../../shared/walletTransactionTitles.ts";
+} from "../_shared/walletTransactionTitles.ts";
 import {
   driverWalletDisplayAmountPence,
   driverWalletTransactionIsCredit,
   isDriverWalletHiddenLedgerType,
   walletTabHistoryWeeks,
   walletTransactionHistoryCutoffIso,
-} from "../../../shared/driverWalletDisplaySSOT.ts";
+} from "../_shared/driverWalletDisplaySSOT.ts";
 import {
   DRIVER_WALLET_ADJUSTMENT_METADATA_SOURCE,
   driverWalletAdjustmentDriverSubtitle,
   driverWalletAdjustmentDriverTitle,
   normalizeDriverWalletAdjustmentReasonCategory,
-} from "../../../shared/driverWalletManualAdjustmentSSOT.ts";
+} from "../_shared/driverWalletManualAdjustmentSSOT.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

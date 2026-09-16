@@ -12,7 +12,7 @@ import {
   normalizeReceiptEmail,
   receiptSendClaimDecision,
   type ReceiptEmailSource,
-} from "../../../shared/manualTripReceiptSSOT.ts";
+} from "./manualTripReceiptSSOT.ts";
 import {
   ensureTripInvoicePdf,
   fetchTrip,

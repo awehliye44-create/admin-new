@@ -1,5 +1,5 @@
 /** Matches tip window SSOT (shared/tipWindowConstants.ts). */
-import { TIP_WINDOW_MS } from "../../../shared/tipWindowConstants.ts";
+import { TIP_WINDOW_MS } from "./tipWindowConstants.ts";
 
 export const TRIP_INVOICE_TIP_WINDOW_MS = TIP_WINDOW_MS;
 

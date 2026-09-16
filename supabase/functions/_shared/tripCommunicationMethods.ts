@@ -2,7 +2,7 @@ import {
   buildCommunicationMethods,
   TRIP_COMMUNICATION_SSOT,
   type TripCommunicationConfigResponse,
-} from "../../../shared/tripCommunicationSsot.ts";
+} from "./tripCommunicationSsot.ts";
 import { isCallableTripStatus } from "./callMaskingConfig.ts";
 
 export type ServiceAreaCommunicationRow = {
