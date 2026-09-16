@@ -66,6 +66,27 @@ function releasedCellDisplay(row: AdminPaymentSessionsListRow): string {
   return formatNullablePence(row.released_amount_pence);
 }
 
+function providerFeeCell(row: AdminPaymentSessionsListRow) {
+  const evidence = row.fee_display_badge;
+  if (evidence === 'ACTUAL') {
+    return (
+      <div className="space-y-1">
+        <p>{formatNullablePence(row.provider_processing_fee_pence)}</p>
+        <Badge variant="outline" className="text-[10px]">Actual</Badge>
+      </div>
+    );
+  }
+  if (evidence === 'ESTIMATED') {
+    return (
+      <div className="space-y-1">
+        <p>{formatNullablePence(row.provider_processing_fee_pence)}</p>
+        <Badge variant="secondary" className="text-[10px]">Estimated</Badge>
+      </div>
+    );
+  }
+  return <span className="text-muted-foreground">{evidence === 'UNAVAILABLE' ? 'Unavailable' : 'Pending'}</span>;
+}
+
 function statusLabel(row: AdminPaymentSessionsListRow): string {
   if (isStaleUnverifiedAuthorisationRow(row)) {
     return 'Authorisation expired/unverified';
@@ -200,7 +221,7 @@ export function PaymentSessionsListPanel({
                       {formatNullablePence(row.refunded_amount_pence)}
                     </TableCell>
                     <TableCell className="text-xs tabular-nums">
-                      {formatNullablePence(row.provider_processing_fee_pence)}
+                      {providerFeeCell(row)}
                     </TableCell>
                     <TableCell className="text-xs">{row.provider_state ?? '—'}</TableCell>
                     <TableCell className="text-xs">

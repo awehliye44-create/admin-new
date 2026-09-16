@@ -256,11 +256,15 @@ export function deriveFeeDisplay(input: {
       amount_pence: input.provider_processing_fee_pence,
     };
   }
-  return {
-    label: "ACTUAL",
-    badge: status === "ACTUAL" ? "ACTUAL" : "ACTUAL",
-    amount_pence: input.provider_processing_fee_pence,
-  };
+  if (status === "ACTUAL") {
+    return {
+      label: "ACTUAL",
+      badge: "ACTUAL",
+      amount_pence: input.provider_processing_fee_pence,
+    };
+  }
+  // A stored amount without explicit provider evidence is not an actual fee.
+  return { label: "Pending provider fee", badge: "PENDING", amount_pence: null };
 }
 
 export function derivePaymentSessionsReconciliation(
