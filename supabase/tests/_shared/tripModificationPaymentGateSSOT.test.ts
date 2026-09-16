@@ -3,14 +3,15 @@
  * MK-260915-002 — processing must not unlock apply; issuer decline keeps original fare/route.
  *
  * Run:
- *   deno test --allow-read supabase/functions/_shared/tripModificationPaymentGateSSOT.test.ts
- *   deno test --allow-read supabase/functions/_shared/revolutIncrementCoverage018.test.ts
+ *   deno test --allow-read supabase/tests/_shared/tripModificationPaymentGateSSOT.test.ts
+ *   deno test --allow-read supabase/tests/_shared/revolutIncrementCoverage018.test.ts
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import type { RevolutOrder } from "../../functions/_shared/revolutOrders.ts";
 import { classifyIncrementCoverage } from "../../functions/_shared/revolutOrders.ts";
 import {
   assertNoForbiddenModificationAuthMutation,
+  classifyModificationApplyCoverage,
   decideFromPreauthInvokeResult,
   decideModificationIncrementCoverage,
   isAlreadyAppliedModification,
@@ -44,6 +45,8 @@ Deno.test("original AUTHORISED + pending increment → payment pending, not conf
   const d = decideModificationIncrementCoverage({ order, requiredPayablePence: 811 });
   assertEquals(d.phase, "PAYMENT_PENDING");
   assertEquals(d.mayApply, false);
+  // Both apply and capture coverage stay strict after MK-260915-002 (pending ≠ confirmed).
+  assertEquals(classifyModificationApplyCoverage(order, 811).class, "processing");
   assertEquals(classifyIncrementCoverage(order, 811).class, "processing");
 });
 
@@ -147,6 +150,28 @@ Deno.test("timeout / network map to PAYMENT_PENDING (trip unchanged)", () => {
   assertEquals(network.phase, "PAYMENT_PENDING");
 });
 
+Deno.test("skipped success never invents authorised coverage for positive delta", () => {
+  const invented = decideFromPreauthInvokeResult({
+    success: true,
+    skipped: true,
+    requiredPayablePence: 1031,
+    authorisedAmountPence: 0,
+    paymentCoverageStatus: "authorization_sufficient",
+  });
+  assertEquals(invented.mayApply, false);
+  assertEquals(invented.phase, "PAYMENT_FAILED");
+
+  const covered = decideFromPreauthInvokeResult({
+    success: true,
+    skipped: true,
+    requiredPayablePence: 1031,
+    authorisedAmountPence: 1031,
+    paymentCoverageStatus: "authorization_sufficient",
+  });
+  assertEquals(covered.mayApply, true);
+  assertEquals(covered.phase, "PROVIDER_CONFIRMED");
+});
+
 Deno.test("duplicate confirmation of applied request is idempotent", () => {
   assertEquals(isAlreadyAppliedModification("applied"), true);
   assertEquals(isAlreadyAppliedModification("approved"), true);
@@ -190,9 +215,9 @@ Deno.test("fare decrease requires no additional authorisation path", () => {
   assertEquals(poundsToPenceExact(3.11), 311);
 });
 
-Deno.test("initiated/requested increment states never confirm", () => {
+Deno.test("initiated/requested increment states never confirm modification apply", () => {
   for (const state of ["initiated", "requested", "unknown", "pending", "processing"]) {
-    const coverage = classifyIncrementCoverage(
+    const coverage = classifyModificationApplyCoverage(
       orderShape({
         paymentAuth: 500,
         increments: [{ old_amount: 500, new_amount: 811, state }],
@@ -216,23 +241,31 @@ Deno.test("PLATFORM_COLLECTED isolation — no wallet/commission/payout/invoice/
   assertEquals(assertNoForbiddenModificationAuthMutation("same_order_increment"), true);
 });
 
-Deno.test("caller audit: classifyIncrementCoverage has no second processing→confirmed path", async () => {
+Deno.test("caller audit: modification apply stays strict; coverage never treats pending as confirmed", async () => {
   const orders = await Deno.readTextFile(new URL("../../functions/_shared/revolutOrders.ts", import.meta.url));
-  assertEquals(orders.includes("acceptedIncrementTotal"), false);
-  assertEquals(orders.includes("MK-260815-020: increment POST 200 leaves"), false);
-  assertEquals(orders.includes("isUnsettledIncrementState"), true);
+  // MK-260915-002: processing/pending increment states never count as confirmed coverage.
+  assertEquals(orders.includes("MK-260915-002 supersedes MK-260815-020 for coverage"), true);
+  assertEquals(orders.includes("NEVER count as confirmed"), true);
+
+  const gate = await Deno.readTextFile(
+    new URL("../../functions/_shared/tripModificationPaymentGateSSOT.ts", import.meta.url),
+  );
+  assertEquals(gate.includes("classifyModificationApplyCoverage"), true);
+  assertEquals(
+    gate.includes("Processing/pending/initiated increment new_amount must NOT unlock"),
+    true,
+  );
 
   const exec = await Deno.readTextFile(
     new URL("../../functions/_shared/executeSameOrderIncrementSSOT.ts", import.meta.url),
   );
-  // Prior-attempt reconcile must not fall back to raw providerTotal without confirmed class.
-  assertEquals(
-    exec.includes("providerTotal >= plan.targetTotalPence\n        ? providerTotal"),
-    false,
-  );
+  // Reconcile may compare providerTotal to target, but must classify via
+  // classifyIncrementCoverage — never raw providerTotal alone as apply unlock.
+  assertEquals(exec.includes("classifyIncrementCoverage"), true);
+  assertEquals(exec.includes("preferSameOrderIncrement"), false);
 
   const confirm = await Deno.readTextFile(
-    new URL("../../functions/confirm-trip-modification-payment/index.ts", import.meta.url),
+    new URL("../../functions/_shared/executeFareIncreaseModificationPayment.ts", import.meta.url),
   );
   assertEquals(confirm.includes("decideFromPreauthInvokeResult"), true);
   assertEquals(confirm.includes("claim_and_apply_fare_increase_modification"), true);
@@ -241,6 +274,17 @@ Deno.test("caller audit: classifyIncrementCoverage has no second processing→co
     confirm.includes("Payment is still processing. Your trip has not been changed."),
     true,
   );
+
+  const confirmEdge = await Deno.readTextFile(
+    new URL("../../functions/confirm-trip-modification-payment/index.ts", import.meta.url),
+  );
+  assertEquals(confirmEdge.includes("executeFareIncreaseModificationPayment"), true);
+  assertEquals(confirmEdge.includes("advance_trip_change_after_payment"), false);
+
+  const requestEdge = await Deno.readTextFile(
+    new URL("../../functions/request-trip-modification/index.ts", import.meta.url),
+  );
+  assertEquals(requestEdge.includes("executeFareIncreaseModificationPayment"), true);
 });
 
 Deno.test("reproduced class: hold 500 → required 811 while processing leaves trip at 500", () => {

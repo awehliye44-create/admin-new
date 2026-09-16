@@ -12,7 +12,7 @@ import {
   customerAndroidChannelIdForEvent,
   customerAndroidSoundForEvent,
   customerIosSoundFileForEvent,
-} from "../../functions/_shared/customerTripLifecycleNotify.ts";
+} from "./customerTripLifecycleNotify.ts";
 
 const read = async (rel: string) =>
   await Deno.readTextFile(new URL(rel, import.meta.url));
@@ -38,7 +38,7 @@ Deno.test("per-event Android channels and bundled sounds", () => {
 });
 
 Deno.test("send-trip-notification uses WAV, per-event channels, authoritative token", async () => {
-  const src = await read("../../functions/send-trip-notification/index.ts");
+  const src = await read("../send-trip-notification/index.ts");
   assertStringIncludes(src, 'trip_cancelled:');
   assertStringIncludes(src, "resolveCustomerAuthoritativeToken");
   assertEquals(src.includes('sound: priority === \'high\' ? \'default\''), false);
@@ -54,23 +54,23 @@ Deno.test("send-trip-notification uses WAV, per-event channels, authoritative to
 });
 
 Deno.test("producers send after authoritative success; rematch does not cancel", async () => {
-  const assign = await read("../../functions/_shared/rideAssignmentFinalize.ts");
-  const accept = await read("../../functions/accept-offer/index.ts");
-  const stop = await read("../../functions/stop-workflow/index.ts");
-  const cancel = await read("../../functions/cancel-trip/index.ts");
-  const driverCancel = await read("../../functions/_shared/driverTripCancel.ts");
-  const adminCancel = await read("../../functions/admin-trip-actions/index.ts");
-  const adminAction = await read("../../functions/admin-trip-action/index.ts");
-  const expire = await read("../../functions/expire-trip/index.ts");
-  const corporateCancel = await read("../../functions/cancel-corporate-trip/index.ts");
-  const rematch = await read("../../functions/driver-cancel-before-pickup/index.ts");
-  const autoDispatch = await read("../../functions/auto-dispatch/index.ts");
-  const expireOffers = await read("../../functions/expire-offers/index.ts");
-  const scheduledDispatch = await read("../../functions/scheduled-dispatch/index.ts");
-  const getActiveTrip = await read("../../functions/get-active-trip/index.ts");
-  const pickupNoShow = await read("../../functions/pickup-no-show/index.ts");
-  const lateCancel = await read("../../functions/late-cancellation-check/index.ts");
-  const helper = await read("../../functions/_shared/customerTripLifecycleNotify.ts");
+  const assign = await read("./rideAssignmentFinalize.ts");
+  const accept = await read("../accept-offer/index.ts");
+  const stop = await read("../stop-workflow/index.ts");
+  const cancel = await read("../cancel-trip/index.ts");
+  const driverCancel = await read("./driverTripCancel.ts");
+  const adminCancel = await read("../admin-trip-actions/index.ts");
+  const adminAction = await read("../admin-trip-action/index.ts");
+  const expire = await read("../expire-trip/index.ts");
+  const corporateCancel = await read("../cancel-corporate-trip/index.ts");
+  const rematch = await read("../driver-cancel-before-pickup/index.ts");
+  const autoDispatch = await read("../auto-dispatch/index.ts");
+  const expireOffers = await read("../expire-offers/index.ts");
+  const scheduledDispatch = await read("../scheduled-dispatch/index.ts");
+  const getActiveTrip = await read("../get-active-trip/index.ts");
+  const pickupNoShow = await read("../pickup-no-show/index.ts");
+  const lateCancel = await read("../late-cancellation-check/index.ts");
+  const helper = await read("./customerTripLifecycleNotify.ts");
 
   assertStringIncludes(assign, 'event: "driver_assigned"');
   // Listed-fare Accept (non-stacked) must notify — not only stacked / fare-final.
@@ -102,7 +102,7 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   assertStringIncludes(scheduledUi, "notify_driver_assigned");
   assertStringIncludes(expire, "expireTripWhenSearchExhaustedAndNotifyCustomer");
   assertStringIncludes(corporateCancel, "event: 'trip_cancelled'");
-  const decline = await read("../../functions/decline-offer/index.ts");
+  const decline = await read("../decline-offer/index.ts");
   assertStringIncludes(decline, 'event: "trip_cancelled"');
   assertEquals(decline.includes("send-customer-notification"), false);
   assertEquals(rematch.includes('event: "trip_cancelled"'), false);
@@ -116,7 +116,7 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   assertEquals(autoDispatch.includes('rpc("expire_trip_when_search_exhausted"'), false);
   assertStringIncludes(autoDispatch, "finalizeRideAssignmentSideEffects");
   assertStringIncludes(autoDispatch, "edge_auto_dispatch_auto_accept");
-  const acceptTrip = await read("../../functions/accept-trip/index.ts");
+  const acceptTrip = await read("../accept-trip/index.ts");
   assertStringIncludes(acceptTrip, "finalizeRideAssignmentSideEffects");
   assertStringIncludes(expireOffers, "expireTripWhenSearchExhaustedAndNotifyCustomer");
   assertEquals(expireOffers.includes('rpc("expire_trip_when_search_exhausted"'), false);
@@ -132,7 +132,7 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   );
   assertStringIncludes(commitmentChunk, 'event: "driver_assigned"');
   assertStringIncludes(commitmentChunk, "notifyCustomerTripLifecycle");
-  const adminNegCancel = await read("../../functions/admin-cancel-trip-negotiation/index.ts");
+  const adminNegCancel = await read("../admin-cancel-trip-negotiation/index.ts");
   assertStringIncludes(adminNegCancel, "notifyCustomerTripLifecycle");
   assertStringIncludes(adminNegCancel, 'event: "trip_cancelled"');
   assertStringIncludes(getActiveTrip, "expireTripWhenSearchExhaustedAndNotifyCustomer");
@@ -141,30 +141,34 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   assertStringIncludes(pickupNoShow, "notifyCustomerTripLifecycle");
   assertStringIncludes(lateCancel, "notifyCustomerCancelledIfNeeded");
   assertStringIncludes(lateCancel, "notifyCustomerTripLifecycle");
-  const sqlDispatch = await read("../../functions/_shared/dispatchOrchestrator.ts");
+  const sqlDispatch = await read("./dispatchOrchestrator.ts");
   assertStringIncludes(sqlDispatch, "notifyIfSqlDispatchExpiredTrip");
   assertStringIncludes(sqlDispatch, "notifyCustomerTripLifecycle");
-  const stackedLifecycle = await read("../../functions/_shared/stackedRideLifecycle.ts");
+  const stackedLifecycle = await read("./stackedRideLifecycle.ts");
   assertStringIncludes(stackedLifecycle, "notifyCustomerTripLifecycle");
   assertStringIncludes(stackedLifecycle, 'event: "trip_cancelled"');
   assertStringIncludes(stackedLifecycle, "notifyCustomerStackedTripPromoted");
   assertStringIncludes(stackedLifecycle, "driver_assigned-${tripId}-promoted");
   assertStringIncludes(stackedLifecycle, "cancelQueuedStackedTrip");
-  const updateStop = await read("../../functions/update-stop-status/index.ts");
-  assertStringIncludes(updateStop, 'event: "trip_completed"');
-  assertStringIncludes(updateStop, 'event: "driver_arrived"');
-  assertStringIncludes(updateStop, 'event: "trip_started"');
-  assertStringIncludes(updateStop, "send-trip-notification");
-  const negotiationRematch = await read("../../functions/_shared/negotiationFailureRematch.ts");
+  // Lifecycle pushes live on stop-workflow only — update-stop-status is retired (MK-260916-030).
+  const stopWorkflow = await read("../stop-workflow/index.ts");
+  assertStringIncludes(stopWorkflow, 'event: "trip_completed"');
+  assertStringIncludes(stopWorkflow, 'event: "driver_arrived"');
+  assertStringIncludes(stopWorkflow, 'event: "trip_started"');
+  assertStringIncludes(stopWorkflow, "notifyCustomerTripLifecycle");
+  const updateStopRetired = await read("../update-stop-status/index.ts");
+  assertStringIncludes(updateStopRetired, "DEPRECATED_ENDPOINT");
+  assertStringIncludes(updateStopRetired, "stop-workflow");
+  const negotiationRematch = await read("./negotiationFailureRematch.ts");
   assertStringIncludes(negotiationRematch, "notifyCustomerNegotiationRematch");
   assertStringIncludes(negotiationRematch, 'event: "finding_another_driver_updated_fare"');
   assertEquals(negotiationRematch.includes('event: "trip_cancelled"'), false);
   assertStringIncludes(expireOffers, "notifyCustomerNegotiationRematch");
-  const driverFareFinal = await read("../../functions/driver-fare-final/index.ts");
+  const driverFareFinal = await read("../driver-fare-final/index.ts");
   assertStringIncludes(driverFareFinal, "finalizeNegotiationFailureAndRebroadcast");
   // Finding-another push is centralized — not duplicated on DECLINE.
   assertEquals(driverFareFinal.includes('event: "finding_another_driver_updated_fare"'), false);
-  const scheduledRide = await read("../../functions/scheduled-ride-action/index.ts");
+  const scheduledRide = await read("../scheduled-ride-action/index.ts");
   assertStringIncludes(scheduledRide, 'event: "driver_cancelled"');
   assertStringIncludes(scheduledRide, "notifyCustomerTripLifecycle");
   assertStringIncludes(scheduledRide, 'event: "driver_assigned"');
@@ -174,17 +178,17 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
     scheduledRide.indexOf('action === "cancel_confirmed"'),
   );
   assertEquals(cancelConfirmedChunk.includes("send-customer-notification"), false);
-  const scheduledCheckin = await read("../../functions/scheduled-checkin/index.ts");
+  const scheduledCheckin = await read("../scheduled-checkin/index.ts");
   assertStringIncludes(scheduledCheckin, "notifyCustomerTripLifecycle");
   assertStringIncludes(scheduledCheckin, 'event: "driver_assigned"');
   assertEquals(scheduledCheckin.includes("send-customer-notification"), false);
-  const sendCustomerNotif = await read("../../functions/send-customer-notification/index.ts");
+  const sendCustomerNotif = await read("../send-customer-notification/index.ts");
   assertStringIncludes(sendCustomerNotif, "passengerId");
   assertStringIncludes(sendCustomerNotif, "resolveCustomerAuthoritativeToken");
-  const lostProperty = await read("../../functions/lost-property/index.ts");
+  const lostProperty = await read("../lost-property/index.ts");
   assertStringIncludes(lostProperty, 'event: "driver_assigned"');
   assertStringIncludes(lostProperty, "notifyCustomerTripLifecycle");
-  const lostPropertyTransition = await read("../../functions/lost-property-transition/index.ts");
+  const lostPropertyTransition = await read("../lost-property-transition/index.ts");
   assertStringIncludes(lostPropertyTransition, "passenger_id: passengerId");
   assertStringIncludes(lostPropertyTransition, 'event: "driver_assigned"');
   assertStringIncludes(lostPropertyTransition, "notifyCustomerTripLifecycle");

@@ -19,6 +19,8 @@ export const BLOCKED_LEGACY_EDGE_FUNCTIONS = [
   "complete-stop",
   "complete-trip",
   "update-trip-status",
+  "update-stop-status",
+  "calculate-final-fare",
 ] as const;
 
 export function legacyEdgeBlockedResponse(

@@ -7,6 +7,10 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { prepareRevolutModificationAuthorisation } from "./revolutModTopUp.ts";
 import {
+  FINANCIAL_MODEL_VIOLATION,
+  SERVICE_AREA_FINANCIAL_MODEL,
+} from "./commissionWalletSSOT.ts";
+import {
   isCardLikePaymentMethod,
   isPaymentGateAcceptFailure,
   mapNegotiationCoverFailure,
@@ -106,7 +110,7 @@ export async function ensureNegotiationPayableAuthorised(args: {
     .select(
       "id, payment_method, payment_session_id, provider_order_id, payment_provider, "
         + "currency_code, authorised_amount_pence, authorized_amount_pence, "
-        + "total_authorized_amount_pence",
+        + "total_authorized_amount_pence, financial_model",
     )
     .eq("id", args.tripId)
     .maybeSingle();
@@ -116,6 +120,18 @@ export async function ensureNegotiationPayableAuthorised(args: {
       ok: false,
       code: NEGOTIATION_RECONCILIATION_PENDING_CODE,
       message: NEGOTIATION_RECONCILIATION_PENDING_MESSAGE,
+      status: 409,
+    };
+  }
+
+  if (
+    String(trip.financial_model ?? "").toUpperCase()
+    === SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET
+  ) {
+    return {
+      ok: false,
+      code: FINANCIAL_MODEL_VIOLATION,
+      message: `${FINANCIAL_MODEL_VIOLATION}: platform increment forbidden on DRIVER_COLLECTED`,
       status: 409,
     };
   }

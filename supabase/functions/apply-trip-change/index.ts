@@ -9,46 +9,22 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
+import {
+  fetchTripAndBroadcastUpdated,
+  upsertTripRoutePolyline,
+} from "../_shared/tripModificationApply.ts";
 
 /**
  * APPLY-TRIP-CHANGE
- * 
- * When a driver approves (or auto-applies) a trip change request:
- * 1. Validates the change request
- * 2. Applies route/stop/dropoff modifications to the trip
- * 3. Recalculates fare based on new route using vehicle_pricing
- * 4. Updates the trip row with new fare + route data
- * 5. Marks the change request as applied
- * 
- * The trips row update triggers realtime → both driver and customer apps
- * receive the updated fare immediately via their existing subscriptions.
+ *
+ * Driver approve/reject for pending_driver_approval modifications.
+ * MK-260916-030: never mutate trips fare/stops before CR→approved.
+ * Approve only flips trip_change_requests.status; DB trigger
+ * (apply_approved_trip_change / enforce_trip_change_payment_before_apply)
+ * applies route+fare after payment evidence checks.
  */
 
-const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60000, keyPrefix: 'apply-trip-change' };
-
-// Haversine distance in km
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-// Calculate total route distance through all waypoints
-function calculateRouteDistanceKm(waypoints: { lat: number; lng: number }[]): number {
-  let total = 0;
-  for (let i = 1; i < waypoints.length; i++) {
-    const straight = haversineKm(
-      waypoints[i - 1].lat, waypoints[i - 1].lng,
-      waypoints[i].lat, waypoints[i].lng
-    );
-    total += straight * 1.3; // Road factor
-  }
-  return total;
-}
+const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60000, keyPrefix: "apply-trip-change" };
 
 Deno.serve(async (req) => {
   console.log("[apply-trip-change] Request:", req.method);
@@ -81,12 +57,15 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { change_request_id, driver_id: requested_driver_id, action } = body;
 
-    // Validate
     const errors: Record<string, string> = {};
     if (!change_request_id) errors.change_request_id = "required";
     else if (!isValidUUID(change_request_id)) errors.change_request_id = "invalid UUID";
-    if (requested_driver_id && !isValidUUID(requested_driver_id)) errors.driver_id = "invalid UUID";
-    if (!action || !['approve', 'reject'].includes(action)) errors.action = "must be 'approve' or 'reject'";
+    if (requested_driver_id && !isValidUUID(requested_driver_id)) {
+      errors.driver_id = "invalid UUID";
+    }
+    if (!action || !["approve", "reject"].includes(action)) {
+      errors.action = "must be 'approve' or 'reject'";
+    }
     if (Object.keys(errors).length > 0) return validationErrorResponse(errors);
 
     const { data: driverProfile, error: driverErr } = await supabase
@@ -136,8 +115,7 @@ Deno.serve(async (req) => {
       return errorResponse("FORBIDDEN", "Not authorized for this trip", 403);
     }
 
-    // ── REJECT path ──
-    if (action === 'reject') {
+    if (action === "reject") {
       const { error: rejectErr } = await supabase
         .from("trip_change_requests")
         .update({
@@ -155,298 +133,62 @@ Deno.serve(async (req) => {
       return successResponse({ success: true, action: "rejected" });
     }
 
-    // ── APPROVE path ──
-
+    // ── APPROVE ──
     if (cr.status !== "pending_driver_approval") {
-      // Idempotent: if already approved/applied (e.g. auto-applied by DB trigger), return success
       if (cr.status === "approved" || cr.status === "applied") {
-        console.log("[apply-trip-change] Already applied (idempotent), returning success");
-        return successResponse({ success: true, action: "approved", idempotent: true, trip_id: cr.trip_id });
+        console.log("[apply-trip-change] Already applied (idempotent)");
+        return successResponse({
+          success: true,
+          action: "approved",
+          idempotent: true,
+          trip_id: cr.trip_id,
+        });
       }
       return errorResponse("ALREADY_PROCESSED", `Change request is ${cr.status}`, 409);
     }
 
-    if (Number(cr.fare_delta_pence ?? 0) > 0 && cr.payment_status !== "confirmed") {
-      return errorResponse(
-        "PAYMENT_REQUIRED",
-        "Payment confirmation required before apply",
-        402,
-      );
-    }
-
-    // 3. Fetch current stops
-    const { data: currentStops } = await supabase
-      .from("trip_stops")
-      .select("*")
-      .eq("trip_id", trip.id)
-      .order("stop_index", { ascending: true });
-
-    // 4. Apply modifications based on change_type
-    const afterSnapshot = cr.after_route_snapshot || {};
-    let newDropoffAddress = trip.dropoff_address;
-    let newDropoffLat = trip.dropoff_latitude;
-    let newDropoffLng = trip.dropoff_longitude;
-    let stopsModified = false;
-
-    if (cr.change_type === "change_dropoff" && afterSnapshot.dropoff) {
-      newDropoffAddress = afterSnapshot.dropoff.address || trip.dropoff_address;
-      newDropoffLat = afterSnapshot.dropoff.lat ?? trip.dropoff_latitude;
-      newDropoffLng = afterSnapshot.dropoff.lng ?? trip.dropoff_longitude;
-      
-      // Update dropoff stop in trip_stops
-      if (currentStops) {
-        const dropoffStop = currentStops.find(s => s.type === 'dropoff');
-        if (dropoffStop) {
-          await supabase
-            .from("trip_stops")
-            .update({
-              address: newDropoffAddress,
-              lat: newDropoffLat,
-              lng: newDropoffLng,
-              updated_at: now,
-            })
-            .eq("id", dropoffStop.id);
-        }
-      }
-      stopsModified = true;
-    }
-
-    if (cr.change_type === "add_stop" && afterSnapshot.stops) {
-      // Insert new intermediate stops from the snapshot
-      const newStops = afterSnapshot.stops.filter((s: any) => s.type === 'stop');
-      
-      if (newStops.length > 0 && currentStops) {
-        // Find current max stop_index before dropoff
-        const dropoffStop = currentStops.find(s => s.type === 'dropoff');
-        const dropoffIndex = dropoffStop?.stop_index ?? currentStops.length;
-        
-        // Insert new stops before the dropoff
-        for (let i = 0; i < newStops.length; i++) {
-          const ns = newStops[i];
-          // Shift dropoff index up
-          const newIndex = dropoffIndex + i;
-          
-          await supabase
-            .from("trip_stops")
-            .insert({
-              trip_id: trip.id,
-              stop_index: newIndex,
-              type: 'stop',
-              address: ns.address || 'New Stop',
-              lat: ns.lat || 0,
-              lng: ns.lng || 0,
-              status: 'pending',
-            });
-        }
-
-        // Update dropoff stop_index
-        if (dropoffStop) {
-          const newDropoffIdx = dropoffIndex + newStops.length;
-          await supabase
-            .from("trip_stops")
-            .update({ stop_index: newDropoffIdx, updated_at: now })
-            .eq("id", dropoffStop.id);
-        }
-
-        // Update total_stops on trip
-        const newTotal = (trip.total_stops || currentStops.length) + newStops.length;
-        await supabase
-          .from("trips")
-          .update({ total_stops: newTotal })
-          .eq("id", trip.id);
-      }
-
-      // If dropoff also changed
-      if (afterSnapshot.dropoff) {
-        const beforeDropoff = cr.before_route_snapshot?.dropoff?.address;
-        if (beforeDropoff !== afterSnapshot.dropoff.address) {
-          newDropoffAddress = afterSnapshot.dropoff.address;
-          newDropoffLat = afterSnapshot.dropoff.lat ?? newDropoffLat;
-          newDropoffLng = afterSnapshot.dropoff.lng ?? newDropoffLng;
-
-          if (currentStops) {
-            const dropoffStop = currentStops.find(s => s.type === 'dropoff');
-            if (dropoffStop) {
-              await supabase
-                .from("trip_stops")
-                .update({
-                  address: newDropoffAddress,
-                  lat: newDropoffLat,
-                  lng: newDropoffLng,
-                  updated_at: now,
-                })
-                .eq("id", dropoffStop.id);
-            }
-          }
-        }
-      }
-      stopsModified = true;
-    }
-
-    if (cr.change_type === "remove_stop" && afterSnapshot.stops) {
-      // Remove stops that are no longer in the after snapshot
-      if (currentStops) {
-        const afterStopAddresses = new Set(
-          (afterSnapshot.stops || []).map((s: any) => s.address)
+    // Effective increase gate (delta OR quoted new_fare vs committed).
+    const fareDeltaApply = Number(cr.fare_delta_pence ?? 0);
+    const quotedNewFarePence = Math.max(
+      0,
+      Math.round(Number(cr.new_fare_pence ?? 0)),
+    );
+    const currentCommittedPence = Math.max(
+      0,
+      Math.round(Number(trip.final_customer_fare_pence ?? 0)),
+      Math.round(Number(trip.estimated_total_pence ?? 0)),
+      Math.round(Number(trip.locked_base_fare_pence ?? 0)),
+    );
+    const quotedIncreasePence = quotedNewFarePence > 0
+      ? Math.max(0, quotedNewFarePence - currentCommittedPence)
+      : 0;
+    const effectiveIncreasePence = Math.max(fareDeltaApply, quotedIncreasePence);
+    const tripModel = String(
+      (trip as { financial_model?: unknown }).financial_model ?? "",
+    ).toUpperCase();
+    const platform =
+      tripModel === "PLATFORM_COLLECTED" || tripModel === "";
+    const payStatus = String(cr.payment_status ?? "").toLowerCase();
+    if (effectiveIncreasePence > 0) {
+      if (platform && payStatus !== "confirmed") {
+        return errorResponse(
+          "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED",
+          "Fare-increasing modifications must complete payment authorisation before apply",
+          402,
         );
-        
-        const stopsToRemove = currentStops.filter(
-          s => s.type === 'stop' && !afterStopAddresses.has(s.address)
+      }
+      if (!platform && payStatus !== "confirmed" && payStatus !== "not_required") {
+        return errorResponse(
+          "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED",
+          "Payment confirmation required before apply",
+          402,
         );
-        
-        for (const s of stopsToRemove) {
-          await supabase.from("trip_stops").delete().eq("id", s.id);
-        }
-
-        // Reindex remaining stops
-        const { data: remainingStops } = await supabase
-          .from("trip_stops")
-          .select("*")
-          .eq("trip_id", trip.id)
-          .order("stop_index", { ascending: true });
-
-        if (remainingStops) {
-          for (let i = 0; i < remainingStops.length; i++) {
-            if (remainingStops[i].stop_index !== i) {
-              await supabase
-                .from("trip_stops")
-                .update({ stop_index: i, updated_at: now })
-                .eq("id", remainingStops[i].id);
-            }
-          }
-          await supabase
-            .from("trips")
-            .update({ total_stops: remainingStops.length })
-            .eq("id", trip.id);
-        }
-      }
-      stopsModified = true;
-    }
-
-    // 5. RECALCULATE FARE — use the new fare from change request if provided,
-    //    otherwise recalculate from vehicle_pricing
-    let newFarePence: number;
-    let newEstimatedFare: number;
-    let newDistanceKm: number;
-    let newDurationMinutes: number;
-
-    if (cr.new_fare_pence && cr.new_fare_pence > 0) {
-      // Use pre-calculated fare from the change request (customer app already computed it)
-      newFarePence = cr.new_fare_pence;
-      newEstimatedFare = newFarePence / 100;
-      newDistanceKm = cr.new_distance_meters ? cr.new_distance_meters / 1000 : (trip.estimated_distance_km || 0);
-      newDurationMinutes = cr.new_duration_seconds ? Math.round(cr.new_duration_seconds / 60) : (trip.estimated_duration_minutes || 0);
-      console.log("[apply-trip-change] Using pre-calculated fare from change request:", newFarePence, "pence");
-    } else {
-      // Recalculate from scratch using vehicle_pricing
-      console.log("[apply-trip-change] Recalculating fare from vehicle_pricing");
-
-      // Build waypoints: pickup → intermediate stops → new dropoff
-      const { data: latestStops } = await supabase
-        .from("trip_stops")
-        .select("*")
-        .eq("trip_id", trip.id)
-        .order("stop_index", { ascending: true });
-
-      const waypoints: { lat: number; lng: number }[] = [];
-      if (latestStops) {
-        for (const s of latestStops) {
-          waypoints.push({ lat: s.lat || 0, lng: s.lng || 0 });
-        }
-      }
-      // Fallback if no stops
-      if (waypoints.length < 2) {
-        waypoints.length = 0;
-        waypoints.push({ lat: trip.pickup_latitude || 0, lng: trip.pickup_longitude || 0 });
-        waypoints.push({ lat: newDropoffLat || 0, lng: newDropoffLng || 0 });
-      }
-
-      newDistanceKm = calculateRouteDistanceKm(waypoints);
-      newDurationMinutes = Math.max(5, Math.round(newDistanceKm * 2.5));
-
-      // Get pricing
-      let baseFarePence = 0;
-      let perKmPence = 0;
-      let minFarePence = 0;
-
-      if (trip.service_area_id) {
-        const vehicleType = trip.vehicle_type || 'economy';
-        const { data: pricing } = await supabase
-          .from("vehicle_pricing")
-          .select("base_fare_pence, per_km_pence, per_mile_pence, min_fare_pence")
-          .eq("service_area_id", trip.service_area_id)
-          .eq("vehicle_type", vehicleType)
-          .eq("is_active", true)
-          .maybeSingle();
-
-        if (pricing) {
-          baseFarePence = pricing.base_fare_pence || 0;
-          perKmPence = pricing.per_km_pence || 0;
-          minFarePence = pricing.min_fare_pence || 0;
-        }
-      }
-
-      newFarePence = baseFarePence + Math.round(newDistanceKm * perKmPence);
-      if (minFarePence > 0) {
-        newFarePence = Math.max(newFarePence, minFarePence);
-      }
-      newEstimatedFare = newFarePence / 100;
-
-      console.log("[apply-trip-change] Recalculated fare:", {
-        distanceKm: newDistanceKm.toFixed(2),
-        baseFarePence,
-        perKmPence,
-        totalPence: newFarePence,
-        fare: newEstimatedFare,
-      });
-    }
-
-    // 6. Update the trip row with new fare + route data (triggers realtime)
-    const tripUpdate: Record<string, unknown> = {
-      estimated_fare: newEstimatedFare,
-      fare: newEstimatedFare,
-      estimated_total_pence: newFarePence,
-      base_fare_pence: newFarePence, // Update base for commission calc
-      estimated_distance_km: Math.round(newDistanceKm * 100) / 100,
-      estimated_duration_minutes: newDurationMinutes,
-      dropoff_address: newDropoffAddress,
-      dropoff_latitude: newDropoffLat,
-      dropoff_longitude: newDropoffLng,
-      updated_at: now,
-    };
-
-    // Rebuild the stops JSON array on the trip (legacy field used by some components)
-    if (stopsModified) {
-      const { data: finalStops } = await supabase
-        .from("trip_stops")
-        .select("*")
-        .eq("trip_id", trip.id)
-        .order("stop_index", { ascending: true });
-
-      if (finalStops) {
-        const stopsJson = finalStops
-          .filter(s => s.type === 'stop')
-          .map(s => ({ lat: s.lat, lng: s.lng, address: s.address, order: s.stop_index }));
-        tripUpdate.stops = stopsJson;
       }
     }
 
-    console.log("[apply-trip-change] Updating trip:", trip.id, tripUpdate);
-
-    const { data: updatedTrip, error: updateErr } = await supabase
-      .from("trips")
-      .update(tripUpdate)
-      .eq("id", trip.id)
-      .select()
-      .single();
-
-    if (updateErr) {
-      console.error("[apply-trip-change] Trip update error:", updateErr);
-      return errorResponse("UPDATE_FAILED", "Failed to update trip", 500);
-    }
-
-    // 7. Mark change request as approved + applied
-    await supabase
+    // Approve first — DB trigger applies route/fare only after payment evidence.
+    // Never write trips.estimated_total / stops before this (MK-260916-030).
+    const { error: approveError } = await supabase
       .from("trip_change_requests")
       .update({
         status: "approved",
@@ -455,18 +197,83 @@ Deno.serve(async (req) => {
       })
       .eq("id", change_request_id);
 
-    console.log("[apply-trip-change] Success — trip updated with new fare:", newEstimatedFare);
+    if (approveError) {
+      console.error("[apply-trip-change] Approve rejected:", approveError);
+      const detail = String(approveError.message ?? approveError.details ?? "");
+      if (
+        detail.includes("CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED")
+        || detail.includes("ADDITIONAL_AUTHORISATION_CONFIRMED")
+        || detail.includes("protected=")
+      ) {
+        return errorResponse(
+          "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED",
+          "Fare-increasing modifications must complete payment authorisation before apply",
+          402,
+        );
+      }
+      return errorResponse("UPDATE_FAILED", "Failed to approve modification", 500);
+    }
+
+    const { data: appliedRequest } = await supabase
+      .from("trip_change_requests")
+      .select("status, new_fare_pence, fare_delta_pence")
+      .eq("id", change_request_id)
+      .single();
+
+    if (
+      appliedRequest
+      && appliedRequest.status !== "approved"
+      && appliedRequest.status !== "applied"
+    ) {
+      console.error("[apply-trip-change] Approve did not apply:", appliedRequest.status);
+      return errorResponse(
+        "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED",
+        "Modification was not applied; payment protection may be unresolved",
+        402,
+      );
+    }
+
+    const afterSnapshot = (cr.after_route_snapshot ?? {}) as Record<string, unknown>;
+    const farePreview = afterSnapshot.fare_preview as Record<string, unknown> | undefined;
+    const polyline =
+      typeof farePreview?.polyline === "string" ? farePreview.polyline : null;
+
+    const broadcastResult = await fetchTripAndBroadcastUpdated(
+      supabase,
+      trip.id,
+      polyline,
+      { changeRequestId: change_request_id },
+    );
+    const updatedTrip = broadcastResult?.trip ?? null;
+    if (updatedTrip) {
+      await upsertTripRoutePolyline(supabase, trip.id, polyline, updatedTrip);
+    }
+
+    const farePence = Math.max(
+      0,
+      Math.round(
+        Number(
+          updatedTrip?.final_customer_fare_pence
+            ?? appliedRequest?.new_fare_pence
+            ?? cr.new_fare_pence
+            ?? 0,
+        ),
+      ),
+    );
+
+    console.log("[apply-trip-change] Success — DB apply after approve", {
+      status: appliedRequest?.status,
+      farePence,
+    });
 
     return successResponse({
       success: true,
       action: "approved",
       trip: updatedTrip,
-      fare_pence: newFarePence,
-      fare: newEstimatedFare,
-      distance_km: Math.round(newDistanceKm * 100) / 100,
-      duration_minutes: newDurationMinutes,
+      fare_pence: farePence,
+      fare: farePence / 100,
+      tripUpdated: broadcastResult?.payload ?? null,
     });
-
   } catch (error) {
     console.error("[apply-trip-change] Error:", error);
     return errorResponse("INTERNAL_ERROR", "Internal server error", 500);

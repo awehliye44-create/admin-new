@@ -19,6 +19,7 @@ import {
 import { tripUsesCommissionWalletDeduction } from "../_shared/commissionWalletSSOT.ts";
 import { calculateTripSettlement, resolveTripTierPercent, tripSettlementDbColumns } from "../_shared/tripSettlement.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { assertPlatformCollectedCompletionPaymentGate } from "../_shared/executeFareIncreaseModificationPayment.ts";
 
 const ACTIVE_STATUSES = new Set([
   "pending",
@@ -117,13 +118,70 @@ Deno.serve(async (req) => {
         });
       }
 
+      // Same financial gate as stop-workflow complete_trip (MK-260916-030).
+      const paymentGate = await assertPlatformCollectedCompletionPaymentGate(
+        gate.supabase,
+        tripId,
+      );
+      if (!paymentGate.ok) {
+        return json({
+          success: false,
+          error: paymentGate.message,
+          code: paymentGate.code,
+          protected_pence: paymentGate.protectedPence ?? null,
+          required_pence: paymentGate.requiredPence ?? null,
+        }, paymentGate.code === "UNRESOLVED_MODIFICATION_CHECK_FAILED" ? 503 : 409);
+      }
+
+      const committedPence = Math.max(
+        0,
+        Math.round(Number(trip.final_customer_fare_pence ?? 0)),
+        Math.round(Number(trip.estimated_total_pence ?? 0)),
+        Math.round(Number(trip.locked_base_fare_pence ?? 0)),
+        Math.round(Number(trip.final_fare_pence ?? 0)),
+      );
+
       const fareMajor =
         typeof body.fare === "number" && Number.isFinite(body.fare)
           ? body.fare
           : typeof body.fare_amount === "number" && Number.isFinite(body.fare_amount)
             ? body.fare_amount
-            : Number(trip.fare ?? trip.estimated_fare ?? 0);
+            : Number(trip.fare ?? trip.estimated_fare ?? committedPence / 100);
       const farePence = Math.max(0, Math.round(fareMajor * 100));
+
+      // PLATFORM_COLLECTED: never raise payable on force_complete without increment.
+      // Admin may complete at/below the already-protected committed fare only.
+      const model = String(trip.financial_model ?? "").toUpperCase();
+      if (
+        model === "PLATFORM_COLLECTED"
+        && farePence > committedPence
+        && committedPence > 0
+      ) {
+        return json({
+          success: false,
+          error:
+            "Cannot raise customer payable on force_complete without incremental authorisation",
+          code: "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED",
+          protected_pence: paymentGate.protectedPence ?? null,
+          required_pence: farePence,
+          committed_pence: committedPence,
+        }, 409);
+      }
+      if (
+        model === "PLATFORM_COLLECTED"
+        && farePence > (paymentGate.protectedPence ?? 0)
+        && farePence > 0
+      ) {
+        return json({
+          success: false,
+          error:
+            "Protected customer payment is below the force_complete payable; completion is blocked",
+          code: "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED",
+          protected_pence: paymentGate.protectedPence ?? null,
+          required_pence: farePence,
+        }, 409);
+      }
+
       const now = new Date().toISOString();
       const note =
         typeof body.reason === "string" && body.reason.trim()
