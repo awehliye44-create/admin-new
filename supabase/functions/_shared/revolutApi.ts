@@ -207,8 +207,9 @@ export async function testRevolutMerchantConnection(
 ): Promise<{ endpoint_tested: string; api_version: string }> {
   const validation = validateRevolutMerchantSecret(secretKey, publishableKey);
   if (!validation.ok) {
+    const validationMessage = validation.message;
     throw {
-      message: validation.message,
+      message: validationMessage,
       status: 0,
       body: { code: "invalid_secret_format" },
     } satisfies RevolutApiError;
