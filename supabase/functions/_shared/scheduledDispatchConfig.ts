@@ -133,6 +133,31 @@ export function isAcceptedScheduledActivationDue(input: {
   return { due, activateAtMs, pickupMs, pastPickup };
 }
 
+/**
+ * Canonical scheduled marketplace STEP 2 eligibility.
+ * broadcasting is written only when this is true — never at booking INSERT.
+ */
+export function isScheduledMarketplaceActivationDue(input: {
+  dispatchMode?: string | null;
+  scheduledStatus?: string | null;
+  scheduledBroadcastAt?: string | null;
+  driverId?: string | null;
+  confirmedDriverId?: string | null;
+  nowMs: number;
+}): boolean {
+  if (String(input.dispatchMode ?? "").toLowerCase() !== "scheduled") return false;
+  if (String(input.scheduledStatus ?? "").toLowerCase() !== "scheduled") return false;
+  if (typeof input.driverId === "string" && input.driverId.trim().length > 0) return false;
+  if (typeof input.confirmedDriverId === "string" && input.confirmedDriverId.trim().length > 0) {
+    return false;
+  }
+  const broadcastMs = input.scheduledBroadcastAt
+    ? Date.parse(input.scheduledBroadcastAt)
+    : NaN;
+  if (!Number.isFinite(broadcastMs)) return false;
+  return input.nowMs >= broadcastMs;
+}
+
 export type ScheduledTripForConversion = {
   id: string;
   scheduled_at: string;
@@ -224,8 +249,14 @@ export function shouldConvertScheduledToUrgent(input: {
     return { convert: false };
   }
 
-  const urgentDeadlineMs =
-    pickupMs - config.urgentTriggerMinutesBeforePickup * 60_000;
+  // Prefer persisted scheduled_convert_at (booking/trigger SSOT). Recompute
+  // from live config only when the row has no convert anchor (legacy).
+  const persistedConvertMs = trip.scheduled_convert_at
+    ? Date.parse(trip.scheduled_convert_at)
+    : NaN;
+  const urgentDeadlineMs = Number.isFinite(persistedConvertMs)
+    ? persistedConvertMs
+    : pickupMs - config.urgentTriggerMinutesBeforePickup * 60_000;
   if (nowMs >= urgentDeadlineMs) {
     return { convert: true, reason: "urgent_pickup_window" };
   }
@@ -249,13 +280,6 @@ export function shouldConvertScheduledToUrgent(input: {
       anchorMs + config.responseWindowMinutes * 60_000;
     if (nowMs >= responseDeadlineMs) {
       return { convert: true, reason: "response_window_no_accept" };
-    }
-  }
-
-  if (trip.scheduled_convert_at) {
-    const legacyMs = Date.parse(trip.scheduled_convert_at);
-    if (Number.isFinite(legacyMs) && nowMs >= legacyMs) {
-      return { convert: true, reason: "legacy_scheduled_convert_at" };
     }
   }
 

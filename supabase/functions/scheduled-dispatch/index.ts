@@ -15,6 +15,7 @@ import {
   resolveScheduledDispatchConfig,
   shouldConvertScheduledToUrgent,
   buildScheduledUrgentConversionPatch,
+  isScheduledMarketplaceActivationDue,
   NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES,
   estimateEtaMinutes,
   computeCommitmentTime,
@@ -723,6 +724,7 @@ Deno.serve(async (req) => {
       .eq("scheduled_status", "scheduled")
       .is("confirmed_driver_id", null)
       .is("driver_id", null)
+      .not("scheduled_broadcast_at", "is", null)
       .lte("scheduled_broadcast_at", now.toISOString());
 
     if (broadcastError) {
@@ -730,8 +732,20 @@ Deno.serve(async (req) => {
     } else if (ridesToBroadcast && ridesToBroadcast.length > 0) {
       for (const trip of ridesToBroadcast as ScheduledTrip[]) {
         if (isTripTerminalForDispatch(trip)) continue;
+        if (
+          !isScheduledMarketplaceActivationDue({
+            dispatchMode: trip.dispatch_mode,
+            scheduledStatus: trip.scheduled_status,
+            scheduledBroadcastAt: trip.scheduled_broadcast_at,
+            driverId: trip.driver_id,
+            confirmedDriverId: trip.confirmed_driver_id,
+            nowMs,
+          })
+        ) {
+          continue;
+        }
 
-        const { error: updateError } = await supabase
+        const { data: activated, error: updateError } = await supabase
           .from("trips")
           .update({
             scheduled_status: "broadcasting",
@@ -739,12 +753,17 @@ Deno.serve(async (req) => {
             updated_at: now.toISOString(),
           })
           .eq("id", trip.id)
-          .eq("scheduled_status", "scheduled");
+          .eq("scheduled_status", "scheduled")
+          .is("driver_id", null)
+          .is("confirmed_driver_id", null)
+          .select("id")
+          .maybeSingle();
 
         if (updateError) {
           console.error(`[scheduled-dispatch] Error broadcasting trip ${trip.id}:`, updateError);
           continue;
         }
+        if (!activated?.id) continue;
 
         await logSnapshot(supabase, {
           tripId: trip.id,

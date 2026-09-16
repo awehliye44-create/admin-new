@@ -6,6 +6,7 @@ import {
   computeScheduledDispatchAnchors,
   isOpenJobInstantRideOffer,
   isNoPreconfirmedConvertScheduledStatus,
+  isScheduledMarketplaceActivationDue,
   buildScheduledUrgentConversionPatch,
   nextAutoDispatchTripStatus,
   resolveScheduledDispatchConfig,
@@ -72,6 +73,28 @@ Deno.test("computeScheduledDispatchAnchors: near booking never stamps past broad
   const responseDeadline = nowMs + 8 * 60_000;
   if (responseDeadline !== Date.parse("2026-08-15T23:15:00.000Z")) {
     throw new Error("response window should meet urgent fallback at 23:15");
+  }
+});
+
+Deno.test("computeScheduledDispatchAnchors ordering: created < broadcast <= convert < pickup", () => {
+  const pickupMs = Date.parse("2026-09-17T12:00:00.000Z");
+  const nowMs = Date.parse("2026-09-16T08:00:00.000Z");
+  const anchors = computeScheduledDispatchAnchors({
+    scheduledAtIso: new Date(pickupMs).toISOString(),
+    nowMs,
+    urgentTriggerMinutesBeforePickup: 15,
+    responseWindowMinutes: 8,
+  });
+  const broadcastMs = Date.parse(anchors.scheduledBroadcastAt);
+  const convertMs = Date.parse(anchors.scheduledConvertAt);
+  if (!(nowMs < broadcastMs)) {
+    throw new Error("created/now must be before broadcast for far-ahead bookings");
+  }
+  if (!(broadcastMs <= convertMs)) {
+    throw new Error("broadcast must be <= convert");
+  }
+  if (!(convertMs < pickupMs)) {
+    throw new Error("convert must be before pickup");
   }
 });
 
@@ -207,6 +230,94 @@ Deno.test("MK-260817-004: customer scheduled_status converts at check-in / urgen
   });
   if (!overdue.convert) {
     throw new Error("past-pickup no-accept job must still convert, not be left scheduled");
+  }
+});
+
+Deno.test("STEP 2: marketplace activation uses persisted scheduled_broadcast_at only", () => {
+  const broadcastAt = "2026-09-17T11:37:00.000Z";
+  const before = isScheduledMarketplaceActivationDue({
+    dispatchMode: "scheduled",
+    scheduledStatus: "scheduled",
+    scheduledBroadcastAt: broadcastAt,
+    nowMs: Date.parse("2026-09-17T11:36:59.000Z"),
+  });
+  if (before) throw new Error("must not activate before scheduled_broadcast_at");
+
+  const atWindow = isScheduledMarketplaceActivationDue({
+    dispatchMode: "scheduled",
+    scheduledStatus: "scheduled",
+    scheduledBroadcastAt: broadcastAt,
+    nowMs: Date.parse("2026-09-17T11:37:00.000Z"),
+  });
+  if (!atWindow) throw new Error("must activate at scheduled_broadcast_at");
+
+  const alreadyBroadcasting = isScheduledMarketplaceActivationDue({
+    dispatchMode: "scheduled",
+    scheduledStatus: "broadcasting",
+    scheduledBroadcastAt: broadcastAt,
+    nowMs: Date.parse("2026-09-17T11:40:00.000Z"),
+  });
+  if (alreadyBroadcasting) {
+    throw new Error("repeat cron must not re-activate a broadcasting trip");
+  }
+
+  const nullAnchor = isScheduledMarketplaceActivationDue({
+    dispatchMode: "scheduled",
+    scheduledStatus: "scheduled",
+    scheduledBroadcastAt: null,
+    nowMs: Date.parse("2026-09-17T11:40:00.000Z"),
+  });
+  if (nullAnchor) throw new Error("NULL broadcast_at must not activate");
+
+  const assigned = isScheduledMarketplaceActivationDue({
+    dispatchMode: "scheduled",
+    scheduledStatus: "scheduled",
+    scheduledBroadcastAt: broadcastAt,
+    driverId: "drv-1",
+    nowMs: Date.parse("2026-09-17T11:40:00.000Z"),
+  });
+  if (assigned) throw new Error("assigned trip must not marketplace-activate");
+
+  const instant = isScheduledMarketplaceActivationDue({
+    dispatchMode: "instant",
+    scheduledStatus: "scheduled",
+    scheduledBroadcastAt: broadcastAt,
+    nowMs: Date.parse("2026-09-17T11:40:00.000Z"),
+  });
+  if (instant) throw new Error("NOW/instant trip must not use scheduled STEP 2");
+});
+
+Deno.test("STEP 3: persisted scheduled_convert_at is the urgent clock when present", () => {
+  const cfg = resolveScheduledDispatchConfig({
+    scheduled_response_window_minutes: 8,
+    urgent_dispatch_trigger_minutes_before_pickup: 30, // would convert earlier if recomputed
+    enable_scheduled_to_urgent_conversion: true,
+  });
+  const trip = {
+    id: "persist-convert",
+    scheduled_at: "2026-09-17T12:00:00.000Z",
+    scheduled_broadcast_at: "2026-09-17T11:37:00.000Z",
+    scheduled_convert_at: "2026-09-17T11:45:00.000Z",
+    driver_id: null,
+    confirmed_driver_id: null,
+  };
+  const beforePersisted = shouldConvertScheduledToUrgent({
+    trip,
+    config: cfg,
+    nowMs: Date.parse("2026-09-17T11:40:00.000Z"),
+    hasAcceptedOffer: false,
+  });
+  if (beforePersisted.convert) {
+    throw new Error("must not convert before persisted scheduled_convert_at when response window is still open");
+  }
+  const atPersisted = shouldConvertScheduledToUrgent({
+    trip,
+    config: cfg,
+    nowMs: Date.parse("2026-09-17T11:45:00.000Z"),
+    hasAcceptedOffer: false,
+  });
+  if (!atPersisted.convert) {
+    throw new Error("must convert at persisted scheduled_convert_at");
   }
 });
 

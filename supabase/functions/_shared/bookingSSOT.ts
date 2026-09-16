@@ -69,6 +69,19 @@ export type BookingCommitBody = {
   } | null;
 };
 
+/** Canonical pickup instant: snake_case body.scheduled_at, with camelCase fallback. */
+export function resolveScheduledAtIso(
+  body: Pick<BookingCommitBody, "scheduled_at"> & { scheduledAt?: unknown },
+): string | null {
+  if (typeof body.scheduled_at === "string" && body.scheduled_at.trim().length > 0) {
+    return body.scheduled_at;
+  }
+  if (typeof body.scheduledAt === "string" && body.scheduledAt.trim().length > 0) {
+    return body.scheduledAt;
+  }
+  return null;
+}
+
 export function applyBookingTypeFieldsToTrip(
   tripData: Record<string, unknown>,
   body: Pick<
@@ -221,14 +234,15 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     : sessionDiscount || Math.max(0, grossFarePence - finalFarePence);
   const discountSource = (body.discount_source ?? null) as DiscountSource;
 
+  const scheduledAtIso = resolveScheduledAtIso(body);
   let scheduledBroadcastAt: string | null = null;
   let scheduledConvertAt: string | null = null;
-  if (isScheduled && body.scheduled_at) {
+  if (isScheduled && scheduledAtIso) {
     const cfg =
       input.scheduledDispatchConfig ??
       resolveScheduledDispatchConfig(null);
     const anchors = computeScheduledDispatchAnchors({
-      scheduledAtIso: body.scheduled_at,
+      scheduledAtIso,
       nowMs: input.nowMs,
       urgentTriggerMinutesBeforePickup: cfg.urgentTriggerMinutesBeforePickup,
       responseWindowMinutes: cfg.responseWindowMinutes,
@@ -261,7 +275,7 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     dropoff_longitude: body.dropoff.lng || 0,
     stops: intermediateStops,
     status: isScheduled ? "scheduled" : "searching",
-    scheduled_at: isScheduled ? body.scheduled_at : null,
+    scheduled_at: isScheduled ? scheduledAtIso : null,
     scheduled_status: isScheduled ? "scheduled" : null,
     dispatch_mode: isScheduled ? "scheduled" : "instant",
     scheduled_broadcast_at: scheduledBroadcastAt,
