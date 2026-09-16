@@ -652,6 +652,8 @@ export async function fetchDriverWalletPayoutSnapshot(
       name?: string;
       driver_payout_gateway?: string | null;
       payment_provider?: string | null;
+      timezone?: string | null;
+      currency_code?: string | null;
     }
     | {
       id?: string;

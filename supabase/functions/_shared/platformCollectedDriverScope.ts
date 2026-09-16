@@ -48,5 +48,5 @@ export async function resolvePlatformCollectedDriverIds(
         .map((row: { driver_id?: string | null }) => String(row.driver_id ?? ""))
         .filter(Boolean),
     ),
-  ];
+  ] as string[];
 }
