@@ -326,7 +326,7 @@ export async function fetchDriverWalletPayoutSnapshot(
   let connectInstant: number | null = null;
   let connectInTransit: number | null = null;
   // Provider Account Balance is not sourced from the payment provider for FR / DWL / PL.
-  let providerBalanceStatus: ProviderAccountBalanceStatus | "UNAVAILABLE" = "NOT_APPLICABLE";
+  let providerBalanceStatus: ProviderAccountBalanceStatus = "NOT_APPLICABLE";
   void currency;
 
   const providerPayoutIds = new Set(
@@ -588,7 +588,7 @@ export async function fetchDriverWalletPayoutSnapshot(
 
   if (
     String(payoutProviderResolved ?? "").toLowerCase() === "revolut"
-    && providerBalanceStatus === "UNAVAILABLE"
+    && String(providerBalanceStatus) === "UNAVAILABLE"
   ) {
     providerBalanceStatus = "NOT_APPLICABLE";
   }
@@ -658,6 +658,8 @@ export async function fetchDriverWalletPayoutSnapshot(
       name?: string;
       driver_payout_gateway?: string | null;
       payment_provider?: string | null;
+      timezone?: string | null;
+      currency_code?: string | null;
     }[]
     | null;
   const serviceArea = Array.isArray(saJoin) ? saJoin[0] ?? null : saJoin;
