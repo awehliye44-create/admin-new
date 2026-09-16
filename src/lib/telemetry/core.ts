@@ -68,6 +68,10 @@ export interface OnecabTelemetryConfig {
   maxValueMs?: number;
   /** Disable sending (useful for dev/test) */
   disabled?: boolean;
+  /** Abort a telemetry request after this many milliseconds (default 8_000). */
+  requestTimeoutMs?: number;
+  /** Pause sending after a transient failure (default 60_000). */
+  failureCooldownMs?: number;
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────
@@ -83,6 +87,8 @@ const DEFAULT_THRESHOLDS: Partial<Record<MetricName, number>> = {
 const DEFAULT_BATCH_SIZE = 40;
 const DEFAULT_FLUSH_MS = 60_000;
 const DEFAULT_MAX_VALUE = 30_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
+const DEFAULT_FAILURE_COOLDOWN_MS = 60_000;
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -103,9 +109,12 @@ export class OnecabTelemetry {
   private readonly maxValue: number;
   private readonly batchSize: number;
   private readonly flushMs: number;
+  private readonly requestTimeoutMs: number;
+  private readonly failureCooldownMs: number;
 
   private buffer: TelemetryEvent[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private unavailableUntil = 0;
 
   constructor(private readonly config: OnecabTelemetryConfig) {
     this.endpoint = `${config.supabaseUrl}/functions/v1/ingest-telemetry`;
@@ -114,6 +123,8 @@ export class OnecabTelemetry {
     this.maxValue = config.maxValueMs ?? DEFAULT_MAX_VALUE;
     this.batchSize = config.batchSize ?? DEFAULT_BATCH_SIZE;
     this.flushMs = config.flushIntervalMs ?? DEFAULT_FLUSH_MS;
+    this.requestTimeoutMs = config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.failureCooldownMs = config.failureCooldownMs ?? DEFAULT_FAILURE_COOLDOWN_MS;
   }
 
   // ── Core tracking ─────────────────────────────────────────────────
@@ -204,9 +215,14 @@ export class OnecabTelemetry {
     if (this.buffer.length === 0) return;
 
     const batch = this.buffer.splice(0);
+    if (Date.now() < this.unavailableUntil) return;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
     try {
-      await fetch(this.endpoint, {
+      const response = await fetch(this.endpoint, {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
           apikey: this.config.supabaseAnonKey,
@@ -214,8 +230,15 @@ export class OnecabTelemetry {
         },
         body: JSON.stringify({ events: batch }),
       });
+
+      if (!response.ok) {
+        this.unavailableUntil = Date.now() + this.failureCooldownMs;
+      }
     } catch {
       // Best-effort — never block the app
+      this.unavailableUntil = Date.now() + this.failureCooldownMs;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 

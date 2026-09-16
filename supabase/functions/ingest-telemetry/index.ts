@@ -1,4 +1,4 @@
-// ONECAB Telemetry Ingestion — v11 (P2 abuse hardening — deploy separately from P0 SQL)
+// ONECAB Telemetry Ingestion — v12 (best-effort outage isolation)
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { checkRateLimit, getClientIP } from "../_shared/security.ts";
 
@@ -257,9 +257,28 @@ Deno.serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
+    // Telemetry must never become an application failure. In particular, do not
+    // reflect database/gateway HTML (for example a Cloudflare 522 page) back to
+    // callers. The client deliberately drops this batch and applies a cooldown.
+    console.error("ingest-telemetry storage unavailable", {
+      error_code: "TELEMETRY_STORAGE_UNAVAILABLE",
+      error_name: e instanceof Error ? e.name : "UnknownError",
+    });
     return new Response(
-      JSON.stringify({ success: false, error: (e as Error).message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({
+        success: false,
+        ingested: 0,
+        error_code: "TELEMETRY_STORAGE_UNAVAILABLE",
+        retryable: true,
+      }),
+      {
+        status: 202,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+          "Retry-After": "60",
+        },
+      },
     );
   }
 });
