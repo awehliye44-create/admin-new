@@ -7,7 +7,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import type {
   PaymentHoldClassification,
   PaymentHoldReconciliationRow,
-} from "../../../shared/paymentHoldReconciliation.ts";
+} from "./paymentHoldReconciliation.ts";
 import {
   ACTIVE_ATTENTION_CLASSES,
   classifyPaymentHoldAttention,
@@ -17,7 +17,7 @@ import {
   paymentHoldActionPolicy,
   summariseMoneyAtRisk,
   type PaymentHoldAttentionClass,
-} from "../../../shared/paymentHoldClassificationSSOT.ts";
+} from "./paymentHoldClassificationSSOT.ts";
 import { retrieveRevolutOrder } from "./revolutOrders.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
 import {
@@ -25,7 +25,7 @@ import {
   recordProviderStateVerification,
   closeCompanionOrphanPayments,
 } from "./paymentHoldProviderTerminalSSOT.ts";
-import { classifyTripForPlatformCollectedAdminPage } from "../../../shared/financialModelScopeSSOT.ts";
+import { classifyTripForPlatformCollectedAdminPage } from "./financialModelScopeSSOT.ts";
 
 export function classifyPaymentHoldRow(args: {
   sessionStatus: string | null;

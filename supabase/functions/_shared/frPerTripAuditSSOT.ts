@@ -16,7 +16,7 @@ import {
   resolveLockedPromotionPence,
   resolvePrePromotionCommissionableFarePence,
 } from "./tripSettlement.ts";
-import { resolveFinancialModelStamp } from "../../../shared/financialModelScopeSSOT.ts";
+import { resolveFinancialModelStamp } from "./financialModelScopeSSOT.ts";
 import {
   evaluateFrSettlementCaptureIdentity,
   isFrTripFullyBalanced,

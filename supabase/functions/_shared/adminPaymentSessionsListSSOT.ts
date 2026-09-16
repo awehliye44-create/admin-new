@@ -10,11 +10,11 @@ import type {
   AdminPaymentSessionsPageStatus,
   AdminPaymentSessionsSummary,
   AdminPaymentSessionsTab,
-} from "../../../shared/adminPaymentSessionsSSOT.ts";
+} from "./adminPaymentSessionsSSOT.ts";
 import {
   paymentSessionActionPolicy,
   type PaymentSessionPurpose,
-} from "../../../shared/paymentSessionPhase1SSOT.ts";
+} from "./paymentSessionPhase1SSOT.ts";
 import {
   buildPaymentSessionsDisplay,
   confirmedCapturedRevenuePence,
@@ -22,33 +22,33 @@ import {
   rowBelongsInCapturedTab,
   rowBelongsInRefundedTab,
   rowBelongsInReleasedTab,
-} from "../../../shared/paymentSessionsDisplaySSOT.ts";
+} from "./paymentSessionsDisplaySSOT.ts";
 import {
   buildPaymentSessionsOperationalChipAudits,
   isVerifiedCurrentActiveHoldRow,
   rowNeedsActiveReleaseNow,
   rowNeedsManualRecoveryNow,
   rowNeedsReleaseFailedNow,
-} from "../../../shared/paymentSessionsOperationalChipsSSOT.ts";
+} from "./paymentSessionsOperationalChipsSSOT.ts";
 import {
   classifyCaptureConfirmation,
 } from "../../../shared/paymentSessionsCaptureConfirmationSSOT.ts";
-import { derivePaymentSessionAllowedActions, isOpenTripPaymentRecoverySession } from "../../../shared/paymentSessionsAllowedActionsSSOT.ts";
+import { derivePaymentSessionAllowedActions, isOpenTripPaymentRecoverySession } from "./paymentSessionsAllowedActionsSSOT.ts";
 import { isValidConfirmedCapturePence } from "../../../shared/paymentCaptureEvidenceSSOT.ts";
 import {
   buildCanonicalTripEconomicsRead,
-} from "../../../shared/paymentSessionsCanonicalReadAdapterSSOT.ts";
-import { classifyTripForPlatformCollectedAdminPage } from "../../../shared/financialModelScopeSSOT.ts";
+} from "./paymentSessionsCanonicalReadAdapterSSOT.ts";
+import { classifyTripForPlatformCollectedAdminPage } from "./financialModelScopeSSOT.ts";
 import { listPaymentHoldsRequiringAttention } from "./paymentHoldReconciliationSSOT.ts";
 import { fetchPaymentSessionsMoneyAggregates } from "./adminPaymentSessionsMoneyAggregatesSSOT.ts";
 import { buildPaymentSessionsTripCompare, buildPsOnlyCompareSummary } from "./adminPaymentSessionsTripCompareSSOT.ts";
-import type { PaymentHoldReconciliationRow } from "../../../shared/paymentHoldReconciliation.ts";
+import type { PaymentHoldReconciliationRow } from "./paymentHoldReconciliation.ts";
 import {
   classifyPaymentHoldOperationalBucket,
   mapRevolutProviderHoldState,
   moneyAtRiskInclude,
   type PaymentHoldAttentionClass,
-} from "../../../shared/paymentHoldClassificationSSOT.ts";
+} from "./paymentHoldClassificationSSOT.ts";
 
 function asPurpose(raw: unknown): PaymentSessionPurpose {
   const v = String(raw ?? "").toUpperCase();

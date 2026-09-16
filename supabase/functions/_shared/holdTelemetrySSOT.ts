@@ -10,7 +10,7 @@ import {
   type PaymentHoldAttentionClass,
   type PaymentHoldClassification,
   type CanonicalProviderHoldState,
-} from "../../../shared/paymentHoldClassificationSSOT.ts";
+} from "./paymentHoldClassificationSSOT.ts";
 
 export type HoldTelemetryEvent =
   | "HOLD_AUTHORISED"

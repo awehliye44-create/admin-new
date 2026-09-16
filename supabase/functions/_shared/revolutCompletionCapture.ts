@@ -2,7 +2,7 @@
  * P0 — Revolut trip completion capture with hold reconciliation.
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import { planRevolutCompletionCapture } from "../../../shared/revolutPaymentHoldSSOT.ts";
+import { planRevolutCompletionCapture } from "./revolutPaymentHoldSSOT.ts";
 import { computeCaptureAmount, resolveTripFare } from "./tripFareSSOT.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
 import {
@@ -33,22 +33,22 @@ import {
   markPaymentSessionPaymentShortfall,
   markPaymentSessionProviderFee,
 } from "./paymentSessionSSOT.ts";
-import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "../../../shared/paymentHoldProviderTerminalPure.ts";
+import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "./paymentHoldProviderTerminalPure.ts";
 import { tipCollectedFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
 import { extractProviderFeePence } from "../../../shared/paymentCaptureEvidenceSSOT.ts";
 import {
   RELEASE_EVIDENCE_SOURCE,
-} from "../../../shared/paymentSessionReleaseEvidenceSSOT.ts";
+} from "./paymentSessionReleaseEvidenceSSOT.ts";
 import {
   assertCaptureWithinTotalAuthorised,
-} from "../../../shared/paymentSessionAdditionalAuthSSOT.ts";
+} from "./paymentSessionAdditionalAuthSSOT.ts";
 import type { FinalizeRevolutCaptureResult } from "./finalizeRevolutTripCapture.ts";
 import {
   buildPaymentResolutionPersistPatch,
   markAdditionalAuthPendingOrRecovery,
   planFinalFareAgainstAuthorisation,
   PAYMENT_RESOLUTION_STATUS,
-} from "../../../shared/finalFareAuthorisationSSOT.ts";
+} from "./finalFareAuthorisationSSOT.ts";
 
 async function persistPostCaptureResidualReleaseEvidence(args: {
   supabase: SupabaseClient;

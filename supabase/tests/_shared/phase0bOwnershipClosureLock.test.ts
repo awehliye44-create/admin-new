@@ -8,7 +8,7 @@ import { relative } from "https://deno.land/std@0.224.0/path/mod.ts";
 import {
   computeAuthoritativeSettlement,
   AUTHORITATIVE_SETTLEMENT_GOLDEN_FIXTURES,
-} from "../../../shared/canonicalSettlementSSOT.ts";
+} from "../../functions/_shared/canonicalSettlementSSOT.ts";
 import {
   TERMINAL_FEE_LIFECYCLE_PROOF,
   terminalFeeWalletCreditPence,

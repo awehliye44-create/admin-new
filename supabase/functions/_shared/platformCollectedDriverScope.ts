@@ -5,7 +5,7 @@
 import {
   FINANCIAL_MODEL,
   filterServiceAreasByFinancialModel,
-} from "../../../shared/financialModelScopeSSOT.ts";
+} from "./financialModelScopeSSOT.ts";
 
 // deno-lint-ignore no-explicit-any
 type AnySupabase = any;

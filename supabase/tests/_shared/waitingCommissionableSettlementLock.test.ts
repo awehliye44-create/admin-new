@@ -13,7 +13,7 @@ import {
   calculateCanonicalSettlement,
   commissionableFromComponents,
   CANONICAL_SETTLEMENT_GOLDEN_TRIPS,
-} from "../../../shared/canonicalSettlementSSOT.ts";
+} from "../../functions/_shared/canonicalSettlementSSOT.ts";
 import {
   buildSettlementTripRow,
   calculateTripSettlement,

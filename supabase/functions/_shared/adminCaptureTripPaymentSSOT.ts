@@ -34,7 +34,7 @@ import {
   postingWalletMismatch,
   type PostCaptureSettlementResult,
 } from "./postCaptureSettlementResult.ts";
-import { extractProviderCaptureId } from "../../../shared/paymentHoldProviderTerminalPure.ts";
+import { extractProviderCaptureId } from "./paymentHoldProviderTerminalPure.ts";
 import { recordPaymentSessionPersistFailureMetadata } from "./walletPostingMismatchSSOT.ts";
 import { tripProviderOrderId } from "./tripPaymentProviderSSOT.ts";
 import type { RevolutOrder } from "./revolutOrders.ts";

@@ -23,7 +23,7 @@
 import {
   calculateCanonicalSettlement,
   computeAuthoritativeSettlement,
-} from "../../../shared/canonicalSettlementSSOT.ts";
+} from "./canonicalSettlementSSOT.ts";
 
 export const SETTLEMENT_FORMULA_VERSION = "2";
 

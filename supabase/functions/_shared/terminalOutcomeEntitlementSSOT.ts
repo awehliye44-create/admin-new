@@ -3,7 +3,7 @@
  * Wallet amount is never calculated independently in noShowSettlement or callers.
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import { computeAuthoritativeSettlement } from "../../../shared/canonicalSettlementSSOT.ts";
+import { computeAuthoritativeSettlement } from "./canonicalSettlementSSOT.ts";
 import { resolveTerminalFeeDriverTenPence } from "./frDriverExpectedEntitlementSSOT.ts";
 import { hasConflictingEntitlementTypes } from "./driverEntitlementLedgerSSOT.ts";
 import { tripSettlementDbColumns } from "./tripSettlement.ts";

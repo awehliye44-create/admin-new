@@ -26,7 +26,7 @@ import {
 import { applyCanonicalSettlementAfterCapture } from "../_shared/applyCanonicalSettlementAfterCapture.ts";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
-import { extractConfirmedCaptureAmountPence } from "../../../shared/paymentHoldProviderTerminalPure.ts";
+import { extractConfirmedCaptureAmountPence } from "../_shared/paymentHoldProviderTerminalPure.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import {
   expiryFareOnlyTipPence,

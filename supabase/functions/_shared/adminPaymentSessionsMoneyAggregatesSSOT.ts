@@ -11,7 +11,7 @@ import {
   rowBelongsInRefundedTab,
   rowBelongsInReleasedTab,
   sumReleasedBufferTotalPence,
-} from "../../../shared/paymentSessionsDisplaySSOT.ts";
+} from "./paymentSessionsDisplaySSOT.ts";
 
 const PAGE_SIZE = 1000;
 const MAX_ROWS = 20000;

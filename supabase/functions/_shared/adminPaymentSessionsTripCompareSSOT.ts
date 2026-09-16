@@ -9,26 +9,26 @@ import type {
   AdminPaymentSessionsListRow,
   AdminPaymentSessionsMatchingRow,
   AdminPaymentSessionsSummary,
-} from "../../../shared/adminPaymentSessionsSSOT.ts";
+} from "./adminPaymentSessionsSSOT.ts";
 import {
   classifyPaymentTripMatch,
   type PaymentTripMatchStatus,
-} from "../../../shared/paymentSessionsTripMatchSSOT.ts";
+} from "./paymentSessionsTripMatchSSOT.ts";
 import {
   confirmedCapturedRevenuePence,
   isProviderAuthorisedState,
   sumReleasedBufferTotalPence,
-} from "../../../shared/paymentSessionsDisplaySSOT.ts";
+} from "./paymentSessionsDisplaySSOT.ts";
 import {
   buildCanonicalTripEconomicsRead,
   resolveOtherNonModComponentsPence,
-} from "../../../shared/paymentSessionsCanonicalReadAdapterSSOT.ts";
+} from "./paymentSessionsCanonicalReadAdapterSSOT.ts";
 import {
   buildPaymentSessionsCommissionWidgets,
   resolveTripGrossCommissionPence,
-} from "../../../shared/paymentSessionsCommissionWidgetsSSOT.ts";
-import type { CommissionFeeSessionInput } from "../../../shared/driverWalletCommissionFeeSSOT.ts";
-import { FINANCIAL_MODEL } from "../../../shared/financialModelScopeSSOT.ts";
+} from "./paymentSessionsCommissionWidgetsSSOT.ts";
+import type { CommissionFeeSessionInput } from "./driverWalletCommissionFeeSSOT.ts";
+import { FINANCIAL_MODEL } from "./financialModelScopeSSOT.ts";
 
 export { sumReleasedBufferTotalPence };
 

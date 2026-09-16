@@ -37,7 +37,7 @@ import {
 } from "../_shared/paymentSessionSSOT.ts";
 import { buildBookingWaterfallMilestoneReport } from "../../../shared/bookingWaterfallSSOT.ts";
 import { digitalOnlyPaymentMethodFlags } from "../../../shared/digitalFinanceSSOT.ts";
-import { isAuthorisedHoldSessionStatus } from "../../../shared/revolutPaymentHoldSSOT.ts";
+import { isAuthorisedHoldSessionStatus } from "../_shared/revolutPaymentHoldSSOT.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { createBookingWaterfallCollector } from "../_shared/bookingWaterfallTelemetry.ts";
 import { releaseHoldForPaymentSession } from "../_shared/holdReleaseSSOT.ts";

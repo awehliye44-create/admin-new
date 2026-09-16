@@ -12,12 +12,12 @@ import {
   classifyPaymentHoldAttention,
   mapRevolutProviderHoldState,
   paymentHoldActionPolicy,
-} from "../../../shared/paymentHoldClassificationSSOT.ts";
+} from "../_shared/paymentHoldClassificationSSOT.ts";
 import {
   assertActionAllowed,
   derivePaymentSessionAllowedActions,
-} from "../../../shared/paymentSessionsAllowedActionsSSOT.ts";
-import { evaluateStaleHoldAction } from "../../../shared/paymentHoldProviderTerminalPure.ts";
+} from "../_shared/paymentSessionsAllowedActionsSSOT.ts";
+import { evaluateStaleHoldAction } from "../_shared/paymentHoldProviderTerminalPure.ts";
 import { retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
 import { persistProviderTerminalHoldState } from "../_shared/paymentHoldProviderTerminalSSOT.ts";

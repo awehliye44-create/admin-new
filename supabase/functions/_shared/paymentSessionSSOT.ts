@@ -13,26 +13,26 @@ import {
   isBlockedForTripCreateSessionStatus,
   toDbPaymentSessionStatus,
   type RevolutPaymentSessionStatus,
-} from "../../../shared/revolutPaymentHoldSSOT.ts";
+} from "./revolutPaymentHoldSSOT.ts";
 import {
   buildResidualReleaseIdempotencyKey,
   classifyPostCaptureResidualReleaseEvidence,
   hasResidualReleaseIdempotencyKey,
   shouldSkipResidualReleasePersist,
-} from "../../../shared/paymentSessionReleaseEvidenceSSOT.ts";
-import { extractConfirmedReleaseAmountPence } from "../../../shared/paymentHoldProviderTerminalPure.ts";
+} from "./paymentSessionReleaseEvidenceSSOT.ts";
+import { extractConfirmedReleaseAmountPence } from "./paymentHoldProviderTerminalPure.ts";
 import {
   ADDITIONAL_AUTH_SOURCE,
   ADDITIONAL_AUTH_STATUS,
   buildAdditionalAuthIdempotencyKey,
   replacementTotalAuthorisedPence,
   type AdditionalAuthChildStatus,
-} from "../../../shared/paymentSessionAdditionalAuthSSOT.ts";
+} from "./paymentSessionAdditionalAuthSSOT.ts";
 import {
   classifyFeeStatus,
   sumRefundChildrenPence,
   FEE_STATUS,
-} from "../../../shared/paymentSessionRefundFeeSSOT.ts";
+} from "./paymentSessionRefundFeeSSOT.ts";
 
 export type PaymentSessionStatus =
   | RevolutPaymentSessionStatus
