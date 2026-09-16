@@ -90,13 +90,13 @@ Deno.serve(async (req) => {
     for (const d of drivers ?? []) {
       const snap = await fetchDriverWalletPayoutSnapshot(supabase, {
         driverId: d.id,
-        provider: null,
       });
 
+      const reconciliationStatus = String(snap.reconciliation_status ?? "");
       let classification: ReconciliationRow["classification"] = "matched";
-      if (snap.reconciliation_status === "LOCAL_ONLY") classification = "local_only";
-      else if (snap.reconciliation_status === "PROVIDER_ONLY") classification = "provider_only";
-      else if (snap.reconciliation_status === "MISMATCH" || snap.reconciliation_status === "PROVIDER_NEGATIVE") {
+      if (reconciliationStatus === "LOCAL_ONLY") classification = "local_only";
+      else if (reconciliationStatus === "PROVIDER_ONLY") classification = "provider_only";
+      else if (reconciliationStatus === "MISMATCH" || reconciliationStatus === "PROVIDER_NEGATIVE") {
         classification = "mismatch";
       } else if (snap.included_in_payout_batch_amount_pence > 0) {
         classification = "pending";
