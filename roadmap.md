@@ -6,4 +6,4 @@
 
 - [x] Make browser telemetry non-blocking during Supabase/Cloudflare outages
 - [x] Sanitize telemetry storage failures without exposing upstream HTML
-- [ ] Verify focused tests, typecheck, and preview build
+- [x] Verify focused tests, typecheck, and preview build
