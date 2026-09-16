@@ -52,16 +52,13 @@ export function SendTripReceiptDialog({
     onSendingChange?.(true);
     void sendTripReceiptEmail(tripId, trimmed)
       .then((result) => {
+        if (result.status === 'sending') {
+          toast.message('Sending…');
+          return;
+        }
         inFlight.current = false;
         setSending(false);
         onSendingChange?.(false);
-        if (result.status === 'sending') {
-          // Another row/tab already claimed this send; nothing more to do here.
-          toast.message('Receipt is already being sent');
-          onOpenChange(false);
-          setEmail('');
-          return;
-        }
         const sentAt = result.invoice_email_sent_at ?? new Date().toISOString();
         toast.success('Receipt sent');
         onSent?.(sentAt);
