@@ -160,9 +160,10 @@ async function buildProviderCard(
     customer_gateway_status: customerGateway.status,
     driver_gateway_status: driverGateway.status,
     configuration_error: customerGateway.configuration_error,
-    last_webhook_received: webhookHealth?.last_received_at ?? null,
-    last_successful_event: webhookHealth?.last_successful_event ?? null,
-    last_failed_event: webhookHealth?.last_failed_event ?? null,
+    // Webhook health is not queried here — provider status is derived from credentials only.
+    last_webhook_received: null,
+    last_successful_event: null,
+    last_failed_event: null,
     connect_enabled: connectEnabled,
     apple_pay_enabled: applePayEnabled,
     google_pay_enabled: googlePayEnabled,
