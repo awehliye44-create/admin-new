@@ -39,6 +39,15 @@ import {
   WALLET_NEGATIVE_BLOCK_REASON,
 } from "./payoutAvailability.ts";
 
+import {
+  buildPayoutScheduleDto,
+  computeNextWeeklyPayoutRun,
+  nextWeeklyPayoutDateIso,
+} from "./payoutScheduleSSOT.ts";
+
+/** Next weekly payout calendar helpers — local import required for in-module use. */
+export { nextWeeklyPayoutDateIso, computeNextWeeklyPayoutRun, buildPayoutScheduleDto };
+
 export type PerDriverSSOT = {
   driver_id: string;
   driver_gross_earnings_pence: number;
@@ -101,9 +110,6 @@ export function sumInFlightCashoutPence(rows: EarlyCashoutRow[]): number {
     .filter((r) => IN_FLIGHT_CASHOUT_STATUSES.has(r.status))
     .reduce((s, r) => s + Math.max(0, r.requested_cashout_pence ?? 0), 0);
 }
-
-/** Next weekly payout calendar date — re-exported from payoutScheduleSSOT. */
-export { nextWeeklyPayoutDateIso, computeNextWeeklyPayoutRun, buildPayoutScheduleDto } from "./payoutScheduleSSOT.ts";
 
 export function buildPayoutGateReasons(args: {
   reconciliationStatus: "BALANCED" | "RECONCILIATION_MISMATCH";

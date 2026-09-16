@@ -1110,7 +1110,11 @@ export function mapTripToFinancialAuditRow(
     financial_model: row.financial_model ?? null,
     trip_status: row.status ?? null,
     trip_driver_id: row.driver_id ?? null,
-    driver_net_pence: expectedDriverNet ?? 0,
+    // Component basis only — fare net excludes tip. Tip added once via tip_pence.
+    // Never pass tip-inclusive expected_entitlement as driver_net_pence (double-count).
+    driver_net_pence: row.driver_net_pence == null
+      ? 0
+      : Math.max(0, Math.round(Number(row.driver_net_pence))),
     tip_pence: tipPence,
     ledger,
     wallet_evidence_available: walletEvidenceAvailable,

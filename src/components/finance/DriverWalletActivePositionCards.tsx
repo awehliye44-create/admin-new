@@ -2,6 +2,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
 import { displayDriverWalletSsotBalances } from '@/lib/driverWalletSsotBalances';
+import { resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
 import { Badge } from '@/components/ui/badge';
 import { Loader2 } from 'lucide-react';
 
@@ -35,10 +36,6 @@ function openDifferencePence(row: DriverWalletSsotRow): number | null {
   return Math.round(Number(row.wallet_variance_pence));
 }
 
-function statusLabel(row: DriverWalletSsotRow): string {
-  return row.driver_credit_status ?? row.wallet_status ?? '—';
-}
-
 /** Active wallet position only — pending, available, reserved, open difference. */
 export function DriverWalletActivePositionCards({
   driver,
@@ -65,15 +62,33 @@ export function DriverWalletActivePositionCards({
     0,
     Math.round(Number(driver.failed_payout_stuck_processing_pence ?? 0)),
   );
+  const status = resolveDriverWalletPayoutStatusDisplay(driver);
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={driver.wallet_status === 'ACTIVE' ? 'default' : 'destructive'}>
-          {statusLabel(driver)}
+        <Badge variant={driver.wallet_status === 'ACTIVE' ? 'default' : 'secondary'}>
+          {driver.wallet_status ?? '—'}
         </Badge>
+        {driver.driver_credit_status ? (
+          <Badge variant={status.creditOk && !status.creditFrozen ? 'default' : 'secondary'}>
+            Credit: {driver.driver_credit_status}
+          </Badge>
+        ) : null}
+        {status.showPayoutFrozenBadge ? (
+          <Badge variant="destructive">Automatic payout frozen</Badge>
+        ) : null}
+        {status.showPayoutHoldBadge ? (
+          <Badge variant="secondary">Payout hold: {status.payoutBlockReason}</Badge>
+        ) : null}
         <p className="text-xs text-muted-foreground">Active balances — excludes completed payouts</p>
       </div>
+      {status.showPayoutHoldBadge && status.payoutBlockReason ? (
+        <p className="text-xs text-muted-foreground">
+          Credit reconciliation is OK. Payout is held: {status.payoutBlockReason}.
+          This is not a missing ledger credit.
+        </p>
+      ) : null}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Metric label="Pending" value={fmt(balances.pendingPence)} hint="Not yet payout-cleared" />
         <Metric label="Available" value={fmt(balances.availablePence)} hint="Eligible for payout" />

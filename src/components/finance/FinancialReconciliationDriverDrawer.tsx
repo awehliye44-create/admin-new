@@ -247,8 +247,11 @@ export function FinancialReconciliationDriverDrawer({
 
   const compareBalanced =
     (driverCreditStatus === 'DRIVER_CREDIT_OK' || driverCreditStatus === 'EXPECTED_STAMP_MISSING')
-    && (payoutStatus == null || payoutStatus === 'PAYOUT_OK')
     && (walletVariance == null || walletVariance === 0);
+  const creditOkForDisplay = compareBalanced;
+  const payoutHoldActive = perDriver?.payout_blocked === true
+    || driver?.payouts_enabled === false
+    || (payoutStatus != null && payoutStatus !== 'PAYOUT_OK');
 
   const payoutReasons = [
     ...(perDriver?.payout_blocked_reasons ?? []),
@@ -314,9 +317,16 @@ export function FinancialReconciliationDriverDrawer({
                   {driverRow.driver_code ? (
                     <Badge variant="outline">{driverRow.driver_code}</Badge>
                   ) : null}
-                  <Badge variant={compareBalanced ? 'default' : 'destructive'}>
-                    {driverCreditStatus ?? (compareBalanced ? 'Balanced' : 'Mismatch')}
+                  <Badge variant={creditOkForDisplay ? 'default' : 'destructive'}>
+                    {driverCreditStatus ?? (creditOkForDisplay ? 'DRIVER_CREDIT_OK' : 'Mismatch')}
                   </Badge>
+                  {payoutHoldActive ? (
+                    <Badge variant="secondary">
+                      Payout hold: {driver?.payouts_enabled === false
+                        ? 'Driver payouts disabled'
+                        : payoutReasons[0] ?? payoutStatus ?? 'Payout eligibility hold'}
+                    </Badge>
+                  ) : null}
                 </div>
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-xs text-muted-foreground">
                   <span>Payout destination: <span className="text-foreground font-mono">{driver?.connected_account_id ?? 'Manual bank'}</span></span>
@@ -517,8 +527,21 @@ export function FinancialReconciliationDriverDrawer({
                   }
                   fmt={(p) => fmt(p)}
                 />
-                {!compareBalanced && payoutReasons.length > 0 ? (
+                {!creditOkForDisplay && payoutReasons.length > 0 ? (
                   <p className="text-xs text-destructive mt-3">{payoutReasons[0]}</p>
+                ) : null}
+                {creditOkForDisplay && payoutHoldActive ? (
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Credit reconciliation is OK. Payout is held
+                    {driver?.payouts_enabled === false
+                      ? ': Driver payouts disabled'
+                      : payoutReasons[0]
+                        ? `: ${payoutReasons[0]}`
+                        : payoutStatus
+                          ? `: ${payoutStatus}`
+                          : ''}.
+                    This is not a missing ledger credit.
+                  </p>
                 ) : null}
               </CardContent>
             </Card>

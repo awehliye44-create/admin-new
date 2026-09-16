@@ -18,6 +18,7 @@ import {
   type DriverWalletSsotRow,
 } from '@/hooks/useDriverWalletSsot';
 import { displayDriverWalletSsotBalances } from '@/lib/driverWalletSsotBalances';
+import { resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
 
 function driverLabel(row: Pick<DriverWalletSsotRow, 'driver_code' | 'driver_name' | 'driver_id'>): string {
   if (row.driver_name?.trim()) return row.driver_name.trim();
@@ -49,8 +50,19 @@ function openDifferencePence(row: DriverWalletSsotRow): number | null {
   return Math.round(Number(row.wallet_variance_pence));
 }
 
-function driverStatusLabel(row: DriverWalletSsotRow): string {
-  return row.driver_credit_status ?? row.wallet_status ?? '—';
+function driverStatusBadges(row: DriverWalletSsotRow): {
+  walletLabel: string;
+  creditLabel: string | null;
+  holdLabel: string | null;
+  frozen: boolean;
+} {
+  const status = resolveDriverWalletPayoutStatusDisplay(row);
+  return {
+    walletLabel: row.wallet_status ?? '—',
+    creditLabel: row.driver_credit_status ?? null,
+    holdLabel: status.showPayoutHoldBadge ? status.payoutBlockReason : null,
+    frozen: status.showPayoutFrozenBadge,
+  };
 }
 
 /**
@@ -125,6 +137,7 @@ export function DriverWalletDriverList({
               ) : null}
               {rows.map((row) => {
                 const balances = displayDriverWalletSsotBalances(row);
+                const badges = driverStatusBadges(row);
                 return (
                 <TableRow
                   key={row.driver_id}
@@ -152,9 +165,20 @@ export function DriverWalletDriverList({
                     {formatNullablePence(openDifferencePence(row), currencyCode)}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={walletStatusVariant(row.wallet_status)}>
-                      {driverStatusLabel(row)}
-                    </Badge>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge variant={walletStatusVariant(row.wallet_status)}>
+                        {badges.walletLabel}
+                      </Badge>
+                      {badges.creditLabel ? (
+                        <Badge variant="outline">{badges.creditLabel}</Badge>
+                      ) : null}
+                      {badges.frozen ? (
+                        <Badge variant="destructive">Frozen</Badge>
+                      ) : null}
+                      {badges.holdLabel ? (
+                        <Badge variant="secondary">{badges.holdLabel}</Badge>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>

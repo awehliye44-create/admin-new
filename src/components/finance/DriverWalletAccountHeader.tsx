@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
 import { formatNullablePence } from '@/lib/formatNullablePence';
+import { resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -17,7 +18,8 @@ function fmtDate(iso: string | null | undefined): string {
 function statusVariant(status: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
   if (status === 'ACTIVE') return 'default';
   if (status === 'RESTRICTED' || status === 'NOT_CONNECTED') return 'secondary';
-  return 'destructive';
+  if (status === 'FROZEN') return 'destructive';
+  return 'secondary';
 }
 
 function Field({ label, value }: { label: string; value: ReactNode }) {
@@ -62,6 +64,7 @@ export function DriverWalletAccountHeader({
 
   const displayName = driver.driver_name?.trim() || null;
   const displayCode = driver.driver_code?.trim() || null;
+  const status = resolveDriverWalletPayoutStatusDisplay(driver);
 
   return (
     <Card>
@@ -79,9 +82,22 @@ export function DriverWalletAccountHeader({
               Internal ID: {driver.driver_id}
             </p>
           </div>
-          <Badge variant={statusVariant(driver.wallet_status)}>
-            {driver.wallet_status ?? '—'}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-2 justify-end">
+            <Badge variant={statusVariant(driver.wallet_status)}>
+              {driver.wallet_status ?? '—'}
+            </Badge>
+            {driver.driver_credit_status ? (
+              <Badge variant={status.creditOk && !status.creditFrozen ? 'default' : 'secondary'}>
+                Credit: {driver.driver_credit_status}
+              </Badge>
+            ) : null}
+            {status.showPayoutFrozenBadge ? (
+              <Badge variant="destructive">Automatic payout frozen</Badge>
+            ) : null}
+            {status.showPayoutHoldBadge ? (
+              <Badge variant="secondary">Payout hold: {status.payoutBlockReason}</Badge>
+            ) : null}
+          </div>
         </div>
 
         <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-4">

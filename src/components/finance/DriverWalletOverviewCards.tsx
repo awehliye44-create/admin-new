@@ -7,6 +7,7 @@ import { displayDriverWalletSsotBalances } from '@/lib/driverWalletSsotBalances'
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
+import { resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
 
 function Metric({
   label,
@@ -73,20 +74,32 @@ export function DriverWalletOverviewCards({
   const kpis = driver.period_kpis;
   const balances = displayDriverWalletSsotBalances(driver);
   const fmt = (p: number | null | undefined) => formatNullablePence(p, ccy);
-  const payoutFrozen = driver.wallet_status === 'FROZEN'
-    || driver.payout_blocked === true
-    || (driver.wallet_balance_pence ?? 0) < 0;
+  const {
+    creditOk,
+    creditFrozen,
+    payoutBlockReason,
+    showPayoutFrozenBadge,
+    showPayoutHoldBadge,
+  } = resolveDriverWalletPayoutStatusDisplay(driver);
 
   const nextPayoutHint = driver.next_scheduled_payout_local || undefined;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={driver.wallet_status === 'ACTIVE' ? 'default' : 'destructive'}>
+        <Badge variant={driver.wallet_status === 'ACTIVE' ? 'default' : 'secondary'}>
           {driver.wallet_status ?? '—'}
         </Badge>
-        {payoutFrozen ? (
+        {driver.driver_credit_status ? (
+          <Badge variant={creditOk && !creditFrozen ? 'default' : 'secondary'}>
+            Credit: {driver.driver_credit_status}
+          </Badge>
+        ) : null}
+        {showPayoutFrozenBadge ? (
           <Badge variant="destructive">Automatic payout frozen</Badge>
+        ) : null}
+        {showPayoutHoldBadge ? (
+          <Badge variant="secondary">Payout hold: {payoutBlockReason}</Badge>
         ) : null}
         <p className="text-xs text-muted-foreground">
           Backend SSOT · Europe/London ·{' '}
@@ -96,10 +109,16 @@ export function DriverWalletOverviewCards({
         </p>
       </div>
 
-      {payoutFrozen ? (
+      {creditFrozen ? (
         <p className="text-xs text-destructive">
-          Wallet mismatch or negative balance detected — automatic payouts are frozen until the ledger is balanced.
+          Wallet credit variance or negative balance — automatic payouts are frozen until the ledger is balanced.
           Money is never discarded; resolve via Debt Recovery or Payout Ledger retry.
+        </p>
+      ) : null}
+      {showPayoutHoldBadge && payoutBlockReason ? (
+        <p className="text-xs text-muted-foreground">
+          Credit reconciliation is OK. Payout is held: {payoutBlockReason}.
+          This is not a missing ledger credit.
         </p>
       ) : null}
 

@@ -198,7 +198,14 @@ export async function fetchDriverWalletPayoutSnapshot(
   const walletCreditLedgerCreatedAtByTripId = new Map<string, string>();
   for (const row of rawLedger) {
     const t = String(row.type ?? "").toUpperCase();
-    if (t !== "TRIP_EARNING_NET" && t !== "TRIP_SETTLEMENT_CORRECTION" && t !== "SETTLEMENT_CORRECTION") {
+    // Trip-scoped entitlement credits — include DRIVER_TIP_CREDIT exactly once per row.
+    if (
+      t !== "TRIP_EARNING_NET"
+      && t !== "DRIVER_TIP_CREDIT"
+      && t !== "TIP_CREDIT"
+      && t !== "TRIP_SETTLEMENT_CORRECTION"
+      && t !== "SETTLEMENT_CORRECTION"
+    ) {
       continue;
     }
     const tripId = row.related_trip_id == null ? null : String(row.related_trip_id);
@@ -669,9 +676,14 @@ export async function fetchDriverWalletPayoutSnapshot(
     }
   }
 
-  const settlementHistoryTripIds = settlements
-    .map((s) => (s.trip_id == null ? null : String(s.trip_id)))
-    .filter((id): id is string => Boolean(id));
+  const settlementHistoryTripIds = [
+    ...new Set([
+      ...settlements
+        .map((s) => (s.trip_id == null ? null : String(s.trip_id)))
+        .filter((id): id is string => Boolean(id)),
+      ...tripDetailById.keys(),
+    ]),
+  ];
   const ledgerByTripId = new Map<string, Array<{ type: string; amount_pence: number; driver_id: string | null }>>();
   if (settlementHistoryTripIds.length > 0) {
     const { data: ledgerRows } = await supabase
@@ -797,20 +809,22 @@ export async function fetchDriverWalletPayoutSnapshot(
     settlement_history.map((row) => row.trip_id).filter((id): id is string => Boolean(id)),
   );
   const missingCreditDiagnostics = [];
+  const ledgerBackedHistory = [];
   for (const [tripId, trip] of tripDetailById.entries()) {
     if (settlementTripIdsCovered.has(tripId)) continue;
     const model = String(trip.financial_model ?? "").toUpperCase();
     if (model.includes("DRIVER_COLLECTED")) continue;
     const session = sessionByTripId.get(tripId);
     const ledgerEntries = ledgerByTripId.get(tripId) ?? [];
+    const tipPenceResolved = trip.tip_pence == null
+      ? (trip.tip_amount_pence == null ? null : Number(trip.tip_amount_pence))
+      : Number(trip.tip_pence);
     const credit = buildPaymentSessionDriverCreditFields({
       financial_model: model,
       trip_status: (trip.status as string | null) ?? null,
       trip_driver_id: args.driverId,
       driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
-      tip_pence: trip.tip_pence == null
-        ? (trip.tip_amount_pence == null ? null : Number(trip.tip_amount_pence))
-        : Number(trip.tip_pence),
+      tip_pence: tipPenceResolved,
       ledger: ledgerEntries,
       wallet_evidence_available: true,
       provider_state: (session?.provider_state as string | null) ?? null,
@@ -833,6 +847,54 @@ export async function fetchDriverWalletPayoutSnapshot(
       ),
       now_ms: Date.now(),
     });
+
+    const tripPayload = {
+      trip_code: (trip.trip_code as string | null) ?? null,
+      completed_at: (trip.completed_at as string | null) ?? null,
+      passenger_name: (trip.passenger_name as string | null) ?? null,
+      payment_provider: (trip.payment_provider as string | null) ?? null,
+      payment_method: (trip.payment_method as string | null) ?? null,
+      driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
+      tip_pence: tipPenceResolved,
+      airport_charge_pence: trip.airport_charge_pence == null
+        ? null
+        : Number(trip.airport_charge_pence),
+      payment_session_id: (trip.payment_session_id as string | null) ?? null,
+    };
+    const sessionPayload = session
+      ? {
+        id: (session.id as string | null) ?? null,
+        payment_provider: (session.payment_provider as string | null) ?? null,
+        payment_method: (session.payment_method as string | null) ?? null,
+        captured_amount_pence: session.captured_amount_pence == null
+          ? null
+          : Number(session.captured_amount_pence),
+      }
+      : null;
+
+    // Ledger present for this trip — surface as ledger-backed history (never false MISSING).
+    if (credit.actual_driver_credit_pence > 0) {
+      ledgerBackedHistory.push(buildDriverWalletSettlementHistoryRow({
+        settlement_id: `ledger-credit:${tripId}`,
+        trip_id: tripId,
+        settlement_status: "LEDGER_CREDITED",
+        settled_at: (trip.completed_at as string | null) ?? null,
+        wallet_credit_pence: credit.actual_driver_credit_pence,
+        trip: tripPayload,
+        payment_session: sessionPayload,
+        credit_monitoring: {
+          expected_driver_credit_pence: credit.expected_driver_credit_pence,
+          actual_driver_credit_pence: credit.actual_driver_credit_pence,
+          credit_difference_pence: credit.credit_difference_pence,
+          driver_credit_health: credit.driver_credit_health,
+          credit_eligibility_at: credit.credit_eligibility_at,
+          is_diagnostic_projection: false,
+          diagnostic_label: null,
+        },
+      }));
+      continue;
+    }
+
     const diagnostic = buildMissingLedgerDiagnosticRow({
       trip_id: tripId,
       trip_code: (trip.trip_code as string | null) ?? null,
@@ -848,31 +910,8 @@ export async function fetchDriverWalletPayoutSnapshot(
       settlement_status: "MISSING_LEDGER_CREDIT",
       settled_at: (trip.completed_at as string | null) ?? null,
       wallet_credit_pence: null,
-      trip: {
-        trip_code: (trip.trip_code as string | null) ?? null,
-        completed_at: (trip.completed_at as string | null) ?? null,
-        passenger_name: (trip.passenger_name as string | null) ?? null,
-        payment_provider: (trip.payment_provider as string | null) ?? null,
-        payment_method: (trip.payment_method as string | null) ?? null,
-        driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
-        tip_pence: trip.tip_pence == null
-          ? (trip.tip_amount_pence == null ? null : Number(trip.tip_amount_pence))
-          : Number(trip.tip_pence),
-        airport_charge_pence: trip.airport_charge_pence == null
-          ? null
-          : Number(trip.airport_charge_pence),
-        payment_session_id: (trip.payment_session_id as string | null) ?? null,
-      },
-      payment_session: session
-        ? {
-          id: (session.id as string | null) ?? null,
-          payment_provider: (session.payment_provider as string | null) ?? null,
-          payment_method: (session.payment_method as string | null) ?? null,
-          captured_amount_pence: session.captured_amount_pence == null
-            ? null
-            : Number(session.captured_amount_pence),
-        }
-        : null,
+      trip: tripPayload,
+      payment_session: sessionPayload,
       credit_monitoring: {
         expected_driver_credit_pence: diagnostic.expected_driver_credit_pence,
         actual_driver_credit_pence: diagnostic.actual_driver_credit_pence,
@@ -884,8 +923,12 @@ export async function fetchDriverWalletPayoutSnapshot(
       },
     }));
   }
-  if (missingCreditDiagnostics.length > 0) {
-    settlement_history = [...settlement_history, ...missingCreditDiagnostics].sort((a, b) => {
+  if (ledgerBackedHistory.length > 0 || missingCreditDiagnostics.length > 0) {
+    settlement_history = [
+      ...settlement_history,
+      ...ledgerBackedHistory,
+      ...missingCreditDiagnostics,
+    ].sort((a, b) => {
       const aTs = a.completed_at ? new Date(a.completed_at).getTime() : 0;
       const bTs = b.completed_at ? new Date(b.completed_at).getTime() : 0;
       return bTs - aTs;
@@ -998,16 +1041,18 @@ export async function fetchDriverWalletPayoutSnapshot(
     // Connect account id column retired — non-Revolut destinations without Connect stay NOT_CONNECTED.
     walletStatus = "NOT_CONNECTED";
   } else if (
-    snapshot.payout_blocked
-    || walletBalance < 0
+    walletBalance < 0
     || frRow.driver_credit_status === "DRIVER_UNDER_CREDITED"
     || frRow.driver_credit_status === "DRIVER_OVER_CREDITED"
     || frRow.payout_status === "PAYOUT_MISMATCH"
   ) {
+    // Credit / balance freeze only — never conflate with payouts_enabled or verification.
     walletStatus = "FROZEN";
   } else if (verificationStatus === "restricted" || verificationStatus === "pending") {
     walletStatus = "RESTRICTED";
   }
+  // payout_blocked (e.g. payouts_enabled=false) stays on snapshot.payout_blocked —
+  // do not overwrite credit-OK wallets as FROZEN.
 
   const payoutProvider = serviceArea?.driver_payout_gateway
     ?? serviceArea?.payment_provider
