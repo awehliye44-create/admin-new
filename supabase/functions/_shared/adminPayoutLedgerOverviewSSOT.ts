@@ -207,7 +207,7 @@ async function loadDriverOverviewSection(
   let debtTotal = 0;
   for (const d of drivers ?? []) {
     const id = String(d.id);
-    const rows = byDriver.get(id) ?? [];
+    const rows = (byDriver.get(id) ?? []) as Array<{ type: string; amount_pence: number }>;
     const live = computeLedgerWalletBalancePence(rows);
     const debt = computeCashCommissionOutstanding(rows);
     liveTotal += Math.max(0, live);
@@ -309,7 +309,7 @@ async function loadPayoutItemSection(
       allowed_service_area_ids: allowed_service_area_ids ?? [],
     });
     const allowed = new Set(platformDriverIds);
-    rows = rows.filter((r) => allowed.has(String(r.driver_id)));
+    rows = rows.filter((r: { driver_id?: string | null }) => allowed.has(String(r.driver_id)));
   }
 
   const dayStart = londonDayStartIso();
@@ -561,7 +561,8 @@ export async function buildPayoutLedgerOverview(
     protectedLiabilitiesPence = null;
   }
 
-  let companyBalance;
+  // deno-lint-ignore no-explicit-any -- unavailable fallback shape differs from the live snapshot
+  let companyBalance: any;
   try {
     companyBalance = await withTimeout(
       resolveLiveCompanyBalanceWithSlice10Gate({

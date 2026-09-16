@@ -303,7 +303,9 @@ export async function loadProtectedDriverLiabilitiesPence(
     for (const id of driverIds) {
       liveByDriver.set(
         id,
-        Math.max(0, computeLedgerWalletBalancePence(byDriverLedger.get(id) ?? [])),
+        Math.max(0, computeLedgerWalletBalancePence(
+          (byDriverLedger.get(id) ?? []) as Array<{ type: string; amount_pence: number }>,
+        )),
       );
     }
 

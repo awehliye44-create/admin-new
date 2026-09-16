@@ -224,8 +224,12 @@ export function buildDigitalPaymentMethodsPayload(args: {
     status: string;
     payout_adapter_status: string;
     payout_automation: PayoutAutomationStatus;
+    automated_payout_configured: boolean;
     message: string;
+    automated_payout_message: string | null;
+    driver_wallet_message: string | null;
   };
+
 } {
   const provider = args.customerGateway.provider;
   const vault = resolvePaymentVaultProvider(provider);

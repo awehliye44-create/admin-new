@@ -58,6 +58,7 @@ export type DriverWalletPayoutDetail = Omit<
   verification_status: string | null;
   bank_account_last4: string | null;
   payouts_enabled: boolean | null;
+  withdrawal_in_progress_pence: number;
   payout_operational_paused?: boolean | null;
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;
@@ -586,7 +587,7 @@ export async function fetchDriverWalletPayoutSnapshot(
 
   if (
     String(payoutProviderResolved ?? "").toLowerCase() === "revolut"
-    && providerBalanceStatus === "UNAVAILABLE"
+    && String(providerBalanceStatus) === "UNAVAILABLE"
   ) {
     providerBalanceStatus = "NOT_APPLICABLE";
   }
@@ -1065,8 +1066,8 @@ export async function fetchDriverWalletPayoutSnapshot(
   });
   const schedule = buildPayoutScheduleDto({
     service_area_id: serviceAreaId,
-    serviceAreaTimezone: serviceArea?.timezone ?? null,
-    currencyCode: serviceArea?.currency_code ?? "GBP",
+    serviceAreaTimezone: (serviceArea as Record<string, unknown> | null | undefined)?.timezone as string | null ?? null,
+    currencyCode: (serviceArea as Record<string, unknown> | null | undefined)?.currency_code as string | undefined ?? "GBP",
     automatic_payouts_enabled: controlCentre.payouts_enabled,
     frequency: controlCentre.payout_frequency,
     weekly_day: controlCentre.weekly_payout_day,

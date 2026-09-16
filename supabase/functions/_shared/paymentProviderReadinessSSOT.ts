@@ -4,7 +4,7 @@
  * Never infer readiness from payment_provider_secret_metadata alone.
  */
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   getProviderSecrets,
   secretStatus,
