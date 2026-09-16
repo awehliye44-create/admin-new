@@ -67,7 +67,7 @@ function releasedCellDisplay(row: AdminPaymentSessionsListRow): string {
 }
 
 function providerFeeCell(row: AdminPaymentSessionsListRow) {
-  const evidence = row.fee_display_badge;
+  const evidence = String(row.fee_status ?? '').trim().toUpperCase();
   if (evidence === 'ACTUAL') {
     return (
       <div className="space-y-1">
