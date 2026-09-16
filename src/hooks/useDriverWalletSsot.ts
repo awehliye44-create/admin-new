@@ -299,11 +299,12 @@ async function fetchAllDriverWalletSsotPages(regionId: string | null): Promise<D
   if (firstError) throw firstError;
   if (!firstData?.success) throw new Error(firstData?.error ?? 'SSOT fetch failed');
 
-  const firstDrivers = await overlayDriverWalletEligibility(
-    (firstData.drivers ?? []) as DriverWalletSsotRow[],
+  const firstDrivers = await excludeDeletedDrivers(
+    await overlayDriverWalletEligibility((firstData.drivers ?? []) as DriverWalletSsotRow[]),
   );
   const total = Number(firstData.total ?? firstDrivers.length);
   if (total <= pageSize || firstDrivers.length === 0) return firstDrivers;
+
 
   const pageOffsets: number[] = [];
   for (let offset = pageSize; offset < total; offset += pageSize) {
