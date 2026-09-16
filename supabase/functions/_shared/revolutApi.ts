@@ -207,7 +207,7 @@ export async function testRevolutMerchantConnection(
 ): Promise<{ endpoint_tested: string; api_version: string }> {
   const validation = validateRevolutMerchantSecret(secretKey, publishableKey);
   if (!validation.ok) {
-    const validationMessage = validation.message;
+    const validationMessage = (validation as { message: string }).message;
     throw {
       message: validationMessage,
       status: 0,
