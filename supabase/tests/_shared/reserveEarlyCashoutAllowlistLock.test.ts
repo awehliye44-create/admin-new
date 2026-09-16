@@ -108,3 +108,38 @@ Deno.test("12. sibling lock migration must not be the sole EARLY source of truth
   const forward = await forwardSql();
   assertEquals(forward.includes("DISTINCT FROM 'EARLY_CASHOUT'"), true);
 });
+
+
+const EXPECTED_FORWARD_FILE_SHA256 =
+  "cd8580c1f63b33960e620c997934aca20c47ef40c5a5718bfef38eced28ecc52";
+
+Deno.test("13. forward file sha256 is the already-applied PHASE8 body", async () => {
+  const bytes = await Deno.readFile(new URL(FORWARD, import.meta.url));
+  const digest = Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+  )
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  assertEquals(digest, EXPECTED_FORWARD_FILE_SHA256);
+});
+
+Deno.test("14. forward migration path is uniquely under supabase/migrations/", async () => {
+  const sql = await forwardSql();
+  assertStringIncludes(sql, "WEEKLY_SCHEDULED");
+  assertStringIncludes(sql, "EARLY_CASHOUT");
+  assertStringIncludes(sql, "BATCH_NOT_ELIGIBLE");
+  // Canonical file only — parked duplicate retired.
+  let parkedDup = false;
+  try {
+    await Deno.stat(
+      new URL(
+        "../../drafts/parked_for_approval/20261112200000_reserve_driver_payout_item_early_cashout_allowlist.sql",
+        import.meta.url,
+      ),
+    );
+    parkedDup = true;
+  } catch {
+    parkedDup = false;
+  }
+  assertEquals(parkedDup, false);
+});
