@@ -231,7 +231,7 @@ export class OnecabTelemetry {
         body: JSON.stringify({ events: batch }),
       });
 
-      if (!response.ok) {
+      if (!response.ok || response.headers.has('Retry-After')) {
         this.unavailableUntil = Date.now() + this.failureCooldownMs;
       }
     } catch {

@@ -48,6 +48,25 @@ describe('OnecabTelemetry outage isolation', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('honours the receiver cooldown when storage is unavailable', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ success: false, error_code: 'TELEMETRY_STORAGE_UNAVAILABLE' }),
+        { status: 202, headers: { 'Retry-After': '60' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const telemetry = createTelemetry();
+
+    telemetry.trackFlowStep('Audit', 1_000, 'first');
+    await telemetry.flush();
+    telemetry.trackFlowStep('Audit', 1_000, 'second');
+    await telemetry.flush();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('does not reject when the telemetry request throws a network error', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
