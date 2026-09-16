@@ -67,6 +67,10 @@ import {
   ADMIN_ACTIVE_TRIPS_ONLINE_DRIVERS_CAP,
 } from '@/lib/adminQueryBounds';
 import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
+import {
+  formatAdminActiveTripRouteLines,
+  resolveAdminActiveTripRouteModel,
+} from '@/lib/adminActiveTripRouteDisplay';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import {
   CRITICAL_BUTTON_TIMEOUT_MESSAGE,
@@ -102,6 +106,9 @@ interface Trip {
   modification_delta_pence?: number | null;
   modification_status?: string | null;
   modified_dropoff_address?: string | null;
+  stops?: unknown;
+  total_stops?: number | null;
+  current_stop_index?: number | null;
   trip_stops?: Array<{
     id: string;
     stop_index: number;
@@ -248,7 +255,7 @@ export default function ActiveTrips() {
         supabase
           .from('trips')
           .select(`
-            id, trip_code, trip_number, status, passenger_name, passenger_phone, pickup_address, dropoff_address, estimated_fare, fare, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, modification_status, modified_dropoff_address, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence, estimated_total_pence, capture_amount_pence, fare_snapshot_json, currency_code, created_at, searching_expires_at, started_at, driver_id, pricing_mode, fare_locked, vehicle_type, vehicle_type_id, service_area_id,
+            id, trip_code, trip_number, status, passenger_name, passenger_phone, pickup_address, dropoff_address, stops, total_stops, current_stop_index, estimated_fare, fare, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, modification_status, modified_dropoff_address, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence, estimated_total_pence, capture_amount_pence, fare_snapshot_json, currency_code, created_at, searching_expires_at, started_at, driver_id, pricing_mode, fare_locked, vehicle_type, vehicle_type_id, service_area_id,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone),
             service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code, distance_unit))
           `)
@@ -815,6 +822,16 @@ export default function ActiveTrips() {
                 {filteredTrips.map((trip) => {
                   const statusConfig = STATUS_CONFIG[trip.status] || STATUS_CONFIG.pending;
                   const StatusIcon = statusConfig.icon;
+                  const routeModel = resolveAdminActiveTripRouteModel({
+                    pickup_address: trip.pickup_address,
+                    dropoff_address: trip.dropoff_address,
+                    modified_dropoff_address: trip.modified_dropoff_address,
+                    current_stop_index: trip.current_stop_index,
+                    total_stops: trip.total_stops,
+                    stops: trip.stops,
+                    trip_stops: trip.trip_stops,
+                  });
+                  const routeLines = formatAdminActiveTripRouteLines(routeModel);
                   return (
                     <TableRow key={trip.id}>
                       <TableCell>
@@ -832,15 +849,39 @@ export default function ActiveTrips() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="max-w-[200px]">
-                          <div className="flex items-start gap-1 text-xs">
-                            <MapPin className="h-3 w-3 text-green-500 mt-0.5 shrink-0" />
-                            <span className="truncate">{trip.pickup_address?.slice(0, 30)}...</span>
-                          </div>
-                          <div className="flex items-start gap-1 text-xs mt-1">
-                            <MapPin className="h-3 w-3 text-red-500 mt-0.5 shrink-0" />
-                            <span className="truncate">{trip.dropoff_address?.slice(0, 30)}...</span>
-                          </div>
+                        <div className="max-w-[220px] space-y-1">
+                          {routeModel.isMultiStop && (
+                            <Badge variant="outline" className="text-[10px] h-5 px-1.5 mb-0.5">
+                              {routeModel.intermediateCount} stop
+                              {routeModel.intermediateCount === 1 ? "" : "s"}
+                              {routeModel.currentStopIndex != null
+                                ? ` · leg ${routeModel.currentStopIndex}`
+                                : ""}
+                            </Badge>
+                          )}
+                          {routeLines.map((line, index) => {
+                            const isFirst = index === 0;
+                            const isLast = index === routeLines.length - 1;
+                            const pinClass = isFirst
+                              ? "text-green-500"
+                              : isLast
+                                ? "text-red-500"
+                                : "text-blue-500";
+                            return (
+                              <div
+                                key={`${trip.id}-route-${index}`}
+                                className="flex items-start gap-1 text-xs"
+                              >
+                                <MapPin className={`h-3 w-3 ${pinClass} mt-0.5 shrink-0`} />
+                                <span className="truncate">{line.slice(0, 36)}{line.length > 36 ? "…" : ""}</span>
+                              </div>
+                            );
+                          })}
+                          {routeModel.isMultiStop && (
+                            <div className="text-[10px] text-muted-foreground truncate pl-4">
+                              Next: {routeModel.nextDestinationAddress}
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -1125,42 +1166,72 @@ export default function ActiveTrips() {
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-100">
-                  <MapPin className="h-4 w-4 text-green-600 mt-0.5" />
-                  <div>
-                    <p className="text-xs text-green-600 font-medium">Pickup</p>
-                    <p className="text-sm">{selectedTrip.pickup_address}</p>
-                  </div>
-                </div>
-                {(selectedTrip.trip_stops ?? [])
-                  .filter((s) => s.type === "stop")
-                  .map((stop) => (
-                    <div
-                      key={stop.id}
-                      className="flex items-start gap-2 p-3 bg-blue-50 rounded-lg border border-blue-100"
-                    >
-                      <MapPin className="h-4 w-4 text-blue-600 mt-0.5" />
-                      <div>
-                        <p className="text-xs text-blue-600 font-medium">
-                          Stop {stop.stop_index} · {stop.status ?? "pending"}
-                        </p>
-                        <p className="text-sm">{stop.address}</p>
+                {(() => {
+                  const detailRoute = resolveAdminActiveTripRouteModel({
+                    pickup_address: selectedTrip.pickup_address,
+                    dropoff_address: selectedTrip.dropoff_address,
+                    modified_dropoff_address: selectedTrip.modified_dropoff_address,
+                    current_stop_index: selectedTrip.current_stop_index,
+                    total_stops: selectedTrip.total_stops,
+                    stops: selectedTrip.stops,
+                    trip_stops: selectedTrip.trip_stops,
+                  });
+                  return (
+                    <>
+                      {detailRoute.isMultiStop && (
+                        <div className="flex flex-wrap gap-2 text-xs">
+                          <Badge variant="outline">
+                            {detailRoute.intermediateCount} intermediate stop
+                            {detailRoute.intermediateCount === 1 ? "" : "s"}
+                          </Badge>
+                          <Badge variant="outline">
+                            Active: {detailRoute.activeLegLabel}
+                          </Badge>
+                          {detailRoute.currentStopIndex != null && (
+                            <Badge variant="outline">
+                              Index {detailRoute.currentStopIndex} /{" "}
+                              {detailRoute.totalStops - 1}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                      <div className="flex items-start gap-2 p-3 bg-green-50 rounded-lg border border-green-100">
+                        <MapPin className="h-4 w-4 text-green-600 mt-0.5" />
+                        <div>
+                          <p className="text-xs text-green-600 font-medium">Pickup</p>
+                          <p className="text-sm">{detailRoute.pickupAddress}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                <div className="flex justify-center">
-                  <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-100">
-                  <MapPin className="h-4 w-4 text-red-600 mt-0.5" />
-                  <div>
-                    <p className="text-xs text-red-600 font-medium">Dropoff</p>
-                    <p className="text-sm">
-                      {selectedTrip.modified_dropoff_address
-                        ?? selectedTrip.dropoff_address}
-                    </p>
-                  </div>
-                </div>
+                      {detailRoute.intermediateStops.map((stop) => (
+                        <div
+                          key={stop.id ?? `${stop.stop_index}-${stop.address}`}
+                          className="flex items-start gap-2 p-3 bg-blue-50 rounded-lg border border-blue-100"
+                        >
+                          <MapPin className="h-4 w-4 text-blue-600 mt-0.5" />
+                          <div>
+                            <p className="text-xs text-blue-600 font-medium">
+                              Stop {stop.stop_index} · {stop.status ?? "pending"}
+                              {detailRoute.currentStopIndex === stop.stop_index
+                                ? " · active"
+                                : ""}
+                            </p>
+                            <p className="text-sm">{stop.address}</p>
+                          </div>
+                        </div>
+                      ))}
+                      <div className="flex justify-center">
+                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div className="flex items-start gap-2 p-3 bg-red-50 rounded-lg border border-red-100">
+                        <MapPin className="h-4 w-4 text-red-600 mt-0.5" />
+                        <div>
+                          <p className="text-xs text-red-600 font-medium">Dropoff</p>
+                          <p className="text-sm">{detailRoute.dropoffAddress}</p>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               {selectedTrip.snapshot_mismatch && (
