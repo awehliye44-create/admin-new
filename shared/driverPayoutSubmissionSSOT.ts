@@ -449,7 +449,7 @@ export function adminItemSubmissionDisplay(args: {
   const status = String(args.item_status ?? "").toUpperCase();
   const reserved = args.reservation_active !== false
     && !["FAILED", "DECLINED", "RELEASED", "CANCELLED"].includes(status);
-  let providerStatus = ADMIN_SLICE7_LABELS.RESERVED;
+  let providerStatus: string = ADMIN_SLICE7_LABELS.RESERVED;
   if (status === "SUBMITTED") {
     providerStatus = String(args.provider_state ?? "").toLowerCase() === "pending"
       ? ADMIN_SLICE7_LABELS.PROVIDER_PENDING
