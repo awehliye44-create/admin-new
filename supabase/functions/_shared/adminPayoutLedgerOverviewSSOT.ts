@@ -313,7 +313,7 @@ async function loadPayoutItemSection(
       allowed_service_area_ids: allowed_service_area_ids ?? [],
     });
     const allowed = new Set(platformDriverIds);
-    rows = rows.filter((r) => allowed.has(String(r.driver_id)));
+    rows = rows.filter((r: { driver_id?: string | null }) => allowed.has(String(r.driver_id)));
   }
 
   const dayStart = londonDayStartIso();
