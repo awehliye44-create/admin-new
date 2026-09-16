@@ -106,7 +106,8 @@ Deno.serve(async (req) => {
     }
 
     // Wide select strings defeat generated row typing — treat as an untyped record.
-    const trip = tripRow as Record<string, never> as Record<string, string & number & null>;
+    // deno-lint-ignore no-explicit-any
+    const trip = tripRow as unknown as Record<string, any>;
 
     const financialModel = readTripFinancialModelStamp(
       trip.financial_model as string | null,
