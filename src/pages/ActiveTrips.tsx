@@ -109,6 +109,9 @@ interface Trip {
     address: string;
     status: string | null;
   }>;
+  /** Booked intermediate stops (route SSOT before stop rows exist). */
+  stops?: unknown;
+  total_stops?: number | null;
   open_modification?: {
     id: string;
     status: string;
@@ -189,6 +192,35 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }>
   cancelled: { label: 'Cancelled', color: 'bg-red-100 text-red-700 border-red-200', icon: XCircle },
 };
 
+/**
+ * Route SSOT for Admin display: prefer trip_stops rows; before those rows exist
+ * (searching / unassigned trips) fall back to the booked intermediate stops on
+ * the trip row so multi-stop journeys are never shown as single A→B trips.
+ */
+function resolveTripStopsForDisplay(
+  trip: Trip,
+  stopRows: NonNullable<Trip['trip_stops']>,
+): NonNullable<Trip['trip_stops']> {
+  if (stopRows.some((s) => s.type === 'stop')) return stopRows;
+  const booked = Array.isArray(trip.stops) ? trip.stops : [];
+  if (booked.length === 0) return stopRows;
+  const derived = booked.map((raw, index) => {
+    const entry = (raw ?? {}) as Record<string, unknown>;
+    const address = [entry.address, entry.formatted_address, entry.name]
+      .find((v) => typeof v === 'string' && v.trim().length > 0) as string | undefined;
+    return {
+      id: `${trip.id}-booked-stop-${index}`,
+      stop_index: index + 1,
+      type: 'stop',
+      address: address ?? `Stop ${index + 1}`,
+      status: null,
+    };
+  });
+  const dropoffRows = stopRows.filter((s) => s.type === 'dropoff');
+  const otherRows = stopRows.filter((s) => s.type !== 'dropoff');
+  return [...otherRows, ...derived, ...dropoffRows];
+}
+
 /** Live active-trip fare — includes waiting / mod charges (not settlement). */
 function resolveActiveTripLiveFarePence(trip: Trip): number {
   return resolveAdminActiveTripLiveFarePence(trip);
@@ -248,7 +280,7 @@ export default function ActiveTrips() {
         supabase
           .from('trips')
           .select(`
-            id, trip_code, trip_number, status, passenger_name, passenger_phone, pickup_address, dropoff_address, estimated_fare, fare, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, modification_status, modified_dropoff_address, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence, estimated_total_pence, capture_amount_pence, fare_snapshot_json, currency_code, created_at, searching_expires_at, started_at, driver_id, pricing_mode, fare_locked, vehicle_type, vehicle_type_id, service_area_id,
+            id, trip_code, trip_number, status, passenger_name, passenger_phone, pickup_address, dropoff_address, stops, total_stops, estimated_fare, fare, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, modification_status, modified_dropoff_address, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence, estimated_total_pence, capture_amount_pence, fare_snapshot_json, currency_code, created_at, searching_expires_at, started_at, driver_id, pricing_mode, fare_locked, vehicle_type, vehicle_type_id, service_area_id,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone),
             service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code, distance_unit))
           `)
@@ -335,7 +367,10 @@ export default function ActiveTrips() {
       const enriched = baseTrips.map((trip) => {
         const liveInput = toLiveTripFarePreviewInput(trip);
         const live = computeLiveTripFarePreview(liveInput);
-        const stops = stopsByTrip.get(trip.id) ?? [];
+        const stops = resolveTripStopsForDisplay(
+          trip,
+          stopsByTrip.get(trip.id) ?? [],
+        );
         const dropoffStop = stops.find((s) => s.type === "dropoff");
         const displayDropoff =
           trip.modified_dropoff_address ?? trip.dropoff_address;
@@ -837,10 +872,24 @@ export default function ActiveTrips() {
                             <MapPin className="h-3 w-3 text-green-500 mt-0.5 shrink-0" />
                             <span className="truncate">{trip.pickup_address?.slice(0, 30)}...</span>
                           </div>
+                          {(trip.trip_stops ?? []).filter((s) => s.type === 'stop').map((stop) => (
+                            <div key={stop.id} className="flex items-start gap-1 text-xs mt-1">
+                              <MapPin className="h-3 w-3 text-blue-500 mt-0.5 shrink-0" />
+                              <span className="truncate">
+                                Stop {stop.stop_index}: {stop.address?.slice(0, 26)}
+                              </span>
+                            </div>
+                          ))}
                           <div className="flex items-start gap-1 text-xs mt-1">
                             <MapPin className="h-3 w-3 text-red-500 mt-0.5 shrink-0" />
                             <span className="truncate">{trip.dropoff_address?.slice(0, 30)}...</span>
                           </div>
+                          {(trip.trip_stops ?? []).some((s) => s.type === 'stop') && (
+                            <Badge variant="outline" className="mt-1 text-[10px]">
+                              Multi-stop ·{' '}
+                              {(trip.trip_stops ?? []).filter((s) => s.type === 'stop').length} stop(s)
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
