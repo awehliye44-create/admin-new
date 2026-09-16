@@ -1,19 +1,17 @@
 /**
- * Trip History shortfall — tip must not double-count into customer payable.
- * MK-260912-005 class: fare 500 + tip 100 + captured 600 → shortfall 0.
+ * Customer shortfall evidence — tip/airport never double-counted.
+ * Provider-call boundary stays closed for every ineligible case.
  */
 import { assertEquals } from "https://deno.land/std@0.168.0/testing/asserts.ts";
 import {
-  resolveTripHistoryCustomerPayablePence,
-  tipAlreadyIncludedInFinalAggregate,
-} from "./tripHistoryPaymentLayersSSOT.ts";
+  buildCustomerShortfallEvidence,
+  CUSTOMER_PAYABLE_SOURCE,
+  evaluateRecaptureProviderCallBoundary,
+  FARE_FIELD_CONTRACT,
+  resolveAuthoritativeCustomerPayable,
+} from "./customerShortfallEvidenceSSOT.ts";
 import { buildTripHistoryPaymentEvidenceReadModel } from "./tripHistoryPaymentEvidenceReadModel.ts";
-import {
-  computeOutstandingShortfallPence,
-  evaluateTripHistoryShortfallRecaptureEligibility,
-  rejectClientChargeAmountFields,
-  TRIP_SHORTFALL_RECAPTURE_UI_STATE,
-} from "./tripHistoryShortfallRecaptureSSOT.ts";
+import { rejectClientChargeAmountFields } from "./tripHistoryShortfallRecaptureSSOT.ts";
 import { FINANCIAL_MODEL } from "./financialModelScopeGate.ts";
 
 const MK = {
@@ -29,211 +27,315 @@ const MK = {
   payment_status: "captured",
 };
 
-Deno.test("1: fare £5 + tip £1; captured £6 → shortfall £0", () => {
-  const payable = resolveTripHistoryCustomerPayablePence(MK, 600);
-  assertEquals(payable.payable_pence, 600);
-  const shortfall = computeOutstandingShortfallPence({
-    customerPayablePence: payable.payable_pence,
-    verifiedCapturedTotalPence: 600,
-    netRefundedTotalPence: 0,
+const verifiedSession = {
+  status: "completed",
+  provider_state: "COMPLETED",
+  purpose: "RIDE_BOOKING",
+  captured_amount_pence: 600,
+  refunded_amount_pence: 0,
+};
+
+Deno.test("1+2: fare 500 + tip 100; aggregate 600; captured 600 → shortfall 0; tip once", () => {
+  const fromComponents = resolveAuthoritativeCustomerPayable({
+    ...MK,
+    fare_field_contract: FARE_FIELD_CONTRACT.TIP_EXCLUSIVE_FINAL,
   });
-  assertEquals(shortfall, 0);
+  assertEquals(fromComponents.payable_pence, 600);
+  assertEquals(fromComponents.source, CUSTOMER_PAYABLE_SOURCE.COMPONENTS_TIP_EXCLUSIVE_FINAL);
+
+  const fromAuth = resolveAuthoritativeCustomerPayable({
+    customer_payable_pence: 600,
+    tip_pence: 100,
+    final_customer_fare_pence: 500,
+  });
+  assertEquals(fromAuth.payable_pence, 600); // tip NOT added again
+
+  const ev = buildCustomerShortfallEvidence({
+    ...MK,
+    customer_payable_pence: 600,
+    sessions: [verifiedSession],
+    adminPermitted: true,
+  });
+  assertEquals(ev.authoritative_customer_payable_pence, 600);
+  assertEquals(ev.verified_captured_pence, 600);
+  assertEquals(ev.outstanding_shortfall_pence, 0);
+  assertEquals(ev.allow_provider_call, false);
+  assertEquals(evaluateRecaptureProviderCallBoundary(ev).allow_provider_call, false);
 });
 
-Deno.test("2: fare only £5; captured £5 → shortfall £0", () => {
-  const payable = resolveTripHistoryCustomerPayablePence({
+Deno.test("3: fare only 500; captured 500 → 0", () => {
+  const ev = buildCustomerShortfallEvidence({
     ...MK,
     tip_pence: 0,
     tip_amount_pence: 0,
-  }, 500);
-  assertEquals(payable.payable_pence, 500);
-  assertEquals(computeOutstandingShortfallPence({
-    customerPayablePence: payable.payable_pence,
-    verifiedCapturedTotalPence: 500,
-  }), 0);
-});
-
-Deno.test("3: fare £5 + airport £7 + tip £1; captured £13 → shortfall £0", () => {
-  // Airport already folded into final_customer when stamped that way.
-  const payable = resolveTripHistoryCustomerPayablePence({
-    ...MK,
-    final_customer_fare_pence: 1200, // 500 fare + 700 airport
-    final_fare_pence: 1200,
-    tip_pence: 100,
-    airport_charge_pence: 700,
-  }, 1300);
-  assertEquals(payable.payable_pence, 1300);
-  assertEquals(computeOutstandingShortfallPence({
-    customerPayablePence: payable.payable_pence,
-    verifiedCapturedTotalPence: 1300,
-  }), 0);
-});
-
-Deno.test("4: aggregate payable already contains tip → no double count", () => {
-  // Stuffed Edge tip-inclusive payable into final_customer while tip stamp remains.
-  const stuffed = resolveTripHistoryCustomerPayablePence({
-    ...MK,
-    final_customer_fare_pence: 600, // already fare+tip
-    final_fare_pence: 500,
-    tip_pence: 100,
-  }, 600);
-  assertEquals(stuffed.payable_pence, 600);
-  assertEquals(
-    tipAlreadyIncludedInFinalAggregate({
-      payablePence: 600,
-      tipPence: 100,
-      siblingFinalPence: 500,
-      lockedBasePence: 500,
-    }),
-    true,
-  );
-});
-
-Deno.test("5: real £1 undercapture → shortfall £1", () => {
-  const payable = resolveTripHistoryCustomerPayablePence(MK, 500);
-  assertEquals(payable.payable_pence, 600);
-  assertEquals(computeOutstandingShortfallPence({
-    customerPayablePence: payable.payable_pence,
-    verifiedCapturedTotalPence: 500,
-  }), 100);
-});
-
-Deno.test("6: overcapture → no recapture action; shortfall 0", () => {
-  const payable = resolveTripHistoryCustomerPayablePence(MK, 700);
-  assertEquals(payable.payable_pence, 600);
-  const shortfall = computeOutstandingShortfallPence({
-    customerPayablePence: payable.payable_pence,
-    verifiedCapturedTotalPence: 700,
-  });
-  assertEquals(shortfall, 0);
-  const gate = evaluateTripHistoryShortfallRecaptureEligibility({
-    tripStatus: "completed",
-    financialModel: FINANCIAL_MODEL.PLATFORM_COLLECTED,
-    paymentMethod: "card",
-    customerPayablePence: payable.payable_pence,
-    verifiedCapturedTotalPence: 700,
-    netRefundedTotalPence: 0,
-    providerSettlementVerified: true,
+    sessions: [{ ...verifiedSession, captured_amount_pence: 500 }],
+    fare_field_contract: FARE_FIELD_CONTRACT.TIP_EXCLUSIVE_FINAL,
     adminPermitted: true,
   });
-  assertEquals(gate.eligible, false);
-  assertEquals(gate.outstanding_shortfall_pence, 0);
+  assertEquals(ev.authoritative_customer_payable_pence, 500);
+  assertEquals(ev.outstanding_shortfall_pence, 0);
+  assertEquals(ev.allow_provider_call, false);
 });
 
-Deno.test("7: confirmed refund included once", () => {
-  const shortfall = computeOutstandingShortfallPence({
-    customerPayablePence: 600,
-    verifiedCapturedTotalPence: 600,
-    netRefundedTotalPence: 100,
+Deno.test("4+5: fare 500 + airport 700 folded + tip 100; payable 1300; captured 1300 → 0", () => {
+  const ev = buildCustomerShortfallEvidence({
+    ...MK,
+    final_customer_fare_pence: 1200, // airport folded into tip-exclusive final
+    final_fare_pence: 1200,
+    airport_charge_pence: 700, // display only — not added again
+    tip_pence: 100,
+    sessions: [{ ...verifiedSession, captured_amount_pence: 1300 }],
+    fare_field_contract: FARE_FIELD_CONTRACT.TIP_EXCLUSIVE_FINAL,
+    adminPermitted: true,
   });
-  assertEquals(shortfall, 100);
+  assertEquals(ev.authoritative_customer_payable_pence, 1300);
+  assertEquals(ev.airport_component_pence, 700);
+  assertEquals(ev.outstanding_shortfall_pence, 0);
+  assertEquals(ev.allow_provider_call, false);
 });
 
-Deno.test("8: pending/failed payment not counted as captured in evidence", () => {
-  const model = buildTripHistoryPaymentEvidenceReadModel({
-    trip: { ...MK, capture_amount_pence: null },
+Deno.test("6: real shortfall payable 700 captured 600 → 100; provider allowed", () => {
+  const ev = buildCustomerShortfallEvidence({
+    final_customer_fare_pence: 600,
+    final_fare_pence: 600,
+    tip_pence: 100,
+    financial_model: FINANCIAL_MODEL.PLATFORM_COLLECTED,
+    payment_method: "card",
+    status: "completed",
+    payment_status: "captured",
+    sessions: [{ ...verifiedSession, captured_amount_pence: 600 }],
+    fare_field_contract: FARE_FIELD_CONTRACT.TIP_EXCLUSIVE_FINAL,
+    adminPermitted: true,
+    providerSettlementVerified: true,
+  });
+  assertEquals(ev.authoritative_customer_payable_pence, 700);
+  assertEquals(ev.outstanding_shortfall_pence, 100);
+  assertEquals(ev.allow_provider_call, true);
+});
+
+Deno.test("7: confirmed refund opens shortfall", () => {
+  const ev = buildCustomerShortfallEvidence({
+    ...MK,
+    customer_payable_pence: 700,
     sessions: [{
-      status: "pending",
+      ...verifiedSession,
+      captured_amount_pence: 700,
+      refunded_amount_pence: 100,
+    }],
+    adminPermitted: true,
+    providerSettlementVerified: true,
+  });
+  assertEquals(ev.verified_net_captured_pence, 600);
+  assertEquals(ev.outstanding_shortfall_pence, 100);
+});
+
+Deno.test("8: pending refund not confirmed — refunded stays 0 from unverified", () => {
+  const ev = buildCustomerShortfallEvidence({
+    ...MK,
+    customer_payable_pence: 600,
+    sessions: [{
+      status: "pending_refund",
       provider_state: "PENDING",
-      captured_amount_pence: 0,
+      captured_amount_pence: 600,
+      refunded_amount_pence: 100,
     }],
     adminPermitted: true,
   });
-  assertEquals(model.verified_captured_pence, 0);
-  assertEquals(model.outstanding_shortfall_pence, 600);
+  // Unverified session: capture/refund not counted as verified settled
+  assertEquals(ev.verified_captured_pence, 0);
 });
 
-Deno.test("9: duplicate payment sessions do not double-count when verified sum is passed once", () => {
-  // Verified sum helper is tested elsewhere; evidence uses session sum.
-  const model = buildTripHistoryPaymentEvidenceReadModel({
-    trip: MK,
-    sessions: [
-      {
-        status: "completed",
-        provider_state: "COMPLETED",
-        purpose: "RIDE_BOOKING",
-        captured_amount_pence: 600,
-        refunded_amount_pence: 0,
-      },
-      {
-        status: "completed",
-        provider_state: "COMPLETED",
-        purpose: "RIDE_BOOKING",
-        captured_amount_pence: 600,
-        refunded_amount_pence: 0,
-      },
-    ],
+Deno.test("9+10: pending/failed/declined not captured", () => {
+  for (const s of [
+    { status: "pending", provider_state: "PENDING", captured_amount_pence: 600 },
+    { status: "failed", provider_state: "FAILED", captured_amount_pence: 600 },
+    { status: "declined", provider_state: "DECLINED", captured_amount_pence: 600 },
+    { status: "cancelled", provider_state: "CANCELLED", captured_amount_pence: 600 },
+  ]) {
+    const ev = buildCustomerShortfallEvidence({
+      ...MK,
+      customer_payable_pence: 600,
+      sessions: [s],
+      adminPermitted: true,
+    });
+    assertEquals(ev.verified_captured_pence, 0);
+  }
+});
+
+Deno.test("11: duplicate sessions — shortfall never negative", () => {
+  const ev = buildCustomerShortfallEvidence({
+    ...MK,
+    customer_payable_pence: 600,
+    sessions: [verifiedSession, { ...verifiedSession }],
     adminPermitted: true,
   });
-  // Duplicate legitimate rows surface over-capture / coverage — shortfall must not go negative.
-  assertEquals(model.outstanding_shortfall_pence, 0);
-  assertEquals(model.customer_discounted_payable_pence, 600);
+  assertEquals(ev.outstanding_shortfall_pence, 0);
+  assertEquals(ev.allow_provider_call, false);
 });
 
-Deno.test("10: DRIVER_COLLECTED isolated — recapture ineligible", () => {
-  const gate = evaluateTripHistoryShortfallRecaptureEligibility({
-    tripStatus: "completed",
-    financialModel: FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
-    paymentMethod: "cash",
-    customerPayablePence: 600,
-    verifiedCapturedTotalPence: 0,
+Deno.test("12: overcapture → no recapture", () => {
+  const ev = buildCustomerShortfallEvidence({
+    ...MK,
+    customer_payable_pence: 600,
+    sessions: [{ ...verifiedSession, captured_amount_pence: 800 }],
     adminPermitted: true,
   });
-  assertEquals(gate.eligible, false);
+  assertEquals(ev.outstanding_shortfall_pence, 0);
+  assertEquals(ev.recapture_eligible, false);
+  assertEquals(ev.allow_provider_call, false);
 });
 
-Deno.test("11: Recapture server rejects client-supplied stale amount fields", () => {
-  const rejected = rejectClientChargeAmountFields({
-    trip_id: "t1",
-    amount_pence: 100,
+Deno.test("13+14: missing / unknown semantics → unavailable, no button", () => {
+  const missing = buildCustomerShortfallEvidence({
+    fare_field_contract: FARE_FIELD_CONTRACT.UNKNOWN,
+    tip_pence: 100,
+    final_customer_fare_pence: 600,
+    sessions: [verifiedSession],
+    adminPermitted: true,
   });
+  assertEquals(missing.authoritative_customer_payable_pence, null);
+  assertEquals(missing.outstanding_shortfall_pence, null);
+  assertEquals(missing.recapture_eligible, false);
+  assertEquals(missing.allow_provider_call, false);
+  assertEquals(missing.reject_code, "PAYABLE_UNAVAILABLE");
+});
+
+Deno.test("15: stale client amount rejected before provider boundary", () => {
+  const ev = buildCustomerShortfallEvidence({
+    ...MK,
+    customer_payable_pence: 700,
+    sessions: [{ ...verifiedSession, captured_amount_pence: 600 }],
+    client_expected_shortfall_pence: 50, // stale vs server 100
+    adminPermitted: true,
+    providerSettlementVerified: true,
+  });
+  assertEquals(ev.outstanding_shortfall_pence, 100);
+  assertEquals(ev.allow_provider_call, false);
+  assertEquals(ev.reject_code, "STALE_CLIENT_AMOUNT");
+  assertEquals(evaluateRecaptureProviderCallBoundary(ev).allow_provider_call, false);
+});
+
+Deno.test("16: client amount fields rejected by request gate", () => {
+  const rejected = rejectClientChargeAmountFields({ trip_id: "t1", amount_pence: 100 });
   assertEquals(rejected.ok, false);
 });
 
-Deno.test("12: MK-260912-005 fixture — 500+100=600 captured, zero shortfall, no recapture", () => {
+Deno.test("17: ownership mismatch rejected", () => {
+  const ev = buildCustomerShortfallEvidence({
+    ...MK,
+    customer_payable_pence: 700,
+    passenger_id: "passenger-a",
+    sessions: [{
+      ...verifiedSession,
+      captured_amount_pence: 600,
+      customer_id: "passenger-b",
+    }],
+    adminPermitted: true,
+    providerSettlementVerified: true,
+  });
+  assertEquals(ev.reject_code, "SESSION_CUSTOMER_MISMATCH");
+  assertEquals(ev.allow_provider_call, false);
+});
+
+Deno.test("18+19: PLATFORM only; DRIVER_COLLECTED blocked", () => {
+  const dc = buildCustomerShortfallEvidence({
+    ...MK,
+    customer_payable_pence: 700,
+    financial_model: FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+    sessions: [{ ...verifiedSession, captured_amount_pence: 600 }],
+    adminPermitted: true,
+  });
+  assertEquals(dc.allow_provider_call, false);
+  assertEquals(dc.reject_code, "DRIVER_COLLECTED_NOT_ALLOWED");
+});
+
+Deno.test("20: MK-260912-005 fixture 600/600/0", () => {
   const model = buildTripHistoryPaymentEvidenceReadModel({
     trip: MK,
-    sessions: [{
-      status: "completed",
-      provider_state: "COMPLETED",
-      purpose: "RIDE_BOOKING",
-      captured_amount_pence: 600,
-      refunded_amount_pence: 0,
-    }],
-    // Simulate Edge tip-inclusive payable used authoritatively (no second tip add).
-    authoritativeCustomerPayablePence: 600,
+    sessions: [verifiedSession],
+    customer_payable_pence: 600,
     providerSettlementVerified: true,
-    paymentStatus: "captured",
-    providerStatus: "COMPLETED",
-    tripStatus: "completed",
     adminPermitted: true,
+    tripStatus: "completed",
   });
   assertEquals(model.customer_discounted_payable_pence, 600);
   assertEquals(model.verified_captured_pence, 600);
   assertEquals(model.outstanding_shortfall_pence, 0);
   assertEquals(model.recapture_eligible, false);
-  assertEquals(
-    model.recapture_ui_state === TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID
-      || model.recapture_ui_state === TRIP_SHORTFALL_RECAPTURE_UI_STATE.HIDDEN
-      || !model.recapture_eligible,
-    true,
-  );
+});
 
-  // Regression: stuffing tip-inclusive into final_* must not yield 700.
-  const stuffed = buildTripHistoryPaymentEvidenceReadModel({
+Deno.test("21: genuine shortfall remains actionable", () => {
+  const model = buildTripHistoryPaymentEvidenceReadModel({
     trip: {
       ...MK,
       final_customer_fare_pence: 600,
-      final_fare_pence: 500,
+      final_fare_pence: 600,
+      tip_pence: 100,
     },
-    sessions: [{
-      status: "completed",
-      provider_state: "COMPLETED",
-      captured_amount_pence: 600,
-    }],
+    sessions: [{ ...verifiedSession, captured_amount_pence: 600 }],
     providerSettlementVerified: true,
     adminPermitted: true,
+    tripStatus: "completed",
   });
-  assertEquals(stuffed.customer_discounted_payable_pence, 600);
-  assertEquals(stuffed.outstanding_shortfall_pence, 0);
+  assertEquals(model.customer_discounted_payable_pence, 700);
+  assertEquals(model.outstanding_shortfall_pence, 100);
+  assertEquals(model.recapture_eligible, true);
+});
+
+Deno.test("22: provider mock invocation count is zero for all ineligible cases", () => {
+  let providerCalls = 0;
+  const maybeCallProvider = (allow: boolean) => {
+    if (allow) providerCalls += 1;
+  };
+
+  const cases = [
+    buildCustomerShortfallEvidence({
+      ...MK,
+      customer_payable_pence: 600,
+      sessions: [verifiedSession],
+      adminPermitted: true,
+    }),
+    buildCustomerShortfallEvidence({
+      fare_field_contract: FARE_FIELD_CONTRACT.UNKNOWN,
+      final_customer_fare_pence: 600,
+      tip_pence: 100,
+      sessions: [verifiedSession],
+      adminPermitted: true,
+    }),
+    buildCustomerShortfallEvidence({
+      ...MK,
+      customer_payable_pence: 700,
+      sessions: [{ ...verifiedSession, captured_amount_pence: 600 }],
+      client_expected_shortfall_pence: 1,
+      adminPermitted: true,
+      providerSettlementVerified: true,
+    }),
+    buildCustomerShortfallEvidence({
+      ...MK,
+      financial_model: FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
+      customer_payable_pence: 700,
+      sessions: [{ ...verifiedSession, captured_amount_pence: 600 }],
+      adminPermitted: true,
+    }),
+  ];
+
+  for (const ev of cases) {
+    const b = evaluateRecaptureProviderCallBoundary(ev);
+    assertEquals(b.allow_provider_call, false);
+    maybeCallProvider(b.allow_provider_call);
+  }
+  assertEquals(providerCalls, 0);
+});
+
+Deno.test("admin-get-trip-payment-state never stuffs tip-inclusive into final_customer_fare", async () => {
+  const root = new URL("../../../", import.meta.url);
+  const src = await Deno.readTextFile(
+    new URL("supabase/functions/admin-get-trip-payment-state/index.ts", root),
+  );
+  assertEquals(
+    /final_customer_fare_pence:\s*customer_payable_pence\s*>\s*0/.test(src),
+    false,
+  );
+  assertEquals(src.includes("customer_payable_pence,"), true);
+  assertEquals(src.includes("Tip-exclusive trip stamp only"), true);
 });

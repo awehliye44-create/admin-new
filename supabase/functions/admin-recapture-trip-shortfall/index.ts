@@ -5,6 +5,7 @@
  * Reuses create-payment-recovery / Payment Sessions recovery architecture.
  *
  * Input: { trip_id } only — never accepts arbitrary amount / customer / PI ids.
+ * Server recomputes payable/capture/shortfall from current evidence.
  * Final capture success is established by provider webhook, not this response.
  *
  * Permission: payments-trip-shortfall-recapture OR super_admin only
@@ -19,16 +20,13 @@ import {
   type GateError,
 } from "../_shared/adminPaymentGate.ts";
 import {
-  computeOutstandingBalancePence,
-} from "../_shared/paymentSessionsCaptureConfirmationSSOT.ts";
-import { resolveTripHistoryCustomerPayablePence } from "../_shared/tripHistoryPaymentLayersSSOT.ts";
+  buildCustomerShortfallEvidence,
+  evaluateRecaptureProviderCallBoundary,
+  FARE_FIELD_CONTRACT,
+} from "../_shared/customerShortfallEvidenceSSOT.ts";
 import {
   deriveAdminRecaptureOutcome,
-  evaluateTripHistoryShortfallRecaptureEligibility,
-  isPlatformCollectedEligible,
   rejectClientChargeAmountFields,
-  sumVerifiedCapturedFromSessions,
-  sumVerifiedRefundedFromSessions,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
 } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { readTripFinancialModelStamp } from "../_shared/commissionWalletSSOT.ts";
@@ -46,7 +44,6 @@ async function authorizeTripShortfallRecapture(
     .eq("is_active", true)
     .maybeSingle();
 
-  // Legacy JWT admin without staff_profiles is treated as super_admin by page gate.
   const role = staffRow?.role ? String(staffRow.role) : "super_admin";
   if (role === "super_admin") return gate;
 
@@ -85,6 +82,13 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "trip_id is required", code: "VALIDATION_MISSING_FIELD" }, 400);
     }
 
+    // Optional stale-request witness — must match server shortfall exactly; never charged.
+    const clientExpected = body.client_expected_shortfall_pence != null
+      ? Math.round(Number(body.client_expected_shortfall_pence))
+      : (body.expected_shortfall_pence != null
+        ? Math.round(Number(body.expected_shortfall_pence))
+        : null);
+
     const { data: trip, error: tripErr } = await gate.supabase
       .from("trips")
       .select(
@@ -92,7 +96,7 @@ Deno.serve(async (req) => {
           + "financial_model, final_customer_fare_pence, final_fare_pence, locked_base_fare_pence, "
           + "no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, "
           + "estimated_total_pence, capture_amount_pence, tip_pence, tip_amount_pence, "
-          + "financial_outcome",
+          + "airport_charge_pence, financial_outcome",
       )
       .eq("id", tripId)
       .maybeSingle();
@@ -111,56 +115,13 @@ Deno.serve(async (req) => {
       }, 409);
     }
 
-    if (!isPlatformCollectedEligible(financialModel)) {
-      return jsonResponse({
-        error: "Only PLATFORM_COLLECTED trips may use Trip History shortfall recapture",
-        code: "DRIVER_COLLECTED_NOT_ALLOWED",
-      }, 409);
-    }
-
     const { data: captureSessions } = await gate.supabase
       .from("payment_sessions")
-      .select("id, purpose, captured_amount_pence, status, provider_state, refunded_amount_pence, customer_id")
+      .select(
+        "id, purpose, captured_amount_pence, status, provider_state, refunded_amount_pence, "
+          + "customer_id, provider_order_id",
+      )
       .eq("trip_id", trip.id);
-
-    const verified = sumVerifiedCapturedFromSessions(captureSessions ?? []);
-    const netRefunded = sumVerifiedRefundedFromSessions(captureSessions ?? []);
-    // Trip projection fallback only when no verified session captures exist.
-    let originalCaptured = verified.original_captured_pence;
-    const recoveryCaptured = verified.recaptured_pence;
-    if (originalCaptured <= 0 && Number(trip.capture_amount_pence ?? 0) > 0) {
-      const ps = String(trip.payment_status ?? "").toLowerCase();
-      if (!ps.includes("cancel") && !ps.includes("fail") && !ps.includes("void")) {
-        originalCaptured = Math.round(Number(trip.capture_amount_pence));
-      }
-    }
-
-    const totalVerifiedCaptured = originalCaptured + recoveryCaptured;
-    // Tip-exclusive final_* + tip once — same basis as Trip History evidence / layers.
-    const payableResolved = resolveTripHistoryCustomerPayablePence(
-      {
-        final_customer_fare_pence: trip.final_customer_fare_pence,
-        final_fare_pence: trip.final_fare_pence,
-        locked_base_fare_pence: trip.locked_base_fare_pence,
-        no_show_charge_pence: trip.no_show_charge_pence,
-        cancellation_fee_pence: trip.cancellation_fee_pence,
-        tip_pence: trip.tip_pence,
-        tip_amount_pence: trip.tip_amount_pence,
-        outstanding_balance_pence: trip.outstanding_balance_pence,
-        payment_status: trip.payment_status,
-        financial_outcome: trip.financial_outcome,
-        status: trip.status,
-        capture_amount_pence: trip.capture_amount_pence,
-      },
-      totalVerifiedCaptured,
-    );
-
-    const outstanding = computeOutstandingBalancePence({
-      canonicalPayablePence: payableResolved.payable_pence,
-      confirmedCapturePence: originalCaptured,
-      confirmedRecoveryCapturePence: recoveryCaptured,
-      netRefundedTotalPence: netRefunded,
-    });
 
     const { count: openRecoveryCount } = await gate.supabase
       .from("payment_sessions")
@@ -171,36 +132,56 @@ Deno.serve(async (req) => {
 
     const hasOpenRecovery = (openRecoveryCount ?? 0) > 0;
 
-    const eligibility = evaluateTripHistoryShortfallRecaptureEligibility({
-      tripStatus: trip.status,
-      financialModel,
-      paymentMethod: trip.payment_method,
-      customerPayablePence: payableResolved.payable_pence,
-      verifiedCapturedTotalPence: originalCaptured + recoveryCaptured,
-      netRefundedTotalPence: netRefunded,
-      // Open attempt is not a hard reject here — create-payment-recovery reuses it.
-      hasOpenRecoveryAttempt: false,
+    const evidence = buildCustomerShortfallEvidence({
+      final_customer_fare_pence: trip.final_customer_fare_pence,
+      final_fare_pence: trip.final_fare_pence,
+      locked_base_fare_pence: trip.locked_base_fare_pence,
+      tip_pence: trip.tip_pence,
+      tip_amount_pence: trip.tip_amount_pence,
+      airport_charge_pence: trip.airport_charge_pence,
+      no_show_charge_pence: trip.no_show_charge_pence,
+      cancellation_fee_pence: trip.cancellation_fee_pence,
+      outstanding_balance_pence: trip.outstanding_balance_pence,
+      payment_status: trip.payment_status,
+      financial_outcome: trip.financial_outcome,
+      status: trip.status,
+      financial_model: financialModel,
+      payment_method: trip.payment_method,
+      capture_amount_pence: trip.capture_amount_pence,
+      fare_field_contract: FARE_FIELD_CONTRACT.TIP_EXCLUSIVE_FINAL,
+      sessions: captureSessions ?? [],
+      hasOpenRecoveryAttempt: hasOpenRecovery,
       adminPermitted: true,
+      client_expected_shortfall_pence: clientExpected,
+      passenger_id: trip.passenger_id,
     });
 
-    if (!eligibility.eligible) {
-      const noAmountDue = (eligibility.outstanding_shortfall_pence ?? outstanding ?? 0) <= 0;
-      if (noAmountDue) {
-        // Nothing is owed — treat as a successful no-op instead of a client error.
+    const boundary = evaluateRecaptureProviderCallBoundary(evidence);
+    const outstanding = evidence.outstanding_shortfall_pence;
+
+    if (!boundary.allow_provider_call) {
+      if (boundary.reject_code === "NO_SHORTFALL_DUE" || (outstanding ?? 0) <= 0) {
         return jsonResponse({
           success: true,
           code: "NO_SHORTFALL_DUE",
           message: "No outstanding amount to recapture. Payment state is up to date.",
           trip_id: tripId,
-          ui_state: eligibility.ui_state,
+          ui_state: TRIP_SHORTFALL_RECAPTURE_UI_STATE.FULLY_PAID,
           outstanding_shortfall_pence: 0,
+          customer_payable_pence: evidence.authoritative_customer_payable_pence,
+          payable_source: evidence.payable_source,
+          verified_captured_pence: evidence.verified_captured_pence,
+          provider_attempt_created: false,
         });
       }
       return jsonResponse({
-        error: eligibility.reject_reason ?? "Recapture not available",
-        code: String(eligibility.reject_reason ?? "NOT_ELIGIBLE").toUpperCase(),
-        ui_state: eligibility.ui_state,
-        outstanding_shortfall_pence: eligibility.outstanding_shortfall_pence ?? outstanding,
+        error: evidence.unavailable_reason ?? boundary.reject_code ?? "Recapture not available",
+        code: String(boundary.reject_code ?? "NOT_ELIGIBLE").toUpperCase(),
+        ui_state: evidence.recapture_ui_state,
+        outstanding_shortfall_pence: outstanding,
+        customer_payable_pence: evidence.authoritative_customer_payable_pence,
+        payable_source: evidence.payable_source,
+        provider_attempt_created: false,
       }, 409);
     }
 
@@ -215,23 +196,14 @@ Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    // Any session on this trip must belong to the trip passenger.
-    const foreignSession = (captureSessions ?? []).find(
-      (s) => s.customer_id != null && s.customer_id !== trip.passenger_id,
-    );
-    if (foreignSession) {
-      return jsonResponse({
-        error: "Payment session customer does not match trip passenger",
-        code: "SESSION_CUSTOMER_MISMATCH",
-      }, 409);
-    }
-
     const authHeader = req.headers.get("Authorization") ?? "";
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const anonOrServiceKey =
       Deno.env.get("SUPABASE_ANON_KEY")
       ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
       ?? "";
+
+    // Provider boundary — only reached when allow_provider_call is true.
     const recoveryRes = await fetch(`${supabaseUrl}/functions/v1/create-payment-recovery`, {
       method: "POST",
       headers: {
@@ -256,8 +228,6 @@ Deno.serve(async (req) => {
       recoveryJson = {};
     }
 
-    // Provider proved the parent order is fully settled and re-synced the trip.
-    // This is a terminal success outcome, not a failure.
     if (
       !recoveryRes.ok
       && String(recoveryJson.code ?? recoveryJson.error_code ?? "") === "ALREADY_FULLY_CAPTURED"
@@ -272,11 +242,12 @@ Deno.serve(async (req) => {
         provider_order_id: null,
         outstanding_shortfall_pence: 0,
         charged_pence: 0,
-        original_captured_pence: originalCaptured,
-        recaptured_pence_before: recoveryCaptured,
-        net_refunded_pence: netRefunded,
+        customer_payable_pence: evidence.authoritative_customer_payable_pence,
+        verified_captured_pence: evidence.verified_captured_pence,
+        net_refunded_pence: evidence.verified_refunded_pence,
         reused: false,
         already_completed: true,
+        provider_attempt_created: false,
         message: String(
           recoveryJson.message
             ?? "Payment is already fully captured with the provider. The trip has been re-synced — no further charge is due.",
@@ -285,7 +256,6 @@ Deno.serve(async (req) => {
     }
 
     if (!recoveryRes.ok) {
-
       const bootFailed =
         recoveryRes.status === 546
         || /worker boot error|does not provide an export named/i.test(recoveryText);
@@ -323,8 +293,8 @@ Deno.serve(async (req) => {
       admin_user_id: gate.userId,
       action: "extra_payment",
       reason: "trip_history_shortfall_recapture",
-      amount_pence_before: Math.max(0, originalCaptured + recoveryCaptured - netRefunded),
-      amount_pence_after: Math.max(0, originalCaptured + recoveryCaptured - netRefunded),
+      amount_pence_before: evidence.verified_net_captured_pence,
+      amount_pence_after: evidence.verified_net_captured_pence,
       delta_pence: 0,
       provider: "revolut",
       provider_payment_id: recoveryJson.provider_order_id ?? null,
@@ -333,11 +303,10 @@ Deno.serve(async (req) => {
         payment_session_id: recoveryJson.payment_session_id ?? null,
         customer_id: trip.passenger_id,
         outstanding_shortfall_pence: outstanding,
-        effective_paid_before_pence: Math.max(0, originalCaptured + recoveryCaptured - netRefunded),
-        net_refunded_pence: netRefunded,
-        canonical_payable_pence: payableResolved.payable_pence,
-        original_captured_pence: originalCaptured,
-        recaptured_pence_before: recoveryCaptured,
+        customer_payable_pence: evidence.authoritative_customer_payable_pence,
+        payable_source: evidence.payable_source,
+        verified_captured_pence: evidence.verified_captured_pence,
+        net_refunded_pence: evidence.verified_refunded_pence,
         parent_session_id: parentSession?.id ?? null,
         reused: !!recoveryJson.reused || hasOpenRecovery,
         already_completed: !!recoveryJson.already_completed,
@@ -372,12 +341,14 @@ Deno.serve(async (req) => {
       payment_session_id: recoveryJson.payment_session_id ?? null,
       provider_order_id: recoveryJson.provider_order_id ?? null,
       outstanding_shortfall_pence: outstanding,
-      charged_pence: recoveryJson.amount ?? outstanding,
-      original_captured_pence: originalCaptured,
-      recaptured_pence_before: recoveryCaptured,
-      net_refunded_pence: netRefunded,
+      charged_pence: outstanding,
+      customer_payable_pence: evidence.authoritative_customer_payable_pence,
+      payable_source: evidence.payable_source,
+      verified_captured_pence: evidence.verified_captured_pence,
+      net_refunded_pence: evidence.verified_refunded_pence,
       reused: outcome.reused,
       already_completed: outcome.already_completed,
+      provider_attempt_created: true,
       message: outcome.message
         ?? (outcome.saved_card_charged
           ? "Saved card charged off-session — awaiting provider webhook confirmation."

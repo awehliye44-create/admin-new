@@ -1,43 +1,60 @@
 # Trip History shortfall tip double-count — audit
 
 Base: `2b65a809` · Branch: `fix/admin-trip-shortfall-tip-doublecount-20260916`
+Fixture: **MK-260912-005** (fare 500 + tip 100 + airport 0 → payable 600 / captured 600 / shortfall 0)
 
 ## Defective formula (proven)
 
 ```
 Edge customer_payable_pence = final_customer_fare (500) + tip (100) = 600
-→ frontend stuffs 600 into trip.final_customer_fare_pence
-→ resolveTripHistoryCustomerPayablePence adds tip again
+→ frontend / payment-state stuffed 600 into final_customer_fare_pence
+→ resolveTripHistoryCustomerPayablePence added tip again
 → 600 + 100 = 700
 → shortfall = max(0, 700 − 600) = 100
-→ Recapture £1.00
+→ false Recapture £1.00
 ```
 
-Owning files:
-1. `src/components/trips/TripHistoryShortfallRecaptureAction.tsx` — overwrites `final_customer_fare_pence` with tip-inclusive Edge payable
-2. `supabase/functions/_shared/tripHistoryPaymentLayersSSOT.ts` → `resolveTripHistoryCustomerPayablePence` — adds tip when `source` starts with `final`
+Also: `admin-get-trip-payment-state` returned `final_customer_fare_pence: customer_payable` (tip-inclusive stuffed into fare-only field).
 
-## Field lineage
+## Corrected formula
 
-| # | Display | DB / API | Edge mapper | Frontend | Display helper |
-|---|---|---|---|---|---|
-| 1 | Final customer payable (Trip Fare) | `trips.final_customer_fare_pence` + `tip_pence` | (client-only) `buildTripHistoryPaymentEvidenceReadModel` → `resolveTripHistoryCustomerPayablePence` | `getTripCustomerPayablePence` | `/100` + currency |
-| 2 | Customer Payment → Fare | `final_customer_fare_pence` | — | `buildCanonicalTripEconomicsRead` | `formatStoredPenceOrUnknown` |
-| 3 | Tip | `tip_pence` / `tip_amount_pence` | — | `resolveTripTipPence` | `formatStoredPenceOrUnknown` |
-| 4 | Total paid | PS `captured_amount_pence` | disposition / evidence | `getTripProviderCapturedPence` | `formatStoredPenceOrUnknown` |
-| 5 | Shortfall → Customer payable | **buggy path** above | `admin-get-trip-payment-state` `customer_payable_pence` | ShortfallAction evidence rebuild | currency format |
-| 6 | Verified captured | PS confirmed captures | `sumVerifiedCaptured` / layers | evidence `verified_captured_pence` | currency |
-| 7 | Outstanding shortfall | payable − net captured | `computeOutstandingShortfallPence` | gate + evidence | currency |
-| 8 | Recapture amount | same shortfall | server recomputes (must use tip-once payable) | `recaptureActionLabel` | label |
-| 9 | Refunded | PS `refunded_amount_pence` | disposition | `getTripProviderRefundedPence` → null | was `Unknown` |
-| 10 | Actual wallet credit | ledger TEN+TIP | not wired | hardcoded `null` | was `Unknown` |
+```
+authoritative_customer_payable =
+  customer_payable_pence                         # aggregate path (once)
+  OR tip_exclusive_final + tip_pence             # component path (once)
+  NEVER both
 
-## Mapping gaps
+verified_net_captured = confirmed_captured − confirmed_refunded
+outstanding_shortfall = max(0, authoritative_customer_payable − verified_net_captured)
+```
 
-- **Refunded Unknown**: disposition/PS refund field absent → null; UI must say **Unavailable** (evidence not loaded), not invent £0.
-- **Actual wallet credit Unknown**: Trip History never passes ledger actual (`actualWalletCreditPence: null`); show **Unavailable — wallet credit not loaded on this panel**.
+Unknown fold semantics → fail closed (payable/shortfall unavailable, Recapture hidden).
+No numeric “tip already folded” heuristic.
 
-## Correct rule
+## Field lineage (after)
 
-One basis only: tip-exclusive `final_*` + tip once, **or** authoritative tip-inclusive Edge payable — never both.
-Shortfall = `max(0, canonical_payable − verified_net_captured)`.
+| Field | Contract | Owner |
+|---|---|---|
+| `final_customer_fare_pence` | tip-exclusive fare stamp | trips + payment-state (never stuffed) |
+| `customer_payable_pence` | tip-inclusive authoritative aggregate | layers / payment-state / ShortfallAction |
+| `customer_payable_source` / `payable_source` | provenance enum | `customerShortfallEvidenceSSOT` |
+| tip / airport | display components only when aggregate used | UI breakdown |
+| verified captured / refunded | confirmed sessions only | `tripHistoryShortfallRecaptureSSOT` |
+| outstanding shortfall | SSOT formula above | shared evidence + `admin-recapture-trip-shortfall` |
+
+## Shared SSOT
+
+`supabase/functions/_shared/customerShortfallEvidenceSSOT.ts`
+(re-exported via `shared/customerShortfallEvidenceSSOT.ts`)
+
+Used by:
+- Trip History payment evidence read model
+- Trip History payment layers payable resolution
+- `admin-recapture-trip-shortfall` (server recomputes; client amount is stale witness only)
+- Recapture eligibility / provider-call boundary (`allow_provider_call`)
+
+## Mapping gaps (UI)
+
+- **Refunded**: £0.00 only when confirmed zero; else `Unavailable — Payment Session refund evidence not loaded.`
+- **Actual wallet credit**: value only when ledger loaded; else `Unavailable — Wallet ledger credit not loaded on this panel.`
+- Zero shortfall → no “Customer payment shortfall” panel / Recapture button.

@@ -29,7 +29,7 @@ describe('Trip History shortfall tip double-count lock', () => {
         captured_amount_pence: 600,
         refunded_amount_pence: 0,
       }],
-      authoritativeCustomerPayablePence: 600,
+      customer_payable_pence: 600,
       providerSettlementVerified: true,
       adminPermitted: true,
       tripStatus: 'completed',
@@ -40,23 +40,46 @@ describe('Trip History shortfall tip double-count lock', () => {
     expect(model.recapture_eligible).toBe(false);
   });
 
-  it('stuffed tip-inclusive final_customer does not become 700', () => {
+  it('authoritative aggregate path never adds tip again', () => {
     const model = buildTripHistoryPaymentEvidenceReadModel({
       trip: {
         ...mkTrip,
-        final_customer_fare_pence: 600,
-        final_fare_pence: 500,
+        final_customer_fare_pence: 500,
+        tip_pence: 100,
       },
       sessions: [{
         status: 'completed',
         provider_state: 'COMPLETED',
         captured_amount_pence: 600,
       }],
+      customer_payable_pence: 600,
       providerSettlementVerified: true,
       adminPermitted: true,
     });
     expect(model.customer_discounted_payable_pence).toBe(600);
     expect(model.outstanding_shortfall_pence).toBe(0);
+    expect(model.payable_source).toContain('authoritative_customer_payable');
+  });
+
+  it('unknown fold semantics fail closed — no false shortfall button', () => {
+    const model = buildTripHistoryPaymentEvidenceReadModel({
+      trip: {
+        ...mkTrip,
+        final_customer_fare_pence: 600,
+      },
+      sessions: [{
+        status: 'completed',
+        provider_state: 'COMPLETED',
+        captured_amount_pence: 600,
+      }],
+      fare_field_contract: 'unknown',
+      providerSettlementVerified: true,
+      adminPermitted: true,
+    });
+    expect(model.customer_discounted_payable_pence).toBe(0);
+    expect(model.outstanding_shortfall_pence).toBe(0);
+    expect(model.recapture_eligible).toBe(false);
+    expect(model.evidence_complete).toBe(false);
   });
 
   it('ShortfallAction must not overwrite final_customer_fare with Edge payable', () => {
@@ -64,7 +87,7 @@ describe('Trip History shortfall tip double-count lock', () => {
       resolve(__dirname, '../../components/trips/TripHistoryShortfallRecaptureAction.tsx'),
       'utf8',
     );
-    expect(src).toContain('authoritativeCustomerPayablePence');
+    expect(src).toContain('customer_payable_pence');
     expect(src).not.toMatch(/final_customer_fare_pence:\s*payable\s*>\s*0\s*\?\s*payable/);
   });
 
