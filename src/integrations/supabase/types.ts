@@ -3388,44 +3388,6 @@ export type Database = {
           },
         ]
       }
-      corporate_schedule_holds: {
-        Row: {
-          client_action_id: string
-          corporate_account_id: string
-          created_at: string
-          id: string
-          status: string
-          window_end: string
-          window_start: string
-        }
-        Insert: {
-          client_action_id: string
-          corporate_account_id: string
-          created_at?: string
-          id?: string
-          status?: string
-          window_end: string
-          window_start: string
-        }
-        Update: {
-          client_action_id?: string
-          corporate_account_id?: string
-          created_at?: string
-          id?: string
-          status?: string
-          window_end?: string
-          window_start?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "corporate_schedule_holds_corporate_account_id_fkey"
-            columns: ["corporate_account_id"]
-            isOneToOne: false
-            referencedRelation: "corporate_accounts"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       corporate_support_tickets: {
         Row: {
           assigned_to: string | null
@@ -16144,7 +16106,6 @@ export type Database = {
           source: string | null
           status: string
           submitted_at: string | null
-          trip_change_request_id: string | null
           verified_at: string | null
         }
         Insert: {
@@ -16177,7 +16138,6 @@ export type Database = {
           source?: string | null
           status?: string
           submitted_at?: string | null
-          trip_change_request_id?: string | null
           verified_at?: string | null
         }
         Update: {
@@ -16210,7 +16170,6 @@ export type Database = {
           source?: string | null
           status?: string
           submitted_at?: string | null
-          trip_change_request_id?: string | null
           verified_at?: string | null
         }
         Relationships: [
@@ -16234,13 +16193,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_payment_lifecycle_audit"
             referencedColumns: ["recovery_session_id"]
-          },
-          {
-            foreignKeyName: "payment_session_authorisations_trip_change_request_id_fkey"
-            columns: ["trip_change_request_id"]
-            isOneToOne: false
-            referencedRelation: "trip_change_requests"
-            referencedColumns: ["id"]
           },
         ]
       }
@@ -22119,75 +22071,6 @@ export type Database = {
           },
         ]
       }
-      trip_modification_apply_events: {
-        Row: {
-          authorised_total_pence: number | null
-          created_at: string
-          event_type: string
-          fare_delta_pence: number
-          id: string
-          new_fare_pence: number | null
-          trip_change_request_id: string
-          trip_id: string
-        }
-        Insert: {
-          authorised_total_pence?: number | null
-          created_at?: string
-          event_type: string
-          fare_delta_pence?: number
-          id?: string
-          new_fare_pence?: number | null
-          trip_change_request_id: string
-          trip_id: string
-        }
-        Update: {
-          authorised_total_pence?: number | null
-          created_at?: string
-          event_type?: string
-          fare_delta_pence?: number
-          id?: string
-          new_fare_pence?: number | null
-          trip_change_request_id?: string
-          trip_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "trip_modification_apply_events_trip_change_request_id_fkey"
-            columns: ["trip_change_request_id"]
-            isOneToOne: true
-            referencedRelation: "trip_change_requests"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "trip_modification_apply_events_trip_id_fkey"
-            columns: ["trip_id"]
-            isOneToOne: false
-            referencedRelation: "admin_trip_lifecycle_fees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "trip_modification_apply_events_trip_id_fkey"
-            columns: ["trip_id"]
-            isOneToOne: false
-            referencedRelation: "available_scheduled_jobs"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "trip_modification_apply_events_trip_id_fkey"
-            columns: ["trip_id"]
-            isOneToOne: false
-            referencedRelation: "trips"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "trip_modification_apply_events_trip_id_fkey"
-            columns: ["trip_id"]
-            isOneToOne: false
-            referencedRelation: "v_payment_lifecycle_audit"
-            referencedColumns: ["trip_id"]
-          },
-        ]
-      }
       trip_route_cache: {
         Row: {
           cached_at: string
@@ -28023,34 +27906,12 @@ export type Database = {
           previous_device_id: string
         }[]
       }
-      claim_and_apply_fare_increase_modification: {
-        Args: {
-          p_authorised_total_pence: number
-          p_expected_original_fare_pence: number
-          p_expected_trip_status: string
-          p_provider_confirmed: boolean
-          p_request_id: string
-          p_required_authorised_total_pence: number
-          p_trip_id: string
-        }
-        Returns: Json
-      }
       claim_company_transfer_submission: {
         Args: {
           p_claim_token?: string
           p_place_hold?: boolean
           p_source_account_id: string
           p_transfer_id: string
-        }
-        Returns: Json
-      }
-      claim_corporate_schedule_hold: {
-        Args: {
-          p_buffer_minutes?: number
-          p_client_action_id: string
-          p_corporate_account_id: string
-          p_duration_minutes?: number
-          p_scheduled_at: string
         }
         Returns: Json
       }
@@ -30710,10 +30571,6 @@ export type Database = {
       trip_commission_reserve_fare_minor: {
         Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
         Returns: number
-      }
-      trip_has_unresolved_fare_increase_modification: {
-        Args: { p_trip_id: string }
-        Returns: boolean
       }
       trip_negotiation_base_fare_pence: {
         Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
