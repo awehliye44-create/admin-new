@@ -229,7 +229,7 @@ Deno.test("caller audit: backend owns increment; completion gates unresolved", a
 Deno.test("atomic migration serializes claim with FOR UPDATE", async () => {
   const sql = await Deno.readTextFile(
     new URL(
-      "../../migrations/20260916220000_atomic_fare_increase_modification_claim.sql",
+      "../../migrations/20261112180000_atomic_fare_increase_modification_claim.sql",
       import.meta.url,
     ),
   );
@@ -241,7 +241,7 @@ Deno.test("atomic migration serializes claim with FOR UPDATE", async () => {
 
   const broaden = await Deno.readTextFile(
     new URL(
-      "../../migrations/20260916223000_unresolved_mod_payment_status_lock.sql",
+      "../../migrations/20261112181000_unresolved_mod_payment_status_lock.sql",
       import.meta.url,
     ),
   );
@@ -254,7 +254,7 @@ Deno.test("atomic migration serializes claim with FOR UPDATE", async () => {
 Deno.test("completion gate migration locks trip and requires protected >= committed", async () => {
   const sql = await Deno.readTextFile(
     new URL(
-      "../../migrations/20260916221500_completion_payment_gate_lock.sql",
+      "../../migrations/20261112180500_completion_payment_gate_lock.sql",
       import.meta.url,
     ),
   );
@@ -269,7 +269,7 @@ Deno.test("completion gate migration locks trip and requires protected >= commit
 Deno.test("DB apply guard blocks unpaid PLATFORM approved/applied increases", async () => {
   const sql = await Deno.readTextFile(
     new URL(
-      "../../migrations/20260916224500_trip_change_payment_apply_guard.sql",
+      "../../migrations/20261112181500_trip_change_payment_apply_guard.sql",
       import.meta.url,
     ),
   );
@@ -284,7 +284,7 @@ Deno.test("DB apply guard blocks unpaid PLATFORM approved/applied increases", as
 Deno.test("driver PostgREST cannot forge payment_status to apply increases", async () => {
   const sql = await Deno.readTextFile(
     new URL(
-      "../../migrations/20260916230000_trip_change_driver_update_lock.sql",
+      "../../migrations/20261112182000_trip_change_driver_update_lock.sql",
       import.meta.url,
     ),
   );
@@ -299,7 +299,7 @@ Deno.test("driver PostgREST cannot forge payment_status to apply increases", asy
 Deno.test("claim fails closed without ADDITIONAL_AUTHORISATION_CONFIRMED evidence", async () => {
   const sql = await Deno.readTextFile(
     new URL(
-      "../../migrations/20260916231000_claim_requires_auth_evidence.sql",
+      "../../migrations/20261112182500_claim_requires_auth_evidence.sql",
       import.meta.url,
     ),
   );
