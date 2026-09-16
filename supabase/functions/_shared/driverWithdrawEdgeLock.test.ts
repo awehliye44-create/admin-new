@@ -53,8 +53,8 @@ Deno.test("driver-withdraw never second /pay on reconcile — status path only",
 
 Deno.test("future fee: provider transfer is gross minus fee before /pay", async () => {
   const src = await Deno.readTextFile(EDGE);
-  assertStringIncludes(src, "early_cash_out_driver_receives_pence");
   assertStringIncludes(src, "providerTransferPence");
+  assertStringIncludes(src, "provider_transfer_pence");
   assertStringIncludes(src, "BALANCE_NOT_GREATER_THAN_FEE");
   assertStringIncludes(src, "amount_pence: providerTransferPence");
 });

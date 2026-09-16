@@ -9,6 +9,7 @@ import { fetchDriverPayoutEligibilityContext } from "../_shared/fetchDriverPayou
 import {
   assertClientAmountWithinWithdrawable,
   buildDriverPayoutWithdrawalQuote,
+  DRIVER_WITHDRAW_QUOTE_VERSION,
   toDriverWithdrawExecutorQuotePayload,
 } from "../_shared/driverPayoutWithdrawalQuoteSSOT.ts";
 import { planPayoutItemFromEligibleEntries } from "../_shared/payoutLedgerHandoffSSOT.ts";
@@ -36,6 +37,16 @@ import {
 import { resolveLiveCompanyBalanceSnapshot } from "../_shared/companyBalanceResolveSSOT.ts";
 import { ensureFreshRevolutBusinessAccessToken } from "../_shared/revolutBusinessAccessTokenRefresh.ts";
 import { reconcileSubmittedDriverWithdrawPayout } from "../_shared/driverWithdrawProviderReconcile.ts";
+import {
+  buildDriverWithdrawDiag,
+  DRIVER_WITHDRAW_INTERNAL_ERROR,
+  hashIdempotencyKeyForDiagnostics,
+  rejectClientServiceAreaOverride,
+  resolveAuthoritativeWithdrawServiceArea,
+  safeDriverWithdrawInternalErrorBody,
+  type DriverWithdrawDiag,
+  type DriverWithdrawPostStage,
+} from "../_shared/driverWithdrawPostScopeSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -191,6 +202,9 @@ async function buildDriverWithdrawQuoteReadOnly(
     ok: true;
     quote: ReturnType<typeof buildDriverPayoutWithdrawalQuote>;
     gateCtx: Awaited<ReturnType<typeof fetchDriverPayoutEligibilityContext>>;
+    /** Authoritative server-owned service area — POST must use this, never helper-local `summary`. */
+    service_area_id: string;
+    financial_model: string | null;
     destination_status: string | null;
     destination_last4: string | null;
   }
@@ -215,6 +229,30 @@ async function buildDriverWithdrawQuoteReadOnly(
       error: "wallet_summary_failed",
       driver_message: "Unable to load wallet eligibility.",
       status: 500,
+    };
+  }
+
+  // Identity membership for the summary service area (not a second wallet/finance SA RPC).
+  const [{ data: driverRow }, { data: membershipRows }] = await Promise.all([
+    supabase.from("drivers").select("service_area_id").eq("id", driverId).maybeSingle(),
+    supabase.from("driver_service_areas").select("service_area_id").eq("driver_id", driverId),
+  ]);
+  const membershipIds = Array.isArray(membershipRows)
+    ? membershipRows.map((r: { service_area_id?: unknown }) => r?.service_area_id)
+    : [];
+  const saResolved = resolveAuthoritativeWithdrawServiceArea({
+    summary_service_area_id: summary.service_area_id,
+    driver_primary_service_area_id: (driverRow as { service_area_id?: unknown } | null)
+      ?.service_area_id,
+    driver_membership_service_area_ids: membershipIds,
+    financial_model: summary.financial_model ?? "PLATFORM_COLLECTED",
+  });
+  if (!saResolved.ok) {
+    return {
+      ok: false,
+      error: saResolved.code,
+      driver_message: saResolved.copy,
+      status: 409,
     };
   }
 
@@ -252,6 +290,8 @@ async function buildDriverWithdrawQuoteReadOnly(
     ok: true,
     quote,
     gateCtx,
+    service_area_id: saResolved.service_area_id,
+    financial_model: saResolved.financial_model,
     destination_status: destinationStatus,
     destination_last4: gateCtx.active_destination_last4,
   };
@@ -322,6 +362,11 @@ Deno.serve(async (req) => {
 
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
+  const requestId = crypto.randomUUID();
+  let diagStage: DriverWithdrawPostStage = "auth";
+  let diag: DriverWithdrawDiag = buildDriverWithdrawDiag({ request_id: requestId, stage: diagStage });
+
+  try {
   const flagGate = evaluateDriverWithdrawExecutionGate(Deno.env);
   if (!flagGate.ok) {
     return json({
@@ -329,6 +374,7 @@ Deno.serve(async (req) => {
       error: flagGate.code,
       driver_message: flagGate.message,
       revolut_pay_called: false,
+      request_id: requestId,
     }, 503);
   }
 
@@ -349,6 +395,18 @@ Deno.serve(async (req) => {
     body = await req.json();
   } catch {
     body = {};
+  }
+
+  const clientSaGate = rejectClientServiceAreaOverride(body);
+  if (!clientSaGate.ok) {
+    return json({
+      ok: false,
+      error: clientSaGate.code,
+      error_code: clientSaGate.code,
+      driver_message: clientSaGate.copy,
+      revolut_pay_called: false,
+      request_id: requestId,
+    }, 403);
   }
 
   // Service-role probes only (no new /pay).
@@ -540,12 +598,39 @@ Deno.serve(async (req) => {
     return json({
       ok: false,
       error: built.error,
+      error_code: built.error,
       driver_message: built.driver_message,
       revolut_pay_called: false,
+      request_id: requestId,
     }, built.status);
   }
   const quote = built.quote;
   const gateCtx = built.gateCtx;
+  // Server-owned — never helper-local `summary`, never client body.
+  const serviceAreaId = built.service_area_id;
+  diagStage = "quote_rebuilt";
+  diag = buildDriverWithdrawDiag({
+    request_id: requestId,
+    driver_id: driverId,
+    stage: diagStage,
+    quote_version: DRIVER_WITHDRAW_QUOTE_VERSION,
+    gross_pence: quote.withdrawable_pence,
+    fee_pence: quote.fee_pence,
+    net_pence: quote.net_payout_pence,
+    service_area_id: serviceAreaId,
+    idempotency_key_hash: hashIdempotencyKeyForDiagnostics(clientIdempotency),
+  });
+  console.info("[driver-withdraw]", {
+    request_id: requestId,
+    stage: diagStage,
+    driver_id: driverId,
+    idempotency_key_hash: diag.idempotency_key_hash,
+    quote_version: DRIVER_WITHDRAW_QUOTE_VERSION,
+    gross_pence: quote.withdrawable_pence,
+    fee_pence: quote.fee_pence,
+    net_pence: quote.net_payout_pence,
+    service_area_id: serviceAreaId,
+  });
 
   // Feature / provider gates that remain hard for execute (quote may already encode them).
   if (quote.blocking_reason_code === "FEATURE_DISABLED") {
@@ -649,9 +734,17 @@ Deno.serve(async (req) => {
   }
   const providerTransferPence = receivesPence;
 
-  const serviceAreaId = summary.service_area_id
-    ? String(summary.service_area_id)
-    : null;
+  if (!serviceAreaId) {
+    return json({
+      ok: false,
+      error: "SERVICE_AREA_MISSING",
+      error_code: "SERVICE_AREA_MISSING",
+      driver_message: "Withdrawal service area could not be resolved.",
+      revolut_pay_called: false,
+      request_id: requestId,
+    }, 409);
+  }
+  diagStage = "service_area_resolved";
 
   const { data: dest } = await supabase
     .from("driver_payout_destinations")
@@ -1155,5 +1248,35 @@ Deno.serve(async (req) => {
     withdrawal_fee_pence: feePence,
     provider_transfer_pence: providerTransferPence,
     revolut_pay_called: relayResult.revolut_pay_called === true,
+    request_id: requestId,
+    diagnostics: {
+      request_id: requestId,
+      stage: "finalized",
+      quote_version: DRIVER_WITHDRAW_QUOTE_VERSION,
+      service_area_id: serviceAreaId,
+      provider_boundary_reached: true,
+      final_status: finalStatus,
+    },
   }, ok ? 200 : 422);
+  } catch (err) {
+    console.error("[driver-withdraw] INTERNAL_EXECUTION_ERROR", {
+      request_id: requestId,
+      stage: diagStage,
+      name: err instanceof Error ? err.name : "unknown",
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return json(
+      safeDriverWithdrawInternalErrorBody({
+        request_id: requestId,
+        diag: {
+          ...diag,
+          stage: "failed_closed",
+          error_code: DRIVER_WITHDRAW_INTERNAL_ERROR,
+          final_status: "internal_error",
+          provider_boundary_reached: false,
+        },
+      }),
+      500,
+    );
+  }
 });
