@@ -443,7 +443,11 @@ export function formatPaymentSessionsEvidenceStatus(
   return s;
 }
 
-/** Tab membership — Captured = confirmed captures only (amount present). provider Payments style. */
+/**
+ * Tab membership — Captured = confirmed captures only.
+ * A zero captured amount is a lifecycle stamp artefact (release / cancel), never a capture,
+ * so it must not populate the Captured tab or its total.
+ */
 export function rowBelongsInCapturedTab(row: {
   captured_at?: string | null;
   captured_amount_pence?: number | null;
@@ -454,16 +458,24 @@ export function rowBelongsInCapturedTab(row: {
   if (row.captured_amount_pence == null || !Number.isFinite(Number(row.captured_amount_pence))) {
     return false;
   }
-  if (Number(row.captured_amount_pence) < 0) return false;
+  const captured = Number(row.captured_amount_pence);
+  if (captured < 0) return false;
+  // Zero capture is only a capture when the provider itself reports a captured order.
+  if (captured === 0 && !isProviderCapturedState(row.provider_state)) return false;
   if (row.captured_at) return true;
   if (isProviderCapturedState(row.provider_state)) return true;
   return row.attention_class === "CAPTURED";
 }
 
-/** Released tab = released holds only — never Cancelled (Cancelled stays in History). */
+/**
+ * Released tab = released holds only — never Cancelled (Cancelled stays in History).
+ * A released_at stamp with a zero released amount on a fully captured session is a
+ * finalisation artefact (nothing was returned to the customer) and is excluded.
+ */
 export function rowBelongsInReleasedTab(row: {
   released_at?: string | null;
   released_amount_pence?: number | null;
+  captured_amount_pence?: number | null;
   release_evidence_status?: string | null;
   provider_state?: string | null;
   attention_class?: string | null;
@@ -477,6 +489,11 @@ export function rowBelongsInReleasedTab(row: {
     return false;
   }
   if (row.attention_class === "RESOLVED_PROVIDER_CANCELLED") return false;
+  const releasedRaw = row.released_amount_pence == null ? null : Number(row.released_amount_pence);
+  const released = releasedRaw != null && Number.isFinite(releasedRaw) ? Math.round(releasedRaw) : null;
+  const capturedRaw = row.captured_amount_pence == null ? null : Number(row.captured_amount_pence);
+  const captured = capturedRaw != null && Number.isFinite(capturedRaw) ? Math.round(capturedRaw) : null;
+  if (released === 0 && captured != null && captured > 0) return false;
   if (row.released_at) return true;
   if (
     evidence === "CONFIRMED"
@@ -489,14 +506,18 @@ export function rowBelongsInReleasedTab(row: {
   return Boolean(row.session_status && /releas/i.test(row.session_status) && !/cancel/i.test(row.session_status));
 }
 
+/** Refunded tab = confirmed refunds only — a zero refunded amount is not a refund. */
 export function rowBelongsInRefundedTab(row: {
   refunded_at?: string | null;
   refunded_amount_pence?: number | null;
   provider_state?: string | null;
   attention_class?: string | null;
 }): boolean {
+  const raw = row.refunded_amount_pence == null ? null : Number(row.refunded_amount_pence);
+  const refunded = raw != null && Number.isFinite(raw) ? Math.round(raw) : null;
+  if (refunded != null && refunded > 0) return true;
+  if (refunded === 0) return false;
   if (row.refunded_at) return true;
-  if (row.refunded_amount_pence != null) return true;
   if (isProviderRefundedState(row.provider_state)) return true;
   return row.attention_class === "REFUNDED";
 }

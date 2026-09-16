@@ -40,6 +40,7 @@ import {
 } from "../../../shared/paymentSessionsCanonicalReadAdapterSSOT.ts";
 import { classifyTripForPlatformCollectedAdminPage } from "../../../shared/financialModelScopeSSOT.ts";
 import { listPaymentHoldsRequiringAttention } from "./paymentHoldReconciliationSSOT.ts";
+import { fetchPaymentSessionsMoneyAggregates } from "./adminPaymentSessionsMoneyAggregatesSSOT.ts";
 import { buildPaymentSessionsTripCompare, buildPsOnlyCompareSummary } from "./adminPaymentSessionsTripCompareSSOT.ts";
 import type { PaymentHoldReconciliationRow } from "../../../shared/paymentHoldReconciliation.ts";
 import {
@@ -392,29 +393,37 @@ export async function listAdminPaymentSessions(
   let holds;
   // Keep hold fetch close to page size — overview used to force 500 and felt stuck.
   const pageLimit = Math.min(1000, Math.max(1, request.limit ?? 100));
+  // Money tabs are lifecycle-complete lists, not attention slices: prefilter in SQL and
+  // read the whole matching universe instead of the capped attention feed.
+  const moneyLifecycle: "captured" | "released" | "refunded" | null =
+    tab === "captured" || tab === "released" || tab === "refunded" ? tab : null;
   const fetchLimit = Math.min(
     1000,
-    tab === "history"
+    moneyLifecycle
+      ? 1000
+      : tab === "history"
       ? Math.max(pageLimit, 300)
       : tab === "active_holds" || tab === "failed_recovery"
       ? Math.max(pageLimit, 150)
       : pageLimit,
   );
+  const holdFilters = {
+    dateFrom: request.date_from,
+    dateTo: request.date_to,
+    customerId: request.customer_id,
+    tripId: request.trip_id,
+    provider: request.provider,
+    paymentSessionId: request.payment_session_id,
+    providerOrderId: request.provider_order_id,
+    lifecycle: moneyLifecycle,
+  };
   try {
     holds = await listPaymentHoldsRequiringAttention(supabase, {
       refreshProviderState: refresh,
       view: "all",
       limit: fetchLimit,
       allowed_service_area_ids: request.allowed_service_area_ids ?? null,
-      filters: {
-        dateFrom: request.date_from,
-        dateTo: request.date_to,
-        customerId: request.customer_id,
-        tripId: request.trip_id,
-        provider: request.provider,
-        paymentSessionId: request.payment_session_id,
-        providerOrderId: request.provider_order_id,
-      },
+      filters: holdFilters,
     });
     if (refresh && holds.provider_refresh_partial) {
       refreshFailed = true;
@@ -426,15 +435,7 @@ export async function listAdminPaymentSessions(
       view: "all",
       limit: fetchLimit,
       allowed_service_area_ids: request.allowed_service_area_ids ?? null,
-      filters: {
-        dateFrom: request.date_from,
-        dateTo: request.date_to,
-        customerId: request.customer_id,
-        tripId: request.trip_id,
-        provider: request.provider,
-        paymentSessionId: request.payment_session_id,
-        providerOrderId: request.provider_order_id,
-      },
+      filters: holdFilters,
     });
     console.error("[admin-payment-sessions] provider refresh failed; using DB state", err);
   }
@@ -899,7 +900,7 @@ export async function listAdminPaymentSessions(
       trip_evidence_message: null as string | null,
       compare_summary: buildPsOnlyCompareSummary(mapped),
     };
-  const mergedSummary: AdminPaymentSessionsSummary = {
+  let mergedSummary: AdminPaymentSessionsSummary = {
     ...summary,
     ...compare.compare_summary,
     // Prefer confirmed provider capture total for the new widget alias.
@@ -907,6 +908,50 @@ export async function listAdminPaymentSessions(
       compare.compare_summary.provider_captured_total_pence
       ?? summary.total_customer_revenue_captured_pence,
   };
+
+  // Captured / Released / Refunded / provider fee totals must cover the whole filtered
+  // scope, not the fetched page slice. Aggregate directly over payment_sessions whenever
+  // every active filter can be expressed on that table.
+  const aggregatableScope = !request.purpose
+    && !request.session_status
+    && !request.provider_state
+    && !request.payment_method
+    && request.has_trip === undefined
+    && request.active_hold !== true
+    && request.release_failed !== true
+    && request.recovery_pending !== true
+    && request.legacy_evidence !== true
+    && request.money_at_risk !== true
+    && request.capture_failed !== true
+    && request.provider_fees_pending !== true;
+  if (aggregatableScope) {
+    try {
+      const money = await fetchPaymentSessionsMoneyAggregates(supabase, {
+        allowed_service_area_ids: request.allowed_service_area_ids ?? null,
+        service_area_id: request.service_area_id ?? null,
+        date_from: request.date_from ?? null,
+        date_to: request.date_to ?? null,
+        provider: request.provider ?? null,
+        customer_id: request.customer_id ?? null,
+        trip_id: request.trip_id ?? null,
+        payment_session_id: request.payment_session_id ?? null,
+        provider_order_id: request.provider_order_id ?? null,
+      });
+      mergedSummary = {
+        ...mergedSummary,
+        captured_count: money.captured_count,
+        released_count: money.released_count,
+        refunded_count: money.refunded_count,
+        total_customer_revenue_captured_pence: money.captured_total_pence,
+        provider_captured_total_pence: money.captured_total_pence,
+        released_buffer_total_pence: money.released_buffer_total_pence,
+        refunded_total_pence: money.refunded_total_pence,
+        provider_fees_total_pence: money.provider_fees_total_pence,
+      };
+    } catch (err) {
+      console.error("[admin-payment-sessions] money aggregation failed; page-slice totals kept", err);
+    }
+  }
 
   const limit = request.limit ?? 100;
   const offset = Math.max(0, request.offset ?? 0);

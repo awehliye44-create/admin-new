@@ -119,6 +119,8 @@ export async function listPaymentHoldsRequiringAttention(
       provider?: string | null;
       paymentSessionId?: string | null;
       providerOrderId?: string | null;
+      /** Money-tab prefilter so Captured/Released/Refunded read the full lifecycle universe. */
+      lifecycle?: "captured" | "released" | "refunded" | null;
     };
   } = {},
 ): Promise<{
@@ -173,6 +175,13 @@ export async function listPaymentHoldsRequiringAttention(
     sessionQuery = sessionQuery.in("service_area_id", [...allowedSa]);
   } else if (allowedSa && allowedSa.size === 0) {
     sessionQuery = sessionQuery.eq("service_area_id", "00000000-0000-0000-0000-000000000000");
+  }
+  if (filters.lifecycle === "captured") {
+    sessionQuery = sessionQuery.gt("captured_amount_pence", 0);
+  } else if (filters.lifecycle === "released") {
+    sessionQuery = sessionQuery.gt("released_amount_pence", 0);
+  } else if (filters.lifecycle === "refunded") {
+    sessionQuery = sessionQuery.gt("refunded_amount_pence", 0);
   }
 
   const { data: sessionsRaw } = await sessionQuery;
