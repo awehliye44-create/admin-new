@@ -27931,6 +27931,10 @@ export type Database = {
         Args: { p_service_area_id: string; p_trip_id: string }
         Returns: Json
       }
+      audit_logs_retention_cleanup: {
+        Args: { p_keep_days?: number }
+        Returns: number
+      }
       audit_payment_session_amounts: {
         Args: { p_session_id: string }
         Returns: Json
