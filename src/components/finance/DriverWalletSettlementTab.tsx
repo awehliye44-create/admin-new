@@ -9,6 +9,10 @@ import { Badge } from '@/components/ui/badge';
 import type { DriverWalletSsotRow, DriverWalletSettlementHistoryRow } from '@/hooks/useDriverWalletSsot';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { formatNullablePence } from '@/lib/formatNullablePence';
+import {
+  formatStoredPenceOrUnknown,
+  isPositiveStoredPence,
+} from '@/lib/adminFareComponentDisplay';
 import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
 import { isDriverCreditExceptionHealth } from '../../../shared/driverCreditMonitoringSSOT';
 
@@ -126,7 +130,25 @@ export function DriverWalletSettlementTab({
                     {row.driver_commission_percent != null ? `${row.driver_commission_percent}%` : '—'}
                   </TableCell>
                   <TableCell className="text-xs text-right tabular-nums">
-                    {formatNullablePence(row.driver_net_pence, currencyCode)}
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span>{formatNullablePence(row.driver_net_pence, currencyCode)}</span>
+                      {isPositiveStoredPence(row.airport_charge_pence) ? (
+                        <span
+                          className="text-[10px] text-muted-foreground font-normal"
+                          data-testid="settlement-airport-in-ten"
+                        >
+                          incl. airport {formatStoredPenceOrUnknown(row.airport_charge_pence, currencyCode)}
+                        </span>
+                      ) : null}
+                      {isPositiveStoredPence(row.tip_pence) ? (
+                        <span
+                          className="text-[10px] text-muted-foreground font-normal"
+                          data-testid="settlement-tip-separate"
+                        >
+                          tip (separate credit) {formatStoredPenceOrUnknown(row.tip_pence, currencyCode)}
+                        </span>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell className="text-xs text-right tabular-nums">
                     {formatNullablePence(row.expected_driver_credit_pence, currencyCode)}

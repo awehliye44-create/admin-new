@@ -43,6 +43,8 @@ export type DriverWalletSettlementHistoryRow = {
   platform_commission_pence: number | null;
   driver_commission_percent: number | null;
   driver_net_pence: number | null;
+  tip_pence?: number | null;
+  airport_charge_pence?: number | null;
   wallet_credit_pence: number | null;
   settlement_status: string | null;
   payment_session_id: string | null;

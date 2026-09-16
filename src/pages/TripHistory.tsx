@@ -49,10 +49,13 @@ import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
 import { TripInvoiceCard, TripInvoiceStatusBadge } from '@/components/trips/TripInvoiceCard';
 import { TripHistoryRowActions } from '@/components/trips/TripHistoryRowActions';
+import { TripHistoryFinancialBreakdown } from '@/components/trips/TripHistoryFinancialBreakdown';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import {
-  buildCanonicalTripEconomicsRead,
-} from '../../shared/paymentSessionsCanonicalReadAdapterSSOT';
+  buildTipAirportChips,
+  resolveTripAirportPence,
+  resolveTripTipPence,
+} from '@/lib/adminFareComponentDisplay';
 import { resolveAdminCompletedTripCustomerPayablePence } from '@/lib/adminTripCommittedFareDisplay';
 import { buildTripHistoryPaymentEvidenceReadModel } from '../../shared/tripHistoryPaymentEvidenceReadModel';
 import {
@@ -348,6 +351,8 @@ interface CompletedTrip {
   airport_charge_pence?: number | null;
   other_pass_through_charges_pence?: number | null;
   outstanding_balance_pence?: number | null;
+  accepted_commission_percent?: number | null;
+  driver_tier_commission_percent?: number | null;
   commissionable_fare_pence?: number | null;
   locked_base_fare_pence?: number | null;
   accepted_preset_offer_fare_pence?: number | null;
@@ -1506,21 +1511,43 @@ export default function TripHistory() {
                      <TableCell>
                       <div className="font-medium flex flex-col gap-0.5">
                          {(() => {
-                           const sym = getCurrencySymbol(resolveTripCurrency(trip));
+                           const ccy = resolveTripCurrency(trip);
+                           const sym = getCurrencySymbol(ccy);
                            const evidence = getTripPaymentEvidence(trip);
                            const captured = evidence.net_verified_captured_pence;
                            const payable = evidence.customer_discounted_payable_pence;
                            const discount = evidence.promotion_discount_pence;
                            const shown = captured > 0 ? captured : payable;
                            const refunded = getTripProviderRefundedPence(trip);
-                           if (shown <= 0) {
+                           const chips = buildTipAirportChips({
+                             tipPence: resolveTripTipPence(trip),
+                             airportPence: resolveTripAirportPence(trip),
+                             currency: ccy,
+                           });
+                           if (shown <= 0 && chips.length === 0) {
                              return <span className="text-muted-foreground">—</span>;
                            }
                            return (
                              <>
-                               <span>
-                                 {sym}{(shown / 100).toFixed(2)}
-                               </span>
+                               {shown > 0 ? (
+                                 <span>
+                                   {sym}{(shown / 100).toFixed(2)}
+                                 </span>
+                               ) : null}
+                               {chips.length > 0 ? (
+                                 <div className="flex flex-wrap gap-1 mt-0.5" data-testid="trip-history-tip-airport-chips">
+                                   {chips.map((chip) => (
+                                     <Badge
+                                       key={chip.key}
+                                       variant="outline"
+                                       className="text-[10px] font-normal w-fit"
+                                       aria-label={chip.ariaLabel}
+                                     >
+                                       {chip.label}
+                                     </Badge>
+                                   ))}
+                                 </div>
+                               ) : null}
                                {discount > 0 && (
                                  <span className="text-[10px] text-emerald-600 font-normal">
                                    Promotion −{sym}{(discount / 100).toFixed(2)}
@@ -1745,11 +1772,9 @@ export default function TripHistory() {
                         </p>
                       </div>
                       {(() => {
-                        const eco = buildCanonicalTripEconomicsRead(selectedTrip);
                         const terminalOutcome = resolveTripHistoryTerminalOutcomeDisplay(selectedTrip);
                         const sym = getCurrencySymbol(resolveTripCurrency(selectedTrip));
-                        const fmt = (p: number | null | undefined) =>
-                          p != null && p > 0 ? `${sym}${(p / 100).toFixed(2)}` : '—';
+                        const ccy = resolveTripCurrency(selectedTrip);
                         return (
                           <>
                             {terminalOutcome ? (
@@ -1761,56 +1786,18 @@ export default function TripHistory() {
                                 tripNumber={selectedTrip.trip_number}
                               />
                             ) : null}
-                            {!terminalOutcome && (eco.original_locked_fare_pence != null || eco.accepted_preset_offer_fare_pence != null) && (
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Original / preset quote (audit)</Label>
-                                <p className="font-medium text-muted-foreground">
-                                  {fmt(eco.accepted_preset_offer_fare_pence ?? eco.original_locked_fare_pence)}
-                                </p>
-                              </div>
-                            )}
-                            {eco.pickup_waiting_pence != null && (
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Pickup waiting (Trip Fare)</Label>
-                                <p className="font-medium">{fmt(eco.pickup_waiting_pence)}</p>
-                              </div>
-                            )}
-                            {eco.stop_waiting_pence != null && (
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Stop waiting (Trip Fare)</Label>
-                                <p className="font-medium">{fmt(eco.stop_waiting_pence)}</p>
-                              </div>
-                            )}
-                            {eco.modification_audit_pence != null && (
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Modification audit (not re-added)</Label>
-                                <p className="font-medium text-muted-foreground">{fmt(eco.modification_audit_pence)}</p>
-                              </div>
-                            )}
-                            {selectedTrip.ps_refunded_pence != null && selectedTrip.ps_refunded_pence > 0 && (
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Refunded (Payment Sessions)</Label>
-                                <p className="font-medium text-red-600">{fmt(selectedTrip.ps_refunded_pence)}</p>
-                              </div>
-                            )}
-                            {!terminalOutcome && eco.commissionable_fare_pence != null && (
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Commissionable fare</Label>
-                                <p className="font-medium">{fmt(eco.commissionable_fare_pence)}</p>
-                              </div>
-                            )}
-                            {!terminalOutcome && eco.commission_pence != null && (
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Commission (Settlement)</Label>
-                                <p className="font-medium">{fmt(eco.commission_pence)}</p>
-                              </div>
-                            )}
-                            {!terminalOutcome && eco.driver_net_pence != null && (
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Driver net (Settlement)</Label>
-                                <p className="font-medium">{fmt(eco.driver_net_pence)}</p>
-                              </div>
-                            )}
+                            {!terminalOutcome ? (
+                              <TripHistoryFinancialBreakdown
+                                trip={selectedTrip}
+                                currencyCode={ccy}
+                                evidence={{
+                                  totalPaidPence: getTripProviderCapturedPence(selectedTrip),
+                                  refundedPence: getTripProviderRefundedPence(selectedTrip),
+                                  netPaidPence: getTripNetChargedPence(selectedTrip),
+                                  actualWalletCreditPence: null,
+                                }}
+                              />
+                            ) : null}
                           </>
                         );
                       })()}

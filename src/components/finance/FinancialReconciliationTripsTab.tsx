@@ -15,6 +15,11 @@ import { FinancialReconciliationRefreshBar } from '@/components/finance/Financia
 import { DriverWalletLedgerLink } from '@/components/finance/DriverWalletLedgerLink';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { formatNullablePence } from '@/lib/formatNullablePence';
+import {
+  formatSignedStoredPenceOrUnknown,
+  formatStoredPenceOrUnknown,
+  isPositiveStoredPence,
+} from '@/lib/adminFareComponentDisplay';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
 import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
@@ -448,6 +453,32 @@ export function FinancialReconciliationTripsTab({
                               {formatNullablePence(row.captured_pence, ccy)}
                             </p>
                           ) : null}
+                          {isPositiveStoredPence(
+                            row.capture_breakdown?.airport_charge_pence ?? row.airport_charge_pence,
+                          ) || isPositiveStoredPence(row.capture_breakdown?.tip_pence ?? row.tip_pence) ? (
+                            <p className="text-[10px] text-muted-foreground mt-0.5 max-w-[180px]">
+                              {isPositiveStoredPence(
+                                row.capture_breakdown?.airport_charge_pence ?? row.airport_charge_pence,
+                              )
+                                ? `Airport ${formatNullablePence(
+                                  row.capture_breakdown?.airport_charge_pence ?? row.airport_charge_pence,
+                                  ccy,
+                                )}`
+                                : null}
+                              {isPositiveStoredPence(
+                                row.capture_breakdown?.airport_charge_pence ?? row.airport_charge_pence,
+                              )
+                              && isPositiveStoredPence(row.capture_breakdown?.tip_pence ?? row.tip_pence)
+                                ? ' · '
+                                : null}
+                              {isPositiveStoredPence(row.capture_breakdown?.tip_pence ?? row.tip_pence)
+                                ? `Tip ${formatNullablePence(
+                                  row.capture_breakdown?.tip_pence ?? row.tip_pence,
+                                  ccy,
+                                )}`
+                                : null}
+                            </p>
+                          ) : null}
                         </>
                       )}
                     </TableCell>
@@ -517,13 +548,93 @@ export function FinancialReconciliationTripsTab({
                 <div><span className="text-muted-foreground">Refunded:</span> {formatNullablePence(drawerTrip.refunded_pence, drawerTrip.currency_code)}</div>
                 <div><span className="text-muted-foreground">Driver net:</span> {formatNullablePence(drawerTrip.driver_net_pence, drawerTrip.currency_code)}</div>
                 <div><span className="text-muted-foreground">Wallet credit:</span> {formatNullablePence(drawerTrip.wallet_credit_pence, drawerTrip.currency_code)}</div>
-                <div><span className="text-muted-foreground">Expected credit:</span> {formatNullablePence(drawerTrip.expected_driver_credit_pence, drawerTrip.currency_code)}</div>
-                <div><span className="text-muted-foreground">Actual credit:</span> {formatNullablePence(drawerTrip.actual_driver_credit_pence, drawerTrip.currency_code)}</div>
-                <div><span className="text-muted-foreground">Credit health:</span> {drawerTrip.driver_credit_health ?? '—'}</div>
-                <div><span className="text-muted-foreground">Credit diff:</span> {formatNullablePence(drawerTrip.credit_difference_pence ?? drawerTrip.wallet_variance_pence, drawerTrip.currency_code)}</div>
+              </div>
+
+              <div
+                className="space-y-2 text-xs rounded-md border p-3"
+                data-testid="fr-trip-credit-components"
+              >
+                <p className="font-semibold text-muted-foreground uppercase tracking-wide">Expected entitlement</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-muted-foreground">Fare net:</span>{' '}
+                    {formatStoredPenceOrUnknown(
+                      drawerTrip.expected_fare_net_pence ?? drawerTrip.driver_net_pence,
+                      drawerTrip.currency_code ?? 'GBP',
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Airport component:</span>{' '}
+                    {formatStoredPenceOrUnknown(
+                      drawerTrip.expected_airport_component_pence ?? drawerTrip.airport_charge_pence,
+                      drawerTrip.currency_code ?? 'GBP',
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Tip:</span>{' '}
+                    {formatStoredPenceOrUnknown(
+                      drawerTrip.expected_tip_component_pence ?? drawerTrip.tip_pence,
+                      drawerTrip.currency_code ?? 'GBP',
+                    )}
+                  </div>
+                </div>
+                <p className="font-semibold text-muted-foreground uppercase tracking-wide pt-2">Actual wallet</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-muted-foreground">TRIP_EARNING_NET:</span>{' '}
+                    {formatStoredPenceOrUnknown(
+                      drawerTrip.actual_trip_earning_net_pence,
+                      drawerTrip.currency_code ?? 'GBP',
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Settlement corrections:</span>{' '}
+                    {formatStoredPenceOrUnknown(
+                      drawerTrip.actual_settlement_corrections_pence,
+                      drawerTrip.currency_code ?? 'GBP',
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">DRIVER_TIP_CREDIT:</span>{' '}
+                    {formatStoredPenceOrUnknown(
+                      drawerTrip.actual_tip_credit_pence,
+                      drawerTrip.currency_code ?? 'GBP',
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t">
+                  <div>
+                    <span className="text-muted-foreground">Expected total:</span>{' '}
+                    {formatStoredPenceOrUnknown(
+                      drawerTrip.expected_driver_credit_pence,
+                      drawerTrip.currency_code ?? 'GBP',
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Actual total:</span>{' '}
+                    {formatStoredPenceOrUnknown(
+                      drawerTrip.actual_driver_credit_pence,
+                      drawerTrip.currency_code ?? 'GBP',
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Difference:</span>{' '}
+                    {formatSignedStoredPenceOrUnknown(
+                      drawerTrip.credit_difference_pence ?? drawerTrip.wallet_variance_pence,
+                      drawerTrip.currency_code ?? 'GBP',
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Status:</span>{' '}
+                    {drawerTrip.driver_credit_health ?? 'Unknown'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs rounded-md border p-3 bg-muted/20">
                 <div><span className="text-muted-foreground">Credit eligible:</span> {formatFinanceDateSafe(drawerTrip.credit_eligibility_at)}</div>
                 <div><span className="text-muted-foreground">Capture status:</span> {drawerTrip.capture_reconciliation_status ?? '—'}</div>
-                <div><span className="text-muted-foreground">Warnings:</span> {(drawerTrip.warnings ?? []).join(', ') || '—'}</div>
+                <div className="col-span-2"><span className="text-muted-foreground">Warnings:</span> {(drawerTrip.warnings ?? []).join(', ') || '—'}</div>
               </div>
               <Button asChild>
                 <Link to={paymentSessionsUrl({

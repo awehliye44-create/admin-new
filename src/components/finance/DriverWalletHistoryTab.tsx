@@ -3,6 +3,12 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatPence } from '@/hooks/useDriverWallet';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
+import { driverWalletTxTypeLabel } from '@/lib/driverWalletTransactionTypes';
+import {
+  formatStoredPenceOrUnknown,
+  isPositiveStoredPence,
+  resolveTripAirportPence,
+} from '@/lib/adminFareComponentDisplay';
 import { Loader2 } from 'lucide-react';
 
 type TimelineEvent = {
@@ -12,6 +18,7 @@ type TimelineEvent = {
   label: string;
   amountPence: number | null;
   detail?: string;
+  airportBreakdownPence?: number | null;
 };
 
 function formatDate(iso: string): string {
@@ -24,19 +31,33 @@ function formatDate(iso: string): string {
 
 function buildTimeline(driver: DriverWalletSsotRow): TimelineEvent[] {
   const events: TimelineEvent[] = [];
+  const airportByTrip = new Map<string, number | null>();
+  for (const row of driver.settlement_history ?? []) {
+    if (row.trip_id) {
+      airportByTrip.set(row.trip_id, row.airport_charge_pence ?? null);
+    }
+  }
 
   for (const lr of driver.ledger_rows ?? []) {
+    const rawType = String(lr.type ?? 'Ledger');
+    const tripId = lr.related_trip_id ?? lr.trip_id;
+    const tripKey = tripId ? String(tripId) : null;
+    const upper = rawType.toUpperCase();
+    const isTen = upper === 'TRIP_EARNING_NET' || upper === 'TRIP_CREDIT';
     events.push({
       id: `ledger-${String(lr.id)}`,
       at: String(lr.created_at ?? ''),
       kind: 'ledger',
-      label: String(lr.type ?? 'Ledger'),
+      label: driverWalletTxTypeLabel(rawType),
       amountPence: Number(lr.amount_pence ?? 0),
-      detail: (lr.related_trip_id ?? lr.trip_id)
-        ? `trip ${String(lr.related_trip_id ?? lr.trip_id).slice(0, 8)}`
+      detail: tripKey
+        ? `trip ${tripKey.slice(0, 8)}`
         : lr.provider_transfer_id
           ? `transfer ${String(lr.provider_transfer_id).slice(0, 12)}`
           : undefined,
+      airportBreakdownPence: isTen && tripKey
+        ? resolveTripAirportPence({ airport_charge_pence: airportByTrip.get(tripKey) ?? null })
+        : null,
     });
   }
 
@@ -90,12 +111,15 @@ export function DriverWalletHistoryTab({
   }
 
   const timeline = buildTimeline(driver);
+  const ccy = currencyCode ?? 'GBP';
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Timeline</CardTitle>
-        <p className="text-sm text-muted-foreground">Newest first — ledger, payouts, and Provider events.</p>
+        <p className="text-sm text-muted-foreground">
+          Newest first — ledger, payouts, and Provider events. Tips stay as Tip (never folded into Trip earning).
+        </p>
       </CardHeader>
       <CardContent>
         {timeline.length === 0 ? (
@@ -118,6 +142,16 @@ export function DriverWalletHistoryTab({
                   {event.detail && (
                     <p className="text-xs text-muted-foreground mt-1 truncate">{event.detail}</p>
                   )}
+                  {isPositiveStoredPence(event.airportBreakdownPence) ? (
+                    <p
+                      className="text-[11px] text-muted-foreground mt-0.5"
+                      data-testid="ten-airport-breakdown"
+                    >
+                      Airport included in trip earning:{' '}
+                      {formatStoredPenceOrUnknown(event.airportBreakdownPence, ccy)}
+                      {' '}(not a separate ledger row)
+                    </p>
+                  ) : null}
                 </div>
               </li>
             ))}

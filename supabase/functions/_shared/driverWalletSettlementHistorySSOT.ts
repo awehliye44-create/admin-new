@@ -21,6 +21,8 @@ export type DriverWalletSettlementHistoryInput = {
     accepted_commission_percent?: number | null;
     driver_tier_commission_percent?: number | null;
     driver_net_pence?: number | null;
+    tip_pence?: number | null;
+    airport_charge_pence?: number | null;
     payment_session_id?: string | null;
   } | null;
   /** Payment Sessions SSOT — customer paid + session identity. */
@@ -59,6 +61,8 @@ export type DriverWalletSettlementHistoryRow = {
   platform_commission_pence: number | null;
   driver_commission_percent: number | null;
   driver_net_pence: number | null;
+  tip_pence: number | null;
+  airport_charge_pence: number | null;
   wallet_credit_pence: number | null;
   settlement_status: string | null;
   payment_session_id: string | null;
@@ -115,6 +119,10 @@ export function buildDriverWalletSettlementHistoryRow(
     driver_net_pence: trip?.driver_net_pence == null
       ? null
       : Math.max(0, Number(trip.driver_net_pence)),
+    tip_pence: trip?.tip_pence == null ? null : Math.max(0, Number(trip.tip_pence)),
+    airport_charge_pence: trip?.airport_charge_pence == null
+      ? null
+      : Math.max(0, Number(trip.airport_charge_pence)),
     wallet_credit_pence: input.wallet_credit_pence == null
       ? null
       : Number(input.wallet_credit_pence),

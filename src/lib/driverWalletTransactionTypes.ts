@@ -2,9 +2,11 @@
  * Map raw ledger type codes to Driver Wallet Ledger transaction type enums.
  * Display-only — does not invent amounts.
  * PLATFORM_COMMISSION is not a wallet display type (FR owns commission).
+ * DRIVER_TIP_CREDIT stays its own type — never fold into TRIP_EARNING.
  */
 export const DRIVER_WALLET_TX_TYPES = [
   'TRIP_EARNING',
+  'DRIVER_TIP_CREDIT',
   'BONUS',
   'ADJUSTMENT',
   'MANUAL_CREDIT',
@@ -47,16 +49,34 @@ export function canonicalDriverWalletTxType(rawType: string | null | undefined):
   ) {
     return 'PAYOUT';
   }
+  // Tips stay distinct — never fold DRIVER_TIP_CREDIT into TRIP_EARNING.
+  if (type === 'DRIVER_TIP_CREDIT' || type === 'TIP_CREDIT') {
+    return 'DRIVER_TIP_CREDIT';
+  }
   if (
     type.includes('TRIP')
     || type === 'DRIVER_EARNING'
     || type === 'TRIP_EARNING_NET'
     || type === 'TRIP_CREDIT'
     || type === 'CASH_TRIP_EARNING'
-    || type === 'DRIVER_TIP_CREDIT'
-    || type === 'TIP_CREDIT'
   ) {
     return 'TRIP_EARNING';
   }
   return type;
+}
+
+/** Human label for wallet timeline / filters — tip stays Tip, not Trip earning. */
+export function driverWalletTxTypeLabel(rawType: string | null | undefined): string {
+  const canonical = canonicalDriverWalletTxType(rawType);
+  if (canonical === 'DRIVER_TIP_CREDIT') return 'Tip';
+  if (canonical === 'TRIP_EARNING') return 'Trip earning';
+  if (canonical === 'BONUS') return 'Bonus';
+  if (canonical === 'ADJUSTMENT') return 'Adjustment';
+  if (canonical === 'MANUAL_CREDIT') return 'Manual credit';
+  if (canonical === 'MANUAL_DEBIT') return 'Manual debit';
+  if (canonical === 'PAYOUT') return 'Payout';
+  if (canonical === 'DEBT_RECOVERY') return 'Debt recovery';
+  if (canonical === 'REVERSAL') return 'Reversal';
+  if (canonical === 'REFUND') return 'Refund';
+  return String(rawType ?? 'Adjustment');
 }

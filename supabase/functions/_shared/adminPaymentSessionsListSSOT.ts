@@ -747,10 +747,13 @@ export async function listAdminPaymentSessions(
     const { data: tripPayables } = await supabase
       .from("trips")
       .select(
-        "id, financial_model, commission_wallet_enabled, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, waiting_charge_pence, total_waiting_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, tip_pence, tip_amount_pence, locked_base_fare_pence, customer_modification_charge_pence, destination_change_adjustment_pence, accepted_preset_offer_fare_pence, accepted_driver_offer_fare_pence, commissionable_fare_pence, commission_pence, driver_net_pence",
+        "id, financial_model, commission_wallet_enabled, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, waiting_charge_pence, total_waiting_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, tip_pence, tip_amount_pence, airport_charge_pence, locked_base_fare_pence, customer_modification_charge_pence, destination_change_adjustment_pence, accepted_preset_offer_fare_pence, accepted_driver_offer_fare_pence, commissionable_fare_pence, commission_pence, driver_net_pence",
       )
       .in("id", payableTripIds);
     const payableByTrip = new Map<string, number | null>();
+    const tipByTrip = new Map<string, number | null>();
+    const airportByTrip = new Map<string, number | null>();
+    const fareByTrip = new Map<string, number | null>();
     const cwExcludedTripIds = new Set<string>();
     for (const t of tripPayables ?? []) {
       if (!classifyTripForPlatformCollectedAdminPage(t as {
@@ -762,6 +765,9 @@ export async function listAdminPaymentSessions(
       }
       const eco = buildCanonicalTripEconomicsRead(t as Record<string, unknown>);
       payableByTrip.set(String(t.id), eco.final_fare_pence);
+      tipByTrip.set(String(t.id), eco.tip_pence);
+      airportByTrip.set(String(t.id), eco.airport_pence);
+      fareByTrip.set(String(t.id), eco.final_customer_payable_pence ?? eco.final_fare_pence);
     }
     // Drop sessions whose linked trip is CW / unknown-CW (SA allowlist alone is not enough).
     if (cwExcludedTripIds.size > 0) {
@@ -786,6 +792,24 @@ export async function listAdminPaymentSessions(
       const canonical = payableByTrip.get(row.trip_id);
       if (canonical != null) {
         row.customer_payable_pence = canonical;
+      }
+      if (tipByTrip.has(row.trip_id)) {
+        row.tip_pence = tipByTrip.get(row.trip_id) ?? null;
+      }
+      if (airportByTrip.has(row.trip_id)) {
+        row.airport_charge_pence = airportByTrip.get(row.trip_id) ?? null;
+      }
+      if (fareByTrip.has(row.trip_id)) {
+        row.fare_pence = fareByTrip.get(row.trip_id) ?? null;
+      }
+      const auth = row.authorised_amount_pence == null ? null : Number(row.authorised_amount_pence);
+      const captured = row.captured_amount_pence == null ? null : Number(row.captured_amount_pence);
+      const released = row.released_amount_pence == null ? null : Number(row.released_amount_pence);
+      if (auth != null && Number.isFinite(auth)) {
+        const remaining = Math.max(0, auth - Math.max(0, captured ?? 0) - Math.max(0, released ?? 0));
+        row.remaining_authorised_pence = remaining;
+      } else {
+        row.remaining_authorised_pence = null;
       }
       // Recompute action classification against canonical trip payable (policy only).
       // Difference / Reconciliation stay null — FR owns those conclusions.
