@@ -16,6 +16,37 @@ import {
   sumExpectedPayablePence,
   sumUnlinkedTipCreditsPence,
 } from "./frDriverReconciliationSSOT.ts";
+import {
+  resolveFrDriverExpectedEntitlement,
+  type FrDriverSettlementTripForReconciliation,
+} from "./frDriverExpectedEntitlementSSOT.ts";
+
+/** Build an FR settlement trip row through the shared expected-entitlement SSOT. */
+function trip(input: {
+  trip_id: string;
+  driver_net_pence: number | null;
+  tip_pence?: number;
+  commission_pence?: number;
+  airport_charge_pence?: number;
+  financial_model?: string;
+}): FrDriverSettlementTripForReconciliation {
+  const resolved = resolveFrDriverExpectedEntitlement({
+    trip_id: input.trip_id,
+    driver_net_pence: input.driver_net_pence,
+    tip_pence: input.tip_pence ?? 0,
+    commission_pence: input.commission_pence ?? null,
+    airport_charge_pence: input.airport_charge_pence ?? 0,
+    financial_model: input.financial_model ?? "PLATFORM_COLLECTED",
+    completed_at: "2026-09-12T18:52:08.060Z",
+  });
+  return {
+    trip_id: input.trip_id,
+    driver_net_pence: input.driver_net_pence,
+    expected_entitlement_pence: resolved.expected_entitlement_pence,
+    expected_stamp_status: resolved.expected_stamp_status,
+    financial_settled_at: resolved.financial_settled_at,
+  };
+}
 
 const TRIP = "9a509aaf-bee1-44b7-bc06-8072cf910cbb";
 
@@ -45,7 +76,7 @@ Deno.test("1. fare only — expected 425, actual 425, difference 0", () => {
       { type: "TRIP_EARNING_NET", amount_pence: 425, related_trip_id: "t1" },
       { type: "PLATFORM_COMMISSION", amount_pence: 75, related_trip_id: "t1" },
     ],
-    settledTrips: [{ trip_id: "t1", driver_net_pence: 425, financial_model: "PLATFORM_COLLECTED" }],
+    settledTrips: [trip({ trip_id: "t1", driver_net_pence: 425, financial_model: "PLATFORM_COLLECTED" })],
   });
   assertEquals(row.expected_payable_pence, 425);
   assertEquals(row.actual_wallet_trip_credits_pence, 425);
@@ -59,12 +90,10 @@ Deno.test("2. fare + £1 tip — expected 525, actual 525, difference 0, DRIVER_
       { type: "TRIP_EARNING_NET", amount_pence: 425, related_trip_id: "t1" },
       { type: "DRIVER_TIP_CREDIT", amount_pence: 100, related_trip_id: "t1" },
     ],
-    settledTrips: [{
-      trip_id: "t1",
+    settledTrips: [trip({ trip_id: "t1",
       driver_net_pence: 425,
       tip_pence: 100,
-      financial_model: "PLATFORM_COLLECTED",
-    }],
+      financial_model: "PLATFORM_COLLECTED", })],
   });
   assertEquals(row.expected_payable_pence, 525);
   assertEquals(row.actual_wallet_trip_credits_pence, 525);
@@ -98,7 +127,7 @@ Deno.test("5. manual credits stay adjustments, never trip entitlement actual", (
       { type: "TRIP_EARNING_NET", amount_pence: 425, related_trip_id: "t1" },
       { type: "MANUAL_CREDIT", amount_pence: 900 },
     ],
-    settledTrips: [{ trip_id: "t1", driver_net_pence: 425, financial_model: "PLATFORM_COLLECTED" }],
+    settledTrips: [trip({ trip_id: "t1", driver_net_pence: 425, financial_model: "PLATFORM_COLLECTED" })],
   });
   assertEquals(row.actual_wallet_trip_credits_pence, 425);
   assertEquals(row.wallet_adjustments_pence, 900);
@@ -112,12 +141,10 @@ Deno.test("6. tip reversal follows existing ledger SSOT — no phantom entitleme
       { type: "DRIVER_TIP_CREDIT", amount_pence: 100, related_trip_id: "t1" },
       { type: "LEDGER_REVERSAL", amount_pence: -100, related_trip_id: "t1" },
     ],
-    settledTrips: [{
-      trip_id: "t1",
+    settledTrips: [trip({ trip_id: "t1",
       driver_net_pence: 425,
       tip_pence: 100,
-      financial_model: "PLATFORM_COLLECTED",
-    }],
+      financial_model: "PLATFORM_COLLECTED", })],
   });
   // Reversal is an adjustment in the existing SSOT; entitlement basis is unchanged.
   assertEquals(row.actual_wallet_trip_credits_pence, 525);
@@ -128,7 +155,7 @@ Deno.test("6. tip reversal follows existing ledger SSOT — no phantom entitleme
 Deno.test("7. airport folded into driver_net counted once", () => {
   const expected = sumExpectedPayablePence([
     // deno-lint-ignore no-explicit-any
-    { trip_id: "t1", driver_net_pence: 850, financial_model: "PLATFORM_COLLECTED" } as any,
+    trip({ trip_id: "t1", driver_net_pence: 850, financial_model: "PLATFORM_COLLECTED" }),
   ]);
   assertEquals(expected, 850);
   const actual = sumActualWalletTripCreditsPence([
@@ -149,13 +176,11 @@ Deno.test("8. fare + airport + tip — commission only on commissionable fare", 
       { type: "PLATFORM_COMMISSION", amount_pence: 150, related_trip_id: "t1" },
       { type: "DRIVER_TIP_CREDIT", amount_pence: 100, related_trip_id: "t1" },
     ],
-    settledTrips: [{
-      trip_id: "t1",
+    settledTrips: [trip({ trip_id: "t1",
       driver_net_pence: 1350,
       commission_pence: 150,
       tip_pence: 100,
-      financial_model: "PLATFORM_COLLECTED",
-    }],
+      financial_model: "PLATFORM_COLLECTED", })],
   });
   assertEquals(row.expected_payable_pence, 1450);
   assertEquals(row.actual_wallet_trip_credits_pence, 1450);
@@ -169,13 +194,11 @@ Deno.test("9. dynamic wave commission — tip does not change commission", () =>
       { type: "PLATFORM_COMMISSION", amount_pence: 200, related_trip_id: "t1" },
       { type: "DRIVER_TIP_CREDIT", amount_pence: 100, related_trip_id: "t1" },
     ],
-    settledTrips: [{
-      trip_id: "t1",
+    settledTrips: [trip({ trip_id: "t1",
       driver_net_pence: 800,
       commission_pence: 200,
       tip_pence: 100,
-      financial_model: "PLATFORM_COLLECTED",
-    }],
+      financial_model: "PLATFORM_COLLECTED", })],
   });
   assertEquals(row.expected_payable_pence, 900);
   assertEquals(row.wallet_variance_pence, 0);
@@ -184,14 +207,12 @@ Deno.test("9. dynamic wave commission — tip does not change commission", () =>
 Deno.test("10/11. DRIVER_COLLECTED does not contaminate wallet reconciliation", () => {
   const expected = sumExpectedPayablePence([
     // deno-lint-ignore no-explicit-any
-    { trip_id: "t1", driver_net_pence: 425, tip_pence: 100, financial_model: "PLATFORM_COLLECTED" } as any,
+    trip({ trip_id: "t1", driver_net_pence: 425, tip_pence: 100, financial_model: "PLATFORM_COLLECTED" }),
     // deno-lint-ignore no-explicit-any
-    {
-      trip_id: "t2",
+    trip({ trip_id: "t2",
       driver_net_pence: 900,
       tip_pence: 100,
-      financial_model: "DRIVER_COLLECTED_COMMISSION_WALLET",
-    } as any,
+      financial_model: "DRIVER_COLLECTED_COMMISSION_WALLET", }),
   ]);
   assertEquals(expected, null);
 });
@@ -207,12 +228,12 @@ Deno.test("12. MK-260912-005 fixture — 425 + 100 = 525, difference 0, wallet t
     { type: "TRIP_EARNING_NET", amount_pence: 425, related_trip_id: "e" },
   ];
   const settledTrips = [
-    { trip_id: "a", driver_net_pence: 425, financial_model: "PLATFORM_COLLECTED" },
-    { trip_id: "b", driver_net_pence: 595, financial_model: "PLATFORM_COLLECTED" },
-    { trip_id: "c", driver_net_pence: 425, financial_model: "PLATFORM_COLLECTED" },
-    { trip_id: TRIP, driver_net_pence: 425, tip_pence: 100, financial_model: "PLATFORM_COLLECTED" },
-    { trip_id: "d", driver_net_pence: 924, financial_model: "PLATFORM_COLLECTED" },
-    { trip_id: "e", driver_net_pence: 425, financial_model: "PLATFORM_COLLECTED" },
+    trip({ trip_id: "a", driver_net_pence: 425, financial_model: "PLATFORM_COLLECTED" }),
+    trip({ trip_id: "b", driver_net_pence: 595, financial_model: "PLATFORM_COLLECTED" }),
+    trip({ trip_id: "c", driver_net_pence: 425, financial_model: "PLATFORM_COLLECTED" }),
+    trip({ trip_id: TRIP, driver_net_pence: 425, tip_pence: 100, financial_model: "PLATFORM_COLLECTED" }),
+    trip({ trip_id: "d", driver_net_pence: 924, financial_model: "PLATFORM_COLLECTED" }),
+    trip({ trip_id: "e", driver_net_pence: 425, financial_model: "PLATFORM_COLLECTED" }),
   ];
   assertEquals(
     sumActualWalletTripCreditsPence(ledger, new Set([TRIP])),
@@ -232,7 +253,7 @@ Deno.test("13/14. drivers without tips unchanged", () => {
       { type: "TRIP_EARNING_NET", amount_pence: 408, related_trip_id: "t1" },
       { type: "PLATFORM_COMMISSION", amount_pence: 72, related_trip_id: "t1" },
     ],
-    settledTrips: [{ trip_id: "t1", driver_net_pence: 408, financial_model: "PLATFORM_COLLECTED" }],
+    settledTrips: [trip({ trip_id: "t1", driver_net_pence: 408, financial_model: "PLATFORM_COLLECTED" })],
   });
   assertEquals(row.actual_wallet_trip_credits_pence, 408);
   assertEquals(row.wallet_variance_pence, 0);
