@@ -962,7 +962,24 @@ export async function listAdminPaymentSessions(
     };
   }
 
-  const tabRows = mapped.filter((r) => rowMatchesTab(r, tab));
+  // Captured tab is a completed-payments history view: always newest first.
+  // The underlying feed is severity-ordered (RED/AMBER/GREEN), so re-sort here
+  // by capture timestamp (fallback: created_at) with a stable id tie-breaker.
+  const tabRowsRaw = mapped.filter((r) => rowMatchesTab(r, tab));
+  const tabRows = tab === "captured"
+    ? [...tabRowsRaw].sort((a, b) => {
+      const at = a.captured_at ?? a.created_at;
+      const bt = b.captured_at ?? b.created_at;
+      if (at != null && bt != null) {
+        if (at !== bt) return at < bt ? 1 : -1;
+      } else if (at != null) {
+        return -1;
+      } else if (bt != null) {
+        return 1;
+      }
+      return String(b.id).localeCompare(String(a.id));
+    })
+    : tabRowsRaw;
   if (request.driver_credit_exceptions_only === true) {
     console.warn(
       "[admin-payment-sessions] driver_credit_exceptions_only ignored — use Financial Reconciliation driver credit audit",
