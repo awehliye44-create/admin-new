@@ -61,6 +61,8 @@ export type DriverWalletPayoutDetail = Omit<
   payout_operational_paused?: boolean | null;
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;
+  /** Reserved/in-flight withdrawal amount from payout eligibility. */
+  withdrawal_in_progress_pence: number;
   /** Wallet account identity — owned by Driver Wallet Ledger. */
   driver_tier_name: string | null;
   commission_percent: number | null;
@@ -324,7 +326,7 @@ export async function fetchDriverWalletPayoutSnapshot(
   let connectInstant: number | null = null;
   let connectInTransit: number | null = null;
   // Provider Account Balance is not sourced from the payment provider for FR / DWL / PL.
-  let providerBalanceStatus: ProviderAccountBalanceStatus = "NOT_APPLICABLE";
+  let providerBalanceStatus: ProviderAccountBalanceStatus | "UNAVAILABLE" = "NOT_APPLICABLE";
   void currency;
 
   const providerPayoutIds = new Set(
