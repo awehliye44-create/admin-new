@@ -223,11 +223,12 @@ function buildSnapshot(
         : "healthy");
 
   const credentialReadiness = args.credentialReadiness;
-  const collectionAdapterLive =
+  const collectionAdapterLive = Boolean(
     Boolean(providerId && isLivePaymentAdapter(providerId))
     && bookingPaymentHealth !== "down"
     && (credentialReadiness?.booking_adapter_status === "live"
-      || (credentialReadiness?.credentials_ready && args.apiKeysConfigured));
+      || (credentialReadiness?.credentials_ready && args.apiKeysConfigured)),
+  );
   const payoutAdapterLive =
     credentialReadiness?.payout_adapter_status === "live";
   const readyForProduction = role === "customer"
