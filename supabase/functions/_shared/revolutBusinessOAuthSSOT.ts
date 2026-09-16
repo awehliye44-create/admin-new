@@ -34,20 +34,7 @@ import {
   relayRevolutTokenExchange,
 } from "./revolutBusinessRelayClient.ts";
 
-export {
-  REVOLUT_BUSINESS_CLIENT_ID_EXPECTED,
-  REVOLUT_BUSINESS_OAUTH_SCOPE,
-  REVOLUT_BUSINESS_OAUTH_SCOPES_GRANTED_VAULT_NAMES,
-  REVOLUT_BUSINESS_OAUTH_VERSION,
-  REVOLUT_BUSINESS_REDIRECT_URI_EDGE,
-  REVOLUT_BUSINESS_RELAY_WHITELIST_IP,
-  buildRevolutBusinessAuthorizationUrl,
-  normalizeRevolutBusinessOAuthScope,
-  evaluateRevolutBusinessPayoutExecutionGate,
-  parseRevolutBusinessGrantedScopes,
-  resolveRevolutBusinessJwtIss,
-  resolveRevolutBusinessRedirectUri,
-};
+export * from "./revolutBusinessOAuthPureSSOT.ts";
 
 
 const VAULT_PROVIDER = "revolut";
