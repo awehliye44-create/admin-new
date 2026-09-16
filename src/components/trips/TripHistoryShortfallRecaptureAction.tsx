@@ -123,7 +123,8 @@ export function TripHistoryShortfallRecaptureAction({
     return buildTripHistoryPaymentEvidenceReadModel({
       trip: {
         ...trip,
-        final_customer_fare_pence: payable > 0 ? payable : trip.final_customer_fare_pence,
+        // Keep tip-exclusive final_* stamps. Never stuff tip-inclusive Edge payable
+        // into final_customer_fare_pence (that caused 600+100=700).
         capture_amount_pence: captured > 0 ? captured : trip.capture_amount_pence,
         refund_amount_pence: refunded > 0 ? refunded : trip.refund_amount_pence,
       },
@@ -136,6 +137,8 @@ export function TripHistoryShortfallRecaptureAction({
           authorised_amount_pence: state.authorized_pence,
         }]
         : undefined,
+      // Edge already resolved tip once — use as authoritative payable.
+      authoritativeCustomerPayablePence: payable > 0 ? payable : null,
       providerSettlementVerified: state.provider_settlement_verified,
       paymentStatus: state.payment_status,
       providerStatus: state.provider_state ?? state.provider_status,

@@ -1792,7 +1792,16 @@ export default function TripHistory() {
                                 currencyCode={ccy}
                                 evidence={{
                                   totalPaidPence: getTripProviderCapturedPence(selectedTrip),
-                                  refundedPence: getTripProviderRefundedPence(selectedTrip),
+                                  // £0 only when evidence positively confirms zero; else null → Unavailable
+                                  refundedPence: (() => {
+                                    const fromPs = getTripProviderRefundedPence(selectedTrip);
+                                    if (fromPs != null) return fromPs;
+                                    const evidenceRefunded = getTripPaymentEvidence(selectedTrip).refunded_pence;
+                                    // Layers always return a number; treat as confirmed when capture evidence exists
+                                    const captured = getTripProviderCapturedPence(selectedTrip);
+                                    if (captured != null && captured >= 0) return evidenceRefunded;
+                                    return null;
+                                  })(),
                                   netPaidPence: getTripNetChargedPence(selectedTrip),
                                   actualWalletCreditPence: null,
                                 }}

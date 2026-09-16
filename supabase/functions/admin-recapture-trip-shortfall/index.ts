@@ -20,8 +20,8 @@ import {
 } from "../_shared/adminPaymentGate.ts";
 import {
   computeOutstandingBalancePence,
-  resolveCanonicalCustomerPayablePence,
 } from "../_shared/paymentSessionsCaptureConfirmationSSOT.ts";
+import { resolveTripHistoryCustomerPayablePence } from "../_shared/tripHistoryPaymentLayersSSOT.ts";
 import {
   deriveAdminRecaptureOutcome,
   evaluateTripHistoryShortfallRecaptureEligibility,
@@ -89,8 +89,10 @@ Deno.serve(async (req) => {
       .from("trips")
       .select(
         "id, trip_number, status, passenger_id, service_area_id, payment_method, payment_status, "
-          + "financial_model, final_customer_fare_pence, final_fare_pence, no_show_charge_pence, "
-          + "cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, capture_amount_pence",
+          + "financial_model, final_customer_fare_pence, final_fare_pence, locked_base_fare_pence, "
+          + "no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, "
+          + "estimated_total_pence, capture_amount_pence, tip_pence, tip_amount_pence, "
+          + "financial_outcome",
       )
       .eq("id", tripId)
       .maybeSingle();
@@ -116,15 +118,6 @@ Deno.serve(async (req) => {
       }, 409);
     }
 
-    const payableResolved = resolveCanonicalCustomerPayablePence({
-      finalCustomerFarePence: trip.final_customer_fare_pence,
-      finalFarePence: trip.final_fare_pence,
-      noShowChargePence: trip.no_show_charge_pence,
-      cancellationFeePence: trip.cancellation_fee_pence,
-      outstandingBalancePence: trip.outstanding_balance_pence,
-      estimatedTotalPence: trip.estimated_total_pence,
-    });
-
     const { data: captureSessions } = await gate.supabase
       .from("payment_sessions")
       .select("id, purpose, captured_amount_pence, status, provider_state, refunded_amount_pence, customer_id")
@@ -141,6 +134,26 @@ Deno.serve(async (req) => {
         originalCaptured = Math.round(Number(trip.capture_amount_pence));
       }
     }
+
+    const totalVerifiedCaptured = originalCaptured + recoveryCaptured;
+    // Tip-exclusive final_* + tip once — same basis as Trip History evidence / layers.
+    const payableResolved = resolveTripHistoryCustomerPayablePence(
+      {
+        final_customer_fare_pence: trip.final_customer_fare_pence,
+        final_fare_pence: trip.final_fare_pence,
+        locked_base_fare_pence: trip.locked_base_fare_pence,
+        no_show_charge_pence: trip.no_show_charge_pence,
+        cancellation_fee_pence: trip.cancellation_fee_pence,
+        tip_pence: trip.tip_pence,
+        tip_amount_pence: trip.tip_amount_pence,
+        outstanding_balance_pence: trip.outstanding_balance_pence,
+        payment_status: trip.payment_status,
+        financial_outcome: trip.financial_outcome,
+        status: trip.status,
+        capture_amount_pence: trip.capture_amount_pence,
+      },
+      totalVerifiedCaptured,
+    );
 
     const outstanding = computeOutstandingBalancePence({
       canonicalPayablePence: payableResolved.payable_pence,

@@ -38,6 +38,7 @@ export type TripHistoryPaymentLayerTrip = {
   refund_amount_pence?: number | null;
   final_fare_pence?: number | null;
   final_customer_fare_pence?: number | null;
+  locked_base_fare_pence?: number | null;
   no_show_charge_pence?: number | null;
   cancellation_fee_pence?: number | null;
   arrival_cancellation_applied?: boolean | null;
@@ -166,11 +167,62 @@ function looksLikeTerminalFeeTrip(trip: TripHistoryPaymentLayerTrip): boolean {
 }
 
 /**
+ * `trips.final_*` stamps are tip-exclusive. Tip is added exactly once via tip_pence.
+ * Never add tip again when the supplied aggregate already embeds tip (e.g. a caller
+ * stuffed tip-inclusive Edge payable into final_customer_fare_pence).
+ */
+export function tipAlreadyIncludedInFinalAggregate(args: {
+  payablePence: number;
+  tipPence: number;
+  siblingFinalPence?: number | null;
+  lockedBasePence?: number | null;
+}): boolean {
+  const tip = positivePence(args.tipPence);
+  const payable = positivePence(args.payablePence);
+  if (tip <= 0 || payable <= tip) return false;
+  const withoutTip = payable - tip;
+  const refs = [
+    positivePence(args.siblingFinalPence),
+    positivePence(args.lockedBasePence),
+  ].filter((n) => n > 0);
+  return refs.some((ref) => Math.abs(withoutTip - ref) <= FEE_MATCH_TOLERANCE_PENCE);
+}
+
+function withTipOnce(args: {
+  basePence: number;
+  tipPence: number;
+  source: string;
+  siblingFinalPence?: number | null;
+  lockedBasePence?: number | null;
+  forceAddTip?: boolean;
+}): { payable_pence: number; source: string } {
+  const tip = positivePence(args.tipPence);
+  if (tip <= 0) {
+    return { payable_pence: args.basePence, source: args.source };
+  }
+  if (
+    !args.forceAddTip
+    && args.source.startsWith("final")
+    && tipAlreadyIncludedInFinalAggregate({
+      payablePence: args.basePence,
+      tipPence: tip,
+      siblingFinalPence: args.siblingFinalPence,
+      lockedBasePence: args.lockedBasePence,
+    })
+  ) {
+    return { payable_pence: args.basePence, source: args.source };
+  }
+  return { payable_pence: args.basePence + tip, source: args.source };
+}
+
+/**
  * Resolve customer payable including fee-only terminal trips
  * (no-show / cancellation / arrival cancellation).
  *
  * When a ride hold (£4.80) is partially captured as a no-show fee (£4.00),
  * payable must be the fee — never the original hold / stale final_fare.
+ *
+ * Basis: tip-exclusive final_* + tip once — never aggregate-with-tip + tip again.
  */
 export function resolveTripHistoryCustomerPayablePence(
   trip: TripHistoryPaymentLayerTrip,
@@ -182,10 +234,10 @@ export function resolveTripHistoryCustomerPayablePence(
   const cancelFee = Math.max(positivePence(trip.cancellation_fee_pence), arrivalFee);
   const terminalFee = Math.max(noShow, cancelFee);
   const captured = positivePence(capturedPence);
-  const rideFare = Math.max(
-    positivePence(trip.final_customer_fare_pence),
-    positivePence(trip.final_fare_pence),
-  );
+  const finalCustomer = positivePence(trip.final_customer_fare_pence);
+  const finalFare = positivePence(trip.final_fare_pence);
+  const rideFare = Math.max(finalCustomer, finalFare);
+  const lockedBase = positivePence(trip.locked_base_fare_pence);
 
   if (terminalFee > 0) {
     const captureMatchesFee = captured > 0
@@ -225,10 +277,19 @@ export function resolveTripHistoryCustomerPayablePence(
         source: canonical.source,
       };
     }
-    return {
-      payable_pence: canonical.payable_pence + (canonical.source.startsWith("final") ? tip : 0),
-      source: canonical.source,
-    };
+    if (canonical.source.startsWith("final")) {
+      const sibling = canonical.source === "final_customer_fare_pence"
+        ? finalFare
+        : finalCustomer;
+      return withTipOnce({
+        basePence: canonical.payable_pence,
+        tipPence: tip,
+        source: canonical.source,
+        siblingFinalPence: sibling,
+        lockedBasePence: lockedBase,
+      });
+    }
+    return { payable_pence: canonical.payable_pence, source: canonical.source };
   }
 
   if (arrivalFee > 0) {
@@ -237,7 +298,6 @@ export function resolveTripHistoryCustomerPayablePence(
 
   return { payable_pence: 0, source: canonical.source };
 }
-
 /**
  * Unify the 4 payment layers for Trip History Payment status panel.
  */

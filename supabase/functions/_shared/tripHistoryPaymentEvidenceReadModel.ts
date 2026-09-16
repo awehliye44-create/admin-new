@@ -47,6 +47,11 @@ export type BuildTripHistoryPaymentEvidenceArgs = {
   tripStatus?: string | null;
   adminPermitted?: boolean;
   hasOpenRecoveryAttempt?: boolean;
+  /**
+   * Tip-inclusive Edge payable already resolved once.
+   * When set, do not re-derive via final_* + tip (prevents 600+100=700).
+   */
+  authoritativeCustomerPayablePence?: number | null;
 };
 
 export type TripHistoryPaymentEvidenceReadModel = {
@@ -158,7 +163,10 @@ export function buildTripHistoryPaymentEvidenceReadModel(
     providerAuthorisedPence: args.providerAuthorisedPence,
   });
 
-  const customer_discounted_payable_pence = layers.customer_payable_pence;
+  const authoritative = positivePence(args.authoritativeCustomerPayablePence);
+  const customer_discounted_payable_pence = authoritative > 0
+    ? authoritative
+    : layers.customer_payable_pence;
   const promotion_discount_pence = resolveTripHistoryPromotionDiscountPence(args.trip);
   const verified_captured_pence = layers.captured_pence;
   const refunded_pence = layers.refunded_pence;
@@ -215,7 +223,9 @@ export function buildTripHistoryPaymentEvidenceReadModel(
     refunded_pence,
     outstanding_shortfall_pence,
     provider_settlement_verified,
-    payable_source: layers.payable_source,
+    payable_source: authoritative > 0
+      ? "authoritative_customer_payable_pence"
+      : layers.payable_source,
     evidence_source: layers.evidence_source,
     coverage_label: coverage.label,
     coverage_tone: coverage.tone,
