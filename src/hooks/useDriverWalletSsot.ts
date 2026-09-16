@@ -267,15 +267,18 @@ export function useDriverWalletSsot(args?: {
           });
           if (error) throw error;
           if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
-          const drivers = await overlayDriverWalletEligibility(
+          const overlaid = await overlayDriverWalletEligibility(
             (data.drivers ?? []) as DriverWalletSsotRow[],
           );
+          const drivers = await excludeDeletedDrivers(overlaid);
+          const removed = overlaid.length - drivers.length;
           return {
             drivers,
-            total: Number(data.total ?? 0),
+            total: Math.max(0, Number(data.total ?? 0) - removed),
             limit: Number(data.limit ?? pageSize),
             offset: Number(data.offset ?? offset),
           };
+
         },
       ),
     ...ADMIN_FINANCE_QUERY_DEFAULTS,
