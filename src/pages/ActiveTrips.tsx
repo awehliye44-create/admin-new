@@ -192,6 +192,35 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }>
   cancelled: { label: 'Cancelled', color: 'bg-red-100 text-red-700 border-red-200', icon: XCircle },
 };
 
+/**
+ * Route SSOT for Admin display: prefer trip_stops rows; before those rows exist
+ * (searching / unassigned trips) fall back to the booked intermediate stops on
+ * the trip row so multi-stop journeys are never shown as single A→B trips.
+ */
+function resolveTripStopsForDisplay(
+  trip: Trip,
+  stopRows: NonNullable<Trip['trip_stops']>,
+): NonNullable<Trip['trip_stops']> {
+  if (stopRows.some((s) => s.type === 'stop')) return stopRows;
+  const booked = Array.isArray(trip.stops) ? trip.stops : [];
+  if (booked.length === 0) return stopRows;
+  const derived = booked.map((raw, index) => {
+    const entry = (raw ?? {}) as Record<string, unknown>;
+    const address = [entry.address, entry.formatted_address, entry.name]
+      .find((v) => typeof v === 'string' && v.trim().length > 0) as string | undefined;
+    return {
+      id: `${trip.id}-booked-stop-${index}`,
+      stop_index: index + 1,
+      type: 'stop',
+      address: address ?? `Stop ${index + 1}`,
+      status: null,
+    };
+  });
+  const dropoffRows = stopRows.filter((s) => s.type === 'dropoff');
+  const otherRows = stopRows.filter((s) => s.type !== 'dropoff');
+  return [...otherRows, ...derived, ...dropoffRows];
+}
+
 /** Live active-trip fare — includes waiting / mod charges (not settlement). */
 function resolveActiveTripLiveFarePence(trip: Trip): number {
   return resolveAdminActiveTripLiveFarePence(trip);
@@ -338,7 +367,10 @@ export default function ActiveTrips() {
       const enriched = baseTrips.map((trip) => {
         const liveInput = toLiveTripFarePreviewInput(trip);
         const live = computeLiveTripFarePreview(liveInput);
-        const stops = stopsByTrip.get(trip.id) ?? [];
+        const stops = resolveTripStopsForDisplay(
+          trip,
+          stopsByTrip.get(trip.id) ?? [],
+        );
         const dropoffStop = stops.find((s) => s.type === "dropoff");
         const displayDropoff =
           trip.modified_dropoff_address ?? trip.dropoff_address;
