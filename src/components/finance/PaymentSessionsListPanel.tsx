@@ -49,6 +49,23 @@ export type PaymentSessionsListPanelProps = {
   onRefreshProvider: (row: AdminPaymentSessionsListRow) => void;
 };
 
+/**
+ * Released display: a confirmed capture with no remaining authorisation buffer
+ * released nothing, so show £0.00 instead of a blank cell. Only genuinely
+ * unknown releases stay as "—".
+ */
+function releasedCellDisplay(row: AdminPaymentSessionsListRow): string {
+  if (row.released_amount_pence != null) {
+    return formatNullablePence(row.released_amount_pence);
+  }
+  const captured = row.captured_amount_pence;
+  const authorised = row.authorised_amount_pence;
+  if (captured != null && captured > 0 && authorised != null && captured >= authorised) {
+    return formatNullablePence(0);
+  }
+  return formatNullablePence(row.released_amount_pence);
+}
+
 function statusLabel(row: AdminPaymentSessionsListRow): string {
   if (isStaleUnverifiedAuthorisationRow(row)) {
     return 'Authorisation expired/unverified';
@@ -177,7 +194,7 @@ export function PaymentSessionsListPanel({
                       {formatNullablePence(row.captured_amount_pence)}
                     </TableCell>
                     <TableCell className="text-xs tabular-nums">
-                      {formatNullablePence(row.released_amount_pence)}
+                      {releasedCellDisplay(row)}
                     </TableCell>
                     <TableCell className="text-xs tabular-nums">
                       {formatNullablePence(row.refunded_amount_pence)}
