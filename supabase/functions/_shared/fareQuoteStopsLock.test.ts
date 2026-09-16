@@ -38,6 +38,16 @@ Deno.test("countDeclaredFareQuoteStops: counts incomplete :na placeholders", () 
   );
 });
 
+Deno.test("resolveBookingTotalStops: :na placeholder still yields total_stops=3", () => {
+  const resolved = resolveBookingTotalStops({
+    bodyStops: [],
+    fareQuoteId:
+      "pickup=current-location:52.05,-0.81;dest=recent:x:52.04,-0.77;stops=stop-1789576739716:na;mode=now;sched=",
+  });
+  assertEquals(resolved.intermediateStops.length, 0);
+  assertEquals(resolved.totalStops, 3);
+});
+
 Deno.test("resolveBookingTotalStops: booking_snapshot.stops recovers when body empty", () => {
   const resolved = resolveBookingTotalStops({
     bodyStops: [],
