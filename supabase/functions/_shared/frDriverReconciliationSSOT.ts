@@ -104,7 +104,29 @@ const ADJUSTMENT_TYPES = new Set([
   "LEDGER_REVERSAL",
 ]);
 
-const BONUS_TYPES = new Set(["BONUS", "INCENTIVE", "PROMOTION", "DRIVER_TIP_CREDIT"]);
+/**
+ * Non-trip discretionary credits. DRIVER_TIP_CREDIT is NOT a bonus for FR:
+ * confirmed tips are part of expected driver entitlement, so they belong to the
+ * trip-entitlement credit basis below (single classification, no double count).
+ */
+const BONUS_TYPES = new Set(["BONUS", "INCENTIVE", "PROMOTION"]);
+
+/** Trip-linked driver tip credit — non-commissionable, entitlement-bearing. */
+const TRIP_TIP_CREDIT_TYPE = "DRIVER_TIP_CREDIT";
+
+/**
+ * Single shared basis for the FR "actual" side: the ledger types that carry
+ * driver entitlement for a reconciled trip. Expected entitlement (driver net +
+ * non-commissionable tip / airport) must be compared against exactly these.
+ */
+export const FR_TRIP_ENTITLEMENT_CREDIT_TYPES: ReadonlySet<string> = new Set([
+  ...TRIP_CREDIT_TYPES,
+  TRIP_TIP_CREDIT_TYPE,
+]);
+
+export function isFrTripEntitlementCreditType(type: string | null | undefined): boolean {
+  return FR_TRIP_ENTITLEMENT_CREDIT_TYPES.has(String(type ?? "").toUpperCase());
+}
 
 const DEBT_RECOVERY_TYPES = new Set(["DEBT_RECOVERY"]);
 
