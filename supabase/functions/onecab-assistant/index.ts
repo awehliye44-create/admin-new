@@ -15,7 +15,7 @@ import { createHandler, corsHeaders } from "./handler.ts";
 import { createAssistantDb } from "./db.ts";
 import { createCustomerAuthenticator } from "./customerAssistantRuntime.ts";
 import { createDriverAuthenticator } from "./driverAssistantRuntime.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const url = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");

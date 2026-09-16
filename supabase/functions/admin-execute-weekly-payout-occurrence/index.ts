@@ -1,4 +1,3 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Canonical weekly payout orchestrator.
  * Cron + admin entry: claim occurrence â eligibility â batch â funding â
@@ -8,7 +7,7 @@ import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
  * dry_run=true never reserves, never calls Revolut, never debits.
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { loadPayoutControlCentreSettings } from "../_shared/payoutControlCentreSettingsSSOT.ts";
 import { resolveLiveCompanyBalanceSnapshot } from "../_shared/companyBalanceResolveSSOT.ts";
@@ -76,7 +75,8 @@ const corsHeaders = {
   "Content-Type": "application/json",
 };
 
-type AnySupabase = AnySupabaseClient;
+// deno-lint-ignore no-explicit-any
+type AnySupabase = SupabaseClient<any, "public", "public", any, any>;
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders } });
@@ -255,7 +255,7 @@ Deno.serve(async (req) => {
     });
   }
 
-  if ("not_due" in occurrence && occurrence.not_due) {
+  if ("not_due" in occurrence) {
     if (scheduledRun && !force) {
       return json({
         success: true,
@@ -617,7 +617,9 @@ Deno.serve(async (req) => {
         const plannedItem = planned.find((p) => p.driver_id === String(it.driver_id));
         if (plannedItem) {
           await persistPayoutItemLedgerAllocations({
-            supabase,
+            supabase: supabase as unknown as Parameters<
+              typeof persistPayoutItemLedgerAllocations
+            >[0]["supabase"],
             payout_item_id: itemId,
             allocations: plannedItem.allocations,
             amount_pence: plannedItem.amount_pence,
@@ -1195,7 +1197,9 @@ Deno.serve(async (req) => {
 
     try {
       await assertPayoutItemLedgerLineage({
-        supabase,
+        supabase: supabase as unknown as Parameters<
+          typeof assertPayoutItemLedgerLineage
+        >[0]["supabase"],
         payout_item_id: payoutItemId,
         expected_amount_pence: p.amount_pence,
       });
@@ -1266,13 +1270,13 @@ Deno.serve(async (req) => {
         && !timedOut
         && !providerPaymentId,
     });
+    // Failure fields exist only on failed/declined outcome shapes.
+    const outcomeFailure = outcome as { failure_code?: string | null; failure_reason?: string | null };
 
     const evidence = redactProviderEvidence({
       provider_payment_id: providerPaymentId,
       provider_state: providerState,
       provider_request_id: validated.normalized.provider_request_id,
-      amount_pence: validated.normalized.amount_pence,
-      currency: validated.normalized.currency,
     });
 
     await supabase.rpc("finalize_driver_payout_submission", {
@@ -1281,8 +1285,8 @@ Deno.serve(async (req) => {
       p_execution_status: outcome.execution_status,
       p_provider_payment_id: providerPaymentId,
       p_provider_state: providerState,
-      p_provider_failure_code: outcome.failure_code,
-      p_provider_failure_reason_safe: outcome.failure_reason,
+      p_provider_failure_code: outcomeFailure.failure_code,
+      p_provider_failure_reason_safe: outcomeFailure.failure_reason,
       p_evidence_redacted: evidence,
       p_release_reservation: outcome.release_reservation === true,
     });
@@ -1292,7 +1296,7 @@ Deno.serve(async (req) => {
         driver_id: p.driver_id,
         payout_item_id: payoutItemId,
         status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
-        error: outcome.failure_code,
+        error: outcomeFailure.failure_code,
       });
       continue;
     }
@@ -1304,7 +1308,7 @@ Deno.serve(async (req) => {
         status: timedOut
           ? ORCHESTRATOR_ITEM_STATUS.SUBMITTING
           : ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
-        error: outcome.failure_code ?? ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
+        error: outcomeFailure.failure_code ?? ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
         provider_payment_id: providerPaymentId,
         note: timedOut
           ? "Timeout/unknown â reservation kept; no debit until provider truth known"

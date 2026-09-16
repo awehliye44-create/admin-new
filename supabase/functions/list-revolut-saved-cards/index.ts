@@ -5,7 +5,7 @@
  * importing missing symbols / a circular paymentMethodSSOT graph from _shared.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const REVOLUT_SAVE_CARD_TOKENIZATION_READY = true;
 

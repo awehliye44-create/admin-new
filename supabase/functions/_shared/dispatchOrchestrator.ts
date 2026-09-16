@@ -3,7 +3,7 @@
  * SQL dispatch_trip_offers RPC is allowed only when dispatch_settings.manual_emergency_dispatch_only=true.
  */
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { loadDispatchSettings } from "./dispatch-settings.ts";
 import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
 

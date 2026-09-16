@@ -1,5 +1,4 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 import {
   OPERATIONAL_CASH_VIOLATION,
@@ -249,7 +248,7 @@ function isSchemaColumnError(err: { message?: string; code?: string } | null): b
  * Never backfill started_at from arrived_at for a late start.
  */
 async function ensurePickupWaitingStarted(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   tripId: string,
   trip: { arrived_at?: string | null; pickup_waiting_started_at?: string | null },
   pickupStop: { id: string; arrived_at?: string | null; waiting_started_at?: string | null } | null | undefined,
@@ -295,7 +294,7 @@ async function ensurePickupWaitingStarted(
  * Never charge full wall-time from pickup_waiting_started_at.
  */
 async function finalizePickupWaitingOnStartTrip(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   trip: TripWaitingBillingCtx & {
     id?: string;
     stop_waiting_charge_pence?: number | null;
@@ -456,7 +455,7 @@ async function finalizePickupWaitingOnStartTrip(
 
 /** Update trips using full payload when migration columns exist; fall back to prod-safe subset. */
 async function updateTripSafe(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   tripId: string,
   payload: Record<string, unknown>,
 ): Promise<{ error: { message: string; code?: string } | null }> {
@@ -709,7 +708,7 @@ function tripWaitingBillingFields(trip: TripWaitingBillingCtx): Record<string, u
 }
 
 async function enrichArrivalWaitingSnapshot(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   base: Record<string, unknown>,
   waitingResult: PickupWaitingStartResult | StopWaitingStartResult,
   ctx: {
@@ -901,7 +900,7 @@ async function enrichArrivalWaitingSnapshot(
 
 /** Admin SSOT: dispatch_settings + stop_waiting_settings (stop radius). */
 async function checkStopArrivalRadius(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   serviceAreaId: string | null,
   stop: TripStopRow,
   driverLat: number | undefined,
@@ -963,7 +962,7 @@ type StopWaitingStartResult = {
  * but pickup_waiting_started_at must not remain NULL after Arrived.
  */
 async function tryStartPickupWaiting(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   ctx: {
     tripId: string;
     trip: {
@@ -1111,7 +1110,7 @@ async function tryStartPickupWaiting(
 
 /** Start stop waiting session on Arrived; radius only gates money segments. */
 async function tryStartStopWaiting(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   trip: { id: string; service_area_id?: string | null; driver_id?: string | null },
   stop: TripStopRow,
   driverLat: number | undefined,
@@ -1208,7 +1207,7 @@ async function tryStartStopWaiting(
 
 /** Admin SSOT: dispatch_settings.pickup_radius_meters (+ pickup_radius_enabled). */
 async function checkPickupArrivalRadius(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   serviceAreaId: string | null,
   pickupLat: number | null | undefined,
   pickupLng: number | null | undefined,
@@ -1250,7 +1249,7 @@ async function checkPickupArrivalRadius(
 }
 
 async function writeTripAudit(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   row: {
     trip_id: string;
     driver_id: string;
@@ -1272,7 +1271,7 @@ async function writeTripAudit(
 }
 
 async function writeFareAudit(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   row: {
     trip_id: string;
     event_type: string;
@@ -1315,7 +1314,7 @@ async function invokeFinalizeTripCapture(
 }
 
 async function fetchDispatchWaitingSettings(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   serviceAreaId: string | null,
 ): Promise<DispatchWaitingSettings> {
   const dispatchCols =
@@ -1386,7 +1385,7 @@ async function fetchDispatchWaitingSettings(
 
 /** Aggregate stop waiting into trips fare columns (customer/driver/admin SSOT). */
 async function updateTripTotalWaiting(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   tripId: string,
 ): Promise<number> {
   const { data: allStops } = await supabase
@@ -1412,7 +1411,7 @@ async function updateTripTotalWaiting(
 }
 
 async function syncTripDestinationFields(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   tripId: string,
   stop: TripStopRow | null | undefined,
   extra: Record<string, unknown> = {},
@@ -1428,7 +1427,7 @@ async function syncTripDestinationFields(
 }
 
 async function isStopWaitingChargeEnabled(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   serviceAreaId: string | null,
 ): Promise<boolean> {
   const settings = await fetchDispatchWaitingSettings(supabase, serviceAreaId);
@@ -1439,7 +1438,7 @@ async function isStopWaitingChargeEnabled(
  * Finalize stop waiting from counted in-radius seconds only (idempotent).
  */
 async function finalizeStopWaitingCharge(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   trip: { id: string; service_area_id?: string | null; driver_id?: string | null },
   stop: {
     id: string;
@@ -1537,7 +1536,7 @@ async function finalizeStopWaitingCharge(
 
 /** Start stop waiting after driver taps Arrive at Stop (no GPS auto-start). */
 async function startStopWaitingOnArrive(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   trip: { id: string; service_area_id?: string | null },
   stop: TripStopRow,
 ): Promise<{ started: boolean; idempotent: boolean; graceSeconds: number }> {
@@ -1601,7 +1600,7 @@ async function startStopWaitingOnArrive(
 
 /** True when admin SSOT requires GPS radius before stop arrive/waiting. */
 async function isStopRadiusEnforced(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   serviceAreaId: string | null,
 ): Promise<boolean> {
   const settings = await fetchDispatchWaitingSettings(supabase, serviceAreaId);
@@ -1613,7 +1612,7 @@ async function isStopRadiusEnforced(
  * Clears arrived_at so driver must re-confirm inside radius.
  */
 async function clearStaleStopWaitingOutsideRadius(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   tripId: string,
   stop: TripStopRow,
   reason: string,

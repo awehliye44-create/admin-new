@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { 
   securityHeaders, 
   corsHeaders, 
@@ -33,7 +33,7 @@ serve(async (req) => {
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
   if (!rateLimitResult.allowed) {
     console.log(`[decline-trip] Rate limit exceeded for IP: ${clientIP}`);
-    return rateLimitResponse(rateLimitResult);
+    return rateLimitResponse(rateLimitResult.retryAfter!);
   }
 
   try {

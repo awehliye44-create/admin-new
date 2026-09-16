@@ -2,7 +2,7 @@
 // reconciliation shape. Admin-only. Read-only — does not mutate DB.
 //
 // POST { payment_id: string, environment?: "live" | "sandbox" }
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import {
   getRevolutMerchantPayment,

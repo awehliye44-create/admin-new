@@ -3,7 +3,7 @@ import {
   invokeManualExternalPayoutCompletion,
 } from "./payoutCompletionRpcSSOT.ts";
 import { redactCompletionEvidence } from "./driverPayoutCompletionSSOT.ts";
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 export const PAYOUT_LEDGER_TYPES = [
   "WEEKLY_PAYOUT",

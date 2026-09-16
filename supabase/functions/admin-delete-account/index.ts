@@ -6,7 +6,7 @@
 //
 // Auth: caller must be an authenticated admin (verified via user_roles).
 
-import { createClient } from 'npm:@supabase/supabase-js@2.57.2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

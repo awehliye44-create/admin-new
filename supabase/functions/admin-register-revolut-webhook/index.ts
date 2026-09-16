@@ -1,4 +1,3 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Register (or reconcile) the ONECAB Revolut Merchant webhook via Create Webhook API.
  * Webhooks are API-managed — not configured in the Revolut Business dashboard.
@@ -35,7 +34,7 @@ function isServiceRoleToken(token: string): boolean {
 
 async function requireAdminOrServiceRole(
   req: Request,
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
 ): Promise<{ ok: true; userId: string } | { ok: false; response: Response }> {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {

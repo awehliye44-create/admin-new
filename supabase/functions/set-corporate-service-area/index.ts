@@ -2,7 +2,7 @@
  * One-time service-area assignment for an existing corporate account.
  * Country is geocoded from the company address — not taken from the client.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { nativeAppCorsHeaders as corsHeaders } from "../_shared/security.ts";
 import { geocodeCorporateAddress } from "../_shared/corporateAddressGeocode.ts";
 import {

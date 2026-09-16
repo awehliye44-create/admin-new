@@ -2,7 +2,7 @@
  * Load backend-resolved economic date fields via SQL RPC.
  * Does not join payment_sessions in TypeScript.
  */
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { BackendEconomicFields } from "./economicEarnedAtSSOT.ts";
 
 export async function loadDriverWalletEconomicFields(

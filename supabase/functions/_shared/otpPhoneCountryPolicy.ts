@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import parsePhoneNumberFromString from "https://esm.sh/libphonenumber-js@1.12.42/min";
 import { normalizeOnboardingPhone } from "./onboardingValidation.ts";
 

@@ -1,4 +1,4 @@
-import { type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import { type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertGlobalRebroadcastAllowed } from "./rebroadcastPolicy.ts";
 import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
 import { FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY } from "./negotiationPushCopy.ts";

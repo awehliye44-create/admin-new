@@ -1,4 +1,3 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Slice 5 — Canonical weekly payout scheduler.
  * Reads Payout Ledger Settings SSOT every run; creates deterministic batch+items;
@@ -15,7 +14,7 @@ import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { loadPayoutControlCentreSettings } from "../_shared/payoutControlCentreSettingsSSOT.ts";
 import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
@@ -49,7 +48,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-onecab-cron-secret",
 };
 
-type AnySupabase = AnySupabaseClient;
+type AnySupabase = ReturnType<typeof createClient>;
 
 async function assertAdmin(req: Request, supabase: AnySupabase): Promise<
   { ok: true; userId: string } | { ok: false; response: Response }

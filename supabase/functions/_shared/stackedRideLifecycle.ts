@@ -3,7 +3,7 @@
  * Does not touch fare/wallet logic. Safe to run while stacked rides are disabled.
  */
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { rebroadcastTripViaAutoDispatch } from "./dispatchOrchestrator.ts";
 import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
 

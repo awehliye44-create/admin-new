@@ -6,7 +6,7 @@
  * Defaults to Ahmed + Bosteyo production IDs when omitted.
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   decryptDestinationIdentifier,
   normalizeDestinationVerificationStatus,

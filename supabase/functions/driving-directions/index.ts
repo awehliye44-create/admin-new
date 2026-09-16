@@ -13,7 +13,7 @@
  *  - Non-retryable status forwarded with x-directions-retryable: false
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 

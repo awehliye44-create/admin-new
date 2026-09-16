@@ -1,5 +1,4 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import {
   accountEmailVerificationBridgeUrl,
   resolveVerificationAppType,
@@ -48,7 +47,7 @@ function assertNativeClientOnly(req: Request): Response | null {
 }
 
 async function resolveProfileFirstName(
-  service: AnySupabaseClient,
+  service: ReturnType<typeof createClient>,
   userId: string,
   appType: VerificationAppType,
 ): Promise<string | null> {

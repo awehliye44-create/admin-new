@@ -15,7 +15,7 @@
 // a trip. This endpoint creates no trip, broadcasts nothing, and leaves the
 // booking draft intact for retry.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   corsHeaders, checkRateLimit, getClientIP, rateLimitResponse,
   successResponse, errorResponse, logAuditEvent,
@@ -28,7 +28,7 @@ serve(async (req) => {
 
   const clientIP = getClientIP(req);
   const rl = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
-  if (!rl.allowed) return rateLimitResponse(rl);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfter!);
 
   try {
     const auth = req.headers.get("Authorization");

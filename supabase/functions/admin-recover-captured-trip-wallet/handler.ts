@@ -4,7 +4,7 @@
  * Dry-run defaults to true. Explicit trip UUIDs only — no cohort / date-range mode.
  * Never calls Revolut. Never recalculates settlement for credit. FR is not the owner.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, jsonResponse, type GateResult } from "../_shared/adminPaymentGate.ts";
 import {
   APPROVED_CAPTURED_TRIP_WALLET_RECOVERY_TRIP_IDS,

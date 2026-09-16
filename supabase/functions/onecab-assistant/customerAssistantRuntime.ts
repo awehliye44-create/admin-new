@@ -3,7 +3,7 @@
  * Injected into the I/O-free handler so unit tests never touch Supabase.
  */
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { AuthenticateCustomer, CustomerAuthResult } from "./customerAuth.ts";
 import { evaluateCustomerAssistantBusyFromRows, isCustomerAssistantBusy } from "./customerBusyGate.ts";
 import { readInstallationId } from "./driverAuth.ts";

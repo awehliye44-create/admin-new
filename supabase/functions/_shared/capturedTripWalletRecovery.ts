@@ -278,14 +278,11 @@ export async function recoverCapturedTripWallet(
     return { tripId, tripCode: null, dryRun, status: "NOT_IN_ALLOW_LIST" };
   }
 
-  const { data: tripRow } = await supabase
+  const { data: trip } = await supabase
     .from("trips")
     .select(TRIP_WALLET_RECOVERY_SELECT)
     .eq("id", tripId)
     .maybeSingle();
-
-  // Wide select strings defeat generated row typing — treat as an untyped record.
-  const trip = (tripRow ?? null) as Record<string, unknown> | null;
 
   const tripCode = trip?.trip_code ? String(trip.trip_code) : null;
 

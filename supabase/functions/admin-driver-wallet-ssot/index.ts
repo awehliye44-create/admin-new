@@ -1,10 +1,9 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Admin Driver Wallet SSOT — per-driver snapshot from distinct sources.
  * Drivers listed without provider_account_id filter.
  * PIPELINE 1 only: PLATFORM_COLLECTED service-area membership.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
 import { fetchDriverWalletSummary } from "../_shared/fetchDriverWalletSummary.ts";
 import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
@@ -23,7 +22,7 @@ const SNAPSHOT_CONCURRENCY = 6;
 
 /** Build per-driver snapshots concurrently (bounded) — sequential awaits made this page time out. */
 async function buildSnapshotsConcurrently(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   drivers: Array<{ id: string }>,
   periodArgs: Record<string, string>,
 ) {

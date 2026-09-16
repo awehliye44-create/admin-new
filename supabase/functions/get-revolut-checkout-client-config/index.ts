@@ -1,4 +1,3 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * get-revolut-checkout-client-config
  *
@@ -7,7 +6,7 @@ import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
  * Never returns sk_ secrets. Never silently falls back to the test vault for live apps.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   checkRateLimit,
   getClientIP,
@@ -46,7 +45,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 }
 
 async function readVaultPublishableKey(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   environment: "live" | "test",
 ): Promise<string | null> {
   const { data, error } = await supabase
@@ -68,7 +67,7 @@ async function readVaultPublishableKey(
 }
 
 async function resolvePublishableKey(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
 ): Promise<{
   publicKey: string | null;
   environment: "sandbox" | "production";

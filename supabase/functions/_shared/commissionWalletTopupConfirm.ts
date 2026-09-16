@@ -2,7 +2,7 @@
  * Shared Commission Wallet top-up confirm → TOP_UP_CREDIT (+ Phase 5 bonus).
  * Never writes driver_wallet_ledger.
  */
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
   COMMISSION_TOPUP_STATUS,
   COMMISSION_WALLET_CAMPAIGN_TYPE,

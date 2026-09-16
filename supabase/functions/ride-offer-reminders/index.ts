@@ -1,5 +1,4 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import {
   handleCORSPreflight,
   successResponse,
@@ -19,7 +18,7 @@ interface ReminderJobPayload {
 }
 
 async function recordReminderPhase(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   input: {
     bookingId: string;
     driverId: string;
@@ -126,7 +125,7 @@ async function sendReminderPush(
 }
 
 async function validateOfferActionable(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   offerId: string,
   driverId: string,
   tripId: string,

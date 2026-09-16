@@ -8,7 +8,7 @@
  * POST body: { offer_id, driver_id, selected_fare_pence, selected_offer_key? }
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import {
   handleCORSPreflight,
   jsonHeaders,

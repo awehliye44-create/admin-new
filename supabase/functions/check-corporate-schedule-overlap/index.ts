@@ -3,7 +3,7 @@
  * Client preview is informational; create-corporate-book must re-check atomically.
  * Does NOT call postgres check_schedule_overlap (driver-centric, EXECUTE-locked).
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import {
   findCorporateScheduleOverlap,
   type CorporateOverlapTrip,

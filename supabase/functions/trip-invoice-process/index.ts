@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
 import { handleTripInvoiceAction, type TripInvoiceAction } from "../_shared/tripInvoice.ts";
 

@@ -19,7 +19,7 @@
  *   - Notifies customer: driver is on the way
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   handleCORSPreflight,
   successResponse,

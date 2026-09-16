@@ -1,4 +1,3 @@
-import type { AnySupabaseClient } from "./supabaseClientTypes.ts";
 /**
  * WhatsApp webhook lock tests.
  * Run: deno test supabase/functions/_shared/whatsappWebhookLock.test.ts
@@ -345,11 +344,11 @@ Deno.test("menu and unknown send failures do not advance workflow state", () => 
   assert(workflow.includes('"unknown_menu_hint_send_failed"'));
 });
 
-Deno.test("index.ts uses typed SupabaseClient<any> — no AnySupabaseClient TS errors", () => {
+Deno.test("index.ts uses typed SupabaseClient<any> — no ReturnType<typeof createClient> TS errors", () => {
   const index = readSrc("supabase/functions/whatsapp-webhook/index.ts");
-  // Must import SupabaseClient and use it for typed DB helpers — not AnySupabaseClient
+  // Must import SupabaseClient and use it for typed DB helpers — not ReturnType<typeof createClient>
   assert(index.includes("type SupabaseClient") || index.includes("SupabaseClient<any>"));
-  assert(!index.includes("AnySupabaseClient"));
+  assert(!index.includes("ReturnType<typeof createClient>"));
 });
 
 Deno.test("body read failure returns 400 — not an unhandled crash", () => {

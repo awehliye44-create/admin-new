@@ -1,7 +1,7 @@
 /**
  * Fetch per-driver wallet/payout snapshot from distinct SSOT sources (server I/O).
  */
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { computeLedgerWalletBalancePence, computeCashCommissionOutstanding } from "./onecabFinanceLedger.ts";
 import {
   computeDriverWalletPayoutSnapshot,
@@ -58,11 +58,10 @@ export type DriverWalletPayoutDetail = Omit<
   verification_status: string | null;
   bank_account_last4: string | null;
   payouts_enabled: boolean | null;
+  withdrawal_in_progress_pence: number;
   payout_operational_paused?: boolean | null;
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;
-  /** Reserved/in-flight withdrawal amount from payout eligibility. */
-  withdrawal_in_progress_pence: number;
   /** Wallet account identity — owned by Driver Wallet Ledger. */
   driver_tier_name: string | null;
   commission_percent: number | null;
@@ -652,16 +651,12 @@ export async function fetchDriverWalletPayoutSnapshot(
       name?: string;
       driver_payout_gateway?: string | null;
       payment_provider?: string | null;
-      timezone?: string | null;
-      currency_code?: string | null;
     }
     | {
       id?: string;
       name?: string;
       driver_payout_gateway?: string | null;
       payment_provider?: string | null;
-      timezone?: string | null;
-      currency_code?: string | null;
     }[]
     | null;
   const serviceArea = Array.isArray(saJoin) ? saJoin[0] ?? null : saJoin;
@@ -1071,8 +1066,8 @@ export async function fetchDriverWalletPayoutSnapshot(
   });
   const schedule = buildPayoutScheduleDto({
     service_area_id: serviceAreaId,
-    serviceAreaTimezone: serviceArea?.timezone ?? null,
-    currencyCode: serviceArea?.currency_code ?? "GBP",
+    serviceAreaTimezone: (serviceArea as Record<string, unknown> | null | undefined)?.timezone as string | null ?? null,
+    currencyCode: (serviceArea as Record<string, unknown> | null | undefined)?.currency_code as string | undefined ?? "GBP",
     automatic_payouts_enabled: controlCentre.payouts_enabled,
     frequency: controlCentre.payout_frequency,
     weekly_day: controlCentre.weekly_payout_day,

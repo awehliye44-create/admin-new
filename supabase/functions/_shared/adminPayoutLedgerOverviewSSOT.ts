@@ -207,13 +207,9 @@ async function loadDriverOverviewSection(
   let debtTotal = 0;
   for (const d of drivers ?? []) {
     const id = String(d.id);
-    const rows = byDriver.get(id) ?? [];
-    const live = computeLedgerWalletBalancePence(
-      rows as Parameters<typeof computeLedgerWalletBalancePence>[0],
-    );
-    const debt = computeCashCommissionOutstanding(
-      rows as Parameters<typeof computeCashCommissionOutstanding>[0],
-    );
+    const rows = (byDriver.get(id) ?? []) as Array<{ type: string; amount_pence: number }>;
+    const live = computeLedgerWalletBalancePence(rows);
+    const debt = computeCashCommissionOutstanding(rows);
     liveTotal += Math.max(0, live);
     debtTotal += Math.max(0, debt);
   }
@@ -565,7 +561,8 @@ export async function buildPayoutLedgerOverview(
     protectedLiabilitiesPence = null;
   }
 
-  let companyBalance;
+  // deno-lint-ignore no-explicit-any -- unavailable fallback shape differs from the live snapshot
+  let companyBalance: any;
   try {
     companyBalance = await withTimeout(
       resolveLiveCompanyBalanceWithSlice10Gate({
@@ -592,7 +589,7 @@ export async function buildPayoutLedgerOverview(
       classified_company_cash_pence: null,
     };
   }
-  dto.company_balance = companyBalance as typeof dto.company_balance;
+  dto.company_balance = companyBalance;
   dto.company_balance_pence = companyBalance.company_ledger_balance_pence;
   dto.company_available_for_transfer_pence = companyBalance.company_available_for_transfer_pence;
 
@@ -644,7 +641,7 @@ export async function buildPayoutLedgerOverview(
       next_run_at_local: schedule.next_run_at_local,
       payout_schedule: schedule,
     } as AdminPayoutLedgerListResponse["overview_summary"],
-    company_balance: companyBalance as AdminPayoutLedgerListResponse["company_balance"],
+    company_balance: companyBalance,
     payout_schedule: schedule,
     error_code: dto.unavailable_reason,
     summary: {

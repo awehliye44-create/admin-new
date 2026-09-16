@@ -4,7 +4,7 @@
  * with the stable FINANCIAL_MODEL_VIOLATION code. "All Services" is scoped to the
  * page's model — never all service areas.
  */
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   FINANCIAL_MODEL,
   FINANCIAL_MODEL_VIOLATION,

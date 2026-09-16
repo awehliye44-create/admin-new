@@ -2,7 +2,7 @@
 // Raw values are stored in `integration_secret_vault` (default-deny RLS,
 // service-role only). The client never receives raw values back — only a
 // masked preview it can store alongside its config in `admin_settings`.
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

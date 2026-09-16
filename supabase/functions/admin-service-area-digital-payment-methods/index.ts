@@ -1,11 +1,10 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Admin — Digital payment methods per service area.
  * GET: readiness + toggles for Admin UI "Digital payment methods" section.
  * PATCH: update per-method toggles (card, saved_card, apple_pay, google_pay, mobile_wallet, pay_by_bank).
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, requireAdmin } from "../_shared/adminPaymentGate.ts";
 import { checkServiceAreaGateway } from "../_shared/paymentGatewayGuard.ts";
 import { buildServiceAreaPaymentMethodFlags } from "../_shared/customerPaymentWorkflow.ts";
@@ -49,7 +48,7 @@ function pickToggleUpdates(body: Record<string, unknown>): Partial<Record<Toggle
 }
 
 async function buildAdminDigitalPaymentPayload(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   serviceAreaId: string,
 ) {
   const { data: area } = await supabase

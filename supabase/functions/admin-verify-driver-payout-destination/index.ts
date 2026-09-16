@@ -12,7 +12,7 @@
  * JWT user-metadata claims. Service-role client only after auth+ACL (and never for verify).
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { DESTINATION_STATUS } from "../_shared/driverPayoutDestinationSSOT.ts";
 
 const corsHeaders = {

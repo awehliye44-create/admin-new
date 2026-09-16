@@ -2,7 +2,7 @@
  * Sole-active-device delivery resolution.
  * Senders must use these helpers — never fan out to all historical tokens.
  */
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 export type AuthoritativeToken = {
   token: string;

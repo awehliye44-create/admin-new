@@ -1,10 +1,9 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Driver Commission Wallet initiate top-up — Phase 4 sandbox.
  * Creates topup row, Waafi sandbox payment, auto-confirms TOP_UP_CREDIT.
  * Never writes driver_wallet_ledger.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveDriverServiceAreaId } from "../_shared/resolveDriverServiceAreaId.ts";
 import { confirmCommissionWalletTopupCredit } from "../_shared/commissionWalletTopupConfirm.ts";
 import { createWaafiSandboxPayment } from "../_shared/commissionWalletProviders/waafiSandboxAdapter.ts";
@@ -310,7 +309,7 @@ Deno.serve(async (req) => {
 });
 
 async function loadBalances(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   driverId: string,
   serviceAreaId: string,
 ) {

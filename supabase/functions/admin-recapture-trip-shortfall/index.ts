@@ -23,7 +23,6 @@ import {
   buildCustomerShortfallEvidence,
   evaluateRecaptureProviderCallBoundary,
   FARE_FIELD_CONTRACT,
-  type CustomerShortfallSession,
 } from "../_shared/customerShortfallEvidenceSSOT.ts";
 import {
   deriveAdminRecaptureOutcome,
@@ -90,7 +89,7 @@ Deno.serve(async (req) => {
         ? Math.round(Number(body.expected_shortfall_pence))
         : null);
 
-    const { data: tripRow, error: tripErr } = await gate.supabase
+    const { data: trip, error: tripErr } = await gate.supabase
       .from("trips")
       .select(
         "id, trip_number, status, passenger_id, service_area_id, payment_method, payment_status, "
@@ -102,13 +101,9 @@ Deno.serve(async (req) => {
       .eq("id", tripId)
       .maybeSingle();
 
-    if (tripErr || !tripRow) {
+    if (tripErr || !trip) {
       return jsonResponse({ error: "Trip not found", code: "TRIP_NOT_FOUND" }, 404);
     }
-
-    // Wide select strings defeat generated row typing — treat as an untyped record.
-    // deno-lint-ignore no-explicit-any
-    const trip = tripRow as unknown as Record<string, any>;
 
     const financialModel = readTripFinancialModelStamp(
       trip.financial_model as string | null,
@@ -154,7 +149,7 @@ Deno.serve(async (req) => {
       payment_method: trip.payment_method,
       capture_amount_pence: trip.capture_amount_pence,
       fare_field_contract: FARE_FIELD_CONTRACT.TIP_EXCLUSIVE_FINAL,
-      sessions: (captureSessions ?? []) as unknown as CustomerShortfallSession[],
+      sessions: captureSessions ?? [],
       hasOpenRecoveryAttempt: hasOpenRecovery,
       adminPermitted: true,
       client_expected_shortfall_pence: clientExpected,

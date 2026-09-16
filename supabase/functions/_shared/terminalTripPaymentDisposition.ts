@@ -15,7 +15,7 @@
  * Rematch / active / completed: do not void here.
  * Start Trip without completion: skip (interrupted-trip policy not invented here).
  */
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   cancelRevolutOrder,
   captureRevolutOrder,

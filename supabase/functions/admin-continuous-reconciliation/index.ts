@@ -2,7 +2,7 @@
  * Continuous reconciliation — compare wallet/payout SSOT vs backend records.
  * P0: provider Connect sync retired; snapshots use Driver Wallet Ledger only.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
 
 const corsHeaders = {
@@ -88,12 +88,13 @@ Deno.serve(async (req) => {
     const rows: ReconciliationRow[] = [];
 
     for (const d of drivers ?? []) {
-      const snap = await fetchDriverWalletPayoutSnapshot(supabase, {
-        driverId: d.id,
-      });
+      const snap = await fetchDriverWalletPayoutSnapshot(
+        supabase as unknown as Parameters<typeof fetchDriverWalletPayoutSnapshot>[0],
+        { driverId: d.id },
+      );
 
-      const reconciliationStatus = String(snap.reconciliation_status ?? "");
       let classification: ReconciliationRow["classification"] = "matched";
+      const reconciliationStatus = String(snap.reconciliation_status);
       if (reconciliationStatus === "LOCAL_ONLY") classification = "local_only";
       else if (reconciliationStatus === "PROVIDER_ONLY") classification = "provider_only";
       else if (reconciliationStatus === "MISMATCH" || reconciliationStatus === "PROVIDER_NEGATIVE") {

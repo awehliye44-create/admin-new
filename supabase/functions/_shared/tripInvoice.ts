@@ -4,7 +4,7 @@
  * for a completed trip. Writer of trips.invoice_* columns.
  */
 import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { fetchCompanyBranding, formatCompanyAddress } from "./companyBranding.ts";
 import { sendResendEmail } from "./resendMail.ts";
 import { buildTripInvoiceHtml, type TripInvoiceHtmlData } from "./tripInvoiceHtml.ts";

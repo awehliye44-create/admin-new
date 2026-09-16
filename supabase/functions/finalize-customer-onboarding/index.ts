@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { nativeAppCorsHeaders as corsHeaders } from "../_shared/security.ts";
 
 function logEvent(event: string, payload: Record<string, unknown>) {

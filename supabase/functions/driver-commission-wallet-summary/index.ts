@@ -4,7 +4,7 @@
  * AND commission_wallet_enabled = true (canonical service area only).
  * Never writes driver_wallet_ledger or commission ledger.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveDriverServiceAreaId } from "../_shared/resolveDriverServiceAreaId.ts";
 import {
   COMMISSION_WALLET_DRIVER_PAGE_DISCLAIMER,

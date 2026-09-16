@@ -1,4 +1,4 @@
-import { type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import { type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { formatPenceWithCurrency } from "./currency.ts";
 import { fetchCompanyBranding, formatCompanyAddress } from "./companyBranding.ts";
 import { buildDriverInvoicePdf } from "./driverInvoicePdf.ts";

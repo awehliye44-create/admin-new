@@ -43,10 +43,10 @@ export async function resolvePlatformCollectedDriverIds(
   if (error) throw error;
 
   return [
-    ...new Set(
+    ...new Set<string>(
       (data ?? [])
         .map((row: { driver_id?: string | null }) => String(row.driver_id ?? ""))
         .filter(Boolean),
     ),
-  ] as string[];
+  ];
 }

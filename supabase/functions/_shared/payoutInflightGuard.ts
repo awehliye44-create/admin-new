@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const IN_FLIGHT_STATUSES = new Set(["pending", "processing", "ledger_sync_failed"]);
 

@@ -4,7 +4,7 @@
  * Local countdown hitting zero must not rematch. expire-offers owns
  * Driver second-chance £X and Driver £Z timeouts.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   handleCORSPreflight,
   checkRateLimit,

@@ -1,6 +1,5 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   detectModeMismatch,
   getPaymentProviderAdapter,
@@ -23,7 +22,7 @@ const corsHeaders = {
   "Access-Control-Max-Age": "86400",
 };
 
-async function requireAdmin(req: Request, supabase: AnySupabaseClient) {
+async function requireAdmin(req: Request, supabase: ReturnType<typeof createClient>) {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return { error: "Unauthorized", status: 401, user: null };
 
@@ -46,7 +45,7 @@ async function requireAdmin(req: Request, supabase: AnySupabaseClient) {
 
 
 async function buildProviderCard(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   config: Record<string, unknown>,
 ) {
   const provider = config.provider as PaymentProviderId;
@@ -160,10 +159,9 @@ async function buildProviderCard(
     customer_gateway_status: customerGateway.status,
     driver_gateway_status: driverGateway.status,
     configuration_error: customerGateway.configuration_error,
-    // Webhook health is not queried here — provider status is derived from credentials only.
-    last_webhook_received: null,
-    last_successful_event: null,
-    last_failed_event: null,
+    last_webhook_received: webhookHealth?.last_received_at ?? null,
+    last_successful_event: webhookHealth?.last_successful_event ?? null,
+    last_failed_event: webhookHealth?.last_failed_event ?? null,
     connect_enabled: connectEnabled,
     apple_pay_enabled: applePayEnabled,
     google_pay_enabled: googlePayEnabled,

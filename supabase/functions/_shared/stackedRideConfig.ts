@@ -5,7 +5,7 @@
  * SAFETY: stacked rides default OFF. Missing, split, or inconsistent config â OFF.
  */
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 export const STACKED_RIDE_DISABLED_SAFE_GUARD = "STACKED_RIDE_DISABLED_SAFE_GUARD";
 /**

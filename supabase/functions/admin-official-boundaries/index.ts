@@ -3,7 +3,7 @@
  * Sources: ONECAB official_admin_boundaries catalog + Nominatim (OSM) polygons.
  * Map display stays Mapbox; this edge only supplies normalized GeoJSON.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

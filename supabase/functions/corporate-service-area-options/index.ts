@@ -2,7 +2,7 @@
  * Resolve active service areas for a corporate address/postcode.
  * Country is geocoded server-side; catalogue is regions.country_code scoped.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { nativeAppCorsHeaders as corsHeaders } from "../_shared/security.ts";
 import { geocodeCorporateAddress } from "../_shared/corporateAddressGeocode.ts";
 import {

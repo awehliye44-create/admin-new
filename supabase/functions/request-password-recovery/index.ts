@@ -7,7 +7,7 @@
  * Always returns a neutral success message (no account enumeration).
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import { fetchCompanyBranding } from "../_shared/companyBranding.ts";
 import {
@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
     windowMs: 15 * 60 * 1000,
   });
   if (!rate.allowed) {
-    return rateLimitResponse(rate);
+    return rateLimitResponse(rate.retryAfter ?? 60);
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");

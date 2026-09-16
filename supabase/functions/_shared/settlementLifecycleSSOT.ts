@@ -3,7 +3,7 @@
  * CREATED → TRANSFERRED_TO_CONNECT → INCLUDED_IN_PAYOUT → PAID
  * Does not alter wallet balance math — tracks settlement ↔ payout linkage only.
  */
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { PAYOUT_LINEAGE_MISSING } from "./payoutItemLedgerAllocationWrite.ts";
 
 export const SETTLEMENT_LIFECYCLE = {

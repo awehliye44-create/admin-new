@@ -1,5 +1,4 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   securityHeaders,
   jsonHeaders,
@@ -53,7 +52,7 @@ const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60000, keyPrefix: 'expire-offer
 async function sendNegotiationExpiredPush(
   supabaseUrl: string,
   serviceKey: string,
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   tripId: string,
   offerId: string,
   driverId: string | null,
@@ -109,7 +108,7 @@ async function sendNegotiationExpiredPush(
 }
 
 async function loadDispatchTripContext(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   tripId: string,
 ): Promise<DispatchTripContext> {
   const { data } = await supabase

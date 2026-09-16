@@ -13,7 +13,7 @@
  * POST body: { offer_id, driver_id, action: "ACCEPT"|"ACCEPT_STANDARD"|"DECLINE" }
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   handleCORSPreflight,
   checkRateLimit,

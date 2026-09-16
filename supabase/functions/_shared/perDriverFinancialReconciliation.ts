@@ -3,7 +3,7 @@
  * Digital driver liability = wallet ledger balance (Phase 3A.4).
  */
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   allocateProviderBalanceByLiability,
   buildDigitalReconciliationCheck,

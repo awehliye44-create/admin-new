@@ -3,7 +3,7 @@
  * Storage bucket `alert-sounds` is public — edge functions emit HTTPS URLs for native streaming.
  */
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.49.4";
 
 export type AlertSoundTargetApp = "driver" | "customer";
 

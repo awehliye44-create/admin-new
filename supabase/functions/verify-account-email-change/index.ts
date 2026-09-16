@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { resolveVerificationAppType } from "../_shared/accountEmailVerification.ts";
 import {
   findPendingEmailChangeRequest,

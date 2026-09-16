@@ -7,7 +7,7 @@
  * Never returns hosted checkout URLs. Token is for native RevolutMerchantCardFormKit only.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   checkRateLimit,
   getClientIP,
@@ -59,7 +59,7 @@ serve(async (req) => {
 
   const clientIP = getClientIP(req);
   const rl = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
-  if (!rl.allowed) return rateLimitResponse(rl);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfter!);
 
   let authenticated = false;
   let customerResolved = false;

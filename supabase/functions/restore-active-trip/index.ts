@@ -1,4 +1,3 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { resolveCustomerPreauthBasePence } from "../_shared/customerDisplayFare.ts";
 import { computeLiveTripFarePreview } from "../_shared/liveTripFareSSOT.ts";
@@ -21,7 +20,7 @@ const corsHeaders = {
 };
 
 async function buildCustomerActiveTrip(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   trip: Record<string, unknown>,
   driver: Record<string, unknown> | null,
   stops: Record<string, unknown>[],

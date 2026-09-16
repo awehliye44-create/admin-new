@@ -6,7 +6,7 @@
  * - clear driver_active_devices when this installation was authoritative
  * - clear presence push_token hint when it matched
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { authenticateDriver } from "../_shared/driverAuth.ts";
 import {
   buildTokenDeactivatePatch,
@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
 
   const rate = checkRateLimit(getClientIP(req), RATE_LIMIT_CONFIG);
   if (!rate.allowed) {
-    return rateLimitResponse(rate);
+    return rateLimitResponse(rate.retryAfter!);
   }
 
   const auth = await authenticateDriver(req);

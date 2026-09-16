@@ -2,7 +2,7 @@
  * Phase 0 — canonical typed wallet posting paths.
  * TRIP_EARNING_NET authority lives in creditCapturedCardTripLedger (onecabFinanceLedger.ts).
  */
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { creditCapturedCardTripLedger } from "./onecabFinanceLedger.ts";
 import { type TripSettlementTripRow } from "./tripSettlement.ts";
 import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";

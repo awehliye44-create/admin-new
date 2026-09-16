@@ -1,4 +1,3 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Slice 12 â Admin-controlled company transfer provider submission.
  * Requires REVOLUT_PAYMENT_TRANSPORT_ENABLED=true and
@@ -8,7 +7,7 @@ import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
  * POST { transfer_id: string, confirm_submit?: true }
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveLiveCompanyBalanceWithSlice10Gate } from "../_shared/companyBalanceResolveSSOT.ts";
 import { loadActiveOperationalReservePolicy } from "../_shared/companyOperationalReserveLoadSSOT.ts";
 import {
@@ -57,7 +56,7 @@ function json(data: unknown, status = 200): Response {
 }
 
 async function loadLiveCompanyTransferExecutionEnabled(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
 ): Promise<boolean> {
   try {
     const envEnabled = parseLiveCompanyTransferExecutionEnabled((k) => Deno.env.get(k));
@@ -76,7 +75,7 @@ async function loadLiveCompanyTransferExecutionEnabled(
 }
 
 async function captureFundingSnapshot(args: {
-  supabase: AnySupabaseClient;
+  supabase: ReturnType<typeof createClient>;
   service_area_id: string | null;
   currency: string;
 }) {

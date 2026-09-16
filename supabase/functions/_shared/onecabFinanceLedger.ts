@@ -4,7 +4,7 @@
  * Financial Reconciliation consumes these formulas; ledger is source of truth.
  */
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { tripBlocksDriverWalletLedgerPosting } from "./commissionWalletDeduction.ts";
 import { FINANCIAL_MODEL_VIOLATION } from "./commissionWalletSSOT.ts";
 import { readTripEarningNetLedgerState } from "./tripEarningNetLedgerReadback.ts";

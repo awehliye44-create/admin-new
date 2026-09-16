@@ -1,5 +1,4 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   securityHeaders,
   jsonHeaders,
@@ -103,7 +102,7 @@ interface ScheduledTrip {
 
 /** Send a push notification to a driver via send-driver-notification. */
 async function sendDriverPush(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   args: { driverId: string; type: string; title: string; body: string; data?: Record<string, string> },
 ) {
   try {
@@ -123,7 +122,7 @@ async function sendDriverPush(
 
 /** Send a push notification to a customer via send-customer-notification. */
 async function sendCustomerPush(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   args: { passengerId: string; type: string; title: string; body: string; data?: Record<string, string> },
 ) {
   try {
@@ -144,7 +143,7 @@ async function sendCustomerPush(
 
 /** Send an admin alert via send-admin-notification (non-fatal). */
 async function sendAdminAlert(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   args: { type: string; title: string; body: string; data?: Record<string, string> },
 ) {
   try {
@@ -162,7 +161,7 @@ async function sendAdminAlert(
 }
 
 async function logSnapshot(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   input: {
     tripId: string;
     action: string;
@@ -221,7 +220,7 @@ async function triggerAutoDispatch(args: {
 
 /** Release a committed driver back to broadcast: clear assignment and rebroadcast. */
 async function releaseAndRebroadcast(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   args: {
     trip: ScheduledTrip;
     reason: string;

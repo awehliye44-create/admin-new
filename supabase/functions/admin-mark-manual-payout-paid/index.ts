@@ -232,7 +232,7 @@ serve(async (req) => {
       });
     }
 
-    const currencyCode = (await resolveCurrencyFromDriver(supabase, payoutItem.driver_id)).currency_code;
+    const currencyCode = await resolveCurrencyFromDriver(supabase, payoutItem.driver_id);
 
     try {
       await assertPayoutItemLedgerLineage({
@@ -272,7 +272,7 @@ serve(async (req) => {
       providerPayoutId: providerReference,
       paymentProvider: payoutProvider,
       walletBalanceBefore: ssot.driver_wallet_balance_pence,
-      adminUserId: auth.userId,
+      adminUserId: user.id,
     });
 
     if (!result.success) {

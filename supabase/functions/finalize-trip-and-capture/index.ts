@@ -1,4 +1,3 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * finalize-trip-and-capture — existing Revolut completion path only.
  *
@@ -57,7 +56,7 @@ function allowOpenTipWindowCapture(args: {
 }
 
 async function persistDurableOutcome(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   tripId: string,
   status: string,
   success: boolean,

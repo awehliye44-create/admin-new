@@ -8,7 +8,7 @@
  * never treat expected gates as blank-screen RUNTIME_ERROR (non-2xx).
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { COMPLETION_ERROR } from "../_shared/companyTransferCompletionSSOT.ts";
 import { redactCompanyTransferCompletionEvidence } from "../_shared/companyTransferCompletionSSOT.ts";
 import { mapProviderReversalOutcome } from "../_shared/companyTransferCompletionSSOT.ts";

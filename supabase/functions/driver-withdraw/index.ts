@@ -3,7 +3,7 @@
  * Reuses Slice 6/7 reservation + claim + relay /pay + completion SSOT.
  * Revolut/bank payouts only. Separate trigger from weekly admin payout.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveAuthenticatedDriver } from "../_shared/resolveAuthenticatedDriver.ts";
 import { fetchDriverPayoutEligibilityContext } from "../_shared/fetchDriverPayoutEligibility.ts";
 import {

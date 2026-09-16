@@ -1,5 +1,5 @@
 // Shared helper: verify caller JWT and ensure admin role for super-admin payment controls.
-import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

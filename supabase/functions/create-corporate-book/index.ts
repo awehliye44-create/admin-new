@@ -8,7 +8,7 @@
  * the window via claim_corporate_schedule_hold (draft RPC) before payment state.
  * Does NOT call driver check_schedule_overlap.
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { loadPaymentSession } from "../_shared/paymentSessionSSOT.ts";
 import { createRevolutPreauthResponse } from "../_shared/revolutPreauth.ts";
 import {

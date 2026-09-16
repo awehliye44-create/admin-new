@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 /** Resolve driver's primary service area (drivers.service_area_id, then junction). */
 export async function resolveDriverServiceAreaId(

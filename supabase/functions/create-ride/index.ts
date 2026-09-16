@@ -1,5 +1,4 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { 
   securityHeaders, 
   jsonHeaders,
@@ -118,7 +117,7 @@ function validateStop(stop: TripStop, index: number): Record<string, string> {
 }
 
 async function resolveVehicleTypeIdForInsert(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   payload: Pick<CreateRidePayload, "vehicle_type_id" | "vehicle_type">,
 ): Promise<string | null> {
   if (payload.vehicle_type_id && isValidUUID(payload.vehicle_type_id)) {

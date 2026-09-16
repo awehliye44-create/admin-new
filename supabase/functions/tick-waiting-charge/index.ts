@@ -1,5 +1,4 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import {
   checkRateLimit,
   getClientIP,
@@ -24,7 +23,7 @@ const RATE_LIMIT_CONFIG = {
 };
 
 async function writeTripAudit(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   row: {
     trip_id: string;
     driver_id: string;
@@ -255,7 +254,7 @@ Deno.serve(async (req) => {
 });
 
 async function updateTripTotalWaiting(
-  supabase: AnySupabaseClient,
+  supabase: ReturnType<typeof createClient>,
   tripId: string,
   liveStopPence?: number,
 ) {
