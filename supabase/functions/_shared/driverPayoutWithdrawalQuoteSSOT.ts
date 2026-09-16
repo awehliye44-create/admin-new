@@ -19,6 +19,102 @@ import { PAYOUT_ELIGIBILITY_STATUS } from "./driverPayoutEligibilitySSOT.ts";
 export const DRIVER_PAYOUT_WITHDRAWAL_QUOTE_VERSION =
   "driver_payout_withdrawal_quote_v1_stage_c2";
 
+/** Wire contract for GET /driver-withdraw (quote) + POST executor identity. */
+export const DRIVER_WITHDRAW_QUOTE_VERSION = "STAGE_C2_V1";
+export const DRIVER_WITHDRAW_EXECUTOR_VERSION = "STAGE_C2_V1";
+export const DRIVER_WITHDRAW_ELIGIBILITY_SOURCE = "DRIVER_EFFECTIVE_PAYOUT_ALLOWED";
+
+export type DriverWithdrawExecutorDestination = {
+  status: string | null;
+  masked_account: string | null;
+};
+
+/** Authenticated read-only GET quote payload (zero writes). */
+export type DriverWithdrawExecutorQuotePayload = {
+  ok: true;
+  quote_version: typeof DRIVER_WITHDRAW_QUOTE_VERSION;
+  executor_version: typeof DRIVER_WITHDRAW_EXECUTOR_VERSION;
+  eligibility_source: typeof DRIVER_WITHDRAW_ELIGIBILITY_SOURCE;
+  quote_generated_at: string;
+  ledger_balance_pence: number;
+  cleared_available_pence: number;
+  pending_pence: number;
+  reserved_pence: number;
+  withdrawable_pence: number;
+  requested_pence: number;
+  fee_pence: number;
+  net_payout_pence: number;
+  payout_allowed: boolean;
+  blocking_reason_code: DriverPayoutBlockReasonCode | null;
+  blocking_reason_copy: string | null;
+  destination: DriverWithdrawExecutorDestination;
+  /** Explicit: quote path never mutates money state. */
+  revolut_pay_called: false;
+  writes: false;
+};
+
+export function toDriverWithdrawExecutorQuotePayload(args: {
+  quote: DriverPayoutWithdrawalQuote;
+  destination_status?: string | null;
+  destination_masked_last4?: string | null;
+  quote_generated_at?: string;
+}): DriverWithdrawExecutorQuotePayload {
+  const q = args.quote;
+  return {
+    ok: true,
+    quote_version: DRIVER_WITHDRAW_QUOTE_VERSION,
+    executor_version: DRIVER_WITHDRAW_EXECUTOR_VERSION,
+    eligibility_source: DRIVER_WITHDRAW_ELIGIBILITY_SOURCE,
+    quote_generated_at: args.quote_generated_at ?? new Date().toISOString(),
+    ledger_balance_pence: q.ledger_balance_pence,
+    cleared_available_pence: q.cleared_available_pence,
+    pending_pence: q.pending_pence,
+    reserved_pence: q.reserved_pence,
+    withdrawable_pence: q.withdrawable_pence,
+    requested_pence: q.requested_pence,
+    fee_pence: q.fee_pence,
+    net_payout_pence: q.net_payout_pence,
+    payout_allowed: q.payout_allowed,
+    blocking_reason_code: q.blocking_reason_code,
+    blocking_reason_copy: q.blocking_reason_copy,
+    destination: {
+      status: args.destination_status ?? null,
+      masked_account: args.destination_masked_last4
+        ? String(args.destination_masked_last4).replace(/\D/g, "").slice(-4) || null
+        : null,
+    },
+    revolut_pay_called: false,
+    writes: false,
+  };
+}
+
+/** Driver / tests: accept only a complete STAGE_C2_V1 executor quote. */
+export function isCompatibleDriverWithdrawExecutorQuote(
+  raw: unknown,
+): raw is DriverWithdrawExecutorQuotePayload {
+  if (!raw || typeof raw !== "object") return false;
+  const o = raw as Record<string, unknown>;
+  if (o.quote_version !== DRIVER_WITHDRAW_QUOTE_VERSION) return false;
+  if (o.executor_version !== DRIVER_WITHDRAW_EXECUTOR_VERSION) return false;
+  if (o.eligibility_source !== DRIVER_WITHDRAW_ELIGIBILITY_SOURCE) return false;
+  if (typeof o.quote_generated_at !== "string" || !o.quote_generated_at) return false;
+  for (const k of [
+    "ledger_balance_pence",
+    "cleared_available_pence",
+    "pending_pence",
+    "reserved_pence",
+    "withdrawable_pence",
+    "requested_pence",
+    "fee_pence",
+    "net_payout_pence",
+  ] as const) {
+    if (typeof o[k] !== "number" || !Number.isFinite(o[k] as number)) return false;
+  }
+  if (typeof o.payout_allowed !== "boolean") return false;
+  if (!o.destination || typeof o.destination !== "object") return false;
+  return true;
+}
+
 export const DRIVER_PAYOUT_BLOCK_REASON = {
   NONE: "NONE",
   FEATURE_DISABLED: "FEATURE_DISABLED",
