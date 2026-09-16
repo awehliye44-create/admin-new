@@ -4,7 +4,7 @@
  * REVOLUT_WEBHOOK_SECRET, REVOLUT_MERCHANT_ID.
  */
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import type { ProviderEnvironment, ProviderSecrets } from "./types.ts";
 import { getProviderSecrets } from "./secretManager.ts";
 import {

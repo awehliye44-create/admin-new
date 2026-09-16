@@ -10,7 +10,7 @@
 // This helper is called from any code path that would cancel/release a
 // still-AUTHORISED hold and prevents accidental releases during recovery.
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 
 export type HoldReleaseTrigger =
   | "capture_success"

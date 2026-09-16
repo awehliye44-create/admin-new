@@ -1,7 +1,7 @@
 /**
  * Fetch per-driver wallet/payout snapshot from distinct SSOT sources (server I/O).
  */
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { computeLedgerWalletBalancePence, computeCashCommissionOutstanding } from "./onecabFinanceLedger.ts";
 import {
   computeDriverWalletPayoutSnapshot,

@@ -2,7 +2,7 @@
  * Provider-neutral platform balance SSOT for Financial Reconciliation.
  */
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { getPaymentProviderAdapter, getActivePaymentProvider } from "./paymentProviders/index.ts";
 import type { PaymentProviderId, ProviderEnvironment } from "./paymentProviders/types.ts";
 import { isManualBankPayoutProvider } from "./manualProviderPayoutSSOT.ts";

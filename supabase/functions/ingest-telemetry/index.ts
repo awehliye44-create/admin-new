@@ -1,5 +1,5 @@
 // ONECAB Telemetry Ingestion — v11 (P2 abuse hardening — deploy separately from P0 SQL)
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { checkRateLimit, getClientIP } from "../_shared/security.ts";
 
 const corsHeaders = {

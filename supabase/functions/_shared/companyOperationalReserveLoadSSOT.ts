@@ -2,7 +2,7 @@
  * Edge loader for Slice 10 operational reserve policy.
  * Canonical table only — legacy admin_settings alone does NOT unlock final funds.
  */
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   OPERATIONAL_RESERVE_ERROR,
   parsePolicyRow,

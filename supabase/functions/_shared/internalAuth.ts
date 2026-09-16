@@ -1,5 +1,5 @@
 // Shared auth helpers for internal/admin gating in edge functions.
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { errorResponse } from "./security.ts";
 
 /**

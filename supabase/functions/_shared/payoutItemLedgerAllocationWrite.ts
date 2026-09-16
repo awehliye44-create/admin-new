@@ -2,7 +2,7 @@
  * Persist and assert payout_item_ledger_allocations before bank transfer.
  * Amount comes from eligibility-proven DWL entries — never trip totals.
  */
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { assertAllocationEqualsAmount } from "./payoutAllocationEligibilitySSOT.ts";
 import type { PlannedLedgerAllocation } from "./payoutLedgerHandoffSSOT.ts";
 

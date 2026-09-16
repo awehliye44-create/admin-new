@@ -3,7 +3,7 @@
  * Used by auto-dispatch (offer creation) and accept-offer (accept routing).
  */
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 
 /** Statuses where the driver is actively serving a trip (not queued/stacked child). */
 export const ACTIVE_DRIVER_TRIP_STATUSES = [

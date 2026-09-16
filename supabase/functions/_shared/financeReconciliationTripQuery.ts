@@ -3,7 +3,7 @@
  * Shows ALL financially terminal trips in scope; never filters to reconciliation mismatches.
  */
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { COUNTABLE_FINANCIAL_OUTCOMES } from "./financeSettlementSummary.ts";
 import { SERVICE_AREA_FINANCIAL_MODEL } from "./commissionWalletSSOT.ts";
 

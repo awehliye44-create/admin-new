@@ -3,7 +3,7 @@
  * verify password then permanently confirm email and return a session.
  * Phone OTP remains the only onboarding verification step.
  */
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { nativeAppCorsHeaders as corsHeaders } from "../_shared/security.ts";
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {

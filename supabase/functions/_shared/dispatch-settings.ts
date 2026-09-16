@@ -5,7 +5,7 @@
  * Radius keys in dispatch_settings are stored in kilometres; runtime uses metres.
  */
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 
 /** Mirrors Postgres NOT NULL DEFAULT values on public.dispatch_settings (20260601100000). */
 export const DISPATCH_SETTINGS_SCHEMA_DEFAULTS: Record<string, unknown> = {

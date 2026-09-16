@@ -3,7 +3,7 @@
 // summing payments[].fees[].amount. Admin-only. Idempotent — safe to re-run.
 //
 // POST { dry_run?: boolean, limit?: number, order_id?: string }
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { revolutMerchantRequest, extractRevolutProviderFeeMinor } from "../_shared/revolutApi.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";

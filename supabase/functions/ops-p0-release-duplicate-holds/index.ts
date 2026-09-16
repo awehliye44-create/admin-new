@@ -2,7 +2,7 @@
 // Uses existing cancelRevolutOrder. Does not capture. Does not delete evidence.
 // Remove after incident cleanup is confirmed.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   cancelRevolutOrder,
   retrieveRevolutOrder,

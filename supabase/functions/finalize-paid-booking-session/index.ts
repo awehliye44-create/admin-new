@@ -9,7 +9,7 @@
 // - Never broadcasts; the trip's status transition handles dispatch downstream.
 // - Returns { ok, trip_id, reason? }.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   corsHeaders, checkRateLimit, getClientIP, rateLimitResponse,
   successResponse, errorResponse,

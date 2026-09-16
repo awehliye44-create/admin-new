@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { assertGlobalRebroadcastAllowed } from "../_shared/rebroadcastPolicy.ts";
 import { recordDispatchWaveSnapshot } from "../_shared/recordDispatchWaveSnapshot.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";

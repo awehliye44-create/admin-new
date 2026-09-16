@@ -7,7 +7,7 @@
 // signed_payload = `v1.${timestamp}.${rawBody}`
 // expected      = HMAC_SHA256(REVOLUT_WEBHOOK_SECRET, signed_payload) hex
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   getRevolutMerchantConfig,
   mapRevolutStateToPaymentStatus,

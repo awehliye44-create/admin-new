@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { errorResponse } from "./security.ts";
 
 export type AdminEmergencyDispatchAuthOk = {

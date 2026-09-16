@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { calculateCommission } from "../_shared/commission.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 import { computePreauthHold, type PreauthBufferConfig } from "../_shared/preauthBuffer.ts";

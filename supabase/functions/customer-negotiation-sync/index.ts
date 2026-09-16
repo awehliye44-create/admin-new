@@ -5,7 +5,7 @@
  * is the sole timeout owner for £Y second chance, Driver second-chance £X,
  * and Driver £Z.
  */
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { presetNegotiationSourceIneligibility } from "../_shared/presetNegotiationEligibility.ts";
 import { shouldTimeoutWaitingCustomer } from "../_shared/customerNegotiationDecisionHold.ts";
 

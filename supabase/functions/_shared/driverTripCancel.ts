@@ -3,7 +3,7 @@
  * Pre-pickup rematch uses driver-cancel-before-pickup (not this module).
  */
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   buildClearTripAssignmentPatch,
   isPrePickupDriverRematchEligibleDbStatus,

@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { FareEngine, type FarePricingSettings } from "../_shared/fareEngine.ts";
 import { authenticateDriver } from "../_shared/driverAuth.ts";
 

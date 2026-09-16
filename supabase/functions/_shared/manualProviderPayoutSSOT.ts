@@ -3,7 +3,7 @@
  * No Merchant/Business API payout retrieve on mark-paid; ledger debit only after reference.
  */
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 /** Providers where admin pays from business account and marks paid with a reference. */
 export const MANUAL_BANK_PAYOUT_PROVIDERS = new Set<string>(["revolut"]);
 

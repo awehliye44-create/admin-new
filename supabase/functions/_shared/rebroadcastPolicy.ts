@@ -6,7 +6,7 @@
  *
  * Invalid: customer counter-offer, customer accept, customer waiting, active negotiation.
  */
-import { type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 
 /** Negotiation states where ride stays locked to driver — no global rebroadcast. */
 export const ACTIVE_DRIVER_NEGOTIATION_STATUSES = new Set([

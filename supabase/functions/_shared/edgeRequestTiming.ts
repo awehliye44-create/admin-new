@@ -1,5 +1,5 @@
 /** Wall-clock timing for edge function observability (duration_ms in responses + logs). */
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   EDGE_FUNCTION_PERF_ACTION,
   evaluatePerformanceStatus,

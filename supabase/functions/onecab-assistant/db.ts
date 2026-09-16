@@ -3,7 +3,7 @@
  * Uses the service role only — the browser has no access to these tables.
  */
 
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import type { AssistantConfig, AssistantDb, EventRow, Platform } from "./handler.ts";
 
 export function createAssistantDb(url: string, serviceRoleKey: string): AssistantDb {

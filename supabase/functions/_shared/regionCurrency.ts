@@ -6,7 +6,7 @@
  * No hardcoded GBP fallbacks are permitted.
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 
 export interface RegionCurrencyResult {
   currency_code: string;

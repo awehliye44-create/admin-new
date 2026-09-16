@@ -5,7 +5,7 @@
  * service-role only. UUID-array input only. No provider / FR / payout /
  * Commission Wallet / settlement-recalculation ownership.
  */
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { corsHeaders, jsonResponse, type GateResult } from "../_shared/adminPaymentGate.ts";
 import {
   APPROVED_MK007_MK009_TRIP_IDS,

@@ -1,7 +1,7 @@
 /**
  * Build Driver Wallet widget summary for a selected period (backend SSOT).
  */
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { fetchDriverWalletPayoutSnapshot } from "./fetchDriverWalletPayoutSnapshot.ts";
 import { buildDriverWalletSummaryResponse } from "./driverWalletPeriodWidgetsSSOT.ts";
 import { mergeBackendEconomicFields } from "./economicEarnedAtSSOT.ts";

@@ -2,7 +2,7 @@
 // public.revolut_merchant_payouts for admin reconciliation.
 //
 // Admin-only. Uses REVOLUT_MERCHANT_SECRET_KEY.
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { listRevolutMerchantPayouts } from "../_shared/revolutApi.ts";
 

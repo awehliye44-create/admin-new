@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import type { VerificationAppType } from "./accountEmailVerification.ts";
 
 export const EMAIL_VERIFICATION_EXPIRY_MINUTES = 30;

@@ -2,7 +2,7 @@
  * Phase 0b — payout completion writers (automated vs manual external).
  * No multi-step TypeScript prerequisite seeding. Manual path uses atomic RPC only.
  */
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   isCanonicalProviderCompleted,
   redactCompletionEvidence,

@@ -2,7 +2,7 @@
  * Post-accept side effects shared by accept-offer and negotiated accept paths.
  * booking_id === trips.id in this codebase.
  */
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   ASSIGNED_NEGOTIATION_TRIP_SELECT,
   buildAssignedNegotiationSnapshot,

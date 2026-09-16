@@ -8,7 +8,7 @@
  * - claim=true (login / explicit takeover): claim_active_device semantics across ALL platforms
  * - claim=false (token refresh): only allowed if this installation is already authoritative
  */
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { authenticateDriver } from "../_shared/driverAuth.ts";
 import {
   buildTokenDeactivatePatch,

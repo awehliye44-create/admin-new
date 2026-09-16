@@ -9,7 +9,7 @@
  *   mode = 'apply'    -> write a redemption row + bump usage_count
  *                       (used by complete-trip / capture-trip-payment)
  */
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
 
 const corsHeaders = {

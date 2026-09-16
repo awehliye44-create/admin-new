@@ -2,7 +2,7 @@
  * Apply provider refund state to ONECAB SSOT via atomic DB RPC.
  * Never inserts REFUND_DEBIT directly — apply_confirmed_provider_refund_atomic only.
  */
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   applyRefundToTripAmounts,
   resolveRefundStatus,

@@ -2,7 +2,7 @@
  * I/O: load DWL + trip + Payment Sessions (+ optional DES) and compute
  * canonical get_driver_payout_eligibility result.
  */
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { computeLedgerWalletBalancePence, computeCashCommissionOutstanding } from "./onecabFinanceLedger.ts";
 import {
   DEFAULT_PAYOUT_CLEARING_DELAY_HOURS,
