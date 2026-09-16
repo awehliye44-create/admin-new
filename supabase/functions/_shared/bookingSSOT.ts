@@ -115,6 +115,8 @@ export type MinimalTripBuildInput = {
   preauthAmountPence: number;
   paymentSessionId?: string | null;
   sessionFareSnapshot?: Record<string, unknown> | null;
+  /** payment_sessions.booking_snapshot — includes stops the CTAP body often omits. */
+  sessionBookingSnapshot?: Record<string, unknown> | null;
   requestReferer?: string | null;
   requestOrigin?: string | null;
   /** Immutable pipeline stamp selected from SA before insert. */
@@ -172,17 +174,22 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
   // P0 #1: prefer payment session fare_snapshot net payable over body floats.
   // Never fall through to gross when session already locked customer payable + discount.
   const sessionSnap = input.sessionFareSnapshot ?? null;
+  const bookingSnap = input.sessionBookingSnapshot ?? null;
   const fareQuoteId =
     typeof sessionSnap?.fare_quote_id === "string"
       ? sessionSnap.fare_quote_id
       : typeof sessionSnap?.fareQuoteId === "string"
       ? sessionSnap.fareQuoteId
+      : typeof bookingSnap?.fare_quote_id === "string"
+      ? bookingSnap.fare_quote_id
+      : typeof bookingSnap?.fareQuoteId === "string"
+      ? bookingSnap.fareQuoteId
       : null;
-  // Prefer body.stops; recover vias from the charged fare fingerprint when the
-  // client omitted them (MK-260916 Driver +N chip / empty trips.stops).
+  // Prefer body.stops; recover from payment-session booking_snapshot then fare fingerprint.
   // Incomplete fingerprint slots (`stop-*:na`) still bump total_stops.
   const { intermediateStops, totalStops } = resolveBookingTotalStops({
     bodyStops: body.stops,
+    bookingSnapshotStops: bookingSnap?.stops,
     fareQuoteId,
   });
   // Keep body.stops aligned so post-commit trip_stops insert matches the trip row.

@@ -38,14 +38,21 @@ Deno.test("countDeclaredFareQuoteStops: counts incomplete :na placeholders", () 
   );
 });
 
-Deno.test("resolveBookingTotalStops: :na placeholder still yields total_stops=3", () => {
+Deno.test("resolveBookingTotalStops: booking_snapshot.stops recovers when body empty", () => {
   const resolved = resolveBookingTotalStops({
     bodyStops: [],
-    fareQuoteId:
-      "pickup=current-location:52.05,-0.81;dest=recent:x:52.04,-0.77;stops=stop-1789576739716:na;mode=now;sched=",
+    bookingSnapshotStops: [
+      {
+        address: "Westcroft Retail Park",
+        lat: 52.0054461,
+        lng: -0.7923037,
+      },
+    ],
+    fareQuoteId: "stops=;mode=now",
   });
-  assertEquals(resolved.intermediateStops.length, 0);
+  assertEquals(resolved.intermediateStops.length, 1);
   assertEquals(resolved.totalStops, 3);
+  assertEquals(resolved.intermediateStops[0].address, "Westcroft Retail Park");
 });
 
 Deno.test("resolveBookingIntermediateStops: body wins over fare quote", () => {

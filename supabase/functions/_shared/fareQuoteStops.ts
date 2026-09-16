@@ -92,14 +92,18 @@ export function normalizeBookingStops(
 }
 
 /**
- * Prefer explicit booking body stops; fall back to fare_quote_id vias with coords.
+ * Prefer explicit booking body stops; then payment-session booking_snapshot.stops;
+ * then fare_quote_id vias with coords.
  */
 export function resolveBookingIntermediateStops(args: {
   bodyStops: unknown;
+  bookingSnapshotStops?: unknown;
   fareQuoteId?: string | null;
 }): Array<{ address: string; lat: number; lng: number }> {
   const fromBody = normalizeBookingStops(args.bodyStops);
   if (fromBody.length > 0) return fromBody;
+  const fromSession = normalizeBookingStops(args.bookingSnapshotStops);
+  if (fromSession.length > 0) return fromSession;
   return parseStopsFromFareQuoteId(args.fareQuoteId).map((s) => ({
     address: s.address,
     lat: s.lat,
@@ -113,11 +117,12 @@ export function totalStopsFromIntermediateCount(viaCount: number): number {
 }
 
 /**
- * total_stops for trip insert: body vias → parsed coords → declared fingerprint slots.
+ * total_stops for trip insert: body → booking_snapshot → fare_quote coords → declared slots.
  * Declared `:na` placeholders still bump the count so Driver can show +N.
  */
 export function resolveBookingTotalStops(args: {
   bodyStops: unknown;
+  bookingSnapshotStops?: unknown;
   fareQuoteId?: string | null;
 }): {
   intermediateStops: Array<{ address: string; lat: number; lng: number }>;

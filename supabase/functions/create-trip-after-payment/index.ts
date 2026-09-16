@@ -952,6 +952,8 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       : null;
     const sessionFareSnapshot = (loadedPaymentSession?.fare_snapshot as Record<string, unknown> | undefined)
       ?? null;
+    const sessionBookingSnapshot = (loadedPaymentSession?.booking_snapshot as Record<string, unknown> | undefined)
+      ?? null;
 
     const grossFarePence = body.original_estimated_fare != null && body.original_estimated_fare > 0
       ? Math.round(body.original_estimated_fare * 100)
@@ -1012,6 +1014,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       preauthAmountPence: preauthAmount,
       paymentSessionId: skipPlatformPreauth ? null : paymentSessionId,
       sessionFareSnapshot,
+      sessionBookingSnapshot,
       requestReferer: req.headers.get("referer") ?? req.headers.get("referrer"),
       requestOrigin: req.headers.get("origin"),
       scheduledDispatchConfig,
@@ -1031,6 +1034,10 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
     log("trip_stops_resolved", {
       total_stops: totalStops,
       via_count: Array.isArray(body.stops) ? body.stops.length : 0,
+      has_booking_snapshot_stops: Array.isArray(
+        (sessionBookingSnapshot as { stops?: unknown } | null)?.stops,
+      ) &&
+        ((sessionBookingSnapshot as { stops: unknown[] }).stops?.length ?? 0) > 0,
     });
 
     log("Inserting trip (minimal SSOT commit)");
