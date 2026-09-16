@@ -23,6 +23,7 @@ import {
   buildCustomerShortfallEvidence,
   evaluateRecaptureProviderCallBoundary,
   FARE_FIELD_CONTRACT,
+  type CustomerShortfallSession,
 } from "../_shared/customerShortfallEvidenceSSOT.ts";
 import {
   deriveAdminRecaptureOutcome,
