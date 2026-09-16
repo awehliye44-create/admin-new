@@ -6,6 +6,10 @@ import {
   decideStopWorkflowCaller,
   tripVisibleToDriver,
 } from "../_shared/stopWorkflowSecurity.ts";
+import {
+  buildAuthoritativeTripStopRows,
+  needsTripStopsReconstruction,
+} from "../_shared/ensureTripStopsFromAuthoritative.ts";
 import { getDriverCommissionPct } from "../_shared/commission.ts";
 import { resolveTripFare, type TripFareRow } from "../_shared/tripFareSSOT.ts";
 import {
@@ -1798,7 +1802,7 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripError } = await supabase
       .from("trips")
       .select(
-        "id, status, dispatch_status, dispatch_mode, service_area_id, vehicle_type_id, region_id, passenger_id, driver_id, confirmed_driver_id, previous_driver_id, pickup_address, dropoff_address, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, arrived_at, pickup_arrived_at, started_at, completed_at, cancelled_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, stop_arrived_at, stop_waiting_started_at, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, financial_model, payment_status, payment_method, payment_provider, provider_order_id, payment_intent_id, payment_session_id, booking_source, corporate_account_id, tip_amount_pence, tip_pence, cash_authorized_at, scheduled_at, airport_charge_pence, driver_started_journey_to_pickup_at, special_instructions, stacked_trip_id, tip_window_expires_at, tip_window_closed_at, updated_at",
+        "id, status, dispatch_status, dispatch_mode, service_area_id, vehicle_type_id, region_id, passenger_id, driver_id, confirmed_driver_id, previous_driver_id, pickup_address, dropoff_address, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, stops, total_stops, arrived_at, pickup_arrived_at, started_at, completed_at, cancelled_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, stop_arrived_at, stop_waiting_started_at, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, financial_model, payment_status, payment_method, payment_provider, provider_order_id, payment_intent_id, payment_session_id, booking_source, corporate_account_id, tip_amount_pence, tip_pence, cash_authorized_at, scheduled_at, airport_charge_pence, driver_started_journey_to_pickup_at, special_instructions, stacked_trip_id, tip_window_expires_at, tip_window_closed_at, updated_at",
       )
       .eq("id", trip_id)
       .single();
@@ -1929,49 +1933,94 @@ Deno.serve(async (req) => {
       return errorResponse("FETCH_ERROR", "Failed to fetch stops", 500);
     }
 
-    // AUTO-CREATE STOPS IF MISSING (fallback for trips created without stops)
-    if (!stops || stops.length === 0) {
-      console.log("[stop-workflow] No stops found, auto-creating from trip data");
-      
-      const stopsToCreate = [
-        {
-          trip_id: trip_id,
-          stop_index: 0,
-          type: 'pickup',
-          address: trip.pickup_address || 'Pickup',
-          lat: trip.pickup_latitude || 0,
-          lng: trip.pickup_longitude || 0,
-          status: 'pending',
-        },
-        {
-          trip_id: trip_id,
-          stop_index: 1,
-          type: 'dropoff',
-          address: trip.dropoff_address || 'Dropoff',
-          lat: trip.dropoff_latitude || 0,
-          lng: trip.dropoff_longitude || 0,
-          status: 'pending',
-        },
-      ];
+    // Reconstruct missing / flattened trip_stops from authoritative trip vias.
+    // Never treat empty workflow rows as proof the trip is single pickup→dropoff.
+    // DB SSOT: ensure_trip_stops_for_assignment (includes trips.stops intermediates).
+    if (
+      needsTripStopsReconstruction({
+        existingRows: stops,
+        stopsJson: trip.stops,
+      })
+    ) {
+      console.log("[stop-workflow] Reconstructing trip_stops from authoritative trip data", {
+        trip_id,
+        existing_count: stops?.length ?? 0,
+        via_declarations: Array.isArray(trip.stops) ? trip.stops.length : 0,
+      });
 
-      const { error: createError } = await supabase
-        .from("trip_stops")
-        .insert(stopsToCreate);
-
-      if (createError) {
-        console.error("[stop-workflow] Failed to auto-create stops:", createError);
-        return errorResponse("CREATE_STOPS_ERROR", "Failed to create missing stops", 500);
+      const { error: ensureErr } = await supabase.rpc("ensure_trip_stops_for_assignment", {
+        p_trip_id: trip_id,
+      });
+      if (ensureErr) {
+        console.error("[stop-workflow] ensure_trip_stops_for_assignment failed:", ensureErr);
       }
 
-      // Fetch the newly created stops
-      const { data: newStops } = await supabase
-        .from("trip_stops")
-        .select("*")
-        .eq("trip_id", trip_id)
-        .order("stop_index", { ascending: true });
+      {
+        const { data: ensuredStops, error: ensuredErr } = await supabase
+          .from("trip_stops")
+          .select("*")
+          .eq("trip_id", trip_id)
+          .order("stop_index", { ascending: true });
+        if (ensuredErr) {
+          console.error("[stop-workflow] Error re-fetching stops after ensure:", ensuredErr);
+          return errorResponse("FETCH_ERROR", "Failed to fetch stops", 500);
+        }
+        stops = ensuredStops || [];
+      }
 
-      stops = newStops || [];
-      console.log("[stop-workflow] Auto-created", stops.length, "stops");
+      // Empty-only Edge fallback when RPC could not seed rows — still includes vias.
+      if (!stops || stops.length === 0) {
+        const stopsToCreate = buildAuthoritativeTripStopRows({
+          id: trip_id,
+          pickup_address: trip.pickup_address,
+          pickup_latitude: trip.pickup_latitude,
+          pickup_longitude: trip.pickup_longitude,
+          dropoff_address: trip.dropoff_address,
+          dropoff_latitude: trip.dropoff_latitude,
+          dropoff_longitude: trip.dropoff_longitude,
+          stops: trip.stops,
+        });
+
+        const { error: createError } = await supabase
+          .from("trip_stops")
+          .insert(stopsToCreate);
+
+        if (createError) {
+          console.error("[stop-workflow] Failed to reconstruct stops:", createError);
+          return errorResponse("CREATE_STOPS_ERROR", "Failed to create missing stops", 500);
+        }
+
+        const { data: newStops, error: newStopsErr } = await supabase
+          .from("trip_stops")
+          .select("*")
+          .eq("trip_id", trip_id)
+          .order("stop_index", { ascending: true });
+        if (newStopsErr) {
+          console.error("[stop-workflow] Error fetching reconstructed stops:", newStopsErr);
+          return errorResponse("FETCH_ERROR", "Failed to fetch stops", 500);
+        }
+        stops = newStops || [];
+        console.log("[stop-workflow] Reconstructed", stops.length, "stops from authoritative trip data");
+      }
+
+      // Fail closed if vias remain on the trip but workflow is still flattened.
+      if (
+        needsTripStopsReconstruction({
+          existingRows: stops,
+          stopsJson: trip.stops,
+        })
+      ) {
+        console.error("[stop-workflow] STOP_STOPS_STILL_FLATTENED", {
+          trip_id,
+          stops_count: stops?.length ?? 0,
+          via_declarations: Array.isArray(trip.stops) ? trip.stops.length : 0,
+        });
+        return errorResponse(
+          "CREATE_STOPS_ERROR",
+          "Failed to reconstruct intermediate stops from authoritative trip data",
+          500,
+        );
+      }
     }
 
     const now = new Date().toISOString();
