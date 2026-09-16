@@ -194,7 +194,7 @@ export function PaymentSessionsListPanel({
                       {formatNullablePence(row.captured_amount_pence)}
                     </TableCell>
                     <TableCell className="text-xs tabular-nums">
-                      {formatNullablePence(row.released_amount_pence)}
+                      {releasedCellDisplay(row)}
                     </TableCell>
                     <TableCell className="text-xs tabular-nums">
                       {formatNullablePence(row.refunded_amount_pence)}
