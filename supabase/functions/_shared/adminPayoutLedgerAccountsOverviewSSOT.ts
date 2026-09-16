@@ -345,7 +345,8 @@ export async function buildPayoutLedgerAccountsOverview(
   const ELIGIBILITY_BATCH = 8;
   for (let i = 0; i < (drivers ?? []).length; i += ELIGIBILITY_BATCH) {
     const batch = (drivers ?? []).slice(i, i + ELIGIBILITY_BATCH);
-    await Promise.all(batch.map(async (d: { id: string }) => {
+    // deno-lint-ignore no-explicit-any
+    await Promise.all(batch.map(async (d: Record<string, any>) => {
       let eligibility;
       try {
         eligibility = await fetchDriverPayoutEligibility(supabase, {
