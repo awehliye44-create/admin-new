@@ -247,8 +247,24 @@ export type AggregateDriverPayoutEligibilityInput = {
   in_flight_cashout_pence?: number;
   /** ACTIVE Slice 6 DRIVER_PAYOUT reservations (hold, not a debit). */
   reserved_payout_pence?: number;
+  /**
+   * Stage C2: operational pause zeros Available (pending = live pool).
+   * Replaces legacy drivers.payouts_enabled as the Available short-circuit.
+   */
+  payout_operational_paused?: boolean | null;
+  /**
+   * @deprecated Stage C2 — ignored for Available/Withdrawable gates.
+   * Retained for call-site compatibility / diagnostics only. Do not reintroduce
+   * as a hard gate; removal tracked separately after executor proof.
+   */
   payouts_enabled?: boolean | null;
   payout_provider_available?: boolean | null;
+  /**
+   * Stage C2: verification does NOT zero Available. Callers must apply
+   * ACCOUNT_UNVERIFIED via driverPayoutWithdrawalQuoteSSOT withdrawable gates.
+   * When false, primary_hold_reason may still surface ACCOUNT_UNVERIFIED after
+   * normal aggregation if nothing else blocks.
+   */
   account_verified?: boolean | null;
   clearing_policy?: PayoutClearingPolicy;
   entries: LedgerEligibilityEvidence[];
@@ -501,7 +517,11 @@ export function aggregateDriverPayoutEligibility(
   const eligible_entries: EligiblePayoutEntry[] = [];
   const held_entries: HeldPayoutEntry[] = [];
 
-  if (input.payouts_enabled === false) {
+  // Stage C2: ignore deprecated drivers.payouts_enabled — never short-circuit Available.
+  void input.payouts_enabled;
+
+  // Operational pause zeros Available and parks live as Pending (Stage C matrix).
+  if (input.payout_operational_paused === true) {
     for (const entry of input.entries) {
       const amount = Math.max(0, Math.round(Number(entry.amount_pence ?? 0)));
       if (amount <= 0 || !PAYOUT_ELIGIBLE_LEDGER_TYPES.has(String(entry.ledger_type ?? "").toUpperCase())) {
@@ -527,57 +547,8 @@ export function aggregateDriverPayoutEligibility(
     };
   }
 
-  if (input.payout_provider_available === false) {
-    for (const entry of input.entries) {
-      const amount = Math.max(0, Math.round(Number(entry.amount_pence ?? 0)));
-      if (amount <= 0 || !PAYOUT_ELIGIBLE_LEDGER_TYPES.has(String(entry.ledger_type ?? "").toUpperCase())) {
-        continue;
-      }
-      held_entries.push({
-        ledger_entry_id: entry.ledger_entry_id,
-        trip_id: entry.trip_id,
-        amount_pence: amount,
-        hold_reason: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_PROVIDER_UNAVAILABLE,
-      });
-    }
-    return {
-      live_balance_pence: live,
-      available_balance_pence: 0,
-      pending_balance_pence: Math.max(0, live),
-      withdrawal_in_progress_pence: withdrawalInProgress,
-      outstanding_debt_pence: debt,
-      eligible_earnings_pence: 0,
-      eligible_entries,
-      held_entries,
-      primary_hold_reason: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_PROVIDER_UNAVAILABLE,
-    };
-  }
-
-  if (input.account_verified === false) {
-    for (const entry of input.entries) {
-      const amount = Math.max(0, Math.round(Number(entry.amount_pence ?? 0)));
-      if (amount <= 0 || !PAYOUT_ELIGIBLE_LEDGER_TYPES.has(String(entry.ledger_type ?? "").toUpperCase())) {
-        continue;
-      }
-      held_entries.push({
-        ledger_entry_id: entry.ledger_entry_id,
-        trip_id: entry.trip_id,
-        amount_pence: amount,
-        hold_reason: PAYOUT_ELIGIBILITY_STATUS.ACCOUNT_UNVERIFIED,
-      });
-    }
-    return {
-      live_balance_pence: live,
-      available_balance_pence: 0,
-      pending_balance_pence: Math.max(0, live),
-      withdrawal_in_progress_pence: withdrawalInProgress,
-      outstanding_debt_pence: debt,
-      eligible_earnings_pence: 0,
-      eligible_entries,
-      held_entries,
-      primary_hold_reason: PAYOUT_ELIGIBILITY_STATUS.ACCOUNT_UNVERIFIED,
-    };
-  }
+  // Provider / account verification do NOT zero Available (Stage C).
+  // Withdrawable is gated in driverPayoutWithdrawalQuoteSSOT.
 
   let eligibleSum = 0;
   for (const entry of input.entries) {
@@ -620,6 +591,22 @@ export function aggregateDriverPayoutEligibility(
     } else if (eligibleSum <= 0) {
       primary = PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR;
     }
+  }
+
+  // Verification hold is informational for withdrawable — Available stays cleared.
+  if (
+    available > 0
+    && input.account_verified === false
+    && primary == null
+  ) {
+    primary = PAYOUT_ELIGIBILITY_STATUS.ACCOUNT_UNVERIFIED;
+  }
+  if (
+    available > 0
+    && input.payout_provider_available === false
+    && (primary == null || primary === PAYOUT_ELIGIBILITY_STATUS.ACCOUNT_UNVERIFIED)
+  ) {
+    primary = PAYOUT_ELIGIBILITY_STATUS.PAYOUT_PROVIDER_UNAVAILABLE;
   }
 
   return {

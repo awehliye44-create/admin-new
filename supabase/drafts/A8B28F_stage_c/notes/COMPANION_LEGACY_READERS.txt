@@ -1,26 +1,28 @@
-A8B28F Stage C — companion readers still on legacy (NOT in 20261109470000 SQL)
+A8B28F Stage C2 — companion Edge/Admin cutover (this workstream)
 
-SQL cutover unlocks Available / effective helper / early block / reserve gate.
-These readers still use drivers.payouts_enabled and need a follow-up draft (Stage C2 / D)
-before Admin/weekly paths match Driver wallet SSOT. Do NOT deploy Edge/app in this step.
+SQL Stage C already unlocked Available / effective helper / early block / reserve.
+Stage C2 (branch fix/admin-payout-eligibility-ssot-cutover-20260916) cuts Edge + Admin
+readers to Stage C effective gates. Legacy drivers.payouts_enabled is DEPRECATED /
+diagnostic-only — NOT deleted, NOT migrated.
 
-Still legacy-gated today:
-1. supabase/functions/_shared/driverPayoutEligibilitySSOT.ts
-   - aggregateDriverPayoutEligibility: payouts_enabled===false → available=0 + ADMIN_HOLD
-   - Target: payout_operational_paused / effectivePayoutAllowed / account_verified split
-2. supabase/functions/_shared/fetchDriverPayoutEligibility.ts — reads drivers.payouts_enabled
-3. supabase/functions/_shared/fetchDriverWalletPayoutSnapshot.ts — payout_blocked / restricted
-4. supabase/functions/admin-weekly-payout-scheduler/index.ts — driver.payouts_enabled !== false
-5. supabase/functions/admin-execute-weekly-payout-occurrence/index.ts — same
-6. shared weeklyDriverPayoutBatchWorkflowSSOT.ts — DRIVER_PAYOUTS_DISABLED from input.payouts_enabled
-7. supabase/functions/_shared/onecabFinanceLedger.ts — driver.payouts_enabled gate
-8. Admin UI: PayoutLedger.tsx / PayoutLedgerSettingsPanel.tsx direct payouts_enabled writes
-   (Stage B dual-write RPC exists; ensure UI callers use it)
-9. useAdminDriverOptions / admin wallet pages — filter/display on payouts_enabled
-10. Driver live resolvePayoutAccountBanner still ORs legacyPayoutsDisabled
-    → draft: stageCWithdrawalReasonMapping.draft.ts + banner OP-only
+CUT OVER (no longer hard-gate on legacy payouts_enabled):
+1. driverPayoutEligibilitySSOT.aggregateDriverPayoutEligibility → payout_operational_paused
+2. fetchDriverPayoutEligibility (+ Context) → OP pause + real provider-verified destination
+3. driverPayoutWithdrawalQuoteSSOT — canonical quote (withdrawable / fee / net / typed blocks)
+4. driver-withdraw — recomputes quote; never maps ADMIN_HOLD → NO_AVAILABLE_BALANCE
+5. fetchDriverWalletPayoutSnapshot — RESTRICTED from OP pause, not legacy flag alone
+6. driverWalletPayoutStatusDisplay — legacy flag diagnostic only
+7. weeklyDriverPayoutBatchWorkflowSSOT.evaluateDriverBatchEligibility → OP pause (ADMIN_HOLD)
+8. admin-weekly-payout-scheduler / admin-execute-weekly-payout-occurrence — pass OP pause
+
+STILL WRITE/DISPLAY legacy column (deprecated, not gate):
+- PayoutLedger.tsx / PayoutLedgerSettingsPanel.tsx may still write payouts_enabled
+  (prefer admin_set_driver_payout_operational_pause for holds)
+- Snapshot/types may still surface payouts_enabled as diagnostic
+- onecabFinanceLedger.derivePayoutEligibility (legacy helper; unused by live withdraw)
 
 Global admin_settings.payouts_enabled remains authoritative platform kill-switch (GL).
 
-DRIVER_COLLECTED_COMMISSION_WALLET: eligibility clearing exclusion unchanged in SQL
-(`v_model NOT LIKE '%DRIVER_COLLECTED%'`). Commission wallet tables/writers untouched.
+DRIVER_COLLECTED_COMMISSION_WALLET: unchanged — blocked from platform payout flow.
+
+DO NOT deploy / flip flags / call Revolut until release report reviewed.

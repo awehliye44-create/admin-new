@@ -136,7 +136,7 @@ async function loadDriverOverviewSection(
 }> {
   let driverQuery = supabase
     .from("drivers")
-    .select("id, payouts_enabled")
+    .select("id, payouts_enabled, payout_operational_paused")
     .order("created_at", { ascending: false })
     .limit(500);
 
@@ -230,7 +230,7 @@ async function loadDriverOverviewSection(
     const live = elig.live_balance_pence;
     available += avail;
     pending += pend;
-    const paused = (drivers ?? []).find((d: { id: string }) => String(d.id) === driverId)?.payouts_enabled === false;
+    const paused = (drivers ?? []).find((d: { id: string }) => String(d.id) === driverId)?.payout_operational_paused === true;
     if (avail > 0 && !paused) {
       eligible += 1;
       nextBatch += avail;

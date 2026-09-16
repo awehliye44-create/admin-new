@@ -130,7 +130,13 @@ export type DriverBatchEligibilityInput = {
   wallet_balance_pence: number;
   /** DWL available payout — never Revolut/company/session-derived. */
   available_payout_pence: number;
-  payouts_enabled: boolean;
+  /** Stage C2 effective pause gate. When true → ADMIN_HOLD / not eligible. */
+  payout_operational_paused?: boolean;
+  /**
+   * @deprecated Stage C2 — ignored for eligibility. Retained for call-site
+   * compatibility; do not reintroduce as a hard gate.
+   */
+  payouts_enabled?: boolean;
   driver_held_or_blocked: boolean;
   currency: string;
   expected_currency: string;
@@ -489,7 +495,9 @@ export function evaluateDriverBatchEligibility(
   const currency = String(input.currency ?? "").toUpperCase();
   const expected = String(input.expected_currency ?? "GBP").toUpperCase();
 
-  if (!input.payouts_enabled) reasons.push("DRIVER_PAYOUTS_DISABLED");
+  // Stage C2: operational pause is the per-driver hold. Legacy payouts_enabled ignored.
+  void input.payouts_enabled;
+  if (input.payout_operational_paused === true) reasons.push("ADMIN_HOLD");
   if (input.driver_held_or_blocked) reasons.push("DRIVER_HELD_OR_BLOCKED");
   if (available <= 0) reasons.push("AVAILABLE_PAYOUT_ZERO");
   if (currency !== expected) reasons.push("CURRENCY_MISMATCH");
@@ -513,7 +521,8 @@ export function evaluateDriverBatchEligibility(
     available_payout_pence: available,
     currency,
     expected_currency: expected,
-    payouts_enabled: input.payouts_enabled,
+    payout_operational_paused: input.payout_operational_paused === true,
+    legacy_payouts_enabled: input.payouts_enabled ?? null,
     driver_held_or_blocked: input.driver_held_or_blocked,
     has_conflicting_active_item: input.has_conflicting_active_item,
     destination_id: dest?.id ?? null,

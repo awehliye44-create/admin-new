@@ -5,7 +5,11 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveAuthenticatedDriver } from "../_shared/resolveAuthenticatedDriver.ts";
-import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
+import { fetchDriverPayoutEligibilityContext } from "../_shared/fetchDriverPayoutEligibility.ts";
+import {
+  assertClientAmountWithinWithdrawable,
+  buildDriverPayoutWithdrawalQuote,
+} from "../_shared/driverPayoutWithdrawalQuoteSSOT.ts";
 import { planPayoutItemFromEligibleEntries } from "../_shared/payoutLedgerHandoffSSOT.ts";
 import {
   assertPayoutItemLedgerLineage,
@@ -420,16 +424,8 @@ Deno.serve(async (req) => {
       ok: false,
       error: "FEATURE_DISABLED",
       error_code: "FEATURE_DISABLED",
-      driver_message: "Withdrawals are not available at this time.",
-    }, 409);
-  }
-  if (summary.early_cash_out_eligible !== true) {
-    const block = String(summary.early_cash_out_block_reason ?? "NOT_ELIGIBLE");
-    return json({
-      ok: false,
-      error: block,
-      error_code: block,
-      driver_message: "Withdrawals are not available at this time.",
+      driver_message: "Driver payouts are currently disabled",
+      revolut_pay_called: false,
     }, 409);
   }
 
@@ -440,23 +436,64 @@ Deno.serve(async (req) => {
       error: "PROVIDER_UNAVAILABLE",
       error_code: "PROVIDER_UNAVAILABLE",
       driver_message: "Withdrawals are not available for this payout provider.",
+      revolut_pay_called: false,
     }, 409);
   }
 
-  const eligibility = await fetchDriverPayoutEligibility(supabase, { driver_id: driverId });
-  const requestedPence = Math.max(0, Math.round(Number(eligibility.available_balance_pence ?? 0)));
-  if (!Number.isFinite(requestedPence) || requestedPence <= 0) {
+  const gateCtx = await fetchDriverPayoutEligibilityContext(supabase, { driver_id: driverId });
+  const quote = buildDriverPayoutWithdrawalQuote({
+    eligibility: gateCtx.eligibility,
+    global_payouts_enabled: gateCtx.global_payouts_enabled,
+    payout_operational_paused: gateCtx.payout_operational_paused,
+    provider_verified_active_destination: gateCtx.provider_verified_active_destination,
+    driver_approved: gateCtx.driver_approved,
+    driver_suspended: gateCtx.driver_suspended,
+    fee_pence: Math.max(
+      0,
+      Math.round(Number(summary.early_cash_out_fee_pence ?? gateCtx.fee_pence ?? 0)),
+    ),
+    minimum_pence: Math.max(0, Math.round(Number(summary.early_cash_out_minimum_pence ?? 0))),
+    early_cash_out_enabled: summary.early_cash_out_enabled === true,
+    provider_available: true,
+    financial_model_platform_collected: true,
+    legacy_payouts_enabled: gateCtx.legacy_payouts_enabled,
+  });
+
+  const clientRequested = body.amount_pence ?? body.requested_cashout_pence ?? null;
+  const clientCheck = assertClientAmountWithinWithdrawable({
+    client_requested_pence: clientRequested == null ? null : Number(clientRequested),
+    quote,
+  });
+  if (!clientCheck.ok) {
     return json({
       ok: false,
-      error: "NO_AVAILABLE_BALANCE",
-      error_code: "NO_AVAILABLE_BALANCE",
-      driver_message: "No balance available to withdraw.",
-      live_balance_pence: eligibility.live_balance_pence,
-      available_balance_pence: requestedPence,
-      pending_balance_pence: eligibility.pending_balance_pence,
-      withdrawal_in_progress_pence: eligibility.withdrawal_in_progress_pence,
+      error: clientCheck.code,
+      error_code: clientCheck.code,
+      driver_message: clientCheck.copy,
+      quote,
+      revolut_pay_called: false,
     }, 409);
   }
+
+  if (!quote.payout_allowed || quote.withdrawable_pence <= 0) {
+    const code = quote.blocking_reason_code ?? "NO_AVAILABLE_BALANCE";
+    return json({
+      ok: false,
+      error: code,
+      error_code: code,
+      driver_message: quote.blocking_reason_copy ?? "Withdrawals are not available right now.",
+      quote,
+      live_balance_pence: quote.ledger_balance_pence,
+      available_balance_pence: quote.cleared_available_pence,
+      withdrawable_pence: quote.withdrawable_pence,
+      pending_balance_pence: quote.pending_pence,
+      withdrawal_in_progress_pence: quote.reserved_pence,
+      revolut_pay_called: false,
+    }, 409);
+  }
+
+  const eligibility = gateCtx.eligibility;
+  const requestedPence = quote.withdrawable_pence;
 
   let lineage: ReturnType<typeof planPayoutItemFromEligibleEntries> = null;
   try {
@@ -478,13 +515,8 @@ Deno.serve(async (req) => {
   }
   const amountPence = lineage.amount_pence;
 
-  const feePence = Math.max(0, Math.round(Number(summary.early_cash_out_fee_pence ?? 0)));
-  const receivesPence = Math.round(
-    Number(
-      summary.early_cash_out_driver_receives_pence
-        ?? Math.max(0, amountPence - feePence),
-    ),
-  );
+  const feePence = quote.fee_pence;
+  const receivesPence = quote.net_payout_pence;
   // Fee must be deducted from provider transfer before /pay (never after).
   if (feePence > 0 && receivesPence <= 0) {
     return json({

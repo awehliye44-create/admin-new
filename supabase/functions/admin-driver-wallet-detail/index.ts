@@ -92,7 +92,7 @@ serve(async (req) => {
     // Get driver info
     const { data: driver, error: driverError } = await supabase
       .from('drivers')
-      .select('id, first_name, last_name, email, phone, is_online, rating, total_trips, payouts_enabled, charges_enabled, onboarding_complete, approval_status, region_id')
+      .select('id, first_name, last_name, email, phone, is_online, rating, total_trips, payouts_enabled, payout_operational_paused, charges_enabled, onboarding_complete, approval_status, region_id')
       .eq('id', driverId)
       .single();
 
@@ -232,6 +232,7 @@ serve(async (req) => {
         rating: driver.rating,
         totalTrips: driver.total_trips,
         payoutsEnabled: driver.payouts_enabled,
+        payoutOperationalPaused: driver.payout_operational_paused === true,
         chargesEnabled: driver.charges_enabled,
         onboardingComplete: driver.onboarding_complete,
         approvalStatus: driver.approval_status,
@@ -240,8 +241,9 @@ serve(async (req) => {
         available,
         debt,
         earnings,
-        canPayout: available > 0 && driver.payouts_enabled && globalPayoutsEnabled,
-        canEarlyCashout: available > earlyCashoutFee && driver.payouts_enabled && globalPayoutsEnabled,
+        // Stage C2: operational pause + global kill-switch — legacy payouts_enabled is diagnostic only.
+        canPayout: available > 0 && driver.payout_operational_paused !== true && globalPayoutsEnabled,
+        canEarlyCashout: available > earlyCashoutFee && driver.payout_operational_paused !== true && globalPayoutsEnabled,
       },
       periodSummary,
       ledgerEntries: ledgerEntries?.map(e => ({

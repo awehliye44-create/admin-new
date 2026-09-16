@@ -58,6 +58,7 @@ export type DriverWalletPayoutDetail = Omit<
   verification_status: string | null;
   bank_account_last4: string | null;
   payouts_enabled: boolean | null;
+  payout_operational_paused?: boolean | null;
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;
   /** Wallet account identity — owned by Driver Wallet Ledger. */
@@ -116,7 +117,7 @@ export async function fetchDriverWalletPayoutSnapshot(
   // Do not select retired Connect columns (e.g. provider_account_id) — missing columns null the whole row.
   const { data: driver } = await supabase
     .from("drivers")
-    .select("id, user_id, driver_code, first_name, last_name, payouts_enabled, charges_enabled, onboarding_complete, region_id, category_id, driver_categories(name)")
+    .select("id, user_id, driver_code, first_name, last_name, payouts_enabled, payout_operational_paused, charges_enabled, onboarding_complete, region_id, category_id, driver_categories(name)")
     .eq("id", args.driverId)
     .maybeSingle();
 
@@ -412,7 +413,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     recovery_debt_pence: recoveryDebt,
     in_flight_cashout_pence: inFlight,
     reserved_payout_pence: reservedPayout,
-    payout_blocked: walletBalance < 0 || driver?.payouts_enabled === false,
+    payout_blocked: walletBalance < 0 || driver?.payout_operational_paused === true,
     instant_payout_enabled_by_provider: driver?.charges_enabled !== false,
     provider_payout_without_ledger_debit_pence: providerWithoutLedger,
     ledger_debit_without_provider_payout_pence: ledgerWithoutProvider,
@@ -451,10 +452,9 @@ export async function fetchDriverWalletPayoutSnapshot(
   let verificationStatus: string | null = null;
   const isRevolutPayout = String(payoutProviderResolved ?? "").toLowerCase() === "revolut";
   if (isRevolutPayout) {
-    // Manual bank / Revolut Business — Connect ID is not required.
-    if (driver?.payouts_enabled === false) verificationStatus = "restricted";
-    else if (driver?.payouts_enabled !== false) verificationStatus = "manual_bank";
-    else verificationStatus = "pending";
+    // Stage C2: operational pause → restricted. Legacy payouts_enabled is diagnostic only.
+    if (driver?.payout_operational_paused === true) verificationStatus = "restricted";
+    else verificationStatus = "manual_bank";
   } else {
     // Connect account id column retired from drivers — non-Revolut without Connect stays not_set.
     verificationStatus = "not_set";
@@ -579,9 +579,10 @@ export async function fetchDriverWalletPayoutSnapshot(
     };
 
   // Revolut bank destination can verify without Connect.
+  // Stage C2: do not treat legacy drivers.payouts_enabled as account verification.
   const accountVerified = verificationStatus === "verified"
     || (String(payoutProviderResolved ?? "").toLowerCase() === "revolut"
-      && driver?.payouts_enabled !== false);
+      && driver?.payout_operational_paused !== true);
 
   if (
     String(payoutProviderResolved ?? "").toLowerCase() === "revolut"
@@ -1051,8 +1052,8 @@ export async function fetchDriverWalletPayoutSnapshot(
   } else if (verificationStatus === "restricted" || verificationStatus === "pending") {
     walletStatus = "RESTRICTED";
   }
-  // payout_blocked (e.g. payouts_enabled=false) stays on snapshot.payout_blocked —
-  // do not overwrite credit-OK wallets as FROZEN.
+  // Stage C2: payout_blocked comes from operational pause / negative balance —
+  // legacy payouts_enabled must not force RESTRICTED or FROZEN.
 
   const payoutProvider = serviceArea?.driver_payout_gateway
     ?? serviceArea?.payment_provider
@@ -1101,6 +1102,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     verification_status: verificationStatus,
     bank_account_last4: bankLast4,
     payouts_enabled: driver?.payouts_enabled ?? null,
+    payout_operational_paused: driver?.payout_operational_paused === true,
     last_payout_at: lastPaidPayout
       ? String(lastPaidPayout.initiated_at ?? lastPaidPayout.arrival_date ?? null)
       : null,

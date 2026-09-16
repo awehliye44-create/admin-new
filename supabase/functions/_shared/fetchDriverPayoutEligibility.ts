@@ -16,14 +16,27 @@ import { payoutItemStatusReleasesLedgerAllocation } from "./payoutAllocationElig
 
 export type { DriverPayoutEligibilityResult };
 
-export async function fetchDriverPayoutEligibility(
+export type FetchDriverPayoutEligibilityContext = {
+  eligibility: DriverPayoutEligibilityResult;
+  global_payouts_enabled: boolean;
+  payout_operational_paused: boolean;
+  provider_verified_active_destination: boolean;
+  driver_approved: boolean;
+  driver_suspended: boolean;
+  legacy_payouts_enabled: boolean | null;
+  active_destination_last4: string | null;
+  fee_pence: number;
+};
+
+/** Stage C2 context: eligibility balances + effective payout gates (legacy flag diagnostic only). */
+export async function fetchDriverPayoutEligibilityContext(
   supabase: SupabaseClient,
   args: {
     driver_id: string;
     service_area_id?: string | null;
     as_of?: string | null;
   },
-): Promise<DriverPayoutEligibilityResult> {
+): Promise<FetchDriverPayoutEligibilityContext> {
   void args.service_area_id;
   void args.as_of;
 
@@ -31,10 +44,12 @@ export async function fetchDriverPayoutEligibility(
     driverRes,
     ledgerRes,
     earlyCashoutsRes,
+    destinationRes,
+    settingsRes,
   ] = await Promise.all([
     supabase
       .from("drivers")
-      .select("id, payouts_enabled")
+      .select("id, payouts_enabled, payout_operational_paused, approval_status, driver_status")
       .eq("id", args.driver_id)
       .maybeSingle(),
     supabase
@@ -46,6 +61,20 @@ export async function fetchDriverPayoutEligibility(
       .select("status, requested_cashout_pence")
       .eq("driver_id", args.driver_id)
       .in("status", ["pending", "processing", "transfer_created"]),
+    supabase
+      .from("driver_payout_destinations")
+      .select(
+        "id, is_active, archived_at, verification_status, provider_link_status, provider_counterparty_id, provider_recipient_account_id, account_last4",
+      )
+      .eq("driver_id", args.driver_id)
+      .eq("is_active", true)
+      .is("archived_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("admin_settings")
+      .select("setting_key, setting_value")
+      .in("setting_key", ["payouts_enabled", "payout_clearing_delay_hours", "early_cashout_fee_pence"]),
   ]);
 
   const ledger = ledgerRes.data ?? [];
@@ -278,35 +307,89 @@ export async function fetchDriverPayoutEligibility(
     };
   });
 
-  const payoutsEnabled = driverRes.data?.payouts_enabled !== false;
-  let clearingDelayHours = DEFAULT_PAYOUT_CLEARING_DELAY_HOURS;
-  try {
-    const { data: delayRow } = await supabase
-      .from("admin_settings")
-      .select("setting_value")
-      .eq("setting_key", "payout_clearing_delay_hours")
-      .maybeSingle();
-    const raw = delayRow?.setting_value;
-    const parsed = typeof raw === "number"
-      ? raw
-      : Number(String(raw ?? "").replace(/^"+|"+$/g, ""));
-    if (Number.isFinite(parsed) && parsed >= 0) {
-      clearingDelayHours = parsed;
-    }
-  } catch {
-    clearingDelayHours = DEFAULT_PAYOUT_CLEARING_DELAY_HOURS;
+  const settingsMap = new Map<string, unknown>();
+  for (const row of settingsRes.data ?? []) {
+    settingsMap.set(String(row.setting_key), row.setting_value);
   }
 
-  return aggregateDriverPayoutEligibility({
+  const globalPayoutsRaw = settingsMap.get("payouts_enabled");
+  const globalPayoutsEnabled = String(globalPayoutsRaw ?? "true").toLowerCase() !== "false"
+    && globalPayoutsRaw !== false;
+
+  let clearingDelayHours = DEFAULT_PAYOUT_CLEARING_DELAY_HOURS;
+  const delayRaw = settingsMap.get("payout_clearing_delay_hours");
+  const parsedDelay = typeof delayRaw === "number"
+    ? delayRaw
+    : Number(String(delayRaw ?? "").replace(/^"+|"+$/g, ""));
+  if (Number.isFinite(parsedDelay) && parsedDelay >= 0) {
+    clearingDelayHours = parsedDelay;
+  }
+
+  const dest = Array.isArray(destinationRes.data) ? destinationRes.data[0] : null;
+  const link = String(dest?.provider_link_status ?? dest?.verification_status ?? "").toUpperCase();
+  const accountVerified = Boolean(
+    dest
+    && dest.is_active !== false
+    && !dest.archived_at
+    && link === "PROVIDER_VERIFIED"
+    && dest.provider_counterparty_id
+    && dest.provider_recipient_account_id,
+  );
+
+  const operationalPaused = driverRes.data?.payout_operational_paused === true;
+  // Deprecated diagnostic — never a gate.
+  const legacyPayoutsEnabled = driverRes.data?.payouts_enabled !== false;
+
+  const approval = String(driverRes.data?.approval_status ?? "").toLowerCase();
+  const driverApproved = approval === "approved" || approval === "active";
+  const status = String(driverRes.data?.driver_status ?? "").toLowerCase();
+  const driverSuspended = ["disabled", "deleted", "suspended", "banned", "blocked", "inactive"]
+    .includes(status);
+
+  const feeRaw = settingsMap.get("early_cashout_fee_pence");
+  const feePence = Math.max(
+    0,
+    Math.round(
+      typeof feeRaw === "number"
+        ? feeRaw
+        : Number(String(feeRaw ?? "50").replace(/^"+|"+$/g, "")) || 50,
+    ),
+  );
+
+  const eligibility = aggregateDriverPayoutEligibility({
     live_balance_pence: live,
     outstanding_debt_pence: debt,
     in_flight_cashout_pence: inFlight,
     reserved_payout_pence: reservedPayout,
-    payouts_enabled: payoutsEnabled,
+    payout_operational_paused: operationalPaused,
+    payouts_enabled: legacyPayoutsEnabled,
     payout_provider_available: true,
-    // Revolut manual bank: account is valid when payouts are enabled (no Connect required).
-    account_verified: payoutsEnabled ? true : false,
+    account_verified: accountVerified,
     clearing_policy: { clearing_delay_hours: clearingDelayHours },
     entries,
   });
+
+  return {
+    eligibility,
+    global_payouts_enabled: globalPayoutsEnabled,
+    payout_operational_paused: operationalPaused,
+    provider_verified_active_destination: accountVerified,
+    driver_approved: driverApproved,
+    driver_suspended: driverSuspended,
+    legacy_payouts_enabled: driverRes.data?.payouts_enabled ?? null,
+    active_destination_last4: dest?.account_last4 ? String(dest.account_last4) : null,
+    fee_pence: feePence,
+  };
+}
+
+export async function fetchDriverPayoutEligibility(
+  supabase: SupabaseClient,
+  args: {
+    driver_id: string;
+    service_area_id?: string | null;
+    as_of?: string | null;
+  },
+): Promise<DriverPayoutEligibilityResult> {
+  const ctx = await fetchDriverPayoutEligibilityContext(supabase, args);
+  return ctx.eligibility;
 }

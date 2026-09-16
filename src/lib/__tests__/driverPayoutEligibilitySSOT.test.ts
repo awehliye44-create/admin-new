@@ -302,10 +302,20 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE);
   });
 
-  it("admin hold blocks available", () => {
-    const agg = aggregateDriverPayoutEligibility({
+  it("admin hold blocks available via operational pause (not legacy payouts_enabled)", () => {
+    const legacyIgnored = aggregateDriverPayoutEligibility({
       live_balance_pence: 408,
       payouts_enabled: false,
+      payout_operational_paused: false,
+      account_verified: true,
+      entries: [revolutTripCredit()],
+    });
+    expect(legacyIgnored.available_balance_pence).toBe(408);
+    expect(legacyIgnored.primary_hold_reason).toBeNull();
+
+    const agg = aggregateDriverPayoutEligibility({
+      live_balance_pence: 408,
+      payout_operational_paused: true,
       entries: [revolutTripCredit()],
     });
     expect(agg.available_balance_pence).toBe(0);

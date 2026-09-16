@@ -192,7 +192,7 @@ export async function buildPayoutLedgerAccountsOverview(
 
   let driverQuery = supabase
     .from("drivers")
-    .select("id, first_name, last_name, driver_code, payouts_enabled, category_id, driver_categories(name)")
+    .select("id, first_name, last_name, driver_code, payouts_enabled, payout_operational_paused, category_id, driver_categories(name)")
     .eq("approval_status", "approved")
     .in("id", platformDriverIds)
     .limit(Math.min(200, Math.max(1, args?.limit ?? 100)));
@@ -365,7 +365,7 @@ export async function buildPayoutLedgerAccountsOverview(
       const reserved = Math.max(0, reservedByDriver.get(String(d.id)) ?? 0);
       const debt = Math.max(0, eligibility.outstanding_debt_pence);
       const name = `${d.first_name ?? ""} ${d.last_name ?? ""}`.trim() || null;
-      const pausedAccount = d.payouts_enabled === false;
+      const pausedAccount = d.payout_operational_paused === true;
       if (pausedAccount) paused += 1;
 
       if (available <= 0 && live <= 0 && debt <= 0) {

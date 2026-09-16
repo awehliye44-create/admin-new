@@ -1,7 +1,8 @@
 /**
  * Credit health vs payout eligibility — display-only separation.
- * FROZEN = credit/balance freeze only. Payout holds (e.g. payouts_enabled=false)
- * must not be labelled as missing money or "Automatic payout frozen".
+ * FROZEN = credit/balance freeze only.
+ * Stage C2: payout holds come from operational pause / payout_blocked / typed
+ * blocking reasons — NOT legacy drivers.payouts_enabled alone.
  */
 export type DriverWalletPayoutStatusInput = {
   wallet_status?: string | null;
@@ -11,7 +12,10 @@ export type DriverWalletPayoutStatusInput = {
   actual_wallet_trip_credits_pence?: number | null;
   wallet_balance_pence?: number | null;
   payout_blocked?: boolean;
+  /** @deprecated Stage C2 diagnostic only — never the effective gate. */
   payouts_enabled?: boolean | null;
+  payout_operational_paused?: boolean | null;
+  payout_block_reason_code?: string | null;
   reconciliation_reasons?: string[] | null;
 };
 
@@ -22,6 +26,8 @@ export type DriverWalletPayoutStatusDisplay = {
   payoutBlockReason: string | null;
   showPayoutFrozenBadge: boolean;
   showPayoutHoldBadge: boolean;
+  /** Deprecated legacy flag for diagnostics only. */
+  legacyPayoutsEnabled: boolean | null;
 };
 
 export function resolveDriverWalletPayoutStatusDisplay(
@@ -35,14 +41,21 @@ export function resolveDriverWalletPayoutStatusDisplay(
     || (driver.wallet_balance_pence ?? 0) < 0
     || driver.driver_credit_status === 'DRIVER_UNDER_CREDITED'
     || driver.driver_credit_status === 'DRIVER_OVER_CREDITED';
-  const payoutBlocked = driver.payout_blocked === true || driver.payouts_enabled === false;
+
+  const operationalPaused = driver.payout_operational_paused === true;
+  const payoutBlocked = driver.payout_blocked === true || operationalPaused;
   const payoutHoldReasons = (driver.reconciliation_reasons ?? []).filter(Boolean);
-  const payoutBlockReason = payoutBlocked
-    ? (driver.payouts_enabled === false
-      ? 'Driver payouts disabled'
-      : payoutHoldReasons[0] ?? 'Payout eligibility hold')
-    : null;
-  // Never show "Automatic payout frozen" from credit-OK + verification alone.
+  let payoutBlockReason: string | null = null;
+  if (payoutBlocked) {
+    if (operationalPaused || driver.payout_block_reason_code === 'ADMIN_HOLD') {
+      payoutBlockReason = 'Driver payouts temporarily paused';
+    } else if (driver.payout_block_reason_code === 'FEATURE_DISABLED') {
+      payoutBlockReason = 'Driver payouts are currently disabled';
+    } else {
+      payoutBlockReason = payoutHoldReasons[0] ?? 'Payout eligibility hold';
+    }
+  }
+
   const showPayoutFrozenBadge = creditFrozen || (payoutBlocked && !creditOk);
   const showPayoutHoldBadge = payoutBlocked && creditOk && !creditFrozen;
   return {
@@ -52,5 +65,6 @@ export function resolveDriverWalletPayoutStatusDisplay(
     payoutBlockReason,
     showPayoutFrozenBadge,
     showPayoutHoldBadge,
+    legacyPayoutsEnabled: driver.payouts_enabled ?? null,
   };
 }
