@@ -153,7 +153,7 @@ Deno.serve(async (req) => {
       payment_method: trip.payment_method,
       capture_amount_pence: trip.capture_amount_pence,
       fare_field_contract: FARE_FIELD_CONTRACT.TIP_EXCLUSIVE_FINAL,
-      sessions: captureSessions ?? [],
+      sessions: (captureSessions ?? []) as unknown as CustomerShortfallSession[],
       hasOpenRecoveryAttempt: hasOpenRecovery,
       adminPermitted: true,
       client_expected_shortfall_pence: clientExpected,
