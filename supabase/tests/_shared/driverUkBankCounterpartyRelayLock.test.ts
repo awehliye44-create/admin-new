@@ -17,7 +17,7 @@ import {
   PROVIDER_LINK_FAILURE_CLASS,
 } from "../../functions/_shared/payoutDestinationVerificationOutcomeSSOT.ts";
 
-const SHARED = dirname(fromFileUrl(import.meta.url));
+const SHARED = fromFileUrl(new URL("../../functions/_shared", import.meta.url));
 
 Deno.test("Stage 5 source: handler defaults to relay create, not direct createRevolutCounterparty", async () => {
   const handler = await Deno.readTextFile(join(SHARED, "updateDriverPayoutDestinationHandler.ts"));

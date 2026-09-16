@@ -16,7 +16,7 @@ import {
   validateDestinationIdentifier,
 } from "../../functions/_shared/driverPayoutDestinationSSOT.ts";
 
-const SHARED = fromFileUrl(new URL(".", import.meta.url));
+const SHARED = fromFileUrl(new URL("../../functions/_shared/", import.meta.url));
 
 Deno.test("revolut allows uk_bank_account (Driver native submit type)", () => {
   assertEquals(isDestinationTypeAllowed("revolut", "uk_bank_account"), true);

@@ -18,7 +18,7 @@ import {
   detectUkDriverCounterpartyKind,
 } from "../../functions/_shared/revolutUkDriverCounterpartyPayload.ts";
 
-const SHARED = dirname(fromFileUrl(import.meta.url));
+const SHARED = fromFileUrl(new URL("../../functions/_shared", import.meta.url));
 
 Deno.test("ONECAB Limited → business body with company_name (not profile_type personal)", () => {
   assertEquals(detectUkDriverCounterpartyKind("ONECAB Limited"), "business");

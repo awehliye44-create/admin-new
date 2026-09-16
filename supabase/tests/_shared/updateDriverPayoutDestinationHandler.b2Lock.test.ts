@@ -19,7 +19,7 @@ import {
 import { PROVIDER_LINK_STATUS } from "../../functions/_shared/driverPayoutProviderLinkageSSOT.ts";
 import { DESTINATION_STATUS } from "../../functions/_shared/driverPayoutDestinationSSOT.ts";
 
-const SHARED = fromFileUrl(new URL(".", import.meta.url));
+const SHARED = fromFileUrl(new URL("../../functions/_shared/", import.meta.url));
 const ENTRY = join(SHARED, "..", "update-driver-payout-destination", "index.ts");
 
 type DestRow = {

@@ -6,7 +6,7 @@
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
-const ROOT = new URL(".", import.meta.url).pathname.replace(/_shared\/$/, "");
+const ROOT = new URL("../../functions/", import.meta.url).pathname;
 
 Deno.test("revolut-capture-order is 410-only with no financial import graph", async () => {
   const src = await Deno.readTextFile(`${ROOT}revolut-capture-order/index.ts`);

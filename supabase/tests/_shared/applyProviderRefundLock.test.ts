@@ -4,7 +4,7 @@
  */
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
-const ROOT = new URL(".", import.meta.url).pathname.replace(/_shared\/$/, "");
+const ROOT = new URL("../../functions/", import.meta.url).pathname;
 
 Deno.test("applyProviderRefundToOnecab is declared exactly once", async () => {
   const src = await Deno.readTextFile(`${ROOT}_shared/applyProviderRefund.ts`);

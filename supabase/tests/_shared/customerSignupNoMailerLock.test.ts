@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 import { fromFileUrl } from "https://deno.land/std@0.224.0/path/mod.ts";
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
-const root = join(dirname(fromFileUrl(import.meta.url)), "../../..");
+const root = join(fromFileUrl(new URL("../../functions/_shared", import.meta.url)), "../../..");
 
 function read(rel: string): string {
   return readFileSync(join(root, rel), "utf8");

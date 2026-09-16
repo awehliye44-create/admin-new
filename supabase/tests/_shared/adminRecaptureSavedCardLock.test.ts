@@ -11,7 +11,7 @@ import {
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
 } from "../../functions/_shared/tripHistoryShortfallRecaptureSSOT.ts";
 
-const ROOT = new URL(".", import.meta.url).pathname.replace(/_shared\/$/, "");
+const ROOT = new URL("../../functions/", import.meta.url).pathname;
 const FOUR_POUNDS = 400;
 
 Deno.test("£4 saved-card success with leftover checkout_url is not customer action", () => {

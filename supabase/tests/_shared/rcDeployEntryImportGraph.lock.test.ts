@@ -20,7 +20,7 @@ const IMPORT_RE =
 
 function functionsRoot(): string {
   // .../_shared/this.test.ts -> .../functions
-  return dirname(dirname(fromFileUrl(import.meta.url)));
+  return dirname(fromFileUrl(new URL("../../functions/_shared", import.meta.url)));
 }
 
 function repoRoot(): string {

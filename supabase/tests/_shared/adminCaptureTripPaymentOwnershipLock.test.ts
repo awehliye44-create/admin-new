@@ -18,7 +18,7 @@ import {
 import { executeAdminCaptureTripPayment } from "../../functions/_shared/adminCaptureTripPaymentSSOT.ts";
 import { FINANCIAL_MODEL_VIOLATION, SERVICE_AREA_FINANCIAL_MODEL } from "../../functions/_shared/commissionWalletSSOT.ts";
 
-const ROOT = new URL(".", import.meta.url).pathname.replace(/_shared\/$/, "");
+const ROOT = new URL("../../functions/", import.meta.url).pathname;
 
 function bookingSession(id: string, extra: Record<string, unknown> = {}) {
   return {
