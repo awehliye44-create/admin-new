@@ -18,6 +18,33 @@ const corsHeaders = {
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 50;
 
+const SNAPSHOT_CONCURRENCY = 6;
+
+/** Build per-driver snapshots concurrently (bounded) — sequential awaits made this page time out. */
+async function buildSnapshotsConcurrently(
+  supabase: ReturnType<typeof createClient>,
+  drivers: Array<{ id: string }>,
+  periodArgs: Record<string, string>,
+) {
+  const rows: unknown[] = new Array(drivers.length);
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(SNAPSHOT_CONCURRENCY, drivers.length) },
+    async () => {
+      while (true) {
+        const i = next++;
+        if (i >= drivers.length) return;
+        rows[i] = await fetchDriverWalletPayoutSnapshot(supabase, {
+          driverId: drivers[i].id,
+          ...periodArgs,
+        });
+      }
+    },
+  );
+  await Promise.all(workers);
+  return rows;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -181,13 +208,11 @@ Deno.serve(async (req) => {
       if (regionId) driversQuery = driversQuery.eq("region_id", regionId);
       const { data: drivers, error: driversErr } = await driversQuery;
       if (driversErr) throw driversErr;
-      const rows = [];
-      for (const d of drivers ?? []) {
-        rows.push(await fetchDriverWalletPayoutSnapshot(supabase, {
-          driverId: d.id,
-          ...(periodFrom && periodTo ? { periodFrom: String(periodFrom), periodTo: String(periodTo) } : {}),
-        }));
-      }
+      const rows = await buildSnapshotsConcurrently(
+        supabase,
+        drivers ?? [],
+        periodFrom && periodTo ? { periodFrom: String(periodFrom), periodTo: String(periodTo) } : {},
+      );
       return new Response(JSON.stringify({
         success: true,
         drivers: rows,
@@ -212,13 +237,11 @@ Deno.serve(async (req) => {
     const { data: drivers, error: driversErr } = await driversQuery;
     if (driversErr) throw driversErr;
 
-    const rows = [];
-    for (const d of drivers ?? []) {
-      rows.push(await fetchDriverWalletPayoutSnapshot(supabase, {
-        driverId: d.id,
-        ...(periodFrom && periodTo ? { periodFrom: String(periodFrom), periodTo: String(periodTo) } : {}),
-      }));
-    }
+    const rows = await buildSnapshotsConcurrently(
+      supabase,
+      drivers ?? [],
+      periodFrom && periodTo ? { periodFrom: String(periodFrom), periodTo: String(periodTo) } : {},
+    );
 
     return new Response(JSON.stringify({
       success: true,
