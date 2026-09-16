@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
     windowMs: 15 * 60 * 1000,
   });
   if (!rate.allowed) {
-    return rateLimitResponse(rate.retryAfter ?? 60);
+    return rateLimitResponse(rate);
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
