@@ -7,7 +7,7 @@
  * dry_run=true never reserves, never calls Revolut, never debits.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { loadPayoutControlCentreSettings } from "../_shared/payoutControlCentreSettingsSSOT.ts";
 import { resolveLiveCompanyBalanceSnapshot } from "../_shared/companyBalanceResolveSSOT.ts";
@@ -75,7 +75,8 @@ const corsHeaders = {
   "Content-Type": "application/json",
 };
 
-type AnySupabase = ReturnType<typeof createClient>;
+// deno-lint-ignore no-explicit-any
+type AnySupabase = SupabaseClient<any, "public", "public", any, any>;
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders } });
