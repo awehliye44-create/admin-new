@@ -227,6 +227,7 @@ export function buildDigitalPaymentMethodsPayload(args: {
     automated_payout_configured: boolean;
     message: string;
     automated_payout_message?: string | null;
+    driver_wallet_message?: string | null;
   };
 } {
   const provider = args.customerGateway.provider;
