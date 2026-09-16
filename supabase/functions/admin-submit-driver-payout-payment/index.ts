@@ -12,7 +12,7 @@
  * }
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   canonicalIdempotencyKey,
   canonicalProviderRequestId,

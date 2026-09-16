@@ -4,7 +4,7 @@
  * Revolut / UK-bank / manual-bank destinations via driver_payout_destinations.
  */
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   buildDriverPayoutGatewayPayload,
   checkServiceAreaGateway,

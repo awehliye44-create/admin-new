@@ -8,7 +8,7 @@
  * Auth: service role Bearer OR x-onecab-internal-finalize secret.
  * Body must include confirm: "MK-260815-029-REFUND-266-WALLET-184"
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   refundRevolutOrder,
   retrieveRevolutOrder,

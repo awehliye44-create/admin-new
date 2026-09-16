@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
 import {

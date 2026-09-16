@@ -2,7 +2,7 @@
  * Continuous reconciliation — compare wallet/payout SSOT vs backend records.
  * P0: provider Connect sync retired; snapshots use Driver Wallet Ledger only.
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
 
 const corsHeaders = {

@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { DRIVER_TIP_THANKS_COPY } from "../_shared/driverTipThanksSSOT.ts";
 

@@ -10,7 +10,7 @@
  * }
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   IDEMPOTENCY_CONFLICT,
   PAYMENT_EXECUTION_DISABLED,

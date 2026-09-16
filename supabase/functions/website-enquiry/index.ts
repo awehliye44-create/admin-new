@@ -1,7 +1,7 @@
 // Public website enquiry intake (onecab.net contact form only).
 // Driver registration is completed in the ONECAB Driver app, not on the website.
 // Honeypot + IP-hash rate limiting + idempotency, emailed via Resend.
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { sendResendEmail } from "../_shared/resendMail.ts";
 

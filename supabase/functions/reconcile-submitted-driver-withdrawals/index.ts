@@ -21,7 +21,7 @@
  *
  * Schema prerequisite: migration 20260929150000_reconcile_poller_claim_cols.sql
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { reconcileSubmittedDriverWithdrawPayout } from "../_shared/driverWithdrawProviderReconcile.ts";
 
 const corsHeaders = {

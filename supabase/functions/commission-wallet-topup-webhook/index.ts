@@ -3,7 +3,7 @@
  * HMAC-verified Waafi-shaped sandbox events → TOP_UP_CREDIT (or FAILED/EXPIRED).
  * Never writes driver_wallet_ledger.
  */
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   confirmCommissionWalletTopupCredit,
   markCommissionWalletTopupTerminal,

@@ -7,7 +7,7 @@
  * POST { transfer_id: string, confirm_submit?: true }
  */
 
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { resolveLiveCompanyBalanceWithSlice10Gate } from "../_shared/companyBalanceResolveSSOT.ts";
 import { loadActiveOperationalReservePolicy } from "../_shared/companyOperationalReserveLoadSSOT.ts";
 import {

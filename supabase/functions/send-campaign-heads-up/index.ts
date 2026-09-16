@@ -6,7 +6,7 @@
  * Body `{ source: "pg_cron" }` (no campaignId) — due scheduled / repeat sweep.
  */
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.90.0";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   resolveCustomerAuthoritativeToken,
   resolveDriverAuthoritativeToken,
