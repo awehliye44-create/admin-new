@@ -27927,6 +27927,10 @@ export type Database = {
         Args: { p_payout_item_id: string }
         Returns: undefined
       }
+      assert_trip_completion_customer_payment_gate: {
+        Args: { p_trip_id: string }
+        Returns: Json
+      }
       assign_trip_number: {
         Args: { p_service_area_id: string; p_trip_id: string }
         Returns: Json
