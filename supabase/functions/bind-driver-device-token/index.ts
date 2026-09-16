@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
 
   const rate = checkRateLimit(getClientIP(req), RATE_LIMIT_CONFIG);
   if (!rate.allowed) {
-    return rateLimitResponse(rate.retryAfter!);
+    return rateLimitResponse(rate);
   }
 
   const auth = await authenticateDriver(req);

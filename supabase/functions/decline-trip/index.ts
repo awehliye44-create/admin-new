@@ -33,7 +33,7 @@ serve(async (req) => {
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
   if (!rateLimitResult.allowed) {
     console.log(`[decline-trip] Rate limit exceeded for IP: ${clientIP}`);
-    return rateLimitResponse(rateLimitResult.retryAfter!);
+    return rateLimitResponse(rateLimitResult);
   }
 
   try {

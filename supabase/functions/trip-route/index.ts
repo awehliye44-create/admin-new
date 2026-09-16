@@ -38,7 +38,7 @@ serve(async (req) => {
 
   const clientIP = getClientIP(req);
   const rl = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
-  if (!rl.allowed) return rateLimitResponse(rl.retryAfter!);
+  if (!rl.allowed) return rateLimitResponse(rl);
 
   try {
     const body = await req.json();

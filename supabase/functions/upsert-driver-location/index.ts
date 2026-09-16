@@ -95,7 +95,7 @@ serve(async (req) => {
     const rateLimitKey = `loc:${driver_id}`;
     const rl = checkRateLimit(rateLimitKey, RATE_LIMIT_CONFIG);
     if (!rl.allowed) {
-      return rateLimitResponse(rl.retryAfter!);
+      return rateLimitResponse(rl);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

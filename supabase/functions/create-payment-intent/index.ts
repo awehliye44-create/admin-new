@@ -40,7 +40,7 @@ serve(async (req) => {
 
   const clientIP = getClientIP(req);
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
-  if (!rateLimitResult.allowed) return rateLimitResponse(rateLimitResult.retryAfter!);
+  if (!rateLimitResult.allowed) return rateLimitResponse(rateLimitResult);
 
   try {
     const authHeader = req.headers.get("Authorization");
