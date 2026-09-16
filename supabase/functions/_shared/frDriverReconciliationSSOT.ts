@@ -104,7 +104,29 @@ const ADJUSTMENT_TYPES = new Set([
   "LEDGER_REVERSAL",
 ]);
 
-const BONUS_TYPES = new Set(["BONUS", "INCENTIVE", "PROMOTION", "DRIVER_TIP_CREDIT"]);
+/**
+ * Non-trip discretionary credits. DRIVER_TIP_CREDIT is NOT a bonus for FR:
+ * confirmed tips are part of expected driver entitlement, so they belong to the
+ * trip-entitlement credit basis below (single classification, no double count).
+ */
+const BONUS_TYPES = new Set(["BONUS", "INCENTIVE", "PROMOTION"]);
+
+/** Trip-linked driver tip credit — non-commissionable, entitlement-bearing. */
+const TRIP_TIP_CREDIT_TYPE = "DRIVER_TIP_CREDIT";
+
+/**
+ * Single shared basis for the FR "actual" side: the ledger types that carry
+ * driver entitlement for a reconciled trip. Expected entitlement (driver net +
+ * non-commissionable tip / airport) must be compared against exactly these.
+ */
+export const FR_TRIP_ENTITLEMENT_CREDIT_TYPES: ReadonlySet<string> = new Set([
+  ...TRIP_CREDIT_TYPES,
+  TRIP_TIP_CREDIT_TYPE,
+]);
+
+export function isFrTripEntitlementCreditType(type: string | null | undefined): boolean {
+  return FR_TRIP_ENTITLEMENT_CREDIT_TYPES.has(String(type ?? "").toUpperCase());
+}
 
 const DEBT_RECOVERY_TYPES = new Set(["DEBT_RECOVERY"]);
 
@@ -256,7 +278,14 @@ function sumByTypes(ledger: FrDriverLedgerRow[], types: Set<string>): number {
   return sum;
 }
 
-/** Trip credits: TRIP_EARNING_NET + settlement corrections (balance-affecting). */
+/**
+ * Trip entitlement credits: TRIP_EARNING_NET + settlement corrections +
+ * trip-linked DRIVER_TIP_CREDIT (balance-affecting).
+ *
+ * Symmetric with expected entitlement, which already adds confirmed tips.
+ * Tip credits are only counted when tied to a trip — untied tip rows are
+ * reported as discretionary credits instead (never as trip entitlement).
+ */
 export function sumActualWalletTripCreditsPence(
   ledger: FrDriverLedgerRow[],
   tripIds?: Set<string> | null,
@@ -264,10 +293,23 @@ export function sumActualWalletTripCreditsPence(
   let sum = 0;
   for (const row of ledger) {
     const t = String(row.type ?? "").toUpperCase();
-    if (!TRIP_CREDIT_TYPES.has(t)) continue;
-    if (t !== "TRIP_EARNING_NET" && !isBalanceAffecting(t)) continue;
+    if (!FR_TRIP_ENTITLEMENT_CREDIT_TYPES.has(t)) continue;
+    if (t !== "TRIP_EARNING_NET" && t !== TRIP_TIP_CREDIT_TYPE && !isBalanceAffecting(t)) continue;
     const tripId = row.related_trip_id == null ? null : String(row.related_trip_id);
+    if (t === TRIP_TIP_CREDIT_TYPE && !tripId) continue;
     if (tripIds && tripIds.size > 0 && (!tripId || !tripIds.has(tripId))) continue;
+    sum += Math.round(Number(row.amount_pence ?? 0));
+  }
+  return sum;
+}
+
+/** Tip credits with no related trip — discretionary, outside trip entitlement. */
+export function sumUnlinkedTipCreditsPence(ledger: FrDriverLedgerRow[]): number {
+  let sum = 0;
+  for (const row of ledger) {
+    const t = String(row.type ?? "").toUpperCase();
+    if (t !== TRIP_TIP_CREDIT_TYPE) continue;
+    if (row.related_trip_id != null && String(row.related_trip_id).trim() !== "") continue;
     sum += Math.round(Number(row.amount_pence ?? 0));
   }
   return sum;
@@ -576,7 +618,9 @@ export function computeFrDriverReconciliation(
   const debtRecovery = sumDebtRecoveryDebitsPence(input.ledger);
   const payoutsDebited = sumPayoutsDebitedPence(input.ledger);
   const payoutTransfers = sumPayoutWalletTransfersPence(input.ledger);
-  const bonuses = sumByTypes(input.ledger, BONUS_TYPES);
+  // Trip-linked tips live in actualCredits; only untied tip rows are discretionary here.
+  const bonuses = sumByTypes(input.ledger, BONUS_TYPES)
+    + sumUnlinkedTipCreditsPence(input.ledger);
   const refundDebits = (() => {
     let s = 0;
     for (const row of input.ledger) {
