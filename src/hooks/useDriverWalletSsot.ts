@@ -179,11 +179,25 @@ export type DriverWalletSsotListResult = {
 
 const DEFAULT_PAGE_SIZE = 25;
 
+/** Deleted driver accounts must never appear in wallet lists. */
+async function excludeDeletedDrivers(rows: DriverWalletSsotRow[]): Promise<DriverWalletSsotRow[]> {
+  if (rows.length === 0) return rows;
+  const { data, error } = await supabase
+    .from('drivers')
+    .select('id')
+    .in('id', rows.map((r) => r.driver_id).filter(Boolean))
+    .or('deleted_at.not.is.null,driver_status.eq.deleted');
+  if (error) return rows;
+  const deleted = new Set((data ?? []).map((r) => String(r.id)));
+  return rows.filter((r) => !deleted.has(String(r.driver_id)));
+}
+
 async function overlayDriverWalletEligibility(
   drivers: DriverWalletSsotRow[],
 ): Promise<DriverWalletSsotRow[]> {
   const ids = drivers.map((d) => d.driver_id).filter(Boolean);
   if (ids.length === 0) return drivers;
+
 
   let rows: DriverWalletEligibilityOverlay[] = [];
   const batch = await supabase.rpc(
@@ -253,15 +267,18 @@ export function useDriverWalletSsot(args?: {
           });
           if (error) throw error;
           if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
-          const drivers = await overlayDriverWalletEligibility(
+          const overlaid = await overlayDriverWalletEligibility(
             (data.drivers ?? []) as DriverWalletSsotRow[],
           );
+          const drivers = await excludeDeletedDrivers(overlaid);
+          const removed = overlaid.length - drivers.length;
           return {
             drivers,
-            total: Number(data.total ?? 0),
+            total: Math.max(0, Number(data.total ?? 0) - removed),
             limit: Number(data.limit ?? pageSize),
             offset: Number(data.offset ?? offset),
           };
+
         },
       ),
     ...ADMIN_FINANCE_QUERY_DEFAULTS,
@@ -282,11 +299,12 @@ async function fetchAllDriverWalletSsotPages(regionId: string | null): Promise<D
   if (firstError) throw firstError;
   if (!firstData?.success) throw new Error(firstData?.error ?? 'SSOT fetch failed');
 
-  const firstDrivers = await overlayDriverWalletEligibility(
-    (firstData.drivers ?? []) as DriverWalletSsotRow[],
+  const firstDrivers = await excludeDeletedDrivers(
+    await overlayDriverWalletEligibility((firstData.drivers ?? []) as DriverWalletSsotRow[]),
   );
   const total = Number(firstData.total ?? firstDrivers.length);
   if (total <= pageSize || firstDrivers.length === 0) return firstDrivers;
+
 
   const pageOffsets: number[] = [];
   for (let offset = pageSize; offset < total; offset += pageSize) {
@@ -304,7 +322,10 @@ async function fetchAllDriverWalletSsotPages(regionId: string | null): Promise<D
       });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
-      return overlayDriverWalletEligibility((data.drivers ?? []) as DriverWalletSsotRow[]);
+      return excludeDeletedDrivers(
+        await overlayDriverWalletEligibility((data.drivers ?? []) as DriverWalletSsotRow[]),
+      );
+
     }),
   );
 

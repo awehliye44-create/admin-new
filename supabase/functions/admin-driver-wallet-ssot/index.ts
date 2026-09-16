@@ -182,10 +182,12 @@ Deno.serve(async (req) => {
     }
 
     // P0: list drivers with wallet activity OR active payout destination — PLATFORM SA membership only.
+    // Deleted drivers are excluded (drivers.deleted_at / driver_status = 'deleted').
     let countQuery = supabase
       .from("drivers")
       .select("id", { count: "exact", head: true })
-      .eq("is_active", true)
+      .is("deleted_at", null)
+      .neq("driver_status", "deleted")
       .in("id", platformDriverIds);
 
     if (regionId) countQuery = countQuery.eq("region_id", regionId);
@@ -195,6 +197,7 @@ Deno.serve(async (req) => {
       let fallbackCount = supabase
         .from("drivers")
         .select("id", { count: "exact", head: true })
+        .is("deleted_at", null)
         .in("id", platformDriverIds);
       if (regionId) fallbackCount = fallbackCount.eq("region_id", regionId);
       const fb = await fallbackCount;
@@ -203,6 +206,7 @@ Deno.serve(async (req) => {
       let driversQuery = supabase
         .from("drivers")
         .select("id, driver_code, user_id, region_id")
+        .is("deleted_at", null)
         .in("id", platformDriverIds)
         .order("driver_code", { ascending: true })
         .range(offset, offset + limit - 1);
@@ -228,7 +232,8 @@ Deno.serve(async (req) => {
     let driversQuery = supabase
       .from("drivers")
       .select("id, driver_code, user_id, region_id")
-      .eq("is_active", true)
+      .is("deleted_at", null)
+      .neq("driver_status", "deleted")
       .in("id", platformDriverIds)
       .order("driver_code", { ascending: true })
       .range(offset, offset + limit - 1);
@@ -237,6 +242,7 @@ Deno.serve(async (req) => {
 
     const { data: drivers, error: driversErr } = await driversQuery;
     if (driversErr) throw driversErr;
+
 
     const rows = await buildSnapshotsConcurrently(
       supabase,
