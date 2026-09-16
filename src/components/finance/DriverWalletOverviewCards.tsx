@@ -7,6 +7,7 @@ import { displayDriverWalletSsotBalances } from '@/lib/driverWalletSsotBalances'
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
+import { resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
 
 function Metric({
   label,
@@ -73,24 +74,13 @@ export function DriverWalletOverviewCards({
   const kpis = driver.period_kpis;
   const balances = displayDriverWalletSsotBalances(driver);
   const fmt = (p: number | null | undefined) => formatNullablePence(p, ccy);
-  const creditOk = driver.driver_credit_status === 'DRIVER_CREDIT_OK'
-    || (driver.wallet_variance_pence === 0
-      && (driver.expected_payable_pence ?? null) != null
-      && (driver.actual_wallet_trip_credits_pence ?? null) != null);
-  const creditFrozen = driver.wallet_status === 'FROZEN'
-    || (driver.wallet_balance_pence ?? 0) < 0
-    || driver.driver_credit_status === 'DRIVER_UNDER_CREDITED'
-    || driver.driver_credit_status === 'DRIVER_OVER_CREDITED';
-  const payoutBlocked = driver.payout_blocked === true || driver.payouts_enabled === false;
-  const payoutHoldReasons = (driver.reconciliation_reasons ?? []).filter(Boolean);
-  const payoutBlockReason = payoutBlocked
-    ? (driver.payouts_enabled === false
-      ? 'Driver payouts disabled'
-      : payoutHoldReasons[0] ?? 'Payout eligibility hold')
-    : null;
-  // Never show "Automatic payout frozen" from credit-OK + verification alone.
-  const showPayoutFrozenBadge = creditFrozen || (payoutBlocked && !creditOk);
-  const showPayoutHoldBadge = payoutBlocked && creditOk && !creditFrozen;
+  const {
+    creditOk,
+    creditFrozen,
+    payoutBlockReason,
+    showPayoutFrozenBadge,
+    showPayoutHoldBadge,
+  } = resolveDriverWalletPayoutStatusDisplay(driver);
 
   const nextPayoutHint = driver.next_scheduled_payout_local || undefined;
 
