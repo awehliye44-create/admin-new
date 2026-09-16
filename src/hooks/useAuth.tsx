@@ -8,6 +8,9 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   isAdmin: boolean;
+  /** True when the admin-role lookup could not reach the backend (network/outage). */
+  adminCheckUnavailable: boolean;
+  recheckAdmin: () => Promise<void>;
   isLoading: boolean;
   isAuthReady: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
@@ -37,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminCheckUnavailable, setAdminCheckUnavailable] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
 
@@ -56,12 +60,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq('role', 'admin')
         .maybeSingle()
         .then(({ data, error }) => {
-          if (!error) {
-            const result = !!data;
-            adminCache.current = { userId, isAdmin: result };
-            setIsAdmin(result);
+          if (error) {
+            // Backend unreachable / errored — keep cached value, surface unavailability
+            setAdminCheckUnavailable(true);
+            return;
           }
-          // On error, keep cached value — don't flip to false
+          const result = !!data;
+          adminCache.current = { userId, isAdmin: result };
+          setAdminCheckUnavailable(false);
+          setIsAdmin(result);
         });
       return adminCache.current.isAdmin;
     }
@@ -77,17 +84,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error('Error checking admin role:', error);
-        return adminCache.current?.userId === userId ? adminCache.current.isAdmin : false;
+        setAdminCheckUnavailable(true);
+        return false;
       }
 
       const result = !!data;
       adminCache.current = { userId, isAdmin: result };
+      setAdminCheckUnavailable(false);
       return result;
     } catch (err) {
       console.error('Error in checkAdminRole:', err);
-      return adminCache.current?.userId === userId ? adminCache.current.isAdmin : false;
+      setAdminCheckUnavailable(true);
+      return false;
     }
   }, []);
+
+  const recheckAdmin = useCallback(async () => {
+    const userId = user?.id;
+    if (!userId) return;
+    setAdminCheckUnavailable(false);
+    const result = await checkAdminRole(userId);
+    setIsAdmin(result);
+  }, [user?.id, checkAdminRole]);
 
   useEffect(() => {
     let mounted = true;
@@ -213,12 +231,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     manualSignOut.current = true;
     adminCache.current = null;
-    await supabase.auth.signOut();
-    // State will be cleared by the onAuthStateChange listener
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      // Backend unreachable: still clear local state so the user isn't stuck
+      console.error('Sign out request failed, clearing local session:', err);
+    }
+    setSession(null);
+    setUser(null);
+    setIsAdmin(false);
+    setAdminCheckUnavailable(false);
+    clearSentryUser();
+    manualSignOut.current = false;
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, isAdmin, isLoading, isAuthReady, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, session, isAdmin, adminCheckUnavailable, recheckAdmin, isLoading, isAuthReady, signIn, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   );
