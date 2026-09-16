@@ -459,7 +459,6 @@ export type FrAuditOverviewFromTripRecords = {
   wallet_credits_total_pence: number;
   payouts_completed_pence: number;
   airport_charges_total_pence: number;
-  driver_tips_total_pence: number;
   commissionable_fare_total_pence: number;
   settlement_identity_variance_pence: number | null;
   settlement_identity_balanced: boolean;

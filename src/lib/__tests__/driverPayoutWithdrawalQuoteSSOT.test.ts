@@ -234,7 +234,7 @@ describe("driverPayoutWithdrawalQuoteSSOT — Stage C2 cutover", () => {
       quote,
     });
     expect(over.ok).toBe(false);
-    if (!over.ok) {
+    if (over.ok === false) {
       expect(over.code).toBe(DRIVER_PAYOUT_BLOCK_REASON.AMOUNT_EXCEEDS_WITHDRAWABLE);
     }
     const stale = assertClientAmountWithinWithdrawable({
@@ -242,7 +242,7 @@ describe("driverPayoutWithdrawalQuoteSSOT — Stage C2 cutover", () => {
       quote,
     });
     expect(stale.ok).toBe(false);
-    if (!stale.ok) {
+    if (stale.ok === false) {
       expect(stale.code).toBe(DRIVER_PAYOUT_BLOCK_REASON.STALE_QUOTE);
     }
     const ok = assertClientAmountWithinWithdrawable({
