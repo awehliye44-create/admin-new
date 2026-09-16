@@ -299,7 +299,10 @@ export type FrAuditOverviewKpis = {
   provider_fee_total_pence: number;
   onecab_gross_commission_pence: number;
   onecab_net_commission_pence: number | null;
+  /** Tip-exclusive fare net. */
   driver_net_total_pence: number;
+  driver_fare_net_total_pence?: number;
+  driver_entitlement_total_pence?: number;
   wallet_credits_total_pence: number;
   payouts_completed_pence: number;
   /** Non-commissionable — Payment Sessions capture breakdown. */
@@ -572,10 +575,12 @@ export function buildFrAuditOverviewKpis(
     onecab_gross_commission_pence: gross,
     onecab_net_commission_pence: netKnown ? netSum : null,
     driver_net_total_pence: driverNet,
+    driver_fare_net_total_pence: driverNet,
+    driver_tips_total_pence: tipsTotal,
+    driver_entitlement_total_pence: driverNet + tipsTotal + airportTotal,
     wallet_credits_total_pence: walletCredits,
     payouts_completed_pence: payoutsCompleted,
     airport_charges_total_pence: airportTotal,
-    driver_tips_total_pence: tipsTotal,
     commissionable_fare_total_pence: commissionableTotal,
     settlement_identity_variance_pence: identityEvaluableCount > 0 ? identityVariance : null,
     settlement_identity_balanced: identityBalanced,

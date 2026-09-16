@@ -448,7 +448,14 @@ export type FrAuditOverviewFromTripRecords = {
   provider_fee_pending_total_pence: number;
   onecab_gross_commission_pence: number;
   onecab_net_commission_pence: number | null;
+  /** Tip-exclusive fare net (trips.driver_net_pence sum). */
   driver_net_total_pence: number;
+  /** Alias of driver_net_total_pence — Overview "Driver fare earnings". */
+  driver_fare_net_total_pence: number;
+  /** Confirmed non-commissionable tips for the period. */
+  driver_tips_total_pence: number;
+  /** fare net + tip + airport (airport only when a separate allocation leg). */
+  driver_entitlement_total_pence: number;
   wallet_credits_total_pence: number;
   payouts_completed_pence: number;
   airport_charges_total_pence: number;
@@ -988,7 +995,10 @@ export function aggregateFrOverviewFromPerTripRecords(
     } else {
       netKnown = false;
     }
-    if (rec.driver_entitlement_pence != null) driverNet += rec.driver_entitlement_pence;
+    // Fare-only net for Overview "Driver fare earnings" — never tip-inclusive entitlement.
+    if (row.driver_net_pence != null) {
+      driverNet += Math.max(0, Number(row.driver_net_pence));
+    }
     if (rec.actual_trip_earning_net_pence != null) {
       walletCredits += Math.max(0, rec.actual_trip_earning_net_pence);
     }
@@ -996,6 +1006,7 @@ export function aggregateFrOverviewFromPerTripRecords(
       airportTotal += Math.max(0, Number(row.airport_charge_pence));
     }
     if (row.tip_pence != null) tipsTotal += Math.max(0, Number(row.tip_pence));
+    else if (row.tips_pence != null) tipsTotal += Math.max(0, Number(row.tips_pence));
     waitingTotal += Math.max(0, Number(row.pickup_waiting_charge_pence ?? 0))
       + Math.max(0, Number(row.stop_waiting_charge_pence ?? 0));
     if (rec.pre_promotion_commissionable_fare_pence != null) {
@@ -1152,10 +1163,12 @@ export function aggregateFrOverviewFromPerTripRecords(
     onecab_gross_commission_pence: gross,
     onecab_net_commission_pence: netKnown ? netSum : null,
     driver_net_total_pence: driverNet,
+    driver_fare_net_total_pence: driverNet,
+    driver_tips_total_pence: tipsTotal,
+    driver_entitlement_total_pence: driverNet + tipsTotal + airportTotal,
     wallet_credits_total_pence: walletCredits,
     payouts_completed_pence: payoutsCompleted,
     airport_charges_total_pence: airportTotal,
-    driver_tips_total_pence: tipsTotal,
     commissionable_fare_total_pence: commissionableTotal,
     settlement_identity_variance_pence: identityEvaluableCount > 0 ? identityVariance : null,
     settlement_identity_balanced: identityBalanced,

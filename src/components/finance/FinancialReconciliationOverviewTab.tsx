@@ -51,9 +51,14 @@ export function FinancialReconciliationOverviewTab({
     trip_count?: number;
     confirmed_provider_captured_total_pence: number;
     driver_net_total_pence: number;
+    driver_fare_net_total_pence?: number;
+    driver_tips_total_pence?: number;
+    driver_entitlement_total_pence?: number;
+    airport_charges_total_pence?: number;
     onecab_gross_commission_pence: number;
     provider_fee_total_pence: number;
     settlement_identity_variance_pence?: number | null;
+    settlement_identity_balanced?: boolean;
     unresolved_mismatches_count: number;
     driver_credit_exception_trip_count?: number;
     driver_credit_exception_difference_pence?: number;
@@ -99,6 +104,15 @@ export function FinancialReconciliationOverviewTab({
       ? o.settlement_identity_variance_pence
       : summary?.reconciliation_check?.delta_pence ?? summary?.reconciliation_check?.variance_pence ?? null;
 
+  const driverFareNet = useAuditKpis
+    ? (o!.driver_fare_net_total_pence ?? o!.driver_net_total_pence)
+    : (summary?.driver_money?.card_driver_payable_pence ?? null);
+  const driverTips = useAuditKpis ? (o!.driver_tips_total_pence ?? 0) : null;
+  const driverEntitlement = useAuditKpis
+    ? (o!.driver_entitlement_total_pence
+      ?? ((driverFareNet ?? 0) + (driverTips ?? 0) + (o!.airport_charges_total_pence ?? 0)))
+    : null;
+
   const openIssues = openIssueCount > 0
     ? openIssueCount
     : (useAuditKpis ? (o?.unresolved_mismatches_count ?? 0) : 0);
@@ -136,9 +150,19 @@ export function FinancialReconciliationOverviewTab({
           subtitle="Payment Sessions"
         />
         <KpiCard
-          label="Driver earnings"
-          value={useAuditKpis ? fmt(o!.driver_net_total_pence) : fmt(summary?.driver_money?.card_driver_payable_pence)}
-          subtitle="Period trip stamps"
+          label="Driver fare earnings"
+          value={driverFareNet == null ? '—' : fmt(driverFareNet)}
+          subtitle="Period trip stamps (tip-exclusive)"
+        />
+        <KpiCard
+          label="Driver tips"
+          value={driverTips == null ? '—' : fmt(driverTips)}
+          subtitle="Non-commissionable tip"
+        />
+        <KpiCard
+          label="Total driver entitlement"
+          value={driverEntitlement == null ? '—' : fmt(driverEntitlement)}
+          subtitle="Fare net + tip (+ airport when separate)"
         />
         <KpiCard
           label="ONECAB commission"
@@ -158,7 +182,7 @@ export function FinancialReconciliationOverviewTab({
         <KpiCard
           label="Provider fees"
           value={useAuditKpis ? fmt(o!.provider_fee_total_pence) : fmt(summary?.onecab_money?.provider_processing_fee_pence)}
-          subtitle="Payment Sessions"
+          subtitle="Payment Sessions — display only"
         />
         <KpiCard
           label="Reconciliation difference"

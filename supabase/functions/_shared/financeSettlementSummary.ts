@@ -709,6 +709,13 @@ export function buildFinanceReconciliationSummary(args: {
   dataSourceBadge?: FinanceDataSourceBadge;
   /** When true, BALANCED status uses trip-earnings split (correct for date-filtered reports). */
   periodScoped?: boolean;
+  /** Period tip total — required for settlement identity (defaults to 0 = false mismatch). */
+  driverTipsPence?: number;
+  /**
+   * Period airport total as a separate allocation leg.
+   * Pass 0 when airport is already folded into driver_net stamps.
+   */
+  airportChargesPence?: number;
 }): FinanceReconciliationSummary {
   const m = args.ssot;
   const driverAvailablePayout = Math.max(0, m.driver_available_now_pence - args.inFlightCashoutPence);
@@ -716,6 +723,8 @@ export function buildFinanceReconciliationSummary(args: {
   const split = m.ledger_split;
   const splitReconciliation = buildSplitReconciliationCheck({
     ledger: split,
+    driverTipsPence: args.driverTipsPence ?? 0,
+    airportChargesPence: args.airportChargesPence ?? 0,
     tolerancePence: args.tolerancePence,
   });
 
@@ -1194,7 +1203,10 @@ export function mapTripToFinancialAuditRow(
 
   const settlementIdentity = evaluateSettlementCaptureIdentity({
     captured_pence: captured,
-    driver_net_pence: expectedDriverNet,
+    // Fare-only stamp — tip is a separate leg. Never pass tip-inclusive entitlement.
+    driver_net_pence: row.driver_net_pence == null
+      ? null
+      : Math.max(0, Math.round(Number(row.driver_net_pence))),
     commission_pence: grossCommission,
     commission_after_promotion_pence: commissionAfterPromotion,
     platform_promotion_subsidy_pence: platformPromotionSubsidyPence,

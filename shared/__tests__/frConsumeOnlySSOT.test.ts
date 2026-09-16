@@ -14,7 +14,7 @@ describe("evaluateFrSettlementCaptureIdentity", () => {
       commission_pence: 72,
       airport_charge_pence: 0,
       tips_pence: 0,
-    })).toEqual({ balanced: false, variance_pence: null, evaluable: false });
+    })).toMatchObject({ balanced: false, variance_pence: null, evaluable: false });
 
     expect(evaluateFrSettlementCaptureIdentity({
       captured_pence: 0,

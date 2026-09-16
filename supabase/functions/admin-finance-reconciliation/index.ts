@@ -39,6 +39,7 @@ import {
   resolveCanonicalPaymentSessionMoneyByTrip,
 } from "../_shared/frPerTripAuditSSOT.ts";
 import { isDriverCreditExceptionHealth } from "../_shared/driverCreditMonitoringSSOT.ts";
+import { excludeTripFromPlatformCollectedFinance } from "../_shared/commissionWalletSSOT.ts";
 import {
   applyFinanceReconciliationTripLocationFilter,
   buildFinanceReconciliationTripQuery,
@@ -787,6 +788,23 @@ serve(async (req) => {
       paymentSessions: paymentSessionRows,
     });
 
+    let periodDriverTipsPence = 0;
+    let periodAirportChargesPence = 0;
+    for (const trip of tripRows) {
+      if (excludeTripFromPlatformCollectedFinance(trip)) continue;
+      periodDriverTipsPence += Math.max(
+        0,
+        Math.round(Number((trip as { tip_pence?: number | null }).tip_pence
+          ?? (trip as { tip_amount_pence?: number | null }).tip_amount_pence
+          ?? 0)),
+      );
+      // Airport is a separate capture-allocation leg vs tip-exclusive driver_net.
+      periodAirportChargesPence += Math.max(
+        0,
+        Math.round(Number((trip as { airport_charge_pence?: number | null }).airport_charge_pence ?? 0)),
+      );
+    }
+
     const settlementStatus = classifyOnecabSettlementStatus({
       calculatedOnecabNetPence: ssotMetrics.onecab_card_net_commission_pence,
       verifiedOnecabNetPence: finance.verified_onecab_net_pence,
@@ -807,7 +825,8 @@ serve(async (req) => {
       lastWebhookReceivedAt: null,
       onecabBankPayoutPence: settlementStatus === "paid_to_onecab_bank" ? ssotMetrics.net_platform_revenue_pence : 0,
       dataSourceBadge: "LIVE",
-      moneyMovement,
+      driverTipsPence: periodDriverTipsPence,
+      airportChargesPence: periodAirportChargesPence,
     });
 
     const regionIdsFromDrivers = financialRows
