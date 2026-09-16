@@ -205,16 +205,24 @@ Deno.test("9. dynamic wave commission — tip does not change commission", () =>
 });
 
 Deno.test("10/11. DRIVER_COLLECTED does not contaminate wallet reconciliation", () => {
-  const expected = sumExpectedPayablePence([
-    // deno-lint-ignore no-explicit-any
-    trip({ trip_id: "t1", driver_net_pence: 425, tip_pence: 100, financial_model: "PLATFORM_COLLECTED" }),
-    // deno-lint-ignore no-explicit-any
-    trip({ trip_id: "t2",
-      driver_net_pence: 900,
-      tip_pence: 100,
-      financial_model: "DRIVER_COLLECTED_COMMISSION_WALLET", }),
-  ]);
-  assertEquals(expected, null);
+  const platformTrip = trip({
+    trip_id: "t1",
+    driver_net_pence: 425,
+    tip_pence: 100,
+    financial_model: "PLATFORM_COLLECTED",
+  });
+  const commissionWalletTrip = trip({
+    trip_id: "t2",
+    driver_net_pence: 900,
+    tip_pence: 100,
+    financial_model: "DRIVER_COLLECTED_COMMISSION_WALLET",
+  });
+  assertEquals(platformTrip.expected_entitlement_pence, 525);
+  // Commission-wallet trips carry no wallet entitlement stamp at all.
+  assertEquals(commissionWalletTrip.expected_entitlement_pence, null);
+  assertEquals(commissionWalletTrip.expected_stamp_status, "EXPECTED_STAMP_MISSING");
+  // Only the PLATFORM_COLLECTED trip contributes to expected payable.
+  assertEquals(sumExpectedPayablePence([platformTrip, commissionWalletTrip]), 525);
 });
 
 Deno.test("12. MK-260912-005 fixture — 425 + 100 = 525, difference 0, wallet total 3319p", () => {
