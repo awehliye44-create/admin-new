@@ -313,7 +313,17 @@ export async function executeFareIncreaseModificationPayment(
       total_authorised_amount_pence: sessionProtected,
     }),
   );
-  if (gate.mayApply && protectedAfter < newFarePence) {
+  // Canonical session/trip hold already covers the revised payable — unlock apply
+  // even when the preauth invoke returned processing/unknown with a stale amount.
+  if (protectedAfter >= newFarePence && newFarePence > 0) {
+    gate = {
+      phase: "PROVIDER_CONFIRMED",
+      mayApply: true,
+      paymentStatus: "confirmed",
+      requestStatus: "payment_confirmed",
+      authorisedTotalPence: protectedAfter,
+    };
+  } else if (gate.mayApply && protectedAfter < newFarePence) {
     gate = {
       phase: "PAYMENT_FAILED",
       mayApply: false,

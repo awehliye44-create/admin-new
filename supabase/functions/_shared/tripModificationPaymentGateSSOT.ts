@@ -169,18 +169,27 @@ export function decideFromPreauthInvokeResult(args: {
   const code = String(args.errorCode ?? "").toUpperCase();
   const warning = String(args.warning ?? "").toLowerCase();
 
+  // Issuer-authoritative hold already covers the revised payable — confirm before
+  // any processing/pending hint. Processing new_amount must never invent coverage,
+  // but an already-authorised total that meets the target is enough to unlock apply.
+  if (
+    authorised >= required
+    && required > 0
+    && !coverage.includes("insufficient")
+    && !coverage.includes("under_")
+    && !coverage.includes("declined")
+  ) {
+    return {
+      phase: "PROVIDER_CONFIRMED",
+      mayApply: true,
+      paymentStatus: "confirmed",
+      requestStatus: "payment_confirmed",
+      authorisedTotalPence: authorised,
+    };
+  }
+
   if (args.skipped === true && args.success) {
-    // Never invent coverage. Skip mayApply only when hold already covers revised payable.
-    // Positive-delta PLATFORM paths must not treat skipped as paid (MK-260916-030).
-    if (authorised >= required && required > 0) {
-      return {
-        phase: "PROVIDER_CONFIRMED",
-        mayApply: true,
-        paymentStatus: "confirmed",
-        requestStatus: "payment_confirmed",
-        authorisedTotalPence: authorised,
-      };
-    }
+    // Never invent coverage when skip reports authorised=0 for a positive delta.
     return {
       phase: "PAYMENT_FAILED",
       mayApply: false,
@@ -213,21 +222,6 @@ export function decideFromPreauthInvokeResult(args: {
         : coverage.includes("processing") || code === "PROCESSING"
         ? "processing"
         : "unknown",
-    };
-  }
-
-  if (
-    args.success === true
-    && authorised >= required
-    && !coverage.includes("insufficient")
-    && !coverage.includes("under_")
-  ) {
-    return {
-      phase: "PROVIDER_CONFIRMED",
-      mayApply: true,
-      paymentStatus: "confirmed",
-      requestStatus: "payment_confirmed",
-      authorisedTotalPence: authorised,
     };
   }
 
