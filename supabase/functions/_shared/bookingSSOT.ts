@@ -22,8 +22,7 @@ import {
   type TripFinancialModelSnapshot,
 } from "./commissionWalletSSOT.ts";
 import {
-  resolveBookingIntermediateStops,
-  totalStopsFromIntermediateCount,
+  resolveBookingTotalStops,
 } from "./fareQuoteStops.ts";
 
 export type BookingLocation = {
@@ -181,11 +180,11 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
       : null;
   // Prefer body.stops; recover vias from the charged fare fingerprint when the
   // client omitted them (MK-260916 Driver +N chip / empty trips.stops).
-  const intermediateStops = resolveBookingIntermediateStops({
+  // Incomplete fingerprint slots (`stop-*:na`) still bump total_stops.
+  const { intermediateStops, totalStops } = resolveBookingTotalStops({
     bodyStops: body.stops,
     fareQuoteId,
   });
-  const totalStops = totalStopsFromIntermediateCount(intermediateStops.length);
   // Keep body.stops aligned so post-commit trip_stops insert matches the trip row.
   body.stops = intermediateStops;
   const tripCode = Math.floor(100000 + Math.random() * 900000).toString();

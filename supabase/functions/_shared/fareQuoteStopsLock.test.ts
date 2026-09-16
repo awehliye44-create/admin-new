@@ -3,8 +3,10 @@ import {
   assertEquals as eq,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  countDeclaredFareQuoteStops,
   parseStopsFromFareQuoteId,
   resolveBookingIntermediateStops,
+  resolveBookingTotalStops,
   totalStopsFromIntermediateCount,
 } from "./fareQuoteStops.ts";
 import { buildMinimalTripInsertRow } from "./bookingSSOT.ts";
@@ -27,11 +29,29 @@ Deno.test("parseStopsFromFareQuoteId: empty stops= yields none", () => {
   );
 });
 
+Deno.test("countDeclaredFareQuoteStops: counts incomplete :na placeholders", () => {
+  assertEquals(
+    countDeclaredFareQuoteStops(
+      "pickup=a:1,1;dest=b:2,2;stops=stop-1789576739716:na;mode=now;sched=",
+    ),
+    1,
+  );
+});
+
+Deno.test("resolveBookingTotalStops: :na placeholder still yields total_stops=3", () => {
+  const resolved = resolveBookingTotalStops({
+    bodyStops: [],
+    fareQuoteId:
+      "pickup=current-location:52.05,-0.81;dest=recent:x:52.04,-0.77;stops=stop-1789576739716:na;mode=now;sched=",
+  });
+  assertEquals(resolved.intermediateStops.length, 0);
+  assertEquals(resolved.totalStops, 3);
+});
+
 Deno.test("resolveBookingIntermediateStops: body wins over fare quote", () => {
   const stops = resolveBookingIntermediateStops({
     bodyStops: [{ address: "Cafe", lat: 52.01, lng: -0.79 }],
-    fareQuoteId:
-      "stops=ChIJOther:52.00,-0.80;mode=now",
+    fareQuoteId: "stops=ChIJOther:52.00,-0.80;mode=now",
   });
   assertEquals(stops.length, 1);
   assertEquals(stops[0].address, "Cafe");
@@ -86,4 +106,37 @@ Deno.test("buildMinimalTripInsertRow: recovers vias from session fare_quote_id",
   eq(Array.isArray(row.stops), true);
   eq((row.stops as unknown[]).length, 1);
   eq(body.stops?.length, 1);
+});
+
+Deno.test("buildMinimalTripInsertRow: incomplete :na stop still stamps total_stops=3", () => {
+  const body = {
+    client_action_id: "ca-stops-na",
+    pickup: { address: "A", lat: 51.97, lng: -0.76 },
+    dropoff: { address: "B", lat: 51.99, lng: -0.8 },
+    stops: [] as Array<{ address: string; lat: number; lng: number }>,
+    when: "NOW" as const,
+    estimated_fare: 6.2,
+    payment_method: "APPLE_PAY",
+  };
+  const row = buildMinimalTripInsertRow({
+    body,
+    customerId: "cust-1",
+    serviceAreaId: "sa-1",
+    serviceAreaCode: "MK",
+    regionId: "reg-1",
+    regionCurrencyCode: "GBP",
+    regionDistanceUnit: "miles",
+    paymentProvider: "revolut",
+    paymentRefId: "ord-1",
+    preauthAmountPence: 620,
+    paymentSessionId: "ps-1",
+    sessionFareSnapshot: {
+      fare_quote_id:
+        "pickup=current-location:52.059763,-0.816138;dest=recent:x:52.049345,-0.776898;stops=stop-1789576739716:na;mode=now;sched=",
+      final_fare_pence: 620,
+      gross_fare_pence: 620,
+    },
+  });
+  eq(row.total_stops, 3);
+  eq((row.stops as unknown[]).length, 0);
 });

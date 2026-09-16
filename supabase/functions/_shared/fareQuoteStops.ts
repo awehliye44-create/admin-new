@@ -4,9 +4,9 @@
  * Customer quote fingerprints look like:
  *   pickup=…;dest=…;stops=ChIJ…:52.00,-0.79|place:51.99,-0.80;mode=now;sched=
  *
- * Booking historically dropped body.stops while the charged quote still encoded
- * vias — trips then landed with stops=[] / total_stops=0 and Driver cards hid
- * the +N chip (MK-260916).
+ * Incomplete draft stops may appear as `stop-<ms>:na` when Plan adds a placeholder
+ * before the customer picks a place. Those must still count toward total_stops so
+ * the Driver +N chip shows, while coordinate recovery prefers body.stops.
  */
 
 export type FareQuoteStop = {
@@ -16,16 +16,37 @@ export type FareQuoteStop = {
   place_id?: string;
 };
 
-export function parseStopsFromFareQuoteId(
+function fareQuoteStopsSegment(
   fareQuoteId: string | null | undefined,
-): FareQuoteStop[] {
-  if (typeof fareQuoteId !== "string" || !fareQuoteId.trim()) return [];
+): string {
+  if (typeof fareQuoteId !== "string" || !fareQuoteId.trim()) return "";
   const stopsSeg = fareQuoteId
     .split(";")
     .map((p) => p.trim())
     .find((p) => p.toLowerCase().startsWith("stops="));
-  if (!stopsSeg) return [];
-  const raw = stopsSeg.slice(stopsSeg.indexOf("=") + 1).trim();
+  if (!stopsSeg) return "";
+  return stopsSeg.slice(stopsSeg.indexOf("=") + 1).trim();
+}
+
+/** Count declared via tokens in the fingerprint (including incomplete `:na`). */
+export function countDeclaredFareQuoteStops(
+  fareQuoteId: string | null | undefined,
+): number {
+  const raw = fareQuoteStopsSegment(fareQuoteId);
+  if (!raw) return 0;
+  let n = 0;
+  for (const token of raw.split("|")) {
+    const t = token.trim();
+    if (!t || t === "none") continue;
+    n += 1;
+  }
+  return n;
+}
+
+export function parseStopsFromFareQuoteId(
+  fareQuoteId: string | null | undefined,
+): FareQuoteStop[] {
+  const raw = fareQuoteStopsSegment(fareQuoteId);
   if (!raw) return [];
 
   const out: FareQuoteStop[] = [];
@@ -36,6 +57,7 @@ export function parseStopsFromFareQuoteId(
     if (colon < 0) continue;
     const placeId = t.slice(0, colon).trim();
     const coord = t.slice(colon + 1).trim();
+    if (!coord || coord.toLowerCase() === "na") continue;
     const [latRaw, lngRaw] = coord.split(",");
     const lat = Number(latRaw);
     const lng = Number(lngRaw);
@@ -70,7 +92,7 @@ export function normalizeBookingStops(
 }
 
 /**
- * Prefer explicit booking body stops; fall back to fare_quote_id vias.
+ * Prefer explicit booking body stops; fall back to fare_quote_id vias with coords.
  */
 export function resolveBookingIntermediateStops(args: {
   bodyStops: unknown;
@@ -88,4 +110,29 @@ export function resolveBookingIntermediateStops(args: {
 export function totalStopsFromIntermediateCount(viaCount: number): number {
   const n = Number.isFinite(viaCount) && viaCount > 0 ? Math.floor(viaCount) : 0;
   return 2 + Math.max(0, n);
+}
+
+/**
+ * total_stops for trip insert: body vias → parsed coords → declared fingerprint slots.
+ * Declared `:na` placeholders still bump the count so Driver can show +N.
+ */
+export function resolveBookingTotalStops(args: {
+  bodyStops: unknown;
+  fareQuoteId?: string | null;
+}): {
+  intermediateStops: Array<{ address: string; lat: number; lng: number }>;
+  totalStops: number;
+} {
+  const intermediateStops = resolveBookingIntermediateStops(args);
+  if (intermediateStops.length > 0) {
+    return {
+      intermediateStops,
+      totalStops: totalStopsFromIntermediateCount(intermediateStops.length),
+    };
+  }
+  const declared = countDeclaredFareQuoteStops(args.fareQuoteId);
+  return {
+    intermediateStops: [],
+    totalStops: totalStopsFromIntermediateCount(declared),
+  };
 }
