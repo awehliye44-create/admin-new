@@ -36,6 +36,7 @@ import { usePerDriverFinancialReconciliation } from '@/hooks/usePerDriverFinanci
 import { useDriverTripFinancialAudit } from '@/hooks/useDriverTripFinancialAudit';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { formatNullablePence } from '@/lib/formatNullablePence';
+import { formatStoredPenceOrUnknown } from '@/lib/adminFareComponentDisplay';
 import {
   defaultDriverDateRange,
   driverDateRangeLabel,
@@ -674,6 +675,8 @@ export function FinancialReconciliationDriverDrawer({
                 <div><span className="text-muted-foreground">Refunded:</span> {fmt(selectedTrip.refunded_pence)}</div>
                 <div><span className="text-muted-foreground">Variance:</span> {fmt(selectedTrip.variance_pence)}</div>
                 <div><span className="text-muted-foreground">Driver net:</span> {fmt(selectedTrip.driver_net_pence)}</div>
+                <div><span className="text-muted-foreground">Airport:</span> {formatStoredPenceOrUnknown(selectedTrip.airport_charge_pence, currencyCode)}</div>
+                <div><span className="text-muted-foreground">Tip:</span> {formatStoredPenceOrUnknown(selectedTrip.tip_pence, currencyCode)}</div>
                 <div><span className="text-muted-foreground">Commission:</span> {fmt(selectedTrip.onecab_gross_commission_pence)}</div>
                 <div><span className="text-muted-foreground">Provider:</span> {providerLabel(selectedTrip)}</div>
                 <div><span className="text-muted-foreground">Payout:</span> {selectedTrip.driver_payout?.label ?? '—'}</div>

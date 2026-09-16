@@ -177,6 +177,11 @@ export type AdminPaymentSessionsListRow = {
     can_open_reconciliation?: boolean;
   };
   page_status_hint?: AdminPaymentSessionsPageStatus | null;
+  /** ONECAB stored trip breakdown (not separate provider captures). */
+  tip_pence?: number | null;
+  airport_charge_pence?: number | null;
+  fare_pence?: number | null;
+  remaining_authorised_pence?: number | null;
 };
 
 /** @deprecated Driver Wallet / FR fields — never populated by Payment Sessions list. */

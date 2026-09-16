@@ -576,6 +576,8 @@ export type TripFinancialAuditRow = {
     ride_fare_pence: number | null;
     pickup_waiting_charge_pence: number | null;
     stop_waiting_charge_pence: number | null;
+    airport_charge_pence?: number | null;
+    tip_pence?: number | null;
     expected_capture_pence: number | null;
     provider_captured_pence: number | null;
     variance_pence: number | null;
@@ -595,6 +597,16 @@ export type TripFinancialAuditRow = {
   credit_eligibility_at?: string | null;
   /** Canonical entitlement stamp — missing => EXPECTED_STAMP_MISSING, never expected zero. */
   expected_stamp_status?: string | null;
+  /**
+   * Display-only expected / actual component breakdown (stored stamps + ledger types).
+   * Null components mean legacy unavailable — UI must show Unknown, never £0.00.
+   */
+  expected_fare_net_pence?: number | null;
+  expected_airport_component_pence?: number | null;
+  expected_tip_component_pence?: number | null;
+  actual_trip_earning_net_pence?: number | null;
+  actual_settlement_corrections_pence?: number | null;
+  actual_tip_credit_pence?: number | null;
 };
 
 export type TripAuditSourceRow = TripFinanceRow & {
@@ -655,6 +667,31 @@ export function commissionableRevenueFromCaptured(args: {
     0,
     args.capturedPence - args.tipPence - args.airportPence - args.refundedPence,
   );
+}
+
+const SETTLEMENT_CORRECTION_LEDGER_TYPES = new Set([
+  "CORRECTION",
+  "ADMIN_CORRECTION",
+  "ADJUSTMENT",
+  "MANUAL_ADJUSTMENT",
+  "LEDGER_REVERSAL",
+]);
+
+/** Display-only ledger component sums — never invents earnings. */
+export function sumTripAuditLedgerComponentPence(
+  ledger: TripAuditLedgerRecord[],
+  types: ReadonlySet<string>,
+): number | null {
+  if (!ledger || ledger.length === 0) return null;
+  let sum = 0;
+  let matched = false;
+  for (const entry of ledger) {
+    const type = String(entry.type ?? "").toUpperCase();
+    if (!types.has(type)) continue;
+    matched = true;
+    sum += Math.round(Number(entry.amount_pence ?? 0));
+  }
+  return matched ? sum : null;
 }
 
 /** Assemble SSOT reconciliation payload from canonical metrics. */
@@ -1285,12 +1322,35 @@ export function mapTripToFinancialAuditRow(
         ride_fare_pence: psCaptureBreakdown.ride_fare_pence,
         pickup_waiting_charge_pence: psCaptureBreakdown.pickup_waiting_charge_pence,
         stop_waiting_charge_pence: psCaptureBreakdown.stop_waiting_charge_pence,
+        airport_charge_pence: psCaptureBreakdown.airport_charge_pence ?? null,
+        tip_pence: psCaptureBreakdown.tip_pence ?? null,
         expected_capture_pence: psCaptureBreakdown.expected_capture_pence,
         provider_captured_pence: psCaptureBreakdown.provider_captured_pence,
         variance_pence: psCaptureBreakdown.variance_pence,
         variance_reason: psCaptureBreakdown.variance_reason,
         capture_classification: psCaptureBreakdown.capture_classification,
       }
+      : null,
+    expected_fare_net_pence: row.driver_net_pence == null
+      ? null
+      : Math.max(0, Math.round(Number(row.driver_net_pence))),
+    expected_airport_component_pence: row.airport_charge_pence == null
+      && psCaptureBreakdown?.airport_charge_pence == null
+      ? null
+      : airportPence,
+    expected_tip_component_pence: row.tip_pence == null
+      && row.tip_amount_pence == null
+      && psCaptureBreakdown?.tip_pence == null
+      ? null
+      : tipPence,
+    actual_trip_earning_net_pence: walletEvidenceAvailable
+      ? sumTripAuditLedgerComponentPence(ledger, new Set(["TRIP_EARNING_NET", "TRIP_CREDIT", "CASH_TRIP_EARNING"]))
+      : null,
+    actual_settlement_corrections_pence: walletEvidenceAvailable
+      ? sumTripAuditLedgerComponentPence(ledger, SETTLEMENT_CORRECTION_LEDGER_TYPES)
+      : null,
+    actual_tip_credit_pence: walletEvidenceAvailable
+      ? sumTripAuditLedgerComponentPence(ledger, new Set(["DRIVER_TIP_CREDIT", "TIP_CREDIT"]))
       : null,
     warnings: psCaptureBreakdown?.variance_reason
       ? [...warnings, psCaptureBreakdown.variance_reason]

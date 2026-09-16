@@ -18,6 +18,8 @@ Deno.test("settlement history: customer paid from Payment Sessions only", () => 
       platform_commission_amount: 72,
       driver_tier_commission_percent: 15,
       driver_net_pence: 408,
+      tip_pence: 100,
+      airport_charge_pence: 500,
       payment_session_id: "ps-legacy",
     },
     payment_session: {
@@ -34,8 +36,31 @@ Deno.test("settlement history: customer paid from Payment Sessions only", () => 
   assertEquals(row.platform_commission_pence, 72);
   assertEquals(row.driver_commission_percent, 15);
   assertEquals(row.driver_net_pence, 408);
+  assertEquals(row.tip_pence, 100);
+  assertEquals(row.airport_charge_pence, 500);
   assertEquals(row.wallet_credit_pence, 408);
   assertEquals(row.payment_session_id, "ps-1");
+});
+
+Deno.test("settlement history: unknown tip/airport stay null (never invent £0)", () => {
+  const row = buildDriverWalletSettlementHistoryRow({
+    settlement_id: "s3",
+    trip_id: "t3",
+    settlement_status: "settled",
+    settled_at: null,
+    wallet_credit_pence: 400,
+    trip: {
+      driver_net_pence: 400,
+      payment_method: "card",
+    },
+    payment_session: {
+      id: "ps-3",
+      payment_method: "card",
+      captured_amount_pence: 470,
+    },
+  });
+  assertEquals(row.tip_pence, null);
+  assertEquals(row.airport_charge_pence, null);
 });
 
 Deno.test("settlement history: cash has null customer paid (no PS capture invent)", () => {

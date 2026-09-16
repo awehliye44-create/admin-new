@@ -109,6 +109,7 @@ export function getEntryTypeDisplay(entryType: string): { label: string; color: 
     case 'PLATFORM_COMMISSION':
       return { label: 'ONECAB commission', color: 'text-emerald-600' };
     case 'TIP_CREDIT':
+    case 'DRIVER_TIP_CREDIT':
       return { label: 'Tip Credit', color: 'text-green-500' };
     default:
       return { label: entryType, color: 'text-muted-foreground' };

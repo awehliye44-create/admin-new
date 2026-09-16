@@ -756,6 +756,12 @@ export async function fetchDriverWalletPayoutSnapshot(
               return Number(trip.driver_tier_commission_percent);
             })(),
             driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
+            tip_pence: trip.tip_pence == null
+              ? (trip.tip_amount_pence == null ? null : Number(trip.tip_amount_pence))
+              : Number(trip.tip_pence),
+            airport_charge_pence: trip.airport_charge_pence == null
+              ? null
+              : Number(trip.airport_charge_pence),
             payment_session_id: (trip.payment_session_id as string | null) ?? null,
           }
           : null,
@@ -849,6 +855,12 @@ export async function fetchDriverWalletPayoutSnapshot(
         payment_provider: (trip.payment_provider as string | null) ?? null,
         payment_method: (trip.payment_method as string | null) ?? null,
         driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
+        tip_pence: trip.tip_pence == null
+          ? (trip.tip_amount_pence == null ? null : Number(trip.tip_amount_pence))
+          : Number(trip.tip_pence),
+        airport_charge_pence: trip.airport_charge_pence == null
+          ? null
+          : Number(trip.airport_charge_pence),
         payment_session_id: (trip.payment_session_id as string | null) ?? null,
       },
       payment_session: session

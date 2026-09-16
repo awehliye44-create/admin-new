@@ -18,6 +18,10 @@ import type { AdminPaymentSessionsListRow } from '../../../shared/adminPaymentSe
 import { isStaleUnverifiedAuthorisationRow } from '../../../shared/paymentSessionsOperationalChipsSSOT';
 import { financeReconciliationTripUrl, tripSettlementRecoverUrl } from '@/lib/financialReconciliationRoutes';
 import { formatAgeMinutes, formatNullablePence } from '@/lib/formatNullablePence';
+import {
+  formatStoredPenceOrUnknown,
+  isPositiveStoredPence,
+} from '@/lib/adminFareComponentDisplay';
 import { PaymentSessionsRowActions } from '@/components/finance/PaymentSessionsRowActions';
 
 export type PaymentSessionsListPanelProps = {
@@ -213,7 +217,7 @@ export function PaymentSessionsListPanel({
                   {expandedId === key && (
                     <TableRow>
                       <TableCell colSpan={13} className="bg-muted/40 text-xs">
-                        <div className="space-y-2">
+                        <div className="space-y-2" data-testid="payment-session-evidence">
                           {row.authorised_amount_pence != null && Number(row.authorised_amount_pence) > 0 ? (
                             <div className="rounded border bg-background px-3 py-2">
                               <p className="text-muted-foreground">Authorised hold amount</p>
@@ -225,6 +229,71 @@ export function PaymentSessionsListPanel({
                               </p>
                             </div>
                           ) : null}
+                          <div className="rounded border bg-background px-3 py-2 space-y-1">
+                            <p className="font-medium text-foreground">ONECAB stored breakdown</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              Provider capture is aggregate; fare / airport / tip below are ONECAB stored
+                              components, not separate provider captures.
+                            </p>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-1">
+                              <div>
+                                <p className="text-muted-foreground">Fare</p>
+                                <p className="tabular-nums font-medium">
+                                  {formatStoredPenceOrUnknown(row.fare_pence ?? row.customer_payable_pence)}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Airport</p>
+                                <p className="tabular-nums font-medium">
+                                  {row.airport_charge_pence == null
+                                    ? 'Unknown'
+                                    : isPositiveStoredPence(row.airport_charge_pence)
+                                      ? formatStoredPenceOrUnknown(row.airport_charge_pence)
+                                      : '—'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Tip</p>
+                                <p className="tabular-nums font-medium">
+                                  {row.tip_pence == null
+                                    ? 'Unknown'
+                                    : isPositiveStoredPence(row.tip_pence)
+                                      ? formatStoredPenceOrUnknown(row.tip_pence)
+                                      : '—'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Authorised</p>
+                                <p className="tabular-nums font-medium">
+                                  {formatStoredPenceOrUnknown(row.authorised_amount_pence)}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Captured</p>
+                                <p className="tabular-nums font-medium">
+                                  {formatStoredPenceOrUnknown(row.captured_amount_pence)}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Refunded</p>
+                                <p className="tabular-nums font-medium">
+                                  {formatStoredPenceOrUnknown(row.refunded_amount_pence)}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Released</p>
+                                <p className="tabular-nums font-medium">
+                                  {formatStoredPenceOrUnknown(row.released_amount_pence)}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Remaining authorised</p>
+                                <p className="tabular-nums font-medium">
+                                  {formatStoredPenceOrUnknown(row.remaining_authorised_pence)}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
                           <div className="flex flex-wrap gap-3 text-muted-foreground">
                             <span>order: {row.provider_order_id?.slice(0, 12) ?? '—'}</span>
                             <span>age: {formatAgeMinutes(row.age_minutes)}</span>
@@ -239,10 +308,14 @@ export function PaymentSessionsListPanel({
                               {
                                 payment_session_id: row.payment_session_id,
                                 provider_order_id: row.provider_order_id,
+                                fare_pence: row.fare_pence,
+                                airport_charge_pence: row.airport_charge_pence,
+                                tip_pence: row.tip_pence,
                                 authorised_amount_pence: row.authorised_amount_pence,
                                 captured_amount_pence: row.captured_amount_pence,
                                 released_amount_pence: row.released_amount_pence,
                                 refunded_amount_pence: row.refunded_amount_pence,
+                                remaining_authorised_pence: row.remaining_authorised_pence,
                                 provider_processing_fee_pence: row.provider_processing_fee_pence,
                                 provider_state: row.provider_state,
                                 session_status_display: row.session_status_display,

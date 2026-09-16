@@ -363,6 +363,8 @@ export interface TripFinancialAuditRow {
     ride_fare_pence: number | null;
     pickup_waiting_charge_pence: number | null;
     stop_waiting_charge_pence: number | null;
+    airport_charge_pence?: number | null;
+    tip_pence?: number | null;
     expected_capture_pence: number | null;
     provider_captured_pence: number | null;
     variance_pence: number | null;
@@ -375,6 +377,12 @@ export interface TripFinancialAuditRow {
     | 'PAYMENT_EVIDENCE_UNAVAILABLE'
     | 'CASH'
     | null;
+  expected_fare_net_pence?: number | null;
+  expected_airport_component_pence?: number | null;
+  expected_tip_component_pence?: number | null;
+  actual_trip_earning_net_pence?: number | null;
+  actual_settlement_corrections_pence?: number | null;
+  actual_tip_credit_pence?: number | null;
 }
 
 export interface LegacyManualReviewItem {

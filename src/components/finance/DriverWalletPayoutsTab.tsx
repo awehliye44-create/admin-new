@@ -6,6 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
 import { formatNullablePence } from '@/lib/formatNullablePence';
+import {
+  formatStoredPenceOrUnknown,
+  isPositiveStoredPence,
+} from '@/lib/adminFareComponentDisplay';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import { Loader2 } from 'lucide-react';
 
@@ -193,6 +197,68 @@ export function DriverWalletPayoutsTab({
               Retry failed on Payout Ledger
             </Link>
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-base">Payout composition (traceable trips)</CardTitle></CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p className="text-xs text-muted-foreground">
+            When settlement history is available: trip fare earnings, airport included in trip earnings,
+            tips (separate DRIVER_TIP_CREDIT), and corrections. Does not change eligibility or payout amount.
+          </p>
+          {(driver.settlement_history ?? []).length === 0 ? (
+            <p className="text-muted-foreground py-4 text-center text-xs">No traceable settlement rows</p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Trip</TableHead>
+                    <TableHead className="text-right">Trip fare earnings</TableHead>
+                    <TableHead className="text-right">Airport in trip earnings</TableHead>
+                    <TableHead className="text-right">Tips</TableHead>
+                    <TableHead className="text-right">Wallet credit</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(driver.settlement_history ?? []).slice(0, 25).map((row) => (
+                    <TableRow key={row.settlement_id}>
+                      <TableCell className="text-xs font-mono">
+                        {row.trip_code ?? row.trip_id?.slice(0, 8) ?? '—'}
+                      </TableCell>
+                      <TableCell className="text-xs text-right tabular-nums">
+                        {formatStoredPenceOrUnknown(row.driver_net_pence, ccy)}
+                      </TableCell>
+                      <TableCell className="text-xs text-right tabular-nums">
+                        {row.airport_charge_pence == null
+                          ? 'Unknown'
+                          : isPositiveStoredPence(row.airport_charge_pence)
+                            ? formatStoredPenceOrUnknown(row.airport_charge_pence, ccy)
+                            : '—'}
+                      </TableCell>
+                      <TableCell className="text-xs text-right tabular-nums">
+                        {row.tip_pence == null
+                          ? 'Unknown'
+                          : isPositiveStoredPence(row.tip_pence)
+                            ? formatStoredPenceOrUnknown(row.tip_pence, ccy)
+                            : '—'}
+                      </TableCell>
+                      <TableCell className="text-xs text-right tabular-nums">
+                        {formatStoredPenceOrUnknown(row.wallet_credit_pence, ccy)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          <div className="text-xs pt-2">
+            <span className="text-muted-foreground">Payout total (backend item amounts only): </span>
+            <span className="font-semibold tabular-nums">
+              {formatNullablePence(driver.last_payout_amount_pence, ccy)}
+            </span>
+          </div>
         </CardContent>
       </Card>
 
