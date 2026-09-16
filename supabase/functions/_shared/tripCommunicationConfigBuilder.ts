@@ -1,4 +1,4 @@
-import type { TripCommunicationConfigResponse } from "../../../shared/tripCommunicationSsot.ts";
+import type { TripCommunicationConfigResponse } from "./tripCommunicationSsot.ts";
 import type { ServiceAreaCommunicationRow } from "./tripCommunicationMethods.ts";
 import { loadTripCommunicationRuntimeContext } from "./serviceAreaCommunicationLookup.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";

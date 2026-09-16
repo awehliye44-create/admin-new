@@ -9,7 +9,7 @@ import {
   type DemandLevel,
   type DemandZoneSettings,
   OPEN_TRIP_DEMAND_STATUSES,
-} from "../../../shared/demandZoneSurgeSSOT.ts";
+} from "./demandZoneSurgeSSOT.ts";
 
 /** ~500 m grid step at UK latitudes. */
 export const DEMAND_GRID_STEP = 0.0045;

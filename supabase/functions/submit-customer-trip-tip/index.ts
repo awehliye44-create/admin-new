@@ -14,12 +14,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { isCustomerAppTipChannelEligible } from "../_shared/tipChannelEligibilitySSOT.ts";
-import { TIP_WINDOW_STATUS } from "../../../shared/tipWindowConstants.ts";
+import { TIP_WINDOW_STATUS } from "../_shared/tipWindowConstants.ts";
 import {
   isTipWindowOpen,
   recordedTipPenceAfterCapture,
   tipWindowCloseAllowedAfterFinalize,
-} from "../../../shared/tripPaymentFinalised.ts";
+} from "../_shared/tripPaymentFinalised.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

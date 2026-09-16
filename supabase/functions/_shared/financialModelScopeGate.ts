@@ -11,7 +11,7 @@ import {
   resolveFinancialModelScope,
   type FinancialModel,
   type FinancialModelScopeResult,
-} from "../../../shared/financialModelScopeSSOT.ts";
+} from "./financialModelScopeSSOT.ts";
 
 export { FINANCIAL_MODEL, FINANCIAL_MODEL_VIOLATION };
 export type { FinancialModel, FinancialModelScopeResult };

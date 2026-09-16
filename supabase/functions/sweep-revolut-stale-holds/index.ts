@@ -26,7 +26,7 @@ import {
 import { applyCanonicalSettlementAfterCapture } from "../_shared/applyCanonicalSettlementAfterCapture.ts";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
-import { extractConfirmedCaptureAmountPence } from "../../../shared/paymentHoldProviderTerminalPure.ts";
+import { extractConfirmedCaptureAmountPence } from "../_shared/paymentHoldProviderTerminalPure.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import {
   expiryFareOnlyTipPence,
@@ -35,9 +35,9 @@ import {
   recordedTipPenceAfterCapture,
   tipCollectedFromConfirmedCapture,
   tipWindowCloseAllowedAfterFinalize,
-} from "../../../shared/tripPaymentFinalised.ts";
+} from "../_shared/tripPaymentFinalised.ts";
 import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
-import { TIP_WINDOW_STATUS } from "../../../shared/tipWindowConstants.ts";
+import { TIP_WINDOW_STATUS } from "../_shared/tipWindowConstants.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",

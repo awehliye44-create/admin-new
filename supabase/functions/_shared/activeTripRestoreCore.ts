@@ -11,7 +11,7 @@ import {
   RESTORE_ASSIGNED_ACTIVE_STATUSES,
   resolveLifecycleActionFromTrip,
   type RestoreActiveTripRole,
-} from "../../../shared/activeTripRestoreSSOT.ts";
+} from "./activeTripRestoreSSOT.ts";
 import {
   buildPickupWaitingSnapshot,
   buildStopWaitingSnapshot,

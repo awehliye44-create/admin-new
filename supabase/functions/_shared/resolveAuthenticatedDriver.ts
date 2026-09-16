@@ -4,14 +4,14 @@ import {
   type DriverResolveResult,
   type DriverRowForResolve,
   type ProfileRowForResolve,
-} from "../../../shared/resolveAuthenticatedDriver.ts";
+} from "./resolveAuthenticatedDriverPureSSOT.ts";
 
 export {
   payoutSetupMessageForReason,
   type DriverResolveErrorCode,
   type DriverResolveResult,
   type ResolvedAuthenticatedDriver,
-} from "../../../shared/resolveAuthenticatedDriver.ts";
+} from "./resolveAuthenticatedDriverPureSSOT.ts";
 
 const DRIVER_SELECT =
   'id, user_id, email, phone, first_name, last_name, deleted_at, created_at';

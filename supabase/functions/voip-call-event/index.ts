@@ -14,7 +14,7 @@ import {
 import {
   resolveTripCommunicationParticipant,
   TRIP_COMMUNICATION_ERROR,
-} from "../../../shared/tripCommunicationSsot.ts";
+} from "../_shared/tripCommunicationSsot.ts";
 
 interface VoipCallEventRequest {
   trip_id?: string;

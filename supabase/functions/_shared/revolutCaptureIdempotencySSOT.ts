@@ -6,7 +6,7 @@
 import type { RevolutOrder } from "./revolutOrders.ts";
 import { revolutProviderAuthorisedTotalPence } from "./revolutOrders.ts";
 import { buildCaptureBusinessKey } from "./revolutIncrementAuthorisationSSOT.ts";
-import { extractConfirmedCaptureAmountPence } from "../../../shared/paymentHoldProviderTerminalPure.ts";
+import { extractConfirmedCaptureAmountPence } from "./paymentHoldProviderTerminalPure.ts";
 
 /**
  * Trip-level final capture guard.

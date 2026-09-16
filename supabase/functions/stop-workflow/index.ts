@@ -77,8 +77,8 @@ import { isCustomerAppTipChannelEligible } from "../_shared/tipChannelEligibilit
 import {
   TIP_WINDOW_MS,
   TIP_WINDOW_STATUS,
-} from "../../../shared/tipWindowConstants.ts";
-import { invoiceTipPenceFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
+} from "../_shared/tipWindowConstants.ts";
+import { invoiceTipPenceFromConfirmedCapture } from "../_shared/tripPaymentFinalised.ts";
 import {
   isCardPaymentMethod,
   recordTripCaptureFailure,

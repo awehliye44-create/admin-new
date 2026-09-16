@@ -1,4 +1,4 @@
-import { normalizeIsoCountryCode } from "../../../shared/corporateServiceAreaCountrySSOT.ts";
+import { normalizeIsoCountryCode } from "./corporateServiceAreaCountrySSOT.ts";
 
 export type CorporateGeocodeResult = {
   countryCode: string;

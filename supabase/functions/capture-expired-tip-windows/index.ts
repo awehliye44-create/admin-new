@@ -23,9 +23,9 @@ import {
   storedCaptureAllowsTipWindowClose,
   tipWindowCloseAllowedAfterFinalize,
   visibleTipAfterExpiredWindowClose,
-} from "../../../shared/tripPaymentFinalised.ts";
+} from "../_shared/tripPaymentFinalised.ts";
 import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
-import { TIP_WINDOW_STATUS } from "../../../shared/tipWindowConstants.ts";
+import { TIP_WINDOW_STATUS } from "../_shared/tipWindowConstants.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

@@ -6,7 +6,7 @@ import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { sweepExpiredVoipSessions, VOIP_END_REASON } from "../_shared/voipCallLogs.ts";
-import { TRIP_COMMUNICATION_MAX_DURATION_SECONDS } from "../../../shared/tripCommunicationSsot.ts";
+import { TRIP_COMMUNICATION_MAX_DURATION_SECONDS } from "../_shared/tripCommunicationSsot.ts";
 import { capDurationSeconds } from "../_shared/tripCallSession.ts";
 
 const MSG91_HANGUP_URLS = [

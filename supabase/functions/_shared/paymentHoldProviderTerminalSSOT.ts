@@ -8,7 +8,7 @@ import {
   mapRevolutProviderHoldState,
   providerTerminalReason,
   type CanonicalProviderHoldState,
-} from "../../../shared/paymentHoldClassificationSSOT.ts";
+} from "./paymentHoldClassificationSSOT.ts";
 import {
   buildReleasedSessionPatch,
   extractConfirmedCaptureAmountPence,
@@ -17,18 +17,18 @@ import {
   extractProviderCaptureId,
   hasTerminalIdempotencyKey,
   shouldPersistFailedAsTerminal,
-} from "../../../shared/paymentHoldProviderTerminalPure.ts";
+} from "./paymentHoldProviderTerminalPure.ts";
 import {
   extractConfirmedRefundAmountPence,
   extractProviderRefundId,
   isRefundTerminalNotRelease,
-} from "../../../shared/paymentSessionRefundFeeSSOT.ts";
+} from "./paymentSessionRefundFeeSSOT.ts";
 import {
   markPaymentSessionReleased,
   upsertPaymentSessionRefund,
 } from "./paymentSessionSSOT.ts";
 import { persistConfirmedProviderCapture } from "./persistConfirmedProviderCapture.ts";
-import { extractProviderFeePence } from "../../../shared/paymentCaptureEvidenceSSOT.ts";
+import { extractProviderFeePence } from "./paymentCaptureEvidenceSSOT.ts";
 import {
   transitionPaymentSession,
   type PaymentSessionTransitionSource,

@@ -1,7 +1,7 @@
 /**
  * Canonical driver payout eligibility SSOT (pure — no I/O).
  */
-import { FINANCIAL_MODEL, resolveFinancialModelStamp } from "../../../shared/financialModelScopeSSOT.ts";
+import { FINANCIAL_MODEL, resolveFinancialModelStamp } from "./financialModelScopeSSOT.ts";
 import { resolveStablePayoutClearingOriginMs } from "./paymentSessionCaptureTimestampSSOT.ts";
 
 export const PAYOUT_ELIGIBILITY_STATUS = {

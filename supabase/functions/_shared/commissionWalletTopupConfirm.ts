@@ -11,7 +11,7 @@ import {
   buildCommissionWalletTopupBonusIdempotencyKey,
   planCommissionWalletTopupBonus,
   planCommissionWalletTopupConfirm,
-} from "../../../shared/commissionWalletSSOT.ts";
+} from "./commissionWalletSSOT.ts";
 
 export type ConfirmTopupBonusInfo = {
   applied: boolean;

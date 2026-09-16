@@ -2,7 +2,7 @@
  * Runtime max duration SSOT is always 240 seconds.
  * Do not trust service-area DB values for enforcement.
  */
-import { TRIP_COMMUNICATION_MAX_DURATION_SECONDS } from "../../../shared/tripCommunicationSsot.ts";
+import { TRIP_COMMUNICATION_MAX_DURATION_SECONDS } from "./tripCommunicationSsot.ts";
 
 export const DEFAULT_MAX_CALL_DURATION_SEC = TRIP_COMMUNICATION_MAX_DURATION_SECONDS;
 

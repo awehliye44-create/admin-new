@@ -18,7 +18,7 @@ import { isTipWindowClosedForInvoice } from "./tripInvoiceEligibility.ts";
 import {
   invoiceTipPenceFromConfirmedCapture,
   tipPenceRemainingAfterRefund,
-} from "../../../shared/tripPaymentFinalised.ts";
+} from "./tripPaymentFinalised.ts";
 
 const BUCKET = "trip-invoices";
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7;

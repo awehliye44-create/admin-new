@@ -10,7 +10,7 @@ import {
   type TerminalOutcomeKind,
 } from "./terminalOutcomeEntitlementSSOT.ts";
 import { tripBlocksDriverWalletLedgerPosting } from "./commissionWalletDeduction.ts";
-import { FINANCIAL_MODEL, resolveFinancialModelStamp } from "../../../shared/financialModelScopeSSOT.ts";
+import { FINANCIAL_MODEL, resolveFinancialModelStamp } from "./financialModelScopeSSOT.ts";
 import { loadPaymentSession, markPaymentSessionProviderFee } from "./paymentSessionSSOT.ts";
 
 export type TerminalTripRow = {

@@ -41,7 +41,7 @@ import {
   buildCommissionFeeBreakdownRow,
   summarizeCommissionFeeRows,
 } from "./driverWalletCommissionFeeSSOT.ts";
-import { classifyTripForPlatformCollectedAdminPage } from "../../../shared/financialModelScopeSSOT.ts";
+import { classifyTripForPlatformCollectedAdminPage } from "./financialModelScopeSSOT.ts";
 
 const TERMINAL_FAILED = new Set(["failed", "ledger_sync_failed", "failed_duplicate"]);
 const STUCK_SETTLEMENT = new Set(["PROCESSING", "READY", "PENDING", "AVAILABLE"]);

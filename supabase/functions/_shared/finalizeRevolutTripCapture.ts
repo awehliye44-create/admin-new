@@ -2,7 +2,7 @@
  * Revolut trip capture at complete — delegates to hold reconciliation SSOT.
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import { isTipWindowOpen } from "../../../shared/tripPaymentFinalised.ts";
+import { isTipWindowOpen } from "./tripPaymentFinalised.ts";
 import { executeRevolutTripCompletionCapture } from "./revolutCompletionCapture.ts";
 
 export type FinalizeRevolutCaptureResult = {

@@ -18,7 +18,7 @@ import {
   resolveCommissionWalletBalanceStatus,
   shouldApplyCommissionWalletDispatchGate,
   shouldEnableDriverCommissionWalletTopup,
-} from "../../../shared/commissionWalletSSOT.ts";
+} from "../_shared/commissionWalletSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

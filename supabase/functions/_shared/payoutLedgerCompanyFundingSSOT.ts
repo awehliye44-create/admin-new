@@ -4,7 +4,7 @@
  */
 import {
   computeProtectedDriverLiabilitiesPence,
-} from "../../../shared/protectedDriverLiabilitiesSSOT.ts";
+} from "./protectedDriverLiabilitiesSSOT.ts";
 import { COMPANY_BALANCE_LABELS } from "./companyBalanceSSOT.ts";
 
 export {
@@ -14,7 +14,7 @@ export {
   type ProtectedDriverLiabilityBreakdown,
   type ProtectedDriverLiabilityDriverRow,
   PROTECTED_LIABILITY_ACCEPTANCE_PROOF,
-} from "../../../shared/protectedDriverLiabilitiesSSOT.ts";
+} from "./protectedDriverLiabilitiesSSOT.ts";
 
 export const SLICE8_FUNDING_PROOF = {
   AHMED_ID: "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",

@@ -4,7 +4,7 @@
  * Webhook poll is fallback only for in-flight orders (≤2s).
  */
 
-import { isAuthorisedHoldSessionStatus } from "../../../shared/revolutPaymentHoldSSOT.ts";
+import { isAuthorisedHoldSessionStatus } from "./revolutPaymentHoldSSOT.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { loadPaymentSession } from "./paymentSessionSSOT.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";

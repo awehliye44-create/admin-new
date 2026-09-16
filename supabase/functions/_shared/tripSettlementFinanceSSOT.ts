@@ -5,7 +5,7 @@
 
 import {
   computeDriverProviderTransferAmountPence,
-} from "../../../shared/cardCaptureRecoveryTransferSSOT.ts";
+} from "./cardCaptureRecoveryTransferSSOT.ts";
 
 export type TripSettlementFields = {
   payment_method?: string | null;

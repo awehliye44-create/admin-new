@@ -28,7 +28,7 @@ import {
   resolveVoipTokenGate,
   TRIP_COMMUNICATION_ERROR,
   TRIP_COMMUNICATION_MAX_DURATION_SECONDS,
-} from "../../../shared/tripCommunicationSsot.ts";
+} from "../_shared/tripCommunicationSsot.ts";
 
 interface TokenRequest {
   trip_id?: string;

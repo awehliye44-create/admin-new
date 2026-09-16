@@ -35,9 +35,9 @@ import {
   markPaymentSessionTripCreated,
   PAYMENT_ORPHANED_CUSTOMER_MESSAGE,
 } from "../_shared/paymentSessionSSOT.ts";
-import { buildBookingWaterfallMilestoneReport } from "../../../shared/bookingWaterfallSSOT.ts";
-import { digitalOnlyPaymentMethodFlags } from "../../../shared/digitalFinanceSSOT.ts";
-import { isAuthorisedHoldSessionStatus } from "../../../shared/revolutPaymentHoldSSOT.ts";
+import { buildBookingWaterfallMilestoneReport } from "../_shared/bookingWaterfallSSOT.ts";
+import { digitalOnlyPaymentMethodFlags } from "../_shared/digitalFinanceSSOT.ts";
+import { isAuthorisedHoldSessionStatus } from "../_shared/revolutPaymentHoldSSOT.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { createBookingWaterfallCollector } from "../_shared/bookingWaterfallTelemetry.ts";
 import { releaseHoldForPaymentSession } from "../_shared/holdReleaseSSOT.ts";

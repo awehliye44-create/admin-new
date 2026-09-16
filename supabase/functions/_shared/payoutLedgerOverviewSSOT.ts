@@ -6,7 +6,7 @@ import type { CompanyBalanceSnapshot } from "./companyBalanceSSOT.ts";
 import type {
   CompanyFundingClassifiedSource,
 } from "./payoutLedgerCompanyFundingSSOT.ts";
-import type { ProtectedDriverLiabilityBreakdown } from "../../../shared/protectedDriverLiabilitiesSSOT.ts";
+import type { ProtectedDriverLiabilityBreakdown } from "./protectedDriverLiabilitiesSSOT.ts";
 import type { CompanyFundsScopeMode } from "./companyFundsScopeSSOT.ts";
 
 export const PAYOUT_LEDGER_ERROR = {

@@ -9,7 +9,7 @@
 import {
   COMPANY_FUNDS_UNDERPROTECTED,
   evaluateCompanyFundsUnderprotection,
-} from "../../../shared/companyFundsUnderprotectionSSOT.ts";
+} from "./companyFundsUnderprotectionSSOT.ts";
 
 export const SLICE11 = 11 as const;
 

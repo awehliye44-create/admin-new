@@ -8,8 +8,8 @@ import {
 import {
   durableSettlementColumns,
   needsDurableSettlementPersist,
-} from "../../../shared/durableSettlementOutcomeSSOT.ts";
-import { planRevolutCompletionCapture } from "../../../shared/revolutPaymentHoldSSOT.ts";
+} from "../../functions/_shared/durableSettlementOutcomeSSOT.ts";
+import { planRevolutCompletionCapture } from "../../functions/_shared/revolutPaymentHoldSSOT.ts";
 import { decideCaptureAfterRetrieve } from "../../functions/_shared/revolutCaptureIdempotencySSOT.ts";
 import { safeCaptureAfterIncrementDecline } from "../../functions/_shared/paymentRecoveryGuardSSOT.ts";
 import { isCardPaymentCaptured } from "../../functions/_shared/onecabFinanceLedger.ts";

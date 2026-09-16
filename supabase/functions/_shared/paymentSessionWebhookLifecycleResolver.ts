@@ -8,7 +8,7 @@
  * Lock: paymentSessionWebhookLifecycleLock.test.ts
  */
 
-import { fromDbPaymentSessionStatus } from "../../../shared/revolutPaymentHoldSSOT.ts";
+import { fromDbPaymentSessionStatus } from "./revolutPaymentHoldSSOT.ts";
 import { revolutProviderStateRank } from "./revolutProviderStateRankSSOT.ts";
 
 export type PaymentSessionWebhookLifecycleDecision =

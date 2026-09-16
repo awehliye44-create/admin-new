@@ -7,7 +7,7 @@ import {
   computeProtectedDriverLiabilitiesPence,
   type ProtectedDriverLiabilityBreakdown,
   type ProtectedDriverLiabilityDriverRow,
-} from "../../../shared/protectedDriverLiabilitiesSSOT.ts";
+} from "./protectedDriverLiabilitiesSSOT.ts";
 import {
   isCanonicalCompletedDriverPayoutExecution,
   type CanonicalDriverPayoutExecutionRow,

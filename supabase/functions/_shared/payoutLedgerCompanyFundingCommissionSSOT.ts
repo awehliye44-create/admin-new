@@ -1,5 +1,5 @@
 import { buildPaymentSessionsTripCompare } from "./adminPaymentSessionsTripCompareSSOT.ts";
-import { PAYMENT_SESSIONS_NET_COMMISSION_SOURCE } from "../../../shared/payoutLedgerCompanyFundingSSOT.ts";
+import { PAYMENT_SESSIONS_NET_COMMISSION_SOURCE } from "./payoutLedgerCompanyFundingSSOT.ts";
 
 const COMMISSION_PAGE_SIZE = 200;
 

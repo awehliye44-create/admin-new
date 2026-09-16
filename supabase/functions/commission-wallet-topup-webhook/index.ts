@@ -14,7 +14,7 @@ import {
   parseWaafiSandboxWebhookPayload,
   verifyWaafiSandboxWebhookSignature,
 } from "../_shared/commissionWalletProviders/waafiSandboxAdapter.ts";
-import { COMMISSION_TOPUP_STATUS } from "../../../shared/commissionWalletSSOT.ts";
+import { COMMISSION_TOPUP_STATUS } from "../_shared/commissionWalletSSOT.ts";
 import { getProviderSecrets } from "../_shared/paymentProviders/secretManager.ts";
 
 const corsHeaders = {

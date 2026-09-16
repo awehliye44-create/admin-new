@@ -6,8 +6,8 @@ import {
   type PaymentCaptureFields,
 } from "./tripSettlementFinanceSSOT.ts";
 import type { InvoiceLineItem, TripInvoicePayload } from "./tripInvoiceTypes.ts";
-import { computeNetPaidAfterRefund, resolveRefundStatus } from "../../../shared/providerRefundSSOT.ts";
-import { isCashTripPaymentMethod } from "../../../shared/tripPaymentFinalised.ts";
+import { computeNetPaidAfterRefund, resolveRefundStatus } from "./providerRefundSSOT.ts";
+import { isCashTripPaymentMethod } from "./tripPaymentFinalised.ts";
 import { receiptTipPence } from "./receiptTipSSOT.ts";
 
 function formatPaymentMethod(method: string | null | undefined): string {

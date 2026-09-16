@@ -3,7 +3,7 @@ import {
   isPlaceholderOutboundCallerId,
   normalizeOutboundCallerIdE164,
   resolveOutboundCallerIdPriority,
-} from "../../../shared/communicationSsot.ts";
+} from "./communicationSsot.ts";
 import {
   resolveTripCommunicationConfig,
   type ServiceAreaCommunicationRow,

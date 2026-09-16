@@ -7,7 +7,7 @@ import {
   resolveFinancialModelStamp,
   classifyTripForPlatformCollectedAdminPage,
   countUnknownFinancialModelTrips,
-} from "../../../shared/financialModelScopeSSOT.ts";
+} from "../../functions/_shared/financialModelScopeSSOT.ts";
 import { DRIVER_EARNING_SETTLEMENT_ROLE } from "../../functions/_shared/driverEarningSettlementOwnershipSSOT.ts";
 
 const REQUIRED_AUTOMATED_RPC_CHECKS = [

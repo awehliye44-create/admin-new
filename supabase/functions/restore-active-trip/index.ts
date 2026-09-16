@@ -9,7 +9,7 @@ import {
   findDriverActiveTrip,
   loadTripStops,
 } from "../_shared/activeTripRestoreCore.ts";
-import type { RestoreActiveTripRole } from "../../../shared/activeTripRestoreSSOT.ts";
+import type { RestoreActiveTripRole } from "../_shared/activeTripRestoreSSOT.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { buildTripCommunicationConfigForTrip } from "../_shared/tripCommunicationConfigBuilder.ts";
 import { loadCustomerNegotiationView } from "../_shared/customerNegotiationView.ts";

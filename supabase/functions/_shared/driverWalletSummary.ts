@@ -3,11 +3,12 @@
  * Used by driver-wallet-summary edge function and client unit tests.
  */
 
-import {
-  EARLY_CASHOUT_SETTLEMENT_BLOCKED_MESSAGE,
-  formatMinCashoutMessage,
-  MIN_CASHOUT_AMOUNT_PENCE,
-} from '../../../shared/earlyCashout.ts';
+export const MIN_CASHOUT_AMOUNT_PENCE = 500;
+export const EARLY_CASHOUT_SETTLEMENT_BLOCKED_MESSAGE =
+  'Early cashout unavailable until trip settlement completes.';
+export function formatMinCashoutMessage(currencySymbol: string): string {
+  return `Minimum withdrawal is ${currencySymbol}${(MIN_CASHOUT_AMOUNT_PENCE / 100).toFixed(2)}.`;
+}
 import {
   computeCashCommissionOutstanding,
   computeLedgerWalletBalancePence,

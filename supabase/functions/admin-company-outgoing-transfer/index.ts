@@ -59,11 +59,11 @@ import {
   resolveLiveCompanyTransferExecutionEnabledFailClosed,
   type CompanyTransferFundingSnapshot,
 } from "../_shared/companyTransferLifecycleSSOT.ts";
-import type { CompanyBalanceSnapshot } from "../../../shared/companyBalanceSSOT.ts";
+import type { CompanyBalanceSnapshot } from "../_shared/companyBalanceSSOT.ts";
 import {
   resolveCompanyTransferPaymentReferenceKind,
   sanitizeCompanyTransferStatementReference,
-} from "../../../shared/companyTransferPaymentReferenceSSOT.ts";
+} from "../_shared/companyTransferPaymentReferenceSSOT.ts";
 import {
   evaluatePreDraftCompanyFundsGate,
   isAmountValidationOnlyBlock,
@@ -71,11 +71,11 @@ import {
   canReturnCompanyTransferToDraft,
   canCancelCompanyTransferSafely,
   resolveAvailableCompanyFundsPenceFromBalance,
-} from "../../../shared/companyTransferDraftValidationSSOT.ts";
+} from "../_shared/companyTransferDraftValidationSSOT.ts";
 import {
   companyFundsPrecheckPasses,
   resolvePrecheckAvailableCompanyFundsPence,
-} from "../../../shared/companyTransferCreatePrecheckSSOT.ts";
+} from "../_shared/companyTransferCreatePrecheckSSOT.ts";
 
 async function loadProviderPaymentIdForTransfer(
   supabase: { from: (t: string) => any },

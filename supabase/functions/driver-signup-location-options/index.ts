@@ -14,7 +14,7 @@ import {
   phoneDialToIsoCountry,
   resolveDetectionSource,
   type DriverSignupDetectionSource,
-} from "../../../shared/driverSignupLocationSSOT.ts";
+} from "../_shared/driverSignupLocationSSOT.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
