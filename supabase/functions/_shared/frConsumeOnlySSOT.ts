@@ -27,33 +27,65 @@ export type FrTripAuditStatus =
   typeof FR_TRIP_AUDIT_STATUS[keyof typeof FR_TRIP_AUDIT_STATUS];
 
 /**
- * Settlement identity — exact pence, no tolerance.
+ * Settlement / FR Overview allocation identity — exact pence, no tolerance.
+ *
+ * Contract for `driver_net_pence`:
+ *   tip-exclusive fare net (trips.driver_net_pence). NEVER pass tip-inclusive
+ *   entitlement here — tip is its own leg via `tips_pence`.
+ *
+ * Airport:
+ *   Pass `airport_charge_pence` only when it is NOT already inside driver_net.
+ *   When airport is folded into the fare-net stamp, pass 0 and keep airport as
+ *   a display breakdown only (no numeric fold heuristics).
+ *
+ * Identity:
+ *   captured = driver_fare_net + tip + airport + gross_commission − subsidy
+ *
+ * Provider fees are display-only operating cost — they do not enter this identity.
  * Missing capture or unknown driver_net/commission → NOT balanced (never default true).
  */
 export function evaluateFrSettlementCaptureIdentity(args: {
   captured_pence: number | null | undefined;
+  /** Tip-exclusive fare net — never tip-inclusive entitlement. */
   driver_net_pence: number | null | undefined;
   commission_pence: number | null | undefined;
   /** Legacy promotion handling — ignored when an explicit subsidy leg is stamped. */
   commission_after_promotion_pence?: number | null | undefined;
   /**
    * Platform-funded customer promotion subsidy (marketing cost).
-   * Identity: captured = driver_net + gross commission + airport + tip − subsidy.
+   * Deducted once as its own leg — never subtracted from commission and again here.
    */
   platform_promotion_subsidy_pence?: number | null | undefined;
+  /** Separate allocation leg only when not already inside driver_net. */
   airport_charge_pence: number | null | undefined;
+  /** Non-commissionable tip — counted once; never also inside driver_net_pence. */
   tips_pence: number | null | undefined;
 }): {
   balanced: boolean;
   variance_pence: number | null;
   evaluable: boolean;
+  allocated_driver_entitlement_pence: number | null;
 } {
   if (args.captured_pence == null || Number(args.captured_pence) <= 0) {
-    return { balanced: false, variance_pence: null, evaluable: false };
+    return {
+      balanced: false,
+      variance_pence: null,
+      evaluable: false,
+      allocated_driver_entitlement_pence: null,
+    };
   }
   if (args.driver_net_pence == null || args.commission_pence == null) {
-    return { balanced: false, variance_pence: null, evaluable: false };
+    return {
+      balanced: false,
+      variance_pence: null,
+      evaluable: false,
+      allocated_driver_entitlement_pence: null,
+    };
   }
+  const fareNet = Math.max(0, Math.round(Number(args.driver_net_pence)));
+  const tip = Math.max(0, Math.round(Number(args.tips_pence ?? 0)));
+  const airport = Math.max(0, Math.round(Number(args.airport_charge_pence ?? 0)));
+  const allocated_driver_entitlement_pence = fareNet + tip + airport;
   const subsidy = Math.max(0, Math.round(Number(args.platform_promotion_subsidy_pence ?? 0)));
   // Explicit subsidy leg is authoritative: commission stays gross and the platform-funded
   // promotion is deducted as its own reconciliation leg.
@@ -63,13 +95,27 @@ export function evaluateFrSettlementCaptureIdentity(args: {
       ? Math.round(Number(args.commission_after_promotion_pence))
       : Math.round(Number(args.commission_pence)));
   const rhs =
-    Math.max(0, Math.round(Number(args.driver_net_pence)))
+    allocated_driver_entitlement_pence
     + commissionForIdentity
-    + Math.max(0, Math.round(Number(args.airport_charge_pence ?? 0)))
-    + Math.max(0, Math.round(Number(args.tips_pence ?? 0)))
     - subsidy;
   const variance = Math.round(Number(args.captured_pence)) - rhs;
-  return { balanced: variance === 0, variance_pence: variance, evaluable: true };
+  return {
+    balanced: variance === 0,
+    variance_pence: variance,
+    evaluable: true,
+    allocated_driver_entitlement_pence,
+  };
+}
+
+/** Overview rollup: fare net + tip (+ airport when a separate allocation leg). */
+export function sumFrAllocatedDriverEntitlementPence(args: {
+  driver_fare_net_pence: number;
+  driver_tips_pence: number;
+  airport_charge_pence?: number;
+}): number {
+  return Math.max(0, Math.round(Number(args.driver_fare_net_pence ?? 0)))
+    + Math.max(0, Math.round(Number(args.driver_tips_pence ?? 0)))
+    + Math.max(0, Math.round(Number(args.airport_charge_pence ?? 0)));
 }
 
 

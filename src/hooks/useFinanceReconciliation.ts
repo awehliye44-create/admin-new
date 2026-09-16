@@ -453,6 +453,12 @@ export interface FinanceReconciliationResponse {
     onecab_gross_commission_pence: number;
     onecab_net_commission_pence: number | null;
     driver_net_total_pence: number;
+    driver_fare_net_total_pence?: number;
+    driver_tips_total_pence?: number;
+    driver_entitlement_total_pence?: number;
+    airport_charges_total_pence?: number;
+    settlement_identity_variance_pence?: number | null;
+    settlement_identity_balanced?: boolean;
     wallet_credits_total_pence: number;
     payouts_completed_pence: number;
     capture_shortfall_pence: number;

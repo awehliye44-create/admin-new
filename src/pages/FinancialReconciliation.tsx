@@ -311,6 +311,18 @@ function FinancialReconciliationPage() {
 
   const reconciliationChip = useMemo(() => {
     if (!summary) return null;
+    const auditKpis = data?.audit_overview_kpis;
+    // Prefer period audit settlement identity (includes tip allocation) over summary rollup.
+    if (
+      auditKpis
+      && typeof auditKpis.settlement_identity_balanced === 'boolean'
+      && auditKpis.settlement_identity_variance_pence != null
+    ) {
+      if (ssot.readOnly) {
+        return auditKpis.settlement_identity_balanced ? 'DEGRADED_SNAPSHOT' : 'RECONCILIATION_MISMATCH';
+      }
+      return auditKpis.settlement_identity_balanced ? 'BALANCED' : 'RECONCILIATION_MISMATCH';
+    }
     const reconciliationStatus = safeReconciliationStatus(summary);
     if (ssot.readOnly) {
       return reconciliationStatus === 'BALANCED' ? 'DEGRADED_SNAPSHOT' : reconciliationStatus;
@@ -320,7 +332,7 @@ function FinancialReconciliationPage() {
     }
     if (reconciliationStatus === 'BALANCED') return 'BALANCED';
     return reconciliationStatus;
-  }, [summary, ssot.readOnly]);
+  }, [summary, ssot.readOnly, data?.audit_overview_kpis]);
 
   if (searchParams.get('tab') === 'connect-balance') {
     return <Navigate to="/financial-reconciliation?tab=overview" replace />;
