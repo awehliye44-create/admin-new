@@ -618,7 +618,9 @@ export function computeFrDriverReconciliation(
   const debtRecovery = sumDebtRecoveryDebitsPence(input.ledger);
   const payoutsDebited = sumPayoutsDebitedPence(input.ledger);
   const payoutTransfers = sumPayoutWalletTransfersPence(input.ledger);
-  const bonuses = sumByTypes(input.ledger, BONUS_TYPES);
+  // Trip-linked tips live in actualCredits; only untied tip rows are discretionary here.
+  const bonuses = sumByTypes(input.ledger, BONUS_TYPES)
+    + sumUnlinkedTipCreditsPence(input.ledger);
   const refundDebits = (() => {
     let s = 0;
     for (const row of input.ledger) {
