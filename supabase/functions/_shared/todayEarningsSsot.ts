@@ -1,20 +1,26 @@
 /**
- * Today’s earnings SSOT (driver-earnings-summary period totals).
+ * Today’s earnings SSOT (Driver + driver-earnings-summary).
  *
  * today_earnings_pence =
- *   sum of eligible earning ledger credits whose earning-effective instant
+ *   sum of eligible earning ledger credits whose Today attribution instant
  *   falls within the Europe/London business-day window.
  *
- * Earning-effective instant = ledger posting_created_at (immutable credit time).
- * Never Payment Session capture, Available, Pending, wallet balance, or payouts.
+ * Canonical attribution (explicit fallback — never silent rewrite):
+ *   today_at = valid economic_earned_at ?? posting_created_at ?? created_at
  *
- * Clearing (27h) governs Pending/Available only — not Today.
+ * - Normal TEN with a valid economic_earned_at keeps the economic date.
+ * - CAPTURE_RELEASED / unresolved TEN with null economic falls back to posting
+ *   so posted fare-net / late-cancel fees appear immediately.
+ * - DRIVER_TIP_CREDIT uses tip-effective (economic) when present, else posting.
+ * - Clearing (27h) governs Pending/Available only — not Today.
+ * - Withdrawals, reservations, payout fees, and DRIVER_COLLECTED stay excluded.
  */
 
 import {
   isInstantInHalfOpenRange,
   londonCivilDateKey,
 } from "./economicEarnedAtSSOT.ts";
+
 
 export const TODAY_EARNINGS_INCLUDE_TYPES = [
   "TRIP_EARNING_NET",
@@ -48,6 +54,14 @@ function upper(value: string | null | undefined): string {
   return String(value ?? "").trim().toUpperCase();
 }
 
+function isValidAttributionIso(iso: string | null | undefined): iso is string {
+  if (typeof iso !== "string") return false;
+  const trimmed = iso.trim();
+  if (!trimmed) return false;
+  const ms = Date.parse(trimmed);
+  return Number.isFinite(ms);
+}
+
 export type TodayEarningsLedgerRow = {
   type?: string | null;
   amount_pence?: number | null;
@@ -58,14 +72,23 @@ export type TodayEarningsLedgerRow = {
 };
 
 /**
- * Period / Today attribution: ledger credit time only.
- * Posted TRIP_EARNING_NET appears immediately — not blocked by tip window
- * or capture verification (CAPTURE_RELEASED / CAPTURE_NOT_VERIFIED / etc.).
+ * Today attribution instant.
+ * Prefer a valid economic_earned_at; otherwise fall back to posting/created.
+ * Explicit fallback only — does not invent timestamps or hide missing credits.
  */
 export function todayEarningsAttributionInstant(
   row: TodayEarningsLedgerRow,
 ): string | null {
-  return row.posting_created_at ?? row.created_at ?? null;
+  if (isValidAttributionIso(row.economic_earned_at)) {
+    return row.economic_earned_at.trim();
+  }
+  if (isValidAttributionIso(row.posting_created_at)) {
+    return row.posting_created_at.trim();
+  }
+  if (isValidAttributionIso(row.created_at)) {
+    return row.created_at.trim();
+  }
+  return null;
 }
 
 /**
@@ -101,6 +124,10 @@ export function todayEarningsAmountPence(row: TodayEarningsLedgerRow): number {
   return Math.round(n);
 }
 
+/**
+ * Sum eligible credits whose Today attribution instant lies in [startIso, endIso).
+ * Does not invent amounts — missing ledger rows stay missing.
+ */
 export function sumTodayEarningsPence(
   rows: TodayEarningsLedgerRow[],
   startIso: string,
@@ -116,6 +143,7 @@ export function sumTodayEarningsPence(
   return sum;
 }
 
+/** London civil-day key for a ledger credit’s Today attribution instant. */
 export function todayEarningsLondonDayKey(
   row: TodayEarningsLedgerRow,
 ): string | null {
