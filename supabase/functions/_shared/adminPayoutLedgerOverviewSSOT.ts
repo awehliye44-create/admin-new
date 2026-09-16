@@ -208,8 +208,12 @@ async function loadDriverOverviewSection(
   for (const d of drivers ?? []) {
     const id = String(d.id);
     const rows = byDriver.get(id) ?? [];
-    const live = computeLedgerWalletBalancePence(rows);
-    const debt = computeCashCommissionOutstanding(rows);
+    const live = computeLedgerWalletBalancePence(
+      rows as Parameters<typeof computeLedgerWalletBalancePence>[0],
+    );
+    const debt = computeCashCommissionOutstanding(
+      rows as Parameters<typeof computeCashCommissionOutstanding>[0],
+    );
     liveTotal += Math.max(0, live);
     debtTotal += Math.max(0, debt);
   }
@@ -588,7 +592,7 @@ export async function buildPayoutLedgerOverview(
       classified_company_cash_pence: null,
     };
   }
-  dto.company_balance = companyBalance;
+  dto.company_balance = companyBalance as typeof dto.company_balance;
   dto.company_balance_pence = companyBalance.company_ledger_balance_pence;
   dto.company_available_for_transfer_pence = companyBalance.company_available_for_transfer_pence;
 
@@ -640,7 +644,7 @@ export async function buildPayoutLedgerOverview(
       next_run_at_local: schedule.next_run_at_local,
       payout_schedule: schedule,
     } as AdminPayoutLedgerListResponse["overview_summary"],
-    company_balance: companyBalance,
+    company_balance: companyBalance as AdminPayoutLedgerListResponse["company_balance"],
     payout_schedule: schedule,
     error_code: dto.unavailable_reason,
     summary: {
