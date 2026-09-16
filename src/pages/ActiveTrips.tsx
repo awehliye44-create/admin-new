@@ -872,10 +872,24 @@ export default function ActiveTrips() {
                             <MapPin className="h-3 w-3 text-green-500 mt-0.5 shrink-0" />
                             <span className="truncate">{trip.pickup_address?.slice(0, 30)}...</span>
                           </div>
+                          {(trip.trip_stops ?? []).filter((s) => s.type === 'stop').map((stop) => (
+                            <div key={stop.id} className="flex items-start gap-1 text-xs mt-1">
+                              <MapPin className="h-3 w-3 text-blue-500 mt-0.5 shrink-0" />
+                              <span className="truncate">
+                                Stop {stop.stop_index}: {stop.address?.slice(0, 26)}
+                              </span>
+                            </div>
+                          ))}
                           <div className="flex items-start gap-1 text-xs mt-1">
                             <MapPin className="h-3 w-3 text-red-500 mt-0.5 shrink-0" />
                             <span className="truncate">{trip.dropoff_address?.slice(0, 30)}...</span>
                           </div>
+                          {(trip.trip_stops ?? []).some((s) => s.type === 'stop') && (
+                            <Badge variant="outline" className="mt-1 text-[10px]">
+                              Multi-stop ·{' '}
+                              {(trip.trip_stops ?? []).filter((s) => s.type === 'stop').length} stop(s)
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
