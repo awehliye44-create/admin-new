@@ -49,6 +49,54 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/auth" state={{ from: location.pathname }} replace />;
   }
 
+  if (!isAdmin && adminCheckUnavailable) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-sidebar p-4">
+        <Card className="w-full max-w-md bg-card border-sidebar-border">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/20">
+              <WifiOff className="h-8 w-8 text-primary" />
+            </div>
+            <CardTitle className="text-2xl font-bold">Connection problem</CardTitle>
+            <CardDescription>
+              We could not reach the server to confirm your permissions. This is a temporary
+              connection issue, not a problem with your account.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Signed in as: <span className="font-medium">{user.email}</span>
+            </p>
+            <Button
+              onClick={async () => {
+                setIsRetrying(true);
+                try {
+                  await recheckAdmin();
+                } finally {
+                  setIsRetrying(false);
+                }
+              }}
+              disabled={isRetrying}
+              className="w-full"
+            >
+              {isRetrying ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Retrying…
+                </>
+              ) : (
+                'Try again'
+              )}
+            </Button>
+            <Button onClick={signOut} variant="outline" className="w-full">
+              Sign Out
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (!isAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-sidebar p-4">
