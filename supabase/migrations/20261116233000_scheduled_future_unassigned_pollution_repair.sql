@@ -8,10 +8,15 @@
 UPDATE public.trips AS t
 SET
   scheduled_status = 'scheduled',
-  scheduled_broadcast_at = a.scheduled_broadcast_at,
-  scheduled_convert_at = a.scheduled_convert_at,
+  scheduled_broadcast_at = (
+    SELECT a.scheduled_broadcast_at
+    FROM public.compute_scheduled_dispatch_anchors(t.scheduled_at, t.created_at) AS a
+  ),
+  scheduled_convert_at = (
+    SELECT a.scheduled_convert_at
+    FROM public.compute_scheduled_dispatch_anchors(t.scheduled_at, t.created_at) AS a
+  ),
   updated_at = now()
-FROM public.compute_scheduled_dispatch_anchors(t.scheduled_at, t.created_at) AS a
 WHERE t.is_scheduled IS TRUE
   AND t.scheduled_at > now()
   AND t.scheduled_status = 'broadcasting'
