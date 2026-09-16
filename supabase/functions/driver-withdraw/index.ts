@@ -5,7 +5,12 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveAuthenticatedDriver } from "../_shared/resolveAuthenticatedDriver.ts";
-import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
+import { fetchDriverPayoutEligibilityContext } from "../_shared/fetchDriverPayoutEligibility.ts";
+import {
+  assertClientAmountWithinWithdrawable,
+  buildDriverPayoutWithdrawalQuote,
+  toDriverWithdrawExecutorQuotePayload,
+} from "../_shared/driverPayoutWithdrawalQuoteSSOT.ts";
 import { planPayoutItemFromEligibleEntries } from "../_shared/payoutLedgerHandoffSSOT.ts";
 import {
   assertPayoutItemLedgerLineage,
@@ -177,8 +182,144 @@ async function releaseAndFailPreProvider(
   );
 }
 
+async function buildDriverWithdrawQuoteReadOnly(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  driverId: string,
+): Promise<
+  | {
+    ok: true;
+    quote: ReturnType<typeof buildDriverPayoutWithdrawalQuote>;
+    gateCtx: Awaited<ReturnType<typeof fetchDriverPayoutEligibilityContext>>;
+    destination_status: string | null;
+    destination_last4: string | null;
+  }
+  | { ok: false; error: string; driver_message: string; status: number }
+> {
+  const { data: summaryRaw, error: summaryErr } = await supabase.rpc(
+    "driver_wallet_summary_ssot",
+    { p_driver_id: driverId, p_service_area_id: null },
+  );
+  if (summaryErr) {
+    return {
+      ok: false,
+      error: "wallet_summary_failed",
+      driver_message: "Unable to load wallet eligibility.",
+      status: 500,
+    };
+  }
+  const summary = (summaryRaw ?? {}) as Record<string, unknown>;
+  if (summary.ok !== true) {
+    return {
+      ok: false,
+      error: "wallet_summary_failed",
+      driver_message: "Unable to load wallet eligibility.",
+      status: 500,
+    };
+  }
+
+  const gateCtx = await fetchDriverPayoutEligibilityContext(supabase, { driver_id: driverId });
+  const earlyEnabled = summary.early_cash_out_enabled === true;
+  const provider = String(summary.early_cash_out_provider ?? "").toLowerCase();
+  const providerAvailable = provider === "revolut";
+
+  const quote = buildDriverPayoutWithdrawalQuote({
+    eligibility: gateCtx.eligibility,
+    global_payouts_enabled: gateCtx.global_payouts_enabled,
+    payout_operational_paused: gateCtx.payout_operational_paused,
+    provider_verified_active_destination: gateCtx.provider_verified_active_destination,
+    driver_approved: gateCtx.driver_approved,
+    driver_suspended: gateCtx.driver_suspended,
+    fee_pence: Math.max(
+      0,
+      Math.round(Number(summary.early_cash_out_fee_pence ?? gateCtx.fee_pence ?? 0)),
+    ),
+    minimum_pence: Math.max(0, Math.round(Number(summary.early_cash_out_minimum_pence ?? 0))),
+    early_cash_out_enabled: earlyEnabled,
+    provider_available: providerAvailable,
+    financial_model_platform_collected: true,
+    legacy_payouts_enabled: gateCtx.legacy_payouts_enabled,
+  });
+
+  let destinationStatus: string | null = null;
+  if (gateCtx.provider_verified_active_destination) {
+    destinationStatus = "PROVIDER_VERIFIED";
+  } else if (gateCtx.active_destination_last4) {
+    destinationStatus = "UNVERIFIED";
+  }
+
+  return {
+    ok: true,
+    quote,
+    gateCtx,
+    destination_status: destinationStatus,
+    destination_last4: gateCtx.active_destination_last4,
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // STAGE_C2_V1: GET/HEAD = authenticated read-only quote (zero writes).
+  // Old Edge v31 returns 405 for non-POST before auth/reservation/provider —
+  // New Driver uses that rejection to fail closed until this executor is live.
+  if (req.method === "GET" || req.method === "HEAD") {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    if (!supabaseUrl || !serviceKey) {
+      return json({ ok: false, error: "server_misconfigured" }, 500);
+    }
+
+    const authHeader = req.headers.get("Authorization") ?? "";
+    if (!authHeader.startsWith("Bearer ")) {
+      return json({ ok: false, error: "unauthorized", driver_message: "Sign in to continue." }, 401);
+    }
+
+    const userClient = createClient(supabaseUrl, anonKey || serviceKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: userData, error: userErr } = await userClient.auth.getUser();
+    if (userErr || !userData.user) {
+      return json({ ok: false, error: "unauthorized", driver_message: "Sign in to continue." }, 401);
+    }
+
+    const supabase = createClient(supabaseUrl, serviceKey);
+    const resolved = await resolveAuthenticatedDriver(supabase, userData.user.id, "DRIVER_WITHDRAW");
+    if (!resolved.ok) {
+      return json({
+        ok: false,
+        error: resolved.reason,
+        driver_message: resolved.message,
+      }, 403);
+    }
+    const driverId = resolved.driver.driver_id;
+
+    const built = await buildDriverWithdrawQuoteReadOnly(supabase, driverId);
+    if (!built.ok) {
+      return json({
+        ok: false,
+        error: built.error,
+        driver_message: built.driver_message,
+        revolut_pay_called: false,
+        writes: false,
+      }, built.status);
+    }
+
+    const payload = toDriverWithdrawExecutorQuotePayload({
+      quote: built.quote,
+      destination_status: built.destination_status,
+      destination_masked_last4: built.destination_last4,
+    });
+    if (req.method === "HEAD") {
+      return new Response(null, {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Length": String(JSON.stringify(payload).length) },
+      });
+    }
+    return json(payload, 200);
+  }
+
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   const flagGate = evaluateDriverWithdrawExecutionGate(Deno.env);
@@ -394,69 +535,76 @@ Deno.serve(async (req) => {
     }, reconciled.ok || reconciled.provider_state === "pending" ? 200 : 409);
   }
 
-  const { data: summaryRaw, error: summaryErr } = await supabase.rpc(
-    "driver_wallet_summary_ssot",
-    { p_driver_id: driverId, p_service_area_id: null },
-  );
-  if (summaryErr) {
+  const built = await buildDriverWithdrawQuoteReadOnly(supabase, driverId);
+  if (!built.ok) {
     return json({
       ok: false,
-      error: "wallet_summary_failed",
-      driver_message: "Unable to load wallet eligibility.",
-      message: summaryErr.message,
-    }, 500);
+      error: built.error,
+      driver_message: built.driver_message,
+      revolut_pay_called: false,
+    }, built.status);
   }
-  const summary = (summaryRaw ?? {}) as Record<string, unknown>;
-  if (summary.ok !== true) {
-    return json({
-      ok: false,
-      error: "wallet_summary_failed",
-      driver_message: "Unable to load wallet eligibility.",
-    }, 500);
-  }
+  const quote = built.quote;
+  const gateCtx = built.gateCtx;
 
-  if (summary.early_cash_out_enabled !== true) {
+  // Feature / provider gates that remain hard for execute (quote may already encode them).
+  if (quote.blocking_reason_code === "FEATURE_DISABLED") {
     return json({
       ok: false,
       error: "FEATURE_DISABLED",
       error_code: "FEATURE_DISABLED",
-      driver_message: "Withdrawals are not available at this time.",
+      driver_message: quote.blocking_reason_copy ?? "Driver payouts are currently disabled",
+      quote,
+      revolut_pay_called: false,
     }, 409);
   }
-  if (summary.early_cash_out_eligible !== true) {
-    const block = String(summary.early_cash_out_block_reason ?? "NOT_ELIGIBLE");
-    return json({
-      ok: false,
-      error: block,
-      error_code: block,
-      driver_message: "Withdrawals are not available at this time.",
-    }, 409);
-  }
-
-  const provider = String(summary.early_cash_out_provider ?? "").toLowerCase();
-  if (provider !== "revolut") {
+  if (quote.blocking_reason_code === "PROVIDER_UNAVAILABLE") {
     return json({
       ok: false,
       error: "PROVIDER_UNAVAILABLE",
       error_code: "PROVIDER_UNAVAILABLE",
-      driver_message: "Withdrawals are not available for this payout provider.",
+      driver_message: quote.blocking_reason_copy ??
+        "Withdrawals are not available for this payout provider.",
+      quote,
+      revolut_pay_called: false,
     }, 409);
   }
 
-  const eligibility = await fetchDriverPayoutEligibility(supabase, { driver_id: driverId });
-  const requestedPence = Math.max(0, Math.round(Number(eligibility.available_balance_pence ?? 0)));
-  if (!Number.isFinite(requestedPence) || requestedPence <= 0) {
+  const clientRequested = body.amount_pence ?? body.requested_cashout_pence ?? null;
+  const clientCheck = assertClientAmountWithinWithdrawable({
+    client_requested_pence: clientRequested == null ? null : Number(clientRequested),
+    quote,
+  });
+  if (!clientCheck.ok) {
     return json({
       ok: false,
-      error: "NO_AVAILABLE_BALANCE",
-      error_code: "NO_AVAILABLE_BALANCE",
-      driver_message: "No balance available to withdraw.",
-      live_balance_pence: eligibility.live_balance_pence,
-      available_balance_pence: requestedPence,
-      pending_balance_pence: eligibility.pending_balance_pence,
-      withdrawal_in_progress_pence: eligibility.withdrawal_in_progress_pence,
+      error: clientCheck.code,
+      error_code: clientCheck.code,
+      driver_message: clientCheck.copy,
+      quote,
+      revolut_pay_called: false,
     }, 409);
   }
+
+  if (!quote.payout_allowed || quote.withdrawable_pence <= 0) {
+    const code = quote.blocking_reason_code ?? "NO_AVAILABLE_BALANCE";
+    return json({
+      ok: false,
+      error: code,
+      error_code: code,
+      driver_message: quote.blocking_reason_copy ?? "Withdrawals are not available right now.",
+      quote,
+      live_balance_pence: quote.ledger_balance_pence,
+      available_balance_pence: quote.cleared_available_pence,
+      withdrawable_pence: quote.withdrawable_pence,
+      pending_balance_pence: quote.pending_pence,
+      withdrawal_in_progress_pence: quote.reserved_pence,
+      revolut_pay_called: false,
+    }, 409);
+  }
+
+  const eligibility = gateCtx.eligibility;
+  const requestedPence = quote.withdrawable_pence;
 
   let lineage: ReturnType<typeof planPayoutItemFromEligibleEntries> = null;
   try {
@@ -478,13 +626,8 @@ Deno.serve(async (req) => {
   }
   const amountPence = lineage.amount_pence;
 
-  const feePence = Math.max(0, Math.round(Number(summary.early_cash_out_fee_pence ?? 0)));
-  const receivesPence = Math.round(
-    Number(
-      summary.early_cash_out_driver_receives_pence
-        ?? Math.max(0, amountPence - feePence),
-    ),
-  );
+  const feePence = quote.fee_pence;
+  const receivesPence = quote.net_payout_pence;
   // Fee must be deducted from provider transfer before /pay (never after).
   if (feePence > 0 && receivesPence <= 0) {
     return json({

@@ -348,7 +348,7 @@ serve(async (req) => {
     let driverQuery = supabase
       .from("drivers")
       .select(
-        "id, region_id, service_area_id, first_name, last_name, payouts_enabled, approval_status, driver_status",
+        "id, region_id, service_area_id, first_name, last_name, payouts_enabled, payout_operational_paused, approval_status, driver_status",
       )
       .eq("approval_status", "approved")
       .in("id", platformDriverIds);
@@ -438,6 +438,7 @@ serve(async (req) => {
         driver_id: driverId,
         wallet_balance_pence: eligibility.live_balance_pence,
         available_payout_pence: lineage.amount_pence,
+        payout_operational_paused: driver.payout_operational_paused === true,
         payouts_enabled: driver.payouts_enabled !== false,
         driver_held_or_blocked: held,
         currency: serviceAreaCurrency,
