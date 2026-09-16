@@ -1,8 +1,8 @@
 /**
- * driver-earnings-summary lock — Today uses posting-time SSOT.
+ * driver-earnings-summary lock — Today uses economic ?? posting SSOT.
  * Available/Pending remain eligibility SSOT. No money writes / Revolut / commission wallet.
  *
- * Run: deno test --allow-read --no-check supabase/functions/_shared/driverEarningsSummaryLock.test.ts
+ * Run: deno test --allow-read --no-check supabase/tests/_shared/driverEarningsSummaryLock.test.ts
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals.ts";
 import { assertFalse } from "https://deno.land/std@0.224.0/assert/assert_false.ts";
@@ -10,7 +10,7 @@ import { assertStringIncludes } from "https://deno.land/std@0.224.0/assert/asser
 
 Deno.test("driver-earnings-summary: todayEarningsSsot + eligibility, no money writes", async () => {
   const src = await Deno.readTextFile(
-    new URL("../driver-earnings-summary/index.ts", import.meta.url),
+    new URL("../../functions/driver-earnings-summary/index.ts", import.meta.url),
   );
   assertStringIncludes(src, 'from "../_shared/todayEarningsSsot.ts"');
   assertStringIncludes(src, "todayEarningsAttributionInstant");
