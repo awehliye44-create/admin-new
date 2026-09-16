@@ -17,7 +17,8 @@ interface ProtectedRouteProps {
  * so the sidebar never unmounts on navigation.
  */
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { user, isAdmin, isAuthReady, signOut } = useAuth();
+  const { user, isAdmin, adminCheckUnavailable, recheckAdmin, isAuthReady, signOut } = useAuth();
+  const [isRetrying, setIsRetrying] = useState(false);
   const { isStaffLoading } = useStaffProfile();
   const location = useLocation();
   const [authGateTimedOut, setAuthGateTimedOut] = useState(false);
