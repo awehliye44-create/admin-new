@@ -231,12 +231,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     manualSignOut.current = true;
     adminCache.current = null;
-    await supabase.auth.signOut();
-    // State will be cleared by the onAuthStateChange listener
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      // Backend unreachable: still clear local state so the user isn't stuck
+      console.error('Sign out request failed, clearing local session:', err);
+    }
+    setSession(null);
+    setUser(null);
+    setIsAdmin(false);
+    setAdminCheckUnavailable(false);
+    clearSentryUser();
+    manualSignOut.current = false;
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, isAdmin, isLoading, isAuthReady, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, session, isAdmin, adminCheckUnavailable, recheckAdmin, isLoading, isAuthReady, signIn, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   );
