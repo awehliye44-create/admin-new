@@ -601,12 +601,64 @@ export async function executeSameOrderIncrement(args: {
     // persist_failed is an INTERNAL failure before Revolut is asked; never treat it
     // as a provider decline / safe-capture fallback.
     const incrementReason = args.reason ?? `same_order_increment_${args.source}`;
+
+    // Reuse a prior FAILED_RETRYABLE row for the same target (POST never landed
+    // durably). Never reuse DECLINED / FAILED_TERMINAL — those stay reconcile-only.
+    let incrementRowId: string | null = null;
+    let sequenceNumberForPost = sequenceNumber;
+    if (
+      existingAuth
+      && String(existingAuth.status ?? "") === "ADDITIONAL_AUTHORISATION_FAILED_RETRYABLE"
+    ) {
+      sequenceNumberForPost = existingAuth.sequence_number != null
+        ? Number(existingAuth.sequence_number)
+        : sequenceNumber;
+      const { error: reuseErr } = await args.supabase
+        .from("payment_session_authorisations")
+        .update({
+          status: "ADDITIONAL_AUTHORISATION_PENDING",
+          failed_at: null,
+          error_classification: null,
+          submitted_at: nowIso,
+          authorised_at: nowIso,
+          previous_authorised_total_pence: providerTotal,
+          requested_increment_pence: plan.deltaPence,
+          authorised_amount_pence: plan.deltaPence,
+          cumulative_total_authorised_pence: plan.targetTotalPence,
+          provider_confirmed_total_pence: null,
+          metadata: {
+            reason: incrementReason,
+            source: args.source,
+            requested_target_total_pence: plan.targetTotalPence,
+            retried_from: "FAILED_RETRYABLE",
+          },
+        })
+        .eq("id", existingAuth.id);
+      if (reuseErr) {
+        return {
+          ok: false,
+          kind: "persist_failed",
+          message: reuseErr.message,
+          providerConfirmedTotalPence: providerTotal,
+          eligibility,
+          errorClassification: "PERSIST_FAILED",
+        };
+      }
+      incrementRowId = String(existingAuth.id);
+      logIncrementEvent("increment_retryable_row_reused", {
+        payment_session_id: maskId(sessionId),
+        provider_order_id: maskId(orderId),
+        requested_target: plan.targetTotalPence,
+        source: args.source,
+      });
+    }
+
     const authRow = {
       payment_session_id: sessionId,
       payment_provider: "revolut",
       provider_order_id: orderId,
       provider_payment_id: providerPaymentId,
-      sequence_number: sequenceNumber,
+      sequence_number: sequenceNumberForPost,
       previous_authorised_total_pence: providerTotal,
       requested_increment_pence: plan.deltaPence,
       requested_target_total_pence: plan.targetTotalPence,
@@ -626,91 +678,127 @@ export async function executeSameOrderIncrement(args: {
       },
     };
 
-    const { data: inserted, error: insertErr } = await args.supabase
-      .from("payment_session_authorisations")
-      .insert(authRow)
-      .select("id, sequence_number")
-      .maybeSingle();
-
-    if (insertErr) {
-      const { data: racedByKey } = await args.supabase
+    let inserted: { id: string; sequence_number?: number | null } | null = null;
+    if (!incrementRowId) {
+      const { data: insertedRow, error: insertErr } = await args.supabase
         .from("payment_session_authorisations")
-        .select("*")
-        .eq("idempotency_key", businessKey)
+        .insert(authRow)
+        .select("id, sequence_number")
         .maybeSingle();
-      const raced = racedByKey ?? existingAuth;
-      if (raced && isConfirmedIncrementRowStatus(raced.status)) {
-        return {
-          ok: true,
-          kind: "already_confirmed",
-          providerConfirmedTotalPence: Math.round(
-            Number(raced.provider_confirmed_total_pence ?? plan.targetTotalPence),
-          ),
-          sequenceNumber: raced.sequence_number != null ? Number(raced.sequence_number) : null,
-          businessKey,
-          eligibility,
-        };
-      }
-      if (raced && isPriorIncrementAttemptStatus(raced.status)) {
-        const racedCoverage = classifyIncrementCoverage(order, plan.targetTotalPence);
-        const confirmedFromRace = racedCoverage.class === "confirmed"
-          ? racedCoverage.authorisedTotalPence
-          : providerTotal >= plan.targetTotalPence
-          ? providerTotal
-          : 0;
-        if (confirmedFromRace >= plan.targetTotalPence) {
-          const sessionMetadata = (session.metadata && typeof session.metadata === "object")
-            ? session.metadata as Record<string, unknown>
-            : {};
-          const persisted = await persistConfirmedIncrementProjection({
-            supabase: args.supabase,
-            sessionId,
-            incrementRowId: raced.id,
-            confirmed: confirmedFromRace,
-            providerState: String(order.state ?? "AUTHORISED").toUpperCase(),
-            businessKey,
-            sessionMetadata,
-            verifiedBy: "same_order_increment_retrieve",
-          });
-          if (!persisted.ok) {
-            return {
-              ok: false,
-              kind: "persist_failed",
-              message: "Provider authorised the increase but local confirmation failed",
-              providerConfirmedTotalPence: confirmedFromRace,
-              eligibility,
-              errorClassification: "INCREMENT_CONFIRM_PERSIST_FAILED",
-            };
-          }
+
+      if (insertErr) {
+        const { data: racedByKey } = await args.supabase
+          .from("payment_session_authorisations")
+          .select("*")
+          .eq("idempotency_key", businessKey)
+          .maybeSingle();
+        const raced = racedByKey ?? existingAuth;
+        if (raced && isConfirmedIncrementRowStatus(raced.status)) {
           return {
             ok: true,
             kind: "already_confirmed",
-            providerConfirmedTotalPence: confirmedFromRace,
+            providerConfirmedTotalPence: Math.round(
+              Number(raced.provider_confirmed_total_pence ?? plan.targetTotalPence),
+            ),
             sequenceNumber: raced.sequence_number != null ? Number(raced.sequence_number) : null,
             businessKey,
             eligibility,
           };
         }
-        return {
-          ok: false,
-          kind: "unknown",
-          message: "Prior increment still pending/unknown after retrieve; not submitting another.",
-          providerConfirmedTotalPence: providerTotal,
-          eligibility,
-          errorClassification: "AUTHORISATION_RECONCILIATION_PENDING",
-        };
+        if (
+          raced
+          && String(raced.status ?? "") === "ADDITIONAL_AUTHORISATION_FAILED_RETRYABLE"
+        ) {
+          // Lost race with another retryable worker — reuse that row.
+          incrementRowId = String(raced.id);
+          sequenceNumberForPost = raced.sequence_number != null
+            ? Number(raced.sequence_number)
+            : sequenceNumberForPost;
+          await args.supabase
+            .from("payment_session_authorisations")
+            .update({
+              status: "ADDITIONAL_AUTHORISATION_PENDING",
+              failed_at: null,
+              error_classification: null,
+              submitted_at: nowIso,
+            })
+            .eq("id", incrementRowId);
+        } else if (raced && isPriorIncrementAttemptStatus(raced.status)) {
+          const racedCoverage = classifyIncrementCoverage(order, plan.targetTotalPence);
+          const confirmedFromRace = racedCoverage.class === "confirmed"
+            ? racedCoverage.authorisedTotalPence
+            : providerTotal >= plan.targetTotalPence
+            ? providerTotal
+            : 0;
+          if (confirmedFromRace >= plan.targetTotalPence) {
+            const sessionMetadata = (session.metadata && typeof session.metadata === "object")
+              ? session.metadata as Record<string, unknown>
+              : {};
+            const persisted = await persistConfirmedIncrementProjection({
+              supabase: args.supabase,
+              sessionId,
+              incrementRowId: raced.id,
+              confirmed: confirmedFromRace,
+              providerState: String(order.state ?? "AUTHORISED").toUpperCase(),
+              businessKey,
+              sessionMetadata,
+              verifiedBy: "same_order_increment_retrieve",
+            });
+            if (!persisted.ok) {
+              return {
+                ok: false,
+                kind: "persist_failed",
+                message: "Provider authorised the increase but local confirmation failed",
+                providerConfirmedTotalPence: confirmedFromRace,
+                eligibility,
+                errorClassification: "INCREMENT_CONFIRM_PERSIST_FAILED",
+              };
+            }
+            return {
+              ok: true,
+              kind: "already_confirmed",
+              providerConfirmedTotalPence: confirmedFromRace,
+              sequenceNumber: raced.sequence_number != null ? Number(raced.sequence_number) : null,
+              businessKey,
+              eligibility,
+            };
+          }
+          return {
+            ok: false,
+            kind: "unknown",
+            message: "Prior increment still pending/unknown after retrieve; not submitting another.",
+            providerConfirmedTotalPence: providerTotal,
+            eligibility,
+            errorClassification: "AUTHORISATION_RECONCILIATION_PENDING",
+          };
+        } else {
+          logIncrementEvent("increment_persist_failed", {
+            payment_session_id: maskId(sessionId),
+            provider_order_id: maskId(orderId),
+            requested_target: plan.targetTotalPence,
+            source: args.source,
+            message: insertErr.message,
+          });
+          return {
+            ok: false,
+            kind: "persist_failed",
+            message: insertErr.message,
+            providerConfirmedTotalPence: providerTotal,
+            eligibility,
+            errorClassification: "PERSIST_FAILED",
+          };
+        }
+      } else {
+        inserted = insertedRow;
+        incrementRowId = insertedRow?.id ? String(insertedRow.id) : null;
       }
-      logIncrementEvent("increment_persist_failed", {
-        payment_session_id: maskId(sessionId),
-        provider_order_id: maskId(orderId),
-        requested_target: plan.targetTotalPence,
-        source: args.source,
-        message: insertErr.message,
-      });
+    }
+
+    if (!incrementRowId) {
       return {
         ok: false,
         kind: "persist_failed",
-        message: insertErr.message,
+        message: "Increment auth row missing before Revolut POST",
         providerConfirmedTotalPence: providerTotal,
         eligibility,
         errorClassification: "PERSIST_FAILED",
@@ -728,7 +816,7 @@ export async function executeSameOrderIncrement(args: {
     logIncrementEvent("increment_required", {
       payment_session_id: maskId(sessionId),
       provider_order_id: maskId(orderId),
-      sequence_number: sequenceNumber,
+      sequence_number: sequenceNumberForPost,
       previous_total: providerTotal,
       requested_target: plan.targetTotalPence,
       currency,
@@ -752,7 +840,6 @@ export async function executeSameOrderIncrement(args: {
       previousAuthorisedPence: providerTotal,
     });
     const elapsed = Date.now() - started;
-    const incrementRowId = inserted?.id ?? existingAuth?.id ?? null;
     const sessionMetadata = (session.metadata && typeof session.metadata === "object")
       ? session.metadata as Record<string, unknown>
       : {};
@@ -877,7 +964,7 @@ export async function executeSameOrderIncrement(args: {
       logIncrementEvent("increment_provider_confirmed", {
         payment_session_id: maskId(sessionId),
         provider_order_id: maskId(orderId),
-        sequence_number: sequenceNumber,
+        sequence_number: sequenceNumberForPost,
         previous_total: providerTotal,
         confirmed_total: confirmed,
         currency,
@@ -889,7 +976,7 @@ export async function executeSameOrderIncrement(args: {
         ok: true,
         kind: "confirmed",
         providerConfirmedTotalPence: confirmed,
-        sequenceNumber,
+        sequenceNumber: sequenceNumberForPost,
         businessKey,
         eligibility,
       };
@@ -957,12 +1044,19 @@ export async function executeSameOrderIncrement(args: {
       };
     }
 
+    // POST that never returned an order body must not be stamped DECLINED just
+    // because retrieve still shows the old hold — that blocked same-target retry.
+    const postNeverReturnedOrder = !result.ok && result.order == null;
     const failKind =
       failOutcome === "unsupported"
         ? "unsupported"
         : failOutcome === "retryable"
+          || (postNeverReturnedOrder
+            && (failOutcome === "terminal" || failOutcome === "unknown"))
         ? "retryable"
-        : coverage.class === "insufficient" || failOutcome === "declined"
+        : failOutcome === "declined"
+        ? "declined"
+        : coverage.class === "insufficient"
         ? "declined"
         : failOutcome === "unknown"
         ? "unknown"

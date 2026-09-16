@@ -150,6 +150,23 @@ Deno.test("timeout / network map to PAYMENT_PENDING (trip unchanged)", () => {
   assertEquals(network.phase, "PAYMENT_PENDING");
 });
 
+
+Deno.test("AUTHORISED_TOTAL_BELOW_TARGET / insufficient maps to failed not pending", () => {
+  const below = decideFromPreauthInvokeResult({
+    success: false,
+    requiredPayablePence: 1018,
+    authorisedAmountPence: 800,
+    paymentCoverageStatus: "authorization_insufficient",
+    errorCode: "AUTHORISED_TOTAL_BELOW_TARGET",
+    warning: "Provider authorised total remains below the required fare.",
+  });
+  assertEquals(below.mayApply, false);
+  assertEquals(below.phase, "PAYMENT_FAILED");
+  if (below.phase === "PAYMENT_FAILED") {
+    assertEquals(below.reason === "amount_mismatch" || below.reason === "declined", true);
+  }
+});
+
 Deno.test("authorised hold that already covers target unlocks apply even if processing hint present", () => {
   const coveredWhileProcessing = decideFromPreauthInvokeResult({
     success: false,

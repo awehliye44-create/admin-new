@@ -188,6 +188,25 @@ export function decideFromPreauthInvokeResult(args: {
     };
   }
 
+  // Explicit provider/issuer decline must beat pending/unknown hints (HTTP 409
+  // bodies were previously thrown and remapped to reconciliation_pending).
+  if (
+    code.includes("DECLINED")
+    || code.includes("AUTHORISED_TOTAL_BELOW")
+    || code.includes("BELOW_TARGET")
+    || coverage.includes("insufficient")
+    || coverage.includes("declined")
+  ) {
+    return {
+      phase: "PAYMENT_FAILED",
+      mayApply: false,
+      paymentStatus: "failed",
+      requestStatus: "payment_failed",
+      authorisedTotalPence: authorised,
+      reason: authorised > 0 && authorised < required ? "amount_mismatch" : "declined",
+    };
+  }
+
   if (args.skipped === true && args.success) {
     // Never invent coverage when skip reports authorised=0 for a positive delta.
     return {
