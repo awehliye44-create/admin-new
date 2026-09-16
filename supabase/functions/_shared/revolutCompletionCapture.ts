@@ -2,7 +2,7 @@
  * P0 — Revolut trip completion capture with hold reconciliation.
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import { planRevolutCompletionCapture } from "./revolutPaymentHoldSSOT.ts";
+import { planRevolutCompletionCapture } from "../../../shared/revolutPaymentHoldSSOT.ts";
 import { computeCaptureAmount, resolveTripFare } from "./tripFareSSOT.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
 import {
@@ -25,6 +25,10 @@ import {
   type PostCaptureSettlementResult,
 } from "./postCaptureSettlementResult.ts";
 import { FINANCIAL_MODEL_VIOLATION, SERVICE_AREA_FINANCIAL_MODEL } from "./commissionWalletSSOT.ts";
+import {
+  assertPlatformCollectedCompletionPaymentGate,
+  CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED,
+} from "./executeFareIncreaseModificationPayment.ts";
 import { recordPaymentSessionPersistFailureMetadata } from "./walletPostingMismatchSSOT.ts";
 import {
   markPaymentSessionCaptured,
@@ -33,22 +37,22 @@ import {
   markPaymentSessionPaymentShortfall,
   markPaymentSessionProviderFee,
 } from "./paymentSessionSSOT.ts";
-import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "./paymentHoldProviderTerminalPure.ts";
-import { tipCollectedFromConfirmedCapture } from "./tripPaymentFinalised.ts";
-import { extractProviderFeePence } from "./paymentCaptureEvidenceSSOT.ts";
+import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "../../../shared/paymentHoldProviderTerminalPure.ts";
+import { tipCollectedFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
+import { extractProviderFeePence } from "../../../shared/paymentCaptureEvidenceSSOT.ts";
 import {
   RELEASE_EVIDENCE_SOURCE,
-} from "./paymentSessionReleaseEvidenceSSOT.ts";
+} from "../../../shared/paymentSessionReleaseEvidenceSSOT.ts";
 import {
   assertCaptureWithinTotalAuthorised,
-} from "./paymentSessionAdditionalAuthSSOT.ts";
+} from "../../../shared/paymentSessionAdditionalAuthSSOT.ts";
 import type { FinalizeRevolutCaptureResult } from "./finalizeRevolutTripCapture.ts";
 import {
   buildPaymentResolutionPersistPatch,
   markAdditionalAuthPendingOrRecovery,
   planFinalFareAgainstAuthorisation,
   PAYMENT_RESOLUTION_STATUS,
-} from "./finalFareAuthorisationSSOT.ts";
+} from "../../../shared/finalFareAuthorisationSSOT.ts";
 
 async function persistPostCaptureResidualReleaseEvidence(args: {
   supabase: SupabaseClient;
@@ -184,29 +188,22 @@ export async function executeRevolutTripCompletionCapture(args: {
     };
   }
 
-  // Block capture while a fare-increase modification is still unresolved.
-  // Does not mutate the original trip fare.
-  const { data: unresolvedIncrease, error: unresolvedErr } = await args.supabase.rpc(
-    "trip_has_unresolved_fare_increase_modification",
-    { p_trip_id: tripId },
+  // Independent capture gate: never settle an old hold while a positive
+  // customer-payable increment is unresolved, or while protected < committed.
+  const completionGate = await assertPlatformCollectedCompletionPaymentGate(
+    args.supabase,
+    tripId,
   );
-  if (unresolvedErr) {
-    console.error("UNRESOLVED_FARE_INCREASE_CHECK_FAILED", unresolvedErr);
+  if (!completionGate.ok) {
+    console.error("CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED", completionGate);
     return {
       success: false,
-      status: "unresolved_modification_check_failed",
+      status: "customer_payment_increment_unresolved",
       capture_amount_pence: 0,
       provider_order_id: orderId,
-      error: "Unable to verify trip modifications before capture",
-    };
-  }
-  if (unresolvedIncrease === true) {
-    return {
-      success: false,
-      status: "unresolved_fare_increase_modification",
-      capture_amount_pence: 0,
-      provider_order_id: orderId,
-      error: "Trip has an unresolved fare-increase modification; completion capture blocked",
+      error: completionGate.code === CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED
+        ? CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED
+        : completionGate.code,
     };
   }
 

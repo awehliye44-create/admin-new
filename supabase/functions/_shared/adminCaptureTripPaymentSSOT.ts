@@ -39,6 +39,10 @@ import { recordPaymentSessionPersistFailureMetadata } from "./walletPostingMisma
 import { tripProviderOrderId } from "./tripPaymentProviderSSOT.ts";
 import type { RevolutOrder } from "./revolutOrders.ts";
 import { validateAdminCaptureTripPreconditions } from "./adminCaptureTripPaymentPreconditions.ts";
+import {
+  assertPlatformCollectedCompletionPaymentGate,
+  CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED,
+} from "./executeFareIncreaseModificationPayment.ts";
 
 export type AdminCaptureTripPaymentDeps = {
   retrieveOrder?: (
@@ -107,6 +111,22 @@ export async function executeAdminCaptureTripPayment(args: {
   }
 
   const tripId = String(args.trip.id);
+
+  // Same completion payment gate as stop-workflow / Revolut capture (MK-260916-030).
+  const paymentGate = await assertPlatformCollectedCompletionPaymentGate(
+    args.supabase,
+    tripId,
+  );
+  if (!paymentGate.ok) {
+    return fail({
+      success: false,
+      error_code: paymentGate.code === CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED
+        ? CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED
+        : paymentGate.code,
+      error: paymentGate.message,
+    });
+  }
+
   const captureAmountTarget = pre.captureAmountPence;
 
   const sessionLoad = await loadRideBookingPaymentSessions(args.supabase, tripId);

@@ -6,6 +6,10 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { prepareRevolutModificationAuthorisation } from "../_shared/revolutModTopUp.ts";
+import {
+  FINANCIAL_MODEL_VIOLATION,
+  SERVICE_AREA_FINANCIAL_MODEL,
+} from "../_shared/commissionWalletSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -58,7 +62,7 @@ Deno.serve(async (req) => {
       .from("trips")
       .select(
         "id, passenger_id, payment_provider, payment_method, provider_order_id, "
-          + "authorised_amount_pence, currency_code, "
+          + "authorised_amount_pence, currency_code, financial_model, "
           + "estimated_total_pence, final_customer_fare_pence, client_action_id",
       )
       .eq("id", tripId)
@@ -71,15 +75,33 @@ Deno.serve(async (req) => {
       });
     }
 
+    const financialModel = String(trip.financial_model ?? "").toUpperCase();
+    if (
+      financialModel
+      === SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET
+    ) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: `${FINANCIAL_MODEL_VIOLATION}: platform increment forbidden on DRIVER_COLLECTED`,
+        error_code: FINANCIAL_MODEL_VIOLATION,
+        payment_coverage_status: "authorization_insufficient",
+      }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // PLATFORM_COLLECTED cash is obsolete — never treat as covered.
     const isCash = String(trip.payment_method ?? "").toLowerCase().includes("cash");
     if (isCash) {
       return new Response(JSON.stringify({
-        success: true,
-        skipped: true,
-        payment_coverage_status: "not_required",
-        authorised_amount_pence: newEstimatedTotalPence,
+        success: false,
+        skipped: false,
+        error: `${FINANCIAL_MODEL_VIOLATION}: cash increment forbidden on PLATFORM_COLLECTED`,
+        error_code: FINANCIAL_MODEL_VIOLATION,
+        payment_coverage_status: "authorization_insufficient",
       }), {
-        status: 200,
+        status: 409,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

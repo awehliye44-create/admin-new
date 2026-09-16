@@ -153,14 +153,40 @@ serveWithEdgeTiming("respond-trip-modification", corsHeaders, async (req) => {
     }
 
     // Payment must be confirmed before driver can approve a fare-increasing mod.
+    // Gate on effective increase (delta OR quoted new_fare vs committed), matching
+    // apply-trip-change (MK-260916-030).
+    const tripRow = changeRequest.trips as Record<string, unknown>;
     const fareDelta = Number(changeRequest.fare_delta_pence ?? 0);
-    if (fareDelta > 0 && changeRequest.payment_status !== "confirmed") {
+    const quotedNewFare = Math.max(
+      0,
+      Math.round(Number(changeRequest.new_fare_pence ?? 0)),
+    );
+    const committed = Math.max(
+      0,
+      Math.round(Number(tripRow.final_customer_fare_pence ?? 0)),
+      Math.round(Number(tripRow.estimated_total_pence ?? 0)),
+      Math.round(Number(tripRow.locked_base_fare_pence ?? 0)),
+    );
+    const quotedIncrease = quotedNewFare > 0
+      ? Math.max(0, quotedNewFare - committed)
+      : 0;
+    const effectiveIncrease = Math.max(fareDelta, quotedIncrease);
+    const tripModel = String(tripRow.financial_model ?? "").toUpperCase();
+    const platform =
+      tripModel === "PLATFORM_COLLECTED" || tripModel === "";
+    if (
+      effectiveIncrease > 0
+      && changeRequest.payment_status !== "confirmed"
+      && (platform || changeRequest.payment_status !== "not_required")
+    ) {
       return new Response(JSON.stringify({
+        success: false,
         error: "Payment confirmation required before driver approval",
+        code: "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED",
         currentStatus: changeRequest.status,
         paymentStatus: changeRequest.payment_status,
       }), {
-        status: 400,
+        status: 402,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

@@ -82,7 +82,7 @@ Deno.test("Customer Accept £Y and Counter £Z increment before fare/assignment 
   assertEquals(counterBlock.includes("ensureNegotiationPayableAuthorised"), true);
   assertEquals(
     counterBlock.indexOf("ensureNegotiationPayableAuthorised")
-      < counterBlock.indexOf("commit_negotiation_fare"),
+      < counterBlock.indexOf("customer_counter_ride_offer"),
     true,
   );
   assertEquals(

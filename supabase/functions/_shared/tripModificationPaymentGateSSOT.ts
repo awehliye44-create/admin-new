@@ -9,7 +9,7 @@
  */
 
 import {
-  classifyIncrementCoverage,
+  revolutProviderAuthorisedTotalPence,
   type RevolutOrder,
 } from "./revolutOrders.ts";
 
@@ -51,16 +51,63 @@ export function poundsToPenceExact(pounds: number): number {
 }
 
 /**
+ * Modification-apply coverage — stricter than completion-capture MK-260815-020.
+ * Processing/pending/initiated increment new_amount must NOT unlock trip mutation.
+ * Only issuer-authorised totals (via revolutProviderAuthorisedTotalPence) unlock apply.
+ */
+export function classifyModificationApplyCoverage(
+  order: RevolutOrder | null | undefined,
+  targetTotalPence: number,
+): { class: "confirmed" | "processing" | "insufficient" | "unknown"; authorisedTotalPence: number } {
+  const target = Math.round(Number(targetTotalPence));
+  if (!order) return { class: "unknown", authorisedTotalPence: 0 };
+
+  const authorisedTotalPence = revolutProviderAuthorisedTotalPence(order);
+  const increments = Array.isArray(order.incremental_authorisations)
+    ? order.incremental_authorisations
+    : [];
+  const unsettled = increments.some((increment) => {
+    const s = String(increment?.state ?? "").toLowerCase();
+    return s === "processing" || s === "pending"
+      || s === "initiated" || s === "requested" || s === "created"
+      || s === "unknown";
+  });
+  const declined = increments.some((increment) => {
+    const s = String(increment?.state ?? "").toLowerCase();
+    return s === "declined" || s === "failed";
+  });
+
+  if (authorisedTotalPence >= target) {
+    return { class: "confirmed", authorisedTotalPence };
+  }
+
+  if (unsettled) {
+    return { class: "processing", authorisedTotalPence };
+  }
+
+  if (declined || authorisedTotalPence > 0) {
+    return { class: "insufficient", authorisedTotalPence };
+  }
+
+  const state = String(order.state ?? "").toUpperCase();
+  if (state === "PROCESSING" || state === "PENDING") {
+    return { class: "processing", authorisedTotalPence };
+  }
+
+  return { class: "unknown", authorisedTotalPence };
+}
+
+/**
  * Provider-authoritative coverage for a fare-increasing modification.
  * Original order AUTHORISED alone is never enough when target exceeds current
- * authorised total — the increment itself must be settled.
+ * authorised total — the increment itself must be settled (authorised state).
  */
 export function decideModificationIncrementCoverage(args: {
   order: RevolutOrder | null | undefined;
   requiredPayablePence: number;
 }): ModificationPaymentGateDecision {
   const required = Math.max(0, Math.round(Number(args.requiredPayablePence)));
-  const coverage = classifyIncrementCoverage(args.order, required);
+  const coverage = classifyModificationApplyCoverage(args.order, required);
 
   if (coverage.class === "confirmed" && coverage.authorisedTotalPence >= required) {
     return {
@@ -123,13 +170,24 @@ export function decideFromPreauthInvokeResult(args: {
   const warning = String(args.warning ?? "").toLowerCase();
 
   if (args.skipped === true && args.success) {
-    // Cash / not-required path — caller must only skip when delta ≤ 0.
+    // Never invent coverage. Skip mayApply only when hold already covers revised payable.
+    // Positive-delta PLATFORM paths must not treat skipped as paid (MK-260916-030).
+    if (authorised >= required && required > 0) {
+      return {
+        phase: "PROVIDER_CONFIRMED",
+        mayApply: true,
+        paymentStatus: "confirmed",
+        requestStatus: "payment_confirmed",
+        authorisedTotalPence: authorised,
+      };
+    }
     return {
-      phase: "PROVIDER_CONFIRMED",
-      mayApply: true,
-      paymentStatus: "confirmed",
-      requestStatus: "payment_confirmed",
-      authorisedTotalPence: authorised || required,
+      phase: "PAYMENT_FAILED",
+      mayApply: false,
+      paymentStatus: "failed",
+      requestStatus: "payment_failed",
+      authorisedTotalPence: authorised,
+      reason: "amount_mismatch",
     };
   }
 

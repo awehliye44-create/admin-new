@@ -20,6 +20,8 @@ import {
   resolveModificationRouteOrigin,
 } from "../_shared/modificationRouteOrigin.ts";
 import { computeModificationFareDelta } from "../_shared/tripModificationFareDelta.ts";
+import { SERVICE_AREA_FINANCIAL_MODEL } from "../_shared/commissionWalletSSOT.ts";
+import { executeFareIncreaseModificationPayment } from "../_shared/executeFareIncreaseModificationPayment.ts";
 
 const LOCKED_STOP_STATUSES = new Set(["completed", "skipped", "arrived"]);
 const PRE_PICKUP_STATUSES = new Set([
@@ -524,18 +526,69 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
 
     const { data: existingRequests } = await supabase
       .from("trip_change_requests")
-      .select("id, status, created_at")
+      .select("*")
       .eq("trip_id", tripId)
       .in("status", OPEN_MOD_STATUSES)
       .limit(1);
 
     const existingRequest = existingRequests?.[0] ?? null;
     if (existingRequest) {
+      const existingStatus = String(existingRequest.status ?? "");
+      // Backend owns payment retry — do not require Customer App to call confirm.
+      if (existingStatus === "payment_required" || existingStatus === "payment_pending") {
+        const resume = await executeFareIncreaseModificationPayment(supabase, {
+          requestId: String(existingRequest.id),
+          changeRequest: existingRequest as Record<string, unknown>,
+          trip: trip as Record<string, unknown>,
+        });
+        const { data: afterResume } = await supabase
+          .from("trip_change_requests")
+          .select("*")
+          .eq("id", existingRequest.id)
+          .single();
+        const resumed = afterResume ?? existingRequest;
+        if (!resume.success) {
+          return new Response(JSON.stringify({
+            success: false,
+            requestId: resumed.id,
+            status: resume.status,
+            paymentStatus: resume.paymentStatus,
+            paymentRequired: true,
+            paymentProcessing: resume.paymentProcessing === true,
+            paymentPhase: resume.paymentPhase,
+            tripUnchanged: true,
+            authorisedTotalPence: resume.authorisedTotalPence,
+            requiredPayablePence: resume.requiredPayablePence,
+            existingRequestId: resumed.id,
+            existingStatus: resume.status,
+            error: resume.error ?? "Payment confirmation failed",
+            message: resume.error ?? "Payment confirmation failed",
+          }), {
+            status: resume.httpStatus,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({
+          success: true,
+          requestId: resumed.id,
+          status: resume.status ?? resumed.status,
+          paymentStatus: resume.paymentStatus,
+          paymentRequired: true,
+          paymentPhase: resume.paymentPhase,
+          existingRequestId: resumed.id,
+          existingStatus: resume.status ?? resumed.status,
+          requiresApproval: Boolean(resumed.requires_approval),
+          navigationImpacted: Boolean(resumed.navigation_impacted),
+          message: "Existing modification payment completed",
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       return new Response(JSON.stringify({
         error: "Pending modification request exists",
-        message: existingRequest.status === "payment_required" || existingRequest.status === "payment_pending"
-          ? "Please complete payment confirmation for the current modification request"
-          : "Please wait for driver to respond to current modification request",
+        message: "Please wait for driver to respond to current modification request",
         existingRequestId: existingRequest.id,
         existingStatus: existingRequest.status,
       }), {
@@ -1122,7 +1175,14 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     }
 
     const expiresAt = new Date(Date.now() + 120000).toISOString();
-    const paymentRequired = fareDeltaPence > 0;
+    const financialModel = String(
+      (trip as { financial_model?: unknown }).financial_model ?? "",
+    ).toUpperCase();
+    const platformCollected =
+      financialModel === SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED;
+    // PLATFORM_COLLECTED only: positive delta requires Revolut increment before apply.
+    // DRIVER_COLLECTED must never enter Payment Sessions / Revolut increment.
+    const paymentRequired = fareDeltaPence > 0 && platformCollected;
 
     const { data: changeRequest, error: insertError } = await supabase
       .from("trip_change_requests")
@@ -1166,13 +1226,69 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     }
 
     // Re-read after triggers (status may be applied).
-    const { data: latestRequest } = await supabase
+    let { data: latestRequest } = await supabase
       .from("trip_change_requests")
       .select("*")
       .eq("id", changeRequest.id)
       .single();
 
-    const finalRequest = latestRequest ?? changeRequest;
+    let finalRequest = latestRequest ?? changeRequest;
+    let paymentResult: Awaited<
+      ReturnType<typeof executeFareIncreaseModificationPayment>
+    > | null = null;
+
+    // Backend owns FARE → MONEY → TRIP. Customer App is not the orchestrator.
+    if (
+      paymentRequired
+      && ["payment_required", "payment_pending"].includes(String(finalRequest.status))
+    ) {
+      paymentResult = await executeFareIncreaseModificationPayment(supabase, {
+        requestId: String(finalRequest.id),
+        changeRequest: finalRequest,
+        trip: trip as Record<string, unknown>,
+      });
+
+      const { data: afterPay } = await supabase
+        .from("trip_change_requests")
+        .select("*")
+        .eq("id", finalRequest.id)
+        .single();
+      if (afterPay) finalRequest = afterPay;
+
+      console.log("Modification backend payment result:", finalRequest.id, {
+        success: paymentResult.success,
+        status: paymentResult.status,
+        paymentPhase: paymentResult.paymentPhase,
+        tripUnchanged: paymentResult.tripUnchanged,
+      });
+
+      if (!paymentResult.success) {
+        return new Response(JSON.stringify({
+          success: false,
+          requestId: finalRequest.id,
+          status: paymentResult.status,
+          paymentStatus: paymentResult.paymentStatus,
+          paymentRequired: true,
+          paymentProcessing: paymentResult.paymentProcessing === true,
+          paymentPhase: paymentResult.paymentPhase,
+          tripUnchanged: true,
+          authorisedTotalPence: paymentResult.authorisedTotalPence,
+          requiredPayablePence: paymentResult.requiredPayablePence,
+          error: paymentResult.error ?? "Payment confirmation failed",
+          message: paymentResult.error ?? "Payment confirmation failed",
+          preview,
+          fareDelta: fareDeltaPence / 100,
+          fareDeltaPence,
+          newFare: newCustomerTotalPence / 100,
+          newFarePence,
+          newCustomerTotalPence,
+          currentConfirmedCustomerTotalPence,
+        }), {
+          status: paymentResult.httpStatus,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     console.log("Modification request created:", finalRequest.id, {
       status: finalRequest.status,
@@ -1181,10 +1297,15 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       paymentStatus: finalRequest.payment_status,
       fareDeltaPence,
       changeType,
+      backendOwnedPayment: paymentRequired,
     });
 
     // Auto-applied (no payment, no nav impact): broadcast trip_updated.
-    if (finalRequest.status === "applied" || finalRequest.status === "approved") {
+    // Payment-success path already broadcasts inside executeFareIncreaseModificationPayment.
+    if (
+      !paymentResult?.success
+      && (finalRequest.status === "applied" || finalRequest.status === "approved")
+    ) {
       const polyline =
         typeof afterRouteSnapshot.fare_preview === "object" &&
           afterRouteSnapshot.fare_preview != null &&
@@ -1211,6 +1332,9 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       navigationImpacted: finalRequest.navigation_impacted ?? navigationImpacted,
       paymentStatus: finalRequest.payment_status ?? (paymentRequired ? "required" : "not_required"),
       paymentRequired,
+      paymentPhase: paymentResult?.paymentPhase,
+      authorisedTotalPence: paymentResult?.authorisedTotalPence,
+      requiredPayablePence: paymentResult?.requiredPayablePence,
       expiresAt,
       preview,
       fareDelta: fareDeltaPence / 100,
@@ -1221,6 +1345,8 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       currentConfirmedCustomerTotalPence,
       newDistanceMeters: newDistance,
       newDurationSeconds: newDuration,
+      trip: paymentResult?.trip ?? undefined,
+      tripUpdated: paymentResult?.tripUpdated ?? undefined,
     }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -98,7 +98,23 @@ function buildMockSupabase(sessions: Record<string, unknown>[]) {
       };
       return chain;
     },
-    rpc: async () => ({ data: null, error: null }),
+    rpc: async (fn: string) => {
+      if (fn === "assert_trip_completion_customer_payment_gate") {
+        return {
+          data: {
+            ok: true,
+            code: "OK",
+            protected_pence: 500,
+            required_pence: 500,
+          },
+          error: null,
+        };
+      }
+      if (fn === "trip_has_unresolved_fare_increase_modification") {
+        return { data: false, error: null };
+      }
+      return { data: null, error: null };
+    },
   };
 
   return {
@@ -323,6 +339,34 @@ Deno.test("K: capture amount mismatch — fail closed, zero provider", async () 
   });
   assertStrictEquals(result.error_code, ADMIN_CAPTURE_PRECONDITION.CAPTURE_AMOUNT_MISMATCH);
   assertStrictEquals(m.retrieve, 0);
+});
+
+Deno.test("L: unresolved fare-increase gate blocks admin capture before provider", async () => {
+  const { client } = buildMockSupabase([psRow()]);
+  (client as { rpc: (fn: string) => Promise<unknown> }).rpc = async (fn: string) => {
+    if (fn === "assert_trip_completion_customer_payment_gate") {
+      return {
+        data: {
+          ok: false,
+          code: "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED",
+          message: "Trip has an unresolved customer payment increment; completion is blocked",
+        },
+        error: null,
+      };
+    }
+    return { data: null, error: null };
+  };
+  const m = { retrieve: 0, capture: 0, persist: 0, settlement: 0, lockClaim: 0, lockRelease: 0, psCaptured: false };
+  const result = await executeAdminCaptureTripPayment({
+    supabase: client as never,
+    trip: BASE_TRIP,
+    deps: baseDeps(m),
+  });
+  assertStrictEquals(result.success, false);
+  assertStrictEquals(result.error_code, "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED");
+  assertStrictEquals(m.retrieve, 0);
+  assertStrictEquals(m.capture, 0);
+  assertStrictEquals(m.lockClaim, 0);
 });
 
 Deno.test("ordering: fresh capture uses persistConfirmedProviderCapture only", async () => {
