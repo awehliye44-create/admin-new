@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { retryPayoutLedgerSync } from "../_shared/payoutLedgerSync.ts";
@@ -16,7 +17,7 @@ function isServiceRoleToken(token: string): boolean {
   }
 }
 
-async function verifyAdmin(supabase: ReturnType<typeof createClient>, authHeader: string | null) {
+async function verifyAdmin(supabase: AnySupabaseClient, authHeader: string | null) {
   if (!authHeader) return null;
   const token = authHeader.replace("Bearer ", "");
   const { data: { user }, error } = await supabase.auth.getUser(token);

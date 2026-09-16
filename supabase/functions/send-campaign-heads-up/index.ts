@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * send-campaign-heads-up — dispatches Campaign / Celebration notifications (System B).
  * Never routes through send-trip-notification or operational heads-up pipeline.
@@ -171,7 +172,7 @@ async function sendFCMv1(
 }
 
 async function deactivateInvalidPushToken(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   app: "customer" | "driver",
   token: string,
 ): Promise<void> {
@@ -216,7 +217,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 async function requireAdminOrStaff(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   bearer: string,
   serviceKey: string,
 ): Promise<Response | null> {
@@ -254,7 +255,7 @@ async function resolveFcm(): Promise<
 }
 
 async function collectTokens(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   campaign: CampaignRow,
 ): Promise<Array<CampaignToken & { app: "customer" | "driver" }>> {
   const audience = await resolveCampaignAudience(supabase, campaign);
@@ -338,7 +339,7 @@ type DeliveryClaim = "send" | "skip_done" | "skip_busy" | "fail";
  * delivered/opened/tapped/dismissed, and never steal a fresh in-flight pending.
  */
 async function claimCampaignDelivery(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   opts: {
     campaignId: string;
     userId: string;
@@ -421,7 +422,7 @@ async function claimCampaignDelivery(
 }
 
 async function dispatchCampaign(opts: {
-  supabase: ReturnType<typeof createClient>;
+  supabase: AnySupabaseClient;
   campaign: CampaignRow;
   projectId: string;
   accessToken: string;
@@ -574,7 +575,7 @@ async function dispatchCampaign(opts: {
 }
 
 async function claimCampaign(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   campaignId: string,
 ): Promise<{ campaign: CampaignRow; revertStatus: string } | null> {
   const { data: campaign, error } = await supabase

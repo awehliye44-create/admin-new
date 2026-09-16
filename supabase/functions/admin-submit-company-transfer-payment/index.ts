@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Slice 12 â Admin-controlled company transfer provider submission.
  * Requires REVOLUT_PAYMENT_TRANSPORT_ENABLED=true and
@@ -56,7 +57,7 @@ function json(data: unknown, status = 200): Response {
 }
 
 async function loadLiveCompanyTransferExecutionEnabled(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
 ): Promise<boolean> {
   try {
     const envEnabled = parseLiveCompanyTransferExecutionEnabled((k) => Deno.env.get(k));
@@ -75,7 +76,7 @@ async function loadLiveCompanyTransferExecutionEnabled(
 }
 
 async function captureFundingSnapshot(args: {
-  supabase: ReturnType<typeof createClient>;
+  supabase: AnySupabaseClient;
   service_area_id: string | null;
   currency: string;
 }) {

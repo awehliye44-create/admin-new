@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   handleCORSPreflight,
@@ -215,7 +216,7 @@ async function hangupMsg91Call(authKey: string, uuid: string): Promise<boolean> 
 }
 
 function scheduleCallDurationLimit(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: AnySupabaseClient,
   authKey: string,
   logId: string,
   msg91Uuid: string | null,
@@ -259,7 +260,7 @@ function scheduleCallDurationLimit(
 
 /** When user manually dials the virtual number, MSG91 route-inbound fires — record + cap duration. */
 async function ensureInboundCallLog(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: AnySupabaseClient,
   authKey: string,
   sessionId: string,
   tripId: string,
@@ -370,7 +371,7 @@ async function callMsg91(
   return { ok: response.ok, status: response.status, body };
 }
 
-async function expireDueSessions(serviceClient: ReturnType<typeof createClient>) {
+async function expireDueSessions(serviceClient: AnySupabaseClient) {
   const { error } = await serviceClient.rpc("expire_due_call_masking_sessions");
   if (error) {
     console.warn("[call-masking] expire_due_call_masking_sessions rpc error:", error);
@@ -380,7 +381,7 @@ async function expireDueSessions(serviceClient: ReturnType<typeof createClient>)
 /** Expire sessions for terminal trips and stale driver assignments (safety net). */
 /** Finalize active logs past max duration (backup when EdgeRuntime.waitUntil does not run). */
 async function sweepOverdueActiveCallLogs(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: AnySupabaseClient,
   authKey: string,
 ) {
   const cutoff = new Date(Date.now() - 7200 * 1000).toISOString();
@@ -417,7 +418,7 @@ async function sweepOverdueActiveCallLogs(
 
 /** Hang up prior bridged calls for a session before starting a new CTC attempt. */
 async function hangupActiveSessionCalls(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: AnySupabaseClient,
   authKey: string,
   sessionId: string,
 ) {
@@ -451,7 +452,7 @@ async function hangupActiveSessionCalls(
   });
 }
 
-async function expireStaleMaskingSessions(serviceClient: ReturnType<typeof createClient>) {
+async function expireStaleMaskingSessions(serviceClient: AnySupabaseClient) {
   const { data: activeSessions, error } = await serviceClient
     .from("call_masking_sessions")
     .select("id, trip_id, driver_id, status")
@@ -511,7 +512,7 @@ function verifyWebhookSecret(
 }
 
 async function handleCallReport(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: AnySupabaseClient,
   body: Record<string, unknown>,
 ) {
   const uuid = (body.uuid || body.request_id || body.requestId) as string | undefined;

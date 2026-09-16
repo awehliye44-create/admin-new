@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Admin — Digital payment methods per service area.
  * GET: readiness + toggles for Admin UI "Digital payment methods" section.
@@ -48,7 +49,7 @@ function pickToggleUpdates(body: Record<string, unknown>): Partial<Record<Toggle
 }
 
 async function buildAdminDigitalPaymentPayload(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   serviceAreaId: string,
 ) {
   const { data: area } = await supabase

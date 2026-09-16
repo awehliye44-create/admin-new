@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
@@ -22,7 +23,7 @@ const corsHeaders = {
   "Access-Control-Max-Age": "86400",
 };
 
-async function requireAdmin(req: Request, supabase: ReturnType<typeof createClient>) {
+async function requireAdmin(req: Request, supabase: AnySupabaseClient) {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return { error: "Unauthorized", status: 401, user: null };
 
@@ -45,7 +46,7 @@ async function requireAdmin(req: Request, supabase: ReturnType<typeof createClie
 
 
 async function buildProviderCard(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   config: Record<string, unknown>,
 ) {
   const provider = config.provider as PaymentProviderId;

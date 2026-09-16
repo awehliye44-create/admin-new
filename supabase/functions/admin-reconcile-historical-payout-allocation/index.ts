@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   allocatePayoutToEarnings,
@@ -41,7 +42,7 @@ function assertProductionAllowed(projectRef: string, allowProduction?: boolean):
 type PoolRow = AllocationCandidate & { driver_id: string };
 
 async function fetchAllocationPool(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   driverId?: string,
 ): Promise<PoolRow[]> {
   let query = supabase
@@ -78,7 +79,7 @@ async function fetchAllocationPool(
 }
 
 async function writeAllocation(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   payout: import("../_shared/historicalPayoutAllocation.ts").PayoutEvent,
   match: { settlement_id: string; ledger_entry_id: string; amount_pence: number },
   allocatedAt: string,
@@ -103,7 +104,7 @@ async function writeAllocation(
 }
 
 async function payoutAlreadyAllocated(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   payout: import("../_shared/historicalPayoutAllocation.ts").PayoutEvent,
 ): Promise<boolean> {
   if (payout.payout_item_id) {
@@ -126,7 +127,7 @@ async function payoutAlreadyAllocated(
 }
 
 async function runAllocation(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   mode: Mode,
   args: { driverId?: string; allowAmbiguous?: boolean },
 ) {

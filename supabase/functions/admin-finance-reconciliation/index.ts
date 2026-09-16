@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { computeSSOTMetrics, mergePaymentSessionsIntoCaptureRows, sumCapturedPaymentsByTripId, SSOT_VERSION, type PaymentSessionMoneyRow } from "../_shared/financialReconciliationSSOT.ts";
@@ -202,7 +203,7 @@ async function withTimeout<T>(
 
 
 async function fetchLegacyManualReviewItems(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   platformDriverIds: string[],
 ): Promise<Array<{
   payout_item_id: string;
@@ -254,7 +255,7 @@ function computeProviderHealthStatus(args: {
 }
 
 async function buildServiceAreaCurrencyMap(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   tripRows: TripAuditSourceRow[],
 ): Promise<Map<string, string>> {
   const serviceAreaIds = [...new Set(
@@ -300,7 +301,7 @@ function safeMapTripAuditRow(
 }
 
 async function fetchLedgerRowsForPeriod(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   periodFrom: string,
   periodTo: string,
   driverIds: string[],

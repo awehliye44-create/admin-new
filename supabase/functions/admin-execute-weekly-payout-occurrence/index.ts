@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Canonical weekly payout orchestrator.
  * Cron + admin entry: claim occurrence â eligibility â batch â funding â
@@ -75,7 +76,7 @@ const corsHeaders = {
   "Content-Type": "application/json",
 };
 
-type AnySupabase = ReturnType<typeof createClient>;
+type AnySupabase = AnySupabaseClient;
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders } });

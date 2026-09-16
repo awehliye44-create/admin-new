@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { deliverDriverStatement } from "../_shared/deliverDriverStatement.ts";
 
@@ -6,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-async function isAdmin(supabase: ReturnType<typeof createClient>, userId: string): Promise<boolean> {
+async function isAdmin(supabase: AnySupabaseClient, userId: string): Promise<boolean> {
   const { data } = await supabase
     .from("user_roles")
     .select("role")

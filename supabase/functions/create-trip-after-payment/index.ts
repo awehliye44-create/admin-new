@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   buildMinimalTripInsertRow,
@@ -76,7 +77,7 @@ type BookingFailureContext = {
 };
 
 async function failBookingAfterAuthorizedPayment(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   order: RevolutOrder | null,
   ctx: BookingFailureContext,
   httpStatus: number,
@@ -104,7 +105,7 @@ async function failBookingAfterAuthorizedPayment(
 }
 
 async function failBookingAfterAuthorizedRevolutOrder(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   order: RevolutOrder,
   ctx: {
     userId: string;

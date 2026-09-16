@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Provider-neutral timeout sweep for VoIP + call-masking sessions.
  * Auth: cron secret or service role (assertCronOrServiceRoleAuth).
@@ -49,7 +50,7 @@ async function hangupMsg91Call(opts: {
 }
 
 async function sweepExpiredMaskingSessions(
-  client: ReturnType<typeof createClient>,
+  client: AnySupabaseClient,
   limit = 20,
 ): Promise<{ scanned: number; terminated: number }> {
   const authKey = Deno.env.get("MSG91_AUTH_KEY")?.trim();

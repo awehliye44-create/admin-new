@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * get-revolut-checkout-client-config
  *
@@ -45,7 +46,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 }
 
 async function readVaultPublishableKey(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   environment: "live" | "test",
 ): Promise<string | null> {
   const { data, error } = await supabase
@@ -67,7 +68,7 @@ async function readVaultPublishableKey(
 }
 
 async function resolvePublishableKey(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
 ): Promise<{
   publicKey: string | null;
   environment: "sandbox" | "production";

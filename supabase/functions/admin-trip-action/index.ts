@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Admin trip lifecycle SSOT — no direct trips.update from the admin UI.
  *
@@ -49,7 +50,7 @@ function json(body: Record<string, unknown>, status = 200) {
   });
 }
 
-async function loadSnapshot(supabase: ReturnType<typeof createClient>, tripId: string) {
+async function loadSnapshot(supabase: AnySupabaseClient, tripId: string) {
   const [{ data: trip }, { data: stops }] = await Promise.all([
     supabase
       .from("trips")

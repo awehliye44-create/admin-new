@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 
@@ -7,7 +8,7 @@ const corsHeaders = {
 };
 
 async function resolveRegionId(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabaseClient,
   regionId: string | null,
   serviceAreaId: string | null,
 ): Promise<string | null> {

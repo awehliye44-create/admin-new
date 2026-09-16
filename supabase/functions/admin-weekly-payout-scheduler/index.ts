@@ -1,3 +1,4 @@
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * Slice 5 — Canonical weekly payout scheduler.
  * Reads Payout Ledger Settings SSOT every run; creates deterministic batch+items;
@@ -48,7 +49,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-onecab-cron-secret",
 };
 
-type AnySupabase = ReturnType<typeof createClient>;
+type AnySupabase = AnySupabaseClient;
 
 async function assertAdmin(req: Request, supabase: AnySupabase): Promise<
   { ok: true; userId: string } | { ok: false; response: Response }
