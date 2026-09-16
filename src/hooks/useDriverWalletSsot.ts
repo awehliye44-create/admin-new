@@ -179,11 +179,25 @@ export type DriverWalletSsotListResult = {
 
 const DEFAULT_PAGE_SIZE = 25;
 
+/** Deleted driver accounts must never appear in wallet lists. */
+async function excludeDeletedDrivers(rows: DriverWalletSsotRow[]): Promise<DriverWalletSsotRow[]> {
+  if (rows.length === 0) return rows;
+  const { data, error } = await supabase
+    .from('drivers')
+    .select('id')
+    .in('id', rows.map((r) => r.driver_id).filter(Boolean))
+    .or('deleted_at.not.is.null,driver_status.eq.deleted');
+  if (error) return rows;
+  const deleted = new Set((data ?? []).map((r) => String(r.id)));
+  return rows.filter((r) => !deleted.has(String(r.driver_id)));
+}
+
 async function overlayDriverWalletEligibility(
   drivers: DriverWalletSsotRow[],
 ): Promise<DriverWalletSsotRow[]> {
   const ids = drivers.map((d) => d.driver_id).filter(Boolean);
   if (ids.length === 0) return drivers;
+
 
   let rows: DriverWalletEligibilityOverlay[] = [];
   const batch = await supabase.rpc(
