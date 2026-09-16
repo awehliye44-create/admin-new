@@ -278,7 +278,14 @@ function sumByTypes(ledger: FrDriverLedgerRow[], types: Set<string>): number {
   return sum;
 }
 
-/** Trip credits: TRIP_EARNING_NET + settlement corrections (balance-affecting). */
+/**
+ * Trip entitlement credits: TRIP_EARNING_NET + settlement corrections +
+ * trip-linked DRIVER_TIP_CREDIT (balance-affecting).
+ *
+ * Symmetric with expected entitlement, which already adds confirmed tips.
+ * Tip credits are only counted when tied to a trip — untied tip rows are
+ * reported as discretionary credits instead (never as trip entitlement).
+ */
 export function sumActualWalletTripCreditsPence(
   ledger: FrDriverLedgerRow[],
   tripIds?: Set<string> | null,
@@ -286,10 +293,23 @@ export function sumActualWalletTripCreditsPence(
   let sum = 0;
   for (const row of ledger) {
     const t = String(row.type ?? "").toUpperCase();
-    if (!TRIP_CREDIT_TYPES.has(t)) continue;
-    if (t !== "TRIP_EARNING_NET" && !isBalanceAffecting(t)) continue;
+    if (!FR_TRIP_ENTITLEMENT_CREDIT_TYPES.has(t)) continue;
+    if (t !== "TRIP_EARNING_NET" && t !== TRIP_TIP_CREDIT_TYPE && !isBalanceAffecting(t)) continue;
     const tripId = row.related_trip_id == null ? null : String(row.related_trip_id);
+    if (t === TRIP_TIP_CREDIT_TYPE && !tripId) continue;
     if (tripIds && tripIds.size > 0 && (!tripId || !tripIds.has(tripId))) continue;
+    sum += Math.round(Number(row.amount_pence ?? 0));
+  }
+  return sum;
+}
+
+/** Tip credits with no related trip — discretionary, outside trip entitlement. */
+export function sumUnlinkedTipCreditsPence(ledger: FrDriverLedgerRow[]): number {
+  let sum = 0;
+  for (const row of ledger) {
+    const t = String(row.type ?? "").toUpperCase();
+    if (t !== TRIP_TIP_CREDIT_TYPE) continue;
+    if (row.related_trip_id != null && String(row.related_trip_id).trim() !== "") continue;
     sum += Math.round(Number(row.amount_pence ?? 0));
   }
   return sum;
