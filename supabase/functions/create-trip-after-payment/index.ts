@@ -47,6 +47,7 @@ import {
   shouldSkipPlatformPreauthForCommissionWallet,
   type ServiceAreaCommissionWalletConfig,
 } from "../_shared/commissionWalletSSOT.ts";
+import { repairTripStopsFromSession } from "../_shared/repairTripStopsFromSession.ts";
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
@@ -59,6 +60,28 @@ const log = (step: string, details?: unknown) => {
   const d = details ? ` - ${JSON.stringify(details)}` : "";
   console.log(`[CREATE-TRIP-AFTER-PAYMENT] ${step}${d}`);
 };
+
+/** Webhook finalize often wins the race without vias — repair before idempotent return. */
+async function respondIdempotentWithStopRepair(
+  supabase: ReturnType<typeof createClient>,
+  trip: { id: string; trip_code: string; status: string },
+  by: string,
+): Promise<Response> {
+  try {
+    const repair = await repairTripStopsFromSession(supabase, { tripId: trip.id });
+    log("Idempotent stop repair", { tripId: trip.id, by, ...repair });
+  } catch (e) {
+    log("Idempotent stop repair failed", { tripId: trip.id, err: String(e) });
+  }
+  return new Response(JSON.stringify({
+    success: true,
+    ride_id: trip.id,
+    trip_code: trip.trip_code,
+    trip_reference: trip.trip_code ?? null,
+    status: trip.status,
+    idempotent: true,
+  }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
 
 const error = (message: string, status: number) =>
   new Response(JSON.stringify({ error: message }), {
@@ -489,20 +512,11 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       (existingTripsRes.status === "fulfilled" ? existingTripsRes.value.data?.[0] : null)
       ?? (existingTripByPaymentRes.status === "fulfilled" ? existingTripByPaymentRes.value.data?.[0] : null);
     if (idempotentTrip) {
-      log("Idempotent — trip already exists", {
-        tripId: idempotentTrip.id,
-        by: existingTripsRes.status === "fulfilled" && existingTripsRes.value.data?.[0]
-          ? "client_action_id"
-          : "payment_ref",
-      });
-      return new Response(JSON.stringify({
-        success: true,
-        ride_id: idempotentTrip.id,
-        trip_code: idempotentTrip.trip_code,
-        trip_reference: idempotentTrip.trip_code ?? null,
-        status: idempotentTrip.status,
-        idempotent: true,
-      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const by = existingTripsRes.status === "fulfilled" && existingTripsRes.value.data?.[0]
+        ? "client_action_id"
+        : "payment_ref";
+      log("Idempotent — trip already exists", { tripId: idempotentTrip.id, by });
+      return await respondIdempotentWithStopRepair(supabase, idempotentTrip, by);
     }
 
     reversalContext = {
@@ -733,14 +747,11 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         reason,
         by: sameClientAction ? "client_action_id" : "provider_order_id",
       });
-      return new Response(JSON.stringify({
-        success: true,
-        ride_id: liveTrip.id,
-        trip_code: liveTrip.trip_code,
-        trip_reference: liveTrip.trip_code ?? null,
-        status: liveTrip.status,
-        idempotent: true,
-      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return await respondIdempotentWithStopRepair(
+        supabase,
+        liveTrip,
+        sameClientAction ? "client_action_id" : "provider_order_id",
+      );
     };
 
     if (!isScheduledBooking) {
@@ -770,14 +781,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
               tripId: byCa.id,
               by: "client_action_id",
             });
-            return new Response(JSON.stringify({
-              success: true,
-              ride_id: byCa.id,
-              trip_code: byCa.trip_code,
-              trip_reference: byCa.trip_code ?? null,
-              status: byCa.status,
-              idempotent: true,
-            }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            return await respondIdempotentWithStopRepair(supabase, byCa, "client_action_id");
           }
         }
 
@@ -1063,6 +1067,16 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
             "create-trip-after-payment/index.ts:trips.insert(idempotent)",
             { trip_id: retryTrips[0].id, idempotent: true },
           );
+          try {
+            const repair = await repairTripStopsFromSession(supabase, {
+              tripId: retryTrips[0].id,
+              bookingSnapshot: sessionBookingSnapshot,
+              fareSnapshot: sessionFareSnapshot,
+            });
+            log("Idempotent stop repair", { tripId: retryTrips[0].id, ...repair });
+          } catch (e) {
+            log("Idempotent stop repair failed", { err: String(e) });
+          }
           return new Response(JSON.stringify({
             success: true,
             ride_id: retryTrips[0].id,
@@ -1099,14 +1113,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
               .limit(1)
               .maybeSingle();
             if (byCa) {
-              return new Response(JSON.stringify({
-                success: true,
-                ride_id: byCa.id,
-                trip_code: byCa.trip_code,
-                trip_reference: byCa.trip_code ?? null,
-                status: byCa.status,
-                idempotent: true,
-              }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+              return await respondIdempotentWithStopRepair(supabase, byCa, "client_action_id");
             }
           }
           if (paymentSessionId) {
@@ -1145,6 +1152,27 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       "create-trip-after-payment/index.ts:trips.insert",
       { trip_id: trip.id },
     );
+
+    try {
+      const repair = await repairTripStopsFromSession(supabase, {
+        tripId: trip.id,
+        bookingSnapshot: sessionBookingSnapshot,
+        fareSnapshot: sessionFareSnapshot,
+      });
+      if (repair.repaired) {
+        log("Post-insert stop repair", { tripId: trip.id, ...repair });
+        const { data: fixed } = await supabase
+          .from("trips")
+          .select("stops")
+          .eq("id", trip.id)
+          .maybeSingle();
+        if (Array.isArray(fixed?.stops) && fixed.stops.length > 0) {
+          body.stops = fixed.stops as BookingCommitBody["stops"];
+        }
+      }
+    } catch (e) {
+      log("Post-insert stop repair failed", { err: String(e) });
+    }
 
     const ctapResponseAt = Date.now();
     bookingWaterfall.recordStep({
