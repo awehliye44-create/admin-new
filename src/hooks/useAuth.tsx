@@ -8,6 +8,9 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   isAdmin: boolean;
+  /** True when the admin-role lookup could not reach the backend (network/outage). */
+  adminCheckUnavailable: boolean;
+  recheckAdmin: () => Promise<void>;
   isLoading: boolean;
   isAuthReady: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
