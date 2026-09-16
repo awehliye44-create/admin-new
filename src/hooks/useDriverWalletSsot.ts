@@ -322,7 +322,10 @@ async function fetchAllDriverWalletSsotPages(regionId: string | null): Promise<D
       });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error ?? 'SSOT fetch failed');
-      return overlayDriverWalletEligibility((data.drivers ?? []) as DriverWalletSsotRow[]);
+      return excludeDeletedDrivers(
+        await overlayDriverWalletEligibility((data.drivers ?? []) as DriverWalletSsotRow[]),
+      );
+
     }),
   );
 
