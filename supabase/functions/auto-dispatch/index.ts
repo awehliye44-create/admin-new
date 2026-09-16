@@ -3149,6 +3149,16 @@ Deno.serve(async (req) => {
           pickupAddress: trip.pickup_address ?? '',
           dropoffAddress: trip.dropoff_address ?? '',
           pickup_summary: pickupSummaryForRideOfferPush(trip.pickup_address),
+          ...(typeof (trip as { total_stops?: number }).total_stops === 'number' &&
+          Number.isFinite((trip as { total_stops: number }).total_stops)
+            ? {
+              total_stops: String((trip as { total_stops: number }).total_stops),
+              totalStops: String((trip as { total_stops: number }).total_stops),
+              ...(Number((trip as { total_stops: number }).total_stops) > 2
+                ? { has_multiple_stops: 'true' }
+                : {}),
+            }
+            : {}),
           ...(driverNetPence != null && driverNetPence > 0
             ? {
               driver_earnings_pence: String(driverNetPence),
