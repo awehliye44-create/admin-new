@@ -28307,6 +28307,7 @@ export type Database = {
         Returns: number
       }
       dispatch_jobs_sweep: { Args: never; Returns: undefined }
+      dispatch_jobs_sweep_has_work: { Args: never; Returns: boolean }
       dispatch_max_broadcast_rounds:
         | {
             Args: {
