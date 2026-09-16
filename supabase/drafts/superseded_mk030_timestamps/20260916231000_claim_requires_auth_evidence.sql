@@ -1,86 +1,9 @@
--- Migration 20261112180000: atomic fare-increase modification claim (MK-260916-030)
--- Replaces out-of-order 20260916220000; applies after live 20261112170000.
--- Migration 20260916220000: atomic fare-increase modification claim
--- Former invalid filename 20260915120000 REJECTED (collides with stacked-ride migration).
--- Rollback: rollback/rollback_20260916220000_atomic_fare_increase_modification_claim.sql
---
+-- Migration 20260916231000: claim must persist PSA evidence before advance
+-- PLATFORM positive fare-increase claim fails closed without
+-- ADDITIONAL_AUTHORISATION_CONFIRMED (MK-260916-030).
+-- Rollback: rollback/rollback_20260916231000_claim_requires_auth_evidence.sql
 BEGIN;
 
--- 1) Link authorisation success rows to a single modification (idempotent confirm).
-ALTER TABLE public.payment_session_authorisations
-  ADD COLUMN IF NOT EXISTS trip_change_request_id uuid;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'payment_session_authorisations_trip_change_request_id_fkey'
-  ) THEN
-    ALTER TABLE public.payment_session_authorisations
-      ADD CONSTRAINT payment_session_authorisations_trip_change_request_id_fkey
-      FOREIGN KEY (trip_change_request_id)
-      REFERENCES public.trip_change_requests(id)
-      ON DELETE SET NULL;
-  END IF;
-END $$;
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_psa_additional_auth_confirmed_per_modification
-  ON public.payment_session_authorisations (trip_change_request_id)
-  WHERE trip_change_request_id IS NOT NULL
-    AND status = 'ADDITIONAL_AUTHORISATION_CONFIRMED';
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_psa_idempotency_key_not_null
-  ON public.payment_session_authorisations (idempotency_key)
-  WHERE idempotency_key IS NOT NULL;
-
--- 2) Exactly one successful apply audit event per modification.
-CREATE TABLE IF NOT EXISTS public.trip_modification_apply_events (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  trip_id uuid NOT NULL REFERENCES public.trips(id),
-  trip_change_request_id uuid NOT NULL REFERENCES public.trip_change_requests(id),
-  event_type text NOT NULL,
-  fare_delta_pence integer NOT NULL DEFAULT 0,
-  new_fare_pence integer NULL,
-  authorised_total_pence integer NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT trip_modification_apply_events_type_chk
-    CHECK (event_type = 'MODIFICATION_APPLIED'),
-  CONSTRAINT uq_trip_modification_apply_events_request UNIQUE (trip_change_request_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_trip_modification_apply_events_trip
-  ON public.trip_modification_apply_events (trip_id);
-
-ALTER TABLE public.trip_modification_apply_events ENABLE ROW LEVEL SECURITY;
-
--- 3) Unresolved fare-increase gate for completion (does not mutate fares).
-CREATE OR REPLACE FUNCTION public.trip_has_unresolved_fare_increase_modification(
-  p_trip_id uuid
-) RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.trip_change_requests r
-    WHERE r.trip_id = p_trip_id
-      AND COALESCE(r.fare_delta_pence, 0) > 0
-      AND r.status IN (
-        'payment_required',
-        'payment_pending',
-        'payment_confirmed'
-      )
-  );
-$function$;
-
-REVOKE ALL ON FUNCTION public.trip_has_unresolved_fare_increase_modification(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.trip_has_unresolved_fare_increase_modification(uuid) TO service_role;
-
--- 4) Atomic claim + apply in one transaction.
---    PAYMENT_PENDING → PROVIDER_CONFIRMED → MODIFICATION_APPLIED (via advance).
---    Zero-row / failed validation → typed exceptions (never silent success).
 CREATE OR REPLACE FUNCTION public.claim_and_apply_fare_increase_modification(
   p_trip_id uuid,
   p_request_id uuid,
@@ -107,6 +30,7 @@ DECLARE
   v_order_id text;
   v_auth_inserted int := 0;
   v_event_inserted int := 0;
+  v_has_auth_evidence boolean := false;
 BEGIN
   v_expected_status := lower(trim(COALESCE(p_expected_trip_status, '')));
   v_required := GREATEST(0, COALESCE(p_required_authorised_total_pence, 0));
@@ -117,7 +41,6 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
-  -- Serialize trip + request (SELECT … FOR UPDATE).
   SELECT * INTO v_trip
   FROM public.trips
   WHERE id = p_trip_id
@@ -143,7 +66,6 @@ BEGIN
       USING ERRCODE = 'P0001', DETAIL = 'trip_request_mismatch';
   END IF;
 
-  -- Idempotent success: already applied for this modification.
   IF v_req.status = 'applied' THEN
     RETURN jsonb_build_object(
       'ok', true,
@@ -195,7 +117,6 @@ BEGIN
       USING ERRCODE = 'P0001', DETAIL = 'original_fare_mismatch';
   END IF;
 
-  -- Conditional claim: only one worker may move into PROVIDER_CONFIRMED.
   UPDATE public.trip_change_requests
   SET payment_status = 'confirmed',
       payment_confirmed_at = COALESCE(payment_confirmed_at, now()),
@@ -218,7 +139,6 @@ BEGIN
       USING ERRCODE = 'P0001', DETAIL = 'claim_zero_rows';
   END IF;
 
-  -- Idempotent ADDITIONAL_AUTHORISATION_CONFIRMED per modification.
   SELECT ps.id, ps.provider_order_id
   INTO v_session_id, v_order_id
   FROM public.payment_sessions ps
@@ -227,48 +147,64 @@ BEGIN
   ORDER BY ps.created_at DESC
   LIMIT 1;
 
-  IF v_session_id IS NOT NULL AND COALESCE(v_order_id, '') <> '' THEN
-    INSERT INTO public.payment_session_authorisations (
-      payment_session_id,
-      payment_provider,
-      provider_order_id,
-      authorised_amount_pence,
-      authorised_at,
-      status,
-      source,
-      trip_change_request_id,
-      requested_target_total_pence,
-      provider_confirmed_total_pence,
-      cumulative_total_authorised_pence,
-      idempotency_key,
-      metadata,
-      verified_at
-    ) VALUES (
-      v_session_id,
-      'revolut',
-      v_order_id,
-      v_authorised,
-      now(),
-      'ADDITIONAL_AUTHORISATION_CONFIRMED',
-      'fare_increase_modification',
-      p_request_id,
-      v_required,
-      v_authorised,
-      v_authorised,
-      'mod_auth_confirmed:' || p_request_id::text || ':' || v_required::text,
-      jsonb_build_object(
-        'trip_id', p_trip_id,
-        'trip_change_request_id', p_request_id,
-        'required_authorised_total_pence', v_required
-      ),
-      now()
-    )
-    ON CONFLICT DO NOTHING;
-
-    GET DIAGNOSTICS v_auth_inserted = ROW_COUNT;
+  IF v_session_id IS NULL OR COALESCE(v_order_id, '') = '' THEN
+    RAISE EXCEPTION 'PAYMENT_NOT_CONFIRMED'
+      USING ERRCODE = 'P0001', DETAIL = 'missing_payment_session_for_fare_increase';
   END IF;
 
-  -- Existing apply SSOT (trigger/advance). Same transaction as the claim.
+  INSERT INTO public.payment_session_authorisations (
+    payment_session_id,
+    payment_provider,
+    provider_order_id,
+    authorised_amount_pence,
+    authorised_at,
+    status,
+    source,
+    trip_change_request_id,
+    requested_target_total_pence,
+    provider_confirmed_total_pence,
+    cumulative_total_authorised_pence,
+    idempotency_key,
+    metadata,
+    verified_at
+  ) VALUES (
+    v_session_id,
+    'revolut',
+    v_order_id,
+    v_authorised,
+    now(),
+    'ADDITIONAL_AUTHORISATION_CONFIRMED',
+    'fare_increase_modification',
+    p_request_id,
+    v_required,
+    v_authorised,
+    v_authorised,
+    'mod_auth_confirmed:' || p_request_id::text || ':' || v_required::text,
+    jsonb_build_object(
+      'trip_id', p_trip_id,
+      'trip_change_request_id', p_request_id,
+      'required_authorised_total_pence', v_required
+    ),
+    now()
+  )
+  ON CONFLICT DO NOTHING;
+
+  GET DIAGNOSTICS v_auth_inserted = ROW_COUNT;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.payment_session_authorisations psa
+    WHERE psa.trip_change_request_id = p_request_id
+      AND psa.status = 'ADDITIONAL_AUTHORISATION_CONFIRMED'
+  )
+  INTO v_has_auth_evidence;
+
+  IF v_has_auth_evidence IS NOT TRUE THEN
+    RAISE EXCEPTION 'PAYMENT_NOT_CONFIRMED'
+      USING ERRCODE = 'P0001',
+            DETAIL = 'missing_ADDITIONAL_AUTHORISATION_CONFIRMED_evidence';
+  END IF;
+
   SELECT * INTO v_advanced
   FROM public.advance_trip_change_after_payment(p_request_id);
 
@@ -285,7 +221,6 @@ BEGIN
             DETAIL = format('advance_status=%s', v_advanced.status);
   END IF;
 
-  -- One success audit event (unique on request id) — no wallet/capture writes here.
   INSERT INTO public.trip_modification_apply_events (
     trip_id,
     trip_change_request_id,
