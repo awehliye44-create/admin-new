@@ -68,7 +68,8 @@ function releasedCellDisplay(row: AdminPaymentSessionsListRow): string {
 
 function providerFeeCell(row: AdminPaymentSessionsListRow) {
   const evidence = String(row.fee_status ?? '').trim().toUpperCase();
-  if (evidence === 'ACTUAL') {
+  const hasAmount = row.provider_processing_fee_pence != null;
+  if (evidence === 'ACTUAL' && hasAmount) {
     return (
       <div className="space-y-1">
         <p>{formatNullablePence(row.provider_processing_fee_pence)}</p>
@@ -76,7 +77,7 @@ function providerFeeCell(row: AdminPaymentSessionsListRow) {
       </div>
     );
   }
-  if (evidence === 'ESTIMATED') {
+  if (evidence === 'ESTIMATED' && hasAmount) {
     return (
       <div className="space-y-1">
         <p>{formatNullablePence(row.provider_processing_fee_pence)}</p>
