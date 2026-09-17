@@ -288,14 +288,25 @@ function cardFingerprintFromPayment(payment: RevolutOrderPayment): {
   expMonth: number | null;
   expYear: number | null;
 } {
+  const pm = payment.payment_method ?? null;
+  const nestedCard = (pm?.card ?? null) as Record<string, unknown> | null;
   const expiry = readCardExpiry(
-    (payment.payment_method ?? null) as Record<string, unknown> | null,
+    (nestedCard ?? pm ?? null) as Record<string, unknown> | null,
   );
+  const brandRaw = pm?.brand
+    ?? pm?.card_brand
+    ?? (typeof nestedCard?.brand === "string" ? nestedCard.brand : null)
+    ?? (typeof nestedCard?.card_brand === "string" ? nestedCard.card_brand : null)
+    ?? null;
+  const last4Raw = pm?.last_four
+    ?? pm?.card_last_four
+    ?? (typeof nestedCard?.last_four === "string" ? nestedCard.last_four : null)
+    ?? (typeof nestedCard?.card_last_four === "string" ? nestedCard.card_last_four : null)
+    ?? null;
+  const last4 = String(last4Raw ?? "").replace(/\D/g, "").slice(-4) || null;
   return {
-    brand: payment.payment_method?.card_brand ?? null,
-    last4: payment.payment_method?.card_last_four
-      ?? payment.payment_method?.last_four
-      ?? null,
+    brand: brandRaw ? String(brandRaw).trim() || null : null,
+    last4,
     expMonth: expiry.expMonth,
     expYear: expiry.expYear,
   };
@@ -357,9 +368,13 @@ async function persistCapturedToken(
 }
 
 /**
- * When order payments never expose nested saved_payment_method.id (common lag on
- * preauth), fall back to the Revolut customer payment-method list and match the
- * card fingerprint from the authorised payment. Never stores payment_method.id.
+ * When order payments never expose nested saved_payment_method.id (common for
+ * savePaymentMethodFor=customer preauth), fall back to the Revolut customer
+ * payment-method list.
+ *
+ * Prefer confirming order payment_method.id against that list — for customer
+ * save mode Revolut often reuses that id as the reusable saved method. Never
+ * store payment_method.id unless it appears on the customer list.
  */
 async function tryCaptureFromCustomerPaymentMethods(
   supabase: SupabaseClient,
@@ -373,6 +388,8 @@ async function tryCaptureFromCustomerPaymentMethods(
     hintLast4?: string | null;
     hintExpMonth?: number | null;
     hintExpYear?: number | null;
+    /** Order payment_method.id values — reusable only if listed on the customer. */
+    preferredProviderIds?: string[];
   },
 ): Promise<CaptureSuccess | null> {
   const { data: customerRow } = await supabase
@@ -396,6 +413,45 @@ async function tryCaptureFromCustomerPaymentMethods(
       error: String(err),
     });
     return null;
+  }
+
+  const methodsById = new Map(
+    methods
+      .map((m) => [String(m.id ?? "").trim(), m] as const)
+      .filter(([id]) => Boolean(id)),
+  );
+
+  const persistFromMethod = (
+    match: (typeof methods)[number],
+    source: string,
+  ): Promise<CaptureSuccess | null> => {
+    const details = (match.method_details ?? {}) as Record<string, unknown>;
+    const expMonthRaw = details.expiry_month ?? details.exp_month;
+    const expYearRaw = details.expiry_year ?? details.exp_year;
+    const expMonth = typeof expMonthRaw === "number" ? expMonthRaw : Number(expMonthRaw);
+    const expYear = typeof expYearRaw === "number" ? expYearRaw : Number(expYearRaw);
+    return persistCapturedToken(supabase, {
+      userId: args.userId,
+      platformPmId: args.platformPmId,
+      orderId: args.orderId,
+      savedPmId: String(match.id).trim(),
+      brand: String(details.brand ?? args.hintBrand ?? "").trim() || null,
+      last4: String(details.last4 ?? args.hintLast4 ?? "").replace(/\D/g, "").slice(-4) || null,
+      expMonth: Number.isFinite(expMonth) && expMonth > 0 ? expMonth : args.hintExpMonth ?? null,
+      expYear: Number.isFinite(expYear) && expYear > 0 ? expYear : args.hintExpYear ?? null,
+      providerCustomerId: revolutCustomerId,
+      source,
+    });
+  };
+
+  // Strongest match: order payment_method.id already present on customer PM list.
+  for (const preferred of args.preferredProviderIds ?? []) {
+    const id = String(preferred ?? "").trim();
+    if (!id) continue;
+    const hit = methodsById.get(id);
+    if (!hit) continue;
+    const persisted = await persistFromMethod(hit, "order_payment_method_confirmed_on_customer");
+    if (persisted) return persisted;
   }
 
   const hintLast4 = String(args.hintLast4 ?? "").replace(/\D/g, "").slice(-4);
@@ -423,26 +479,9 @@ async function tryCaptureFromCustomerPaymentMethods(
   });
   if (candidates.length === 0) return null;
 
-  // Prefer exact last4 match; otherwise last listed (Revolut returns newest-first typically).
-  const match = candidates[candidates.length - 1]!;
-  const details = (match.method_details ?? {}) as Record<string, unknown>;
-  const expMonthRaw = details.expiry_month ?? details.exp_month;
-  const expYearRaw = details.expiry_year ?? details.exp_year;
-  const expMonth = typeof expMonthRaw === "number" ? expMonthRaw : Number(expMonthRaw);
-  const expYear = typeof expYearRaw === "number" ? expYearRaw : Number(expYearRaw);
-
-  return persistCapturedToken(supabase, {
-    userId: args.userId,
-    platformPmId: args.platformPmId,
-    orderId: args.orderId,
-    savedPmId: String(match.id).trim(),
-    brand: String(details.brand ?? args.hintBrand ?? "").trim() || null,
-    last4: String(details.last4 ?? args.hintLast4 ?? "").replace(/\D/g, "").slice(-4) || null,
-    expMonth: Number.isFinite(expMonth) && expMonth > 0 ? expMonth : args.hintExpMonth ?? null,
-    expYear: Number.isFinite(expYear) && expYear > 0 ? expYear : args.hintExpYear ?? null,
-    providerCustomerId: revolutCustomerId,
-    source: "customer_payment_methods_fallback",
-  });
+  // Prefer newest listed match (Revolut typically returns newest-first).
+  const match = candidates[0]!;
+  return persistFromMethod(match, "customer_payment_methods_fallback");
 }
 
 export async function captureRevolutProviderTokenFromOrder(
@@ -501,6 +540,7 @@ export async function captureRevolutProviderTokenFromOrder(
   let hintExpMonth: number | null = null;
   let hintExpYear: number | null = null;
   let revolutCustomerId: string | null = null;
+  const preferredProviderIds: string[] = [];
 
   for (const delayMs of pollDelaysMs) {
     if (delayMs > 0) {
@@ -520,7 +560,12 @@ export async function captureRevolutProviderTokenFromOrder(
     for (const payment of payments) {
       paymentCount += 1;
       const oneTimeId = String(payment.payment_method?.id ?? "").trim();
-      if (oneTimeId) sawOneTimePaymentMethodId = true;
+      if (oneTimeId) {
+        sawOneTimePaymentMethodId = true;
+        if (!preferredProviderIds.includes(oneTimeId)) {
+          preferredProviderIds.push(oneTimeId);
+        }
+      }
       const fingerprint = cardFingerprintFromPayment(payment);
       if (fingerprint.last4) {
         hintBrand = fingerprint.brand;
@@ -556,8 +601,9 @@ export async function captureRevolutProviderTokenFromOrder(
       if (persisted) return persisted;
     }
 
-    // Mid-ladder fallback: Revolut may attach the reusable method to the customer
-    // before nested saved_payment_method.id appears on order payments.
+    // Mid-ladder fallback: Revolut customer-save often omits nested
+    // saved_payment_method.id; the order payment_method.id is reusable once it
+    // appears on GET /customers/{id}/payment-methods.
     if (useSetupProfile) {
       const fromCustomer = await tryCaptureFromCustomerPaymentMethods(supabase, {
         environment: args.environment,
@@ -569,6 +615,7 @@ export async function captureRevolutProviderTokenFromOrder(
         hintLast4,
         hintExpMonth,
         hintExpYear,
+        preferredProviderIds,
       });
       if (fromCustomer) return fromCustomer;
     }

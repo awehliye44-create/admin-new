@@ -82,9 +82,23 @@ export type RevolutOrderPayment = {
   payment_method?: {
     type?: string;
     id?: string;
+    /** Modern Merchant API (2024-09-01+) uses brand / last_four. */
+    brand?: string;
     card_brand?: string;
     card_last_four?: string;
     last_four?: string;
+    /** Legacy nested card block (order.payments embed). */
+    card?: {
+      card_brand?: string;
+      brand?: string;
+      card_last_four?: string;
+      last_four?: string;
+      card_expiry?: string;
+      card_expiry_month?: number;
+      card_expiry_year?: number;
+      expiry_month?: number;
+      expiry_year?: number;
+    };
     saved_payment_method?: {
       id?: string;
       type?: string;

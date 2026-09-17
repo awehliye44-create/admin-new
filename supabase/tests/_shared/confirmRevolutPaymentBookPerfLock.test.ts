@@ -76,6 +76,10 @@ Deno.test("token capture poll never uses the old ~82s ladder", () => {
   assertEquals(src.includes("REVOLUT_TOKEN_CAPTURE_SETUP_POLL_MS"), true);
   assertEquals(src.includes("REVOLUT_TOKEN_CAPTURE_DURABLE_RETRY_MS"), true);
   assertEquals(src.includes("tryCaptureFromCustomerPaymentMethods"), true);
+  assertEquals(src.includes("preferredProviderIds"), true);
+  assertEquals(src.includes("order_payment_method_confirmed_on_customer"), true);
+  assertEquals(src.includes("pm?.brand"), true);
+  assertEquals(src.includes("pm?.last_four"), true);
 });
 
 Deno.test("booking confirm defers token capture off Finding critical path", () => {
