@@ -1,12 +1,15 @@
 /**
  * Lock: setup-revolut-card is the merchant-vault Add Card Edge.
- * Book / create-preauth must not force initiator=merchant unless Revolut
- * payment method saved_for === "merchant".
+ * Book / create-preauth ALWAYS uses initiator=customer (CIT).
+ * saved_for=merchant must NEVER flip Book to MIT.
  *
  * Run: deno test --allow-read supabase/tests/_shared/setupRevolutCardMerchantVaultLock.test.ts
  * NO_PROVIDER_CALL_DURING_TESTS — source + pure draft helpers only.
  */
-import { resolveSavedCardChargeInitiator } from "../../functions/_shared/revolutSavedCardMitMandate.draft.ts";
+import {
+  resolveSavedCardChargeInitiator,
+  mustPresentAcsWhenRevolutRequires,
+} from "../../functions/_shared/revolutSavedCardMitMandate.draft.ts";
 
 async function readFn(rel: string): Promise<string> {
   return await Deno.readTextFile(new URL(rel, import.meta.url));
@@ -41,17 +44,98 @@ Deno.test("save-card vault order uses merchant_order_ext_ref save-card-*", async
   }
 });
 
-Deno.test("create-preauth initiator defaults customer; merchant only when saved_for===merchant", async () => {
+Deno.test("1+2: Book saved-card path ALWAYS CIT — customer-saved and merchant-vault", async () => {
   const PREAUTH_SRC = await readFn("../../functions/_shared/revolutPreauth.ts");
-  if (!PREAUTH_SRC.includes('let initiator: "customer" | "merchant" = "customer"')) {
-    throw new Error("preauth must default initiator to customer (CIT)");
+  if (!PREAUTH_SRC.includes('const initiator = "customer"')) {
+    throw new Error("attemptRevolutSavedCardCharge must hardcode CIT initiator=customer");
   }
-  if (!PREAUTH_SRC.includes("saved_for") || !PREAUTH_SRC.includes('"merchant"')) {
-    throw new Error("preauth must gate MIT on Revolut saved_for===merchant");
+  // Must not select MIT from Revolut saved_for on Book
+  if (PREAUTH_SRC.includes('initiator = "merchant"') || PREAUTH_SRC.includes("initiator = 'merchant'")) {
+    throw new Error("Book path must never assign initiator=merchant");
+  }
+  if (PREAUTH_SRC.includes('saved_for') && PREAUTH_SRC.includes('initiator = "merchant"')) {
+    throw new Error("saved_for must not drive Book initiator");
+  }
+  // No list-and-flip based on saved_for in attemptRevolutSavedCardCharge
+  const attemptIdx = PREAUTH_SRC.indexOf("async function attemptRevolutSavedCardCharge");
+  if (attemptIdx < 0) throw new Error("attemptRevolutSavedCardCharge missing");
+  const attemptBody = PREAUTH_SRC.slice(attemptIdx, attemptIdx + 4500);
+  if (attemptBody.includes("listRevolutCustomerPaymentMethods")) {
+    throw new Error("Book must not list payment methods to choose MIT initiator");
+  }
+  if (attemptBody.includes('saved_for') && /initiator\s*=\s*["']merchant["']/.test(attemptBody)) {
+    throw new Error("saved_for=merchant must not change Book initiator");
   }
 });
 
-Deno.test("typed draft: customer-saved stays CIT; merchant mandate is MIT-only path", () => {
+Deno.test("5+6: Book call graph has NO MIT selection; saved_for cannot change initiator", async () => {
+  const PREAUTH_SRC = await readFn("../../functions/_shared/revolutPreauth.ts");
+  const ORDERS_SRC = await readFn("../../functions/_shared/revolutOrders.ts");
+  if (PREAUTH_SRC.includes("resolveSavedCardChargeInitiator")) {
+    throw new Error("Book must not import draft MIT helper");
+  }
+  if (!ORDERS_SRC.includes('initiator: "customer" | "merchant" = "customer"')) {
+    throw new Error("payRevolutOrderWithSavedCard must default initiator to customer");
+  }
+  // Hard lock: attempt passes const initiator = "customer"
+  if (!PREAUTH_SRC.includes("payRevolutOrderWithSavedCard") || !PREAUTH_SRC.includes('const initiator = "customer"')) {
+    throw new Error("Book call graph must pass hardcoded customer initiator");
+  }
+});
+
+Deno.test("3+4: challenge → CUSTOMER_ACTION_REQUIRED; merchant-vault does not guarantee challenge-free", async () => {
+  const PREAUTH_SRC = await readFn("../../functions/_shared/revolutPreauth.ts");
+  if (!PREAUTH_SRC.includes('kind === "requires_3ds"')) {
+    throw new Error("saved-card Book must surface requires_3ds");
+  }
+  if (!PREAUTH_SRC.includes("authentication_acs_url") || !PREAUTH_SRC.includes("requires_3ds: true")) {
+    throw new Error("challenge must return ACS fields for CUSTOMER_ACTION_REQUIRED");
+  }
+  // No maySkip3ds / skip-3ds on Book path
+  if (PREAUTH_SRC.includes("maySkip3ds") || PREAUTH_SRC.includes("skip_3ds") || PREAUTH_SRC.includes("skip3ds")) {
+    throw new Error("Book must never skip issuer 3DS");
+  }
+  if (!mustPresentAcsWhenRevolutRequires("https://acs.example/challenge")) {
+    throw new Error("ACS URL must still be presented for merchant-vault credentials");
+  }
+});
+
+Deno.test("7: Add Card setup has no trip", async () => {
+  const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
+  if (SETUP_SRC.includes("trip_id") || SETUP_SRC.includes("tripId")) {
+    throw new Error("Add Card must not attach trip");
+  }
+});
+
+Deno.test("11: genuine MIT helper stays draft-only / unwired from Book", async () => {
+  const PREAUTH_SRC = await readFn("../../functions/_shared/revolutPreauth.ts");
+  const DRAFT_SRC = await readFn("../../functions/_shared/revolutSavedCardMitMandate.draft.ts");
+  if (/from\s+["'].*revolutSavedCardMitMandate/.test(PREAUTH_SRC) || PREAUTH_SRC.includes("resolveSavedCardChargeInitiator")) {
+    throw new Error("MIT draft must not be imported by revolutPreauth");
+  }
+  if (!DRAFT_SRC.includes("NOT wired into Book") && !DRAFT_SRC.includes("NOT wired into Book / create-preauth")) {
+    throw new Error("draft helper must document Book exclusion");
+  }
+  // Draft still models off-session MIT, but customerPresent locks CIT for Book semantics
+  const bookLike = resolveSavedCardChargeInitiator({
+    methodSavedFor: "merchant",
+    merchantMandateApproved: true,
+    customerPresent: true,
+  });
+  if (bookLike.initiator !== "customer" || bookLike.maySkip3ds) {
+    throw new Error(`customerPresent Book semantics must stay CIT, got ${JSON.stringify(bookLike)}`);
+  }
+  const offSession = resolveSavedCardChargeInitiator({
+    methodSavedFor: "merchant",
+    merchantMandateApproved: true,
+    customerPresent: false,
+  });
+  if (offSession.initiator !== "merchant") {
+    throw new Error("genuine off-session draft path may still resolve MIT (unwired)");
+  }
+});
+
+Deno.test("typed draft: customer-saved stays CIT; merchant mandate MIT only off-session", () => {
   const customer = resolveSavedCardChargeInitiator({
     methodSavedFor: "customer",
     merchantMandateApproved: true,
@@ -64,7 +148,7 @@ Deno.test("typed draft: customer-saved stays CIT; merchant mandate is MIT-only p
     merchantMandateApproved: true,
   });
   if (merchant.initiator !== "merchant" || !merchant.maySkip3ds) {
-    throw new Error(`expected MIT for merchant-saved, got ${JSON.stringify(merchant)}`);
+    throw new Error(`expected MIT for genuine off-session merchant mandate, got ${JSON.stringify(merchant)}`);
   }
   const noMandate = resolveSavedCardChargeInitiator({
     methodSavedFor: "merchant",
@@ -118,14 +202,26 @@ Deno.test("duplicate provider token → no duplicate insert (idempotent already_
   }
 });
 
-Deno.test("create-preauth Book path untouched by merchant-vault PR (source still CIT-default)", async () => {
-  // This PR must not rewrite create-preauth; lock existing CIT default remains.
+Deno.test("create-preauth Book path is CIT-hardcoded (no MIT from saved_for)", async () => {
   const PREAUTH_SRC = await readFn("../../functions/_shared/revolutPreauth.ts");
-  if (!PREAUTH_SRC.includes('let initiator: "customer" | "merchant" = "customer"')) {
-    throw new Error("create-preauth CIT default missing — Book path may have been altered");
+  if (!PREAUTH_SRC.includes('const initiator = "customer"')) {
+    throw new Error("create-preauth Book saved-card path must hardcode CIT");
   }
   const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
   if (SETUP_SRC.includes("create-preauth") || SETUP_SRC.includes("createPreauth")) {
     throw new Error("setup-revolut-card must not call create-preauth");
+  }
+});
+
+Deno.test("12: no PAN/CVV in Book saved-card or setup Edge payloads", async () => {
+  const PREAUTH_SRC = await readFn("../../functions/_shared/revolutPreauth.ts");
+  const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
+  const payIdx = PREAUTH_SRC.indexOf("payRevolutOrderWithSavedCard");
+  const paySlice = payIdx >= 0 ? PREAUTH_SRC.slice(payIdx, payIdx + 800) : "";
+  if (/card_number|cvv|cvc|pan\b/i.test(paySlice)) {
+    throw new Error("Book saved-card pay must not send PAN/CVV");
+  }
+  if (/card_number|"cvv"|"cvc"|"pan"/i.test(SETUP_SRC)) {
+    throw new Error("setup-revolut-card must not collect PAN/CVV fields");
   }
 });
