@@ -4,11 +4,14 @@
  * Merchant-vault Add Card (NOT booking pay):
  *   action=start  → £1 verification order token for native card form
  *                   (SDK savePaymentMethodFor=merchant via saveCardByDefault)
+ *                   Reuses resume_provider_order_id when still PENDING/AUTHORISED
  *   action=complete → persist reusable method after SDK success + release hold
+ *   action=cancel → void/cancel the £1 setup order (fail / timeout / abandon)
  *
  * No trip id. Dedicated client idempotency_key / setupRef (merchant_order_ext_ref).
- * Ownership: complete rejects when metadata.customer_user_id !== JWT user (ORDER_NOT_FOUND).
+ * Ownership: complete/cancel reject when metadata.customer_user_id !== JWT user (ORDER_NOT_FOUND).
  * Dedupe: unique (user_id, provider, provider_pm_id); re-complete returns SAVED_CARD_ALREADY_SAVED.
+ * Money: capture_mode=manual, never_capture — £1 is auth-only and cancelled/voided (never revenue).
  * Never returns hosted checkout URLs. Token is for RevolutMerchantCardFormKit only.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -29,6 +32,7 @@ import {
   countSavedRevolutCards,
   createRevolutSaveCardSetupOrder,
   ensureRevolutCustomer,
+  isReusableSaveCardSetupState,
   listRevolutCustomerPaymentMethods,
   mapRevolutPaymentMethodToSavedCardRow,
   MAX_SAVED_REVOLUT_CARDS,
@@ -55,6 +59,14 @@ function errorJson(
 
 function safeLog(fields: Record<string, unknown>): void {
   console.log(JSON.stringify({ fn: "setup-revolut-card", ...fields }));
+}
+
+function assertSaveCardOwnership(
+  order: { metadata?: Record<string, unknown> | null },
+  userId: string,
+): boolean {
+  const metadata = (order.metadata ?? {}) as Record<string, string>;
+  return metadata.purpose === "save_card" && metadata.customer_user_id === userId;
 }
 
 serve(async (req) => {
@@ -157,6 +169,90 @@ serve(async (req) => {
       return errorJson("PAYMENT_GATEWAY_NOT_CONFIGURED", 503);
     }
 
+    if (action === "cancel") {
+      const providerOrderId =
+        typeof body.provider_order_id === "string" ? body.provider_order_id.trim() : "";
+      if (!providerOrderId) {
+        edgeStatus = 400;
+        safeLog({
+          edgeStatus,
+          authenticated,
+          customerResolved: false,
+          providerEnvironment,
+          orderCreated: false,
+          checkoutTokenReturned: false,
+          revolutStatusCode: null,
+          code: "VALIDATION_MISSING_FIELD",
+          action,
+        });
+        return errorJson("VALIDATION_MISSING_FIELD", 400);
+      }
+
+      let order;
+      try {
+        order = await retrieveRevolutOrder(environment, secretKey, providerOrderId);
+      } catch (err) {
+        const apiErr = err as RevolutApiError;
+        revolutStatusCode = typeof apiErr?.status === "number" ? apiErr.status : null;
+        edgeStatus = revolutStatusCode && revolutStatusCode >= 400 && revolutStatusCode < 600
+          ? 502
+          : 500;
+        safeLog({
+          edgeStatus,
+          authenticated,
+          customerResolved: false,
+          providerEnvironment,
+          orderCreated: false,
+          checkoutTokenReturned: false,
+          revolutStatusCode,
+          code: "REVOLUT_ORDER_RETRIEVE_FAILED",
+          action,
+        });
+        return errorJson("REVOLUT_ORDER_RETRIEVE_FAILED", edgeStatus);
+      }
+
+      if (!assertSaveCardOwnership(order, user.id)) {
+        edgeStatus = 404;
+        safeLog({
+          edgeStatus,
+          authenticated,
+          customerResolved: false,
+          providerEnvironment,
+          orderCreated: false,
+          checkoutTokenReturned: false,
+          revolutStatusCode: null,
+          code: "ORDER_NOT_FOUND",
+          action,
+        });
+        return errorJson("ORDER_NOT_FOUND", 404);
+      }
+
+      await releaseSaveCardVerificationOrder({
+        environment,
+        secretKey,
+        orderId: providerOrderId,
+      });
+
+      edgeStatus = 200;
+      safeLog({
+        edgeStatus,
+        authenticated,
+        customerResolved: false,
+        providerEnvironment,
+        orderCreated: true,
+        checkoutTokenReturned: false,
+        revolutStatusCode: null,
+        code: "OK",
+        action,
+        voided: true,
+      });
+      return successResponse({
+        success: true,
+        voided: true,
+        provider_order_id: providerOrderId,
+      });
+    }
+
     if (action === "complete") {
       const providerOrderId =
         typeof body.provider_order_id === "string" ? body.provider_order_id.trim() : "";
@@ -199,8 +295,7 @@ serve(async (req) => {
         return errorJson("REVOLUT_ORDER_RETRIEVE_FAILED", edgeStatus);
       }
 
-      const metadata = (order.metadata ?? {}) as Record<string, string>;
-      if (metadata.purpose !== "save_card" || metadata.customer_user_id !== user.id) {
+      if (!assertSaveCardOwnership(order, user.id)) {
         edgeStatus = 404;
         safeLog({
           edgeStatus,
@@ -217,7 +312,8 @@ serve(async (req) => {
       }
 
       const state = String(order.state ?? "").toUpperCase();
-      if (!["AUTHORISED", "COMPLETED", "PROCESSING"].includes(state)) {
+      // Prefer AUTHORISED (manual capture, never COMPLETED/captured). PROCESSING allowed while settling.
+      if (!["AUTHORISED", "AUTHORIZED", "PROCESSING"].includes(state)) {
         edgeStatus = 409;
         safeLog({
           edgeStatus,
@@ -547,6 +643,76 @@ serve(async (req) => {
         action,
       });
       return errorJson("REVOLUT_CUSTOMER_FAILED", 502);
+    }
+
+    // App-kill / duplicate Add Card: reuse one open setup order (no second £1).
+    const resumeProviderOrderId =
+      typeof body.resume_provider_order_id === "string" && body.resume_provider_order_id.trim()
+        ? body.resume_provider_order_id.trim()
+        : null;
+    if (resumeProviderOrderId) {
+      try {
+        const existing = await retrieveRevolutOrder(
+          environment,
+          secretKey,
+          resumeProviderOrderId,
+        );
+        if (assertSaveCardOwnership(existing, user.id)) {
+          const existingState = String(existing.state ?? "").toUpperCase();
+          const orderToken = existing.token ?? existing.public_id ?? null;
+          if (
+            isReusableSaveCardSetupState(existingState) &&
+            orderToken &&
+            existing.id
+          ) {
+            const metadata = (existing.metadata ?? {}) as Record<string, string>;
+            checkoutTokenReturned = true;
+            orderCreated = true;
+            edgeStatus = 200;
+            safeLog({
+              edgeStatus,
+              authenticated,
+              customerResolved,
+              providerEnvironment,
+              orderCreated,
+              checkoutTokenReturned,
+              revolutStatusCode: null,
+              code: "OK",
+              action,
+              reused: true,
+              hasProviderOrderId: true,
+            });
+            return successResponse({
+              success: true,
+              reused: true,
+              provider_order_id: existing.id,
+              order_token: orderToken,
+              setup_ref: metadata.setup_ref || setupRef,
+            });
+          }
+          // Stale / terminal — void leftover hold before minting a new setup order.
+          await releaseSaveCardVerificationOrder({
+            environment,
+            secretKey,
+            orderId: resumeProviderOrderId,
+          });
+        }
+      } catch (err) {
+        const apiErr = err as RevolutApiError;
+        revolutStatusCode = typeof apiErr?.status === "number" ? apiErr.status : null;
+        safeLog({
+          edgeStatus: 200,
+          authenticated,
+          customerResolved,
+          providerEnvironment,
+          orderCreated: false,
+          checkoutTokenReturned: false,
+          revolutStatusCode,
+          code: "RESUME_SETUP_MISS",
+          action,
+          message: "resume miss — creating new setup order",
+        });
+      }
     }
 
     let order;

@@ -181,11 +181,82 @@ Deno.test("setup-revolut-card returns typed error codes (ownership / cap / auth)
 
 Deno.test("cross-customer complete rejected via ORDER_NOT_FOUND ownership lock", async () => {
   const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
-  if (!SETUP_SRC.includes("metadata.customer_user_id !== user.id")) {
+  if (!SETUP_SRC.includes("assertSaveCardOwnership") && !SETUP_SRC.includes("metadata.customer_user_id !== user.id")) {
     throw new Error("complete must reject cross-customer order ownership");
   }
   if (!SETUP_SRC.includes('code: "ORDER_NOT_FOUND"')) {
     throw new Error("cross-customer reject must surface ORDER_NOT_FOUND");
+  }
+  if (!SETUP_SRC.includes('purpose === "save_card"') && !SETUP_SRC.includes("purpose === \"save_card\"")) {
+    throw new Error("ownership must require purpose save_card");
+  }
+});
+
+Deno.test("£1 never captured — manual capture_mode + cancel/void release only", async () => {
+  const VAULT_SRC = await readFn("../../functions/_shared/revolutSavedCardVault.ts");
+  const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
+  if (!VAULT_SRC.includes('capture_mode: "manual"')) {
+    throw new Error("save-card order must use capture_mode=manual");
+  }
+  if (!VAULT_SRC.includes("REVOLUT_SAVE_CARD_VERIFICATION_MINOR = 100")) {
+    throw new Error("verification amount must be £1 (100 minor)");
+  }
+  if (!VAULT_SRC.includes('never_capture: "true"')) {
+    throw new Error("setup order metadata must mark never_capture");
+  }
+  if (/\bcaptureRevolutOrder\s*\(/.test(VAULT_SRC) || /\bcaptureRevolutOrder\s*\(/.test(SETUP_SRC)) {
+    throw new Error("setup path must never call captureRevolutOrder");
+  }
+  if (/from\s+["']\.\/revolutOrders\.ts["']/.test(VAULT_SRC) && /captureRevolutOrder/.test(VAULT_SRC.split("from")[0] ?? "")) {
+    // import of capture is also forbidden
+  }
+  if (/import\s*\{[^}]*captureRevolutOrder/.test(VAULT_SRC) || /import\s*\{[^}]*captureRevolutOrder/.test(SETUP_SRC)) {
+    throw new Error("setup path must never import captureRevolutOrder");
+  }
+  if (!VAULT_SRC.includes("cancelRevolutOrder")) {
+    throw new Error("release must cancel/void AUTHORISED setup orders");
+  }
+  if (!SETUP_SRC.includes('action === "cancel"')) {
+    throw new Error("setup-revolut-card must support action=cancel to void £1 on fail/timeout");
+  }
+  if (!SETUP_SRC.includes("releaseSaveCardVerificationOrder")) {
+    throw new Error("complete/cancel must release verification hold");
+  }
+  // COMPLETED must not be accepted as happy-path complete (COMPLETED = captured)
+  const completeIdx = SETUP_SRC.indexOf('action === "complete"');
+  const readySlice = SETUP_SRC.slice(completeIdx, completeIdx + 4000);
+  if (/\[\s*"AUTHORISED"[\s\S]*?"COMPLETED"/.test(readySlice) || readySlice.includes('["AUTHORISED", "COMPLETED"')) {
+    throw new Error("complete must not treat COMPLETED (captured) as ready");
+  }
+});
+
+Deno.test("setup order voided on cancel; resume reuses one setup session", async () => {
+  const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
+  const VAULT_SRC = await readFn("../../functions/_shared/revolutSavedCardVault.ts");
+  if (!SETUP_SRC.includes("resume_provider_order_id")) {
+    throw new Error("start must accept resume_provider_order_id for app-kill reuse");
+  }
+  if (!SETUP_SRC.includes("reused: true") && !SETUP_SRC.includes("reused:true")) {
+    throw new Error("resume path must return reused:true");
+  }
+  if (!VAULT_SRC.includes("isReusableSaveCardSetupState")) {
+    throw new Error("vault must expose reusable setup state helper");
+  }
+  if (!SETUP_SRC.includes("voided: true")) {
+    throw new Error("cancel must return voided:true");
+  }
+});
+
+Deno.test("no trip / payment-session booking contamination on setup", async () => {
+  const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
+  if (SETUP_SRC.includes("trip_id") || SETUP_SRC.includes("tripId")) {
+    throw new Error("setup must not attach trip");
+  }
+  if (SETUP_SRC.includes("create-preauth") || SETUP_SRC.includes("payment_sessions")) {
+    throw new Error("setup must not create booking payment_sessions / preauth");
+  }
+  if (SETUP_SRC.includes("wallet") && SETUP_SRC.includes("credit")) {
+    throw new Error("setup must not credit wallet");
   }
 });
 
