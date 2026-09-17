@@ -1682,7 +1682,22 @@ Deno.serve(async (req) => {
 
     /** Always attach fresh trip + stops so clients render backend truth only. */
     let completeTripStagesMs: Record<string, number> | null = null;
+    /** Observability only — never reorders awaits / SSOT. */
+    let lifecyclePerfStagesMs: Record<string, number> | null = null;
+    const lifecycleClock =
+      action === "arrive_pickup" ||
+        action === "arrive_stop" ||
+        action === "start_trip" ||
+        action === "drive_to_next" ||
+        action === "next_stop"
+        ? createStageClock(elapsed)
+        : null;
+    lifecycleClock?.mark("edge_request_received_ms");
     const respondOk = async (payload: Record<string, unknown>) => {
+      lifecycleClock?.mark("e9_respond_ok_start");
+      if (lifecycleClock) {
+        lifecyclePerfStagesMs = lifecycleClock.snapshot();
+      }
       const duration_ms = elapsed();
       let tripSnapshot: Record<string, unknown> | null = null;
       let stopsSnapshot: unknown[] = [];
@@ -1711,12 +1726,18 @@ Deno.serve(async (req) => {
         action,
         trip_id,
         ...(completeTripStagesMs ? { stages_ms: completeTripStagesMs } : {}),
+        ...(lifecyclePerfStagesMs
+          ? { lifecycle_perf_stages_ms: lifecyclePerfStagesMs }
+          : {}),
       });
       finishEdgeRequestLog("stop-workflow", duration_ms, {
         request_id: requestId,
         action,
         trip_id,
         ...(completeTripStagesMs ? { stages_ms: completeTripStagesMs } : {}),
+        ...(lifecyclePerfStagesMs
+          ? { lifecycle_perf_stages_ms: lifecyclePerfStagesMs }
+          : {}),
       });
       return successResponse(
         withDuration(
@@ -1726,6 +1747,9 @@ Deno.serve(async (req) => {
             stops: payload.stops ?? stopsSnapshot,
             ...(completeTripStagesMs
               ? { complete_trip_stages_ms: completeTripStagesMs }
+              : {}),
+            ...(lifecyclePerfStagesMs
+              ? { lifecycle_perf_stages_ms: lifecyclePerfStagesMs }
               : {}),
           },
           duration_ms,
@@ -1798,6 +1822,7 @@ Deno.serve(async (req) => {
     }
 
     console.log("[stop-workflow] Authorized driver:", driver_id);
+    lifecycleClock?.mark("e1_auth_complete");
 
     // Fetch trip — explicit columns only (retired scan_go / locked_driver_id must never be selected).
     const { data: trip, error: tripError } = await supabase
@@ -2097,6 +2122,8 @@ Deno.serve(async (req) => {
       }
     }
 
+    lifecycleClock?.mark("e2_trip_reads_complete");
+
     // Handle actions
     switch (action) {
       case 'start_journey_to_pickup': {
@@ -2379,6 +2406,7 @@ Deno.serve(async (req) => {
           trip_id,
           driver_id,
         });
+        lifecycleClock?.mark("e3_arrive_mutation_complete");
 
         const waitingResult = await tryStartPickupWaiting(supabase, {
           tripId: trip_id,
@@ -2397,12 +2425,14 @@ Deno.serve(async (req) => {
             500,
           );
         }
+        lifecycleClock?.mark("e4_waiting_ssot_complete");
 
         const { data: updatedTrip } = await supabase
           .from("trips")
           .select(ARRIVE_WAITING_TRIP_SELECT)
           .eq("id", trip_id)
           .single();
+        lifecycleClock?.mark("e5_post_mutation_select_complete");
         const billingTrip = mergeTripWaitingCtx(
           { ...trip, arrived_at: now, pickup_arrived_at: now },
           updatedTrip as TripWaitingBillingCtx | null,
@@ -2429,11 +2459,14 @@ Deno.serve(async (req) => {
           event_type: 'ARRIVE_AT_PICKUP_TAPPED',
           details: { arrived_at: now },
         });
+        // Stage labels are work buckets; wall order here is audit → notify → enrich.
+        lifecycleClock?.mark("e8_audit_complete");
         await notifyCustomerTripLifecycle(supabase, {
           passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
           tripId: trip_id,
           event: "driver_arrived",
         });
+        lifecycleClock?.mark("e7_notify_complete");
         if (waitingResult.started) {
           const isMultiStopTrip = (stops?.length ?? 0) > 2;
           await writeTripAudit(supabase, {
@@ -2451,16 +2484,20 @@ Deno.serve(async (req) => {
             });
           }
         }
-        return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
-          success: true,
-          action: 'arrive_pickup',
-          arrival_status: 'arrived',
-          waiting_started: waitingResult.started,
-          waiting_status: waitingResult.waiting_status,
-          allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
-          distance_meters: waitingResult.distance_meters ?? null,
-          trip: updatedTrip,
-        }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id }));
+        {
+          const enriched = await enrichArrivalWaitingSnapshot(supabase, {
+            success: true,
+            action: 'arrive_pickup',
+            arrival_status: 'arrived',
+            waiting_started: waitingResult.started,
+            waiting_status: waitingResult.waiting_status,
+            allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
+            distance_meters: waitingResult.distance_meters ?? null,
+            trip: updatedTrip,
+          }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id });
+          lifecycleClock?.mark("e6_enrichment_complete");
+          return await respondOk(enriched);
+        }
       }
 
       case 'start_trip': {
@@ -2631,6 +2668,8 @@ Deno.serve(async (req) => {
           intervals_charged: waitingFinal.intervals_charged,
           already_finalized: waitingFinal.already_finalized,
         });
+        lifecycleClock?.mark("e3_arrive_mutation_complete");
+        lifecycleClock?.mark("e4_waiting_ssot_complete");
         await writeTripAudit(supabase, {
           trip_id,
           driver_id,
@@ -2641,11 +2680,13 @@ Deno.serve(async (req) => {
             pickup_waiting_intervals_charged: waitingFinal.intervals_charged,
           },
         });
+        lifecycleClock?.mark("e8_audit_complete");
         await notifyCustomerTripLifecycle(supabase, {
           passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
           tripId: trip_id,
           event: "trip_started",
         });
+        lifecycleClock?.mark("e7_notify_complete");
         return await respondOk({
           success: true,
           action: 'start_trip',
@@ -2727,6 +2768,7 @@ Deno.serve(async (req) => {
           stop_id: currentStop.id,
           stop_index: currentStop.stop_index,
         });
+        lifecycleClock?.mark("e3_arrive_mutation_complete");
 
         const waitingResult = await tryStartStopWaiting(
           supabase,
@@ -2736,12 +2778,14 @@ Deno.serve(async (req) => {
           stopDriverLng,
         );
 
+        lifecycleClock?.mark("e4_waiting_ssot_complete");
         await writeTripAudit(supabase, {
           trip_id,
           driver_id,
           event_type: 'ARRIVE_AT_STOP_TAPPED',
           details: { stop_id: currentStop.id, stop_index: currentStop.stop_index },
         });
+        lifecycleClock?.mark("e8_audit_complete");
         if (waitingResult.started) {
           await writeTripAudit(supabase, {
             trip_id,
@@ -2755,22 +2799,26 @@ Deno.serve(async (req) => {
         }
 
         console.log("[stop-workflow] ARRIVE_STOP success at index:", currentStop.stop_index);
-        return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
-          success: true,
-          action: 'arrive_stop',
-          arrival_status: 'arrived',
-          stop_id: currentStop.id,
-          stop_index: currentStop.stop_index,
-          is_final: currentStop.type === 'dropoff',
-          waiting_started: waitingResult.started,
-          waiting_status: waitingResult.waiting_status,
-          allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
-          distance_meters: waitingResult.distance_meters ?? null,
-        }, waitingResult, {
-          scope: 'stop',
-          trip: { ...trip, stop_arrived_at: now },
-          stop: { ...currentStop, arrived_at: now },
-        }));
+        {
+          const enriched = await enrichArrivalWaitingSnapshot(supabase, {
+            success: true,
+            action: 'arrive_stop',
+            arrival_status: 'arrived',
+            stop_id: currentStop.id,
+            stop_index: currentStop.stop_index,
+            is_final: currentStop.type === 'dropoff',
+            waiting_started: waitingResult.started,
+            waiting_status: waitingResult.waiting_status,
+            allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
+            distance_meters: waitingResult.distance_meters ?? null,
+          }, waitingResult, {
+            scope: 'stop',
+            trip: { ...trip, stop_arrived_at: now },
+            stop: { ...currentStop, arrived_at: now },
+          });
+          lifecycleClock?.mark("e6_enrichment_complete");
+          return await respondOk(enriched);
+        }
       }
 
       case 'next_stop':
@@ -2852,6 +2900,7 @@ Deno.serve(async (req) => {
             driverLng: typeof driver_lng === 'number' ? driver_lng : undefined,
           },
         );
+        lifecycleClock?.mark("e4_waiting_ssot_complete");
 
         console.log("[stop-workflow] STOP_WAITING_ENDED_BACKEND_ACCEPTED", {
           trip_id,
@@ -2897,6 +2946,7 @@ Deno.serve(async (req) => {
             updated_at: now,
           })
           .eq("id", currentStop.id);
+        lifecycleClock?.mark("e3_arrive_mutation_complete");
 
         // Find next available stop (skip any SKIPPED)
         const nextStops = stops?.filter(s => s.stop_index > currentIndex && s.status !== 'skipped') || [];
