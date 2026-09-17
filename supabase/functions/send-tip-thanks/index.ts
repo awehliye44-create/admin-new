@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { corsHeaders } from "../_shared/corsHeaders.ts";
 import { DRIVER_TIP_THANKS_COPY } from "../_shared/driverTipThanksSSOT.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
