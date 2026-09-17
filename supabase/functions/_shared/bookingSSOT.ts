@@ -332,9 +332,9 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     referer: input.requestReferer,
     origin: input.requestOrigin,
   });
-  if (persistedBookingSource) {
-    tripData.booking_source = persistedBookingSource;
-  }
+  // CTAP is Customer App only. Never omit booking_source — the column DEFAULT is
+  // 'admin', which blocks tip-window stamp and Rate tip UI.
+  tripData.booking_source = persistedBookingSource || "choose_ride";
 
   if (body.pre_assigned_driver_id) {
     tripData.pre_assigned_driver_id = body.pre_assigned_driver_id;
