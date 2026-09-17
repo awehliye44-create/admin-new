@@ -7,9 +7,9 @@ import {
   CONFIRM_REVOLUT_BOOKING_CAP_MS,
   CONFIRM_REVOLUT_SAVE_CARD_CAP_MS,
   resolveConfirmRevolutMaxWaitMs,
-} from "./confirmRevolutPaymentWaitSSOT.ts";
+} from "../../functions/_shared/confirmRevolutPaymentWaitSSOT.ts";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = new URL("../../functions", import.meta.url).pathname;
 
 Deno.test("resolveConfirmRevolutMaxWaitMs: client 0 → single retrieve", () => {
   const r = resolveConfirmRevolutMaxWaitMs({ max_wait_ms: 0 });
@@ -72,7 +72,10 @@ Deno.test("token capture poll never uses the old ~82s ladder", () => {
     false,
   );
   assertEquals(src.includes('pollProfile === "setup"'), true);
-  assertEquals(src.includes("[0, 100, 250, 500]"), true);
+  assertEquals(src.includes("REVOLUT_TOKEN_CAPTURE_BOOKING_POLL_MS"), true);
+  assertEquals(src.includes("REVOLUT_TOKEN_CAPTURE_SETUP_POLL_MS"), true);
+  assertEquals(src.includes("REVOLUT_TOKEN_CAPTURE_DURABLE_RETRY_MS"), true);
+  assertEquals(src.includes("tryCaptureFromCustomerPaymentMethods"), true);
 });
 
 Deno.test("booking confirm defers token capture off Finding critical path", () => {
@@ -81,5 +84,14 @@ Deno.test("booking confirm defers token capture off Finding critical path", () =
   );
   assertEquals(src.includes("token_capture_deferred"), true);
   assertEquals(src.includes("EdgeRuntime.waitUntil"), true);
-  assertEquals(src.includes('pollProfile: "booking"'), true);
+  // Save-eligible deferred capture uses setup poll (not the short booking ladder).
+  assertEquals(src.includes('pollProfile: "setup"'), true);
+  assertEquals(src.includes('pollProfile: "booking"'), false);
+});
+
+Deno.test("booking post-commit save capture uses setup poll", () => {
+  const src = Deno.readTextFileSync(`${ROOT}/_shared/bookingPostCommit.ts`);
+  assertEquals(src.includes("finalizeRevolutTokenCapture"), true);
+  assertEquals(src.includes('pollProfile: "setup"'), true);
+  assertEquals(src.includes('pollProfile: "booking"'), false);
 });
