@@ -278,6 +278,48 @@ describe("customer active-workflow gate", () => {
     ).toBe(false);
   });
 
+  it("does not block honest scheduled_status=scheduled at broadcast_at", () => {
+    const broadcastAt = new Date(Date.now() - 60_000).toISOString();
+    expect(
+      isCustomerAssistantBusy(
+        evaluateCustomerAssistantBusyFromRows({
+          trips: [
+            {
+              status: "scheduled",
+              is_scheduled: true,
+              dispatch_mode: "scheduled",
+              scheduled_status: "scheduled",
+              scheduled_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+              scheduled_broadcast_at: broadcastAt,
+            },
+          ],
+          pendingRating: false,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("blocks after STEP 2 broadcasting with the window reached", () => {
+    const broadcastAt = new Date(Date.now() - 60_000).toISOString();
+    expect(
+      isCustomerAssistantBusy(
+        evaluateCustomerAssistantBusyFromRows({
+          trips: [
+            {
+              status: "offered",
+              is_scheduled: true,
+              dispatch_mode: "scheduled",
+              scheduled_status: "broadcasting",
+              scheduled_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+              scheduled_broadcast_at: broadcastAt,
+            },
+          ],
+          pendingRating: false,
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("allows a Customer with no live trip", () => {
     expect(
       isCustomerAssistantBusy(

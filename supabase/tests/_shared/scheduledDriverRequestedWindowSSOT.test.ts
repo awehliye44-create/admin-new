@@ -40,6 +40,41 @@ Deno.test("RC3: Requested and accept share scheduled_marketplace_is_open", async
   );
 });
 
+Deno.test("check_eligibility does not treat pre-STEP-2 scheduled as available", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../../functions/scheduled-ride-action/index.ts", import.meta.url),
+  );
+  assertStringIncludes(src, "isScheduledUnassignedMarketplaceLive");
+  const eligibilityIdx = src.indexOf('if (action === "check_eligibility")');
+  assert(eligibilityIdx > 0, "check_eligibility action must exist");
+  const eligibilitySrc = src.slice(eligibilityIdx);
+  assertStringIncludes(eligibilitySrc, "isScheduledUnassignedMarketplaceLive");
+  assertEquals(
+    eligibilitySrc.includes('["broadcasting", "scheduled"].includes(trip.scheduled_status'),
+    false,
+    "Driver eligibility must not treat scheduled_status=scheduled as marketplace-open",
+  );
+});
+
+Deno.test("get_available does not list pre-STEP-2 scheduled_status=scheduled", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../../functions/scheduled-ride-action/index.ts", import.meta.url),
+  );
+  const availableIdx = src.indexOf('if (action === "get_available")');
+  assert(availableIdx > 0, "get_available action must exist");
+  const acceptIdx = src.indexOf('if (action === "accept")');
+  const availableSrc = src.slice(
+    availableIdx,
+    acceptIdx > availableIdx ? acceptIdx : undefined,
+  );
+  assertStringIncludes(
+    availableSrc,
+    '.in("scheduled_status", ["broadcasting", "awaiting_confirmation"])',
+  );
+  assertStringIncludes(availableSrc, "isScheduledUnassignedMarketplaceLive");
+  assertStringIncludes(availableSrc, "marketplace_not_open");
+});
+
 Deno.test("RC3: NULL legacy anchors reconstruct from created_at, not now()", async () => {
   const src = await Deno.readTextFile(MIGRATION);
   assertStringIncludes(src, "COALESCE(p_created_at, p_now)");

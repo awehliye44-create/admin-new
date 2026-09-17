@@ -53,8 +53,9 @@ export const CUSTOMER_TOPICS: Topic[] = [
     keywords: ["schedule", "scheduled", "later", "advance", "tomorrow", "pre-book"],
     body:
       "Choose a later pickup time on Plan your ride to create a scheduled booking. Upcoming " +
-      "scheduled rides stay in Rides until they start dispatching. A future scheduled booking that " +
-      "is not yet activating is not a live trip. This assistant cannot create or change a scheduled booking.",
+      "scheduled rides stay in Rides until a driver is found near your pickup time. A future " +
+      "scheduled booking that is not yet activating is not a live trip. This assistant cannot " +
+      "create or change a scheduled booking.",
   },
   {
     id: "service-areas",

@@ -7,6 +7,7 @@ import {
   isOpenJobInstantRideOffer,
   isNoPreconfirmedConvertScheduledStatus,
   isScheduledMarketplaceActivationDue,
+  isScheduledUnassignedMarketplaceLive,
   buildScheduledUrgentConversionPatch,
   nextAutoDispatchTripStatus,
   resolveScheduledDispatchConfig,
@@ -285,6 +286,16 @@ Deno.test("STEP 2: marketplace activation uses persisted scheduled_broadcast_at 
     nowMs: Date.parse("2026-09-17T11:40:00.000Z"),
   });
   if (instant) throw new Error("NOW/instant trip must not use scheduled STEP 2");
+
+  const leftoverDispatching = isScheduledMarketplaceActivationDue({
+    dispatchMode: "scheduled",
+    scheduledStatus: "dispatching",
+    scheduledBroadcastAt: broadcastAt,
+    nowMs: Date.parse("2026-09-17T11:40:00.000Z"),
+  });
+  if (!leftoverDispatching) {
+    throw new Error("Admin leftover dispatching must still be eligible for STEP 2");
+  }
 });
 
 Deno.test("STEP 3: persisted scheduled_convert_at is the urgent clock when present", () => {
@@ -321,20 +332,62 @@ Deno.test("STEP 3: persisted scheduled_convert_at is the urgent clock when prese
   }
 });
 
-Deno.test("MK-260817 open-job broadcasting is an instant ride offer", () => {
+Deno.test("unassigned Finding Driver requires STEP 2 broadcasting plus window", () => {
+  const atWindow = {
+    scheduledBroadcastAt: "2026-09-17T11:37:00.000Z",
+    scheduledAt: "2026-09-17T12:00:00.000Z",
+    nowMs: Date.parse("2026-09-17T11:37:00.000Z"),
+  };
+  if (
+    isScheduledUnassignedMarketplaceLive({
+      scheduledStatus: "scheduled",
+      ...atWindow,
+    })
+  ) {
+    throw new Error("honest scheduled_status=scheduled must stay list-only at broadcast_at");
+  }
+  if (
+    !isScheduledUnassignedMarketplaceLive({
+      scheduledStatus: "broadcasting",
+      ...atWindow,
+    })
+  ) {
+    throw new Error("STEP 2 broadcasting at window must be live Finding Driver");
+  }
+  if (
+    isScheduledUnassignedMarketplaceLive({
+      scheduledStatus: "broadcasting",
+      scheduledBroadcastAt: "2026-09-17T11:37:00.000Z",
+      nowMs: Date.parse("2026-09-17T11:36:00.000Z"),
+    })
+  ) {
+    throw new Error("polluted broadcasting before window must not be live");
+  }
+  if (
+    isScheduledUnassignedMarketplaceLive({
+      scheduledStatus: "broadcasting",
+      driverId: "drv-1",
+      ...atWindow,
+    })
+  ) {
+    throw new Error("assigned trip is not unassigned marketplace live");
+  }
+});
+
+Deno.test("MK-260817 converted_to_instant is an instant ride offer; STEP 2 is not", () => {
   const broadcasting = isOpenJobInstantRideOffer({
     dispatch_mode: "scheduled",
     scheduled_status: "broadcasting",
     status: "searching",
   });
-  if (!broadcasting) throw new Error("heatmap searching scheduled job must be instant offer");
+  if (broadcasting) throw new Error("STEP 2 searching must stay Scheduled Jobs");
 
   const offered = isOpenJobInstantRideOffer({
     dispatch_mode: "scheduled",
     scheduled_status: "broadcasting",
     status: "offered",
   });
-  if (!offered) throw new Error("broadcast offered scheduled job must be instant offer");
+  if (offered) throw new Error("STEP 2 offered must stay Scheduled Jobs");
 
   const converted = isOpenJobInstantRideOffer({
     dispatch_mode: "instant",
@@ -349,6 +402,15 @@ Deno.test("MK-260817 open-job broadcasting is an instant ride offer", () => {
     status: "scheduled",
   });
   if (preBroadcast) throw new Error("pre-broadcast scheduled must stay Scheduled Jobs");
+
+  const pollutedOffered = isOpenJobInstantRideOffer({
+    dispatch_mode: "scheduled",
+    scheduled_status: "scheduled",
+    status: "offered",
+  });
+  if (pollutedOffered) {
+    throw new Error("pre-STEP-2 offered pollution must not become a nearby card");
+  }
 });
 
 Deno.test("auto-dispatch does not stomp scheduled marketplace to searching", () => {

@@ -39,3 +39,20 @@ Deno.test("RC1: immediate trips still early-return without scheduled_at", async 
   );
   assertStringIncludes(src, "RETURN NEW;");
 });
+
+Deno.test("RC1: lifecycle trigger is BEFORE INSERT only, never UPDATE", async () => {
+  const src = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20261116234000_scheduled_lifecycle_insert_trigger_only.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(src, "BEFORE INSERT ON public.trips");
+  assertStringIncludes(src, "trg_enforce_scheduled_trip_lifecycle");
+  assertEquals(
+    src.includes("BEFORE INSERT OR UPDATE"),
+    false,
+    "lifecycle trigger must not fire on STEP 2 UPDATE",
+  );
+  assertStringIncludes(src, "DROP TRIGGER IF EXISTS");
+});

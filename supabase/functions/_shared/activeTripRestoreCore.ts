@@ -3,6 +3,7 @@ import {
   isScheduledInstantConversionPending,
   isScheduledWorkflowOrigin,
 } from "./scheduledHandoverHoldLock.ts";
+import { isScheduledUnassignedMarketplaceLive } from "./scheduledDispatchConfig.ts";
 import { type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   isRestoreActiveTripStatus,
@@ -58,20 +59,7 @@ function isScheduledTrip(row: TripRow): boolean {
   return row.is_scheduled === true;
 }
 
-function scheduledDispatchWindowReached(row: TripRow, nowMs: number): boolean {
-  const dispatchMode = String(row.dispatch_mode ?? "").toLowerCase();
-  if (dispatchMode === "instant") return true;
-  for (const key of ["scheduled_broadcast_at", "scheduled_convert_at", "scheduled_at"]) {
-    const raw = row[key];
-    if (typeof raw === "string") {
-      const ms = new Date(raw).getTime();
-      if (Number.isFinite(ms) && ms <= nowMs) return true;
-    }
-  }
-  return false;
-}
-
-/** Customer restore candidate — SSOT statuses win; local dispatch window only gates pre-assign scheduled. */
+/** Customer restore candidate — unassigned scheduled is live only after STEP 2. */
 function isCustomerRestoreCandidate(row: TripRow, nowMs: number): boolean {
   const status = normalizeRestoreTripStatus(String(row.status ?? ""));
   if (!status || isRestoreTerminalTripStatus(status)) return false;
@@ -84,20 +72,45 @@ function isCustomerRestoreCandidate(row: TripRow, nowMs: number): boolean {
       }
     }
   }
+  const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);
   if (
     isScheduledInstantConversionPending(row) &&
     isScheduledHandoverOpenJobStatus(status)
   ) {
-    return true;
+    if (hasDriver) return true;
+    return isScheduledUnassignedMarketplaceLive({
+      scheduledStatus: row.scheduled_status as string | null,
+      driverId: row.driver_id as string | null,
+      confirmedDriverId: row.confirmed_driver_id as string | null,
+      scheduledBroadcastAt: row.scheduled_broadcast_at as string | null,
+      scheduledConvertAt: row.scheduled_convert_at as string | null,
+      scheduledAt: row.scheduled_at as string | null,
+      nowMs,
+    });
   }
   if (!isRestoreActiveTripStatus(status, "customer")) return false;
   if (!isScheduledTrip(row)) return true;
-  const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);
-  if (hasDriver && ASSIGNED_ACTIVE_SET.has(status)) return true;
-  if (status === "scheduled" || status === "scheduled_committed") {
-    return hasDriver || scheduledDispatchWindowReached(row, nowMs);
+  const dispatchMode = String(row.dispatch_mode ?? "").trim().toLowerCase();
+  const scheduledStatus = String(row.scheduled_status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  if (dispatchMode === "instant" || scheduledStatus === "converted_to_instant") {
+    return true;
   }
-  return scheduledDispatchWindowReached(row, nowMs);
+  if (hasDriver && ASSIGNED_ACTIVE_SET.has(status)) return true;
+  if (hasDriver && (status === "scheduled" || status === "scheduled_committed")) {
+    return true;
+  }
+  return isScheduledUnassignedMarketplaceLive({
+    scheduledStatus: row.scheduled_status as string | null,
+    driverId: row.driver_id as string | null,
+    confirmedDriverId: row.confirmed_driver_id as string | null,
+    scheduledBroadcastAt: row.scheduled_broadcast_at as string | null,
+    scheduledConvertAt: row.scheduled_convert_at as string | null,
+    scheduledAt: row.scheduled_at as string | null,
+    nowMs,
+  });
 }
 
 async function clearCustomerActiveTripPointer(

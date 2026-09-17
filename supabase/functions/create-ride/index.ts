@@ -713,8 +713,9 @@ Deno.serve(async (req) => {
       console.log("[create-ride] Created", stopsToInsert.length, "trip stops");
     }
 
-    // Update customer's active_trip_id if logged in
-    if (customerId) {
+    // Upcoming scheduled stays on the Scheduled list until STEP 2. Do not
+    // steal customers.active_trip_id from a live NOW trip.
+    if (customerId && !isScheduled) {
       await supabase
         .from("customers")
         .update({ active_trip_id: trip.id })

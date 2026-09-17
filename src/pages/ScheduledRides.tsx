@@ -409,18 +409,19 @@ export default function ScheduledRides() {
 
     setIsSaving(true);
     try {
-      // Mark booking as dispatching — alerts go to drivers.
-      // The booking stays scheduled; customer sees "Upcoming" until a driver ACCEPTS.
-      // Only driver acceptance (accept-trip or accept_scheduled_ride) changes status to live.
-      const { error } = await supabase
-        .from('trips')
-        .update({ 
-          scheduled_status: 'dispatching',
-          dispatch_mode: 'scheduled',
-        })
-        .eq('id', selectedTrip.id);
-
+      // Pull the marketplace window to now, then let scheduled-dispatch STEP 2
+      // write broadcasting + offered. Never stamp scheduled_status=dispatching —
+      // that blocked STEP 2 and never opened Driver Requested.
+      const { data, error } = await supabase.functions.invoke('admin-trip-action', {
+        body: {
+          action: 'force_scheduled_marketplace',
+          trip_id: selectedTrip.id,
+        },
+      });
       if (error) throw error;
+      if (data && data.success === false) {
+        throw new Error(data.error || 'Failed to dispatch ride');
+      }
 
       toast.success('Ride dispatched successfully');
       setIsDispatchOpen(false);

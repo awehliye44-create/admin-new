@@ -2,6 +2,7 @@ import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   buildMinimalTripInsertRow,
+  resolveScheduledAtIso,
   type BookingCommitBody,
 } from "../_shared/bookingSSOT.ts";
 import { assertBookingSurgeAtPickup } from "../_shared/demandZoneSurgeSSOT.ts";
@@ -48,6 +49,14 @@ import {
   shouldSkipPlatformPreauthForCommissionWallet,
   type ServiceAreaCommissionWalletConfig,
 } from "../_shared/commissionWalletSSOT.ts";
+import {
+  evaluateTripScheduleConflictRpc,
+  overlapRejectPayload,
+  SCHEDULED_TRIP_OVERLAP_ERROR,
+} from "../_shared/tripScheduleOverlapRpc.ts";
+import {
+  CUSTOMER_SCHEDULED_OVERLAP_MESSAGE,
+} from "../_shared/tripScheduleOverlapSSOT.ts";
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
@@ -1028,6 +1037,63 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       log("pre_assigned_driver_id set", { id: preAssignedDriverId });
     }
 
+    // Canonical customer scheduled overlap gate (RPC). INSERT trigger also
+    // enforces atomically for concurrent races.
+    if (isScheduled) {
+      const scheduledAtIso = resolveScheduledAtIso(body);
+      const durationMin = Math.max(1, Number(body.estimated_duration || 30));
+      if (scheduledAtIso && customerId) {
+        const candidateEnd = new Date(
+          Date.parse(scheduledAtIso) + durationMin * 60_000,
+        ).toISOString();
+        const overlap = await evaluateTripScheduleConflictRpc(supabase, {
+          subjectKind: "customer",
+          subjectId: customerId,
+          candidateStartIso: scheduledAtIso,
+          candidateEstimatedEndIso: candidateEnd,
+          serviceAreaId,
+          candidateMode: "scheduled",
+        });
+        if (overlap.ok && overlap.result.conflict) {
+          log("REJECTED — customer scheduled overlap", {
+            conflicting_trip_id: overlap.result.conflicting_trip_id,
+            buffer_minutes: overlap.result.buffer_minutes,
+          });
+          const payload = overlapRejectPayload("customer", overlap.result);
+          return failBookingAfterAuthorizedPayment(
+            supabase,
+            verifiedRevolutOrder,
+            {
+              ...reversalContext!,
+              customerId,
+              serviceAreaId,
+              failureStage: "scheduled_overlap",
+              failureReason: SCHEDULED_TRIP_OVERLAP_ERROR,
+            },
+            409,
+            CUSTOMER_SCHEDULED_OVERLAP_MESSAGE,
+            payload,
+          );
+        }
+        if (!overlap.ok) {
+          log("scheduled overlap RPC failed (fail closed)", { error: overlap.error });
+          return failBookingAfterAuthorizedPayment(
+            supabase,
+            verifiedRevolutOrder,
+            {
+              ...reversalContext!,
+              customerId,
+              serviceAreaId,
+              failureStage: "scheduled_overlap",
+              failureReason: "overlap_rpc_failed",
+            },
+            503,
+            BOOKING_FAILED_NO_TRIP_MESSAGE,
+          );
+        }
+      }
+    }
+
     log("Inserting trip (minimal SSOT commit)");
     bookingWaterfall.startStep("trip_inserted", "create-trip-after-payment/index.ts:trips.insert");
 
@@ -1038,6 +1104,30 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       .single();
 
     if (insertErr) {
+      const insertMsg = String(insertErr.message ?? "");
+      if (insertMsg.includes("SCHEDULED_TRIP_OVERLAP")) {
+        log("REJECTED — customer scheduled overlap (insert trigger)", {
+          message: insertMsg,
+        });
+        return failBookingAfterAuthorizedPayment(
+          supabase,
+          verifiedRevolutOrder,
+          {
+            ...reversalContext!,
+            customerId,
+            serviceAreaId,
+            failureStage: "scheduled_overlap",
+            failureReason: SCHEDULED_TRIP_OVERLAP_ERROR,
+          },
+          409,
+          CUSTOMER_SCHEDULED_OVERLAP_MESSAGE,
+          {
+            code: SCHEDULED_TRIP_OVERLAP_ERROR,
+            error: SCHEDULED_TRIP_OVERLAP_ERROR,
+            message: CUSTOMER_SCHEDULED_OVERLAP_MESSAGE,
+          },
+        );
+      }
       // Check for duplicate
       if (insertErr.message?.includes("duplicate") || insertErr.message?.includes("client_action_id")) {
         const { data: retryTrips } = await supabase

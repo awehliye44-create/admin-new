@@ -16,9 +16,14 @@ import {
 } from "../_shared/security.ts";
 import {
   buildScheduledUrgentConversionPatch,
+  isScheduledUnassignedMarketplaceLive,
   resolveScheduledDispatchConfig,
 } from "../_shared/scheduledDispatchConfig.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import {
+  evaluateTripScheduleOverlap,
+  resolveScheduledOverlapBufferMinutes,
+} from "../_shared/tripScheduleOverlapSSOT.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -193,6 +198,7 @@ Deno.serve(async (req) => {
         .from("trips")
         .select("*")
         .or(`is_scheduled.eq.true,dispatch_mode.eq.scheduled`)
+        .in("scheduled_status", ["broadcasting", "awaiting_confirmation"])
         .not("scheduled_at", "is", null)
         .gte("scheduled_at", lookbackIso)
         .order("scheduled_at", { ascending: true });
@@ -221,6 +227,7 @@ Deno.serve(async (req) => {
         targeted_other_driver: 0,
         no_schedule_time: 0,
         outside_window: 0,
+        marketplace_not_open: 0,
       };
 
       const poolCandidates = (availableTrips || []).filter((trip) => {
@@ -258,6 +265,21 @@ Deno.serve(async (req) => {
 
         if (trip.current_offer_driver_id && trip.current_offer_driver_id !== driver_id) {
           droppedByReason.targeted_other_driver += 1;
+          return false;
+        }
+
+        if (
+          !isScheduledUnassignedMarketplaceLive({
+            scheduledStatus: trip.scheduled_status,
+            driverId: trip.driver_id,
+            confirmedDriverId: trip.confirmed_driver_id,
+            scheduledBroadcastAt: trip.scheduled_broadcast_at,
+            scheduledConvertAt: trip.scheduled_convert_at,
+            scheduledAt: trip.scheduled_at,
+            nowMs: Date.now(),
+          })
+        ) {
+          droppedByReason.marketplace_not_open += 1;
           return false;
         }
 
@@ -306,27 +328,32 @@ Deno.serve(async (req) => {
       // Get driver's existing confirmed/active scheduled trips for overlap filtering
       const { data: driverConfirmedTrips } = await supabase
         .from("trips")
-        .select("id, scheduled_at, estimated_duration_minutes")
+        .select("id, scheduled_at, estimated_duration_minutes, status")
         .or(`confirmed_driver_id.eq.${driver_id},driver_id.eq.${driver_id}`)
         .not("status", "in", '("completed","cancelled","expired","expired_no_driver","no_show")')
         .not("scheduled_at", "is", null);
 
-      const OVERLAP_BUFFER_MIN = 15;
+      const { data: saBufferRow } = await supabase
+        .from("service_areas")
+        .select("scheduled_overlap_buffer_minutes")
+        .eq("id", driver.service_area_id)
+        .maybeSingle();
+      const overlapBufferMin = resolveScheduledOverlapBufferMinutes(
+        (saBufferRow as { scheduled_overlap_buffer_minutes?: number | null } | null)
+          ?.scheduled_overlap_buffer_minutes,
+      );
+
       const hasScheduleOverlap = (trip: any): boolean => {
         if (!trip.scheduled_at || !driverConfirmedTrips?.length) return false;
-        const tripStart = new Date(trip.scheduled_at).getTime();
-        const tripDuration = (trip.estimated_duration_minutes || 30) * 60_000;
-        const newWindowStart = tripStart - OVERLAP_BUFFER_MIN * 60_000;
-        const newWindowEnd = tripStart + tripDuration + OVERLAP_BUFFER_MIN * 60_000;
-
-        return driverConfirmedTrips.some((ct: any) => {
-          if (ct.id === trip.id) return false;
-          const ctStart = new Date(ct.scheduled_at).getTime();
-          const ctDuration = (ct.estimated_duration_minutes || 30) * 60_000;
-          const ctWindowStart = ctStart - OVERLAP_BUFFER_MIN * 60_000;
-          const ctWindowEnd = ctStart + ctDuration + OVERLAP_BUFFER_MIN * 60_000;
-          return newWindowStart < ctWindowEnd && newWindowEnd > ctWindowStart;
+        const result = evaluateTripScheduleOverlap({
+          candidateMode: "scheduled",
+          candidateStartIso: trip.scheduled_at,
+          candidateDurationMinutes: trip.estimated_duration_minutes,
+          bufferMinutes: overlapBufferMin,
+          existing: driverConfirmedTrips as any[],
+          excludeTripId: trip.id,
         });
+        return result.conflict;
       };
 
       // Filter out excluded trips, distance, and overlap
@@ -527,12 +554,24 @@ Deno.serve(async (req) => {
       // Check if trip is still available
       const { data: trip } = await supabase
         .from("trips")
-        .select("id, driver_id, scheduled_status")
+        .select(
+          "id, driver_id, confirmed_driver_id, scheduled_status, scheduled_broadcast_at, scheduled_convert_at, scheduled_at",
+        )
         .eq("id", trip_id)
         .single();
 
-      const isAvailable = trip && !trip.driver_id && 
-        ["broadcasting", "scheduled"].includes(trip.scheduled_status || "");
+      const isAvailable = Boolean(
+        trip &&
+          isScheduledUnassignedMarketplaceLive({
+            scheduledStatus: trip.scheduled_status,
+            driverId: trip.driver_id,
+            confirmedDriverId: trip.confirmed_driver_id,
+            scheduledBroadcastAt: trip.scheduled_broadcast_at,
+            scheduledConvertAt: trip.scheduled_convert_at,
+            scheduledAt: trip.scheduled_at,
+            nowMs: Date.now(),
+          }),
+      );
 
       return successResponse({ 
         success: true, 

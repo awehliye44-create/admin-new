@@ -456,9 +456,17 @@ Deno.serve(async (req) => {
             }
           : {
               ...incomingData,
-              // Preserve client routing type for trip_modified (Driver parseTripModifiedPushData).
-              // Envelope stays TRIP_UPDATE for the allow-list.
-              type: isTripModified ? 'trip_modified' : payload.type,
+              // Preserve client routing type for trip_modified (Driver parseTripModifiedPushData)
+              // and scheduled marketplace opens (Driver isScheduledRideRequestPush).
+              // Envelope stays TRIP_UPDATE / SYSTEM_ALERT for the allow-list.
+              type: isTripModified
+                ? 'trip_modified'
+                : (incomingDataType === 'scheduled_ride_request' ||
+                    incomingDataType === 'scheduled_marketplace_open' ||
+                    String(incomingData.open_scheduled_jobs || '') === 'true' ||
+                    String(incomingData.open_scheduled_jobs || '') === '1')
+                ? (incomingData.type || 'scheduled_ride_request')
+                : payload.type,
               notificationType:
                 incomingData.notificationType ||
                 incomingData.notification_type ||

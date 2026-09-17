@@ -82,8 +82,15 @@ import {
   WAVE3_NO_ELIGIBLE_LOG_TOKEN,
 } from "../_shared/dispatchSearchWindow.ts";
 import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
+import { nextAutoDispatchTripStatus } from "../_shared/scheduledDispatchConfig.ts";
 import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
+import {
+  evaluateTripScheduleConflictRpc,
+} from "../_shared/tripScheduleOverlapRpc.ts";
+import {
+  estimatedTripDurationMinutes,
+} from "../_shared/tripScheduleOverlapSSOT.ts";
 import {
   blockedTerminalTripLogPayload,
   isTripTerminalForDispatch,
@@ -593,6 +600,24 @@ Deno.serve(async (req) => {
 
     trip.vehicle_type_id = effectiveVehicleTypeId;
 
+    // Unconverted scheduled is Scheduled Jobs list-only. Nearby waves start
+    // only after STEP 3 convert_to_instant. force_rebroadcast must not bypass
+    // that — STEP 2 broadcasting is not urgent nearby dispatch.
+    if (isScheduledInstantConversionPending(trip)) {
+      console.log("[auto-dispatch] Skipping unconverted scheduled trip:", trip_id);
+      abortDispatch("SCHEDULED_MARKETPLACE_LIST_ONLY", {
+        scheduled_status: trip.scheduled_status ?? null,
+        dispatch_mode: trip.dispatch_mode ?? null,
+      });
+      return successResponse({
+        success: false,
+        error: "Scheduled marketplace is list-only until urgent conversion",
+        trip_id,
+        dispatch_aborted: true,
+        scheduled_marketplace_list_only: true,
+      });
+    }
+
     // Locked-driver / broadcast-disabled trips â never auto-dispatch.
     // Scan & Go retired (no trips.scan_go column).
     if (
@@ -1012,7 +1037,7 @@ Deno.serve(async (req) => {
         .from("trips")
         .update({
           dispatch_status: "broadcasting",
-          status: trip.status === "searching_new_driver" ? "searching_new_driver" : "searching",
+          status: nextAutoDispatchTripStatus(trip),
           updated_at: new Date().toISOString(),
         })
         .eq("id", trip_id);
@@ -1402,6 +1427,39 @@ Deno.serve(async (req) => {
         });
       }
 
+      // Upcoming confirmed scheduled booking: NOW trip must finish before protected start.
+      {
+        const nowMs = Date.now();
+        const durationMin = estimatedTripDurationMinutes(
+          (trip as { estimated_duration_minutes?: number | null }).estimated_duration_minutes,
+        );
+        const candidateEndIso = new Date(nowMs + durationMin * 60_000).toISOString();
+        const overlap = await evaluateTripScheduleConflictRpc(supabase, {
+          subjectKind: "driver",
+          subjectId: d.id,
+          candidateStartIso: new Date(nowMs).toISOString(),
+          candidateEstimatedEndIso: candidateEndIso,
+          serviceAreaId: trip.service_area_id ?? d.service_area_id ?? null,
+          excludeTripId: trip_id,
+          candidateMode: "immediate",
+        });
+        if (!overlap.ok) {
+          logEligibility(d.id, false, "scheduled_overlap_rpc_failed", {
+            error: overlap.error,
+          });
+          continue;
+        }
+        if (overlap.result.conflict) {
+          logEligibility(d.id, false, "scheduled_trip_overlap", {
+            conflicting_trip_id: overlap.result.conflicting_trip_id,
+            protected_start: overlap.result.protected_start,
+            candidate_end: candidateEndIso,
+            buffer_minutes: overlap.result.buffer_minutes,
+          });
+          continue;
+        }
+      }
+
       eligiblePresenceDrivers.push(
         attachDriverCategoryPriority({
           ...d,
@@ -1707,6 +1765,52 @@ Deno.serve(async (req) => {
 
           // â All gates passed â log eligible with quality metadata
           const newPickupEtaMinutes = detourMinutes;
+
+          // Stacked NOW trip must also finish before upcoming scheduled protection.
+          {
+            const currentAnchorIso =
+              currentTrip.started_at ||
+              currentTrip.arrived_at ||
+              new Date().toISOString();
+            const currentDur = estimatedTripDurationMinutes(
+              currentTrip.estimated_duration_minutes,
+            );
+            const currentEndMs = Math.max(
+              Date.now(),
+              Date.parse(currentAnchorIso) + currentDur * 60_000,
+            );
+            const newDur = estimatedTripDurationMinutes(
+              (trip as { estimated_duration_minutes?: number | null }).estimated_duration_minutes,
+            );
+            const stackedEndIso = new Date(currentEndMs + newDur * 60_000).toISOString();
+            const overlap = await evaluateTripScheduleConflictRpc(supabase, {
+              subjectKind: "driver",
+              subjectId: driver.id,
+              candidateStartIso: new Date(currentEndMs).toISOString(),
+              candidateEstimatedEndIso: stackedEndIso,
+              serviceAreaId: trip.service_area_id ?? driver.service_area_id ?? null,
+              excludeTripId: trip_id,
+              candidateMode: "immediate",
+            });
+            if (!overlap.ok) {
+              logEligibility(driver.id, false, "stacked_scheduled_overlap_rpc_failed", {
+                stacked_gate: true,
+                error: overlap.error,
+              });
+              continue;
+            }
+            if (overlap.result.conflict) {
+              logEligibility(driver.id, false, "stacked_scheduled_trip_overlap", {
+                stacked_gate: true,
+                conflicting_trip_id: overlap.result.conflicting_trip_id,
+                protected_start: overlap.result.protected_start,
+                candidate_end: stackedEndIso,
+                buffer_minutes: overlap.result.buffer_minutes,
+              });
+              continue;
+            }
+          }
+
           logEligibility(driver.id, true, "stacked_eligible", {
             stacked_gate: true,
             distance_from_driver_meters: Math.round(distanceFromDriver),
@@ -2287,7 +2391,7 @@ Deno.serve(async (req) => {
           .from("trips")
           .update({
             dispatch_status: "broadcasting",
-            status: trip.status === "searching_new_driver" ? "searching_new_driver" : "searching",
+            status: nextAutoDispatchTripStatus(trip),
             current_broadcast_round: currentRound,
             updated_at: new Date().toISOString(),
           })
@@ -2312,7 +2416,7 @@ Deno.serve(async (req) => {
         .from("trips")
         .update({
           dispatch_status: "broadcasting",
-          status: trip.status === "searching_new_driver" ? "searching_new_driver" : "searching",
+          status: nextAutoDispatchTripStatus(trip),
           current_broadcast_round: currentRound,
           updated_at: new Date().toISOString(),
         })

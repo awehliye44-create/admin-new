@@ -12,6 +12,7 @@ import {
   isScheduledInstantConversionPending,
   isScheduledWorkflowOrigin,
 } from "../_shared/scheduledHandoverHoldLock.ts";
+import { isScheduledUnassignedMarketplaceLive } from "../_shared/scheduledDispatchConfig.ts";
 import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
 
 const corsHeaders = {
@@ -184,7 +185,20 @@ function isCustomerLiveTrip(row: TripRow, nowMs: number): boolean {
     isScheduledInstantConversionPending(row) &&
     isScheduledHandoverOpenJobStatus(status)
   ) {
-    return true;
+    const hasAssigned = Boolean(row.driver_id || row.confirmed_driver_id);
+    if (hasAssigned) return true;
+    return isScheduledUnassignedMarketplaceLive({
+      scheduledStatus: String(row.scheduled_status ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/-/g, "_"),
+      driverId: row.driver_id,
+      confirmedDriverId: row.confirmed_driver_id,
+      scheduledBroadcastAt: row.scheduled_broadcast_at,
+      scheduledConvertAt: row.scheduled_convert_at,
+      scheduledAt: row.scheduled_at,
+      nowMs,
+    });
   }
 
   const dispatchMode = String(row.dispatch_mode ?? "").trim().toLowerCase();
@@ -201,11 +215,23 @@ function isCustomerLiveTrip(row: TripRow, nowMs: number): boolean {
   if (!isScheduledTrip(row)) return true;
 
   const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);
-  return (
+  if (
     hasDriver &&
     SCHEDULED_LIVE_STATES.includes(status) &&
     scheduledDispatchWindowReached(row, nowMs)
-  );
+  ) {
+    return true;
+  }
+
+  return isScheduledUnassignedMarketplaceLive({
+    scheduledStatus,
+    driverId: row.driver_id,
+    confirmedDriverId: row.confirmed_driver_id,
+    scheduledBroadcastAt: row.scheduled_broadcast_at,
+    scheduledConvertAt: row.scheduled_convert_at,
+    scheduledAt: row.scheduled_at,
+    nowMs,
+  });
 }
 
 serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
@@ -383,6 +409,7 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
           .eq("is_scheduled", true)
           .in("status", [
             ...SCHEDULED_LIVE_STATES,
+            "scheduled",
             "searching",
             "offered",
             "offering",

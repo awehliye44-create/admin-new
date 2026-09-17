@@ -100,6 +100,7 @@ interface ScheduledTrip {
   // §13 admin escalation tracking
   no_driver_admin_alert_sent_at?: string | null;
   no_driver_customer_alert_sent_at?: string | null;
+  service_area_id?: string | null;
 }
 
 /** Send a push notification to a driver via send-driver-notification. */
@@ -160,6 +161,84 @@ async function sendAdminAlert(
   } catch (err) {
     console.warn("[scheduled-dispatch] admin alert failed:", args.type, err);
   }
+}
+
+/** STEP 2: wake Driver Scheduled Jobs banner — no nearby NOW offers. */
+async function notifyScheduledMarketplaceDrivers(
+  supabase: AnySupabaseClient,
+  trip: ScheduledTrip,
+) {
+  const serviceAreaId = trip.service_area_id;
+  const driverIds = new Set<string>();
+
+  if (serviceAreaId) {
+    const { data: areaDrivers } = await supabase
+      .from("driver_service_areas")
+      .select("driver_id")
+      .eq("service_area_id", serviceAreaId);
+    for (const row of areaDrivers ?? []) {
+      if (row?.driver_id) driverIds.add(String(row.driver_id));
+    }
+    const { data: primary } = await supabase
+      .from("drivers")
+      .select("id")
+      .eq("is_online", true)
+      .eq("service_area_id", serviceAreaId)
+      .limit(40);
+    for (const row of primary ?? []) {
+      if (row?.id) driverIds.add(String(row.id));
+    }
+    if (driverIds.size === 0) {
+      console.log("[scheduled-dispatch] marketplace open — no online drivers in SA", {
+        trip_id: trip.id,
+        service_area_id: serviceAreaId,
+      });
+      return;
+    }
+    // Keep only online for multi-SA membership rows.
+    const { data: onlineInSet } = await supabase
+      .from("drivers")
+      .select("id")
+      .eq("is_online", true)
+      .in("id", [...driverIds].slice(0, 80))
+      .limit(40);
+    driverIds.clear();
+    for (const row of onlineInSet ?? []) {
+      if (row?.id) driverIds.add(String(row.id));
+    }
+  } else {
+    const { data: online } = await supabase
+      .from("drivers")
+      .select("id")
+      .eq("is_online", true)
+      .limit(20);
+    for (const row of online ?? []) {
+      if (row?.id) driverIds.add(String(row.id));
+    }
+  }
+
+  const ids = [...driverIds].slice(0, 40);
+  for (const driverId of ids) {
+    queueBackground(
+      sendDriverPush(supabase, {
+        driverId,
+        type: "SYSTEM_ALERT",
+        title: "Scheduled ride available",
+        body: "Open Scheduled Jobs to Accept.",
+        data: {
+          type: "scheduled_ride_request",
+          event_key: "scheduled_ride_request",
+          open_scheduled_jobs: "true",
+          trip_id: trip.id,
+          trip_number: String(trip.trip_number ?? ""),
+        },
+      }),
+    );
+  }
+  console.log("SCHEDULED_MARKETPLACE_DRIVER_NOTIFY", {
+    trip_id: trip.id,
+    driver_count: ids.length,
+  });
 }
 
 async function logSnapshot(
@@ -713,15 +792,16 @@ Deno.serve(async (req) => {
     }
 
     // ============================================================
-    // STEP 2: BROADCAST — Trips without any confirmed driver
-    // (No confirmed_driver_id → go straight to auto-dispatch)
+    // STEP 2: BROADCAST — Open Scheduled Jobs marketplace (list-only).
+    // Nearby auto-dispatch waits for STEP 3 convert_to_instant (no accept
+    // in the response window / urgent fallback).
     // ============================================================
 
     const { data: ridesToBroadcast, error: broadcastError } = await supabase
       .from("trips")
       .select("*")
       .eq("dispatch_mode", "scheduled")
-      .eq("scheduled_status", "scheduled")
+      .in("scheduled_status", ["scheduled", "dispatching"])
       .is("confirmed_driver_id", null)
       .is("driver_id", null)
       .not("scheduled_broadcast_at", "is", null)
@@ -753,7 +833,7 @@ Deno.serve(async (req) => {
             updated_at: now.toISOString(),
           })
           .eq("id", trip.id)
-          .eq("scheduled_status", "scheduled")
+          .in("scheduled_status", ["scheduled", "dispatching"])
           .is("driver_id", null)
           .is("confirmed_driver_id", null)
           .select("id")
@@ -770,6 +850,9 @@ Deno.serve(async (req) => {
           action: "broadcast_start",
           metadata: { trigger_reason: "scheduled_broadcast_no_locked_driver" },
         });
+
+        // Wake Driver Scheduled Jobs banner (list-only). Nearby waves wait for STEP 3.
+        await notifyScheduledMarketplaceDrivers(supabase, trip);
 
         // §13 — Escalation by minutes_to_pickup
         const minutesToPickup = (Date.parse(trip.scheduled_at) - nowMs) / 60_000;
@@ -817,17 +900,10 @@ Deno.serve(async (req) => {
             .update({ no_driver_admin_alert_sent_at: now.toISOString() })
             .eq("id", trip.id);
         } else if (minutesToPickup <= 30) {
-          // ≤30 min: log urgent broadcast (auto-dispatch handles priority)
-          console.log("SCHEDULED_URGENT_BROADCAST", { trip_id: trip.id, minutes_to_pickup: mtp });
+          // ≤30 min: log marketplace open (nearby waves wait for STEP 3)
+          console.log("SCHEDULED_MARKETPLACE_OPEN", { trip_id: trip.id, minutes_to_pickup: mtp });
         }
 
-        await triggerAutoDispatch({
-          supabaseUrl,
-          supabaseServiceKey,
-          tripId: trip.id,
-          forceRebroadcast: true,
-          triggerReason: "scheduled_broadcast_no_locked_driver",
-        });
         broadcastStarted++;
       }
     }
@@ -998,7 +1074,8 @@ Deno.serve(async (req) => {
       const { data: tripsNeedingStacked, error: stackedError } = await supabase
         .from("trips")
         .select("id, status, scheduled_status, dispatch_status, service_area_id")
-        .eq("dispatch_mode", "scheduled")
+        .eq("dispatch_mode", "instant")
+        .eq("scheduled_status", "converted_to_instant")
         .in("status", ["offered", "searching"])
         .is("driver_id", null)
         .gt("created_at", new Date(nowMs - 30 * 60_000).toISOString());

@@ -34,6 +34,12 @@ import {
   shouldSkipPlatformPreauthForCommissionWallet,
   type ServiceAreaCommissionWalletConfig,
 } from "../_shared/commissionWalletSSOT.ts";
+import {
+  evaluateTripScheduleConflictRpc,
+  overlapRejectPayload,
+  SCHEDULED_TRIP_OVERLAP_ERROR,
+} from "../_shared/tripScheduleOverlapRpc.ts";
+import { CUSTOMER_SCHEDULED_OVERLAP_MESSAGE } from "../_shared/tripScheduleOverlapSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -503,6 +509,53 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         .select("id, first_name, last_name")
         .eq("user_id", user.id)
         .maybeSingle();
+
+      // Prefer overlap rejection BEFORE creating a Revolut hold (Phase 10).
+      // CTAP + INSERT trigger re-check atomically at trip creation.
+      const bookingSnap =
+        body.booking_snapshot && typeof body.booking_snapshot === "object"
+          ? body.booking_snapshot as Record<string, unknown>
+          : null;
+      const snapWhen = String(bookingSnap?.when ?? "").toUpperCase();
+      const snapScheduledAt =
+        typeof bookingSnap?.scheduled_at === "string" ? bookingSnap.scheduled_at : null;
+      if (
+        dbCustomerForSession?.id &&
+        snapWhen === "SCHEDULED" &&
+        snapScheduledAt
+      ) {
+        const durationMin = Math.max(
+          1,
+          Number(bookingSnap?.estimated_duration ?? 30),
+        );
+        const candidateEnd = new Date(
+          Date.parse(snapScheduledAt) + durationMin * 60_000,
+        ).toISOString();
+        const overlap = await evaluateTripScheduleConflictRpc(supabaseClient, {
+          subjectKind: "customer",
+          subjectId: dbCustomerForSession.id,
+          candidateStartIso: snapScheduledAt,
+          candidateEstimatedEndIso: candidateEnd,
+          serviceAreaId: resolvedServiceAreaId ?? body.service_area_id ?? null,
+          candidateMode: "scheduled",
+        });
+        if (overlap.ok && overlap.result.conflict) {
+          logStep("REJECTED — customer scheduled overlap (preauth preflight)", {
+            conflicting_trip_id: overlap.result.conflicting_trip_id,
+          });
+          const payload = overlapRejectPayload("customer", overlap.result);
+          return new Response(JSON.stringify({
+            ...payload,
+            error: CUSTOMER_SCHEDULED_OVERLAP_MESSAGE,
+            message: CUSTOMER_SCHEDULED_OVERLAP_MESSAGE,
+            code: SCHEDULED_TRIP_OVERLAP_ERROR,
+            charge_state: "no_charge",
+          }), {
+            status: 409,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
 
       const customerFullName = [
         dbCustomerForSession?.first_name,

@@ -7,6 +7,8 @@ import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
  * - reassign: move active trip to another online driver
  * - notify_driver_assigned: Customer driver_assigned lifecycle WAV after admin
  *   pre-assign (Manual Trip / ScheduledRides) — never mute
+ * - force_scheduled_marketplace: Admin Dispatch now — pull scheduled_broadcast_at
+ *   to now and invoke scheduled-dispatch STEP 2 (never write dispatching)
  *
  * Returns fresh trip + stops snapshot.
  */
@@ -399,6 +401,80 @@ Deno.serve(async (req) => {
       return json({ success: true, action, ...snap });
     }
 
+    if (action === "force_scheduled_marketplace") {
+      const scheduledStatus = String(trip.scheduled_status ?? "").toLowerCase().replace(/-/g, "_");
+      const dispatchMode = String(trip.dispatch_mode ?? "").toLowerCase();
+      const isScheduled =
+        trip.is_scheduled === true ||
+        dispatchMode === "scheduled" ||
+        Boolean(trip.scheduled_at);
+      if (!isScheduled) {
+        return json({ success: false, error: "Trip is not a scheduled booking" }, 409);
+      }
+      if (trip.driver_id || trip.confirmed_driver_id) {
+        return json({
+          success: false,
+          error: "Assigned scheduled trips use Commitment Policy, not marketplace Dispatch now",
+        }, 409);
+      }
+      if (scheduledStatus === "broadcasting" || scheduledStatus === "awaiting_confirmation") {
+        return json({ success: true, action, idempotent: true, already_open: true, trip_id: tripId });
+      }
+      if (scheduledStatus !== "scheduled" && scheduledStatus !== "dispatching") {
+        return json({
+          success: false,
+          error: `Cannot open marketplace from scheduled_status=${scheduledStatus || "null"}`,
+        }, 409);
+      }
+
+      const nowIso = new Date().toISOString();
+      const { data: pulled, error: pullErr } = await gate.supabase
+        .from("trips")
+        .update({
+          scheduled_broadcast_at: nowIso,
+          scheduled_status: "scheduled",
+          dispatch_mode: "scheduled",
+          updated_at: nowIso,
+        })
+        .eq("id", tripId)
+        .in("scheduled_status", ["scheduled", "dispatching"])
+        .is("driver_id", null)
+        .is("confirmed_driver_id", null)
+        .select("id")
+        .maybeSingle();
+      if (pullErr) return json({ success: false, error: pullErr.message }, 500);
+      if (!pulled?.id) {
+        return json({ success: false, error: "Trip is no longer eligible for Dispatch now" }, 409);
+      }
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      if (!supabaseUrl || !serviceKey) {
+        return json({ success: false, error: "Dispatch service is not configured" }, 500);
+      }
+      const dispatchResp = await fetch(`${supabaseUrl}/functions/v1/scheduled-dispatch`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${serviceKey}`,
+        },
+        body: JSON.stringify({
+          trigger_reason: "admin_force_scheduled_marketplace",
+          trip_id: tripId,
+        }),
+      });
+      const dispatchData = await dispatchResp.json().catch(() => ({}));
+      if (!dispatchResp.ok) {
+        console.error("[admin-trip-action] scheduled-dispatch failed:", dispatchResp.status, dispatchData);
+        return json({
+          success: false,
+          error: "Marketplace window pulled; scheduled-dispatch did not complete. It will retry on the next tick.",
+          code: "SCHEDULED_DISPATCH_INVOKE_FAILED",
+        }, 502);
+      }
+      return json({ success: true, action, trip_id: tripId });
+    }
+
     if (action === "notify_driver_assigned") {
       const passengerId =
         typeof trip.passenger_id === "string" ? trip.passenger_id.trim() : "";
@@ -431,7 +507,7 @@ Deno.serve(async (req) => {
     return json({
       success: false,
       error: "Unknown action",
-      allowed: ["force_complete", "reassign", "notify_driver_assigned"],
+      allowed: ["force_complete", "reassign", "notify_driver_assigned", "force_scheduled_marketplace"],
     }, 400);
   } catch (e) {
     console.error("[admin-trip-action]", e);

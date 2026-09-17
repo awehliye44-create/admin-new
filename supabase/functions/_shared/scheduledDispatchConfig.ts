@@ -146,7 +146,9 @@ export function isScheduledMarketplaceActivationDue(input: {
   nowMs: number;
 }): boolean {
   if (String(input.dispatchMode ?? "").toLowerCase() !== "scheduled") return false;
-  if (String(input.scheduledStatus ?? "").toLowerCase() !== "scheduled") return false;
+  const ss = String(input.scheduledStatus ?? "").toLowerCase().replace(/-/g, "_");
+  // Honest scheduled, plus Admin "Dispatch now" leftover `dispatching` (never STEP 2).
+  if (ss !== "scheduled" && ss !== "dispatching") return false;
   if (typeof input.driverId === "string" && input.driverId.trim().length > 0) return false;
   if (typeof input.confirmedDriverId === "string" && input.confirmedDriverId.trim().length > 0) {
     return false;
@@ -156,6 +158,44 @@ export function isScheduledMarketplaceActivationDue(input: {
     : NaN;
   if (!Number.isFinite(broadcastMs)) return false;
   return input.nowMs >= broadcastMs;
+}
+
+/**
+ * Unassigned scheduled is a live Finding-Driver trip only after STEP 2
+ * actually opened the marketplace (scheduled_status broadcasting) AND the
+ * canonical window is due. Honest scheduled_status=scheduled is list-only.
+ */
+export function isScheduledUnassignedMarketplaceLive(input: {
+  scheduledStatus?: string | null;
+  driverId?: string | null;
+  confirmedDriverId?: string | null;
+  scheduledBroadcastAt?: string | null;
+  scheduledConvertAt?: string | null;
+  scheduledAt?: string | null;
+  nowMs: number;
+}): boolean {
+  if (typeof input.driverId === "string" && input.driverId.trim().length > 0) {
+    return false;
+  }
+  if (
+    typeof input.confirmedDriverId === "string" &&
+    input.confirmedDriverId.trim().length > 0
+  ) {
+    return false;
+  }
+  const ss = String(input.scheduledStatus ?? "").toLowerCase().replace(/-/g, "_");
+  if (ss !== "broadcasting" && ss !== "awaiting_confirmation") return false;
+
+  const broadcastMs = input.scheduledBroadcastAt
+    ? Date.parse(input.scheduledBroadcastAt)
+    : NaN;
+  if (Number.isFinite(broadcastMs)) return input.nowMs >= broadcastMs;
+  const convertMs = input.scheduledConvertAt
+    ? Date.parse(input.scheduledConvertAt)
+    : NaN;
+  if (Number.isFinite(convertMs)) return input.nowMs >= convertMs;
+  const pickupMs = input.scheduledAt ? Date.parse(input.scheduledAt) : NaN;
+  return Number.isFinite(pickupMs) && input.nowMs >= pickupMs;
 }
 
 export type ScheduledTripForConversion = {
@@ -287,8 +327,8 @@ export function shouldConvertScheduledToUrgent(input: {
 }
 
 /**
- * Heat-map open-job statuses. Once a scheduled trip is in one of these,
- * Driver must show the nearby ride-offer card (not divert to Scheduled Jobs).
+ * Heat-map / NOW open-job statuses. Scheduled marketplace (STEP 2) must NOT
+ * use these to mint a nearby card — that waits for STEP 3 convert_to_instant.
  */
 export const SCHEDULED_OPEN_JOB_TRIP_STATUSES = [
   "searching",
@@ -372,7 +412,8 @@ export function liveAcceptedOfferBlocksConvert(input: {
 
 /**
  * True when auto-dispatch / Driver should treat this as an instant nearby offer.
- * Covers Scheduled → Urgent conversion AND broadcasting open jobs (heatmap).
+ * Only AFTER Scheduled → Urgent conversion. STEP 2 broadcasting stays on
+ * Scheduled Jobs until the response window elapses with no accept.
  */
 export function isOpenJobInstantRideOffer(trip: {
   dispatch_mode?: string | null;
@@ -380,9 +421,11 @@ export function isOpenJobInstantRideOffer(trip: {
   status?: string | null;
 }): boolean {
   const mode = String(trip.dispatch_mode ?? "").toLowerCase();
-  const scheduledStatus = String(trip.scheduled_status ?? "").toLowerCase();
+  const scheduledStatus = String(trip.scheduled_status ?? "").toLowerCase().replace(/-/g, "_");
   const status = String(trip.status ?? "").toLowerCase();
   if (mode === "instant" || scheduledStatus === "converted_to_instant") return true;
+  // Unconverted scheduled — list-only, including STEP 2 broadcasting / offered.
+  if (mode === "scheduled") return false;
   return (SCHEDULED_OPEN_JOB_TRIP_STATUSES as readonly string[]).includes(status);
 }
 

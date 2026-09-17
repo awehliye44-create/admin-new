@@ -11,6 +11,7 @@ import {
   normalizeRestoreTripStatus,
   RESTORE_ASSIGNED_ACTIVE_STATUSES,
 } from "../_shared/activeTripRestoreSSOT.ts";
+import { isScheduledUnassignedMarketplaceLive } from "../_shared/scheduledDispatchConfig.ts";
 import {
   isScheduledHandoverOpenJobStatus,
   isScheduledInstantConversionPending,
@@ -63,17 +64,16 @@ function isScheduledTrip(row: Record<string, unknown>): boolean {
   return row.is_scheduled === true;
 }
 
-function scheduledDispatchWindowReached(row: Record<string, unknown>, nowMs: number): boolean {
-  const dispatchMode = String(row.dispatch_mode ?? "").toLowerCase();
-  if (dispatchMode === "instant") return true;
-  for (const key of ["scheduled_broadcast_at", "scheduled_convert_at", "scheduled_at"]) {
-    const raw = row[key];
-    if (typeof raw === "string") {
-      const ms = new Date(raw).getTime();
-      if (Number.isFinite(ms) && ms <= nowMs) return true;
-    }
-  }
-  return false;
+function marketplaceLive(row: Record<string, unknown>, nowMs: number): boolean {
+  return isScheduledUnassignedMarketplaceLive({
+    scheduledStatus: row.scheduled_status as string | null,
+    driverId: row.driver_id as string | null,
+    confirmedDriverId: row.confirmed_driver_id as string | null,
+    scheduledBroadcastAt: row.scheduled_broadcast_at as string | null,
+    scheduledConvertAt: row.scheduled_convert_at as string | null,
+    scheduledAt: row.scheduled_at as string | null,
+    nowMs,
+  });
 }
 
 /** Same restore candidate rule used by findCustomerActiveTrip. */
@@ -92,20 +92,29 @@ export function isCustomerAssistantLiveTrip(
       }
     }
   }
+  const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);
   if (
     isScheduledInstantConversionPending(row) &&
     isScheduledHandoverOpenJobStatus(status)
   ) {
-    return true;
+    if (hasDriver) return true;
+    return marketplaceLive(row, nowMs);
   }
   if (!isRestoreActiveTripStatus(status, "customer")) return false;
   if (!isScheduledTrip(row)) return true;
-  const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);
-  if (hasDriver && ASSIGNED_ACTIVE_SET.has(status)) return true;
-  if (status === "scheduled" || status === "scheduled_committed") {
-    return hasDriver || scheduledDispatchWindowReached(row, nowMs);
+  const dispatchMode = String(row.dispatch_mode ?? "").trim().toLowerCase();
+  const scheduledStatus = String(row.scheduled_status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  if (dispatchMode === "instant" || scheduledStatus === "converted_to_instant") {
+    return true;
   }
-  return scheduledDispatchWindowReached(row, nowMs);
+  if (hasDriver && ASSIGNED_ACTIVE_SET.has(status)) return true;
+  if (hasDriver && (status === "scheduled" || status === "scheduled_committed")) {
+    return true;
+  }
+  return marketplaceLive(row, nowMs);
 }
 
 export function evaluateCustomerAssistantBusyFromRows(args: {
@@ -127,9 +136,7 @@ export function evaluateCustomerAssistantBusyFromRows(args: {
     if (!isCustomerAssistantLiveTrip(trip, nowMs)) continue;
     if (SEARCHING_STATUSES.has(status)) searchingOrNegotiating = true;
     else assignedOrActiveTrip = true;
-    if (isScheduledTrip(trip) && scheduledDispatchWindowReached(trip, nowMs)) {
-      scheduledActivating = true;
-    }
+    if (isScheduledTrip(trip)) scheduledActivating = true;
   }
 
   return {
