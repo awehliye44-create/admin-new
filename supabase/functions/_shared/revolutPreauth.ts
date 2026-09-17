@@ -821,8 +821,8 @@ async function attemptRevolutSavedCardCharge(args: {
       secretKey: args.secretKey,
       orderId: args.orderId,
       payment,
-      // Customer-initiated saved charges often need ACS — wait for it here;
-      // confirm-revolut cannot open the bank challenge.
+      // Customer-initiated saved charges often need ACS — briefly wait here so
+      // create-preauth can return the URL ASAP; confirm also opens ACS if handoff.
       waitForAcs: initiator === "customer"
         || String(payment.state ?? "").toLowerCase() === "authentication_challenge",
       logStep: args.logStep,
@@ -1020,10 +1020,12 @@ async function resolveSavedCardPaymentOutcome(args: {
   | { kind: "in_flight"; paymentState?: string }
 > {
   // Merchant MIT can settle quickly; customer initiator often needs ACS.
-  // Cap ~14s — confirm cannot open ACS, so we must surface it here. CU041
-  // Visa ••••3016 failed 3DS when ACS never opened during PROCESSING handoff.
+  // Cap ~1.65s sleep so ACS reaches the client ASAP (<2s when Revolut already
+  // has the challenge). Confirm poll opens ACS on first sighting if we hand off
+  // PENDING without ACS (client safety net). Long ~14s waits caused "Booking…"
+  // to stall then open a late/stale ACS URL.
   const pollDelaysMs = args.waitForAcs
-    ? [0, 200, 400, 800, 1200, 1600, 2000, 2500, 3000, 2500]
+    ? [0, 150, 300, 500, 700]
     : [0, 100, 250, 500];
   let latest = args.payment;
   for (const delayMs of pollDelaysMs) {
@@ -1042,7 +1044,22 @@ async function resolveSavedCardPaymentOutcome(args: {
       if (acsUrl) {
         return { kind: "requires_3ds", paymentId: latest.id, acsUrl };
       }
-      // Challenge without ACS yet — keep polling while waitForAcs.
+      // Challenge without ACS yet — scan order payments mid-loop, then keep polling.
+      if (args.waitForAcs) {
+        const acs = await findRevolutOrderAuthenticationAcs(
+          args.environment,
+          args.secretKey,
+          args.orderId,
+        );
+        if (acs) {
+          args.logStep("Revolut saved-card ACS found via order payments scan", {
+            orderId: args.orderId,
+            paymentId: acs.paymentId,
+            phase: "mid_poll",
+          });
+          return { kind: "requires_3ds", paymentId: acs.paymentId, acsUrl: acs.acsUrl };
+        }
+      }
     }
     if (isRevolutPaymentAuthorisedState(state)) {
       // Payment-level AUTHORISED can still soft-fail — require order AUTHORISED.

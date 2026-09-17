@@ -26,10 +26,13 @@ Deno.test("saved-card in-flight settle hands off to confirm (no 409 still-proces
   assertEquals(src.includes('code: "saved_card_pending"'), false);
 });
 
-Deno.test("customer CIT waits long enough to surface ACS from create-preauth", async () => {
+Deno.test("customer CIT waits briefly for ACS then hands off to confirm", async () => {
   const src = await Deno.readTextFile(PREAUTH);
   assertStringIncludes(src, "waitForAcs");
   assertStringIncludes(src, "findRevolutOrderAuthenticationAcs");
-  // Must not regress to the short ~0.85s settle poll for customer initiator.
-  assertStringIncludes(src, "[0, 200, 400, 800, 1200, 1600, 2000, 2500, 3000, 2500]");
+  // Short CIT ladder (~1.65s sleep) — confirm opens ACS if still missing.
+  // Must not regress to the ultra-short ~0.85s merchant settle poll alone,
+  // and must not restore the ~14s wait that delayed ACS presentation.
+  assertStringIncludes(src, "[0, 150, 300, 500, 700]");
+  assertEquals(src.includes("[0, 200, 400, 800, 1200, 1600, 2000, 2500, 3000, 2500]"), false);
 });
