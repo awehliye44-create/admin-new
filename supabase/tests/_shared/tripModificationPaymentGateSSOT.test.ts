@@ -150,6 +150,37 @@ Deno.test("timeout / network map to PAYMENT_PENDING (trip unchanged)", () => {
   assertEquals(network.phase, "PAYMENT_PENDING");
 });
 
+
+Deno.test("AUTHORISED_TOTAL_BELOW_TARGET / insufficient maps to failed not pending", () => {
+  const below = decideFromPreauthInvokeResult({
+    success: false,
+    requiredPayablePence: 1018,
+    authorisedAmountPence: 800,
+    paymentCoverageStatus: "authorization_insufficient",
+    errorCode: "AUTHORISED_TOTAL_BELOW_TARGET",
+    warning: "Provider authorised total remains below the required fare.",
+  });
+  assertEquals(below.mayApply, false);
+  assertEquals(below.phase, "PAYMENT_FAILED");
+  if (below.phase === "PAYMENT_FAILED") {
+    assertEquals(below.reason === "amount_mismatch" || below.reason === "declined", true);
+  }
+});
+
+Deno.test("authorised hold that already covers target unlocks apply even if processing hint present", () => {
+  const coveredWhileProcessing = decideFromPreauthInvokeResult({
+    success: false,
+    requiredPayablePence: 746,
+    authorisedAmountPence: 800,
+    paymentCoverageStatus: "authorization_reconciliation_pending",
+    errorCode: "PROCESSING",
+    warning: "processing",
+  });
+  assertEquals(coveredWhileProcessing.mayApply, true);
+  assertEquals(coveredWhileProcessing.phase, "PROVIDER_CONFIRMED");
+  assertEquals(coveredWhileProcessing.authorisedTotalPence, 800);
+});
+
 Deno.test("skipped success never invents authorised coverage for positive delta", () => {
   const invented = decideFromPreauthInvokeResult({
     success: true,
@@ -274,6 +305,8 @@ Deno.test("caller audit: modification apply stays strict; coverage never treats 
     confirm.includes("Payment is still processing. Your trip has not been changed."),
     true,
   );
+  // Session hold already covering new fare must unlock apply (hold-already-covers).
+  assertEquals(confirm.includes("protectedAfter >= newFarePence"), true);
 
   const confirmEdge = await Deno.readTextFile(
     new URL("../../functions/confirm-trip-modification-payment/index.ts", import.meta.url),
