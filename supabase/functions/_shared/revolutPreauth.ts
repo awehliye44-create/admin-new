@@ -22,9 +22,11 @@ import {
   isRevolutPaymentAuthorisedState,
   isRevolutPaymentFailedState,
   listRevolutCustomerPaymentMethods,
+  listRevolutOrderPayments,
   payRevolutOrderWithSavedCard,
   retrieveRevolutOrder,
   retrieveRevolutOrderPayment,
+  type RevolutOrderPayment,
 } from "./revolutOrders.ts";
 import {
   captureRevolutProviderTokenFromOrder,
@@ -759,40 +761,60 @@ async function attemptRevolutSavedCardCharge(args: {
   });
 
   try {
-    let initiator: "customer" | "merchant" = "customer";
-    try {
-      const { data: customerRow } = await args.supabase
-        .from("customers")
-        .select("revolut_customer_id")
-        .eq("user_id", args.userId)
-        .maybeSingle();
-      const revolutCustomerId = String(customerRow?.revolut_customer_id ?? "").trim();
-      if (revolutCustomerId) {
-        const methods = await listRevolutCustomerPaymentMethods(
-          args.environment,
-          args.secretKey,
-          revolutCustomerId,
-        );
-        const match = methods.find((m) =>
-          String(m.id ?? "").trim() === tokenRow.provider_payment_method_id
-        );
-        if (String(match?.saved_for ?? "").toLowerCase() === "merchant") {
-          initiator = "merchant";
-        }
-      }
-    } catch (initiatorErr) {
-      args.logStep("Revolut saved-card initiator lookup warning", {
-        error: String(initiatorErr),
-      });
-    }
+    // Credit-safe: never POST /payments again when this order already has an
+    // open saved-card payment (idempotent Book / retry while settle in flight).
+    const existingPayment = await findOpenSavedCardPaymentOnOrder({
+      environment: args.environment,
+      secretKey: args.secretKey,
+      orderId: args.orderId,
+      providerPaymentMethodId: tokenRow.provider_payment_method_id,
+      logStep: args.logStep,
+    });
 
-    const payment = await payRevolutOrderWithSavedCard(
-      args.environment,
-      args.secretKey,
-      args.orderId,
-      tokenRow.provider_payment_method_id,
-      initiator,
-    );
+    let payment: RevolutOrderPayment;
+    if (existingPayment) {
+      args.logStep("Revolut saved-card reuse existing order payment", {
+        orderId: args.orderId,
+        paymentId: existingPayment.id,
+        paymentState: existingPayment.state ?? null,
+      });
+      payment = existingPayment;
+    } else {
+      let initiator: "customer" | "merchant" = "customer";
+      try {
+        const { data: customerRow } = await args.supabase
+          .from("customers")
+          .select("revolut_customer_id")
+          .eq("user_id", args.userId)
+          .maybeSingle();
+        const revolutCustomerId = String(customerRow?.revolut_customer_id ?? "").trim();
+        if (revolutCustomerId) {
+          const methods = await listRevolutCustomerPaymentMethods(
+            args.environment,
+            args.secretKey,
+            revolutCustomerId,
+          );
+          const match = methods.find((m) =>
+            String(m.id ?? "").trim() === tokenRow.provider_payment_method_id
+          );
+          if (String(match?.saved_for ?? "").toLowerCase() === "merchant") {
+            initiator = "merchant";
+          }
+        }
+      } catch (initiatorErr) {
+        args.logStep("Revolut saved-card initiator lookup warning", {
+          error: String(initiatorErr),
+        });
+      }
+
+      payment = await payRevolutOrderWithSavedCard(
+        args.environment,
+        args.secretKey,
+        args.orderId,
+        tokenRow.provider_payment_method_id,
+        initiator,
+      );
+    }
     const resolved = await resolveSavedCardPaymentOutcome({
       environment: args.environment,
       secretKey: args.secretKey,
@@ -850,6 +872,7 @@ async function attemptRevolutSavedCardCharge(args: {
         provider: "revolut",
         payment_intent_id: args.orderId,
         provider_order_id: args.orderId,
+        payment_session_id: args.paymentSessionId ?? null,
         revolut_public_key: args.publicKey,
         authorised_amount_pence: args.authorisedAmountPence,
         estimated_total_pence: args.estimatedTotalPence,
@@ -886,19 +909,25 @@ async function attemptRevolutSavedCardCharge(args: {
         status: 402,
       });
     }
-    args.logStep("Revolut saved-card payment still settling", {
+    // Settle still in flight: return pollable success (same order). Client
+    // confirm-revolut finishes AUTHORISED / 3DS — never 409 "still processing"
+    // which abandons the attempt and risks a second hold on retry.
+    args.logStep("Revolut saved-card payment still settling — hand off to confirm", {
       orderId: args.orderId,
       paymentState: resolved.paymentState,
+      paymentId: payment.id,
     });
-    return new Response(JSON.stringify({
-      error: humanizeRevolutPreauthCustomerError(
-        "Saved card payment is still processing. Please try again in a moment.",
-      ),
-      code: "saved_card_pending",
-      charge_state: "no_charge",
-    }), {
-      headers: { ...args.corsHeaders, "Content-Type": "application/json" },
-      status: 409,
+    return revolutSavedCardPendingResponse({
+      orderId: args.orderId,
+      authorisedAmountPence: args.authorisedAmountPence,
+      estimatedTotalPence: args.estimatedTotalPence,
+      bufferPence: args.bufferPence,
+      publicKey: args.publicKey,
+      paymentSessionId: args.paymentSessionId ?? null,
+      providerPaymentId: payment.id,
+      paymentState: resolved.paymentState,
+      corsHeaders: args.corsHeaders,
+      holdStartedAt: args.holdStartedAt,
     });
   } catch (err) {
     const errMessage = err instanceof Error ? err.message : String(err);
@@ -923,6 +952,51 @@ async function attemptRevolutSavedCardCharge(args: {
       headers: { ...args.corsHeaders, "Content-Type": "application/json" },
       status: 402,
     });
+  }
+}
+
+async function findOpenSavedCardPaymentOnOrder(args: {
+  environment: ProviderEnvironment;
+  secretKey: string;
+  orderId: string;
+  providerPaymentMethodId: string;
+  logStep: (step: string, details?: unknown) => void;
+}): Promise<RevolutOrderPayment | null> {
+  try {
+    const payments = await listRevolutOrderPayments(
+      args.environment,
+      args.secretKey,
+      args.orderId,
+    );
+    const open = payments.filter((p) => {
+      if (!p.id) return false;
+      const state = String(p.state ?? "").toUpperCase();
+      if (isRevolutPaymentFailedState(state)) return false;
+      // Only filter by nested reusable PM id — never by payment_method.id (one-time).
+      const savedNested = String(
+        p.payment_method?.saved_payment_method?.id
+          ?? p.saved_payment_method?.id
+          ?? "",
+      ).trim();
+      if (savedNested && savedNested !== args.providerPaymentMethodId) return false;
+      return true;
+    });
+    if (open.length === 0) return null;
+    // Newest first when ids / created order unknown — last array entry is typical.
+    const chosen = open[open.length - 1];
+    if (!chosen?.id) return null;
+    // Refresh for ACS / latest state — list payload can be sparse.
+    return await retrieveRevolutOrderPayment(
+      args.environment,
+      args.secretKey,
+      chosen.id,
+    );
+  } catch (err) {
+    args.logStep("Revolut saved-card list order payments warning", {
+      orderId: args.orderId,
+      error: String(err),
+    });
+    return null;
   }
 }
 
@@ -1011,6 +1085,42 @@ function revolutPreauthMilestones(holdStartedAt: number): {
       hold_duration_ms: holdAuthorisedAt - holdStartedAt,
     },
   };
+}
+
+function revolutSavedCardPendingResponse(args: {
+  orderId: string;
+  authorisedAmountPence: number;
+  estimatedTotalPence: number;
+  bufferPence: number;
+  publicKey: string | null;
+  paymentSessionId?: string | null;
+  providerPaymentId?: string | null;
+  paymentState?: string;
+  corsHeaders: Record<string, string>;
+  holdStartedAt?: number;
+}): Response {
+  const state = String(args.paymentState ?? "PENDING").toUpperCase();
+  return new Response(JSON.stringify({
+    success: true,
+    provider: "revolut",
+    payment_intent_id: args.orderId,
+    provider_order_id: args.orderId,
+    payment_session_id: args.paymentSessionId ?? null,
+    revolut_public_key: args.publicKey,
+    authorised_amount_pence: args.authorisedAmountPence,
+    estimated_total_pence: args.estimatedTotalPence,
+    buffer_pence: args.bufferPence,
+    // Client maps this and runs confirm-revolut poll (not skip-already-authorised).
+    status: state === "PROCESSING" ? "PROCESSING" : "PENDING",
+    saved_card_flow: true,
+    saved_card_authorised: false,
+    saved_card_pending: true,
+    provider_payment_id: args.providerPaymentId ?? null,
+    ...(args.holdStartedAt ? revolutPreauthMilestones(args.holdStartedAt) : {}),
+  }), {
+    headers: { ...args.corsHeaders, "Content-Type": "application/json" },
+    status: 200,
+  });
 }
 
 function revolutSavedCardAuthorisedResponse(args: {
