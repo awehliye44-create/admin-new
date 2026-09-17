@@ -296,3 +296,27 @@ Deno.test("12: no PAN/CVV in Book saved-card or setup Edge payloads", async () =
     throw new Error("setup-revolut-card must not collect PAN/CVV fields");
   }
 });
+
+Deno.test("fail-closed Add Card gate: default off + JWT allowlist (not client customer id)", async () => {
+  const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
+  const GATE_SRC = await readFn("../../functions/_shared/merchantVaultAddCardGate.ts");
+  if (!SETUP_SRC.includes("FEATURE_OFF")) {
+    throw new Error("setup-revolut-card must return FEATURE_OFF when gated");
+  }
+  if (!SETUP_SRC.includes("readMerchantVaultAddCardGateFromEnv")) {
+    throw new Error("setup must read server gate from env");
+  }
+  if (!GATE_SRC.includes('return "off"')) {
+    throw new Error("unset / unknown gate mode must fail closed to off");
+  }
+  if (!GATE_SRC.includes("MERCHANT_VAULT_ADD_CARD_ALLOWLIST_USER_IDS")) {
+    throw new Error("allowlist env must be documented");
+  }
+  if (!GATE_SRC.includes("Never trusts client customer id")) {
+    throw new Error("gate must reject client-supplied customer id as authority");
+  }
+  // Gate decision uses authUserId (JWT), not body.customer_id
+  if (!SETUP_SRC.includes("authUserId: user.id")) {
+    throw new Error("gate must use JWT user.id");
+  }
+});

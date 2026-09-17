@@ -12,6 +12,8 @@
  * Ownership: complete/cancel reject when metadata.customer_user_id !== JWT user (ORDER_NOT_FOUND).
  * Dedupe: unique (user_id, provider, provider_pm_id); re-complete returns SAVED_CARD_ALREADY_SAVED.
  * Money: capture_mode=manual, never_capture — £1 is auth-only and cancelled/voided (never revenue).
+ * Gate: MERCHANT_VAULT_ADD_CARD_GATE=off|allowlist|on (default off) + optional
+ *       MERCHANT_VAULT_ADD_CARD_ALLOWLIST_USER_IDS — JWT auth user ids only (not client body).
  * Never returns hosted checkout URLs. Token is for RevolutMerchantCardFormKit only.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -28,6 +30,10 @@ import { REVOLUT_SAVE_CARD_TOKENIZATION_READY } from "../_shared/paymentMethodSS
 import { getRevolutMerchantConfigFromVault, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import type { RevolutApiError } from "../_shared/revolutApi.ts";
 import type { ProviderEnvironment } from "../_shared/paymentProviders/types.ts";
+import {
+  readMerchantVaultAddCardGateFromEnv,
+  resolveMerchantVaultAddCardAllowed,
+} from "../_shared/merchantVaultAddCardGate.ts";
 import {
   countSavedRevolutCards,
   createRevolutSaveCardSetupOrder,
@@ -141,6 +147,35 @@ serve(async (req) => {
       return errorJson("AUTH_INVALID", 401);
     }
     authenticated = true;
+
+    // Fail-closed server gate — independent of Book / saved-card reuse.
+    // Uses JWT auth user id only (never a client-supplied customer id).
+    const gateEnv = readMerchantVaultAddCardGateFromEnv();
+    const gate = resolveMerchantVaultAddCardAllowed({
+      gateMode: gateEnv.mode,
+      allowlistUserIds: gateEnv.allowlistUserIds,
+      authUserId: user.id,
+    });
+    if (!gate.allowed) {
+      edgeStatus = 403;
+      safeLog({
+        edgeStatus,
+        authenticated,
+        customerResolved: false,
+        providerEnvironment: null,
+        orderCreated: false,
+        checkoutTokenReturned: false,
+        revolutStatusCode: null,
+        code: "FEATURE_OFF",
+        gateMode: gateEnv.mode,
+        gateReason: gate.reason,
+      });
+      return errorJson(
+        "FEATURE_OFF",
+        403,
+        "Card setup is not available for your account yet.",
+      );
+    }
 
     const body = await req.json().catch(() => ({}));
     action = typeof body.action === "string" ? body.action.trim().toLowerCase() : "start";
