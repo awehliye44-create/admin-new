@@ -9,7 +9,10 @@ import {
   verifyRevolutOrderConfirmedForBooking,
 } from "../_shared/revolutPaymentConfirmation.ts";
 import { markPaymentSessionAuthorised, markCardSetupOrphaned } from "../_shared/paymentSessionSSOT.ts";
-import { retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
+import {
+  findRevolutOrderAuthenticationAcs,
+  retrieveRevolutOrder,
+} from "../_shared/revolutOrders.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
@@ -225,6 +228,29 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
     const state = String(order?.state ?? "unknown").toUpperCase();
 
     if (isRevolutInFlightState(state) || state === "PENDING") {
+      // Safety net: create-preauth may have handed off before ACS URL arrived.
+      // Surface ACS here so the client can open bank SCA on the same order.
+      const acs = await findRevolutOrderAuthenticationAcs(
+        merchant.environment,
+        merchant.secretKey,
+        orderId,
+      ).catch(() => null);
+      if (acs) {
+        console.info("[confirm-revolut-payment] authentication_challenge_acs", {
+          orderId,
+          paymentId: acs.paymentId,
+        });
+        return json({
+          confirmed: false,
+          failed: false,
+          in_flight: true,
+          requires_3ds: true,
+          authentication_acs_url: acs.acsUrl,
+          provider_payment_id: acs.paymentId,
+          state: "AUTHENTICATION_CHALLENGE",
+          reason: confirmation.reason ?? "authentication_challenge",
+        });
+      }
       return json({
         confirmed: false,
         failed: false,
@@ -296,6 +322,26 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
         provider_reference: capture.providerPaymentMethodId ?? null,
         platform_payment_method_id: capture.platformPaymentMethodId ?? platformPmId,
       });
+    }
+
+    if (isRevolutInFlightState(freshState) || freshState === "PENDING") {
+      const acs = await findRevolutOrderAuthenticationAcs(
+        merchant.environment,
+        merchant.secretKey,
+        orderId,
+      ).catch(() => null);
+      if (acs) {
+        return json({
+          confirmed: false,
+          failed: false,
+          in_flight: true,
+          requires_3ds: true,
+          authentication_acs_url: acs.acsUrl,
+          provider_payment_id: acs.paymentId,
+          state: "AUTHENTICATION_CHALLENGE",
+          reason: confirmation.reason ?? "authentication_challenge",
+        });
+      }
     }
 
     return json({

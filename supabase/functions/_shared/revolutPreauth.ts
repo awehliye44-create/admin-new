@@ -18,6 +18,7 @@ import {
 } from "./revolutPaymentConfirmation.ts";
 import {
   createRevolutOrder,
+  findRevolutOrderAuthenticationAcs,
   isRevolutPaymentAuthenticationChallenge,
   isRevolutPaymentAuthorisedState,
   isRevolutPaymentFailedState,
@@ -1019,9 +1020,10 @@ async function resolveSavedCardPaymentOutcome(args: {
   | { kind: "in_flight"; paymentState?: string }
 > {
   // Merchant MIT can settle quickly; customer initiator often needs ACS.
-  // Cap ~5.5s — confirm cannot open ACS, so we must surface it here.
+  // Cap ~14s — confirm cannot open ACS, so we must surface it here. CU041
+  // Visa ••••3016 failed 3DS when ACS never opened during PROCESSING handoff.
   const pollDelaysMs = args.waitForAcs
-    ? [0, 150, 300, 600, 1000, 1500, 2000]
+    ? [0, 200, 400, 800, 1200, 1600, 2000, 2500, 3000, 2500]
     : [0, 100, 250, 500];
   let latest = args.payment;
   for (const delayMs of pollDelaysMs) {
@@ -1071,6 +1073,22 @@ async function resolveSavedCardPaymentOutcome(args: {
       paymentId: latest.id,
       acsUrl: latest.authentication_challenge.acs_url,
     };
+  }
+  // Last chance: list-order payments can expose ACS when the primary payment
+  // retrieve stayed on PROCESSING without embedding the challenge payload.
+  if (args.waitForAcs) {
+    const acs = await findRevolutOrderAuthenticationAcs(
+      args.environment,
+      args.secretKey,
+      args.orderId,
+    );
+    if (acs) {
+      args.logStep("Revolut saved-card ACS found via order payments scan", {
+        orderId: args.orderId,
+        paymentId: acs.paymentId,
+      });
+      return { kind: "requires_3ds", paymentId: acs.paymentId, acsUrl: acs.acsUrl };
+    }
   }
   if (isRevolutPaymentAuthorisedState(finalState)) {
     const order = await retrieveRevolutOrder(args.environment, args.secretKey, args.orderId);

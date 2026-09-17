@@ -25,3 +25,11 @@ Deno.test("saved-card in-flight settle hands off to confirm (no 409 still-proces
   );
   assertEquals(src.includes('code: "saved_card_pending"'), false);
 });
+
+Deno.test("customer CIT waits long enough to surface ACS from create-preauth", async () => {
+  const src = await Deno.readTextFile(PREAUTH);
+  assertStringIncludes(src, "waitForAcs");
+  assertStringIncludes(src, "findRevolutOrderAuthenticationAcs");
+  // Must not regress to the short ~0.85s settle poll for customer initiator.
+  assertStringIncludes(src, "[0, 200, 400, 800, 1200, 1600, 2000, 2500, 3000, 2500]");
+});

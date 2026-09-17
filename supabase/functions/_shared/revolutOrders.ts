@@ -370,6 +370,45 @@ export function isRevolutPaymentAuthenticationChallenge(
   return String(payment?.state ?? "").toLowerCase() === "authentication_challenge";
 }
 
+/**
+ * Find an open order payment that already exposes a bank ACS URL.
+ * Used by create-preauth (primary) and confirm-revolut (safety net) so CIT
+ * saved-card Book can open 3DS — confirm alone cannot invent ACS.
+ */
+export async function findRevolutOrderAuthenticationAcs(
+  environment: ProviderEnvironment,
+  secretKey: string,
+  orderId: string,
+): Promise<{ paymentId: string; acsUrl: string } | null> {
+  try {
+    const payments = await listRevolutOrderPayments(environment, secretKey, orderId);
+    for (let i = payments.length - 1; i >= 0; i -= 1) {
+      const listed = payments[i];
+      if (!listed?.id) continue;
+      if (isRevolutPaymentFailedState(listed.state)) continue;
+      let payment = listed;
+      const listedAcs = listed.authentication_challenge?.acs_url?.trim();
+      if (!listedAcs || !isRevolutPaymentAuthenticationChallenge(listed)) {
+        payment = await retrieveRevolutOrderPayment(environment, secretKey, listed.id);
+      }
+      if (isRevolutPaymentFailedState(payment.state)) continue;
+      const acsUrl = payment.authentication_challenge?.acs_url?.trim() ?? "";
+      if (
+        acsUrl.startsWith("https://")
+        && (
+          isRevolutPaymentAuthenticationChallenge(payment)
+          || Boolean(payment.authentication_challenge?.acs_url)
+        )
+      ) {
+        return { paymentId: payment.id, acsUrl };
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 /** Manual capture of an authorised order. Amount defaults to full authorised. */
 export async function captureRevolutOrder(
   environment: ProviderEnvironment,
