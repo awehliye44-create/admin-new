@@ -1107,7 +1107,7 @@ export async function executeSameOrderIncrement(args: {
       ok: false,
       kind: failKind,
       message: failKind === "declined"
-        ? "Provider authorised total remains below the required fare."
+        ? "The payment hold could not be increased to cover the new fare."
         : failMessage,
       providerConfirmedTotalPence: coverage.authorisedTotalPence,
       eligibility,
