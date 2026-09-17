@@ -1,10 +1,13 @@
 /**
  * setup-revolut-card
  *
- * action=start  → verification order token for native card form (save for customer)
- * action=complete → persist saved card after SDK success + release verification hold
+ * Merchant-vault Add Card (NOT booking pay):
+ *   action=start  → £1 verification order token for native card form
+ *                   (SDK savePaymentMethodFor=merchant via saveCardByDefault)
+ *   action=complete → persist reusable method after SDK success + release hold
  *
- * Never returns hosted checkout URLs. Token is for native RevolutMerchantCardFormKit only.
+ * No trip id. Dedicated client idempotency_key / setupRef (merchant_order_ext_ref).
+ * Never returns hosted checkout URLs. Token is for RevolutMerchantCardFormKit only.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
