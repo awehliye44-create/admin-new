@@ -350,7 +350,8 @@ export function buildBookingPostCommitTasks(ctx: BookingPostCommitContext): Prom
             platformPaymentMethodId,
             orderMetadata: ctx.preauthMetadata,
             markFailedOnMiss: true,
-            pollProfile: "booking",
+            // Same setup ladder as confirm waitUntil — Revolut SPM often lags authorise.
+            pollProfile: "setup",
           });
         } catch (e) {
           ctx.log("post-commit Revolut token capture warning", { error: String(e) });

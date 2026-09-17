@@ -114,6 +114,8 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
           clientActionId: body.client_action_id ?? order.metadata?.client_action_id ?? null,
         });
         if (saveCardEligible) {
+          // Save-eligible booking: keep Finding unblocked, but use setup poll +
+          // durable retry in waitUntil (booking ~0.85s was missing Revolut SPM id).
           const captureTask = finalizeRevolutTokenCapture(supabase, {
             environment: merchant.environment,
             secretKey: merchant.secretKey,
@@ -121,7 +123,7 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
             userId,
             platformPaymentMethodId: platformPmId,
             orderMetadata: order.metadata ?? undefined,
-            pollProfile: "booking",
+            pollProfile: "setup",
             markFailedOnMiss: true,
           }).then((capture) => {
             if (capture.captured) {
@@ -385,6 +387,11 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
           userId,
           platformPaymentMethodId: platformPmId,
           orderMetadata: fresh.metadata,
+          pollProfile: isSaveCardPurpose
+            || fresh.metadata?.save_card_eligible === "true"
+            || body.expect_saved_card_token === true
+            ? "setup"
+            : "booking",
           markFailedOnMiss: isSaveCardPurpose
             && body.expect_saved_card_token === true
             && Boolean(platformPmId),

@@ -3,9 +3,24 @@ import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 import { loadPaymentSession } from "./paymentSessionSSOT.ts";
 import {
   extractRevolutSavedCardPaymentMethodId,
+  listRevolutCustomerPaymentMethods,
   listRevolutOrderPayments,
+  type RevolutOrderPayment,
 } from "./revolutOrders.ts";
 import { ONECAB_PENDING_PLATFORM_PM_PREFIX } from "./revolutSavedCardWalletLink.ts";
+
+/** Short poll — never block Book→Finding when save was not requested. */
+export const REVOLUT_TOKEN_CAPTURE_BOOKING_POLL_MS = [0, 100, 250, 500] as const;
+/**
+ * Save-card / save-eligible booking capture. Sum of sleeps ~6.3s.
+ * Used from waitUntil / post-commit so Finding is not gated.
+ */
+export const REVOLUT_TOKEN_CAPTURE_SETUP_POLL_MS = [0, 400, 900, 1800, 3200] as const;
+/**
+ * After setup miss, one durable retry wave (~13s more sleep) before mark-failed.
+ * Still far below the retired ~82s ladder.
+ */
+export const REVOLUT_TOKEN_CAPTURE_DURABLE_RETRY_MS = [5000, 8000] as const;
 
 export { ONECAB_PENDING_PLATFORM_PM_PREFIX };
 
@@ -267,6 +282,169 @@ function classifyCaptureMiss(input: {
   return "saved_payment_method_id_missing";
 }
 
+function cardFingerprintFromPayment(payment: RevolutOrderPayment): {
+  brand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+} {
+  const expiry = readCardExpiry(
+    (payment.payment_method ?? null) as Record<string, unknown> | null,
+  );
+  return {
+    brand: payment.payment_method?.card_brand ?? null,
+    last4: payment.payment_method?.card_last_four
+      ?? payment.payment_method?.last_four
+      ?? null,
+    expMonth: expiry.expMonth,
+    expYear: expiry.expYear,
+  };
+}
+
+type CaptureSuccess = {
+  captured: true;
+  providerPaymentMethodId: string;
+  platformPaymentMethodId: string;
+  brand?: string | null;
+  last4?: string | null;
+  expMonth?: number | null;
+  expYear?: number | null;
+};
+
+async function persistCapturedToken(
+  supabase: SupabaseClient,
+  args: {
+    userId: string;
+    platformPmId: string;
+    orderId: string;
+    savedPmId: string;
+    brand?: string | null;
+    last4?: string | null;
+    expMonth?: number | null;
+    expYear?: number | null;
+    providerCustomerId?: string | null;
+    source: string;
+  },
+): Promise<CaptureSuccess | null> {
+  const ok = await upsertProviderPaymentMethodToken(supabase, {
+    userId: args.userId,
+    platformPaymentMethodId: args.platformPmId,
+    paymentProvider: "revolut",
+    providerPaymentMethodId: args.savedPmId,
+    brand: args.brand ?? null,
+    last4: args.last4 ?? null,
+    expMonth: args.expMonth ?? null,
+    expYear: args.expYear ?? null,
+    providerCustomerId: args.providerCustomerId ?? null,
+    tokenizationStatus: "verified",
+  });
+  if (!ok) return null;
+  console.info("[customerSavedPaymentMethodTokens] Revolut token captured", {
+    orderId: args.orderId,
+    platformPaymentMethodId: args.platformPmId,
+    providerPaymentMethodId: args.savedPmId,
+    source: args.source,
+  });
+  return {
+    captured: true,
+    providerPaymentMethodId: args.savedPmId,
+    platformPaymentMethodId: args.platformPmId,
+    brand: args.brand ?? null,
+    last4: args.last4 ?? null,
+    expMonth: args.expMonth ?? null,
+    expYear: args.expYear ?? null,
+  };
+}
+
+/**
+ * When order payments never expose nested saved_payment_method.id (common lag on
+ * preauth), fall back to the Revolut customer payment-method list and match the
+ * card fingerprint from the authorised payment. Never stores payment_method.id.
+ */
+async function tryCaptureFromCustomerPaymentMethods(
+  supabase: SupabaseClient,
+  args: {
+    environment: ProviderEnvironment;
+    secretKey: string;
+    orderId: string;
+    userId: string;
+    platformPmId: string;
+    hintBrand?: string | null;
+    hintLast4?: string | null;
+    hintExpMonth?: number | null;
+    hintExpYear?: number | null;
+  },
+): Promise<CaptureSuccess | null> {
+  const { data: customerRow } = await supabase
+    .from("customers")
+    .select("revolut_customer_id")
+    .eq("user_id", args.userId)
+    .maybeSingle();
+  const revolutCustomerId = String(customerRow?.revolut_customer_id ?? "").trim();
+  if (!revolutCustomerId) return null;
+
+  let methods;
+  try {
+    methods = await listRevolutCustomerPaymentMethods(
+      args.environment,
+      args.secretKey,
+      revolutCustomerId,
+    );
+  } catch (err) {
+    console.warn("[customerSavedPaymentMethodTokens] customer PM list failed", {
+      orderId: args.orderId,
+      error: String(err),
+    });
+    return null;
+  }
+
+  const hintLast4 = String(args.hintLast4 ?? "").replace(/\D/g, "").slice(-4);
+  const hintBrand = String(args.hintBrand ?? "").trim().toLowerCase();
+  const existing = await listProviderTokensForUser(supabase, args.userId);
+  const existingIds = new Set(
+    existing.map((row) => String(row.provider_payment_method_id ?? "").trim()).filter(Boolean),
+  );
+  const candidates = methods.filter((m) => {
+    const id = String(m.id ?? "").trim();
+    if (!id || existingIds.has(id)) return false;
+    const type = String(m.type ?? "card").toLowerCase();
+    if (type && type !== "card") return false;
+    if (!hintLast4) return false;
+    const details = (m.method_details ?? {}) as Record<string, unknown>;
+    const last4 = String(details.last4 ?? details.card_last_four ?? "")
+      .replace(/\D/g, "")
+      .slice(-4);
+    if (last4 && last4 !== hintLast4) return false;
+    if (hintBrand) {
+      const brand = String(details.brand ?? details.card_brand ?? "").trim().toLowerCase();
+      if (brand && !brand.includes(hintBrand) && !hintBrand.includes(brand)) return false;
+    }
+    return true;
+  });
+  if (candidates.length === 0) return null;
+
+  // Prefer exact last4 match; otherwise last listed (Revolut returns newest-first typically).
+  const match = candidates[candidates.length - 1]!;
+  const details = (match.method_details ?? {}) as Record<string, unknown>;
+  const expMonthRaw = details.expiry_month ?? details.exp_month;
+  const expYearRaw = details.expiry_year ?? details.exp_year;
+  const expMonth = typeof expMonthRaw === "number" ? expMonthRaw : Number(expMonthRaw);
+  const expYear = typeof expYearRaw === "number" ? expYearRaw : Number(expYearRaw);
+
+  return persistCapturedToken(supabase, {
+    userId: args.userId,
+    platformPmId: args.platformPmId,
+    orderId: args.orderId,
+    savedPmId: String(match.id).trim(),
+    brand: String(details.brand ?? args.hintBrand ?? "").trim() || null,
+    last4: String(details.last4 ?? args.hintLast4 ?? "").replace(/\D/g, "").slice(-4) || null,
+    expMonth: Number.isFinite(expMonth) && expMonth > 0 ? expMonth : args.hintExpMonth ?? null,
+    expYear: Number.isFinite(expYear) && expYear > 0 ? expYear : args.hintExpYear ?? null,
+    providerCustomerId: revolutCustomerId,
+    source: "customer_payment_methods_fallback",
+  });
+}
+
 export async function captureRevolutProviderTokenFromOrder(
   supabase: SupabaseClient,
   args: {
@@ -279,8 +457,8 @@ export async function captureRevolutProviderTokenFromOrder(
     /** When true, mark tokenization_failed if no saved_payment_method.id after poll. */
     markFailedOnMiss?: boolean;
     /**
-     * booking: short poll — never block Book→Finding (post-commit / waitUntil can finish).
-     * setup: dedicated save-card flow may wait longer (still capped, not ~82s).
+     * booking: short poll — never block Book→Finding when save was not requested.
+     * setup: save-card / save-eligible booking (waitUntil / post-commit); ~6.3s + durable retry.
      */
     pollProfile?: "booking" | "setup";
   },
@@ -307,13 +485,23 @@ export async function captureRevolutProviderTokenFromOrder(
     return { captured: false };
   }
 
-  // Sum of sleeps: booking ~0.85s; setup ~6.3s. Never reintroduce the old ~82s ladder.
-  const pollDelaysMs = args.pollProfile === "setup"
-    ? [0, 400, 900, 1800, 3200]
-    : [0, 100, 250, 500];
+  const useSetupProfile = args.pollProfile === "setup";
+  // Sum of sleeps: booking ~0.85s; setup ~6.3s (+ durable ~13s). Never reintroduce ~82s.
+  const pollDelaysMs: number[] = [
+    ...(useSetupProfile
+      ? REVOLUT_TOKEN_CAPTURE_SETUP_POLL_MS
+      : REVOLUT_TOKEN_CAPTURE_BOOKING_POLL_MS),
+    ...(useSetupProfile ? REVOLUT_TOKEN_CAPTURE_DURABLE_RETRY_MS : []),
+  ];
   let paymentCount = 0;
   let sawOneTimePaymentMethodId = false;
   let sawReusableSavedMethodId = false;
+  let hintBrand: string | null = null;
+  let hintLast4: string | null = null;
+  let hintExpMonth: number | null = null;
+  let hintExpYear: number | null = null;
+  let revolutCustomerId: string | null = null;
+
   for (const delayMs of pollDelaysMs) {
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -333,50 +521,56 @@ export async function captureRevolutProviderTokenFromOrder(
       paymentCount += 1;
       const oneTimeId = String(payment.payment_method?.id ?? "").trim();
       if (oneTimeId) sawOneTimePaymentMethodId = true;
+      const fingerprint = cardFingerprintFromPayment(payment);
+      if (fingerprint.last4) {
+        hintBrand = fingerprint.brand;
+        hintLast4 = fingerprint.last4;
+        hintExpMonth = fingerprint.expMonth;
+        hintExpYear = fingerprint.expYear;
+      }
       const savedPmId = extractRevolutSavedCardPaymentMethodId(payment);
       if (!savedPmId) continue;
       sawReusableSavedMethodId = true;
       const cardPm = payments.find((row) => row.payment_method?.type === "card") ?? payment;
-      const expiry = readCardExpiry(
-        (cardPm.payment_method ?? null) as Record<string, unknown> | null,
-      );
-      const { data: customerRow } = await supabase
-        .from("customers")
-        .select("revolut_customer_id")
-        .eq("user_id", args.userId)
-        .maybeSingle();
-      const ok = await upsertProviderPaymentMethodToken(supabase, {
-        userId: args.userId,
-        platformPaymentMethodId: platformPmId,
-        paymentProvider: "revolut",
-        providerPaymentMethodId: savedPmId,
-        brand: cardPm.payment_method?.card_brand ?? null,
-        last4: cardPm.payment_method?.card_last_four
-          ?? cardPm.payment_method?.last_four
-          ?? null,
-        expMonth: expiry.expMonth,
-        expYear: expiry.expYear,
-        providerCustomerId: String(customerRow?.revolut_customer_id ?? "").trim() || null,
-        tokenizationStatus: "verified",
-      });
-      if (ok) {
-        console.info("[customerSavedPaymentMethodTokens] Revolut token captured", {
-          orderId: args.orderId,
-          platformPaymentMethodId: platformPmId,
-          providerPaymentMethodId: savedPmId,
-        });
-        return {
-          captured: true,
-          providerPaymentMethodId: savedPmId,
-          platformPaymentMethodId: platformPmId,
-          brand: cardPm.payment_method?.card_brand ?? null,
-          last4: cardPm.payment_method?.card_last_four
-            ?? cardPm.payment_method?.last_four
-            ?? null,
-          expMonth: null,
-          expYear: null,
-        };
+      const cardFp = cardFingerprintFromPayment(cardPm);
+      if (!revolutCustomerId) {
+        const { data: customerRow } = await supabase
+          .from("customers")
+          .select("revolut_customer_id")
+          .eq("user_id", args.userId)
+          .maybeSingle();
+        revolutCustomerId = String(customerRow?.revolut_customer_id ?? "").trim() || null;
       }
+      const persisted = await persistCapturedToken(supabase, {
+        userId: args.userId,
+        platformPmId,
+        orderId: args.orderId,
+        savedPmId,
+        brand: cardFp.brand,
+        last4: cardFp.last4,
+        expMonth: cardFp.expMonth,
+        expYear: cardFp.expYear,
+        providerCustomerId: revolutCustomerId,
+        source: "order_payments",
+      });
+      if (persisted) return persisted;
+    }
+
+    // Mid-ladder fallback: Revolut may attach the reusable method to the customer
+    // before nested saved_payment_method.id appears on order payments.
+    if (useSetupProfile) {
+      const fromCustomer = await tryCaptureFromCustomerPaymentMethods(supabase, {
+        environment: args.environment,
+        secretKey: args.secretKey,
+        orderId: args.orderId,
+        userId: args.userId,
+        platformPmId,
+        hintBrand,
+        hintLast4,
+        hintExpMonth,
+        hintExpYear,
+      });
+      if (fromCustomer) return fromCustomer;
     }
   }
 
@@ -391,6 +585,7 @@ export async function captureRevolutProviderTokenFromOrder(
     reason: missReason,
     paymentCount,
     sawOneTimePaymentMethodId,
+    pollProfile: args.pollProfile ?? "booking",
   });
 
   await supabase.from("admin_payment_audit").insert({
@@ -402,6 +597,7 @@ export async function captureRevolutProviderTokenFromOrder(
       reason: missReason,
       payment_count: paymentCount,
       saw_one_time_payment_method_id: sawOneTimePaymentMethodId,
+      poll_profile: args.pollProfile ?? "booking",
       note: "payment_method.id is a one-time payment reference and must not be stored as a reusable card.",
     },
   }).then(({ error }) => {
