@@ -14,7 +14,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { nativeAppCorsHeaders as corsHeaders } from "../_shared/security.ts";
 import {
   geoBoundaryToBbox,
   haversineMetres,
