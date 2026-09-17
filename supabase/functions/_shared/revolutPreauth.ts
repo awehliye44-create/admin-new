@@ -772,6 +772,7 @@ async function attemptRevolutSavedCardCharge(args: {
     });
 
     let payment: RevolutOrderPayment;
+    let initiator: "customer" | "merchant" = "customer";
     if (existingPayment) {
       args.logStep("Revolut saved-card reuse existing order payment", {
         orderId: args.orderId,
@@ -780,7 +781,6 @@ async function attemptRevolutSavedCardCharge(args: {
       });
       payment = existingPayment;
     } else {
-      let initiator: "customer" | "merchant" = "customer";
       try {
         const { data: customerRow } = await args.supabase
           .from("customers")
@@ -820,6 +820,10 @@ async function attemptRevolutSavedCardCharge(args: {
       secretKey: args.secretKey,
       orderId: args.orderId,
       payment,
+      // Customer-initiated saved charges often need ACS — wait for it here;
+      // confirm-revolut cannot open the bank challenge.
+      waitForAcs: initiator === "customer"
+        || String(payment.state ?? "").toLowerCase() === "authentication_challenge",
       logStep: args.logStep,
     });
     if (resolved.kind === "authorised") {
@@ -1005,6 +1009,8 @@ async function resolveSavedCardPaymentOutcome(args: {
   secretKey: string;
   orderId: string;
   payment: { id: string; state?: string; authentication_challenge?: { acs_url?: string } };
+  /** Customer-initiated charges: poll longer so ACS is returned from create-preauth. */
+  waitForAcs?: boolean;
   logStep: (step: string, details?: unknown) => void;
 }): Promise<
   | { kind: "authorised" }
@@ -1012,9 +1018,11 @@ async function resolveSavedCardPaymentOutcome(args: {
   | { kind: "failed"; reason?: string }
   | { kind: "in_flight"; paymentState?: string }
 > {
-  // Uber/Bolt-class Book: do not burn ~7s of Edge sleep here. Client confirm
-  // ticks finish AUTHORISED / 3DS when settle is still in flight.
-  const pollDelaysMs = [0, 100, 250, 500];
+  // Merchant MIT can settle quickly; customer initiator often needs ACS.
+  // Cap ~5.5s — confirm cannot open ACS, so we must surface it here.
+  const pollDelaysMs = args.waitForAcs
+    ? [0, 150, 300, 600, 1000, 1500, 2000]
+    : [0, 100, 250, 500];
   let latest = args.payment;
   for (const delayMs of pollDelaysMs) {
     if (delayMs > 0) {
@@ -1032,6 +1040,7 @@ async function resolveSavedCardPaymentOutcome(args: {
       if (acsUrl) {
         return { kind: "requires_3ds", paymentId: latest.id, acsUrl };
       }
+      // Challenge without ACS yet — keep polling while waitForAcs.
     }
     if (isRevolutPaymentAuthorisedState(state)) {
       // Payment-level AUTHORISED can still soft-fail — require order AUTHORISED.

@@ -343,6 +343,8 @@ export function extractRevolutSavedCardPaymentMethodId(
 const REVOLUT_PAYMENT_AUTHORISED = new Set([
   "AUTHORISED",
   "AUTHORIZED",
+  "AUTHORISATION_PASSED",
+  "AUTHORIZATION_PASSED",
   "CAPTURED",
   "COMPLETED",
 ]);
