@@ -7,6 +7,8 @@
  *   action=complete → persist reusable method after SDK success + release hold
  *
  * No trip id. Dedicated client idempotency_key / setupRef (merchant_order_ext_ref).
+ * Ownership: complete rejects when metadata.customer_user_id !== JWT user (ORDER_NOT_FOUND).
+ * Dedupe: unique (user_id, provider, provider_pm_id); re-complete returns SAVED_CARD_ALREADY_SAVED.
  * Never returns hosted checkout URLs. Token is for RevolutMerchantCardFormKit only.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -267,17 +269,60 @@ serve(async (req) => {
 
       const { data: existingRows } = await supabase
         .from("customer_saved_payment_method_tokens")
-        .select("provider_payment_method_id")
+        .select(
+          "provider_payment_method_id, platform_payment_method_id, brand, last4, exp_month, exp_year, tokenization_status",
+        )
         .eq("user_id", user.id)
         .eq("payment_provider", "revolut");
 
-      const knownIds = new Set(
-        (existingRows ?? []).map((r) => String(r.provider_payment_method_id)),
-      );
-      const fresh = cardMethods.filter((m) => !knownIds.has(m.id));
+      type ExistingTokenRow = {
+        provider_payment_method_id: string | null;
+        platform_payment_method_id: string | null;
+        brand: string | null;
+        last4: string | null;
+        exp_month: number | null;
+        exp_year: number | null;
+        tokenization_status: string | null;
+      };
+      const knownByProviderId = new Map<string, ExistingTokenRow>();
+      for (const r of (existingRows ?? []) as ExistingTokenRow[]) {
+        const pid = String(r.provider_payment_method_id ?? "").trim();
+        if (pid) knownByProviderId.set(pid, r);
+      }
 
+      const fresh = cardMethods.filter((m) => !knownByProviderId.has(m.id));
+
+      // Idempotent complete: provider PM already vaulted for this user — no duplicate insert.
       if (fresh.length === 0) {
         await releaseSaveCardVerificationOrder({ environment, secretKey, orderId: providerOrderId });
+        const already = cardMethods
+          .map((m) => knownByProviderId.get(m.id))
+          .find((row) => row && String(row.tokenization_status ?? "") !== "removed");
+        if (already?.platform_payment_method_id) {
+          edgeStatus = 200;
+          safeLog({
+            edgeStatus,
+            authenticated,
+            customerResolved,
+            providerEnvironment,
+            orderCreated: true,
+            checkoutTokenReturned: false,
+            revolutStatusCode: null,
+            code: "SAVED_CARD_ALREADY_SAVED",
+            action,
+          });
+          return successResponse({
+            success: true,
+            already_saved: true,
+            card: {
+              platform_payment_method_id: already.platform_payment_method_id,
+              brand: already.brand,
+              last4: already.last4,
+              exp_month: already.exp_month,
+              exp_year: already.exp_year,
+            },
+          });
+        }
         edgeStatus = 409;
         safeLog({
           edgeStatus,
@@ -323,6 +368,51 @@ serve(async (req) => {
         .from("customer_saved_payment_method_tokens")
         .insert(insertRow);
       if (insertErr) {
+        // Unique (user_id, payment_provider, provider_payment_method_id) race → return existing.
+        const msg = String(insertErr.message ?? "").toLowerCase();
+        const isUnique =
+          insertErr.code === "23505" ||
+          msg.includes("duplicate") ||
+          msg.includes("unique");
+        if (isUnique) {
+          const { data: raced } = await supabase
+            .from("customer_saved_payment_method_tokens")
+            .select("platform_payment_method_id, brand, last4, exp_month, exp_year")
+            .eq("user_id", user.id)
+            .eq("payment_provider", "revolut")
+            .eq("provider_payment_method_id", method.id)
+            .maybeSingle();
+          if (raced?.platform_payment_method_id) {
+            await releaseSaveCardVerificationOrder({
+              environment,
+              secretKey,
+              orderId: providerOrderId,
+            });
+            edgeStatus = 200;
+            safeLog({
+              edgeStatus,
+              authenticated,
+              customerResolved,
+              providerEnvironment,
+              orderCreated: true,
+              checkoutTokenReturned: false,
+              revolutStatusCode: null,
+              code: "SAVED_CARD_ALREADY_SAVED",
+              action,
+            });
+            return successResponse({
+              success: true,
+              already_saved: true,
+              card: {
+                platform_payment_method_id: raced.platform_payment_method_id,
+                brand: raced.brand,
+                last4: raced.last4,
+                exp_month: raced.exp_month,
+                exp_year: raced.exp_year,
+              },
+            });
+          }
+        }
         edgeStatus = 500;
         safeLog({
           edgeStatus,

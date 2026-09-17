@@ -83,6 +83,7 @@ Deno.test("setup-revolut-card returns typed error codes (ownership / cap / auth)
     "ORDER_NOT_FOUND",
     "SAVED_CARD_LIMIT_REACHED",
     "SAVED_CARD_NOT_FOUND",
+    "SAVED_CARD_ALREADY_SAVED",
     "CUSTOMER_NOT_FOUND",
   ]) {
     if (!SETUP_SRC.includes(`"${code}"`)) {
@@ -91,5 +92,40 @@ Deno.test("setup-revolut-card returns typed error codes (ownership / cap / auth)
   }
   if (!SETUP_SRC.includes("customer_user_id") || !SETUP_SRC.includes("user.id")) {
     throw new Error("setup complete must enforce order ownership");
+  }
+});
+
+Deno.test("cross-customer complete rejected via ORDER_NOT_FOUND ownership lock", async () => {
+  const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
+  if (!SETUP_SRC.includes("metadata.customer_user_id !== user.id")) {
+    throw new Error("complete must reject cross-customer order ownership");
+  }
+  if (!SETUP_SRC.includes('code: "ORDER_NOT_FOUND"')) {
+    throw new Error("cross-customer reject must surface ORDER_NOT_FOUND");
+  }
+});
+
+Deno.test("duplicate provider token → no duplicate insert (idempotent already_saved)", async () => {
+  const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
+  if (!SETUP_SRC.includes("SAVED_CARD_ALREADY_SAVED")) {
+    throw new Error("duplicate provider PM must return SAVED_CARD_ALREADY_SAVED");
+  }
+  if (!SETUP_SRC.includes("already_saved: true")) {
+    throw new Error("idempotent complete must set already_saved");
+  }
+  if (!SETUP_SRC.includes("23505") && !SETUP_SRC.includes("isUnique")) {
+    throw new Error("insert race must handle unique violation");
+  }
+});
+
+Deno.test("create-preauth Book path untouched by merchant-vault PR (source still CIT-default)", async () => {
+  // This PR must not rewrite create-preauth; lock existing CIT default remains.
+  const PREAUTH_SRC = await readFn("../../functions/_shared/revolutPreauth.ts");
+  if (!PREAUTH_SRC.includes('let initiator: "customer" | "merchant" = "customer"')) {
+    throw new Error("create-preauth CIT default missing — Book path may have been altered");
+  }
+  const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
+  if (SETUP_SRC.includes("create-preauth") || SETUP_SRC.includes("createPreauth")) {
+    throw new Error("setup-revolut-card must not call create-preauth");
   }
 });
