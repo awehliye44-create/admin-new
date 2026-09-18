@@ -9,6 +9,7 @@ import {
 import type { RevolutCustomerRef } from "./revolutCustomers.ts";
 import { buildCreateRevolutOrderRequestBody } from "./revolutPreauthCustomerAttach.ts";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
+import type { RevolutCitBrowserEnvironment } from "./revolutCitBrowserEnvironmentSSOT.ts";
 
 /**
  * Increment authorisation requires a Merchant API version that exposes
@@ -205,6 +206,10 @@ export async function listRevolutCustomerPaymentMethods(
  * `initiator: "merchant"` is reserved for genuine off-session ONECAB actions
  * (not Book) — see revolutSavedCardMitMandate.draft.ts (unwired).
  *
+ * For initiator=customer, Revolut requires a validated browser `environment`
+ * (see revolutCitBrowserEnvironmentSSOT). Callers must pass a fail-closed
+ * validated env — never invent defaults here.
+ *
  * Challenge: response may include state=authentication_challenge and
  * authentication_challenge.acs_url → client CUSTOMER_ACTION_REQUIRED.
  */
@@ -213,6 +218,7 @@ export async function payRevolutOrderWithSavedCard(
   secretKey: string,
   orderId: string,
   savedPaymentMethodId: string,
+  browserEnvironment: RevolutCitBrowserEnvironment,
   initiator: "customer" | "merchant" = "customer",
 ): Promise<RevolutOrderPayment> {
   return await revolutMerchantRequest<RevolutOrderPayment>(
@@ -226,16 +232,7 @@ export async function payRevolutOrderWithSavedCard(
           type: "card",
           id: savedPaymentMethodId,
           initiator,
-          environment: {
-            type: "browser",
-            time_zone_utc_offset: 0,
-            color_depth: 24,
-            screen_width: 390,
-            screen_height: 844,
-            java_enabled: false,
-            challenge_window_width: 390,
-            browser_url: "https://onecab.app",
-          },
+          environment: browserEnvironment,
         },
       }),
     },
