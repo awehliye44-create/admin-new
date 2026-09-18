@@ -190,13 +190,75 @@ Deno.test("confirm-revolut source: shared mapper + terminalize session", () => {
   assert(CONFIRM.includes("no_new_order"));
 });
 
-Deno.test("reconcile-payment-session: auth + no new order + mockable retrieve", () => {
+Deno.test("payment CANCELLED + order PENDING → CANCELLED", () => {
+  const m = mapSavedCardProviderOrderToReconcileState({
+    id: "order-1",
+    state: "PENDING",
+    payments: [{ id: "p1", state: "CANCELLED" }],
+  });
+  assertEquals(m.client_state, "CANCELLED");
+  assertEquals(m.terminal, true);
+});
+
+Deno.test("payment AUTHORISED + order PENDING → AUTHORISED", () => {
+  const m = mapSavedCardProviderOrderToReconcileState({
+    id: "order-1",
+    state: "PENDING",
+    payments: [{ id: "p1", state: "AUTHORISED" }],
+  });
+  assertEquals(m.client_state, "AUTHORISED");
+  assertEquals(m.terminal, false);
+});
+
+Deno.test("multi-payment: historical FAILED then AUTHORISED → AUTHORISED", () => {
+  const m = mapSavedCardProviderOrderToReconcileState({
+    id: "order-1",
+    state: "PENDING",
+    payments: [
+      { id: "p1", state: "FAILED", decline_reason: "technical_error" },
+      { id: "p2", state: "AUTHORISED" },
+    ],
+  });
+  assertEquals(m.client_state, "AUTHORISED");
+  assertEquals(m.payment_id, "p2");
+});
+
+Deno.test("multi-payment: AUTHORISED then later FAILED → conflict fail-closed PROCESSING", () => {
+  const m = mapSavedCardProviderOrderToReconcileState({
+    id: "order-1",
+    state: "PENDING",
+    payments: [
+      { id: "p1", state: "AUTHORISED" },
+      { id: "p2", state: "FAILED", decline_reason: "technical_error" },
+    ],
+  });
+  assertEquals(m.client_state, "PAYMENT_PROCESSING");
+  assertEquals(m.terminal, false);
+  assert(m.reason.includes("conflict_manual_review"));
+});
+
+Deno.test("lifecycle: late FAILED after authorised KEEP_CURRENT (no regress)", () => {
+  const r = resolvePaymentSessionStatusFromProviderWebhook({
+    currentStatus: "payment_authorised",
+    providerState: "FAILED",
+    purpose: "RIDE_BOOKING",
+    priorProviderState: "AUTHORISED",
+  });
+  assertEquals(r.decision, "KEEP_CURRENT");
+  assertEquals(r.reason, "late_terminal_negative_after_authorised_provider_state");
+});
+
+Deno.test("reconcile-payment-session: auth + rate limit + no create/capture + no provider_order lookup", () => {
   assert(RECONCILE_EDGE.includes("retrieveAndReconcileSavedCardSession"));
   assert(RECONCILE_EDGE.includes("no_new_order"));
   assert(RECONCILE_EDGE.includes("Unauthorized"));
+  assert(RECONCILE_EDGE.includes("checkRateLimit"));
   assert(RECONCILE_EDGE.includes("listRevolutOrderPayments"));
+  assert(RECONCILE_EDGE.includes("payment_session_id or client_action_id required"));
   assert(!RECONCILE_EDGE.includes("createRevolutOrder"));
   assert(!RECONCILE_EDGE.includes("payRevolutOrderWithSavedCard"));
+  assert(!RECONCILE_EDGE.includes("captureRevolut"));
+  assert(!RECONCILE_EDGE.includes("cancelRevolutOrder"));
 });
 
 Deno.test("TRY AGAIN no new order — preauth handoff exposes client_action_id", () => {

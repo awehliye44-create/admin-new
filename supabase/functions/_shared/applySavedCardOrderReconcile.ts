@@ -272,11 +272,12 @@ export async function retrieveAndReconcileSavedCardSession(
   const clientActionId = String(args.clientActionId ?? "").trim() || null;
   const providerOrderId = String(args.providerOrderId ?? "").trim() || null;
 
-  if (!paymentSessionId && !clientActionId && !providerOrderId) {
+  // Ownership keys only — client may NOT look up / replace by provider order id.
+  if (!paymentSessionId && !clientActionId) {
     return {
       ok: false,
       status: 400,
-      error: "payment_session_id, client_action_id, or provider_order_id required",
+      error: "payment_session_id or client_action_id required",
       code: "missing_correlation",
     };
   }
@@ -294,15 +295,9 @@ export async function retrieveAndReconcileSavedCardSession(
       .from("payment_sessions")
       .select("*")
       .eq("client_action_id", clientActionId)
+      .eq("user_id", args.userId)
       .order("created_at", { ascending: false })
       .limit(1)
-      .maybeSingle();
-    session = (data as Record<string, unknown> | null) ?? null;
-  } else if (providerOrderId) {
-    const { data } = await args.supabase
-      .from("payment_sessions")
-      .select("*")
-      .eq("provider_order_id", providerOrderId)
       .maybeSingle();
     session = (data as Record<string, unknown> | null) ?? null;
   }
@@ -320,6 +315,7 @@ export async function retrieveAndReconcileSavedCardSession(
     };
   }
 
+  // Provider reference always from owned DB session — never from client body.
   const sessionOrderId = String(session.provider_order_id ?? "").trim();
   if (!sessionOrderId) {
     return {
@@ -330,6 +326,7 @@ export async function retrieveAndReconcileSavedCardSession(
     };
   }
 
+  // Optional client echo of order id is verification-only; mismatches fail closed.
   if (providerOrderId && providerOrderId !== sessionOrderId) {
     return {
       ok: false,
@@ -357,8 +354,54 @@ export async function retrieveAndReconcileSavedCardSession(
     };
   }
 
-  // Already terminal in DB — idempotent return, no new provider create.
   const statusLower = String(session.status ?? "").toLowerCase();
+
+  // Already authorised — never overwrite with stale failed evidence (no regress).
+  if (
+    statusLower === "payment_authorised" ||
+    statusLower === "authorised" ||
+    statusLower === "authorised_hold" ||
+    statusLower === "trip_created"
+  ) {
+    return {
+      ok: true,
+      result: {
+        mapping: {
+          client_state: "AUTHORISED",
+          lifecycle_provider_state: "AUTHORISED",
+          order_state: String(session.provider_state ?? "AUTHORISED"),
+          payment_state: null,
+          payment_id: null,
+          decline_reason: null,
+          acs_url: null,
+          terminal: false,
+          preserve_saved_card: true,
+          failure_reason: null,
+          reason: "session_already_authorised",
+        },
+        session_id: String(session.id),
+        client_action_id: sessionClientActionId || null,
+        provider_order_id: sessionOrderId,
+        previous_status: String(session.status ?? ""),
+        applied: false,
+        terminalized: false,
+        retry_after_ms: 0,
+        client_payload: {
+          success: true,
+          client_state: "AUTHORISED",
+          terminal: false,
+          code: "AUTHORISED",
+          payment_session_id: session.id,
+          client_action_id: sessionClientActionId || null,
+          provider_order_id: sessionOrderId,
+          no_new_order: true,
+          preserve_saved_card: true,
+        },
+      },
+    };
+  }
+
+  // Already terminal in DB — idempotent return, no new provider create.
   if (
     statusLower === "failed" ||
     statusLower === "cancelled" ||

@@ -91,23 +91,46 @@ function upper(value: unknown): string {
   return String(value ?? "").trim().toUpperCase();
 }
 
-function pickLatestPayment(
+export type CanonicalPaymentPick =
+  | { kind: "payment"; payment: SavedCardPaymentSnapshot }
+  | { kind: "conflict"; reason: string; authorised: SavedCardPaymentSnapshot; failed: SavedCardPaymentSnapshot };
+
+/**
+ * Canonical / latest applicable payment under one order.
+ * - Later AUTHORISED wins over earlier FAILED.
+ * - Later FAILED after an earlier AUTHORISED → conflict (fail closed).
+ * - ACS preferred when no AUTHORISED.
+ * - Else latest FAILED/DECLINED/CANCELLED.
+ */
+export function pickCanonicalPayment(
   payments: SavedCardPaymentSnapshot[] | null | undefined,
-): SavedCardPaymentSnapshot | null {
+): CanonicalPaymentPick | null {
   if (!Array.isArray(payments) || payments.length === 0) return null;
-  // Prefer the most recent failed/ACS/authorised signal; else last entry.
-  for (let i = payments.length - 1; i >= 0; i -= 1) {
+
+  let lastAuthorised: { idx: number; payment: SavedCardPaymentSnapshot } | null = null;
+  let lastAcs: { idx: number; payment: SavedCardPaymentSnapshot } | null = null;
+  let lastFailed: { idx: number; payment: SavedCardPaymentSnapshot } | null = null;
+
+  for (let i = 0; i < payments.length; i += 1) {
     const p = payments[i];
     const state = upper(p?.state);
-    if (
-      PAYMENT_FAILED.has(state) ||
-      PAYMENT_ACS.has(state) ||
-      PAYMENT_AUTHORISED.has(state)
-    ) {
-      return p;
-    }
+    if (PAYMENT_AUTHORISED.has(state)) lastAuthorised = { idx: i, payment: p };
+    else if (PAYMENT_ACS.has(state)) lastAcs = { idx: i, payment: p };
+    else if (PAYMENT_FAILED.has(state)) lastFailed = { idx: i, payment: p };
   }
-  return payments[payments.length - 1] ?? null;
+
+  if (lastAuthorised && lastFailed && lastFailed.idx > lastAuthorised.idx) {
+    return {
+      kind: "conflict",
+      reason: "failed_after_authorised_manual_review",
+      authorised: lastAuthorised.payment,
+      failed: lastFailed.payment,
+    };
+  }
+  if (lastAuthorised) return { kind: "payment", payment: lastAuthorised.payment };
+  if (lastAcs) return { kind: "payment", payment: lastAcs.payment };
+  if (lastFailed) return { kind: "payment", payment: lastFailed.payment };
+  return { kind: "payment", payment: payments[payments.length - 1]! };
 }
 
 export function isTechnicalDeclineReason(
@@ -129,7 +152,28 @@ export function mapSavedCardProviderOrderToReconcileState(
   order: SavedCardOrderSnapshot | null | undefined,
 ): SavedCardReconcileMapping {
   const orderState = upper(order?.state);
-  const payment = pickLatestPayment(order?.payments ?? null);
+  const picked = pickCanonicalPayment(order?.payments ?? null);
+
+  // Conflicting evidence (FAILED after AUTHORISED) — fail closed; no new order.
+  if (picked?.kind === "conflict") {
+    return {
+      client_state: "PAYMENT_PROCESSING",
+      lifecycle_provider_state: orderState || "PENDING",
+      order_state: orderState || "PENDING",
+      payment_state: upper(picked.failed.state) || null,
+      payment_id: picked.failed.id ? String(picked.failed.id) : null,
+      decline_reason: picked.failed.decline_reason
+        ? String(picked.failed.decline_reason).trim()
+        : null,
+      acs_url: null,
+      terminal: false,
+      preserve_saved_card: true,
+      failure_reason: null,
+      reason: `conflict_manual_review:${picked.reason}`,
+    };
+  }
+
+  const payment = picked?.kind === "payment" ? picked.payment : null;
   const paymentState = payment ? upper(payment.state) : null;
   const declineReason = payment?.decline_reason
     ? String(payment.decline_reason).trim()
@@ -155,12 +199,12 @@ export function mapSavedCardProviderOrderToReconcileState(
     };
   }
 
-  // 2) Order authorised (booking hold ready)
-  if (ORDER_AUTHORISED.has(orderState)) {
+  // 2) Order authorised OR payment authorised (booking hold ready)
+  if (ORDER_AUTHORISED.has(orderState) || (paymentState && PAYMENT_AUTHORISED.has(paymentState))) {
     return {
       client_state: "AUTHORISED",
       lifecycle_provider_state: "AUTHORISED",
-      order_state: orderState,
+      order_state: orderState || "PENDING",
       payment_state: paymentState,
       payment_id: paymentId,
       decline_reason: declineReason,
@@ -168,7 +212,9 @@ export function mapSavedCardProviderOrderToReconcileState(
       terminal: false,
       preserve_saved_card: true,
       failure_reason: null,
-      reason: "order_authorised",
+      reason: ORDER_AUTHORISED.has(orderState)
+        ? "order_authorised"
+        : "payment_authorised",
     };
   }
 
@@ -237,24 +283,7 @@ export function mapSavedCardProviderOrderToReconcileState(
     };
   }
 
-  // 5) Payment authorised but order still settling → processing
-  if (paymentState && PAYMENT_AUTHORISED.has(paymentState) && ORDER_IN_FLIGHT.has(orderState)) {
-    return {
-      client_state: "PAYMENT_PROCESSING",
-      lifecycle_provider_state: orderState || "PENDING",
-      order_state: orderState || "PENDING",
-      payment_state: paymentState,
-      payment_id: paymentId,
-      decline_reason: null,
-      acs_url: null,
-      terminal: false,
-      preserve_saved_card: true,
-      failure_reason: null,
-      reason: "payment_authorised_order_settling",
-    };
-  }
-
-  // 6) Still in flight
+  // 5) Still in flight (no terminal payment)
   if (ORDER_IN_FLIGHT.has(orderState) || !orderState) {
     return {
       client_state: "PAYMENT_PROCESSING",
