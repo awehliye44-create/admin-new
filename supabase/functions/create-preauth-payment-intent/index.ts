@@ -27,6 +27,12 @@ import {
 } from "../_shared/paymentGatewayGuard.ts";
 import { createRevolutPreauthResponse } from "../_shared/revolutPreauth.ts";
 import {
+  citBrowserEnvironmentErrorResponse,
+  extractBrowserEnvironmentFromPreauthBody,
+  parseAndValidateCitBrowserEnvironment,
+  type RevolutCitBrowserEnvironment,
+} from "../_shared/revolutCitBrowserEnvironmentSSOT.ts";
+import {
   classifyServiceAreaFinancialPairing,
   FINANCIAL_MODEL_VIOLATION,
   INVALID_CONFIGURATION,
@@ -217,6 +223,22 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
 
     const body = await req.json();
     logStep("Request body", body);
+
+    // Saved-card / platform PM path: require CIT browser_environment before any
+    // Revolut order create / pay. Never invent defaults.
+    const platformPmId =
+      typeof body.payment_method_id === "string" ? body.payment_method_id.trim() : "";
+    let validatedBrowserEnvironment: RevolutCitBrowserEnvironment | null = null;
+    if (platformPmId) {
+      const parsedEnv = parseAndValidateCitBrowserEnvironment(
+        extractBrowserEnvironmentFromPreauthBody(body as Record<string, unknown>),
+      );
+      if (!parsedEnv.ok) {
+        logStep("BROWSER_ENVIRONMENT_REJECTED", { code: parsedEnv.code });
+        return citBrowserEnvironmentErrorResponse(parsedEnv, corsHeaders);
+      }
+      validatedBrowserEnvironment = parsedEnv.environment;
+    }
 
     // ------------------------------------------------------------------
     // MODE A: Legacy — trip_id already exists (for existing preauth flows)
@@ -530,6 +552,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         customerName: customerFullName,
         platformPaymentMethodId: body.payment_method_id ?? null,
         savePaymentMethod: body.save_payment_method === true,
+        browserEnvironment: validatedBrowserEnvironment,
         bookingSnapshot:
           body.booking_snapshot && typeof body.booking_snapshot === "object"
             ? body.booking_snapshot as Record<string, unknown>

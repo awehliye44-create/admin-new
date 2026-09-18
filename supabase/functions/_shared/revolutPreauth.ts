@@ -50,6 +50,11 @@ import {
   isTechnicalDeclineReason,
   SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,
 } from "./savedCardPaymentReconcileSSOT.ts";
+import {
+  citBrowserEnvironmentErrorResponse,
+  parseAndValidateCitBrowserEnvironment,
+  type RevolutCitBrowserEnvironment,
+} from "./revolutCitBrowserEnvironmentSSOT.ts";
 
 export { isRevolutAuthorisedState } from "./revolutPaymentConfirmation.ts";
 
@@ -76,6 +81,11 @@ export type RevolutPreauthInput = {
   customerName?: string | null;
   /** Explicit rider opt-in. False/absent must not allocate a new vault id or save flag. */
   savePaymentMethod?: boolean;
+  /**
+   * Required for saved-card Pay (CIT). Validated by caller / create-preauth
+   * before order create when possible. Never invent defaults.
+   */
+  browserEnvironment?: RevolutCitBrowserEnvironment | null;
   corsHeaders: Record<string, string>;
   logStep: (step: string, details?: unknown) => void;
 };
@@ -103,11 +113,29 @@ export async function createRevolutPreauthResponse(
     customerEmail,
     customerName,
     savePaymentMethod,
+    browserEnvironment,
     corsHeaders,
     logStep,
   } = input;
 
   let bookingSnapshot = bookingSnapshotInput;
+
+  // Saved-card CIT Pay requires validated browser environment — fail closed
+  // before creating / reusing pay paths that would call Revolut Pay.
+  const savedCardReuse = Boolean(platformPaymentMethodId?.trim());
+  let validatedBrowserEnv: RevolutCitBrowserEnvironment | null = null;
+  if (savedCardReuse) {
+    const parsedEnv = parseAndValidateCitBrowserEnvironment(browserEnvironment);
+    if (!parsedEnv.ok) {
+      logStep("BROWSER_ENVIRONMENT_REJECTED", {
+        code: parsedEnv.code,
+        clientActionId,
+        hasPlatformPm: true,
+      });
+      return citBrowserEnvironmentErrorResponse(parsedEnv, corsHeaders);
+    }
+    validatedBrowserEnv = parsedEnv.environment;
+  }
 
   // Fail closed: booking preauth must never create a £1 vault verification hold.
   const amountGuard = assertBookingPreauthAmount({
@@ -350,6 +378,7 @@ export async function createRevolutPreauthResponse(
             corsHeaders,
             logStep,
             holdStartedAt,
+            browserEnvironment: validatedBrowserEnv!,
           });
           if (savedAttempt) return savedAttempt;
         }
@@ -683,6 +712,7 @@ export async function createRevolutPreauthResponse(
         corsHeaders,
         logStep,
         holdStartedAt,
+        browserEnvironment: validatedBrowserEnv!,
       });
       if (savedAttempt) return savedAttempt;
       logStep("Revolut saved-card charge failed despite provider token", {
@@ -740,6 +770,8 @@ async function attemptRevolutSavedCardCharge(args: {
   corsHeaders: Record<string, string>;
   logStep: (step: string, details?: unknown) => void;
   holdStartedAt?: number;
+  /** Pre-validated CIT browser environment — never invent defaults. */
+  browserEnvironment: RevolutCitBrowserEnvironment;
 }): Promise<Response | null> {
   const tokenRow = await lookupProviderPaymentMethodToken(args.supabase, {
     userId: args.userId,
@@ -768,11 +800,22 @@ async function attemptRevolutSavedCardCharge(args: {
     // off-session MIT stays in the unwired draft mandate helper (excluded).
     const initiator = "customer" as const;
 
+    // Re-validate immediately before Pay (fail closed if caller omitted).
+    const payEnv = parseAndValidateCitBrowserEnvironment(args.browserEnvironment);
+    if (!payEnv.ok) {
+      args.logStep("BROWSER_ENVIRONMENT_REJECTED_BEFORE_PAY", {
+        code: payEnv.code,
+        orderId: args.orderId,
+      });
+      return citBrowserEnvironmentErrorResponse(payEnv, args.corsHeaders);
+    }
+
     const payment = await payRevolutOrderWithSavedCard(
       args.environment,
       args.secretKey,
       args.orderId,
       tokenRow.provider_payment_method_id,
+      payEnv.environment,
       initiator,
     );
     const resolved = await resolveSavedCardPaymentOutcome({
