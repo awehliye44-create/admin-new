@@ -1,4 +1,9 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  isInstantInClosedRange,
+  mergeBackendEconomicFields,
+} from "./economicEarnedAtSSOT.ts";
+import { economicFieldsByLedgerOrTrip, loadDriverWalletEconomicFields } from "./loadDriverWalletEconomicFields.ts";
 
 export interface DriverInvoiceAggregation {
   cardTripEarningsPence: number;
@@ -28,14 +33,11 @@ export async function aggregateDriverInvoice(
   },
 ): Promise<DriverInvoiceAggregation> {
   const periodEndTs = `${params.periodEnd}T23:59:59.999Z`;
-
   let ledgerQuery = supabase
     .from("driver_wallet_ledger")
-    .select("type, amount_pence, related_trip_id, service_area_id")
+    .select("id, type, amount_pence, related_trip_id, service_area_id, created_at")
     .eq("driver_id", params.driverId)
-    .eq("currency", params.currencyCode)
-    .gte("created_at", params.periodStart)
-    .lte("created_at", periodEndTs);
+    .eq("currency", params.currencyCode);
 
   if (params.serviceAreaId) {
     ledgerQuery = ledgerQuery.eq("service_area_id", params.serviceAreaId);
@@ -43,6 +45,28 @@ export async function aggregateDriverInvoice(
 
   const { data: ledgerData, error: ledgerError } = await ledgerQuery;
   if (ledgerError) throw new Error(ledgerError.message);
+
+  const economicFields = await loadDriverWalletEconomicFields(supabase, params.driverId);
+  const attributedLedger = (ledgerData ?? []).map((e) => {
+    const id = String((e as { id?: string }).id ?? "");
+    const tripId = (e as { related_trip_id?: string | null }).related_trip_id ?? null;
+    return mergeBackendEconomicFields(
+      {
+        type: String((e as { type?: string }).type ?? ""),
+        amount_pence: Number((e as { amount_pence?: number }).amount_pence ?? 0),
+        related_trip_id: tripId,
+        created_at: (e as { created_at?: string | null }).created_at ?? null,
+        id,
+      },
+      economicFieldsByLedgerOrTrip(economicFields, id, tripId),
+    );
+  });
+  const periodLedger = attributedLedger.filter((row) => {
+    if (String(row.type ?? "").toUpperCase() === "TRIP_EARNING_NET") {
+      return isInstantInClosedRange(row.economic_earned_at, params.periodStart, periodEndTs);
+    }
+    return isInstantInClosedRange(row.created_at, params.periodStart, periodEndTs);
+  });
 
   let tripsQuery = supabase
     .from("trips")
@@ -81,7 +105,7 @@ export async function aggregateDriverInvoice(
   let cashCollectedOffsetPence = 0;
   const completedTripIds = new Set<string>();
 
-  for (const entry of ledgerData ?? []) {
+  for (const entry of periodLedger) {
     const amt = Number(entry.amount_pence ?? 0);
     const tripId = entry.related_trip_id as string | null;
     switch (entry.type) {

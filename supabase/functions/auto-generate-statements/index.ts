@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assertServiceRole } from "../_shared/internalAuth.ts";
+import { aggregateDriverInvoice, buildInvoiceItems } from "../_shared/driverInvoiceAggregation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -127,13 +128,12 @@ Deno.serve(async (req) => {
 
           if (runError) throw runError;
 
-          // Find drivers with ledger activity from driver_wallet_ledger
+          // Candidate drivers by currency only. Period TEN totals come from
+          // aggregateDriverInvoice (SQL economic_earned_at), not ledger created_at.
           const { data: ledgerDrivers } = await supabase
             .from("driver_wallet_ledger")
             .select("driver_id")
-            .eq("currency", region.currency_code)
-            .gte("created_at", periodStart)
-            .lte("created_at", periodEnd + "T23:59:59Z");
+            .eq("currency", region.currency_code);
 
           let uniqueDriverIds = [...new Set((ledgerDrivers || []).map((d: any) => d.driver_id))];
 
@@ -166,37 +166,25 @@ Deno.serve(async (req) => {
           let runInvoiceCount = 0;
 
           for (const driverId of uniqueDriverIds) {
-            const { data: entries } = await supabase
-              .from("driver_wallet_ledger")
-              .select("type, amount_pence, related_trip_id")
-              .eq("driver_id", driverId)
-              .eq("currency", region.currency_code)
-              .gte("created_at", periodStart)
-              .lte("created_at", periodEnd + "T23:59:59Z");
+            const agg = await aggregateDriverInvoice(supabase, {
+              driverId,
+              periodStart,
+              periodEnd,
+              currencyCode: region.currency_code,
+              serviceAreaId: saId,
+            });
+            const grossEarnings = agg.grossEarningsPence;
+            const bonuses = agg.bonusesPence;
+            const adjustments = agg.adjustmentsPence;
+            const completedTrips = agg.completedTripIds;
+            const noShowTrips = 0;
+            const lateCancelTrips = 0;
 
-            let grossEarnings = 0, commission = 0, bonuses = 0, penalties = 0, adjustments = 0;
-            const completedTrips = new Set<string>();
-            let noShowTrips = 0, lateCancelTrips = 0;
-
-            for (const e of entries || []) {
-              const amt = e.amount_pence || 0;
-              switch (e.type) {
-                case "TRIP_EARNING_NET": grossEarnings += amt; if (e.related_trip_id) completedTrips.add(e.related_trip_id); break;
-                case "PLATFORM_COMMISSION": case "COMPANY_COMMISSION": commission += Math.abs(amt); break;
-                case "BONUS": case "INCENTIVE": bonuses += amt; break;
-                case "PENALTY": case "DEDUCTION": penalties += Math.abs(amt); break;
-                case "ADJUSTMENT": case "REFUND_DEBIT": adjustments += amt; break;
-                case "NO_SHOW_EARNING": noShowTrips++; grossEarnings += amt; break;
-                case "LATE_CANCEL_EARNING": lateCancelTrips++; grossEarnings += amt; break;
-                case "TIP_CREDIT": case "DRIVER_TIP_CREDIT": grossEarnings += amt; break;
-              }
-            }
-
-            if (grossEarnings === 0 && commission === 0 && bonuses === 0 && penalties === 0 && adjustments === 0) {
+            if (grossEarnings === 0 && bonuses === 0 && adjustments === 0 && agg.netDriverEarningsPence === 0) {
               continue;
             }
 
-            const netEarnings = grossEarnings + bonuses - penalties + adjustments;
+            const netEarnings = agg.netDriverEarningsPence;
             const { data: invNum } = await supabase.rpc("generate_invoice_number");
             const invoiceNumber = invNum || `INV-${Date.now()}-${runInvoiceCount}`;
 
@@ -238,7 +226,7 @@ Deno.serve(async (req) => {
                 gross_earnings_pence: grossEarnings,
                 commission_pence: 0,
                 bonuses_pence: bonuses,
-                penalties_pence: penalties,
+                penalties_pence: 0,
                 adjustments_pence: adjustments,
                 net_earnings_pence: netEarnings,
                 completed_trips: completedTrips.size,
@@ -251,14 +239,8 @@ Deno.serve(async (req) => {
               .single();
 
             if (inv) {
-              const items: any[] = [
-                { invoice_id: inv.id, item_type: "trip_earnings", description: `Completed trip earnings (${completedTrips.size} trips)`, amount_pence: grossEarnings, sort_order: 1 },
-              ];
-              if (bonuses > 0) items.push({ invoice_id: inv.id, item_type: "bonus", description: "Bonuses & incentives", amount_pence: bonuses, sort_order: 3 });
-              if (penalties > 0) items.push({ invoice_id: inv.id, item_type: "penalty", description: "Penalties & deductions", amount_pence: -penalties, sort_order: 4 });
-              if (adjustments !== 0) items.push({ invoice_id: inv.id, item_type: "adjustment", description: "Manual adjustments", amount_pence: adjustments, sort_order: 5 });
-
-              await supabase.from("invoice_items").insert(items);
+              const items = buildInvoiceItems(inv.id, agg);
+              if (items.length) await supabase.from("invoice_items").insert(items);
 
               try {
                 const { generateDriverInvoicePdfOnly } = await import("../_shared/driverInvoiceService.ts");
