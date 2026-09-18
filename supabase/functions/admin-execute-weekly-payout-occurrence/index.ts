@@ -62,7 +62,7 @@ import {
 import {
   isRevolutBusinessRelayConfigured,
   relayApprovedDriverPayoutPayment,
-  relayDriverPayoutPaymentStatus,
+  relayApprovedDriverPayoutPaymentStatus,
 } from "../_shared/revolutBusinessRelayClient.ts";
 import { ensureFreshRevolutBusinessAccessToken } from "../_shared/revolutBusinessAccessTokenRefresh.ts";
 
@@ -856,7 +856,7 @@ Deno.serve(async (req) => {
         });
         continue;
       }
-      const statusResult = await relayDriverPayoutPaymentStatus({
+      const statusResult = await relayApprovedDriverPayoutPaymentStatus({
         providerPaymentId: existingPaymentId,
         accessToken,
         payoutItemId,
@@ -989,7 +989,7 @@ Deno.serve(async (req) => {
           ? String((claimSubRaw as Record<string, unknown>).provider_payment_id)
           : existingPaymentId;
         if (alreadyId) {
-          const statusResult = await relayDriverPayoutPaymentStatus({
+          const statusResult = await relayApprovedDriverPayoutPaymentStatus({
             providerPaymentId: alreadyId,
             accessToken,
             payoutItemId,
@@ -1243,7 +1243,7 @@ Deno.serve(async (req) => {
     }
 
     // Finalize when provider completed
-    const statusResult = await relayDriverPayoutPaymentStatus({
+    const statusResult = await relayApprovedDriverPayoutPaymentStatus({
       providerPaymentId,
       accessToken,
       payoutItemId,
