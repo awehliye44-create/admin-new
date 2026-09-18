@@ -10,6 +10,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   getRevolutMerchantConfig,
+  listRevolutOrderPayments,
   mapRevolutStateToPaymentStatus,
   retrieveRevolutOrder,
 } from "../_shared/revolutOrders.ts";
@@ -32,6 +33,7 @@ import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPayme
 import { resolvePaymentSessionCaptureAdvanceExtras } from "../_shared/paymentSessionCaptureTimestampSSOT.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import { persistProviderFeeAndMaybeResumeTerminalSettlement } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
+import { mapSavedCardProviderOrderToReconcileState } from "../_shared/savedCardPaymentReconcileSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -467,17 +469,70 @@ Deno.serve(async (req) => {
         // Stronger terminal provider states must not be overwritten by weaker/stale events.
         const priorProvider = String(session.provider_state ?? "").toUpperCase();
         const priorRank = revolutProviderStateRank;
-        const incomingIsRegression = isRevolutProviderStateRegression(priorProvider, stateUpper);
+        // Classification G: order may stay PENDING while payment is FAILED/technical_error.
+        // Enrich webhook order-state with payment-level truth before lifecycle apply.
+        let effectiveStateUpper = stateUpper;
+        let paymentDeclineReason: string | null = null;
+        if (
+          orderId &&
+          (effectiveStateUpper === "PENDING" ||
+            effectiveStateUpper === "PROCESSING" ||
+            !effectiveStateUpper)
+        ) {
+          try {
+            const { secretKey, environment } = getRevolutMerchantConfig();
+            const liveOrder = await retrieveRevolutOrder(environment, secretKey, orderId);
+            let payments = Array.isArray(liveOrder.payments) ? liveOrder.payments : [];
+            if (payments.length === 0) {
+              const listed = await listRevolutOrderPayments(environment, secretKey, orderId);
+              payments = listed.map((p) => ({
+                id: p.id,
+                state: p.state,
+                amount: p.amount,
+                decline_reason: p.decline_reason,
+                authentication_challenge: p.authentication_challenge,
+              }));
+            }
+            const mapping = mapSavedCardProviderOrderToReconcileState({
+              id: liveOrder.id,
+              state: liveOrder.state,
+              payments,
+            });
+            if (mapping.terminal) {
+              effectiveStateUpper = mapping.lifecycle_provider_state;
+              paymentDeclineReason = mapping.decline_reason;
+              console.info("[revolut-webhook] payment-level terminal overrides order state", {
+                order_id: orderId,
+                session_id: session.id,
+                order_state: stateUpper,
+                payment_state: mapping.payment_state,
+                decline_reason: mapping.decline_reason,
+                effective_state: effectiveStateUpper,
+                preserve_saved_card: mapping.preserve_saved_card,
+              });
+            }
+          } catch (enrichErr) {
+            console.warn("[revolut-webhook] payment-level enrich failed", {
+              order_id: orderId,
+              error: String(enrichErr),
+            });
+          }
+        }
+        const incomingIsRegression = isRevolutProviderStateRegression(priorProvider, effectiveStateUpper);
 
         const providerEvidencePatch: Record<string, unknown> = {
-          provider_state: stateUpper || null,
+          provider_state: effectiveStateUpper || null,
           provider_state_verified_at: nowIso,
           provider_state_verified_by: "webhook",
           metadata: {
             ...sessionMeta,
             revolut_last_webhook_event: eventName,
-            revolut_last_webhook_state: stateUpper || null,
+            revolut_last_webhook_state: effectiveStateUpper || null,
+            revolut_last_webhook_order_state: stateUpper || null,
             revolut_last_webhook_at: nowIso,
+            ...(paymentDeclineReason
+              ? { revolut_last_payment_decline_reason: paymentDeclineReason }
+              : {}),
           },
         };
 
@@ -487,19 +542,19 @@ Deno.serve(async (req) => {
           // Do not regress provider_state — still log structured lifecycle skip below.
           delete providerEvidencePatch.provider_state;
           console.warn(
-            `[revolut-webhook] ignoring regressive provider_state ${stateUpper} after ${priorProvider} for session ${session.id}`,
+            `[revolut-webhook] ignoring regressive provider_state ${effectiveStateUpper} after ${priorProvider} for session ${session.id}`,
           );
-        } else if (["AUTHORISED", "AUTHORIZED", "COMPLETED", "CAPTURED"].includes(stateUpper)) {
+        } else if (["AUTHORISED", "AUTHORIZED", "COMPLETED", "CAPTURED"].includes(effectiveStateUpper)) {
           const authorisedAmount = await resolveAuthorisedAmountMinor(orderId, event.data);
           if (authorisedAmount != null && authorisedAmount > 0) {
             statusAdvanceExtras.authorised_amount_pence = authorisedAmount;
             statusAdvanceExtras.total_authorised_amount_pence = authorisedAmount;
           }
-          if (PROVIDER_AUTHORISED_STATES.has(stateUpper)) {
+          if (PROVIDER_AUTHORISED_STATES.has(effectiveStateUpper)) {
             statusAdvanceExtras.authorised_at = nowIso;
             statusAdvanceExtras.failure_reason = null;
           }
-          if (["COMPLETED", "CAPTURED"].includes(stateUpper)) {
+          if (["COMPLETED", "CAPTURED"].includes(effectiveStateUpper)) {
             const captureAmt = eventCaptured ?? (
               Number(session.captured_amount_pence ?? 0) > 0
                 ? Math.round(Number(session.captured_amount_pence))
@@ -517,14 +572,16 @@ Deno.serve(async (req) => {
               );
             }
           }
-        } else if (["CANCELLED", "FAILED"].includes(stateUpper)) {
+        } else if (["CANCELLED", "FAILED"].includes(effectiveStateUpper)) {
           if (priorRank(priorProvider) >= 40) {
             console.warn(
-              `[revolut-webhook] ignoring ${stateUpper} after ${priorProvider} for session ${session.id}`,
+              `[revolut-webhook] ignoring ${effectiveStateUpper} after ${priorProvider} for session ${session.id}`,
             );
             providerEvidencePatch.provider_state = priorProvider || providerEvidencePatch.provider_state;
           } else {
-            statusAdvanceExtras.failure_reason = `REVOLUT_${stateUpper}`;
+            statusAdvanceExtras.failure_reason = paymentDeclineReason
+              ? `REVOLUT_${effectiveStateUpper}:${paymentDeclineReason}`
+              : `REVOLUT_${effectiveStateUpper}`;
           }
         }
 
@@ -555,7 +612,7 @@ Deno.serve(async (req) => {
             storedProviderOrderId: session.provider_order_id,
             priorProviderState: priorProvider,
           },
-          providerState: stateUpper,
+          providerState: effectiveStateUpper,
           incomingCapturedAmountPence: eventCaptured,
           providerEvidencePatch: incomingIsRegression
             ? {
@@ -595,10 +652,6 @@ Deno.serve(async (req) => {
 
         // P0: never auto-finalise superseded / orphaned / already-trip sessions.
         const sessionStatus = String(session.status ?? "").toLowerCase();
-        const sessionMeta =
-          session.metadata && typeof session.metadata === "object"
-            ? (session.metadata as Record<string, unknown>)
-            : {};
         const alreadyOrphaned =
           sessionStatus === "payment_orphaned" ||
           sessionStatus === "orphan_authorisation" ||
@@ -606,7 +659,7 @@ Deno.serve(async (req) => {
           sessionMeta.never_capture === true;
 
         if (
-          ["AUTHORISED", "AUTHORIZED", "COMPLETED", "CAPTURED"].includes(stateUpper) &&
+          ["AUTHORISED", "AUTHORIZED", "COMPLETED", "CAPTURED"].includes(effectiveStateUpper) &&
           !session.trip_id &&
           !alreadyOrphaned &&
           !["cancelled", "failed", "released"].includes(sessionStatus)
@@ -731,7 +784,7 @@ Deno.serve(async (req) => {
             console.log(`[revolut-webhook] finalised authorised session=${session.id} trip=${finaliseTripId ?? "?"}`);
           }
         } else if (
-          ["AUTHORISED", "COMPLETED"].includes(stateUpper) &&
+          ["AUTHORISED", "COMPLETED"].includes(effectiveStateUpper) &&
           !session.trip_id &&
           alreadyOrphaned
         ) {

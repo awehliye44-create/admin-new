@@ -49,6 +49,11 @@ export interface RevolutOrder {
     state?: string;
     amount?: number;
     authorised_amount?: number;
+    decline_reason?: string;
+    authentication_challenge?: {
+      type?: string;
+      acs_url?: string;
+    };
     payment_method?: {
       type?: string;
       card_brand?: string;

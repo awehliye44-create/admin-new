@@ -32,7 +32,7 @@ import {
   ONECAB_PENDING_PLATFORM_PM_PREFIX,
 } from "./customerSavedPaymentMethodTokens.ts";
 import { countUsableSavedRevolutCards, MAX_SAVED_REVOLUT_CARDS } from "./revolutSavedCardVault.ts";
-import { upsertPaymentSessionPending, markPaymentSessionAuthorised, loadPaymentSession } from "./paymentSessionSSOT.ts";
+import { upsertPaymentSessionPending, markPaymentSessionAuthorised, markPaymentSessionFailed, loadPaymentSession } from "./paymentSessionSSOT.ts";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 import { createBookingWaterfallCollector } from "./bookingWaterfallTelemetry.ts";
 import {
@@ -45,6 +45,11 @@ import {
   authorisedHoldMatchesBooking,
   classifyRevolutOrderForBookingRetry,
 } from "./revolutPaymentAttemptStateSSOT.ts";
+import {
+  buildSavedCardPendingHandoff,
+  isTechnicalDeclineReason,
+  SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,
+} from "./savedCardPaymentReconcileSSOT.ts";
 
 export { isRevolutAuthorisedState } from "./revolutPaymentConfirmation.ts";
 
@@ -842,22 +847,65 @@ async function attemptRevolutSavedCardCharge(args: {
       });
     }
     if (resolved.kind === "failed") {
+      const declineReason = resolved.reason ?? null;
+      const preserveCard = isTechnicalDeclineReason(declineReason);
       args.logStep("Revolut saved-card charge declined", {
         orderId: args.orderId,
         platformPaymentMethodId: args.platformPaymentMethodId,
         providerPaymentMethodId: tokenRow.provider_payment_method_id,
-        declineReason: resolved.reason ?? null,
+        declineReason,
+        preserveSavedCard: preserveCard,
       });
-      await invalidateRevolutProviderToken(args.supabase, {
-        userId: args.userId,
-        platformPaymentMethodId: args.platformPaymentMethodId,
-        orderId: args.orderId,
-        reason: resolved.reason ?? "saved_card_charge_failed",
-      });
+      // Terminalize session out of pending_payment (idempotent). No trip / ledger.
+      if (args.clientActionId || args.paymentSessionId) {
+        await markPaymentSessionFailed(args.supabase, {
+          clientActionId: args.clientActionId ?? null,
+          providerOrderId: args.orderId,
+          failureReason: declineReason
+            ? `REVOLUT_PAYMENT_FAILED:${declineReason}`
+            : "REVOLUT_PAYMENT_FAILED",
+        }).catch((markErr) => {
+          args.logStep("markPaymentSessionFailed after saved-card decline failed", {
+            orderId: args.orderId,
+            error: String(markErr),
+          });
+        });
+      }
+      // Never invalidate vault card on technical_error / provider faults.
+      if (!preserveCard) {
+        await invalidateRevolutProviderToken(args.supabase, {
+          userId: args.userId,
+          platformPaymentMethodId: args.platformPaymentMethodId,
+          orderId: args.orderId,
+          reason: declineReason ?? "saved_card_charge_failed",
+        });
+      }
+      const correlation = args.paymentSessionId && args.clientActionId
+        ? buildSavedCardPendingHandoff({
+          paymentSessionId: args.paymentSessionId,
+          clientActionId: args.clientActionId,
+          providerOrderId: args.orderId,
+          clientState: preserveCard ? "PAYMENT_FAILED" : "DECLINED",
+          declineReason,
+        })
+        : {};
       return new Response(JSON.stringify({
-        error: humanizeRevolutPreauthCustomerError(resolved.reason ?? "Payment failed"),
-        code: "card_declined",
+        error: humanizeRevolutPreauthCustomerError(
+          preserveCard
+            ? "Payment couldn’t be completed. Please try again in a moment."
+            : (declineReason ?? "Payment failed"),
+        ),
+        code: preserveCard ? "payment_failed" : "card_declined",
         charge_state: "no_charge",
+        client_state: preserveCard ? "PAYMENT_FAILED" : "DECLINED",
+        terminal: true,
+        preserve_saved_card: preserveCard,
+        retry_after_ms: SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,
+        throttle_ms: SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,
+        no_new_order: true,
+        ...correlation,
+        // Override pending-shaped flags from handoff helper.
+        saved_card_pending: false,
       }), {
         headers: { ...args.corsHeaders, "Content-Type": "application/json" },
         status: 402,
@@ -866,36 +914,86 @@ async function attemptRevolutSavedCardCharge(args: {
     args.logStep("Revolut saved-card payment still settling", {
       orderId: args.orderId,
       paymentState: resolved.paymentState,
+      paymentSessionId: args.paymentSessionId ?? null,
+      clientActionId: args.clientActionId ?? null,
     });
+    // Return 200 processing handoff with stable IDs so TRY AGAIN can reconcile
+    // the same session/order — never mint a new client_action_id blindly.
+    if (args.paymentSessionId && args.clientActionId) {
+      const handoff = buildSavedCardPendingHandoff({
+        paymentSessionId: args.paymentSessionId,
+        clientActionId: args.clientActionId,
+        providerOrderId: args.orderId,
+        clientState: "PAYMENT_PROCESSING",
+      });
+      return new Response(JSON.stringify({
+        success: true,
+        provider: "revolut",
+        status: "payment_processing",
+        saved_card_flow: true,
+        requires_3ds: false,
+        error: humanizeRevolutPreauthCustomerError(
+          "Saved card payment is still processing. Please try again in a moment.",
+        ),
+        ...handoff,
+      }), {
+        headers: { ...args.corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
     return new Response(JSON.stringify({
       error: humanizeRevolutPreauthCustomerError(
         "Saved card payment is still processing. Please try again in a moment.",
       ),
       code: "saved_card_pending",
       charge_state: "no_charge",
+      client_state: "PAYMENT_PROCESSING",
+      provider_order_id: args.orderId,
+      payment_intent_id: args.orderId,
+      payment_session_id: args.paymentSessionId ?? null,
+      client_action_id: args.clientActionId ?? null,
     }), {
       headers: { ...args.corsHeaders, "Content-Type": "application/json" },
       status: 409,
     });
   } catch (err) {
     const errMessage = err instanceof Error ? err.message : String(err);
+    const preserveCard = isTechnicalDeclineReason(errMessage);
     args.logStep("Revolut saved-card preauth failed", {
       orderId: args.orderId,
       platformPaymentMethodId: args.platformPaymentMethodId,
       providerPaymentMethodId: tokenRow.provider_payment_method_id,
       error: errMessage,
+      preserveSavedCard: preserveCard,
     });
-    await invalidateRevolutProviderToken(args.supabase, {
-      userId: args.userId,
-      platformPaymentMethodId: args.platformPaymentMethodId,
-      orderId: args.orderId,
-      reason: errMessage,
-    });
+    if (args.clientActionId || args.paymentSessionId) {
+      await markPaymentSessionFailed(args.supabase, {
+        clientActionId: args.clientActionId ?? null,
+        providerOrderId: args.orderId,
+        failureReason: `REVOLUT_SAVED_CARD_EXCEPTION:${errMessage}`.slice(0, 500),
+      }).catch(() => {});
+    }
+    if (!preserveCard) {
+      await invalidateRevolutProviderToken(args.supabase, {
+        userId: args.userId,
+        platformPaymentMethodId: args.platformPaymentMethodId,
+        orderId: args.orderId,
+        reason: errMessage,
+      });
+    }
     return new Response(JSON.stringify({
       error: humanizeRevolutPreauthCustomerError(errMessage || "Saved card payment failed"),
       code: "saved_card_charge_failed",
       charge_state: "no_charge",
       provider_error: errMessage,
+      client_state: "PAYMENT_FAILED",
+      terminal: true,
+      preserve_saved_card: preserveCard,
+      retry_after_ms: SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,
+      payment_session_id: args.paymentSessionId ?? null,
+      client_action_id: args.clientActionId ?? null,
+      provider_order_id: args.orderId,
+      no_new_order: true,
     }), {
       headers: { ...args.corsHeaders, "Content-Type": "application/json" },
       status: 402,

@@ -9,7 +9,9 @@ import {
   verifyRevolutOrderConfirmedForBooking,
 } from "../_shared/revolutPaymentConfirmation.ts";
 import { markPaymentSessionAuthorised, markCardSetupOrphaned } from "../_shared/paymentSessionSSOT.ts";
-import { retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
+import { listRevolutOrderPayments, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
+import { applySavedCardOrderReconcile } from "../_shared/applySavedCardOrderReconcile.ts";
+import { mapSavedCardProviderOrderToReconcileState } from "../_shared/savedCardPaymentReconcileSSOT.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
@@ -222,13 +224,111 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
     const order = confirmation.order;
     const state = String(order?.state ?? "unknown").toUpperCase();
 
+    // Payment-level failure can leave order PENDING — use shared mapper (classification G).
+    if (order && (isRevolutInFlightState(state) || state === "PENDING" || FAILED_STATES.has(state))) {
+      let orderWithPayments = order;
+      if (!Array.isArray(order.payments) || order.payments.length === 0) {
+        try {
+          const payments = await listRevolutOrderPayments(
+            merchant.environment,
+            merchant.secretKey,
+            orderId,
+          );
+          orderWithPayments = {
+            ...order,
+            payments: payments.map((p) => ({
+              id: p.id,
+              state: p.state,
+              amount: p.amount,
+              decline_reason: p.decline_reason,
+              authentication_challenge: p.authentication_challenge,
+            })),
+          };
+        } catch {
+          /* keep order as-is */
+        }
+      }
+      const mapping = mapSavedCardProviderOrderToReconcileState(orderWithPayments);
+      if (mapping.terminal || mapping.client_state === "CUSTOMER_ACTION_REQUIRED") {
+        const { data: sessionRow } = await supabase
+          .from("payment_sessions")
+          .select("*")
+          .eq("provider_order_id", orderId)
+          .maybeSingle();
+        if (sessionRow && String(sessionRow.user_id ?? "") === userId) {
+          const applied = await applySavedCardOrderReconcile({
+            supabase,
+            session: sessionRow as Record<string, unknown>,
+            order: orderWithPayments,
+            verifiedBy: "confirm",
+          });
+          if (mapping.terminal) {
+            await markRevolutAuthLedgerFailed(supabase, {
+              orderId,
+              clientActionId: body.client_action_id,
+              orderState: mapping.lifecycle_provider_state,
+              providerErrorMessage: mapping.failure_reason ?? mapping.decline_reason,
+              providerErrorType: mapping.decline_reason,
+              source: "confirm-revolut-payment",
+            }).catch(() => {});
+            return json({
+              confirmed: false,
+              failed: true,
+              in_flight: false,
+              state: mapping.lifecycle_provider_state,
+              client_state: mapping.client_state,
+              reason: mapping.failure_reason ?? mapping.reason,
+              payment_session_id: applied.session_id,
+              preserve_saved_card: mapping.preserve_saved_card,
+              retry_after_ms: applied.retry_after_ms,
+              no_new_order: true,
+            });
+          }
+          if (mapping.client_state === "CUSTOMER_ACTION_REQUIRED") {
+            return json({
+              confirmed: false,
+              failed: false,
+              in_flight: true,
+              customer_action_required: true,
+              state: "AUTHENTICATION_CHALLENGE",
+              client_state: "CUSTOMER_ACTION_REQUIRED",
+              authentication_acs_url: mapping.acs_url,
+              payment_session_id: applied.session_id,
+              no_new_order: true,
+            });
+          }
+        } else if (mapping.terminal) {
+          await markRevolutAuthLedgerFailed(supabase, {
+            orderId,
+            clientActionId: body.client_action_id,
+            orderState: mapping.lifecycle_provider_state,
+            providerErrorMessage: mapping.failure_reason ?? mapping.decline_reason,
+            providerErrorType: mapping.decline_reason,
+            source: "confirm-revolut-payment",
+          }).catch(() => {});
+          return json({
+            confirmed: false,
+            failed: true,
+            in_flight: false,
+            state: mapping.lifecycle_provider_state,
+            client_state: mapping.client_state,
+            reason: mapping.failure_reason ?? mapping.reason,
+            preserve_saved_card: mapping.preserve_saved_card,
+            no_new_order: true,
+          });
+        }
+      }
+    }
+
     if (isRevolutInFlightState(state) || state === "PENDING") {
       return json({
         confirmed: false,
         failed: false,
         in_flight: true,
         state,
+        client_state: "PAYMENT_PROCESSING",
         reason: confirmation.reason,
+        no_new_order: true,
       });
     }
 
@@ -241,6 +341,20 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
         providerErrorType: body.provider_error_type,
         source: "confirm-revolut-payment",
       });
+      // Align with webhook: terminalize payment_sessions out of pending_payment.
+      const { data: sessionRow } = await supabase
+        .from("payment_sessions")
+        .select("*")
+        .eq("provider_order_id", orderId)
+        .maybeSingle();
+      if (sessionRow && String(sessionRow.user_id ?? "") === userId && order) {
+        await applySavedCardOrderReconcile({
+          supabase,
+          session: sessionRow as Record<string, unknown>,
+          order,
+          verifiedBy: "confirm",
+        });
+      }
       console.info("[confirm-revolut-payment] REVOLUT_PAYMENT_DECLINED", {
         orderId,
         state,
@@ -251,7 +365,9 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
         confirmed: false,
         failed: true,
         state,
+        client_state: state === "CANCELLED" || state === "CANCELED" ? "CANCELLED" : "PAYMENT_FAILED",
         reason: confirmation.reason ?? `Payment not authorized. Status: ${state}`,
+        no_new_order: true,
       });
     }
 
