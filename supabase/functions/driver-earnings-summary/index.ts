@@ -1,6 +1,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
+import {
+  earningsAttributionInstant,
+  londonCivilDateKey,
+  mergeBackendEconomicFields,
+} from "../_shared/economicEarnedAtSSOT.ts";
+import { economicFieldsByLedgerOrTrip, loadDriverWalletEconomicFields } from "../_shared/loadDriverWalletEconomicFields.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -86,8 +92,6 @@ Deno.serve(async (req) => {
       monthDateStr = `${body.month}-01`;
     }
 
-    const ledgerQueryStart = weekDateStr < monthDateStr ? weekDateStr : monthDateStr;
-
     // Get driver with region info for currency — single join
     const { data: driver } = await supabase
       .from('drivers')
@@ -121,7 +125,7 @@ Deno.serve(async (req) => {
     const earningTypes = ['TRIP_EARNING_NET', 'DRIVER_TIP_CREDIT'];
     const reportingOnlyTypes = '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")';
 
-    const [lifetimeResult, ledgerResult, eligibility] = await Promise.all([
+    const [lifetimeResult, ledgerResult, economicFields, eligibility] = await Promise.all([
       supabase
         .from('driver_wallet_ledger')
         .select('amount_pence')
@@ -131,12 +135,12 @@ Deno.serve(async (req) => {
 
       supabase
         .from('driver_wallet_ledger')
-        .select('type, amount_pence, created_at, related_trip_id')
+        .select('id, type, amount_pence, created_at, related_trip_id')
         .eq('driver_id', driver.id)
         .in('type', earningTypes)
-        .gte('created_at', `${ledgerQueryStart}T00:00:00Z`)
         .order('created_at', { ascending: false }),
 
+      loadDriverWalletEconomicFields(supabase, driver.id),
       fetchDriverPayoutEligibility(supabase, { driver_id: driver.id }),
     ]);
 
@@ -153,7 +157,21 @@ Deno.serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const entries = ledgerResult.data || [];
+    const rawEntries = ledgerResult.data || [];
+    const entries = rawEntries.map((e) => {
+      const id = String((e as { id?: string }).id ?? "");
+      const tripId = (e.related_trip_id as string | null) ?? null;
+      return mergeBackendEconomicFields(
+        {
+          type: e.type as string | null,
+          amount_pence: e.amount_pence as number | null,
+          created_at: e.created_at as string | null,
+          related_trip_id: tripId,
+          id,
+        },
+        economicFieldsByLedgerOrTrip(economicFields, id, tripId),
+      );
+    });
     const lf = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' });
     const [mY, mM] = monthDateStr.split('-').map(Number);
     const monthLastDay = new Date(Date.UTC(mY, mM, 0));
@@ -175,9 +193,10 @@ Deno.serve(async (req) => {
     }
 
     for (const entry of entries) {
-      if (!entry.created_at) continue;
+      const attributedIso = earningsAttributionInstant(entry);
+      if (!attributedIso) continue;
 
-      const entryLocalDate = lf.format(new Date(entry.created_at));
+      const entryLocalDate = londonCivilDateKey(attributedIso) ?? lf.format(new Date(attributedIso));
       const amount = entry.amount_pence ?? 0;
       const tripId = entry.related_trip_id;
       const isCard = entry.type === 'TRIP_EARNING_NET';
