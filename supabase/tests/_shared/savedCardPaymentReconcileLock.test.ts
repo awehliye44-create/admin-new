@@ -261,6 +261,21 @@ Deno.test("reconcile-payment-session: auth + rate limit + no create/capture + no
   assert(!RECONCILE_EDGE.includes("cancelRevolutOrder"));
 });
 
+Deno.test("challenge without ACS on order GET is enriched via payment retrieve", () => {
+  const ORDERS = Deno.readTextFileSync(
+    new URL("../../functions/_shared/revolutOrders.ts", import.meta.url),
+  );
+  const APPLY = Deno.readTextFileSync(
+    new URL("../../functions/_shared/applySavedCardOrderReconcile.ts", import.meta.url),
+  );
+  assert(ORDERS.includes("enrichRevolutOrderPaymentsForChallenge"));
+  assert(ORDERS.includes("paymentNeedsAcsEnrichment"));
+  assert(ORDERS.includes("retrieveRevolutOrderPayment"));
+  assert(APPLY.includes("enrichRevolutOrderPaymentsForChallenge"));
+  assert(CONFIRM.includes("enrichRevolutOrderPaymentsForChallenge"));
+  assert(ORDERS.includes("/payments/${paymentId}"));
+});
+
 Deno.test("TRY AGAIN no new order — preauth handoff exposes client_action_id", () => {
   assert(PREAUTH.includes("client_action_id: args.clientActionId"));
   assert(PREAUTH.includes("reconcile_token") || PREAUTH.includes("buildSavedCardPendingHandoff"));

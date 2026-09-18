@@ -11,6 +11,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { applyPaymentSessionWebhookLifecycleUpdate } from "./applyPaymentSessionWebhookLifecycleUpdate.ts";
 import { markPaymentSessionAuthorised } from "./paymentSessionSSOT.ts";
 import {
+  enrichRevolutOrderPaymentsForChallenge,
   retrieveRevolutOrder,
   type RevolutOrder,
 } from "./revolutOrders.ts";
@@ -459,7 +460,13 @@ export async function retrieveAndReconcileSavedCardSession(
   }
 
   const retrieve = args.retrieveOrder ?? retrieveRevolutOrder;
-  const order = await retrieve(args.environment, args.secretKey, sessionOrderId);
+  let order = await retrieve(args.environment, args.secretKey, sessionOrderId);
+  // Challenge payments on order GET often omit acs_url — enrich before map.
+  order = await enrichRevolutOrderPaymentsForChallenge(
+    args.environment,
+    args.secretKey,
+    order,
+  );
 
   const result = await applySavedCardOrderReconcile({
     supabase: args.supabase,

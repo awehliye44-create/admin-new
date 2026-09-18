@@ -9,7 +9,7 @@ import {
   verifyRevolutOrderConfirmedForBooking,
 } from "../_shared/revolutPaymentConfirmation.ts";
 import { markPaymentSessionAuthorised, markCardSetupOrphaned } from "../_shared/paymentSessionSSOT.ts";
-import { listRevolutOrderPayments, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
+import { enrichRevolutOrderPaymentsForChallenge, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { applySavedCardOrderReconcile } from "../_shared/applySavedCardOrderReconcile.ts";
 import { mapSavedCardProviderOrderToReconcileState } from "../_shared/savedCardPaymentReconcileSSOT.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
@@ -227,26 +227,14 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
     // Payment-level failure can leave order PENDING — use shared mapper (classification G).
     if (order && (isRevolutInFlightState(state) || state === "PENDING" || FAILED_STATES.has(state))) {
       let orderWithPayments = order;
-      if (!Array.isArray(order.payments) || order.payments.length === 0) {
-        try {
-          const payments = await listRevolutOrderPayments(
-            merchant.environment,
-            merchant.secretKey,
-            orderId,
-          );
-          orderWithPayments = {
-            ...order,
-            payments: payments.map((p) => ({
-              id: p.id,
-              state: p.state,
-              amount: p.amount,
-              decline_reason: p.decline_reason,
-              authentication_challenge: p.authentication_challenge,
-            })),
-          };
-        } catch {
-          /* keep order as-is */
-        }
+      try {
+        orderWithPayments = await enrichRevolutOrderPaymentsForChallenge(
+          merchant.environment,
+          merchant.secretKey,
+          order,
+        );
+      } catch {
+        /* keep order as-is */
       }
       const mapping = mapSavedCardProviderOrderToReconcileState(orderWithPayments);
       if (mapping.terminal || mapping.client_state === "CUSTOMER_ACTION_REQUIRED") {

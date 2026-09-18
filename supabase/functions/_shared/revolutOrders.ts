@@ -174,6 +174,78 @@ export async function listRevolutOrderPayments(
   return data.payments ?? [];
 }
 
+function paymentHasHttpsAcsUrl(
+  payment: { authentication_challenge?: { acs_url?: string | null } | null } | null | undefined,
+): boolean {
+  const acs = String(payment?.authentication_challenge?.acs_url ?? "").trim();
+  return acs.toLowerCase().startsWith("https://");
+}
+
+function paymentNeedsAcsEnrichment(
+  payment: {
+    state?: string | null;
+    authentication_challenge?: { acs_url?: string | null } | null;
+  } | null | undefined,
+): boolean {
+  if (!payment) return false;
+  if (String(payment.state ?? "").toLowerCase() !== "authentication_challenge") {
+    return false;
+  }
+  return !paymentHasHttpsAcsUrl(payment);
+}
+
+/**
+ * Order GET often embeds AUTHENTICATION_CHALLENGE payments without acs_url.
+ * List `/orders/{id}/payments` and GET `/payments/{id}` so reconcile/confirm
+ * can return authentication_acs_url to the client.
+ */
+export async function enrichRevolutOrderPaymentsForChallenge(
+  environment: ProviderEnvironment,
+  secretKey: string,
+  order: RevolutOrder,
+): Promise<RevolutOrder> {
+  const orderId = String(order.id ?? "").trim();
+  if (!orderId) return order;
+
+  let payments: RevolutOrderPayment[] = Array.isArray(order.payments)
+    ? (order.payments as RevolutOrderPayment[]).filter((p) => Boolean(p?.id))
+    : [];
+
+  const needsList =
+    payments.length === 0 || payments.some((p) => paymentNeedsAcsEnrichment(p));
+  if (needsList) {
+    try {
+      const listed = await listRevolutOrderPayments(environment, secretKey, orderId);
+      if (listed.length > 0) {
+        payments = listed;
+      }
+    } catch {
+      /* keep embedded payments */
+    }
+  }
+
+  const enriched: RevolutOrderPayment[] = [];
+  for (const payment of payments) {
+    if (!paymentNeedsAcsEnrichment(payment)) {
+      enriched.push(payment);
+      continue;
+    }
+    const paymentId = String(payment.id ?? "").trim();
+    if (!paymentId) {
+      enriched.push(payment);
+      continue;
+    }
+    try {
+      const full = await retrieveRevolutOrderPayment(environment, secretKey, paymentId);
+      enriched.push(full);
+    } catch {
+      enriched.push(payment);
+    }
+  }
+
+  return { ...order, payments: enriched };
+}
+
 export type RevolutCustomerPaymentMethod = {
   id: string;
   type?: string;
