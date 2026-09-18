@@ -4,6 +4,8 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { fetchDriverWalletPayoutSnapshot } from "./fetchDriverWalletPayoutSnapshot.ts";
 import { buildDriverWalletSummaryResponse } from "./driverWalletPeriodWidgetsSSOT.ts";
+import { mergeBackendEconomicFields } from "./economicEarnedAtSSOT.ts";
+import { economicFieldsByLedgerOrTrip, loadDriverWalletEconomicFields } from "./loadDriverWalletEconomicFields.ts";
 
 export async function fetchDriverWalletSummary(
   supabase: SupabaseClient,
@@ -22,10 +24,24 @@ export async function fetchDriverWalletSummary(
 
   const { data: ledger } = await supabase
     .from("driver_wallet_ledger")
-    .select("type, amount_pence, related_trip_id, created_at")
-    .eq("driver_id", args.driverId)
-    .gte("created_at", args.periodFrom)
-    .lte("created_at", args.periodTo);
+    .select("id, type, amount_pence, related_trip_id, created_at")
+    .eq("driver_id", args.driverId);
+
+  const economicFields = await loadDriverWalletEconomicFields(supabase, args.driverId);
+  const attributed = (ledger ?? []).map((r) => {
+    const id = String((r as { id?: string }).id ?? "");
+    const tripId = (r.related_trip_id as string | null) ?? null;
+    return mergeBackendEconomicFields(
+      {
+        type: r.type as string | null,
+        amount_pence: r.amount_pence as number | null,
+        related_trip_id: tripId,
+        created_at: r.created_at as string | null,
+        id,
+      },
+      economicFieldsByLedgerOrTrip(economicFields, id, tripId),
+    );
+  });
 
   // Trip commission snapshots for trips completed in period (canonical gross commission).
   const { data: trips } = await supabase
@@ -55,11 +71,12 @@ export async function fetchDriverWalletSummary(
       outstanding_debt_pence: outstanding,
       annual_driver_earnings_pence: Number(detail.period_kpis?.year_earnings_pence ?? 0),
     },
-    ledger: (ledger ?? []).map((r) => ({
-      type: r.type as string | null,
-      amount_pence: r.amount_pence as number | null,
-      related_trip_id: r.related_trip_id as string | null,
-      created_at: r.created_at as string | null,
+    ledger: attributed.map((r) => ({
+      type: r.type,
+      amount_pence: r.amount_pence,
+      related_trip_id: r.related_trip_id,
+      created_at: r.created_at,
+      economic_earned_at: r.economic_earned_at,
     })),
     tripCommissionSnapshots: (trips ?? []).map((t) => ({
       trip_id: t.id as string,

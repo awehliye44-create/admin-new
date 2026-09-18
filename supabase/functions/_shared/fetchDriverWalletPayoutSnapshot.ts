@@ -19,6 +19,8 @@ import {
   type DriverWalletPeriodKpis,
 } from "./driverWalletPeriodKpisSSOT.ts";
 import { fetchDriverPayoutEligibility } from "./fetchDriverPayoutEligibility.ts";
+import { mergeBackendEconomicFields } from "./economicEarnedAtSSOT.ts";
+import { economicFieldsByLedgerOrTrip, loadDriverWalletEconomicFields } from "./loadDriverWalletEconomicFields.ts";
 import { buildDriverWalletSettlementHistory } from "./driverWalletSettlementHistorySSOT.ts";
 import { buildDriverWalletDebtRecoveryKpis } from "./driverWalletDebtRecoverySSOT.ts";
 import { nextWeeklyPayoutDateIso } from "./payoutScheduleSSOT.ts";
@@ -127,7 +129,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     driverServiceAreaRes,
     payoutEligibility,
   ] = await Promise.all([
-    supabase.from("driver_wallet_ledger").select("type, amount_pence, provider_payout_id, created_at, related_trip_id")
+    supabase.from("driver_wallet_ledger").select("id, type, amount_pence, provider_payout_id, created_at, related_trip_id")
       .eq("driver_id", args.driverId),
     supabase.from("driver_wallet_ledger").select("id, type, amount_pence, related_trip_id, provider_payout_id, provider_transfer_id, created_at, description")
       .eq("driver_id", args.driverId)
@@ -459,12 +461,30 @@ export async function fetchDriverWalletPayoutSnapshot(
     pending_balance_pence: canonicalPending,
   });
 
+  const economicFields = await loadDriverWalletEconomicFields(supabase, args.driverId);
+  const attributedLedger = ledger.map((r) => {
+    const id = String((r as { id?: string | null }).id ?? "");
+    const tripId = (r as { related_trip_id?: string | null }).related_trip_id ?? null;
+    const merged = mergeBackendEconomicFields(
+      {
+        type: String(r.type ?? ""),
+        amount_pence: Number(r.amount_pence ?? 0),
+        created_at: (r as { created_at?: string | null }).created_at ?? null,
+        related_trip_id: tripId,
+        id,
+      },
+      economicFieldsByLedgerOrTrip(economicFields, id, tripId),
+    );
+    return merged;
+  });
+
   const period_kpis = buildDriverWalletPeriodKpis(
-    ledger.map((r) => ({
-      type: String(r.type ?? ""),
-      amount_pence: Number(r.amount_pence ?? 0),
-      created_at: (r as { created_at?: string | null }).created_at ?? null,
-      related_trip_id: (r as { related_trip_id?: string | null }).related_trip_id ?? null,
+    attributedLedger.map((r) => ({
+      type: r.type,
+      amount_pence: r.amount_pence,
+      created_at: r.created_at,
+      related_trip_id: r.related_trip_id,
+      economic_earned_at: r.economic_earned_at,
     })),
     {
       recoveryDebtPence: recoveryDebt,

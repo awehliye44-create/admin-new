@@ -3,6 +3,9 @@
  * London calendar bounds; no client-side formulas.
  */
 import {
+  earningsAttributionInstant,
+} from "./economicEarnedAtSSOT.ts";
+import {
   getLondonDayBounds,
   getLondonCalendarParts,
 } from "./financeLondonDay.ts";
@@ -38,6 +41,8 @@ type LedgerAggRow = {
   amount_pence: number | null;
   created_at?: string | null;
   related_trip_id?: string | null;
+  /** Canonical capture clock for PLATFORM_COLLECTED TRIP_EARNING_NET. */
+  economic_earned_at?: string | null;
 };
 
 const EARNING_TYPES = new Set([
@@ -155,7 +160,8 @@ export function buildDriverWalletPeriodKpis(
   for (const row of ledger) {
     const amount = Number(row.amount_pence ?? 0);
     const type = String(row.type ?? "").toUpperCase();
-    const created = row.created_at ? new Date(row.created_at).getTime() : NaN;
+    const attributedIso = earningsAttributionInstant(row);
+    const attributed = attributedIso ? new Date(attributedIso).getTime() : NaN;
 
     if (BONUS_TYPES.has(type) && amount > 0) bonuses += amount;
     if (ADJUSTMENT_TYPES.has(type)) adjustments += amount;
@@ -164,15 +170,15 @@ export function buildDriverWalletPeriodKpis(
     if (isEarningCredit(type, amount)) {
       lifetime += amount;
       if (row.related_trip_id) tripIds.add(String(row.related_trip_id));
-      if (!Number.isNaN(created)) {
-        if (created >= todayStart.getTime()) today += amount;
-        if (created >= weekStart.getTime()) week += amount;
-        if (created >= lastWeekStart.getTime() && created <= lastWeekEnd.getTime()) lastWeek += amount;
-        if (created >= monthStart.getTime()) month += amount;
-        if (created >= lastMonthStart.getTime() && created <= lastMonthEnd.getTime()) lastMonth += amount;
-        if (created >= quarterStart.getTime()) quarter += amount;
-        if (created >= yearStart.getTime()) year += amount;
-        if (created >= lastYearStart.getTime() && created <= lastYearEnd.getTime()) lastYear += amount;
+      if (!Number.isNaN(attributed)) {
+        if (attributed >= todayStart.getTime()) today += amount;
+        if (attributed >= weekStart.getTime()) week += amount;
+        if (attributed >= lastWeekStart.getTime() && attributed <= lastWeekEnd.getTime()) lastWeek += amount;
+        if (attributed >= monthStart.getTime()) month += amount;
+        if (attributed >= lastMonthStart.getTime() && attributed <= lastMonthEnd.getTime()) lastMonth += amount;
+        if (attributed >= quarterStart.getTime()) quarter += amount;
+        if (attributed >= yearStart.getTime()) year += amount;
+        if (attributed >= lastYearStart.getTime() && attributed <= lastYearEnd.getTime()) lastYear += amount;
       }
     }
   }
