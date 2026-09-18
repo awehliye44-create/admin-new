@@ -176,18 +176,21 @@ export function resolvePaymentSessionStatusFromProviderWebhook(
         reason: "late_terminal_negative_after_authorised_provider_state",
       };
     }
+    const nextStatus = provider === "FAILED" ? "failed" : "cancelled";
+    // Idempotent terminalize first — failed/cancelled must not conflict with self.
+    if (current === nextStatus || currentRank >= 60) {
+      return {
+        decision: "KEEP_CURRENT",
+        reason: current === nextStatus
+          ? "terminal_negative_idempotent"
+          : "already_terminal_negative",
+      };
+    }
     if (currentRank >= 50) {
       return {
         decision: "LIFECYCLE_CONFLICT",
         reason: "cannot_apply_terminal_negative_after_capture",
       };
-    }
-    if (currentRank >= 60) {
-      return { decision: "KEEP_CURRENT", reason: "already_terminal_negative" };
-    }
-    const nextStatus = provider === "FAILED" ? "failed" : "cancelled";
-    if (current === nextStatus) {
-      return { decision: "KEEP_CURRENT", reason: "terminal_negative_idempotent" };
     }
     return {
       decision: "ADVANCE",
