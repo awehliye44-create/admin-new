@@ -198,24 +198,14 @@ export function mapSavedCardProviderOrderToReconcileState(
   const paymentId = payment?.id ? String(payment.id) : null;
   const preserve = isTechnicalDeclineReason(declineReason);
 
-  // 1) ACS on payment
-  if (paymentState && PAYMENT_ACS.has(paymentState)) {
-    return {
-      client_state: "CUSTOMER_ACTION_REQUIRED",
-      lifecycle_provider_state: "AUTHENTICATION_CHALLENGE",
-      order_state: orderState || "PENDING",
-      payment_state: paymentState,
-      payment_id: paymentId,
-      decline_reason: declineReason,
-      acs_url: acsUrl,
-      terminal: false,
-      preserve_saved_card: true,
-      failure_reason: null,
-      reason: "payment_authentication_challenge",
-    };
-  }
+  // Canonical precedence:
+  // 1) AUTHORISED/CAPTURED evidence (order OR payment) — wins over ACS
+  // 2) terminal payment FAILED/DECLINED/CANCELLED (overrides order pending)
+  // 3) authentication challenge
+  // 4) PROCESSING / in-flight
+  // 5) unknown / fail-closed
 
-  // 2) Order authorised OR payment authorised (booking hold ready)
+  // 1) Order authorised OR payment authorised/captured (booking hold ready)
   if (ORDER_AUTHORISED.has(orderState) || (paymentState && PAYMENT_AUTHORISED.has(paymentState))) {
     return {
       client_state: "AUTHORISED",
@@ -234,7 +224,7 @@ export function mapSavedCardProviderOrderToReconcileState(
     };
   }
 
-  // 3) Payment-level terminal failure — even when order still PENDING
+  // 2) Payment-level terminal failure — even when order still PENDING
   if (paymentState && PAYMENT_FAILED.has(paymentState)) {
     const isDeclined = paymentState === "DECLINED" ||
       (!preserve && Boolean(declineReason) && !isTechnicalDeclineReason(declineReason));
@@ -265,6 +255,23 @@ export function mapSavedCardProviderOrderToReconcileState(
       preserve_saved_card: preserve || isTechnicalDeclineReason(declineReason),
       failure_reason: failureReason,
       reason: "payment_terminal_negative_overrides_order",
+    };
+  }
+
+  // 3) ACS challenge — only when no AUTHORISED/CAPTURED and no terminal payment
+  if (paymentState && PAYMENT_ACS.has(paymentState)) {
+    return {
+      client_state: "CUSTOMER_ACTION_REQUIRED",
+      lifecycle_provider_state: "AUTHENTICATION_CHALLENGE",
+      order_state: orderState || "PENDING",
+      payment_state: paymentState,
+      payment_id: paymentId,
+      decline_reason: declineReason,
+      acs_url: acsUrl,
+      terminal: false,
+      preserve_saved_card: true,
+      failure_reason: null,
+      reason: "payment_authentication_challenge",
     };
   }
 

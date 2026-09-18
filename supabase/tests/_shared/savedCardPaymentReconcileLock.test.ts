@@ -247,6 +247,78 @@ Deno.test("multi-payment: AUTHORISED then later FAILED → conflict fail-closed 
   assert(m.reason.includes("conflict_manual_review"));
 });
 
+Deno.test(
+  "AUTHORISED > challenge: order PENDING + payment AUTHORISED + ACS payment → AUTHORISED",
+  () => {
+    const m = mapSavedCardProviderOrderToReconcileState({
+      id: "order-1",
+      state: "PENDING",
+      payments: [
+        {
+          id: "p-acs",
+          state: "AUTHENTICATION_CHALLENGE",
+          authentication_challenge: { acs_url: "https://acs.example/c" },
+        },
+        { id: "p-auth", state: "AUTHORISED" },
+      ],
+    });
+    assertEquals(m.client_state, "AUTHORISED");
+    assertEquals(m.lifecycle_provider_state, "AUTHORISED");
+    assertEquals(m.payment_id, "p-auth");
+    assertEquals(m.terminal, false);
+  },
+);
+
+Deno.test(
+  "AUTHORISED > ACS: order AUTHORISED wins even when only payment is ACS weirdness",
+  () => {
+    const m = mapSavedCardProviderOrderToReconcileState({
+      id: "order-1",
+      state: "AUTHORISED",
+      payments: [{
+        id: "p1",
+        state: "AUTHENTICATION_CHALLENGE",
+        authentication_challenge: { acs_url: "https://acs.example/c" },
+      }],
+    });
+    assertEquals(m.client_state, "AUTHORISED");
+    assertEquals(m.lifecycle_provider_state, "AUTHORISED");
+    assertEquals(m.reason, "order_authorised");
+    assertEquals(m.terminal, false);
+  },
+);
+
+Deno.test(
+  "18:38 fixture replay: order pending + payment failed technical_error → PAYMENT_FAILED",
+  () => {
+    // Sanitized incident-G shape (2026-09-18 ~18:38 class): order stayed pending
+    // while nested payment already failed with technical_error.
+    const m = mapSavedCardProviderOrderToReconcileState({
+      id: "6aacda83-592f-abc8-a53d-34d535c2a505",
+      state: "pending",
+      payments: [{
+        id: "6aacda83-8a68-a53d-34d535c2a505",
+        state: "failed",
+        decline_reason: "technical_error",
+      }],
+    });
+    assertEquals(m.client_state, "PAYMENT_FAILED");
+    assertEquals(m.lifecycle_provider_state, "FAILED");
+    assertEquals(m.terminal, true);
+    assertEquals(m.preserve_saved_card, true);
+    assertEquals(m.order_state, "PENDING");
+    assert(m.failure_reason?.includes("technical_error"));
+
+    const r = resolvePaymentSessionStatusFromProviderWebhook({
+      currentStatus: "pending_payment",
+      providerState: m.lifecycle_provider_state,
+      purpose: "RIDE_BOOKING",
+    });
+    assertEquals(r.decision, "ADVANCE");
+    assertEquals(r.nextStatus, "failed");
+  },
+);
+
 Deno.test("lifecycle: late FAILED after authorised KEEP_CURRENT (no regress)", () => {
   const r = resolvePaymentSessionStatusFromProviderWebhook({
     currentStatus: "payment_authorised",
