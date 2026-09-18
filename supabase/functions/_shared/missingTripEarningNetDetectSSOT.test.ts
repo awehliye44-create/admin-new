@@ -1,0 +1,207 @@
+import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  classifyMissingTen,
+  dryRunMatchesExpectedContract,
+  MISSING_TEN_CLASS,
+  MISSING_TEN_DETECT_LOOKBACK_DAYS,
+  MISSING_TEN_FIELD,
+  MISSING_TEN_STAGE,
+  sessionLooksCaptured,
+  type MissingTenCandidate,
+} from "./missingTripEarningNetDetectSSOT.ts";
+
+const capturedPs = {
+  id: "ps1",
+  status: "captured",
+  provider_state: "COMPLETED",
+  provider_order_id: "ord",
+  provider_capture_id: "cap",
+  captured_amount_pence: 500,
+  captured_at: "2026-08-06T00:00:00Z",
+  financial_operation_state: "CAPTURED",
+  released_amount_pence: null,
+  refunded_amount_pence: null,
+};
+
+Deno.test("authoritative missing TEN when stamp + single captured PS + zero TEN", () => {
+  const c = classifyMissingTen({
+    financialModel: "PLATFORM_COLLECTED",
+    tripStatus: "completed",
+    driverId: "d1",
+    driverNetPence: 425,
+    tenCount: 0,
+    rideBookingSessions: [capturedPs],
+  });
+  assertEquals(c?.classification, MISSING_TEN_CLASS.AUTHORITATIVE_ENTITLEMENT_MISSING_TEN);
+  assertEquals(c?.authoritative_amount_pence, 425);
+});
+
+Deno.test("four authoritative amounts match Step 9.1 contract values", () => {
+  for (const amt of [425, 382, 670, 408]) {
+    const c = classifyMissingTen({
+      financialModel: "PLATFORM_COLLECTED",
+      tripStatus: "completed",
+      driverId: "d1",
+      driverNetPence: amt,
+      tenCount: 0,
+      rideBookingSessions: [{ ...capturedPs, captured_amount_pence: amt }],
+    });
+    assertEquals(c?.authoritative_amount_pence, amt);
+  }
+});
+
+Deno.test("MK-008 style null stamp → PENDING_EVIDENCE with null amount", () => {
+  const c = classifyMissingTen({
+    financialModel: "PLATFORM_COLLECTED",
+    tripStatus: "completed",
+    driverId: "d1",
+    driverNetPence: null,
+    tenCount: 0,
+    rideBookingSessions: [{ ...capturedPs, status: "trip_created", captured_amount_pence: 716 }],
+  });
+  assertEquals(c?.classification, MISSING_TEN_CLASS.PENDING_EVIDENCE_MISSING_TEN);
+  assertEquals(c?.authoritative_amount_pence, null);
+});
+
+Deno.test("existing TEN excluded", () => {
+  const c = classifyMissingTen({
+    financialModel: "PLATFORM_COLLECTED",
+    tripStatus: "completed",
+    driverId: "d1",
+    driverNetPence: 425,
+    tenCount: 1,
+    rideBookingSessions: [capturedPs],
+  });
+  assertEquals(c, null);
+});
+
+Deno.test("DRIVER_COLLECTED excluded", () => {
+  const c = classifyMissingTen({
+    financialModel: "DRIVER_COLLECTED_COMMISSION_WALLET",
+    tripStatus: "completed",
+    driverId: "d1",
+    driverNetPence: 425,
+    tenCount: 0,
+    rideBookingSessions: [capturedPs],
+  });
+  assertEquals(c, null);
+});
+
+Deno.test("unverified / released capture fail-closed as CAPTURE_AMBIGUOUS", () => {
+  const released = classifyMissingTen({
+    financialModel: "PLATFORM_COLLECTED",
+    tripStatus: "completed",
+    driverId: "d1",
+    driverNetPence: 425,
+    tenCount: 0,
+    rideBookingSessions: [{ ...capturedPs, released_amount_pence: 500, status: "released" }],
+  });
+  assertEquals(released?.classification, MISSING_TEN_CLASS.CAPTURE_AMBIGUOUS);
+
+  const thin = classifyMissingTen({
+    financialModel: "PLATFORM_COLLECTED",
+    tripStatus: "completed",
+    driverId: "d1",
+    driverNetPence: 425,
+    tenCount: 0,
+    rideBookingSessions: [{
+      ...capturedPs,
+      captured_amount_pence: null,
+      provider_state: null,
+      financial_operation_state: null,
+      status: "dispatching",
+    }],
+  });
+  assertEquals(thin?.classification, MISSING_TEN_CLASS.CAPTURE_AMBIGUOUS);
+  assertEquals(sessionLooksCaptured({
+    ...capturedPs,
+    refunded_amount_pence: 100,
+  }), false);
+});
+
+Deno.test("zero RIDE_BOOKING → PAYMENT_SESSION_MISSING", () => {
+  const c = classifyMissingTen({
+    financialModel: "PLATFORM_COLLECTED",
+    tripStatus: "completed",
+    driverId: "d1",
+    driverNetPence: 425,
+    tenCount: 0,
+    rideBookingSessions: [],
+  });
+  assertEquals(c?.classification, MISSING_TEN_CLASS.PAYMENT_SESSION_MISSING);
+});
+
+Deno.test("multiple RIDE_BOOKING → CAPTURE_AMBIGUOUS", () => {
+  const c = classifyMissingTen({
+    financialModel: "PLATFORM_COLLECTED",
+    tripStatus: "completed",
+    driverId: "d1",
+    driverNetPence: 425,
+    tenCount: 0,
+    rideBookingSessions: [capturedPs, { ...capturedPs, id: "ps2" }],
+  });
+  assertEquals(c?.classification, MISSING_TEN_CLASS.CAPTURE_AMBIGUOUS);
+});
+
+Deno.test("stable mismatch identity keys", () => {
+  assertEquals(MISSING_TEN_STAGE, "missing_trip_earning_net");
+  assertEquals(MISSING_TEN_FIELD, "TRIP_EARNING_NET");
+});
+
+Deno.test("lookback retains historical window (>=45d)", () => {
+  assertEquals(MISSING_TEN_DETECT_LOOKBACK_DAYS >= 45, true);
+});
+
+Deno.test("dry-run contract matcher accepts exact five-trip set", () => {
+  const mk = (code: string, cls: string, amt: number | null): MissingTenCandidate => ({
+    trip_id: code,
+    trip_code: code,
+    driver_id: "d",
+    financial_model: "PLATFORM_COLLECTED",
+    trip_status: "completed",
+    classification: cls as MissingTenCandidate["classification"],
+    authoritative_amount_pence: amt,
+    ten_count: 0,
+    ride_booking_count: 1,
+    payment_session_id: "ps",
+    provider_state: "COMPLETED",
+    provider_order_id: null,
+    provider_capture_id: null,
+    captured_amount_pence: null,
+    captured_at: null,
+    reason: "t",
+    proposed_mismatch_key: { trip_id: code, stage: MISSING_TEN_STAGE, field_name: MISSING_TEN_FIELD },
+  });
+  const candidates = [
+    mk("MK-260805-016", MISSING_TEN_CLASS.AUTHORITATIVE_ENTITLEMENT_MISSING_TEN, 425),
+    mk("MK-260808-053", MISSING_TEN_CLASS.AUTHORITATIVE_ENTITLEMENT_MISSING_TEN, 382),
+    mk("MK-260808-054", MISSING_TEN_CLASS.AUTHORITATIVE_ENTITLEMENT_MISSING_TEN, 670),
+    mk("MK-260817-008", MISSING_TEN_CLASS.PENDING_EVIDENCE_MISSING_TEN, null),
+    mk("MK-260818-001", MISSING_TEN_CLASS.AUTHORITATIVE_ENTITLEMENT_MISSING_TEN, 408),
+  ];
+  assertEquals(dryRunMatchesExpectedContract(candidates).ok, true);
+  assertEquals(dryRunMatchesExpectedContract(candidates.slice(0, 4)).ok, false);
+});
+
+Deno.test("monitor source: no money writers / repair; has auth + dry_run", async () => {
+  const src = await Deno.readTextFile(new URL("../financial-ssot-monitor/index.ts", import.meta.url));
+  assertEquals(src.includes('from("driver_wallet_ledger").insert'), false);
+  assertEquals(src.includes("creditCapturedCardTripLedger"), false);
+  assertEquals(src.includes("applyCanonicalSettlementAfterCapture"), false);
+  assertEquals(src.includes("relayApprovedDriverPayoutPayment("), false);
+  assertStringIncludes(src, "requireAdminOrStaff");
+  assertStringIncludes(src, "dry_run");
+  assertStringIncludes(src, "DETECT_MISSING_TEN_ONLY");
+  assertStringIncludes(src, "REPAIR_FORBIDDEN");
+  assertStringIncludes(src, "detectMissingTripEarningNet");
+});
+
+Deno.test("detector source: no provider/wallet/payout DML", async () => {
+  const src = await Deno.readTextFile(new URL("./missingTripEarningNetDetectSSOT.ts", import.meta.url));
+  assertEquals(src.includes(".insert(") && src.includes("driver_wallet_ledger"), false);
+  assertEquals(src.includes('from("driver_wallet_ledger").insert'), false);
+  assertEquals(src.includes('from("payment_sessions").update'), false);
+  assertEquals(src.includes("fetch("), false);
+  assertStringIncludes(src, 'from("financial_ssot_mismatches")');
+  assertStringIncludes(src, "dryRun");
+});
