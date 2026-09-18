@@ -192,6 +192,17 @@ export async function listRevolutCustomerPaymentMethods(
   return Array.isArray(response.payment_methods) ? response.payment_methods : [];
 }
 
+/**
+ * Pay an existing order with a reusable saved payment method id.
+ *
+ * Book / create-preauth ALWAYS passes initiator="customer" (CIT), including
+ * when the credential was vaulted with savePaymentMethodFor=merchant.
+ * `initiator: "merchant"` is reserved for genuine off-session ONECAB actions
+ * (not Book) — see revolutSavedCardMitMandate.draft.ts (unwired).
+ *
+ * Challenge: response may include state=authentication_challenge and
+ * authentication_challenge.acs_url → client CUSTOMER_ACTION_REQUIRED.
+ */
 export async function payRevolutOrderWithSavedCard(
   environment: ProviderEnvironment,
   secretKey: string,

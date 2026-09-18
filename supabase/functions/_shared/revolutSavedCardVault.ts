@@ -1,13 +1,28 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   cancelRevolutOrder,
+  refundRevolutOrder,
   retrieveRevolutOrder,
 } from "./revolutOrders.ts";
 import { revolutMerchantRequest } from "./revolutApi.ts";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 
 export const MAX_SAVED_REVOLUT_CARDS = 2;
+/** £1 verification hold only — never trip fare, never captured as revenue. */
 export const REVOLUT_SAVE_CARD_VERIFICATION_MINOR = 100;
+
+/** States where the native form / complete path may still reuse the setup order. */
+export function isReusableSaveCardSetupState(state: string | null | undefined): boolean {
+  const s = String(state ?? "").toUpperCase();
+  return (
+    s === "PENDING" ||
+    s === "PROCESSING" ||
+    s === "AUTHORISED" ||
+    s === "AUTHORIZED" ||
+    s === "AWAITING" ||
+    s === ""
+  );
+}
 
 export type RevolutCustomerPaymentMethod = {
   id: string;
@@ -103,16 +118,19 @@ export async function createRevolutSaveCardSetupOrder(args: {
       body: JSON.stringify({
         amount: REVOLUT_SAVE_CARD_VERIFICATION_MINOR,
         currency: args.currency.toUpperCase(),
+        // Manual capture + immediate cancel/void after token verify — NEVER capture £1.
         capture_mode: "manual",
         // Card saving is requested by the native SDK (savePaymentMethodFor), not order create.
+        // Revolut has no zero-amount merchant-vault setup in this codebase; £1 auth-only is required.
         customer: {
           id: args.revolutCustomerId,
           email: args.customerEmail,
         },
         merchant_order_ext_ref: `save-card-${args.setupRef}`,
-        description: "ONECAB card verification",
+        description: "ONECAB card verification (temporary £1 hold — not a ride payment)",
         metadata: {
           purpose: "save_card",
+          never_capture: "true",
           setup_ref: args.setupRef,
           customer_user_id: args.customerUserId,
         },
@@ -181,6 +199,12 @@ export function mapRevolutPaymentMethodToSavedCardRow(args: {
   };
 }
 
+/**
+ * Release the £1 verification hold.
+ * - AUTHORISED / PROCESSING / PENDING → cancel (void) — never capture
+ * - COMPLETED (should not happen with never_capture) → full refund cleanup
+ * Setup path must never call captureRevolutOrder.
+ */
 export async function releaseSaveCardVerificationOrder(args: {
   environment: ProviderEnvironment;
   secretKey: string;
@@ -189,8 +213,26 @@ export async function releaseSaveCardVerificationOrder(args: {
   try {
     const order = await retrieveRevolutOrder(args.environment, args.secretKey, args.orderId);
     const state = String(order.state ?? "").toUpperCase();
-    if (state === "AUTHORISED" || state === "PROCESSING" || state === "PENDING") {
+    if (
+      state === "AUTHORISED" ||
+      state === "AUTHORIZED" ||
+      state === "PROCESSING" ||
+      state === "PENDING" ||
+      state === "AWAITING"
+    ) {
       await cancelRevolutOrder(args.environment, args.secretKey, args.orderId);
+      return;
+    }
+    if (state === "COMPLETED") {
+      // Failsafe only — capture_mode=manual + never_capture should prevent this.
+      await refundRevolutOrder(
+        args.environment,
+        args.secretKey,
+        args.orderId,
+        REVOLUT_SAVE_CARD_VERIFICATION_MINOR,
+        "save_card_verification_never_capture",
+        String(order.currency ?? "GBP"),
+      );
     }
   } catch (err) {
     console.warn("[revolutSavedCardVault] release verification order failed", err);

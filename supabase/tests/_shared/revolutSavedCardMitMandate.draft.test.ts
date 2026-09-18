@@ -1,4 +1,7 @@
-import { resolveSavedCardChargeInitiator, mustPresentAcsWhenRevolutRequires } from '../../functions/_shared/revolutSavedCardMitMandate.draft.ts';
+import {
+  resolveSavedCardChargeInitiator,
+  mustPresentAcsWhenRevolutRequires,
+} from '../../functions/_shared/revolutSavedCardMitMandate.draft.ts';
 
 Deno.test('customer-saved method stays CIT and must not skip SCA', () => {
   const decided = resolveSavedCardChargeInitiator({
@@ -10,13 +13,25 @@ Deno.test('customer-saved method stays CIT and must not skip SCA', () => {
   }
 });
 
-Deno.test('merchant mandate is the only MIT skip path', () => {
+Deno.test('Book customerPresent + merchant-vault stays CIT (saved_for cannot flip)', () => {
   const decided = resolveSavedCardChargeInitiator({
     methodSavedFor: 'merchant',
     merchantMandateApproved: true,
+    customerPresent: true,
+  });
+  if (decided.initiator !== 'customer' || decided.maySkip3ds) {
+    throw new Error(`Book must stay CIT even for merchant-vault, got ${JSON.stringify(decided)}`);
+  }
+});
+
+Deno.test('genuine off-session merchant mandate is draft MIT only (unwired from Book)', () => {
+  const decided = resolveSavedCardChargeInitiator({
+    methodSavedFor: 'merchant',
+    merchantMandateApproved: true,
+    customerPresent: false,
   });
   if (decided.initiator !== 'merchant' || !decided.maySkip3ds) {
-    throw new Error(`expected merchant MIT, got ${JSON.stringify(decided)}`);
+    throw new Error(`expected merchant MIT for off-session draft, got ${JSON.stringify(decided)}`);
   }
   if (!mustPresentAcsWhenRevolutRequires('https://acs.example/challenge')) {
     throw new Error('ACS URL must still be presented');

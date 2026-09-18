@@ -21,7 +21,6 @@ import {
   isRevolutPaymentAuthenticationChallenge,
   isRevolutPaymentAuthorisedState,
   isRevolutPaymentFailedState,
-  listRevolutCustomerPaymentMethods,
   payRevolutOrderWithSavedCard,
   retrieveRevolutOrder,
   retrieveRevolutOrderPayment,
@@ -759,32 +758,10 @@ async function attemptRevolutSavedCardCharge(args: {
   });
 
   try {
-    let initiator: "customer" | "merchant" = "customer";
-    try {
-      const { data: customerRow } = await args.supabase
-        .from("customers")
-        .select("revolut_customer_id")
-        .eq("user_id", args.userId)
-        .maybeSingle();
-      const revolutCustomerId = String(customerRow?.revolut_customer_id ?? "").trim();
-      if (revolutCustomerId) {
-        const methods = await listRevolutCustomerPaymentMethods(
-          args.environment,
-          args.secretKey,
-          revolutCustomerId,
-        );
-        const match = methods.find((m) =>
-          String(m.id ?? "").trim() === tokenRow.provider_payment_method_id
-        );
-        if (String(match?.saved_for ?? "").toLowerCase() === "merchant") {
-          initiator = "merchant";
-        }
-      }
-    } catch (initiatorErr) {
-      args.logStep("Revolut saved-card initiator lookup warning", {
-        error: String(initiatorErr),
-      });
-    }
+    // Book is always customer-initiated (CIT). `saved_for=merchant` is vault
+    // storage only — never select MIT for a customer-tapped Book. Genuine
+    // off-session MIT stays in the unwired draft mandate helper (excluded).
+    const initiator = "customer" as const;
 
     const payment = await payRevolutOrderWithSavedCard(
       args.environment,
