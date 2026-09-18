@@ -9,6 +9,11 @@
  */
 
 import { fromDbPaymentSessionStatus } from "./revolutPaymentHoldSSOT.ts";
+import {
+  isCanonicalTerminalNegative,
+  normalizeLifecycleProviderState,
+  terminalNegativeSessionStatus,
+} from "./paymentSessionLifecycleStateSSOT.ts";
 import { revolutProviderStateRank } from "./revolutProviderStateRankSSOT.ts";
 
 export type PaymentSessionWebhookLifecycleDecision =
@@ -44,9 +49,11 @@ export type ResolvePaymentSessionStatusFromProviderWebhookResult = {
   reason: string;
 };
 
+/** After normalizeLifecycleProviderState — synonyms collapsed. */
 const PROVIDER_CAPTURED = new Set(["COMPLETED", "CAPTURED"]);
-const PROVIDER_AUTHORISED = new Set(["AUTHORISED", "AUTHORIZED"]);
-const PROVIDER_TERMINAL_NEGATIVE = new Set(["CANCELLED", "CANCELED", "FAILED"]);
+const PROVIDER_AUTHORISED = new Set(["AUTHORISED"]);
+/** FAILED | DECLINED | CANCELLED (PAYMENT_FAILED normalized to FAILED at boundary). */
+const PROVIDER_TERMINAL_NEGATIVE = new Set(["CANCELLED", "FAILED", "DECLINED"]);
 const PROVIDER_REFUNDED = new Set(["REFUNDED", "REVERSED"]);
 
 /** Monotonic lifecycle rank — higher means later in the booking/capture lifecycle. */
@@ -87,7 +94,7 @@ export function paymentSessionStatusRank(status: string | null | undefined): num
 }
 
 function normaliseProvider(state: string | null | undefined): string {
-  return String(state ?? "").trim().toUpperCase();
+  return normalizeLifecycleProviderState(state);
 }
 
 function authoritativeCapturedAmountPence(
@@ -168,7 +175,7 @@ export function resolvePaymentSessionStatusFromProviderWebhook(
     return { decision: "KEEP_CURRENT", reason: "refund_reversal_owned_elsewhere" };
   }
 
-  if (PROVIDER_TERMINAL_NEGATIVE.has(provider)) {
+  if (PROVIDER_TERMINAL_NEGATIVE.has(provider) || isCanonicalTerminalNegative(provider)) {
     const priorProviderRank = revolutProviderStateRank(input.priorProviderState);
     if (priorProviderRank >= 40) {
       return {
@@ -176,7 +183,9 @@ export function resolvePaymentSessionStatusFromProviderWebhook(
         reason: "late_terminal_negative_after_authorised_provider_state",
       };
     }
-    const nextStatus = provider === "FAILED" ? "failed" : "cancelled";
+    // FAILED / DECLINED / PAYMENT_FAILED → failed; CANCELLED → cancelled.
+    // Never regress terminal failed/cancelled back to processing.
+    const nextStatus = terminalNegativeSessionStatus(provider);
     // Idempotent terminalize first — failed/cancelled must not conflict with self.
     if (current === nextStatus || currentRank >= 60) {
       return {

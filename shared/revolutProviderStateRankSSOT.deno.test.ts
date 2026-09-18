@@ -23,9 +23,17 @@ Deno.test("ranks terminal capture above authorisation", () => {
 Deno.test("weaker states regress after AUTHORISED", () => {
   assertEquals(isRevolutProviderStateRegression("AUTHORISED", "CANCELLED"), true);
   assertEquals(isRevolutProviderStateRegression("AUTHORISED", "FAILED"), true);
+  assertEquals(isRevolutProviderStateRegression("AUTHORISED", "PAYMENT_FAILED"), true);
   assertEquals(isRevolutProviderStateRegression("AUTHORISED", "PENDING"), true);
   assertEquals(isRevolutProviderStateRegression("AUTHORISED", "AUTHORIZED"), false);
   assertEquals(isRevolutProviderStateRegression("AUTHORISED", "CAPTURED"), false);
+});
+
+Deno.test("PAYMENT_FAILED / DECLINED share FAILED rank and stick against PROCESSING", () => {
+  assertEquals(revolutProviderStateRank("PAYMENT_FAILED"), revolutProviderStateRank("FAILED"));
+  assertEquals(revolutProviderStateRank("DECLINED"), revolutProviderStateRank("FAILED"));
+  assertEquals(isRevolutProviderStateRegression("FAILED", "PROCESSING"), true);
+  assertEquals(isRevolutProviderStateRegression("DECLINED", "PENDING"), true);
 });
 
 Deno.test("unknown/empty prior is not a regression", () => {

@@ -29,6 +29,10 @@ import {
   isRevolutProviderStateRegression,
   revolutProviderStateRank,
 } from "../_shared/revolutProviderStateRankSSOT.ts";
+import {
+  isCanonicalAuthorisedOrCaptured,
+  normalizeLifecycleProviderState,
+} from "../_shared/paymentSessionLifecycleStateSSOT.ts";
 import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
 import { resolvePaymentSessionCaptureAdvanceExtras } from "../_shared/paymentSessionCaptureTimestampSSOT.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
@@ -222,7 +226,8 @@ Deno.serve(async (req) => {
   const stateFromEvent =
     (event.data?.state as string | undefined) ??
     (eventName ? eventName.replace(/^ORDER_/, "").toUpperCase() : undefined);
-  const stateUpper = String(stateFromEvent ?? "").toUpperCase();
+  // Canonicalize before lifecycle — ORDER_PAYMENT_FAILED → FAILED (not PAYMENT_FAILED).
+  const stateUpper = normalizeLifecycleProviderState(stateFromEvent);
   const nextStatus = mapRevolutStateToPaymentStatus(stateFromEvent);
 
   // === Recovery lifecycle: never overwrite trip.provider_order_id ===
@@ -470,15 +475,23 @@ Deno.serve(async (req) => {
         const priorProvider = String(session.provider_state ?? "").toUpperCase();
         const priorRank = revolutProviderStateRank;
         // Classification G: order may stay PENDING while payment is FAILED/technical_error.
-        // Enrich webhook order-state with payment-level truth before lifecycle apply.
+        // Always enrich when session is still pre-terminal OR event is ORDER_PAYMENT_* OR
+        // normalized state is not already AUTHORISED/COMPLETED/CAPTURED.
         let effectiveStateUpper = stateUpper;
         let paymentDeclineReason: string | null = null;
-        if (
-          orderId &&
-          (effectiveStateUpper === "PENDING" ||
-            effectiveStateUpper === "PROCESSING" ||
-            !effectiveStateUpper)
-        ) {
+        let mappingFailureReason: string | null = null;
+        let mappingPreserveSavedCard: boolean | null = null;
+        const sessionStatusLower = String(session.status ?? "").toLowerCase();
+        const eventNameUpper = String(eventName ?? "").toUpperCase();
+        const shouldEnrichPayments =
+          Boolean(orderId) &&
+          (
+            ["pending_payment", "processing", "created", "checkout_open", "authorising"]
+              .includes(sessionStatusLower) ||
+            eventNameUpper.startsWith("ORDER_PAYMENT_") ||
+            !isCanonicalAuthorisedOrCaptured(effectiveStateUpper)
+          );
+        if (shouldEnrichPayments) {
           try {
             const { secretKey, environment } = getRevolutMerchantConfig();
             const liveOrder = await retrieveRevolutOrder(environment, secretKey, orderId);
@@ -498,9 +511,14 @@ Deno.serve(async (req) => {
               state: liveOrder.state,
               payments,
             });
+            // Prefer canonical lifecycle_provider_state (FAILED) over raw event PAYMENT_FAILED.
+            effectiveStateUpper = normalizeLifecycleProviderState(
+              mapping.lifecycle_provider_state,
+            );
+            paymentDeclineReason = mapping.decline_reason;
+            mappingFailureReason = mapping.failure_reason;
+            mappingPreserveSavedCard = mapping.preserve_saved_card;
             if (mapping.terminal) {
-              effectiveStateUpper = mapping.lifecycle_provider_state;
-              paymentDeclineReason = mapping.decline_reason;
               console.info("[revolut-webhook] payment-level terminal overrides order state", {
                 order_id: orderId,
                 session_id: session.id,
@@ -516,7 +534,11 @@ Deno.serve(async (req) => {
               order_id: orderId,
               error: String(enrichErr),
             });
+            // Fall back to already-normalized event state (PAYMENT_FAILED → FAILED).
+            effectiveStateUpper = normalizeLifecycleProviderState(effectiveStateUpper);
           }
+        } else {
+          effectiveStateUpper = normalizeLifecycleProviderState(effectiveStateUpper);
         }
         const incomingIsRegression = isRevolutProviderStateRegression(priorProvider, effectiveStateUpper);
 
@@ -533,6 +555,9 @@ Deno.serve(async (req) => {
             ...(paymentDeclineReason
               ? { revolut_last_payment_decline_reason: paymentDeclineReason }
               : {}),
+            ...(mappingPreserveSavedCard != null
+              ? { revolut_preserve_saved_card: mappingPreserveSavedCard }
+              : {}),
           },
         };
 
@@ -544,13 +569,13 @@ Deno.serve(async (req) => {
           console.warn(
             `[revolut-webhook] ignoring regressive provider_state ${effectiveStateUpper} after ${priorProvider} for session ${session.id}`,
           );
-        } else if (["AUTHORISED", "AUTHORIZED", "COMPLETED", "CAPTURED"].includes(effectiveStateUpper)) {
+        } else if (["AUTHORISED", "COMPLETED", "CAPTURED"].includes(effectiveStateUpper)) {
           const authorisedAmount = await resolveAuthorisedAmountMinor(orderId, event.data);
           if (authorisedAmount != null && authorisedAmount > 0) {
             statusAdvanceExtras.authorised_amount_pence = authorisedAmount;
             statusAdvanceExtras.total_authorised_amount_pence = authorisedAmount;
           }
-          if (PROVIDER_AUTHORISED_STATES.has(effectiveStateUpper)) {
+          if (PROVIDER_AUTHORISED_STATES.has(effectiveStateUpper) || effectiveStateUpper === "AUTHORISED") {
             statusAdvanceExtras.authorised_at = nowIso;
             statusAdvanceExtras.failure_reason = null;
           }
@@ -572,14 +597,16 @@ Deno.serve(async (req) => {
               );
             }
           }
-        } else if (["CANCELLED", "FAILED"].includes(effectiveStateUpper)) {
+        } else if (["CANCELLED", "FAILED", "DECLINED"].includes(effectiveStateUpper)) {
           if (priorRank(priorProvider) >= 40) {
             console.warn(
               `[revolut-webhook] ignoring ${effectiveStateUpper} after ${priorProvider} for session ${session.id}`,
             );
             providerEvidencePatch.provider_state = priorProvider || providerEvidencePatch.provider_state;
           } else {
-            statusAdvanceExtras.failure_reason = paymentDeclineReason
+            statusAdvanceExtras.failure_reason = mappingFailureReason
+              ? mappingFailureReason
+              : paymentDeclineReason
               ? `REVOLUT_${effectiveStateUpper}:${paymentDeclineReason}`
               : `REVOLUT_${effectiveStateUpper}`;
           }
@@ -659,7 +686,7 @@ Deno.serve(async (req) => {
           sessionMeta.never_capture === true;
 
         if (
-          ["AUTHORISED", "AUTHORIZED", "COMPLETED", "CAPTURED"].includes(effectiveStateUpper) &&
+          ["AUTHORISED", "COMPLETED", "CAPTURED"].includes(effectiveStateUpper) &&
           !session.trip_id &&
           !alreadyOrphaned &&
           !["cancelled", "failed", "released"].includes(sessionStatus)

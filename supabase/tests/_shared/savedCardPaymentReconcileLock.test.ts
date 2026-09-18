@@ -102,6 +102,16 @@ Deno.test("lifecycle resolver: FAILED advances pending_payment → failed", () =
   assertEquals(r.nextStatus, "failed");
 });
 
+Deno.test("lifecycle resolver: raw PAYMENT_FAILED advances pending_payment → failed", () => {
+  const r = resolvePaymentSessionStatusFromProviderWebhook({
+    currentStatus: "pending_payment",
+    providerState: "PAYMENT_FAILED",
+    purpose: "RIDE_BOOKING",
+  });
+  assertEquals(r.decision, "ADVANCE");
+  assertEquals(r.nextStatus, "failed");
+});
+
 Deno.test("lifecycle resolver: FAILED is idempotent on already failed", () => {
   const r = resolvePaymentSessionStatusFromProviderWebhook({
     currentStatus: "failed",

@@ -11,9 +11,15 @@
  *   - revolut-webhook (when payment-level failure is visible)
  *   - create-preauth saved_card_pending / failed handoff
  *
+ * lifecycle_provider_state MUST be the canonical vocabulary from
+ * paymentSessionLifecycleStateSSOT (FAILED not PAYMENT_FAILED; CANCELLED;
+ * AUTHORISED; PROCESSING). Consumers feed it into the webhook lifecycle resolver.
+ *
  * NO new provider orders. NO card delete on technical_error. NO ledger / trip.
  * Lock: savedCardPaymentReconcileLock.test.ts
  */
+
+import { normalizeLifecycleProviderState } from "./paymentSessionLifecycleStateSSOT.ts";
 
 export const SAVED_CARD_RECONCILE_CLIENT_STATES = [
   "AUTHORISED",
@@ -73,7 +79,11 @@ export type SavedCardOrderSnapshot = {
 
 export type SavedCardReconcileMapping = {
   client_state: SavedCardReconcileClientState;
-  /** Provider state fed into payment_sessions lifecycle resolver (order-level vocabulary). */
+  /**
+   * Canonical lifecycle provider state fed into payment_sessions webhook
+   * resolver. MUST be FAILED|DECLINED|CANCELLED|AUTHORISED|PROCESSING|…
+   * from normalizeLifecycleProviderState — never raw PAYMENT_FAILED.
+   */
   lifecycle_provider_state: string;
   order_state: string;
   payment_state: string | null;
@@ -89,6 +99,12 @@ export type SavedCardReconcileMapping = {
 
 function upper(value: unknown): string {
   return String(value ?? "").trim().toUpperCase();
+}
+
+/** Canonical in-flight lifecycle token (PENDING/PROCESSING → PROCESSING). */
+function lifecycleInFlight(orderState: string): string {
+  const n = normalizeLifecycleProviderState(orderState || "PENDING");
+  return n === "UNKNOWN" ? "PROCESSING" : n;
 }
 
 export type CanonicalPaymentPick =
@@ -158,7 +174,7 @@ export function mapSavedCardProviderOrderToReconcileState(
   if (picked?.kind === "conflict") {
     return {
       client_state: "PAYMENT_PROCESSING",
-      lifecycle_provider_state: orderState || "PENDING",
+      lifecycle_provider_state: lifecycleInFlight(orderState),
       order_state: orderState || "PENDING",
       payment_state: upper(picked.failed.state) || null,
       payment_id: picked.failed.id ? String(picked.failed.id) : null,
@@ -186,7 +202,7 @@ export function mapSavedCardProviderOrderToReconcileState(
   if (paymentState && PAYMENT_ACS.has(paymentState)) {
     return {
       client_state: "CUSTOMER_ACTION_REQUIRED",
-      lifecycle_provider_state: orderState || "PENDING",
+      lifecycle_provider_state: "AUTHENTICATION_CHALLENGE",
       order_state: orderState || "PENDING",
       payment_state: paymentState,
       payment_id: paymentId,
@@ -228,7 +244,12 @@ export function mapSavedCardProviderOrderToReconcileState(
       : isDeclined && !preserve
       ? "DECLINED"
       : "PAYMENT_FAILED";
-    const lifecycle = isCancelled ? "CANCELLED" : "FAILED";
+    // Canonical: FAILED (not PAYMENT_FAILED) or CANCELLED for lifecycle resolver.
+    const lifecycle = isCancelled
+      ? "CANCELLED"
+      : isDeclined && !preserve
+      ? "DECLINED"
+      : "FAILED";
     const failureReason = declineReason
       ? `REVOLUT_PAYMENT_${paymentState}:${declineReason}`
       : `REVOLUT_PAYMENT_${paymentState}`;
@@ -268,7 +289,9 @@ export function mapSavedCardProviderOrderToReconcileState(
       ORDER_DECLINED.has(orderState) && !preserve ? "DECLINED" : "PAYMENT_FAILED";
     return {
       client_state: clientState,
-      lifecycle_provider_state: "FAILED",
+      lifecycle_provider_state: ORDER_DECLINED.has(orderState) && !preserve
+        ? "DECLINED"
+        : "FAILED",
       order_state: orderState,
       payment_state: paymentState,
       payment_id: paymentId,
@@ -287,7 +310,7 @@ export function mapSavedCardProviderOrderToReconcileState(
   if (ORDER_IN_FLIGHT.has(orderState) || !orderState) {
     return {
       client_state: "PAYMENT_PROCESSING",
-      lifecycle_provider_state: orderState || "PENDING",
+      lifecycle_provider_state: lifecycleInFlight(orderState),
       order_state: orderState || "PENDING",
       payment_state: paymentState,
       payment_id: paymentId,
@@ -303,7 +326,7 @@ export function mapSavedCardProviderOrderToReconcileState(
   // Unknown order state — treat as processing (fail-closed against new orders)
   return {
     client_state: "PAYMENT_PROCESSING",
-    lifecycle_provider_state: orderState || "PENDING",
+    lifecycle_provider_state: lifecycleInFlight(orderState),
     order_state: orderState || "UNKNOWN",
     payment_state: paymentState,
     payment_id: paymentId,
