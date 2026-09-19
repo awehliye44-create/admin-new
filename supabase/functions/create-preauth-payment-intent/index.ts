@@ -26,6 +26,7 @@ import {
   gatewayNotConfiguredResponse,
 } from "../_shared/paymentGatewayGuard.ts";
 import { createRevolutPreauthResponse } from "../_shared/revolutPreauth.ts";
+import { createPreauthEdgeTiming } from "../_shared/preauthEdgeTimingSSOT.ts";
 import {
   citBrowserEnvironmentErrorResponse,
   extractBrowserEnvironmentFromPreauthBody,
@@ -182,6 +183,7 @@ async function resolveRegionCurrency(
 }
 
 serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) => {
+  const edgeTiming = createPreauthEdgeTiming();
   const supabaseClient = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
@@ -195,6 +197,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     // getUser() with no args. service_role client's getUser(jwt) often returns
     // "Auth session missing!" for valid user JWTs (GoTrue mismatch). Same pattern
     // as validate-customer / request-trip-modification.
+    edgeTiming.markAuthStart();
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) throw new Error("No authorization header provided");
 
@@ -213,6 +216,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     if (userError) throw new Error(`Authentication error: ${userError.message}`);
     const user = userData.user;
     if (!user?.email) throw new Error("User not authenticated or email not available");
+    edgeTiming.markAuthEnd();
     logStep("User authenticated", { userId: user.id, email: user.email });
 
     const bookingEligibility = await assertCanBookRide(supabaseClient, user.id);
@@ -568,6 +572,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
             },
         corsHeaders,
         logStep,
+        edgeTiming,
       });
     }
 

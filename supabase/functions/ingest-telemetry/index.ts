@@ -10,8 +10,8 @@ const corsHeaders = {
 
 const MAX_BODY_BYTES = 65_536;
 const MAX_EVENTS_PER_REQUEST = 50;
-/** Book→Finding residual closure needs many flat segment keys. */
-const MAX_METADATA_KEYS = 64;
+/** Book tap → Finding residual closure needs many flat segment keys. */
+const MAX_METADATA_KEYS = 80;
 const MAX_METADATA_VALUE_LEN = 256;
 const MAX_SCREEN_NAME_LEN = 120;
 
@@ -51,6 +51,10 @@ const ALLOWED_METADATA_KEYS = new Set([
   "confirm_poll_sleep_ms",
   "confirm_poll_request_ms",
   "confirm_to_ctap_ms",
+  "confirm_to_settle_ms",
+  "payment_authorisation_settle_ms",
+  "settle_to_ctap_ms",
+  "payment_settle_reason",
   "booking_edge_ms",
   "ctap_adopt_ms",
   "seed_to_nav_ms",
@@ -65,6 +69,15 @@ const ALLOWED_METADATA_KEYS = new Set([
   "edge_ctap_server_ms",
   "edge_preauth_revolut_ms",
   "edge_ctap_insert_ms",
+  "edge_receive_to_auth_ms",
+  "edge_auth_ms",
+  "edge_db_lookup_ms",
+  "edge_validation_ms",
+  "edge_revolut_request_ms",
+  "edge_revolut_response_ms",
+  "edge_persist_ms",
+  "edge_response_build_ms",
+  "edge_total_ms",
   "already_authorised",
   "three_ds_required",
 ]);

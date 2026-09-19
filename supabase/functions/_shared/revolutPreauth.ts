@@ -55,6 +55,11 @@ import {
   parseAndValidateCitBrowserEnvironment,
   type RevolutCitBrowserEnvironment,
 } from "./revolutCitBrowserEnvironmentSSOT.ts";
+import {
+  createPreauthEdgeTiming,
+  jsonResponseWithPreauthTiming,
+  type PreauthEdgeTiming,
+} from "./preauthEdgeTimingSSOT.ts";
 
 export { isRevolutAuthorisedState } from "./revolutPaymentConfirmation.ts";
 
@@ -88,6 +93,8 @@ export type RevolutPreauthInput = {
   browserEnvironment?: RevolutCitBrowserEnvironment | null;
   corsHeaders: Record<string, string>;
   logStep: (step: string, details?: unknown) => void;
+  /** Observability — created by create-preauth so receive→auth is measured. */
+  edgeTiming?: PreauthEdgeTiming | null;
 };
 
 export async function createRevolutPreauthResponse(
@@ -116,12 +123,15 @@ export async function createRevolutPreauthResponse(
     browserEnvironment,
     corsHeaders,
     logStep,
+    edgeTiming: edgeTimingInput,
   } = input;
 
   let bookingSnapshot = bookingSnapshotInput;
+  const edgeTiming = edgeTimingInput ?? createPreauthEdgeTiming();
 
   // Saved-card CIT Pay requires validated browser environment — fail closed
   // before creating / reusing pay paths that would call Revolut Pay.
+  edgeTiming.markValidationStart();
   const savedCardReuse = Boolean(platformPaymentMethodId?.trim());
   let validatedBrowserEnv: RevolutCitBrowserEnvironment | null = null;
   if (savedCardReuse) {
@@ -132,6 +142,7 @@ export async function createRevolutPreauthResponse(
         clientActionId,
         hasPlatformPm: true,
       });
+      edgeTiming.markValidationEnd();
       return citBrowserEnvironmentErrorResponse(parsedEnv, corsHeaders);
     }
     validatedBrowserEnv = parsedEnv.environment;
@@ -149,34 +160,33 @@ export async function createRevolutPreauthResponse(
       authorisedAmountPence,
       clientActionId,
     });
-    return new Response(JSON.stringify({
+    edgeTiming.markValidationEnd();
+    return jsonResponseWithPreauthTiming({
       error: amountGuard.message,
       error_code: amountGuard.code,
       code: amountGuard.code,
       charge_state: "no_charge",
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 422,
-    });
+    }, corsHeaders, 422, edgeTiming);
   }
+  edgeTiming.markValidationEnd();
 
+  edgeTiming.markDbLookupStart();
   let merchant;
   try {
     merchant = await resolveRevolutMerchantContext(supabase, environment);
   } catch (err) {
     const message = humanizeRevolutPreauthCustomerError((err as Error)?.message);
-    return new Response(JSON.stringify({
+    edgeTiming.markDbLookupEnd();
+    return jsonResponseWithPreauthTiming({
       error: message,
       code: "PAYMENT_GATEWAY_NOT_CONFIGURED",
       charge_state: "no_charge",
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 503,
-    });
+    }, corsHeaders, 503, edgeTiming);
   }
+  edgeTiming.markDbLookupEnd();
 
   const { secretKey, publicKey } = merchant;
-  const holdStartedAt = Date.now();
+  const holdStartedAt = edgeTiming.t0;
   const idempotencyKey = buildPreauthIdempotencyKey({
     tripId,
     clientActionId,
@@ -358,6 +368,7 @@ export async function createRevolutPreauthResponse(
             corsHeaders,
             holdStartedAt,
             waterfallFragment: bookingWaterfall.toResponseFragment(),
+            edgeTiming,
           });
         }
 
@@ -379,6 +390,7 @@ export async function createRevolutPreauthResponse(
             logStep,
             holdStartedAt,
             browserEnvironment: validatedBrowserEnv!,
+            edgeTiming,
           });
           if (savedAttempt) return savedAttempt;
         }
@@ -396,6 +408,7 @@ export async function createRevolutPreauthResponse(
           corsHeaders,
           holdStartedAt,
           waterfallFragment: bookingWaterfall.toResponseFragment(),
+          edgeTiming,
         });
       }
     } catch (err) {
@@ -516,6 +529,7 @@ export async function createRevolutPreauthResponse(
       "revolut_order_created",
       "revolutPreauth.ts:createRevolutOrder",
     );
+    edgeTiming.markRevolutRequestStart();
     const staleCustomerId = revolutCustomer?.id?.trim() || "";
     try {
       order = await postPreauthOrder(revolutCustomer);
@@ -528,6 +542,7 @@ export async function createRevolutPreauthResponse(
         err,
       });
       if (retry !== "refresh_and_retry" || !userId || !customerEmail?.trim()) {
+        edgeTiming.markRevolutRequestEnd();
         return orderCreateFailed(err);
       }
       logStep("Stale Revolut customer on order create — refreshing once", {
@@ -549,10 +564,13 @@ export async function createRevolutPreauthResponse(
       try {
         order = await postPreauthOrder(retryCustomer);
       } catch (retryErr) {
+        edgeTiming.markRevolutRequestEnd();
         return orderCreateFailed(retryErr);
       }
     }
+    edgeTiming.markRevolutRequestEnd();
   } catch (err) {
+    edgeTiming.markRevolutRequestEnd();
     return orderCreateFailed(err);
   }
 
@@ -570,6 +588,7 @@ export async function createRevolutPreauthResponse(
   );
 
   if (userId && clientActionId && metadataExtra.service_area_id) {
+    edgeTiming.markPersistStart();
     const sessionResult = await upsertPaymentSessionPending(supabase, {
       clientActionId,
       userId,
@@ -592,6 +611,7 @@ export async function createRevolutPreauthResponse(
       },
     });
     paymentSessionId = sessionResult.sessionId;
+    edgeTiming.markPersistEnd();
     if (!paymentSessionId) {
       // P0 fail-closed: never return a usable preauth if the authoritative session
       // row did not persist (Slice A regression: missing idempotency_key).
@@ -713,6 +733,7 @@ export async function createRevolutPreauthResponse(
         logStep,
         holdStartedAt,
         browserEnvironment: validatedBrowserEnv!,
+        edgeTiming,
       });
       if (savedAttempt) return savedAttempt;
       logStep("Revolut saved-card charge failed despite provider token", {
@@ -751,6 +772,7 @@ export async function createRevolutPreauthResponse(
     corsHeaders,
     holdStartedAt,
     waterfallFragment: bookingWaterfall.toResponseFragment(),
+    edgeTiming,
   });
 }
 
@@ -772,6 +794,7 @@ async function attemptRevolutSavedCardCharge(args: {
   holdStartedAt?: number;
   /** Pre-validated CIT browser environment — never invent defaults. */
   browserEnvironment: RevolutCitBrowserEnvironment;
+  edgeTiming: PreauthEdgeTiming;
 }): Promise<Response | null> {
   const tokenRow = await lookupProviderPaymentMethodToken(args.supabase, {
     userId: args.userId,
@@ -810,6 +833,7 @@ async function attemptRevolutSavedCardCharge(args: {
       return citBrowserEnvironmentErrorResponse(payEnv, args.corsHeaders);
     }
 
+    args.edgeTiming.markRevolutResponseStart();
     const payment = await payRevolutOrderWithSavedCard(
       args.environment,
       args.secretKey,
@@ -825,6 +849,7 @@ async function attemptRevolutSavedCardCharge(args: {
       payment,
       logStep: args.logStep,
     });
+    args.edgeTiming.markRevolutResponseEnd();
     if (resolved.kind === "authorised") {
       // P0: never return booking-ready success without an authoritative session row.
       if (args.clientActionId && !args.paymentSessionId) {
@@ -853,10 +878,12 @@ async function attemptRevolutSavedCardCharge(args: {
         });
       }
       if (args.clientActionId) {
+        args.edgeTiming.markPersistStart();
         await markPaymentSessionAuthorised(args.supabase, {
           providerOrderId: args.orderId,
           clientActionId: args.clientActionId,
         });
+        args.edgeTiming.markPersistEnd();
       }
       return revolutSavedCardAuthorisedResponse({
         orderId: args.orderId,
@@ -867,10 +894,11 @@ async function attemptRevolutSavedCardCharge(args: {
         paymentSessionId: args.paymentSessionId ?? null,
         corsHeaders: args.corsHeaders,
         holdStartedAt: args.holdStartedAt,
+        edgeTiming: args.edgeTiming,
       });
     }
     if (resolved.kind === "requires_3ds") {
-      return new Response(JSON.stringify({
+      return jsonResponseWithPreauthTiming({
         success: true,
         provider: "revolut",
         payment_intent_id: args.orderId,
@@ -884,10 +912,7 @@ async function attemptRevolutSavedCardCharge(args: {
         requires_3ds: true,
         provider_payment_id: resolved.paymentId,
         authentication_acs_url: resolved.acsUrl,
-      }), {
-        headers: { ...args.corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      });
+      }, args.corsHeaders, 200, args.edgeTiming);
     }
     if (resolved.kind === "failed") {
       const declineReason = resolved.reason ?? null;
@@ -969,7 +994,7 @@ async function attemptRevolutSavedCardCharge(args: {
         providerOrderId: args.orderId,
         clientState: "PAYMENT_PROCESSING",
       });
-      return new Response(JSON.stringify({
+      return jsonResponseWithPreauthTiming({
         success: true,
         provider: "revolut",
         status: "payment_processing",
@@ -979,12 +1004,9 @@ async function attemptRevolutSavedCardCharge(args: {
           "Saved card payment is still processing. Please try again in a moment.",
         ),
         ...handoff,
-      }), {
-        headers: { ...args.corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      });
+      }, args.corsHeaders, 200, args.edgeTiming);
     }
-    return new Response(JSON.stringify({
+    return jsonResponseWithPreauthTiming({
       error: humanizeRevolutPreauthCustomerError(
         "Saved card payment is still processing. Please try again in a moment.",
       ),
@@ -995,10 +1017,7 @@ async function attemptRevolutSavedCardCharge(args: {
       payment_intent_id: args.orderId,
       payment_session_id: args.paymentSessionId ?? null,
       client_action_id: args.clientActionId ?? null,
-    }), {
-      headers: { ...args.corsHeaders, "Content-Type": "application/json" },
-      status: 409,
-    });
+    }, args.corsHeaders, 409, args.edgeTiming);
   } catch (err) {
     const errMessage = err instanceof Error ? err.message : String(err);
     const preserveCard = isTechnicalDeclineReason(errMessage);
@@ -1142,8 +1161,9 @@ function revolutSavedCardAuthorisedResponse(args: {
   corsHeaders: Record<string, string>;
   waterfallFragment?: { booking_waterfall: import("./bookingWaterfallSSOT.ts").BookingWaterfallServerStepInput[] };
   holdStartedAt?: number;
+  edgeTiming?: PreauthEdgeTiming | null;
 }): Response {
-  return new Response(JSON.stringify({
+  return jsonResponseWithPreauthTiming({
     success: true,
     provider: "revolut",
     payment_intent_id: args.orderId,
@@ -1159,10 +1179,7 @@ function revolutSavedCardAuthorisedResponse(args: {
     idempotent: args.idempotent === true,
     ...(args.holdStartedAt ? revolutPreauthMilestones(args.holdStartedAt) : {}),
     ...(args.waterfallFragment ?? {}),
-  }), {
-    headers: { ...args.corsHeaders, "Content-Type": "application/json" },
-    status: 200,
-  });
+  }, args.corsHeaders, 200, args.edgeTiming);
 }
 
 function revolutPreauthJsonResponse(args: {
@@ -1178,24 +1195,22 @@ function revolutPreauthJsonResponse(args: {
   corsHeaders: Record<string, string>;
   waterfallFragment?: { booking_waterfall: import("./bookingWaterfallSSOT.ts").BookingWaterfallServerStepInput[] };
   holdStartedAt?: number;
+  edgeTiming?: PreauthEdgeTiming | null;
 }): Response {
   const token = args.order.token ?? null;
   if (!token) {
-    return new Response(JSON.stringify({
+    return jsonResponseWithPreauthTiming({
       error: humanizeRevolutPreauthCustomerError("Revolut checkout token missing from order response"),
       code: "PAYMENT_SETUP_FAILED",
       charge_state: "no_charge",
-    }), {
-      headers: { ...args.corsHeaders, "Content-Type": "application/json" },
-      status: 500,
-    });
+    }, args.corsHeaders, 500, args.edgeTiming);
   }
 
   const savedCardVerify = args.savedCardContext === true;
   const blockingReason = args.savedCardBlockingReason
     ?? (savedCardVerify ? "provider_token_missing_in_db" : null);
 
-  return new Response(JSON.stringify({
+  return jsonResponseWithPreauthTiming({
     success: true,
     provider: "revolut",
     payment_intent_id: args.order.id,
@@ -1219,8 +1234,5 @@ function revolutPreauthJsonResponse(args: {
       ? { booking_milestones: { hold_start_ms: args.holdStartedAt, checkout_open_ms: Date.now() } }
       : {}),
     ...(args.waterfallFragment ?? {}),
-  }), {
-    headers: { ...args.corsHeaders, "Content-Type": "application/json" },
-    status: 200,
-  });
+  }, args.corsHeaders, 200, args.edgeTiming);
 }
