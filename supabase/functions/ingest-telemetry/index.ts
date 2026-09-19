@@ -10,7 +10,8 @@ const corsHeaders = {
 
 const MAX_BODY_BYTES = 65_536;
 const MAX_EVENTS_PER_REQUEST = 50;
-const MAX_METADATA_KEYS = 20;
+/** Book→Finding residual closure needs many flat segment keys. */
+const MAX_METADATA_KEYS = 64;
 const MAX_METADATA_VALUE_LEN = 256;
 const MAX_SCREEN_NAME_LEN = 120;
 
@@ -33,13 +34,39 @@ const ALLOWED_METADATA_KEYS = new Set([
   "performance_status",
   "p95_target_ms",
   "goal_p95_ms",
+  "booking_path",
   "tap_to_busy_ms",
+  "busy_to_prep_ms",
+  "saved_card_client_prep_ms",
+  "busy_to_preauth_ms",
   "preauth_ms",
+  "preauth_to_ui_ms",
+  "apple_pay_present_ms",
+  "apple_pay_user_interaction_ms",
+  "apple_pay_return_to_app_ms",
+  "google_pay_user_interaction_ms",
+  "preauth_to_confirm_ms",
   "confirm_ms",
+  "confirm_poll_iters",
+  "confirm_poll_sleep_ms",
+  "confirm_poll_request_ms",
+  "confirm_to_ctap_ms",
   "booking_edge_ms",
   "ctap_adopt_ms",
+  "seed_to_nav_ms",
   "navigation_render_ms",
+  "mounted_to_interactive_ms",
   "total_book_to_finding_ms",
+  "external_payment_ui_ms",
+  "onecab_processing_ms",
+  "accounted_ms",
+  "unaccounted_ms",
+  "edge_preauth_server_ms",
+  "edge_ctap_server_ms",
+  "edge_preauth_revolut_ms",
+  "edge_ctap_insert_ms",
+  "already_authorised",
+  "three_ds_required",
 ]);
 
 interface TelemetryEvent {
