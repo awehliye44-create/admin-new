@@ -424,6 +424,8 @@ serve(async (req) => {
       const fresh = cardMethods.filter((m) => !knownByProviderId.has(m.id));
 
       // Idempotent complete: provider PM already vaulted for this user — no duplicate insert.
+      // Soft-deleted (removed) rows must be reactivated — delete frees the usable cap but
+      // keeps the provider_payment_method_id unique key (Revolut PM is not deleted).
       if (fresh.length === 0) {
         await releaseSaveCardVerificationOrder({ environment, secretKey, orderId: providerOrderId });
         const already = cardMethods
@@ -454,6 +456,91 @@ serve(async (req) => {
             },
           });
         }
+
+        const removedMatch = cardMethods
+          .map((m) => ({ method: m, row: knownByProviderId.get(m.id) }))
+          .find(({ row }) => row && String(row.tokenization_status ?? "") === "removed");
+        if (
+          removedMatch?.row?.platform_payment_method_id
+          && removedMatch.method
+        ) {
+          const usable = await countUsableSavedRevolutCards(supabase, user.id);
+          if (usable >= MAX_SAVED_REVOLUT_CARDS) {
+            edgeStatus = 409;
+            safeLog({
+              edgeStatus,
+              authenticated,
+              customerResolved,
+              providerEnvironment,
+              orderCreated: true,
+              checkoutTokenReturned: false,
+              revolutStatusCode: null,
+              code: "SAVED_CARD_LIMIT_REACHED",
+              action,
+            });
+            return errorJson("SAVED_CARD_LIMIT_REACHED", 409);
+          }
+          const insertRow = mapRevolutPaymentMethodToSavedCardRow({
+            userId: user.id,
+            platformPaymentMethodId: removedMatch.row.platform_payment_method_id,
+            method: removedMatch.method,
+          });
+          const { error: reactivateErr } = await supabase
+            .from("customer_saved_payment_method_tokens")
+            .update({
+              brand: insertRow.brand,
+              last4: insertRow.last4,
+              exp_month: insertRow.exp_month,
+              exp_year: insertRow.exp_year,
+              revolut_verified: true,
+              tokenization_status: "active",
+              verified_at: insertRow.verified_at,
+              updated_at: insertRow.updated_at,
+            })
+            .eq("user_id", user.id)
+            .eq("platform_payment_method_id", removedMatch.row.platform_payment_method_id)
+            .eq("payment_provider", "revolut")
+            .eq("tokenization_status", "removed");
+          if (reactivateErr) {
+            edgeStatus = 500;
+            safeLog({
+              edgeStatus,
+              authenticated,
+              customerResolved,
+              providerEnvironment,
+              orderCreated: true,
+              checkoutTokenReturned: false,
+              revolutStatusCode: null,
+              code: "DB_ERROR",
+              action,
+            });
+            return errorJson("DB_ERROR", 500);
+          }
+          edgeStatus = 200;
+          safeLog({
+            edgeStatus,
+            authenticated,
+            customerResolved,
+            providerEnvironment,
+            orderCreated: true,
+            checkoutTokenReturned: false,
+            revolutStatusCode: null,
+            code: "SAVED_CARD_REACTIVATED",
+            action,
+          });
+          return successResponse({
+            success: true,
+            reactivated: true,
+            card: {
+              platform_payment_method_id: removedMatch.row.platform_payment_method_id,
+              brand: insertRow.brand,
+              last4: insertRow.last4,
+              exp_month: insertRow.exp_month,
+              exp_year: insertRow.exp_year,
+            },
+          });
+        }
+
         edgeStatus = 409;
         safeLog({
           edgeStatus,

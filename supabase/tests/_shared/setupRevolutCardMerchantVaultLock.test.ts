@@ -273,6 +273,31 @@ Deno.test("duplicate provider token → no duplicate insert (idempotent already_
   }
 });
 
+Deno.test("soft-deleted card frees usable cap and can be reactivated on complete", async () => {
+  const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
+  const VAULT_SRC = await readFn("../../functions/_shared/revolutSavedCardVault.ts");
+  const DELETE_SRC = await readFn("../../functions/delete-revolut-saved-card/index.ts");
+
+  if (!DELETE_SRC.includes('tokenization_status: "removed"')) {
+    throw new Error("delete must soft-mark tokenization_status=removed");
+  }
+  if (DELETE_SRC.includes("deleteRevolutCustomerPaymentMethod")) {
+    throw new Error("customer Remove must not hard-delete Revolut PM (bank copy stays)");
+  }
+  if (!VAULT_SRC.includes('status === "removed"') || !VAULT_SRC.includes("countUsableSavedRevolutCards")) {
+    throw new Error("usable cap must exclude removed rows");
+  }
+  if (!SETUP_SRC.includes("countUsableSavedRevolutCards")) {
+    throw new Error("Add Card cap must use usable count (removed frees a slot)");
+  }
+  if (SETUP_SRC.includes("countSavedRevolutCards(")) {
+    throw new Error("Add Card must not use raw row count (removed would still block)");
+  }
+  if (!SETUP_SRC.includes("SAVED_CARD_REACTIVATED") || !SETUP_SRC.includes('tokenization_status: "active"')) {
+    throw new Error("complete must reactivate soft-deleted provider PM rows");
+  }
+});
+
 Deno.test("create-preauth Book path is CIT-hardcoded (no MIT from saved_for)", async () => {
   const PREAUTH_SRC = await readFn("../../functions/_shared/revolutPreauth.ts");
   if (!PREAUTH_SRC.includes('const initiator = "customer"')) {
