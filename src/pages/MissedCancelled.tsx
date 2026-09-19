@@ -306,24 +306,7 @@ export default function MissedCancelled() {
     }
   };
 
-  const getCancellationReason = (trip: CancelledTrip) => {
-    if (trip.special_instructions) {
-      if (trip.special_instructions.includes('Admin cancelled') || trip.special_instructions.includes('Cancelled by admin')) {
-        return 'Cancelled by Admin';
-      }
-      if (trip.special_instructions.includes('Driver cancelled')) {
-        return 'Cancelled by Driver';
-      }
-      if (trip.special_instructions.includes('Passenger cancelled')) {
-        return 'Cancelled by Passenger';
-      }
-      if (trip.special_instructions.includes('No drivers available')) {
-        return 'No Drivers Available';
-      }
-      return 'Customer Cancelled';
-    }
-    return 'Unknown Reason';
-  };
+  const getCancellationReason = (trip: CancelledTrip) => formatCancellationReason(trip);
 
   // Status, service-area and search filters are applied server-side.
   const filteredTrips = allTrips;
