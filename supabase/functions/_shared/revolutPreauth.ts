@@ -63,6 +63,15 @@ import {
 
 export { isRevolutAuthorisedState } from "./revolutPaymentConfirmation.ts";
 
+/**
+ * Max Edge wait after saved-card Pay while Revolut is processing / challenge
+ * without ACS. Tuned from Samsung device Books where client AUTHENTICATION_NO_ACS
+ * settle was ~5–7s after a short Edge handoff.
+ */
+export const SAVED_CARD_PREAUTH_SETTLE_MAX_MS = 8_000;
+/** Tight Revolut retrieve interval during Edge settle (cheaper than client reconcile RTT). */
+export const SAVED_CARD_PREAUTH_SETTLE_POLL_MS = 200;
+
 const REVOLUT_REUSABLE_STATES = new Set(["PENDING", "PROCESSING", "AUTHORISED"]);
 
 export type RevolutPreauthInput = {
@@ -1067,7 +1076,12 @@ async function resolveSavedCardPaymentOutcome(args: {
   environment: ProviderEnvironment;
   secretKey: string;
   orderId: string;
-  payment: { id: string; state?: string; authentication_challenge?: { acs_url?: string } };
+  payment: {
+    id: string;
+    state?: string;
+    decline_reason?: string;
+    authentication_challenge?: { acs_url?: string };
+  };
   logStep: (step: string, details?: unknown) => void;
 }): Promise<
   | { kind: "authorised" }
@@ -1075,17 +1089,33 @@ async function resolveSavedCardPaymentOutcome(args: {
   | { kind: "failed"; reason?: string }
   | { kind: "in_flight"; paymentState?: string }
 > {
-  // Uber/Bolt-class Book: do not burn ~7s of Edge sleep here. Client confirm
-  // ticks finish AUTHORISED / 3DS when settle is still in flight.
-  const pollDelaysMs = [0, 100, 250, 500];
+  /**
+   * Bolt/Uber-class: keep polling Revolut on Edge while payment is processing /
+   * challenge-without-ACS. Device samples showed ~5–7s client reconcile after a
+   * short Edge handoff — tighter Edge polls find AUTHORISED sooner and let the
+   * client skip confirm+settle (already_authorised).
+   *
+   * HARD RULES unchanged:
+   * - ACS URL present → requires_3ds immediately (never suppress SCA)
+   * - AUTHORISED only when payment AND order are authorised
+   * - failures stay terminal
+   */
+  const settleStartedAt = Date.now();
   let latest = args.payment;
-  for (const delayMs of pollDelaysMs) {
-    if (delayMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+  let iteration = 0;
+  while (Date.now() - settleStartedAt <= SAVED_CARD_PREAUTH_SETTLE_MAX_MS) {
+    if (iteration > 0) {
+      await new Promise((resolve) => setTimeout(resolve, SAVED_CARD_PREAUTH_SETTLE_POLL_MS));
     }
+    iteration += 1;
     latest = await retrieveRevolutOrderPayment(args.environment, args.secretKey, latest.id);
     const state = String(latest.state ?? "");
-    args.logStep("Revolut saved-card payment poll", { paymentId: latest.id, state });
+    args.logStep("Revolut saved-card payment poll", {
+      paymentId: latest.id,
+      state,
+      elapsed_ms: Date.now() - settleStartedAt,
+      iteration,
+    });
 
     if (isRevolutPaymentFailedState(state)) {
       return { kind: "failed", reason: latest.decline_reason ?? state };
@@ -1095,15 +1125,16 @@ async function resolveSavedCardPaymentOutcome(args: {
       if (acsUrl) {
         return { kind: "requires_3ds", paymentId: latest.id, acsUrl };
       }
+      // Challenge without ACS — keep polling (frictionless / ACS URL pending).
     }
     if (isRevolutPaymentAuthorisedState(state)) {
-      // Payment-level AUTHORISED can still soft-fail — require order AUTHORISED.
       const order = await retrieveRevolutOrder(args.environment, args.secretKey, args.orderId);
       const orderState = String(order.state ?? "").toUpperCase();
       args.logStep("Revolut saved-card order confirm", {
         orderId: args.orderId,
         orderState,
         paymentState: state,
+        elapsed_ms: Date.now() - settleStartedAt,
       });
       if (isRevolutAuthorisedState(orderState)) {
         return { kind: "authorised" };
@@ -1111,7 +1142,7 @@ async function resolveSavedCardPaymentOutcome(args: {
       if (["FAILED", "CANCELLED", "CANCELED", "DECLINED"].includes(orderState)) {
         return { kind: "failed", reason: orderState };
       }
-      // Keep polling while order still settling.
+      // Payment authorised, order still settling — keep polling.
     }
   }
 
