@@ -2698,6 +2698,17 @@ Deno.serve(async (req) => {
             waiting_started: waitingResult.started,
             waiting_status: waitingResult.waiting_status,
           });
+          // Re-emit with stable notificationId so background Customer can still
+          // hydrate if the first push was missed (FCM tag dedupes duplicates).
+          if (currentStop.type === "stop") {
+            await notifyCustomerTripLifecycle(supabase, {
+              passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
+              tripId: trip_id,
+              event: "intermediate_stop_arrived",
+              stopIndex: currentStop.stop_index,
+              notificationId: `intermediate_stop_arrived-${trip_id}-${currentStop.stop_index}`,
+            });
+          }
           return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
             success: true,
             idempotent: true,
@@ -2803,6 +2814,13 @@ Deno.serve(async (req) => {
           );
           if (alreadyNext) {
             console.log("[stop-workflow] drive_to_next idempotent — stop already advanced");
+            await notifyCustomerTripLifecycle(supabase, {
+              passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
+              tripId: trip_id,
+              event: "next_leg_started",
+              stopIndex: alreadyNext.stop_index,
+              notificationId: `next_leg_started-${trip_id}-${alreadyNext.stop_index}`,
+            });
             return await respondOk({
               success: true,
               idempotent: true,

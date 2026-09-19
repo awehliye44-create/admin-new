@@ -35,6 +35,27 @@ Deno.test("arrive_stop / drive_to_next emit after DB success; notify failure is 
   const arriveNotifyIdx = stop.indexOf('event: "intermediate_stop_arrived"', arriveIdx);
   assertEquals(arriveIdx >= 0 && arriveNotifyIdx > arriveIdx, true);
 
+  // Idempotent arrive_stop / drive_to_next still wake Customer (stable notificationId).
+  const idempotentArriveIdx = stop.indexOf("Already arrived at stop (idempotent)");
+  const idempotentArriveNotifyIdx = stop.indexOf(
+    'event: "intermediate_stop_arrived"',
+    idempotentArriveIdx,
+  );
+  assertEquals(
+    idempotentArriveIdx >= 0 &&
+      idempotentArriveNotifyIdx > idempotentArriveIdx &&
+      (arriveIdx < 0 || idempotentArriveNotifyIdx < arriveIdx),
+    true,
+  );
+  const idempotentNextIdx = stop.indexOf("drive_to_next idempotent — stop already advanced");
+  const idempotentNextNotifyIdx = stop.indexOf('event: "next_leg_started"', idempotentNextIdx);
+  assertEquals(
+    idempotentNextIdx >= 0 &&
+      idempotentNextNotifyIdx > idempotentNextIdx &&
+      idempotentNextNotifyIdx < stop.indexOf("NEXT_STOP success:"),
+    true,
+  );
+
   const nextIdx = stop.indexOf("NEXT_STOP success:");
   const nextNotifyIdx = stop.indexOf('event: "next_leg_started"', nextIdx);
   assertEquals(nextIdx >= 0 && nextNotifyIdx > nextIdx, true);
