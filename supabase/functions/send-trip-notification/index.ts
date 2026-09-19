@@ -305,6 +305,8 @@ async function sendFCMv1(
     if (priority === 'high') {
       // iOS 15+ Focus: pairs with com.apple.developer.usernotifications.time-sensitive entitlement.
       apsPayload['interruption-level'] = 'time-sensitive';
+      // Wake JS for hydrate when OS allows (background task / content-available).
+      apsPayload['content-available'] = 1;
     }
     (message as any).apns = {
       headers: {

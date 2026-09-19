@@ -108,6 +108,12 @@ async function buildCustomerActiveTrip(
     stopWaitingStartedAt: trip.stop_waiting_started_at ?? null,
     stopWaitingStatus: trip.stop_waiting_status ?? null,
     stopWaitingPaidStartedAt: trip.stop_waiting_paid_started_at ?? null,
+    stopWaitingFreeExpiresAt:
+      trip.stop_waiting_free_expires_at ??
+      (trip.waiting_snapshot as { stop_waiting_free_expires_at?: string | null } | null)
+        ?.stop_waiting_free_expires_at ??
+      null,
+    freeStopWaitingSeconds: trip.free_stop_waiting_seconds ?? null,
     stopChargeTotalPence: trip.stop_charge_total_pence ?? null,
     tripStops: stops.map((stop) => ({
       id: stop.id,
@@ -221,13 +227,28 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
     });
 
     const response: Record<string, unknown> = { ...payload };
+    const enrichedTrip =
+      payload.trip && typeof payload.trip === "object"
+        ? (payload.trip as Record<string, unknown>)
+        : null;
     delete response.trip;
 
     if (role === "customer") {
       const negotiating = String(trip.status ?? "") === "negotiating";
+      // Prefer enriched trip (waiting expiry + admin config) so intermediate-stop
+      // waiting UI restores without requiring another Driver action.
+      const tripForCustomer = {
+        ...trip,
+        ...(enrichedTrip ?? {}),
+        admin_waiting_config_snapshot:
+          payload.admin_waiting_config_snapshot ??
+          trip.admin_waiting_config_snapshot ??
+          trip.pickup_waiting_admin_config ??
+          null,
+      };
       response.activeTrip = await buildCustomerActiveTrip(
         supabase,
-        trip,
+        tripForCustomer,
         negotiating ? null : ((payload.driver as Record<string, unknown> | null) ?? null),
         stops,
       );

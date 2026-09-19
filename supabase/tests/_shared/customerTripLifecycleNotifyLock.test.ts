@@ -216,6 +216,14 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   assertStringIncludes(stopWorkflow, 'event: "intermediate_stop_arrived"');
   assertStringIncludes(stopWorkflow, 'event: "next_leg_started"');
   assertStringIncludes(stopWorkflow, "notifyCustomerTripLifecycle");
+  const sendTripNotification = await read("../send-trip-notification/index.ts");
+  assertStringIncludes(sendTripNotification, "intermediate_stop_arrived");
+  assertStringIncludes(sendTripNotification, "next_leg_started");
+  assertStringIncludes(sendTripNotification, "content-available");
+  const restoreActiveTrip = await read("../restore-active-trip/index.ts");
+  assertStringIncludes(restoreActiveTrip, "stopWaitingFreeExpiresAt");
+  assertStringIncludes(restoreActiveTrip, "freeStopWaitingSeconds");
+  assertStringIncludes(restoreActiveTrip, "enrichedTrip");
   const updateStopRetired = await read("../update-stop-status/index.ts");
   assertStringIncludes(updateStopRetired, "DEPRECATED_ENDPOINT");
   assertStringIncludes(updateStopRetired, "stop-workflow");
