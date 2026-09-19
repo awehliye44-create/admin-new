@@ -690,9 +690,20 @@ export default function MissedCancelled() {
                 </div>
               )}
 
+              <div>
+                <Label className="text-muted-foreground">Cancelled by</Label>
+                <p className="font-medium">
+                  {resolveCancellationActor(selectedTrip) ?? 'Not recorded'}
+                </p>
+                <Label className="text-muted-foreground mt-2 block">Reason given</Label>
+                <p className="text-sm bg-muted p-2 rounded">
+                  {resolveCancellationReasonText(selectedTrip)}
+                </p>
+              </div>
+
               {selectedTrip.special_instructions && (
                 <div>
-                  <Label className="text-muted-foreground">Notes / Reason</Label>
+                  <Label className="text-muted-foreground">Notes</Label>
                   <p className="text-sm bg-muted p-2 rounded">
                     {selectedTrip.special_instructions}
                   </p>
