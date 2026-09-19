@@ -184,6 +184,7 @@ export default function MissedCancelled() {
           currency_code, financial_outcome, no_show_charge_pence,
           created_at, completed_at, special_instructions, driver_id, service_area_id,
           arrived_at, pickup_waiting_started_at, cancelled_at, cancellation_reason,
+          cancelled_by, cancelled_by_role, cancel_reason, cancellation_note,
           arrival_cancellation_applied, arrival_cancellation_fee, arrival_cancellation_applied_at, arrival_cancellation_reason,
           financial_model, cancellation_fee_pence, payment_status,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, region_id),
