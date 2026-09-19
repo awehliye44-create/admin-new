@@ -10,10 +10,11 @@ const corsHeaders = {
 
 const MAX_BODY_BYTES = 65_536;
 const MAX_EVENTS_PER_REQUEST = 50;
-const MAX_METADATA_KEYS = 12;
+const MAX_METADATA_KEYS = 20;
 const MAX_METADATA_VALUE_LEN = 256;
 const MAX_SCREEN_NAME_LEN = 120;
 
+/** Flat keys only — nested objects are dropped. Book→Finding segments are scalars. */
 const ALLOWED_METADATA_KEYS = new Set([
   "endpoint",
   "method",
@@ -27,6 +28,18 @@ const ALLOWED_METADATA_KEYS = new Set([
   "duration_ms",
   "cache_hit",
   "network_type",
+  // Book tap → Finding (customer_booking_to_active_screen)
+  "outcome",
+  "performance_status",
+  "p95_target_ms",
+  "goal_p95_ms",
+  "tap_to_busy_ms",
+  "preauth_ms",
+  "confirm_ms",
+  "booking_edge_ms",
+  "ctap_adopt_ms",
+  "navigation_render_ms",
+  "total_book_to_finding_ms",
 ]);
 
 interface TelemetryEvent {
