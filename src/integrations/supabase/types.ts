@@ -20259,6 +20259,7 @@ export type Database = {
           per_booking_fee_pence: number
           pickup_waiting_charges: Json | null
           region_id: string
+          scheduled_overlap_buffer_minutes: number
           stops_waiting_charges: Json | null
           timezone: string | null
           tips_enabled: boolean
@@ -20303,6 +20304,7 @@ export type Database = {
           per_booking_fee_pence?: number
           pickup_waiting_charges?: Json | null
           region_id: string
+          scheduled_overlap_buffer_minutes?: number
           stops_waiting_charges?: Json | null
           timezone?: string | null
           tips_enabled?: boolean
@@ -20347,6 +20349,7 @@ export type Database = {
           per_booking_fee_pence?: number
           pickup_waiting_charges?: Json | null
           region_id?: string
+          scheduled_overlap_buffer_minutes?: number
           stops_waiting_charges?: Json | null
           timezone?: string | null
           tips_enabled?: boolean
@@ -28234,6 +28237,13 @@ export type Database = {
         Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
         Returns: Json
       }
+      compute_scheduled_dispatch_anchors: {
+        Args: { p_now?: string; p_scheduled_at: string }
+        Returns: {
+          scheduled_broadcast_at: string
+          scheduled_convert_at: string
+        }[]
+      }
       confirm_invoice_smoke_send_slot: {
         Args: { p_smoke_run_id: string }
         Returns: Json
@@ -28755,6 +28765,18 @@ export type Database = {
       ensure_trip_stops_for_assignment: {
         Args: { p_trip_id: string }
         Returns: undefined
+      }
+      evaluate_trip_schedule_conflict: {
+        Args: {
+          p_candidate_estimated_end: string
+          p_candidate_mode?: string
+          p_candidate_start: string
+          p_exclude_trip_id?: string
+          p_service_area_id?: string
+          p_subject_id: string
+          p_subject_kind: string
+        }
+        Returns: Json
       }
       expire_due_call_masking_sessions: { Args: never; Returns: undefined }
       expire_negotiation_offer: { Args: { p_offer_id: string }; Returns: Json }
@@ -30347,6 +30369,10 @@ export type Database = {
         Args: { p_trip_id: string }
         Returns: Json
       }
+      resolve_scheduled_overlap_buffer_minutes: {
+        Args: { p_service_area_id: string }
+        Returns: number
+      }
       resolve_service_area_communication: {
         Args: { _service_area_id: string }
         Returns: {
@@ -30453,6 +30479,20 @@ export type Database = {
       run_digital_finance_migration: { Args: never; Returns: Json }
       schedule_dispatch_sweep: { Args: never; Returns: undefined }
       scheduled_dispatch_sweep: { Args: never; Returns: undefined }
+      scheduled_marketplace_is_open: {
+        Args: {
+          p_confirmed_driver_id?: string
+          p_created_at: string
+          p_dispatch_mode: string
+          p_driver_id?: string
+          p_now?: string
+          p_scheduled_at: string
+          p_scheduled_broadcast_at: string
+          p_scheduled_status: string
+          p_status: string
+        }
+        Returns: boolean
+      }
       search_onecab_location_landmarks: {
         Args: {
           p_country_code?: string
@@ -30739,6 +30779,10 @@ export type Database = {
       trip_row_is_commission_wallet_driver_collected: {
         Args: { p_row: Database["public"]["Tables"]["trips"]["Row"] }
         Returns: boolean
+      }
+      trip_schedule_estimated_end: {
+        Args: { p_estimated_duration_minutes: number; p_start: string }
+        Returns: string
       }
       trip_status_is_live_trackable: {
         Args: { p_status: string }
