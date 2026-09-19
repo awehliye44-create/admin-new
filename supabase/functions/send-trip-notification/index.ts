@@ -55,6 +55,9 @@ interface SendTripNotificationRequest {
   driverName?: string;
   /** Fare in display format */
   fareDisplay?: string;
+  /** Intermediate stop index (hint only). */
+  stopIndex?: number;
+  stop_index?: number;
   /** Stable dedupe id (trip + event + version) */
   notificationId?: string;
 }
@@ -68,6 +71,14 @@ const NOTIFICATION_COPY: Record<string, { title: string; body: string }> = {
   driver_arrived:     { title: 'ONECAB DRIVER ARRIVED',     body: 'Your driver has arrived.' },
   waiting_started:    { title: 'Waiting Time',       body: 'Waiting time charges may apply soon.' },
   trip_started:       { title: 'ONECAB TRIP STARTED',       body: 'Your trip has started.' },
+  intermediate_stop_arrived: {
+    title: 'ONECAB ARRIVED AT STOP',
+    body: 'Your driver has arrived at a stop.',
+  },
+  next_leg_started: {
+    title: 'ONECAB CONTINUING TRIP',
+    body: 'Your driver is continuing to the next destination.',
+  },
   traffic_delay:      { title: 'Traffic Update',     body: 'Traffic detected — arrival may be slightly delayed.' },
   route_changed:      { title: 'Route Changed',      body: 'Your route has changed. Tap to review.' },
   safety_reminder:    { title: 'Safety Reminder',    body: 'Share your live trip for extra safety.' },
@@ -125,6 +136,8 @@ const EVENT_PRIORITY: Record<string, 'high' | 'normal'> = {
   driver_arrived: 'high',
   waiting_started: 'high',
   trip_started: 'high',
+  intermediate_stop_arrived: 'high',
+  next_leg_started: 'high',
   traffic_delay: 'normal',
   route_changed: 'high',
   safety_reminder: 'normal',
@@ -153,6 +166,8 @@ const EVENT_SCREEN: Record<string, string> = {
   driver_arrived: '/booking/driver-accepted',
   waiting_started: '/booking/driver-accepted',
   trip_started: '/booking/driver-accepted',
+  intermediate_stop_arrived: '/booking/driver-accepted',
+  next_leg_started: '/booking/driver-accepted',
   traffic_delay: '/booking/driver-accepted',
   route_changed: '/booking/driver-accepted',
   safety_reminder: '/booking/driver-accepted',
@@ -412,6 +427,12 @@ serve(async (req) => {
     if (iosCategory) dataPayload.iosCategory = iosCategory;
     if (driverName) dataPayload.driverName = driverName;
     if (fareDisplay) dataPayload.fareDisplay = fareDisplay;
+    const stopIndexRaw = body.stopIndex ?? body.stop_index;
+    if (typeof stopIndexRaw === "number" && Number.isFinite(stopIndexRaw)) {
+      const stopIndex = String(Math.trunc(stopIndexRaw));
+      dataPayload.stop_index = stopIndex;
+      dataPayload.stopIndex = stopIndex;
+    }
     const negotiationDeadline = body.negotiationExpiresAt || body.expiresAt;
     if (negotiationDeadline) {
       dataPayload.negotiation_expires_at = negotiationDeadline;

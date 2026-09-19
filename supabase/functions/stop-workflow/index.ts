@@ -2755,6 +2755,16 @@ Deno.serve(async (req) => {
         }
 
         console.log("[stop-workflow] ARRIVE_STOP success at index:", currentStop.stop_index);
+        // Intermediate stops only — never overload pickup driver_arrived / trip_started.
+        if (currentStop.type === "stop") {
+          await notifyCustomerTripLifecycle(supabase, {
+            passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
+            tripId: trip_id,
+            event: "intermediate_stop_arrived",
+            stopIndex: currentStop.stop_index,
+            notificationId: `intermediate_stop_arrived-${trip_id}-${currentStop.stop_index}`,
+          });
+        }
         return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
           success: true,
           action: 'arrive_stop',
@@ -2939,6 +2949,13 @@ Deno.serve(async (req) => {
           });
 
           console.log("[stop-workflow] NEXT_STOP success:", currentIndex, "->", nextStop.stop_index);
+          await notifyCustomerTripLifecycle(supabase, {
+            passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
+            tripId: trip_id,
+            event: "next_leg_started",
+            stopIndex: nextStop.stop_index,
+            notificationId: `next_leg_started-${trip_id}-${nextStop.stop_index}`,
+          });
           return await respondOk({
             success: true,
             action: workflowAction,

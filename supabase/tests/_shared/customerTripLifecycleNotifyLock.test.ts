@@ -4,7 +4,7 @@
  * Canonical events + per-event Android channels + bundled iOS WAV +
  * authoritative token. Rematch must not send trip_cancelled.
  *
- * Run: deno test --allow-read supabase/functions/_shared/customerTripLifecycleNotifyLock.test.ts
+ * Run: deno test --allow-read supabase/tests/_shared/customerTripLifecycleNotifyLock.test.ts
  */
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
@@ -12,10 +12,39 @@ import {
   customerAndroidChannelIdForEvent,
   customerAndroidSoundForEvent,
   customerIosSoundFileForEvent,
-} from "./customerTripLifecycleNotify.ts";
+} from "../../functions/_shared/customerTripLifecycleNotify.ts";
 
-const read = async (rel: string) =>
-  await Deno.readTextFile(new URL(rel, import.meta.url));
+const FUNCTIONS_ROOT = new URL("../../functions/", import.meta.url);
+
+const read = async (rel: string) => {
+  // Paths historically assumed this lock lived under functions/_shared/.
+  const cleaned = rel.replace(/^\.\//, "_shared/").replace(/^\.\.\//, "");
+  return await Deno.readTextFile(new URL(cleaned, FUNCTIONS_ROOT));
+};
+
+Deno.test("intermediate stop lifecycle events are registered and not aliases of pickup", () => {
+  assertEquals(
+    canonicalizeCustomerTripNotificationEvent("intermediate_stop_arrived"),
+    "intermediate_stop_arrived",
+  );
+  assertEquals(
+    canonicalizeCustomerTripNotificationEvent("next_leg_started"),
+    "next_leg_started",
+  );
+  assertEquals(
+    customerAndroidChannelIdForEvent("intermediate_stop_arrived"),
+    "onecab_customer_updates_v1",
+  );
+  assertEquals(
+    customerAndroidChannelIdForEvent("next_leg_started"),
+    "onecab_customer_updates_v1",
+  );
+  // Must not overload pickup arrival channel.
+  assertEquals(
+    customerAndroidChannelIdForEvent("driver_arrived"),
+    "onecab_driver_arrived_v1",
+  );
+});
 
 Deno.test("canonical aliases resolve to one registry key", () => {
   assertEquals(canonicalizeCustomerTripNotificationEvent("trip_accepted"), "driver_assigned");
@@ -82,6 +111,8 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   assertStringIncludes(stop, 'event: "driver_arrived"');
   assertStringIncludes(stop, 'event: "trip_started"');
   assertStringIncludes(stop, 'event: "trip_completed"');
+  assertStringIncludes(stop, 'event: "intermediate_stop_arrived"');
+  assertStringIncludes(stop, 'event: "next_leg_started"');
   assertStringIncludes(stop, "finalizeRideAssignmentSideEffects");
   assertStringIncludes(stop, "edge_stop_workflow_offer_claim");
   assertStringIncludes(cancel, 'event: "trip_cancelled"');
@@ -155,6 +186,8 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   assertStringIncludes(stopWorkflow, 'event: "trip_completed"');
   assertStringIncludes(stopWorkflow, 'event: "driver_arrived"');
   assertStringIncludes(stopWorkflow, 'event: "trip_started"');
+  assertStringIncludes(stopWorkflow, 'event: "intermediate_stop_arrived"');
+  assertStringIncludes(stopWorkflow, 'event: "next_leg_started"');
   assertStringIncludes(stopWorkflow, "notifyCustomerTripLifecycle");
   const updateStopRetired = await read("../update-stop-status/index.ts");
   assertStringIncludes(updateStopRetired, "DEPRECATED_ENDPOINT");

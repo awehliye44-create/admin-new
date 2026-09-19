@@ -2,8 +2,9 @@
  * Customer trip-lifecycle push — single producer path via send-trip-notification.
  *
  * Canonical events: driver_assigned | driver_arrived | trip_started |
- * trip_completed | trip_cancelled.
+ * intermediate_stop_arrived | next_leg_started | trip_completed | trip_cancelled.
  *
+ * Do not overload driver_arrived (pickup) or trip_started (initial start).
  * Do not send trip_cancelled for searching_new_driver rematch.
  * Do not fan out tokens here — send-trip-notification uses the authoritative
  * Customer device-token resolver.
@@ -13,6 +14,8 @@ export const CUSTOMER_TRIP_LIFECYCLE_EVENTS = [
   "driver_assigned",
   "driver_arrived",
   "trip_started",
+  "intermediate_stop_arrived",
+  "next_leg_started",
   "trip_completed",
   "trip_cancelled",
 ] as const;
@@ -30,6 +33,9 @@ export const CUSTOMER_ANDROID_CHANNEL_BY_EVENT: Record<string, string> = {
   driver_arrived: "onecab_driver_arrived_v1",
   waiting_started: "onecab_driver_arrived_v1",
   trip_started: "onecab_trip_started_v1",
+  // Intermediate progression — reuse updates channel (no new native WAV required).
+  intermediate_stop_arrived: "onecab_customer_updates_v1",
+  next_leg_started: "onecab_customer_updates_v1",
   trip_completed: "onecab_trip_completed_v1",
   rating_request: "onecab_trip_completed_v1",
   trip_cancelled: "onecab_trip_cancelled_v1",
@@ -60,6 +66,8 @@ export const CUSTOMER_ANDROID_SOUND_BY_EVENT: Record<string, string> = {
   driver_arrived: "driver_arrived",
   waiting_started: "driver_arrived",
   trip_started: "trip_started",
+  intermediate_stop_arrived: "general_notification",
+  next_leg_started: "general_notification",
   trip_completed: "trip_completed",
   rating_request: "trip_completed",
   trip_cancelled: "trip_cancelled",
@@ -90,6 +98,8 @@ export const CUSTOMER_IOS_SOUND_BY_EVENT: Record<string, string> = {
   driver_arrived: "driver_arrived.wav",
   waiting_started: "driver_arrived.wav",
   trip_started: "trip_started.wav",
+  intermediate_stop_arrived: "general_notification.wav",
+  next_leg_started: "general_notification.wav",
   trip_completed: "trip_completed.wav",
   rating_request: "trip_completed.wav",
   trip_cancelled: "trip_cancelled.wav",
@@ -218,6 +228,8 @@ export async function notifyCustomerTripLifecycle(
     body?: string;
     fareDisplay?: string;
     driverName?: string;
+    /** Intermediate progression identity (hint only — Customer hydrates from backend). */
+    stopIndex?: number | null;
     /** Override default `${canonicalEvent}-${tripId}` when a second alert for same trip is required. */
     notificationId?: string;
   },
@@ -226,6 +238,10 @@ export async function notifyCustomerTripLifecycle(
   const tripId = input.tripId.trim();
   if (!userId || !tripId) return;
   const event = canonicalizeCustomerTripNotificationEvent(input.event);
+  const stopIndex =
+    typeof input.stopIndex === "number" && Number.isFinite(input.stopIndex)
+      ? Math.trunc(input.stopIndex)
+      : null;
   try {
     await supabase.functions.invoke("send-trip-notification", {
       body: {
@@ -237,12 +253,19 @@ export async function notifyCustomerTripLifecycle(
         ...(input.body ? { body: input.body } : {}),
         ...(input.fareDisplay ? { fareDisplay: input.fareDisplay } : {}),
         ...(input.driverName ? { driverName: input.driverName } : {}),
+        ...(stopIndex != null ? { stopIndex, stop_index: stopIndex } : {}),
       },
+    });
+    console.log("[customer_trip_lifecycle_emitted]", {
+      event,
+      trip_id: tripId,
+      stop_index: stopIndex,
     });
   } catch (error) {
     console.warn("[notifyCustomerTripLifecycle] send-trip-notification failed", {
       event,
       trip_id: tripId,
+      stop_index: stopIndex,
       message: error instanceof Error ? error.message : String(error),
     });
   }
