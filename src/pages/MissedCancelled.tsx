@@ -82,6 +82,10 @@ interface CancelledTrip {
   pickup_waiting_started_at: string | null;
   cancelled_at: string | null;
   cancellation_reason: string | null;
+  cancelled_by: string | null;
+  cancelled_by_role: string | null;
+  cancel_reason: string | null;
+  cancellation_note: string | null;
   arrival_cancellation_applied: boolean | null;
   arrival_cancellation_fee: number | null;
   arrival_cancellation_applied_at: string | null;
