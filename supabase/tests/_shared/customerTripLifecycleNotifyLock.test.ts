@@ -245,6 +245,7 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   assertStringIncludes(restoreActiveTrip, "stopWaitingFreeExpiresAt");
   assertStringIncludes(restoreActiveTrip, "freeStopWaitingSeconds");
   assertStringIncludes(restoreActiveTrip, "enrichedTrip");
+  assertStringIncludes(restoreActiveTrip, "stops: Array.isArray(trip.stops)");
   const updateStopRetired = await read("../update-stop-status/index.ts");
   assertStringIncludes(updateStopRetired, "DEPRECATED_ENDPOINT");
   assertStringIncludes(updateStopRetired, "stop-workflow");

@@ -115,6 +115,8 @@ async function buildCustomerActiveTrip(
       null,
     freeStopWaitingSeconds: trip.free_stop_waiting_seconds ?? null,
     stopChargeTotalPence: trip.stop_charge_total_pence ?? null,
+    /** trips.stops JSON (intermediates only) — fallback when trip_stops rows lag post-commit. */
+    stops: Array.isArray(trip.stops) ? trip.stops : [],
     tripStops: stops.map((stop) => ({
       id: stop.id,
       stop_index: stop.stop_index,
