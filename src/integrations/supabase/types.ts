@@ -30612,48 +30612,8 @@ export type Database = {
           p_speed?: number
           p_trip_id?: string
         }
-        Returns: {
-          accuracy_m: number | null
-          altitude_m: number | null
-          app_state: string
-          battery_level: number | null
-          created_at: string
-          driver_id: string
-          heading: number | null
-          last_coordinate_change_at: string | null
-          last_gps_recorded_at: string | null
-          last_gps_sample_at: string | null
-          last_heartbeat_at: string
-          last_location_at: string | null
-          last_offline_at: string | null
-          last_realtime_seen_at: string | null
-          last_significant_move_at: string | null
-          last_significant_move_lat: number | null
-          last_significant_move_lng: number | null
-          last_socket_pong_at: string | null
-          lat: number | null
-          lng: number | null
-          location_sequence: number | null
-          location_source: string | null
-          low_accuracy: boolean
-          low_accuracy_since: string | null
-          network_type: string | null
-          offline_reason: string | null
-          platform: string | null
-          presence_health: string
-          push_token: string | null
-          socket_connected: boolean | null
-          speed: number | null
-          status: string
-          unresolved_critical_tracking: boolean
-          updated_at: string
-        }
-        SetofOptions: {
-          from: "*"
-          to: "driver_presence"
-          isOneToOne: true
-          isSetofReturn: false
-        }
+        /** jsonb: { trip_mirrored, trip_mirror_skipped, trip_id_requested, presence } */
+        Returns: Json
       }
       suspend_corporate_account: {
         Args: { p_account_id: string }
