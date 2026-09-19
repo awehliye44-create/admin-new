@@ -35,7 +35,7 @@ import {
   resolveMerchantVaultAddCardAllowed,
 } from "../_shared/merchantVaultAddCardGate.ts";
 import {
-  countSavedRevolutCards,
+  countUsableSavedRevolutCards,
   createRevolutSaveCardSetupOrder,
   ensureRevolutCustomer,
   isReusableSaveCardSetupState,
@@ -469,7 +469,8 @@ serve(async (req) => {
         return errorJson("SAVED_CARD_NOT_FOUND", 409);
       }
 
-      const savedCount = await countSavedRevolutCards(supabase, user.id);
+      // Failed / pending Book captures must not consume the Add Card cap.
+      const savedCount = await countUsableSavedRevolutCards(supabase, user.id);
       if (savedCount >= MAX_SAVED_REVOLUT_CARDS) {
         await releaseSaveCardVerificationOrder({ environment, secretKey, orderId: providerOrderId });
         edgeStatus = 409;
@@ -587,7 +588,8 @@ serve(async (req) => {
     }
 
     // ---- action=start ----
-    const savedCount = await countSavedRevolutCards(supabase, user.id);
+    // Align with Book vault: failed/pending tokens do not consume the cap.
+    const savedCount = await countUsableSavedRevolutCards(supabase, user.id);
     if (savedCount >= MAX_SAVED_REVOLUT_CARDS) {
       edgeStatus = 409;
       safeLog({
