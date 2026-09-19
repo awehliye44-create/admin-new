@@ -22,6 +22,33 @@ const read = async (rel: string) => {
   return await Deno.readTextFile(new URL(cleaned, FUNCTIONS_ROOT));
 };
 
+Deno.test("arrive_stop / drive_to_next emit after DB success; notify failure is non-blocking", async () => {
+  const stop = await Deno.readTextFile(
+    new URL("../../functions/stop-workflow/index.ts", import.meta.url),
+  );
+  const helper = await Deno.readTextFile(
+    new URL("../../functions/_shared/customerTripLifecycleNotify.ts", import.meta.url),
+  );
+
+  // Push only after arrival mark / next-leg advance succeeds.
+  const arriveIdx = stop.indexOf("ARRIVE_STOP success at index");
+  const arriveNotifyIdx = stop.indexOf('event: "intermediate_stop_arrived"', arriveIdx);
+  assertEquals(arriveIdx >= 0 && arriveNotifyIdx > arriveIdx, true);
+
+  const nextIdx = stop.indexOf("NEXT_STOP success:");
+  const nextNotifyIdx = stop.indexOf('event: "next_leg_started"', nextIdx);
+  assertEquals(nextIdx >= 0 && nextNotifyIdx > nextIdx, true);
+
+  // Notification id includes trip + stop index for identity/dedupe.
+  assertStringIncludes(stop, "intermediate_stop_arrived-${trip_id}-${currentStop.stop_index}");
+  assertStringIncludes(stop, "next_leg_started-${trip_id}-${nextStop.stop_index}");
+
+  // Failures must not roll back trip mutation.
+  assertStringIncludes(helper, "send-trip-notification failed");
+  assertStringIncludes(helper, "customer_trip_lifecycle_emitted");
+  assertStringIncludes(helper, "stopIndex");
+});
+
 Deno.test("intermediate stop lifecycle events are registered and not aliases of pickup", () => {
   assertEquals(
     canonicalizeCustomerTripNotificationEvent("intermediate_stop_arrived"),
