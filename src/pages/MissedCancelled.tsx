@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { ADMIN_MISSED_CANCELLED_PAGE_SIZE, ADMIN_MISSED_CANCELLED_STATS_ROW_CAP } from '@/lib/adminQueryBounds';
+import { formatCancellationReason, resolveCancellationActor, resolveCancellationReasonText } from '@/lib/tripCancellationReason';
 import { 
   XCircle, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
   Eye, AlertTriangle, Ban, TrendingDown,
