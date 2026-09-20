@@ -401,6 +401,55 @@ export function resolveFrozenOrLiveWaitingConfig(
   };
 }
 
+/**
+ * Prefer durable trip freeze without Admin round-trips when money knobs are present.
+ * Returns null when freeze is incomplete — caller must loadAdminWaitingConfig.
+ */
+export function resolveFrozenWaitingConfigOrNull(
+  frozen: unknown,
+): AdminWaitingConfigSnapshot | null {
+  if (!frozen || typeof frozen !== "object") return null;
+  const f = frozen as Record<string, unknown>;
+  const freeSec = asNonNegInt(f.free_pickup_waiting_seconds);
+  if (freeSec == null) return null;
+  const interval = asNonNegInt(f.waiting_charge_interval_seconds) ?? 60;
+  return {
+    free_pickup_waiting_minutes:
+      asNonNegInt(f.free_pickup_waiting_minutes) ?? freeSec / 60,
+    free_pickup_waiting_seconds: freeSec,
+    pickup_grace_source:
+      (f.pickup_grace_source as AdminWaitingConfigSnapshot["pickup_grace_source"]) ??
+      "dispatch",
+    no_show_waiting_minutes: asNonNegInt(f.no_show_waiting_minutes) ?? 0,
+    no_show_waiting_seconds: asNonNegInt(f.no_show_waiting_seconds) ?? 0,
+    free_stop_waiting_seconds: asNonNegInt(f.free_stop_waiting_seconds) ?? 0,
+    stop_grace_source:
+      (f.stop_grace_source as AdminWaitingConfigSnapshot["stop_grace_source"]) ??
+      "default",
+    pickup_paid_waiting_enabled: asBool(f.pickup_paid_waiting_enabled) ?? false,
+    pickup_paid_waiting_rate_pence_per_minute:
+      asNonNegInt(f.pickup_paid_waiting_rate_pence_per_minute) ?? 0,
+    pickup_waiting_max_minutes: asNonNegInt(f.pickup_waiting_max_minutes) ?? 0,
+    waiting_charge_interval_seconds: interval,
+    waiting_charge_interval_source:
+      (f.waiting_charge_interval_source as AdminWaitingConfigSnapshot["waiting_charge_interval_source"]) ??
+      "dispatch_settings",
+    waiting_charge_rounding: "completed_intervals",
+    stop_waiting_rate_pence_per_minute:
+      asNonNegInt(f.stop_waiting_rate_pence_per_minute) ?? 0,
+    stop_waiting_max_minutes: asNonNegInt(f.stop_waiting_max_minutes),
+    enable_stop_waiting_charge: asBool(f.enable_stop_waiting_charge) ?? false,
+    pickup_radius_enabled: asBool(f.pickup_radius_enabled) ?? false,
+    pickup_radius_meters: asNonNegInt(f.pickup_radius_meters) ?? 0,
+    stop_radius_enabled: asBool(f.stop_radius_enabled) ?? false,
+    stop_radius_meters: asNonNegInt(f.stop_radius_meters) ?? 0,
+    no_show_fee_pence: asNonNegInt(f.no_show_fee_pence) ?? 0,
+    no_show_apply_after_arrival_only:
+      asBool(f.no_show_apply_after_arrival_only) ?? true,
+    config_available: asBool(f.config_available) ?? true,
+  };
+}
+
 // deno-lint-ignore no-explicit-any
 export async function loadAdminWaitingConfig(
   supabase: any,

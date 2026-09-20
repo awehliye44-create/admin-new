@@ -40,16 +40,58 @@ Deno.test("arrive_pickup moves driver_arrived notify off-path after waiting SSOT
   assertEquals(src.lastIndexOf('event: "driver_arrived"', p2Close) > 0, true);
 });
 
-Deno.test("start_trip keeps waiting finalize on-path; trip_started notify off-path", async () => {
+Deno.test("start_trip keeps waiting finalize on-path; audits+notify off-path", async () => {
   const src = await Deno.readTextFile(stopWorkflowPath);
   assertStringIncludes(src, "finalizePickupWaitingOnStartTrip");
   assertStringIncludes(src, "start_trip_p2");
   assertStringIncludes(src, 'event: "trip_started"');
-  const startIdx = src.indexOf('case \'start_trip\'');
-  const startBlock = src.slice(startIdx, startIdx + 12000);
+  assertStringIncludes(src, "PICKUP_WAITING_FINALIZED");
+  const startIdx = src.indexOf("case 'start_trip'");
+  const startBlock = src.slice(startIdx, startIdx + 14000);
   const finalizeIdx = startBlock.indexOf("finalizePickupWaitingOnStartTrip");
   const notifyBgIdx = startBlock.indexOf("start_trip_p2");
   assertEquals(finalizeIdx > 0 && notifyBgIdx > finalizeIdx, true);
+  // Waiting finalize audits must live inside start_trip_p2 waitUntil, not before mutation return.
+  const p2Block = startBlock.slice(
+    startBlock.lastIndexOf("scheduleEdgeBackground", notifyBgIdx),
+    notifyBgIdx + 80,
+  );
+  assertEquals(p2Block.includes("PICKUP_WAITING_FINALIZED"), true);
+});
+
+Deno.test("drive_to_next keeps waiting finalize on-path; tap/finalize audits off-path", async () => {
+  const src = await Deno.readTextFile(stopWorkflowPath);
+  assertStringIncludes(src, "finalizeStopWaitingCharge");
+  assertStringIncludes(src, "drive_to_next_p2");
+  const driveIdx = src.indexOf("case 'drive_to_next'");
+  const driveBlock = src.slice(driveIdx, driveIdx + 12000);
+  const finalizeIdx = driveBlock.indexOf("finalizeStopWaitingCharge");
+  const p2Idx = driveBlock.indexOf("drive_to_next_p2");
+  assertEquals(finalizeIdx > 0 && p2Idx > finalizeIdx, true);
+  const p2Block = driveBlock.slice(
+    driveBlock.lastIndexOf("scheduleEdgeBackground", p2Idx),
+    p2Idx + 80,
+  );
+  assertEquals(p2Block.includes("DRIVE_TO_NEXT_TAPPED"), true);
+  assertEquals(p2Block.includes("STOP_WAITING_FINALIZED"), true);
+});
+
+Deno.test("arrive enrich skips Admin reload when freeze already durable", async () => {
+  const waitingCfg = await Deno.readTextFile(
+    new URL("../../functions/_shared/waitingAdminConfig.ts", import.meta.url),
+  );
+  assertStringIncludes(waitingCfg, "resolveFrozenWaitingConfigOrNull");
+  const src = await Deno.readTextFile(stopWorkflowPath);
+  assertStringIncludes(src, "resolveFrozenWaitingConfigOrNull");
+  assertStringIncludes(src, "skipped_admin_reload");
+});
+
+Deno.test("lifecycle perf_id + stage durations returned on stop-workflow success", async () => {
+  const src = await Deno.readTextFile(stopWorkflowPath);
+  assertStringIncludes(src, "createStopWorkflowLifecyclePerfClock");
+  assertStringIncludes(src, "lifecycle_perf_durations_ms");
+  assertStringIncludes(src, "perf_id");
+  assertStringIncludes(src, "CANONICAL_CONFIRMED");
 });
 
 Deno.test("arrive_stop + drive_to_next keep notifications via waitUntil", async () => {

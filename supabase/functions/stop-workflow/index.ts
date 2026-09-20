@@ -36,6 +36,7 @@ import {
   buildStopWaitingSnapshot,
   loadAdminWaitingConfig,
   resolveFrozenOrLiveWaitingConfig,
+  resolveFrozenWaitingConfigOrNull,
   type AdminWaitingConfigSnapshot,
 } from "../_shared/waitingAdminConfig.ts";
 import {
@@ -85,6 +86,11 @@ import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNot
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 import { assertPlatformCollectedCompletionPaymentGate } from "../_shared/executeFareIncreaseModificationPayment.ts";
 import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
+import {
+  createStopWorkflowLifecyclePerfClock,
+  normalizeLifecyclePerfId,
+  type StopWorkflowLifecyclePerfClock,
+} from "../_shared/stopWorkflowLifecyclePerf.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -489,6 +495,8 @@ interface WorkflowRequest {
   cancel_reason?: string;
   driver_lat?: number;
   driver_lng?: number;
+  /** Client tap correlation id — folded into Edge stages / ops_logs. */
+  perf_id?: string;
 }
 
 type DispatchWaitingSettings = {
@@ -717,18 +725,23 @@ async function enrichArrivalWaitingSnapshot(
     stop?: { arrived_at?: string | null };
   },
 ): Promise<Record<string, unknown>> {
-  const liveConfig = await loadAdminWaitingConfig(
-    supabase,
-    ctx.trip.service_area_id ?? null,
-    ctx.trip.vehicle_type_id ?? null,
-  );
-
-  // Prefer already-frozen trip snapshot; do not re-poison from live Admin on idempotent Arrived.
   const existingFrozen = ctx.trip.pickup_waiting_admin_config;
+  // Skip Admin round-trips when trip already has a usable freeze (idempotent Arrive / re-entry).
+  const frozenOnly =
+    ctx.scope === "pickup" ? resolveFrozenWaitingConfigOrNull(existingFrozen) : null;
+  const liveConfig =
+    frozenOnly == null
+      ? await loadAdminWaitingConfig(
+        supabase,
+        ctx.trip.service_area_id ?? null,
+        ctx.trip.vehicle_type_id ?? null,
+      )
+      : null;
   const config: AdminWaitingConfigSnapshot =
-    ctx.scope === "pickup" && existingFrozen
+    frozenOnly ??
+    (ctx.scope === "pickup" && existingFrozen && liveConfig
       ? resolveFrozenOrLiveWaitingConfig(existingFrozen, liveConfig)
-      : liveConfig;
+      : liveConfig!);
 
   if (ctx.scope === "pickup" && ctx.trip_id) {
     const waitingAnchorIso =
@@ -749,6 +762,11 @@ async function enrichArrivalWaitingSnapshot(
         ? (existingFrozen as Record<string, unknown>)
         : {};
     const alreadyFareFrozen = existingObj.pickup_grace_source === "fare_pricing";
+    const alreadyPersisted =
+      typeof existingObj.frozen_at === "string" &&
+      existingObj.frozen_at.trim().length > 0 &&
+      (typeof ctx.trip.free_wait_expires_at === "string" &&
+        ctx.trip.free_wait_expires_at.trim().length > 0);
 
     // Always MERGE provenance; never replace a good freeze with a bare snapshot
     // that strips waiting_context / driver_id / frozen_at.
@@ -770,38 +788,33 @@ async function enrichArrivalWaitingSnapshot(
         service_area_id: ctx.trip.service_area_id ?? null,
         vehicle_type_id: ctx.trip.vehicle_type_id ?? null,
         trip_id: ctx.trip_id,
-        frozen_at: new Date().toISOString(),
+        frozen_at: existingObj.frozen_at ?? new Date().toISOString(),
       };
 
-    const { error: cfgErr } = await updateTripSafe(supabase, ctx.trip_id, {
-      pickup_waiting_admin_config: frozenConfig,
-      ...(freeWaitExpiresAt && !ctx.trip.free_wait_expires_at
-        ? { free_wait_expires_at: freeWaitExpiresAt }
-        : freeWaitExpiresAt && !alreadyFareFrozen
-        ? { free_wait_expires_at: freeWaitExpiresAt }
-        : {}),
-    });
-    if (cfgErr) {
-      console.warn("[stop-workflow] PICKUP_WAITING_ADMIN_CONFIG_PERSIST_FAILED", {
-        trip_id: ctx.trip_id,
-        message: cfgErr.message,
+    // Skip redundant persist when freeze + free_wait_expires_at already durable.
+    if (!alreadyPersisted || !frozenOnly) {
+      const { error: cfgErr } = await updateTripSafe(supabase, ctx.trip_id, {
+        pickup_waiting_admin_config: frozenConfig,
+        ...(freeWaitExpiresAt && !ctx.trip.free_wait_expires_at
+          ? { free_wait_expires_at: freeWaitExpiresAt }
+          : freeWaitExpiresAt && !alreadyFareFrozen
+          ? { free_wait_expires_at: freeWaitExpiresAt }
+          : {}),
       });
-    } else {
-      console.log("[stop-workflow] PICKUP_WAITING_ADMIN_CONFIG_PERSISTED", {
-        trip_id: ctx.trip_id,
-        free_pickup_waiting_seconds: config.free_pickup_waiting_seconds,
-        free_wait_expires_at: freeWaitExpiresAt,
-        pickup_grace_source: config.pickup_grace_source,
-        pickup_paid_waiting_enabled: config.pickup_paid_waiting_enabled,
-        waiting_charge_interval_seconds: config.waiting_charge_interval_seconds,
-        pickup_paid_waiting_rate_pence_per_minute:
-          config.pickup_paid_waiting_rate_pence_per_minute,
-        waiting_context: "pickup",
-        driver_id: ctx.trip.driver_id ?? null,
-        service_area_id: ctx.trip.service_area_id ?? null,
-        vehicle_type_id: ctx.trip.vehicle_type_id ?? null,
-        config_available: config.config_available,
-      });
+      if (cfgErr) {
+        console.warn("[stop-workflow] PICKUP_WAITING_ADMIN_CONFIG_PERSIST_FAILED", {
+          trip_id: ctx.trip_id,
+          message: cfgErr.message,
+        });
+      } else {
+        console.log("[stop-workflow] PICKUP_WAITING_ADMIN_CONFIG_PERSISTED", {
+          trip_id: ctx.trip_id,
+          free_pickup_waiting_seconds: config.free_pickup_waiting_seconds,
+          free_wait_expires_at: freeWaitExpiresAt,
+          pickup_grace_source: config.pickup_grace_source,
+          skipped_admin_reload: frozenOnly != null,
+        });
+      }
     }
   }
 
@@ -1680,14 +1693,28 @@ Deno.serve(async (req) => {
 
     const body: WorkflowRequest = await req.json();
     const { trip_id, driver_id: requestedDriverId, action, driver_lat, driver_lng, cancel_reason } = body;
+    const perfId = normalizeLifecyclePerfId(body.perf_id);
+    const lifecycleActions = new Set([
+      "arrive_pickup",
+      "start_trip",
+      "arrive_stop",
+      "drive_to_next",
+      "next_stop",
+      "complete_trip",
+    ]);
+    const lifecyclePerf: StopWorkflowLifecyclePerfClock | null =
+      lifecycleActions.has(action) ? createStopWorkflowLifecyclePerfClock(elapsed) : null;
+    lifecyclePerf?.mark("edge_receive");
 
     /** Always attach fresh trip + stops so clients render backend truth only. */
     let completeTripStagesMs: Record<string, number> | null = null;
     let lifecycleStagesMs: Record<string, number> | null = null;
+    let lifecycleDurationsMs: Record<string, number | null> | null = null;
     const respondOk = async (
       payload: Record<string, unknown>,
       opts?: { skipSnapshotRefresh?: boolean },
     ) => {
+      lifecyclePerf?.mark("response_build_start");
       const duration_ms = elapsed();
       let tripSnapshot: Record<string, unknown> | null = null;
       let stopsSnapshot: unknown[] = [];
@@ -1717,18 +1744,28 @@ Deno.serve(async (req) => {
         tripSnapshot = (payload.trip as Record<string, unknown>) ?? null;
         stopsSnapshot = Array.isArray(payload.stops) ? (payload.stops as unknown[]) : [];
       }
+      lifecyclePerf?.mark("response_build_end");
+      lifecyclePerf?.mark("edge_response");
+      if (lifecyclePerf) {
+        lifecycleStagesMs = lifecyclePerf.snapshot();
+        lifecycleDurationsMs = lifecyclePerf.durations();
+      }
       const stagesPayload = completeTripStagesMs ?? lifecycleStagesMs;
       logRequestDuration("stop-workflow", duration_ms, {
         request_id: requestId,
         action,
         trip_id,
+        ...(perfId ? { perf_id: perfId } : {}),
         ...(stagesPayload ? { stages_ms: stagesPayload } : {}),
+        ...(lifecycleDurationsMs ? { lifecycle_durations_ms: lifecycleDurationsMs } : {}),
       });
       finishEdgeRequestLog("stop-workflow", duration_ms, {
         request_id: requestId,
         action,
         trip_id,
+        ...(perfId ? { perf_id: perfId } : {}),
         ...(stagesPayload ? { stages_ms: stagesPayload } : {}),
+        ...(lifecycleDurationsMs ? { lifecycle_durations_ms: lifecycleDurationsMs } : {}),
       });
       return successResponse(
         withDuration(
@@ -1736,11 +1773,15 @@ Deno.serve(async (req) => {
             ...payload,
             trip: payload.trip ?? tripSnapshot,
             stops: payload.stops ?? stopsSnapshot,
+            ...(perfId ? { perf_id: perfId } : {}),
             ...(completeTripStagesMs
               ? { complete_trip_stages_ms: completeTripStagesMs }
               : {}),
             ...(lifecycleStagesMs
               ? { lifecycle_perf_stages_ms: lifecycleStagesMs }
+              : {}),
+            ...(lifecycleDurationsMs
+              ? { lifecycle_perf_durations_ms: lifecycleDurationsMs }
               : {}),
           },
           duration_ms,
@@ -1781,6 +1822,7 @@ Deno.serve(async (req) => {
     // Body driver_id is never an authorization source. No proven internal
     // service_role caller of stop-workflow exists, so a service-role bearer
     // without a driver user JWT is denied.
+    lifecyclePerf?.mark("auth_start");
     let verifiedUserId: string | null = null;
     let driverIdForUser: string | null = null;
     if (authHeader) {
@@ -1813,8 +1855,10 @@ Deno.serve(async (req) => {
     }
 
     console.log("[stop-workflow] Authorized driver:", driver_id);
+    lifecyclePerf?.mark("auth_end");
 
     // Fetch trip — explicit columns only (retired scan_go / locked_driver_id must never be selected).
+    lifecyclePerf?.mark("reads_start");
     const { data: trip, error: tripError } = await supabase
       .from("trips")
       .select(
@@ -2044,6 +2088,7 @@ Deno.serve(async (req) => {
     const currentStop = stops?.find(s => s.stop_index === currentIndex);
 
     console.log("[stop-workflow] Current index:", currentIndex, "Stops count:", stops?.length, "Current stop status:", currentStop?.status);
+    lifecyclePerf?.mark("reads_end");
 
     // Backend safety: queued stacked rides cannot be progressed until promoted
     if (trip.status === 'queued') {
@@ -2189,6 +2234,7 @@ Deno.serve(async (req) => {
       }
 
       case 'arrive_pickup': {
+        lifecyclePerf?.mark("validation_start");
         const pickupStop = stops?.find(s => s.stop_index === 0);
 
         if (!pickupStop) {
@@ -2263,7 +2309,9 @@ Deno.serve(async (req) => {
               pickup_waiting_started_at: billingTrip.pickup_waiting_started_at,
               financial_model: trip.financial_model,
             },
-          }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id }));
+          }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id }), {
+            skipSnapshotRefresh: true,
+          });
         }
 
         // Stop arrived but trip still pre-pickup — sync trip arrival (partial prior write)
@@ -2341,7 +2389,9 @@ Deno.serve(async (req) => {
             allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
             distance_meters: waitingResult.distance_meters ?? null,
             trip: syncedTrip,
-          }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id }));
+          }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id }), {
+            skipSnapshotRefresh: true,
+          });
         }
 
         if (trip.started_at || trip.status === 'in_progress') {
@@ -2378,6 +2428,8 @@ Deno.serve(async (req) => {
           return errorResponse("UPDATE_FAILED", "Failed to update pickup stop", 500);
         }
 
+        lifecyclePerf?.mark("validation_end");
+        lifecyclePerf?.mark("canonical_mutation_start");
         const { error: tripUpdateError } = await updateTripSafe(supabase, trip_id, {
           status: CANONICAL_ARRIVED_STATUS,
           arrived_at: now,
@@ -2394,7 +2446,9 @@ Deno.serve(async (req) => {
           trip_id,
           driver_id,
         });
+        lifecyclePerf?.mark("canonical_mutation_end");
 
+        lifecyclePerf?.mark("waiting_ssot_start");
         const waitingResult = await tryStartPickupWaiting(supabase, {
           tripId: trip_id,
           trip: { ...trip, arrived_at: now, status: CANONICAL_ARRIVED_STATUS },
@@ -2431,6 +2485,8 @@ Deno.serve(async (req) => {
         }
 
         // CANONICAL_ARRIVE_CONFIRMED: arrival + pickup_waiting_started_at durable.
+        lifecyclePerf?.mark("waiting_ssot_end");
+        lifecyclePerf?.mark("CANONICAL_CONFIRMED");
         console.log("[stop-workflow] ARRIVED_RPC_RESPONSE", {
           trip_id,
           driver_id,
@@ -2475,6 +2531,7 @@ Deno.serve(async (req) => {
         }, "arrive_pickup_p2");
 
         // P0 money: freeze waiting admin config + build waiting_snapshot (keep on-path).
+        lifecyclePerf?.mark("enrich_start");
         const enriched = await enrichArrivalWaitingSnapshot(supabase, {
           success: true,
           action: 'arrive_pickup',
@@ -2485,10 +2542,12 @@ Deno.serve(async (req) => {
           distance_meters: waitingResult.distance_meters ?? null,
           trip: updatedTrip,
         }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id });
+        lifecyclePerf?.mark("enrich_end");
         return await respondOk(enriched, { skipSnapshotRefresh: true });
       }
 
       case 'start_trip': {
+        lifecyclePerf?.mark("validation_start");
         console.log("[stop-workflow] START_TRIP_PAYLOAD", {
           trip_id,
           driver_id,
@@ -2562,6 +2621,8 @@ Deno.serve(async (req) => {
           });
         }
 
+        lifecyclePerf?.mark("validation_end");
+        lifecyclePerf?.mark("waiting_ssot_start");
         const waitingFinal = await finalizePickupWaitingOnStartTrip(
           supabase,
           trip as TripWaitingBillingCtx & {
@@ -2577,31 +2638,12 @@ Deno.serve(async (req) => {
             pickupLng: trip.pickup_longitude ?? null,
           },
         );
+        lifecyclePerf?.mark("waiting_ssot_end");
 
-        if (!waitingFinal.already_finalized) {
-          await writeTripAudit(supabase, {
-            trip_id,
-            driver_id,
-            event_type: 'PICKUP_WAITING_FINALIZED',
-            details: {
-              pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
-              intervals_charged: waitingFinal.intervals_charged,
-            },
-          });
-          if (waitingFinal.pickup_waiting_charge_pence > 0) {
-            await writeFareAudit(supabase, {
-              trip_id,
-              event_type: 'PICKUP_WAITING_CHARGE_ADDED_TO_FARE',
-              adjustment_pence: waitingFinal.pickup_waiting_charge_pence,
-              metadata: {
-                intervals_charged: waitingFinal.intervals_charged,
-                source: 'start_trip',
-              },
-            });
-          }
-        }
+        // Waiting finalize is P0 (money). Audit rows are P2 — schedule after canonical start.
 
         // Mark pickup as completed
+        lifecyclePerf?.mark("canonical_mutation_start");
         await supabase
           .from("trip_stops")
           .update({ status: 'completed' as StopStatus, completed_at: now, updated_at: now })
@@ -2657,9 +2699,33 @@ Deno.serve(async (req) => {
           already_finalized: waitingFinal.already_finalized,
         });
         // CANONICAL_START_CONFIRMED: started_at + in_progress + waiting finalized.
+        lifecyclePerf?.mark("canonical_mutation_end");
+        lifecyclePerf?.mark("CANONICAL_CONFIRMED");
         const startPassengerId =
           typeof trip.passenger_id === "string" ? trip.passenger_id : null;
         scheduleEdgeBackground(async () => {
+          if (!waitingFinal.already_finalized) {
+            await writeTripAudit(supabase, {
+              trip_id,
+              driver_id,
+              event_type: 'PICKUP_WAITING_FINALIZED',
+              details: {
+                pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
+                intervals_charged: waitingFinal.intervals_charged,
+              },
+            });
+            if (waitingFinal.pickup_waiting_charge_pence > 0) {
+              await writeFareAudit(supabase, {
+                trip_id,
+                event_type: 'PICKUP_WAITING_CHARGE_ADDED_TO_FARE',
+                adjustment_pence: waitingFinal.pickup_waiting_charge_pence,
+                metadata: {
+                  intervals_charged: waitingFinal.intervals_charged,
+                  source: 'start_trip',
+                },
+              });
+            }
+          }
           await writeTripAudit(supabase, {
             trip_id,
             driver_id,
@@ -2694,6 +2760,7 @@ Deno.serve(async (req) => {
       }
 
       case 'arrive_stop': {
+        lifecyclePerf?.mark("validation_start");
         // Must have started trip
         if (!trip.started_at) {
           return errorResponse("NOT_STARTED", "Trip not started yet", 400);
@@ -2762,10 +2829,20 @@ Deno.serve(async (req) => {
             waiting_status: waitingResult.waiting_status,
             allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
             distance_meters: waitingResult.distance_meters ?? null,
-          }, waitingResult, { scope: 'stop', trip, stop: currentStop }));
+            trip: {
+              id: trip_id,
+              status: trip.status,
+              stop_arrived_at: currentStop.arrived_at,
+              current_stop_index: currentStop.stop_index,
+            },
+          }, waitingResult, { scope: 'stop', trip, stop: currentStop }), {
+            skipSnapshotRefresh: true,
+          });
         }
 
         // Record arrival first — waiting start is radius-gated separately
+        lifecyclePerf?.mark("validation_end");
+        lifecyclePerf?.mark("canonical_mutation_start");
         await supabase
           .from("trip_stops")
           .update({ status: 'current' as StopStatus, arrived_at: now, updated_at: now })
@@ -2780,7 +2857,9 @@ Deno.serve(async (req) => {
           stop_id: currentStop.id,
           stop_index: currentStop.stop_index,
         });
+        lifecyclePerf?.mark("canonical_mutation_end");
 
+        lifecyclePerf?.mark("waiting_ssot_start");
         const waitingResult = await tryStartStopWaiting(
           supabase,
           trip,
@@ -2788,6 +2867,8 @@ Deno.serve(async (req) => {
           stopDriverLat,
           stopDriverLng,
         );
+        lifecyclePerf?.mark("waiting_ssot_end");
+        lifecyclePerf?.mark("CANONICAL_CONFIRMED");
 
         console.log("[stop-workflow] ARRIVE_STOP success at index:", currentStop.stop_index);
         // CANONICAL stop arrival + waiting start done. P2: audit + customer notify.
@@ -2824,7 +2905,8 @@ Deno.serve(async (req) => {
             });
           }
         }, "arrive_stop_p2");
-        return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
+        lifecyclePerf?.mark("enrich_start");
+        const stopEnriched = await enrichArrivalWaitingSnapshot(supabase, {
           success: true,
           action: 'arrive_stop',
           arrival_status: 'arrived',
@@ -2835,16 +2917,25 @@ Deno.serve(async (req) => {
           waiting_status: waitingResult.waiting_status,
           allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
           distance_meters: waitingResult.distance_meters ?? null,
-          trip: { ...trip, stop_arrived_at: now },
+          trip: {
+            id: trip_id,
+            status: trip.status,
+            stop_arrived_at: now,
+            current_stop_index: currentStop.stop_index,
+            current_stop_id: currentStop.id,
+          },
         }, waitingResult, {
           scope: 'stop',
           trip: { ...trip, stop_arrived_at: now },
           stop: { ...currentStop, arrived_at: now },
-        }), { skipSnapshotRefresh: true });
+        });
+        lifecyclePerf?.mark("enrich_end");
+        return await respondOk(stopEnriched, { skipSnapshotRefresh: true });
       }
 
       case 'next_stop':
       case 'drive_to_next': {
+        lifecyclePerf?.mark("validation_start");
         const workflowAction = action === 'drive_to_next' ? 'drive_to_next' : 'next_stop';
 
         // Must have started trip
@@ -2902,20 +2993,16 @@ Deno.serve(async (req) => {
           );
         }
 
-        await writeTripAudit(supabase, {
-          trip_id,
-          driver_id,
-          event_type: 'DRIVE_TO_NEXT_TAPPED',
-          details: { stop_id: currentStop.id, stop_index: currentStop.stop_index },
-        });
-
         console.log("[stop-workflow] STOP_WAITING_END_REQUESTED", {
           trip_id,
           stop_id: currentStop.id,
           stop_index: currentStop.stop_index,
         });
 
-        // Atomic: finalize waiting, add to fare total, then complete stop
+        lifecyclePerf?.mark("validation_end");
+        lifecyclePerf?.mark("waiting_ssot_start");
+        // Atomic: finalize waiting, add to fare total, then complete stop (P0 money).
+        // Tap/finalize audits are P2 after canonical advance.
         const { data: stopForFinalize } = await supabase
           .from('trip_stops')
           .select(
@@ -2933,6 +3020,7 @@ Deno.serve(async (req) => {
             driverLng: typeof driver_lng === 'number' ? driver_lng : undefined,
           },
         );
+        lifecyclePerf?.mark("waiting_ssot_end");
 
         console.log("[stop-workflow] STOP_WAITING_ENDED_BACKEND_ACCEPTED", {
           trip_id,
@@ -2941,26 +3029,6 @@ Deno.serve(async (req) => {
           already_finalized: finalizeResult.alreadyFinalized,
         });
 
-        if (!finalizeResult.alreadyFinalized) {
-          await writeTripAudit(supabase, {
-            trip_id,
-            driver_id,
-            event_type: 'STOP_WAITING_FINALIZED',
-            details: {
-              stop_id: currentStop.id,
-              charge_pence: finalizeResult.chargePence,
-            },
-          });
-          if (finalizeResult.chargePence > 0) {
-            await writeFareAudit(supabase, {
-              trip_id,
-              event_type: 'STOP_WAITING_CHARGE_ADDED_TO_FARE',
-              adjustment_pence: finalizeResult.chargePence,
-              metadata: { stop_id: currentStop.id },
-            });
-          }
-        }
-
         await updateTripSafe(supabase, trip_id, {
           stop_waiting_finalized_at: now,
           stop_waiting_status: 'finalized',
@@ -2968,6 +3036,7 @@ Deno.serve(async (req) => {
           updated_at: now,
         });
 
+        lifecyclePerf?.mark("canonical_mutation_start");
         // Mark current stop completed (do not re-finalize waiting on retry)
         await supabase
           .from("trip_stops")
@@ -3010,11 +3079,42 @@ Deno.serve(async (req) => {
 
           console.log("[stop-workflow] NEXT_STOP success:", currentIndex, "->", nextStop.stop_index);
           // CANONICAL: stop advanced. P2: audit + next_leg_started notify.
+          lifecyclePerf?.mark("canonical_mutation_end");
+          lifecyclePerf?.mark("CANONICAL_CONFIRMED");
           const drivePassengerId =
             typeof trip.passenger_id === "string" ? trip.passenger_id : null;
           const nextIndex = nextStop.stop_index;
           const nextStopId = nextStop.id;
+          const driveStopId = currentStop.id;
+          const driveStopIndex = currentStop.stop_index;
+          const driveChargePence = finalizeResult.chargePence;
+          const driveAlreadyFinalized = finalizeResult.alreadyFinalized;
           scheduleEdgeBackground(async () => {
+            await writeTripAudit(supabase, {
+              trip_id,
+              driver_id,
+              event_type: 'DRIVE_TO_NEXT_TAPPED',
+              details: { stop_id: driveStopId, stop_index: driveStopIndex },
+            });
+            if (!driveAlreadyFinalized) {
+              await writeTripAudit(supabase, {
+                trip_id,
+                driver_id,
+                event_type: 'STOP_WAITING_FINALIZED',
+                details: {
+                  stop_id: driveStopId,
+                  charge_pence: driveChargePence,
+                },
+              });
+              if (driveChargePence > 0) {
+                await writeFareAudit(supabase, {
+                  trip_id,
+                  event_type: 'STOP_WAITING_CHARGE_ADDED_TO_FARE',
+                  adjustment_pence: driveChargePence,
+                  metadata: { stop_id: driveStopId },
+                });
+              }
+            }
             await writeTripAudit(supabase, {
               trip_id,
               driver_id,
