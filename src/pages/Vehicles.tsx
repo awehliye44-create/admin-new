@@ -22,7 +22,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, CarTaxiFront, Loader2, CheckCircle, XCircle, ArrowRight, AlertTriangle, Clock } from 'lucide-react';
+import { Plus, CarTaxiFront, Loader2, CheckCircle, XCircle, ArrowRight, AlertTriangle, Clock, Archive } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Vehicle {
