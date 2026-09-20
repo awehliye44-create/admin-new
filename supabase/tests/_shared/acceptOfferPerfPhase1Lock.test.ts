@@ -102,7 +102,11 @@ Deno.test("accept-offer does not await full trips/drivers enrichment after canon
   assertEquals(afterCanonical.includes('.select("*")'), false);
   assertStringIncludes(src, "scheduleAcceptOfferBackground");
   const helper = await Deno.readTextFile(perfHelperPath);
-  assertStringIncludes(helper, "EdgeRuntime.waitUntil");
+  assertStringIncludes(helper, "scheduleEdgeBackground");
+  const bg = await Deno.readTextFile(
+    new URL("../../functions/_shared/scheduleEdgeBackground.ts", import.meta.url),
+  );
+  assertStringIncludes(bg, "EdgeRuntime.waitUntil");
 });
 
 Deno.test("accept-offer still generates customer driver_assigned + RIDE_STOP + booking delivery", async () => {
@@ -225,11 +229,15 @@ Deno.test("accept_ride_offer / accept_stacked_ride SQL use FOR UPDATE (two-drive
 
 Deno.test("acceptOfferPerf helper exposes waitUntil scheduling + skip marks", async () => {
   const src = await Deno.readTextFile(perfHelperPath);
-  assertStringIncludes(src, "EdgeRuntime.waitUntil");
   assertStringIncludes(src, "scheduleAcceptOfferBackground");
   assertStringIncludes(src, "buildMinimalAcceptedTripSeed");
   assertStringIncludes(src, "notifyCustomerAssignedWithRetry");
   assertStringIncludes(src, "markPostAssignmentEnrichmentSkipped");
   assertStringIncludes(src, "markScheduledGuardSkipped");
   assertStringIncludes(src, "markLockIdempotencySkipped");
+  assertStringIncludes(src, 'from "./scheduleEdgeBackground.ts"');
+  const bg = await Deno.readTextFile(
+    new URL("../../functions/_shared/scheduleEdgeBackground.ts", import.meta.url),
+  );
+  assertStringIncludes(bg, "EdgeRuntime.waitUntil");
 });

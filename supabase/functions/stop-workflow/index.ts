@@ -84,6 +84,7 @@ import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 import { assertPlatformCollectedCompletionPaymentGate } from "../_shared/executeFareIncreaseModificationPayment.ts";
+import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -1682,41 +1683,52 @@ Deno.serve(async (req) => {
 
     /** Always attach fresh trip + stops so clients render backend truth only. */
     let completeTripStagesMs: Record<string, number> | null = null;
-    const respondOk = async (payload: Record<string, unknown>) => {
+    let lifecycleStagesMs: Record<string, number> | null = null;
+    const respondOk = async (
+      payload: Record<string, unknown>,
+      opts?: { skipSnapshotRefresh?: boolean },
+    ) => {
       const duration_ms = elapsed();
       let tripSnapshot: Record<string, unknown> | null = null;
       let stopsSnapshot: unknown[] = [];
-      try {
-        const [{ data: tripRow }, { data: stopsRows }] = await Promise.all([
-          supabase
-            .from("trips")
-            .select(
-              "id, status, dispatch_status, arrived_at, pickup_arrived_at, started_at, completed_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, driver_id, financial_model, payment_status, payment_method, updated_at",
-            )
-            .eq("id", trip_id)
-            .maybeSingle(),
-          supabase
-            .from("trip_stops")
-            .select("*")
-            .eq("trip_id", trip_id)
-            .order("stop_index", { ascending: true }),
-        ]);
-        tripSnapshot = (tripRow as Record<string, unknown> | null) ?? null;
-        stopsSnapshot = Array.isArray(stopsRows) ? stopsRows : [];
-      } catch (snapErr) {
-        console.warn("[stop-workflow] failed to attach trip snapshot", snapErr);
+      const skipRefresh = Boolean(opts?.skipSnapshotRefresh && payload.trip);
+      if (!skipRefresh) {
+        try {
+          const [{ data: tripRow }, { data: stopsRows }] = await Promise.all([
+            supabase
+              .from("trips")
+              .select(
+                "id, status, dispatch_status, arrived_at, pickup_arrived_at, started_at, completed_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, driver_id, financial_model, payment_status, payment_method, updated_at",
+              )
+              .eq("id", trip_id)
+              .maybeSingle(),
+            supabase
+              .from("trip_stops")
+              .select("*")
+              .eq("trip_id", trip_id)
+              .order("stop_index", { ascending: true }),
+          ]);
+          tripSnapshot = (tripRow as Record<string, unknown> | null) ?? null;
+          stopsSnapshot = Array.isArray(stopsRows) ? stopsRows : [];
+        } catch (snapErr) {
+          console.warn("[stop-workflow] failed to attach trip snapshot", snapErr);
+        }
+      } else {
+        tripSnapshot = (payload.trip as Record<string, unknown>) ?? null;
+        stopsSnapshot = Array.isArray(payload.stops) ? (payload.stops as unknown[]) : [];
       }
+      const stagesPayload = completeTripStagesMs ?? lifecycleStagesMs;
       logRequestDuration("stop-workflow", duration_ms, {
         request_id: requestId,
         action,
         trip_id,
-        ...(completeTripStagesMs ? { stages_ms: completeTripStagesMs } : {}),
+        ...(stagesPayload ? { stages_ms: stagesPayload } : {}),
       });
       finishEdgeRequestLog("stop-workflow", duration_ms, {
         request_id: requestId,
         action,
         trip_id,
-        ...(completeTripStagesMs ? { stages_ms: completeTripStagesMs } : {}),
+        ...(stagesPayload ? { stages_ms: stagesPayload } : {}),
       });
       return successResponse(
         withDuration(
@@ -1726,6 +1738,9 @@ Deno.serve(async (req) => {
             stops: payload.stops ?? stopsSnapshot,
             ...(completeTripStagesMs
               ? { complete_trip_stages_ms: completeTripStagesMs }
+              : {}),
+            ...(lifecycleStagesMs
+              ? { lifecycle_perf_stages_ms: lifecycleStagesMs }
               : {}),
           },
           duration_ms,
@@ -2415,6 +2430,7 @@ Deno.serve(async (req) => {
           );
         }
 
+        // CANONICAL_ARRIVE_CONFIRMED: arrival + pickup_waiting_started_at durable.
         console.log("[stop-workflow] ARRIVED_RPC_RESPONSE", {
           trip_id,
           driver_id,
@@ -2423,35 +2439,43 @@ Deno.serve(async (req) => {
           waiting_status: waitingResult.waiting_status,
           pickup_waiting_started_at: billingTrip.pickup_waiting_started_at ?? null,
         });
-        await writeTripAudit(supabase, {
-          trip_id,
-          driver_id,
-          event_type: 'ARRIVE_AT_PICKUP_TAPPED',
-          details: { arrived_at: now },
-        });
-        await notifyCustomerTripLifecycle(supabase, {
-          passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
-          tripId: trip_id,
-          event: "driver_arrived",
-        });
-        if (waitingResult.started) {
-          const isMultiStopTrip = (stops?.length ?? 0) > 2;
+
+        // P2 — audit + customer driver_arrived must not delay Driver UI.
+        const passengerIdForNotify =
+          typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+        const isMultiStopTrip = (stops?.length ?? 0) > 2;
+        scheduleEdgeBackground(async () => {
           await writeTripAudit(supabase, {
             trip_id,
             driver_id,
-            event_type: 'PICKUP_WAITING_STARTED',
-            details: { arrived_at: now, multi_stop: isMultiStopTrip },
+            event_type: 'ARRIVE_AT_PICKUP_TAPPED',
+            details: { arrived_at: now },
           });
-          if (isMultiStopTrip) {
-            console.log('[stop-workflow] PICKUP_WAITING_STARTED_MULTI_STOP', {
+          await notifyCustomerTripLifecycle(supabase, {
+            passengerId: passengerIdForNotify,
+            tripId: trip_id,
+            event: "driver_arrived",
+          });
+          if (waitingResult.started) {
+            await writeTripAudit(supabase, {
               trip_id,
               driver_id,
-              stops_count: stops?.length ?? 0,
-              pickup_waiting_started_at: billingTrip.pickup_waiting_started_at ?? null,
+              event_type: 'PICKUP_WAITING_STARTED',
+              details: { arrived_at: now, multi_stop: isMultiStopTrip },
             });
+            if (isMultiStopTrip) {
+              console.log('[stop-workflow] PICKUP_WAITING_STARTED_MULTI_STOP', {
+                trip_id,
+                driver_id,
+                stops_count: stops?.length ?? 0,
+                pickup_waiting_started_at: billingTrip.pickup_waiting_started_at ?? null,
+              });
+            }
           }
-        }
-        return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
+        }, "arrive_pickup_p2");
+
+        // P0 money: freeze waiting admin config + build waiting_snapshot (keep on-path).
+        const enriched = await enrichArrivalWaitingSnapshot(supabase, {
           success: true,
           action: 'arrive_pickup',
           arrival_status: 'arrived',
@@ -2460,7 +2484,8 @@ Deno.serve(async (req) => {
           allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
           distance_meters: waitingResult.distance_meters ?? null,
           trip: updatedTrip,
-        }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id }));
+        }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id });
+        return await respondOk(enriched, { skipSnapshotRefresh: true });
       }
 
       case 'start_trip': {
@@ -2631,28 +2656,41 @@ Deno.serve(async (req) => {
           intervals_charged: waitingFinal.intervals_charged,
           already_finalized: waitingFinal.already_finalized,
         });
-        await writeTripAudit(supabase, {
-          trip_id,
-          driver_id,
-          event_type: 'START_TRIP_TAPPED',
-          details: {
-            next_stop_index: nextStop?.stop_index ?? null,
-            pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
-            pickup_waiting_intervals_charged: waitingFinal.intervals_charged,
-          },
-        });
-        await notifyCustomerTripLifecycle(supabase, {
-          passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
-          tripId: trip_id,
-          event: "trip_started",
-        });
+        // CANONICAL_START_CONFIRMED: started_at + in_progress + waiting finalized.
+        const startPassengerId =
+          typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+        scheduleEdgeBackground(async () => {
+          await writeTripAudit(supabase, {
+            trip_id,
+            driver_id,
+            event_type: 'START_TRIP_TAPPED',
+            details: {
+              next_stop_index: nextStop?.stop_index ?? null,
+              pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
+              pickup_waiting_intervals_charged: waitingFinal.intervals_charged,
+            },
+          });
+          await notifyCustomerTripLifecycle(supabase, {
+            passengerId: startPassengerId,
+            tripId: trip_id,
+            event: "trip_started",
+          });
+        }, "start_trip_p2");
         return await respondOk({
           success: true,
           action: 'start_trip',
           next_stop_index: nextStop?.stop_index || null,
           pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
           pickup_waiting_intervals_charged: waitingFinal.intervals_charged,
-        });
+          trip: {
+            id: trip_id,
+            status: 'in_progress',
+            started_at: now,
+            pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
+            pickup_waiting_intervals_charged: waitingFinal.intervals_charged,
+            current_stop_index: nextStop?.stop_index ?? trip.current_stop_index ?? null,
+          },
+        }, { skipSnapshotRefresh: true });
       }
 
       case 'arrive_stop': {
@@ -2701,13 +2739,17 @@ Deno.serve(async (req) => {
           // Re-emit with stable notificationId so background Customer can still
           // hydrate if the first push was missed (FCM tag dedupes duplicates).
           if (currentStop.type === "stop") {
-            await notifyCustomerTripLifecycle(supabase, {
-              passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
-              tripId: trip_id,
-              event: "intermediate_stop_arrived",
-              stopIndex: currentStop.stop_index,
-              notificationId: `intermediate_stop_arrived-${trip_id}-${currentStop.stop_index}`,
-            });
+            const idempotentStopPassengerId =
+              typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+            scheduleEdgeBackground(async () => {
+              await notifyCustomerTripLifecycle(supabase, {
+                passengerId: idempotentStopPassengerId,
+                tripId: trip_id,
+                event: "intermediate_stop_arrived",
+                stopIndex: currentStop.stop_index,
+                notificationId: `intermediate_stop_arrived-${trip_id}-${currentStop.stop_index}`,
+              });
+            }, "arrive_stop_idempotent_p2");
           }
           return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
             success: true,
@@ -2747,35 +2789,41 @@ Deno.serve(async (req) => {
           stopDriverLng,
         );
 
-        await writeTripAudit(supabase, {
-          trip_id,
-          driver_id,
-          event_type: 'ARRIVE_AT_STOP_TAPPED',
-          details: { stop_id: currentStop.id, stop_index: currentStop.stop_index },
-        });
-        if (waitingResult.started) {
+        console.log("[stop-workflow] ARRIVE_STOP success at index:", currentStop.stop_index);
+        // CANONICAL stop arrival + waiting start done. P2: audit + customer notify.
+        const stopPassengerId =
+          typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+        const stopIndexForNotify = currentStop.stop_index;
+        const stopIdForAudit = currentStop.id;
+        const stopType = currentStop.type;
+        scheduleEdgeBackground(async () => {
           await writeTripAudit(supabase, {
             trip_id,
             driver_id,
-            event_type: 'STOP_WAITING_STARTED',
-            details: {
-              stop_id: currentStop.id,
-              grace_seconds: waitingResult.graceSeconds,
-            },
+            event_type: 'ARRIVE_AT_STOP_TAPPED',
+            details: { stop_id: stopIdForAudit, stop_index: stopIndexForNotify },
           });
-        }
-
-        console.log("[stop-workflow] ARRIVE_STOP success at index:", currentStop.stop_index);
-        // Intermediate stops only — never overload pickup driver_arrived / trip_started.
-        if (currentStop.type === "stop") {
-          await notifyCustomerTripLifecycle(supabase, {
-            passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
-            tripId: trip_id,
-            event: "intermediate_stop_arrived",
-            stopIndex: currentStop.stop_index,
-            notificationId: `intermediate_stop_arrived-${trip_id}-${currentStop.stop_index}`,
-          });
-        }
+          if (waitingResult.started) {
+            await writeTripAudit(supabase, {
+              trip_id,
+              driver_id,
+              event_type: 'STOP_WAITING_STARTED',
+              details: {
+                stop_id: stopIdForAudit,
+                grace_seconds: waitingResult.graceSeconds,
+              },
+            });
+          }
+          if (stopType === "stop") {
+            await notifyCustomerTripLifecycle(supabase, {
+              passengerId: stopPassengerId,
+              tripId: trip_id,
+              event: "intermediate_stop_arrived",
+              stopIndex: stopIndexForNotify,
+              notificationId: `intermediate_stop_arrived-${trip_id}-${stopIndexForNotify}`,
+            });
+          }
+        }, "arrive_stop_p2");
         return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
           success: true,
           action: 'arrive_stop',
@@ -2787,11 +2835,12 @@ Deno.serve(async (req) => {
           waiting_status: waitingResult.waiting_status,
           allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
           distance_meters: waitingResult.distance_meters ?? null,
+          trip: { ...trip, stop_arrived_at: now },
         }, waitingResult, {
           scope: 'stop',
           trip: { ...trip, stop_arrived_at: now },
           stop: { ...currentStop, arrived_at: now },
-        }));
+        }), { skipSnapshotRefresh: true });
       }
 
       case 'next_stop':
@@ -2814,13 +2863,17 @@ Deno.serve(async (req) => {
           );
           if (alreadyNext) {
             console.log("[stop-workflow] drive_to_next idempotent — stop already advanced");
-            await notifyCustomerTripLifecycle(supabase, {
-              passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
-              tripId: trip_id,
-              event: "next_leg_started",
-              stopIndex: alreadyNext.stop_index,
-              notificationId: `next_leg_started-${trip_id}-${alreadyNext.stop_index}`,
-            });
+            const idempotentPassengerId =
+              typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+            scheduleEdgeBackground(async () => {
+              await notifyCustomerTripLifecycle(supabase, {
+                passengerId: idempotentPassengerId,
+                tripId: trip_id,
+                event: "next_leg_started",
+                stopIndex: alreadyNext.stop_index,
+                notificationId: `next_leg_started-${trip_id}-${alreadyNext.stop_index}`,
+              });
+            }, "drive_to_next_idempotent_p2");
             return await respondOk({
               success: true,
               idempotent: true,
@@ -2955,25 +3008,31 @@ Deno.serve(async (req) => {
             return errorResponse("rpc_error", "Failed to advance trip", 500, advanceErr);
           }
 
-          await writeTripAudit(supabase, {
-            trip_id,
-            driver_id,
-            event_type: 'TRIP_ADVANCED_TO_NEXT_DESTINATION',
-            details: {
-              from_index: currentIndex,
-              to_index: nextStop.stop_index,
-              next_stop_id: nextStop.id,
-            },
-          });
-
           console.log("[stop-workflow] NEXT_STOP success:", currentIndex, "->", nextStop.stop_index);
-          await notifyCustomerTripLifecycle(supabase, {
-            passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
-            tripId: trip_id,
-            event: "next_leg_started",
-            stopIndex: nextStop.stop_index,
-            notificationId: `next_leg_started-${trip_id}-${nextStop.stop_index}`,
-          });
+          // CANONICAL: stop advanced. P2: audit + next_leg_started notify.
+          const drivePassengerId =
+            typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+          const nextIndex = nextStop.stop_index;
+          const nextStopId = nextStop.id;
+          scheduleEdgeBackground(async () => {
+            await writeTripAudit(supabase, {
+              trip_id,
+              driver_id,
+              event_type: 'TRIP_ADVANCED_TO_NEXT_DESTINATION',
+              details: {
+                from_index: currentIndex,
+                to_index: nextIndex,
+                next_stop_id: nextStopId,
+              },
+            });
+            await notifyCustomerTripLifecycle(supabase, {
+              passengerId: drivePassengerId,
+              tripId: trip_id,
+              event: "next_leg_started",
+              stopIndex: nextIndex,
+              notificationId: `next_leg_started-${trip_id}-${nextIndex}`,
+            });
+          }, "drive_to_next_p2");
           return await respondOk({
             success: true,
             action: workflowAction,
@@ -2981,7 +3040,13 @@ Deno.serve(async (req) => {
             new_index: nextStop.stop_index,
             is_final: nextStop.type === 'dropoff',
             waiting_charge_pence: finalizeResult.chargePence,
-          });
+            trip: {
+              id: trip_id,
+              current_stop_index: nextStop.stop_index,
+              current_stop_id: nextStop.id,
+              stop_arrived_at: null,
+            },
+          }, { skipSnapshotRefresh: true });
         } else {
           // No more stops - this shouldn't happen if workflow is followed correctly
           console.log("[stop-workflow] No next stop available");
@@ -3718,13 +3783,17 @@ Deno.serve(async (req) => {
         }
 
         console.log("[stop-workflow] COMPLETE_TRIP success");
-        stages.mark('notification_start');
-        await notifyCustomerTripLifecycle(supabase, {
-          passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
-          tripId: trip_id,
-          event: "trip_completed",
-        });
-        stages.mark('notification_end');
+        // Financial + status completion already durable. P2: customer notify only.
+        stages.mark('notification_enqueue');
+        const completePassengerId =
+          typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+        scheduleEdgeBackground(async () => {
+          await notifyCustomerTripLifecycle(supabase, {
+            passengerId: completePassengerId,
+            tripId: trip_id,
+            event: "trip_completed",
+          });
+        }, "complete_trip_p2");
         stages.mark('response_ready');
         completeTripStagesMs = stages.snapshot();
         return await respondOk({ success: true, action: 'complete_trip' });

@@ -3,9 +3,7 @@
  * Observability + reliable off-path P2 work — never changes assignment SSOT.
  */
 
-declare const EdgeRuntime:
-  | { waitUntil?: (promise: Promise<unknown>) => void }
-  | undefined;
+import { scheduleEdgeBackground } from "./scheduleEdgeBackground.ts";
 
 export type AcceptOfferStageName =
   | "edge_receive"
@@ -144,19 +142,7 @@ export function scheduleAcceptOfferBackground(
   task: () => Promise<unknown>,
   label: string,
 ): void {
-  const run = () =>
-    task().catch((error) => {
-      console.warn(`[accept-offer] background ${label} failed:`, {
-        message: error instanceof Error ? error.message : String(error),
-      });
-    });
-
-  if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
-    EdgeRuntime.waitUntil(run());
-    return;
-  }
-  // Local / missing waitUntil — still fire-and-forget (must not block response).
-  void run();
+  scheduleEdgeBackground(task, label);
 }
 
 export type AcceptPostCanonicalOutcome = {
