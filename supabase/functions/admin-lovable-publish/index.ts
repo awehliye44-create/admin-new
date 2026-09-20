@@ -1,15 +1,30 @@
+/**
+ * Admin Lovable publish — production deploy trigger.
+ * Requires authenticated admin (user_roles.admin). Never callable with anon key alone.
+ */
+import { requireAdmin } from "../_shared/adminPaymentGate.ts";
+
 const LOVABLE_PROJECT_ID = "235162d5-c07d-4b9e-aa0c-c563bcb252a2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: { "Access-Control-Allow-Origin": "*" } });
+    return new Response(null, { headers: corsHeaders });
   }
+
+  const gate = await requireAdmin(req);
+  if (!gate.ok) return gate.response;
 
   const token = Deno.env.get("LOVABLE_API_KEY");
   if (!token) {
     return new Response(JSON.stringify({ error: "LOVABLE_API_KEY not configured" }), {
       status: 500,
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -38,6 +53,6 @@ Deno.serve(async (req) => {
   const body = await res.text();
   return new Response(body, {
     status: res.status,
-    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });

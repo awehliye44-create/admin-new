@@ -1,10 +1,13 @@
-import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 /**
  * finalize-trip-and-capture — existing Revolut completion path only.
  *
  * P0 #1: every invocation must leave a durable settlement outcome on the trip.
+ *
+ * Auth: cron secret or service_role only (never anon / user JWT).
+ * Tip: body tip trusted only for submit_customer_trip_tip; otherwise trip-row SSOT.
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { finalizeRevolutTripCapture } from "../_shared/finalizeRevolutTripCapture.ts";
 import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 import {
@@ -12,11 +15,16 @@ import {
   needsDurableSettlementPersist,
 } from "../_shared/durableSettlementOutcomeSSOT.ts";
 import { isTipWindowOpen } from "../_shared/tripPaymentFinalised.ts";
-import { extractBearerToken } from "../_shared/cronEdgeAuth.ts";
+import {
+  assertCronOrServiceRoleAuth,
+  extractBearerToken,
+} from "../_shared/cronEdgeAuth.ts";
+import { resolveTrustedCaptureTipPence } from "../_shared/resolveTrustedCaptureTipPence.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-onecab-cron-secret",
 };
 
 function timingSafeEqual(a: string, b: string): boolean {
@@ -78,15 +86,22 @@ Deno.serve(async (req) => {
   let tripIdForCatch: string | null = null;
 
   try {
+    const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+
+    const auth = await assertCronOrServiceRoleAuth(req, body);
+    if (!auth.ok) return auth.response;
+
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
       { auth: { persistSession: false } },
     );
 
-    const body = await req.json().catch(() => ({}));
     const trip_id = body.trip_id ?? body.tripId;
-    const tipPence = Math.max(0, Math.round(Number(body.tip_pence ?? body.tipPence ?? 0)));
+    const bodyTipPence = Math.max(
+      0,
+      Math.round(Number(body.tip_pence ?? body.tipPence ?? 0) || 0),
+    );
     const source = String(body.source ?? "").trim();
     if (!trip_id) {
       return new Response(JSON.stringify({ success: false, error: "trip_id is required" }), {
@@ -108,6 +123,12 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    const tipPence = resolveTrustedCaptureTipPence({
+      source,
+      bodyTipPence,
+      trip: trip as Record<string, unknown>,
+    });
 
     if (
       String(trip.financial_model ?? "").toUpperCase()
