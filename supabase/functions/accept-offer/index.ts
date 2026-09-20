@@ -30,12 +30,15 @@ import {
   finishEdgeRequestLog,
 } from "../_shared/edgeRequestTiming.ts";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
-import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import {
   buildMinimalAcceptedTripSeed,
   createAcceptOfferPerfClock,
+  notifyCustomerAssignedWithRetry,
   scheduleAcceptOfferBackground,
+  type AcceptPostCanonicalOutcome,
 } from "../_shared/acceptOfferPerf.ts";
+import { opsLog } from "../_shared/opsLog.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 interface AcceptRequest {
   offer_id: string;
@@ -357,8 +360,16 @@ Deno.serve(async (req) => {
       // P2 — notifications, delivery audit, wave snapshot: must not delay Driver.
       // Failure here must NOT roll back canonical stacked accept.
       scheduleAcceptOfferBackground(async () => {
-        perf.mark("notification_enqueue");
-        await Promise.allSettled([
+        const outcome: AcceptPostCanonicalOutcome = {
+          ride_stop_ok: true,
+          customer_notify_ok: null,
+          booking_delivery_ok: null,
+          wave_snapshot_ok: null,
+          notify_attempts: 0,
+          error_codes: [],
+        };
+        const t0 = performance.now();
+        const rideStopResults = await Promise.allSettled([
           sendRideStopPush(supabaseUrl, supabaseKey, driver_id, "accepted", {
             offer_id,
             trip_id: acceptedTripId,
@@ -369,20 +380,42 @@ Deno.serve(async (req) => {
             })
           ),
         ]);
+        outcome.ride_stop_ok = rideStopResults.every((r) => r.status === "fulfilled");
+        if (!outcome.ride_stop_ok) outcome.error_codes.push("ride_stop_failed");
+
         if (passengerUserId) {
-          await notifyCustomerTripLifecycle(supabase, {
-            userId: passengerUserId,
-            tripId: acceptedTripId,
-            event: "driver_assigned",
-            title: "Driver assigned",
-            body: "Your driver is completing a nearby trip first. We'll keep you updated.",
-          });
+          const notifyResult = await notifyCustomerAssignedWithRetry(
+            (args) =>
+              notifyCustomerTripLifecycle(supabase, {
+                userId: args.userId,
+                passengerId: args.passengerId,
+                tripId: args.tripId,
+                event: "driver_assigned",
+                title: args.title,
+                body: args.body,
+              }),
+            {
+              userId: passengerUserId,
+              tripId: acceptedTripId,
+              title: "Driver assigned",
+              body: "Your driver is completing a nearby trip first. We'll keep you updated.",
+            },
+          );
+          outcome.notify_attempts = notifyResult.attempts;
+          outcome.customer_notify_ok = notifyResult.ok;
+          if (!notifyResult.ok) {
+            outcome.error_codes.push("customer_notify_failed");
+            console.warn("[accept-offer] customer stacked push failed after retry:", notifyResult.error);
+          }
         } else {
           console.warn("[accept-offer] stacked accept: passenger_user_id not found — customer push skipped", {
             trip_id: acceptedTripId,
             current_trip_id: effectiveCurrentTripId,
           });
+          outcome.error_codes.push("passenger_missing");
         }
+
+        const deliveryStart = Math.round(performance.now() - t0);
         const { error: acceptedLogErr } = await supabase.rpc("record_booking_delivery", {
           p_booking_id: acceptedTripId,
           p_phase: "accepted",
@@ -396,21 +429,51 @@ Deno.serve(async (req) => {
             perf_id: perfId,
           },
         });
+        const deliveryEnd = Math.round(performance.now() - t0);
         if (acceptedLogErr) {
+          outcome.booking_delivery_ok = false;
+          outcome.error_codes.push("booking_delivery_failed");
           console.warn("[accept-offer] record_booking_delivery(accepted, stacked) failed:", acceptedLogErr);
+        } else {
+          outcome.booking_delivery_ok = true;
         }
-        await recordDispatchWaveSnapshot(supabase, {
-          tripId: acceptedTripId,
-          dispatchRound: Math.max(1, offer?.broadcast_round ?? 1),
-          stage: "selected",
-          driverId: driver_id,
-          rideOfferId: offer_id,
-          source: "stacked_accept",
+
+        try {
+          await recordDispatchWaveSnapshot(supabase, {
+            tripId: acceptedTripId,
+            dispatchRound: Math.max(1, offer?.broadcast_round ?? 1),
+            stage: "selected",
+            driverId: driver_id,
+            rideOfferId: offer_id,
+            source: "stacked_accept",
+            metadata: {
+              stacked_accept: true,
+              current_trip_id: effectiveCurrentTripId,
+              accepted_via: "stacked_accept",
+              perf_id: perfId,
+            },
+          });
+          outcome.wave_snapshot_ok = true;
+        } catch (error) {
+          outcome.wave_snapshot_ok = false;
+          outcome.error_codes.push("wave_snapshot_failed");
+          console.warn("[accept-offer] stacked wave snapshot failed:", error);
+        }
+
+        await opsLog(supabase, {
+          level: outcome.error_codes.length ? "warn" : "info",
+          source: "accept-offer",
+          app: "driver_app",
+          message: `accept-offer post-canonical P2 (stacked) in ${Math.round(performance.now() - t0)}ms`,
+          trip_id: acceptedTripId,
+          driver_id,
+          duration_ms: Math.round(performance.now() - t0),
           metadata: {
-            stacked_accept: true,
-            current_trip_id: effectiveCurrentTripId,
-            accepted_via: "stacked_accept",
             perf_id: perfId,
+            path: "stacked_accept",
+            phase: "post_canonical_p2",
+            booking_delivery_ms: deliveryEnd - deliveryStart,
+            ...outcome,
           },
         });
       }, "stacked_post_canonical");
@@ -606,8 +669,15 @@ Deno.serve(async (req) => {
     // accept_ride_offer already recorded booking delivery (source=postgres).
     // Failure must not roll back or flip success=false.
     scheduleAcceptOfferBackground(async () => {
-      perf.mark("notification_enqueue");
-      const rideStopTasks = [
+      const outcome: AcceptPostCanonicalOutcome = {
+        ride_stop_ok: true,
+        customer_notify_ok: null,
+        booking_delivery_ok: null,
+        notify_attempts: 0,
+        error_codes: [],
+      };
+      const t0 = performance.now();
+      const rideStopResults = await Promise.allSettled([
         sendRideStopPush(supabaseUrl, supabaseKey, driver_id, "accepted", {
           offer_id,
           trip_id: acceptedTripId,
@@ -618,8 +688,9 @@ Deno.serve(async (req) => {
             trip_id: acceptedTripId,
           })
         ),
-      ];
-      await Promise.allSettled(rideStopTasks);
+      ]);
+      outcome.ride_stop_ok = rideStopResults.every((r) => r.status === "fulfilled");
+      if (!outcome.ride_stop_ok) outcome.error_codes.push("ride_stop_failed");
 
       if (tripId) {
         let passengerId = knownPassengerId;
@@ -635,17 +706,35 @@ Deno.serve(async (req) => {
               : null;
         }
         if (passengerId) {
-          await notifyCustomerTripLifecycle(supabase, {
-            passengerId,
-            tripId,
-            event: "driver_assigned",
-          });
+          const notifyResult = await notifyCustomerAssignedWithRetry(
+            (args) =>
+              notifyCustomerTripLifecycle(supabase, {
+                userId: args.userId,
+                passengerId: args.passengerId,
+                tripId: args.tripId,
+                event: "driver_assigned",
+                title: args.title,
+                body: args.body,
+              }),
+            { passengerId, tripId },
+          );
+          outcome.notify_attempts = notifyResult.attempts;
+          outcome.customer_notify_ok = notifyResult.ok;
+          if (!notifyResult.ok) {
+            outcome.error_codes.push("customer_notify_failed");
+            console.warn(
+              "[accept-offer] customer driver_assigned push failed after retry:",
+              notifyResult.error,
+            );
+          }
         } else {
           console.warn("[accept-offer] passenger_id missing — customer assigned push skipped", {
             trip_id: tripId,
           });
+          outcome.error_codes.push("passenger_missing");
         }
 
+        const deliveryStart = Math.round(performance.now() - t0);
         const { error: acceptedLogErr } = await supabase.rpc("record_booking_delivery", {
           p_booking_id: tripId,
           p_phase: "accepted",
@@ -659,9 +748,33 @@ Deno.serve(async (req) => {
             note: "supplemental_edge_audit_rpc_already_recorded",
           },
         });
+        const deliveryEnd = Math.round(performance.now() - t0);
         if (acceptedLogErr) {
+          outcome.booking_delivery_ok = false;
+          outcome.error_codes.push("booking_delivery_failed");
           console.warn("[accept-offer] record_booking_delivery(accepted) failed:", acceptedLogErr);
+        } else {
+          outcome.booking_delivery_ok = true;
         }
+
+        await opsLog(supabase, {
+          level: outcome.error_codes.length ? "warn" : "info",
+          source: "accept-offer",
+          app: "driver_app",
+          message: `accept-offer post-canonical P2 in ${Math.round(performance.now() - t0)}ms`,
+          trip_id: tripId,
+          driver_id,
+          duration_ms: Math.round(performance.now() - t0),
+          metadata: {
+            perf_id: perfId,
+            path: "accept_ride_offer",
+            phase: "post_canonical_p2",
+            booking_delivery_ms: deliveryEnd - deliveryStart,
+            edge_post_trip_fetch_ms: null,
+            edge_post_driver_fetch_ms: null,
+            ...outcome,
+          },
+        });
       }
     }, "accept_post_canonical");
 

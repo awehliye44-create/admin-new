@@ -100,6 +100,7 @@ const ALLOWED_METADATA_KEYS = new Set([
   "edge_post_trip_fetch_ms",
   "edge_post_driver_fetch_ms",
   "edge_booking_delivery_ms",
+  "edge_response_build_ms",
   "edge_post_canonical_blocking_ms",
   "timeout_budget_ms",
 ]);

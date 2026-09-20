@@ -111,10 +111,12 @@ Deno.test("accept-offer still generates customer driver_assigned + RIDE_STOP + b
   assertStringIncludes(src, 'p_phase: "accepted"');
   const bgIdx = src.indexOf("scheduleAcceptOfferBackground(async () => {");
   assertEquals(bgIdx > 0, true);
-  const bgBlock = src.slice(bgIdx, bgIdx + 3500);
-  assertStringIncludes(bgBlock, "notifyCustomerTripLifecycle");
+  const bgBlock = src.slice(bgIdx, bgIdx + 4500);
+  assertStringIncludes(bgBlock, "notifyCustomerAssignedWithRetry");
   assertStringIncludes(bgBlock, "sendRideStopPush");
   assertStringIncludes(bgBlock, "record_booking_delivery");
+  assertStringIncludes(bgBlock, "opsLog");
+  assertStringIncludes(bgBlock, "post_canonical_p2");
 });
 
 Deno.test("accept-offer still calls accept_ride_offer / accept_stacked_ride (atomicity preserved)", async () => {
@@ -135,6 +137,34 @@ Deno.test("accept-offer preserves eligibility / negotiation / stacked / schedule
   assertStringIncludes(src, "STACKED_RIDE_AUTO_REDIRECT");
 });
 
+Deno.test("verification 3–8: expired/cancelled/already-accepted/stacked/scheduled rejection paths remain", async () => {
+  const src = await Deno.readTextFile(acceptOfferPath);
+  // Competing / already accepted / expired / cancelled handled by RPC + Edge mapping.
+  assertStringIncludes(src, "OFFER_EXPIRED");
+  assertStringIncludes(src, "OFFER_NOT_PENDING");
+  assertStringIncludes(src, "accept_stacked_ride");
+  assertStringIncludes(src, "is_urgent_dispatch");
+  assertStringIncludes(src, "assertCanAcceptOfferByDriverId");
+  // P2 work is scheduled after canonical — response path uses successResponse(withDuration(...data)).
+  const afterCanonical = src.slice(
+    src.indexOf('perf.mark("CANONICAL_ASSIGNMENT_CONFIRMED")'),
+  );
+  assertStringIncludes(afterCanonical, "scheduleAcceptOfferBackground");
+  assertStringIncludes(afterCanonical, "buildMinimalAcceptedTripSeed");
+  // Must not await full trips.* enrichment on critical path after canonical.
+  assertEquals(afterCanonical.includes('.from("drivers")'), false);
+});
+
+Deno.test("P2 notify retry helper is used; notifications not removed", async () => {
+  const helper = await Deno.readTextFile(perfHelperPath);
+  assertStringIncludes(helper, "notifyCustomerAssignedWithRetry");
+  assertStringIncludes(helper, "for (let i = 0; i < 2; i++)");
+  assertStringIncludes(helper, 'event: "driver_assigned"');
+  const src = await Deno.readTextFile(acceptOfferPath);
+  assertStringIncludes(src, "notifyCustomerAssignedWithRetry");
+  assertEquals(src.includes("notifyCustomerTripLifecycle"), true);
+});
+
 Deno.test("accept-offer returns lifecycle_perf_stages_ms + derived edge durations", async () => {
   const src = await Deno.readTextFile(acceptOfferPath);
   assertStringIncludes(src, "lifecycle_perf_stages_ms");
@@ -144,6 +174,7 @@ Deno.test("accept-offer returns lifecycle_perf_stages_ms + derived edge duration
   const helper = await Deno.readTextFile(perfHelperPath);
   assertStringIncludes(helper, "edge_accept_rpc_ms");
   assertStringIncludes(helper, "edge_post_canonical_blocking_ms");
+  assertStringIncludes(helper, "edge_response_build_ms");
 });
 
 Deno.test("ingest-telemetry allows Accept waterfall flat metadata keys", async () => {
@@ -151,6 +182,7 @@ Deno.test("ingest-telemetry allows Accept waterfall flat metadata keys", async (
   assertStringIncludes(src, '"accept_tap_to_interactive_ms"');
   assertStringIncludes(src, '"accept_edge_rtt_ms"');
   assertStringIncludes(src, '"edge_accept_rpc_ms"');
+  assertStringIncludes(src, '"edge_response_build_ms"');
   assertStringIncludes(src, '"perf_id"');
 });
 
@@ -159,4 +191,5 @@ Deno.test("acceptOfferPerf helper exposes waitUntil scheduling", async () => {
   assertStringIncludes(src, "EdgeRuntime.waitUntil");
   assertStringIncludes(src, "scheduleAcceptOfferBackground");
   assertStringIncludes(src, "buildMinimalAcceptedTripSeed");
+  assertStringIncludes(src, "notifyCustomerAssignedWithRetry");
 });

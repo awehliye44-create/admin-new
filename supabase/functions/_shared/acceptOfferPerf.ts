@@ -159,6 +159,56 @@ export function scheduleAcceptOfferBackground(
   void run();
 }
 
+export type AcceptPostCanonicalOutcome = {
+  ride_stop_ok: boolean;
+  customer_notify_ok: boolean | null;
+  booking_delivery_ok: boolean | null;
+  wave_snapshot_ok?: boolean | null;
+  notify_attempts: number;
+  error_codes: string[];
+};
+
+type NotifyFn = (input: {
+  passengerId?: string | null;
+  userId?: string | null;
+  tripId: string;
+  event: string;
+  title?: string;
+  body?: string;
+}) => Promise<void>;
+
+/** One retry for Customer driver_assigned — never throws to caller. */
+export async function notifyCustomerAssignedWithRetry(
+  notify: NotifyFn,
+  input: {
+    passengerId?: string | null;
+    userId?: string | null;
+    tripId: string;
+    title?: string;
+    body?: string;
+  },
+): Promise<{ ok: boolean; attempts: number; error?: string }> {
+  let attempts = 0;
+  let lastError: string | undefined;
+  for (let i = 0; i < 2; i++) {
+    attempts += 1;
+    try {
+      await notify({
+        passengerId: input.passengerId,
+        userId: input.userId,
+        tripId: input.tripId,
+        event: "driver_assigned",
+        title: input.title,
+        body: input.body,
+      });
+      return { ok: true, attempts };
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  return { ok: false, attempts, error: lastError };
+}
+
 /**
  * Minimal authoritative trip seed for Driver activeTrip after canonical accept.
  * Built from accept_ride_offer RPC fields — never fabricates assignment.
