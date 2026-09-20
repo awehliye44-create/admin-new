@@ -194,6 +194,7 @@ Deno.test("accept-offer marks post-assignment skip + P2 notify/delivery stages",
   const src = await Deno.readTextFile(acceptOfferPath);
   assertStringIncludes(src, "markPostAssignmentEnrichmentSkipped");
   assertStringIncludes(src, "markScheduledGuardSkipped");
+  assertStringIncludes(src, "markLockIdempotencySkipped");
   assertStringIncludes(src, 'perf.mark("notification_enqueue")');
   assertStringIncludes(src, 'perf.mark("booking_delivery_start")');
   assertStringIncludes(src, 'perf.mark("booking_delivery_end")');
@@ -230,4 +231,5 @@ Deno.test("acceptOfferPerf helper exposes waitUntil scheduling + skip marks", as
   assertStringIncludes(src, "notifyCustomerAssignedWithRetry");
   assertStringIncludes(src, "markPostAssignmentEnrichmentSkipped");
   assertStringIncludes(src, "markScheduledGuardSkipped");
+  assertStringIncludes(src, "markLockIdempotencySkipped");
 });

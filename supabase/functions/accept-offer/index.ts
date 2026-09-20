@@ -33,6 +33,7 @@ import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 import {
   buildMinimalAcceptedTripSeed,
   createAcceptOfferPerfClock,
+  markLockIdempotencySkipped,
   markPostAssignmentEnrichmentSkipped,
   markScheduledGuardSkipped,
   notifyCustomerAssignedWithRetry,
@@ -249,6 +250,7 @@ Deno.serve(async (req) => {
         (ownerId && ownerId !== driver_id) ||
         (tripStatus === "negotiating" && ownerId !== driver_id)
       ) {
+        perf.mark("lock_idempotency_end");
         console.log("[accept-offer] BLOCKED_NEGOTIATION_HELD", {
           offer_id,
           driver_id,
@@ -262,6 +264,8 @@ Deno.serve(async (req) => {
         );
       }
       perf.mark("lock_idempotency_end");
+    } else {
+      markLockIdempotencySkipped(perf);
     }
 
     let effectiveIsStacked = Boolean(is_stacked);

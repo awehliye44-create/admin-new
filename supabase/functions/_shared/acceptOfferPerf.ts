@@ -261,3 +261,9 @@ export function markScheduledGuardSkipped(perf: AcceptOfferPerfClock): void {
   perf.mark("scheduled_guard_start");
   perf.mark("scheduled_guard_end");
 }
+
+/** Explicit skip when negotiation hold lookup does not run (no trip_id). */
+export function markLockIdempotencySkipped(perf: AcceptOfferPerfClock): void {
+  perf.mark("lock_idempotency_start");
+  perf.mark("lock_idempotency_end");
+}
