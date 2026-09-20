@@ -30612,7 +30612,6 @@ export type Database = {
           p_speed?: number
           p_trip_id?: string
         }
-        /** jsonb: { trip_mirrored, trip_mirror_skipped, trip_id_requested, presence } */
         Returns: Json
       }
       suspend_corporate_account: {
