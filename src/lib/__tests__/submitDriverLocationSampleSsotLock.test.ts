@@ -66,4 +66,16 @@ describe('submitDriverLocationSampleSsotLock', () => {
     expect(tableCreate).not.toMatch(/\blongitude\b/);
     expect(sql).toContain('No coordinates');
   });
+
+  it('gap-close keeps TRIP_MIRRORED honest and online_intent from drivers (20261117120000)', () => {
+    const sql = read(
+      'supabase/migrations/20261117120000_driver_location_publish_diagnostics_gap_close.sql',
+    );
+    expect(sql).toContain('GET DIAGNOSTICS v_tdll_rows = ROW_COUNT');
+    expect(sql).toContain('TRIP_MIRROR_STALE_SKIPPED');
+    expect(sql).toContain("v_reason := 'NO_ACTIVE_TRIP'");
+    expect(sql).toContain('driver_online_intent');
+    expect(sql).toContain('DRIVER_ID_REQUIRED');
+    expect(sql).toContain('GPS_RECORDED_AT_REQUIRED');
+  });
 });
