@@ -11,6 +11,8 @@ const SOFT =
   'supabase/migrations/20261112210000_submit_driver_location_soft_trip_mirror.sql';
 const JWT =
   'supabase/migrations/20261112220000_submit_driver_location_jwt_bind_diagnostics.sql';
+const DIAG =
+  'supabase/migrations/20261113090000_driver_location_publish_diagnostics.sql';
 
 function read(rel: string): string {
   return fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -39,5 +41,29 @@ describe('submitDriverLocationSampleSsotLock', () => {
     expect(sql).toContain('GRANT EXECUTE');
     expect(sql).toContain('TO authenticated');
     expect(sql).toContain('TO service_role');
+  });
+
+  it('records reason-coded publish diags with 72h retention (20261113090000)', () => {
+    const sql = read(DIAG);
+    expect(sql).toContain('driver_location_publish_diagnostics');
+    expect(sql).toContain('record_driver_location_publish_diag');
+    expect(sql).toContain('purge_driver_location_publish_diagnostics');
+    expect(sql).toContain("interval '72 hours'");
+    expect(sql).toContain('TRIP_MIRRORED');
+    expect(sql).toContain('TRIP_NOT_LIVE');
+    expect(sql).toContain('TRIP_DRIVER_MISMATCH');
+    expect(sql).toContain('STALE_SAMPLE');
+    expect(sql).toContain('OUT_OF_ORDER_SAMPLE');
+    expect(sql).toContain('PRESENCE_REJECTED');
+    expect(sql).toContain('reason_code');
+    expect(sql).toContain('presence_updated');
+    // Diagnostics table itself must not store coordinates (canonical tables still do).
+    const tableCreate = sql.slice(
+      sql.indexOf('CREATE TABLE IF NOT EXISTS public.driver_location_publish_diagnostics'),
+      sql.indexOf('COMMENT ON TABLE public.driver_location_publish_diagnostics'),
+    );
+    expect(tableCreate).not.toMatch(/\blatitude\b/);
+    expect(tableCreate).not.toMatch(/\blongitude\b/);
+    expect(sql).toContain('No coordinates');
   });
 });
