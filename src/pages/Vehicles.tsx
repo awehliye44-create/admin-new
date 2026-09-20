@@ -37,8 +37,17 @@ interface Vehicle {
     first_name: string;
     last_name: string;
     driver_code: string | null;
-  };
+    driver_status: string | null;
+    deleted_at: string | null;
+  } | null;
 }
+
+/** A vehicle is archived when its driver record has been deleted. */
+const isArchivedVehicle = (vehicle: Vehicle) =>
+  Boolean(vehicle.driver?.deleted_at) || vehicle.driver?.driver_status === 'deleted';
+
+const displayPlate = (plate: string) =>
+  plate?.startsWith('DELETED-') ? 'Released' : plate;
 
 interface VehicleChangeRequest {
   id: string;
@@ -75,6 +84,7 @@ export default function Vehicles() {
 
   // Review dialog state
   const [reviewRequest, setReviewRequest] = useState<VehicleChangeRequest | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [adminNotes, setAdminNotes] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -84,7 +94,7 @@ export default function Vehicles() {
         .from('vehicles')
         .select(`
           id, make, model, year, color, license_plate, is_primary, approval_status, rejection_reason, capacity, vehicle_type_id, driver_id, created_at, updated_at,
-          driver:drivers(first_name, last_name, driver_code)
+          driver:drivers(first_name, last_name, driver_code, driver_status, deleted_at)
         `)
         .order('created_at', { ascending: false })
         .limit(500);
