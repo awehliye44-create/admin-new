@@ -22,7 +22,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, CarTaxiFront, Loader2, CheckCircle, XCircle, ArrowRight, AlertTriangle, Clock } from 'lucide-react';
+import { Plus, CarTaxiFront, Loader2, CheckCircle, XCircle, ArrowRight, AlertTriangle, Clock, Archive } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Vehicle {
@@ -37,8 +37,17 @@ interface Vehicle {
     first_name: string;
     last_name: string;
     driver_code: string | null;
-  };
+    driver_status: string | null;
+    deleted_at: string | null;
+  } | null;
 }
+
+/** A vehicle is archived when its driver record has been deleted. */
+const isArchivedVehicle = (vehicle: Vehicle) =>
+  Boolean(vehicle.driver?.deleted_at) || vehicle.driver?.driver_status === 'deleted';
+
+const displayPlate = (plate: string) =>
+  plate?.startsWith('DELETED-') ? 'Released' : plate;
 
 interface VehicleChangeRequest {
   id: string;
@@ -75,6 +84,7 @@ export default function Vehicles() {
 
   // Review dialog state
   const [reviewRequest, setReviewRequest] = useState<VehicleChangeRequest | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [adminNotes, setAdminNotes] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -84,7 +94,7 @@ export default function Vehicles() {
         .from('vehicles')
         .select(`
           id, make, model, year, color, license_plate, is_primary, approval_status, rejection_reason, capacity, vehicle_type_id, driver_id, created_at, updated_at,
-          driver:drivers(first_name, last_name, driver_code)
+          driver:drivers(first_name, last_name, driver_code, driver_status, deleted_at)
         `)
         .order('created_at', { ascending: false })
         .limit(500);
@@ -140,6 +150,10 @@ export default function Vehicles() {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  const activeVehicles = vehicles.filter((v) => !isArchivedVehicle(v));
+  const archivedVehicles = vehicles.filter(isArchivedVehicle);
+  const visibleVehicles = showArchived ? archivedVehicles : activeVehicles;
 
   const pendingRequests = changeRequests.filter(r => r.status === 'pending');
   const reviewedRequests = changeRequests.filter(r => r.status !== 'pending');
@@ -285,28 +299,48 @@ export default function Vehicles() {
           </Card>
         )}
 
-        {/* All Vehicles */}
+        {/* Vehicles */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <CarTaxiFront className="h-5 w-5 text-primary" />
-              All Vehicles
+              {showArchived ? 'Archived Vehicles' : 'Active Vehicles'}
+              <Badge variant="secondary">
+                {(showArchived ? archivedVehicles : activeVehicles).length}
+              </Badge>
             </CardTitle>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Vehicle
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowArchived((prev) => !prev)}
+              >
+                <Archive className="mr-2 h-4 w-4" />
+                {showArchived
+                  ? `Show active (${activeVehicles.length})`
+                  : `Archived (${archivedVehicles.length})`}
+              </Button>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Vehicle
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
+            {showArchived && (
+              <p className="mb-4 text-sm text-muted-foreground">
+                These vehicles belonged to drivers who have been deleted. They are kept for
+                record-keeping only and their number plates have been released for reuse.
+              </p>
+            )}
             {isLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
             ) : error ? (
               <div className="py-8 text-center text-destructive">{error}</div>
-            ) : vehicles.length === 0 ? (
+            ) : visibleVehicles.length === 0 ? (
               <div className="py-8 text-center text-muted-foreground">
-                No vehicles found.
+                {showArchived ? 'No archived vehicles.' : 'No active vehicles found.'}
               </div>
             ) : (
               <Table>
@@ -316,17 +350,17 @@ export default function Vehicles() {
                     <TableHead>License Plate</TableHead>
                     <TableHead>Color</TableHead>
                     <TableHead>Driver</TableHead>
-                    <TableHead>Primary</TableHead>
+                    <TableHead>{showArchived ? 'Status' : 'Primary'}</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {vehicles.map((vehicle) => (
-                    <TableRow key={vehicle.id}>
+                  {visibleVehicles.map((vehicle) => (
+                    <TableRow key={vehicle.id} className={showArchived ? 'opacity-70' : undefined}>
                       <TableCell className="font-medium">
                         {vehicle.year} {vehicle.make} {vehicle.model}
                       </TableCell>
-                      <TableCell>{vehicle.license_plate}</TableCell>
+                      <TableCell>{displayPlate(vehicle.license_plate)}</TableCell>
                       <TableCell>{vehicle.color}</TableCell>
                       <TableCell className="text-muted-foreground">
                         {vehicle.driver
@@ -334,21 +368,29 @@ export default function Vehicles() {
                           : 'Unassigned'}
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={vehicle.is_primary ? 'default' : 'secondary'}
-                          className={
-                            vehicle.is_primary
-                              ? 'bg-primary/10 text-primary'
-                              : ''
-                          }
-                        >
-                          {vehicle.is_primary ? 'Primary' : 'Secondary'}
-                        </Badge>
+                        {showArchived ? (
+                          <Badge variant="secondary">Archived</Badge>
+                        ) : (
+                          <Badge
+                            variant={vehicle.is_primary ? 'default' : 'secondary'}
+                            className={
+                              vehicle.is_primary
+                                ? 'bg-primary/10 text-primary'
+                                : ''
+                            }
+                          >
+                            {vehicle.is_primary ? 'Primary' : 'Secondary'}
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm">
-                          Edit
-                        </Button>
+                        {showArchived ? (
+                          <span className="text-xs text-muted-foreground">Read only</span>
+                        ) : (
+                          <Button variant="ghost" size="sm">
+                            Edit
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
