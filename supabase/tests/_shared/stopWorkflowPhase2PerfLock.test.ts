@@ -122,6 +122,16 @@ Deno.test("complete_trip does not move payment capture; trip_completed notify of
   assertEquals(bgAroundNotify.includes("invokeFinalizeTripCapture"), false);
   // Tap audit is P2 with notify after financial durability.
   assertEquals(bgAroundNotify.includes("COMPLETE_TRIP_TAPPED"), true);
+  // Between financial success log and waitUntil schedule, no on-path tap audit.
+  const successIdx = completeBlock.indexOf('[stop-workflow] COMPLETE_TRIP success');
+  const scheduleIdx = completeBlock.lastIndexOf(
+    "scheduleEdgeBackground",
+    notifyBgIdx,
+  );
+  assertEquals(successIdx > 0 && scheduleIdx > successIdx, true);
+  const betweenSuccessAndBg = completeBlock.slice(successIdx, scheduleIdx);
+  assertEquals(betweenSuccessAndBg.includes("COMPLETE_TRIP_TAPPED"), false);
+  assertEquals(betweenSuccessAndBg.includes("await writeTripAudit"), false);
 });
 
 Deno.test("start_trip finalize prefers frozen waiting config without Admin reload", async () => {

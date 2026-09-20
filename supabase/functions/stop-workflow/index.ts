@@ -3862,13 +3862,6 @@ Deno.serve(async (req) => {
           await tripIncrementPromise;
         }
 
-        await writeTripAudit(supabase, {
-          trip_id,
-          driver_id,
-          event_type: 'COMPLETE_TRIP_TAPPED',
-          details: { final_stop_index: finalStop.stop_index },
-        });
-
         // Server-side stacked promotion — do not wait for driver post-trip rating UI.
         // RPC falls back to stack_position when stacked_trip_id is null (Admin max 2–3).
         if (hasStackedTrip) {
