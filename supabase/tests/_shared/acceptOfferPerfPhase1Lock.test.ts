@@ -41,6 +41,10 @@ Deno.test("deriveAcceptOfferEdgeDurations does not double-count nested stages", 
     accept_rpc_start: 500,
     accept_rpc_end: 1400,
     CANONICAL_ASSIGNMENT_CONFIRMED: 1400,
+    post_assignment_trip_fetch_start: 1400,
+    post_assignment_trip_fetch_end: 1400,
+    post_assignment_driver_fetch_start: 1400,
+    post_assignment_driver_fetch_end: 1400,
     response_build_start: 1405,
     response_build_end: 1410,
     edge_response: 1415,
@@ -52,8 +56,8 @@ Deno.test("deriveAcceptOfferEdgeDurations does not double-count nested stages", 
   assertEquals(d.edge_canonical_assignment_ms, 900);
   assertEquals(d.edge_post_canonical_blocking_ms, 15);
   assertEquals(d.edge_total_ms, 1415);
-  assertEquals(d.edge_post_trip_fetch_ms, null);
-  assertEquals(d.edge_post_driver_fetch_ms, null);
+  assertEquals(d.edge_post_trip_fetch_ms, 0);
+  assertEquals(d.edge_post_driver_fetch_ms, 0);
 });
 
 Deno.test("buildMinimalAcceptedTripSeed uses RPC fields only — never fabricates assignment", () => {
@@ -111,12 +115,12 @@ Deno.test("accept-offer still generates customer driver_assigned + RIDE_STOP + b
   assertStringIncludes(src, 'p_phase: "accepted"');
   const bgIdx = src.indexOf("scheduleAcceptOfferBackground(async () => {");
   assertEquals(bgIdx > 0, true);
-  const bgBlock = src.slice(bgIdx, bgIdx + 4500);
+  const bgBlock = src.slice(bgIdx, bgIdx + 8000);
   assertStringIncludes(bgBlock, "notifyCustomerAssignedWithRetry");
   assertStringIncludes(bgBlock, "sendRideStopPush");
   assertStringIncludes(bgBlock, "record_booking_delivery");
   assertStringIncludes(bgBlock, "opsLog");
-  assertStringIncludes(bgBlock, "post_canonical_p2");
+  assertStringIncludes(src, 'phase: "post_canonical_p2"');
 });
 
 Deno.test("accept-offer still calls accept_ride_offer / accept_stacked_ride (atomicity preserved)", async () => {
@@ -186,10 +190,44 @@ Deno.test("ingest-telemetry allows Accept waterfall flat metadata keys", async (
   assertStringIncludes(src, '"perf_id"');
 });
 
-Deno.test("acceptOfferPerf helper exposes waitUntil scheduling", async () => {
+Deno.test("accept-offer marks post-assignment skip + P2 notify/delivery stages", async () => {
+  const src = await Deno.readTextFile(acceptOfferPath);
+  assertStringIncludes(src, "markPostAssignmentEnrichmentSkipped");
+  assertStringIncludes(src, "markScheduledGuardSkipped");
+  assertStringIncludes(src, 'perf.mark("notification_enqueue")');
+  assertStringIncludes(src, 'perf.mark("booking_delivery_start")');
+  assertStringIncludes(src, 'perf.mark("booking_delivery_end")');
+  // Stacked returns minimal trip seed.
+  assertStringIncludes(src, "stackedTripSeed");
+  assertStringIncludes(src, "trip: stackedTripSeed");
+});
+
+Deno.test("accept_ride_offer / accept_stacked_ride SQL use FOR UPDATE (two-driver race)", async () => {
+  const migrationsDir = new URL("../../migrations/", import.meta.url);
+  let acceptRide = "";
+  let acceptStacked = "";
+  for await (const entry of Deno.readDir(migrationsDir)) {
+    if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
+    const text = await Deno.readTextFile(new URL(entry.name, migrationsDir));
+    if (text.includes("CREATE OR REPLACE FUNCTION public.accept_ride_offer")) {
+      acceptRide = text;
+    }
+    if (text.includes("CREATE OR REPLACE FUNCTION public.accept_stacked_ride")) {
+      acceptStacked = text;
+    }
+  }
+  assertEquals(acceptRide.length > 0, true);
+  assertEquals(acceptStacked.length > 0, true);
+  assertStringIncludes(acceptRide, "FOR UPDATE");
+  assertStringIncludes(acceptStacked, "FOR UPDATE");
+});
+
+Deno.test("acceptOfferPerf helper exposes waitUntil scheduling + skip marks", async () => {
   const src = await Deno.readTextFile(perfHelperPath);
   assertStringIncludes(src, "EdgeRuntime.waitUntil");
   assertStringIncludes(src, "scheduleAcceptOfferBackground");
   assertStringIncludes(src, "buildMinimalAcceptedTripSeed");
   assertStringIncludes(src, "notifyCustomerAssignedWithRetry");
+  assertStringIncludes(src, "markPostAssignmentEnrichmentSkipped");
+  assertStringIncludes(src, "markScheduledGuardSkipped");
 });

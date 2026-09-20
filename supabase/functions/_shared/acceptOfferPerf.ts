@@ -242,3 +242,22 @@ export function buildMinimalAcceptedTripSeed(input: {
     fare_source: rpc.fare_source ?? null,
   };
 }
+
+/**
+ * Explicit 0ms skip marks so edge_post_* durations are present (0), not absent.
+ * Call after CANONICAL_ASSIGNMENT_CONFIRMED when enrichment is intentionally omitted.
+ */
+export function markPostAssignmentEnrichmentSkipped(
+  perf: AcceptOfferPerfClock,
+): void {
+  perf.mark("post_assignment_trip_fetch_start");
+  perf.mark("post_assignment_trip_fetch_end");
+  perf.mark("post_assignment_driver_fetch_start");
+  perf.mark("post_assignment_driver_fetch_end");
+}
+
+/** Explicit skip when scheduled urgent guard does not apply. */
+export function markScheduledGuardSkipped(perf: AcceptOfferPerfClock): void {
+  perf.mark("scheduled_guard_start");
+  perf.mark("scheduled_guard_end");
+}

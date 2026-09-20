@@ -33,6 +33,8 @@ import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 import {
   buildMinimalAcceptedTripSeed,
   createAcceptOfferPerfClock,
+  markPostAssignmentEnrichmentSkipped,
+  markScheduledGuardSkipped,
   notifyCustomerAssignedWithRetry,
   scheduleAcceptOfferBackground,
   type AcceptPostCanonicalOutcome,
@@ -354,9 +356,24 @@ Deno.serve(async (req) => {
       // CANONICAL: accept_stacked_ride committed assignment atomically.
       perf.mark("accept_rpc_end");
       perf.mark("CANONICAL_ASSIGNMENT_CONFIRMED");
+      // No full trip/driver enrichment on critical path — explicit skip marks.
+      markPostAssignmentEnrichmentSkipped(perf);
+      markScheduledGuardSkipped(perf);
       perf.mark("response_build_start");
 
       const offer = pendingOffer;
+      const stackedTripSeed = buildMinimalAcceptedTripSeed({
+        tripId: acceptedTripId,
+        driverId: driver_id,
+        rpc: {
+          ...(typeof stackedResult === "object" && stackedResult
+            ? (stackedResult as Record<string, unknown>)
+            : {}),
+          status: "queued",
+          offer_id,
+          fare_source: "snapshot_accepted_wave_commission",
+        },
+      });
       // P2 — notifications, delivery audit, wave snapshot: must not delay Driver.
       // Failure here must NOT roll back canonical stacked accept.
       scheduleAcceptOfferBackground(async () => {
@@ -384,6 +401,7 @@ Deno.serve(async (req) => {
         if (!outcome.ride_stop_ok) outcome.error_codes.push("ride_stop_failed");
 
         if (passengerUserId) {
+          perf.mark("notification_enqueue");
           const notifyResult = await notifyCustomerAssignedWithRetry(
             (args) =>
               notifyCustomerTripLifecycle(supabase, {
@@ -415,7 +433,7 @@ Deno.serve(async (req) => {
           outcome.error_codes.push("passenger_missing");
         }
 
-        const deliveryStart = Math.round(performance.now() - t0);
+        perf.mark("booking_delivery_start");
         const { error: acceptedLogErr } = await supabase.rpc("record_booking_delivery", {
           p_booking_id: acceptedTripId,
           p_phase: "accepted",
@@ -429,7 +447,7 @@ Deno.serve(async (req) => {
             perf_id: perfId,
           },
         });
-        const deliveryEnd = Math.round(performance.now() - t0);
+        perf.mark("booking_delivery_end");
         if (acceptedLogErr) {
           outcome.booking_delivery_ok = false;
           outcome.error_codes.push("booking_delivery_failed");
@@ -460,6 +478,7 @@ Deno.serve(async (req) => {
           console.warn("[accept-offer] stacked wave snapshot failed:", error);
         }
 
+        const p2Durations = perf.durations();
         await opsLog(supabase, {
           level: outcome.error_codes.length ? "warn" : "info",
           source: "accept-offer",
@@ -472,7 +491,8 @@ Deno.serve(async (req) => {
             perf_id: perfId,
             path: "stacked_accept",
             phase: "post_canonical_p2",
-            booking_delivery_ms: deliveryEnd - deliveryStart,
+            edge_booking_delivery_ms: p2Durations.edge_booking_delivery_ms,
+            lifecycle_perf_stages_ms: perf.snapshot(),
             ...outcome,
           },
         });
@@ -513,6 +533,7 @@ Deno.serve(async (req) => {
         success: true,
         trip_id: acceptedTripId,
         is_stacked: true,
+        trip: stackedTripSeed,
         message: "Stacked ride accepted - will start after current trip",
         perf_id: perfId,
         lifecycle_perf_stages_ms: stageSnapshot,
@@ -639,6 +660,9 @@ Deno.serve(async (req) => {
     const acceptedTripId = data.trip_id ?? offerRow?.trip_id;
     const tripId = data.trip_id;
 
+    // Explicit skip: no full trips/drivers re-fetch on critical path.
+    markPostAssignmentEnrichmentSkipped(perf);
+
     // P0 only when applicable: scheduled urgent dispatch status (cheap, correctness).
     if (tripId && offerRow?.is_urgent_dispatch) {
       perf.mark("scheduled_guard_start");
@@ -652,6 +676,8 @@ Deno.serve(async (req) => {
         })
         .eq("id", tripId);
       perf.mark("scheduled_guard_end");
+    } else {
+      markScheduledGuardSkipped(perf);
     }
 
     perf.mark("response_build_start");
@@ -706,6 +732,7 @@ Deno.serve(async (req) => {
               : null;
         }
         if (passengerId) {
+          perf.mark("notification_enqueue");
           const notifyResult = await notifyCustomerAssignedWithRetry(
             (args) =>
               notifyCustomerTripLifecycle(supabase, {
@@ -734,7 +761,7 @@ Deno.serve(async (req) => {
           outcome.error_codes.push("passenger_missing");
         }
 
-        const deliveryStart = Math.round(performance.now() - t0);
+        perf.mark("booking_delivery_start");
         const { error: acceptedLogErr } = await supabase.rpc("record_booking_delivery", {
           p_booking_id: tripId,
           p_phase: "accepted",
@@ -748,7 +775,7 @@ Deno.serve(async (req) => {
             note: "supplemental_edge_audit_rpc_already_recorded",
           },
         });
-        const deliveryEnd = Math.round(performance.now() - t0);
+        perf.mark("booking_delivery_end");
         if (acceptedLogErr) {
           outcome.booking_delivery_ok = false;
           outcome.error_codes.push("booking_delivery_failed");
@@ -757,6 +784,7 @@ Deno.serve(async (req) => {
           outcome.booking_delivery_ok = true;
         }
 
+        const p2Durations = perf.durations();
         await opsLog(supabase, {
           level: outcome.error_codes.length ? "warn" : "info",
           source: "accept-offer",
@@ -769,9 +797,10 @@ Deno.serve(async (req) => {
             perf_id: perfId,
             path: "accept_ride_offer",
             phase: "post_canonical_p2",
-            booking_delivery_ms: deliveryEnd - deliveryStart,
-            edge_post_trip_fetch_ms: null,
-            edge_post_driver_fetch_ms: null,
+            edge_booking_delivery_ms: p2Durations.edge_booking_delivery_ms,
+            edge_post_trip_fetch_ms: p2Durations.edge_post_trip_fetch_ms,
+            edge_post_driver_fetch_ms: p2Durations.edge_post_driver_fetch_ms,
+            lifecycle_perf_stages_ms: perf.snapshot(),
             ...outcome,
           },
         });
