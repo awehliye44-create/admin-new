@@ -18,8 +18,6 @@ import {
 } from "../_shared/driverEligibility.ts";
 import { recordDispatchWaveSnapshot } from "../_shared/recordDispatchWaveSnapshot.ts";
 import {
-  loadStackedRideConfig,
-  logStackedRideDisabledSafeGuard,
   STACKED_RIDE_DISABLED_SAFE_GUARD,
 } from "../_shared/stackedRideConfig.ts";
 import { resolveDriverActiveTripId } from "../_shared/activeDriverTripGuard.ts";
@@ -33,12 +31,19 @@ import {
 } from "../_shared/edgeRequestTiming.ts";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import {
+  buildMinimalAcceptedTripSeed,
+  createAcceptOfferPerfClock,
+  scheduleAcceptOfferBackground,
+} from "../_shared/acceptOfferPerf.ts";
 
 interface AcceptRequest {
   offer_id: string;
   driver_id: string;
   is_stacked?: boolean;
   current_trip_id?: string;
+  /** Client↔Edge correlation id for Accept waterfall telemetry. */
+  perf_id?: string;
 }
 
 // Rate limit config: 30 requests per minute per IP (accept actions should be limited)
@@ -113,6 +118,8 @@ async function sendRideStopPush(
 Deno.serve(async (req) => {
   const elapsed = startRequestTimer();
   const requestId = createRequestId();
+  const perf = createAcceptOfferPerfClock(elapsed);
+  perf.mark("edge_receive");
   console.log("[accept-offer] Received request:", req.method);
 
   // Handle CORS preflight
@@ -135,6 +142,7 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // ── Authenticate caller ──
+    perf.mark("auth_start");
     const auth = await requireAuthenticatedUser(req, supabaseUrl, anonKey);
     if (!auth.ok) return auth.response;
     const userId = auth.userId;
@@ -151,9 +159,14 @@ Deno.serve(async (req) => {
     }
 
     const authenticatedDriverId = authDriver.id;
+    perf.mark("auth_end");
 
     const body: AcceptRequest = await req.json();
     const { offer_id, is_stacked, current_trip_id } = body;
+    const perfId =
+      typeof body.perf_id === "string" && body.perf_id.trim()
+        ? body.perf_id.trim().slice(0, 64)
+        : requestId;
 
     // Use authenticated driver_id, reject if body driver_id doesn't match
     if (body.driver_id && body.driver_id !== authenticatedDriverId) {
@@ -163,13 +176,15 @@ Deno.serve(async (req) => {
 
     const driver_id = authenticatedDriverId;
 
+    perf.mark("eligibility_validation_start");
     const acceptEligibility = await assertCanAcceptOfferByDriverId(supabase, driver_id);
     if (!acceptEligibility.allowed) {
       logDriverEligibilityBlocked("accept-offer", driver_id, acceptEligibility);
       return driverNotEligibleResponse(acceptEligibility, jsonHeaders);
     }
+    perf.mark("eligibility_validation_end");
 
-    console.log("[accept-offer] Processing:", { offer_id, driver_id, is_stacked, current_trip_id });
+    console.log("[accept-offer] Processing:", { offer_id, driver_id, is_stacked, current_trip_id, perf_id: perfId });
 
     // Input validation
     const validationErrors: Record<string, string> = {};
@@ -191,6 +206,7 @@ Deno.serve(async (req) => {
     // Single ride_offers fetch — covers stacked path (expires_at, broadcast_round)
     // and normal path (is_urgent_dispatch, negotiation fields). Eliminates two
     // duplicate SELECTs that previously ran further down both code paths.
+    perf.mark("offer_lookup_start");
     const { data: pendingOffer } = await supabase
       .from("ride_offers")
       .select(
@@ -200,19 +216,30 @@ Deno.serve(async (req) => {
       .eq("id", offer_id)
       .eq("driver_id", driver_id)
       .maybeSingle();
+    perf.mark("offer_lookup_end");
 
     // Pre-hold: another driver must not accept (or stacked-queue) a trip owned
     // by the negotiating driver. Backend SSOT is trips.negotiation_owner_driver_id.
+    let knownPassengerId: string | null = null;
     if (pendingOffer?.trip_id) {
+      perf.mark("lock_idempotency_start");
       const { data: holdTrip } = await supabase
         .from("trips")
-        .select("status, negotiation_owner_driver_id")
+        .select("status, negotiation_owner_driver_id, passenger_id")
         .eq("id", pendingOffer.trip_id)
         .maybeSingle();
       const ownerId =
         (holdTrip as { negotiation_owner_driver_id?: string | null } | null)
           ?.negotiation_owner_driver_id ?? null;
       const tripStatus = String(holdTrip?.status ?? "");
+      if (
+        typeof (holdTrip as { passenger_id?: string | null } | null)?.passenger_id ===
+          "string"
+      ) {
+        knownPassengerId =
+          ((holdTrip as { passenger_id?: string | null }).passenger_id ?? "").trim() ||
+          null;
+      }
       if (
         (ownerId && ownerId !== driver_id) ||
         (tripStatus === "negotiating" && ownerId !== driver_id)
@@ -229,6 +256,7 @@ Deno.serve(async (req) => {
           { trip_id: pendingOffer.trip_id, owner_driver_id: ownerId },
         );
       }
+      perf.mark("lock_idempotency_end");
     }
 
     let effectiveIsStacked = Boolean(is_stacked);
@@ -266,6 +294,7 @@ Deno.serve(async (req) => {
 
       // Single atomic RPC — validates, writes offer+queued trip+link in one transaction.
       // Error codes surface as PostgreSQL exception messages caught below.
+      perf.mark("accept_rpc_start");
       const { data: stackedResult, error: stackedRpcErr } = await supabase.rpc(
         "accept_stacked_ride",
         {
@@ -319,35 +348,72 @@ Deno.serve(async (req) => {
       const revokedDriverIds: string[] = rpc.revoked_driver_ids ?? [];
       const passengerUserId: string | null = rpc.passenger_user_id ?? null;
 
-      // ── Push: dismiss notification on accepting driver ────────────────────────
-      sendRideStopPush(supabaseUrl, supabaseKey, driver_id, "accepted", {
-        offer_id,
-        trip_id: acceptedTripId,
-      }).catch(e => console.error("[accept-offer] RIDE_STOP push error (self):", e));
+      // CANONICAL: accept_stacked_ride committed assignment atomically.
+      perf.mark("accept_rpc_end");
+      perf.mark("CANONICAL_ASSIGNMENT_CONFIRMED");
+      perf.mark("response_build_start");
 
-      // ── Push: dismiss notifications on revoked drivers ────────────────────────
-      for (const revokedDriverId of revokedDriverIds) {
-        sendRideStopPush(supabaseUrl, supabaseKey, revokedDriverId, "accepted_other", {
-          trip_id: acceptedTripId,
-        }).catch(e => console.error("[accept-offer] RIDE_STOP push error (revoked):", e));
-      }
-
-      // ── Push: notify customer that driver is completing a nearby trip first ───
-      // stacked_driver_assigned aliases to canonical driver_assigned (same WAV/channel).
-      if (passengerUserId) {
-        void notifyCustomerTripLifecycle(supabase, {
-          userId: passengerUserId,
-          tripId: acceptedTripId,
-          event: "driver_assigned",
-          title: "Driver assigned",
-          body: "Your driver is completing a nearby trip first. We'll keep you updated.",
-        }).catch((e) => console.warn("[accept-offer] customer stacked push failed:", e));
-      } else {
-        console.warn("[accept-offer] stacked accept: passenger_user_id not found — customer push skipped", {
-          trip_id: acceptedTripId,
-          current_trip_id: effectiveCurrentTripId,
+      const offer = pendingOffer;
+      // P2 — notifications, delivery audit, wave snapshot: must not delay Driver.
+      // Failure here must NOT roll back canonical stacked accept.
+      scheduleAcceptOfferBackground(async () => {
+        perf.mark("notification_enqueue");
+        await Promise.allSettled([
+          sendRideStopPush(supabaseUrl, supabaseKey, driver_id, "accepted", {
+            offer_id,
+            trip_id: acceptedTripId,
+          }),
+          ...revokedDriverIds.map((revokedDriverId) =>
+            sendRideStopPush(supabaseUrl, supabaseKey, revokedDriverId, "accepted_other", {
+              trip_id: acceptedTripId,
+            })
+          ),
+        ]);
+        if (passengerUserId) {
+          await notifyCustomerTripLifecycle(supabase, {
+            userId: passengerUserId,
+            tripId: acceptedTripId,
+            event: "driver_assigned",
+            title: "Driver assigned",
+            body: "Your driver is completing a nearby trip first. We'll keep you updated.",
+          });
+        } else {
+          console.warn("[accept-offer] stacked accept: passenger_user_id not found — customer push skipped", {
+            trip_id: acceptedTripId,
+            current_trip_id: effectiveCurrentTripId,
+          });
+        }
+        const { error: acceptedLogErr } = await supabase.rpc("record_booking_delivery", {
+          p_booking_id: acceptedTripId,
+          p_phase: "accepted",
+          p_driver_id: driver_id,
+          p_offer_id: offer_id,
+          p_source: "edge_accept_offer",
+          p_detail: {
+            accepted_via: "stacked_accept",
+            current_trip_id: effectiveCurrentTripId,
+            is_stacked: true,
+            perf_id: perfId,
+          },
         });
-      }
+        if (acceptedLogErr) {
+          console.warn("[accept-offer] record_booking_delivery(accepted, stacked) failed:", acceptedLogErr);
+        }
+        await recordDispatchWaveSnapshot(supabase, {
+          tripId: acceptedTripId,
+          dispatchRound: Math.max(1, offer?.broadcast_round ?? 1),
+          stage: "selected",
+          driverId: driver_id,
+          rideOfferId: offer_id,
+          source: "stacked_accept",
+          metadata: {
+            stacked_accept: true,
+            current_trip_id: effectiveCurrentTripId,
+            accepted_via: "stacked_accept",
+            perf_id: perfId,
+          },
+        });
+      }, "stacked_post_canonical");
 
       console.log("[accept-offer] Stacked ride accepted (atomic):", acceptedTripId);
       console.log("STACKED_RIDE_FARE_SNAPSHOT_APPLIED", {
@@ -357,55 +423,37 @@ Deno.serve(async (req) => {
         note: "accept_stacked_ride persists accepted offer net via snapshot_accepted_wave_commission",
       });
 
-      const offer = pendingOffer;
-      const { error: acceptedLogErr } = await supabase.rpc("record_booking_delivery", {
-        p_booking_id: acceptedTripId,
-        p_phase:      "accepted",
-        p_driver_id:  driver_id,
-        p_offer_id:   offer_id,
-        p_source:     "edge_accept_offer",
-        p_detail: {
-          accepted_via:     "stacked_accept",
-          current_trip_id:  effectiveCurrentTripId,
-          is_stacked:       true,
-        },
-      });
-      if (acceptedLogErr) {
-        console.warn("[accept-offer] record_booking_delivery(accepted, stacked) failed:", acceptedLogErr);
-      }
-
-      await recordDispatchWaveSnapshot(supabase, {
-        tripId:         acceptedTripId,
-        dispatchRound:  Math.max(1, offer?.broadcast_round ?? 1),
-        stage:          "selected",
-        driverId:       driver_id,
-        rideOfferId:    offer_id,
-        source:         "stacked_accept",
-        metadata: {
-          stacked_accept:  true,
-          current_trip_id: effectiveCurrentTripId,
-          accepted_via:    "stacked_accept",
-        },
-      });
-
+      perf.mark("response_build_end");
+      perf.mark("edge_response");
       const duration_ms = elapsed();
+      const stageSnapshot = perf.snapshot();
+      const stageDurations = perf.durations();
       logRequestDuration("accept-offer", duration_ms, {
         request_id: requestId,
-        path:    "stacked_accept",
+        perf_id: perfId,
+        path: "stacked_accept",
         offer_id,
         trip_id: acceptedTripId,
+        lifecycle_perf_stages_ms: stageSnapshot,
+        ...stageDurations,
       });
       finishEdgeRequestLog("accept-offer", duration_ms, {
         request_id: requestId,
+        perf_id: perfId,
         trip_id: acceptedTripId,
         offer_id,
         path: "stacked_accept",
+        lifecycle_perf_stages_ms: stageSnapshot,
+        ...stageDurations,
       });
       return successResponse(withDuration({
-        success:    true,
-        trip_id:    acceptedTripId,
+        success: true,
+        trip_id: acceptedTripId,
         is_stacked: true,
-        message:    "Stacked ride accepted - will start after current trip",
+        message: "Stacked ride accepted - will start after current trip",
+        perf_id: perfId,
+        lifecycle_perf_stages_ms: stageSnapshot,
+        ...stageDurations,
       }, duration_ms, { source: "accept-offer", requestId }));
     }
 
@@ -485,6 +533,7 @@ Deno.serve(async (req) => {
       allow_customer_counter: allowCustomerCounter,
     });
 
+    perf.mark("accept_rpc_start");
     const { data, error } = await supabase.rpc("accept_ride_offer", {
       p_offer_id: offer_id,
       p_driver_id: driver_id,
@@ -511,6 +560,12 @@ Deno.serve(async (req) => {
       );
     }
 
+    perf.mark("accept_rpc_end");
+    // CANONICAL BOUNDARY: accept_ride_offer committed one-driver-wins assignment.
+    // Trip has driver_id, status driver_assigned, competing offers revoked.
+    // Duplicate/expired/cancelled cannot succeed past this point.
+    perf.mark("CANONICAL_ASSIGNMENT_CONFIRMED");
+
     console.log("[accept-offer] ACCEPT_ORIGINAL_RPC_SUCCESS", {
       offer_id,
       trip_id: data.trip_id,
@@ -519,27 +574,11 @@ Deno.serve(async (req) => {
     });
 
     const acceptedTripId = data.trip_id ?? offerRow?.trip_id;
-
-    // ── Send RIDE_STOP pushes to clear native notifications ──
-    // To the accepting driver (dismiss their heads-up / full-screen notification)
-    sendRideStopPush(supabaseUrl, supabaseKey, driver_id, "accepted", {
-      offer_id,
-      trip_id: acceptedTripId,
-    }).catch(e =>
-      console.error("[accept-offer] RIDE_STOP push error (self):", e)
-    );
-    for (const row of revokedOffers) {
-      sendRideStopPush(supabaseUrl, supabaseKey, row.driver_id, "accepted_other", {
-        offer_id: row.id,
-        trip_id: acceptedTripId,
-      }).catch(e =>
-        console.error("[accept-offer] RIDE_STOP push error (revoked):", e)
-      );
-    }
-
-    // If this was a scheduled urgent offer, update scheduled_status
     const tripId = data.trip_id;
+
+    // P0 only when applicable: scheduled urgent dispatch status (cheap, correctness).
     if (tripId && offerRow?.is_urgent_dispatch) {
+      perf.mark("scheduled_guard_start");
       console.log("[accept-offer] Scheduled urgent offer accepted — updating scheduled_status");
       await supabase
         .from("trips")
@@ -549,84 +588,113 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         })
         .eq("id", tripId);
+      perf.mark("scheduled_guard_end");
     }
 
-    // Fetch full trip data to return to client (eliminates post-accept fetch)
-    let tripData = null;
-    if (tripId) {
-      const { data: driver } = await supabase
-        .from("drivers")
-        .select("first_name, last_name, phone, display_rating, rating")
-        .eq("id", driver_id)
-        .single();
-
-      const { data: trip } = await supabase
-        .from("trips")
-        .select("*")
-        .eq("id", tripId)
-        .single();
-
-      tripData = trip;
-
-      console.log("[accept-offer] Driver assigned:", {
+    perf.mark("response_build_start");
+    // Minimal authoritative seed from RPC — no full trips/drivers re-fetch on critical path.
+    const tripSeed = tripId
+      ? buildMinimalAcceptedTripSeed({
         tripId,
-        driver: driver?.first_name,
-        passengerId: trip?.passenger_id,
-      });
-    }
+        driverId: driver_id,
+        rpc: { ...data, offer_id },
+      })
+      : null;
+    perf.mark("response_build_end");
 
-    // After authoritative accept_ride_offer — Customer driver_assigned push/WAV.
-    // Stacked path notifies above; this covers listed-fare / original Accept.
-    if (tripId) {
-      const passengerId =
-        typeof tripData?.passenger_id === "string" ? tripData.passenger_id : null;
-      if (passengerId) {
-        void notifyCustomerTripLifecycle(supabase, {
-          passengerId,
-          tripId,
-          event: "driver_assigned",
-        }).catch((e) =>
-          console.warn("[accept-offer] customer driver_assigned push failed:", e)
-        );
-      } else {
-        console.warn("[accept-offer] passenger_id missing — customer assigned push skipped", {
-          trip_id: tripId,
+    // P2 — RIDE_STOP, customer driver_assigned, supplemental edge delivery log.
+    // accept_ride_offer already recorded booking delivery (source=postgres).
+    // Failure must not roll back or flip success=false.
+    scheduleAcceptOfferBackground(async () => {
+      perf.mark("notification_enqueue");
+      const rideStopTasks = [
+        sendRideStopPush(supabaseUrl, supabaseKey, driver_id, "accepted", {
+          offer_id,
+          trip_id: acceptedTripId,
+        }),
+        ...revokedOffers.map((row) =>
+          sendRideStopPush(supabaseUrl, supabaseKey, row.driver_id, "accepted_other", {
+            offer_id: row.id,
+            trip_id: acceptedTripId,
+          })
+        ),
+      ];
+      await Promise.allSettled(rideStopTasks);
+
+      if (tripId) {
+        let passengerId = knownPassengerId;
+        if (!passengerId) {
+          const { data: tripPassenger } = await supabase
+            .from("trips")
+            .select("passenger_id")
+            .eq("id", tripId)
+            .maybeSingle();
+          passengerId =
+            typeof tripPassenger?.passenger_id === "string"
+              ? tripPassenger.passenger_id.trim() || null
+              : null;
+        }
+        if (passengerId) {
+          await notifyCustomerTripLifecycle(supabase, {
+            passengerId,
+            tripId,
+            event: "driver_assigned",
+          });
+        } else {
+          console.warn("[accept-offer] passenger_id missing — customer assigned push skipped", {
+            trip_id: tripId,
+          });
+        }
+
+        const { error: acceptedLogErr } = await supabase.rpc("record_booking_delivery", {
+          p_booking_id: tripId,
+          p_phase: "accepted",
+          p_driver_id: driver_id,
+          p_offer_id: offer_id,
+          p_source: "edge_accept_offer",
+          p_detail: {
+            accepted_via: "rpc_accept_ride_offer",
+            is_stacked: false,
+            perf_id: perfId,
+            note: "supplemental_edge_audit_rpc_already_recorded",
+          },
         });
+        if (acceptedLogErr) {
+          console.warn("[accept-offer] record_booking_delivery(accepted) failed:", acceptedLogErr);
+        }
       }
-    }
+    }, "accept_post_canonical");
 
-    if (tripId) {
-      const { error: acceptedLogErr } = await supabase.rpc("record_booking_delivery", {
-        p_booking_id: tripId,
-        p_phase: "accepted",
-        p_driver_id: driver_id,
-        p_offer_id: offer_id,
-        p_source: "edge_accept_offer",
-        p_detail: {
-          accepted_via: "rpc_accept_ride_offer",
-          is_stacked: false,
-        },
-      });
-      if (acceptedLogErr) {
-        console.warn("[accept-offer] record_booking_delivery(accepted) failed:", acceptedLogErr);
-      }
-    }
-
+    perf.mark("edge_response");
     const duration_ms = elapsed();
+    const stageSnapshot = perf.snapshot();
+    const stageDurations = perf.durations();
     logRequestDuration("accept-offer", duration_ms, {
       request_id: requestId,
+      perf_id: perfId,
       path: "accept_ride_offer",
       offer_id,
       trip_id: tripId ?? null,
-      is_stacked: false,
+      lifecycle_perf_stages_ms: stageSnapshot,
+      ...stageDurations,
     });
     finishEdgeRequestLog("accept-offer", duration_ms, {
       request_id: requestId,
+      perf_id: perfId,
       trip_id: tripId ?? null,
       offer_id,
       path: "accept_ride_offer",
+      lifecycle_perf_stages_ms: stageSnapshot,
+      ...stageDurations,
     });
-    return successResponse(withDuration({ ...data, trip: tripData }, duration_ms, {
+    return successResponse(withDuration({
+      ...data,
+      trip: tripSeed,
+      trip_id: tripId ?? data.trip_id,
+      perf_id: perfId,
+      lifecycle_perf_stages_ms: stageSnapshot,
+      ...stageDurations,
+    }, duration_ms, {
       source: "accept-offer",
       requestId,
     }));

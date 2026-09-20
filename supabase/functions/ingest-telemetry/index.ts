@@ -80,6 +80,28 @@ const ALLOWED_METADATA_KEYS = new Set([
   "edge_total_ms",
   "already_authorised",
   "three_ds_required",
+  // Driver Accept waterfall (client + Edge shared perf_id)
+  "perf_id",
+  "flow_type",
+  "action_name",
+  "offer_suffix",
+  "accept_tap_to_busy_ms",
+  "accept_pre_edge_ms",
+  "accept_edge_rtt_ms",
+  "accept_response_to_state_ms",
+  "accept_state_to_interactive_ms",
+  "accept_tap_to_interactive_ms",
+  "edge_auth_ms",
+  "edge_offer_lookup_ms",
+  "edge_validation_ms",
+  "edge_lock_ms",
+  "edge_accept_rpc_ms",
+  "edge_canonical_assignment_ms",
+  "edge_post_trip_fetch_ms",
+  "edge_post_driver_fetch_ms",
+  "edge_booking_delivery_ms",
+  "edge_post_canonical_blocking_ms",
+  "timeout_budget_ms",
 ]);
 
 interface TelemetryEvent {
