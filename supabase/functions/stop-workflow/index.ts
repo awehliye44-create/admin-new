@@ -350,12 +350,18 @@ async function finalizePickupWaitingOnStartTrip(
     };
   }
 
-  const live = await loadAdminWaitingConfig(
-    supabase,
-    trip.service_area_id ?? null,
-    trip.vehicle_type_id ?? null,
-  );
-  const config = resolveFrozenOrLiveWaitingConfig(trip.pickup_waiting_admin_config, live);
+  const frozenOnly = resolveFrozenWaitingConfigOrNull(trip.pickup_waiting_admin_config);
+  const live =
+    frozenOnly == null
+      ? await loadAdminWaitingConfig(
+        supabase,
+        trip.service_area_id ?? null,
+        trip.vehicle_type_id ?? null,
+      )
+      : null;
+  const config =
+    frozenOnly ??
+    resolveFrozenOrLiveWaitingConfig(trip.pickup_waiting_admin_config, live!);
 
   const pickupLat = opts?.pickupLat ?? trip.pickup_latitude ?? null;
   const pickupLng = opts?.pickupLng ?? trip.pickup_longitude ?? null;
@@ -3883,11 +3889,18 @@ Deno.serve(async (req) => {
         }
 
         console.log("[stop-workflow] COMPLETE_TRIP success");
-        // Financial + status completion already durable. P2: customer notify only.
+        // Financial + status completion already durable. P2: customer notify + tap audit.
         stages.mark('notification_enqueue');
         const completePassengerId =
           typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+        const completeFinalStopIndex = finalStop.stop_index;
         scheduleEdgeBackground(async () => {
+          await writeTripAudit(supabase, {
+            trip_id,
+            driver_id,
+            event_type: 'COMPLETE_TRIP_TAPPED',
+            details: { final_stop_index: completeFinalStopIndex },
+          });
           await notifyCustomerTripLifecycle(supabase, {
             passengerId: completePassengerId,
             tripId: trip_id,

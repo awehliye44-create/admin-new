@@ -109,17 +109,27 @@ Deno.test("complete_trip does not move payment capture; trip_completed notify of
   assertStringIncludes(src, 'event: "trip_completed"');
   assertStringIncludes(src, "invokeFinalizeTripCapture");
   assertStringIncludes(src, "assertPlatformCollectedCompletionPaymentGate");
-  const completeIdx = src.lastIndexOf('case \'complete_trip\'');
+  const completeIdx = src.lastIndexOf("case 'complete_trip'");
   const completeBlock = src.slice(completeIdx);
   const captureIdx = completeBlock.indexOf("invokeFinalizeTripCapture");
   const notifyBgIdx = completeBlock.indexOf("complete_trip_p2");
   assertEquals(captureIdx > 0 && notifyBgIdx > captureIdx, true);
   // Payment capture must not be inside scheduleEdgeBackground.
   const bgAroundNotify = completeBlock.slice(
-    completeBlock.indexOf("scheduleEdgeBackground(async () => {", notifyBgIdx - 80),
-    notifyBgIdx + 400,
+    completeBlock.lastIndexOf("scheduleEdgeBackground", notifyBgIdx),
+    notifyBgIdx + 500,
   );
   assertEquals(bgAroundNotify.includes("invokeFinalizeTripCapture"), false);
+  // Tap audit is P2 with notify after financial durability.
+  assertEquals(bgAroundNotify.includes("COMPLETE_TRIP_TAPPED"), true);
+});
+
+Deno.test("start_trip finalize prefers frozen waiting config without Admin reload", async () => {
+  const src = await Deno.readTextFile(stopWorkflowPath);
+  const fnStart = src.indexOf("async function finalizePickupWaitingOnStartTrip");
+  const fnBlock = src.slice(fnStart, fnStart + 3500);
+  assertEquals(fnBlock.includes("resolveFrozenWaitingConfigOrNull"), true);
+  assertEquals(fnBlock.includes("loadAdminWaitingConfig"), true);
 });
 
 Deno.test("notifications are not removed from stop-workflow", async () => {
