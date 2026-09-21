@@ -12,6 +12,13 @@ export type StopWorkflowLifecycleStageName =
   | "validation_start"
   | "validation_end"
   | "waiting_ssot_start"
+  | "waiting_config_start"
+  | "waiting_config_end"
+  | "waiting_existing_state_end"
+  | "waiting_canonical_rpc_start"
+  | "waiting_canonical_rpc_end"
+  | "waiting_geofence_start"
+  | "waiting_geofence_end"
   | "waiting_ssot_end"
   | "canonical_mutation_start"
   | "canonical_mutation_end"
@@ -49,6 +56,25 @@ export function deriveStopWorkflowLifecycleDurations(
   const edge_reads_ms = span(stages, "reads_start", "reads_end");
   const edge_validation_ms = span(stages, "validation_start", "validation_end");
   const edge_waiting_ssot_ms = span(stages, "waiting_ssot_start", "waiting_ssot_end");
+  const waiting_config_ms = span(stages, "waiting_config_start", "waiting_config_end");
+  const waiting_canonical_rpc_ms = span(
+    stages,
+    "waiting_canonical_rpc_start",
+    "waiting_canonical_rpc_end",
+  );
+  const waiting_geofence_ms = span(stages, "waiting_geofence_start", "waiting_geofence_end");
+  const waiting_ssot_total_ms = edge_waiting_ssot_ms;
+  const waiting_existing_state_ms =
+    typeof stages.waiting_ssot_start === "number" &&
+      typeof stages.waiting_existing_state_end === "number"
+      ? Math.max(0, stages.waiting_existing_state_end - stages.waiting_ssot_start)
+      : null;
+  const waiting_trip_context_ms = waiting_existing_state_ms;
+  const waiting_post_canonical_ms =
+    typeof stages.waiting_canonical_rpc_end === "number" &&
+      typeof stages.waiting_ssot_end === "number"
+      ? Math.max(0, stages.waiting_ssot_end - stages.waiting_canonical_rpc_end)
+      : null;
   const edge_canonical_mutation_ms = span(
     stages,
     "canonical_mutation_start",
@@ -85,6 +111,13 @@ export function deriveStopWorkflowLifecycleDurations(
     edge_reads_ms,
     edge_validation_ms,
     edge_waiting_ssot_ms,
+    waiting_ssot_total_ms,
+    waiting_trip_context_ms,
+    waiting_config_ms,
+    waiting_existing_state_ms,
+    waiting_canonical_rpc_ms,
+    waiting_geofence_ms,
+    waiting_post_canonical_ms,
     edge_canonical_mutation_ms,
     edge_post_select_ms,
     edge_enrich_ms,

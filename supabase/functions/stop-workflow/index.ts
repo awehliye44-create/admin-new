@@ -44,7 +44,9 @@ import {
   computePickupChargeFromCountedSeconds,
   computeStopChargeFromCountedSeconds,
   resolveEffectiveWaitingRadiusMeters,
+  resolveTrustedDriverLocation,
   syncWaitingGeofenceClock,
+  type TrustedDriverLocation,
 } from "../_shared/waitingSegmentClock.ts";
 import {
   logStackedPromotionSkipped,
@@ -249,8 +251,8 @@ function isSchemaColumnError(err: { message?: string; code?: string } | null): b
 
 /**
  * Atomically create/start exactly one pickup waiting instance on Arrived.
+ * Prefer DB RPC start_pickup_waiting_on_arrive (FOR UPDATE + trigger freeze).
  * Idempotent: never reset an existing pickup_waiting_started_at.
- * Never backfill started_at from arrived_at for a late start.
  */
 async function ensurePickupWaitingStarted(
   supabase: ReturnType<typeof createClient>,
@@ -258,10 +260,69 @@ async function ensurePickupWaitingStarted(
   trip: { arrived_at?: string | null; pickup_waiting_started_at?: string | null },
   pickupStop: { id: string; arrived_at?: string | null; waiting_started_at?: string | null } | null | undefined,
   now: string,
-): Promise<{ ok: true; startedAt: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; startedAt: string; tripRow: TripWaitingBillingCtx | null }
+  | { ok: false; error: string }
+> {
   if (trip.pickup_waiting_started_at) {
-    return { ok: true, startedAt: trip.pickup_waiting_started_at };
+    return {
+      ok: true,
+      startedAt: trip.pickup_waiting_started_at,
+      tripRow: null,
+    };
   }
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc(
+    "start_pickup_waiting_on_arrive",
+    { p_trip_id: tripId, p_now: now },
+  );
+
+  if (!rpcError && rpcData && typeof rpcData === "object") {
+    const row = rpcData as Record<string, unknown>;
+    if (row.ok === true && typeof row.started_at === "string" && row.started_at.trim()) {
+      console.log("[stop-workflow] PICKUP_WAITING_STARTED", {
+        trip_id: tripId,
+        pickup_waiting_started_at: row.started_at,
+        via: "start_pickup_waiting_on_arrive",
+        already_started: row.already_started === true,
+      });
+      return {
+        ok: true,
+        startedAt: row.started_at,
+        tripRow: {
+          pickup_waiting_started_at: row.started_at as string,
+          pickup_waiting_admin_config: row.pickup_waiting_admin_config ?? null,
+          free_wait_expires_at:
+            typeof row.free_wait_expires_at === "string" ? row.free_wait_expires_at : null,
+          arrived_at: (row.arrived_at as string | null) ?? trip.arrived_at ?? null,
+          pickup_arrived_at: (row.pickup_arrived_at as string | null) ?? null,
+          pickup_waiting_charge_pence:
+            typeof row.pickup_waiting_charge_pence === "number"
+              ? row.pickup_waiting_charge_pence
+              : 0,
+          pickup_waiting_counted_seconds:
+            typeof row.pickup_waiting_counted_seconds === "number"
+              ? row.pickup_waiting_counted_seconds
+              : 0,
+          service_area_id: (row.service_area_id as string | null) ?? null,
+          vehicle_type_id: (row.vehicle_type_id as string | null) ?? null,
+          driver_id: (row.driver_id as string | null) ?? null,
+        } as TripWaitingBillingCtx,
+      };
+    }
+    if (row.ok === false && typeof row.error === "string") {
+      return { ok: false, error: row.error };
+    }
+  }
+
+  if (rpcError) {
+    console.warn("[stop-workflow] PICKUP_WAITING_RPC_FALLBACK", {
+      trip_id: tripId,
+      message: rpcError.message,
+    });
+  }
+
+  // Fallback: legacy Edge UPDATE path (pre-migration / RPC unavailable).
   const waitingStartAt = now;
   const tripPayload: Record<string, unknown> = {
     pickup_waiting_started_at: waitingStartAt,
@@ -270,28 +331,41 @@ async function ensurePickupWaitingStarted(
   if (trip.arrived_at) {
     tripPayload.pickup_arrived_at = trip.arrived_at;
   }
-  const { error } = await updateTripSafe(supabase, tripId, tripPayload);
+  const { data: updated, error } = await supabase
+    .from("trips")
+    .update(tripPayload)
+    .eq("id", tripId)
+    .select(ARRIVE_WAITING_TRIP_SELECT)
+    .single();
   if (error) {
-    console.error('[stop-workflow] PICKUP_WAITING_START_FAILED', {
-      trip_id: tripId,
-      message: error.message,
-    });
-    return { ok: false, error: error.message };
+    const safe = await updateTripSafe(supabase, tripId, tripPayload);
+    if (safe.error) {
+      console.error("[stop-workflow] PICKUP_WAITING_START_FAILED", {
+        trip_id: tripId,
+        message: safe.error.message,
+      });
+      return { ok: false, error: safe.error.message };
+    }
   }
   if (pickupStop?.id && !pickupStop.waiting_started_at) {
-    await supabase
-      .from('trip_stops')
+    void supabase
+      .from("trip_stops")
       .update({
         waiting_started_at: waitingStartAt,
         updated_at: now,
       })
-      .eq('id', pickupStop.id);
+      .eq("id", pickupStop.id);
   }
-  console.log('[stop-workflow] PICKUP_WAITING_STARTED', {
+  console.log("[stop-workflow] PICKUP_WAITING_STARTED", {
     trip_id: tripId,
     pickup_waiting_started_at: waitingStartAt,
+    via: "edge_update_fallback",
   });
-  return { ok: true, startedAt: waitingStartAt };
+  return {
+    ok: true,
+    startedAt: waitingStartAt,
+    tripRow: (updated as TripWaitingBillingCtx | null) ?? null,
+  };
 }
 
 /**
@@ -924,8 +998,11 @@ async function checkStopArrivalRadius(
   driverLat: number | undefined,
   driverLng: number | undefined,
   tripId?: string,
+  preloadedSettings?: DispatchWaitingSettings | null,
 ): Promise<StopRadiusCheckResult> {
-  const settings = await fetchDispatchWaitingSettings(supabase, serviceAreaId);
+  const settings =
+    preloadedSettings ??
+    (await fetchDispatchWaitingSettings(supabase, serviceAreaId));
   const radius = resolveWaitingRadius('stop', settings, tripId);
   const radiusEnabled = radius.enabled;
   const radiusMeters = radius.meters;
@@ -964,6 +1041,9 @@ type PickupWaitingStartResult = {
   allowed_radius_meters?: number | null;
   distance_meters?: number | null;
   start_error?: string;
+  /** Trip waiting fields after canonical start (avoids confirming SELECT). */
+  tripRow?: TripWaitingBillingCtx | null;
+  startedAt?: string | null;
 };
 
 type StopWaitingStartResult = {
@@ -995,42 +1075,54 @@ async function tryStartPickupWaiting(
     driverLat: number | undefined;
     driverLng: number | undefined;
     now: string;
+    perf?: StopWorkflowLifecyclePerfClock | null;
   },
 ): Promise<PickupWaitingStartResult> {
-  const { tripId, trip, pickupStop, pickupLat, pickupLng, driverLat, driverLng, now } = ctx;
-
-  const settings = await fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null);
-  const radius = resolveWaitingRadius('pickup', settings, tripId);
-  const radiusEnabled = radius.enabled;
-  const radiusMeters = radius.meters;
-
-  const syncPickupClock = async () => {
-    if (!trip.driver_id || pickupLat == null || pickupLng == null) return null;
-    return syncWaitingGeofenceClock(supabase, {
-      tripId,
-      driverId: trip.driver_id,
-      locationType: 'pickup',
-      target: {
-        lat: pickupLat,
-        lng: pickupLng,
-        radiusMeters: resolveEffectiveWaitingRadiusMeters(radiusMeters, radiusEnabled),
-        radiusEnabled,
-      },
-      bodyLat: driverLat ?? null,
-      bodyLng: driverLng ?? null,
-      nowIso: now,
-    });
-  };
+  const { tripId, trip, pickupStop, pickupLat, pickupLng, driverLat, driverLng, now, perf } = ctx;
 
   if (trip.pickup_waiting_started_at) {
-    const clock = await syncPickupClock();
+    perf?.mark("waiting_existing_state_end");
+    const radiusSettings = await fetchDispatchWaitingSettings(
+      supabase,
+      trip.service_area_id ?? null,
+    );
+    const radius = resolveWaitingRadius('pickup', radiusSettings, tripId);
+    let distanceM: number | null = null;
+    if (trip.driver_id && pickupLat != null && pickupLng != null) {
+      perf?.mark("waiting_geofence_start");
+      const clock = await syncWaitingGeofenceClock(supabase, {
+        tripId,
+        driverId: trip.driver_id,
+        locationType: 'pickup',
+        target: {
+          lat: pickupLat,
+          lng: pickupLng,
+          radiusMeters: resolveEffectiveWaitingRadiusMeters(radius.meters, radius.enabled),
+          radiusEnabled: radius.enabled,
+        },
+        bodyLat: driverLat ?? null,
+        bodyLng: driverLng ?? null,
+        nowIso: now,
+      });
+      perf?.mark("waiting_geofence_end");
+      distanceM = clock.distanceMeters ?? null;
+    }
     return {
       started: true,
       waiting_status: 'free_waiting',
-      allowed_radius_meters: radiusMeters,
-      distance_meters: clock?.distanceMeters ?? null,
+      allowed_radius_meters: radius.meters,
+      distance_meters: distanceM,
+      startedAt: trip.pickup_waiting_started_at,
+      tripRow: null,
     };
   }
+
+  perf?.mark("waiting_config_start");
+  const settings = await fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null);
+  perf?.mark("waiting_config_end");
+  const radius = resolveWaitingRadius('pickup', settings, tripId);
+  const radiusEnabled = radius.enabled;
+  const radiusMeters = radius.meters;
 
   console.log('[stop-workflow] WAITING_RADIUS_ADMIN_CONFIG_LOADED', {
     trip_id: tripId,
@@ -1045,6 +1137,7 @@ async function tryStartPickupWaiting(
   let distanceM: number | null = null;
   let allowedRadius: number | null = radiusMeters;
 
+  // Sync radius check — reuse preloaded settings (no second SA config fetch).
   if (radiusEnabled) {
     console.log('[stop-workflow] WAITING_RADIUS_CHECK_STARTED', {
       trip_id: tripId,
@@ -1060,6 +1153,7 @@ async function tryStartPickupWaiting(
       driverLat,
       driverLng,
       tripId,
+      settings,
     );
     if (!check.ok) {
       outsideRadius = true;
@@ -1085,13 +1179,25 @@ async function tryStartPickupWaiting(
   }
 
   const anchor = trip.arrived_at || pickupStop?.arrived_at || now;
-  const startResult = await ensurePickupWaitingStarted(
-    supabase,
-    tripId,
-    { ...trip, arrived_at: anchor },
-    pickupStop,
-    now,
-  );
+  // Parallel: canonical waiting start + trusted GPS ladder (independent).
+  perf?.mark("waiting_canonical_rpc_start");
+  const trustedPromise: Promise<TrustedDriverLocation | null> =
+    trip.driver_id && pickupLat != null && pickupLng != null
+      ? resolveTrustedDriverLocation(supabase, trip.driver_id, Date.parse(now))
+      : Promise.resolve(null);
+
+  const [startResult, trusted] = await Promise.all([
+    ensurePickupWaitingStarted(
+      supabase,
+      tripId,
+      { ...trip, arrived_at: anchor },
+      pickupStop,
+      now,
+    ),
+    trustedPromise,
+  ]);
+  perf?.mark("waiting_canonical_rpc_end");
+
   if (!startResult.ok) {
     return {
       started: false,
@@ -1102,8 +1208,25 @@ async function tryStartPickupWaiting(
     };
   }
 
-  const clock = await syncPickupClock();
-  if (clock) {
+  if (trip.driver_id && pickupLat != null && pickupLng != null) {
+    perf?.mark("waiting_geofence_start");
+    const clock = await syncWaitingGeofenceClock(supabase, {
+      tripId,
+      driverId: trip.driver_id,
+      locationType: 'pickup',
+      target: {
+        lat: pickupLat,
+        lng: pickupLng,
+        radiusMeters: resolveEffectiveWaitingRadiusMeters(radiusMeters, radiusEnabled),
+        radiusEnabled,
+      },
+      bodyLat: driverLat ?? null,
+      bodyLng: driverLng ?? null,
+      nowIso: now,
+      trusted,
+      trustedResolved: true,
+    });
+    perf?.mark("waiting_geofence_end");
     distanceM = clock.distanceMeters ?? distanceM;
     outsideRadius = !clock.inside && radiusEnabled;
     console.log('[stop-workflow] PICKUP_WAITING_GEOFENCE_SYNCED', {
@@ -1115,15 +1238,14 @@ async function tryStartPickupWaiting(
     });
   }
 
-  if (outsideRadius) {
-    return {
-      started: true,
-      waiting_status: 'free_waiting',
-      allowed_radius_meters: allowedRadius,
-      distance_meters: distanceM,
-    };
-  }
-  return { started: true, waiting_status: 'free_waiting' };
+  return {
+    started: true,
+    waiting_status: 'free_waiting',
+    allowed_radius_meters: allowedRadius,
+    distance_meters: distanceM,
+    startedAt: startResult.startedAt,
+    tripRow: startResult.tripRow,
+  };
 }
 
 /** Start stop waiting session on Arrived; radius only gates money segments. */
@@ -1133,6 +1255,7 @@ async function tryStartStopWaiting(
   stop: TripStopRow,
   driverLat: number | undefined,
   driverLng: number | undefined,
+  perf?: StopWorkflowLifecyclePerfClock | null,
 ): Promise<StopWaitingStartResult> {
   if (stop.waiting_charge_active && stop.waiting_started_at) {
     // Keep session; refresh geofence clock for pause/resume.
@@ -1158,7 +1281,9 @@ async function tryStartStopWaiting(
     return { started: false, waiting_status: 'free_waiting', graceSeconds: 0 };
   }
 
+  perf?.mark("waiting_config_start");
   const settings = await fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null);
+  perf?.mark("waiting_config_end");
   const radius = resolveWaitingRadius('stop', settings, trip.id);
   const radiusEnabled = radius.enabled;
   const radiusMeters = radius.meters;
@@ -1181,12 +1306,23 @@ async function tryStartStopWaiting(
     note: 'workflow_flexible_radius_money_only',
   });
 
-  // Always start stop waiting session (do not block Arrived / Drive Next).
-  const waitingStart = await startStopWaitingOnArrive(supabase, trip, stop);
+  // Parallel: stop waiting start + trusted GPS (independent).
+  perf?.mark("waiting_canonical_rpc_start");
+  const trustedPromise: Promise<TrustedDriverLocation | null> =
+    trip.driver_id && stop.lat != null && stop.lng != null
+      ? resolveTrustedDriverLocation(supabase, trip.driver_id, Date.now())
+      : Promise.resolve(null);
+
+  const [waitingStart, trusted] = await Promise.all([
+    startStopWaitingOnArrive(supabase, trip, stop, settings),
+    trustedPromise,
+  ]);
+  perf?.mark("waiting_canonical_rpc_end");
 
   let distanceM: number | null = null;
   let allowedRadius: number | null = radiusMeters;
   if (stop.lat != null && stop.lng != null && trip.driver_id) {
+    perf?.mark("waiting_geofence_start");
     const clock = await syncWaitingGeofenceClock(supabase, {
       tripId: trip.id,
       driverId: trip.driver_id,
@@ -1201,7 +1337,10 @@ async function tryStartStopWaiting(
       },
       bodyLat: driverLat ?? null,
       bodyLng: driverLng ?? null,
+      trusted,
+      trustedResolved: true,
     });
+    perf?.mark("waiting_geofence_end");
     distanceM = clock.distanceMeters;
     allowedRadius = radiusMeters;
     console.log('[stop-workflow] STOP_WAITING_GEOFENCE_SYNCED', {
@@ -1232,8 +1371,11 @@ async function checkPickupArrivalRadius(
   driverLat: number | undefined,
   driverLng: number | undefined,
   tripId?: string,
+  preloadedSettings?: DispatchWaitingSettings | null,
 ): Promise<StopRadiusCheckResult> {
-  const settings = await fetchDispatchWaitingSettings(supabase, serviceAreaId);
+  const settings =
+    preloadedSettings ??
+    (await fetchDispatchWaitingSettings(supabase, serviceAreaId));
   const radius = resolveWaitingRadius('pickup', settings, tripId);
   const radiusEnabled = radius.enabled;
   const radiusMeters = radius.meters;
@@ -1341,15 +1483,24 @@ async function fetchDispatchWaitingSettings(
     'stop_radius_enabled, stop_radius_meters, stop_waiting_charge_interval_seconds, stop_waiting_grace_period_seconds, stop_waiting_rate_pence_per_minute, stop_waiting_max_minutes';
 
   let settings: DispatchWaitingSettings | null = null;
+  let stopWaitingRow: Record<string, unknown> | null = null;
 
   if (serviceAreaId) {
-    const { data } = await supabase
-      .from('dispatch_settings')
-      .select(dispatchCols)
-      .eq('service_area_id', serviceAreaId)
-      .maybeSingle();
-    if (data) settings = data as DispatchWaitingSettings;
-    // P0 #2: when SA is known, NEVER poison from global dispatch (300s / paid false / 10s).
+    // Independent SA-scoped reads — parallelize.
+    const [dispatchRes, stopWaitingRes] = await Promise.all([
+      supabase
+        .from('dispatch_settings')
+        .select(dispatchCols)
+        .eq('service_area_id', serviceAreaId)
+        .maybeSingle(),
+      supabase
+        .from('stop_waiting_settings')
+        .select(stopWaitingCols)
+        .eq('service_area_id', serviceAreaId)
+        .maybeSingle(),
+    ]);
+    if (dispatchRes.data) settings = dispatchRes.data as DispatchWaitingSettings;
+    if (stopWaitingRes.data) stopWaitingRow = stopWaitingRes.data as Record<string, unknown>;
   } else {
     const { data } = await supabase
       .from('dispatch_settings')
@@ -1360,17 +1511,6 @@ async function fetchDispatchWaitingSettings(
   }
 
   const merged: DispatchWaitingSettings = { ...(settings ?? {}) };
-
-  // Admin fare lifecycle saves stop radius to stop_waiting_settings — merge every check (no cache).
-  let stopWaitingRow: Record<string, unknown> | null = null;
-  if (serviceAreaId) {
-    const { data } = await supabase
-      .from('stop_waiting_settings')
-      .select(stopWaitingCols)
-      .eq('service_area_id', serviceAreaId)
-      .maybeSingle();
-    if (data) stopWaitingRow = data as Record<string, unknown>;
-  }
 
   if (stopWaitingRow) {
     if (typeof stopWaitingRow.stop_radius_meters === 'number') {
@@ -1557,6 +1697,7 @@ async function startStopWaitingOnArrive(
   supabase: ReturnType<typeof createClient>,
   trip: { id: string; service_area_id?: string | null },
   stop: TripStopRow,
+  preloadedSettings?: DispatchWaitingSettings | null,
 ): Promise<{ started: boolean; idempotent: boolean; graceSeconds: number }> {
   if (stop.type !== 'stop') {
     return { started: false, idempotent: true, graceSeconds: 0 };
@@ -1565,13 +1706,20 @@ async function startStopWaitingOnArrive(
     return { started: false, idempotent: true, graceSeconds: 0 };
   }
 
-  const enabled = await isStopWaitingChargeEnabled(supabase, trip.service_area_id ?? null);
-  if (!enabled) {
+  const settings =
+    preloadedSettings ??
+    (await fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null));
+  if (settings.enable_stop_waiting_charge === false) {
     return { started: false, idempotent: true, graceSeconds: 0 };
   }
 
-  const config = await loadAdminWaitingConfig(supabase, trip.service_area_id ?? null);
-  const graceSeconds = config.free_stop_waiting_seconds;
+  // Grace from merged dispatch + stop_waiting_settings (already loaded for radius).
+  // Do not re-fetch fare/dispatch/stop_waiting via loadAdminWaitingConfig here.
+  const graceSeconds =
+    typeof settings.stop_waiting_grace_period_seconds === 'number' &&
+      Number.isFinite(settings.stop_waiting_grace_period_seconds)
+      ? Math.max(0, Math.floor(settings.stop_waiting_grace_period_seconds))
+      : 0;
   const now = new Date().toISOString();
   const stopArrivedAt = stop.arrived_at ?? now;
 
@@ -2464,6 +2612,7 @@ Deno.serve(async (req) => {
           driverLat: pickupDriverLat,
           driverLng: pickupDriverLng,
           now,
+          perf: lifecyclePerf,
         });
         if (waitingResult.start_error) {
           return errorResponse(
@@ -2473,14 +2622,16 @@ Deno.serve(async (req) => {
           );
         }
 
-        const { data: updatedTrip } = await supabase
-          .from("trips")
-          .select(ARRIVE_WAITING_TRIP_SELECT)
-          .eq("id", trip_id)
-          .single();
+        // Prefer RPC/update RETURNING row — skip confirming trips SELECT when present.
         const billingTrip = mergeTripWaitingCtx(
-          { ...trip, arrived_at: now, pickup_arrived_at: now },
-          updatedTrip as TripWaitingBillingCtx | null,
+          {
+            ...trip,
+            arrived_at: now,
+            pickup_arrived_at: now,
+            pickup_waiting_started_at:
+              waitingResult.startedAt ?? trip.pickup_waiting_started_at ?? null,
+          },
+          waitingResult.tripRow ?? null,
         );
         if (!billingTrip.pickup_waiting_started_at) {
           return errorResponse(
@@ -2489,6 +2640,12 @@ Deno.serve(async (req) => {
             500,
           );
         }
+
+        const updatedTrip = {
+          ...billingTrip,
+          status: CANONICAL_ARRIVED_STATUS,
+          id: trip_id,
+        };
 
         // CANONICAL_ARRIVE_CONFIRMED: arrival + pickup_waiting_started_at durable.
         lifecyclePerf?.mark("waiting_ssot_end");
@@ -2797,13 +2954,17 @@ Deno.serve(async (req) => {
 
         // Idempotency: already arrived — try waiting start when inside radius
         if (currentStop.status === 'current' && currentStop.arrived_at) {
+          lifecyclePerf?.mark("waiting_ssot_start");
           const waitingResult = await tryStartStopWaiting(
             supabase,
             trip,
             currentStop,
             stopDriverLat,
             stopDriverLng,
+            lifecyclePerf,
           );
+          lifecyclePerf?.mark("waiting_ssot_end");
+          lifecyclePerf?.mark("CANONICAL_CONFIRMED");
 
           console.log("[stop-workflow] Already arrived at stop (idempotent)", {
             waiting_started: waitingResult.started,
@@ -2872,6 +3033,7 @@ Deno.serve(async (req) => {
           { ...currentStop, arrived_at: now },
           stopDriverLat,
           stopDriverLng,
+          lifecyclePerf,
         );
         lifecyclePerf?.mark("waiting_ssot_end");
         lifecyclePerf?.mark("CANONICAL_CONFIRMED");

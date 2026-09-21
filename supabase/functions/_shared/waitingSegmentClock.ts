@@ -305,6 +305,10 @@ export async function syncWaitingGeofenceClock(
     bodyLat?: number | null;
     bodyLng?: number | null;
     nowIso?: string;
+    /** Pre-resolved trusted fix — skips presence/live/drivers ladder. */
+    trusted?: TrustedDriverLocation | null;
+    /** When true, skip trusted lookup entirely (use provided trusted, even null). */
+    trustedResolved?: boolean;
   },
 ): Promise<{
   status: WaitingGeofenceStatus;
@@ -316,11 +320,10 @@ export async function syncWaitingGeofenceClock(
 }> {
   const nowIso = input.nowIso ?? new Date().toISOString();
   const nowMs = Date.parse(nowIso);
-  const trusted = await resolveTrustedDriverLocation(
-    supabase,
-    input.driverId,
-    nowMs,
-  );
+  const trusted = input.trustedResolved
+    ? (input.trusted ?? null)
+    : (input.trusted ??
+      await resolveTrustedDriverLocation(supabase, input.driverId, nowMs));
   const verdict = evaluateWaitingInsideRadius({
     trusted,
     bodyLat: input.bodyLat,
@@ -342,6 +345,7 @@ export async function syncWaitingGeofenceClock(
   const { data: openRows } = await openQuery;
   const open = Array.isArray(openRows) ? openRows[0] ?? null : openRows;
 
+  let openedFresh = false;
   if (verdict.inside) {
     if (!open) {
       await supabase.from("trip_waiting_segments").insert({
@@ -355,6 +359,7 @@ export async function syncWaitingGeofenceClock(
         distance_meters: verdict.distanceMeters,
         source_location: verdict.usedSource,
       });
+      openedFresh = true;
     }
   } else if (open?.id) {
     await supabase
@@ -367,19 +372,25 @@ export async function syncWaitingGeofenceClock(
       .eq("id", open.id);
   }
 
-  let sumQuery = supabase
-    .from("trip_waiting_segments")
-    .select("started_at, ended_at")
-    .eq("trip_id", input.tripId)
-    .eq("location_type", input.locationType);
-  if (input.locationType === "stop" && input.stopId) {
-    sumQuery = sumQuery.eq("stop_id", input.stopId);
+  let countedSeconds: number;
+  if (openedFresh && !open) {
+    // First open segment this session — no prior rows needed for sum.
+    countedSeconds = segmentDurationSeconds(nowIso, null, nowMs);
+  } else {
+    let sumQuery = supabase
+      .from("trip_waiting_segments")
+      .select("started_at, ended_at")
+      .eq("trip_id", input.tripId)
+      .eq("location_type", input.locationType);
+    if (input.locationType === "stop" && input.stopId) {
+      sumQuery = sumQuery.eq("stop_id", input.stopId);
+    }
+    const { data: allSegs } = await sumQuery;
+    countedSeconds = sumSegmentSeconds(
+      (allSegs ?? []) as Array<{ started_at: string; ended_at: string | null }>,
+      nowMs,
+    );
   }
-  const { data: allSegs } = await sumQuery;
-  const countedSeconds = sumSegmentSeconds(
-    (allSegs ?? []) as Array<{ started_at: string; ended_at: string | null }>,
-    nowMs,
-  );
 
   const status: WaitingGeofenceStatus = verdict.inside ? "counting" : "paused";
   const tripPatch: Record<string, unknown> = {
