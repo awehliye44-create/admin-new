@@ -19,7 +19,7 @@ import {
   persistPayoutItemLedgerAllocations,
 } from "../_shared/payoutItemLedgerAllocationWrite.ts";
 import {
-  CONFLICTING_ACTIVE_ITEM_STATUSES,
+  isConflictingActivePayoutItem,
   WEEKLY_PAYOUT_BATCH_KIND,
   evaluateDriverBatchEligibility,
   isLivePayoutExecutionEnabled,
@@ -389,8 +389,12 @@ Deno.serve(async (req) => {
       .select("driver_id, status, execution_status")
       .in("driver_id", driverIds);
     for (const item of activeItems ?? []) {
-      const st = String(item.execution_status ?? item.status ?? "");
-      if (CONFLICTING_ACTIVE_ITEM_STATUSES.has(st)) conflictDrivers.add(String(item.driver_id));
+      if (isConflictingActivePayoutItem({
+        status: item.status,
+        execution_status: item.execution_status,
+      })) {
+        conflictDrivers.add(String(item.driver_id));
+      }
     }
   }
 
@@ -661,7 +665,7 @@ Deno.serve(async (req) => {
   // Reconcile path: reserved/submitted drivers drop out of fresh eligibility â continue
   // money path from existing in-flight batch items so cron can poll/finalize.
   const inFlightExisting = existingBatchItems.filter((it) =>
-    isOrchestratorInFlightItemStatus(it.execution_status ?? it.status)
+    isOrchestratorInFlightItemStatus(it.status, it.execution_status)
   );
   type MoneyWork = {
     driver_id: string;
