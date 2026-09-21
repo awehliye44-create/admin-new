@@ -1052,6 +1052,12 @@ type StopWaitingStartResult = {
   graceSeconds: number;
   allowed_radius_meters?: number | null;
   distance_meters?: number | null;
+  /** Geofence segment observability (money fail-closed when not opened). */
+  stop_waiting_segment_created?: boolean;
+  stop_waiting_segment_id?: string | null;
+  stop_waiting_segment_stop_id?: string | null;
+  stop_waiting_geofence_skip_reason?: string | null;
+  stop_waiting_geofence_open_ms?: number | null;
 };
 
 /**
@@ -1259,10 +1265,18 @@ async function tryStartStopWaiting(
 ): Promise<StopWaitingStartResult> {
   if (stop.waiting_charge_active && stop.waiting_started_at) {
     // Keep session; refresh geofence clock for pause/resume.
+    let segmentCreated = false;
+    let segmentId: string | null = null;
+    let skipReason: string | null = "skipped_no_coords";
+    let geofenceOpenMs: number | null = null;
+    let distanceM: number | null = null;
+    let allowedRadius: number | null = null;
     if (stop.lat != null && stop.lng != null && trip.driver_id) {
       const settings = await fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null);
       const radius = resolveWaitingRadius('stop', settings, trip.id);
-      await syncWaitingGeofenceClock(supabase, {
+      allowedRadius = radius.meters;
+      const geofenceStarted = Date.now();
+      const clock = await syncWaitingGeofenceClock(supabase, {
         tripId: trip.id,
         driverId: trip.driver_id,
         locationType: 'stop',
@@ -1277,8 +1291,40 @@ async function tryStartStopWaiting(
         bodyLat: driverLat ?? null,
         bodyLng: driverLng ?? null,
       });
+      geofenceOpenMs = Math.max(0, Date.now() - geofenceStarted);
+      distanceM = clock.distanceMeters;
+      segmentCreated = clock.segmentOpened;
+      segmentId = clock.segmentId;
+      skipReason = clock.skipReason;
+      console.log('[stop-workflow] STOP_WAITING_GEOFENCE_SYNCED', {
+        trip_id: trip.id,
+        stop_id: stop.id,
+        status: clock.status,
+        counted_seconds: clock.countedSeconds,
+        used_source: clock.usedSource,
+        trusted_overrides_body: clock.trustedOverridesBody,
+        segment_opened: clock.segmentOpened,
+        segment_id: clock.segmentId,
+        skip_reason: clock.skipReason,
+        distance_meters: clock.distanceMeters,
+        note: clock.segmentOpened
+          ? 'in_radius_segment_open'
+          : 'money_fail_closed_no_chargeable_segment',
+        path: 'idempotent_refresh',
+      });
     }
-    return { started: false, waiting_status: 'free_waiting', graceSeconds: 0 };
+    return {
+      started: false,
+      waiting_status: 'free_waiting',
+      graceSeconds: 0,
+      allowed_radius_meters: allowedRadius,
+      distance_meters: distanceM,
+      stop_waiting_segment_created: segmentCreated,
+      stop_waiting_segment_id: segmentId,
+      stop_waiting_segment_stop_id: stop.id,
+      stop_waiting_geofence_skip_reason: skipReason,
+      stop_waiting_geofence_open_ms: geofenceOpenMs,
+    };
   }
 
   perf?.mark("waiting_config_start");
@@ -1321,8 +1367,13 @@ async function tryStartStopWaiting(
 
   let distanceM: number | null = null;
   let allowedRadius: number | null = radiusMeters;
+  let segmentCreated = false;
+  let segmentId: string | null = null;
+  let skipReason: string | null = "skipped_no_coords";
+  let geofenceOpenMs: number | null = null;
   if (stop.lat != null && stop.lng != null && trip.driver_id) {
     perf?.mark("waiting_geofence_start");
+    const geofenceStarted = Date.now();
     const clock = await syncWaitingGeofenceClock(supabase, {
       tripId: trip.id,
       driverId: trip.driver_id,
@@ -1340,9 +1391,13 @@ async function tryStartStopWaiting(
       trusted,
       trustedResolved: true,
     });
+    geofenceOpenMs = Math.max(0, Date.now() - geofenceStarted);
     perf?.mark("waiting_geofence_end");
     distanceM = clock.distanceMeters;
     allowedRadius = radiusMeters;
+    segmentCreated = clock.segmentOpened;
+    segmentId = clock.segmentId;
+    skipReason = clock.skipReason;
     console.log('[stop-workflow] STOP_WAITING_GEOFENCE_SYNCED', {
       trip_id: trip.id,
       stop_id: stop.id,
@@ -1350,6 +1405,13 @@ async function tryStartStopWaiting(
       counted_seconds: clock.countedSeconds,
       used_source: clock.usedSource,
       trusted_overrides_body: clock.trustedOverridesBody,
+      segment_opened: clock.segmentOpened,
+      segment_id: clock.segmentId,
+      skip_reason: clock.skipReason,
+      distance_meters: clock.distanceMeters,
+      note: clock.segmentOpened
+        ? 'in_radius_segment_open'
+        : 'money_fail_closed_no_chargeable_segment',
     });
   }
 
@@ -1359,6 +1421,11 @@ async function tryStartStopWaiting(
     graceSeconds: waitingStart.graceSeconds,
     allowed_radius_meters: allowedRadius,
     distance_meters: distanceM,
+    stop_waiting_segment_created: segmentCreated,
+    stop_waiting_segment_id: segmentId,
+    stop_waiting_segment_stop_id: stop.id,
+    stop_waiting_geofence_skip_reason: skipReason,
+    stop_waiting_geofence_open_ms: geofenceOpenMs,
   };
 }
 
@@ -3012,6 +3079,13 @@ Deno.serve(async (req) => {
             waiting_status: waitingResult.waiting_status,
             allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
             distance_meters: waitingResult.distance_meters ?? null,
+            stop_waiting_segment_created: waitingResult.stop_waiting_segment_created ?? false,
+            stop_waiting_segment_id: waitingResult.stop_waiting_segment_id ?? null,
+            stop_waiting_segment_stop_id: waitingResult.stop_waiting_segment_stop_id ?? currentStop.id,
+            stop_waiting_geofence_skip_reason:
+              waitingResult.stop_waiting_geofence_skip_reason ?? null,
+            stop_waiting_geofence_open_ms:
+              waitingResult.stop_waiting_geofence_open_ms ?? null,
             trip: {
               id: trip_id,
               status: trip.status,
@@ -3121,6 +3195,13 @@ Deno.serve(async (req) => {
           waiting_status: waitingResult.waiting_status,
           allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
           distance_meters: waitingResult.distance_meters ?? null,
+          stop_waiting_segment_created: waitingResult.stop_waiting_segment_created ?? false,
+          stop_waiting_segment_id: waitingResult.stop_waiting_segment_id ?? null,
+          stop_waiting_segment_stop_id: waitingResult.stop_waiting_segment_stop_id ?? currentStop.id,
+          stop_waiting_geofence_skip_reason:
+            waitingResult.stop_waiting_geofence_skip_reason ?? null,
+          stop_waiting_geofence_open_ms:
+            waitingResult.stop_waiting_geofence_open_ms ?? null,
           trip: {
             id: trip_id,
             status: trip.status,

@@ -317,6 +317,14 @@ export async function syncWaitingGeofenceClock(
   inside: boolean;
   usedSource: string;
   trustedOverridesBody: boolean;
+  /** True when a new in-radius segment row was inserted this call. */
+  segmentOpened: boolean;
+  segmentId: string | null;
+  /**
+   * Why no chargeable open happened (money fail-closed).
+   * outside_radius | no_trusted_location | already_open | insert_failed | skipped_no_coords
+   */
+  skipReason: string | null;
 }> {
   const nowIso = input.nowIso ?? new Date().toISOString();
   const nowMs = Date.parse(nowIso);
@@ -346,20 +354,46 @@ export async function syncWaitingGeofenceClock(
   const open = Array.isArray(openRows) ? openRows[0] ?? null : openRows;
 
   let openedFresh = false;
+  let segmentId: string | null =
+    open && typeof (open as { id?: string }).id === "string"
+      ? (open as { id: string }).id
+      : null;
+  let skipReason: string | null = null;
+
   if (verdict.inside) {
     if (!open) {
-      await supabase.from("trip_waiting_segments").insert({
-        trip_id: input.tripId,
-        location_type: input.locationType,
-        stop_id: input.stopId ?? null,
-        stop_index: input.stopIndex ?? null,
-        started_at: nowIso,
-        ended_at: null,
-        inside_radius: true,
-        distance_meters: verdict.distanceMeters,
-        source_location: verdict.usedSource,
-      });
-      openedFresh = true;
+      const { data: inserted, error: insertErr } = await supabase
+        .from("trip_waiting_segments")
+        .insert({
+          trip_id: input.tripId,
+          location_type: input.locationType,
+          stop_id: input.stopId ?? null,
+          stop_index: input.stopIndex ?? null,
+          started_at: nowIso,
+          ended_at: null,
+          inside_radius: true,
+          distance_meters: verdict.distanceMeters,
+          source_location: verdict.usedSource,
+        })
+        .select("id")
+        .maybeSingle();
+      if (insertErr) {
+        console.error("[waitingSegmentClock] SEGMENT_INSERT_FAILED", {
+          trip_id: input.tripId,
+          location_type: input.locationType,
+          stop_id: input.stopId ?? null,
+          message: insertErr.message,
+        });
+        skipReason = "insert_failed";
+      } else {
+        openedFresh = true;
+        segmentId =
+          inserted && typeof (inserted as { id?: string }).id === "string"
+            ? (inserted as { id: string }).id
+            : null;
+      }
+    } else {
+      skipReason = "already_open";
     }
   } else if (open?.id) {
     await supabase
@@ -370,6 +404,13 @@ export async function syncWaitingGeofenceClock(
         source_location: verdict.usedSource,
       })
       .eq("id", open.id);
+    skipReason = verdict.usedSource === "no_trusted_location"
+      ? "no_trusted_location"
+      : "outside_radius";
+  } else {
+    skipReason = verdict.usedSource === "no_trusted_location"
+      ? "no_trusted_location"
+      : "outside_radius";
   }
 
   let countedSeconds: number;
@@ -413,6 +454,9 @@ export async function syncWaitingGeofenceClock(
     inside: verdict.inside,
     usedSource: verdict.usedSource,
     trustedOverridesBody: verdict.trustedOverridesBody,
+    segmentOpened: openedFresh,
+    segmentId,
+    skipReason: openedFresh ? null : skipReason,
   };
 }
 

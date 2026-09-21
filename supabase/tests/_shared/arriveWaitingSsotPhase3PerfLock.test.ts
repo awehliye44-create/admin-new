@@ -139,6 +139,11 @@ Deno.test("ingest-telemetry allowlists waiting_* and accept session marks", asyn
     "accept_fetch_ms",
     "accept_ttfb_ms",
     "accept_body_parse_ms",
+    "stop_waiting_geofence_open_ms",
+    "stop_waiting_segment_created",
+    "arrive_stop_gate_total_ms",
+    "arrive_stop_location_resolve_ms",
+    "arrive_stop_far_modal_user_ms",
   ]) {
     assertStringIncludes(src, `"${key}"`);
   }
