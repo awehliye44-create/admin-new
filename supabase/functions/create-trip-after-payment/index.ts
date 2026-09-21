@@ -956,6 +956,15 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       : null;
     const sessionFareSnapshot = (loadedPaymentSession?.fare_snapshot as Record<string, unknown> | undefined)
       ?? null;
+    // Prefer body note; fall back to payment_session.booking_snapshot (preauth SSOT).
+    const sessionBookingSnapshot =
+      (loadedPaymentSession?.booking_snapshot as Record<string, unknown> | undefined) ?? null;
+    if (!String(body.special_instructions ?? "").trim() && sessionBookingSnapshot) {
+      const fromSnap = String(sessionBookingSnapshot.special_instructions ?? "").trim();
+      if (fromSnap) {
+        body.special_instructions = fromSnap.slice(0, 1000);
+      }
+    }
 
     const grossFarePence = body.original_estimated_fare != null && body.original_estimated_fare > 0
       ? Math.round(body.original_estimated_fare * 100)

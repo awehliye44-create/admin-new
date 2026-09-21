@@ -2,6 +2,7 @@
  * Corporate + booking-snapshot pickup-note persistence locks.
  * Canonical field: trips.special_instructions (same as Customer).
  */
+import { assert } from "https://deno.land/std@0.224.0/assert/assert.ts";
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { fromFileUrl } from "https://deno.land/std@0.224.0/path/from_file_url.ts";
 import { join } from "https://deno.land/std@0.224.0/path/join.ts";
@@ -91,4 +92,25 @@ Deno.test("finalize_paid_booking still reads draft special_instructions", async 
   );
   assertStringIncludes(mig, "special_instructions");
   assertStringIncludes(mig, "v_draft->>'special_instructions'");
+});
+
+Deno.test("ride CTAP insert applies special_instructions (not delivery-only)", async () => {
+  const ssot = await Deno.readTextFile(
+    join(REPO_ROOT, "supabase/functions/_shared/bookingSSOT.ts"),
+  );
+  // Must set special_instructions before the delivery-only branch returns.
+  const applyIdx = ssot.indexOf("export function applyBookingTypeFieldsToTrip");
+  const deliveryIdx = ssot.indexOf('bookingType === "delivery"', applyIdx);
+  const rideNoteIdx = ssot.indexOf("tripData.special_instructions", applyIdx);
+  assert(applyIdx >= 0 && deliveryIdx > applyIdx && rideNoteIdx > applyIdx);
+  assert(rideNoteIdx < deliveryIdx);
+});
+
+Deno.test("CTAP falls back to booking_snapshot.special_instructions", async () => {
+  const ctap = await Deno.readTextFile(
+    join(REPO_ROOT, "supabase/functions/create-trip-after-payment/index.ts"),
+  );
+  assertStringIncludes(ctap, "sessionBookingSnapshot");
+  assertStringIncludes(ctap, "booking_snapshot");
+  assertStringIncludes(ctap, "body.special_instructions = fromSnap");
 });

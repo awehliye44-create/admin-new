@@ -84,11 +84,17 @@ export function applyBookingTypeFieldsToTrip(
   const bookingType = (body.booking_type || "ride").toLowerCase();
   tripData.booking_type = bookingType;
 
+  // Pickup note SSOT — Customer / Corporate → trips.special_instructions.
+  // Applies to rides and delivery (never invent a second notes column).
+  const specialInstructions = String(body.special_instructions ?? "").trim();
+  if (specialInstructions) {
+    tripData.special_instructions = specialInstructions.slice(0, 1000);
+  }
+
   if (bookingType === "delivery") {
     tripData.job_type = "delivery";
     if (body.delivery_type) tripData.delivery_type = body.delivery_type;
     if (body.delivery_metadata) tripData.delivery_metadata = body.delivery_metadata;
-    if (body.special_instructions) tripData.special_instructions = body.special_instructions;
     return;
   }
 
