@@ -43,6 +43,12 @@ Deno.test("wallet/invoice fail closed with unavailable not 501 success", () => {
   assert(!/\b501\b/.test(code));
 });
 
+Deno.test("wires Notes for Driver into booking_snapshot.special_instructions", () => {
+  assert(SRC.includes("special_instructions"));
+  assert(SRC.includes("notes_for_driver"));
+  assert(SRC.includes("special_instructions: specialInstructions") || SRC.includes("specialInstructions"));
+});
+
 Deno.test("canonical claim migration present with advisory lock RPC", async () => {
   const mig = await Deno.readTextFile(
     join(

@@ -70,6 +70,8 @@ export type BuildCanonicalBookingSnapshotInput = {
   appliedOfferId?: string | null;
   appliedPersonalVoucherId?: string | null;
   fareQuoteId?: string | null;
+  /** Pickup note for the driver — maps to trips.special_instructions. */
+  specialInstructions?: string | null;
   /** Override; otherwise derived from fare + route + vehicle. */
   canonicalFareVersion?: string | null;
   createdAt?: string;
@@ -116,6 +118,8 @@ export type CanonicalBookingSnapshot = {
   personal_voucher_code?: string;
   applied_offer_id?: string | null;
   applied_personal_voucher_id?: string | null;
+  /** Pickup note — persisted to trips.special_instructions on finalize. */
+  special_instructions?: string;
 };
 
 export function deriveCanonicalFareVersion(args: {
@@ -248,6 +252,10 @@ export function buildCanonicalBookingSnapshot(
   }
   if (input.appliedPersonalVoucherId !== undefined) {
     snap.applied_personal_voucher_id = input.appliedPersonalVoucherId;
+  }
+  const specialInstructions = String(input.specialInstructions ?? "").trim();
+  if (specialInstructions) {
+    snap.special_instructions = specialInstructions.slice(0, 1000);
   }
 
   return snap;
@@ -450,6 +458,9 @@ export function validateCanonicalBookingSnapshot(
     appliedOfferId: (s.applied_offer_id as string | null) ?? null,
     appliedPersonalVoucherId: (s.applied_personal_voucher_id as string | null) ?? null,
     fareQuoteId: s.fare_quote_id != null ? String(s.fare_quote_id) : null,
+    specialInstructions: s.special_instructions != null
+      ? String(s.special_instructions)
+      : null,
     canonicalFareVersion: fareVersion,
     createdAt: createdAtRaw,
     snapshotVersion: snapshotVersion,
