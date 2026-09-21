@@ -23,7 +23,7 @@ import { planPayoutItemFromEligibleEntries, type PlannedLedgerAllocation } from 
 import { persistPayoutItemLedgerAllocations } from "../_shared/payoutItemLedgerAllocationWrite.ts";
 import {
   ADMIN_EXECUTION_DISABLED_LABEL,
-  CONFLICTING_ACTIVE_ITEM_STATUSES,
+  isConflictingActivePayoutItem,
   SLICE5_BATCH_STATUS,
   SLICE5_ITEM_STATUS,
   WEEKLY_PAYOUT_BATCH_KIND,
@@ -391,8 +391,10 @@ serve(async (req) => {
         .select("driver_id, status, execution_status, batch_id")
         .in("driver_id", driverIds);
       for (const item of activeItems ?? []) {
-        const st = String(item.execution_status ?? item.status ?? "");
-        if (CONFLICTING_ACTIVE_ITEM_STATUSES.has(st)) {
+        if (isConflictingActivePayoutItem({
+          status: item.status,
+          execution_status: item.execution_status,
+        })) {
           conflictDrivers.add(String(item.driver_id));
         }
       }

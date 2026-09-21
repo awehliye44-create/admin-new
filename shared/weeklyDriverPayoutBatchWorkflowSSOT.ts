@@ -10,6 +10,10 @@ import {
   zonedWallTimeToUtc,
   type PayoutWeekday,
 } from "./payoutScheduleSSOT.ts";
+import {
+  isConflictingActivePayoutItem,
+  PAYOUT_ITEM_IN_FLIGHT_STATUSES,
+} from "./payoutItemLifecycleSSOT.ts";
 
 export const WEEKLY_PAYOUT_BATCH_KIND = "WEEKLY_SCHEDULED" as const;
 /** Legacy kind — retired from active scheduler writes. */
@@ -82,23 +86,14 @@ export type Slice5ItemStatus =
 export const SLICE5_ALLOWED_BATCH_STATUSES = new Set<string>(Object.values(SLICE5_BATCH_STATUS));
 export const SLICE5_ALLOWED_ITEM_STATUSES = new Set<string>(Object.values(SLICE5_ITEM_STATUS));
 
-/** Items that would conflict with creating a new pay path for the same driver. */
-export const CONFLICTING_ACTIVE_ITEM_STATUSES = new Set([
+/** @deprecated Prefer `isConflictingActivePayoutItem({ status, execution_status })`. */
+export const CONFLICTING_ACTIVE_ITEM_STATUSES = new Set<string>([
+  ...PAYOUT_ITEM_IN_FLIGHT_STATUSES,
   "pending",
   "processing",
-  "CREATED",
-  "VALIDATED",
-  "RESERVING",
-  "RESERVED",
-  "BLOCKED_EXECUTION_DISABLED",
-  "READY",
-  "SCHEDULED",
-  "PROCESSING",
-  "TRANSFER_CREATED",
-  "SUBMITTING",
-  "SUBMITTED",
-  "SENT",
 ]);
+
+export { isConflictingActivePayoutItem };
 
 export const ADMIN_EXECUTION_DISABLED_LABEL = "Execution disabled";
 export const ADMIN_FUNDS_RESERVED_LABEL = "Funds reserved — execution disabled";

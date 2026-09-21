@@ -10,6 +10,10 @@ import {
   zonedWallTimeToUtc,
   type PayoutWeekday,
 } from "./payoutScheduleSSOT.ts";
+import {
+  isConflictingActivePayoutItem,
+  PAYOUT_ITEM_IN_FLIGHT_STATUSES,
+} from "./payoutItemLifecycleSSOT.ts";
 
 export const WEEKLY_PAYOUT_BATCH_KIND = "WEEKLY_SCHEDULED" as const;
 /** Legacy kind â retired from active scheduler writes. */
@@ -45,25 +49,17 @@ export const SLICE5_ALLOWED_BATCH_STATUSES = new Set<string>(Object.values(SLICE
 export const SLICE5_ALLOWED_ITEM_STATUSES = new Set<string>(Object.values(SLICE5_ITEM_STATUS));
 
 /**
- * Items that conflict with creating a new pay path for the same driver.
- * Money-in-flight / reserved only â do NOT include CREATED, VALIDATED, or
- * BLOCKED_EXECUTION_DISABLED (planning/blocked rows must not skip drivers forever).
+ * @deprecated Prefer `isConflictingActivePayoutItem({ status, execution_status })`.
+ * Raw in-flight tokens when `status` is non-terminal. Never apply alone against a
+ * COMPLETED/FAILED/CANCELLED row — stale `execution_status=SUBMITTED` must not block.
  */
-export const CONFLICTING_ACTIVE_ITEM_STATUSES = new Set([
+export const CONFLICTING_ACTIVE_ITEM_STATUSES = new Set<string>([
+  ...PAYOUT_ITEM_IN_FLIGHT_STATUSES,
   "pending",
   "processing",
-  "RESERVING",
-  "RESERVED",
-  "READY",
-  "SCHEDULED",
-  "PROCESSING",
-  "TRANSFER_CREATED",
-  "SUBMITTING",
-  "SUBMITTED",
-  "SENT",
-  // Timeout / ambiguous provider accept â never open a second pay path.
-  "UNKNOWN",
 ]);
+
+export { isConflictingActivePayoutItem };
 
 export const ADMIN_EXECUTION_DISABLED_LABEL = "Execution disabled";
 export const ADMIN_FUNDS_RESERVED_LABEL = "Funds reserved â execution disabled";

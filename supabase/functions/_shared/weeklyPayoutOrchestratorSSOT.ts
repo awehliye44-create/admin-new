@@ -1,8 +1,10 @@
 /**
  * Canonical weekly payout orchestrator SSOT (read-model + pure gates).
  * Owns planning statuses, funding gate, blockers, idempotency keys, batch aggregate.
- * Never mutates wallets or calls Revolut by itself â the edge executor does that.
+ * Never mutates wallets or calls Revolut by itself — the edge executor does that.
  */
+
+import { isConflictingActivePayoutItem } from "./payoutItemLifecycleSSOT.ts";
 
 export const ORCHESTRATOR_ITEM_STATUS = {
   ELIGIBLE: "ELIGIBLE",
@@ -279,17 +281,22 @@ export function shouldReleaseReservationOnSubmitClaimFailure(
   return true;
 }
 
-/** Item still needs money-path work (reserve/submit/poll/finalize) â not occurrence-terminal. */
+/** Item still needs money-path work (reserve/submit/poll/finalize) — not occurrence-terminal. */
 export function isOrchestratorInFlightItemStatus(
   status: string | null | undefined,
+  executionStatus?: string | null,
 ): boolean {
-  const st = String(status ?? "").toUpperCase();
-  if (!st) return false;
-  if (isOrchestratorItemTerminalForOccurrence(st)) return false;
-  if (st === "PAID" || st === "CANCELLED" || st === "CANCELED" || st === "INELIGIBLE") {
-    return false;
+  if (executionStatus !== undefined) {
+    return isConflictingActivePayoutItem({
+      status,
+      execution_status: executionStatus,
+    });
   }
-  return true;
+  // Legacy single-token probe (caller already coalesced). Terminal tokens are not in-flight.
+  return isConflictingActivePayoutItem({
+    status,
+    execution_status: null,
+  });
 }
 
 /**
