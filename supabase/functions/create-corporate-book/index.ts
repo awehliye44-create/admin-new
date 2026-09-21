@@ -306,18 +306,55 @@ Deno.serve(async (req) => {
       console.log(JSON.stringify({ fn: "create-corporate-book", step, details }));
     };
 
+    // Canonical pickup note — same trips.special_instructions column as Customer.
+    // Accept UI aliases; never invent a corporate-only notes column.
+    const specialInstructions = String(
+      body.special_instructions ??
+        body.notes_for_driver ??
+        body.driver_notes ??
+        body.pickup_note ??
+        body.notesForDriver ??
+        body.notes ??
+        "",
+    ).trim().slice(0, 1000) || null;
+
+    const currencyCode = String(currency ?? "GBP").trim().toUpperCase() || "GBP";
+    const fareMajor = estimatedFarePence / 100;
+    const when = scheduledAt ? "SCHEDULED" : "NOW";
     const bookingSnapshot = {
+      snapshot_version: 1,
+      created_at: new Date().toISOString(),
+      booking_draft_id: clientActionId,
       client_action_id: clientActionId,
       corporate_account_id: corporateAccountId,
       service_area_id: serviceAreaId,
       vehicle_type_id: vehicleTypeId,
+      selected_service_id: vehicleTypeId,
       pickup: { address: body.pickup_address ?? "", lat: pickupLat, lng: pickupLng },
       dropoff: { address: body.dropoff_address ?? "", lat: dropoffLat, lng: dropoffLng },
-      passenger_name: body.passenger_name ?? null,
-      passenger_phone: body.passenger_phone ?? null,
+      when,
       scheduled_at: scheduledAt,
+      passenger_name: body.passenger_name ?? "",
+      passenger_phone: body.passenger_phone ?? "",
+      passenger_count: 1,
+      estimated_fare: fareMajor,
+      gross_fare_pence: estimatedFarePence,
+      final_estimated_fare_pence: estimatedFarePence,
+      discount_amount_pence: 0,
+      currency_code: currencyCode,
+      payment_method: paymentMethod || "card",
       booking_source: "corporate_portal",
-      payment_intent_id: null,
+      canonical_fare_version: [
+        "v1",
+        serviceAreaId,
+        vehicleTypeId,
+        currencyCode,
+        String(estimatedFarePence),
+        String(estimatedFarePence),
+        "na",
+        "na",
+      ].join(":"),
+      ...(specialInstructions ? { special_instructions: specialInstructions } : {}),
     };
 
     return await createRevolutPreauthResponse({

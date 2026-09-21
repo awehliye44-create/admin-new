@@ -1,0 +1,150 @@
+/**
+ * Corporate + booking-snapshot pickup-note persistence locks.
+ * Canonical field: trips.special_instructions (same as Customer).
+ */
+import { assert } from "https://deno.land/std@0.224.0/assert/assert.ts";
+import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { fromFileUrl } from "https://deno.land/std@0.224.0/path/from_file_url.ts";
+import { join } from "https://deno.land/std@0.224.0/path/join.ts";
+import {
+  buildCanonicalBookingSnapshot,
+  validateCanonicalBookingSnapshot,
+} from "../../functions/_shared/bookingSnapshotSSOT.ts";
+
+const REPO_ROOT = fromFileUrl(new URL("../../..", import.meta.url));
+
+Deno.test("corporate book wires Notes for Driver → special_instructions", async () => {
+  const src = await Deno.readTextFile(
+    join(REPO_ROOT, "supabase/functions/create-corporate-book/index.ts"),
+  );
+  assertStringIncludes(src, "special_instructions");
+  assertStringIncludes(src, "notes_for_driver");
+  assertStringIncludes(src, "specialInstructions");
+  // Accept UI aliases → canonical column only (never invent corporate_notes persistence).
+  assertEquals(/corporate_notes\b/.test(src), false);
+  assertStringIncludes(src, "driver_notes");
+  assertStringIncludes(src, "pickup_note");
+});
+
+Deno.test("canonical booking snapshot preserves special_instructions", () => {
+  const snap = buildCanonicalBookingSnapshot({
+    clientActionId: "11111111-1111-4111-8111-111111111111",
+    serviceAreaId: "22222222-2222-4222-8222-222222222222",
+    vehicleTypeId: "33333333-3333-4333-8333-333333333333",
+    pickup: { address: "Pickup", lat: 52.04, lng: -0.76 },
+    dropoff: { address: "Drop", lat: 52.05, lng: -0.75 },
+    when: "NOW",
+    passengerName: "Alex",
+    passengerPhone: "+441234567890",
+    estimatedFareMajor: 12.5,
+    finalEstimatedFarePence: 1250,
+    grossFarePence: 1250,
+    currencyCode: "GBP",
+    paymentMethod: "card",
+    bookingSource: "corporate_portal",
+    specialInstructions: "Please call when outside.",
+  });
+  assertEquals(snap.special_instructions, "Please call when outside.");
+
+  const validated = validateCanonicalBookingSnapshot(snap);
+  assertEquals(validated.ok, true);
+  if (validated.ok) {
+    assertEquals(validated.snapshot.special_instructions, "Please call when outside.");
+  }
+});
+
+Deno.test("empty special_instructions is omitted from canonical snapshot", () => {
+  const snap = buildCanonicalBookingSnapshot({
+    clientActionId: "11111111-1111-4111-8111-111111111111",
+    serviceAreaId: "22222222-2222-4222-8222-222222222222",
+    vehicleTypeId: "33333333-3333-4333-8333-333333333333",
+    pickup: { address: "Pickup", lat: 52.04, lng: -0.76 },
+    dropoff: { address: "Drop", lat: 52.05, lng: -0.75 },
+    when: "NOW",
+    passengerName: "Alex",
+    passengerPhone: "+441234567890",
+    estimatedFareMajor: 12.5,
+    finalEstimatedFarePence: 1250,
+    grossFarePence: 1250,
+    currencyCode: "GBP",
+    paymentMethod: "card",
+    specialInstructions: "   ",
+  });
+  assertEquals(snap.special_instructions, undefined);
+});
+
+Deno.test("active-trip snapshot migration exposes special_instructions", async () => {
+  const mig = await Deno.readTextFile(
+    join(
+      REPO_ROOT,
+      "supabase/migrations/20261123130000_driver_snapshot_special_instructions.sql",
+    ),
+  );
+  assertStringIncludes(mig, "get_driver_active_trip_snapshot");
+  assertStringIncludes(mig, "'special_instructions'");
+  assertStringIncludes(mig, "v_trip.special_instructions");
+});
+
+Deno.test("finalize_paid_booking still reads draft special_instructions", async () => {
+  const mig = await Deno.readTextFile(
+    join(
+      REPO_ROOT,
+      "supabase/migrations/20260919120000_p0_payment_authorisation_amount_gate.sql",
+    ),
+  );
+  assertStringIncludes(mig, "special_instructions");
+  assertStringIncludes(mig, "v_draft->>'special_instructions'");
+});
+
+Deno.test("ride CTAP insert applies special_instructions (not delivery-only)", async () => {
+  const ssot = await Deno.readTextFile(
+    join(REPO_ROOT, "supabase/functions/_shared/bookingSSOT.ts"),
+  );
+  // Must set special_instructions before the delivery-only branch returns.
+  const applyIdx = ssot.indexOf("export function applyBookingTypeFieldsToTrip");
+  const deliveryIdx = ssot.indexOf('bookingType === "delivery"', applyIdx);
+  const rideNoteIdx = ssot.indexOf("tripData.special_instructions", applyIdx);
+  assert(applyIdx >= 0 && deliveryIdx > applyIdx && rideNoteIdx > applyIdx);
+  assert(rideNoteIdx < deliveryIdx);
+});
+
+Deno.test("CTAP falls back to booking_snapshot.special_instructions", async () => {
+  const ctap = await Deno.readTextFile(
+    join(REPO_ROOT, "supabase/functions/create-trip-after-payment/index.ts"),
+  );
+  assertStringIncludes(ctap, "sessionBookingSnapshot");
+  assertStringIncludes(ctap, "booking_snapshot");
+  assertStringIncludes(ctap, "body.special_instructions = fromSnap");
+});
+
+Deno.test("queued trips RPC exposes special_instructions", async () => {
+  const mig = await Deno.readTextFile(
+    join(
+      REPO_ROOT,
+      "supabase/migrations/20261123130000_driver_snapshot_special_instructions.sql",
+    ),
+  );
+  assertStringIncludes(mig, "get_driver_queued_trips");
+  assertStringIncludes(mig, "AS special_instructions");
+});
+
+Deno.test("scheduled jobs RPC pin selects special_instructions", async () => {
+  const mig = await Deno.readTextFile(
+    join(
+      REPO_ROOT,
+      "supabase/migrations/20261123130100_list_driver_own_scheduled_jobs_special_instructions.sql",
+    ),
+  );
+  assertStringIncludes(mig, "list_driver_own_scheduled_jobs");
+  assertStringIncludes(mig, "t.special_instructions");
+});
+
+Deno.test("corporate book accepts notes_for_driver / driver_notes aliases", async () => {
+  const src = await Deno.readTextFile(
+    join(REPO_ROOT, "supabase/functions/create-corporate-book/index.ts"),
+  );
+  assertStringIncludes(src, "notes_for_driver");
+  assertStringIncludes(src, "driver_notes");
+  assertStringIncludes(src, "pickup_note");
+  assertEquals(/corporate_notes\b/.test(src), false);
+});
