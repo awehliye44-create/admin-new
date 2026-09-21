@@ -275,6 +275,30 @@ Deno.serve(async (req) => {
     const isTripModified =
       payload.type === 'TRIP_UPDATE' && incomingDataType === 'trip_modified';
 
+    // Passenger/admin cancel uses RIDE_STOP + event=trip_cancelled.
+    // Offer expire / accept-offer stop stays silent data-only.
+    const stopReasonRaw = String(
+      payload.data?.stopReason || payload.data?.stop_reason || "",
+    ).toLowerCase();
+    const eventRaw = String(
+      payload.data?.event || payload.data?.event_type || "",
+    ).toLowerCase();
+    const CANCEL_STOP_REASONS = new Set([
+      "passenger_cancelled",
+      "customer_cancelled",
+      "trip_cancelled",
+      "trip_canceled",
+      "cancelled",
+      "canceled",
+      "admin_cancelled",
+      "no_show",
+    ]);
+    const isCancelRideStop =
+      isRideStop &&
+      (eventRaw === "trip_cancelled" ||
+        eventRaw === "trip_canceled" ||
+        CANCEL_STOP_REASONS.has(stopReasonRaw));
+
     // ── RIDE_OFFER: revalidate committed offer + driver before every push ──
     // Never trust presence.app_state=foreground to skip OS notification.
     // Never send after expiry. Push only tokens owned by ride_offers.driver_id.
@@ -505,8 +529,32 @@ Deno.serve(async (req) => {
               ttl: '30s',
               direct_boot_ok: true, // deliver even before device unlock
             };
+          } else if (isCancelRideStop) {
+            // ── Trip Cancelled (cancel-flavored RIDE_STOP): audible tray ──
+            // Offer-timeout RIDE_STOP stays silent below; cancel must wake Driver.
+            message.notification = {
+              title: sanitizedTitle,
+              body: sanitizedBody,
+            };
+            message.data = {
+              ...dataPayload,
+              title: sanitizedTitle,
+              body: sanitizedBody,
+              event: dataPayload.event || "trip_cancelled",
+              event_type: dataPayload.event_type || "trip_cancelled",
+              channel_id: "onecab_driver_trip_updates_v1",
+            };
+            message.android = {
+              priority: "HIGH",
+              ttl: "60s",
+              direct_boot_ok: true,
+              notification: {
+                channel_id: "onecab_driver_trip_updates_v1",
+                sound: "trip_cancelled",
+              },
+            };
           } else if (isRideStop) {
-            // ── RIDE STOP: Data-only, silent ──
+            // ── RIDE STOP (offer expire / accept): Data-only, silent ──
             message.data = {
               ...dataPayload,
               title: sanitizedTitle,
@@ -541,8 +589,34 @@ Deno.serve(async (req) => {
             };
           }
         } else if (platform === 'ios') {
-          if (isRideStop) {
-            // ── RIDE STOP on iOS: silent data-only push ──
+          if (isCancelRideStop) {
+            // ── Trip Cancelled: audible alert (bundled trip_cancelled.wav) ──
+            message.data = {
+              ...dataPayload,
+              event: dataPayload.event || "trip_cancelled",
+              event_type: dataPayload.event_type || "trip_cancelled",
+            };
+            message.apns = {
+              headers: {
+                "apns-priority": "10",
+                "apns-push-type": "alert",
+                "apns-topic": "com.onecab.driver.app",
+              },
+              payload: {
+                aps: {
+                  alert: {
+                    title: sanitizedTitle,
+                    body: sanitizedBody,
+                  },
+                  sound: "trip_cancelled.wav",
+                  badge: 0,
+                  "interruption-level": "time-sensitive",
+                  category: "ONECAB_TRIP_CANCELLED",
+                },
+              },
+            };
+          } else if (isRideStop) {
+            // ── RIDE STOP on iOS: silent data-only push (offer expire) ──
             message.data = dataPayload;
             message.apns = {
               headers: {

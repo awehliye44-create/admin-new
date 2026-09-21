@@ -1,5 +1,6 @@
 /**
- * Fire-and-forget RIDE_STOP push so the driver app clears active trip / offer UI.
+ * Fire-and-forget RIDE_STOP push so the driver app clears active trip / offer UI
+ * and can play Trip Cancelled (cancel-flavored stop is audible in send-driver-notification).
  */
 export type NotifyDriverTripStoppedParams = {
   tripId: string;
@@ -17,6 +18,7 @@ export async function notifyDriverTripStopped(
   params: NotifyDriverTripStoppedParams,
 ): Promise<void> {
   const stopReason = params.stopReason ?? "passenger_cancelled";
+  const enqueuedAt = new Date().toISOString();
   const data: Record<string, string> = {
     stopReason,
     stop_reason: stopReason,
@@ -25,7 +27,10 @@ export async function notifyDriverTripStopped(
     booking_id: params.tripId,
     bookingId: params.tripId,
     event: "trip_cancelled",
+    event_type: "trip_cancelled",
     type: "RIDE_STOP",
+    enqueued_at: enqueuedAt,
+    cancelled_at: enqueuedAt,
   };
   if (params.cancelledBy) {
     data.cancelled_by = params.cancelledBy;
@@ -38,7 +43,9 @@ export async function notifyDriverTripStopped(
 
   const body =
     params.body ??
-    (params.cancelledBy === "passenger" || params.cancelledBy === "customer"
+    (params.cancelledBy === "passenger" ||
+      params.cancelledBy === "customer" ||
+      params.cancelledBy === "rider"
       ? "Rider cancelled this trip"
       : "Trip no longer available");
 

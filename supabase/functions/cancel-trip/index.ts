@@ -17,6 +17,7 @@ import {
 } from "../_shared/terminalFeeDecisionSSOT.ts";
 import { noShowEligibleFromCountedSeconds } from "../_shared/waitingSegmentClock.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
 
 
 /**
@@ -550,6 +551,20 @@ serve(async (req) => {
     } else if (feeType === "late_cancellation") {
       riderMessage = `Trip cancelled — late cancellation fee of ${appliedFee}p applied`;
       driverMessage = "Rider cancelled late — late cancellation fee applied";
+    }
+
+    // Assigned Driver must get cancel push for BG/killed Trip Cancelled audio.
+    // Searching-only cancels (no driver) skip — nothing to stop on Driver app.
+    if (assignedDriverId) {
+      void notifyDriverTripStopped(supabaseUrl, supabaseKey, assignedDriverId, {
+        tripId: trip_id,
+        stopReason:
+          feeType === "no_show" ? "no_show" : "passenger_cancelled",
+        cancelledBy: cancelled_by || "passenger",
+        body: driverMessage,
+      }).catch((e) =>
+        console.warn("[cancel-trip] driver trip_cancelled push failed:", e)
+      );
     }
 
     return successResponse({
