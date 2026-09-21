@@ -410,6 +410,7 @@ serve(async (req) => {
     const screen = EVENT_SCREEN[event] || EVENT_SCREEN[body.event] || '/booking/driver-accepted';
 
     // Data payload for the app
+    const enqueuedAt = new Date().toISOString();
     const dataPayload: Record<string, string> = {
       type: event,
       event,
@@ -424,7 +425,9 @@ serve(async (req) => {
       iosSound,
       notificationId,
       priority,
-      timestamp: new Date().toISOString(),
+      timestamp: enqueuedAt,
+      enqueued_at: enqueuedAt,
+      enqueuedAt,
     };
     if (iosCategory) dataPayload.iosCategory = iosCategory;
     if (driverName) dataPayload.driverName = driverName;

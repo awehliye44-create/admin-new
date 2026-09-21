@@ -19,6 +19,9 @@ Deno.test("cancel-trip notifies assigned driver via notifyDriverTripStopped", ()
   if (!src.includes("driver trip_cancelled push failed")) {
     throw new Error("cancel-trip missing driver cancel push fire-and-forget");
   }
+  if (!src.includes('cancelled_by !== "driver"')) {
+    throw new Error("cancel-trip must skip driver self-cancel remote notify");
+  }
 });
 
 Deno.test("send-driver-notification makes cancel-flavored RIDE_STOP audible", () => {

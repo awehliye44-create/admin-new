@@ -554,8 +554,9 @@ serve(async (req) => {
     }
 
     // Assigned Driver must get cancel push for BG/killed Trip Cancelled audio.
+    // Skip when the Driver themselves cancelled (local UI already owns that path).
     // Searching-only cancels (no driver) skip — nothing to stop on Driver app.
-    if (assignedDriverId) {
+    if (assignedDriverId && cancelled_by !== "driver") {
       void notifyDriverTripStopped(supabaseUrl, supabaseKey, assignedDriverId, {
         tripId: trip_id,
         stopReason:
