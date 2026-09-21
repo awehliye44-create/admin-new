@@ -9024,6 +9024,78 @@ export type Database = {
           },
         ]
       }
+      driver_location_publish_diagnostics: {
+        Row: {
+          active_trip_latch_present: boolean | null
+          app_state: string | null
+          background_task_delivery: boolean | null
+          created_at: string
+          driver_id: string | null
+          gps_recorded_at: string | null
+          id: string
+          location_sequence: number | null
+          metadata: Json
+          online_intent: boolean | null
+          origin: string
+          presence_updated: boolean | null
+          publish_attempted: boolean | null
+          publish_result: string | null
+          reason_code: string
+          rpc_error_code: string | null
+          source: string | null
+          trip_id: string | null
+          trip_id_source: string | null
+          trip_mirror_attempted: boolean | null
+          trip_mirrored: boolean | null
+        }
+        Insert: {
+          active_trip_latch_present?: boolean | null
+          app_state?: string | null
+          background_task_delivery?: boolean | null
+          created_at?: string
+          driver_id?: string | null
+          gps_recorded_at?: string | null
+          id?: string
+          location_sequence?: number | null
+          metadata?: Json
+          online_intent?: boolean | null
+          origin: string
+          presence_updated?: boolean | null
+          publish_attempted?: boolean | null
+          publish_result?: string | null
+          reason_code: string
+          rpc_error_code?: string | null
+          source?: string | null
+          trip_id?: string | null
+          trip_id_source?: string | null
+          trip_mirror_attempted?: boolean | null
+          trip_mirrored?: boolean | null
+        }
+        Update: {
+          active_trip_latch_present?: boolean | null
+          app_state?: string | null
+          background_task_delivery?: boolean | null
+          created_at?: string
+          driver_id?: string | null
+          gps_recorded_at?: string | null
+          id?: string
+          location_sequence?: number | null
+          metadata?: Json
+          online_intent?: boolean | null
+          origin?: string
+          presence_updated?: boolean | null
+          publish_attempted?: boolean | null
+          publish_result?: string | null
+          reason_code?: string
+          rpc_error_code?: string | null
+          source?: string | null
+          trip_id?: string | null
+          trip_id_source?: string | null
+          trip_mirror_attempted?: boolean | null
+          trip_mirrored?: boolean | null
+        }
+        Relationships: []
+      }
       driver_payout_destination_audit: {
         Row: {
           action: string
@@ -30053,6 +30125,10 @@ export type Database = {
         Returns: Json
       }
       purge_dispatch_eligibility_log: { Args: never; Returns: number }
+      purge_driver_location_publish_diagnostics: {
+        Args: { p_older_than?: string }
+        Returns: number
+      }
       raise_driver_alert: {
         Args: {
           p_alert_type: string
@@ -30156,6 +30232,30 @@ export type Database = {
           p_warning_type: string
         }
         Returns: undefined
+      }
+      record_driver_location_publish_diag: {
+        Args: {
+          p_active_trip_latch_present?: boolean
+          p_app_state?: string
+          p_background_task_delivery?: boolean
+          p_driver_id?: string
+          p_gps_recorded_at?: string
+          p_location_sequence?: number
+          p_metadata?: Json
+          p_online_intent?: boolean
+          p_origin: string
+          p_presence_updated?: boolean
+          p_publish_attempted?: boolean
+          p_publish_result?: string
+          p_reason_code: string
+          p_rpc_error_code?: string
+          p_source?: string
+          p_trip_id?: string
+          p_trip_id_source?: string
+          p_trip_mirror_attempted?: boolean
+          p_trip_mirrored?: boolean
+        }
+        Returns: string
       }
       record_push_send_result: {
         Args: {
