@@ -52,6 +52,21 @@ serve(async (req) => {
 
     const now = new Date().toISOString();
 
+    // Read previous active device BEFORE upsert so same-device re-claim
+    // does not wipe push tokens (that left customer_push_tokens=0 when
+    // bind was skipped / iOS FCM missing).
+    const { data: previousDevice } = await admin
+      .from("customer_active_devices")
+      .select("device_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const previousDeviceId =
+      previousDevice && typeof previousDevice.device_id === "string"
+        ? previousDevice.device_id
+        : null;
+    const deviceChanged =
+      !previousDeviceId || previousDeviceId !== body.device_id;
+
     const { error: upsertError } = await admin
       .from("customer_active_devices")
       .upsert(
@@ -72,20 +87,28 @@ serve(async (req) => {
       return json({ error: "Failed to claim device" }, 500);
     }
 
-    // Push-token rotation: delete every push token currently registered for
-    // this user (we'll re-register the new one on this device shortly after).
-    // This guarantees the OLD device stops receiving notifications immediately.
-    const { error: tokenError } = await admin
-      .from("customer_push_tokens")
-      .delete()
-      .eq("user_id", userId);
-    if (tokenError) {
-      console.warn("[claim-device] failed to clear push tokens", tokenError);
+    // Push-token rotation ONLY when ownership moves to a different device.
+    // Same-device re-claim (login restore / force apply) must keep the token
+    // so lifecycle FCM keeps working; save-customer-push-token upserts refresh.
+    if (deviceChanged) {
+      const { error: tokenError } = await admin
+        .from("customer_push_tokens")
+        .delete()
+        .eq("user_id", userId);
+      if (tokenError) {
+        console.warn("[claim-device] failed to clear push tokens", tokenError);
+      }
     }
 
-    console.log(`[claim-device] user=${userId} device=${body.device_id}`);
+    console.log(
+      `[claim-device] user=${userId} device=${body.device_id} device_changed=${deviceChanged}`,
+    );
 
-    return json({ success: true, device_id: body.device_id });
+    return json({
+      success: true,
+      device_id: body.device_id,
+      device_changed: deviceChanged,
+    });
   } catch (err) {
     console.error("[claim-device] exception", err);
     return json({ error: "Internal server error" }, 500);
