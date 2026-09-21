@@ -2985,6 +2985,22 @@ Deno.serve(async (req) => {
               });
             }, "arrive_stop_idempotent_p2");
           }
+          // Must include stops: skipSnapshotRefresh otherwise leaves Driver on en_route_stop
+          // (trip.status stays in_progress; phase needs stop.arrived_at).
+          const idempotentStops = (stops ?? []).map((s) =>
+            s.id === currentStop.id
+              ? {
+                ...s,
+                status: "current" as StopStatus,
+                arrived_at: currentStop.arrived_at,
+                waiting_charge_active:
+                  waitingResult.started || Boolean(currentStop.waiting_charge_active),
+                waiting_started_at:
+                  currentStop.waiting_started_at ??
+                  (waitingResult.started ? currentStop.arrived_at : null),
+              }
+              : s
+          );
           return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
             success: true,
             idempotent: true,
@@ -2999,9 +3015,18 @@ Deno.serve(async (req) => {
             trip: {
               id: trip_id,
               status: trip.status,
+              started_at: trip.started_at,
               stop_arrived_at: currentStop.arrived_at,
+              stop_waiting_started_at:
+                currentStop.waiting_started_at ??
+                (waitingResult.started ? currentStop.arrived_at : null),
+              stop_waiting_status: waitingResult.started
+                ? "free_waiting"
+                : trip.stop_waiting_status ?? null,
               current_stop_index: currentStop.stop_index,
+              current_stop_id: currentStop.id,
             },
+            stops: idempotentStops,
           }, waitingResult, { scope: 'stop', trip, stop: currentStop }), {
             skipSnapshotRefresh: true,
           });
@@ -3074,6 +3099,17 @@ Deno.serve(async (req) => {
           }
         }, "arrive_stop_p2");
         lifecyclePerf?.mark("enrich_start");
+        const arrivedStops = (stops ?? []).map((s) =>
+          s.id === currentStop.id
+            ? {
+              ...s,
+              status: "current" as StopStatus,
+              arrived_at: now,
+              waiting_charge_active: waitingResult.started,
+              waiting_started_at: waitingResult.started ? now : null,
+            }
+            : s
+        );
         const stopEnriched = await enrichArrivalWaitingSnapshot(supabase, {
           success: true,
           action: 'arrive_stop',
@@ -3088,10 +3124,14 @@ Deno.serve(async (req) => {
           trip: {
             id: trip_id,
             status: trip.status,
+            started_at: trip.started_at,
             stop_arrived_at: now,
+            stop_waiting_started_at: waitingResult.started ? now : null,
+            stop_waiting_status: waitingResult.started ? "free_waiting" : null,
             current_stop_index: currentStop.stop_index,
             current_stop_id: currentStop.id,
           },
+          stops: arrivedStops,
         }, waitingResult, {
           scope: 'stop',
           trip: { ...trip, stop_arrived_at: now },
@@ -3301,6 +3341,26 @@ Deno.serve(async (req) => {
               notificationId: `next_leg_started-${trip_id}-${nextIndex}`,
             });
           }, "drive_to_next_p2");
+          const advancedStops = (stops ?? []).map((s) => {
+            if (s.id === currentStop.id) {
+              return {
+                ...s,
+                status: "completed" as StopStatus,
+                arrived_at: s.arrived_at || now,
+                completed_at: now,
+                waiting_charge_active: false,
+                waiting_stopped_at: s.waiting_stopped_at ?? now,
+              };
+            }
+            if (s.id === nextStop.id) {
+              return {
+                ...s,
+                status: "current" as StopStatus,
+                arrived_at: null,
+              };
+            }
+            return s;
+          });
           return await respondOk({
             success: true,
             action: workflowAction,
@@ -3310,10 +3370,16 @@ Deno.serve(async (req) => {
             waiting_charge_pence: finalizeResult.chargePence,
             trip: {
               id: trip_id,
+              status: trip.status,
+              started_at: trip.started_at,
               current_stop_index: nextStop.stop_index,
               current_stop_id: nextStop.id,
               stop_arrived_at: null,
+              stop_waiting_started_at: null,
+              stop_waiting_status: nextStop.type === 'stop' ? 'none' : null,
             },
+            // Required with skipSnapshotRefresh — otherwise Driver stays at_stop.
+            stops: advancedStops,
           }, { skipSnapshotRefresh: true });
         } else {
           // No more stops - this shouldn't happen if workflow is followed correctly

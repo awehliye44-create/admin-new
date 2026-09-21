@@ -172,11 +172,24 @@ Deno.test("pickup vs stop waiting identity remain separate", async () => {
   assertStringIncludes(sql, "AND type = 'pickup'");
 });
 
+Deno.test("arrive_stop + drive_to_next attach stops when skipSnapshotRefresh", async () => {
+  const src = await Deno.readTextFile(stopWorkflowPath);
+  const arriveIdx = src.indexOf("case 'arrive_stop'");
+  const arriveBlock = src.slice(arriveIdx, src.indexOf("case 'next_stop'", arriveIdx));
+  assertEquals(arriveBlock.includes("stops: arrivedStops"), true);
+  assertEquals(arriveBlock.includes("stops: idempotentStops"), true);
+  assertEquals(arriveBlock.includes("skipSnapshotRefresh: true"), true);
+
+  const driveIdx = src.indexOf("case 'drive_to_next'");
+  const driveBlock = src.slice(driveIdx, src.indexOf("case 'complete_trip'", driveIdx));
+  assertEquals(driveBlock.includes("stops: advancedStops"), true);
+  assertEquals(driveBlock.includes("skipSnapshotRefresh: true"), true);
+});
+
 Deno.test("Start / Drive Next / Complete still finalize waiting on-path", async () => {
   const src = await Deno.readTextFile(stopWorkflowPath);
   assertStringIncludes(src, "finalizePickupWaitingOnStartTrip");
   assertStringIncludes(src, "finalizeStopWaitingCharge");
-  // Complete keeps payment on-path (Phase 2 lock); waiting close via segments.
   assertStringIncludes(src, "closeOpenWaitingSegments");
   assertStringIncludes(src, "invokeFinalizeTripCapture");
 });
