@@ -78,4 +78,17 @@ describe('submitDriverLocationSampleSsotLock', () => {
     expect(sql).toContain('DRIVER_ID_REQUIRED');
     expect(sql).toContain('GPS_RECORDED_AT_REQUIRED');
   });
+
+  it('upsert GPS samples bypass heartbeat <2s throttle (20261121120000 / MK-260921-006)', () => {
+    const sql = read(
+      'supabase/migrations/20261121120000_upsert_presence_gps_bypass_heartbeat_throttle.sql',
+    );
+    expect(sql).toContain('MK-260921-006');
+    expect(sql).toContain('p_gps_recorded_at IS NULL');
+    expect(sql).toContain('v_gap_s < 2');
+    // Throttle must be gated on missing GPS — never drop genuine samples.
+    expect(sql).toMatch(
+      /IF p_gps_recorded_at IS NULL\s+AND v_gap_s < 2/,
+    );
+  });
 });
