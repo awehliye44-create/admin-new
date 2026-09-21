@@ -217,8 +217,10 @@ export default function ScheduledRides() {
           .limit(ADMIN_SCHEDULED_RIDES_CAP),
         supabase
           .from('drivers')
-          .select('id, first_name, last_name, phone, is_online, rating, profile_photo_url')
+          .select('id, first_name, last_name, phone, is_online, rating, profile_photo_url, deleted_at, driver_status')
           .eq('approval_status', 'approved')
+          .is('deleted_at', null)
+          .neq('driver_status', 'deleted')
           .limit(ADMIN_SCHEDULED_RIDES_DRIVERS_CAP),
       ]);
 
