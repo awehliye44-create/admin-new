@@ -18,3 +18,15 @@ Deno.test("online duration RPC sums go_online/go_offline for authenticated drive
   assertStringIncludes(sql, "go_offline");
   assertStringIncludes(sql, "GRANT EXECUTE");
 });
+
+Deno.test("online duration fix rejects abandoned overnight carry-in and caps stretches", async () => {
+  const fixPath = new URL(
+    "../../migrations/20261122161000_fix_driver_online_duration_abandoned_sessions.sql",
+    import.meta.url,
+  );
+  const sql = await Deno.readTextFile(fixPath);
+  assertStringIncludes(sql, "interval '2 hours'");
+  assertStringIncludes(sql, "14 * 3600");
+  assertStringIncludes(sql, "c_carry_max");
+  assertStringIncludes(sql, "c_stretch_cap_secs");
+});
