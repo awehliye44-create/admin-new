@@ -293,6 +293,10 @@ Deno.test("lock: tick-pickup uses syncWaitingGeofenceClock + counted seconds", a
   assertEquals(src.includes("syncWaitingGeofenceClock"), true);
   assertEquals(src.includes("counted_in_radius_seconds"), true);
   assertEquals(src.includes("computePickupChargeFromCountedSeconds"), true);
+  // No-show countdown must refresh on every tick — Driver freezes remaining from payload.
+  assertEquals(src.includes("noShowFieldsFromCounted"), true);
+  assertEquals(src.includes("no_show_remaining_seconds"), true);
+  assertEquals(src.includes("buildPickupWaitingSnapshot"), true);
 });
 
 Deno.test("lock: pickup-no-show uses countedInRadiusSeconds", async () => {

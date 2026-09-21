@@ -12,15 +12,55 @@ import {
 } from "../_shared/security.ts";
 import { isTripAtPickupStatus, resolveDriverArrivedAtIso } from "../_shared/pickupWaiting.ts";
 import {
+  buildPickupWaitingSnapshot,
   loadAdminWaitingConfig,
   resolveFrozenOrLiveWaitingConfig,
+  type AdminWaitingConfigSnapshot,
 } from "../_shared/waitingAdminConfig.ts";
 import { computeLiveTripFarePreview } from "../_shared/liveTripFareSSOT.ts";
 import {
   computePickupChargeFromCountedSeconds,
   resolveEffectiveWaitingRadiusMeters,
   syncWaitingGeofenceClock,
+  type WaitingGeofenceStatus,
 } from "../_shared/waitingSegmentClock.ts";
+
+/** Map geofence clock → pickup waiting snapshot status for no-show remaining. */
+function waitingStatusFromGeofence(
+  status: WaitingGeofenceStatus | string | null | undefined,
+): "not_started" | "blocked_outside_radius" | "free_waiting" {
+  if (status === "counting") return "free_waiting";
+  if (status === "paused") return "blocked_outside_radius";
+  return "not_started";
+}
+
+/** Counted-clock no-show fields — must travel on every live tick (Driver freezes UI remaining). */
+function noShowFieldsFromCounted(input: {
+  pickupWaitingStartedAt: string;
+  countedSeconds: number;
+  geofenceStatus: WaitingGeofenceStatus | string | null | undefined;
+  config: AdminWaitingConfigSnapshot;
+  nowMs: number;
+}): {
+  no_show_remaining_seconds: number;
+  no_show_eligible: boolean;
+  no_show_eligible_at: string | null;
+  can_mark_no_show: boolean;
+} {
+  const snap = buildPickupWaitingSnapshot({
+    driverArrivedAt: input.pickupWaitingStartedAt,
+    waitingStatus: waitingStatusFromGeofence(input.geofenceStatus),
+    config: input.config,
+    nowMs: input.nowMs,
+    countedInRadiusSeconds: input.countedSeconds,
+  });
+  return {
+    no_show_remaining_seconds: snap.no_show_remaining_seconds,
+    no_show_eligible: snap.no_show_eligible,
+    no_show_eligible_at: snap.no_show_eligible_at,
+    can_mark_no_show: snap.no_show_eligible,
+  };
+}
 
 const RATE_LIMIT_CONFIG = {
   limit: 120,
@@ -206,7 +246,8 @@ Deno.serve(async (req) => {
       trip.free_wait_expires_at ??
       new Date(waitingStartMs + gracePeriodSeconds * 1000).toISOString();
 
-    let geofenceStatus = trip.waiting_geofence_status ?? "paused";
+    let geofenceStatus: WaitingGeofenceStatus | string =
+      trip.waiting_geofence_status ?? "paused";
     let countedSeconds = Number(trip.pickup_waiting_counted_seconds ?? 0);
 
     if (trip.pickup_latitude != null && trip.pickup_longitude != null) {
@@ -239,6 +280,14 @@ Deno.serve(async (req) => {
       });
     }
 
+    const noShowFields = noShowFieldsFromCounted({
+      pickupWaitingStartedAt,
+      countedSeconds,
+      geofenceStatus,
+      config,
+      nowMs,
+    });
+
     // Free-wait / paid gate uses counted in-radius seconds (not wall elapsed).
     const graceExpired = countedSeconds >= gracePeriodSeconds;
     const graceRemainingSeconds = Math.max(0, gracePeriodSeconds - countedSeconds);
@@ -261,6 +310,7 @@ Deno.serve(async (req) => {
         pickup_waiting_started_at: pickupWaitingStartedAt,
         waiting_geofence_status: geofenceStatus,
         admin_waiting_config_snapshot: config,
+        ...noShowFields,
         ...liveFareFields(trip as Record<string, unknown>, 0),
       });
     }
@@ -278,6 +328,7 @@ Deno.serve(async (req) => {
         pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
         waiting_geofence_status: geofenceStatus,
         admin_waiting_config_snapshot: config,
+        ...noShowFields,
         ...liveFareFields(trip as Record<string, unknown>),
       });
     }
@@ -319,6 +370,7 @@ Deno.serve(async (req) => {
         pickup_waiting_started_at: pickupWaitingStartedAt,
         waiting_geofence_status: geofenceStatus,
         admin_waiting_config_snapshot: config,
+        ...noShowFields,
         ...liveFareFields(trip as Record<string, unknown>, charged.charge_pence),
       });
     }
@@ -361,6 +413,7 @@ Deno.serve(async (req) => {
       pickup_waiting_started_at: pickupWaitingStartedAt,
       waiting_geofence_status: geofenceStatus,
       admin_waiting_config_snapshot: config,
+      ...noShowFields,
       ...liveFareFields(trip as Record<string, unknown>, charged.charge_pence),
     });
   } catch (err) {
