@@ -311,6 +311,9 @@ Deno.serve(async (req) => {
     const specialInstructions = String(
       body.special_instructions ??
         body.notes_for_driver ??
+        body.driver_notes ??
+        body.pickup_note ??
+        body.notesForDriver ??
         body.notes ??
         "",
     ).trim().slice(0, 1000) || null;

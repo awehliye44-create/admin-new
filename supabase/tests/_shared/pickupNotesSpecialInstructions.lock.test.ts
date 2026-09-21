@@ -20,8 +20,10 @@ Deno.test("corporate book wires Notes for Driver → special_instructions", asyn
   assertStringIncludes(src, "special_instructions");
   assertStringIncludes(src, "notes_for_driver");
   assertStringIncludes(src, "specialInstructions");
-  // Never invent a corporate-only notes column.
-  assertEquals(/corporate_notes|driver_notes\b/.test(src), false);
+  // Accept UI aliases → canonical column only (never invent corporate_notes persistence).
+  assertEquals(/corporate_notes\b/.test(src), false);
+  assertStringIncludes(src, "driver_notes");
+  assertStringIncludes(src, "pickup_note");
 });
 
 Deno.test("canonical booking snapshot preserves special_instructions", () => {
@@ -124,4 +126,25 @@ Deno.test("queued trips RPC exposes special_instructions", async () => {
   );
   assertStringIncludes(mig, "get_driver_queued_trips");
   assertStringIncludes(mig, "AS special_instructions");
+});
+
+Deno.test("scheduled jobs RPC pin selects special_instructions", async () => {
+  const mig = await Deno.readTextFile(
+    join(
+      REPO_ROOT,
+      "supabase/migrations/20261123130100_list_driver_own_scheduled_jobs_special_instructions.sql",
+    ),
+  );
+  assertStringIncludes(mig, "list_driver_own_scheduled_jobs");
+  assertStringIncludes(mig, "t.special_instructions");
+});
+
+Deno.test("corporate book accepts notes_for_driver / driver_notes aliases", async () => {
+  const src = await Deno.readTextFile(
+    join(REPO_ROOT, "supabase/functions/create-corporate-book/index.ts"),
+  );
+  assertStringIncludes(src, "notes_for_driver");
+  assertStringIncludes(src, "driver_notes");
+  assertStringIncludes(src, "pickup_note");
+  assertEquals(/corporate_notes\b/.test(src), false);
 });
