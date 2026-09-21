@@ -75,6 +75,10 @@ export function deriveStopWorkflowLifecycleDurations(
       typeof stages.waiting_ssot_end === "number"
       ? Math.max(0, stages.waiting_ssot_end - stages.waiting_canonical_rpc_end)
       : null;
+  // Phase 4 Drive Next: RPC collapses geofence/close/charge/advance — aliases for ingest.
+  const drive_next_waiting_finalize_rpc_ms = waiting_canonical_rpc_ms;
+  const drive_next_waiting_geofence_sync_ms = waiting_geofence_ms;
+  const drive_next_waiting_segment_close_ms = waiting_post_canonical_ms;
   const edge_canonical_mutation_ms = span(
     stages,
     "canonical_mutation_start",
@@ -118,6 +122,9 @@ export function deriveStopWorkflowLifecycleDurations(
     waiting_canonical_rpc_ms,
     waiting_geofence_ms,
     waiting_post_canonical_ms,
+    drive_next_waiting_finalize_rpc_ms,
+    drive_next_waiting_geofence_sync_ms,
+    drive_next_waiting_segment_close_ms,
     edge_canonical_mutation_ms,
     edge_post_select_ms,
     edge_enrich_ms,

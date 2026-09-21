@@ -1661,6 +1661,7 @@ async function isStopWaitingChargeEnabled(
 
 /**
  * Finalize stop waiting from counted in-radius seconds only (idempotent).
+ * Prefers one transactional RPC (Phase 4); falls back to Edge sequential path.
  */
 async function finalizeStopWaitingCharge(
   supabase: ReturnType<typeof createClient>,
@@ -1677,6 +1678,7 @@ async function finalizeStopWaitingCharge(
     waiting_total_amount_pence?: number | null;
   },
   opts?: { driverLat?: number; driverLng?: number },
+  perf?: StopWorkflowLifecyclePerfClock | null,
 ): Promise<{ chargePence: number; alreadyFinalized: boolean; countedSeconds: number }> {
   if (stop.waiting_stopped_at) {
     return {
@@ -1690,6 +1692,40 @@ async function finalizeStopWaitingCharge(
     return { chargePence: 0, alreadyFinalized: false, countedSeconds: 0 };
   }
 
+  if (trip.driver_id) {
+    perf?.mark("waiting_canonical_rpc_start");
+    const nowIso = new Date().toISOString();
+    const { data: rpcData, error: rpcErr } = await supabase.rpc(
+      "finalize_stop_waiting_charge",
+      {
+        p_trip_id: trip.id,
+        p_stop_id: stop.id,
+        p_driver_id: trip.driver_id,
+        p_now: nowIso,
+        p_body_lat: opts?.driverLat ?? null,
+        p_body_lng: opts?.driverLng ?? null,
+      },
+    );
+    perf?.mark("waiting_canonical_rpc_end");
+    if (!rpcErr && rpcData && typeof rpcData === "object") {
+      const row = rpcData as Record<string, unknown>;
+      if (row.ok === true) {
+        return {
+          chargePence: typeof row.charge_pence === "number" ? row.charge_pence : 0,
+          alreadyFinalized: row.already_finalized === true,
+          countedSeconds: typeof row.counted_seconds === "number" ? row.counted_seconds : 0,
+        };
+      }
+    }
+    if (rpcErr) {
+      console.warn("[stop-workflow] finalize_stop_waiting_charge RPC failed; Edge fallback", {
+        trip_id: trip.id,
+        stop_id: stop.id,
+        message: rpcErr.message,
+      });
+    }
+  }
+
   const config = await loadAdminWaitingConfig(supabase, trip.service_area_id ?? null);
   const gracePeriod = config.free_stop_waiting_seconds;
   const ratePPM = config.stop_waiting_rate_pence_per_minute;
@@ -1697,6 +1733,7 @@ async function finalizeStopWaitingCharge(
   const nowIso = new Date().toISOString();
 
   if (trip.driver_id && stop.lat != null && stop.lng != null) {
+    perf?.mark("waiting_geofence_start");
     await syncWaitingGeofenceClock(supabase, {
       tripId: trip.id,
       driverId: trip.driver_id,
@@ -1716,6 +1753,7 @@ async function finalizeStopWaitingCharge(
       bodyLng: opts?.driverLng ?? null,
       nowIso,
     });
+    perf?.mark("waiting_geofence_end");
   }
 
   const countedSeconds = await closeOpenWaitingSegments(supabase, {
@@ -3290,62 +3328,163 @@ Deno.serve(async (req) => {
 
         lifecyclePerf?.mark("validation_end");
         lifecyclePerf?.mark("waiting_ssot_start");
-        // Atomic: finalize waiting, add to fare total, then complete stop (P0 money).
-        // Tap/finalize audits are P2 after canonical advance.
-        const { data: stopForFinalize } = await supabase
-          .from('trip_stops')
-          .select(
-            'id, stop_index, lat, lng, arrived_at, waiting_charge_active, waiting_started_at, waiting_stopped_at, waiting_total_amount_pence',
-          )
-          .eq('id', currentStop.id)
-          .single();
 
-        const finalizeResult = await finalizeStopWaitingCharge(
-          supabase,
-          trip,
-          stopForFinalize ?? currentStop,
-          {
-            driverLat: typeof driver_lat === 'number' ? driver_lat : undefined,
-            driverLng: typeof driver_lng === 'number' ? driver_lng : undefined,
-          },
-        );
-        lifecyclePerf?.mark("waiting_ssot_end");
+        // Phase 4: one transactional RPC = waiting finalize + leg advance.
+        let driveRpcUsed = false;
+        let finalizeResult: {
+          chargePence: number;
+          alreadyFinalized: boolean;
+          countedSeconds: number;
+        } | null = null;
+        let nextStop: TripStopRow | null = null;
+        let rpcNewIndex: number | null = null;
+        let rpcIsFinal = false;
 
-        console.log("[stop-workflow] STOP_WAITING_ENDED_BACKEND_ACCEPTED", {
-          trip_id,
-          stop_id: currentStop.id,
-          charge_pence: finalizeResult.chargePence,
-          already_finalized: finalizeResult.alreadyFinalized,
-        });
+        if (typeof trip.driver_id === "string" && trip.driver_id) {
+          lifecyclePerf?.mark("waiting_canonical_rpc_start");
+          const { data: driveRpc, error: driveRpcErr } = await supabase.rpc(
+            "finalize_stop_waiting_and_drive_to_next",
+            {
+              p_trip_id: trip_id,
+              p_stop_id: currentStop.id,
+              p_driver_id: trip.driver_id,
+              p_now: now,
+              p_body_lat: typeof driver_lat === "number" ? driver_lat : null,
+              p_body_lng: typeof driver_lng === "number" ? driver_lng : null,
+            },
+          );
+          lifecyclePerf?.mark("waiting_canonical_rpc_end");
+          lifecyclePerf?.mark("waiting_ssot_end");
 
-        await updateTripSafe(supabase, trip_id, {
-          stop_waiting_finalized_at: now,
-          stop_waiting_status: 'finalized',
-          stop_waiting_charge_amount: finalizeResult.chargePence,
-          updated_at: now,
-        });
+          if (!driveRpcErr && driveRpc && typeof driveRpc === "object") {
+            const row = driveRpc as Record<string, unknown>;
+            if (row.ok === true) {
+              driveRpcUsed = true;
+              finalizeResult = {
+                chargePence: typeof row.charge_pence === "number" ? row.charge_pence : 0,
+                alreadyFinalized: row.already_finalized === true || row.idempotent === true,
+                countedSeconds:
+                  typeof row.counted_seconds === "number" ? row.counted_seconds : 0,
+              };
+              rpcNewIndex = typeof row.new_index === "number" ? row.new_index : null;
+              rpcIsFinal = row.is_final === true;
+              const newStopId = typeof row.new_stop_id === "string" ? row.new_stop_id : null;
+              nextStop =
+                (newStopId
+                  ? stops?.find((s) => s.id === newStopId)
+                  : null) ??
+                stops?.find((s) => s.stop_index === rpcNewIndex) ??
+                null;
 
-        lifecyclePerf?.mark("canonical_mutation_start");
-        // Mark current stop completed (do not re-finalize waiting on retry)
-        await supabase
-          .from("trip_stops")
-          .update({
-            status: 'completed' as StopStatus,
-            arrived_at: currentStop.arrived_at || now,
-            completed_at: now,
+              console.log("[stop-workflow] STOP_WAITING_ENDED_BACKEND_ACCEPTED", {
+                trip_id,
+                stop_id: currentStop.id,
+                charge_pence: finalizeResult.chargePence,
+                already_finalized: finalizeResult.alreadyFinalized,
+                via: "finalize_stop_waiting_and_drive_to_next_rpc",
+                counted_seconds: finalizeResult.countedSeconds,
+                distance_meters: row.distance_meters ?? null,
+                used_source: row.used_source ?? null,
+              });
+
+              lifecyclePerf?.mark("canonical_mutation_start");
+              lifecyclePerf?.mark("canonical_mutation_end");
+              lifecyclePerf?.mark("CANONICAL_CONFIRMED");
+            } else if (typeof row.error === "string") {
+              const err = row.error;
+              if (err === "must_arrive_at_stop") {
+                return errorResponse(
+                  "MUST_ARRIVE_AT_STOP",
+                  "Tap Arrive at Stop before driving to the next destination",
+                  409,
+                );
+              }
+              if (err === "use_complete_trip") {
+                return errorResponse(
+                  "USE_COMPLETE_TRIP",
+                  "At final destination — use Complete Trip",
+                  409,
+                );
+              }
+              if (err === "no_next_stop") {
+                return errorResponse("NO_NEXT_STOP", "No more stops available", 400);
+              }
+              if (err === "not_started") {
+                return errorResponse("NOT_STARTED", "Trip not started yet", 400);
+              }
+              console.warn("[stop-workflow] drive_to_next RPC soft-fail; Edge fallback", {
+                trip_id,
+                error: err,
+              });
+            }
+          } else if (driveRpcErr) {
+            console.warn("[stop-workflow] drive_to_next RPC failed; Edge fallback", {
+              trip_id,
+              message: driveRpcErr.message,
+            });
+          }
+        }
+
+        if (!driveRpcUsed) {
+          const { data: stopForFinalize } = await supabase
+            .from("trip_stops")
+            .select(
+              "id, stop_index, lat, lng, arrived_at, waiting_charge_active, waiting_started_at, waiting_stopped_at, waiting_total_amount_pence",
+            )
+            .eq("id", currentStop.id)
+            .single();
+
+          finalizeResult = await finalizeStopWaitingCharge(
+            supabase,
+            trip,
+            stopForFinalize ?? currentStop,
+            {
+              driverLat: typeof driver_lat === "number" ? driver_lat : undefined,
+              driverLng: typeof driver_lng === "number" ? driver_lng : undefined,
+            },
+            lifecyclePerf,
+          );
+          lifecyclePerf?.mark("waiting_ssot_end");
+
+          console.log("[stop-workflow] STOP_WAITING_ENDED_BACKEND_ACCEPTED", {
+            trip_id,
+            stop_id: currentStop.id,
+            charge_pence: finalizeResult.chargePence,
+            already_finalized: finalizeResult.alreadyFinalized,
+            via: "edge_fallback",
+          });
+
+          await updateTripSafe(supabase, trip_id, {
+            stop_waiting_finalized_at: now,
+            stop_waiting_status: "finalized",
+            stop_waiting_charge_amount: finalizeResult.chargePence,
             updated_at: now,
-          })
-          .eq("id", currentStop.id);
+          });
 
-        // Find next available stop (skip any SKIPPED)
-        const nextStops = stops?.filter(s => s.stop_index > currentIndex && s.status !== 'skipped') || [];
-        const nextStop = nextStops.length > 0 ? nextStops[0] : null;
-
-        if (nextStop) {
-          // Set next stop as current
+          lifecyclePerf?.mark("canonical_mutation_start");
           await supabase
             .from("trip_stops")
-            .update({ status: 'current' as StopStatus, updated_at: now })
+            .update({
+              status: "completed" as StopStatus,
+              arrived_at: currentStop.arrived_at || now,
+              completed_at: now,
+              updated_at: now,
+            })
+            .eq("id", currentStop.id);
+
+          const nextStops =
+            stops?.filter((s) => s.stop_index > currentIndex && s.status !== "skipped") ||
+            [];
+          nextStop = nextStops.length > 0 ? nextStops[0]! : null;
+
+          if (!nextStop) {
+            console.log("[stop-workflow] No next stop available");
+            return errorResponse("NO_NEXT_STOP", "No more stops available", 400);
+          }
+
+          await supabase
+            .from("trip_stops")
+            .update({ status: "current" as StopStatus, updated_at: now })
             .eq("id", nextStop.id);
 
           const { error: advanceErr } = await updateTripSafe(supabase, trip_id, {
@@ -3357,7 +3496,7 @@ Deno.serve(async (req) => {
             stop_waiting_started_at: null,
             stop_waiting_paid_started_at: null,
             stop_waiting_finalized_at: null,
-            stop_waiting_status: nextStop.type === 'stop' ? 'none' : null,
+            stop_waiting_status: nextStop.type === "stop" ? "none" : null,
             stop_waiting_charge_amount: 0,
             updated_at: now,
           });
@@ -3365,109 +3504,119 @@ Deno.serve(async (req) => {
             console.error("[stop-workflow] drive_to_next trip update failed:", advanceErr);
             return errorResponse("rpc_error", "Failed to advance trip", 500, advanceErr);
           }
-
-          console.log("[stop-workflow] NEXT_STOP success:", currentIndex, "->", nextStop.stop_index);
-          // CANONICAL: stop advanced. P2: audit + next_leg_started notify.
           lifecyclePerf?.mark("canonical_mutation_end");
           lifecyclePerf?.mark("CANONICAL_CONFIRMED");
-          const drivePassengerId =
-            typeof trip.passenger_id === "string" ? trip.passenger_id : null;
-          const nextIndex = nextStop.stop_index;
-          const nextStopId = nextStop.id;
-          const driveStopId = currentStop.id;
-          const driveStopIndex = currentStop.stop_index;
-          const driveChargePence = finalizeResult.chargePence;
-          const driveAlreadyFinalized = finalizeResult.alreadyFinalized;
-          scheduleEdgeBackground(async () => {
-            await writeTripAudit(supabase, {
-              trip_id,
-              driver_id,
-              event_type: 'DRIVE_TO_NEXT_TAPPED',
-              details: { stop_id: driveStopId, stop_index: driveStopIndex },
-            });
-            if (!driveAlreadyFinalized) {
-              await writeTripAudit(supabase, {
-                trip_id,
-                driver_id,
-                event_type: 'STOP_WAITING_FINALIZED',
-                details: {
-                  stop_id: driveStopId,
-                  charge_pence: driveChargePence,
-                },
-              });
-              if (driveChargePence > 0) {
-                await writeFareAudit(supabase, {
-                  trip_id,
-                  event_type: 'STOP_WAITING_CHARGE_ADDED_TO_FARE',
-                  adjustment_pence: driveChargePence,
-                  metadata: { stop_id: driveStopId },
-                });
-              }
-            }
-            await writeTripAudit(supabase, {
-              trip_id,
-              driver_id,
-              event_type: 'TRIP_ADVANCED_TO_NEXT_DESTINATION',
-              details: {
-                from_index: currentIndex,
-                to_index: nextIndex,
-                next_stop_id: nextStopId,
-              },
-            });
-            await notifyCustomerTripLifecycle(supabase, {
-              passengerId: drivePassengerId,
-              tripId: trip_id,
-              event: "next_leg_started",
-              stopIndex: nextIndex,
-              notificationId: `next_leg_started-${trip_id}-${nextIndex}`,
-            });
-          }, "drive_to_next_p2");
-          const advancedStops = (stops ?? []).map((s) => {
-            if (s.id === currentStop.id) {
-              return {
-                ...s,
-                status: "completed" as StopStatus,
-                arrived_at: s.arrived_at || now,
-                completed_at: now,
-                waiting_charge_active: false,
-                waiting_stopped_at: s.waiting_stopped_at ?? now,
-              };
-            }
-            if (s.id === nextStop.id) {
-              return {
-                ...s,
-                status: "current" as StopStatus,
-                arrived_at: null,
-              };
-            }
-            return s;
-          });
-          return await respondOk({
-            success: true,
-            action: workflowAction,
-            previous_index: currentIndex,
-            new_index: nextStop.stop_index,
-            is_final: nextStop.type === 'dropoff',
-            waiting_charge_pence: finalizeResult.chargePence,
-            trip: {
-              id: trip_id,
-              status: trip.status,
-              started_at: trip.started_at,
-              current_stop_index: nextStop.stop_index,
-              current_stop_id: nextStop.id,
-              stop_arrived_at: null,
-              stop_waiting_started_at: null,
-              stop_waiting_status: nextStop.type === 'stop' ? 'none' : null,
-            },
-            // Required with skipSnapshotRefresh — otherwise Driver stays at_stop.
-            stops: advancedStops,
-          }, { skipSnapshotRefresh: true });
-        } else {
-          // No more stops - this shouldn't happen if workflow is followed correctly
-          console.log("[stop-workflow] No next stop available");
+          rpcNewIndex = nextStop.stop_index;
+          rpcIsFinal = nextStop.type === "dropoff";
+        }
+
+        if (!finalizeResult || !nextStop) {
           return errorResponse("NO_NEXT_STOP", "No more stops available", 400);
         }
+
+        console.log(
+          "[stop-workflow] NEXT_STOP success:",
+          currentIndex,
+          "->",
+          nextStop.stop_index,
+        );
+        const drivePassengerId =
+          typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+        const nextIndex = nextStop.stop_index;
+        const nextStopId = nextStop.id;
+        const driveStopId = currentStop.id;
+        const driveStopIndex = currentStop.stop_index;
+        const driveChargePence = finalizeResult.chargePence;
+        const driveAlreadyFinalized = finalizeResult.alreadyFinalized;
+        scheduleEdgeBackground(async () => {
+          await writeTripAudit(supabase, {
+            trip_id,
+            driver_id,
+            event_type: "DRIVE_TO_NEXT_TAPPED",
+            details: { stop_id: driveStopId, stop_index: driveStopIndex },
+          });
+          if (!driveAlreadyFinalized) {
+            await writeTripAudit(supabase, {
+              trip_id,
+              driver_id,
+              event_type: "STOP_WAITING_FINALIZED",
+              details: {
+                stop_id: driveStopId,
+                charge_pence: driveChargePence,
+              },
+            });
+            if (driveChargePence > 0) {
+              await writeFareAudit(supabase, {
+                trip_id,
+                event_type: "STOP_WAITING_CHARGE_ADDED_TO_FARE",
+                adjustment_pence: driveChargePence,
+                metadata: { stop_id: driveStopId },
+              });
+            }
+          }
+          await writeTripAudit(supabase, {
+            trip_id,
+            driver_id,
+            event_type: "TRIP_ADVANCED_TO_NEXT_DESTINATION",
+            details: {
+              from_index: currentIndex,
+              to_index: nextIndex,
+              next_stop_id: nextStopId,
+            },
+          });
+          await notifyCustomerTripLifecycle(supabase, {
+            passengerId: drivePassengerId,
+            tripId: trip_id,
+            event: "next_leg_started",
+            stopIndex: nextIndex,
+            notificationId: `next_leg_started-${trip_id}-${nextIndex}`,
+          });
+        }, "drive_to_next_p2");
+        const advancedStops = (stops ?? []).map((s) => {
+          if (s.id === currentStop.id) {
+            return {
+              ...s,
+              status: "completed" as StopStatus,
+              arrived_at: s.arrived_at || now,
+              completed_at: now,
+              waiting_charge_active: false,
+              waiting_stopped_at: s.waiting_stopped_at ?? now,
+              waiting_total_amount_pence: driveChargePence,
+              waiting_total_seconds: finalizeResult!.countedSeconds,
+            };
+          }
+          if (s.id === nextStop!.id) {
+            return {
+              ...s,
+              status: "current" as StopStatus,
+              arrived_at: null,
+            };
+          }
+          return s;
+        });
+        return await respondOk({
+          success: true,
+          action: workflowAction,
+          previous_index: currentIndex,
+          new_index: rpcNewIndex ?? nextStop.stop_index,
+          is_final: rpcIsFinal || nextStop.type === "dropoff",
+          waiting_charge_pence: finalizeResult.chargePence,
+          counted_seconds: finalizeResult.countedSeconds,
+          drive_next_waiting_finalize_via: driveRpcUsed ? "rpc" : "edge_fallback",
+          trip: {
+            id: trip_id,
+            status: trip.status,
+            started_at: trip.started_at,
+            current_stop_index: nextStop.stop_index,
+            current_stop_id: nextStop.id,
+            stop_arrived_at: null,
+            stop_waiting_started_at: null,
+            stop_waiting_status: nextStop.type === "stop" ? "none" : null,
+          },
+          stops: advancedStops,
+        }, { skipSnapshotRefresh: true });
       }
+
 
       case 'complete_trip': {
         const stages = createStageClock(elapsed);
