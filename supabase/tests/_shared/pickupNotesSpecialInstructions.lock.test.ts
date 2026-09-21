@@ -114,3 +114,14 @@ Deno.test("CTAP falls back to booking_snapshot.special_instructions", async () =
   assertStringIncludes(ctap, "booking_snapshot");
   assertStringIncludes(ctap, "body.special_instructions = fromSnap");
 });
+
+Deno.test("queued trips RPC exposes special_instructions", async () => {
+  const mig = await Deno.readTextFile(
+    join(
+      REPO_ROOT,
+      "supabase/migrations/20261123130000_driver_snapshot_special_instructions.sql",
+    ),
+  );
+  assertStringIncludes(mig, "get_driver_queued_trips");
+  assertStringIncludes(mig, "AS special_instructions");
+});

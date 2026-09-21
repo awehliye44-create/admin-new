@@ -312,7 +312,8 @@ BEGIN
           t.pickup_latitude AS pickup_lat,
           t.pickup_longitude AS pickup_lng,
           t.dropoff_latitude AS dropoff_lat,
-          t.dropoff_longitude AS dropoff_lng
+          t.dropoff_longitude AS dropoff_lng,
+          NULLIF(left(btrim(COALESCE(t.special_instructions::text, '')), 1000), '') AS special_instructions
         FROM public.trips t
         WHERE t.status = 'queued'
           AND (t.driver_id = v_driver_id OR t.confirmed_driver_id = v_driver_id)
