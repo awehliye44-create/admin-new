@@ -12,9 +12,10 @@ import {
   errorResponse,
 } from "../_shared/security.ts";
 import {
-  assertCanAcceptOfferByDriverId,
+  assertCanAcceptOfferByDriverIdFast,
   driverNotEligibleResponse,
   logDriverEligibilityBlocked,
+  type AcceptEligibilityDriverRow,
 } from "../_shared/driverEligibility.ts";
 import { recordDispatchWaveSnapshot } from "../_shared/recordDispatchWaveSnapshot.ts";
 import {
@@ -153,11 +154,14 @@ Deno.serve(async (req) => {
     if (!auth.ok) return auth.response;
     const userId = auth.userId;
 
-    // Resolve driver_id from authenticated user
+    // Resolve driver_id + eligibility fields from authenticated user (one SELECT).
     const { data: authDriver, error: authDriverErr } = await supabase
       .from("drivers")
-      .select("id")
+      .select(
+        "id, user_id, approval_status, driver_status, documents_approved, is_online, email_verified, phone_verified, pending_phone_change, pending_phone_change_verified_at, pending_phone_change_requested_at, pending_phone_change_expires_at",
+      )
       .eq("user_id", userId)
+      .is("deleted_at", null)
       .single();
 
     if (authDriverErr || !authDriver) {
@@ -183,7 +187,14 @@ Deno.serve(async (req) => {
     const driver_id = authenticatedDriverId;
 
     perf.mark("eligibility_validation_start");
-    const acceptEligibility = await assertCanAcceptOfferByDriverId(supabase, driver_id);
+    const acceptEligibility = await assertCanAcceptOfferByDriverIdFast(
+      supabase,
+      driver_id,
+      {
+        driverRow: authDriver as AcceptEligibilityDriverRow,
+        mark: (stage) => perf.mark(stage),
+      },
+    );
     if (!acceptEligibility.allowed) {
       logDriverEligibilityBlocked("accept-offer", driver_id, acceptEligibility);
       return driverNotEligibleResponse(acceptEligibility, jsonHeaders);

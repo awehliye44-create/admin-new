@@ -12,6 +12,11 @@ export type AcceptOfferStageName =
   | "offer_lookup_start"
   | "offer_lookup_end"
   | "eligibility_validation_start"
+  | "eligibility_driver_load_start"
+  | "eligibility_driver_load_end"
+  | "eligibility_docs_rpc_start"
+  | "eligibility_docs_rpc_end"
+  | "eligibility_local_checks_end"
   | "eligibility_validation_end"
   | "lock_idempotency_start"
   | "lock_idempotency_end"
@@ -64,6 +69,31 @@ export function deriveAcceptOfferEdgeDurations(
     "eligibility_validation_start",
     "eligibility_validation_end",
   );
+  const eligibility_driver_load_ms = span(
+    stages,
+    "eligibility_driver_load_start",
+    "eligibility_driver_load_end",
+  );
+  const eligibility_docs_rpc_ms = span(
+    stages,
+    "eligibility_docs_rpc_start",
+    "eligibility_docs_rpc_end",
+  );
+  const eligibility_local_checks_ms =
+    typeof stages.eligibility_docs_rpc_end === "number" &&
+      typeof stages.eligibility_local_checks_end === "number"
+      ? Math.max(
+        0,
+        stages.eligibility_local_checks_end - stages.eligibility_docs_rpc_end,
+      )
+      : typeof stages.eligibility_driver_load_end === "number" &&
+          typeof stages.eligibility_local_checks_end === "number" &&
+          stages.eligibility_docs_rpc_start == null
+      ? Math.max(
+        0,
+        stages.eligibility_local_checks_end - stages.eligibility_driver_load_end,
+      )
+      : null;
   const edge_lock_ms = span(stages, "lock_idempotency_start", "lock_idempotency_end");
   const edge_accept_rpc_ms = span(stages, "accept_rpc_start", "accept_rpc_end");
   const edge_canonical_assignment_ms =
@@ -107,6 +137,9 @@ export function deriveAcceptOfferEdgeDurations(
     edge_auth_ms,
     edge_offer_lookup_ms,
     edge_validation_ms,
+    eligibility_driver_load_ms,
+    eligibility_docs_rpc_ms,
+    eligibility_local_checks_ms,
     edge_lock_ms,
     edge_accept_rpc_ms,
     edge_canonical_assignment_ms,

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   evaluateDriverOnboardingLogin,
+  hasActiveUnverifiedPendingPhoneChange,
   ONBOARDING_LOGIN_BLOCK,
   type OnboardingLoginBlockCode,
 } from "./onboardingLoginGuard.ts";
@@ -412,6 +413,218 @@ export async function assertCanAcceptOfferByDriverId(
   driverId: string | null | undefined,
 ): Promise<DriverEligibilityResult> {
   return canAcceptOfferByDriverId(service, driverId);
+}
+
+/**
+ * Accept-offer P0 eligibility — lean path.
+ *
+ * Collapses the full onboarding + TS document walk (Auth Admin + multi drivers
+ * SELECTs + duplicate docs evaluation) into:
+ *   1) one drivers row (or reuse auth-resolved row)
+ *   2) one check_driver_documents_approved RPC (SQL SSOT)
+ *   3) local approval / verification / online gates
+ *
+ * Equivalence for Accept allow/deny:
+ * - Live docs = check_driver_documents_approved (same RPC onboarding uses)
+ * - Profile gates = drivers.email_verified / phone_verified / approval / status
+ * - Pending phone-change still blocked
+ * - JWT already proved by requireAuthenticatedUser (Auth Admin getUserById skipped)
+ *
+ * Does NOT change go-online / receive-offers paths (those keep full evaluateDriverAuthState).
+ */
+export type AcceptEligibilityDriverRow = DriverRowSnapshot & {
+  pending_phone_change?: string | null;
+  pending_phone_change_verified_at?: string | null;
+  pending_phone_change_requested_at?: string | null;
+  pending_phone_change_expires_at?: string | null;
+};
+
+export type AcceptEligibilityStageMark =
+  | "eligibility_driver_load_start"
+  | "eligibility_driver_load_end"
+  | "eligibility_docs_rpc_start"
+  | "eligibility_docs_rpc_end"
+  | "eligibility_local_checks_end";
+
+export async function assertCanAcceptOfferByDriverIdFast(
+  service: SupabaseClient,
+  driverId: string | null | undefined,
+  options?: {
+    driverRow?: AcceptEligibilityDriverRow | null;
+    mark?: (stage: AcceptEligibilityStageMark) => void;
+  },
+): Promise<DriverEligibilityResult> {
+  const mark = options?.mark;
+  if (!driverId) {
+    return {
+      ...unauthenticatedDriverEligibility("Driver profile required."),
+      blocked_reasons: [DRIVER_BLOCKED_REASON.DRIVER_PROFILE_MISSING],
+    };
+  }
+
+  let driver: AcceptEligibilityDriverRow | null = options?.driverRow ?? null;
+  if (!driver || driver.id !== driverId) {
+    mark?.("eligibility_driver_load_start");
+    const { data } = await service
+      .from("drivers")
+      .select(
+        "id, user_id, approval_status, driver_status, documents_approved, is_online, email_verified, phone_verified, pending_phone_change, pending_phone_change_verified_at, pending_phone_change_requested_at, pending_phone_change_expires_at",
+      )
+      .eq("id", driverId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    driver = (data as AcceptEligibilityDriverRow | null) ?? null;
+    mark?.("eligibility_driver_load_end");
+  } else {
+    mark?.("eligibility_driver_load_start");
+    mark?.("eligibility_driver_load_end");
+  }
+
+  if (!driver?.id) {
+    return {
+      allowed: false,
+      state: "documents_missing",
+      blocked_reasons: [DRIVER_BLOCKED_REASON.DRIVER_PROFILE_MISSING],
+      message: DEFAULT_DRIVER_OFFER_BLOCKED_MESSAGE,
+      driver_id: driverId,
+    };
+  }
+
+  if (hasActiveUnverifiedPendingPhoneChange(driver)) {
+    mark?.("eligibility_local_checks_end");
+    return {
+      allowed: false,
+      state: "phone_unverified",
+      blocked_reasons: [DRIVER_BLOCKED_REASON.PHONE_UNVERIFIED],
+      message:
+        "Please verify your new phone number to continue. Your current phone remains active until verification completes.",
+      driver_id: driverId,
+    };
+  }
+
+  if (driver.email_verified !== true) {
+    mark?.("eligibility_local_checks_end");
+    return {
+      allowed: false,
+      state: "email_unverified",
+      blocked_reasons: [DRIVER_BLOCKED_REASON.EMAIL_UNVERIFIED],
+      message: "Please verify your email address before going online.",
+      driver_id: driverId,
+    };
+  }
+
+  if (driver.phone_verified !== true) {
+    mark?.("eligibility_local_checks_end");
+    return {
+      allowed: false,
+      state: "phone_unverified",
+      blocked_reasons: [DRIVER_BLOCKED_REASON.PHONE_UNVERIFIED],
+      message: "Please verify your phone number before going online.",
+      driver_id: driverId,
+    };
+  }
+
+  const approval = String(driver.approval_status ?? "").toLowerCase();
+  if (approval === "rejected") {
+    mark?.("eligibility_local_checks_end");
+    return {
+      allowed: false,
+      state: "rejected",
+      blocked_reasons: [DRIVER_BLOCKED_REASON.DRIVER_REJECTED],
+      message: "Your driver application was not approved.",
+      driver_id: driverId,
+    };
+  }
+  if (approval === "suspended") {
+    mark?.("eligibility_local_checks_end");
+    return {
+      allowed: false,
+      state: "suspended",
+      blocked_reasons: [DRIVER_BLOCKED_REASON.DRIVER_SUSPENDED],
+      message: "Your driver account is suspended.",
+      driver_id: driverId,
+    };
+  }
+  if (approval !== "approved") {
+    mark?.("eligibility_local_checks_end");
+    return {
+      allowed: false,
+      state: "documents_pending_review",
+      blocked_reasons: [DRIVER_BLOCKED_REASON.DRIVER_NOT_APPROVED],
+      message: "Your driver profile is pending admin approval.",
+      driver_id: driverId,
+    };
+  }
+
+  if (String(driver.driver_status ?? "").toLowerCase() !== "active") {
+    mark?.("eligibility_local_checks_end");
+    return {
+      allowed: false,
+      state: "suspended",
+      blocked_reasons: [DRIVER_BLOCKED_REASON.ACCOUNT_INACTIVE],
+      message: "Your driver account is not active.",
+      driver_id: driverId,
+    };
+  }
+
+  mark?.("eligibility_docs_rpc_start");
+  const { data: liveDocsApproved, error: docsRpcError } = await service.rpc(
+    "check_driver_documents_approved",
+    { p_driver_id: driverId },
+  );
+  mark?.("eligibility_docs_rpc_end");
+
+  if (docsRpcError) {
+    console.warn(
+      "ACCEPT_ELIGIBILITY_DOCS_RPC_FAILED",
+      JSON.stringify({
+        driver_id: driverId,
+        error: docsRpcError.message,
+        fallback: driver.documents_approved,
+      }),
+    );
+  }
+  const documentsValid = docsRpcError
+    ? driver.documents_approved === true
+    : liveDocsApproved === true;
+
+  if (!documentsValid) {
+    const wasEverApproved = driver.documents_approved === true;
+    mark?.("eligibility_local_checks_end");
+    return {
+      allowed: false,
+      state: wasEverApproved ? "documents_pending_review" : "documents_missing",
+      blocked_reasons: [
+        wasEverApproved
+          ? DRIVER_BLOCKED_REASON.DOCUMENTS_EXPIRED
+          : DRIVER_BLOCKED_REASON.DOCUMENTS_PENDING_REVIEW,
+      ],
+      message: wasEverApproved
+        ? "One or more of your documents has expired. Please renew them to continue driving."
+        : "Your documents are not approved yet.",
+      driver_id: driverId,
+    };
+  }
+
+  if (driver.is_online !== true) {
+    mark?.("eligibility_local_checks_end");
+    return {
+      allowed: false,
+      state: "approved_offline",
+      blocked_reasons: [DRIVER_BLOCKED_REASON.DRIVER_OFFLINE],
+      message: "Go online to receive ride offers.",
+      driver_id: driverId,
+    };
+  }
+
+  mark?.("eligibility_local_checks_end");
+  return {
+    allowed: true,
+    state: "approved_online",
+    blocked_reasons: [],
+    message: "",
+    driver_id: driverId,
+  };
 }
 
 /** In-trip completion â allow approved drivers with active trip even if offer gates would block new offers. */

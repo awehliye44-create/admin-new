@@ -131,7 +131,7 @@ Deno.test("accept-offer still calls accept_ride_offer / accept_stacked_ride (ato
   const src = await Deno.readTextFile(acceptOfferPath);
   assertStringIncludes(src, 'supabase.rpc("accept_ride_offer"');
   assertStringIncludes(src, '"accept_stacked_ride"');
-  assertStringIncludes(src, "assertCanAcceptOfferByDriverId");
+  assertStringIncludes(src, "assertCanAcceptOfferByDriverIdFast");
   assertStringIncludes(src, "requireAuthenticatedUser");
 });
 
@@ -152,7 +152,7 @@ Deno.test("verification 3–8: expired/cancelled/already-accepted/stacked/schedu
   assertStringIncludes(src, "OFFER_NOT_PENDING");
   assertStringIncludes(src, "accept_stacked_ride");
   assertStringIncludes(src, "is_urgent_dispatch");
-  assertStringIncludes(src, "assertCanAcceptOfferByDriverId");
+  assertStringIncludes(src, "assertCanAcceptOfferByDriverIdFast");
   // P2 work is scheduled after canonical — response path uses successResponse(withDuration(...data)).
   const afterCanonical = src.slice(
     src.indexOf('perf.mark("CANONICAL_ASSIGNMENT_CONFIRMED")'),
@@ -192,6 +192,14 @@ Deno.test("ingest-telemetry allows Accept waterfall flat metadata keys", async (
   assertStringIncludes(src, '"edge_accept_rpc_ms"');
   assertStringIncludes(src, '"edge_response_build_ms"');
   assertStringIncludes(src, '"perf_id"');
+  assertStringIncludes(src, '"edge_rtt_ms"');
+  assertStringIncludes(src, '"tap_to_gate_ms"');
+  assertStringIncludes(src, '"gps_gate_ms"');
+  assertStringIncludes(src, '"complete_gate_ms"');
+  assertStringIncludes(src, '"rating_tap_to_home_interactive_ms"');
+  assertStringIncludes(src, '"eligibility_docs_rpc_ms"');
+  assertStringIncludes(src, '"app_version"');
+  assertStringIncludes(src, '"cold_start_hint"');
 });
 
 Deno.test("accept-offer marks post-assignment skip + P2 notify/delivery stages", async () => {
