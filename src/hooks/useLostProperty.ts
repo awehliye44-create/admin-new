@@ -9,8 +9,13 @@ export interface LostPropertyCase {
   driver_id: string;
   customer_id: string;
   service_area_id: string;
+  case_origin?: string | null;
+  item_name?: string | null;
   item_category: string;
   item_description: string;
+  item_colour?: string | null;
+  item_brand?: string | null;
+  found_location?: string | null;
   photos: string[] | null;
   found_item_photos: string[] | null;
   driver_photos: string[] | null;
@@ -58,6 +63,7 @@ export interface TripSummary {
 
 const LP_STATUS_LABELS: Record<string, string> = {
   NEW: 'New',
+  OPEN: 'Open (Driver found)',
   SENT_TO_DRIVER: 'Sent to Driver',
   DRIVER_CONFIRMED_FOUND: 'Driver Confirmed',
   DRIVER_NOT_FOUND: 'Not Found',
@@ -68,10 +74,12 @@ const LP_STATUS_LABELS: Record<string, string> = {
   RETURN_RIDE_BOOKED: 'Return Ride Booked',
   ESCALATED: 'Escalated',
   CLOSED: 'Closed',
+  CANCELLED: 'Cancelled',
 };
 
 const LP_STATUS_COLORS: Record<string, string> = {
   NEW: 'bg-blue-500',
+  OPEN: 'bg-emerald-600',
   SENT_TO_DRIVER: 'bg-yellow-500',
   DRIVER_CONFIRMED_FOUND: 'bg-green-500',
   DRIVER_NOT_FOUND: 'bg-red-500',
@@ -82,6 +90,7 @@ const LP_STATUS_COLORS: Record<string, string> = {
   RETURN_RIDE_BOOKED: 'bg-teal-500',
   ESCALATED: 'bg-red-600',
   CLOSED: 'bg-gray-500',
+  CANCELLED: 'bg-gray-400',
 };
 
 export { LP_STATUS_LABELS, LP_STATUS_COLORS };
@@ -113,7 +122,7 @@ async function enrichCasesWithNames(cases: LostPropertyCase[]): Promise<LostProp
 }
 
 const LOST_PROPERTY_CASE_COLUMNS =
-  'id, case_number, trip_id, driver_id, customer_id, service_area_id, item_category, item_description, photos, found_item_photos, driver_photos, status, return_method, return_trip_id, customer_confirmed, chat_enabled, chat_opened_at, chat_expires_at, chat_locked_at, chat_lock_reason, admin_joined_at, photos_hidden_at, photos_delete_at, admin_viewed_at, admin_last_read_message_at, created_at, updated_at, closed_at';
+  'id, case_number, trip_id, driver_id, customer_id, service_area_id, case_origin, item_name, item_category, item_description, item_colour, item_brand, found_location, photos, found_item_photos, driver_photos, status, return_method, return_trip_id, customer_confirmed, chat_enabled, chat_opened_at, chat_expires_at, chat_locked_at, chat_lock_reason, admin_joined_at, photos_hidden_at, photos_delete_at, admin_viewed_at, admin_last_read_message_at, created_at, updated_at, closed_at';
 
 const LOST_PROPERTY_MESSAGE_COLUMNS =
   'id, case_id, sender_type, sender_id, message, attachments, created_at';

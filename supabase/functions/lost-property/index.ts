@@ -97,6 +97,8 @@ Deno.serve(async (req) => {
     switch (action) {
       case "create_case": return await createCase(req);
       case "send_message": return await sendMessage(req);
+      case "driver_create_found_report": return await driverCreateFoundReport(req);
+      case "driver_attach_found_photos": return await driverAttachFoundPhotos(req);
       case "driver_mark_found": return await driverMarkFound(req);
       case "driver_mark_not_found": return await driverMarkNotFound(req);
       case "customer_confirm": return await customerConfirm(req);
@@ -124,13 +126,202 @@ Deno.serve(async (req) => {
   }
 });
 
-// ==================== CASE CREATION ====================
+// ==================== DRIVER: CREATE FOUND-ITEM REPORT ====================
+async function driverCreateFoundReport(req: Request) {
+  const auth = await authenticateCaller(req);
+  if (auth instanceof Response) return auth;
+
+  const body = await req.json();
+  const {
+    trip_id,
+    item_name,
+    item_category,
+    item_description,
+    item_colour,
+    item_brand,
+    found_location,
+  } = body;
+
+  if (!trip_id || !item_name || !item_category || !found_location) {
+    return errorResp("trip_id, item_name, item_category, and found_location are required");
+  }
+
+  const name = String(item_name).trim();
+  const category = String(item_category).trim();
+  const location = String(found_location).trim();
+  const description = String(item_description ?? "").trim() || name;
+  if (!name || !category || !location) {
+    return errorResp("trip_id, item_name, item_category, and found_location are required");
+  }
+
+  const driverId = await getDriverId(auth.userId);
+  if (!driverId) return errorResp("Driver profile not found", 403);
+
+  const sb = getServiceClient();
+  const { data: trip } = await sb
+    .from("trips")
+    .select(
+      "id, status, driver_id, confirmed_driver_id, service_area_id, region_id, passenger_id, trip_number, trip_code, completed_at",
+    )
+    .eq("id", trip_id)
+    .maybeSingle();
+
+  if (!trip) return errorResp("Trip not found", 404);
+  if (trip.status !== "completed") {
+    return errorResp("Can only report found items for completed trips");
+  }
+
+  const tripDriverId = trip.confirmed_driver_id || trip.driver_id;
+  if (tripDriverId !== driverId) return errorResp("Trip does not belong to you", 403);
+  if (!trip.passenger_id) return errorResp("Trip has no passenger");
+  if (!trip.service_area_id) return errorResp("Trip has no service area");
+
+  let regionId = trip.region_id as string | null;
+  if (!regionId) {
+    const { data: sa } = await sb
+      .from("service_areas")
+      .select("region_id")
+      .eq("id", trip.service_area_id)
+      .maybeSingle();
+    regionId = sa?.region_id ?? null;
+  }
+  if (!regionId) return errorResp("Trip has no region");
+
+  const publicTripRef = trip.trip_number || trip.trip_code || null;
+  if (!publicTripRef) return errorResp("Trip has no public reference");
+
+  const { data: existing } = await sb
+    .from("lost_property_cases")
+    .select("id")
+    .eq("trip_id", trip_id)
+    .eq("driver_id", driverId)
+    .eq("case_origin", "driver_found")
+    .not("status", "in", "(CANCELLED,CLOSED,cancelled,closed)")
+    .limit(1);
+  if (existing && existing.length > 0) {
+    return errorResp("An open found-item report already exists for this trip");
+  }
+
+  let caseNumber: string;
+  const { data: generated, error: genErr } = await sb.rpc("generate_lost_property_case_number", {
+    p_service_area_id: trip.service_area_id,
+  });
+  if (genErr || !generated) {
+    caseNumber = `LP-${Date.now().toString(36).toUpperCase()}`;
+  } else {
+    caseNumber = String(generated);
+  }
+
+  const now = new Date();
+  const chatExpiresAt = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
+
+  const { data: newCase, error } = await sb
+    .from("lost_property_cases")
+    .insert({
+      case_number: caseNumber,
+      trip_id,
+      customer_id: trip.passenger_id,
+      driver_id: driverId,
+      region_id: regionId,
+      service_area_id: trip.service_area_id,
+      case_origin: "driver_found",
+      item_name: name,
+      item_category: category,
+      item_description: description,
+      item_colour: item_colour ? String(item_colour).trim() || null : null,
+      item_brand: item_brand ? String(item_brand).trim() || null : null,
+      found_location: location,
+      photos: [],
+      found_item_photos: [],
+      driver_photos: [],
+      status: "OPEN",
+      chat_enabled: true,
+      chat_opened_at: now.toISOString(),
+      chat_expires_at: chatExpiresAt.toISOString(),
+    })
+    .select("id, case_number, status, created_at")
+    .single();
+
+  if (error) throw error;
+
+  await insertSystemMessage(
+    newCase.id,
+    "Driver reported a found item after a completed trip.",
+  );
+
+  return jsonResponse({
+    success: true,
+    report_id: newCase.id,
+    public_reference: newCase.case_number,
+    public_trip_ref: publicTripRef,
+    display_status: "open",
+    backend_status: newCase.status,
+    reported_at: newCase.created_at,
+  });
+}
+
+// ==================== DRIVER: ATTACH FOUND PHOTOS ====================
+async function driverAttachFoundPhotos(req: Request) {
+  const auth = await authenticateCaller(req);
+  if (auth instanceof Response) return auth;
+
+  const { report_id, photo_paths } = await req.json();
+  if (!report_id) return errorResp("report_id is required");
+  if (!Array.isArray(photo_paths)) return errorResp("photo_paths must be an array");
+  if (photo_paths.length > 4) return errorResp("Maximum 4 photos allowed");
+
+  const paths = photo_paths
+    .map((p: unknown) => String(p || "").trim())
+    .filter(Boolean);
+  if (paths.some((p: string) => !p.startsWith(`${report_id}/`))) {
+    return errorResp("Invalid photo path for report");
+  }
+
+  const driverId = await getDriverId(auth.userId);
+  if (!driverId) return errorResp("Driver profile not found", 403);
+
+  const sb = getServiceClient();
+  const { data: lpc } = await sb
+    .from("lost_property_cases")
+    .select("id, driver_id, case_origin, status")
+    .eq("id", report_id)
+    .maybeSingle();
+
+  if (!lpc) return errorResp("Report not found", 404);
+  if (lpc.driver_id !== driverId) return errorResp("Not your report", 403);
+  if (lpc.case_origin !== "driver_found") return errorResp("Not a driver found-item report", 403);
+  if (String(lpc.status).toUpperCase() !== "OPEN") {
+    return errorResp("Photos can only be attached while the report is open");
+  }
+
+  const { error } = await sb
+    .from("lost_property_cases")
+    .update({
+      found_item_photos: paths,
+      driver_photos: paths,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", report_id);
+
+  if (error) throw error;
+  return jsonResponse({ success: true, report_id, photo_count: paths.length });
+}
+
+// ==================== CASE CREATION (CUSTOMER) ====================
 async function createCase(req: Request) {
   const auth = await authenticateCaller(req);
   if (auth instanceof Response) return auth;
 
   const body = await req.json();
-  const { trip_id, item_category, item_description, photos } = body;
+  const {
+    trip_id,
+    item_category,
+    item_description,
+    photos,
+    item_name,
+    item_colour,
+    item_brand,
+  } = body;
   if (!trip_id || !item_category || !item_description) {
     return errorResp("trip_id, item_category, and item_description are required");
   }
@@ -143,29 +334,53 @@ async function createCase(req: Request) {
 
   const { data: trip } = await sb
     .from("trips")
-    .select("id, status, driver_id, service_area_id, passenger_id")
+    .select("id, status, driver_id, confirmed_driver_id, service_area_id, region_id, passenger_id")
     .eq("id", trip_id)
     .single();
 
   if (!trip) return errorResp("Trip not found", 404);
   if (trip.status !== "completed") return errorResp("Can only report lost property for completed trips");
   if (trip.passenger_id !== customerId) return errorResp("Trip does not belong to you", 403);
-  if (!trip.driver_id) return errorResp("Trip has no assigned driver");
+  const tripDriverId = trip.confirmed_driver_id || trip.driver_id;
+  if (!tripDriverId) return errorResp("Trip has no assigned driver");
   if (!trip.service_area_id) return errorResp("Trip has no service area");
+
+  let regionId = trip.region_id as string | null;
+  if (!regionId) {
+    const { data: sa } = await sb
+      .from("service_areas")
+      .select("region_id")
+      .eq("id", trip.service_area_id)
+      .maybeSingle();
+    regionId = sa?.region_id ?? null;
+  }
+  if (!regionId) regionId = trip.service_area_id;
 
   // Check for existing open case
   const { data: existing } = await sb
     .from("lost_property_cases")
     .select("id")
     .eq("trip_id", trip_id)
-    .not("status", "in", "(CLOSED,closed)")
+    .not("status", "in", "(CLOSED,closed,CANCELLED,cancelled)")
     .limit(1);
   if (existing && existing.length > 0) return errorResp("An open case already exists for this trip");
 
-  // Generate case number
-  const caseNumber = `LP-${Date.now().toString(36).toUpperCase()}`;
+  let caseNumber: string;
+  const { data: generated, error: genErr } = await sb.rpc("generate_lost_property_case_number", {
+    p_service_area_id: trip.service_area_id,
+  });
+  if (genErr || !generated) {
+    caseNumber = `LP-${Date.now().toString(36).toUpperCase()}`;
+  } else {
+    caseNumber = String(generated);
+  }
+
   const now = new Date();
   const chatExpiresAt = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
+  const name =
+    typeof item_name === "string" && item_name.trim()
+      ? item_name.trim()
+      : null;
 
   const { data: newCase, error } = await sb
     .from("lost_property_cases")
@@ -173,11 +388,15 @@ async function createCase(req: Request) {
       case_number: caseNumber,
       trip_id,
       customer_id: customerId,
-      driver_id: trip.driver_id,
-      region_id: trip.service_area_id, // legacy column — use service_area_id
+      driver_id: tripDriverId,
+      region_id: regionId,
       service_area_id: trip.service_area_id,
+      case_origin: "customer_lost",
+      item_name: name,
       item_category,
       item_description,
+      item_colour: item_colour ? String(item_colour).trim() || null : null,
+      item_brand: item_brand ? String(item_brand).trim() || null : null,
       photos: photos || [],
       status: "NEW",
       chat_enabled: true,
@@ -197,7 +416,10 @@ async function createCase(req: Request) {
     .update({ status: "SENT_TO_DRIVER" })
     .eq("id", newCase.id);
 
-  return jsonResponse({ success: true, case: newCase });
+  return jsonResponse({
+    success: true,
+    case: { ...newCase, status: "SENT_TO_DRIVER" },
+  });
 }
 
 // ==================== SEND MESSAGE ====================
