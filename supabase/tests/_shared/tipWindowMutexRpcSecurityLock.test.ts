@@ -75,26 +75,21 @@ Deno.test("SECURITY: release/finalize require claim token match (TOKEN_MISMATCH)
   assertStringIncludes(finalize, "tip_window_claim_token IS DISTINCT FROM p_claim_token");
 });
 
-Deno.test("SECURITY: CLAIM_HELD retains ownership for non-stale / non-expiry callers", async () => {
+Deno.test("SECURITY: CLAIM_HELD retains ownership — claim never auto-steals", async () => {
   const src = await migrationSrc();
   assertStringIncludes(src, "'CLAIM_HELD'");
-  assertStringIncludes(src, "PROVIDER_UNKNOWN_RECONCILE_ONLY");
-  // Customer triggers must not steal.
-  const held = src.slice(
-    src.indexOf("Another owner holds the mutex"),
-    src.indexOf("IF p_trigger = 'WINDOW_EXPIRED'"),
-  );
-  assertEquals(held.includes("CUSTOMER_SKIP"), false);
+  assertStringIncludes(src, "NEVER auto-steal here");
+  assertStringIncludes(src, "EXPIRED_STALE_RECLAIM_GET_FIRST");
+  assertStringIncludes(src, "stale_eligible");
 });
 
-Deno.test("SECURITY: stale reclaim is bounded (5 minutes) and expiry-only", async () => {
+Deno.test("SECURITY: stale reclaim is bounded (5 minutes) and GET-gated via separate RPCs", async () => {
   const src = await migrationSrc();
   assertStringIncludes(src, "interval '5 minutes'");
-  assertStringIncludes(src, "p_trigger = 'WINDOW_EXPIRED'");
-  assertStringIncludes(src, "tip_window_expires_at <= p_now");
-  // Stale path must not invoke capture / revolut.
+  assertStringIncludes(src, "reclaim_stale_tip_window_expiry_after_authorised_get");
+  assertStringIncludes(src, "finalize_tip_window_expired_after_provider_capture");
   assertEquals(src.toLowerCase().includes("capture_revolut"), false);
-  assertEquals(src.toLowerCase().includes("http"), false);
+  assertEquals(src.includes("fall through to reclaim UPDATE below"), false);
 });
 
 Deno.test("SECURITY: finalized trigger is immutable (idempotent finalize does not UPDATE)", async () => {

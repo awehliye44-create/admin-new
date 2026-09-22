@@ -24,6 +24,9 @@ export type TipWindowClaimResult =
     code: string;
     tipWindowStatus?: string | null;
     tipWindowTrigger?: string | null;
+    tipWindowClaimedAt?: string | null;
+    tipWindowCaptureIdempotencyKey?: string | null;
+    staleEligible?: boolean;
   };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -65,6 +68,13 @@ export async function claimTipWindowTrigger(
     tipWindowTrigger: row.tip_window_trigger == null
       ? null
       : String(row.tip_window_trigger),
+    tipWindowClaimedAt: row.tip_window_claimed_at == null
+      ? null
+      : String(row.tip_window_claimed_at),
+    tipWindowCaptureIdempotencyKey: row.tip_window_capture_idempotency_key == null
+      ? null
+      : String(row.tip_window_capture_idempotency_key),
+    staleEligible: row.stale_eligible === true,
   };
 }
 
@@ -179,6 +189,80 @@ export function classifyTipWindowCaptureOutcome(
 
 export function newTipWindowClaimToken(): string {
   return crypto.randomUUID();
+}
+
+export async function stampTipWindowCaptureIdempotencyKey(
+  supabase: SupabaseClient,
+  args: {
+    tripId: string;
+    claimToken: string;
+    idempotencyKey: string;
+    nowIso?: string;
+  },
+): Promise<{ ok: boolean; key?: string; code?: string }> {
+  const { data, error } = await supabase.rpc("stamp_tip_window_capture_idempotency_key", {
+    p_trip_id: args.tripId,
+    p_claim_token: args.claimToken,
+    p_idempotency_key: args.idempotencyKey,
+    p_now: args.nowIso ?? new Date().toISOString(),
+  });
+  if (error) return { ok: false, code: "STAMP_RPC_FAILED" };
+  const row = asRecord(data);
+  if (row.ok !== true) return { ok: false, code: String(row.code ?? "STAMP_DENIED") };
+  return {
+    ok: true,
+    key: String(row.tip_window_capture_idempotency_key ?? args.idempotencyKey),
+  };
+}
+
+export async function finalizeTipWindowExpiredAfterProviderCapture(
+  supabase: SupabaseClient,
+  args: { tripId: string; tipPence?: number; nowIso?: string },
+): Promise<{ ok: boolean; tipWindowStatus?: string; code?: string }> {
+  const { data, error } = await supabase.rpc(
+    "finalize_tip_window_expired_after_provider_capture",
+    {
+      p_trip_id: args.tripId,
+      p_tip_pence: Math.max(0, Math.round(args.tipPence ?? 0)),
+      p_now: args.nowIso ?? new Date().toISOString(),
+    },
+  );
+  if (error) return { ok: false, code: "FINALIZE_PROVIDER_RPC_FAILED" };
+  const row = asRecord(data);
+  return {
+    ok: row.ok === true,
+    tipWindowStatus: row.tip_window_status == null
+      ? undefined
+      : String(row.tip_window_status),
+    code: row.code == null ? undefined : String(row.code),
+  };
+}
+
+export async function reclaimStaleTipWindowExpiryAfterAuthorisedGet(
+  supabase: SupabaseClient,
+  args: { tripId: string; claimToken: string; nowIso?: string },
+): Promise<
+  | { ok: true; claimToken: string; idempotencyKey: string | null }
+  | { ok: false; code: string }
+> {
+  const { data, error } = await supabase.rpc(
+    "reclaim_stale_tip_window_expiry_after_authorised_get",
+    {
+      p_trip_id: args.tripId,
+      p_new_claim_token: args.claimToken,
+      p_now: args.nowIso ?? new Date().toISOString(),
+    },
+  );
+  if (error) return { ok: false, code: "RECLAIM_RPC_FAILED" };
+  const row = asRecord(data);
+  if (row.ok !== true) return { ok: false, code: String(row.code ?? "RECLAIM_DENIED") };
+  return {
+    ok: true,
+    claimToken: String(row.claim_token ?? args.claimToken),
+    idempotencyKey: row.tip_window_capture_idempotency_key == null
+      ? null
+      : String(row.tip_window_capture_idempotency_key),
+  };
 }
 
 export { TIP_WINDOW_STATUS, TIP_WINDOW_TRIGGER };
