@@ -254,12 +254,44 @@ export function recordedTipPenceAfterCapture(collected: unknown): number | null 
  * invokeFinalizeTripCapture treats shortfall / recovery / processing as ok so
  * callers do not stamp capture_failed. That must not seal the window — an
  * uncaptured fare would never be retried.
+ *
+ * MK-260922-001: a positive capture_amount_pence alone is not enough. Local
+ * stamps / authorised-hold responses must not seal the 20-minute tip window
+ * while Revolut remains AUTHORISED.
  */
 export function tipWindowCloseAllowedAfterFinalize(
   body: Record<string, unknown> | null | undefined,
 ): boolean {
   const captured = Number(body?.capture_amount_pence ?? body?.captureAmountPence);
-  return Number.isFinite(captured) && captured > 0;
+  if (!Number.isFinite(captured) || captured <= 0) return false;
+  if (body?.success === false) return false;
+
+  const status = String(body?.status ?? "").trim().toLowerCase();
+  const providerState = String(
+    body?.provider_state
+      ?? body?.providerState
+      ?? body?.revolut_state
+      ?? body?.provider_capture_status
+      ?? "",
+  ).trim().toUpperCase();
+
+  // Explicit provider terminal wins when present.
+  if (providerState === "COMPLETED" || providerState === "CAPTURED") return true;
+  if (
+    providerState === "AUTHORISED"
+    || providerState === "AUTHORIZED"
+    || providerState === "PROCESSING"
+    || providerState === "PENDING"
+  ) {
+    return false;
+  }
+
+  // Without provider state, only explicit capture statuses may close the window.
+  return (
+    status === "captured"
+    || status === "already_captured"
+    || status === "completed"
+  );
 }
 
 /**

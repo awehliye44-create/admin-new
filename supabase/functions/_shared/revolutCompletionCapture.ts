@@ -18,7 +18,13 @@ import {
   releasePaymentSessionFinancialLock,
 } from "./paymentSessionFinancialLockSSOT.ts";
 import { decideCaptureAfterRetrieve, tripHasConflictingFinalCapture } from "./revolutCaptureIdempotencySSOT.ts";
+import { isProviderCaptureTerminalState } from "./paymentSessionsCaptureConfirmationSSOT.ts";
 import { applyCanonicalSettlementAfterCapture } from "./applyCanonicalSettlementAfterCapture.ts";
+
+/** MK-260922-001: never stamp local captured while Revolut is still AUTHORISED. */
+function providerCaptureConfirmed(state: unknown): boolean {
+  return isProviderCaptureTerminalState(String(state ?? ""));
+}
 import {
   attachCapturedPostCaptureFields,
   postingWalletMismatch,
@@ -1009,11 +1015,44 @@ export async function executeRevolutTripCompletionCapture(args: {
         decision.captureAmountPence,
       );
 
-      const paymentStatusLocked = mapRevolutStateToPaymentStatus(capturedLocked.state) ?? "captured";
+      // Capture POST response may still show AUTHORISED — confirm with retrieve.
+      let confirmedOrder = capturedLocked;
+      if (!providerCaptureConfirmed(capturedLocked.state)) {
+        const retrieved = await retrieveRevolutOrder(
+          merchant.environment,
+          merchant.secretKey,
+          orderId,
+        );
+        if (!providerCaptureConfirmed(retrieved.state)) {
+          const stillAuth = String(retrieved.state ?? capturedLocked.state ?? "").toUpperCase();
+          return {
+            success: false,
+            status: stillAuth === "PROCESSING" || stillAuth === "PENDING"
+              ? "processing"
+              : "authorized",
+            capture_amount_pence: 0,
+            provider_order_id: orderId,
+            error:
+              `Provider capture not confirmed (state ${stillAuth || "unknown"}); tip window must stay open`,
+          };
+        }
+        confirmedOrder = retrieved;
+      }
+
+      const paymentStatusLocked = mapRevolutStateToPaymentStatus(confirmedOrder.state) ?? "captured";
+      if (paymentStatusLocked !== "captured") {
+        return {
+          success: false,
+          status: paymentStatusLocked ?? "authorized",
+          capture_amount_pence: 0,
+          provider_order_id: orderId,
+          error: `Provider capture not terminal (state ${confirmedOrder.state ?? "unknown"})`,
+        };
+      }
       const nowLocked = new Date().toISOString();
 
       await args.supabase.from("trips").update({
-        payment_status: paymentStatusLocked,
+        payment_status: "captured",
         payment_hold_status: "captured",
         capture_amount_pence: decision.captureAmountPence,
         final_fare_pence: resolvedFare.final_fare_pence,
@@ -1023,14 +1062,14 @@ export async function executeRevolutTripCompletionCapture(args: {
         stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
         total_waiting_charge_pence:
           resolvedFare.arrival_waiting_charge_pence + resolvedFare.stop_waiting_charge_pence,
-        provider_charge_id: capturedLocked.id ?? orderId,
+        provider_charge_id: confirmedOrder.id ?? orderId,
         updated_at: nowLocked,
       }).eq("id", tripId);
 
       await args.supabase.from("payments").update({
-        status: paymentStatusLocked,
+        status: "captured",
         captured_amount_pence: decision.captureAmountPence,
-        provider_status: capturedLocked.state ?? null,
+        provider_status: confirmedOrder.state ?? null,
         updated_at: nowLocked,
       }).eq("provider_order_id", orderId);
 
@@ -1048,7 +1087,7 @@ export async function executeRevolutTripCompletionCapture(args: {
           }),
           capturedAt: nowLocked,
           providerCaptureId: extractProviderCaptureId(
-            capturedLocked as unknown as Record<string, unknown>,
+            confirmedOrder as unknown as Record<string, unknown>,
           ),
         });
       } catch (psErr) {
@@ -1066,11 +1105,12 @@ export async function executeRevolutTripCompletionCapture(args: {
         capturedOk = true;
         return capturedWalletNotPosted({
           success: true,
-          status: paymentStatusLocked,
+          status: "captured",
           capture_amount_pence: decision.captureAmountPence,
           provider_order_id: orderId,
           tip_collected_pence: tipCoverageFor(decision.captureAmountPence).tipCollectedPence,
           tip_shortfall_pence: tipCoverageFor(decision.captureAmountPence).tipShortfallPence,
+          provider_capture_status: "CAPTURED",
           message: "Provider captured; Payment Sessions persist failed — wallet not posted",
         });
       }
@@ -1085,11 +1125,12 @@ export async function executeRevolutTripCompletionCapture(args: {
       const covered = tipCoverageFor(decision.captureAmountPence);
       return capturedWithPosting({
         success: true,
-        status: paymentStatusLocked,
+        status: "captured",
         capture_amount_pence: decision.captureAmountPence,
         provider_order_id: orderId,
         tip_collected_pence: covered.tipCollectedPence,
         tip_shortfall_pence: covered.tipShortfallPence,
+        provider_capture_status: "CAPTURED",
       }, posting);
     } finally {
       if (!capturedOk) {
@@ -1111,11 +1152,43 @@ export async function executeRevolutTripCompletionCapture(args: {
     amountToCapture,
   );
 
-  const paymentStatus = mapRevolutStateToPaymentStatus(captured.state) ?? "captured";
+  let confirmedUnguarded = captured;
+  if (!providerCaptureConfirmed(captured.state)) {
+    const retrieved = await retrieveRevolutOrder(
+      merchant.environment,
+      merchant.secretKey,
+      orderId,
+    );
+    if (!providerCaptureConfirmed(retrieved.state)) {
+      const stillAuth = String(retrieved.state ?? captured.state ?? "").toUpperCase();
+      return {
+        success: false,
+        status: stillAuth === "PROCESSING" || stillAuth === "PENDING"
+          ? "processing"
+          : "authorized",
+        capture_amount_pence: 0,
+        provider_order_id: orderId,
+        error:
+          `Provider capture not confirmed (state ${stillAuth || "unknown"}); tip window must stay open`,
+      };
+    }
+    confirmedUnguarded = retrieved;
+  }
+
+  const paymentStatus = mapRevolutStateToPaymentStatus(confirmedUnguarded.state) ?? "captured";
+  if (paymentStatus !== "captured") {
+    return {
+      success: false,
+      status: paymentStatus ?? "authorized",
+      capture_amount_pence: 0,
+      provider_order_id: orderId,
+      error: `Provider capture not terminal (state ${confirmedUnguarded.state ?? "unknown"})`,
+    };
+  }
   const now = new Date().toISOString();
 
   await args.supabase.from("trips").update({
-    payment_status: paymentStatus,
+    payment_status: "captured",
     payment_hold_status: "captured",
     capture_amount_pence: amountToCapture,
     final_fare_pence: resolvedFare.final_fare_pence,
@@ -1125,14 +1198,14 @@ export async function executeRevolutTripCompletionCapture(args: {
     stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
     total_waiting_charge_pence:
       resolvedFare.arrival_waiting_charge_pence + resolvedFare.stop_waiting_charge_pence,
-    provider_charge_id: captured.id ?? orderId,
+    provider_charge_id: confirmedUnguarded.id ?? orderId,
     updated_at: now,
   }).eq("id", tripId);
 
   await args.supabase.from("payments").update({
-    status: paymentStatus,
+    status: "captured",
     captured_amount_pence: amountToCapture,
-    provider_status: captured.state ?? null,
+    provider_status: confirmedUnguarded.state ?? null,
     updated_at: now,
   }).eq("provider_order_id", orderId);
 
@@ -1159,11 +1232,12 @@ export async function executeRevolutTripCompletionCapture(args: {
     });
     return capturedWalletNotPosted({
       success: true,
-      status: paymentStatus,
+      status: "captured",
       capture_amount_pence: amountToCapture,
       provider_order_id: orderId,
       tip_collected_pence: tipCoverageFor(amountToCapture).tipCollectedPence,
       tip_shortfall_pence: tipCoverageFor(amountToCapture).tipShortfallPence,
+      provider_capture_status: "CAPTURED",
       message: "Provider captured; Payment Sessions persist failed — wallet not posted",
     });
   }
@@ -1180,23 +1254,18 @@ export async function executeRevolutTripCompletionCapture(args: {
     evidenceSource: RELEASE_EVIDENCE_SOURCE.REVOLUT_POST_CAPTURE_RETRIEVE,
   });
 
-  const posting = paymentStatus === "captured"
-    ? await ensurePostCaptureSettlement(amountToCapture)
-    : postingWalletMismatch({
-      settlement_status: "FAILED",
-      expectedPence: 0,
-      postedPence: 0,
-    });
+  const posting = await ensurePostCaptureSettlement(amountToCapture);
 
   return capturedWithPosting({
     success: true,
-    status: paymentStatus,
+    status: "captured",
     capture_amount_pence: amountToCapture,
     provider_order_id: orderId,
     tip_collected_pence: tipCoverageFor(amountToCapture).tipCollectedPence,
     tip_shortfall_pence: tipCoverageFor(amountToCapture).tipShortfallPence,
+    provider_capture_status: "CAPTURED",
     message: residual.messageSuffix
       ? `Captured ${amountToCapture}p${residual.messageSuffix}`
-      : "Revolut order capture requested",
+      : "Revolut order captured",
   }, posting);
 }
