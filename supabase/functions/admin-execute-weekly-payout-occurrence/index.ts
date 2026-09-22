@@ -40,6 +40,7 @@ import {
   ORCHESTRATOR_ITEM_STATUS,
   ORCHESTRATOR_RUN_STATUS,
   buildOrchestratorPlanSnapshot,
+  classifyWeeklyOccurrenceClaimFailure,
   evaluateBatchFundingGate,
   orchestratorBlockerLabel,
   resolveOrchestratorRunFinish,
@@ -291,16 +292,21 @@ Deno.serve(async (req) => {
   );
   if (claimErr) {
     return json({
-      success: false,
-      error: "claim_rpc_failed",
-      message: claimErr.message,
-      hint: "Apply migration 20260832010000_weekly_payout_orchestrator_claim_cron.sql",
+      ...classifyWeeklyOccurrenceClaimFailure({ message: claimErr.message }),
       revolut_pay_called: false,
+      wallet_debited: false,
     }, 500);
   }
   const claim = (claimRaw ?? {}) as Record<string, unknown>;
   if (claim.ok !== true) {
-    return json({ success: false, error: claim.error ?? "claim_failed", revolut_pay_called: false }, 500);
+    return json({
+      ...classifyWeeklyOccurrenceClaimFailure({
+        message: String(claim.error ?? "claim_failed"),
+        code: String(claim.error ?? ""),
+      }),
+      revolut_pay_called: false,
+      wallet_debited: false,
+    }, 500);
   }
   const runId = String(claim.run_id);
   if (

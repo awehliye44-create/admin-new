@@ -37,3 +37,9 @@ Deno.test("cron migration targets canonical orchestrator URL", async () => {
   assertStringIncludes(sql, "admin-execute-weekly-payout-occurrence");
   assertStringIncludes(sql, "edge_weekly_payout_orchestrator_url");
 });
+
+Deno.test("execute claim failure is OCCURRENCE_CLAIM_FAILED not SCHEDULER_NOT_INVOKED", async () => {
+  const src = await read("admin-execute-weekly-payout-occurrence/index.ts");
+  assertStringIncludes(src, "classifyWeeklyOccurrenceClaimFailure");
+  assertEquals(src.includes("SCHEDULER_NOT_INVOKED"), false);
+});
