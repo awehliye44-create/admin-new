@@ -25,4 +25,9 @@ This migration keeps the composite unique index and aligns `ON CONFLICT` + reuse
 
 Cron invokes `admin-execute-weekly-payout-occurrence` (not Slice 5). Slice 5 `admin-weekly-payout-scheduler` only forwards when LIVE+TRANSPORT. Typed claim error mapping lives in the execute function + `weeklyPayoutOrchestratorSSOT`. SQL-only apply unblocks claim; execute deploy is required only for typed HTTP classification.
 
-Do not deploy reserve/submit/finalize.
+## Follow-on (do not apply yet)
+
+`20261124160000` freezes `period_start` / `period_end` on the same claim row and
+requires Edge eligibility to use that previous completed London week. Both
+migrations ship on PR #62; neither is applied until period-scoped fix approval.
+

@@ -67,6 +67,24 @@ Deno.test("4. scheduler still only forwards to execute; it does not claim", asyn
 
 Deno.test("5. migration does not touch payout/wallet/provider writers", async () => {
   const sql = await read(
+    "migrations/20261124160000_weekly_payout_occurrence_period_scope.sql",
+  );
+  assertStringIncludes(sql, "ON CONFLICT (schedule_occurrence_key, dry_run) DO NOTHING");
+  const body = sql.replace(/--[^\n]*/g, "");
+  for (const forbidden of [
+    "INSERT INTO public.payout_",
+    "UPDATE public.payout_",
+    "INSERT INTO public.driver_payout_",
+    "UPDATE public.driver_wallet_ledger",
+    "reserve_driver_payout_item",
+    "finalize_driver_payout_completion",
+  ]) {
+    assertEquals(body.includes(forbidden), false, forbidden);
+  }
+});
+
+Deno.test("5b. composite-conflict migration still does not touch payout/wallet/provider writers", async () => {
+  const sql = await read(
     "migrations/20261124150000_claim_weekly_payout_occurrence_composite_conflict.sql",
   );
   const body = sql.replace(/--[^\n]*/g, "");
