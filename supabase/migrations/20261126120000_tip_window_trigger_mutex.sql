@@ -122,17 +122,31 @@ BEGIN
     );
   END IF;
 
-  -- Another owner holds the mutex (including provider UNKNOWN reconcile).
+  -- Another owner holds the mutex (including in-flight / provider UNKNOWN reconcile).
+  -- Bounded stale recovery: WINDOW_EXPIRED may reclaim only after the claim is
+  -- older than 5 minutes AND the tip window has already expired. This never
+  -- captures; it only transfers the mutex so fare-only expiry can proceed.
+  -- Customer triggers never steal a live claim.
+  -- PROVIDER_UNKNOWN_RECONCILE_ONLY: non-stale CLAIM_HELD retains ownership.
   IF v_status = 'processing'
      AND v_row.tip_window_claim_token IS NOT NULL
      AND v_row.tip_window_claim_token <> p_claim_token THEN
-    RETURN jsonb_build_object(
-      'ok', false,
-      'code', 'CLAIM_HELD',
-      'tip_window_status', 'processing',
-      'tip_window_trigger', v_row.tip_window_trigger,
-      'tip_window_claimed_at', v_row.tip_window_claimed_at
-    );
+    IF p_trigger = 'WINDOW_EXPIRED'
+       AND v_row.tip_window_claimed_at IS NOT NULL
+       AND v_row.tip_window_claimed_at <= (p_now - interval '5 minutes')
+       AND v_row.tip_window_expires_at IS NOT NULL
+       AND v_row.tip_window_expires_at <= p_now
+    THEN
+      NULL; -- fall through to reclaim UPDATE below
+    ELSE
+      RETURN jsonb_build_object(
+        'ok', false,
+        'code', 'CLAIM_HELD',
+        'tip_window_status', 'processing',
+        'tip_window_trigger', v_row.tip_window_trigger,
+        'tip_window_claimed_at', v_row.tip_window_claimed_at
+      );
+    END IF;
   END IF;
 
   IF p_trigger = 'WINDOW_EXPIRED' THEN
@@ -260,15 +274,17 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'code', 'NOT_FOUND');
   END IF;
 
-  -- Idempotent: already sealed by this trigger.
+  -- Idempotent: already sealed — never mutate terminal status/trigger/tip.
   IF v_row.tip_window_closed_at IS NOT NULL
-     AND lower(coalesce(v_row.tip_window_status, '')) IN ('closed', 'expired') THEN
+     OR lower(coalesce(v_row.tip_window_status, '')) IN ('closed', 'expired') THEN
     RETURN jsonb_build_object(
       'ok', true,
       'finalized', true,
       'idempotent', true,
+      'immutable', true,
       'tip_window_status', v_row.tip_window_status,
-      'tip_window_trigger', v_row.tip_window_trigger
+      'tip_window_trigger', v_row.tip_window_trigger,
+      'tip_amount_pence', COALESCE(v_row.tip_amount_pence, 0)
     );
   END IF;
 
