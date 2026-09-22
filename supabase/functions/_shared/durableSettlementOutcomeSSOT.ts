@@ -62,11 +62,16 @@ export function durableSettlementColumns(
     s === "authorised" ||
     s === "tip_window_open" ||
     s === "preauth_authorized" ||
-    s === "preauth_authorised"
+    s === "preauth_authorised" ||
+    s === "tip_authorisation_declined"
   ) {
     return {
       payment_status: "authorized",
-      payment_hold_status: s === "tip_window_open" ? "tip_window_open" : "authorized",
+      payment_hold_status: s === "tip_window_open"
+        ? "tip_window_open"
+        : s === "tip_authorisation_declined"
+        ? "tip_authorisation_declined"
+        : "authorized",
     };
   }
   // Unknown status: never invent captured from success alone.

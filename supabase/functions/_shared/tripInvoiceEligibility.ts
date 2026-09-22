@@ -85,7 +85,11 @@ export function isTipWindowClosedForInvoice(
   // which stamps only the tip the capture covered. Expired-but-unclosed must not
   // invoice a claimed unpaid tip. An open status blocks even if expires_at is
   // missing. No stamp and not open → do not delay invoice (excluded channels).
-  if (String(trip.tip_window_status ?? "").trim().toLowerCase() === "open") return false;
+  {
+    const tipStatus = String(trip.tip_window_status ?? "").trim().toLowerCase();
+    // Open or mid-flight processing must not invoice; closed/expired may.
+    if (tipStatus === "open" || tipStatus === "processing") return false;
+  }
   if (trip.tip_window_expires_at) return false;
   return true;
 }

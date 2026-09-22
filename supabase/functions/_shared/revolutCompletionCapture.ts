@@ -594,6 +594,28 @@ export async function executeRevolutTripCompletionCapture(args: {
       || incrementResult.kind === "provider_limit"
       || incrementResult.kind === "ineligible"
     ) {
+      // CUSTOMER_SUBMIT_WITH_TIP: tip auth/increment failure must NOT fare-capture.
+      // Keep original fare AUTHORISED; caller releases the tip-window claim.
+      if (safeTipPence > 0) {
+        console.log(JSON.stringify({
+          event: "tip_authorisation_declined_no_fare_capture",
+          trip_id: tripId,
+          provider_order_id: `${orderId.slice(0, 4)}…${orderId.slice(-4)}`,
+          tip_pence: safeTipPence,
+          increment_kind: incrementResult.kind,
+        }));
+        return {
+          success: false,
+          status: "TIP_AUTHORISATION_DECLINED",
+          capture_amount_pence: 0,
+          provider_order_id: orderId,
+          error_code: "TIP_AUTHORISATION_DECLINED",
+          provider_state: "AUTHORISED",
+          error:
+            "Your bank declined the tip. Your fare has not been taken yet. You can try again, continue without a tip, or skip.",
+          message: "TIP_AUTHORISATION_DECLINED",
+        };
+      }
       const safe = safeCaptureAfterIncrementDecline({
         finalFarePence,
         providerConfirmedAuthorisedTotalPence: incrementResult.providerConfirmedTotalPence,

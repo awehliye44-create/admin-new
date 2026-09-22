@@ -5,7 +5,7 @@
  * Column mapping (no new finance SSOT columns beyond tip window stamps):
  * - tip_deadline_at        → trips.tip_window_expires_at
  * - tip_window_opened_at   → stamped at complete when tip window deferral applies
- * - tip_window_status      → open | closed
+ * - tip_window_status      → open | processing | closed | expired
  * - trip_payment_finalised → payment_status in captured | paid | collected_cash
  * - payment_capture_status → derivePaymentCaptureStatus()
  *
@@ -53,16 +53,31 @@ const TERMINAL_NO_CAPTURE_STATUSES = new Set([
 ]);
 
 /**
- * True only while a backend-stamped tip window is still open.
+ * True only while a backend-stamped tip window is still open for a *new* trigger.
  * Never invent an open window from completed_at alone — that blocked
  * sweep/finalize for 20 minutes on non-deferred (immediate-capture) trips.
+ * PROCESSING is claimed (mutex held) — not open for another trigger.
  */
 export function isTipWindowOpen(trip: TipWindowTrip, nowMs = Date.now()): boolean {
   if (trip.tip_window_closed_at) return false;
+  const status = String(trip.tip_window_status ?? "open").trim().toLowerCase();
+  if (
+    status === "closed"
+    || status === "expired"
+    || status === "processing"
+  ) {
+    return false;
+  }
   if (trip.tip_window_expires_at) {
     return new Date(trip.tip_window_expires_at).getTime() > nowMs;
   }
   return false;
+}
+
+/** True while a trigger owns the tip-window mutex (capture in flight / UNKNOWN). */
+export function isTipWindowProcessing(trip: TipWindowTrip): boolean {
+  if (trip.tip_window_closed_at) return false;
+  return String(trip.tip_window_status ?? "").trim().toLowerCase() === "processing";
 }
 
 export function isCashTripPaymentMethod(paymentMethod: string | null | undefined): boolean {
@@ -92,6 +107,9 @@ export function needsServerTipWindowFareCapture(
   if (isCashTripPaymentMethod(trip.payment_method)) return false;
   if (isTripPaymentFinalised(trip.payment_status)) return false;
   if (!trip.tip_window_expires_at) return false;
+  if (String(trip.tip_window_status ?? "").trim().toLowerCase() === "processing") {
+    return false;
+  }
   const providerPaymentId = String(
     trip.payment_intent_id ?? trip.provider_order_id ?? "",
   ).trim();
