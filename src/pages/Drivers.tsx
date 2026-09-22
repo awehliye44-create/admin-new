@@ -589,6 +589,14 @@ export default function Drivers() {
 
       if (error) throw error;
 
+      try {
+        const savedCouncil = await saveCouncilLicence(data.id, newDriver.council_licence_authority);
+        setCouncilLicences((prev) => ({ ...prev, [data.id]: savedCouncil }));
+      } catch (councilErr) {
+        console.error('[Drivers] council licence save failed on add', councilErr);
+        toast.message('Driver added; Council Licence could not be saved');
+      }
+
       setDrivers(prev => [data, ...prev]);
       toast.success('Driver added successfully');
       setIsAddDialogOpen(false);
@@ -621,6 +629,7 @@ export default function Drivers() {
       findCountryByName(driver.country ?? '')?.label ||
       '';
     setEditDriver({ ...driver, country_code: resolvedCode || driver.country_code });
+    setEditCouncilLicence(councilLicences[driver.id] ?? '');
     setIsEditDialogOpen(true);
   };
 
@@ -692,6 +701,9 @@ export default function Drivers() {
       if (selectedDriver?.id === editDriver.id) {
         setSelectedDriver(updatedDriver);
       }
+
+      const savedCouncil = await saveCouncilLicence(editDriver.id, editCouncilLicence);
+      setCouncilLicences((prev) => ({ ...prev, [editDriver.id]: savedCouncil }));
 
       console.info('ADMIN_DRIVER_ADDRESS_UPDATED', JSON.stringify({ driver_id: editDriver.id }));
       toast.success('Driver updated successfully');
@@ -1015,6 +1027,7 @@ export default function Drivers() {
                   <TableHead>Contact</TableHead>
                   <TableHead>Address</TableHead>
                   <TableHead>Region</TableHead>
+                  <TableHead>Council Licence</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Docs</TableHead>
                   <TableHead>Online</TableHead>
@@ -1077,6 +1090,13 @@ export default function Drivers() {
                       <span className="text-sm">
                         {regions[driver.region_id]?.name || 'Unknown'}
                       </span>
+                    </TableCell>
+                    <TableCell>
+                      {councilLicences[driver.id] ? (
+                        <span className="text-sm">{councilLicences[driver.id]}</span>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">Not set</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
