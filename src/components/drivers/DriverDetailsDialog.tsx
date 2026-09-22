@@ -122,11 +122,14 @@ interface DriverDetailsDialogProps {
   driver: Driver | null;
   vehicles: Vehicle[];
   regions: Record<string, Region>;
+  /** Admin-only internal field: council/authority that issued the driver licence. */
+  councilLicence?: string | null;
   onDriverUpdate: (driver: Driver) => void;
   onVehicleUpdate: (vehicle: Vehicle) => void;
   onEditProfile: (driver: Driver) => void;
   onManageServiceAreas: (driver: Driver) => void;
 }
+
 
 export function DriverDetailsDialog({
   open,
@@ -134,6 +137,7 @@ export function DriverDetailsDialog({
   driver,
   vehicles,
   regions,
+  councilLicence = null,
   onDriverUpdate,
   onVehicleUpdate,
   onEditProfile,
@@ -727,6 +731,18 @@ export function DriverDetailsDialog({
                     </div>
                   </div>
                   <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                    <FileText className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Council Licence</p>
+                      <p className={`text-sm font-medium ${councilLicence ? '' : 'text-muted-foreground'}`}>
+                        {councilLicence ?? 'Not set'}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Licensing authority for the driver licence (internal)
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                     <Car className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-xs text-muted-foreground">Total Trips</p>
@@ -865,6 +881,13 @@ export function DriverDetailsDialog({
                           <MapPin className="h-4 w-4 text-muted-foreground" />
                           <span className="text-muted-foreground">Assigned service area:</span>
                           <span className="font-medium">{assignedSaName ?? 'Not assigned'}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-muted-foreground">Council Licence:</span>
+                          <span className={`font-medium ${councilLicence ? '' : 'text-muted-foreground'}`}>
+                            {councilLicence ?? 'Not set'}
+                          </span>
                         </div>
                         <div className="flex items-center gap-2 text-sm">
                           <FileText className="h-4 w-4 text-muted-foreground" />

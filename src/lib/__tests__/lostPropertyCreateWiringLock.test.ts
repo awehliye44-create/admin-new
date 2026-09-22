@@ -2,6 +2,7 @@
  * LOCK — Driver found-report + Customer create_case must land in lost_property_cases.
  */
 
+import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
