@@ -459,14 +459,14 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       await Promise.allSettled([
       supabase
         .from("trips")
-        .select("id, trip_code, status")
+        .select("id, trip_code, status, special_instructions")
         .eq("client_action_id", body.client_action_id)
         .limit(1),
       skipPlatformPreauth || !body.payment_intent_id
-        ? Promise.resolve({ data: [] as { id: string; trip_code: string; status: string }[] })
+        ? Promise.resolve({ data: [] as { id: string; trip_code: string; status: string; special_instructions?: string | null }[] })
         : supabase
           .from("trips")
-          .select("id, trip_code, status")
+          .select("id, trip_code, status, special_instructions")
           .eq("provider_order_id", body.payment_intent_id)
           .limit(1),
       skipPlatformPreauth
@@ -497,6 +497,36 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
           ? "client_action_id"
           : "payment_ref",
       });
+      // Webhook finalize often wins Apple Pay races. If the stored trip has no
+      // pickup note but CTAP body / session snapshot still has one, backfill it.
+      // (create-preauth must also preserve snapshot.special_instructions.)
+      if (!String((idempotentTrip as { special_instructions?: string | null }).special_instructions ?? "").trim()) {
+        let note = String(body.special_instructions ?? "").trim();
+        if (!note) {
+          const session =
+            paymentSessionRes.status === "fulfilled" ? paymentSessionRes.value : null;
+          const snap = (session?.booking_snapshot as Record<string, unknown> | undefined) ?? null;
+          note = String(snap?.special_instructions ?? "").trim();
+        }
+        if (note) {
+          const clipped = note.slice(0, 1000);
+          const { error: backfillErr } = await supabase
+            .from("trips")
+            .update({ special_instructions: clipped })
+            .eq("id", idempotentTrip.id);
+          if (backfillErr) {
+            log("Idempotent special_instructions backfill failed", {
+              tripId: idempotentTrip.id,
+              error: backfillErr.message,
+            });
+          } else {
+            log("Idempotent special_instructions backfilled", {
+              tripId: idempotentTrip.id,
+              noteLen: clipped.length,
+            });
+          }
+        }
+      }
       return new Response(JSON.stringify({
         success: true,
         ride_id: idempotentTrip.id,
