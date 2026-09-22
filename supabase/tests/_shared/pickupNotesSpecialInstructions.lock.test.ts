@@ -148,3 +148,19 @@ Deno.test("corporate book accepts notes_for_driver / driver_notes aliases", asyn
   assertStringIncludes(src, "pickup_note");
   assertEquals(/corporate_notes\b/.test(src), false);
 });
+
+Deno.test("create-preauth validates via bookingSnapshotSSOT (preserves special_instructions)", async () => {
+  const preauth = await Deno.readTextFile(
+    join(REPO_ROOT, "supabase/functions/_shared/revolutPreauth.ts"),
+  );
+  assertStringIncludes(preauth, "validateCanonicalBookingSnapshot");
+  assertStringIncludes(preauth, "bookingSnapshot = snapCheck.snapshot");
+});
+
+Deno.test("CTAP idempotent adopt backfills empty special_instructions", async () => {
+  const ctap = await Deno.readTextFile(
+    join(REPO_ROOT, "supabase/functions/create-trip-after-payment/index.ts"),
+  );
+  assertStringIncludes(ctap, "Idempotent special_instructions backfilled");
+  assertStringIncludes(ctap, "special_instructions: clipped");
+});
