@@ -45,13 +45,16 @@ function allowOpenTipWindowCapture(args: {
   nowMs: number;
 }): boolean {
   if (args.source !== "submit_customer_trip_tip") return false;
-  if (!isTipWindowOpen(args.trip as {
-    tip_window_expires_at?: string | null;
-    tip_window_closed_at?: string | null;
-    tip_window_status?: string | null;
-  }, args.nowMs)) {
-    return false;
-  }
+  const tipStatus = String(args.trip.tip_window_status ?? "open").trim().toLowerCase();
+  // Mutex claim sets processing before finalize; still allow this service-role path.
+  const windowAllows =
+    tipStatus === "processing"
+    || isTipWindowOpen(args.trip as {
+      tip_window_expires_at?: string | null;
+      tip_window_closed_at?: string | null;
+      tip_window_status?: string | null;
+    }, args.nowMs);
+  if (!windowAllows) return false;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const bearer = extractBearerToken(args.req);
   if (!serviceRoleKey || !bearer || !timingSafeEqual(bearer, serviceRoleKey)) {

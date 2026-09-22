@@ -54,9 +54,30 @@ export function durableSettlementColumns(
   if (s === "processing" || s === "capture_busy" || s === "capture_pending") {
     return { payment_status: "authorized", payment_hold_status: "capture_pending" };
   }
+  // MK-260922-001: success=true with status "authorized" must NOT invent captured.
+  // captureRevolutOrder can return AUTHORISED while the hold is still open; the old
+  // default stamped trips.payment_status=captured and sealed the tip window.
+  if (
+    s === "authorized" ||
+    s === "authorised" ||
+    s === "tip_window_open" ||
+    s === "preauth_authorized" ||
+    s === "preauth_authorised" ||
+    s === "tip_authorisation_declined"
+  ) {
+    return {
+      payment_status: "authorized",
+      payment_hold_status: s === "tip_window_open"
+        ? "tip_window_open"
+        : s === "tip_authorisation_declined"
+        ? "tip_authorisation_declined"
+        : "authorized",
+    };
+  }
+  // Unknown status: never invent captured from success alone.
   return {
-    payment_status: success ? "captured" : "capture_failed",
-    payment_hold_status: s || (success ? "captured" : "capture_failed"),
+    payment_status: success ? "authorized" : "capture_failed",
+    payment_hold_status: s || (success ? "authorized" : "capture_failed"),
   };
 }
 

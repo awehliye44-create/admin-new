@@ -12,10 +12,12 @@ export type FinalizeRevolutCaptureResult = {
   provider_order_id: string;
   message?: string;
   error?: string;
+  error_code?: string;
   shortfall_pence?: number;
   tip_collected_pence?: number;
   tip_shortfall_pence?: number;
-  provider_capture_status?: "CAPTURED";
+  provider_state?: string;
+  provider_capture_status?: "CAPTURED" | "AUTHORISED" | "UNKNOWN";
   settlement_status?: "SUCCEEDED" | "FAILED";
   wallet_posting_status?: "SUCCEEDED" | "FAILED";
   reconciliation_status?: "BALANCED" | "WALLET_MISMATCH";

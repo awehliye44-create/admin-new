@@ -1,20 +1,32 @@
 /**
  * submit-customer-trip-tip — one-shot passenger tip after trip completion.
  *
- * Hard rules:
+ * Hard rules (canonical tip-window state machine):
  * - Requires service_areas.tips_enabled (positive tip)
  * - Customer App channel only (WhatsApp / guest / corporate excluded)
  * - Only after status=completed and within tip window
- * - tip_amount_pence >= 0; one-shot only (no duplicate tip transaction)
- * - Tip is non-commissionable (finalize/settlement SSOT)
- * - Capture fare (+ tip when tip > 0) then close tip window
- * - On capture failure: revert tip claim and leave window open for retry
+ * - Exactly one trigger owns finalisation via claim_tip_window_trigger mutex
+ * - tip>0 + tip auth decline → TIP_AUTHORISATION_DECLINED; no fare capture; window stays OPEN
+ * - Capture fare (+ tip when tip > 0) then seal CLOSED
+ * - On capture failure / decline: release claim (except provider UNKNOWN retains claim)
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { isCustomerAppTipChannelEligible } from "../_shared/tipChannelEligibilitySSOT.ts";
-import { TIP_WINDOW_STATUS } from "../_shared/tipWindowConstants.ts";
+import {
+  TIP_AUTHORISATION_DECLINED,
+  TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE,
+  TIP_WINDOW_STATUS,
+  resolveCustomerTipWindowTrigger,
+} from "../_shared/tipWindowConstants.ts";
+import {
+  claimTipWindowTrigger,
+  classifyTipWindowCaptureOutcome,
+  finalizeTipWindowTrigger,
+  newTipWindowClaimToken,
+  releaseTipWindowTriggerClaim,
+} from "../_shared/tipWindowTriggerMutexSSOT.ts";
 import {
   isTipWindowOpen,
   recordedTipPenceAfterCapture,
@@ -71,6 +83,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const tripId = String(body.trip_id ?? body.tripId ?? "").trim();
     let tipAmountPence = nonNegInt(body.tip_amount_pence ?? body.tipAmountPence ?? 0);
+    const skipRequested = body.skip === true || body.action === "skip";
     // £1 steps only (UI stepper).
     if (tipAmountPence % 100 !== 0) {
       return json({ success: false, error: "Invalid tip", error_code: "INVALID_TIP" }, 400);
@@ -95,7 +108,7 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripErr } = await admin
       .from("trips")
       .select(
-        "id, status, passenger_id, service_area_id, booking_source, corporate_account_id, payment_method, payment_provider, payment_status, tip_pence, tip_amount_pence, tip_window_expires_at, tip_window_closed_at, tip_window_status, completed_at, provider_order_id, payment_intent_id, financial_model",
+        "id, status, passenger_id, service_area_id, booking_source, corporate_account_id, payment_method, payment_provider, payment_status, tip_pence, tip_amount_pence, tip_window_expires_at, tip_window_closed_at, tip_window_status, tip_window_trigger, tip_window_claim_token, completed_at, provider_order_id, payment_intent_id, financial_model",
       )
       .eq("id", tripId)
       .maybeSingle();
@@ -125,8 +138,6 @@ Deno.serve(async (req) => {
       }, 409);
     }
 
-    // Every action on this endpoint, including tip=0 and Skip, is a tip-window
-    // capture. Excluded channels must not reach it even to close a leftover window.
     if (
       !isCustomerAppTipChannelEligible({
         booking_source: trip.booking_source,
@@ -146,8 +157,20 @@ Deno.serve(async (req) => {
         success: true,
         already_submitted: true,
         tip_amount_pence: existingTip,
+        tip_window_status: trip.tip_window_status ?? TIP_WINDOW_STATUS.CLOSED,
+        tip_window_trigger: trip.tip_window_trigger ?? undefined,
         error_code: "TIP_ALREADY_SUBMITTED",
       });
+    }
+
+    // Another trigger holds the mutex (incl. provider UNKNOWN) — do not start a second capture.
+    if (String(trip.tip_window_status ?? "").toLowerCase() === "processing") {
+      return json({
+        success: false,
+        error: "Tip payment is still processing. Please wait.",
+        error_code: "TIP_WINDOW_PROCESSING",
+        tip_window_trigger: trip.tip_window_trigger ?? undefined,
+      }, 409);
     }
 
     let tipsEnabled = false;
@@ -158,8 +181,6 @@ Deno.serve(async (req) => {
         .eq("id", trip.service_area_id)
         .maybeSingle();
       if (areaErr) {
-        // A failed read is not "tips off". The client treats TIPS_DISABLED as
-        // continue-without-tip and would drop a selected tip and leave the fare.
         console.error("[submit-customer-trip-tip] tips_enabled read failed", areaErr.message);
         return json({
           success: false,
@@ -180,12 +201,9 @@ Deno.serve(async (req) => {
           error_code: "TIPS_DISABLED",
         }, 409);
       }
-      // Tips turned off after the stepper was shown. Do not capture that tip.
-      // Fare still captures now — do not leave the window open until expiry.
       tipAmountPence = 0;
     }
 
-    // Tips toggled off mid-window: tip=0 still closes window + fare-captures once.
     if (!tipsEnabled && tipAmountPence === 0 && !windowOpen) {
       return json({ success: true, tip_amount_pence: 0, tips_disabled: true });
     }
@@ -198,8 +216,6 @@ Deno.serve(async (req) => {
       }, 409);
     }
 
-    // Pending unreverted claim (prior capture failure should usually have cleared tip).
-    // Never let tip=0/Skip wipe a positive claim — finish capture of the claimed tip instead.
     if (existingTip > 0 && tipAmountPence > 0 && tipAmountPence !== existingTip) {
       tipAmountPence = existingTip;
     } else if (existingTip > 0 && tipAmountPence === 0) {
@@ -207,7 +223,6 @@ Deno.serve(async (req) => {
     }
 
     const nowIso = new Date().toISOString();
-    // Window must already be stamped at complete — never invent expires_at here.
     const expiresAt = trip.tip_window_expires_at;
     if (!expiresAt) {
       return json({
@@ -217,7 +232,13 @@ Deno.serve(async (req) => {
       }, 409);
     }
 
-    // Persist tip amount (or tip=0/Skip while claim is still zero). Do not close until capture succeeds.
+    const trigger = resolveCustomerTipWindowTrigger({
+      tipAmountPence,
+      skip: skipRequested && tipAmountPence === 0,
+    });
+    const claimToken = newTipWindowClaimToken();
+
+    // Persist tip amount (or tip=0) before mutex claim so finalize tip match works.
     {
       let claimQuery = admin
         .from("trips")
@@ -228,25 +249,24 @@ Deno.serve(async (req) => {
           updated_at: nowIso,
         })
         .eq("id", tripId)
-        .is("tip_window_closed_at", null);
-      // First positive tip claim must win only against zero tip.
+        .is("tip_window_closed_at", null)
+        .neq("tip_window_status", "processing");
       if (existingTip === 0 && tipAmountPence > 0) {
         claimQuery = claimQuery.or("tip_amount_pence.is.null,tip_amount_pence.eq.0");
       }
-      // tip=0/Skip must not overwrite a concurrent positive claim.
       if (tipAmountPence === 0) {
         claimQuery = claimQuery.or("tip_amount_pence.is.null,tip_amount_pence.eq.0");
       }
       const { data: claimed, error: claimErr } = await claimQuery.select("id").maybeSingle();
 
       if (claimErr) {
-        console.error("[submit-customer-trip-tip] claim failed", claimErr.message);
+        console.error("[submit-customer-trip-tip] tip amount claim failed", claimErr.message);
         return json({ success: false, error: "Could not save tip", error_code: "CAPTURE_FAILED" }, 500);
       }
       if (!claimed) {
         const { data: raced } = await admin
           .from("trips")
-          .select("tip_amount_pence, tip_pence, tip_window_closed_at")
+          .select("tip_amount_pence, tip_pence, tip_window_closed_at, tip_window_status")
           .eq("id", tripId)
           .maybeSingle();
         if (raced?.tip_window_closed_at) {
@@ -257,9 +277,15 @@ Deno.serve(async (req) => {
             error_code: "TIP_ALREADY_SUBMITTED",
           });
         }
+        if (String(raced?.tip_window_status ?? "").toLowerCase() === "processing") {
+          return json({
+            success: false,
+            error: "Tip payment is still processing. Please wait.",
+            error_code: "TIP_WINDOW_PROCESSING",
+          }, 409);
+        }
         const racedTip = nonNegInt(raced?.tip_amount_pence ?? raced?.tip_pence);
         if (racedTip > 0) {
-          // Concurrent claim won — capture that tip (idempotent finalize).
           tipAmountPence = racedTip;
         } else if (tipAmountPence > 0) {
           return json({
@@ -271,6 +297,45 @@ Deno.serve(async (req) => {
       }
     }
 
+    const mutex = await claimTipWindowTrigger(admin, {
+      tripId,
+      trigger,
+      claimToken,
+      nowIso,
+    });
+    if (!mutex.ok) {
+      if (mutex.code === "ALREADY_CLOSED") {
+        return json({
+          success: true,
+          already_submitted: true,
+          tip_amount_pence: existingTip,
+          tip_window_status: mutex.tipWindowStatus,
+          tip_window_trigger: mutex.tipWindowTrigger,
+          error_code: "TIP_ALREADY_SUBMITTED",
+        });
+      }
+      if (mutex.code === "CLAIM_HELD") {
+        return json({
+          success: false,
+          error: "Tip payment is still processing. Please wait.",
+          error_code: "TIP_WINDOW_PROCESSING",
+          tip_window_trigger: mutex.tipWindowTrigger,
+        }, 409);
+      }
+      if (mutex.code === "WINDOW_NOT_OPEN") {
+        return json({
+          success: false,
+          error: "Tip window closed",
+          error_code: "TIP_WINDOW_CLOSED",
+        }, 409);
+      }
+      return json({
+        success: false,
+        error: "Could not claim tip window",
+        error_code: "CAPTURE_FAILED",
+      }, 409);
+    }
+
     const paymentMethod = String(trip.payment_method ?? "").toLowerCase();
     const isCash = paymentMethod === "cash";
     const provider = String(trip.payment_provider ?? "").toLowerCase();
@@ -278,33 +343,6 @@ Deno.serve(async (req) => {
       Boolean(String(trip.provider_order_id ?? "").trim()) ||
       Boolean(String(trip.payment_intent_id ?? "").trim());
 
-    const closeWindow = async (): Promise<boolean> => {
-      const { error } = await admin.from("trips").update({
-        tip_amount_pence: tipAmountPence,
-        tip_pence: tipAmountPence,
-        tip_window_expires_at: expiresAt,
-        tip_window_closed_at: nowIso,
-        tip_window_status: TIP_WINDOW_STATUS.CLOSED,
-        updated_at: nowIso,
-      }).eq("id", tripId).is("tip_window_closed_at", null);
-      if (error) {
-        console.error("[submit-customer-trip-tip] closeWindow failed", error.message);
-        return false;
-      }
-      return true;
-    };
-
-    const revertTipClaim = async () => {
-      await admin.from("trips").update({
-        tip_amount_pence: 0,
-        tip_pence: 0,
-        updated_at: new Date().toISOString(),
-      }).eq("id", tripId).is("tip_window_closed_at", null);
-    };
-
-    // Card / Revolut: capture first while window open, then close on success.
-    // Crash-safe: failed/interrupted capture leaves window open for retry or expiry.
-    // Never seal the tip window without a Revolut capture on card trips (would strand fare).
     if (!isCash && hasProvider && provider === "revolut") {
       const rec = await invokeFinalizeTripCapture({
         supabaseUrl,
@@ -313,56 +351,123 @@ Deno.serve(async (req) => {
         tipPence: tipAmountPence,
         source: "submit_customer_trip_tip",
       });
-      if (!tipWindowCloseAllowedAfterFinalize(rec.body)) {
-        // Shortfall / processing is business-ok for invoke callers. Do not seal
-        // the window or keep a tip claim until a positive capture lands.
+      const outcome = classifyTipWindowCaptureOutcome(rec.body);
+
+      if (outcome.kind === "tip_authorisation_declined") {
+        await releaseTipWindowTriggerClaim(admin, {
+          tripId,
+          claimToken: mutex.claimToken,
+          clearTip: true,
+          nowIso: new Date().toISOString(),
+        });
+        return json({
+          success: false,
+          error: TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE,
+          error_code: TIP_AUTHORISATION_DECLINED,
+          tip_window_status: TIP_WINDOW_STATUS.OPEN,
+          fare_captured: false,
+        }, 402);
+      }
+
+      if (outcome.kind === "provider_unknown") {
+        // Retain claim — another trigger must not capture.
+        return json({
+          success: false,
+          error: "Payment is still confirming. Please wait.",
+          error_code: "PROVIDER_UNKNOWN",
+          tip_window_status: TIP_WINDOW_STATUS.PROCESSING,
+          tip_window_trigger: trigger,
+        }, 502);
+      }
+
+      if (!tipWindowCloseAllowedAfterFinalize(rec.body) || outcome.kind !== "capture_confirmed") {
         console.error("[submit-customer-trip-tip] capture not confirmed", {
           trip_id: tripId,
           error: rec.error,
           body: rec.body,
         });
-        await revertTipClaim();
+        await releaseTipWindowTriggerClaim(admin, {
+          tripId,
+          claimToken: mutex.claimToken,
+          clearTip: true,
+          nowIso: new Date().toISOString(),
+        });
         return json({
           success: false,
           error: rec.error ?? "Capture failed",
           error_code: "CAPTURE_FAILED",
         }, 502);
       }
+
       if (tipAmountPence > 0) {
-        // Missing collected amount fails closed to 0, never the requested tip.
         tipAmountPence = recordedTipPenceAfterCapture(rec.body?.tip_collected_pence) ?? 0;
       }
-      if (!(await closeWindow())) {
-        // Capture landed; leave window open so client/expiry can close idempotently.
+
+      const sealed = await finalizeTipWindowTrigger(admin, {
+        tripId,
+        claimToken: mutex.claimToken,
+        trigger,
+        tipPence: tipAmountPence,
+        nowIso: new Date().toISOString(),
+      });
+      if (!sealed.ok) {
         return json({
           success: false,
           error: "Tip captured but window close failed — retry",
           error_code: "CAPTURE_FAILED",
         }, 502);
       }
-    } else if (isCash) {
-      if (!(await closeWindow())) {
+
+      return json({
+        success: true,
+        tip_amount_pence: tipAmountPence,
+        tip_window_closed_at: nowIso,
+        tip_window_status: sealed.tipWindowStatus,
+        tip_window_trigger: trigger,
+        tips_disabled: tipsEnabled ? undefined : true,
+      });
+    }
+
+    if (isCash) {
+      const sealed = await finalizeTipWindowTrigger(admin, {
+        tripId,
+        claimToken: mutex.claimToken,
+        trigger,
+        tipPence: tipAmountPence,
+        nowIso: new Date().toISOString(),
+      });
+      if (!sealed.ok) {
+        await releaseTipWindowTriggerClaim(admin, {
+          tripId,
+          claimToken: mutex.claimToken,
+          clearTip: true,
+        });
         return json({
           success: false,
           error: "Could not close tip window",
           error_code: "CAPTURE_FAILED",
         }, 500);
       }
-    } else {
-      await revertTipClaim();
       return json({
-        success: false,
-        error: "Card tip capture requires Revolut provider order",
-        error_code: "CAPTURE_FAILED",
-      }, 409);
+        success: true,
+        tip_amount_pence: tipAmountPence,
+        tip_window_closed_at: nowIso,
+        tip_window_status: sealed.tipWindowStatus,
+        tip_window_trigger: trigger,
+        tips_disabled: tipsEnabled ? undefined : true,
+      });
     }
 
-    return json({
-      success: true,
-      tip_amount_pence: tipAmountPence,
-      tip_window_closed_at: nowIso,
-      tips_disabled: tipsEnabled ? undefined : true,
+    await releaseTipWindowTriggerClaim(admin, {
+      tripId,
+      claimToken: mutex.claimToken,
+      clearTip: true,
     });
+    return json({
+      success: false,
+      error: "Card tip capture requires Revolut provider order",
+      error_code: "CAPTURE_FAILED",
+    }, 409);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[submit-customer-trip-tip]", message);

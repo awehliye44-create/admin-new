@@ -25,7 +25,23 @@ import {
   visibleTipAfterExpiredWindowClose,
 } from "../_shared/tripPaymentFinalised.ts";
 import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
-import { TIP_WINDOW_STATUS } from "../_shared/tipWindowConstants.ts";
+import { TIP_WINDOW_STATUS, TIP_WINDOW_TRIGGER } from "../_shared/tipWindowConstants.ts";
+import {
+  claimTipWindowTrigger,
+  classifyTipWindowCaptureOutcome,
+  finalizeTipWindowExpiredAfterProviderCapture,
+  finalizeTipWindowTrigger,
+  newTipWindowClaimToken,
+  reclaimStaleTipWindowExpiryAfterAuthorisedGet,
+  stampTipWindowCaptureIdempotencyKey,
+} from "../_shared/tipWindowTriggerMutexSSOT.ts";
+import {
+  buildTipWindowCaptureIdempotencyKey,
+  decideExpiredStaleReclaimAfterGet,
+} from "../_shared/expiredTipWindowStaleReclaimSSOT.ts";
+import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
+import { retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
+import { extractConfirmedCaptureAmountPence } from "../_shared/paymentHoldProviderTerminalPure.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -95,6 +111,9 @@ Deno.serve(async (req) => {
       .or("payment_intent_id.not.is.null,provider_order_id.not.is.null,payment_session_id.not.is.null")
       .lt("tip_window_expires_at", nowIso)
       .is("tip_window_closed_at", null)
+      .or(
+        "tip_window_status.eq.open,tip_window_status.is.null,tip_window_status.eq.processing",
+      )
       .in("payment_status", UNCAPPED_PAYMENT_STATUSES)
       .order("tip_window_expires_at", { ascending: true })
       .limit(limit);
@@ -229,7 +248,10 @@ Deno.serve(async (req) => {
         tip_amount_pence: 0,
         tip_pence: 0,
         tip_window_closed_at: nowIso,
-        tip_window_status: TIP_WINDOW_STATUS.CLOSED,
+        tip_window_status: TIP_WINDOW_STATUS.EXPIRED,
+        tip_window_trigger: TIP_WINDOW_TRIGGER.WINDOW_EXPIRED,
+        tip_window_claim_token: null,
+        tip_window_claimed_at: null,
         updated_at: nowIso,
       }).eq("id", tripId).is("tip_window_closed_at", null);
       if (closeErr) {
@@ -252,7 +274,10 @@ Deno.serve(async (req) => {
         tip_amount_pence: 0,
         tip_pence: 0,
         tip_window_closed_at: nowIso,
-        tip_window_status: TIP_WINDOW_STATUS.CLOSED,
+        tip_window_status: TIP_WINDOW_STATUS.EXPIRED,
+        tip_window_trigger: TIP_WINDOW_TRIGGER.WINDOW_EXPIRED,
+        tip_window_claim_token: null,
+        tip_window_claimed_at: null,
         updated_at: nowIso,
       }).eq("id", tripId).is("tip_window_closed_at", null);
       if (closeErr) {
@@ -276,12 +301,159 @@ Deno.serve(async (req) => {
       }
 
       try {
-        // Drop a leftover claim before capture so finalize cannot read it as a tip.
+        const claimToken = newTipWindowClaimToken();
+        let activeClaimToken: string | null = null;
+        const mutex = await claimTipWindowTrigger(supabase, {
+          tripId,
+          trigger: TIP_WINDOW_TRIGGER.WINDOW_EXPIRED,
+          claimToken,
+          nowIso,
+        });
+
+        // Crash-after-capture: CLAIM_HELD + stale → GET first (never blind steal).
+        if (!mutex.ok && mutex.code === "CLAIM_HELD") {
+          if (mutex.staleEligible !== true) {
+            results.push({
+              trip_id: tripId,
+              action: "expiry_claim_held",
+              code: mutex.code,
+              tip_window_trigger: mutex.tipWindowTrigger,
+            });
+            continue;
+          }
+          const orderId = String(
+            (trip as { provider_order_id?: string }).provider_order_id ?? "",
+          ).trim();
+          if (!orderId) {
+            failedCount++;
+            results.push({ trip_id: tripId, action: "stale_recover_missing_order" });
+            continue;
+          }
+          try {
+            const merchant = await resolveRevolutMerchantContext(supabase, "live");
+            const order = await retrieveRevolutOrder(
+              merchant.environment,
+              merchant.secretKey,
+              orderId,
+            );
+            const providerState = String(order.state ?? "UNKNOWN").toUpperCase();
+            const farePence = computeCaptureAmount(trip as never, "completed", 0)
+              .capture_amount_pence;
+            const confirmed = extractConfirmedCaptureAmountPence(
+              order as unknown as Record<string, unknown>,
+              providerState,
+            );
+            const idemKey = String(mutex.tipWindowCaptureIdempotencyKey ?? "").trim() ||
+              buildTipWindowCaptureIdempotencyKey({
+                providerOrderId: orderId,
+                farePence,
+              });
+            const decision = decideExpiredStaleReclaimAfterGet({
+              staleEligible: true,
+              providerState,
+              farePence,
+              confirmedCapturePence: confirmed,
+              idempotencyKey: idemKey,
+            });
+
+            if (decision.action === "claim_held_no_steal") {
+              results.push({
+                trip_id: tripId,
+                action: "provider_unknown_claim_retained",
+                decision: decision.action,
+                reason: decision.reason,
+                provider_state: providerState,
+              });
+              continue;
+            }
+
+            if (decision.action === "finalize_expired_no_post") {
+              const sealed = await finalizeTipWindowExpiredAfterProviderCapture(supabase, {
+                tripId,
+                tipPence: 0,
+                nowIso,
+              });
+              if (!sealed.ok) {
+                failedCount++;
+                results.push({
+                  trip_id: tripId,
+                  action: "stale_finalize_failed",
+                  code: sealed.code,
+                });
+                continue;
+              }
+              capturedCount++;
+              results.push({
+                trip_id: tripId,
+                action: "stale_reconciled_already_captured",
+                provider_state: providerState,
+                capture_posts: 0,
+                tip_window_status: TIP_WINDOW_STATUS.EXPIRED,
+              });
+              try {
+                await maybeInvokeAutoTripInvoice(
+                  supabase,
+                  Deno.env.get("SUPABASE_URL")!,
+                  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+                  tripId,
+                  "capture-expired-tip-windows",
+                );
+              } catch (invoiceErr) {
+                log("Invoice invoke failed (non-blocking)", {
+                  trip_id: tripId,
+                  error: invoiceErr instanceof Error ? invoiceErr.message : String(invoiceErr),
+                });
+              }
+              continue;
+            }
+
+            // AUTHORISED: reclaim then resume same idempotency via finalize.
+            const reclaimed = await reclaimStaleTipWindowExpiryAfterAuthorisedGet(supabase, {
+              tripId,
+              claimToken,
+              nowIso,
+            });
+            if (!reclaimed.ok) {
+              results.push({
+                trip_id: tripId,
+                action: "stale_reclaim_denied",
+                code: reclaimed.code,
+              });
+              continue;
+            }
+            activeClaimToken = reclaimed.claimToken;
+            (trip as { tip_window_capture_idempotency_key?: string })
+              .tip_window_capture_idempotency_key = reclaimed.idempotencyKey ?? idemKey;
+          } catch (recoverErr) {
+            failedCount++;
+            results.push({
+              trip_id: tripId,
+              action: "stale_recover_error",
+              error: recoverErr instanceof Error ? recoverErr.message : String(recoverErr),
+            });
+            continue;
+          }
+        } else if (!mutex.ok) {
+          results.push({
+            trip_id: tripId,
+            action: "expiry_claim_denied",
+            code: mutex.code,
+            tip_window_trigger: mutex.tipWindowTrigger,
+          });
+          if (mutex.code !== "ALREADY_CLOSED") failedCount++;
+          continue;
+        } else {
+          activeClaimToken = mutex.claimToken;
+        }
+
+        if (!activeClaimToken) continue;
+
+        // Drop a leftover tip amount before capture so finalize cannot read it as a tip.
         const { error: clearClaimErr } = await supabase.from("trips").update({
           tip_amount_pence: 0,
           tip_pence: 0,
           updated_at: nowIso,
-        }).eq("id", tripId).is("tip_window_closed_at", null);
+        }).eq("id", tripId).eq("tip_window_claim_token", activeClaimToken);
         if (clearClaimErr) {
           failedCount++;
           results.push({
@@ -293,6 +465,27 @@ Deno.serve(async (req) => {
         }
 
         const tipPence = expiryFareOnlyTipPence(trip.tip_amount_pence ?? trip.tip_pence);
+        const farePence = computeCaptureAmount(trip as never, "completed", 0)
+          .capture_amount_pence;
+        const orderId = String(
+          (trip as { provider_order_id?: string }).provider_order_id ?? "",
+        ).trim();
+        const idemKey = String(
+          (trip as { tip_window_capture_idempotency_key?: string })
+            .tip_window_capture_idempotency_key ?? "",
+        ).trim() ||
+          buildTipWindowCaptureIdempotencyKey({
+            providerOrderId: orderId,
+            farePence,
+          });
+        // Durable provider-attempt identity BEFORE capture POST.
+        await stampTipWindowCaptureIdempotencyKey(supabase, {
+          tripId,
+          claimToken: activeClaimToken,
+          idempotencyKey: idemKey,
+          nowIso,
+        });
+
         const rec = await invokeFinalizeTripCapture({
           supabaseUrl: Deno.env.get("SUPABASE_URL")!,
           serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -310,14 +503,19 @@ Deno.serve(async (req) => {
           deferred: recJson.deferred ?? false,
           already_captured: recJson.already_captured ?? false,
           ok,
+          idempotency_key: idemKey,
         });
 
-        const captureConfirmed = tipWindowCloseAllowedAfterFinalize(recJson);
+        const outcome = classifyTipWindowCaptureOutcome(recJson);
+        const captureConfirmed = tipWindowCloseAllowedAfterFinalize(recJson)
+          && outcome.kind === "capture_confirmed";
         results.push({
           trip_id: tripId,
           action: captureConfirmed
             ? (recJson.already_captured ? "already_captured" : "captured")
-            : (recJson.deferred ? "deferred" : "capture_not_confirmed"),
+            : (outcome.kind === "provider_unknown"
+              ? "provider_unknown_claim_retained"
+              : (recJson.deferred ? "deferred" : "capture_not_confirmed")),
           http_status: rec.httpStatus,
           attempts: rec.attempts,
           body: recJson,
@@ -326,14 +524,23 @@ Deno.serve(async (req) => {
         if (captureConfirmed) {
           capturedCount++;
           const collected = expiryFareOnlyTipPence(recJson.tip_collected_pence);
-          await supabase.from("trips").update({
-            tip_amount_pence: collected,
-            tip_pence: collected,
-            tip_window_closed_at: nowIso,
-            tip_window_status: TIP_WINDOW_STATUS.CLOSED,
-            updated_at: nowIso,
-          }).eq("id", tripId).is("tip_window_closed_at", null);
-          // Tip window now closed + capture attempted — canonical invoice owner.
+          const sealed = await finalizeTipWindowTrigger(supabase, {
+            tripId,
+            claimToken: activeClaimToken,
+            trigger: TIP_WINDOW_TRIGGER.WINDOW_EXPIRED,
+            tipPence: collected,
+            nowIso,
+          });
+          if (!sealed.ok) {
+            failedCount++;
+            results.push({
+              trip_id: tripId,
+              action: "finalize_window_failed",
+              code: sealed.code,
+            });
+            continue;
+          }
+          // Tip window now expired-closed + capture confirmed — canonical invoice owner.
           try {
             await maybeInvokeAutoTripInvoice(
               supabase,
@@ -348,7 +555,11 @@ Deno.serve(async (req) => {
               error: invoiceErr instanceof Error ? invoiceErr.message : String(invoiceErr),
             });
           }
-        } else failedCount++;
+        } else {
+          // Provider UNKNOWN retains the claim. Other failures leave PROCESSING so a
+          // racing customer trigger cannot open a second capture mid-flight.
+          failedCount++;
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log("Capture invoke failed", { trip_id: tripId, error: msg });
@@ -406,12 +617,15 @@ Deno.serve(async (req) => {
         });
         continue;
       }
-      // Already captured: close only. Never POST a second capture or invent a tip credit.
+      // Already captured: close only as EXPIRED. Never POST a second capture or invent a tip credit.
       const { error: closeErr } = await supabase.from("trips").update({
         tip_amount_pence: visibleTip,
         tip_pence: visibleTip,
         tip_window_closed_at: nowIso,
-        tip_window_status: TIP_WINDOW_STATUS.CLOSED,
+        tip_window_status: TIP_WINDOW_STATUS.EXPIRED,
+        tip_window_trigger: TIP_WINDOW_TRIGGER.WINDOW_EXPIRED,
+        tip_window_claim_token: null,
+        tip_window_claimed_at: null,
         updated_at: nowIso,
       }).eq("id", tripId).is("tip_window_closed_at", null);
       if (closeErr) {

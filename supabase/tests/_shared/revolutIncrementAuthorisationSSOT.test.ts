@@ -120,12 +120,23 @@ Deno.test("persist_failed is not a provider decline and must not trigger safe ca
   const completion = await Deno.readTextFile(
     new URL("../../functions/_shared/revolutCompletionCapture.ts", import.meta.url),
   );
+  assertEquals(completion.includes("tip_authorisation_declined_no_fare_capture"), true);
+  assertEquals(completion.includes('status: "TIP_AUTHORISATION_DECLINED"'), true);
+  const tipGuard = completion.indexOf("if (safeTipPence > 0)");
+  const tipDeclined = completion.indexOf("TIP_AUTHORISATION_DECLINED", tipGuard);
+  const safeCapture = completion.indexOf(
+    "const safe = safeCaptureAfterIncrementDecline",
+    tipGuard,
+  );
+  assertEquals(tipGuard > 0, true);
+  assertEquals(tipDeclined > tipGuard && tipDeclined < safeCapture, true);
+
   const fallbackStart = completion.indexOf(
     'incrementResult.kind === "declined"',
   );
   const fallback = completion.slice(
     fallbackStart,
-    completion.indexOf("const safe = safeCaptureAfterIncrementDecline", fallbackStart),
+    safeCapture,
   );
   assertEquals(fallback.includes('incrementResult.kind === "declined"'), true);
   assertEquals(fallback.includes('incrementResult.kind === "unsupported"'), true);

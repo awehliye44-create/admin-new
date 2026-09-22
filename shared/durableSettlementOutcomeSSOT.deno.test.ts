@@ -26,3 +26,11 @@ Deno.test("failed capture stays failed (no invented paid)", () => {
   const cols = durableSettlementColumns("capture_failed", false);
   assertEquals(cols.payment_status === "captured", false);
 });
+
+Deno.test("MK-260922-001: authorized+success must not invent captured", () => {
+  assertEquals(durableSettlementColumns("authorized", true), {
+    payment_status: "authorized",
+    payment_hold_status: "authorized",
+  });
+  assertEquals(durableSettlementColumns("authorised", true).payment_status, "authorized");
+});
