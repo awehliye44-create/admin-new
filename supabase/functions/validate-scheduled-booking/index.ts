@@ -78,7 +78,7 @@ serve(async (req) => {
     const now = new Date();
     const minutesUntilPickup = (scheduledDate.getTime() - now.getTime()) / 60000;
 
-    const minAdvance = ds.min_advance_time_minutes ?? 30;
+    const minAdvance = ds.min_advance_time_minutes ?? 20;
     if (minutesUntilPickup < minAdvance) {
       return successResponse({
         valid: false,

@@ -67,12 +67,12 @@ async function triggerAutoDispatch(args: {
 /**
  * schedule-dispatch
  *
- * Cron-triggered (every 1 minute) — NO-PRECONFIRMED path only (Admin "Two paths"):
- *  - No pre-confirmed driver: urgent fallback / check-in → convert to instant + wave
- *  - Confirmed driver: handled by scheduled-dispatch commitment policy — NOT this Edge
+ * Cron-triggered (every 1 minute) — NO-PRECONFIRMED urgent fallback only:
+ *  - No pre-confirmed driver: T−urgent convert to instant + wave (Admin fallback)
+ *  - Confirmed driver: handled by scheduled-dispatch Local/Long T-minute NRO — NOT this Edge
  *
- * Customer bookings use scheduled_status=`scheduled` (not `pending`). Convert must
- * flip dispatch_mode to instant and invoke auto-dispatch so Driver shows the nearby card.
+ * Customer bookings may be scheduled_status=`admin_held` / `scheduled` / `pending`.
+ * Convert must flip dispatch_mode to instant and invoke auto-dispatch so Driver shows the nearby card.
  */
 serve(async (req) => {
   if (req.method === "OPTIONS") {
