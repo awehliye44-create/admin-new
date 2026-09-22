@@ -206,38 +206,12 @@ Deno.serve(async (req) => {
 
     // ── All guards passed ────────────────────────────────────────────────────
     if (isCheckInOnly) {
-      if (action === "start_journey") {
-        return errorResponse(
-          "INVALID_STATE",
-          "Drive to Pickup requires the Scheduled Ride activation offer. Accept the NRO first.",
-          409,
-        );
-      }
-      const { error: checkInErr } = await supabase
-        .from("trips")
-        .update({
-          driver_checked_in_at: now.toISOString(),
-          updated_at: now.toISOString(),
-        })
-        .eq("id", trip_id)
-        .or(`confirmed_driver_id.eq.${driverId},driver_id.eq.${driverId}`);
-
-      if (checkInErr) {
-        console.error("[scheduled-checkin] Check-in stamp failed:", checkInErr);
-        return errorResponse("DATABASE_ERROR", checkInErr.message, 500);
-      }
-
-      console.log("SCHEDULED_CHECKIN_STAMPED", {
-        trip_id,
-        driver_id: driverId,
-        action,
-        scheduled_status: trip.scheduled_status,
-      });
-      return successResponse({
-        success: true,
-        checked_in: true,
-        activated: false,
-      });
+      // Commitment Policy check-in removed — activation is NRO Accept only.
+      return errorResponse(
+        "CHECKIN_REMOVED",
+        "Scheduled check-in was removed. Wait for the Scheduled Ride offer at activation, then Accept.",
+        410,
+      );
     }
 
     const { data: activatedRows, error: updateError } = await supabase

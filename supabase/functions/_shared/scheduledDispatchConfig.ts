@@ -1,7 +1,15 @@
 /**
  * Scheduled dispatch config — global_dispatch_settings SSOT.
  * Admin Auto-Dispatch Rules UI writes this table; scheduled-dispatch reads it.
+ *
+ * Activation uses fixed Local/Long T-minutes (scheduledActivationSSOT).
+ * Legacy ETA commitment activation is removed.
  */
+
+import {
+  resolveScheduledActivationConfig,
+  type ScheduledActivationConfig,
+} from "./scheduledActivationSSOT.ts";
 
 export type ScheduledDispatchConfig = {
   enableScheduledToUrgentConversion: boolean;
@@ -10,12 +18,8 @@ export type ScheduledDispatchConfig = {
   lockedDriverResponseMinutes: number;
   maxFindDriverMinutes: number;
   scheduledUrgentCardLabel: string;
-  // Commitment mode (ETA-based activation — no second accept)
-  targetArrivalMinutesBeforePickup: number;   // driver must arrive this many min early (default 5)
-  notMovingAlertAfterSeconds: number;         // alert if driver hasn't moved for this long (default 60)
-  movingAwayThresholdMetres: number;          // alert if driver is moving away beyond this (default 800)
-  movingAlertDebounceMinutes: number;         // minimum gap between repeat movement alerts (default 3)
-  criticalLateAutoRelease: boolean;           // auto-release driver if predicted arrival > scheduled_at
+  /** Local / Long activation SSOT (Admin Activation tab). */
+  activation: ScheduledActivationConfig;
 };
 
 export type GlobalDispatchSettingsRow = {
@@ -25,12 +29,9 @@ export type GlobalDispatchSettingsRow = {
   locked_driver_response_minutes?: number | null;
   max_driver_find_time_minutes?: number | null;
   scheduled_urgent_card_label?: string | null;
-  // Commitment mode settings
-  target_arrival_minutes_before_pickup?: number | null;
-  not_moving_alert_after_seconds?: number | null;
-  moving_away_threshold_metres?: number | null;
-  moving_alert_debounce_minutes?: number | null;
-  critical_late_auto_release?: boolean | null;
+  long_trip_threshold_minutes?: number | null;
+  local_activation_minutes_before_pickup?: number | null;
+  long_activation_minutes_before_pickup?: number | null;
 };
 
 function parsePositiveInt(raw: unknown, fallback: number): number {
@@ -56,18 +57,13 @@ const DEFAULTS: ScheduledDispatchConfig = {
   lockedDriverResponseMinutes: 3,
   maxFindDriverMinutes: 3,
   scheduledUrgentCardLabel: "Scheduled • Urgent",
-  // Commitment mode defaults
-  targetArrivalMinutesBeforePickup: 5,
-  notMovingAlertAfterSeconds: 60,
-  movingAwayThresholdMetres: 800,
-  movingAlertDebounceMinutes: 3,
-  criticalLateAutoRelease: true,
+  activation: resolveScheduledActivationConfig(null),
 };
 
 export function resolveScheduledDispatchConfig(
   row: GlobalDispatchSettingsRow | null | undefined,
 ): ScheduledDispatchConfig {
-  if (!row) return { ...DEFAULTS };
+  if (!row) return { ...DEFAULTS, activation: { ...DEFAULTS.activation } };
 
   return {
     enableScheduledToUrgentConversion: parseBool(
@@ -92,27 +88,7 @@ export function resolveScheduledDispatchConfig(
     ),
     scheduledUrgentCardLabel:
       row.scheduled_urgent_card_label?.trim() || DEFAULTS.scheduledUrgentCardLabel,
-    // Commitment mode
-    targetArrivalMinutesBeforePickup: parsePositiveInt(
-      row.target_arrival_minutes_before_pickup,
-      DEFAULTS.targetArrivalMinutesBeforePickup,
-    ),
-    notMovingAlertAfterSeconds: parsePositiveInt(
-      row.not_moving_alert_after_seconds,
-      DEFAULTS.notMovingAlertAfterSeconds,
-    ),
-    movingAwayThresholdMetres: parsePositiveInt(
-      row.moving_away_threshold_metres,
-      DEFAULTS.movingAwayThresholdMetres,
-    ),
-    movingAlertDebounceMinutes: parsePositiveInt(
-      row.moving_alert_debounce_minutes,
-      DEFAULTS.movingAlertDebounceMinutes,
-    ),
-    criticalLateAutoRelease: parseBool(
-      row.critical_late_auto_release,
-      DEFAULTS.criticalLateAutoRelease,
-    ),
+    activation: resolveScheduledActivationConfig(row),
   };
 }
 
@@ -148,15 +124,15 @@ export type OfferAnchor = {
 };
 
 /**
- * Compute scheduled_broadcast_at / scheduled_convert_at from Admin
- * Scheduled Rides Configuration (Dispatch tab) — NO-PRECONFIRMED path only:
- * - urgentTriggerMinutesBeforePickup = "No-preconfirmed urgent fallback"
- * - responseWindowMinutes = "Scheduled Response Window"
+ * Compute scheduled_broadcast_at / scheduled_convert_at — NO-PRECONFIRMED path:
+ * - urgentTriggerMinutesBeforePickup = "No-preconfirmed Fallback"
+ * - responseWindowMinutes = legacy response window (Broadcast At suggestion)
  *
- * Confirmed drivers never use these anchors for activation (Commitment Policy).
+ * Pre-confirmed drivers activate via Local/Long T-minutes (scheduledActivationSSOT),
+ * not these anchors.
  *
  * Create-time HELD bookings stamp convert_at only (T−urgent). Marketplace
- * `scheduled_broadcast_at` is set by Admin Broadcast Now/At — not at create.
+ * `scheduled_broadcast_at` is set by Admin Broadcast Now/At or auto T-activation.
  * `scheduledBroadcastAt` here remains the *ideal* open time for Admin "Broadcast At"
  * defaults / pending-release helpers (never auto-applied at create).
  */
@@ -202,7 +178,7 @@ export function shouldConvertScheduledToUrgent(input: {
   if (!config.enableScheduledToUrgentConversion) {
     return { convert: false };
   }
-  // Confirmed / locked driver → Commitment Policy path (not fixed urgent waves).
+  // Confirmed / locked driver → Local/Long activation NRO path (not urgent convert).
   if (
     trip.driver_id ||
     liveAcceptedOfferBlocksConvert({
@@ -450,34 +426,26 @@ export function estimateEtaMinutes(
 }
 
 /**
- * Compute the commitment time for a scheduled trip.
- *
- * commitment_time = (scheduled_at − targetArrivalMin) − etaMinutes
- *
- * Returns null if ETA cannot be determined.
+ * @deprecated ETA commitment activation removed — use scheduledActivationSSOT.
+ * Kept as a no-op helper only if legacy tests import it; do not use for activation.
  */
 export function computeCommitmentTime(args: {
   scheduledAtMs: number;
   etaMinutes: number;
   targetArrivalMinutesBeforePickup: number;
 }): Date {
-  const { scheduledAtMs, etaMinutes, targetArrivalMinutesBeforePickup } = args;
-  const targetArrivalMs = scheduledAtMs - targetArrivalMinutesBeforePickup * 60_000;
-  const commitMs = targetArrivalMs - etaMinutes * 60_000;
-  return new Date(commitMs);
+  const { scheduledAtMs, targetArrivalMinutesBeforePickup } = args;
+  return new Date(scheduledAtMs - targetArrivalMinutesBeforePickup * 60_000);
 }
 
-/**
- * Predicted arrival time = now + live ETA.
- */
+/** Predicted arrival time = now + live ETA (shared routing; not scheduled activation). */
 export function predictedArrivalMs(nowMs: number, etaMinutes: number): number {
   return nowMs + etaMinutes * 60_000;
 }
 
 /**
  * Returns true if the driver is moving away from the pickup.
- * "Moving away" = distance from driver to pickup is greater than
- * (pickupLat/pickupLng vs previousLat/previousLng) by more than thresholdMetres.
+ * Shared geo helper — not part of scheduled Commitment Policy.
  */
 export function isMovingAway(args: {
   driverLat: number;

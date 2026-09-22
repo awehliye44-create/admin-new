@@ -12467,6 +12467,9 @@ export type Database = {
           towards_destination_priority_weight: number
           updated_at: string
           urgent_dispatch_trigger_minutes_before_pickup: number
+          long_trip_threshold_minutes: number
+          local_activation_minutes_before_pickup: number
+          long_activation_minutes_before_pickup: number
           waiting_bonus_per_minute: number
           waiting_time_grace_period_minutes: number
           wave1_commission_reduction_percent: number
@@ -12550,6 +12553,9 @@ export type Database = {
           towards_destination_priority_weight?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
+          long_trip_threshold_minutes?: number
+          local_activation_minutes_before_pickup?: number
+          long_activation_minutes_before_pickup?: number
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
           wave1_commission_reduction_percent?: number
@@ -12633,6 +12639,9 @@ export type Database = {
           towards_destination_priority_weight?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
+          long_trip_threshold_minutes?: number
+          local_activation_minutes_before_pickup?: number
+          long_activation_minutes_before_pickup?: number
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
           wave1_commission_reduction_percent?: number

@@ -2,9 +2,8 @@
  * Edge mirror of scheduled rides urgent-fallback gate.
  * Keep in sync with shared/scheduledRidesPolicySSOT.ts#shouldUseUrgentFallbackTrigger.
  *
- * Admin Two paths:
  * - No pre-confirmed driver → urgent fallback + response window → wave dispatch
- * - Confirmed driver → Commitment Policy only (never fixed urgent trigger)
+ * - Confirmed driver → Local/Long fixed T-minute activation NRO (never urgent convert)
  */
 export function shouldUseUrgentFallbackTrigger(input: {
   confirmedDriverId?: string | null;

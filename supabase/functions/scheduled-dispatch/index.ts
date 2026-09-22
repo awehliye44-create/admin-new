@@ -16,11 +16,11 @@ import {
   shouldConvertScheduledToUrgent,
   buildScheduledUrgentConversionPatch,
   NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES,
-  estimateEtaMinutes,
-  computeCommitmentTime,
-  predictedArrivalMs,
-  isMovingAway,
 } from "../_shared/scheduledDispatchConfig.ts";
+import {
+  isScheduledActivationDue,
+  scheduledActivationLookaheadMs,
+} from "../_shared/scheduledActivationSSOT.ts";
 import {
   buildAssignNowPatch,
   buildBroadcastNowPatch,
@@ -91,16 +91,18 @@ interface ScheduledTrip {
   base_fare_pence?: number | null;
   currency_code?: string | null;
   fare?: number | null;
-  // Commitment mode columns
+  estimated_duration_minutes?: number | null;
+  // Legacy columns (no longer drive activation)
   commitment_time?: string | null;
   scheduled_committed_at?: string | null;
   last_eta_minutes?: number | null;
   last_eta_calculated_at?: string | null;
   not_moving_alert_sent_at?: string | null;
   moving_away_alert_sent_at?: string | null;
-  // §10 ETA risk + §14 driver-at-risk
   eta_risk_alert_sent_at?: string | null;
   scheduled_driver_risk?: boolean;
+  pending_release_kind?: string | null;
+  pending_release_at?: string | null;
   // §13 admin escalation tracking
   no_driver_admin_alert_sent_at?: string | null;
   no_driver_customer_alert_sent_at?: string | null;
@@ -334,18 +336,17 @@ Deno.serve(async (req) => {
         `enable_scheduled_to_urgent_conversion, scheduled_response_window_minutes,
          urgent_dispatch_trigger_minutes_before_pickup, locked_driver_response_minutes,
          max_driver_find_time_minutes, scheduled_urgent_card_label,
-         target_arrival_minutes_before_pickup, not_moving_alert_after_seconds,
-         moving_away_threshold_metres, moving_alert_debounce_minutes,
-         critical_late_auto_release`,
+         long_trip_threshold_minutes, local_activation_minutes_before_pickup,
+         long_activation_minutes_before_pickup`,
       )
       .eq("singleton", true)
       .maybeSingle();
 
     const schedConfig = resolveScheduledDispatchConfig(globalSettings);
     const maxFindDriverMinutes = schedConfig.maxFindDriverMinutes;
+    const activationConfig = schedConfig.activation;
 
     let committedCount = 0;
-    let movementAlertsCount = 0;
     let broadcastStarted = 0;
     let convertedToInstant = 0;
     let expired = 0;
@@ -521,13 +522,12 @@ Deno.serve(async (req) => {
     }
 
     // ============================================================
-    // STEP 1: COMMITMENT MODE — confirmed-driver path only
-    // At commitment time: strong SCHEDULED RIDE NRO to the pre-confirmed
-    // driver. Driver MUST Accept to enter Drive to Pickup.
-    // Do NOT auto-set en_route / driver_id (no banner Start Trip path).
+    // STEP 1: PRE-CONFIRMED ACTIVATION — fixed Local/Long T-minutes
+    // At activation: SCHEDULED RIDE NRO to confirmed_driver_id.
+    // Driver MUST Accept to enter Drive to Pickup (not Start Trip).
     // ============================================================
 
-    const lookAheadMs = 90 * 60 * 1000; // look 90 min ahead
+    const lookAheadMs = scheduledActivationLookaheadMs(activationConfig);
     const lookAheadThreshold = new Date(nowMs + lookAheadMs).toISOString();
 
     const { data: tripsForActivation, error: activationError } = await supabase
@@ -543,17 +543,6 @@ Deno.serve(async (req) => {
     if (activationError) {
       console.error("[scheduled-dispatch] Error fetching trips for activation:", activationError);
     } else if (tripsForActivation && tripsForActivation.length > 0) {
-      const driverIds = [...new Set(tripsForActivation.map((t: ScheduledTrip) => t.confirmed_driver_id).filter(Boolean))] as string[];
-
-      const { data: presenceRows } = await supabase
-        .from("driver_presence")
-        .select("driver_id, lat, lng, last_location_at, status")
-        .in("driver_id", driverIds);
-
-      const presenceMap = new Map(
-        (presenceRows ?? []).map((p: { driver_id: string; lat: number | null; lng: number | null; last_location_at: string | null; status: string }) => [p.driver_id, p]),
-      );
-
       for (const trip of tripsForActivation as ScheduledTrip[]) {
         if (isTripTerminalForDispatch(trip)) continue;
         if (!trip.pickup_latitude || !trip.pickup_longitude) {
@@ -562,40 +551,23 @@ Deno.serve(async (req) => {
         }
 
         const confirmedDriverId = trip.confirmed_driver_id!;
-        const pickupMs = Date.parse(trip.scheduled_at);
+        const due = isScheduledActivationDue({
+          scheduledAt: trip.scheduled_at,
+          estimatedDurationMinutes: trip.estimated_duration_minutes,
+          config: activationConfig,
+          nowMs,
+        });
 
-        const presence = presenceMap.get(confirmedDriverId);
-        const etaMinutes = estimateEtaMinutes(
-          presence?.lat,
-          presence?.lng,
-          trip.pickup_latitude,
-          trip.pickup_longitude,
-        );
-
-        let commitmentTimeMs: number;
-        if (etaMinutes != null) {
-          commitmentTimeMs = computeCommitmentTime({
-            scheduledAtMs: pickupMs,
-            etaMinutes,
-            targetArrivalMinutesBeforePickup: schedConfig.targetArrivalMinutesBeforePickup,
-          }).getTime();
-        } else {
-          commitmentTimeMs =
-            pickupMs - schedConfig.targetArrivalMinutesBeforePickup * 60_000;
+        if (due.usedFallbackDuration) {
+          console.warn(
+            `[scheduled-dispatch] Trip ${trip.id}: missing estimated_duration_minutes — classifying LONG via threshold fallback`,
+          );
         }
 
-        if (nowMs < commitmentTimeMs) {
-          if (etaMinutes != null) {
-            await supabase
-              .from("trips")
-              .update({
-                commitment_time: new Date(commitmentTimeMs).toISOString(),
-                last_eta_minutes: etaMinutes,
-                last_eta_calculated_at: now.toISOString(),
-              })
-              .eq("id", trip.id);
-          }
-          console.log(`[scheduled-dispatch] Trip ${trip.id}: commitment not due until ${new Date(commitmentTimeMs).toISOString()}`);
+        if (!due.due) {
+          console.log(
+            `[scheduled-dispatch] Trip ${trip.id}: ${due.kind} activation not due until ${new Date(due.activationAtMs).toISOString()}`,
+          );
           continue;
         }
 
@@ -612,8 +584,9 @@ Deno.serve(async (req) => {
           trip_id: trip.id,
           confirmed_driver_id: confirmedDriverId,
           scheduled_at: trip.scheduled_at,
-          commitment_time: new Date(commitmentTimeMs).toISOString(),
-          eta_minutes: etaMinutes,
+          activation_at: new Date(due.activationAtMs).toISOString(),
+          kind: due.kind,
+          estimated_duration_minutes: trip.estimated_duration_minutes,
         });
 
         const responseMinutes = Math.max(
@@ -622,8 +595,6 @@ Deno.serve(async (req) => {
         );
         const expiresAt = new Date(nowMs + responseMinutes * 60_000).toISOString();
 
-        // Resolve net BEFORE arming — never leave awaiting_activation_accept
-        // without a live offer (STEP 1a would false-rescue same tick).
         const netPence = (() => {
           const fromNet = Number(trip.driver_net_pence ?? trip.driver_net_before_tip_pence ?? 0);
           if (Number.isFinite(fromNet) && fromNet > 0) return Math.round(fromNet);
@@ -660,6 +631,7 @@ Deno.serve(async (req) => {
           offered_driver_net_pence: netPence,
           negotiation_disabled: true,
           presets_enabled: false,
+          scheduled_kind: due.kind,
         };
 
         const { data: offerRows, error: offerErr } = await supabase
@@ -689,9 +661,6 @@ Deno.serve(async (req) => {
           .from("trips")
           .update({
             scheduled_status: "awaiting_activation_accept",
-            commitment_time: new Date(commitmentTimeMs).toISOString(),
-            last_eta_minutes: etaMinutes,
-            last_eta_calculated_at: now.toISOString(),
             updated_at: now.toISOString(),
           })
           .eq("id", trip.id)
@@ -704,7 +673,6 @@ Deno.serve(async (req) => {
             `[scheduled-dispatch] Activation NRO arm failed for trip ${trip.id}:`,
             commitError,
           );
-          // Roll back orphan offer so STEP 1a does not treat this as decline.
           await supabase
             .from("ride_offers")
             .update({ status: "cancelled", updated_at: now.toISOString() })
@@ -718,10 +686,11 @@ Deno.serve(async (req) => {
           stage: "considered",
           driverId: confirmedDriverId,
           metadata: {
-            eta_minutes: etaMinutes,
-            commitment_time: new Date(commitmentTimeMs).toISOString(),
+            kind: due.kind,
+            activation_at: new Date(due.activationAtMs).toISOString(),
             scheduled_at: trip.scheduled_at,
             offer_id: offerRows[0].id,
+            estimated_duration_minutes: trip.estimated_duration_minutes,
           },
         });
 
@@ -753,7 +722,7 @@ Deno.serve(async (req) => {
       const { data: awaitingRows, error: awaitingErr } = await supabase
         .from("trips")
         .select(
-          "id, confirmed_driver_id, driver_id, scheduled_status, status, passenger_id, pickup_address, scheduled_at, trip_number",
+          "id, confirmed_driver_id, driver_id, scheduled_status, status, passenger_id, pickup_address, scheduled_at, trip_number, scheduled_broadcast_at",
         )
         .eq("scheduled_status", "awaiting_activation_accept")
         .is("driver_id", null)
@@ -800,251 +769,25 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ============================================================
-    // STEP 1b: MOVEMENT MONITORING for committed drivers
-    //
-    // For every trip in scheduled_committed, check:
-    //   a) Not moving for >notMovingAlertAfterSeconds → reminder push
-    //   b) Moving away from pickup by >movingAwayThresholdMetres → alert
-    //   c) predicted_arrival > scheduled_at → critical late → auto-release
-    // ============================================================
-
-    const { data: committedTrips, error: committedError } = await supabase
-      .from("trips")
-      .select("*")
-      .eq("scheduled_status", "scheduled_committed")
-      .not("driver_id", "is", null)
-      .gt("scheduled_at", new Date(nowMs - 60 * 60_000).toISOString());
-
-    if (committedError) {
-      console.error("[scheduled-dispatch] Error fetching committed trips:", committedError);
-    } else if (committedTrips && committedTrips.length > 0) {
-      const committedDriverIds = [...new Set(committedTrips.map((t: ScheduledTrip) => t.driver_id).filter(Boolean))] as string[];
-
-      const { data: committedPresence } = await supabase
-        .from("driver_presence")
-        .select("driver_id, lat, lng, last_location_at, last_significant_move_at, last_significant_move_lat, last_significant_move_lng")
-        .in("driver_id", committedDriverIds);
-
-      const committedPresenceMap = new Map(
-        (committedPresence ?? []).map((p: {
-          driver_id: string;
-          lat: number | null;
-          lng: number | null;
-          last_location_at: string | null;
-          last_significant_move_at: string | null;
-          last_significant_move_lat: number | null;
-          last_significant_move_lng: number | null;
-        }) => [p.driver_id, p]),
-      );
-
-      const debounceMs = schedConfig.movingAlertDebounceMinutes * 60_000;
-
-      for (const trip of committedTrips as ScheduledTrip[]) {
-        if (isTripTerminalForDispatch(trip)) continue;
-        if (!trip.driver_id || !trip.pickup_latitude || !trip.pickup_longitude) continue;
-
-        const presence = committedPresenceMap.get(trip.driver_id);
-        const pickupMs = Date.parse(trip.scheduled_at);
-
-        // Refresh ETA
-        const etaNow = estimateEtaMinutes(
-          presence?.lat,
-          presence?.lng,
-          trip.pickup_latitude,
-          trip.pickup_longitude,
-        );
-
-        if (etaNow != null) {
-          await supabase
-            .from("trips")
-            .update({
-              last_eta_minutes: etaNow,
-              last_eta_calculated_at: now.toISOString(),
-            })
-            .eq("id", trip.id);
-        }
-
-        // ── (a) Not-moving check ─────────────────────────────
-        const lastMoveAt = presence?.last_significant_move_at
-          ? Date.parse(presence.last_significant_move_at)
-          : null;
-        const secondsSinceMove = lastMoveAt != null
-          ? (nowMs - lastMoveAt) / 1000
-          : null;
-        const isNotMoving =
-          secondsSinceMove != null &&
-          secondsSinceMove >= schedConfig.notMovingAlertAfterSeconds;
-
-        if (isNotMoving) {
-          const lastAlertMs = trip.not_moving_alert_sent_at
-            ? Date.parse(trip.not_moving_alert_sent_at)
-            : 0;
-          if (nowMs - lastAlertMs >= debounceMs) {
-            queueBackground(
-              sendDriverPush(supabase, {
-                driverId: trip.driver_id,
-                type: "SCHEDULED_NOT_MOVING",
-                title: "You have a scheduled pickup",
-                body: `Please start heading to ${trip.pickup_address}.`,
-                data: { trip_id: trip.id, type: "scheduled_not_moving" },
-              }),
-            );
-            await supabase
-              .from("trips")
-              .update({ not_moving_alert_sent_at: now.toISOString() })
-              .eq("id", trip.id);
-            movementAlertsCount++;
-            console.log("SCHEDULED_NOT_MOVING_ALERT", { trip_id: trip.id, driver_id: trip.driver_id });
-          }
-        }
-
-        // ── (b) Moving-away check ────────────────────────────
-        if (presence?.lat != null && presence?.lng != null) {
-          const movingAway = isMovingAway({
-            driverLat: presence.lat,
-            driverLng: presence.lng,
-            pickupLat: trip.pickup_latitude,
-            pickupLng: trip.pickup_longitude,
-            previousLat: presence.last_significant_move_lat,
-            previousLng: presence.last_significant_move_lng,
-            thresholdMetres: schedConfig.movingAwayThresholdMetres,
-          });
-
-          if (movingAway) {
-            const lastAlertMs = trip.moving_away_alert_sent_at
-              ? Date.parse(trip.moving_away_alert_sent_at)
-              : 0;
-            if (nowMs - lastAlertMs >= debounceMs) {
-              queueBackground(
-                sendDriverPush(supabase, {
-                  driverId: trip.driver_id,
-                  type: "SCHEDULED_MOVING_AWAY",
-                  title: "You're moving away from pickup",
-                  body: `Turn around — your passenger is at ${trip.pickup_address}.`,
-                  data: { trip_id: trip.id, type: "scheduled_moving_away" },
-                }),
-              );
-              await supabase
-                .from("trips")
-                .update({ moving_away_alert_sent_at: now.toISOString() })
-                .eq("id", trip.id);
-              movementAlertsCount++;
-              console.log("SCHEDULED_MOVING_AWAY_ALERT", { trip_id: trip.id, driver_id: trip.driver_id });
-            }
-          }
-        }
-
-        // ── (c) §10 ETA risk — predicted > target_arrival ────
-        if (etaNow != null) {
-          const predictedMs = predictedArrivalMs(nowMs, etaNow);
-          const targetArrivalMs = pickupMs - schedConfig.targetArrivalMinutesBeforePickup * 60_000;
-          const isEtaRisk = predictedMs > targetArrivalMs && predictedMs <= pickupMs;
-
-          if (isEtaRisk) {
-            const lastEtaAlertMs = trip.eta_risk_alert_sent_at
-              ? Date.parse(trip.eta_risk_alert_sent_at)
-              : 0;
-            if (nowMs - lastEtaAlertMs >= debounceMs) {
-              queueBackground(
-                sendDriverPush(supabase, {
-                  driverId: trip.driver_id,
-                  type: "SCHEDULED_ETA_RISK",
-                  title: "You may be running late",
-                  body: `You might arrive after your target time. Please head to ${trip.pickup_address} now.`,
-                  data: { trip_id: trip.id, type: "scheduled_eta_risk" },
-                }),
-              );
-              await supabase
-                .from("trips")
-                .update({ eta_risk_alert_sent_at: now.toISOString() })
-                .eq("id", trip.id);
-              movementAlertsCount++;
-              console.log("SCHEDULED_ETA_RISK_ALERT", { trip_id: trip.id, driver_id: trip.driver_id, predicted_arrival: new Date(predictedMs).toISOString() });
-            }
-          }
-
-          // §14 — driver-at-risk: not moved for >2 min after commitment
-          const committedAtMs = trip.scheduled_committed_at
-            ? Date.parse(trip.scheduled_committed_at)
-            : null;
-          const minutesSinceCommit = committedAtMs != null ? (nowMs - committedAtMs) / 60_000 : null;
-          const isAtRisk = isNotMoving && minutesSinceCommit != null && minutesSinceCommit >= 2 && !trip.scheduled_driver_risk;
-
-          if (isAtRisk) {
-            await supabase
-              .from("trips")
-              .update({ scheduled_driver_risk: true, updated_at: now.toISOString() })
-              .eq("id", trip.id);
-            console.log("SCHEDULED_DRIVER_AT_RISK", { trip_id: trip.id, driver_id: trip.driver_id, minutes_since_commit: Math.round(minutesSinceCommit!) });
-            // Admin alert: committed driver not moving
-            queueBackground(
-              sendAdminAlert(supabase, {
-                type: "SCHEDULED_COMMITTED_DRIVER_NOT_MOVING",
-                title: "Committed driver not moving",
-                body: `Driver has not moved for ${Math.round(minutesSinceCommit!)} min after commitment. Trip ${trip.trip_number ?? trip.id}, pickup at ${new Date(pickupMs).toLocaleTimeString()}.`,
-                data: {
-                  trip_id: trip.id,
-                  driver_id: trip.driver_id!,
-                  minutes_since_commit: String(Math.round(minutesSinceCommit!)),
-                },
-              }),
-            );
-            movementAlertsCount++;
-          }
-        }
-
-        // ── (d) Critical late — auto-release ────────────────
-        if (etaNow != null && schedConfig.criticalLateAutoRelease) {
-          const predictedMs = predictedArrivalMs(nowMs, etaNow);
-          const isCriticallyLate = predictedMs > pickupMs;
-
-          if (isCriticallyLate) {
-            console.log("SCHEDULED_CRITICAL_LATE_AUTO_RELEASE", {
-              trip_id: trip.id,
-              driver_id: trip.driver_id,
-              predicted_arrival: new Date(predictedMs).toISOString(),
-              scheduled_at: trip.scheduled_at,
-              eta_minutes: etaNow,
-            });
-            await releaseAndRebroadcast(supabase, {
-              trip,
-              reason: "critical_late_auto_release",
-              now,
-              nowMs,
-              supabaseUrl,
-              supabaseServiceKey,
-              urgent: true,
-              maxFindDriverMinutes,
-            });
-            // Alert driver they've been unassigned
-            queueBackground(
-              sendDriverPush(supabase, {
-                driverId: trip.driver_id,
-                type: "SCHEDULED_RELEASED",
-                title: "Scheduled pickup reassigned",
-                body: "You won't make it in time. The job has been passed to another driver.",
-                data: { trip_id: trip.id, type: "scheduled_released" },
-              }),
-            );
-          }
-        }
-      }
-    }
+    // STEP 1b (commitment not-moving / ETA-risk / critical-late) REMOVED.
 
     // ============================================================
-    // STEP 2: BROADCAST — Trips without any confirmed driver
-    // (No confirmed_driver_id → go straight to auto-dispatch)
+    // STEP 2: NO-PRECONFIRMED ACTIVATION / BROADCAST
+    // At Local/Long T-minutes (or Admin Broadcast At due): leave HELD,
+    // open marketplace, trigger existing auto-dispatch / NRO.
+    // Skip when a future pending_release_* Admin override is still pending.
     // ============================================================
 
+    const lookAheadBroadcast = new Date(nowMs + lookAheadMs).toISOString();
     const { data: ridesToBroadcast, error: broadcastError } = await supabase
       .from("trips")
       .select("*")
       .eq("dispatch_mode", "scheduled")
-      .eq("scheduled_status", "scheduled")
+      .in("scheduled_status", ["admin_held", "scheduled", "pending"])
       .is("confirmed_driver_id", null)
       .is("driver_id", null)
-      .lte("scheduled_broadcast_at", now.toISOString());
+      .lte("scheduled_at", lookAheadBroadcast)
+      .gt("scheduled_at", new Date(nowMs - 30 * 60_000).toISOString());
 
     if (broadcastError) {
       console.error("[scheduled-dispatch] Error fetching rides to broadcast:", broadcastError);
@@ -1052,17 +795,52 @@ Deno.serve(async (req) => {
       for (const trip of ridesToBroadcast as ScheduledTrip[]) {
         if (isTripTerminalForDispatch(trip)) continue;
 
-        const { error: updateError } = await supabase
+        // Admin Assign At / Broadcast At still pending — STEP 0 owns that trip.
+        if (
+          trip.pending_release_kind &&
+          String(trip.pending_release_kind).trim() &&
+          trip.pending_release_at
+        ) {
+          const pendingAt = Date.parse(trip.pending_release_at);
+          if (Number.isFinite(pendingAt) && pendingAt > nowMs) {
+            continue;
+          }
+        }
+
+        const broadcastAtMs = trip.scheduled_broadcast_at
+          ? Date.parse(trip.scheduled_broadcast_at)
+          : NaN;
+        const adminBroadcastDue =
+          Number.isFinite(broadcastAtMs) && broadcastAtMs <= nowMs;
+
+        const due = isScheduledActivationDue({
+          scheduledAt: trip.scheduled_at,
+          estimatedDurationMinutes: trip.estimated_duration_minutes,
+          config: activationConfig,
+          nowMs,
+        });
+
+        // Activate when Local/Long T is due OR Admin already stamped broadcast_at.
+        if (!due.due && !adminBroadcastDue) {
+          continue;
+        }
+
+        const fromStatus = String(trip.scheduled_status ?? "");
+        const { data: updatedRows, error: updateError } = await supabase
           .from("trips")
           .update({
             scheduled_status: "broadcasting",
             status: "offered",
+            scheduled_broadcast_at: trip.scheduled_broadcast_at ?? now.toISOString(),
             updated_at: now.toISOString(),
           })
           .eq("id", trip.id)
-          .eq("scheduled_status", "scheduled");
+          .in("scheduled_status", ["admin_held", "scheduled", "pending"])
+          .is("confirmed_driver_id", null)
+          .is("driver_id", null)
+          .select("id");
 
-        if (updateError) {
+        if (updateError || !updatedRows?.length) {
           console.error(`[scheduled-dispatch] Error broadcasting trip ${trip.id}:`, updateError);
           continue;
         }
@@ -1070,7 +848,16 @@ Deno.serve(async (req) => {
         await logSnapshot(supabase, {
           tripId: trip.id,
           action: "broadcast_start",
-          metadata: { trigger_reason: "scheduled_broadcast_no_locked_driver" },
+          metadata: {
+            trigger_reason: adminBroadcastDue && !due.due
+              ? "admin_scheduled_broadcast_at"
+              : "scheduled_activation_no_locked_driver",
+            kind: due.kind,
+            activation_at: Number.isFinite(due.activationAtMs)
+              ? new Date(due.activationAtMs).toISOString()
+              : null,
+            from_scheduled_status: fromStatus,
+          },
         });
 
         // §13 — Escalation by minutes_to_pickup
@@ -1200,8 +987,8 @@ Deno.serve(async (req) => {
     }
 
     // ============================================================
-    // STEP 3: CONVERT TO INSTANT — No-preconfirmed path only
-    // (Admin Two paths: confirmed drivers stay on Commitment Policy)
+    // STEP 3: CONVERT TO INSTANT — No-preconfirmed fallback (T−urgent)
+    // Does not affect trips with a valid confirmed/active driver.
     // ============================================================
 
     const { data: ridesToConvert, error: convertError } = await supabase
@@ -1403,7 +1190,6 @@ Deno.serve(async (req) => {
     const summary = {
       timestamp: now.toISOString(),
       committedCount,
-      movementAlertsCount,
       broadcastStarted,
       convertedToInstant,
       stackedRedispatched,
