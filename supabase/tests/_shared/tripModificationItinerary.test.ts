@@ -1,6 +1,7 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   appendIntermediateStops,
+  assertFinalDropoffRequired,
   rebuildItineraryStops,
   removeIntermediateStop,
 } from "../../functions/_shared/tripModificationItinerary.ts";
@@ -102,6 +103,53 @@ Deno.test("removeIntermediateStop reindexes dropoff contiguously", () => {
       { type: "dropoff", index: 1, address: "Work" },
     ],
   );
+});
+
+Deno.test("assertFinalDropoffRequired rejects missing / trailing-stop itineraries", () => {
+  const missing = assertFinalDropoffRequired({
+    dropoff: { address: "", lat: null, lng: null },
+    stops: [
+      { address: "A", lat: 1, lng: 1, type: "pickup", stop_index: 0 },
+      { address: "B", lat: 2, lng: 2, type: "stop", stop_index: 1 },
+    ],
+  });
+  assertEquals(missing.ok, false);
+  if (missing.ok) return;
+  assertEquals(missing.code, "DROPOFF_REQUIRED");
+
+  const trailingStop = assertFinalDropoffRequired({
+    dropoff: { address: "Work", lat: 3, lng: 3 },
+    stops: [
+      { address: "A", lat: 1, lng: 1, type: "pickup", stop_index: 0 },
+      { address: "B", lat: 2, lng: 2, type: "stop", stop_index: 1 },
+    ],
+  });
+  assertEquals(trailingStop.ok, false);
+
+  const ok = assertFinalDropoffRequired({
+    dropoff: { address: "Work", lat: 3, lng: 3 },
+    stops: [
+      { address: "A", lat: 1, lng: 1, type: "pickup", stop_index: 0 },
+      { address: "B", lat: 2, lng: 2, type: "stop", stop_index: 1 },
+      { address: "Work", lat: 3, lng: 3, type: "dropoff", stop_index: 2 },
+    ],
+  });
+  assertEquals(ok.ok, true);
+});
+
+Deno.test("LOCK: request-trip-modification rejects missing dropoff with DROPOFF_REQUIRED", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../../functions/request-trip-modification/index.ts", import.meta.url),
+  );
+  if (!src.includes("assertFinalDropoffRequired")) {
+    throw new Error("request-trip-modification must gate final dropoff");
+  }
+  if (!src.includes("DROPOFF_REQUIRED")) {
+    throw new Error("request-trip-modification must return DROPOFF_REQUIRED");
+  }
+  if (!src.includes("Final drop-off is required. Please choose a destination.")) {
+    throw new Error("request-trip-modification must use customer dropoff-required copy");
+  }
 });
 
 Deno.test("LOCK: add_stop rebuild inserts before dropoff (MK-260922-001)", async () => {

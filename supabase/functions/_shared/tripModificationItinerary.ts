@@ -19,6 +19,60 @@ export type ItineraryDropoff = {
   lng: number;
 };
 
+function hasValidCoords(lat: unknown, lng: unknown): boolean {
+  return (
+    typeof lat === "number" &&
+    typeof lng === "number" &&
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    !(lat === 0 && lng === 0)
+  );
+}
+
+/**
+ * Final intended route must include a valid dropoff waypoint.
+ * Stops are optional; destination is mandatory.
+ */
+export function assertFinalDropoffRequired(args: {
+  dropoff: { address?: string | null; lat?: number | null; lng?: number | null } | null | undefined;
+  stops: ItineraryStop[];
+}): { ok: true } | { ok: false; error: string; code: "DROPOFF_REQUIRED" } {
+  const address = String(args.dropoff?.address ?? "").trim();
+  if (!address || !hasValidCoords(args.dropoff?.lat, args.dropoff?.lng)) {
+    return {
+      ok: false,
+      error: "Final drop-off is required. Please choose a destination.",
+      code: "DROPOFF_REQUIRED",
+    };
+  }
+
+  const parts = partitionItineraryStops(args.stops);
+  if (
+    !parts.dropoff ||
+    !String(parts.dropoff.address ?? "").trim() ||
+    !hasValidCoords(parts.dropoff.lat, parts.dropoff.lng)
+  ) {
+    return {
+      ok: false,
+      error: "Final drop-off is required. Please choose a destination.",
+      code: "DROPOFF_REQUIRED",
+    };
+  }
+
+  const sorted = [...args.stops].sort((a, b) => (a.stop_index ?? 0) - (b.stop_index ?? 0));
+  const last = sorted[sorted.length - 1];
+  const lastType = asType(last ?? { address: "", lat: 0, lng: 0, type: "" });
+  if (!last || (lastType !== "dropoff" && lastType !== "drop_off" && lastType !== "destination")) {
+    return {
+      ok: false,
+      error: "Final drop-off is required. Please choose a destination.",
+      code: "DROPOFF_REQUIRED",
+    };
+  }
+
+  return { ok: true };
+}
+
 function asType(stop: ItineraryStop): string {
   return String(stop.type ?? "stop").toLowerCase().replace(/-/g, "_");
 }

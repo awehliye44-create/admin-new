@@ -24,6 +24,7 @@ import { SERVICE_AREA_FINANCIAL_MODEL } from "../_shared/commissionWalletSSOT.ts
 import { executeFareIncreaseModificationPayment } from "../_shared/executeFareIncreaseModificationPayment.ts";
 import {
   appendIntermediateStops,
+  assertFinalDropoffRequired,
   rebuildItineraryStops,
   removeIntermediateStop,
 } from "../_shared/tripModificationItinerary.ts";
@@ -143,6 +144,21 @@ function hasValidCoords(lat: unknown, lng: unknown): boolean {
     Number.isFinite(lng) &&
     !(lat === 0 && lng === 0)
   );
+}
+
+/**
+ * Final intended route must end with a valid dropoff waypoint.
+ * Stops are optional; destination is mandatory (DROPOFF_REQUIRED).
+ */
+function dropoffRequiredResponse() {
+  return new Response(JSON.stringify({
+    success: false,
+    error: "Final drop-off is required. Please choose a destination.",
+    code: "DROPOFF_REQUIRED",
+  }), {
+    status: 400,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 async function resolveCoordsFromAddress(
@@ -436,10 +452,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     }
 
     if (changeType === "change_dropoff" && !newDropoff) {
-      return new Response(JSON.stringify({ error: "newDropoff required for change_dropoff" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return dropoffRequiredResponse();
     }
 
     if (changeType === "remove_stop" && stopIndexToRemove === undefined) {
@@ -890,6 +903,14 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       });
     }
 
+    const dropoffGate = assertFinalDropoffRequired({
+      dropoff: afterRouteSnapshot.dropoff,
+      stops: afterRouteSnapshot.stops,
+    });
+    if (!dropoffGate.ok) {
+      return dropoffRequiredResponse();
+    }
+
     const pastLockError = assertPastStopsImmutable(currentStops, afterRouteSnapshot.stops);
     if (pastLockError) {
       return new Response(JSON.stringify({ error: pastLockError }), {
@@ -948,10 +969,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     const beforeDestinationLng = beforeRouteSnapshot.dropoff?.lng;
 
     if (destinationLat == null || destinationLng == null) {
-      return new Response(JSON.stringify({ error: "Unable to recalculate fare. Please try again." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return dropoffRequiredResponse();
     }
 
     const remainingStopsForRoute = (stops: Stop[]) =>
