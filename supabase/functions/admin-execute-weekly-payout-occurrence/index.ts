@@ -15,6 +15,12 @@ import { resolveLiveCompanyBalanceSnapshot } from "../_shared/companyBalanceReso
 import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
 import { planPayoutItemFromEligibleEntries, type PlannedLedgerAllocation } from "../_shared/payoutLedgerHandoffSSOT.ts";
 import {
+  WEEKLY_PAYOUT_FEE_PENCE,
+  freezeWeeklyOccurrencePeriod,
+  resolveWeeklyOccurrenceMoneyAmounts,
+  selectWeeklyPeriodPayableCredits,
+} from "../_shared/weeklyPayoutPeriodSSOT.ts";
+import {
   assertPayoutItemLedgerLineage,
   persistPayoutItemLedgerAllocations,
 } from "../_shared/payoutItemLedgerAllocationWrite.ts";
@@ -40,6 +46,7 @@ import {
   ORCHESTRATOR_ITEM_STATUS,
   ORCHESTRATOR_RUN_STATUS,
   buildOrchestratorPlanSnapshot,
+  classifyWeeklyOccurrenceClaimFailure,
   evaluateBatchFundingGate,
   orchestratorBlockerLabel,
   resolveOrchestratorRunFinish,
@@ -291,18 +298,37 @@ Deno.serve(async (req) => {
   );
   if (claimErr) {
     return json({
-      success: false,
-      error: "claim_rpc_failed",
-      message: claimErr.message,
-      hint: "Apply migration 20260832010000_weekly_payout_orchestrator_claim_cron.sql",
+      ...classifyWeeklyOccurrenceClaimFailure({ message: claimErr.message }),
       revolut_pay_called: false,
+      wallet_debited: false,
     }, 500);
   }
   const claim = (claimRaw ?? {}) as Record<string, unknown>;
   if (claim.ok !== true) {
-    return json({ success: false, error: claim.error ?? "claim_failed", revolut_pay_called: false }, 500);
+    return json({
+      ...classifyWeeklyOccurrenceClaimFailure({
+        message: String(claim.error ?? "claim_failed"),
+        code: String(claim.error ?? ""),
+      }),
+      revolut_pay_called: false,
+      wallet_debited: false,
+    }, 500);
   }
   const runId = String(claim.run_id);
+  const occurrencePeriod = freezeWeeklyOccurrencePeriod({
+    frozen_period_start: claim.period_start != null ? String(claim.period_start) : null,
+    frozen_period_end: claim.period_end != null ? String(claim.period_end) : null,
+    scheduled_local_at: occurrence.scheduled_local_at,
+    schedule_occurrence_key: occurrenceKey,
+    timezone: occurrence.timezone,
+  });
+  if (claim.period_start == null || claim.period_end == null) {
+    await supabase.from("weekly_payout_occurrence_runs").update({
+      period_start: occurrencePeriod.period_start,
+      period_end: occurrencePeriod.period_end,
+      updated_at: new Date().toISOString(),
+    }).eq("id", runId).is("period_start", null);
+  }
   if (
     !dryRun
     && String(claim.status) === ORCHESTRATOR_RUN_STATUS.COMPLETED
@@ -418,11 +444,38 @@ Deno.serve(async (req) => {
     const driverStatus = String(driver.driver_status ?? "").toLowerCase();
     const held = ["suspended", "blocked", "banned", "held"].includes(driverStatus);
     const eligibility = await fetchDriverPayoutEligibility(supabase, { driver_id: driverId });
+    const { data: econRows } = await supabase.rpc("driver_wallet_ledger_economic_fields", {
+      p_driver_id: driverId,
+    });
+    const econById = new Map<string, Record<string, unknown>>();
+    for (const row of econRows ?? []) {
+      const rec = row as Record<string, unknown>;
+      const id = String(rec.ledger_entry_id ?? "");
+      if (id) econById.set(id, rec);
+    }
+    const scoped = selectWeeklyPeriodPayableCredits({
+      period_start: occurrencePeriod.period_start,
+      period_end: occurrencePeriod.period_end,
+      entries: eligibility.eligible_entries.map((entry) => {
+        const econ = econById.get(entry.ledger_entry_id);
+        return {
+          ledger_entry_id: entry.ledger_entry_id,
+          trip_id: entry.trip_id,
+          amount_pence: entry.amount_pence,
+          type: econ?.type != null ? String(econ.type) : null,
+          economic_earned_at: econ?.economic_earned_at != null ? String(econ.economic_earned_at) : null,
+          posting_created_at: econ?.posting_created_at != null ? String(econ.posting_created_at) : null,
+        };
+      }),
+    });
     let lineage: ReturnType<typeof planPayoutItemFromEligibleEntries> = null;
     try {
       lineage = planPayoutItemFromEligibleEntries({
-        eligible_entries: eligibility.eligible_entries,
-        available_balance_pence: eligibility.available_balance_pence,
+        eligible_entries: scoped.selected.map((e) => ({
+          ledger_entry_id: e.ledger_entry_id,
+          amount_pence: e.amount_pence,
+        })),
+        available_balance_pence: scoped.amount_pence,
       });
     } catch {
       lineage = null;
@@ -464,13 +517,20 @@ Deno.serve(async (req) => {
       eligibility_snapshot: {
         ...decision.eligibility_snapshot,
         source: "eligible_driver_wallet_ledger_entries",
+        weekly_period_scope: true,
+        weekly_fee_pence: WEEKLY_PAYOUT_FEE_PENCE,
+        period_start: occurrencePeriod.period_start,
+        period_end: occurrencePeriod.period_end,
+        period_timezone: occurrencePeriod.timezone,
         ledger_allocation_ids: lineage.allocations.map((a) => a.ledger_entry_id),
+        excluded_current_week_pence: scoped.excluded_current_week_pence,
+        excluded_older_unpaid_pence: scoped.excluded_older_unpaid_pence,
       },
       destination_verified: true,
     });
   }
 
-  const requiredBatchPence = planned.reduce((s, p) => s + p.amount_pence, 0);
+  let requiredBatchPence = planned.reduce((s, p) => s + p.amount_pence, 0);
 
   // Funding refresh (configured Revolut payout source only).
   let fundingAvailable: number | null = null;
@@ -489,11 +549,6 @@ Deno.serve(async (req) => {
   } catch (err) {
     console.warn("[orchestrator] company balance refresh failed", err);
   }
-  // Never substitute persisted cache for live relay balance on the funding gate.
-  const fundingGate = evaluateBatchFundingGate({
-    required_batch_pence: requiredBatchPence,
-    available_pence: fundingAvailable,
-  });
 
   // Create or reuse batch (skip DB writes for dry_run planning-only when requested).
   let batchId: string | null = null;
@@ -561,6 +616,11 @@ Deno.serve(async (req) => {
         schedule_occurrence_key: occurrenceKey,
         frequency: occurrence.frequency,
         scheduled_local_at: occurrence.scheduled_local_at,
+      period_start: occurrencePeriod.period_start,
+      period_end: occurrencePeriod.period_end,
+      period_timezone: occurrencePeriod.timezone,
+      weekly_fee_pence: WEEKLY_PAYOUT_FEE_PENCE,
+      money_amount_source: moneyAmounts.source,
         scheduled_utc_at: occurrence.scheduled_utc_at,
         timezone: occurrence.timezone,
         currency: occurrence.currency,
@@ -635,16 +695,47 @@ Deno.serve(async (req) => {
     }).eq("id", batchId);
   }
 
-  const planItems = planned.map((p) => ({
-    driver_id: p.driver_id,
-    driver_name: p.driver_name,
-    amount_pence: p.amount_pence,
-    payout_item_id: itemIdsByDriver.get(p.driver_id) ?? null,
-    payout_destination_id: p.payout_destination_id,
-    provider_counterparty_id: p.provider_counterparty_id,
-    provider_recipient_account_id: p.provider_recipient_account_id,
-    destination_verified: p.destination_verified,
-  }));
+  const moneyAmounts = resolveWeeklyOccurrenceMoneyAmounts({
+    frozen_items: existingBatchItems.map((it) => ({
+      driver_id: it.driver_id,
+      amount_pence: it.amount_pence,
+    })),
+    planned_items: planned.map((p) => ({
+      driver_id: p.driver_id,
+      amount_pence: p.amount_pence,
+    })),
+  });
+  requiredBatchPence = moneyAmounts.required_batch_pence;
+  const fundingGate = evaluateBatchFundingGate({
+    required_batch_pence: requiredBatchPence,
+    available_pence: fundingAvailable,
+  });
+
+  const planItems = moneyAmounts.source === "FROZEN_OCCURRENCE_MANIFEST"
+    ? existingBatchItems.map((it) => {
+      const plannedItem = planned.find((p) => p.driver_id === it.driver_id);
+      return {
+        driver_id: it.driver_id,
+        driver_name: plannedItem?.driver_name ?? null,
+        amount_pence: it.amount_pence,
+        payout_item_id: it.id,
+        payout_destination_id: it.payout_destination_id ?? plannedItem?.payout_destination_id ?? "",
+        provider_counterparty_id: it.provider_counterparty_id ?? plannedItem?.provider_counterparty_id ?? "",
+        provider_recipient_account_id:
+          it.provider_recipient_account_id ?? plannedItem?.provider_recipient_account_id ?? "",
+        destination_verified: plannedItem?.destination_verified ?? true,
+      };
+    })
+    : planned.map((p) => ({
+      driver_id: p.driver_id,
+      driver_name: p.driver_name,
+      amount_pence: p.amount_pence,
+      payout_item_id: itemIdsByDriver.get(p.driver_id) ?? null,
+      payout_destination_id: p.payout_destination_id,
+      provider_counterparty_id: p.provider_counterparty_id,
+      provider_recipient_account_id: p.provider_recipient_account_id,
+      destination_verified: p.destination_verified,
+    }));
 
   const plan = buildOrchestratorPlanSnapshot({
     schedule_occurrence_key: occurrenceKey,
@@ -675,14 +766,23 @@ Deno.serve(async (req) => {
     provider_counterparty_id: string;
     provider_recipient_account_id: string;
   };
-  let moneyWork: MoneyWork[] = planned.map((p) => ({
-    driver_id: p.driver_id,
-    driver_name: p.driver_name,
-    amount_pence: p.amount_pence,
-    payout_destination_id: p.payout_destination_id,
-    provider_counterparty_id: p.provider_counterparty_id,
-    provider_recipient_account_id: p.provider_recipient_account_id,
-  }));
+  let moneyWork: MoneyWork[] = moneyAmounts.source === "FROZEN_OCCURRENCE_MANIFEST"
+    ? existingBatchItems.map((it) => ({
+      driver_id: it.driver_id,
+      driver_name: planned.find((p) => p.driver_id === it.driver_id)?.driver_name ?? null,
+      amount_pence: it.amount_pence,
+      payout_destination_id: it.payout_destination_id ?? "",
+      provider_counterparty_id: it.provider_counterparty_id ?? "",
+      provider_recipient_account_id: it.provider_recipient_account_id ?? "",
+    }))
+    : planned.map((p) => ({
+      driver_id: p.driver_id,
+      driver_name: p.driver_name,
+      amount_pence: p.amount_pence,
+      payout_destination_id: p.payout_destination_id,
+      provider_counterparty_id: p.provider_counterparty_id,
+      provider_recipient_account_id: p.provider_recipient_account_id,
+    }));
   if (moneyWork.length === 0 && inFlightExisting.length > 0) {
     moneyWork = inFlightExisting.map((it) => ({
       driver_id: it.driver_id,
@@ -751,6 +851,11 @@ Deno.serve(async (req) => {
       dry_run: dryRun,
       schedule_occurrence_key: occurrenceKey,
       scheduled_local_at: occurrence.scheduled_local_at,
+      period_start: occurrencePeriod.period_start,
+      period_end: occurrencePeriod.period_end,
+      period_timezone: occurrencePeriod.timezone,
+      weekly_fee_pence: WEEKLY_PAYOUT_FEE_PENCE,
+      money_amount_source: moneyAmounts.source,
       batch_id: batchId,
       batch_reused: batchReused,
       batch_status: batchStatus,
@@ -1397,6 +1502,11 @@ Deno.serve(async (req) => {
   const resultJson = {
     dry_run: false,
     schedule_occurrence_key: occurrenceKey,
+    period_start: occurrencePeriod.period_start,
+    period_end: occurrencePeriod.period_end,
+    period_timezone: occurrencePeriod.timezone,
+    weekly_fee_pence: WEEKLY_PAYOUT_FEE_PENCE,
+    money_amount_source: moneyAmounts.source,
     batch_id: batchId,
     batch_status: agg.status,
     funding: fundingGate,

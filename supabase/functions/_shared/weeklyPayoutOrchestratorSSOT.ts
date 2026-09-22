@@ -54,6 +54,37 @@ export const ORCHESTRATOR_BLOCKER = {
   OCCURRENCE_ALREADY_COMPLETED: "OCCURRENCE_ALREADY_COMPLETED",
 } as const;
 
+/** Claim-RPC infrastructure failure. Never classified as SCHEDULER_NOT_INVOKED. */
+export const ORCHESTRATOR_CLAIM_ERROR = {
+  OCCURRENCE_CLAIM_FAILED: "OCCURRENCE_CLAIM_FAILED",
+} as const;
+
+export type OrchestratorClaimErrorCode =
+  (typeof ORCHESTRATOR_CLAIM_ERROR)[keyof typeof ORCHESTRATOR_CLAIM_ERROR];
+
+export function classifyWeeklyOccurrenceClaimFailure(input: {
+  message?: string | null;
+  code?: string | null;
+}): {
+  success: false;
+  error: "OCCURRENCE_CLAIM_FAILED";
+  error_code: "OCCURRENCE_CLAIM_FAILED";
+  classification: "OCCURRENCE_CLAIM_FAILED";
+  message: string;
+  hint: string;
+} {
+  const raw = String(input.message ?? input.code ?? "").trim();
+  return {
+    success: false,
+    error: ORCHESTRATOR_CLAIM_ERROR.OCCURRENCE_CLAIM_FAILED,
+    error_code: ORCHESTRATOR_CLAIM_ERROR.OCCURRENCE_CLAIM_FAILED,
+    classification: ORCHESTRATOR_CLAIM_ERROR.OCCURRENCE_CLAIM_FAILED,
+    message: raw || "weekly occurrence claim failed",
+    hint:
+      "ON CONFLICT must target UNIQUE (schedule_occurrence_key, dry_run). Do not classify as SCHEDULER_NOT_INVOKED.",
+  };
+}
+
 export type OrchestratorBlockerCode =
   (typeof ORCHESTRATOR_BLOCKER)[keyof typeof ORCHESTRATOR_BLOCKER];
 
@@ -90,6 +121,8 @@ export function orchestratorBlockerLabel(code: string | null | undefined): strin
       return "No eligible drivers";
     case ORCHESTRATOR_BLOCKER.OCCURRENCE_ALREADY_COMPLETED:
       return "Occurrence already completed";
+    case ORCHESTRATOR_CLAIM_ERROR.OCCURRENCE_CLAIM_FAILED:
+      return "Weekly occurrence claim failed";
     case "BLOCKED_EXECUTION_DISABLED":
       return "Live payout rollout disabled";
     default:
