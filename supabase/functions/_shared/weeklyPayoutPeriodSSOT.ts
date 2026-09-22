@@ -275,3 +275,30 @@ export function resolveWeeklyOccurrenceMoneyAmounts(args: {
 }
 
 export const WEEKLY_PAYOUT_FEE_PENCE = 0;
+
+export const WEEKLY_NEVER_REPAY_LEDGER_TYPES = [
+  "EARLY_CASHOUT",
+  "CASHOUT_FEE",
+  "WEEKLY_PAYOUT",
+  "PAYOUT",
+  "MANUAL_PAYOUT",
+] as const;
+
+export function remainingWeeklyPayableAfterEarlyAllocations(args: {
+  previous_week_unpaid: ReadonlyArray<{ ledger_entry_id: string; unpaid_pence: number }>;
+  early_allocations: ReadonlyArray<{ ledger_entry_id: string; amount_pence: number }>;
+}): number {
+  const taken = new Map<string, number>();
+  for (const line of args.early_allocations) {
+    const id = String(line.ledger_entry_id ?? "").trim();
+    if (!id) continue;
+    taken.set(id, (taken.get(id) ?? 0) + Math.max(0, Math.round(Number(line.amount_pence ?? 0))));
+  }
+  let remaining = 0;
+  for (const row of args.previous_week_unpaid) {
+    const unpaid = Math.max(0, Math.round(Number(row.unpaid_pence ?? 0)));
+    const used = taken.get(String(row.ledger_entry_id)) ?? 0;
+    remaining += Math.max(0, unpaid - used);
+  }
+  return remaining;
+}

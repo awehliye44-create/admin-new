@@ -27,4 +27,10 @@ period using `economic_earned_at` (not clearing / execution time) and plan the
 item amount as the sum of those unpaid rows. Frozen batch items are reused as-is.
 Driver Withdraw is unchanged.
 
+Allocation occupancy: the same migration serializes `payout_item_ledger_allocations`
+per driver (`pg_advisory_xact_lock` + ledger `FOR UPDATE`) so WEEKLY_SCHEDULED and
+EARLY_CASHOUT cannot both consume the same earning. The losing insert fails with
+`PAYOUT_LINEAGE_MISMATCH`. Reserve still requires lineage and wallet lock before
+any provider call.
+
 Cron 67 stays suspended until explicit approval after merge/apply/deploy.

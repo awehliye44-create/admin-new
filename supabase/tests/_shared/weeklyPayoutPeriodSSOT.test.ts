@@ -9,16 +9,20 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   WEEKLY_CREDIT_BUCKET,
+  WEEKLY_NEVER_REPAY_LEDGER_TYPES,
   WEEKLY_PAYOUT_FEE_PENCE,
   WEEKLY_PAYOUT_PERIOD_TIMEZONE,
   classifyWeeklyPeriodCredit,
   freezeWeeklyOccurrencePeriod,
+  remainingWeeklyPayableAfterEarlyAllocations,
   resolvePreviousCompletedCalendarWeek,
   resolveWeeklyOccurrenceMoneyAmounts,
   selectWeeklyPeriodPayableCredits,
 } from "../../functions/_shared/weeklyPayoutPeriodSSOT.ts";
 import { planPayoutItemFromEligibleEntries } from "../../functions/_shared/payoutLedgerHandoffSSOT.ts";
 import { evaluateDriverBatchEligibility } from "../../functions/_shared/weeklyDriverPayoutBatchWorkflowSSOT.ts";
+import { isConflictingActivePayoutItem } from "../../functions/_shared/payoutItemLifecycleSSOT.ts";
+import { PAYOUT_ELIGIBLE_LEDGER_TYPES } from "../../functions/_shared/driverPayoutEligibilitySSOT.ts";
 
 const ROOT = new URL("../../", import.meta.url);
 const KEY = "weekly-payout:milton-keynes:2026-09-22T12:00:00+01:00";
@@ -240,6 +244,7 @@ Deno.test("10. no provider call occurs before the manifest is frozen", async () 
   assertEquals(reserveAt > persistAt, true);
   assertEquals(payAt > reserveAt, true);
   assertEquals(src.indexOf("freezeWeeklyOccurrencePeriod") < persistAt, true);
+  assertEquals(src.indexOf("claim_driver_payout_submission") > reserveAt, true);
   assertEquals(src.includes("available_balance_pence: eligibility.available_balance_pence"), false);
   assertStringIncludes(src, "selectWeeklyPeriodPayableCredits");
   assertStringIncludes(src, "available_balance_pence: scoped.amount_pence");
@@ -266,6 +271,8 @@ Deno.test("migration stamps London period and forbids payout/wallet/provider wri
   assertStringIncludes(sql, "weekly_payout_previous_completed_week");
   assertStringIncludes(sql, "Europe/London");
   assertStringIncludes(sql, "period_start is immutable");
+  assertStringIncludes(sql, "pg_advisory_xact_lock");
+  assertStringIncludes(sql, "FOR UPDATE");
   const body = sql.replace(/--[^\n]*/g, "");
   for (const forbidden of [
     "INSERT INTO public.payout_",
@@ -277,4 +284,25 @@ Deno.test("migration stamps London period and forbids payout/wallet/provider wri
   ]) {
     assertEquals(body.includes(forbidden), false, forbidden);
   }
+});
+
+Deno.test("completed early cash-out principal and fee never re-enter weekly payable", () => {
+  const remaining = remainingWeeklyPayableAfterEarlyAllocations({
+    previous_week_unpaid: [
+      { ledger_entry_id: "pw-1", unpaid_pence: 435 },
+      { ledger_entry_id: "pw-2", unpaid_pence: 7731 },
+    ],
+    early_allocations: [{ ledger_entry_id: "pw-1", amount_pence: 435 }],
+  });
+  assertEquals(remaining, 7731);
+  for (const type of WEEKLY_NEVER_REPAY_LEDGER_TYPES) {
+    assertEquals(PAYOUT_ELIGIBLE_LEDGER_TYPES.has(type), false);
+  }
+});
+
+Deno.test("in-flight weekly CREATED/VALIDATED/RESERVED blocks a new early cash-out", () => {
+  for (const status of ["CREATED", "VALIDATED", "RESERVED"]) {
+    assertEquals(isConflictingActivePayoutItem({ status, execution_status: status }), true);
+  }
+  assertEquals(isConflictingActivePayoutItem({ status: "COMPLETED", execution_status: "COMPLETED" }), false);
 });

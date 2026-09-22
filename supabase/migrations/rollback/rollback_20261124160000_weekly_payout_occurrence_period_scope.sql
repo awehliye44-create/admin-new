@@ -83,4 +83,85 @@ ALTER TABLE public.weekly_payout_occurrence_runs
 REVOKE ALL ON FUNCTION public.claim_weekly_payout_occurrence(text, boolean) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.claim_weekly_payout_occurrence(text, boolean) TO service_role;
 
+-- Restore pre-lock occupancy trigger (check without driver advisory / ledger FOR UPDATE).
+CREATE OR REPLACE FUNCTION public.trg_payout_item_ledger_allocations_validate()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO public
+AS $function$
+DECLARE
+  v_item public.payout_items%ROWTYPE;
+  v_ledger public.driver_wallet_ledger%ROWTYPE;
+  v_model text;
+  v_other integer;
+BEGIN
+  IF NEW.payout_item_id IS NULL THEN
+    RAISE EXCEPTION 'PAYOUT_LINEAGE_MISSING: allocation payout_item_id cannot be null'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.ledger_entry_id IS NULL THEN
+    RAISE EXCEPTION 'PAYOUT_LINEAGE_MISSING: allocation ledger_entry_id cannot be null'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.amount_pence IS NULL OR NEW.amount_pence <= 0 THEN
+    RAISE EXCEPTION 'PAYOUT_LINEAGE_MISMATCH: allocation amount must be positive'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT * INTO v_item FROM public.payout_items WHERE id = NEW.payout_item_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'PAYOUT_LINEAGE_MISSING: payout item % not found', NEW.payout_item_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT * INTO v_ledger FROM public.driver_wallet_ledger WHERE id = NEW.ledger_entry_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'PAYOUT_LINEAGE_MISSING: ledger entry % not found', NEW.ledger_entry_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF v_ledger.driver_id IS DISTINCT FROM v_item.driver_id THEN
+    RAISE EXCEPTION 'PAYOUT_LINEAGE_MISMATCH: ledger belongs to a different driver'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF NOT public.payout_ledger_type_is_payout_eligible(v_ledger.type) THEN
+    RAISE EXCEPTION
+      'PAYOUT_LINEAGE_MISMATCH: ledger type % is not payout-eligible',
+      v_ledger.type
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF v_ledger.related_trip_id IS NOT NULL THEN
+    SELECT financial_model::text INTO v_model FROM public.trips WHERE id = v_ledger.related_trip_id;
+    IF coalesce(v_model, '') = 'DRIVER_COLLECTED_COMMISSION_WALLET' THEN
+      RAISE EXCEPTION
+        'FINANCIAL_MODEL_VIOLATION: Driver-Collected trip entries cannot enter Payout Ledger'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF v_model IS DISTINCT FROM 'PLATFORM_COLLECTED' THEN
+      RAISE EXCEPTION
+        'PAYOUT_LINEAGE_MISMATCH: trip-linked ledger must belong to PLATFORM_COLLECTED'
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  SELECT coalesce(sum(a.amount_pence), 0) INTO v_other
+  FROM public.payout_item_ledger_allocations a
+  JOIN public.payout_items pi ON pi.id = a.payout_item_id
+  WHERE a.ledger_entry_id = NEW.ledger_entry_id
+    AND a.id IS DISTINCT FROM NEW.id
+    AND NOT public.payout_item_status_releases_ledger_allocation(pi.status, pi.execution_status);
+
+  IF v_other + NEW.amount_pence > greatest(v_ledger.amount_pence, 0) THEN
+    RAISE EXCEPTION
+      'PAYOUT_LINEAGE_MISMATCH: ledger entry already allocated to a successful/reserved payout'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
 COMMIT;
