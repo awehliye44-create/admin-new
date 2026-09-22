@@ -962,20 +962,9 @@ export default function AutoDispatchRules() {
                     <Label>No-preconfirmed Fallback (minutes before pickup)</Label>
                     <Input type="number" min="1" max="180" value={settings.urgentDispatchTriggerMinutesBeforePickup}
                       onChange={(e) => updateSetting('urgentDispatchTriggerMinutesBeforePickup', Math.max(1, Math.min(180, parseInt(e.target.value) || 9)))}
-                      disabled={isLoading || !settings.scheduledRidesEnabled || !settings.enableScheduledToUrgentConversion} />
+                      disabled={isLoading || !settings.scheduledRidesEnabled} />
                     <p className="text-xs text-muted-foreground">Safety fallback when still no driver/preconfirm. Default: 9. Does not affect trips with a valid driver.</p>
                   </div>
-                </div>
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <p className="font-medium">Enable Scheduled → Urgent Auto Conversion</p>
-                    <p className="text-sm text-muted-foreground">Allows the No-preconfirmed Fallback path</p>
-                  </div>
-                  <Switch
-                    checked={settings.enableScheduledToUrgentConversion}
-                    onCheckedChange={(checked) => updateSetting('enableScheduledToUrgentConversion', checked)}
-                    disabled={isLoading || !settings.scheduledRidesEnabled}
-                  />
                 </div>
               </TabsContent>
             </Tabs>
