@@ -52,7 +52,7 @@ function parseBool(raw: unknown, fallback: boolean): boolean {
 const DEFAULTS: ScheduledDispatchConfig = {
   enableScheduledToUrgentConversion: true,
   responseWindowMinutes: 10,
-  urgentTriggerMinutesBeforePickup: 5,
+  urgentTriggerMinutesBeforePickup: 9,
   lockedDriverResponseMinutes: 3,
   maxFindDriverMinutes: 3,
   scheduledUrgentCardLabel: "Scheduled • Urgent",
@@ -155,9 +155,10 @@ export type OfferAnchor = {
  *
  * Confirmed drivers never use these anchors for activation (Commitment Policy).
  *
- * Marketplace opens `responseWindow` minutes before the urgent fallback
- * (so drivers get a full response window in Scheduled Jobs). If the booking
- * is created later than that ideal open time, broadcast_at = now (never past).
+ * Create-time HELD bookings stamp convert_at only (T−urgent). Marketplace
+ * `scheduled_broadcast_at` is set by Admin Broadcast Now/At — not at create.
+ * `scheduledBroadcastAt` here remains the *ideal* open time for Admin "Broadcast At"
+ * defaults / pending-release helpers (never auto-applied at create).
  */
 export function computeScheduledDispatchAnchors(input: {
   scheduledAtIso: string;
@@ -177,7 +178,7 @@ export function computeScheduledDispatchAnchors(input: {
 
   const convertAtMs = pickupMs - urgent * 60_000;
   const idealBroadcastMs = convertAtMs - response * 60_000;
-  // Never stamp a past broadcast_at — that collapses the response window to zero.
+  // Ideal Admin Broadcast At suggestion — never past (collapses response window).
   const broadcastAtMs = nowMs < idealBroadcastMs ? idealBroadcastMs : nowMs;
 
   return {
@@ -277,10 +278,12 @@ export const SCHEDULED_OPEN_JOB_TRIP_STATUSES = [
 ] as const;
 
 /**
- * Customer bookings stamp `scheduled_status: scheduled` (not `pending`).
- * Convert must still pick them up once check-in / urgent fallback is due.
+ * Customer bookings stamp `scheduled_status: admin_held` (Admin HELD).
+ * Legacy rows may still be `scheduled` / `pending`.
+ * T−urgent convert must still pick held jobs up when no driver is pre-confirmed.
  */
 export const NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES = [
+  "admin_held",
   "scheduled",
   "pending",
   "broadcasting",
@@ -288,6 +291,15 @@ export const NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES = [
   "awaiting_confirmation",
   "stale",
 ] as const;
+
+/** Create-time Admin HELD — driver marketplace must stay closed. */
+export const ADMIN_HELD_SCHEDULED_STATUS = "admin_held" as const;
+
+export function isAdminHeldScheduledStatus(
+  scheduledStatus: string | null | undefined,
+): boolean {
+  return String(scheduledStatus ?? "").trim().toLowerCase() === ADMIN_HELD_SCHEDULED_STATUS;
+}
 
 export function isNoPreconfirmedConvertScheduledStatus(
   scheduledStatus: string | null | undefined,
@@ -311,6 +323,9 @@ export function buildScheduledUrgentConversionPatch(input: {
   searching_expires_at: string;
   current_broadcast_round: 0;
   updated_at: string;
+  pending_release_kind: null;
+  pending_release_at: null;
+  pending_release_driver_id: null;
 } {
   return {
     dispatch_mode: "instant",
@@ -321,6 +336,10 @@ export function buildScheduledUrgentConversionPatch(input: {
     searching_expires_at: input.searchingExpiresAtIso,
     current_broadcast_round: 0,
     updated_at: input.nowIso,
+    // T−urgent overrides any later Assign At / Broadcast At.
+    pending_release_kind: null,
+    pending_release_at: null,
+    pending_release_driver_id: null,
   };
 }
 

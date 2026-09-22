@@ -417,6 +417,10 @@ Deno.serve(async (req) => {
         typeof body.notification_id === "string" && body.notification_id.trim()
           ? body.notification_id.trim()
           : `driver_assigned-${tripId}-admin`;
+      const pathOverride =
+        typeof body.path === "string" && body.path.startsWith("/")
+          ? body.path.trim()
+          : null;
       await notifyCustomerTripLifecycle(gate.supabase, {
         passengerId,
         tripId,
@@ -424,6 +428,7 @@ Deno.serve(async (req) => {
         ...(title ? { title } : {}),
         ...(notifyBody ? { body: notifyBody } : {}),
         notificationId,
+        ...(pathOverride ? { path: pathOverride } : {}),
       });
       return json({ success: true, action, trip_id: tripId });
     }

@@ -5,18 +5,23 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
+import { findPassengerScheduleOverlap } from "../_shared/passengerScheduleOverlapSSOT.ts";
 
 /**
  * validate-scheduled-booking
  *
- * Called by customer/driver apps BEFORE creating a scheduled trip.
+ * Called by customer apps BEFORE creating a scheduled trip.
  * Validates against admin-configured rules in dispatch_settings:
  *   - scheduled_rides_enabled
- *   - min_advance_time_minutes
+ *   - min_advance_time_minutes  (advance only — NOT overlap)
  *   - max_advance_days
+ * Plus passenger expected-interval overlap (reuse corporate window math).
  *
- * Body: { service_area_id: string, scheduled_at: string (ISO) }
- * Returns: { valid: true } or { valid: false, reason: string }
+ * Body: {
+ *   service_area_id: string,
+ *   scheduled_at: string (ISO),
+ *   estimated_duration_minutes?: number
+ * }
  */
 
 serve(async (req) => {
@@ -25,16 +30,22 @@ serve(async (req) => {
   }
 
   try {
-    const { service_area_id, scheduled_at } = await req.json();
+    const body = await req.json();
+    const service_area_id = body?.service_area_id;
+    const scheduled_at = body?.scheduled_at;
+    const durationMinutes = Math.max(
+      1,
+      Number(body?.estimated_duration_minutes ?? 30),
+    );
 
     if (!service_area_id || !scheduled_at) {
       return errorResponse("service_area_id and scheduled_at are required", 400);
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabase = createClient(supabaseUrl, serviceKey);
 
     const { data: ds, error: dsErr } = await supabase
       .from("global_dispatch_settings")
@@ -55,7 +66,6 @@ serve(async (req) => {
       });
     }
 
-    // 1. Check scheduled_rides_enabled
     if (!ds.scheduled_rides_enabled) {
       return successResponse({
         valid: false,
@@ -68,7 +78,6 @@ serve(async (req) => {
     const now = new Date();
     const minutesUntilPickup = (scheduledDate.getTime() - now.getTime()) / 60000;
 
-    // 2. Check min_advance_time_minutes
     const minAdvance = ds.min_advance_time_minutes ?? 30;
     if (minutesUntilPickup < minAdvance) {
       return successResponse({
@@ -79,7 +88,6 @@ serve(async (req) => {
       });
     }
 
-    // 3. Check max_advance_days
     const maxDays = ds.max_advance_days ?? 30;
     const daysUntilPickup = minutesUntilPickup / 1440;
     if (daysUntilPickup > maxDays) {
@@ -89,6 +97,47 @@ serve(async (req) => {
         code: "TOO_FAR",
         max_advance_days: maxDays,
       });
+    }
+
+    // Passenger overlap — best-effort when JWT present (CTAP is authoritative).
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
+    if (bearer && bearer !== serviceKey && bearer !== anonKey) {
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: `Bearer ${bearer}` } },
+      });
+      const { data: userData } = await userClient.auth.getUser();
+      const userId = userData?.user?.id ?? null;
+      if (userId) {
+        const { data: existing, error: ovErr } = await supabase
+          .from("trips")
+          .select(
+            "id, scheduled_at, estimated_duration_minutes, status, passenger_id, created_at, is_scheduled",
+          )
+          .eq("passenger_id", userId)
+          .limit(200);
+        if (ovErr) {
+          console.error("[validate-scheduled-booking] overlap query failed:", ovErr);
+          return errorResponse("Unable to check booking time conflict", 500);
+        }
+        const overlap = findPassengerScheduleOverlap({
+          candidateScheduledAt: scheduled_at,
+          candidateDurationMinutes: durationMinutes,
+          existing: existing ?? [],
+          nowMs: now.getTime(),
+        });
+        if (overlap.has_conflict) {
+          return successResponse({
+            valid: false,
+            reason: "Booking time conflict",
+            code: "BOOKING_TIME_CONFLICT",
+            conflicting_trip_id: overlap.conflicting_trip_id,
+            conflicting_time: overlap.conflicting_time,
+            min_advance_minutes: minAdvance,
+            max_advance_days: maxDays,
+          });
+        }
+      }
     }
 
     return successResponse({

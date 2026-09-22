@@ -80,6 +80,10 @@ interface ScheduledTrip {
   trip_code: string | null;
   status: string | null;
   scheduled_status: string | null;
+  pending_release_kind: string | null;
+  pending_release_at: string | null;
+  pending_release_driver_id: string | null;
+  confirmed_driver_id: string | null;
   passenger_name: string | null;
   passenger_phone: string | null;
   customer_id?: string | null;
@@ -147,6 +151,7 @@ export default function ScheduledRides() {
   const [isDispatchOpen, setIsDispatchOpen] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState<ScheduledTrip | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState('');
+  const [releaseAtLocal, setReleaseAtLocal] = useState('');
   const [cancelReason, setCancelReason] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [savingAction, setSavingAction] = useState<CriticalButtonAction | null>(null);
@@ -179,6 +184,10 @@ export default function ScheduledRides() {
             trip_code,
             status,
             scheduled_status,
+            pending_release_kind,
+            pending_release_at,
+            pending_release_driver_id,
+            confirmed_driver_id,
             passenger_name,
             passenger_phone,
             pickup_address,
@@ -304,20 +313,32 @@ export default function ScheduledRides() {
       metadata: { trip_id: selectedTrip.id },
     });
     try {
-      // The booking stays "scheduled" with scheduled_status = 'driver_assigned'.
-      // Only when the driver accepts the live dispatch offer does status become 'accepted'.
-      const { error } = await supabase
+      const nowIso = new Date().toISOString();
+      // Assign Now — pre-confirm only; clears any pending Assign At / Broadcast At.
+      // CAS: only while still held / scheduled marketplace (never overwrite live search).
+      const { data: assignedRows, error } = await supabase
         .from('trips')
-        .update({ 
+        .update({
           confirmed_driver_id: selectedDriverId,
           scheduled_status: 'driver_assigned',
-          scheduled_accepted_at: new Date().toISOString(),
+          scheduled_accepted_at: nowIso,
+          status: 'scheduled',
+          driver_id: null,
+          pending_release_kind: null,
+          pending_release_at: null,
+          pending_release_driver_id: null,
         })
-        .eq('id', selectedTrip.id);
+        .eq('id', selectedTrip.id)
+        .in('scheduled_status', ['admin_held', 'scheduled', 'broadcasting', 'pending'])
+        .is('driver_id', null)
+        .select('id');
 
       if (error) throw error;
+      if (!assignedRows?.length) {
+        toast.error('Trip is no longer available to assign (already live or converted)');
+        return;
+      }
 
-      // Scheduled pre-confirm — Customer driver_assigned lifecycle WAV (Edge resolves passenger_id).
       const { error: notifyErr } = await supabase.functions.invoke('admin-trip-action', {
         body: {
           action: 'notify_driver_assigned',
@@ -325,6 +346,7 @@ export default function ScheduledRides() {
           title: 'Driver confirmed',
           body: 'Your driver is confirmed for your scheduled ride.',
           notification_id: `driver_assigned-${selectedTrip.id}-scheduled_admin`,
+          path: '/account/rides',
         },
       });
       if (notifyErr) {
@@ -332,7 +354,7 @@ export default function ScheduledRides() {
       }
 
       perf.complete({ success: true, metadata: { trip_id: selectedTrip.id } });
-      toast.success('Driver assigned successfully');
+      toast.success('Driver assigned (Assign Now)');
       setIsAssignOpen(false);
       setSelectedTrip(null);
       setSelectedDriverId('');
@@ -344,6 +366,49 @@ export default function ScheduledRides() {
     } finally {
       setIsSaving(false);
       setSavingAction(null);
+    }
+  };
+
+  const handleAssignAt = async () => {
+    if (!selectedTrip || !selectedDriverId || !releaseAtLocal) {
+      toast.error('Select a driver and Assign At time');
+      return;
+    }
+    const at = new Date(releaseAtLocal);
+    if (!Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) {
+      toast.error('Assign At must be a future time');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      // One pending action per trip — replaces any prior pending release.
+      // CAS: only while still Admin-held / pre-broadcast (never on live search).
+      const { data: pendingRows, error } = await supabase
+        .from('trips')
+        .update({
+          pending_release_kind: 'assign',
+          pending_release_at: at.toISOString(),
+          pending_release_driver_id: selectedDriverId,
+        })
+        .eq('id', selectedTrip.id)
+        .in('scheduled_status', ['admin_held', 'scheduled', 'pending', 'broadcasting'])
+        .is('driver_id', null)
+        .select('id');
+      if (error) throw error;
+      if (!pendingRows?.length) {
+        toast.error('Trip is no longer available for Assign At');
+        return;
+      }
+      toast.success('Assign At scheduled (backend cron)');
+      setIsAssignOpen(false);
+      setReleaseAtLocal('');
+      setSelectedTrip(null);
+      setSelectedDriverId('');
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to schedule Assign At');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -411,26 +476,103 @@ export default function ScheduledRides() {
 
     setIsSaving(true);
     try {
-      // Mark booking as dispatching — alerts go to drivers.
-      // The booking stays scheduled; customer sees "Upcoming" until a driver ACCEPTS.
-      // Only driver acceptance (accept-trip or accept_scheduled_ride) changes status to live.
-      const { error } = await supabase
+      const nowIso = new Date().toISOString();
+      // Broadcast Now — open marketplace (leaves Admin HELD). Cron Step 2 / auto-dispatch.
+      // CAS: never broadcast over a pre-confirmed or already-converted trip.
+      const { data: broadcastRows, error } = await supabase
         .from('trips')
-        .update({ 
-          scheduled_status: 'dispatching',
+        .update({
+          scheduled_status: 'scheduled',
+          scheduled_broadcast_at: nowIso,
           dispatch_mode: 'scheduled',
+          pending_release_kind: null,
+          pending_release_at: null,
+          pending_release_driver_id: null,
         })
-        .eq('id', selectedTrip.id);
+        .eq('id', selectedTrip.id)
+        .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
+        .is('confirmed_driver_id', null)
+        .is('driver_id', null)
+        .select('id');
 
       if (error) throw error;
+      if (!broadcastRows?.length) {
+        toast.error('Trip already has a driver or is no longer held for broadcast');
+        return;
+      }
 
-      toast.success('Ride dispatched successfully');
+      // Kick the existing scheduled-dispatch Edge (reuse — no parallel engine).
+      void supabase.functions.invoke('scheduled-dispatch', { body: {} });
+
+      toast.success('Broadcast Now — marketplace opened');
       setIsDispatchOpen(false);
       setSelectedTrip(null);
       fetchData();
     } catch (err: any) {
-      console.error('Error dispatching ride:', err);
-      toast.error(err.message || 'Failed to dispatch ride');
+      console.error('Error broadcasting ride:', err);
+      toast.error(err.message || 'Failed to broadcast ride');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleBroadcastAt = async () => {
+    if (!selectedTrip || !releaseAtLocal) {
+      toast.error('Choose a Broadcast At time');
+      return;
+    }
+    const at = new Date(releaseAtLocal);
+    if (!Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) {
+      toast.error('Broadcast At must be a future time');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const { data: pendingRows, error } = await supabase
+        .from('trips')
+        .update({
+          pending_release_kind: 'broadcast',
+          pending_release_at: at.toISOString(),
+          pending_release_driver_id: null,
+        })
+        .eq('id', selectedTrip.id)
+        .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
+        .is('confirmed_driver_id', null)
+        .is('driver_id', null)
+        .select('id');
+      if (error) throw error;
+      if (!pendingRows?.length) {
+        toast.error('Trip is no longer available for Broadcast At');
+        return;
+      }
+      toast.success('Broadcast At scheduled (backend cron)');
+      setIsDispatchOpen(false);
+      setReleaseAtLocal('');
+      setSelectedTrip(null);
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to schedule Broadcast At');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancelPendingRelease = async (trip: ScheduledTrip) => {
+    setIsSaving(true);
+    try {
+      const { error } = await supabase
+        .from('trips')
+        .update({
+          pending_release_kind: null,
+          pending_release_at: null,
+          pending_release_driver_id: null,
+        })
+        .eq('id', trip.id);
+      if (error) throw error;
+      toast.success('Pending release cancelled');
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to cancel pending release');
     } finally {
       setIsSaving(false);
     }
@@ -719,14 +861,23 @@ export default function ScheduledRides() {
                         <Badge variant="outline" className={
                           trip.scheduled_status === 'driver_assigned'
                             ? 'bg-green-100 text-green-700'
+                            : trip.scheduled_status === 'awaiting_activation_accept'
+                            ? 'bg-emerald-100 text-emerald-800'
                             : trip.scheduled_status === 'dispatching'
                             ? 'bg-blue-100 text-blue-700'
+                            : trip.scheduled_status === 'admin_held'
+                            ? 'bg-amber-100 text-amber-800'
+                            : trip.scheduled_status === 'broadcasting'
+                            ? 'bg-indigo-100 text-indigo-700'
                             : trip.status === 'accepted'
                             ? 'bg-green-100 text-green-700' 
                             : 'bg-gray-100 text-gray-700'
                         }>
                           {trip.scheduled_status === 'driver_assigned' ? 'Driver Assigned'
+                            : trip.scheduled_status === 'awaiting_activation_accept' ? 'Awaiting Accept'
                             : trip.scheduled_status === 'dispatching' ? 'Dispatching'
+                            : trip.scheduled_status === 'admin_held' ? 'Held'
+                            : trip.scheduled_status === 'broadcasting' ? 'Broadcasting'
                             : trip.status === 'accepted' ? 'Confirmed'
                             : 'Pending'}
                         </Badge>
@@ -756,14 +907,20 @@ export default function ScheduledRides() {
                               <Eye className="h-4 w-4 mr-2" />
                               View Details
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => { setSelectedTrip(trip); setSelectedDriverId(''); setIsAssignOpen(true); }}>
+                            <DropdownMenuItem onClick={() => { setSelectedTrip(trip); setSelectedDriverId(''); setReleaseAtLocal(''); setIsAssignOpen(true); }}>
                               <UserPlus className="h-4 w-4 mr-2" />
-                              {trip.driver ? 'Reassign Driver' : 'Assign Driver'}
+                              Assign Driver
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => { setSelectedTrip(trip); setIsDispatchOpen(true); }}>
+                            <DropdownMenuItem onClick={() => { setSelectedTrip(trip); setReleaseAtLocal(''); setIsDispatchOpen(true); }}>
                               <Play className="h-4 w-4 mr-2" />
-                              Dispatch Now
+                              Broadcast
                             </DropdownMenuItem>
+                            {trip.pending_release_kind ? (
+                              <DropdownMenuItem onClick={() => void handleCancelPendingRelease(trip)}>
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Cancel pending {trip.pending_release_kind}
+                              </DropdownMenuItem>
+                            ) : null}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem 
                               onClick={() => { setSelectedTrip(trip); setCancelReason(''); setIsCancelOpen(true); }}
@@ -992,7 +1149,7 @@ export default function ScheduledRides() {
           <DialogHeader>
             <DialogTitle>Assign Driver</DialogTitle>
             <DialogDescription>
-              Select a driver for this scheduled ride
+              Assign Now pre-confirms immediately. Assign At is executed by backend cron (one pending action per trip).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1018,13 +1175,29 @@ export default function ScheduledRides() {
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <Label>Assign At (optional)</Label>
+              <Input
+                type="datetime-local"
+                className="mt-2"
+                value={releaseAtLocal}
+                onChange={(e) => setReleaseAtLocal(e.target.value)}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAssignOpen(false)}>Cancel</Button>
-            <Button onClick={handleAssignDriver} disabled={tripActionBusy || !selectedDriverId}>
-              {tripActionBusy && savingAction === 'admin_assign_trip' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Assign Driver
-            </Button>
+            {releaseAtLocal ? (
+              <Button onClick={() => void handleAssignAt()} disabled={isSaving || !selectedDriverId}>
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Assign At
+              </Button>
+            ) : (
+              <Button onClick={handleAssignDriver} disabled={tripActionBusy || !selectedDriverId}>
+                {tripActionBusy && savingAction === 'admin_assign_trip' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Assign Now
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1064,22 +1237,48 @@ export default function ScheduledRides() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Dispatch Now Dialog */}
+      {/* Broadcast Now / At Dialog */}
       <AlertDialog open={isDispatchOpen} onOpenChange={setIsDispatchOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Dispatch Ride Now?</AlertDialogTitle>
+            <AlertDialogTitle>Broadcast scheduled ride</AlertDialogTitle>
             <AlertDialogDescription>
-              This will immediately dispatch this ride and start searching for available drivers.
-              The scheduled time will be ignored.
+              Opens the existing driver marketplace / NRO path. Does not invent a parallel dispatch system.
+              Leave the time empty for Broadcast Now, or set Broadcast At (backend cron).
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="py-2">
+            <Label>Broadcast At (optional)</Label>
+            <Input
+              type="datetime-local"
+              className="mt-2"
+              value={releaseAtLocal}
+              onChange={(e) => setReleaseAtLocal(e.target.value)}
+            />
+          </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep Scheduled</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDispatchNow}>
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Dispatch Now
-            </AlertDialogAction>
+            <AlertDialogCancel>Keep Held</AlertDialogCancel>
+            {releaseAtLocal ? (
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleBroadcastAt();
+                }}
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Broadcast At
+              </AlertDialogAction>
+            ) : (
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleDispatchNow();
+                }}
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Broadcast Now
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

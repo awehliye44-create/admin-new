@@ -514,15 +514,16 @@ Deno.serve(async (req) => {
         urgentTriggerMinutesBeforePickup: cfg.urgentTriggerMinutesBeforePickup,
         responseWindowMinutes: cfg.responseWindowMinutes,
       });
-      scheduledBroadcastAt = anchors.scheduledBroadcastAt;
+      // Admin HELD: no marketplace broadcast_at at create — Admin Broadcast Now/At sets it.
+      scheduledBroadcastAt = null;
       scheduledConvertAt = anchors.scheduledConvertAt;
     }
 
     // Create trip:
     // - IMMEDIATE rides: status="searching" (ready for auto-dispatch)
-    // - SCHEDULED rides: status="requested" (waits for scheduled-dispatch pipeline)
+    // - SCHEDULED rides: status="scheduled" + scheduled_status=admin_held (Admin HELD)
     const isScheduled = payload.when === 'SCHEDULED';
-    const initialStatus = isScheduled ? "requested" : "searching";
+    const initialStatus = isScheduled ? "scheduled" : "searching";
 
     const resolvedVehicleTypeId = await resolveVehicleTypeIdForInsert(supabase, payload);
     if (!isScheduled && !resolvedVehicleTypeId) {
@@ -568,7 +569,7 @@ Deno.serve(async (req) => {
       stops: intermediateStops,
       status: initialStatus,
       scheduled_at: payload.scheduled_at || null,
-      scheduled_status: isScheduled ? 'scheduled' : null, // 'scheduled' for the dispatch pipeline
+      scheduled_status: isScheduled ? 'admin_held' : null,
       dispatch_mode: isScheduled ? 'scheduled' : 'instant',
       scheduled_broadcast_at: scheduledBroadcastAt,
       scheduled_convert_at: scheduledConvertAt,
@@ -741,6 +742,9 @@ Deno.serve(async (req) => {
             trip_number: tripNumber ?? "",
             scheduled_at: trip.scheduled_at ?? "",
             type: "scheduled_booking_confirmed",
+            // Preconfirm / HELD stays on Rides→Scheduled — not Finding/Assigned.
+            path: "/account/rides",
+            screen: "/account/rides",
           },
         },
       }).catch((err: unknown) => {

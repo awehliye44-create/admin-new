@@ -69,6 +69,18 @@ const SCHEDULED_ACTIVATING_STATUSES = new Set([
 ]);
 
 function scheduledWindowReached(row: Record<string, unknown>, nowMs: number): boolean {
+  const scheduledStatus = String(row.scheduled_status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  // Preconfirm / HELD are reserved — not yet activating for Driver busy gate.
+  // awaiting_activation_accept is activation-armed and should still count.
+  if (
+    scheduledStatus === "admin_held" ||
+    scheduledStatus === "driver_assigned"
+  ) {
+    return false;
+  }
   for (const key of ["scheduled_broadcast_at", "scheduled_convert_at", "scheduled_at"]) {
     const raw = row[key];
     if (typeof raw === "string") {
@@ -95,6 +107,18 @@ export function isScheduledJobActivating(
   },
   nowMs = Date.now(),
 ): boolean {
+  const scheduledStatus = String(row.scheduled_status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  // Admin HELD / marketplace preconfirm — not an active Driver workflow yet.
+  if (scheduledStatus === "admin_held" || scheduledStatus === "driver_assigned") {
+    return false;
+  }
+  // Activation NRO pending Accept → Drive to Pickup.
+  if (scheduledStatus === "awaiting_activation_accept") {
+    return true;
+  }
   const status = normalizeRestoreTripStatus(row.status);
   if (status === "scheduled_committed") return true;
   const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);

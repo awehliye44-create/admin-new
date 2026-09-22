@@ -227,8 +227,11 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     : sessionDiscount || Math.max(0, grossFarePence - finalFarePence);
   const discountSource = (body.discount_source ?? null) as DiscountSource;
 
+  // Admin HELD: new scheduled bookings must NOT open the driver marketplace.
+  // Stamp T−urgent convert only; Broadcast Now/At (Admin) sets scheduled_broadcast_at.
   let scheduledBroadcastAt: string | null = null;
   let scheduledConvertAt: string | null = null;
+  let scheduledStatus: string | null = null;
   if (isScheduled && body.scheduled_at) {
     const cfg =
       input.scheduledDispatchConfig ??
@@ -239,8 +242,9 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
       urgentTriggerMinutesBeforePickup: cfg.urgentTriggerMinutesBeforePickup,
       responseWindowMinutes: cfg.responseWindowMinutes,
     });
-    scheduledBroadcastAt = anchors.scheduledBroadcastAt;
+    scheduledBroadcastAt = null;
     scheduledConvertAt = anchors.scheduledConvertAt;
+    scheduledStatus = "admin_held";
   }
 
   const defaultSearchExpiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
@@ -268,7 +272,7 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     stops: intermediateStops,
     status: isScheduled ? "scheduled" : "searching",
     scheduled_at: isScheduled ? body.scheduled_at : null,
-    scheduled_status: isScheduled ? "scheduled" : null,
+    scheduled_status: scheduledStatus,
     dispatch_mode: isScheduled ? "scheduled" : "instant",
     scheduled_broadcast_at: scheduledBroadcastAt,
     scheduled_convert_at: scheduledConvertAt,

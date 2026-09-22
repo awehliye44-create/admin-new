@@ -36,6 +36,14 @@ const ASSIGNED_ACTIVE_SET = new Set(
   RESTORE_ASSIGNED_ACTIVE_STATUSES as readonly string[],
 );
 
+/** Keep in sync with activeTripRestoreCore / get-active-trip. */
+const SCHEDULED_PREACTIVATION_STATUSES = new Set([
+  "admin_held",
+  "awaiting_activation_accept",
+  "driver_assigned",
+  "scheduled_committed",
+]);
+
 export type CustomerAssistantBusySnapshot = {
   searchingOrNegotiating: boolean;
   assignedOrActiveTrip: boolean;
@@ -63,9 +71,21 @@ function isScheduledTrip(row: Record<string, unknown>): boolean {
   return row.is_scheduled === true;
 }
 
+function resolveScheduledStatus(row: Record<string, unknown>): string {
+  return String(row.scheduled_status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+}
+
 function scheduledDispatchWindowReached(row: Record<string, unknown>, nowMs: number): boolean {
   const dispatchMode = String(row.dispatch_mode ?? "").toLowerCase();
   if (dispatchMode === "instant") return true;
+  // Admin HELD / preconfirm / awaiting activation: clocks alone must not treat
+  // the trip as an active/Help-blocking workflow.
+  if (SCHEDULED_PREACTIVATION_STATUSES.has(resolveScheduledStatus(row))) {
+    return false;
+  }
   for (const key of ["scheduled_broadcast_at", "scheduled_convert_at", "scheduled_at"]) {
     const raw = row[key];
     if (typeof raw === "string") {
@@ -76,7 +96,8 @@ function scheduledDispatchWindowReached(row: Record<string, unknown>, nowMs: num
   return false;
 }
 
-/** Same restore candidate rule used by findCustomerActiveTrip. */
+/** Same restore candidate rule used by findCustomerActiveTrip — except HELD /
+ * preconfirm stay list-only and must not block Help & Support. */
 export function isCustomerAssistantLiveTrip(
   row: Record<string, unknown>,
   nowMs = Date.now(),
@@ -100,6 +121,13 @@ export function isCustomerAssistantLiveTrip(
   }
   if (!isRestoreActiveTripStatus(status, "customer")) return false;
   if (!isScheduledTrip(row)) return true;
+
+  const scheduledStatus = resolveScheduledStatus(row);
+  // Upcoming HELD / reserved / activation-armed — Rides→Scheduled only.
+  if (SCHEDULED_PREACTIVATION_STATUSES.has(scheduledStatus)) {
+    return false;
+  }
+
   const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);
   if (hasDriver && ASSIGNED_ACTIVE_SET.has(status)) return true;
   if (status === "scheduled" || status === "scheduled_committed") {

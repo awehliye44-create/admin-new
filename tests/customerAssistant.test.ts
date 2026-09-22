@@ -278,6 +278,37 @@ describe("customer active-workflow gate", () => {
     ).toBe(false);
   });
 
+  it("does not block Admin HELD / preconfirm past convert_at clocks", () => {
+    const pastConvert = new Date(Date.now() - 60_000).toISOString();
+    const futurePickup = new Date(Date.now() + 3_600_000).toISOString();
+    for (const scheduled_status of [
+      "admin_held",
+      "driver_assigned",
+      "awaiting_activation_accept",
+      "scheduled_committed",
+    ]) {
+      expect(
+        isCustomerAssistantBusy(
+          evaluateCustomerAssistantBusyFromRows({
+            trips: [
+              {
+                status: "scheduled",
+                is_scheduled: true,
+                dispatch_mode: "scheduled",
+                scheduled_status,
+                confirmed_driver_id:
+                  scheduled_status === "admin_held" ? null : "drv-1",
+                scheduled_convert_at: pastConvert,
+                scheduled_at: futurePickup,
+              },
+            ],
+            pendingRating: false,
+          }),
+        ),
+      ).toBe(false);
+    }
+  });
+
   it("allows a Customer with no live trip", () => {
     expect(
       isCustomerAssistantBusy(

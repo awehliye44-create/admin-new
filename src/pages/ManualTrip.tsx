@@ -558,11 +558,32 @@ export default function ManualTrip() {
         scheduled_at: isScheduled && scheduledDate && scheduledTime 
           ? new Date(`${scheduledDate}T${scheduledTime}`).toISOString()
           : null,
+        ...(isScheduled
+          ? {
+              dispatch_mode: 'scheduled',
+              scheduled_status: selectedDriverId ? 'driver_assigned' : 'admin_held',
+              scheduled_broadcast_at: null,
+              // T−9 convert anchor (matches bookingSSOT urgent default).
+              scheduled_convert_at: (() => {
+                const pickup = new Date(`${scheduledDate}T${scheduledTime}`);
+                return Number.isFinite(pickup.getTime())
+                  ? new Date(pickup.getTime() - 9 * 60 * 1000).toISOString()
+                  : null;
+              })(),
+              confirmed_driver_id: selectedDriverId || null,
+              // Live driver_id only for immediate manual trips — scheduled stays HELD/preconfirm.
+              driver_id: null,
+            }
+          : {}),
         payment_method: paymentMethod,
         payment_type: paymentMethod,
         job_type: jobType,
         trip_type: isScheduled ? 'scheduled' : 'immediate',
-        status: selectedDriverId ? 'accepted' : (isScheduled ? 'pending' : 'searching'),
+        status: isScheduled
+          ? 'scheduled'
+          : selectedDriverId
+            ? 'accepted'
+            : 'searching',
         currency_code: currencyCode,
         service_area_id: resolvedServiceAreaId,
         booking_source: isCorporateTrip ? 'corporate' : 'admin_manual',
@@ -628,14 +649,24 @@ export default function ManualTrip() {
 
       if (error) throw error;
 
-      // Pre-assigned driver — Customer must hear driver_assigned (not mute DB insert).
+      // Scheduled preconfirm notify stays list-only (/account/rides).
+      // Live assign notify only for immediate trips.
       if (selectedDriverId && createdTrip?.id && passengerId) {
         const { error: notifyErr } = await supabase.functions.invoke('admin-trip-action', {
           body: {
             action: 'notify_driver_assigned',
             trip_id: createdTrip.id,
-            body: 'Your driver has been assigned.',
-            notification_id: `driver_assigned-${createdTrip.id}-manual`,
+            ...(isScheduled
+              ? {
+                  title: 'Driver confirmed',
+                  body: 'Your driver is confirmed for your scheduled ride.',
+                  path: '/account/rides',
+                  notification_id: `driver_assigned-${createdTrip.id}-manual_scheduled`,
+                }
+              : {
+                  body: 'Your driver has been assigned.',
+                  notification_id: `driver_assigned-${createdTrip.id}-manual`,
+                }),
           },
         });
         if (notifyErr) {
@@ -644,7 +675,13 @@ export default function ManualTrip() {
       }
 
       setIsSuccess(true);
-      toast.success('Trip created successfully!');
+      toast.success(
+        isScheduled
+          ? selectedDriverId
+            ? 'Scheduled trip created with driver pre-confirmed (activation via Scheduled NRO).'
+            : 'Scheduled trip created and held for Admin release.'
+          : 'Trip created successfully!',
+      );
     } catch (err: any) {
       console.error('Error creating trip:', err);
       const msg = String(err?.message ?? '');
@@ -679,7 +716,13 @@ export default function ManualTrip() {
             </div>
             <h2 className="text-2xl font-bold mb-2">Trip Created Successfully!</h2>
             <p className="text-muted-foreground mb-6">
-              The trip has been created and {selectedDriverId ? 'assigned to the driver' : 'is now searching for drivers'}.
+              {isScheduled
+                ? selectedDriverId
+                  ? 'The scheduled trip is held with a pre-confirmed driver until activation.'
+                  : 'The scheduled trip is Admin-held until Assign/Broadcast or T−urgent convert.'
+                : selectedDriverId
+                  ? 'The trip has been created and assigned to the driver.'
+                  : 'The trip has been created and is now searching for drivers.'}
             </p>
             <div className="flex gap-4 justify-center">
               <Button variant="outline" onClick={resetForm}>

@@ -71,7 +71,7 @@ serve(async (req) => {
       .select('id')
       .eq('trip_id', trip_id)
       .eq('driver_id', driver_id)
-      .eq('status', 'pending')
+      .in('status', ['pending', 'offered', 'countered'])
       .maybeSingle();
 
     if (lookupErr || !offer) {

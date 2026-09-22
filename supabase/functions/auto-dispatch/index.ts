@@ -509,6 +509,49 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Hard Rule #1 / #4: Admin HELD + preconfirm + activation-armed trips must
+    // never enter marketplace auto-dispatch (even with force_rebroadcast).
+    // Marketplace opens only after Broadcast / Return Job / T−urgent convert.
+    // While dispatch_mode remains `scheduled`, nearby-card waves stay off —
+    // Driver Requested tab + activation NRO own that surface; auto-dispatch
+    // runs only after T−urgent / check-in convert flips mode to instant.
+    // Audit inline (abortDispatch is defined after vehicle-type resolve).
+    {
+      const mode = String(trip.dispatch_mode ?? "").trim().toLowerCase();
+      const sched = String(trip.scheduled_status ?? "").trim().toLowerCase();
+      if (
+        mode === "scheduled" ||
+        sched === "admin_held" ||
+        sched === "driver_assigned" ||
+        sched === "awaiting_activation_accept" ||
+        sched === "scheduled_committed"
+      ) {
+        console.log("[auto-dispatch] Skipping Admin-held / preconfirm / activation / scheduled-mode trip:", {
+          trip_id,
+          dispatch_mode: mode,
+          scheduled_status: sched,
+          force_rebroadcast,
+        });
+        audit("dispatch_aborted", {
+          reason: "SCHEDULED_HELD_OR_PRECONFIRM",
+          trip_id,
+          dispatch_mode: mode,
+          scheduled_status: sched,
+          force_rebroadcast: Boolean(force_rebroadcast),
+        });
+        await Promise.allSettled(auditPromises);
+        return successResponse({
+          success: false,
+          error: "Scheduled trip is Admin-held, pre-confirmed, or not yet converted to instant; marketplace dispatch blocked",
+          trip_id,
+          dispatch_aborted: true,
+          scheduled_held_or_preconfirm: true,
+          dispatch_mode: mode,
+          scheduled_status: sched,
+        });
+      }
+    }
+
     let saReconcile: Awaited<ReturnType<typeof reconcileTripServiceAreaFromPickup>> = null;
     try {
       saReconcile = await reconcileTripServiceAreaFromPickup(supabase, trip);

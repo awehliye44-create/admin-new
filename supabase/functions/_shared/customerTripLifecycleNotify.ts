@@ -232,6 +232,8 @@ export async function notifyCustomerTripLifecycle(
     stopIndex?: number | null;
     /** Override default `${canonicalEvent}-${tripId}` when a second alert for same trip is required. */
     notificationId?: string;
+    /** Override deep-link path (e.g. scheduled preconfirm → /account/rides). */
+    path?: string | null;
   },
 ): Promise<void> {
   const userId = (input.userId ?? input.passengerId ?? "").trim();
@@ -241,6 +243,10 @@ export async function notifyCustomerTripLifecycle(
   const stopIndex =
     typeof input.stopIndex === "number" && Number.isFinite(input.stopIndex)
       ? Math.trunc(input.stopIndex)
+      : null;
+  const pathOverride =
+    typeof input.path === "string" && input.path.startsWith("/")
+      ? input.path.trim()
       : null;
   try {
     await supabase.functions.invoke("send-trip-notification", {
@@ -254,6 +260,7 @@ export async function notifyCustomerTripLifecycle(
         ...(input.fareDisplay ? { fareDisplay: input.fareDisplay } : {}),
         ...(input.driverName ? { driverName: input.driverName } : {}),
         ...(stopIndex != null ? { stopIndex, stop_index: stopIndex } : {}),
+        ...(pathOverride ? { path: pathOverride, screen: pathOverride } : {}),
       },
     });
     console.log("[customer_trip_lifecycle_emitted]", {

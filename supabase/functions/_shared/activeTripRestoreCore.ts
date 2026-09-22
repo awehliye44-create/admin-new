@@ -61,6 +61,17 @@ function isScheduledTrip(row: TripRow): boolean {
 function scheduledDispatchWindowReached(row: TripRow, nowMs: number): boolean {
   const dispatchMode = String(row.dispatch_mode ?? "").toLowerCase();
   if (dispatchMode === "instant") return true;
+  const scheduledStatus = String(row.scheduled_status ?? "").toLowerCase();
+  // Admin HELD / pre-confirm / awaiting activation NRO: clock alone must not
+  // treat the trip as an active restore candidate for Finding/Assigned.
+  if (
+    scheduledStatus === "admin_held" ||
+    scheduledStatus === "awaiting_activation_accept" ||
+    scheduledStatus === "driver_assigned" ||
+    scheduledStatus === "scheduled_committed"
+  ) {
+    return false;
+  }
   for (const key of ["scheduled_broadcast_at", "scheduled_convert_at", "scheduled_at"]) {
     const raw = row[key];
     if (typeof raw === "string") {
@@ -92,6 +103,18 @@ function isCustomerRestoreCandidate(row: TripRow, nowMs: number): boolean {
   }
   if (!isRestoreActiveTripStatus(status, "customer")) return false;
   if (!isScheduledTrip(row)) return true;
+  const scheduledStatus = String(row.scheduled_status ?? "").toLowerCase();
+  // Keep HELD / reserved / awaiting-activation in restore so Scheduled list
+  // handoff can observe them — but never via dispatch-window clock alone.
+  if (
+    scheduledStatus === "admin_held" ||
+    scheduledStatus === "awaiting_activation_accept" ||
+    scheduledStatus === "driver_assigned" ||
+    scheduledStatus === "scheduled_committed"
+  ) {
+    return status === "scheduled" || status === "scheduled_committed" ||
+      status === "accepted" || status === "confirmed";
+  }
   const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);
   if (hasDriver && ASSIGNED_ACTIVE_SET.has(status)) return true;
   if (status === "scheduled" || status === "scheduled_committed") {

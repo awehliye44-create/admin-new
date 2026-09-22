@@ -6,6 +6,7 @@ import {
 } from "../_shared/bookingSSOT.ts";
 import { assertBookingSurgeAtPickup } from "../_shared/demandZoneSurgeSSOT.ts";
 import { resolveScheduledDispatchConfig } from "../_shared/scheduledDispatchConfig.ts";
+import { findPassengerScheduleOverlap } from "../_shared/passengerScheduleOverlapSSOT.ts";
 import { buildBookingPostCommitTasks } from "../_shared/bookingPostCommit.ts";
 import { verifyRevolutHoldForTripCreateFast } from "../_shared/bookingPaymentVerifyFast.ts";
 import {
@@ -982,6 +983,57 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         .eq("singleton", true)
         .maybeSingle();
       scheduledDispatchConfig = resolveScheduledDispatchConfig(globalCfg);
+    }
+
+    // Passenger expected-interval overlap (scheduled↔scheduled and NOW↔scheduled).
+    // Min-advance is NOT used as overlap protection.
+    {
+      const durationMinutes = Math.max(1, Number(body.estimated_duration ?? 30));
+      const { data: existingTrips, error: ovErr } = await supabase
+        .from("trips")
+        .select(
+          "id, scheduled_at, estimated_duration_minutes, status, passenger_id, created_at, is_scheduled",
+        )
+        .eq("passenger_id", customerId)
+        .limit(200);
+      if (ovErr) {
+        return failBookingAfterAuthorizedPayment(
+          supabase,
+          verifiedRevolutOrder,
+          {
+            ...reversalContext,
+            failureStage: "schedule_overlap",
+            failureReason: "overlap_query_failed",
+          },
+          500,
+          BOOKING_FAILED_NO_TRIP_MESSAGE,
+          { code: "BOOKING_TIME_CONFLICT_CHECK_FAILED" },
+        );
+      }
+      const overlap = findPassengerScheduleOverlap({
+        candidateScheduledAt: isScheduled ? String(body.scheduled_at ?? "") : null,
+        candidateIsImmediate: !isScheduled,
+        candidateDurationMinutes: durationMinutes,
+        existing: existingTrips ?? [],
+      });
+      if (overlap.has_conflict) {
+        return failBookingAfterAuthorizedPayment(
+          supabase,
+          verifiedRevolutOrder,
+          {
+            ...reversalContext,
+            failureStage: "schedule_overlap",
+            failureReason: "booking_time_conflict",
+          },
+          409,
+          "Booking time conflict",
+          {
+            code: "BOOKING_TIME_CONFLICT",
+            conflicting_trip_id: overlap.conflicting_trip_id,
+            conflicting_time: overlap.conflicting_time,
+          },
+        );
+      }
     }
 
     const surgeCheck = await assertBookingSurgeAtPickup(supabase, {

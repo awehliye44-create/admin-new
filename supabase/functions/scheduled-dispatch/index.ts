@@ -22,6 +22,11 @@ import {
   isMovingAway,
 } from "../_shared/scheduledDispatchConfig.ts";
 import {
+  buildAssignNowPatch,
+  buildBroadcastNowPatch,
+  isPendingReleaseDue,
+} from "../_shared/scheduledAdminReleaseSSOT.ts";
+import {
   blockedTerminalTripLogPayload,
   isTripTerminalForDispatch,
   revokePendingOffersForTerminalTrip,
@@ -230,22 +235,51 @@ async function releaseAndRebroadcast(
     supabaseUrl: string;
     supabaseServiceKey: string;
     urgent?: boolean;
+    maxFindDriverMinutes?: number;
   },
 ) {
   const { trip, reason, now } = args;
-  const { error } = await supabase
-    .from("trips")
-    .update({
+  const broadcastAt = trip.scheduled_broadcast_at && String(trip.scheduled_broadcast_at).trim()
+    ? trip.scheduled_broadcast_at
+    : now.toISOString();
+
+  // Urgent (activation NRO expire / critical late): flip to instant nearby-card
+  // path then auto-dispatch. Non-urgent: reopen scheduled marketplace only
+  // (Requested tab) — auto-dispatch stays off while dispatch_mode=scheduled.
+  const urgent = args.urgent === true;
+  const maxFind = Math.max(1, Number(args.maxFindDriverMinutes ?? 6));
+  const updatePatch = urgent
+    ? {
+      ...buildScheduledUrgentConversionPatch({
+        nowIso: now.toISOString(),
+        searchingExpiresAtIso: new Date(now.getTime() + maxFind * 60_000).toISOString(),
+      }),
+      driver_id: null,
+      confirmed_driver_id: null,
+      scheduled_broadcast_at: broadcastAt,
+      commitment_time: null,
+      scheduled_committed_at: null,
+    }
+    : {
       driver_id: null,
       confirmed_driver_id: null,
       scheduled_status: "broadcasting",
+      scheduled_broadcast_at: broadcastAt,
       status: "offered",
       commitment_time: null,
       scheduled_committed_at: null,
       updated_at: now.toISOString(),
-    })
+    };
+
+  const { error } = await supabase
+    .from("trips")
+    .update(updatePatch)
     .eq("id", trip.id)
-    .in("scheduled_status", ["scheduled_committed", "driver_assigned"]);
+    .in("scheduled_status", [
+      "scheduled_committed",
+      "driver_assigned",
+      "awaiting_activation_accept",
+    ]);
 
   if (error) {
     console.error("[scheduled-dispatch] releaseAndRebroadcast update failed:", trip.id, error);
@@ -256,21 +290,25 @@ async function releaseAndRebroadcast(
     trip_id: trip.id,
     driver_id: trip.driver_id ?? trip.confirmed_driver_id,
     reason,
+    urgent,
   });
 
-  queueBackground(
-    triggerAutoDispatch({
-      supabaseUrl: args.supabaseUrl,
-      supabaseServiceKey: args.supabaseServiceKey,
-      tripId: trip.id,
-      forceRebroadcast: true,
-      triggerReason: reason,
-    }),
-  );
+  if (urgent) {
+    voidBackground(
+      triggerAutoDispatch({
+        supabaseUrl: args.supabaseUrl,
+        supabaseServiceKey: args.supabaseServiceKey,
+        tripId: trip.id,
+        forceRebroadcast: true,
+        triggerReason: reason,
+      }),
+    );
+  }
 
   // Rematch — lifecycle WAV (finding-another), never mute send-customer-notification / trip_cancelled.
-  queueBackground(notifyCustomerNegotiationRematch(supabase, trip.id));
+  voidBackground(notifyCustomerNegotiationRematch(supabase, trip.id));
 }
+
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
@@ -312,16 +350,181 @@ Deno.serve(async (req) => {
     let convertedToInstant = 0;
     let expired = 0;
     let stackedRedispatched = 0;
+    let pendingReleasesExecuted = 0;
+
+    // ============================================================
+    // STEP 0: ADMIN PENDING RELEASE (Assign At / Broadcast At)
+    // Backend cron — not browser timers. One pending action per trip.
+    // ============================================================
+    {
+      const { data: dueReleases, error: dueErr } = await supabase
+        .from("trips")
+        .select(
+          "id, pending_release_kind, pending_release_at, pending_release_driver_id, confirmed_driver_id, driver_id, scheduled_status, status, dispatch_mode, passenger_id",
+        )
+        .not("pending_release_kind", "is", null)
+        .not("pending_release_at", "is", null)
+        .lte("pending_release_at", now.toISOString())
+        .limit(50);
+
+      if (dueErr) {
+        console.error("[scheduled-dispatch] pending release query failed:", dueErr);
+      } else {
+        for (const trip of dueReleases ?? []) {
+          if (isTripTerminalForDispatch(trip)) continue;
+          if (
+            !isPendingReleaseDue({
+              pending_release_kind: trip.pending_release_kind,
+              pending_release_at: trip.pending_release_at,
+              nowMs,
+            })
+          ) {
+            continue;
+          }
+          const kind = String(trip.pending_release_kind ?? "").toLowerCase();
+          const statusLower = String(trip.status ?? "").toLowerCase();
+          const schedStatusLower = String(trip.scheduled_status ?? "").toLowerCase();
+          // T−urgent convert already cleared pending on convert — but if a row
+          // still has pending after searching/converted, never re-Assign/Broadcast.
+          if (
+            schedStatusLower === "converted_to_instant" ||
+            statusLower === "searching" ||
+            statusLower === "searching_new_driver" ||
+            statusLower === "offered" ||
+            statusLower === "broadcasting" ||
+            statusLower === "en_route_to_pickup" ||
+            statusLower === "in_progress"
+          ) {
+            await supabase
+              .from("trips")
+              .update({
+                pending_release_kind: null,
+                pending_release_at: null,
+                pending_release_driver_id: null,
+              })
+              .eq("id", trip.id);
+            continue;
+          }
+          if (kind === "assign") {
+            const driverId = String(trip.pending_release_driver_id ?? "").trim();
+            if (!driverId) {
+              console.warn(`[scheduled-dispatch] pending assign missing driver for ${trip.id}`);
+              continue;
+            }
+            // Skip if already pre-confirmed or live-assigned.
+            if (trip.confirmed_driver_id || trip.driver_id) {
+              await supabase
+                .from("trips")
+                .update({
+                  pending_release_kind: null,
+                  pending_release_at: null,
+                  pending_release_driver_id: null,
+                })
+                .eq("id", trip.id);
+              continue;
+            }
+            const { data: assignRows, error } = await supabase
+              .from("trips")
+              .update(buildAssignNowPatch({ driverId, nowIso: now.toISOString() }))
+              .eq("id", trip.id)
+              .eq("pending_release_kind", "assign")
+              .in("scheduled_status", ["admin_held", "scheduled", "broadcasting", "pending"])
+              .is("driver_id", null)
+              .is("confirmed_driver_id", null)
+              .select("id");
+            if (error) {
+              console.error("[scheduled-dispatch] pending assign failed:", trip.id, error);
+              continue;
+            }
+            if (!assignRows?.length) {
+              // CAS matched 0 — clear stale pending so cron does not spin.
+              await supabase
+                .from("trips")
+                .update({
+                  pending_release_kind: null,
+                  pending_release_at: null,
+                  pending_release_driver_id: null,
+                })
+                .eq("id", trip.id)
+                .eq("pending_release_kind", "assign");
+              continue;
+            }
+            pendingReleasesExecuted++;
+            await logSnapshot(supabase, {
+              tripId: trip.id,
+              action: "admin_pending_assign_executed",
+              metadata: { driver_id: driverId },
+            });
+            // Same deep-link as Admin Assign Now — preconfirm stays list-only.
+            const passengerId =
+              typeof trip.passenger_id === "string" ? trip.passenger_id.trim() : "";
+            if (passengerId) {
+              voidBackground(
+                notifyCustomerTripLifecycle(supabase, {
+                  passengerId,
+                  tripId: trip.id,
+                  event: "driver_assigned",
+                  title: "Driver confirmed",
+                  body: "Your driver is confirmed for your scheduled ride.",
+                  notificationId: `driver_assigned-${trip.id}-scheduled_assign_at`,
+                  path: "/account/rides",
+                }),
+              );
+            }
+          } else if (kind === "broadcast") {
+            if (trip.confirmed_driver_id || trip.driver_id) {
+              await supabase
+                .from("trips")
+                .update({
+                  pending_release_kind: null,
+                  pending_release_at: null,
+                  pending_release_driver_id: null,
+                })
+                .eq("id", trip.id);
+              continue;
+            }
+            const { data: broadcastRows, error } = await supabase
+              .from("trips")
+              .update(buildBroadcastNowPatch({ nowIso: now.toISOString() }))
+              .eq("id", trip.id)
+              .eq("pending_release_kind", "broadcast")
+              .in("scheduled_status", ["admin_held", "scheduled", "pending"])
+              .is("driver_id", null)
+              .is("confirmed_driver_id", null)
+              .select("id");
+            if (error) {
+              console.error("[scheduled-dispatch] pending broadcast failed:", trip.id, error);
+              continue;
+            }
+            if (!broadcastRows?.length) {
+              await supabase
+                .from("trips")
+                .update({
+                  pending_release_kind: null,
+                  pending_release_at: null,
+                  pending_release_driver_id: null,
+                })
+                .eq("id", trip.id)
+                .eq("pending_release_kind", "broadcast");
+              continue;
+            }
+            pendingReleasesExecuted++;
+            await logSnapshot(supabase, {
+              tripId: trip.id,
+              action: "admin_pending_broadcast_executed",
+              metadata: {},
+            });
+            // Step 2 in this same tick will pick up scheduled_broadcast_at <= now.
+          }
+        }
+      }
+    }
 
     // ============================================================
     // STEP 1: COMMITMENT MODE — confirmed-driver path only
-    // Admin Two paths: check-in / leave-by / Start journey / risk / rescue
-    // — NOT the fixed urgent_dispatch_trigger_minutes_before_pickup.
-    //
-    // No second "accept" required. When now >= commitment_time
-    // (which = scheduled_at − targetArrival − liveEta), the driver
-    // is automatically committed: driver_id is set, the pickup card
-    // is pushed to the driver, and the customer is notified.
+    // At commitment time: strong SCHEDULED RIDE NRO to the pre-confirmed
+    // driver. Driver MUST Accept to enter Drive to Pickup.
+    // Do NOT auto-set en_route / driver_id (no banner Start Trip path).
     // ============================================================
 
     const lookAheadMs = 90 * 60 * 1000; // look 90 min ahead
@@ -331,7 +534,7 @@ Deno.serve(async (req) => {
       .from("trips")
       .select("*")
       .eq("dispatch_mode", "scheduled")
-      .in("scheduled_status", ["scheduled", "driver_assigned"])
+      .in("scheduled_status", ["scheduled", "driver_assigned", "scheduled_committed"])
       .not("confirmed_driver_id", "is", null)
       .is("driver_id", null)
       .lte("scheduled_at", lookAheadThreshold)
@@ -340,7 +543,6 @@ Deno.serve(async (req) => {
     if (activationError) {
       console.error("[scheduled-dispatch] Error fetching trips for activation:", activationError);
     } else if (tripsForActivation && tripsForActivation.length > 0) {
-      // Batch-fetch driver presence locations
       const driverIds = [...new Set(tripsForActivation.map((t: ScheduledTrip) => t.confirmed_driver_id).filter(Boolean))] as string[];
 
       const { data: presenceRows } = await supabase
@@ -361,7 +563,6 @@ Deno.serve(async (req) => {
 
         const confirmedDriverId = trip.confirmed_driver_id!;
         const pickupMs = Date.parse(trip.scheduled_at);
-        const targetArrivalMs = pickupMs - schedConfig.targetArrivalMinutesBeforePickup * 60_000;
 
         const presence = presenceMap.get(confirmedDriverId);
         const etaMinutes = estimateEtaMinutes(
@@ -371,7 +572,6 @@ Deno.serve(async (req) => {
           trip.pickup_longitude,
         );
 
-        // Recompute commitment_time on every tick for accuracy
         let commitmentTimeMs: number;
         if (etaMinutes != null) {
           commitmentTimeMs = computeCommitmentTime({
@@ -380,13 +580,10 @@ Deno.serve(async (req) => {
             targetArrivalMinutesBeforePickup: schedConfig.targetArrivalMinutesBeforePickup,
           }).getTime();
         } else {
-          // Admin Two paths: confirmed drivers use Commitment Policy buffers —
-          // never the no-preconfirmed urgent_dispatch_trigger_minutes_before_pickup.
           commitmentTimeMs =
             pickupMs - schedConfig.targetArrivalMinutesBeforePickup * 60_000;
         }
 
-        // Not yet commitment time — update cached ETA and move on
         if (nowMs < commitmentTimeMs) {
           if (etaMinutes != null) {
             await supabase
@@ -402,81 +599,204 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // ── Commit the driver ──────────────────────────────────
-        console.log("SCHEDULED_COMMITMENT_MODE_TRIGGERED", {
+        // Already awaiting activation NRO — do not spam offers every minute.
+        if (String(trip.scheduled_status) === "awaiting_activation_accept") {
+          continue;
+        }
+        // Defense: never arm activation while still Admin HELD.
+        if (String(trip.scheduled_status) === "admin_held") {
+          continue;
+        }
+
+        console.log("SCHEDULED_ACTIVATION_NRO_TRIGGERED", {
           trip_id: trip.id,
           confirmed_driver_id: confirmedDriverId,
           scheduled_at: trip.scheduled_at,
           commitment_time: new Date(commitmentTimeMs).toISOString(),
           eta_minutes: etaMinutes,
-          driver_lat: presence?.lat,
-          driver_lng: presence?.lng,
         });
 
-        const { error: commitError } = await supabase
+        const responseMinutes = Math.max(
+          1,
+          Number(schedConfig.lockedDriverResponseMinutes ?? 3),
+        );
+        const expiresAt = new Date(nowMs + responseMinutes * 60_000).toISOString();
+
+        // Resolve net BEFORE arming — never leave awaiting_activation_accept
+        // without a live offer (STEP 1a would false-rescue same tick).
+        const netPence = (() => {
+          const fromNet = Number(trip.driver_net_pence ?? trip.driver_net_before_tip_pence ?? 0);
+          if (Number.isFinite(fromNet) && fromNet > 0) return Math.round(fromNet);
+          const fromFarePence = Number(trip.final_fare_pence ?? trip.estimated_total_pence ?? 0);
+          if (Number.isFinite(fromFarePence) && fromFarePence > 0) {
+            return Math.round(fromFarePence);
+          }
+          const fromMajor = Number(trip.estimated_fare ?? trip.fare ?? 0);
+          if (Number.isFinite(fromMajor) && fromMajor > 0) {
+            return Math.round(fromMajor * 100);
+          }
+          return 0;
+        })();
+        if (netPence <= 0) {
+          console.error(`[scheduled-dispatch] Activation offer skipped — no driver net for ${trip.id}`);
+          continue;
+        }
+
+        const offerSnapshot = {
+          scheduled_status: "awaiting_activation_accept",
+          scheduled_at: trip.scheduled_at,
+          dispatch_mode: "scheduled",
+          is_scheduled: true,
+          confirmed_driver_id: confirmedDriverId,
+          pickup_address: trip.pickup_address,
+          pickup_latitude: trip.pickup_latitude,
+          pickup_longitude: trip.pickup_longitude,
+          dropoff_address: trip.dropoff_address,
+          dropoff_latitude: trip.dropoff_latitude,
+          dropoff_longitude: trip.dropoff_longitude,
+          estimated_duration_minutes: trip.estimated_duration_minutes,
+          special_instructions: trip.special_instructions,
+          driver_net_fare_pence: netPence,
+          offered_driver_net_pence: netPence,
+          negotiation_disabled: true,
+          presets_enabled: false,
+        };
+
+        const { data: offerRows, error: offerErr } = await supabase
+          .from("ride_offers")
+          .insert({
+            trip_id: trip.id,
+            driver_id: confirmedDriverId,
+            status: "pending",
+            offered_at: now.toISOString(),
+            expires_at: expiresAt,
+            offered_driver_net_pence: netPence,
+            is_urgent_dispatch: false,
+            offer_snapshot: offerSnapshot,
+          })
+          .select("id");
+
+        if (offerErr || !offerRows?.length) {
+          console.error(
+            `[scheduled-dispatch] Activation offer insert failed:`,
+            trip.id,
+            offerErr,
+          );
+          continue;
+        }
+
+        const { data: armedRows, error: commitError } = await supabase
           .from("trips")
           .update({
-            driver_id: confirmedDriverId,
-            scheduled_status: "scheduled_committed",
-            status: "en_route_to_pickup",
-            dispatch_status: "scheduled_committed",  // §9 SSOT
-            scheduled_committed_at: now.toISOString(),
+            scheduled_status: "awaiting_activation_accept",
             commitment_time: new Date(commitmentTimeMs).toISOString(),
             last_eta_minutes: etaMinutes,
             last_eta_calculated_at: now.toISOString(),
             updated_at: now.toISOString(),
           })
           .eq("id", trip.id)
-          .in("scheduled_status", ["scheduled", "driver_assigned"]);
+          .in("scheduled_status", ["scheduled", "driver_assigned", "scheduled_committed"])
+          .is("driver_id", null)
+          .select("id");
 
-        if (commitError) {
-          console.error(`[scheduled-dispatch] Commit update failed for trip ${trip.id}:`, commitError);
+        if (commitError || !armedRows?.length) {
+          console.error(
+            `[scheduled-dispatch] Activation NRO arm failed for trip ${trip.id}:`,
+            commitError,
+          );
+          // Roll back orphan offer so STEP 1a does not treat this as decline.
+          await supabase
+            .from("ride_offers")
+            .update({ status: "cancelled", updated_at: now.toISOString() })
+            .eq("id", offerRows[0].id);
           continue;
         }
 
         await logSnapshot(supabase, {
           tripId: trip.id,
-          action: "commitment_mode_activated",
+          action: "scheduled_activation_nro",
           stage: "considered",
           driverId: confirmedDriverId,
           metadata: {
             eta_minutes: etaMinutes,
             commitment_time: new Date(commitmentTimeMs).toISOString(),
             scheduled_at: trip.scheduled_at,
+            offer_id: offerRows[0].id,
           },
         });
 
-        // Push to driver: head to pickup
         queueBackground(
           sendDriverPush(supabase, {
             driverId: confirmedDriverId,
             type: "SCHEDULED_COMMITMENT",
-            title: "Time to head to pickup",
-            body: `Your scheduled job is starting. Head to ${trip.pickup_address}.`,
+            title: "SCHEDULED RIDE",
+            body: `Accept now to drive to pickup · ${trip.pickup_address ?? "pickup"}`,
             data: {
               trip_id: trip.id,
               type: "scheduled_commitment",
+              offer_kind: "scheduled",
               pickup_address: trip.pickup_address ?? "",
               scheduled_at: trip.scheduled_at,
             },
           }),
         );
 
-        // Commitment activation — mandatory driver_assigned lifecycle WAV (not mute send-customer-notification).
-        if (trip.passenger_id) {
-          queueBackground(
-            notifyCustomerTripLifecycle(supabase, {
-              passengerId: trip.passenger_id,
-              tripId: trip.id,
-              event: "driver_assigned",
-              title: "ONECAB DRIVER ASSIGNED",
-              body: "Your driver is heading to your pickup location.",
-              notificationId: `driver_assigned-${trip.id}-scheduled_commitment`,
-            }),
-          );
-        }
-
         committedCount++;
+      }
+    }
+
+    // ============================================================
+    // STEP 1a: ACTIVATION NRO EXPIRED / DECLINED → existing rescue
+    // Reuse releaseAndRebroadcast (no parallel rescue engine).
+    // ============================================================
+    {
+      const { data: awaitingRows, error: awaitingErr } = await supabase
+        .from("trips")
+        .select(
+          "id, confirmed_driver_id, driver_id, scheduled_status, status, passenger_id, pickup_address, scheduled_at, trip_number",
+        )
+        .eq("scheduled_status", "awaiting_activation_accept")
+        .is("driver_id", null)
+        .limit(50);
+
+      if (awaitingErr) {
+        console.error("[scheduled-dispatch] awaiting activation query failed:", awaitingErr);
+      } else {
+        for (const trip of awaitingRows ?? []) {
+          if (isTripTerminalForDispatch(trip)) continue;
+          const { data: openOffers } = await supabase
+            .from("ride_offers")
+            .select("id, status, expires_at")
+            .eq("trip_id", trip.id)
+            .eq("driver_id", trip.confirmed_driver_id)
+            .in("status", ["pending", "offered"])
+            .gt("expires_at", now.toISOString())
+            .limit(1);
+
+          if (openOffers && openOffers.length > 0) continue;
+
+          // No live activation offer — expire any stale pending, then rescue.
+          await supabase
+            .from("ride_offers")
+            .update({ status: "expired", updated_at: now.toISOString() })
+            .eq("trip_id", trip.id)
+            .in("status", ["pending", "offered"]);
+
+          console.log("SCHEDULED_ACTIVATION_NRO_RESCUE", {
+            trip_id: trip.id,
+            confirmed_driver_id: trip.confirmed_driver_id,
+          });
+          await releaseAndRebroadcast(supabase, {
+            trip: trip as ScheduledTrip,
+            reason: "scheduled_activation_nro_expired_or_declined",
+            now,
+            nowMs,
+            supabaseUrl,
+            supabaseServiceKey,
+            urgent: true,
+            maxFindDriverMinutes,
+          });
+        }
       }
     }
 
@@ -695,6 +1015,7 @@ Deno.serve(async (req) => {
               supabaseUrl,
               supabaseServiceKey,
               urgent: true,
+              maxFindDriverMinutes,
             });
             // Alert driver they've been unassigned
             queueBackground(
@@ -932,15 +1253,21 @@ Deno.serve(async (req) => {
           searchingExpiresAtIso: searchingExpiresAt,
         });
 
-        const { error: updateError } = await supabase
+        const { data: convertedRows, error: updateError } = await supabase
           .from("trips")
           .update(conversionPatch)
           .eq("id", trip.id)
           .in("scheduled_status", [...NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES])
-          .is("driver_id", null);
+          .is("driver_id", null)
+          .is("confirmed_driver_id", null)
+          .select("id");
 
         if (updateError) {
           console.error(`[scheduled-dispatch] Error converting trip ${trip.id}:`, updateError);
+          continue;
+        }
+        // Assign Now race: 0 matched rows — do NOT triggerAutoDispatch.
+        if (!convertedRows || convertedRows.length === 0) {
           continue;
         }
 
@@ -1081,6 +1408,7 @@ Deno.serve(async (req) => {
       convertedToInstant,
       stackedRedispatched,
       expired,
+      pendingReleasesExecuted,
     };
 
     console.log("[scheduled-dispatch] Summary:", summary);

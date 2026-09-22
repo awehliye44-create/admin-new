@@ -256,6 +256,24 @@ Deno.serve(async (req) => {
           return false;
         }
 
+        // Admin HELD: Driver must not see until Broadcast Now/At opens marketplace.
+        if (String(trip.scheduled_status ?? "").toLowerCase() === "admin_held") {
+          droppedByReason.terminal_scheduled_status += 1;
+          return false;
+        }
+
+        // Align with list_driver_scheduled_jobs: no marketplace until broadcast_at is due.
+        const broadcastAtRaw = trip.scheduled_broadcast_at;
+        if (broadcastAtRaw == null || String(broadcastAtRaw).trim() === "") {
+          droppedByReason.outside_window += 1;
+          return false;
+        }
+        const broadcastAtMs = Date.parse(String(broadcastAtRaw));
+        if (!Number.isFinite(broadcastAtMs) || broadcastAtMs > Date.now()) {
+          droppedByReason.outside_window += 1;
+          return false;
+        }
+
         if (trip.current_offer_driver_id && trip.current_offer_driver_id !== driver_id) {
           droppedByReason.targeted_other_driver += 1;
           return false;
@@ -378,6 +396,39 @@ Deno.serve(async (req) => {
     // ACTION: ACCEPT SCHEDULED RIDE
     // ============================================================
     if (action === "accept") {
+      // Hard Rule #1: never preconfirm from Admin HELD / unreleased marketplace.
+      {
+        const { data: tripGuard } = await supabase
+          .from("trips")
+          .select("id, scheduled_status, scheduled_broadcast_at, driver_id, confirmed_driver_id")
+          .eq("id", trip_id)
+          .maybeSingle();
+        const sched = String(tripGuard?.scheduled_status ?? "").toLowerCase();
+        if (sched === "admin_held") {
+          return errorResponse(
+            "INVALID_STATE",
+            "This scheduled ride is still held by Admin and is not open for drivers.",
+            409,
+          );
+        }
+        const broadcastRaw = tripGuard?.scheduled_broadcast_at;
+        const broadcastMs = broadcastRaw ? Date.parse(String(broadcastRaw)) : NaN;
+        if (
+          !broadcastRaw ||
+          !Number.isFinite(broadcastMs) ||
+          broadcastMs > Date.now()
+        ) {
+          return errorResponse(
+            "INVALID_STATE",
+            "This scheduled ride is not open on the marketplace yet.",
+            409,
+          );
+        }
+        if (tripGuard?.driver_id || tripGuard?.confirmed_driver_id) {
+          return errorResponse("TRIP_ALREADY_TAKEN", "This ride is no longer available", 409);
+        }
+      }
+
       // Use the atomic database function
       const { data, error } = await supabase.rpc("accept_scheduled_ride", {
         p_trip_id: trip_id,
@@ -401,6 +452,27 @@ Deno.serve(async (req) => {
           JSON.stringify(data),
           { status: statusCode, headers: jsonHeaders }
         );
+      }
+
+      // Hard Rule #4 / preconfirm: never leave live driver_id after marketplace Accept.
+      // Activation NRO Accept (scheduled-checkin) is the only path that stamps driver_id.
+      {
+        const nowIso = new Date().toISOString();
+        const { error: preconfirmErr } = await supabase
+          .from("trips")
+          .update({
+            driver_id: null,
+            confirmed_driver_id: driver_id,
+            scheduled_status: "driver_assigned",
+            // Keep list-only trip status — do not flip into live searching/en_route.
+            status: "scheduled",
+            updated_at: nowIso,
+          })
+          .eq("id", trip_id)
+          .or(`confirmed_driver_id.eq.${driver_id},confirmed_driver_id.is.null`);
+        if (preconfirmErr) {
+          console.warn("[scheduled-ride-action] accept preconfirm normalize soft-fail:", preconfirmErr);
+        }
       }
 
       console.log("SCHEDULED_JOB_ACCEPTED", {
@@ -438,6 +510,8 @@ Deno.serve(async (req) => {
             title: "Driver confirmed",
             body: `${driverName} will pick you up for your scheduled ride.`,
             notificationId: `driver_assigned-${trip_id}-scheduled_accept`,
+            // Pre-confirm stays on Rides→Scheduled — not live Assigned.
+            path: "/account/rides",
           });
         }
       } catch (notifErr) {
@@ -527,12 +601,24 @@ Deno.serve(async (req) => {
       // Check if trip is still available
       const { data: trip } = await supabase
         .from("trips")
-        .select("id, driver_id, scheduled_status")
+        .select("id, driver_id, scheduled_status, scheduled_broadcast_at")
         .eq("id", trip_id)
         .single();
 
-      const isAvailable = trip && !trip.driver_id && 
-        ["broadcasting", "scheduled"].includes(trip.scheduled_status || "");
+      const sched = String(trip?.scheduled_status ?? "").toLowerCase();
+      const broadcastRaw = trip?.scheduled_broadcast_at;
+      const broadcastMs = broadcastRaw ? Date.parse(String(broadcastRaw)) : NaN;
+      const broadcastDue =
+        Boolean(broadcastRaw) &&
+        Number.isFinite(broadcastMs) &&
+        broadcastMs <= Date.now();
+      const isAvailable = Boolean(
+        trip &&
+          !trip.driver_id &&
+          sched !== "admin_held" &&
+          ["broadcasting", "scheduled", "pending"].includes(sched) &&
+          broadcastDue,
+      );
 
       return successResponse({ 
         success: true, 
@@ -555,7 +641,7 @@ Deno.serve(async (req) => {
       // Validate trip is confirmed, locked, and assigned to this driver
       const { data: trip, error: tripError } = await supabase
         .from("trips")
-        .select("id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled, scheduled_at")
+        .select("id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled, scheduled_at, scheduled_broadcast_at")
         .eq("id", trip_id)
         .single();
 
@@ -591,10 +677,20 @@ Deno.serve(async (req) => {
       const minutesToPickup = (scheduledAt - nowMs) / 60_000;
 
       // §11/§12 dispatch_status: before commitment → 'available', after → 'urgent_rebroadcast'
-      const wasCommitted = trip.scheduled_status === "scheduled_committed";
+      const wasCommitted =
+        trip.scheduled_status === "scheduled_committed" ||
+        trip.scheduled_status === "awaiting_activation_accept" ||
+        trip.scheduled_status === "driver_assigned";
       const cancelDispatchStatus = wasCommitted ? "urgent_rebroadcast" : "available";
 
-      // Update trip: unlock, remove driver, save cancellation details
+      // Stamp broadcast_at when missing so marketplace / Step 2 can see the job
+      // (Assign Now HELD never had broadcast_at — Return Job must reopen it).
+      const releaseNowIso = new Date().toISOString();
+      const broadcastAt =
+        trip.scheduled_broadcast_at && String(trip.scheduled_broadcast_at).trim()
+          ? trip.scheduled_broadcast_at
+          : releaseNowIso;
+
       const { error: updateError } = await supabase
         .from("trips")
         .update({
@@ -603,15 +699,16 @@ Deno.serve(async (req) => {
           cancelled_by: "driver",
           cancellation_reason: cancellation_reason,
           cancellation_note: cancellation_note || null,
-          cancelled_at: new Date().toISOString(),
+          cancelled_at: releaseNowIso,
           scheduled_status: "broadcasting",
+          scheduled_broadcast_at: broadcastAt,
           status: isCheckinOpen ? "pending" : "offered",
           dispatch_status: cancelDispatchStatus,  // §11/§12 SSOT
           // Reset commitment columns if present
           scheduled_driver_risk: false,
           current_offer_driver_id: null,
           current_offer_expires_at: null,
-          updated_at: new Date().toISOString(),
+          updated_at: releaseNowIso,
         })
         .eq("id", trip_id);
 
@@ -619,6 +716,14 @@ Deno.serve(async (req) => {
         console.error("[scheduled-ride-action] Cancel confirmed error:", updateError);
         return errorResponse("DATABASE_ERROR", updateError.message, 500);
       }
+
+      // Drop any pending activation / marketplace offers for this driver.
+      await supabase
+        .from("ride_offers")
+        .update({ status: "cancelled", updated_at: new Date().toISOString() })
+        .eq("trip_id", trip_id)
+        .eq("driver_id", driver_id)
+        .in("status", ["pending", "offered", "countered"]);
 
       // Log audit event
       await supabase.rpc("log_audit_event", {
@@ -686,6 +791,22 @@ Deno.serve(async (req) => {
         }
 
         console.log("[scheduled-ride-action] Check-in open: converted to instant ride, auto-dispatch triggered");
+      } else {
+        // Pre-window Return Job: reopen marketplace (broadcast_at stamped above).
+        // Nearby auto-dispatch stays off while dispatch_mode=scheduled — kick the
+        // scheduled-dispatch sweep so Requested tab / STEP 2b escalation see it.
+        try {
+          await fetch(`${supabaseUrl}/functions/v1/scheduled-dispatch`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${supabaseKey}`,
+            },
+            body: JSON.stringify({}),
+          });
+        } catch (e) {
+          console.error("[scheduled-ride-action] pre-window scheduled-dispatch kick failed:", e);
+        }
       }
 
       console.log(`[scheduled-ride-action] Driver ${driver_id} cancelled confirmed job ${trip_id}. Reason: ${cancellation_reason}`);
@@ -708,6 +829,8 @@ Deno.serve(async (req) => {
             title: "Driver cancelled",
             body: customerMsg,
             notificationId: `driver_cancelled-scheduled-${trip_id}`,
+            // Pre-window rematch stays list-only; check-in open → Finding.
+            path: isCheckinOpen ? "/booking/finding-drivers" : "/account/rides",
           });
         }
       } catch (notifErr) {

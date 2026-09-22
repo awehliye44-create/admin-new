@@ -78,7 +78,7 @@ export const SCHEDULED_BOOKING_POLICY_DEFAULTS: ScheduledBookingPolicy = {
   max_advance_days: 30,
   scheduled_ride_incentives_enabled: false,
   scheduled_response_window_minutes: 10,
-  urgent_dispatch_trigger_minutes_before_pickup: 5,
+  urgent_dispatch_trigger_minutes_before_pickup: 9,
   locked_driver_response_minutes: 3,
   scheduled_urgent_card_label: "Scheduled • Urgent",
   enable_scheduled_to_urgent_conversion: true,

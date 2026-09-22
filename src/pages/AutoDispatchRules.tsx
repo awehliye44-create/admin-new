@@ -157,7 +157,7 @@ const defaultSettings: DispatchSettings = {
   maxAdvanceDays: 30,
   scheduledRideIncentivesEnabled: false,
   scheduledResponseWindowMinutes: 10,
-  urgentDispatchTriggerMinutesBeforePickup: 5,
+  urgentDispatchTriggerMinutesBeforePickup: 9,
   lockedDriverResponseMinutes: SCHEDULED_COMMITMENT_POLICY_DEFAULTS.driver_response_timeout_minutes,
   scheduledUrgentCardLabel: 'Scheduled • Urgent',
   enableScheduledToUrgentConversion: true,
@@ -1043,11 +1043,11 @@ export default function AutoDispatchRules() {
                     <Input
                       type="number" min="0" max="180"
                       value={settings.urgentDispatchTriggerMinutesBeforePickup}
-                      onChange={(e) => updateSetting('urgentDispatchTriggerMinutesBeforePickup', Math.max(0, Math.min(180, parseInt(e.target.value) || 5)))}
+                      onChange={(e) => updateSetting('urgentDispatchTriggerMinutesBeforePickup', Math.max(0, Math.min(180, parseInt(e.target.value) || 9)))}
                       disabled={isLoading || !settings.scheduledRidesEnabled || !settings.enableScheduledToUrgentConversion}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Does <span className="font-medium">not</span> activate confirmed drivers. Used only when <code className="text-xs">confirmed_driver_id</code> is empty — fixed pickup-minus fallback to start urgent search. Default: 5
+                      Does <span className="font-medium">not</span> activate confirmed drivers. Used only when <code className="text-xs">confirmed_driver_id</code> is empty — fixed pickup-minus fallback to start urgent search. Default: 9
                     </p>
                   </div>
                   <div className="space-y-2">

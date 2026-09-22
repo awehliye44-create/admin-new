@@ -84,6 +84,7 @@ Deno.serve(async (req) => {
     // ── Parse body ───────────────────────────────────────────────────────────
     let body: {
       trip_id: string;
+      action?: string | null;
       driver_lat?: number | null;
       driver_lng?: number | null;
     };
@@ -94,6 +95,7 @@ Deno.serve(async (req) => {
     }
 
     const { trip_id, driver_lat, driver_lng } = body;
+    const action = String(body.action ?? "check_in").trim().toLowerCase();
 
     if (!trip_id || typeof trip_id !== "string") {
       return errorResponse("VALIDATION_ERROR", "trip_id is required", 400);
@@ -103,7 +105,7 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripError } = await supabase
       .from("trips")
       .select(
-        "id, status, scheduled_status, is_scheduled, dispatch_mode, driver_id, confirmed_driver_id, scheduled_at, pickup_latitude, pickup_longitude, passenger_id, pickup_address, scheduled_committed_at",
+        "id, status, scheduled_status, is_scheduled, dispatch_mode, driver_id, confirmed_driver_id, scheduled_at, pickup_latitude, pickup_longitude, passenger_id, pickup_address, scheduled_committed_at, driver_checked_in_at",
       )
       .eq("id", trip_id)
       .single();
@@ -128,12 +130,12 @@ Deno.serve(async (req) => {
       return errorResponse("FORBIDDEN", "You are not assigned to this trip", 403);
     }
 
-    // ── Guard 3: valid check-in state ─────────────────────────────────────────
-    // Allow check-in from: scheduled_committed (new path), driver_assigned, or
-    // the legacy en_route_to_pickup (idempotent).
+    // ── Guard 3: valid check-in / activation state ────────────────────────────
+    // awaiting_activation_accept = commitment-time Scheduled NRO Accept → Drive to Pickup
     const CHECKIN_ALLOWED_STATUSES = new Set([
       "scheduled_committed",
       "driver_assigned",
+      "awaiting_activation_accept",
       "en_route_to_pickup",
     ]);
     if (!CHECKIN_ALLOWED_STATUSES.has(trip.scheduled_status ?? "")) {
@@ -146,37 +148,44 @@ Deno.serve(async (req) => {
 
     // Idempotent: if already en_route, return success immediately
     if (trip.scheduled_status === "driver_en_route" || trip.status === "en_route_to_pickup") {
-      return successResponse({ success: true, already_checked_in: true });
+      return successResponse({ success: true, already_checked_in: true, activated: true });
     }
 
-    // ── Guard 4: check-in time window ─────────────────────────────────────────
+    // Activation Accept = NRO Accept while armed (Driver sends start_journey).
+    // Plain check_in never activates.
+    const wantsActivation =
+      action === "start_journey" &&
+      trip.scheduled_status === "awaiting_activation_accept";
+    const isCheckInOnly = !wantsActivation;
+
+    // ── Guard 4: check-in time window (skip for activation NRO Accept) ────────
     const now = new Date();
     const nowMs = now.getTime();
     const pickupMs = Date.parse(trip.scheduled_at);
-    const windowOpensMs = pickupMs - CHECKIN_WINDOW_OPENS_MINUTES_BEFORE_PICKUP * 60_000;
-    const windowClosesMs = pickupMs + CHECKIN_WINDOW_GRACE_AFTER_PICKUP_MINUTES * 60_000;
+    if (isCheckInOnly) {
+      const windowOpensMs = pickupMs - CHECKIN_WINDOW_OPENS_MINUTES_BEFORE_PICKUP * 60_000;
+      const windowClosesMs = pickupMs + CHECKIN_WINDOW_GRACE_AFTER_PICKUP_MINUTES * 60_000;
 
-    if (nowMs < windowOpensMs) {
-      const minutesUntilWindow = Math.ceil((windowOpensMs - nowMs) / 60_000);
-      return errorResponse(
-        "TOO_EARLY",
-        `Check-in window opens in ${minutesUntilWindow} minutes.`,
-        409,
-      );
-    }
-    if (nowMs > windowClosesMs) {
-      return errorResponse(
-        "WINDOW_CLOSED",
-        "Check-in window has closed. The trip may have expired.",
-        409,
-      );
+      if (nowMs < windowOpensMs) {
+        const minutesUntilWindow = Math.ceil((windowOpensMs - nowMs) / 60_000);
+        return errorResponse(
+          "TOO_EARLY",
+          `Check-in window opens in ${minutesUntilWindow} minutes.`,
+          409,
+        );
+      }
+      if (nowMs > windowClosesMs) {
+        return errorResponse(
+          "WINDOW_CLOSED",
+          "Check-in window has closed. The trip may have expired.",
+          409,
+        );
+      }
     }
 
-    // ── Guard 5: proximity check ──────────────────────────────────────────────
-    // Only enforce if trip has pickup coordinates and driver provided location.
-    // If no driver location is provided by the client (e.g. GPS unavailable),
-    // we allow check-in anyway to avoid blocking the driver.
+    // ── Guard 5: proximity check (skip for activation NRO Accept) ─────────────
     if (
+      isCheckInOnly &&
       driver_lat != null && driver_lng != null &&
       trip.pickup_latitude != null && trip.pickup_longitude != null
     ) {
@@ -195,24 +204,81 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── All guards passed — commit check-in ──────────────────────────────────
-    const { error: updateError } = await supabase
+    // ── All guards passed ────────────────────────────────────────────────────
+    if (isCheckInOnly) {
+      if (action === "start_journey") {
+        return errorResponse(
+          "INVALID_STATE",
+          "Drive to Pickup requires the Scheduled Ride activation offer. Accept the NRO first.",
+          409,
+        );
+      }
+      const { error: checkInErr } = await supabase
+        .from("trips")
+        .update({
+          driver_checked_in_at: now.toISOString(),
+          updated_at: now.toISOString(),
+        })
+        .eq("id", trip_id)
+        .or(`confirmed_driver_id.eq.${driverId},driver_id.eq.${driverId}`);
+
+      if (checkInErr) {
+        console.error("[scheduled-checkin] Check-in stamp failed:", checkInErr);
+        return errorResponse("DATABASE_ERROR", checkInErr.message, 500);
+      }
+
+      console.log("SCHEDULED_CHECKIN_STAMPED", {
+        trip_id,
+        driver_id: driverId,
+        action,
+        scheduled_status: trip.scheduled_status,
+      });
+      return successResponse({
+        success: true,
+        checked_in: true,
+        activated: false,
+      });
+    }
+
+    const { data: activatedRows, error: updateError } = await supabase
       .from("trips")
       .update({
         driver_id: driverId,
         status: "en_route_to_pickup",
         scheduled_status: "driver_en_route",
+        driver_checked_in_at: trip.driver_checked_in_at ?? now.toISOString(),
         updated_at: now.toISOString(),
       })
       .eq("id", trip_id)
-      .or(`confirmed_driver_id.eq.${driverId},driver_id.eq.${driverId}`);
+      .eq("scheduled_status", "awaiting_activation_accept")
+      .or(`confirmed_driver_id.eq.${driverId},driver_id.eq.${driverId}`)
+      .select("id");
 
     if (updateError) {
       console.error("[scheduled-checkin] Update failed:", updateError);
       return errorResponse("DATABASE_ERROR", updateError.message, 500);
     }
+    if (!activatedRows?.length) {
+      return errorResponse(
+        "INVALID_STATE",
+        "Drive to Pickup requires the Scheduled Ride activation offer. Accept the NRO first.",
+        409,
+      );
+    }
 
-    console.log("SCHEDULED_CHECKIN_SUCCESS", {
+    // Mark the activation NRO accepted so STEP 1a rescue does not false-release.
+    await supabase
+      .from("ride_offers")
+      .update({
+        status: "accepted",
+        responded_at: now.toISOString(),
+        updated_at: now.toISOString(),
+      })
+      .eq("trip_id", trip_id)
+      .eq("driver_id", driverId)
+      .in("status", ["pending", "offered", "countered"]);
+
+    console.log("SCHEDULED_ACTIVATION_ACCEPT_SUCCESS", {
       trip_id,
       driver_id: driverId,
       scheduled_at: trip.scheduled_at,
@@ -242,7 +308,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    return successResponse({ success: true, checked_in: true });
+    return successResponse({ success: true, checked_in: true, activated: true });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Internal server error";
     console.error("[scheduled-checkin] Error:", err);

@@ -59,9 +59,26 @@ function isScheduledTrip(row: TripRow): boolean {
   return row.is_scheduled === true;
 }
 
+/** Keep in sync with activeTripRestoreCore — HELD / preconfirm / activation-armed. */
+const SCHEDULED_PREACTIVATION_STATUSES = new Set([
+  "admin_held",
+  "awaiting_activation_accept",
+  "driver_assigned",
+  "scheduled_committed",
+]);
+
 function scheduledDispatchWindowReached(row: TripRow, nowMs: number): boolean {
   const dispatchMode = String(row.dispatch_mode ?? "").toLowerCase();
   if (dispatchMode === "instant") return true;
+  const scheduledStatus = String(row.scheduled_status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  // Admin HELD / preconfirm / awaiting activation NRO: clocks alone must not
+  // treat the trip as Customer live (Finding / Assigned).
+  if (SCHEDULED_PREACTIVATION_STATUSES.has(scheduledStatus)) {
+    return false;
+  }
 
   return [
     row.scheduled_broadcast_at,
@@ -199,6 +216,11 @@ function isCustomerLiveTrip(row: TripRow, nowMs: number): boolean {
   }
 
   if (!isScheduledTrip(row)) return true;
+
+  // Preconfirm / HELD / activation-armed stay on Rides→Scheduled — never live.
+  if (SCHEDULED_PREACTIVATION_STATUSES.has(scheduledStatus)) {
+    return false;
+  }
 
   const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);
   return (

@@ -407,7 +407,16 @@ serve(async (req) => {
     const iosSound = customerIosSoundFileForEvent(event);
     const iosCategory = customerIosCategoryIdForEvent(event);
     const priority = EVENT_PRIORITY[event] || EVENT_PRIORITY[body.event] || 'high';
-    const screen = EVENT_SCREEN[event] || EVENT_SCREEN[body.event] || '/booking/driver-accepted';
+    const screen =
+      (typeof body.path === "string" && body.path.startsWith("/")
+        ? body.path.trim()
+        : null) ||
+      (typeof body.screen === "string" && body.screen.startsWith("/")
+        ? body.screen.trim()
+        : null) ||
+      EVENT_SCREEN[event] ||
+      EVENT_SCREEN[body.event] ||
+      '/booking/driver-accepted';
 
     // Data payload for the app
     const enqueuedAt = new Date().toISOString();

@@ -256,6 +256,7 @@ serve(async (req) => {
           .eq("id", trip.id)
           .in("scheduled_status", [...NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES])
           .is("driver_id", null)
+          .is("confirmed_driver_id", null)
           .select("id");
 
         if (convertErr) {
