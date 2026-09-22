@@ -43,3 +43,25 @@ Deno.test("execute claim failure is OCCURRENCE_CLAIM_FAILED not SCHEDULER_NOT_IN
   assertStringIncludes(src, "classifyWeeklyOccurrenceClaimFailure");
   assertEquals(src.includes("SCHEDULER_NOT_INVOKED"), false);
 });
+
+Deno.test("in-flight SUBMITTED still reconciles when settled funds dropped by this pay", async () => {
+  const { shouldContinueOrchestratorMoneyPath } = await import(
+    "../../functions/_shared/weeklyPayoutOrchestratorSSOT.ts"
+  );
+  const gate = shouldContinueOrchestratorMoneyPath({
+    dry_run: false,
+    live_enabled: true,
+    transport_enabled: true,
+    has_batch: true,
+    fresh_eligible_count: 1,
+    in_flight_item_count: 1,
+    blocker_code: "INSUFFICIENT_SETTLED_FUNDS",
+  });
+  assertEquals(gate.continue, true);
+  assertEquals(gate.reconciling_in_flight, true);
+  const src = await read("admin-execute-weekly-payout-occurrence/index.ts");
+  assertStringIncludes(src, 'blocker === "INSUFFICIENT_SETTLED_FUNDS"');
+  const submitAt = src.indexOf("await relayApprovedDriverPayoutPayment({");
+  const statusAt = src.indexOf("await relayApprovedDriverPayoutPaymentStatus({");
+  assertEquals(statusAt > 0 && statusAt < submitAt, true);
+});

@@ -336,6 +336,8 @@ export function isOrchestratorInFlightItemStatus(
  * Continue LIVE money path when either fresh eligible drivers exist OR the
  * occurrence batch already has in-flight items (reserved/submitted/unknown).
  * Prevents ZERO_ELIGIBLE after reservation from abandoning provider reconciliation.
+ * In-flight SUBMITTED pays already reduced settled funds — INSUFFICIENT_SETTLED_FUNDS
+ * must not block GET-only reconcile of the existing provider reference.
  */
 export function shouldContinueOrchestratorMoneyPath(args: {
   dry_run: boolean;
@@ -346,9 +348,13 @@ export function shouldContinueOrchestratorMoneyPath(args: {
   in_flight_item_count: number;
   blocker_code: string | null | undefined;
 }): { continue: boolean; reconciling_in_flight: boolean; ignore_zero_eligible_blocker: boolean } {
-  const reconciling_in_flight = args.fresh_eligible_count <= 0 && args.in_flight_item_count > 0;
+  const reconciling_in_flight = args.in_flight_item_count > 0;
   const ignore_zero_eligible_blocker = reconciling_in_flight
-    && (args.blocker_code == null || args.blocker_code === "ZERO_ELIGIBLE_DRIVERS");
+    && (
+      args.blocker_code == null
+      || args.blocker_code === "ZERO_ELIGIBLE_DRIVERS"
+      || args.blocker_code === "INSUFFICIENT_SETTLED_FUNDS"
+    );
   const blockerBlocks = args.blocker_code != null && !ignore_zero_eligible_blocker;
   const continuePath = !args.dry_run
     && args.live_enabled

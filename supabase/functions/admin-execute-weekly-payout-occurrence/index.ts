@@ -110,6 +110,21 @@ async function assertAdmin(req: Request, supabase: AnySupabase): Promise<
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  try {
+    return await handleWeeklyPayoutOccurrence(req);
+  } catch (err) {
+    console.error("[orchestrator] unhandled", err);
+    return json({
+      success: false,
+      error: "unhandled_orchestrator_exception",
+      message: err instanceof Error ? err.message : String(err),
+      revolut_pay_called: false,
+      wallet_debited: false,
+    }, 500);
+  }
+});
+
+async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
 
   const live = isLivePayoutExecutionEnabled();
   const transport = isRevolutPaymentTransportEnabled();
@@ -600,7 +615,21 @@ Deno.serve(async (req) => {
     for (const it of existingBatchItems) {
       itemIdsByDriver.set(it.driver_id, it.id);
     }
-  } else if (!dryRun) {
+  }
+
+  const moneyAmounts = resolveWeeklyOccurrenceMoneyAmounts({
+    frozen_items: existingBatchItems.map((it) => ({
+      driver_id: it.driver_id,
+      amount_pence: it.amount_pence,
+    })),
+    planned_items: planned.map((p) => ({
+      driver_id: p.driver_id,
+      amount_pence: p.amount_pence,
+    })),
+  });
+  requiredBatchPence = moneyAmounts.required_batch_pence;
+
+  if (!batchId && !dryRun && moneyAmounts.items.length > 0) {
     const runDate = occurrence.scheduled_utc_at.slice(0, 10);
     const { data: batch, error: batchError } = await supabase
       .from("payout_batches")
@@ -608,19 +637,14 @@ Deno.serve(async (req) => {
         kind: WEEKLY_PAYOUT_BATCH_KIND,
         run_date: runDate,
         status: "ELIGIBILITY_SNAPSHOTTED",
-        total_drivers: planned.length,
+        total_drivers: moneyAmounts.items.length,
         total_amount_pence: requiredBatchPence,
-        eligible_driver_count: planned.length,
+        eligible_driver_count: moneyAmounts.items.length,
         service_area_id: occurrence.service_area_id ?? resolvedServiceAreaId,
         schedule_id: occurrence.schedule_id,
         schedule_occurrence_key: occurrenceKey,
         frequency: occurrence.frequency,
         scheduled_local_at: occurrence.scheduled_local_at,
-      period_start: occurrencePeriod.period_start,
-      period_end: occurrencePeriod.period_end,
-      period_timezone: occurrencePeriod.timezone,
-      weekly_fee_pence: WEEKLY_PAYOUT_FEE_PENCE,
-      money_amount_source: moneyAmounts.source,
         scheduled_utc_at: occurrence.scheduled_utc_at,
         timezone: occurrence.timezone,
         currency: occurrence.currency,
@@ -695,17 +719,6 @@ Deno.serve(async (req) => {
     }).eq("id", batchId);
   }
 
-  const moneyAmounts = resolveWeeklyOccurrenceMoneyAmounts({
-    frozen_items: existingBatchItems.map((it) => ({
-      driver_id: it.driver_id,
-      amount_pence: it.amount_pence,
-    })),
-    planned_items: planned.map((p) => ({
-      driver_id: p.driver_id,
-      amount_pence: p.amount_pence,
-    })),
-  });
-  requiredBatchPence = moneyAmounts.required_batch_pence;
   const fundingGate = evaluateBatchFundingGate({
     required_batch_pence: requiredBatchPence,
     available_pence: fundingAvailable,
@@ -803,7 +816,10 @@ Deno.serve(async (req) => {
     in_flight_item_count: inFlightExisting.length,
     blocker_code: blocker,
   });
-  if (moneyGate.ignore_zero_eligible_blocker && blocker === "ZERO_ELIGIBLE_DRIVERS") {
+  if (
+    moneyGate.ignore_zero_eligible_blocker
+    && (blocker === "ZERO_ELIGIBLE_DRIVERS" || blocker === "INSUFFICIENT_SETTLED_FUNDS")
+  ) {
     blocker = null;
   }
   const moneyPath = moneyGate.continue && moneyWork.length > 0;
@@ -1549,4 +1565,4 @@ Deno.serve(async (req) => {
       ? "Orchestrator in progress â later ticks will reconcile unfinished items"
       : `Orchestrator finished â ${agg.status}`,
   });
-});
+}
