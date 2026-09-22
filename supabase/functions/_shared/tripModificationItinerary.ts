@@ -2,6 +2,9 @@
  * Canonical itinerary rebuild for trip modifications.
  * Order is always: pickup (0) → intermediate stops (1..n) → dropoff (n+1).
  * Never append an intermediate after dropoff.
+ *
+ * Past stops are immutable. Modifications only change the remaining route:
+ * future (unlocked) intermediates + final drop-off.
  */
 
 export type ItineraryStop = {
@@ -19,6 +22,25 @@ export type ItineraryDropoff = {
   lng: number;
 };
 
+const STATUS_LOCKED = new Set(["completed", "skipped", "arrived", "departed"]);
+
+const PRE_PICKUP_STATUSES = new Set([
+  "accepted",
+  "confirmed",
+  "driver_assigned",
+  "en_route",
+  "en_route_to_pickup",
+  "enroute_to_pickup",
+  "driver_en_route",
+  "driver_arriving",
+  "arrived",
+  "arrived_pickup",
+  "arrived_at_pickup",
+  "at_pickup",
+  "pickup_waiting",
+  "waiting",
+]);
+
 function hasValidCoords(lat: unknown, lng: unknown): boolean {
   return (
     typeof lat === "number" &&
@@ -27,6 +49,73 @@ function hasValidCoords(lat: unknown, lng: unknown): boolean {
     Number.isFinite(lng) &&
     !(lat === 0 && lng === 0)
   );
+}
+
+function asType(stop: ItineraryStop): string {
+  return String(stop.type ?? "stop").toLowerCase().replace(/-/g, "_");
+}
+
+function isIntermediateType(type: string): boolean {
+  return type === "stop" || type === "via" || type === "intermediate" || type === "";
+}
+
+/** Status-based lock (completed / arrived / skipped / departed). */
+export function isStatusLockedStop(stop: ItineraryStop): boolean {
+  return STATUS_LOCKED.has(String(stop.status ?? "").toLowerCase());
+}
+
+/** Current navigation target index (pickup pre-trip, else first unlocked non-pickup). */
+export function resolveNavStopIndex(
+  stops: ItineraryStop[],
+  tripStatus: string,
+): number | null {
+  const sorted = [...stops].sort((a, b) => (a.stop_index ?? 0) - (b.stop_index ?? 0));
+  const status = String(tripStatus ?? "").toLowerCase();
+  if (PRE_PICKUP_STATUSES.has(status)) {
+    const pickup = sorted.find((s) => asType(s) === "pickup");
+    return pickup?.stop_index ?? 0;
+  }
+  const nav =
+    sorted.find((s) => asType(s) !== "pickup" && !isStatusLockedStop(s)) ??
+    sorted.find((s) => {
+      const t = asType(s);
+      return t === "dropoff" || t === "drop_off" || t === "destination";
+    });
+  return nav?.stop_index ?? null;
+}
+
+/**
+ * Past intermediate = status-locked OR behind the current navigation index.
+ * Only future intermediates + final drop-off are mutable.
+ */
+export function isPastIntermediateStop(
+  stop: ItineraryStop,
+  allStops: ItineraryStop[],
+  tripStatus: string,
+): boolean {
+  if (!isIntermediateType(asType(stop))) return false;
+  if (isStatusLockedStop(stop)) return true;
+  const navIdx = resolveNavStopIndex(allStops, tripStatus);
+  if (navIdx == null) return false;
+  return (stop.stop_index ?? -1) < navIdx;
+}
+
+/** Split a flat stop list into pickup / intermediates / dropoff. */
+export function partitionItineraryStops(stops: ItineraryStop[]): {
+  pickup: ItineraryStop | null;
+  intermediates: ItineraryStop[];
+  dropoff: ItineraryStop | null;
+} {
+  let pickup: ItineraryStop | null = null;
+  let dropoff: ItineraryStop | null = null;
+  const intermediates: ItineraryStop[] = [];
+  for (const stop of stops) {
+    const t = asType(stop);
+    if (t === "pickup") pickup = stop;
+    else if (t === "dropoff" || t === "drop_off" || t === "destination") dropoff = stop;
+    else intermediates.push(stop);
+  }
+  return { pickup, intermediates, dropoff };
 }
 
 /**
@@ -73,30 +162,9 @@ export function assertFinalDropoffRequired(args: {
   return { ok: true };
 }
 
-function asType(stop: ItineraryStop): string {
-  return String(stop.type ?? "stop").toLowerCase().replace(/-/g, "_");
-}
-
-/** Split a flat stop list into pickup / intermediates / dropoff. */
-export function partitionItineraryStops(stops: ItineraryStop[]): {
-  pickup: ItineraryStop | null;
-  intermediates: ItineraryStop[];
-  dropoff: ItineraryStop | null;
-} {
-  let pickup: ItineraryStop | null = null;
-  let dropoff: ItineraryStop | null = null;
-  const intermediates: ItineraryStop[] = [];
-  for (const stop of stops) {
-    const t = asType(stop);
-    if (t === "pickup") pickup = stop;
-    else if (t === "dropoff" || t === "drop_off" || t === "destination") dropoff = stop;
-    else intermediates.push(stop);
-  }
-  return { pickup, intermediates, dropoff };
-}
-
 /**
  * Rebuild a contiguous itinerary. Intermediates are always inserted before dropoff.
+ * Preserves each intermediate's status when provided (past completed stays completed).
  */
 export function rebuildItineraryStops(args: {
   pickup: ItineraryStop;
@@ -132,6 +200,52 @@ export function rebuildItineraryStops(args: {
   ];
 }
 
+/**
+ * Authoritative remaining-route rebuild:
+ * past intermediates from `beforeStops` stay immutable; only `futureIntermediates`
+ * + dropoff may change.
+ */
+export function rebuildRemainingRouteItinerary(args: {
+  beforeStops: ItineraryStop[];
+  futureIntermediates: ItineraryStop[];
+  dropoff: ItineraryDropoff;
+  tripStatus: string;
+  pickupFallback?: ItineraryDropoff;
+}): ItineraryStop[] {
+  const parts = partitionItineraryStops(args.beforeStops);
+  const pickup = parts.pickup ?? {
+    address: args.pickupFallback?.address ?? "",
+    lat: args.pickupFallback?.lat ?? 0,
+    lng: args.pickupFallback?.lng ?? 0,
+    type: "pickup",
+    status: "pending",
+    stop_index: 0,
+  };
+  const past = parts.intermediates.filter((s) =>
+    isPastIntermediateStop(s, args.beforeStops, args.tripStatus),
+  );
+  return rebuildItineraryStops({
+    pickup,
+    intermediates: [
+      ...past.map((s) => ({
+        address: s.address,
+        lat: s.lat,
+        lng: s.lng,
+        type: "stop",
+        status: s.status ?? "completed",
+      })),
+      ...args.futureIntermediates.map((s) => ({
+        address: s.address,
+        lat: s.lat,
+        lng: s.lng,
+        type: "stop",
+        status: "pending",
+      })),
+    ],
+    dropoff: args.dropoff,
+  });
+}
+
 /** Insert new intermediate stops before dropoff and reindex. */
 export function appendIntermediateStops(args: {
   stops: ItineraryStop[];
@@ -162,14 +276,17 @@ export function removeIntermediateStop(args: {
   stopIndexToRemove: number;
   pickupFallback: ItineraryDropoff;
   dropoffFallback: ItineraryDropoff;
+  tripStatus?: string;
 }): { ok: true; stops: ItineraryStop[] } | { ok: false; reason: "not_found" | "locked" } {
   const parts = partitionItineraryStops(args.stops);
   const target = parts.intermediates.find(
     (s) => (s.stop_index ?? -1) === args.stopIndexToRemove,
   );
   if (!target) return { ok: false, reason: "not_found" };
-  const status = String(target.status ?? "").toLowerCase();
-  if (status === "completed" || status === "skipped" || status === "arrived") {
+  if (
+    isPastIntermediateStop(target, args.stops, args.tripStatus ?? "") ||
+    isStatusLockedStop(target)
+  ) {
     return { ok: false, reason: "locked" };
   }
   const pickup = parts.pickup ?? {

@@ -3,6 +3,7 @@ import {
   appendIntermediateStops,
   assertFinalDropoffRequired,
   rebuildItineraryStops,
+  rebuildRemainingRouteItinerary,
   removeIntermediateStop,
 } from "../../functions/_shared/tripModificationItinerary.ts";
 
@@ -137,6 +138,130 @@ Deno.test("assertFinalDropoffRequired rejects missing / trailing-stop itinerarie
   assertEquals(ok.ok, true);
 });
 
+Deno.test("rebuildRemainingRouteItinerary keeps past stops; only future + dropoff change", () => {
+  const before = [
+    {
+      address: "Pickup",
+      lat: 1,
+      lng: 1,
+      type: "pickup",
+      status: "completed",
+      stop_index: 0,
+    },
+    {
+      address: "Past Shop",
+      lat: 2,
+      lng: 2,
+      type: "stop",
+      status: "completed",
+      stop_index: 1,
+    },
+    {
+      address: "Future Cafe",
+      lat: 3,
+      lng: 3,
+      type: "stop",
+      status: "pending",
+      stop_index: 2,
+    },
+    {
+      address: "Old Drop",
+      lat: 4,
+      lng: 4,
+      type: "dropoff",
+      status: "pending",
+      stop_index: 3,
+    },
+  ];
+  const after = rebuildRemainingRouteItinerary({
+    beforeStops: before,
+    futureIntermediates: [
+      { address: "New Stop", lat: 5, lng: 5, type: "stop", status: "pending" },
+    ],
+    dropoff: { address: "New Drop", lat: 6, lng: 6 },
+    tripStatus: "in_progress",
+  });
+  assertEquals(
+    after.map((s) => ({ type: s.type, index: s.stop_index, address: s.address, status: s.status })),
+    [
+      { type: "pickup", index: 0, address: "Pickup", status: "completed" },
+      { type: "stop", index: 1, address: "Past Shop", status: "completed" },
+      { type: "stop", index: 2, address: "New Stop", status: "pending" },
+      { type: "dropoff", index: 3, address: "New Drop", status: "pending" },
+    ],
+  );
+});
+
+Deno.test("removeIntermediateStop rejects past / locked stops", () => {
+  const before = [
+    {
+      address: "Pickup",
+      lat: 1,
+      lng: 1,
+      type: "pickup",
+      status: "completed",
+      stop_index: 0,
+    },
+    {
+      address: "Past",
+      lat: 2,
+      lng: 2,
+      type: "stop",
+      status: "completed",
+      stop_index: 1,
+    },
+    {
+      address: "Future",
+      lat: 3,
+      lng: 3,
+      type: "stop",
+      status: "pending",
+      stop_index: 2,
+    },
+    {
+      address: "Drop",
+      lat: 4,
+      lng: 4,
+      type: "dropoff",
+      status: "pending",
+      stop_index: 3,
+    },
+  ];
+  const locked = removeIntermediateStop({
+    stops: before,
+    stopIndexToRemove: 1,
+    pickupFallback: { address: "Pickup", lat: 1, lng: 1 },
+    dropoffFallback: { address: "Drop", lat: 4, lng: 4 },
+    tripStatus: "in_progress",
+  });
+  assertEquals(locked.ok, false);
+  if (!locked.ok) assertEquals(locked.reason, "locked");
+
+  const ok = removeIntermediateStop({
+    stops: before,
+    stopIndexToRemove: 2,
+    pickupFallback: { address: "Pickup", lat: 1, lng: 1 },
+    dropoffFallback: { address: "Drop", lat: 4, lng: 4 },
+    tripStatus: "in_progress",
+  });
+  assertEquals(ok.ok, true);
+});
+
+Deno.test("LOCK: request-trip-modification rebuilds remaining route only", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../../functions/request-trip-modification/index.ts", import.meta.url),
+  );
+  if (!src.includes("rebuildRemainingRouteItinerary")) {
+    throw new Error("request-trip-modification must use rebuildRemainingRouteItinerary");
+  }
+  if (!src.includes("filterFutureIntermediatesOnly")) {
+    throw new Error("request-trip-modification must strip past stops from client newStops");
+  }
+  if (!src.includes("isPastIntermediateStop")) {
+    throw new Error("request-trip-modification must gate on isPastIntermediateStop");
+  }
+});
+
 Deno.test("LOCK: request-trip-modification rejects missing dropoff with DROPOFF_REQUIRED", async () => {
   const src = await Deno.readTextFile(
     new URL("../../functions/request-trip-modification/index.ts", import.meta.url),
@@ -159,8 +284,8 @@ Deno.test("LOCK: add_stop rebuild inserts before dropoff (MK-260922-001)", async
   if (!src.includes("appendIntermediateStops")) {
     throw new Error("request-trip-modification must use appendIntermediateStops for add_stop");
   }
-  if (!src.includes("rebuildItineraryStops")) {
-    throw new Error("request-trip-modification must rebuild itinerary contiguously");
+  if (!src.includes("rebuildRemainingRouteItinerary")) {
+    throw new Error("request-trip-modification must rebuild remaining route contiguously");
   }
   if (src.includes("maxIndex + index + 1")) {
     throw new Error("add_stop must not append after maxIndex (places stop after dropoff)");

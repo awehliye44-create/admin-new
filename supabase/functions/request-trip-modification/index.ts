@@ -25,11 +25,13 @@ import { executeFareIncreaseModificationPayment } from "../_shared/executeFareIn
 import {
   appendIntermediateStops,
   assertFinalDropoffRequired,
-  rebuildItineraryStops,
+  isPastIntermediateStop,
+  partitionItineraryStops,
+  rebuildRemainingRouteItinerary,
   removeIntermediateStop,
 } from "../_shared/tripModificationItinerary.ts";
 
-const LOCKED_STOP_STATUSES = new Set(["completed", "skipped", "arrived"]);
+const LOCKED_STOP_STATUSES = new Set(["completed", "skipped", "arrived", "departed"]);
 const PRE_PICKUP_STATUSES = new Set([
   "accepted",
   "confirmed",
@@ -111,12 +113,21 @@ function sameStopIdentity(a: Stop | null, b: Stop | null): boolean {
   return latDiff < 1e-5 && lngDiff < 1e-5;
 }
 
+/**
+ * Past intermediates (status-locked or behind nav) must survive unchanged.
+ * Modifications may only alter future stops + final drop-off.
+ */
 function assertPastStopsImmutable(
   beforeStops: Stop[],
   afterStops: Stop[],
+  tripStatus: string,
 ): string | null {
-  const lockedBefore = sortStops(beforeStops).filter(isStopLocked);
-  for (const locked of lockedBefore) {
+  const pastBefore = sortStops(beforeStops).filter(
+    (s) =>
+      isStopLocked(s) ||
+      isPastIntermediateStop(s, beforeStops, tripStatus),
+  );
+  for (const locked of pastBefore) {
     const match = afterStops.find((s) =>
       s.type === locked.type
       && (s.stop_index === locked.stop_index
@@ -134,6 +145,24 @@ function assertPastStopsImmutable(
     }
   }
   return null;
+}
+
+/** Drop client-sent stops that duplicate past/locked intermediates (server reattaches them). */
+function filterFutureIntermediatesOnly(
+  proposed: Stop[],
+  beforeStops: Stop[],
+  tripStatus: string,
+): Stop[] {
+  const past = partitionItineraryStops(beforeStops).intermediates.filter((s) =>
+    isPastIntermediateStop(s, beforeStops, tripStatus) || isStopLocked(s)
+  );
+  return proposed.filter((candidate) => {
+    return !past.some((p) =>
+      String(p.address ?? "") === String(candidate.address ?? "")
+      && Math.abs(Number(p.lat ?? 0) - Number(candidate.lat ?? 0)) < 1e-5
+      && Math.abs(Number(p.lng ?? 0) - Number(candidate.lng ?? 0)) < 1e-5
+    );
+  });
 }
 
 function hasValidCoords(lat: unknown, lng: unknown): boolean {
@@ -721,7 +750,14 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         });
       }
 
-      if (isStopLocked(stopToRemove)) {
+      if (
+        isStopLocked(stopToRemove) ||
+        isPastIntermediateStop(
+          stopToRemove,
+          afterRouteSnapshot.stops,
+          String(trip.status ?? ""),
+        )
+      ) {
         return new Response(JSON.stringify({
           error: "Cannot remove completed or past stop",
           code: "STOP_LOCKED",
@@ -762,6 +798,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
           lat: afterRouteSnapshot.dropoff.lat,
           lng: afterRouteSnapshot.dropoff.lng,
         },
+        tripStatus: String(trip.status ?? ""),
       });
       if (!removed.ok) {
         return new Response(JSON.stringify({
@@ -842,19 +879,31 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         stop_index: 0,
       };
 
-      afterRouteSnapshot.stops = rebuildItineraryStops({
-        pickup: pickupStop,
-        intermediates: resolvedReorderStops.map((stop) => ({
+      // newStops = future intermediates only. Past locked stops come from before snapshot.
+      const futureOnly = filterFutureIntermediatesOnly(
+        resolvedReorderStops.map((stop) => ({
           address: stop.address,
           lat: stop.lat!,
           lng: stop.lng!,
           type: "stop",
           status: "pending",
         })),
+        beforeRouteSnapshot.stops,
+        String(trip.status ?? ""),
+      );
+      afterRouteSnapshot.stops = rebuildRemainingRouteItinerary({
+        beforeStops: beforeRouteSnapshot.stops,
+        futureIntermediates: futureOnly,
         dropoff: {
           address: afterRouteSnapshot.dropoff.address,
           lat: afterRouteSnapshot.dropoff.lat,
           lng: afterRouteSnapshot.dropoff.lng,
+        },
+        tripStatus: String(trip.status ?? ""),
+        pickupFallback: {
+          address: pickupStop.address,
+          lat: pickupStop.lat,
+          lng: pickupStop.lng,
         },
       });
     } else if (changeType === "change_dropoff") {
@@ -891,14 +940,30 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         status: "pending",
         stop_index: 0,
       };
-      const intermediates = afterRouteSnapshot.stops.filter((stop: Stop) => stop.type === "stop");
-      afterRouteSnapshot.stops = rebuildItineraryStops({
-        pickup: pickupStop,
-        intermediates,
+      const beforeParts = partitionItineraryStops(beforeRouteSnapshot.stops);
+      const futureUnchanged = beforeParts.intermediates.filter(
+        (s) => !isPastIntermediateStop(s, beforeRouteSnapshot.stops, String(trip.status ?? "")),
+      );
+      // Past locked stops stay; future stops unchanged; only dropoff updates.
+      afterRouteSnapshot.stops = rebuildRemainingRouteItinerary({
+        beforeStops: beforeRouteSnapshot.stops,
+        futureIntermediates: futureUnchanged.map((s) => ({
+          address: s.address,
+          lat: s.lat,
+          lng: s.lng,
+          type: "stop",
+          status: "pending",
+        })),
         dropoff: {
           address: resolvedDropoff.address,
           lat: resolvedDropoff.lat!,
           lng: resolvedDropoff.lng!,
+        },
+        tripStatus: String(trip.status ?? ""),
+        pickupFallback: {
+          address: pickupStop.address,
+          lat: pickupStop.lat,
+          lng: pickupStop.lng,
         },
       });
     }
@@ -911,7 +976,11 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       return dropoffRequiredResponse();
     }
 
-    const pastLockError = assertPastStopsImmutable(currentStops, afterRouteSnapshot.stops);
+    const pastLockError = assertPastStopsImmutable(
+      currentStops,
+      afterRouteSnapshot.stops,
+      String(trip.status ?? ""),
+    );
     if (pastLockError) {
       return new Response(JSON.stringify({ error: pastLockError }), {
         status: 400,
