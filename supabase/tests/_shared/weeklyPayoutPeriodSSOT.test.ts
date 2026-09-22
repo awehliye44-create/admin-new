@@ -172,6 +172,7 @@ Deno.test("7. repeated execution reuses the frozen manifest", () => {
   const frozen = freezeWeeklyOccurrencePeriod({
     frozen_period_start: PERIOD_START,
     frozen_period_end: PERIOD_END,
+    scheduled_local_at: "not-a-date",
     schedule_occurrence_key: KEY,
     now: new Date("2026-09-29T12:00:00+01:00"),
   });
@@ -245,6 +246,9 @@ Deno.test("10. no provider call occurs before the manifest is frozen", async () 
   assertEquals(payAt > reserveAt, true);
   assertEquals(src.indexOf("freezeWeeklyOccurrencePeriod") < persistAt, true);
   assertEquals(src.indexOf("claim_driver_payout_submission") > reserveAt, true);
+  assertEquals(src.indexOf("const moneyAmounts") < src.indexOf("money_amount_source: moneyAmounts.source"), true);
+  assertEquals(src.indexOf("const moneyAmounts") < src.indexOf("total_drivers: moneyAmounts.items.length"), true);
+  assertStringIncludes(src, "unhandled_orchestrator_exception");
   assertEquals(src.includes("available_balance_pence: eligibility.available_balance_pence"), false);
   assertStringIncludes(src, "selectWeeklyPeriodPayableCredits");
   assertStringIncludes(src, "available_balance_pence: scoped.amount_pence");
@@ -305,4 +309,26 @@ Deno.test("in-flight weekly CREATED/VALIDATED/RESERVED blocks a new early cash-o
     assertEquals(isConflictingActivePayoutItem({ status, execution_status: status }), true);
   }
   assertEquals(isConflictingActivePayoutItem({ status: "COMPLETED", execution_status: "COMPLETED" }), false);
+});
+
+Deno.test("empty week does not freeze or create a 0p payout batch", async () => {
+  const money = resolveWeeklyOccurrenceMoneyAmounts({
+    frozen_items: [],
+    planned_items: [],
+  });
+  assertEquals(money.required_batch_pence, 0);
+  assertEquals(money.items.length, 0);
+  const src = await read("functions/admin-execute-weekly-payout-occurrence/index.ts");
+  assertStringIncludes(src, "if (!batchId && !dryRun && moneyAmounts.items.length > 0)");
+});
+
+Deno.test("completed occurrence duplicate tick reuses and does not pay again", async () => {
+  const src = await read("functions/admin-execute-weekly-payout-occurrence/index.ts");
+  const reuseAt = src.indexOf("Occurrence already completed");
+  const payAt = src.indexOf("await relayApprovedDriverPayoutPayment({");
+  assertEquals(reuseAt > 0, true);
+  assertEquals(payAt > reuseAt, true);
+  assertStringIncludes(src, "reused: true");
+  assertStringIncludes(src, "claim.money_path_executed === true");
+  assertStringIncludes(src, "no duplicate pay/debit");
 });

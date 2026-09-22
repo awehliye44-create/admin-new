@@ -149,7 +149,7 @@ export function freezeWeeklyOccurrencePeriod(args: {
   timezone?: string | null;
   now?: Date | string | null;
 }): WeeklyOccurrencePeriod {
-  const computed = resolvePreviousCompletedCalendarWeek(args);
+  const timeZone = String(args.timezone ?? "").trim() || WEEKLY_PAYOUT_PERIOD_TIMEZONE;
   const startRaw = String(args.frozen_period_start ?? "").trim();
   const endRaw = String(args.frozen_period_end ?? "").trim();
   if (startRaw && endRaw) {
@@ -159,11 +159,11 @@ export function freezeWeeklyOccurrencePeriod(args: {
       return {
         period_start: start.toISOString(),
         period_end: end.toISOString(),
-        timezone: computed.timezone,
+        timezone: timeZone,
       };
     }
   }
-  return computed;
+  return resolvePreviousCompletedCalendarWeek(args);
 }
 
 export function classifyWeeklyPeriodCredit(args: {

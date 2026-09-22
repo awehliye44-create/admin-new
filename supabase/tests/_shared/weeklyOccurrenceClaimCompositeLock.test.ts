@@ -83,6 +83,29 @@ Deno.test("5. migration does not touch payout/wallet/provider writers", async ()
   }
 });
 
+Deno.test("6. scheduler http timeout is 60s; canonical 20260832010000 left unchanged", async () => {
+  const timeoutSql = await read(
+    "migrations/20261125140000_weekly_payout_scheduler_http_timeout.sql",
+  );
+  assertStringIncludes(timeoutSql, "timeout_milliseconds := 60000");
+  assertStringIncludes(timeoutSql, "invoke_weekly_payout_scheduler");
+  const body = timeoutSql.replace(/--[^\n]*/g, "");
+  for (const forbidden of [
+    "INSERT INTO public.payout_",
+    "UPDATE public.payout_",
+    "INSERT INTO public.driver_payout_",
+    "UPDATE public.driver_wallet_ledger",
+    "reserve_driver_payout_item",
+    "SELECT public.invoke_weekly_payout_scheduler()",
+  ]) {
+    assertEquals(body.includes(forbidden), false, forbidden);
+  }
+  const canonical = await read(
+    "migrations/20260832010000_weekly_payout_orchestrator_claim_cron.sql",
+  );
+  assertEquals(canonical.includes("timeout_milliseconds"), false);
+});
+
 Deno.test("5b. composite-conflict migration still does not touch payout/wallet/provider writers", async () => {
   const sql = await read(
     "migrations/20261124150000_claim_weekly_payout_occurrence_composite_conflict.sql",
