@@ -122,11 +122,14 @@ interface DriverDetailsDialogProps {
   driver: Driver | null;
   vehicles: Vehicle[];
   regions: Record<string, Region>;
+  /** Admin-only internal field: council/authority that issued the driver licence. */
+  councilLicence?: string | null;
   onDriverUpdate: (driver: Driver) => void;
   onVehicleUpdate: (vehicle: Vehicle) => void;
   onEditProfile: (driver: Driver) => void;
   onManageServiceAreas: (driver: Driver) => void;
 }
+
 
 export function DriverDetailsDialog({
   open,
@@ -134,6 +137,7 @@ export function DriverDetailsDialog({
   driver,
   vehicles,
   regions,
+  councilLicence = null,
   onDriverUpdate,
   onVehicleUpdate,
   onEditProfile,
