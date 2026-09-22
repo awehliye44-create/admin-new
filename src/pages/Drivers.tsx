@@ -1294,6 +1294,7 @@ export default function Drivers() {
         open={isDetailsOpen}
         onOpenChange={setIsDetailsOpen}
         driver={selectedDriver}
+        councilLicence={selectedDriver ? councilLicences[selectedDriver.id] ?? null : null}
         vehicles={Object.values(vehicles).flat()}
         regions={regions}
         onDriverUpdate={(updatedDriver) => {
@@ -1439,6 +1440,12 @@ export default function Drivers() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <CouncilLicenceField
+                id="edit_council_licence"
+                value={editCouncilLicence}
+                onChange={setEditCouncilLicence}
+              />
 
               <div className="space-y-2">
                 <Label htmlFor="edit_status">Approval Status</Label>
@@ -1635,6 +1642,14 @@ export default function Drivers() {
                 </SelectContent>
               </Select>
             </div>
+
+            <CouncilLicenceField
+              id="council_licence"
+              value={newDriver.council_licence_authority}
+              onChange={(value) =>
+                setNewDriver((prev) => ({ ...prev, council_licence_authority: value }))
+              }
+            />
           </div>
 
           <DialogFooter>
