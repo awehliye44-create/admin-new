@@ -28998,6 +28998,48 @@ export type Database = {
         Args: { p_payment_session_id: string }
         Returns: string
       }
+      finalize_pickup_waiting_and_start_trip: {
+        Args: {
+          p_body_lat?: number
+          p_body_lng?: number
+          p_driver_id: string
+          p_now?: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
+      finalize_pickup_waiting_charge: {
+        Args: {
+          p_body_lat?: number
+          p_body_lng?: number
+          p_driver_id: string
+          p_now?: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
+      finalize_stop_waiting_and_drive_to_next: {
+        Args: {
+          p_body_lat?: number
+          p_body_lng?: number
+          p_driver_id: string
+          p_now?: string
+          p_stop_id: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
+      finalize_stop_waiting_charge: {
+        Args: {
+          p_body_lat?: number
+          p_body_lng?: number
+          p_driver_id: string
+          p_now?: string
+          p_stop_id: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
       find_nearby_drivers: {
         Args: {
           p_lat: number
@@ -29274,6 +29316,10 @@ export type Database = {
       get_driver_own_lost_property_summary_counts: {
         Args: never
         Returns: Json
+      }
+      get_driver_own_online_duration_seconds: {
+        Args: { p_end: string; p_start: string }
+        Returns: number
       }
       get_driver_own_profile_contact: {
         Args: { p_driver_id?: string }
@@ -30353,6 +30399,10 @@ export type Database = {
         Args: { p_next_status?: string; p_trip_id: string }
         Returns: undefined
       }
+      repair_stale_completed_payout_item_execution_status: {
+        Args: { p_payout_item_id: string }
+        Returns: Json
+      }
       repair_user_stale_auth_identities: {
         Args: { _user_id: string }
         Returns: Json
@@ -30666,6 +30716,10 @@ export type Database = {
       start_driver_commitment_session: {
         Args: { p_driver_id?: string; p_trip_id: string }
         Returns: undefined
+      }
+      start_pickup_waiting_on_arrive: {
+        Args: { p_now?: string; p_trip_id: string }
+        Returns: Json
       }
       start_stop_waiting: {
         Args: {
