@@ -11,7 +11,7 @@ const corsHeaders = {
 const MAX_BODY_BYTES = 65_536;
 const MAX_EVENTS_PER_REQUEST = 50;
 /** Book tap → Finding residual closure needs many flat segment keys. */
-const MAX_METADATA_KEYS = 80;
+const MAX_METADATA_KEYS = 120;
 const MAX_METADATA_VALUE_LEN = 256;
 const MAX_SCREEN_NAME_LEN = 120;
 
@@ -80,6 +80,39 @@ const ALLOWED_METADATA_KEYS = new Set([
   "edge_total_ms",
   "already_authorised",
   "three_ds_required",
+  "payment_method",
+  "build_type",
+  "device_total_memory_bytes",
+  "ram_class",
+  "adopt_required",
+  "adopt_result",
+  "apple_pay_prepare_ms",
+  "book_to_apple_pay_sheet_visible_ms",
+  "authorization_after_sheet_ms",
+  "canonical_after_auth_ms",
+  "post_canonical_customer_delay_ms",
+  "client_state_ms",
+  "navigation_dispatch_ms",
+  "navigation_mount_ms",
+  "finding_readiness_ms",
+  "finding_interactive_delta_ms",
+  "canonical_to_seed_ms",
+  "apple_pay_sheet_visible_semantics",
+  "canonical_trip_created_semantics",
+  "t3_via",
+  "auto_dispatch_visible_semantics",
+  "stage_book_tap_ms",
+  "stage_payment_authorized_ms",
+  "stage_apple_pay_sheet_visible_ms",
+  "stage_canonical_trip_created_ms",
+  "stage_ctap_response_received_ms",
+  "stage_active_trip_seeded_ms",
+  "stage_finding_replace_called_ms",
+  "stage_finding_mount_ms",
+  "stage_finding_screen_ready_ms",
+  "stage_finding_interactive_ms",
+  "stage_auto_dispatch_visible_ms",
+  "service_area_id",
   // Driver Accept waterfall (client + Edge shared perf_id)
   "perf_id",
   "flow_type",

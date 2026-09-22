@@ -1125,15 +1125,17 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
     const { data: insertedTrips, error: insertErr } = await supabase
       .from("trips")
       .insert(tripData)
-      .select("id, trip_code, status")
+      .select("id, trip_code, status, created_at")
       .single();
+
+    const tripInsertedAt = Date.now();
 
     if (insertErr) {
       // Check for duplicate
       if (insertErr.message?.includes("duplicate") || insertErr.message?.includes("client_action_id")) {
         const { data: retryTrips } = await supabase
           .from("trips")
-          .select("id, trip_code, status")
+          .select("id, trip_code, status, created_at")
           .eq("client_action_id", body.client_action_id)
           .limit(1);
         if (retryTrips?.[0]) {
@@ -1273,9 +1275,11 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
 
     const bookingMilestones = {
       ctap_start_ms: ctapStartedAt,
-      trip_inserted_ms: ctapResponseAt,
+      trip_inserted_ms: tripInsertedAt,
+      trip_created_at: (trip as { created_at?: string | null }).created_at ?? null,
       ctap_response_ms: ctapResponseAt,
       ctap_duration_ms: ctapResponseAt - ctapStartedAt,
+      dispatch_started_ms: null,
     };
     const bookingWaterfallReport = buildBookingWaterfallMilestoneReport({
       milestones: bookingMilestones,
