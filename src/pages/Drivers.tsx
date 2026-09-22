@@ -75,6 +75,8 @@ import {
 import { toast } from 'sonner';
 import { tryGrantWelcomeCredit } from '@/lib/tryGrantWelcomeCredit';
 import { DriverDetailsDialog } from '@/components/drivers/DriverDetailsDialog';
+import { CouncilLicenceField } from '@/components/drivers/CouncilLicenceField';
+import { fetchCouncilLicences, saveCouncilLicence } from '@/lib/driverCouncilLicence';
 import { CountrySelectorField } from '@/components/CountrySelectorField';
 import { findCountryByName } from '@/lib/countryCodes';
 import {
@@ -180,12 +182,17 @@ export default function Drivers() {
   const [selectedServiceAreaFilter, setSelectedServiceAreaFilter] = useState<string>('all');
   const [driverServiceAreasMap, setDriverServiceAreasMap] = useState<Record<string, string[]>>({});
 
+  // Admin-only internal field: licensing council that issued the driver licence.
+  const [councilLicences, setCouncilLicences] = useState<Record<string, string | null>>({});
+  const [editCouncilLicence, setEditCouncilLicence] = useState('');
+
   const [newDriver, setNewDriver] = useState({
     first_name: '',
     last_name: '',
     email: '',
     phone: '',
     region_id: '',
+    council_licence_authority: '',
   });
 
   // Edit driver state
@@ -265,6 +272,12 @@ export default function Drivers() {
       if (error) throw error;
       setDrivers((data as Driver[]) || []);
       setTotalCount(count ?? (data?.length ?? 0));
+
+      void fetchCouncilLicences((data ?? []).map((d) => d.id))
+        .then((map) => setCouncilLicences((prev) => ({ ...prev, ...map })))
+        .catch((councilErr) => {
+          console.warn('[Drivers] council licence load failed', councilErr);
+        });
 
       // Fetch driver categories/tiers
       const { data: categoriesData } = await supabase
@@ -548,6 +561,7 @@ export default function Drivers() {
       email: '',
       phone: '',
       region_id: '',
+      council_licence_authority: '',
     });
   };
 
