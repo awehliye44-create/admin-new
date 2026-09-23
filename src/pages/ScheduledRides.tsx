@@ -473,9 +473,16 @@ export default function ScheduledRides() {
       }
 
       // Keep scheduled board filters consistent (RPC cancels status/dispatch, not scheduled_status).
+      // Also neutralize ownership + pending release so cancelled rows cannot re-surface as open work.
       await supabase
         .from('trips')
-        .update({ scheduled_status: 'cancelled' })
+        .update({
+          scheduled_status: 'cancelled',
+          confirmed_driver_id: null,
+          pending_release_kind: null,
+          pending_release_at: null,
+          pending_release_driver_id: null,
+        })
         .eq('id', tripId);
 
       perf.complete({ success: true, metadata: { trip_id: tripId } });

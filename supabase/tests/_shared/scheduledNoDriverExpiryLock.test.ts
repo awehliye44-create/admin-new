@@ -100,6 +100,9 @@ Deno.test("Admin ScheduledRides uses presentation SSOT + excludes active driver_
   assertStringIncludes(src, "handleMakeAvailableScheduledJobsAt");
   assertStringIncludes(src, "pending_release_kind: 'jobs'");
   assertStringIncludes(src, "Scheduled Jobs At");
+  // Cancel clears preconfirm + pending release (no stale ownership after cancel).
+  assertStringIncludes(src, "confirmed_driver_id: null");
+  assertStringIncludes(src, "pending_release_kind: null");
 });
 
 Deno.test("HELD insert migration preserves admin_held without broadcast stamp", async () => {
