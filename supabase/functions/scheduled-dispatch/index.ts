@@ -27,6 +27,10 @@ import {
   isPendingReleaseDue,
 } from "../_shared/scheduledAdminReleaseSSOT.ts";
 import {
+  resolveBackfillSearchingExpiresAtIso,
+  shouldExpireConvertedScheduledNoDriver,
+} from "../_shared/scheduledNoDriverExpirySSOT.ts";
+import {
   blockedTerminalTripLogPayload,
   isTripTerminalForDispatch,
   revokePendingOffersForTerminalTrip,
@@ -1133,11 +1137,16 @@ Deno.serve(async (req) => {
 
     // ============================================================
     // STEP 4: EXPIRE — Searching too long without a driver
+    // Reuses expireTripWhenSearchExhaustedAndNotifyCustomer.
+    // Gap fix: null searching_expires_at must not leave past-pickup
+    // converted rides non-terminal (Overdue/Pending forever).
     // ============================================================
 
     const { data: expireCandidates, error: expireError } = await supabase
       .from("trips")
-      .select("id, status, scheduled_status, dispatch_status, dispatch_mode, updated_at, searching_expires_at, passenger_id")
+      .select(
+        "id, status, scheduled_status, dispatch_status, dispatch_mode, updated_at, searching_expires_at, scheduled_at, passenger_id, confirmed_driver_id",
+      )
       .in("status", ["searching", "searching_new_driver", "offered", "broadcasting"])
       .is("driver_id", null)
       .eq("scheduled_status", "converted_to_instant");
@@ -1148,9 +1157,37 @@ Deno.serve(async (req) => {
       for (const trip of expireCandidates as ScheduledTrip[]) {
         if (isTripTerminalForDispatch(trip)) continue;
 
-        if (!trip.searching_expires_at) continue;
-        const searchDeadlineMs = new Date(trip.searching_expires_at).getTime();
-        if (!Number.isFinite(searchDeadlineMs) || searchDeadlineMs > nowMs) continue;
+        const decision = shouldExpireConvertedScheduledNoDriver({
+          searchingExpiresAt: trip.searching_expires_at ?? null,
+          scheduledAt: trip.scheduled_at ?? null,
+          nowMs,
+        });
+
+        if (!decision.expire) {
+          // Still before pickup with no stamp — backfill canonical search window
+          // so the existing expire path can fire later (no parallel engine).
+          if (
+            decision.reason === "awaiting_search_deadline" &&
+            !trip.searching_expires_at
+          ) {
+            const backfillIso = resolveBackfillSearchingExpiresAtIso({
+              nowMs,
+              scheduledAt: trip.scheduled_at ?? null,
+              maxFindDriverMinutes,
+            });
+            await supabase
+              .from("trips")
+              .update({
+                searching_expires_at: backfillIso,
+                updated_at: now.toISOString(),
+              })
+              .eq("id", trip.id)
+              .eq("scheduled_status", "converted_to_instant")
+              .is("driver_id", null)
+              .is("searching_expires_at", null);
+          }
+          continue;
+        }
 
         const { expired: didExpire, rpcError } =
           await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
@@ -1169,6 +1206,10 @@ Deno.serve(async (req) => {
             .from("trips")
             .update({
               scheduled_status: "no_driver_found",
+              confirmed_driver_id: null,
+              pending_release_kind: null,
+              pending_release_at: null,
+              pending_release_driver_id: null,
               broadcast_enabled: false,
               updated_at: now.toISOString(),
             })
@@ -1178,7 +1219,7 @@ Deno.serve(async (req) => {
           await logSnapshot(supabase, {
             tripId: trip.id,
             action: "expire_no_driver",
-            metadata: { missed_reason: "search_window_exhausted" },
+            metadata: { missed_reason: decision.reason },
           });
 
           // Customer trip_cancelled WAV already sent by expireTripWhenSearchExhaustedAndNotifyCustomer.

@@ -60,7 +60,7 @@ import {
   Mail, Navigation, Timer, ArrowRightLeft, Globe, Star, ListPlus
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
-import { format, formatDistanceToNow, isPast, isToday, isTomorrow, addHours } from 'date-fns';
+import { format, formatDistanceToNow, isToday, isTomorrow } from 'date-fns';
 import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { toast } from 'sonner';
@@ -73,6 +73,10 @@ import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import {
   formatAdminCommittedCustomerFare,
 } from '@/lib/adminTripCommittedFareDisplay';
+import {
+  resolveAdminScheduledRidePresentation,
+  resolveAdminScheduledTimeCue,
+} from '@/lib/adminScheduledRidePresentation';
 
 interface ScheduledTrip {
   id: string;
@@ -84,6 +88,7 @@ interface ScheduledTrip {
   pending_release_at: string | null;
   pending_release_driver_id: string | null;
   confirmed_driver_id: string | null;
+  scheduled_broadcast_at?: string | null;
   passenger_name: string | null;
   passenger_phone: string | null;
   customer_id?: string | null;
@@ -113,6 +118,14 @@ interface ScheduledTrip {
   driver_id: string | null;
   service_area_id: string | null;
   driver?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    phone: string;
+    profile_photo_url: string | null;
+    rating: number | null;
+  } | null;
+  confirmed_driver?: {
     id: string;
     first_name: string;
     last_name: string;
@@ -188,6 +201,7 @@ export default function ScheduledRides() {
             pending_release_at,
             pending_release_driver_id,
             confirmed_driver_id,
+            scheduled_broadcast_at,
             passenger_name,
             passenger_phone,
             pickup_address,
@@ -216,10 +230,13 @@ export default function ScheduledRides() {
             driver_id,
             service_area_id,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, profile_photo_url, rating),
+            confirmed_driver:drivers!trips_confirmed_driver_id_fkey(id, first_name, last_name, phone, profile_photo_url, rating),
             service_area:service_areas!trips_service_area_id_fkey(id, name, region:regions(currency_code, distance_unit))
           `)
           .eq('is_scheduled', true)
-          // Terminal trips belong to Missed & Cancelled, never to the live scheduled board
+          // Live scheduled lifecycle only: no active accepted driver, no terminals.
+          // Accepted (driver_id set) belongs on Active Trips — not this board.
+          .is('driver_id', null)
           .not('status', 'in', '(completed,cancelled,customer_cancelled,expired,expired_no_driver,no_show,declined)')
           .or('scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)')
           .order('scheduled_at', { ascending: true })
@@ -633,21 +650,8 @@ export default function ScheduledRides() {
     trip.service_area?.region?.distance_unit || 'km';
 
 
-  const getScheduleStatus = (scheduledAt: string | null) => {
-    if (!scheduledAt) return { label: 'No Date', color: 'bg-gray-100 text-gray-700', urgent: false };
-    
-    const date = new Date(scheduledAt);
-    if (isPast(date)) {
-      return { label: 'Overdue', color: 'bg-red-100 text-red-700', urgent: true };
-    }
-    if (isToday(date)) {
-      return { label: 'Today', color: 'bg-amber-100 text-amber-700', urgent: true };
-    }
-    if (isTomorrow(date)) {
-      return { label: 'Tomorrow', color: 'bg-blue-100 text-blue-700', urgent: false };
-    }
-    return { label: 'Upcoming', color: 'bg-green-100 text-green-700', urgent: false };
-  };
+  const getTimeCue = (scheduledAt: string | null) =>
+    resolveAdminScheduledTimeCue(scheduledAt);
 
   const filteredTrips = trips.filter(trip => {
     const matchesSearch = 
@@ -660,16 +664,22 @@ export default function ScheduledRides() {
     if (timeFilter === 'all') return matchesSearch;
     if (timeFilter === 'today' && trip.scheduled_at) return matchesSearch && isToday(new Date(trip.scheduled_at));
     if (timeFilter === 'tomorrow' && trip.scheduled_at) return matchesSearch && isTomorrow(new Date(trip.scheduled_at));
-    if (timeFilter === 'overdue' && trip.scheduled_at) return matchesSearch && isPast(new Date(trip.scheduled_at));
-    if (timeFilter === 'unassigned') return matchesSearch && !trip.driver_id;
+    if (timeFilter === 'unassigned') {
+      const presentation = resolveAdminScheduledRidePresentation(trip);
+      return matchesSearch && presentation.driverKind === 'unassigned';
+    }
     
     return matchesSearch;
   });
 
   const todayCount = trips.filter(t => t.scheduled_at && isToday(new Date(t.scheduled_at))).length;
   const tomorrowCount = trips.filter(t => t.scheduled_at && isTomorrow(new Date(t.scheduled_at))).length;
-  const overdueCount = trips.filter(t => t.scheduled_at && isPast(new Date(t.scheduled_at))).length;
-  const unassignedCount = trips.filter(t => !t.driver_id).length;
+  const heldCount = trips.filter(
+    (t) => resolveAdminScheduledRidePresentation(t).statusKey === 'held',
+  ).length;
+  const unassignedCount = trips.filter(
+    (t) => resolveAdminScheduledRidePresentation(t).driverKind === 'unassigned',
+  ).length;
 
   return (
     <AdminLayout 
@@ -700,14 +710,14 @@ export default function ScheduledRides() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-red-500/30 bg-red-500/5">
+        <Card className="border-amber-500/30 bg-amber-500/5">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Overdue</p>
-                <p className="text-2xl font-bold text-red-600">{overdueCount}</p>
+                <p className="text-sm text-muted-foreground">Held</p>
+                <p className="text-2xl font-bold text-amber-600">{heldCount}</p>
               </div>
-              <AlertTriangle className="h-8 w-8 text-red-500" />
+              <AlertTriangle className="h-8 w-8 text-amber-500" />
             </div>
           </CardContent>
         </Card>
