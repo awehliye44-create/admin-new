@@ -92,6 +92,7 @@ interface ScheduledTrip {
   final_fare_pence?: number | null;
   gross_fare_pence?: number | null;
   estimated_total_pence?: number | null;
+  is_scheduled?: boolean | null;
   base_fare_pence?: number | null;
   currency_code?: string | null;
   fare?: number | null;
@@ -1138,25 +1139,58 @@ Deno.serve(async (req) => {
     // ============================================================
     // STEP 4: EXPIRE — Searching too long without a driver
     // Reuses expireTripWhenSearchExhaustedAndNotifyCustomer.
-    // Gap fix: null searching_expires_at must not leave past-pickup
-    // converted rides non-terminal (Overdue/Pending forever).
+    // Gap fixes:
+    //  - null searching_expires_at must not leave past-pickup rides open
+    //  - expire RPC invents now+findMinutes when stamp is null → stamp past first
+    //  - past-pickup HELD/Jobs/preconfirm/broadcast (never converted) must also
+    //    leave the live Scheduled board via the same expire path
     // ============================================================
 
-    const { data: expireCandidates, error: expireError } = await supabase
+    const expireSelect =
+      "id, status, scheduled_status, dispatch_status, dispatch_mode, updated_at, searching_expires_at, scheduled_at, passenger_id, confirmed_driver_id, is_scheduled";
+
+    const { data: expireConverted, error: expireConvertedError } = await supabase
       .from("trips")
-      .select(
-        "id, status, scheduled_status, dispatch_status, dispatch_mode, updated_at, searching_expires_at, scheduled_at, passenger_id, confirmed_driver_id",
-      )
+      .select(expireSelect)
       .in("status", ["searching", "searching_new_driver", "offered", "broadcasting"])
       .is("driver_id", null)
       .eq("scheduled_status", "converted_to_instant");
 
-    if (expireError) {
-      console.error("[scheduled-dispatch] Error fetching rides to expire:", expireError);
-    } else if (expireCandidates && expireCandidates.length > 0) {
-      for (const trip of expireCandidates as ScheduledTrip[]) {
+    const { data: expirePastPickup, error: expirePastError } = await supabase
+      .from("trips")
+      .select(expireSelect)
+      .eq("is_scheduled", true)
+      .is("driver_id", null)
+      .lte("scheduled_at", now.toISOString())
+      .not(
+        "status",
+        "in",
+        "(completed,cancelled,customer_cancelled,expired,expired_no_driver,no_show,declined)",
+      )
+      .or(
+        "scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)",
+      )
+      .limit(50);
+
+    if (expireConvertedError) {
+      console.error("[scheduled-dispatch] Error fetching converted rides to expire:", expireConvertedError);
+    }
+    if (expirePastError) {
+      console.error("[scheduled-dispatch] Error fetching past-pickup rides to expire:", expirePastError);
+    }
+
+    const expireById = new Map<string, ScheduledTrip>();
+    for (const row of [...(expireConverted ?? []), ...(expirePastPickup ?? [])] as ScheduledTrip[]) {
+      if (row?.id) expireById.set(row.id, row);
+    }
+    const expireCandidates = [...expireById.values()];
+
+    if (expireCandidates.length > 0) {
+      for (const trip of expireCandidates) {
         if (isTripTerminalForDispatch(trip)) continue;
 
+        const schedLower = String(trip.scheduled_status ?? "").toLowerCase();
+        const isConverted = schedLower === "converted_to_instant";
         const decision = shouldExpireConvertedScheduledNoDriver({
           searchingExpiresAt: trip.searching_expires_at ?? null,
           scheduledAt: trip.scheduled_at ?? null,
@@ -1167,6 +1201,7 @@ Deno.serve(async (req) => {
           // Still before pickup with no stamp — backfill canonical search window
           // so the existing expire path can fire later (no parallel engine).
           if (
+            isConverted &&
             decision.reason === "awaiting_search_deadline" &&
             !trip.searching_expires_at
           ) {
@@ -1189,14 +1224,30 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // expire_trip_when_search_exhausted invents now+findMinutes when
-        // searching_expires_at is null (scheduled-origin). Stamp a past
-        // deadline first so the existing RPC terminalizes instead of extending.
-        if (!trip.searching_expires_at) {
+        const pastDeadlineIso = new Date(nowMs - 1000).toISOString();
+
+        // Non-converted past-pickup (HELD / Jobs / preconfirm / broadcast): flip onto
+        // the converted search path with an already-past deadline, then reuse expire RPC.
+        // Expire RPC returns false while scheduled handover is still pending.
+        if (!isConverted) {
           await supabase
             .from("trips")
             .update({
-              searching_expires_at: new Date(nowMs - 1000).toISOString(),
+              ...buildScheduledUrgentConversionPatch({
+                nowIso: now.toISOString(),
+                searchingExpiresAtIso: pastDeadlineIso,
+              }),
+              confirmed_driver_id: null,
+            })
+            .eq("id", trip.id)
+            .is("driver_id", null);
+        } else if (!trip.searching_expires_at) {
+          // expire_trip_when_search_exhausted invents now+findMinutes when
+          // searching_expires_at is null (scheduled-origin). Stamp past first.
+          await supabase
+            .from("trips")
+            .update({
+              searching_expires_at: pastDeadlineIso,
               updated_at: now.toISOString(),
             })
             .eq("id", trip.id)
@@ -1229,12 +1280,15 @@ Deno.serve(async (req) => {
               updated_at: now.toISOString(),
             })
             .eq("id", trip.id)
-            .in("scheduled_status", ["broadcasting", "dispatching", "converted_to_instant", "scheduled"]);
+            .in("status", ["expired", "expired_no_driver"]);
 
           await logSnapshot(supabase, {
             tripId: trip.id,
             action: "expire_no_driver",
-            metadata: { missed_reason: decision.reason },
+            metadata: {
+              missed_reason: decision.reason,
+              was_converted: isConverted,
+            },
           });
 
           // Customer trip_cancelled WAV already sent by expireTripWhenSearchExhaustedAndNotifyCustomer.

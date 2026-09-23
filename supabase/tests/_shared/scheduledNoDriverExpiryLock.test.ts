@@ -73,6 +73,10 @@ Deno.test("scheduled-dispatch STEP 4 uses expiry SSOT + clears confirmed/pending
   // Null deadline must not invent a future window via expire RPC — stamp past first.
   assertStringIncludes(src, "nowMs - 1000");
   assertStringIncludes(src, "expireTripWhenSearchExhaustedAndNotifyCustomer");
+  // Past-pickup HELD/Jobs/preconfirm must also leave the live board.
+  assertStringIncludes(src, "expirePastPickup");
+  assertStringIncludes(src, "buildScheduledUrgentConversionPatch");
+  assertStringIncludes(src, "was_converted");
 });
 
 Deno.test("Admin ScheduledRides uses presentation SSOT + excludes active driver_id", async () => {
@@ -89,6 +93,9 @@ Deno.test("Admin ScheduledRides uses presentation SSOT + excludes active driver_
   assert(!/getScheduleStatus/.test(src), "Overdue getScheduleStatus must be removed");
   assert(!/SelectItem value="overdue"/.test(src), "Overdue filter must be removed");
   assert(!/\? 'Pending'/.test(src), "Pending fallback label must be gone");
+  // View Details must use the same ownership SSOT (not driver_id-only).
+  assertStringIncludes(src, "Pre-confirmed Driver");
+  assertStringIncludes(src, "detailPresentation");
 });
 
 Deno.test("HELD insert migration preserves admin_held without broadcast stamp", async () => {

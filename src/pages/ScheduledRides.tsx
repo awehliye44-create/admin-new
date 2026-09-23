@@ -1015,6 +1015,32 @@ export default function ScheduledRides() {
           </DialogHeader>
           {selectedTrip && (
             <div className="space-y-6">
+              {(() => {
+                const detailPresentation = resolveAdminScheduledRidePresentation(selectedTrip);
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className={detailPresentation.statusClassName}>
+                      {detailPresentation.statusLabel}
+                    </Badge>
+                    {detailPresentation.driverKind === 'unassigned' ? (
+                      <Badge variant="outline" className="bg-yellow-100 text-yellow-700">
+                        Unassigned
+                      </Badge>
+                    ) : (
+                      <>
+                        <span className="text-sm font-medium">
+                          {detailPresentation.driverDisplayName || 'Driver'}
+                        </span>
+                        {detailPresentation.driverBadge ? (
+                          <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-800">
+                            {detailPresentation.driverBadge}
+                          </Badge>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Passenger Section */}
               <div>
@@ -1115,52 +1141,62 @@ export default function ScheduledRides() {
 
               <Separator />
 
-              {/* Driver Section */}
-              {selectedTrip.driver ? (
-                <div>
-                  <Label className="text-xs text-muted-foreground mb-2">Assigned Driver</Label>
-                  <div className="flex items-center gap-3 mt-2 p-3 bg-muted/50 rounded-lg">
-                    <div className="h-10 w-10 bg-primary/10 rounded-full flex items-center justify-center">
-                      {selectedTrip.driver.profile_photo_url ? (
-                        <img 
-                          src={selectedTrip.driver.profile_photo_url} 
-                          alt="Driver" 
-                          className="h-10 w-10 rounded-full object-cover"
-                        />
-                      ) : (
-                        <Users className="h-5 w-5 text-primary" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium">
-                        {selectedTrip.driver.first_name} {selectedTrip.driver.last_name}
+              {/* Driver Section — ownership SSOT (driver_id / confirmed_driver_id only) */}
+              {(() => {
+                const detailPresentation = resolveAdminScheduledRidePresentation(selectedTrip);
+                const owned =
+                  detailPresentation.driverKind === 'assigned'
+                    ? selectedTrip.driver
+                    : detailPresentation.driverKind === 'pre_confirmed'
+                      ? selectedTrip.confirmed_driver
+                      : null;
+                if (!owned || detailPresentation.driverKind === 'unassigned') {
+                  return (
+                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-center gap-2 text-yellow-700">
+                        <UserPlus className="h-4 w-4" />
+                        <span className="font-medium">Unassigned</span>
+                      </div>
+                      <p className="text-sm text-yellow-600 mt-1">
+                        No active or pre-confirmed driver. Use Assign or Scheduled Jobs.
                       </p>
-                      <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" />
-                          {selectedTrip.driver.phone}
-                        </span>
-                        {selectedTrip.driver.rating && (
-                          <span className="flex items-center gap-0.5">
-                            <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
-                            {selectedTrip.driver.rating.toFixed(1)}
-                          </span>
+                    </div>
+                  );
+                }
+                return (
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-2">
+                      {detailPresentation.driverKind === 'pre_confirmed'
+                        ? 'Pre-confirmed Driver'
+                        : 'Assigned Driver'}
+                    </Label>
+                    <div className="flex items-center gap-3 mt-2 p-3 bg-muted/50 rounded-lg">
+                      <div className="h-10 w-10 bg-primary/10 rounded-full flex items-center justify-center">
+                        {owned.profile_photo_url ? (
+                          <img
+                            src={owned.profile_photo_url}
+                            alt="Driver"
+                            className="h-10 w-10 rounded-full object-cover"
+                          />
+                        ) : (
+                          <Users className="h-5 w-5 text-primary" />
                         )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium">
+                          {detailPresentation.driverDisplayName ||
+                            `${owned.first_name} ${owned.last_name}`}
+                        </p>
+                        {detailPresentation.driverBadge ? (
+                          <Badge variant="outline" className="mt-1 text-[10px] bg-emerald-50 text-emerald-800">
+                            {detailPresentation.driverBadge}
+                          </Badge>
+                        ) : null}
                       </div>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <div className="flex items-center gap-2 text-yellow-700">
-                    <UserPlus className="h-4 w-4" />
-                    <span className="font-medium">No driver assigned</span>
-                  </div>
-                  <p className="text-sm text-yellow-600 mt-1">
-                    Click "Assign Driver" to assign a driver to this scheduled ride.
-                  </p>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Special Instructions */}
               {selectedTrip.special_instructions && (
@@ -1195,7 +1231,7 @@ export default function ScheduledRides() {
               }}
             >
               <UserPlus className="h-4 w-4 mr-2" />
-              {selectedTrip?.driver ? 'Reassign' : 'Assign Driver'}
+              {selectedTrip && resolveAdminScheduledRidePresentation(selectedTrip).driverKind !== 'unassigned' ? 'Reassign' : 'Assign Driver'}
             </Button>
           </DialogFooter>
         </DialogContent>
