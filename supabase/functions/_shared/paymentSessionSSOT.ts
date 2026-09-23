@@ -436,6 +436,16 @@ export async function markPaymentSessionCaptured(
     /** Provider-confirmed total authorised after rehold/replacement. */
     totalAuthorisedAmountPence?: number | null;
     authorisedAmountPence?: number | null;
+    /**
+     * Receivable settlement requires explicit provider evidence.
+     * Local mark alone / AUTHORISED / capture-POST-without-GET must NOT settle.
+     */
+    providerEvidence?: {
+      orderId: string;
+      terminalState: "COMPLETED" | "CAPTURED";
+      confirmedCapturedPence: number;
+      amountFromProviderGet: true;
+    } | null;
   },
 ): Promise<void> {
   const session = await loadPaymentSession(supabase, {
@@ -486,6 +496,36 @@ export async function markPaymentSessionCaptured(
     patch.provider_capture_id = args.providerCaptureId;
   }
   await markPaymentSessionStatus(supabase, "captured", args, patch);
+
+  // Settle reserved receivables ONLY when caller supplies provider GET evidence.
+  if (args.providerEvidence && session?.id) {
+    const { settleReceivablesFromProviderEvidence } = await import(
+      "./customerReceivableLifecycle.ts"
+    );
+    const settle = await settleReceivablesFromProviderEvidence(supabase, {
+      payment_session_id: String(session.id),
+      evidence: {
+        orderId: args.providerEvidence.orderId,
+        terminalState: args.providerEvidence.terminalState,
+        confirmedCapturedPence: args.providerEvidence.confirmedCapturedPence,
+        amountFromProviderGet: args.providerEvidence.amountFromProviderGet,
+      },
+      current_trip_fare_pence: Math.max(
+        0,
+        Math.round(Number(args.captureAmountPence) || 0)
+          - Math.max(
+            0,
+            Math.round(Number(metadata.customer_receivables_pence) || 0),
+          ),
+      ),
+    });
+    if (!settle.ok) {
+      console.error(
+        "[paymentSessionSSOT] receivable settle after capture failed",
+        settle.error,
+      );
+    }
+  }
 }
 
 export async function markPaymentSessionPaymentShortfall(

@@ -46,6 +46,8 @@ import {
 import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "../../../shared/paymentHoldProviderTerminalPure.ts";
 import { tipCollectedFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
 import { extractProviderFeePence } from "../../../shared/paymentCaptureEvidenceSSOT.ts";
+import { recordReceivableAfterDeclinedIncrement } from "./customerReceivableLifecycle.ts";
+import { RECEIVABLE_PERSISTENCE_UNAVAILABLE } from "./customerReceivableSSOT.ts";
 import {
   RELEASE_EVIDENCE_SOURCE,
 } from "../../../shared/paymentSessionReleaseEvidenceSSOT.ts";
@@ -426,6 +428,13 @@ export async function executeRevolutTripCompletionCapture(args: {
         providerCaptureId: extractProviderCaptureId(
           orderBefore as unknown as Record<string, unknown>,
         ),
+        // already_captured path: amount from provider GET retrieve.
+        providerEvidence: {
+          orderId,
+          terminalState: "COMPLETED",
+          confirmedCapturedPence: captureAmountPence,
+          amountFromProviderGet: true,
+        },
       });
       paymentSessionPersisted = true;
       const residual = await persistPostCaptureResidualReleaseEvidence({
@@ -627,12 +636,34 @@ export async function executeRevolutTripCompletionCapture(args: {
           shortfallPence: safe.shortfallPence,
           reason: `Increment ${incrementResult.kind}: ${incrementResult.message}`,
         });
+        const recv = await recordReceivableAfterDeclinedIncrement(args.supabase, {
+          customer_id: (args.trip.passenger_id as string | null | undefined) ?? null,
+          source_trip_id: tripId,
+          source_payment_session_id: paymentSession?.id
+            ? String(paymentSession.id)
+            : null,
+          final_fare_pence: finalFarePence,
+          captured_pence: 0,
+          shortfall_pence: safe.shortfallPence,
+          currency: String(args.trip.currency_code ?? "gbp"),
+          pickup_waiting_charge_pence: Number(
+            args.trip.pickup_waiting_charge_pence ?? 0,
+          ) || null,
+        });
         return {
           success: false,
           status: "PAYMENT_RECOVERY_REQUIRED",
           capture_amount_pence: 0,
           provider_order_id: orderId,
           error: incrementResult.message,
+          ...(recv.ok
+            ? {}
+            : {
+              error_code: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
+              receivable_persistence: recv.error,
+              manual_review: true,
+              decline_evidence_retained: true,
+            }),
         };
       }
       const safeLock = await claimPaymentSessionFinancialLock(args.supabase, {
@@ -756,6 +787,27 @@ export async function executeRevolutTripCompletionCapture(args: {
             reason:
               `Increment ${incrementResult.kind}; captured safe ${safe.capturePence}p; shortfall ${safe.shortfallPence}p only`,
           });
+          const recv = await recordReceivableAfterDeclinedIncrement(args.supabase, {
+            customer_id: (args.trip.passenger_id as string | null | undefined) ?? null,
+            source_trip_id: tripId,
+            source_payment_session_id: paymentSession?.id
+              ? String(paymentSession.id)
+              : null,
+            final_fare_pence: finalFarePence,
+            captured_pence: safe.capturePence,
+            shortfall_pence: safe.shortfallPence,
+            currency: String(args.trip.currency_code ?? "gbp"),
+            pickup_waiting_charge_pence: Number(
+              args.trip.pickup_waiting_charge_pence ?? 0,
+            ) || null,
+            provider_state: "COMPLETED",
+          });
+          if (!recv.ok) {
+            console.error(
+              "[revolutCompletionCapture] RECEIVABLE_PERSISTENCE_UNAVAILABLE after partial capture",
+              recv.error,
+            );
+          }
         }
         const coveredSafe = tipCollectedFromConfirmedCapture({
           captureAmountPence: safe.capturePence,
