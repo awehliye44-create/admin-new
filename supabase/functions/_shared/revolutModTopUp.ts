@@ -40,6 +40,7 @@ export type RevolutModAuthResult =
     error_code?: string;
     status?: number;
     payment_coverage_status?: string;
+    authorised_amount_pence?: number;
   };
 
 async function isIncrementFeatureEnabled(supabase: SupabaseClient): Promise<boolean> {
@@ -172,6 +173,8 @@ export async function prepareRevolutModificationAuthorisation(args: {
         : declined
         ? 409
         : 409,
+      // Preserve current authorised total so callers can map decline ≠ unknown.
+      authorised_amount_pence: incrementResult.providerConfirmedTotalPence,
       payment_coverage_status: declined
         ? "authorization_insufficient"
         : pending

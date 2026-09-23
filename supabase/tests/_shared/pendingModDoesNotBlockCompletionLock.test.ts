@@ -16,11 +16,27 @@ Deno.test("pending unpaid fare increase does not count as unresolved for complet
   );
   assertStringIncludes(sql, "trip_has_unresolved_fare_increase_modification");
   assertStringIncludes(sql, "payment_confirmed");
+  assertStringIncludes(sql, "payment_pending");
   assertStringIncludes(sql, "'approved'");
   assertStringIncludes(sql, "'applied'");
-  // Explicitly no longer block on payment_required / payment_pending alone.
+  // Declined / failed must not block; unknown pending must still protect.
+  assertEquals(sql.includes("'payment_failed'"), false);
   assertEquals(sql.includes("'payment_required'"), false);
-  assertEquals(sql.includes("'payment_pending'"), false);
+  // Bare payment_status pending alone must not catch payment_failed rows.
+  const barePendingGate = sql.includes("OR lower(COALESCE(r.payment_status, '')) IN");
+  assertEquals(barePendingGate, false);
+});
+
+Deno.test("MK-260923-002: DECLINED != UNKNOWN in completion gate SQL", async () => {
+  const sql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20261127120000_pending_mod_does_not_block_completion.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(sql, "Genuinely unknown");
+  assertStringIncludes(sql, "r.status = 'payment_pending'");
+  assertStringIncludes(sql, "r.status = 'payment_confirmed'");
 });
 
 Deno.test("fare-increase payment failure returns tripUnchanged and never claims apply", async () => {
