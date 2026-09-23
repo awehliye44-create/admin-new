@@ -60,7 +60,7 @@ import {
   Mail, Navigation, Timer, ArrowRightLeft, Globe, Star, ListPlus
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
-import { format, formatDistanceToNow, isToday, isTomorrow } from 'date-fns';
+import { format, isToday, isTomorrow } from 'date-fns';
 import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { toast } from 'sonner';
@@ -738,7 +738,6 @@ export default function ScheduledRides() {
   });
 
   const todayCount = trips.filter(t => t.scheduled_at && isToday(new Date(t.scheduled_at))).length;
-  const tomorrowCount = trips.filter(t => t.scheduled_at && isTomorrow(new Date(t.scheduled_at))).length;
   const heldCount = trips.filter(
     (t) => resolveAdminScheduledRidePresentation(t).statusKey === 'held',
   ).length;
