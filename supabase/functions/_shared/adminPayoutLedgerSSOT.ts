@@ -159,7 +159,13 @@ export type DriverPayoutAccountRow = {
   last_payout_amount_pence: number | null;
   schedule_label: string | null;
   payout_status: string;
+  /**
+   * Alias of drivers.payout_operational_paused from accounts_overview SSOT.
+   * Prefer `payout_operational_paused` in UI resolvers when both are present.
+   */
   paused: boolean;
+  /** Canonical operational pause — same truth as `paused` on this row. */
+  payout_operational_paused?: boolean;
 };
 
 export type AdminPayoutLedgerFleetSummary = {

@@ -19,6 +19,7 @@ import {
 } from '@/hooks/useDriverWalletSsot';
 import { displayDriverWalletSsotBalances } from '@/lib/driverWalletSsotBalances';
 import { resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
+import { DriverOperationalPauseMenuItem } from '@/components/finance/DriverOperationalPauseMenuItem';
 
 function driverLabel(row: Pick<DriverWalletSsotRow, 'driver_code' | 'driver_name' | 'driver_id'>): string {
   if (row.driver_name?.trim()) return row.driver_name.trim();
@@ -194,10 +195,19 @@ export function DriverWalletDriverList({
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-52">
+                      <DropdownMenuContent align="end" className="w-56">
                         <DropdownMenuItem onClick={() => onSelectDriver(row.driver_id)}>
                           Open wallet account
                         </DropdownMenuItem>
+                        <DriverOperationalPauseMenuItem
+                          driverId={row.driver_id}
+                          driverName={row.driver_name}
+                          driverCode={row.driver_code}
+                          pauseState={{
+                            payout_operational_paused: row.payout_operational_paused,
+                            payouts_enabled: row.payouts_enabled,
+                          }}
+                        />
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

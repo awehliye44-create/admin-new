@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
+import { DriverOperationalPauseInlineButton } from '@/components/finance/DriverOperationalPauseInlineButton';
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -97,6 +98,15 @@ export function DriverWalletAccountHeader({
             {status.showPayoutHoldBadge ? (
               <Badge variant="secondary">Payout hold: {status.payoutBlockReason}</Badge>
             ) : null}
+            <DriverOperationalPauseInlineButton
+              driverId={driver.driver_id}
+              driverName={driver.driver_name}
+              driverCode={driver.driver_code}
+              pauseState={{
+                payout_operational_paused: driver.payout_operational_paused,
+                payouts_enabled: driver.payouts_enabled,
+              }}
+            />
           </div>
         </div>
 
