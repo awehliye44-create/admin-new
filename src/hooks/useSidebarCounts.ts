@@ -97,6 +97,7 @@ async function fetchSidebarCountsOnce(skipCache = false): Promise<SidebarCounts>
           .from('trips')
           .select('id', { count: 'exact', head: true })
           .eq('is_scheduled', true)
+          .is('driver_id', null)
           .not('status', 'in', '(completed,cancelled,customer_cancelled,expired,expired_no_driver,no_show,declined)')
           .or('scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)'),
         supabase

@@ -77,6 +77,7 @@ import {
   resolveAdminScheduledRidePresentation,
   resolveAdminScheduledTimeCue,
 } from '@/lib/adminScheduledRidePresentation';
+import { validateAdminScheduledActionAt } from '@/lib/adminScheduledActionAt';
 
 interface ScheduledTrip {
   id: string;
@@ -391,11 +392,15 @@ export default function ScheduledRides() {
       toast.error('Select a driver and Assign At time');
       return;
     }
-    const at = new Date(releaseAtLocal);
-    if (!Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) {
-      toast.error('Assign At must be a future time');
+    const timing = validateAdminScheduledActionAt({
+      actionAtIsoOrLocal: releaseAtLocal,
+      scheduledAt: selectedTrip.scheduled_at,
+    });
+    if (!timing.ok) {
+      toast.error(timing.error);
       return;
     }
+    const at = timing.actionAt;
     setIsSaving(true);
     try {
       // One pending action per trip — replaces any prior pending release.
@@ -584,11 +589,15 @@ export default function ScheduledRides() {
       toast.error('Choose a Broadcast At time');
       return;
     }
-    const at = new Date(releaseAtLocal);
-    if (!Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) {
-      toast.error('Broadcast At must be a future time');
+    const timing = validateAdminScheduledActionAt({
+      actionAtIsoOrLocal: releaseAtLocal,
+      scheduledAt: selectedTrip.scheduled_at,
+    });
+    if (!timing.ok) {
+      toast.error(timing.error);
       return;
     }
+    const at = timing.actionAt;
     setIsSaving(true);
     try {
       const { data: pendingRows, error } = await supabase
@@ -763,7 +772,6 @@ export default function ScheduledRides() {
                 <SelectItem value="all">All Scheduled</SelectItem>
                 <SelectItem value="today">Today</SelectItem>
                 <SelectItem value="tomorrow">Tomorrow</SelectItem>
-                <SelectItem value="overdue">Overdue</SelectItem>
                 <SelectItem value="unassigned">Unassigned</SelectItem>
               </SelectContent>
             </Select>
@@ -805,9 +813,10 @@ export default function ScheduledRides() {
               </TableHeader>
               <TableBody>
                 {filteredTrips.map((trip) => {
-                  const scheduleStatus = getScheduleStatus(trip.scheduled_at);
+                  const timeCue = getTimeCue(trip.scheduled_at);
+                  const presentation = resolveAdminScheduledRidePresentation(trip);
                   return (
-                    <TableRow key={trip.id} className={scheduleStatus.urgent ? 'bg-red-50/50' : ''}>
+                    <TableRow key={trip.id} className={timeCue.urgent ? 'bg-amber-50/40' : ''}>
                       <TableCell>
                         <div>
                           <div className="font-medium">
@@ -820,8 +829,8 @@ export default function ScheduledRides() {
                               ? format(new Date(trip.scheduled_at), 'h:mm a')
                               : ''}
                           </div>
-                          <Badge variant="outline" className={`mt-1 ${scheduleStatus.color}`}>
-                            {scheduleStatus.label}
+                          <Badge variant="outline" className={`mt-1 ${timeCue.className}`}>
+                            {timeCue.label}
                           </Badge>
                         </div>
                       </TableCell>
@@ -892,56 +901,37 @@ export default function ScheduledRides() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {trip.driver ? (
-                          <div>
-                            <div className="font-medium text-sm">
-                              {trip.driver.first_name} {trip.driver.last_name}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {trip.driver.phone}
-                            </div>
-                            {trip.driver.rating && (
-                              <div className="text-xs text-muted-foreground flex items-center gap-0.5 mt-0.5">
-                                <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
-                                {trip.driver.rating.toFixed(1)}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
+                        {presentation.driverKind === 'unassigned' ? (
                           <Badge variant="outline" className="bg-yellow-100 text-yellow-700">
                             Unassigned
                           </Badge>
+                        ) : (
+                          <div>
+                            <div className="font-medium text-sm">
+                              {presentation.driverDisplayName || 'Driver'}
+                            </div>
+                            {presentation.driverBadge ? (
+                              <Badge variant="outline" className="mt-1 text-[10px] bg-emerald-50 text-emerald-800">
+                                {presentation.driverBadge}
+                              </Badge>
+                            ) : null}
+                          </div>
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={
-                          trip.scheduled_status === 'driver_assigned'
-                            ? 'bg-green-100 text-green-700'
-                            : trip.scheduled_status === 'awaiting_activation_accept'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : trip.scheduled_status === 'dispatching'
-                            ? 'bg-blue-100 text-blue-700'
-                            : trip.scheduled_status === 'admin_held'
-                            ? 'bg-amber-100 text-amber-800'
-                            : trip.scheduled_status === 'broadcasting'
-                            ? 'bg-indigo-100 text-indigo-700'
-                            : trip.status === 'accepted'
-                            ? 'bg-green-100 text-green-700' 
-                            : 'bg-gray-100 text-gray-700'
-                        }>
-                          {trip.scheduled_status === 'driver_assigned' ? 'Driver Assigned'
-                            : trip.scheduled_status === 'awaiting_activation_accept' ? 'Awaiting Accept'
-                            : trip.scheduled_status === 'dispatching' ? 'Dispatching'
-                            : trip.scheduled_status === 'admin_held' ? 'Held'
-                            : trip.scheduled_status === 'broadcasting' ? 'Broadcasting'
-                            : trip.status === 'accepted' ? 'Confirmed'
-                            : 'Pending'}
+                        <Badge variant="outline" className={presentation.statusClassName}>
+                          {presentation.statusLabel}
                         </Badge>
-                        {trip.service_area && (
+                        {trip.pending_release_kind && trip.pending_release_at ? (
+                          <div className="text-[10px] text-muted-foreground mt-1">
+                            {trip.pending_release_kind} at{' '}
+                            {format(new Date(trip.pending_release_at), 'MMM d, h:mm a')}
+                          </div>
+                        ) : trip.service_area ? (
                           <div className="text-xs text-muted-foreground mt-1">
                             {trip.service_area.name}
                           </div>
-                        )}
+                        ) : null}
                       </TableCell>
                       <TableCell className="font-medium">
                         <div>
