@@ -255,7 +255,7 @@ export default function MissedCancelled() {
       let missedQ = supabase
         .from('trips')
         .select('id', { count: 'exact', head: true })
-        .in('status', ['missed', 'expired'])
+        .in('status', ['missed', 'expired', 'expired_no_driver'])
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString());
       let fareQ = supabase
