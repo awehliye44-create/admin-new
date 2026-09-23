@@ -24,9 +24,9 @@ const ELIG = resolve(
   'supabase/migrations/20260926124000_driver_wallet_available_cap_unpaid_live.sql',
 );
 const ADMIN_CLIENT = resolve(ROOT, 'src/integrations/supabase/client.ts');
-const B5_DRAFT = resolve(
+const B5_LIVE = resolve(
   ROOT,
-  'supabase/drafts/A8B28F_stage_b/B5/adminSetDriverPayoutOperationalPause.ts',
+  'src/lib/adminSetDriverPayoutOperationalPause.ts',
 );
 
 describe('phase A8B28F Stage B1 admin_set_driver_payout_operational_pause', () => {
@@ -35,7 +35,7 @@ describe('phase A8B28F Stage B1 admin_set_driver_payout_operational_pause', () =
   const clearing = readFileSync(CLEARING, 'utf8');
   const elig = readFileSync(ELIG, 'utf8');
   const adminClient = readFileSync(ADMIN_CLIENT, 'utf8');
-  const b5 = readFileSync(B5_DRAFT, 'utf8');
+  const b5 = readFileSync(B5_LIVE, 'utf8');
 
   it('defines SECURITY DEFINER VOLATILE RPC with finance ACL and authenticated-only EXECUTE', () => {
     expect(fwd).toMatch(/CREATE OR REPLACE FUNCTION public\.admin_set_driver_payout_operational_pause\(/);
@@ -62,7 +62,7 @@ describe('phase A8B28F Stage B1 admin_set_driver_payout_operational_pause', () =
   it('proves future Admin caller is publishable client + authenticated JWT (no service_role Edge)', () => {
     expect(adminClient).toMatch(/VITE_SUPABASE_PUBLISHABLE_KEY/);
     expect(adminClient).toMatch(/createClient/);
-    expect(b5).toMatch(/supabase\.rpc\("admin_set_driver_payout_operational_pause"/);
+    expect(b5).toMatch(/supabase\.rpc\(['"]admin_set_driver_payout_operational_pause['"]/);
     expect(b5).not.toMatch(/SERVICE_ROLE/);
     expect(b5).not.toMatch(/service_role/);
   });

@@ -57,6 +57,10 @@ import { PayoutLedgerOverviewPanel } from '@/components/finance/PayoutLedgerOver
 import { FinancePanelErrorBoundary } from '@/components/finance/FinancePanelErrorBoundary';
 import { useAdminPayoutLedger } from '@/hooks/useAdminPayoutLedger';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  adminSetDriverPayoutOperationalPause,
+  operationalPauseConfirmCopy,
+} from '@/lib/adminSetDriverPayoutOperationalPause';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
 import { downloadCsv, downloadRecordsAsExcel, printFinanceReport, printFinanceRecords } from '@/lib/financeExport';
 import { formatNullablePence } from '@/lib/formatNullablePence';
@@ -397,13 +401,34 @@ export default function PayoutLedger() {
 
   const updatePayoutPause = async (row: DriverPayoutAccountRow) => {
     const action = row.paused ? 'resume' : 'pause';
-    if (!window.confirm(`Confirm ${action} payouts for ${row.name ?? row.code ?? row.driver_id}?`)) return;
-    const { error: updateError } = await supabase
-      .from('drivers')
-      .update({ payouts_enabled: row.paused })
-      .eq('id', row.driver_id);
-    if (updateError) throw updateError;
-    await queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
+    const copy = operationalPauseConfirmCopy({
+      action,
+      driverName: row.name,
+      driverCode: row.code,
+    });
+    if (!window.confirm(`${copy.title}\n\n${copy.body}`)) return;
+    const reason = window.prompt(
+      action === 'resume'
+        ? 'Admin reason for resuming payouts (3–500 characters):'
+        : 'Admin reason for pausing payouts (3–500 characters):',
+      '',
+    );
+    if (reason == null) return;
+    const result = await adminSetDriverPayoutOperationalPause({
+      driverId: row.driver_id,
+      paused: !row.paused,
+      reason,
+    });
+    if (!result.ok) {
+      window.alert(result.message);
+      return;
+    }
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] }),
+      queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot'] }),
+      queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot-detail'] }),
+      queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot-all'] }),
+    ]);
   };
 
   const exportItemsCsv = (filename = 'payout-ledger-history.csv') => {
