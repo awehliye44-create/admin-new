@@ -272,8 +272,10 @@ Deno.test("completion gate migration locks trip and requires protected >= commit
     ),
   );
   assertStringIncludes(pendingFix, "payment_confirmed");
+  // MK-260923-002: payment_pending (UNKNOWN) still blocks; payment_failed does not.
+  assertStringIncludes(pendingFix, "payment_pending");
   assertEquals(pendingFix.includes("'payment_required'"), false);
-  assertEquals(pendingFix.includes("'payment_pending'"), false);
+  assertEquals(pendingFix.includes("'payment_failed'"), false);
 });
 
 Deno.test("DB apply guard blocks unpaid PLATFORM approved/applied increases", async () => {

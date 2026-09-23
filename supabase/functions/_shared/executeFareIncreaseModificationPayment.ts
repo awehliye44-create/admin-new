@@ -250,15 +250,19 @@ export async function executeFareIncreaseModificationPayment(
       newFarePence,
     ) as Record<string, unknown> | null;
   } catch (invokeErr) {
+    // Only genuinely unknown outcomes (timeout / network with no structured body)
+    // become payment_pending. Structured declines are returned by invoke, not thrown.
     const message = invokeErr instanceof Error ? invokeErr.message : String(invokeErr);
+    const isTimeout = /timeout/i.test(message);
+    const isNetwork = /network|fetch|failed to fetch|econnreset|enotfound/i.test(message);
     gate = decideFromPreauthInvokeResult({
       success: false,
       requiredPayablePence: newFarePence,
       authorisedAmountPence: 0,
       paymentCoverageStatus: "authorization_reconciliation_pending",
-      errorCode: /timeout/i.test(message)
+      errorCode: isTimeout
         ? "TIMEOUT"
-        : /network|fetch/i.test(message)
+        : isNetwork
         ? "NETWORK"
         : "AUTHORISATION_RECONCILIATION_PENDING",
       warning: message,
@@ -289,6 +293,58 @@ export async function executeFareIncreaseModificationPayment(
         ? preauthResult.error
         : null,
     });
+  }
+
+  // Safety net: if auth row already recorded a definitive decline, never leave pending.
+  if (gate.phase === "PAYMENT_PENDING") {
+    const sessionId = trip.payment_session_id
+      ? String(trip.payment_session_id)
+      : null;
+    let declinedAuth: { id?: string } | null = null;
+    if (sessionId) {
+      const { data } = await supabase
+        .from("payment_session_authorisations")
+        .select("id")
+        .eq("payment_session_id", sessionId)
+        .eq("requested_target_total_pence", newFarePence)
+        .eq("status", "ADDITIONAL_AUTHORISATION_DECLINED")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      declinedAuth = data ?? null;
+    }
+    if (!declinedAuth && trip.id) {
+      const { data: sess } = await supabase
+        .from("payment_sessions")
+        .select("id")
+        .eq("trip_id", String(trip.id))
+        .neq("purpose", "PAYMENT_RECOVERY")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (sess?.id) {
+        const { data } = await supabase
+          .from("payment_session_authorisations")
+          .select("id")
+          .eq("payment_session_id", String(sess.id))
+          .eq("requested_target_total_pence", newFarePence)
+          .eq("status", "ADDITIONAL_AUTHORISATION_DECLINED")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        declinedAuth = data ?? null;
+      }
+    }
+    if (declinedAuth) {
+      gate = {
+        phase: "PAYMENT_FAILED",
+        mayApply: false,
+        paymentStatus: "failed",
+        requestStatus: "payment_failed",
+        authorisedTotalPence: gate.authorisedTotalPence,
+        reason: "declined",
+      };
+    }
   }
 
   // Fail closed: re-read canonical protected amount after provider result (#10–11).

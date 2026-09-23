@@ -996,6 +996,41 @@ export async function executeSameOrderIncrement(args: {
         error_classification: failKind === "declined"
           ? "AUTHORISED_TOTAL_BELOW_TARGET"
           : failCode ?? failOutcome,
+        provider_confirmed_total_pence: coverage.authorisedTotalPence > 0
+          ? coverage.authorisedTotalPence
+          : null,
+        provider_state: coverageOrder
+          ? String(coverageOrder.state ?? "").toUpperCase() || null
+          : null,
+        metadata: {
+          reason: incrementReason,
+          source: args.source,
+          requested_target_total_pence: plan.targetTotalPence,
+          provider_confirmed_total_pence: coverage.authorisedTotalPence,
+          provider_increment_state: (() => {
+            const incs = Array.isArray(coverageOrder?.incremental_authorisations)
+              ? coverageOrder.incremental_authorisations
+              : [];
+            const last = incs.length > 0 ? incs[incs.length - 1] : null;
+            return last ? String(last.state ?? "").toLowerCase() || null : null;
+          })(),
+          // Never invent issuer reasons — persist null when Revolut omits them.
+          provider_decline_reason: (() => {
+            const incs = Array.isArray(coverageOrder?.incremental_authorisations)
+              ? coverageOrder.incremental_authorisations
+              : [];
+            const last = incs.length > 0 ? incs[incs.length - 1] : null;
+            const fromInc = last && typeof last === "object"
+              ? (last as { decline_reason?: unknown }).decline_reason
+              : null;
+            return fromInc == null || String(fromInc).trim() === ""
+              ? null
+              : String(fromInc);
+          })(),
+          provider_error_code: failCode ?? null,
+          coverage_class: coverage.class,
+          fail_outcome: failOutcome,
+        },
       })
       .eq("id", incrementRowId);
 

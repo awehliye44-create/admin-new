@@ -153,6 +153,50 @@ export function decideModificationIncrementCoverage(args: {
   };
 }
 
+/**
+ * Definitive provider decline / below-target coverage.
+ * Must be checked BEFORE reconciliation-pending so HTTP 409 decline bodies
+ * never become payment_unknown / payment_pending (MK-260923-002).
+ */
+export function isDefinitivePreauthDecline(args: {
+  paymentCoverageStatus?: string | null;
+  errorCode?: string | null;
+  warning?: string | null;
+}): boolean {
+  const coverage = String(args.paymentCoverageStatus ?? "").toLowerCase();
+  const code = String(args.errorCode ?? "").toUpperCase();
+  const warning = String(args.warning ?? "").toLowerCase();
+
+  if (
+    code === "AUTHORISED_TOTAL_BELOW_TARGET"
+    || code.includes("AUTHORISED_TOTAL_BELOW")
+    || code.includes("BELOW_TARGET")
+    || code === "ADDITIONAL_AUTHORISATION_DECLINED"
+    || code.includes("PAYMENT_DECLINED")
+    || code.endsWith("_DECLINED")
+    || code === "DECLINED"
+  ) {
+    return true;
+  }
+  if (
+    coverage === "authorization_insufficient"
+    || coverage.includes("authorisation_declined")
+    || coverage.includes("authorization_declined")
+    || coverage.includes("under_authorised")
+    || coverage.includes("under_authorized")
+  ) {
+    return true;
+  }
+  if (
+    warning.includes("authorised total remains below")
+    || warning.includes("authorized total remains below")
+    || warning.includes("declined")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Map update-preauth / executeSameOrderIncrement outcomes onto the gate. */
 export function decideFromPreauthInvokeResult(args: {
   success: boolean;
@@ -188,6 +232,29 @@ export function decideFromPreauthInvokeResult(args: {
       requestStatus: "payment_failed",
       authorisedTotalPence: authorised,
       reason: "amount_mismatch",
+    };
+  }
+
+  // DECLINED ≠ UNKNOWN. Definitive decline/below-target always fails closed.
+  if (
+    isDefinitivePreauthDecline({
+      paymentCoverageStatus: args.paymentCoverageStatus,
+      errorCode: args.errorCode,
+      warning: args.warning,
+    })
+  ) {
+    const insufficientFunds =
+      code === "INSUFFICIENT_FUNDS"
+      || code.endsWith("_INSUFFICIENT_FUNDS")
+      || warning.includes("insufficient funds");
+    return {
+      phase: "PAYMENT_FAILED",
+      mayApply: false,
+      paymentStatus: "failed",
+      requestStatus: "payment_failed",
+      authorisedTotalPence: authorised,
+      // Definitive issuer/provider decline → payment_declined (not amount_mismatch).
+      reason: insufficientFunds ? "insufficient" : "declined",
     };
   }
 

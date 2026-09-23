@@ -1,7 +1,11 @@
--- Pending / failed fare-increase modifications must NOT block Driver completion.
--- Route/fare stay on the original trip until payment is confirmed and applied.
--- Block completion only when payment is confirmed but apply not finished, or
--- when approved/applied slipped through with unpaid payment_status.
+-- Fare-increase modification completion gate (MK-260923-002).
+--
+-- DECLINED / payment_failed must NEVER block Driver lifecycle.
+-- UNKNOWN / payment_pending MUST still block (provider may yet confirm).
+-- payment_confirmed (apply in flight) MUST still block.
+--
+-- Do NOT treat bare payment_status=pending as unresolved for payment_failed rows.
+-- Roll forward from 20261112181000; rollback restores that broader gate.
 -- Rollback: rollback/rollback_20261127120000_pending_mod_does_not_block_completion.sql
 BEGIN;
 
@@ -19,8 +23,10 @@ AS $function$
     WHERE r.trip_id = p_trip_id
       AND COALESCE(r.fare_delta_pence, 0) > 0
       AND (
+        -- Genuinely unknown / still-processing provider outcome — protect completion.
+        r.status = 'payment_pending'
         -- Money confirmed; claim/apply still in flight — serialize vs completion.
-        r.status = 'payment_confirmed'
+        OR r.status = 'payment_confirmed'
         -- Fail-closed: applied/approved must never sit with unpaid status.
         OR (
           r.status IN ('approved', 'applied')

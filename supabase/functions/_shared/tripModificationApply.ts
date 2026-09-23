@@ -298,6 +298,76 @@ export async function fetchTripAndBroadcastUpdated(
   };
 }
 
+/**
+ * Parse structured JSON from a FunctionsHttpError context when present.
+ * Definitive decline/insufficient bodies must be preserved — never discarded.
+ */
+export async function parsePreauthInvokeErrorBody(
+  error: unknown,
+): Promise<Record<string, unknown> | null> {
+  const contextBody = (error as {
+    context?: {
+      json?: () => Promise<unknown>;
+      text?: () => Promise<string>;
+      body?: unknown;
+    };
+  })?.context;
+  if (!contextBody || typeof contextBody !== "object") return null;
+
+  if (typeof contextBody.json === "function") {
+    try {
+      const parsed = await contextBody.json();
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // fall through to text / body
+    }
+  }
+
+  if (typeof contextBody.text === "function") {
+    try {
+      const raw = await contextBody.text();
+      const parsed = JSON.parse(String(raw ?? ""));
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const body = contextBody.body;
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    return body as Record<string, unknown>;
+  }
+  if (typeof body === "string") {
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+/** True when update-preauth returned a structured payment outcome (incl. decline). */
+export function isStructuredPreauthOutcome(
+  body: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!body || typeof body !== "object") return false;
+  if (body.requires_revolut_checkout === true) return true;
+  if (typeof body.payment_coverage_status === "string") return true;
+  if (typeof body.error_code === "string" && String(body.error_code).trim() !== "") {
+    return true;
+  }
+  if (body.success === true || body.success === false) return true;
+  return false;
+}
+
 /** Increment card preauth when modification increases gross fare (service-role safe). */
 export async function invokePreauthUpdateOnModification(
   supabase: SupabaseClient,
@@ -326,20 +396,20 @@ export async function invokePreauthUpdateOnModification(
   );
 
   if (error) {
-    const contextBody = (error as { context?: { json?: () => Promise<Record<string, unknown>> } })
-      ?.context;
-    if (contextBody && typeof contextBody.json === "function") {
-      try {
-        const parsed = await contextBody.json();
-        if (parsed?.requires_revolut_checkout === true) {
-          console.log("TRIP_MODIFICATION_PREAUTH_REVOLUT_CHECKOUT", { tripId, parsed });
-          return parsed;
-        }
-      } catch {
-        // fall through
-      }
+    const parsed = await parsePreauthInvokeErrorBody(error);
+    if (isStructuredPreauthOutcome(parsed)) {
+      console.log("TRIP_MODIFICATION_PREAUTH_STRUCTURED_ERROR", {
+        tripId,
+        payment_coverage_status: parsed?.payment_coverage_status ?? null,
+        error_code: parsed?.error_code ?? null,
+        requires_revolut_checkout: parsed?.requires_revolut_checkout === true,
+      });
+      return parsed;
     }
-    console.error("TRIP_MODIFICATION_PREAUTH_FAILED", { tripId, error: error.message });
+    console.error("TRIP_MODIFICATION_PREAUTH_FAILED", {
+      tripId,
+      error: (error as Error).message,
+    });
     throw error;
   }
 

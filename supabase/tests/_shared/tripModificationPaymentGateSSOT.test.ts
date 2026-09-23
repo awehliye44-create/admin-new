@@ -150,6 +150,84 @@ Deno.test("timeout / network map to PAYMENT_PENDING (trip unchanged)", () => {
   assertEquals(network.phase, "PAYMENT_PENDING");
 });
 
+Deno.test("MK-260923-002: HTTP 409 decline body must NOT become payment_unknown", () => {
+  // Exact forensic shape from update-preauth on definitive decline.
+  const d = decideFromPreauthInvokeResult({
+    success: false,
+    requiredPayablePence: 1241,
+    authorisedAmountPence: 500,
+    paymentCoverageStatus: "authorization_insufficient",
+    errorCode: "AUTHORISED_TOTAL_BELOW_TARGET",
+    warning: "Provider authorised total remains below the required fare.",
+  });
+  assertEquals(d.phase, "PAYMENT_FAILED");
+  assertEquals(d.mayApply, false);
+  assertEquals(d.requestStatus, "payment_failed");
+  assertEquals(d.paymentStatus, "failed");
+  if (d.phase === "PAYMENT_FAILED") {
+    assertEquals(d.reason, "declined");
+  }
+  assertEquals(d.authorisedTotalPence, 500);
+});
+
+Deno.test("MK-260923-002: ADDITIONAL_AUTHORISATION_DECLINED is definitive fail", () => {
+  const d = decideFromPreauthInvokeResult({
+    success: false,
+    requiredPayablePence: 1241,
+    authorisedAmountPence: 500,
+    paymentCoverageStatus: "authorization_insufficient",
+    errorCode: "ADDITIONAL_AUTHORISATION_DECLINED",
+  });
+  assertEquals(d.phase, "PAYMENT_FAILED");
+  if (d.phase === "PAYMENT_FAILED") assertEquals(d.reason, "declined");
+});
+
+Deno.test("MK-260923-002: reconciliation_pending without decline stays unknown pending", () => {
+  const d = decideFromPreauthInvokeResult({
+    success: false,
+    requiredPayablePence: 1241,
+    authorisedAmountPence: 500,
+    paymentCoverageStatus: "authorization_reconciliation_pending",
+    errorCode: "AUTHORISATION_RECONCILIATION_PENDING",
+    warning: "ambiguous authorised total",
+  });
+  assertEquals(d.phase, "PAYMENT_PENDING");
+  if (d.phase === "PAYMENT_PENDING") assertEquals(d.reason, "unknown");
+});
+
+Deno.test("MK-260923-002: 500→1241 success unlocks apply; decline keeps 500", () => {
+  const success = simulateModificationAuthorisationSequence({
+    originalAuthorisedPence: 500,
+    requiredPayablePence: 1241,
+    providerSnapshots: [
+      orderShape({
+        paymentAuth: 500,
+        increments: [{ old_amount: 500, new_amount: 1241, state: "processing" }],
+      }),
+      orderShape({
+        paymentAuth: 1241,
+        increments: [{ old_amount: 500, new_amount: 1241, state: "authorised" }],
+      }),
+    ],
+  });
+  assertEquals(success.applied, true);
+  assertEquals(success.finalAuthorisedPence, 1241);
+
+  const declined = simulateModificationAuthorisationSequence({
+    originalAuthorisedPence: 500,
+    requiredPayablePence: 1241,
+    providerSnapshots: [
+      orderShape({
+        paymentAuth: 500,
+        increments: [{ old_amount: 500, new_amount: 1241, state: "failed" }],
+      }),
+    ],
+  });
+  assertEquals(declined.applied, false);
+  assertEquals(declined.decisions[0].phase, "PAYMENT_FAILED");
+  assertEquals(declined.finalAuthorisedPence, 500);
+});
+
 Deno.test("skipped success never invents authorised coverage for positive delta", () => {
   const invented = decideFromPreauthInvokeResult({
     success: true,
