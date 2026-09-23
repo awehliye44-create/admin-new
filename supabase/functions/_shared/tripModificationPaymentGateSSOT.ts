@@ -231,6 +231,21 @@ export function decideFromPreauthInvokeResult(args: {
     };
   }
 
+  if (
+    code.includes("INSUFFICIENT")
+    || warning.includes("insufficient")
+    || coverage.includes("insufficient")
+  ) {
+    return {
+      phase: "PAYMENT_FAILED",
+      mayApply: false,
+      paymentStatus: "failed",
+      requestStatus: "payment_failed",
+      authorisedTotalPence: authorised,
+      reason: "insufficient",
+    };
+  }
+
   if (authorised > 0 && authorised < required) {
     return {
       phase: "PAYMENT_FAILED",

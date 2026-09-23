@@ -264,7 +264,8 @@ BEGIN
     r1->>'code', r2_code, fare, events, auth_rows;
 END $$;
 
--- Completion gate: unresolved increase blocks; valid original fare untouched.
+-- Completion gate: payment_pending unpaid increase must NOT block completion
+-- (route/fare remain original). payment_confirmed still blocks until applied.
 CREATE OR REPLACE FUNCTION mod_claim_sim.trip_has_unresolved_fare_increase_modification(p_trip_id uuid)
 RETURNS boolean
 LANGUAGE sql STABLE AS $$
@@ -272,7 +273,13 @@ LANGUAGE sql STABLE AS $$
     SELECT 1 FROM mod_claim_sim.trip_change_requests r
     WHERE r.trip_id = p_trip_id
       AND COALESCE(r.fare_delta_pence, 0) > 0
-      AND r.status IN ('payment_required', 'payment_pending', 'payment_confirmed')
+      AND (
+        r.status = 'payment_confirmed'
+        OR (
+          r.status IN ('approved', 'applied')
+          AND lower(COALESCE(r.payment_status, '')) IN ('required', 'pending')
+        )
+      )
   );
 $$;
 
@@ -296,8 +303,8 @@ BEGIN
   unresolved := mod_claim_sim.trip_has_unresolved_fare_increase_modification(
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
   );
-  IF unresolved IS NOT TRUE THEN
-    RAISE EXCEPTION 'FAIL: expected unresolved=true';
+  IF unresolved IS TRUE THEN
+    RAISE EXCEPTION 'FAIL: payment_pending unpaid mod must not block completion';
   END IF;
 
   SELECT final_customer_fare_pence INTO fare_after FROM mod_claim_sim.trips
@@ -307,7 +314,20 @@ BEGIN
     RAISE EXCEPTION 'FAIL: completion gate mutated fare';
   END IF;
 
-  RAISE NOTICE 'COMPLETION_GATE_PASS unresolved=true fare_unchanged=500';
+  -- payment_confirmed still unresolved until applied.
+  UPDATE mod_claim_sim.trip_change_requests
+  SET status = 'payment_confirmed', payment_status = 'confirmed'
+  WHERE id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+
+  unresolved := mod_claim_sim.trip_has_unresolved_fare_increase_modification(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  );
+  IF unresolved IS NOT TRUE THEN
+    RAISE EXCEPTION 'FAIL: expected unresolved=true for payment_confirmed';
+  END IF;
+
+  RAISE NOTICE 'COMPLETION_GATE_PASS fare=% unresolved_pending=false unresolved_confirmed=true',
+    fare_after;
 END $$;
 
 -- Leave schema in place for parallel.sh (dropped by that script).

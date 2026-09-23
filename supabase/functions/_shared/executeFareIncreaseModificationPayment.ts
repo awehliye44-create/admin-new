@@ -40,13 +40,27 @@ export type FareIncreasePaymentResult = {
   claimCode?: string;
   authorisedTotalPence?: number;
   requiredPayablePence?: number;
+  fareDeltaPence?: number;
   error?: string;
+  errorCode?: string;
   httpStatus: number;
   requiresApproval?: boolean;
   navigationImpacted?: boolean;
   trip?: Record<string, unknown> | null;
   tripUpdated?: Record<string, unknown> | null;
 };
+
+function errorCodeForGate(gate: ModificationPaymentGateDecision): string {
+  if (gate.phase === "PAYMENT_PENDING") {
+    return "PAYMENT_AUTHORISATION_PENDING";
+  }
+  if (gate.phase === "PAYMENT_FAILED") {
+    if (gate.reason === "insufficient") return "INSUFFICIENT_FUNDS";
+    if (gate.reason === "amount_mismatch") return "AUTHORISED_TOTAL_BELOW_TARGET";
+    return "PAYMENT_DECLINED";
+  }
+  return "PAYMENT_CONFIRMATION_FAILED";
+}
 
 /** Canonical protected customer amount for PLATFORM_COLLECTED hold. */
 export function resolveProtectedCustomerPayablePence(trip: Record<string, unknown>): number {
@@ -338,6 +352,7 @@ export async function executeFareIncreaseModificationPayment(
       })
       .eq("id", requestId);
 
+    const errorCode = errorCodeForGate(gate);
     return {
       success: false,
       requestId,
@@ -348,9 +363,13 @@ export async function executeFareIncreaseModificationPayment(
       tripUnchanged: true,
       authorisedTotalPence: gate.authorisedTotalPence,
       requiredPayablePence: newFarePence,
+      fareDeltaPence: fareDelta,
+      errorCode,
       error: pending
-        ? "Payment is still processing. Your trip has not been changed."
-        : "Payment confirmation failed",
+        ? "Payment is still being authorised. Your trip has not changed yet."
+        : gate.reason === "insufficient"
+        ? "Insufficient funds for the fare increase. Your original trip is unchanged."
+        : "Payment declined for the fare increase. Your original trip is unchanged.",
       httpStatus: pending ? 202 : 402,
     };
   }
@@ -414,7 +433,9 @@ export async function executeFareIncreaseModificationPayment(
         paymentPhase: "PAYMENT_PENDING",
         paymentProcessing: true,
         tripUnchanged: true,
-        error: "Payment is still processing. Your trip has not been changed.",
+        fareDeltaPence: fareDelta,
+        errorCode: "PAYMENT_AUTHORISATION_PENDING",
+        error: "Payment is still being authorised. Your trip has not changed yet.",
         httpStatus: 202,
       };
     }
