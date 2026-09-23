@@ -287,11 +287,20 @@ export function useDriverWalletSsot(args?: {
   });
 }
 
-async function fetchAllDriverWalletSsotPages(regionId: string | null): Promise<DriverWalletSsotRow[]> {
+async function fetchAllDriverWalletSsotPages(
+  regionId: string | null,
+  periodFrom?: string | null,
+  periodTo?: string | null,
+): Promise<DriverWalletSsotRow[]> {
   const pageSize = 50;
+  const periodBody = {
+    ...(periodFrom ? { from: periodFrom } : {}),
+    ...(periodTo ? { to: periodTo } : {}),
+  };
   const { data: firstData, error: firstError } = await supabase.functions.invoke('admin-driver-wallet-ssot', {
     body: {
       ...(regionId ? { region_id: regionId } : {}),
+      ...periodBody,
       limit: pageSize,
       offset: 0,
     },
@@ -316,6 +325,7 @@ async function fetchAllDriverWalletSsotPages(regionId: string | null): Promise<D
       const { data, error } = await supabase.functions.invoke('admin-driver-wallet-ssot', {
         body: {
           ...(regionId ? { region_id: regionId } : {}),
+          ...periodBody,
           limit: pageSize,
           offset,
         },
@@ -333,9 +343,14 @@ async function fetchAllDriverWalletSsotPages(regionId: string | null): Promise<D
 }
 
 /** Paginates through all driver-wallet SSOT rows for platform KPI aggregation. */
-export function useDriverWalletSsotAll(regionId?: string | null) {
+export function useDriverWalletSsotAll(
+  regionId?: string | null,
+  args?: { periodFrom?: string | null; periodTo?: string | null },
+) {
+  const periodFrom = args?.periodFrom ?? null;
+  const periodTo = args?.periodTo ?? null;
   return useQuery({
-    queryKey: ['driver-wallet-ssot-all', regionId ?? 'all'],
+    queryKey: ['driver-wallet-ssot-all', regionId ?? 'all', periodFrom ?? 'all', periodTo ?? 'all'],
     queryFn: () =>
       withAdminFinanceQueryTiming(
         {
@@ -344,7 +359,7 @@ export function useDriverWalletSsotAll(regionId?: string | null) {
           query_name: 'fleet_all_pages',
           rowCount: (r) => r.length,
         },
-        () => fetchAllDriverWalletSsotPages(regionId ?? null),
+        () => fetchAllDriverWalletSsotPages(regionId ?? null, periodFrom, periodTo),
       ),
     ...ADMIN_FINANCE_QUERY_DEFAULTS,
     staleTime: 60_000,

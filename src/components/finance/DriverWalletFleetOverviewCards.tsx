@@ -49,11 +49,18 @@ const METRIC_LABELS = [
 export function DriverWalletFleetOverviewCards({
   regionId = null,
   currencyCode = 'GBP',
+  periodFrom = null,
+  periodTo = null,
 }: {
   regionId?: string | null;
   currencyCode?: string;
+  periodFrom?: string | null;
+  periodTo?: string | null;
 }) {
-  const { data: drivers = [], isLoading, isFetching, isError, error, refetch } = useDriverWalletSsotAll(regionId);
+  const { data: drivers = [], isLoading, isFetching, isError, error, refetch } = useDriverWalletSsotAll(
+    regionId,
+    { periodFrom, periodTo },
+  );
   const overview = buildDriverWalletFleetOverview(drivers);
   const fmt = (p: number) => formatNullablePence(p, currencyCode);
 

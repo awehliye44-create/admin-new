@@ -2,7 +2,9 @@
  * FR Drivers tab — canonical expected driver entitlement (read-only).
  *
  * Never use raw trips.driver_net_pence alone for terminal-fee outcomes.
- * Provider processing fee is platform-owned on terminal captures unless policy says otherwise.
+ * Provider processing fee is platform-owned on terminal captures unless an
+ * explicit approved policy says the driver pays it. Do not subtract provider
+ * fee from expected driver entitlement by default.
  */
 
 import { TERMINAL_FEE_TRIP_STATUSES } from "./driverCreditMonitoringSSOT.ts";
@@ -98,8 +100,25 @@ export function resolveTerminalFeeDriverTenPence(args: {
   const captured = Math.max(0, Math.round(Number(args.captured_pence)));
   const providerFee = Math.max(0, Math.round(Number(args.provider_fee_pence)));
   const commission = Math.max(0, Math.round(Number(args.commission_pence ?? 0)));
+  // Settlement / wallet credit path (legacy): capture − fee − commission.
+  // FR expected entitlement uses resolveFrTerminalFeeExpectedEntitlementPence instead
+  // (provider fee is platform-owned for FR credit variance).
   if (commission > 0) return Math.max(0, captured - providerFee - commission);
   return Math.max(0, captured - providerFee);
+}
+
+/**
+ * FR expected entitlement for terminal-fee outcomes.
+ * Provider processing fee is platform-owned — do not deduct from driver expected.
+ * Matches live cancel-fee TEN practice: capture − commission (e.g. 500 − 65 = 435).
+ */
+export function resolveFrTerminalFeeExpectedEntitlementPence(args: {
+  captured_pence: number;
+  commission_pence?: number | null;
+}): number {
+  const captured = Math.max(0, Math.round(Number(args.captured_pence)));
+  const commission = Math.max(0, Math.round(Number(args.commission_pence ?? 0)));
+  return Math.max(0, captured - commission);
 }
 
 function pickFirstValidIso(candidates: (string | null | undefined)[]): string | null {
@@ -236,17 +255,18 @@ export function resolveFrDriverExpectedEntitlement(
     ? null
     : Math.max(0, Math.round(Number(trip.commission_pence)));
 
-  // Terminal fee outcomes must use capture − provider fee before any settlement stamp.
+  // Terminal fee FR expected: capture − commission (provider fee platform-owned).
+  // Do not use resolveTerminalFeeDriverTenPence here — that path still deducts fee for
+  // legacy settlement writers and would falsely OVER-credit variance vs live TEN.
   if (isTerminal && captured != null && captured > 0) {
-    const terminalTen = resolveTerminalFeeDriverTenPence({
+    const terminalTen = resolveFrTerminalFeeExpectedEntitlementPence({
       captured_pence: captured,
-      provider_fee_pence: providerFee,
       commission_pence: commission,
     });
     return {
       expected_entitlement_pence: terminalTen + tipsPence(trip),
       expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
-      entitlement_source: "terminal_fee_capture_minus_provider_fee",
+      entitlement_source: "terminal_fee_capture_minus_commission",
       financial_settled_at: financialSettledAt,
       is_terminal_fee_outcome: true,
     };
