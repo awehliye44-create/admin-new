@@ -12425,7 +12425,10 @@ export type Database = {
           fairness_boost_score: number
           fairness_idle_minutes: number
           id: string
+          local_activation_minutes_before_pickup: number
           locked_driver_response_minutes: number
+          long_activation_minutes_before_pickup: number
+          long_trip_threshold_minutes: number
           max_active_rides_per_driver: number
           max_advance_days: number
           max_dispatch_rounds: number
@@ -12467,9 +12470,6 @@ export type Database = {
           towards_destination_priority_weight: number
           updated_at: string
           urgent_dispatch_trigger_minutes_before_pickup: number
-          long_trip_threshold_minutes: number
-          local_activation_minutes_before_pickup: number
-          long_activation_minutes_before_pickup: number
           waiting_bonus_per_minute: number
           waiting_time_grace_period_minutes: number
           wave1_commission_reduction_percent: number
@@ -12511,7 +12511,10 @@ export type Database = {
           fairness_boost_score?: number
           fairness_idle_minutes?: number
           id?: string
+          local_activation_minutes_before_pickup?: number
           locked_driver_response_minutes?: number
+          long_activation_minutes_before_pickup?: number
+          long_trip_threshold_minutes?: number
           max_active_rides_per_driver?: number
           max_advance_days?: number
           max_dispatch_rounds?: number
@@ -12553,9 +12556,6 @@ export type Database = {
           towards_destination_priority_weight?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
-          long_trip_threshold_minutes?: number
-          local_activation_minutes_before_pickup?: number
-          long_activation_minutes_before_pickup?: number
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
           wave1_commission_reduction_percent?: number
@@ -12597,7 +12597,10 @@ export type Database = {
           fairness_boost_score?: number
           fairness_idle_minutes?: number
           id?: string
+          local_activation_minutes_before_pickup?: number
           locked_driver_response_minutes?: number
+          long_activation_minutes_before_pickup?: number
+          long_trip_threshold_minutes?: number
           max_active_rides_per_driver?: number
           max_advance_days?: number
           max_dispatch_rounds?: number
@@ -12639,9 +12642,6 @@ export type Database = {
           towards_destination_priority_weight?: number
           updated_at?: string
           urgent_dispatch_trigger_minutes_before_pickup?: number
-          long_trip_threshold_minutes?: number
-          local_activation_minutes_before_pickup?: number
-          long_activation_minutes_before_pickup?: number
           waiting_bonus_per_minute?: number
           waiting_time_grace_period_minutes?: number
           wave1_commission_reduction_percent?: number
@@ -23057,6 +23057,9 @@ export type Database = {
           payment_state: Database["public"]["Enums"]["trip_payment_state"]
           payment_status: string | null
           payment_type: string | null
+          pending_release_at: string | null
+          pending_release_driver_id: string | null
+          pending_release_kind: string | null
           pickup_address: string
           pickup_arrived_at: string | null
           pickup_latitude: number | null
@@ -23129,10 +23132,14 @@ export type Database = {
           surge_multiplier: number | null
           tip_amount_pence: number
           tip_pence: number | null
+          tip_window_capture_idempotency_key: string | null
+          tip_window_claim_token: string | null
+          tip_window_claimed_at: string | null
           tip_window_closed_at: string | null
           tip_window_expires_at: string | null
           tip_window_opened_at: string | null
           tip_window_status: string | null
+          tip_window_trigger: string | null
           total_authorized_amount_pence: number | null
           total_stops: number | null
           total_waiting_charge_pence: number
@@ -23358,6 +23365,9 @@ export type Database = {
           payment_state?: Database["public"]["Enums"]["trip_payment_state"]
           payment_status?: string | null
           payment_type?: string | null
+          pending_release_at?: string | null
+          pending_release_driver_id?: string | null
+          pending_release_kind?: string | null
           pickup_address: string
           pickup_arrived_at?: string | null
           pickup_latitude?: number | null
@@ -23430,10 +23440,14 @@ export type Database = {
           surge_multiplier?: number | null
           tip_amount_pence?: number
           tip_pence?: number | null
+          tip_window_capture_idempotency_key?: string | null
+          tip_window_claim_token?: string | null
+          tip_window_claimed_at?: string | null
           tip_window_closed_at?: string | null
           tip_window_expires_at?: string | null
           tip_window_opened_at?: string | null
           tip_window_status?: string | null
+          tip_window_trigger?: string | null
           total_authorized_amount_pence?: number | null
           total_stops?: number | null
           total_waiting_charge_pence?: number
@@ -23659,6 +23673,9 @@ export type Database = {
           payment_state?: Database["public"]["Enums"]["trip_payment_state"]
           payment_status?: string | null
           payment_type?: string | null
+          pending_release_at?: string | null
+          pending_release_driver_id?: string | null
+          pending_release_kind?: string | null
           pickup_address?: string
           pickup_arrived_at?: string | null
           pickup_latitude?: number | null
@@ -23731,10 +23748,14 @@ export type Database = {
           surge_multiplier?: number | null
           tip_amount_pence?: number
           tip_pence?: number | null
+          tip_window_capture_idempotency_key?: string | null
+          tip_window_claim_token?: string | null
+          tip_window_claimed_at?: string | null
           tip_window_closed_at?: string | null
           tip_window_expires_at?: string | null
           tip_window_opened_at?: string | null
           tip_window_status?: string | null
+          tip_window_trigger?: string | null
           total_authorized_amount_pence?: number | null
           total_stops?: number | null
           total_waiting_charge_pence?: number
@@ -24893,6 +24914,8 @@ export type Database = {
           funding_result: string | null
           id: string
           money_path_executed: boolean
+          period_end: string | null
+          period_start: string | null
           required_batch_pence: number | null
           result_json: Json
           schedule_occurrence_key: string
@@ -24911,6 +24934,8 @@ export type Database = {
           funding_result?: string | null
           id?: string
           money_path_executed?: boolean
+          period_end?: string | null
+          period_start?: string | null
           required_batch_pence?: number | null
           result_json?: Json
           schedule_occurrence_key: string
@@ -24929,6 +24954,8 @@ export type Database = {
           funding_result?: string | null
           id?: string
           money_path_executed?: boolean
+          period_end?: string | null
+          period_start?: string | null
           required_batch_pence?: number | null
           result_json?: Json
           schedule_occurrence_key?: string
@@ -28289,6 +28316,15 @@ export type Database = {
         }
         Returns: Json
       }
+      claim_tip_window_trigger: {
+        Args: {
+          p_claim_token: string
+          p_now?: string
+          p_trigger: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
       claim_trip_negotiation: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
@@ -29144,6 +29180,20 @@ export type Database = {
           p_driver_id: string
           p_now?: string
           p_stop_id: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
+      finalize_tip_window_expired_after_provider_capture: {
+        Args: { p_now?: string; p_tip_pence?: number; p_trip_id: string }
+        Returns: Json
+      }
+      finalize_tip_window_trigger: {
+        Args: {
+          p_claim_token: string
+          p_now?: string
+          p_terminal_status: string
+          p_tip_pence?: number
           p_trip_id: string
         }
         Returns: Json
@@ -30318,6 +30368,10 @@ export type Database = {
         Args: { p_account_id: string }
         Returns: undefined
       }
+      realign_trip_nav_after_modification: {
+        Args: { p_trip_id: string }
+        Returns: undefined
+      }
       recalculate_driver_display_rating: {
         Args: { p_driver_id: string }
         Returns: undefined
@@ -30336,6 +30390,10 @@ export type Database = {
       }
       reclaim_stale_onboarding_auth_user: {
         Args: { p_email: string }
+        Returns: Json
+      }
+      reclaim_stale_tip_window_expiry_after_authorised_get: {
+        Args: { p_new_claim_token: string; p_now?: string; p_trip_id: string }
         Returns: Json
       }
       reconcile_stale_online_drivers: {
@@ -30501,6 +30559,15 @@ export type Database = {
       }
       release_sub_minimum_weekly_payout_reservations: {
         Args: { p_driver_id?: string }
+        Returns: Json
+      }
+      release_tip_window_trigger_claim: {
+        Args: {
+          p_claim_token: string
+          p_clear_tip?: boolean
+          p_now?: string
+          p_trip_id: string
+        }
         Returns: Json
       }
       release_trip_negotiation_lock: {
@@ -30820,6 +30887,15 @@ export type Database = {
       stage_phone_change: {
         Args: { _app_type: string; _new_phone: string; _user_id: string }
         Returns: undefined
+      }
+      stamp_tip_window_capture_idempotency_key: {
+        Args: {
+          p_claim_token: string
+          p_idempotency_key: string
+          p_now?: string
+          p_trip_id: string
+        }
+        Returns: Json
       }
       start_driver_commitment_session: {
         Args: { p_driver_id?: string; p_trip_id: string }
@@ -31152,6 +31228,13 @@ export type Database = {
         Returns: {
           active_device_id: string
           is_active: boolean
+        }[]
+      }
+      weekly_payout_previous_completed_week: {
+        Args: { p_schedule_occurrence_key: string }
+        Returns: {
+          period_end: string
+          period_start: string
         }[]
       }
     }

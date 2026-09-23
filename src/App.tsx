@@ -22,10 +22,32 @@ import RevolutBusinessOAuthCallback from "./pages/auth/RevolutBusinessOAuthCallb
 
 const queryClient = createAppQueryClient();
 
+const CHUNK_RELOAD_KEY = "onecab:chunk-reload-at";
+const CHUNK_RELOAD_WINDOW_MS = 60_000;
+
+/**
+ * Lazy page loader resilient to stale deploys: when a dynamic import fails
+ * (old HTML referencing a chunk that no longer exists after a redeploy),
+ * reload once to fetch fresh assets instead of crashing the error boundary.
+ */
 function lazyPage(
   loader: () => Promise<{ default: ComponentType<object> }>,
 ): LazyExoticComponent<ComponentType<object>> {
-  return lazy(loader);
+  return lazy(async () => {
+    try {
+      return await loader();
+    } catch (err) {
+      const lastReload = Number(sessionStorage.getItem(CHUNK_RELOAD_KEY) ?? 0);
+      const canReload = Date.now() - lastReload > CHUNK_RELOAD_WINDOW_MS;
+      if (canReload && typeof window !== "undefined") {
+        sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
+        window.location.reload();
+        // Never resolve — page is reloading.
+        return new Promise<{ default: ComponentType<object> }>(() => {});
+      }
+      throw err;
+    }
+  });
 }
 
 function RouteFallback() {
