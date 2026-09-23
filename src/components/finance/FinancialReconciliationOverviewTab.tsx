@@ -36,6 +36,7 @@ function KpiCard({
 export function FinancialReconciliationOverviewTab({
   ssot,
   auditOverviewKpis,
+  customerOutstandingOverview,
   money,
   currencyGroups,
   filter,
@@ -62,6 +63,14 @@ export function FinancialReconciliationOverviewTab({
     unresolved_mismatches_count: number;
     driver_credit_exception_trip_count?: number;
     driver_credit_exception_difference_pence?: number;
+  } | null;
+  customerOutstandingOverview?: {
+    customer_outstanding_pence: number;
+    affected_trips: number;
+    trips?: Array<{
+      trip_code: string | null;
+      outstanding_pence: number;
+    }>;
   } | null;
   money: FinanceMoneyFormat;
   currencyGroups?: Array<{
@@ -188,6 +197,33 @@ export function FinancialReconciliationOverviewTab({
           label="Reconciliation difference"
           value={reconciliationDifference == null ? '—' : fmt(reconciliationDifference)}
           subtitle="Settlement identity variance"
+        />
+        <KpiCard
+          label="Customer outstanding"
+          value={
+            customerOutstandingOverview == null
+              ? '—'
+              : fmt(customerOutstandingOverview.customer_outstanding_pence)
+          }
+          subtitle={(
+            <>
+              <span className="block">
+                {customerOutstandingOverview == null
+                  ? 'Separate from wallet / payout variance'
+                  : `${customerOutstandingOverview.affected_trips} trip${
+                    customerOutstandingOverview.affected_trips === 1 ? '' : 's'
+                  } — not wallet or payout variance`}
+              </span>
+              {(customerOutstandingOverview?.trips ?? []).slice(0, 4).map((t) => (
+                <span key={t.trip_code ?? t.outstanding_pence} className="block">
+                  {t.trip_code ?? 'trip'}: {fmt(t.outstanding_pence)}
+                </span>
+              ))}
+              <Link to="/customer-receivables" className="underline">
+                Open Customer Receivables
+              </Link>
+            </>
+          )}
         />
         <KpiCard
           label="Open issues"

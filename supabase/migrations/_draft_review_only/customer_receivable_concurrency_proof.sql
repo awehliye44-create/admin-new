@@ -1,0 +1,36 @@
+-- ============================================================
+-- DRAFT / REVIEW ONLY — concurrency proof for customer receivables.
+-- Do NOT run against production. Requires migration applied on ephemeral DB.
+--
+-- Proves: pg_advisory_xact_lock(customer) + FOR UPDATE SKIP LOCKED
+-- → two concurrent reserve_for_preauth calls cannot both consume the same OPEN row.
+-- ============================================================
+--
+-- Setup (ephemeral):
+--   1) Apply 20261127150000_customer_receivables_ssot.sql
+--   2) Insert one OPEN receivable for a test customer
+--   3) In two sessions concurrently:
+--
+-- Session A:
+--   BEGIN;
+--   SELECT public.customer_receivable_reserve_for_preauth(
+--     '<customer_id>', '<payment_session_a>', NULL, 'gbp'
+--   );
+--   -- hold transaction open
+--
+-- Session B (while A open):
+--   BEGIN;
+--   SELECT public.customer_receivable_reserve_for_preauth(
+--     '<customer_id>', '<payment_session_b>', NULL, 'gbp'
+--   );
+--   -- Expect reserved_total_pence = 0 (advisory lock waits, then SKIP LOCKED / already RESERVED)
+--   COMMIT;
+--
+-- Session A:
+--   COMMIT;
+--   -- Expect reserved_total_pence = outstanding of the OPEN row
+--
+-- Pure Deno model (no DB): shared/customerReceivableConcurrencyLock.deno.test.ts
+-- ============================================================
+
+SELECT 'customer_receivable_concurrency_proof_draft_only' AS note;

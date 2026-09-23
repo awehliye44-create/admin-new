@@ -238,6 +238,9 @@ verify_jwt = false
 [functions.admin-commission-wallet-overview]
 verify_jwt = false
 
+[functions.admin-customer-receivables]
+verify_jwt = false
+
 [functions.admin-commission-wallet-campaigns]
 verify_jwt = false
 

@@ -356,3 +356,77 @@ Deno.test("21. allocation status PARTIAL exists in SSOT", () => {
   assertEquals(ALLOCATION_STATUS.PARTIAL, "PARTIAL");
   assertEquals(CUSTOMER_RECEIVABLE_STATUS.MANUAL_REVIEW, "MANUAL_REVIEW");
 });
+
+Deno.test("22. currency isolation — EUR debt not folded into GBP preauth", () => {
+  const fold = planFoldReceivablesIntoPreauth({
+    ride_fare_pence: 800,
+    buffer_pence: 100,
+    currency: "gbp",
+    open_receivables: [
+      {
+        id: "gbp-30",
+        customer_id: MK012.customer_id,
+        outstanding_amount_pence: 30,
+        status: CUSTOMER_RECEIVABLE_STATUS.OPEN,
+        currency: "gbp",
+        source_trip_id: MK012.trip_id,
+        idempotency_key: "k-gbp",
+      },
+      {
+        id: "eur-50",
+        customer_id: MK012.customer_id,
+        outstanding_amount_pence: 50,
+        status: CUSTOMER_RECEIVABLE_STATUS.OPEN,
+        currency: "eur",
+        source_trip_id: "eur-trip",
+        idempotency_key: "k-eur",
+      },
+    ],
+  });
+  assertEquals(fold.receivables_total_pence, 30);
+  assertEquals(fold.receivable_ids, ["gbp-30"]);
+});
+
+Deno.test("23. migration denies direct mutation + events append-only", async () => {
+  const sql = await Deno.readTextFile(
+    new URL(
+      "../supabase/migrations/20261127150000_customer_receivables_ssot.sql",
+      import.meta.url,
+    ),
+  );
+  assertEquals(sql.includes("deny_direct_customer_receivable_mutation"), true);
+  assertEquals(sql.includes("customer_receivable_events_append_only"), true);
+  assertEquals(sql.includes("trg_deny_customer_receivable_update"), true);
+  assertEquals(sql.includes("trg_deny_customer_receivable_event_delete"), true);
+  assertEquals(sql.includes("onecab.allow_customer_receivable_write"), true);
+  assertEquals(sql.includes("SET search_path TO public"), true);
+});
+
+Deno.test("24. migration rollback file present", async () => {
+  const rollback = await Deno.readTextFile(
+    new URL(
+      "../supabase/migrations/rollback/rollback_20261127150000_customer_receivables_ssot.sql",
+      import.meta.url,
+    ),
+  );
+  assertEquals(rollback.includes("DROP TABLE IF EXISTS public.customer_receivables"), true);
+  assertEquals(
+    rollback.includes("DROP FUNCTION IF EXISTS public.customer_receivable_reserve_for_preauth"),
+    true,
+  );
+});
+
+Deno.test("25. FR overview must not mix into wallet/payout variance flags", () => {
+  const overview = buildFrCustomerOutstandingOverview({
+    trips: [
+      {
+        trip_code: MK012.trip_code,
+        final_fare_pence: 579,
+        capture_amount_pence: 549,
+        receivable_outstanding_pence: 30,
+      },
+    ],
+  });
+  assertEquals(overview.separate_from_wallet_payout_variance, true);
+  assertEquals(overview.ten_repair_forbidden, true);
+});

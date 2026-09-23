@@ -474,6 +474,22 @@ export interface FinanceReconciliationResponse {
     unresolved_mismatches_count: number;
     trip_count: number;
   } | null;
+  /** Separate from wallet_gap / payout variance — customer debt recovery. */
+  customer_outstanding_overview?: {
+    customer_outstanding_pence: number;
+    affected_trips: number;
+    label?: string;
+    separate_from_wallet_payout_variance?: true;
+    not_wallet_variance?: true;
+    not_payout_variance?: true;
+    receivables_ledger_available?: boolean;
+    trips?: Array<{
+      trip_code: string | null;
+      trip_id: string | null;
+      outstanding_pence: number;
+      fr_class: string;
+    }>;
+  } | null;
   trip_financial_audit?: TripFinancialAuditRow[];
   trips?: TripFinancialAuditRow[];
   mismatches?: TripFinancialAuditRow[];

@@ -261,19 +261,28 @@ export function planReserveBeforeProviderCall(args: {
 /**
  * Fold OPEN customer receivables into the next booking preauth hold.
  * One provider authorisation covers ride + buffer + outstanding debt.
+ * Currency isolation: when `currency` is set, only matching OPEN rows fold.
  */
 export function planFoldReceivablesIntoPreauth(args: {
   ride_fare_pence: number;
   buffer_pence: number;
   open_receivables: OpenReceivableRow[];
+  currency?: string | null;
 }): PreauthReceivableFoldPlan {
   const ride = nonNegPence(args.ride_fare_pence);
   const buffer = nonNegPence(args.buffer_pence);
+  const currencyFilter = args.currency
+    ? String(args.currency).trim().toLowerCase()
+    : null;
   const open = (args.open_receivables ?? [])
     .filter(
       (r) =>
         r.status === CUSTOMER_RECEIVABLE_STATUS.OPEN
-        && positivePence(r.outstanding_amount_pence) > 0,
+        && positivePence(r.outstanding_amount_pence) > 0
+        && (
+          !currencyFilter
+          || String(r.currency ?? "").trim().toLowerCase() === currencyFilter
+        ),
     )
     .slice()
     .sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));

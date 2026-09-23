@@ -39,6 +39,11 @@ import {
   buildFrPeriodAuditSummary,
   resolveCanonicalPaymentSessionMoneyByTrip,
 } from "../_shared/frPerTripAuditSSOT.ts";
+import {
+  buildFrCustomerOutstandingOverview,
+  FR_CUSTOMER_OUTSTANDING_CLASS,
+} from "../_shared/frCustomerOutstandingSSOT.ts";
+import type { OpenReceivableRow } from "../_shared/customerReceivableSSOT.ts";
 import { isDriverCreditExceptionHealth } from "../_shared/driverCreditMonitoringSSOT.ts";
 import { excludeTripFromPlatformCollectedFinance } from "../_shared/commissionWalletSSOT.ts";
 import {
@@ -1188,6 +1193,54 @@ serve(async (req) => {
       trip_financial_audit as unknown as Array<Record<string, unknown>>,
     );
 
+    // Customer outstanding — separate from wallet_gap / payout variance.
+    let openReceivables: OpenReceivableRow[] = [];
+    let receivablesLedgerAvailable = false;
+    try {
+      const { data: recvRows, error: recvErr } = await supabase
+        .from("customer_receivables")
+        .select(
+          "id, customer_id, outstanding_amount_pence, status, currency, source_trip_id, idempotency_key, created_at",
+        )
+        .in("status", ["OPEN", "RESERVED"])
+        .order("created_at", { ascending: true })
+        .limit(500);
+      if (!recvErr && recvRows) {
+        receivablesLedgerAvailable = true;
+        openReceivables = recvRows.map((r) => ({
+          id: String(r.id),
+          customer_id: String(r.customer_id),
+          outstanding_amount_pence: Math.round(Number(r.outstanding_amount_pence) || 0),
+          status: String(r.status),
+          currency: String(r.currency ?? "gbp"),
+          source_trip_id: String(r.source_trip_id),
+          idempotency_key: String(r.idempotency_key ?? ""),
+          created_at: r.created_at ? String(r.created_at) : undefined,
+        }));
+      }
+    } catch (recvCatch) {
+      console.warn(
+        "[admin-finance-reconciliation] customer_receivables read skipped",
+        recvCatch,
+      );
+    }
+
+    const customer_outstanding_overview = buildFrCustomerOutstandingOverview({
+      trips: trip_financial_audit.map((row) => ({
+        trip_code: row.trip_code ?? null,
+        trip_id: row.trip_id ?? null,
+        final_fare_pence: row.final_fare_pence ?? null,
+        capture_amount_pence: row.capture_amount_pence ?? null,
+        outstanding_balance_pence: row.outstanding_balance_pence ?? null,
+        provider_state: row.provider_state ?? null,
+        pickup_waiting_charge_pence: row.pickup_waiting_charge_pence ?? null,
+        receivable_outstanding_pence: openReceivables
+          .filter((r) => r.source_trip_id === String(row.trip_id ?? ""))
+          .reduce((s, r) => s + r.outstanding_amount_pence, 0) || null,
+      })),
+      open_receivables: openReceivables,
+    });
+
     return new Response(JSON.stringify({
       success: true,
       generated_at,
@@ -1203,6 +1256,15 @@ serve(async (req) => {
       finance_reconciliation_summary,
       platform_kpis,
       audit_overview_kpis,
+      /** Separate bucket — never merge into wallet_gap or payout variance. */
+      customer_outstanding_overview: {
+        ...customer_outstanding_overview,
+        label: "Customer outstanding",
+        fr_class: FR_CUSTOMER_OUTSTANDING_CLASS.CUSTOMER_OUTSTANDING,
+        receivables_ledger_available: receivablesLedgerAvailable,
+        not_wallet_variance: true,
+        not_payout_variance: true,
+      },
       fr_per_trip_audit,
       fr_period_audit,
       trip_financial_audit,
