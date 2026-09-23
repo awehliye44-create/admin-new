@@ -185,6 +185,47 @@ export function customerIosCategoryIdForEvent(event: string): string | null {
   );
 }
 
+/**
+ * Match Customer alertEventRegistry iosInterruptionLevel.
+ * Do NOT map every FCM "high" priority to time-sensitive — driver_assigned is
+ * `active`. Sending time-sensitive without the iOS entitlement (or against
+ * Focus policy for assigned) muted MK-260923-016 background alerts.
+ */
+export const CUSTOMER_IOS_INTERRUPTION_LEVEL_BY_EVENT: Record<
+  string,
+  "active" | "time-sensitive"
+> = {
+  driver_assigned: "active",
+  trip_accepted: "active",
+  new_driver_assigned: "active",
+  stacked_driver_assigned: "active",
+  driver_approaching: "active",
+  driver_arrived: "time-sensitive",
+  waiting_started: "time-sensitive",
+  trip_started: "time-sensitive",
+  intermediate_stop_arrived: "active",
+  next_leg_started: "active",
+  trip_completed: "active",
+  rating_request: "active",
+  trip_cancelled: "time-sensitive",
+  no_show: "time-sensitive",
+  customer_new_message: "active",
+  payment_success: "time-sensitive",
+  payment_failed: "time-sensitive",
+  payment_action_required: "time-sensitive",
+};
+
+export function customerIosInterruptionLevelForEvent(
+  event: string,
+): "active" | "time-sensitive" {
+  const canonical = canonicalizeCustomerTripNotificationEvent(event);
+  return (
+    CUSTOMER_IOS_INTERRUPTION_LEVEL_BY_EVENT[event] ??
+    CUSTOMER_IOS_INTERRUPTION_LEVEL_BY_EVENT[canonical] ??
+    "active"
+  );
+}
+
 type InvokeClient = {
   functions: {
     invoke: (

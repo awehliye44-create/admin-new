@@ -11,6 +11,7 @@ import {
   canonicalizeCustomerTripNotificationEvent,
   customerAndroidChannelIdForEvent,
   customerAndroidSoundForEvent,
+  customerIosInterruptionLevelForEvent,
   customerIosSoundFileForEvent,
 } from "../../functions/_shared/customerTripLifecycleNotify.ts";
 
@@ -114,6 +115,15 @@ Deno.test("per-event Android channels and bundled sounds", () => {
   assertEquals(customerIosSoundFileForEvent("trip_cancelled"), "trip_cancelled.wav");
 });
 
+Deno.test("iOS interruption-level matches Customer registry (not blanket high→time-sensitive)", () => {
+  assertEquals(customerIosInterruptionLevelForEvent("driver_assigned"), "active");
+  assertEquals(customerIosInterruptionLevelForEvent("trip_accepted"), "active");
+  assertEquals(customerIosInterruptionLevelForEvent("driver_arrived"), "time-sensitive");
+  assertEquals(customerIosInterruptionLevelForEvent("trip_started"), "time-sensitive");
+  assertEquals(customerIosInterruptionLevelForEvent("trip_completed"), "active");
+  assertEquals(customerIosInterruptionLevelForEvent("trip_cancelled"), "time-sensitive");
+});
+
 Deno.test("send-trip-notification uses WAV, per-event channels, authoritative token", async () => {
   const src = await read("../send-trip-notification/index.ts");
   assertStringIncludes(src, 'trip_cancelled:');
@@ -126,6 +136,9 @@ Deno.test("send-trip-notification uses WAV, per-event channels, authoritative to
   assertStringIncludes(src, "customerAndroidChannelIdForEvent");
   assertStringIncludes(src, "customerIosSoundFileForEvent");
   assertStringIncludes(src, "customerIosCategoryIdForEvent");
+  assertStringIncludes(src, "customerIosInterruptionLevelForEvent");
+  assertEquals(src.includes("apsPayload['interruption-level'] = 'time-sensitive'"), false);
+  assertStringIncludes(src, "'interruption-level': interruptionLevel");
   assertStringIncludes(src, "android_channel_id: channelId");
   assertEquals(src.includes("android: { notification: { channel_id: channelId"), false);
 });

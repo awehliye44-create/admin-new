@@ -26,6 +26,7 @@ import {
   customerAndroidChannelIdForEvent,
   customerAndroidSoundForEvent,
   customerIosCategoryIdForEvent,
+  customerIosInterruptionLevelForEvent,
   customerIosSoundFileForEvent,
 } from "../_shared/customerTripLifecycleNotify.ts";
 
@@ -295,16 +296,19 @@ async function sendFCMv1(
       },
     };
   } else if (platform === 'ios') {
+    const interruptionLevel =
+      data.iosInterruptionLevel ||
+      customerIosInterruptionLevelForEvent(data.type || '');
     const apsPayload: Record<string, unknown> = {
       alert: { title, body },
       sound: iosSound,
       'thread-id': data.tripId, // Groups notifications by trip
       'mutable-content': 1, // Allows notification service extension
       category: iosCategory,
+      // Per-event level (Customer registry). Never blanket high→time-sensitive.
+      'interruption-level': interruptionLevel,
     };
     if (priority === 'high') {
-      // iOS 15+ Focus: pairs with com.apple.developer.usernotifications.time-sensitive entitlement.
-      apsPayload['interruption-level'] = 'time-sensitive';
       // Wake JS for hydrate when OS allows (background task / content-available).
       apsPayload['content-available'] = 1;
     }
@@ -406,6 +410,7 @@ serve(async (req) => {
     const androidSound = customerAndroidSoundForEvent(event);
     const iosSound = customerIosSoundFileForEvent(event);
     const iosCategory = customerIosCategoryIdForEvent(event);
+    const iosInterruptionLevel = customerIosInterruptionLevelForEvent(event);
     const priority = EVENT_PRIORITY[event] || EVENT_PRIORITY[body.event] || 'high';
     const screen =
       (typeof body.path === "string" && body.path.startsWith("/")
@@ -432,6 +437,7 @@ serve(async (req) => {
       channel_id: channelId,
       androidSound,
       iosSound,
+      iosInterruptionLevel,
       notificationId,
       priority,
       timestamp: enqueuedAt,
