@@ -375,7 +375,10 @@ export function isInstantInFinancePeriod(
 /**
  * Same-scope period filter for FR Drivers tab.
  * Expected + wallet credits are tied to trips completed in the selected period.
- * Payout ledger items are filtered by updated_at (fallback created_at).
+ * Trip-linked DRIVER_TIP_CREDIT follows the trip's period (never dropped).
+ * Payout ledger items use created_at (economic/posting attribution) — never
+ * updated_at, which sync/reconcile jobs can restamp into a later period and
+ * falsely mismatch period-scoped wallet debits (created_at) vs items.
  */
 export function buildPeriodScopedFrDriverInputs(args: {
   periodFrom: string;
@@ -405,7 +408,8 @@ export function buildPeriodScopedFrDriverInputs(args: {
 
   const periodLedger = args.ledger.filter((row) => {
     const type = String(row.type ?? "").toUpperCase();
-    if (TRIP_CREDIT_TYPES.has(type)) {
+    // TEN + tip + settlement corrections — all trip-entitlement credits.
+    if (FR_TRIP_ENTITLEMENT_CREDIT_TYPES.has(type)) {
       const tripId = row.related_trip_id;
       return Boolean(tripId && periodTripIds.has(String(tripId)));
     }
@@ -416,7 +420,7 @@ export function buildPeriodScopedFrDriverInputs(args: {
   });
 
   const periodPayoutItems = args.completedPayoutItems.filter((item) =>
-    isInstantInFinancePeriod(item.updated_at ?? item.created_at, args.periodFrom, args.periodTo)
+    isInstantInFinancePeriod(item.created_at, args.periodFrom, args.periodTo)
   );
 
   return {

@@ -73,7 +73,10 @@ export default function DriverWalletLedger() {
     return resolveFinancePeriodBounds(period, customDateFrom, customDateTo);
   }, [period, customDateFrom, customDateTo]);
 
-  const { data: driver, isLoading, isFetching, refetch, isError, error } = useDriverWalletSsotDetail(driverId);
+  const { data: driver, isLoading, isFetching, refetch, isError, error } = useDriverWalletSsotDetail(
+    driverId,
+    { periodFrom: periodBounds.from || null, periodTo: periodBounds.to || null },
+  );
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -364,12 +367,16 @@ export default function DriverWalletLedger() {
             <DriverWalletFleetOverviewCards
               regionId={serviceFilter.regionId}
               currencyCode={currencyCode}
+              periodFrom={periodBounds.from || null}
+              periodTo={periodBounds.to || null}
             />
             <DriverWalletDriverList
               regionId={serviceFilter.regionId}
               currencyCode={currencyCode}
               selectedDriverId={null}
               onSelectDriver={(id) => setDriver(id)}
+              periodFrom={periodBounds.from || null}
+              periodTo={periodBounds.to || null}
             />
           </div>
         ) : (

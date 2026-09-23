@@ -17,7 +17,7 @@ import {
   sumActualWalletTripCreditsPence,
 } from "../../functions/_shared/frDriverReconciliationSSOT.ts";
 
-Deno.test("1. no-show 400p capture + 24p provider fee + 376p TEN => OK", () => {
+Deno.test("1. no-show 400p capture + 24p provider fee (platform-owned for FR) => expected 400", () => {
   const row = resolveFrDriverExpectedEntitlement({
     trip_status: "no_show",
     financial_outcome: "NO_SHOW",
@@ -27,10 +27,12 @@ Deno.test("1. no-show 400p capture + 24p provider fee + 376p TEN => OK", () => {
     commission_pence: 0,
     driver_net_pence: 400,
   });
-  assertEquals(row.expected_entitlement_pence, 376);
+  // FR expected: provider fee platform-owned — do not deduct.
+  assertEquals(row.expected_entitlement_pence, 400);
+  assertEquals(row.entitlement_source, "terminal_fee_capture_minus_commission");
   assertEquals(row.expected_stamp_status, FR_EXPECTED_STAMP_STATUS.OK);
   assertEquals(
-    classifyDriverCreditPair({ expected: 376, actual: 376 }),
+    classifyDriverCreditPair({ expected: 400, actual: 400 }),
     "DRIVER_CREDIT_OK",
   );
 });
@@ -254,29 +256,29 @@ Deno.test("8. PLATFORM_COLLECTED only — CW trips excluded from entitlement", (
   assertEquals(row.entitlement_source, "commission_wallet_not_applicable");
 });
 
-Deno.test("MK0001 charged cancellation terminal rule: 400 capture − 24 fee = 376 expected", () => {
+Deno.test("MK-260916-030 cancel-fee FR expected: 500 − 65 commission; 25p fee platform-owned", () => {
   assertEquals(resolveTerminalFeeDriverTenPence({
-    captured_pence: 400,
-    provider_fee_pence: 24,
-    commission_pence: 0,
-  }), 376);
+    captured_pence: 500,
+    provider_fee_pence: 25,
+    commission_pence: 65,
+  }), 410); // legacy settlement helper still deducts fee
   const built = buildFrDriverSettlementTripRow({
     trip: {
       id: "trip-1",
-      trip_code: "MK-260825-001",
+      trip_code: "MK-260916-030",
       status: "cancelled",
       financial_outcome: "CANCELLED_WITH_FEE",
       financial_model: "PLATFORM_COLLECTED",
-      driver_net_pence: 400,
-      commission_pence: 0,
+      driver_net_pence: 435,
+      commission_pence: 65,
     },
     session: {
-      captured_amount_pence: 400,
-      provider_processing_fee_pence: 24,
-      captured_at: "2026-08-25T10:43:49.703Z",
+      captured_amount_pence: 500,
+      provider_processing_fee_pence: 25,
+      captured_at: "2026-09-16T19:25:53.694Z",
     },
   });
-  assertEquals(built.expected_entitlement_pence, 376);
+  assertEquals(built.expected_entitlement_pence, 435);
 });
 
 function classifyDriverCreditPair(args: { expected: number; actual: number }): string {

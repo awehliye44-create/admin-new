@@ -75,22 +75,29 @@ export function DriverWalletDriverList({
   selectedDriverId = null,
   onSelectDriver,
   pageSize = 25,
+  periodFrom = null,
+  periodTo = null,
 }: {
   regionId?: string | null;
   currencyCode?: string;
   selectedDriverId?: string | null;
   onSelectDriver: (driverId: string) => void;
   pageSize?: number;
+  /** London finance period — must match page filter (never silently lifetime). */
+  periodFrom?: string | null;
+  periodTo?: string | null;
 }) {
   const [page, setPage] = useState(1);
   useEffect(() => {
     setPage(1);
-  }, [regionId]);
+  }, [regionId, periodFrom, periodTo]);
 
   const { data, isLoading, error, isFetching } = useDriverWalletSsot({
     regionId,
     page,
     pageSize,
+    periodFrom,
+    periodTo,
   });
 
   const rows = data?.drivers ?? [];
