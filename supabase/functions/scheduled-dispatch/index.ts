@@ -360,7 +360,7 @@ Deno.serve(async (req) => {
     let pendingReleasesExecuted = 0;
 
     // ============================================================
-    // STEP 0: ADMIN PENDING RELEASE (Assign At / Broadcast At)
+    // STEP 0: ADMIN PENDING RELEASE (Assign At / Broadcast At / Jobs At)
     // Backend cron — not browser timers. One pending action per trip.
     // ============================================================
     {
