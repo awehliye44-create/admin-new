@@ -134,6 +134,10 @@ Deno.test("send-trip-notification uses WAV, per-event channels, authoritative to
   const src = await read("../send-trip-notification/index.ts");
   assertStringIncludes(src, 'trip_cancelled:');
   assertStringIncludes(src, "resolveCustomerAuthoritativeToken");
+  // Live FCM SA is GOOGLE_SERVICE_ACCOUNT_JSON (Driver/VoIP); FCM_* alone is unset.
+  assertStringIncludes(src, "GOOGLE_SERVICE_ACCOUNT_JSON");
+  assertStringIncludes(src, "FCM_SERVICE_ACCOUNT_JSON");
+  assertStringIncludes(src, "assertCronOrServiceRoleAuth");
   assertEquals(src.includes('sound: priority === \'high\' ? \'default\''), false);
   assertEquals(src.includes('sound: "default"'), false);
   assertEquals(src.includes("channel_id: 'trip_updates'"), false);

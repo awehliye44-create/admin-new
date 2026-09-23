@@ -29,7 +29,7 @@ import {
   customerIosInterruptionLevelForEvent,
   customerIosSoundFileForEvent,
 } from "../_shared/customerTripLifecycleNotify.ts";
-
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -367,15 +367,9 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Only allow service-role calls (backend → backend)
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const token = authHeader.replace("Bearer ", "");
-    if (token !== supabaseServiceKey) {
+    // Service-role only (exact env key or verified service_role JWT).
+    const auth = await assertCronOrServiceRoleAuth(req);
+    if (!auth.ok) {
       return new Response(JSON.stringify({ error: "Forbidden — service role required" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -491,8 +485,13 @@ serve(async (req) => {
       });
     }
 
-    // Get FCM service account for v1 API
-    const serviceAccountJson = Deno.env.get("FCM_SERVICE_ACCOUNT_JSON");
+    // FCM v1 — same secret chain as Driver / VoIP (incomingCallPush).
+    // FCM_SERVICE_ACCOUNT_JSON alone is unset on this project; GOOGLE_SERVICE_ACCOUNT_JSON
+    // is the live SA. Without it, legacy FCM_SERVER_KEY cannot deliver iOS FCM tokens
+    // (MK-260923-018 background driver_assigned silent after auth fix).
+    const serviceAccountJson =
+      Deno.env.get("GOOGLE_SERVICE_ACCOUNT_JSON") ??
+      Deno.env.get("FCM_SERVICE_ACCOUNT_JSON");
     const fcmServerKey = Deno.env.get("FCM_SERVER_KEY"); // Legacy fallback
 
     let sent = 0;
