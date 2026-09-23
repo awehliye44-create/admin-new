@@ -1,4 +1,5 @@
--- Restore prior unresolved detection (payment_required/pending/confirmed + payment_status).
+-- Rollback 20261127120000 → restore broader unresolved detection
+-- (payment_required/pending/confirmed + payment_status required/pending).
 BEGIN;
 
 CREATE OR REPLACE FUNCTION public.trip_has_unresolved_fare_increase_modification(
