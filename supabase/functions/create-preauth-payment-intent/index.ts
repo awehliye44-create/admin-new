@@ -538,6 +538,16 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         .join(" ")
         .trim() || null;
 
+      // Receivable fold: createRevolutPreauthResponse creates the pending
+      // payment session, reserves OPEN receivables, then calls Revolut
+      // (PREAUTH_RECEIVABLE_ORDERING). Pass ride+buffer only here.
+      logStep("Preauth base amount before receivable reserve", {
+        estimated_total_pence: estimatedTotalPence,
+        buffer_pence: bufferPence,
+        authorised_amount_pence: authorisedAmountPence,
+        customer_id: dbCustomerForSession?.id ?? null,
+      });
+
       return await createRevolutPreauthResponse({
         supabase: supabaseClient,
         environment: customerGatewayCheck.environment === "test" ? "test" : "live",

@@ -129,6 +129,13 @@ export async function persistConfirmedProviderCapture(
     captureAmountPence: amount,
     capturedAt,
     providerCaptureId: captureId,
+    // Confirmed capture amount from provider payload / GET — settle receivables.
+    providerEvidence: {
+      orderId,
+      terminalState: "CAPTURED",
+      confirmedCapturedPence: amount,
+      amountFromProviderGet: true,
+    },
   });
 
   await transitionPaymentSession(args.supabase, {

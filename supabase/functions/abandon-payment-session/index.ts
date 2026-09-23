@@ -10,6 +10,7 @@ import {
   shouldForceAuthorisedSessionRelease,
 } from "../_shared/holdReleaseSSOT.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
+import { reconcileReceivablesOnAbandonOrCancel } from "../_shared/customerReceivableLifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -84,6 +85,55 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
   const orderId = providerOrderId
     ?? (session.provider_order_id ? String(session.provider_order_id) : null);
   const sessionId = String(session.id ?? "");
+  const providerState = session.provider_state
+    ? String(session.provider_state)
+    : null;
+  const capturedPence = Math.max(
+    0,
+    Math.round(Number(session.captured_amount_pence) || 0),
+  );
+
+  async function reconcileReceivables(args: {
+    hold_safely_released?: boolean;
+    settle?: boolean;
+  }): Promise<Record<string, unknown> | null> {
+    if (!sessionId) return null;
+    try {
+      const result = await reconcileReceivablesOnAbandonOrCancel(supabase, {
+        payment_session_id: sessionId,
+        provider_order_id: orderId,
+        provider_state: providerState,
+        has_capture: capturedPence > 0,
+        hold_safely_released: args.hold_safely_released === true,
+        reason: `abandon:${reason}`,
+        settle_evidence: args.settle && orderId && capturedPence > 0
+          ? {
+            orderId,
+            terminalState: "COMPLETED",
+            confirmedCapturedPence: capturedPence,
+            amountFromProviderGet: true as const,
+          }
+          : null,
+        current_trip_fare_pence: 0,
+      });
+      if (!result.ok) {
+        console.error("[abandon-payment-session] receivable reconcile failed", result.error);
+        return {
+          receivable_action: "MANUAL_REVIEW",
+          receivable_error: result.error.code,
+        };
+      }
+      return {
+        receivable_action: result.data.action,
+        receivable_released: result.data.released,
+        receivable_settled: result.data.settled,
+        receivable_reason: result.data.reason,
+      };
+    } catch (err) {
+      console.error("[abandon-payment-session] receivable reconcile exception", err);
+      return { receivable_action: "ERROR", receivable_error: String(err) };
+    }
+  }
 
   if (session.trip_id) {
     console.warn("TRIP_CREATION_BLOCKED", {
@@ -95,28 +145,52 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
     return json({ success: true, skipped: true, reason: "session_has_trip", status });
   }
 
-  if (PRE_AUTH_SKIP_STATUSES.has(status) || status === "cancelled") {
-    return json({ success: true, skipped: true, reason: "session_already_terminal", status });
+  // Terminal captured sessions: settle covered receivables if evidence exists; never duplicate.
+  if (status === "captured" || capturedPence > 0) {
+    const recv = await reconcileReceivables({ settle: true });
+    return json({
+      success: true,
+      skipped: true,
+      reason: "session_already_terminal_captured",
+      status,
+      ...recv,
+    });
   }
 
-  // Post-auth abandon: authorised + no trip → release hold.
-  // 30s grace is only for checkout-abandon / Try Again. Platform booking
-  // failures (CTAP never started) must release immediately.
+  if (PRE_AUTH_SKIP_STATUSES.has(status) || status === "cancelled") {
+    // Idempotent abandon/cancel race: still run planner (RELEASE if no order / failed).
+    const recv = await reconcileReceivables({
+      hold_safely_released: status === "released" || status === "cancelled",
+    });
+    return json({
+      success: true,
+      skipped: true,
+      reason: "session_already_terminal",
+      status,
+      ...recv,
+    });
+  }
+
+  // Post-auth abandon: authorised + no trip → release hold, then receivables.
   if (isAuthorisedHoldSessionStatus(status)) {
     const ageMs = sessionAgeMs(session);
     const forceRelease = shouldForceAuthorisedSessionRelease(reason);
     if (!forceRelease && ageMs < ABANDON_RELEASE_MIN_AGE_MS) {
+      // Keep RESERVED — hold not safely released yet.
+      const recv = await reconcileReceivables({ hold_safely_released: false });
       return json({
         success: true,
         skipped: true,
         reason: "authorised_too_recent",
         status,
         age_ms: ageMs,
+        ...recv,
       });
     }
 
     if (!orderId) {
-      return json({ success: false, error: "missing_provider_order_id" }, 400);
+      const recv = await reconcileReceivables({ hold_safely_released: false });
+      return json({ success: false, error: "missing_provider_order_id", ...recv }, 400);
     }
 
     const release = await releaseHoldForPaymentSession(supabase, {
@@ -136,24 +210,31 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
     });
 
     if (!release.ok) {
+      // UNKNOWN / timeout / failed release → KEEP RESERVED (same-order reconcile).
+      const recv = await reconcileReceivables({ hold_safely_released: false });
       return json({
         success: false,
         error: release.error ?? "release_failed",
         released: release.released,
         release_status: release.status,
+        ...recv,
       }, 500);
     }
+
+    const recv = await reconcileReceivables({
+      hold_safely_released: release.released === true || release.ok === true,
+    });
 
     return json({
       success: true,
       abandoned: true,
       released: release.released,
       release_status: release.status,
+      ...recv,
     });
   }
 
-  // Pre-auth / pending: cancel the Revolut order if it exists (PENDING can
-  // still authorise later). Then mark the local session abandoned.
+  // Pre-auth / pending: cancel the Revolut order if it exists.
   if (orderId) {
     const release = await releaseHoldForPaymentSession(supabase, {
       providerOrderId: orderId,
@@ -170,39 +251,50 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
       release,
     });
     if (release.ok || release.released) {
+      const recv = await reconcileReceivables({
+        hold_safely_released: true,
+      });
       return json({
         success: true,
         abandoned: true,
         released: release.released,
         release_status: release.status,
+        ...recv,
       });
     }
 
+    const recv = await reconcileReceivables({ hold_safely_released: false });
     return json({
       success: false,
       error: release.error ?? "release_failed",
       released: false,
       release_status: release.status,
+      ...recv,
     }, 500);
   }
 
+  // No provider order — safe to release allocations to OPEN.
   await markPaymentSessionAbandoned(supabase, {
     clientActionId: clientActionId ?? String(session.client_action_id ?? ""),
     providerOrderId: orderId,
     reason,
   });
 
+  const recv = await reconcileReceivables({ hold_safely_released: false });
+
   console.info("CHECKOUT_CANCELLED", {
     client_action_id: clientActionId ?? session.client_action_id,
     provider_order_id: orderId,
     reason,
     release_status: "abandoned_only",
+    ...recv,
   });
 
   return json({
     success: true,
     abandoned: true,
     release_status: "abandoned_only",
+    ...recv,
   });
 });
 

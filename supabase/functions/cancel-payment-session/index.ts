@@ -51,7 +51,7 @@ serve(async (req) => {
 
     const { data: ps, error: psErr } = await supabase
       .from("payment_sessions")
-      .select("id, user_id, status, provider_state, authorised_amount_pence, trip_id")
+      .select("id, user_id, status, provider_state, authorised_amount_pence, trip_id, provider_order_id, captured_amount_pence")
       .eq("id", payment_session_id)
       .maybeSingle();
 
@@ -104,6 +104,27 @@ serve(async (req) => {
     if (updErr) {
       console.error("[cancel-payment-session] update failed", updErr);
       return errorResponse(updErr.message, 500);
+    }
+
+    // Receivable release only when planReleaseOnCancel allows (no order /
+    // definitive failed-cancelled; KEEP if UNKNOWN).
+    try {
+      const { releaseReceivablesOnCancelIfAllowed } = await import(
+        "../_shared/customerReceivableLifecycle.ts"
+      );
+      const hasCapture = Math.round(Number(ps.captured_amount_pence) || 0) > 0;
+      await releaseReceivablesOnCancelIfAllowed(supabase, {
+        payment_session_id: String(ps.id),
+        provider_order_id: ps.provider_order_id
+          ? String(ps.provider_order_id)
+          : null,
+        provider_state: ps.provider_state ? String(ps.provider_state) : null,
+        has_capture: hasCapture,
+        hold_safely_released: !ps.provider_order_id,
+        reason,
+      });
+    } catch (recvErr) {
+      console.error("[cancel-payment-session] receivable release failed", recvErr);
     }
 
     // Breadcrumb: sheet closed BEFORE provider authorised (Apple Pay never confirmed,

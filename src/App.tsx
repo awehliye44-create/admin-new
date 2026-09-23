@@ -97,6 +97,7 @@ const Tickets = lazyPage(() => import("./pages/Tickets"));
 const SupportCategories = lazyPage(() => import("./pages/SupportCategories"));
 const FinancialReconciliation = lazyPage(() => import("./pages/FinancialReconciliation"));
 const PaymentSessions = lazyPage(() => import("./pages/PaymentSessions"));
+const CustomerReceivables = lazyPage(() => import("./pages/CustomerReceivables"));
 const PayoutLedger = lazyPage(() => import("./pages/PayoutLedger"));
 const LegacyDriversPayoutsRedirect = lazyPage(() => import("./pages/LegacyDriversPayoutsRedirect"));
 const DriverWalletLedger = lazyPage(() => import("./pages/DriverWalletLedger"));
@@ -216,6 +217,7 @@ const App = () => (
               {/* Payments & Transactions (SSOT) */}
               <Route path="payments" element={<Navigate to="/payment-sessions" replace />} />
               <Route path="payment-sessions" element={<PaymentSessions />} />
+              <Route path="customer-receivables" element={<CustomerReceivables />} />
               <Route path="financial-reconciliation" element={<FinancialReconciliation />} />
               <Route path="drivers-and-payouts" element={<LegacyDriversPayoutsRedirect />} />
               <Route path="driver-wallet" element={<Navigate to="/driver-wallet-ledger" replace />} />

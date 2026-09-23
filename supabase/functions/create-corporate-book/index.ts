@@ -344,6 +344,9 @@ Deno.serve(async (req) => {
       currency_code: currencyCode,
       payment_method: paymentMethod || "card",
       booking_source: "corporate_portal",
+      corporate_account_id: corporateAccountId,
+      // Personal customer receivables must never fold into corporate preauth.
+      receivable_fold_forbidden: true,
       canonical_fare_version: [
         "v1",
         serviceAreaId,

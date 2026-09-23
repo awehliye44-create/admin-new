@@ -68,6 +68,7 @@ import {
   Lock,
   UserPlus,
   Gift,
+  Receipt,
 } from 'lucide-react';
 import { useState, memo, useCallback, type ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -391,6 +392,7 @@ export function AdminSidebar() {
           {/* PAYMENTS & TRANSACTIONS (SSOT) */}
           <PermissionSection canAccess={canAccessPage} collapsed={isCollapsed} label="Payments & Transactions" slugs={['payment-sessions','financial-reconciliation','driver-wallet-ledger','commission-wallet','payout-ledger']}>
             <PermissionNavItem canAccess={canAccessPage} pageSlug="payment-sessions" to="/payment-sessions" icon={<CreditCard className="h-4 w-4" />} label="Payment Sessions (SSOT)" active={currentPath === '/payment-sessions'} collapsed={isCollapsed} />
+            <PermissionNavItem canAccess={canAccessPage} pageSlug="financial-reconciliation" to="/customer-receivables" icon={<Receipt className="h-4 w-4" />} label="Customer Receivables" active={currentPath === '/customer-receivables'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="financial-reconciliation" to="/financial-reconciliation" icon={<Calculator className="h-4 w-4" />} label="Financial Reconciliation (SSOT)" active={currentPath === '/financial-reconciliation'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="driver-wallet-ledger" to="/driver-wallet-ledger" icon={<Wallet className="h-4 w-4" />} label="Driver Wallet Ledger (SSOT)" active={currentPath === '/driver-wallet-ledger'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="commission-wallet" to="/commission-wallet" icon={<CircleDollarSign className="h-4 w-4" />} label="Commission Wallet (Driver-Collected)" active={currentPath === '/commission-wallet'} collapsed={isCollapsed} />

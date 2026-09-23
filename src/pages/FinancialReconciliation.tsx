@@ -599,6 +599,9 @@ function FinancialReconciliationPage() {
                   <FinancialReconciliationOverviewTab
                     ssot={ssot}
                     auditOverviewKpis={isSummaryScopeTransition ? null : data?.audit_overview_kpis}
+                    customerOutstandingOverview={
+                      isSummaryScopeTransition ? null : data?.customer_outstanding_overview ?? null
+                    }
                     money={money}
                     currencyGroups={isSummaryScopeTransition ? undefined : data?.currency_groups}
                     filter={filter}
