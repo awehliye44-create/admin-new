@@ -70,6 +70,9 @@ Deno.test("scheduled-dispatch STEP 4 uses expiry SSOT + clears confirmed/pending
   assertStringIncludes(src, "confirmed_driver_id: null");
   assertStringIncludes(src, "pending_release_kind: null");
   assertStringIncludes(src, 'scheduled_status: "no_driver_found"');
+  // Null deadline must not invent a future window via expire RPC — stamp past first.
+  assertStringIncludes(src, "nowMs - 1000");
+  assertStringIncludes(src, "expireTripWhenSearchExhaustedAndNotifyCustomer");
 });
 
 Deno.test("Admin ScheduledRides uses presentation SSOT + excludes active driver_id", async () => {

@@ -1189,6 +1189,21 @@ Deno.serve(async (req) => {
           continue;
         }
 
+        // expire_trip_when_search_exhausted invents now+findMinutes when
+        // searching_expires_at is null (scheduled-origin). Stamp a past
+        // deadline first so the existing RPC terminalizes instead of extending.
+        if (!trip.searching_expires_at) {
+          await supabase
+            .from("trips")
+            .update({
+              searching_expires_at: new Date(nowMs - 1000).toISOString(),
+              updated_at: now.toISOString(),
+            })
+            .eq("id", trip.id)
+            .eq("scheduled_status", "converted_to_instant")
+            .is("driver_id", null);
+        }
+
         const { expired: didExpire, rpcError } =
           await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
             tripId: trip.id,
