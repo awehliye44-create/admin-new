@@ -8,7 +8,7 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 const HTTP_202_CUSTOMER_MESSAGE =
-  "Payment is still processing. Your trip has not been changed.";
+  "Payment is still being authorised. Your trip has not changed yet.";
 
 function mapClaimErrorToResponse(message: string): {
   status: number;
@@ -41,7 +41,7 @@ function mapClaimErrorToResponse(message: string): {
 Deno.test("HTTP 202 customer copy is exact", () => {
   assertEquals(
     HTTP_202_CUSTOMER_MESSAGE,
-    "Payment is still processing. Your trip has not been changed.",
+    "Payment is still being authorised. Your trip has not changed yet.",
   );
 });
 

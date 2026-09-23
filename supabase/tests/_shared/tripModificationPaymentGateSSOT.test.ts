@@ -271,7 +271,7 @@ Deno.test("caller audit: modification apply stays strict; coverage never treats 
   assertEquals(confirm.includes("claim_and_apply_fare_increase_modification"), true);
   assertEquals(confirm.includes("paymentProcessing"), true);
   assertEquals(
-    confirm.includes("Payment is still processing. Your trip has not been changed."),
+    confirm.includes("Payment is still being authorised. Your trip has not changed yet."),
     true,
   );
 

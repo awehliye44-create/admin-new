@@ -98,6 +98,7 @@ Deno.serve(async (req) => {
       alreadyConfirmed: result.alreadyConfirmed,
       alreadyApplied: result.alreadyApplied,
       claimCode: result.claimCode,
+      fareDeltaPence: Number(changeRequest.fare_delta_pence ?? 0) || undefined,
       authorisedTotalPence: result.authorisedTotalPence,
       requiredPayablePence: result.requiredPayablePence,
       requiresApproval: result.requiresApproval,
@@ -105,6 +106,8 @@ Deno.serve(async (req) => {
       trip: result.trip,
       tripUpdated: result.tripUpdated,
       error: result.error,
+      error_code: result.errorCode,
+      code: result.errorCode,
       ...(result.error && !result.success ? { details: result.error } : {}),
     }, result.httpStatus);
   } catch (error) {

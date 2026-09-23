@@ -264,6 +264,16 @@ Deno.test("completion gate migration locks trip and requires protected >= commit
   assertStringIncludes(sql, "PLATFORM_COLLECTED");
   assertStringIncludes(sql, "protected_pence");
   assertStringIncludes(sql, "required_pence");
+
+  const pendingFix = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20261127120000_pending_mod_does_not_block_completion.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(pendingFix, "payment_confirmed");
+  assertEquals(pendingFix.includes("'payment_required'"), false);
+  assertEquals(pendingFix.includes("'payment_pending'"), false);
 });
 
 Deno.test("DB apply guard blocks unpaid PLATFORM approved/applied increases", async () => {
