@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
-import { countAdminActiveTrips } from '@/lib/adminActiveTripFilter';
+import {
+  adminActiveBoardScheduledExclusivityOrFilter,
+  adminScheduledBoardExcludedStatusInFilter,
+  belongsOnLiveAdminActiveBoard,
+} from '@/lib/adminScheduledBoardMembership';
 import { isAdminPageLiveActive, subscribeAdminPageLiveActive } from '@/lib/adminPageVisibility';
 
 
@@ -90,15 +94,16 @@ async function fetchSidebarCountsOnce(skipCache = false): Promise<SidebarCounts>
       ] = await Promise.all([
         supabase
           .from('trips')
-          .select('id, status, searching_expires_at, driver_id, created_at, trip_code')
-          .in('status', [...ACTIVE_TRIP_DB_STATUSES]),
-        // Mirror the Scheduled Rides board exactly: no terminal trips, no cancelled/expired schedules.
+          .select('id, status, searching_expires_at, driver_id, created_at, trip_code, is_scheduled')
+          .in('status', [...ACTIVE_TRIP_DB_STATUSES])
+          .or(adminActiveBoardScheduledExclusivityOrFilter()),
+        // Mirror Scheduled Rides board membership SSOT exactly.
         supabase
           .from('trips')
           .select('id', { count: 'exact', head: true })
           .eq('is_scheduled', true)
           .is('driver_id', null)
-          .not('status', 'in', '(completed,cancelled,customer_cancelled,expired,expired_no_driver,no_show,declined)')
+          .not('status', 'in', adminScheduledBoardExcludedStatusInFilter())
           .or('scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)'),
         supabase
           .from('rider_feedback')
@@ -146,7 +151,9 @@ async function fetchSidebarCountsOnce(skipCache = false): Promise<SidebarCounts>
       }
 
       const newCounts: SidebarCounts = {
-        activeTrips: countAdminActiveTrips(activeTripsResult.data || []),
+        activeTrips: (activeTripsResult.data || []).filter((trip) =>
+          belongsOnLiveAdminActiveBoard(trip),
+        ).length,
         scheduledRides: scheduledRidesResult.count || 0,
         pendingFeedback: pendingFeedbackResult.count || 0,
         pendingDocuments: pendingDocumentsResult.count || 0,

@@ -85,6 +85,7 @@ Deno.test("Admin ScheduledRides uses presentation SSOT + excludes active driver_
   );
   assertStringIncludes(src, "resolveAdminScheduledRidePresentation");
   assertStringIncludes(src, "resolveAdminScheduledTimeCue");
+  assertStringIncludes(src, "adminScheduledBoardExcludedStatusInFilter");
   assertStringIncludes(src, ".is('driver_id', null)");
   assertStringIncludes(
     src,

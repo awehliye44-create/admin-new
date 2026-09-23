@@ -8,7 +8,13 @@
  * - neither → Unassigned
  *
  * Never derive Driver from offer history, pending_release_driver_id, or stale waves.
+ * Never invent a generic "Pending" label for unknown combinations.
  */
+
+import {
+  belongsOnLiveAdminScheduledBoard,
+  isAdminScheduledTerminal,
+} from '@/lib/adminScheduledBoardMembership';
 
 export type AdminScheduledDriverKind = 'unassigned' | 'pre_confirmed' | 'assigned';
 
@@ -20,7 +26,8 @@ export type AdminScheduledStatusKey =
   | 'driver_assigned'
   | 'expired'
   | 'cancelled'
-  | 'awaiting_accept';
+  | 'awaiting_accept'
+  | 'unmapped';
 
 export type AdminScheduledDriverRef = {
   id?: string | null;
@@ -30,6 +37,7 @@ export type AdminScheduledDriverRef = {
 
 export type AdminScheduledRidePresentationInput = {
   id?: string | null;
+  is_scheduled?: boolean | null;
   driver_id?: string | null;
   confirmed_driver_id?: string | null;
   scheduled_status?: string | null;
@@ -50,24 +58,8 @@ export type AdminScheduledRidePresentation = {
   driverBadge: 'PRE-CONFIRMED' | null;
   /** Live Scheduled Rides board only — not Active Trips / Missed / Cancelled. */
   belongsOnLiveScheduledBoard: boolean;
+  unmapped?: boolean;
 };
-
-const TERMINAL_TRIP_STATUSES = new Set([
-  'completed',
-  'cancelled',
-  'customer_cancelled',
-  'driver_cancelled',
-  'expired',
-  'expired_no_driver',
-  'no_show',
-  'declined',
-]);
-
-const TERMINAL_SCHEDULED_STATUSES = new Set([
-  'cancelled',
-  'expired',
-  'no_driver_found',
-]);
 
 const FINDING_SCHEDULED_STATUSES = new Set([
   'broadcasting',
@@ -84,6 +76,7 @@ const FINDING_TRIP_STATUSES = new Set([
   'offered',
   'offering',
   'broadcasting',
+  'pending',
 ]);
 
 function norm(value: string | null | undefined): string {
@@ -105,29 +98,7 @@ function formatDriverName(driver: AdminScheduledDriverRef): string | null {
   return name.length > 0 ? name : null;
 }
 
-export function isAdminScheduledTerminal(input: {
-  status?: string | null;
-  scheduled_status?: string | null;
-}): boolean {
-  const status = norm(input.status);
-  const scheduled = norm(input.scheduled_status);
-  return TERMINAL_TRIP_STATUSES.has(status) || TERMINAL_SCHEDULED_STATUSES.has(scheduled);
-}
-
-/**
- * Live Scheduled board: still in scheduled lifecycle, not yet an active accepted
- * trip, not terminal. One trip UUID → at most one row (query must not join-duplicate).
- */
-export function belongsOnLiveAdminScheduledBoard(input: {
-  driver_id?: string | null;
-  status?: string | null;
-  scheduled_status?: string | null;
-}): boolean {
-  if (isAdminScheduledTerminal(input)) return false;
-  // Active accepted ownership leaves Scheduled → Active Trips.
-  if (nonEmptyId(input.driver_id)) return false;
-  return true;
-}
+export { belongsOnLiveAdminScheduledBoard, isAdminScheduledTerminal };
 
 export function resolveAdminScheduledRidePresentation(
   trip: AdminScheduledRidePresentationInput,
@@ -138,7 +109,12 @@ export function resolveAdminScheduledRidePresentation(
   const status = norm(trip.status);
   const published = Boolean(trip.scheduled_broadcast_at);
 
-  const onBoard = belongsOnLiveAdminScheduledBoard(trip);
+  const onBoard = belongsOnLiveAdminScheduledBoard({
+    is_scheduled: trip.is_scheduled ?? true,
+    driver_id: trip.driver_id,
+    status: trip.status,
+    scheduled_status: trip.scheduled_status,
+  });
 
   // --- Driver SSOT (ownership only) ---
   let driverKind: AdminScheduledDriverKind = 'unassigned';
@@ -161,6 +137,7 @@ export function resolveAdminScheduledRidePresentation(
   let statusKey: AdminScheduledStatusKey;
   let statusLabel: string;
   let statusClassName: string;
+  let unmapped = false;
 
   if (status === 'expired' || status === 'expired_no_driver' || scheduled === 'expired' || scheduled === 'no_driver_found') {
     statusKey = 'expired';
@@ -205,15 +182,26 @@ export function resolveAdminScheduledRidePresentation(
     statusKey = 'available';
     statusLabel = 'Available';
     statusClassName = 'bg-indigo-100 text-indigo-700';
-  } else if (scheduled === 'scheduled' || scheduled === 'pending') {
-    // Unpublished scheduled row (legacy) — treat as Held-equivalent board state.
+  } else if (scheduled === 'scheduled' || scheduled === 'pending' || scheduled === '') {
+    // Unpublished scheduled row — Held-equivalent board state.
     statusKey = 'held';
     statusLabel = 'Held';
     statusClassName = 'bg-amber-100 text-amber-800';
   } else {
-    statusKey = 'finding_driver';
-    statusLabel = 'Finding Driver';
-    statusClassName = 'bg-blue-100 text-blue-700';
+    // FORBIDDEN: never invent "Pending" for unknown combinations.
+    unmapped = true;
+    statusKey = 'unmapped';
+    statusLabel = `Unmapped (${scheduled || '—'} / ${status || '—'})`;
+    statusClassName = 'bg-rose-100 text-rose-900';
+    if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+      console.warn('[adminScheduledRidePresentation] unmapped scheduled presentation', {
+        id: trip.id ?? null,
+        scheduled_status: trip.scheduled_status ?? null,
+        status: trip.status ?? null,
+        driver_id: trip.driver_id ?? null,
+        confirmed_driver_id: trip.confirmed_driver_id ?? null,
+      });
+    }
   }
 
   return {
@@ -225,6 +213,7 @@ export function resolveAdminScheduledRidePresentation(
     driverDisplayName,
     driverBadge,
     belongsOnLiveScheduledBoard: onBoard,
+    unmapped,
   };
 }
 
@@ -241,8 +230,6 @@ export function resolveAdminScheduledTimeCue(scheduledAt: string | null | undefi
   if (!Number.isFinite(date.getTime())) {
     return { label: 'No Date', className: 'bg-gray-100 text-gray-700', urgent: false };
   }
-  // Past pickup must not invent an "Overdue" lifecycle — board should already
-  // have moved the row via accept / expire / cancel. Show neutral Upcoming cue.
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const startOfTomorrow = new Date(startOfToday);

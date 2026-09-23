@@ -78,6 +78,7 @@ import {
   resolveAdminScheduledTimeCue,
 } from '@/lib/adminScheduledRidePresentation';
 import { validateAdminScheduledActionAt } from '@/lib/adminScheduledActionAt';
+import { adminScheduledBoardExcludedStatusInFilter } from '@/lib/adminScheduledBoardMembership';
 
 interface ScheduledTrip {
   id: string;
@@ -236,10 +237,10 @@ export default function ScheduledRides() {
             service_area:service_areas!trips_service_area_id_fkey(id, name, region:regions(currency_code, distance_unit))
           `)
           .eq('is_scheduled', true)
-          // Live scheduled lifecycle only: no active accepted driver, no terminals.
-          // Accepted (driver_id set) belongs on Active Trips — not this board.
+          // Live scheduled lifecycle only — mutually exclusive with Active Trips.
+          // is_scheduled stays true as provenance; board ownership uses lifecycle + driver_id.
           .is('driver_id', null)
-          .not('status', 'in', '(completed,cancelled,customer_cancelled,expired,expired_no_driver,no_show,declined)')
+          .not('status', 'in', adminScheduledBoardExcludedStatusInFilter())
           .or('scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)')
           .order('scheduled_at', { ascending: true })
           .limit(ADMIN_SCHEDULED_RIDES_CAP),

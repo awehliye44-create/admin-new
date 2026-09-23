@@ -62,11 +62,12 @@ import { toast } from 'sonner';
 import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
+import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
+import { adminActiveBoardScheduledExclusivityOrFilter } from '@/lib/adminScheduledBoardMembership';
 import {
   ADMIN_ACTIVE_TRIPS_CAP,
   ADMIN_ACTIVE_TRIPS_ONLINE_DRIVERS_CAP,
 } from '@/lib/adminQueryBounds';
-import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import {
   CRITICAL_BUTTON_TIMEOUT_MESSAGE,
@@ -137,6 +138,8 @@ interface Trip {
   searching_expires_at: string | null;
   started_at: string | null;
   driver_id: string | null;
+  /** Provenance — originally scheduled. Not Active-board authority alone. */
+  is_scheduled?: boolean | null;
   // Fare Engine source-of-truth fields
   pricing_mode: string | null;
   fare_locked: boolean | null;
@@ -280,11 +283,13 @@ export default function ActiveTrips() {
         supabase
           .from('trips')
           .select(`
-            id, trip_code, trip_number, status, passenger_name, passenger_phone, pickup_address, dropoff_address, stops, total_stops, estimated_fare, fare, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, modification_status, modified_dropoff_address, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence, estimated_total_pence, capture_amount_pence, fare_snapshot_json, currency_code, created_at, searching_expires_at, started_at, driver_id, pricing_mode, fare_locked, vehicle_type, vehicle_type_id, service_area_id,
+            id, trip_code, trip_number, status, passenger_name, passenger_phone, pickup_address, dropoff_address, stops, total_stops, estimated_fare, fare, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, modification_status, modified_dropoff_address, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence, estimated_total_pence, capture_amount_pence, fare_snapshot_json, currency_code, created_at, searching_expires_at, started_at, driver_id, is_scheduled, pricing_mode, fare_locked, vehicle_type, vehicle_type_id, service_area_id,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone),
             service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code, distance_unit))
           `)
           .in('status', [...ACTIVE_TRIP_DB_STATUSES])
+          // Scheduled open-lifecycle (Finding / Pre-confirm) stays on Scheduled Rides only.
+          .or(adminActiveBoardScheduledExclusivityOrFilter())
           .order('created_at', { ascending: false })
           .limit(ADMIN_ACTIVE_TRIPS_CAP),
         supabase

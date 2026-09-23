@@ -82,8 +82,9 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
     expect(p.driverKind).toBe('unassigned');
   });
 
-  it('ACTIVE ACCEPTED → Driver Assigned + name; not Pending', () => {
+  it('ACTIVE ACCEPTED → Driver Assigned + name; not Pending; off Scheduled board', () => {
     const p = resolveAdminScheduledRidePresentation({
+      is_scheduled: true,
       scheduled_status: 'converted_to_instant',
       status: 'en_route_to_pickup',
       driver_id: 'drv-1',
@@ -95,6 +96,17 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
     expect(p.driverKind).toBe('assigned');
     expect(p.driverDisplayName).toBe('Abdifitah Ibrahim');
     expect(p.belongsOnLiveScheduledBoard).toBe(false);
+  });
+
+  it('in_progress without presentation on Scheduled board (lifecycle exclusivity)', () => {
+    expect(
+      belongsOnLiveAdminScheduledBoard({
+        is_scheduled: true,
+        status: 'in_progress',
+        scheduled_status: 'converted_to_instant',
+        driver_id: 'drv-1',
+      }),
+    ).toBe(false);
   });
 
   it('FORBIDDEN: driver_id set + Status Pending', () => {
