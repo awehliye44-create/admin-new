@@ -540,6 +540,10 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
         ledger_allocation_ids: lineage.allocations.map((a) => a.ledger_entry_id),
         excluded_current_week_pence: scoped.excluded_current_week_pence,
         excluded_older_unpaid_pence: scoped.excluded_older_unpaid_pence,
+        included_arrears_pence: scoped.included_arrears_pence,
+        previous_week_pence: scoped.previous_week_pence,
+        arrears_ledger_allocation_ids: scoped.arrears_selected.map((a) => a.ledger_entry_id),
+        previous_week_ledger_allocation_ids: scoped.previous_week_selected.map((a) => a.ledger_entry_id),
       },
       destination_verified: true,
     });

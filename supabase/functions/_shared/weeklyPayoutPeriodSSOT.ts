@@ -1,15 +1,19 @@
 /**
  * Weekly payout earning-period SSOT.
  *
- * A weekly occurrence pays only the previous completed Europe/London calendar
- * week. Identity is (schedule_occurrence_key, dry_run). Period boundaries are
- * derived from the occurrence key / scheduled local time — never from delayed
- * execution now(), clearing time, or cumulative available_balance_pence.
+ * WEEKLY PAYOUT MANIFEST (canonical) =
+ *   - unpaid eligible earnings from the previous completed London week
+ *   - PLUS unpaid eligible arrears from any earlier completed week
+ *   - excluding current-week earnings
+ *   - excluding already allocated / reserved / debited / paid earnings
+ *   - excluding earnings occupied by completed/in-flight early cash-out
+ *   - excluding paused drivers (orchestrator eligibility)
+ *   - exactly one consumer per earning (allocation occupancy + advisory lock)
  *
- * Classifications closed by this module + 20261124160000:
- * - WEEKLY_PERIOD_SCOPE_BUG — eligibility used cumulative available balance
- * - DELAYED_EXECUTION_AMOUNT_DRIFT — newly cleared current-week credits entered
- * Claim identity remains CLAIM_CONSTRAINT_BUG (20261124150000).
+ * Occurrence period_start/period_end stay frozen to the previous completed week.
+ * Older unpaid rows are selected as arrears inside that occurrence — they do not
+ * widen the frozen period. Ledger allocations retain each earning’s original
+ * economic period via ledger_entry_id → economic_earned_at / posting_created_at.
  */
 
 import { zonedWallTimeToUtc } from "./payoutScheduleSSOT.ts";
@@ -200,16 +204,24 @@ export function selectWeeklyPeriodPayableCredits(args: {
   period_end: string;
 }): {
   amount_pence: number;
+  previous_week_pence: number;
+  arrears_pence: number;
   selected: WeeklyPeriodCredit[];
+  previous_week_selected: WeeklyPeriodCredit[];
+  arrears_selected: WeeklyPeriodCredit[];
   excluded_current_week_pence: number;
+  /** Always 0 under arrears-included policy (kept for orchestrator backwards compat). */
   excluded_older_unpaid_pence: number;
+  included_arrears_pence: number;
   already_paid_pence: number;
   unattributed_pence: number;
 } {
   const selected: WeeklyPeriodCredit[] = [];
-  let amount_pence = 0;
+  const previous_week_selected: WeeklyPeriodCredit[] = [];
+  const arrears_selected: WeeklyPeriodCredit[] = [];
+  let previous_week_pence = 0;
+  let arrears_pence = 0;
   let excluded_current_week_pence = 0;
-  let excluded_older_unpaid_pence = 0;
   let already_paid_pence = 0;
   let unattributed_pence = 0;
   for (const entry of args.entries) {
@@ -221,13 +233,19 @@ export function selectWeeklyPeriodPayableCredits(args: {
     const unpaid = Math.max(0, Math.round(Number(entry.unpaid_pence ?? entry.amount_pence ?? 0)));
     if (bucket === WEEKLY_CREDIT_BUCKET.PREVIOUS_WEEK_PAYABLE) {
       selected.push(entry);
-      amount_pence += unpaid;
+      previous_week_selected.push(entry);
+      previous_week_pence += unpaid;
+      continue;
+    }
+    if (bucket === WEEKLY_CREDIT_BUCKET.OLDER_UNPAID) {
+      // Canonical arrears policy: include older unpaid once in this occurrence.
+      selected.push(entry);
+      arrears_selected.push(entry);
+      arrears_pence += unpaid;
       continue;
     }
     if (bucket === WEEKLY_CREDIT_BUCKET.CURRENT_WEEK_EXCLUDED) {
       excluded_current_week_pence += unpaid;
-    } else if (bucket === WEEKLY_CREDIT_BUCKET.OLDER_UNPAID) {
-      excluded_older_unpaid_pence += unpaid;
     } else if (bucket === WEEKLY_CREDIT_BUCKET.ALREADY_PAID) {
       already_paid_pence += Math.max(0, Math.round(Number(entry.amount_pence ?? 0)));
     } else {
@@ -235,10 +253,15 @@ export function selectWeeklyPeriodPayableCredits(args: {
     }
   }
   return {
-    amount_pence,
+    amount_pence: previous_week_pence + arrears_pence,
+    previous_week_pence,
+    arrears_pence,
     selected,
+    previous_week_selected,
+    arrears_selected,
     excluded_current_week_pence,
-    excluded_older_unpaid_pence,
+    excluded_older_unpaid_pence: 0,
+    included_arrears_pence: arrears_pence,
     already_paid_pence,
     unattributed_pence,
   };

@@ -1,10 +1,15 @@
 /**
- * Payout Ledger settings — schedule, eligibility, Driver Withdrawals, per-driver override.
- * Persists to admin_settings + service_areas + drivers.payouts_enabled. No earnings math.
+ * Payout Ledger settings — schedule, eligibility, Driver Withdrawals, per-driver operational pause.
+ * Global automatic payout switches remain admin_settings. Per-driver pause/resume uses the
+ * canonical operational-pause RPC (never a direct drivers.payouts_enabled write).
  */
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  adminSetDriverPayoutOperationalPause,
+  operationalPauseConfirmCopy,
+} from '@/lib/adminSetDriverPayoutOperationalPause';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -177,11 +182,19 @@ export function PayoutLedgerSettingsPanel({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('drivers')
-        .select('id, first_name, last_name, driver_code, payouts_enabled, charges_enabled')
+        .select('id, first_name, last_name, driver_code, payouts_enabled, payout_operational_paused, charges_enabled')
         .eq('id', overrideDriverId!)
         .maybeSingle();
       if (error) throw error;
-      return data;
+      return data as {
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        driver_code: string | null;
+        payouts_enabled: boolean | null;
+        payout_operational_paused: boolean | null;
+        charges_enabled: boolean | null;
+      } | null;
     },
   });
 
@@ -486,18 +499,44 @@ export function PayoutLedgerSettingsPanel({
       if (!platformMember) {
         throw new Error('Driver is outside PLATFORM_COLLECTED Payout Ledger scope');
       }
-      const { error } = await supabase
-        .from('drivers')
-        .update({ payouts_enabled: enabled })
-        .eq('id', overrideDriverId);
-      if (error) throw error;
+      const action = enabled ? 'resume' : 'pause';
+      const who = [
+        [overrideDriver?.first_name, overrideDriver?.last_name].filter(Boolean).join(' '),
+        overrideDriver?.driver_code,
+      ].filter(Boolean).join(' · ');
+      const copy = operationalPauseConfirmCopy({
+        action,
+        driverName: who || null,
+        driverCode: overrideDriver?.driver_code ?? null,
+      });
+      if (!window.confirm(`${copy.title}\n\n${copy.body}`)) {
+        throw new Error('Cancelled');
+      }
+      const reason = window.prompt(
+        action === 'resume'
+          ? 'Admin reason for resuming payouts (3–500 characters):'
+          : 'Admin reason for pausing payouts (3–500 characters):',
+        '',
+      );
+      if (reason == null) throw new Error('Cancelled');
+      const result = await adminSetDriverPayoutOperationalPause({
+        driverId: overrideDriverId,
+        paused: !enabled,
+        reason,
+      });
+      if (!result.ok) throw new Error(result.message);
+      return result;
     },
     onSuccess: () => {
-      toast.success('Per-driver payout override saved');
+      toast.success('Driver operational pause updated');
       void queryClient.invalidateQueries({ queryKey: ['payout-driver-override', overrideDriverId] });
       void queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => {
+      if (err.message === 'Cancelled') return;
+      toast.error(err.message);
+    },
   });
 
   const get = (key: string, fallback = '') => draft[key] ?? settings?.[key] ?? fallback;
@@ -600,22 +639,23 @@ export function PayoutLedgerSettingsPanel({
                   {overrideDriver?.driver_code
                     ?? [overrideDriver?.first_name, overrideDriver?.last_name].filter(Boolean).join(' ')
                     ?? overrideDriverId}
-                  {overrideDriver?.payouts_enabled === false
-                    ? ' · automatic payouts paused'
-                    : ' · payouts via Driver Wallet Ledger'}
+                  {overrideDriver?.payout_operational_paused === true
+                    ? ' · operationally paused'
+                    : ' · operationally active'}
                   {overrideLoading ? ' · loading…' : ''}
                 </p>
               </div>
               <Switch
-                checked={overrideDriver?.payouts_enabled !== false}
+                checked={overrideDriver?.payout_operational_paused !== true}
                 disabled={!overrideDriver || driverOverrideMutation.isPending}
                 onCheckedChange={(v) => driverOverrideMutation.mutate(v)}
               />
             </div>
           )}
           <p className="text-xs text-muted-foreground">
-            Per-driver override writes drivers.payouts_enabled only. Platform pause/resume remains above.
-            Service-area Driver Withdrawals are a separate override below.
+            Per-driver control calls admin_set_driver_payout_operational_pause (never a direct
+            drivers.payouts_enabled write). Global automatic payout switches above are separate.
+            Service-area Driver Withdrawals remain a separate override below.
           </p>
         </CardContent>
       </Card>
