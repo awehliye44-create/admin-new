@@ -69,6 +69,12 @@ Deno.test("arrive_stop / drive_to_next emit after DB success; notify failure is 
   assertStringIncludes(helper, "send-trip-notification failed");
   assertStringIncludes(helper, "customer_trip_lifecycle_emitted");
   assertStringIncludes(helper, "stopIndex");
+  // Edge-to-Edge must use explicit service-role Bearer (never functions.invoke —
+  // that forwards Driver JWT from accept-offer and 403s send-trip-notification).
+  assertStringIncludes(helper, "/functions/v1/send-trip-notification");
+  assertStringIncludes(helper, "SUPABASE_SERVICE_ROLE_KEY");
+  assertStringIncludes(helper, "Authorization: `Bearer ${serviceRoleKey}`");
+  assertEquals(helper.includes('functions.invoke("send-trip-notification"'), false);
 });
 
 Deno.test("intermediate stop lifecycle events are registered and not aliases of pickup", () => {

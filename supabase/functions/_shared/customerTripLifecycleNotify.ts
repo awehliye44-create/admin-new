@@ -226,16 +226,16 @@ export function customerIosInterruptionLevelForEvent(
   );
 }
 
-type InvokeClient = {
-  functions: {
-    invoke: (
-      name: string,
-      opts: { body: Record<string, unknown> },
-    ) => Promise<unknown>;
-  };
-};
+/**
+ * Kept for call-site compatibility. Push delivery no longer uses
+ * `supabase.functions.invoke` — that forwards the *incoming* Edge request
+ * Authorization (Driver JWT on accept-offer), and send-trip-notification
+ * requires the exact service-role Bearer (MK-260923-017 silent BG assign).
+ */
+// deno-lint-ignore ban-types
+type InvokeClient = object;
 
-type ExpireNotifyClient = InvokeClient & {
+type ExpireNotifyClient = {
   rpc: (
     name: string,
     args: Record<string, unknown>,
@@ -254,12 +254,24 @@ type ExpireNotifyClient = InvokeClient & {
   };
 };
 
+function serviceRoleNotifyHeaders(serviceRoleKey: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${serviceRoleKey}`,
+    apikey: serviceRoleKey,
+  };
+}
+
 /**
  * Fire-and-forget Customer lifecycle push after authoritative DB success.
  * Failures must not roll back the trip mutation.
+ *
+ * Uses explicit service-role fetch (same convention as
+ * invokeAutoDispatchWithServiceRole) — never `functions.invoke` from a
+ * Driver/Customer-authenticated Edge request.
  */
 export async function notifyCustomerTripLifecycle(
-  supabase: InvokeClient,
+  _supabase: InvokeClient,
   input: {
     userId?: string | null;
     passengerId?: string | null;
@@ -289,25 +301,75 @@ export async function notifyCustomerTripLifecycle(
     typeof input.path === "string" && input.path.startsWith("/")
       ? input.path.trim()
       : null;
-  try {
-    await supabase.functions.invoke("send-trip-notification", {
-      body: {
-        userId,
-        tripId,
-        event,
-        notificationId: (input.notificationId ?? `${event}-${tripId}`).trim(),
-        ...(input.title ? { title: input.title } : {}),
-        ...(input.body ? { body: input.body } : {}),
-        ...(input.fareDisplay ? { fareDisplay: input.fareDisplay } : {}),
-        ...(input.driverName ? { driverName: input.driverName } : {}),
-        ...(stopIndex != null ? { stopIndex, stop_index: stopIndex } : {}),
-        ...(pathOverride ? { path: pathOverride, screen: pathOverride } : {}),
-      },
+
+  const supabaseUrl = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/$/, "");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.warn("[notifyCustomerTripLifecycle] send-trip-notification failed", {
+      event,
+      trip_id: tripId,
+      stop_index: stopIndex,
+      message: "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing",
     });
+    return;
+  }
+
+  const body: Record<string, unknown> = {
+    userId,
+    tripId,
+    event,
+    notificationId: (input.notificationId ?? `${event}-${tripId}`).trim(),
+    ...(input.title ? { title: input.title } : {}),
+    ...(input.body ? { body: input.body } : {}),
+    ...(input.fareDisplay ? { fareDisplay: input.fareDisplay } : {}),
+    ...(input.driverName ? { driverName: input.driverName } : {}),
+    ...(stopIndex != null ? { stopIndex, stop_index: stopIndex } : {}),
+    ...(pathOverride ? { path: pathOverride, screen: pathOverride } : {}),
+  };
+
+  try {
+    const response = await fetch(
+      `${supabaseUrl}/functions/v1/send-trip-notification`,
+      {
+        method: "POST",
+        headers: serviceRoleNotifyHeaders(serviceRoleKey),
+        body: JSON.stringify(body),
+      },
+    );
+    const rawText = await response.text();
+    let parsed: Record<string, unknown> | null = null;
+    if (rawText) {
+      try {
+        const json = JSON.parse(rawText);
+        parsed = json && typeof json === "object" && !Array.isArray(json)
+          ? json as Record<string, unknown>
+          : null;
+      } catch {
+        parsed = null;
+      }
+    }
+
+    if (!response.ok) {
+      console.warn("[notifyCustomerTripLifecycle] send-trip-notification failed", {
+        event,
+        trip_id: tripId,
+        stop_index: stopIndex,
+        http_status: response.status,
+        message: typeof parsed?.error === "string"
+          ? parsed.error
+          : rawText.slice(0, 200) || `HTTP ${response.status}`,
+      });
+      return;
+    }
+
+    const sent = typeof parsed?.sent === "number" ? parsed.sent : null;
     console.log("[customer_trip_lifecycle_emitted]", {
       event,
       trip_id: tripId,
       stop_index: stopIndex,
+      http_status: response.status,
+      sent,
+      reason: typeof parsed?.reason === "string" ? parsed.reason : null,
     });
   } catch (error) {
     console.warn("[notifyCustomerTripLifecycle] send-trip-notification failed", {
