@@ -78,8 +78,9 @@ export function buildMakeAvailableScheduledJobsPatch(input: {
 }
 
 /**
- * Broadcast Now — leave HELD and start the existing NRO / auto-dispatch path.
- * Distinct from Make Available (Scheduled Jobs preconfirm publication).
+ * Broadcast Now — leave HELD (or release preconfirm) and start the existing
+ * NRO / auto-dispatch path. Distinct from Make Available (Scheduled Jobs).
+ * Always clears confirmed_driver_id so Broadcast can recover after a drop-out.
  */
 export function buildBroadcastNowPatch(input: { nowIso: string }): Record<string, unknown> {
   return {
@@ -87,6 +88,7 @@ export function buildBroadcastNowPatch(input: { nowIso: string }): Record<string
     status: "offered",
     scheduled_broadcast_at: input.nowIso,
     dispatch_mode: "scheduled",
+    confirmed_driver_id: null,
     ...clearPendingReleasePatch(),
   };
 }

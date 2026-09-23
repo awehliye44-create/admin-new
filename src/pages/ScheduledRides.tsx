@@ -333,8 +333,8 @@ export default function ScheduledRides() {
     });
     try {
       const nowIso = new Date().toISOString();
-      // Assign Now — pre-confirm only; clears any pending Assign At / Broadcast At.
-      // CAS: only while still held / scheduled marketplace (never overwrite live search).
+      // Assign Now — pre-confirm (or swap preconfirm). Never overwrite live driver_id.
+      // Includes driver_assigned so Admin can replace a dropped pre-confirmed driver.
       const { data: assignedRows, error } = await supabase
         .from('trips')
         .update({
@@ -348,7 +348,13 @@ export default function ScheduledRides() {
           pending_release_driver_id: null,
         })
         .eq('id', selectedTrip.id)
-        .in('scheduled_status', ['admin_held', 'scheduled', 'broadcasting', 'pending'])
+        .in('scheduled_status', [
+          'admin_held',
+          'scheduled',
+          'broadcasting',
+          'pending',
+          'driver_assigned',
+        ])
         .is('driver_id', null)
         .select('id');
 
@@ -373,7 +379,11 @@ export default function ScheduledRides() {
       }
 
       perf.complete({ success: true, metadata: { trip_id: selectedTrip.id } });
-      toast.success('Driver assigned (Assign Now)');
+      toast.success(
+        selectedTrip.confirmed_driver_id && selectedTrip.confirmed_driver_id !== selectedDriverId
+          ? 'Driver reassigned (Assign Now)'
+          : 'Driver assigned (Assign Now)',
+      );
       setIsAssignOpen(false);
       setSelectedTrip(null);
       setSelectedDriverId('');
@@ -405,7 +415,7 @@ export default function ScheduledRides() {
     setIsSaving(true);
     try {
       // One pending action per trip — replaces any prior pending release.
-      // CAS: only while still Admin-held / pre-broadcast (never on live search).
+      // Allows driver_assigned so Assign At can swap a pre-confirmed driver.
       const { data: pendingRows, error } = await supabase
         .from('trips')
         .update({
@@ -414,7 +424,13 @@ export default function ScheduledRides() {
           pending_release_driver_id: selectedDriverId,
         })
         .eq('id', selectedTrip.id)
-        .in('scheduled_status', ['admin_held', 'scheduled', 'pending', 'broadcasting'])
+        .in('scheduled_status', [
+          'admin_held',
+          'scheduled',
+          'pending',
+          'broadcasting',
+          'driver_assigned',
+        ])
         .is('driver_id', null)
         .select('id');
       if (error) throw error;
@@ -594,7 +610,8 @@ export default function ScheduledRides() {
     setIsSaving(true);
     try {
       const nowIso = new Date().toISOString();
-      // Broadcast Now — NRO / auto-dispatch path (not Scheduled Jobs publication).
+      // Broadcast Now — NRO path. May release an existing preconfirm (drop-out recovery).
+      // Never overwrite a live accepted driver_id.
       const { data: broadcastRows, error } = await supabase
         .from('trips')
         .update({
@@ -602,19 +619,24 @@ export default function ScheduledRides() {
           status: 'offered',
           scheduled_broadcast_at: nowIso,
           dispatch_mode: 'scheduled',
+          confirmed_driver_id: null,
           pending_release_kind: null,
           pending_release_at: null,
           pending_release_driver_id: null,
         })
         .eq('id', selectedTrip.id)
-        .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
-        .is('confirmed_driver_id', null)
+        .in('scheduled_status', [
+          'admin_held',
+          'scheduled',
+          'pending',
+          'driver_assigned',
+        ])
         .is('driver_id', null)
         .select('id');
 
       if (error) throw error;
       if (!broadcastRows?.length) {
-        toast.error('Trip already has a driver or is no longer held for broadcast');
+        toast.error('Trip is already live-assigned or no longer eligible for broadcast');
         return;
       }
 
@@ -664,8 +686,12 @@ export default function ScheduledRides() {
           pending_release_driver_id: null,
         })
         .eq('id', selectedTrip.id)
-        .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
-        .is('confirmed_driver_id', null)
+        .in('scheduled_status', [
+          'admin_held',
+          'scheduled',
+          'pending',
+          'driver_assigned',
+        ])
         .is('driver_id', null)
         .select('id');
       if (error) throw error;
@@ -1302,7 +1328,9 @@ export default function ScheduledRides() {
           <DialogHeader>
             <DialogTitle>Assign Driver</DialogTitle>
             <DialogDescription>
-              Assign Now pre-confirms immediately. Assign At is executed by backend cron (one pending action per trip).
+              Assign Now pre-confirms immediately (or swaps an existing pre-confirmed driver).
+              Assign At is executed by backend cron (one pending action per trip).
+              Live accepted trips (driver already driving) cannot be overwritten here.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1398,7 +1426,8 @@ export default function ScheduledRides() {
             <AlertDialogDescription>
               Starts the existing New Ride Offer / auto-dispatch path. This is not
               &quot;Make Available in Scheduled Jobs&quot; (advance pre-confirmation).
-              Leave the time empty for Broadcast Now, or set Broadcast At (backend cron).
+              If a driver is already pre-confirmed, Broadcast releases that preconfirm
+              and opens finding-driver. Leave empty for Now, or set At (backend cron).
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-2">

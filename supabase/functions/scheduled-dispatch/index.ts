@@ -418,8 +418,9 @@ Deno.serve(async (req) => {
               console.warn(`[scheduled-dispatch] pending assign missing driver for ${trip.id}`);
               continue;
             }
-            // Skip if already pre-confirmed or live-assigned.
-            if (trip.confirmed_driver_id || trip.driver_id) {
+            // Live accepted ownership cannot be overwritten from Scheduled board.
+            // Pre-confirmed (confirmed_driver_id) MAY be swapped via Assign At.
+            if (trip.driver_id) {
               await supabase
                 .from("trips")
                 .update({
@@ -435,9 +436,14 @@ Deno.serve(async (req) => {
               .update(buildAssignNowPatch({ driverId, nowIso: now.toISOString() }))
               .eq("id", trip.id)
               .eq("pending_release_kind", "assign")
-              .in("scheduled_status", ["admin_held", "scheduled", "broadcasting", "pending"])
+              .in("scheduled_status", [
+                "admin_held",
+                "scheduled",
+                "broadcasting",
+                "pending",
+                "driver_assigned",
+              ])
               .is("driver_id", null)
-              .is("confirmed_driver_id", null)
               .select("id");
             if (error) {
               console.error("[scheduled-dispatch] pending assign failed:", trip.id, error);
@@ -479,7 +485,9 @@ Deno.serve(async (req) => {
               );
             }
           } else if (kind === "broadcast") {
-            if (trip.confirmed_driver_id || trip.driver_id) {
+            // Live accepted ownership stays off this path.
+            // Pre-confirmed may be released by Broadcast At (patch clears confirmed_driver_id).
+            if (trip.driver_id) {
               await supabase
                 .from("trips")
                 .update({
@@ -495,9 +503,13 @@ Deno.serve(async (req) => {
               .update(buildBroadcastNowPatch({ nowIso: now.toISOString() }))
               .eq("id", trip.id)
               .eq("pending_release_kind", "broadcast")
-              .in("scheduled_status", ["admin_held", "scheduled", "pending"])
+              .in("scheduled_status", [
+                "admin_held",
+                "scheduled",
+                "pending",
+                "driver_assigned",
+              ])
               .is("driver_id", null)
-              .is("confirmed_driver_id", null)
               .select("id");
             if (error) {
               console.error("[scheduled-dispatch] pending broadcast failed:", trip.id, error);
