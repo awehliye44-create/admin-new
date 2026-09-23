@@ -1,6 +1,10 @@
 /**
- * Admin HELD release actions — Assign/Broadcast Now|At.
+ * Admin HELD release actions — Assign / Make Available / Broadcast Now|At.
  * One pending action per trip. T−urgent convert must clear pending first.
+ *
+ * Make Available in Scheduled Jobs ≠ Broadcast:
+ * - Make Available → publish for advance PRE-CONFIRMATION (Scheduled Jobs list)
+ * - Broadcast → open NRO / auto-dispatch path now (or At via pending_release)
  */
 
 export const PENDING_RELEASE_KINDS = ["assign", "broadcast"] as const;
@@ -57,13 +61,30 @@ export function buildAssignNowPatch(input: {
 }
 
 /**
- * Broadcast Now — leave Admin HELD, open marketplace via broadcast_at=now
- * and scheduled_status=scheduled so scheduled-dispatch Step 2 / auto-dispatch
- * can run. Does not invent a second dispatch engine.
+ * Make Available in Scheduled Jobs — leave Admin HELD and publish for advance
+ * PRE-CONFIRMATION only. Does NOT start NRO / auto-dispatch.
+ * Visibility: scheduled_broadcast_at due + scheduled_marketplace_is_open.
+ */
+export function buildMakeAvailableScheduledJobsPatch(input: {
+  nowIso: string;
+}): Record<string, unknown> {
+  return {
+    scheduled_status: "scheduled",
+    status: "scheduled",
+    scheduled_broadcast_at: input.nowIso,
+    dispatch_mode: "scheduled",
+    ...clearPendingReleasePatch(),
+  };
+}
+
+/**
+ * Broadcast Now — leave HELD and start the existing NRO / auto-dispatch path.
+ * Distinct from Make Available (Scheduled Jobs preconfirm publication).
  */
 export function buildBroadcastNowPatch(input: { nowIso: string }): Record<string, unknown> {
   return {
-    scheduled_status: "scheduled",
+    scheduled_status: "broadcasting",
+    status: "offered",
     scheduled_broadcast_at: input.nowIso,
     dispatch_mode: "scheduled",
     ...clearPendingReleasePatch(),

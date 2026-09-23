@@ -515,7 +515,15 @@ Deno.serve(async (req) => {
               action: "admin_pending_broadcast_executed",
               metadata: {},
             });
-            // Step 2 in this same tick will pick up scheduled_broadcast_at <= now.
+            // Broadcast At = NRO path (broadcasting). Kick auto-dispatch now —
+            // STEP 2 only activates on Local/Long T for published Scheduled Jobs.
+            await triggerAutoDispatch({
+              supabaseUrl,
+              supabaseServiceKey,
+              tripId: trip.id,
+              forceRebroadcast: true,
+              triggerReason: "admin_pending_broadcast_at",
+            });
           }
         }
       }
@@ -772,9 +780,10 @@ Deno.serve(async (req) => {
     // STEP 1b (commitment not-moving / ETA-risk / critical-late) REMOVED.
 
     // ============================================================
-    // STEP 2: NO-PRECONFIRMED ACTIVATION / BROADCAST
-    // At Local/Long T-minutes (or Admin Broadcast At due): leave HELD,
-    // open marketplace, trigger existing auto-dispatch / NRO.
+    // STEP 2: NO-PRECONFIRMED ACTIVATION at Local/Long T-minutes
+    // Published Scheduled Jobs (Make Available) stay list-only until T.
+    // Admin Broadcast Now/At sets broadcasting + auto-dispatch directly
+    // (STEP 0 / Admin UI) — do NOT treat scheduled_broadcast_at alone as NRO.
     // Skip when a future pending_release_* Admin override is still pending.
     // ============================================================
 
@@ -807,12 +816,6 @@ Deno.serve(async (req) => {
           }
         }
 
-        const broadcastAtMs = trip.scheduled_broadcast_at
-          ? Date.parse(trip.scheduled_broadcast_at)
-          : NaN;
-        const adminBroadcastDue =
-          Number.isFinite(broadcastAtMs) && broadcastAtMs <= nowMs;
-
         const due = isScheduledActivationDue({
           scheduledAt: trip.scheduled_at,
           estimatedDurationMinutes: trip.estimated_duration_minutes,
@@ -820,8 +823,8 @@ Deno.serve(async (req) => {
           nowMs,
         });
 
-        // Activate when Local/Long T is due OR Admin already stamped broadcast_at.
-        if (!due.due && !adminBroadcastDue) {
+        // Canonical activation only — Make Available publication must not NRO early.
+        if (!due.due) {
           continue;
         }
 
@@ -849,9 +852,7 @@ Deno.serve(async (req) => {
           tripId: trip.id,
           action: "broadcast_start",
           metadata: {
-            trigger_reason: adminBroadcastDue && !due.due
-              ? "admin_scheduled_broadcast_at"
-              : "scheduled_activation_no_locked_driver",
+            trigger_reason: "scheduled_activation_no_locked_driver",
             kind: due.kind,
             activation_at: Number.isFinite(due.activationAtMs)
               ? new Date(due.activationAtMs).toISOString()

@@ -57,7 +57,7 @@ import {
   Calendar, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
   MoreHorizontal, UserPlus, XCircle, Eye, Play, CalendarClock,
   AlertTriangle, CheckCircle2, Car, CreditCard, Users, Briefcase,
-  Mail, Navigation, Timer, ArrowRightLeft, Globe, Star
+  Mail, Navigation, Timer, ArrowRightLeft, Globe, Star, ListPlus
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { format, formatDistanceToNow, isPast, isToday, isTomorrow, addHours } from 'date-fns';
@@ -471,18 +471,57 @@ export default function ScheduledRides() {
     }
   };
 
+  const handleMakeAvailableScheduledJobs = async (trip: ScheduledTrip) => {
+    setIsSaving(true);
+    try {
+      const nowIso = new Date().toISOString();
+      // Publish for Driver Scheduled Jobs advance PRE-CONFIRMATION only.
+      // Does NOT start NRO / auto-dispatch (that is Broadcast).
+      const { data: rows, error } = await supabase
+        .from('trips')
+        .update({
+          scheduled_status: 'scheduled',
+          status: 'scheduled',
+          scheduled_broadcast_at: nowIso,
+          dispatch_mode: 'scheduled',
+          pending_release_kind: null,
+          pending_release_at: null,
+          pending_release_driver_id: null,
+        })
+        .eq('id', trip.id)
+        .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
+        .is('confirmed_driver_id', null)
+        .is('driver_id', null)
+        .select('id');
+
+      if (error) throw error;
+      if (!rows?.length) {
+        toast.error('Trip is no longer eligible for Scheduled Jobs publication');
+        return;
+      }
+
+      toast.success('Available in Scheduled Jobs — drivers can pre-confirm');
+      fetchData();
+    } catch (err: any) {
+      console.error('Error publishing to Scheduled Jobs:', err);
+      toast.error(err.message || 'Failed to publish to Scheduled Jobs');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleDispatchNow = async () => {
     if (!selectedTrip) return;
 
     setIsSaving(true);
     try {
       const nowIso = new Date().toISOString();
-      // Broadcast Now — open marketplace (leaves Admin HELD). Cron Step 2 / auto-dispatch.
-      // CAS: never broadcast over a pre-confirmed or already-converted trip.
+      // Broadcast Now — NRO / auto-dispatch path (not Scheduled Jobs publication).
       const { data: broadcastRows, error } = await supabase
         .from('trips')
         .update({
-          scheduled_status: 'scheduled',
+          scheduled_status: 'broadcasting',
+          status: 'offered',
           scheduled_broadcast_at: nowIso,
           dispatch_mode: 'scheduled',
           pending_release_kind: null,
@@ -501,10 +540,17 @@ export default function ScheduledRides() {
         return;
       }
 
-      // Kick the existing scheduled-dispatch Edge (reuse — no parallel engine).
+      // Kick existing auto-dispatch / scheduled-dispatch (reuse — no parallel engine).
+      void supabase.functions.invoke('auto-dispatch', {
+        body: {
+          trip_id: selectedTrip.id,
+          force_rebroadcast: true,
+          trigger_reason: 'admin_broadcast_now',
+        },
+      });
       void supabase.functions.invoke('scheduled-dispatch', { body: {} });
 
-      toast.success('Broadcast Now — marketplace opened');
+      toast.success('Broadcast Now — New Ride Offer path started');
       setIsDispatchOpen(false);
       setSelectedTrip(null);
       fetchData();
@@ -915,6 +961,18 @@ export default function ScheduledRides() {
                               <Play className="h-4 w-4 mr-2" />
                               Broadcast
                             </DropdownMenuItem>
+                            {!trip.confirmed_driver_id && !trip.driver_id &&
+                            ['admin_held', 'scheduled', 'pending'].includes(
+                              String(trip.scheduled_status ?? '').toLowerCase(),
+                            ) ? (
+                              <DropdownMenuItem
+                                disabled={isSaving}
+                                onClick={() => void handleMakeAvailableScheduledJobs(trip)}
+                              >
+                                <ListPlus className="h-4 w-4 mr-2" />
+                                Make Available in Scheduled Jobs
+                              </DropdownMenuItem>
+                            ) : null}
                             {trip.pending_release_kind ? (
                               <DropdownMenuItem onClick={() => void handleCancelPendingRelease(trip)}>
                                 <XCircle className="h-4 w-4 mr-2" />
@@ -1243,7 +1301,8 @@ export default function ScheduledRides() {
           <AlertDialogHeader>
             <AlertDialogTitle>Broadcast scheduled ride</AlertDialogTitle>
             <AlertDialogDescription>
-              Opens the existing driver marketplace / NRO path. Does not invent a parallel dispatch system.
+              Starts the existing New Ride Offer / auto-dispatch path. This is not
+              &quot;Make Available in Scheduled Jobs&quot; (advance pre-confirmation).
               Leave the time empty for Broadcast Now, or set Broadcast At (backend cron).
             </AlertDialogDescription>
           </AlertDialogHeader>

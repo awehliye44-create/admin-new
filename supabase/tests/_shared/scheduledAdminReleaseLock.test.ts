@@ -27,9 +27,23 @@ Deno.test("Assign Now clears pending and pre-confirms", () => {
   assertEquals(patch.pending_release_kind, null);
 });
 
-Deno.test("Broadcast Now opens marketplace without inventing dispatch", () => {
-  const patch = buildBroadcastNowPatch({ nowIso: "2026-09-21T12:00:00.000Z" });
+Deno.test("Make Available publishes Scheduled Jobs without NRO", async () => {
+  const { buildMakeAvailableScheduledJobsPatch } = await import(
+    "../../functions/_shared/scheduledAdminReleaseSSOT.ts"
+  );
+  const patch = buildMakeAvailableScheduledJobsPatch({
+    nowIso: "2026-09-21T12:00:00.000Z",
+  });
   assertEquals(patch.scheduled_status, "scheduled");
+  assertEquals(patch.status, "scheduled");
+  assertEquals(patch.scheduled_broadcast_at, "2026-09-21T12:00:00.000Z");
+  assertEquals(patch.pending_release_kind, null);
+});
+
+Deno.test("Broadcast Now starts NRO path (not Scheduled Jobs-only)", () => {
+  const patch = buildBroadcastNowPatch({ nowIso: "2026-09-21T12:00:00.000Z" });
+  assertEquals(patch.scheduled_status, "broadcasting");
+  assertEquals(patch.status, "offered");
   assertEquals(patch.scheduled_broadcast_at, "2026-09-21T12:00:00.000Z");
   assertEquals(patch.pending_release_kind, null);
 });
