@@ -14,7 +14,10 @@ import {
   selectWeeklyPeriodPayableCredits,
 } from '../../../supabase/functions/_shared/weeklyPayoutPeriodSSOT.ts';
 import { planPayoutItemFromEligibleEntries } from '../../../supabase/functions/_shared/payoutLedgerHandoffSSOT.ts';
-import { evaluateDriverBatchEligibility } from '../../../supabase/functions/_shared/weeklyDriverPayoutBatchWorkflowSSOT.ts';
+import {
+  evaluateDriverBatchEligibility,
+  resolveScheduleOccurrence,
+} from '../../../supabase/functions/_shared/weeklyDriverPayoutBatchWorkflowSSOT.ts';
 import { decideDirectDriverPayoutPauseWrite } from '../denyDirectDriverPayoutPauseWriteDecision';
 
 const ROOT = resolve(__dirname, '../../..');
@@ -67,26 +70,70 @@ const MK0007_ARREARS = [
   },
 ];
 
-/** Next weekly after a missed 23 Sep window while paused: Tue 30 Sep. */
-const NEXT_KEY = 'weekly-payout:milton-keynes:2026-09-30T12:00:00+01:00';
+/** Next weekly after a missed 23 Sep window while paused: Tue 29 Sep 2026. */
+const NEXT_KEY = 'weekly-payout:milton-keynes:2026-09-29T12:00:00+01:00';
+const WRONG_DAY_KEY = 'weekly-payout:milton-keynes:2026-09-30T12:00:00+01:00';
+const PERIOD_START_LONDON = '2026-09-21T00:00:00+01:00';
+const PERIOD_END_LONDON = '2026-09-28T00:00:00+01:00';
+const PERIOD_START_UTC = '2026-09-20T23:00:00.000Z';
+const PERIOD_END_UTC = '2026-09-27T23:00:00.000Z';
 
 describe('PR68 release blockers — arrears / lock / intent / trigger / MK0007 sim', () => {
   const fwd = readFileSync(FWD, 'utf8');
   const alloc = readFileSync(ALLOC_TRG, 'utf8');
   const orch = readFileSync(ORCH, 'utf8');
 
+  it('TUESDAY_20260929 occurrence key + frozen period; Wednesday is wrong day', () => {
+    expect(NEXT_KEY).toBe('weekly-payout:milton-keynes:2026-09-29T12:00:00+01:00');
+    expect(WRONG_DAY_KEY).not.toBe(NEXT_KEY);
+
+    const period = resolvePreviousCompletedCalendarWeek({ schedule_occurrence_key: NEXT_KEY });
+    expect(period.period_start).toBe(PERIOD_START_UTC);
+    expect(period.period_end).toBe(PERIOD_END_UTC);
+    expect(new Date(PERIOD_START_LONDON).toISOString()).toBe(PERIOD_START_UTC);
+    expect(new Date(PERIOD_END_LONDON).toISOString()).toBe(PERIOD_END_UTC);
+
+    // Sep 30 key would freeze the same calendar week bounds, but is not a Tuesday payout day.
+    const wedPeriod = resolvePreviousCompletedCalendarWeek({ schedule_occurrence_key: WRONG_DAY_KEY });
+    expect(wedPeriod.period_start).toBe(PERIOD_START_UTC);
+    expect(wedPeriod.period_end).toBe(PERIOD_END_UTC);
+
+    const settings = {
+      payouts_enabled: true,
+      payout_frequency: 'weekly',
+      weekly_payout_day: 'tuesday',
+      payout_processing_time: '12:00',
+      payout_timezone: 'Europe/London',
+    };
+    const tue = resolveScheduleOccurrence({
+      settings,
+      service_area_slug: 'milton-keynes',
+      now: new Date('2026-09-29T12:00:00+01:00'),
+    });
+    expect('not_due' in tue && tue.not_due).toBeFalsy();
+    expect('schedule_occurrence_key' in tue ? tue.schedule_occurrence_key : '').toBe(NEXT_KEY);
+
+    const wed = resolveScheduleOccurrence({
+      settings,
+      service_area_slug: 'milton-keynes',
+      now: new Date('2026-09-30T12:00:00+01:00'),
+    });
+    expect('not_due' in wed && wed.not_due).toBe(true);
+    expect('reason' in wed ? wed.reason : '').toBe('WRONG_PAYOUT_DAY');
+  });
+
   it('older unpaid arrears included once; current week excluded', () => {
     const period = resolvePreviousCompletedCalendarWeek({ schedule_occurrence_key: NEXT_KEY });
-    // Previous completed week for 30 Sep = Mon 21 → Mon 28 London.
-    expect(period.period_start).toBe('2026-09-20T23:00:00.000Z');
-    expect(period.period_end).toBe('2026-09-27T23:00:00.000Z');
+    // Previous completed week for Tue 29 Sep = Mon 21 → Mon 28 London.
+    expect(period.period_start).toBe(PERIOD_START_UTC);
+    expect(period.period_end).toBe(PERIOD_END_UTC);
 
     const currentWeek = {
       ledger_entry_id: 'cw-1',
       amount_pence: 999,
       unpaid_pence: 999,
       type: 'TRIP_EARNING_NET',
-      economic_earned_at: '2026-09-29T10:00:00.000Z',
+      economic_earned_at: '2026-09-28T10:00:00.000Z',
     };
     const scoped = selectWeeklyPeriodPayableCredits({
       period_start: period.period_start,
@@ -249,7 +296,7 @@ describe('PR68 release blockers — arrears / lock / intent / trigger / MK0007 s
           amount_pence: 200,
           unpaid_pence: 200,
           type: 'TRIP_EARNING_NET',
-          economic_earned_at: '2026-09-29T12:00:00.000Z',
+          economic_earned_at: '2026-09-28T12:00:00.000Z',
         },
       ],
     });
