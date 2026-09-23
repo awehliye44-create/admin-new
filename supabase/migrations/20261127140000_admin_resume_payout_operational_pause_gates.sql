@@ -25,12 +25,20 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $trig$
 BEGIN
+  -- Unrelated column updates never fire this trigger (UPDATE OF pause fields only).
+  -- service_role: allow migrations / repair paths.
+  IF auth.role() = 'service_role' THEN
+    RETURN NEW;
+  END IF;
+  -- Canonical Admin RPC sets this GUC for the transaction.
+  IF current_setting('onecab.allow_payout_operational_pause_write', true) = '1' THEN
+    RETURN NEW;
+  END IF;
   IF TG_OP = 'UPDATE'
      AND (
        NEW.payout_operational_paused IS DISTINCT FROM OLD.payout_operational_paused
        OR NEW.payouts_enabled IS DISTINCT FROM OLD.payouts_enabled
      )
-     AND current_setting('onecab.allow_payout_operational_pause_write', true) IS DISTINCT FROM '1'
   THEN
     RAISE EXCEPTION 'direct_payout_pause_write_denied'
       USING ERRCODE = '42501',
@@ -67,7 +75,9 @@ DECLARE
   v_dest_ok boolean := false;
   v_active_reservation_count integer := 0;
   v_inflight_payout_count integer := 0;
+  v_inflight_intent_count integer := 0;
   v_unknown_provider_session_count integer := 0;
+  v_intent_ssot_present boolean := false;
   v_expected_pence bigint := 0;
   v_actual_credits_pence bigint := 0;
   v_trip_count integer := 0;
@@ -124,7 +134,13 @@ BEGIN
     RAISE EXCEPTION 'service_area_scope_denied' USING ERRCODE = '42501';
   END IF;
 
-  -- Driver-level lock for concurrent double-click safety.
+  -- Canonical per-driver payout occupancy lock (same key as
+  -- trg_payout_item_ledger_allocations_validate / weekly+early allocation).
+  -- Acquire BEFORE destination / recon / intent / reservation reads and before
+  -- clearing operational pause — closes Resume↔reserve eligibility races.
+  PERFORM pg_advisory_xact_lock(hashtextextended(p_driver_id::text, 0));
+
+  -- Row lock for concurrent double-click / idempotent Resume.
   SELECT
     coalesce(d.payout_operational_paused, false),
     coalesce(d.payouts_enabled, false)
@@ -165,6 +181,19 @@ BEGIN
       )
     );
 
+  -- Canonical payout submission intent SSOT.
+  v_intent_ssot_present := to_regclass('public.driver_payout_payment_intents') IS NOT NULL;
+  IF v_intent_ssot_present THEN
+    SELECT count(*)::integer INTO v_inflight_intent_count
+    FROM public.driver_payout_payment_intents dpi
+    WHERE dpi.driver_id = p_driver_id
+      AND upper(coalesce(dpi.execution_status, '')) IN (
+        'DRAFT', 'VALIDATED', 'BLOCKED', 'READY', 'SUBMITTING', 'SUBMITTED', 'UNKNOWN'
+      );
+  ELSE
+    v_inflight_intent_count := 0;
+  END IF;
+
   SELECT count(*)::integer INTO v_unknown_provider_session_count
   FROM public.payment_sessions ps
   JOIN public.trips t ON t.id = ps.trip_id
@@ -194,6 +223,8 @@ BEGIN
     'destination_provider_verified', v_dest_ok,
     'active_reservation_count', v_active_reservation_count,
     'inflight_payout_item_count', v_inflight_payout_count,
+    'inflight_payment_intent_count', v_inflight_intent_count,
+    'intent_ssot_present', v_intent_ssot_present,
     'unknown_provider_session_count', v_unknown_provider_session_count,
     'lifetime_expected_payable_pence', v_expected_pence,
     'lifetime_ten_plus_tip_credits_pence', v_actual_credits_pence,
@@ -201,10 +232,20 @@ BEGIN
     'lifetime_credit_ledger_rows', v_ledger_credit_count,
     'lifetime_credit_variance_pence', v_actual_credits_pence - v_expected_pence,
     'service_area_scope_ok', v_sa_ok,
-    'staff_role', v_staff_role
+    'staff_role', v_staff_role,
+    'canonical_payout_lock', 'pg_advisory_xact_lock(hashtextextended(driver_id::text, 0))'
   );
 
   IF p_paused IS FALSE THEN
+    IF NOT v_intent_ssot_present THEN
+      RETURN jsonb_build_object(
+        'ok', false,
+        'error_code', 'FINANCIAL_READINESS_UNKNOWN',
+        'message', 'Resume blocked: driver_payout_payment_intents SSOT missing.',
+        'gates', v_gate_snapshot
+      );
+    END IF;
+
     IF NOT v_dest_ok THEN
       RETURN jsonb_build_object(
         'ok', false,
@@ -223,11 +264,11 @@ BEGIN
       );
     END IF;
 
-    IF v_inflight_payout_count > 0 THEN
+    IF v_inflight_payout_count > 0 OR v_inflight_intent_count > 0 THEN
       RETURN jsonb_build_object(
         'ok', false,
         'error_code', 'PAYOUT_IN_FLIGHT',
-        'message', 'Resume blocked: a payout item is already in flight or provider UNKNOWN.',
+        'message', 'Resume blocked: a payout item or payment intent is already in flight / UNKNOWN.',
         'gates', v_gate_snapshot
       );
     END IF;

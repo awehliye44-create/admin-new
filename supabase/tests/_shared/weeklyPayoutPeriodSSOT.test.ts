@@ -212,6 +212,28 @@ Deno.test("8. historical completed early cash-outs are excluded", () => {
   assertEquals(scoped.amount_pence, 8166);
 });
 
+Deno.test("8b. older unpaid arrears are included once without widening frozen period", () => {
+  const arrears = {
+    ledger_entry_id: "old-unpaid-1526",
+    amount_pence: 1526,
+    unpaid_pence: 1526,
+    type: "TRIP_EARNING_NET",
+    economic_earned_at: "2026-09-10T12:00:00.000Z",
+  };
+  const scoped = selectWeeklyPeriodPayableCredits({
+    period_start: PERIOD_START,
+    period_end: PERIOD_END,
+    entries: [...PREVIOUS_WEEK, arrears, ...CURRENT_WEEK],
+  });
+  assertEquals(scoped.previous_week_pence, 8166);
+  assertEquals(scoped.arrears_pence, 1526);
+  assertEquals(scoped.amount_pence, 8166 + 1526);
+  assertEquals(scoped.excluded_current_week_pence, 425 + 3213);
+  assertEquals(scoped.excluded_older_unpaid_pence, 0);
+  assertEquals(scoped.included_arrears_pence, 1526);
+  assertEquals(scoped.arrears_selected.length, 1);
+});
+
 Deno.test("9. MK0007 operational pause remains effective", () => {
   const decision = evaluateDriverBatchEligibility({
     driver_id: "56136f5f-1a3a-4a14-bb23-439b3951415a",

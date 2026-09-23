@@ -184,6 +184,8 @@ describe('admin resume operational payout control locks', () => {
     expect(fwd).toMatch(/scheduler_invoked',\s*false/);
     expect(fwd).toMatch(/wallet_mutated',\s*false/);
     expect(fwd).toMatch(/provider_mutated',\s*false/);
+    expect(fwd).toMatch(/pg_advisory_xact_lock\(hashtextextended\(p_driver_id::text, 0\)\)/);
+    expect(fwd).toMatch(/driver_payout_payment_intents/);
     expect(client).not.toMatch(/SERVICE_ROLE|service_role/);
   });
 
