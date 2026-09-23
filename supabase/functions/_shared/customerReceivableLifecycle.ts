@@ -341,29 +341,64 @@ export async function releaseReceivablesOnCancelIfAllowed(
     provider_order_id?: string | null;
     provider_state?: string | null;
     has_capture?: boolean | null;
+    hold_safely_released?: boolean | null;
     reason?: string;
+    /** Required when planner returns SETTLE (COMPLETED/CAPTURED). */
+    settle_evidence?: ProviderSettleEvidence | null;
+    current_trip_fare_pence?: number | null;
   },
 ): Promise<ReceivableLifecycleResult<{
   action: string;
   released: number;
+  settled: boolean;
+  reason: string;
 }>> {
   const decision = planReleaseOnCancel({
     provider_order_id: args.provider_order_id,
     provider_state: args.provider_state,
     has_capture: args.has_capture,
+    hold_safely_released: args.hold_safely_released,
   });
 
   if (decision.action === "KEEP_RESERVED") {
     return {
       ok: true,
-      data: { action: decision.action, released: 0 },
+      data: {
+        action: decision.action,
+        released: 0,
+        settled: false,
+        reason: decision.reason,
+      },
     };
   }
+
   if (decision.action === "SETTLE") {
-    // Caller must settle via provider evidence — do not auto-release.
+    if (!args.settle_evidence) {
+      // No evidence — keep reserved; never invent settlement from abandon alone.
+      return {
+        ok: true,
+        data: {
+          action: "KEEP_RESERVED",
+          released: 0,
+          settled: false,
+          reason: "settle_requires_provider_evidence",
+        },
+      };
+    }
+    const settled = await settleReceivablesFromProviderEvidence(supabase, {
+      payment_session_id: args.payment_session_id,
+      evidence: args.settle_evidence,
+      current_trip_fare_pence: args.current_trip_fare_pence ?? 0,
+    });
+    if (!settled.ok) return settled;
     return {
       ok: true,
-      data: { action: decision.action, released: 0 },
+      data: {
+        action: "SETTLE",
+        released: 0,
+        settled: settled.data.settled === true,
+        reason: decision.reason,
+      },
     };
   }
 
@@ -389,7 +424,15 @@ export async function releaseReceivablesOnCancelIfAllowed(
       0,
       Math.round(Number((data as { released?: number } | null)?.released) || 0),
     );
-    return { ok: true, data: { action: "RELEASE", released } };
+    return {
+      ok: true,
+      data: {
+        action: "RELEASE",
+        released,
+        settled: false,
+        reason: decision.reason,
+      },
+    };
   } catch (err) {
     const typed = makeReceivablePersistenceUnavailable(
       err instanceof Error ? err.message : String(err),
@@ -402,4 +445,20 @@ export async function releaseReceivablesOnCancelIfAllowed(
     });
     return { ok: false, error: typed, manual_review: true };
   }
+}
+
+/**
+ * Abandon / cancel race helper — same planner, idempotent RPCs.
+ * Safe to call from abandon-payment-session and cancel-payment-session.
+ */
+export async function reconcileReceivablesOnAbandonOrCancel(
+  supabase: SupabaseClient,
+  args: Parameters<typeof releaseReceivablesOnCancelIfAllowed>[1],
+): Promise<ReceivableLifecycleResult<{
+  action: string;
+  released: number;
+  settled: boolean;
+  reason: string;
+}>> {
+  return releaseReceivablesOnCancelIfAllowed(supabase, args);
 }

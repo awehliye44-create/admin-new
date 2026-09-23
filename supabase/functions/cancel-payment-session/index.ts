@@ -120,6 +120,7 @@ serve(async (req) => {
           : null,
         provider_state: ps.provider_state ? String(ps.provider_state) : null,
         has_capture: hasCapture,
+        hold_safely_released: !ps.provider_order_id,
         reason,
       });
     } catch (recvErr) {

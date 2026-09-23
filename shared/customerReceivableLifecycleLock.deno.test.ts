@@ -14,6 +14,7 @@ import {
   buildDeclinedWaitingReceivableIdempotencyKey,
   computeDeclinedIncrementReceivablePence,
   makeReceivablePersistenceUnavailable,
+  isCustomerReceivablePreauthEligible,
   planCreateReceivableFromDeclinedIncrement,
   planFoldReceivablesIntoPreauth,
   planPartialCaptureAllocation,
@@ -429,4 +430,161 @@ Deno.test("25. FR overview must not mix into wallet/payout variance flags", () =
   });
   assertEquals(overview.separate_from_wallet_payout_variance, true);
   assertEquals(overview.ten_repair_forbidden, true);
+});
+
+Deno.test("26. abandon before provider call releases", () => {
+  const d = planReleaseOnCancel({
+    provider_order_id: null,
+    provider_state: null,
+    has_capture: false,
+  });
+  assertEquals(d.action, "RELEASE");
+  assertEquals(d.reason, "no_provider_order");
+});
+
+Deno.test("27. abandon after definitive provider failure releases", () => {
+  const d = planReleaseOnCancel({
+    provider_order_id: "ord_fail",
+    provider_state: "FAILED",
+    has_capture: false,
+  });
+  assertEquals(d.action, "RELEASE");
+});
+
+Deno.test("28. abandon with AUTHORISED does not settle; needs safe hold release", () => {
+  const keep = planReleaseOnCancel({
+    provider_order_id: "ord_auth",
+    provider_state: "AUTHORISED",
+    has_capture: false,
+    hold_safely_released: false,
+  });
+  assertEquals(keep.action, "KEEP_RESERVED");
+  assertEquals(keep.reason, "authorised_awaiting_safe_hold_release");
+  const settleGate = planSettleFromProviderEvidence({
+    payment_session_id: "ps",
+    evidence: {
+      orderId: "ord_auth",
+      terminalState: "AUTHORISED",
+      confirmedCapturedPence: 100,
+      amountFromProviderGet: true,
+    },
+  });
+  assertEquals(settleGate.ok, false);
+});
+
+Deno.test("29. abandon AUTHORISED + hold safely released → RELEASE", () => {
+  const d = planReleaseOnCancel({
+    provider_order_id: "ord_auth",
+    provider_state: "AUTHORISED",
+    has_capture: false,
+    hold_safely_released: true,
+  });
+  assertEquals(d.action, "RELEASE");
+  assertEquals(d.reason, "authorised_hold_safely_released");
+});
+
+Deno.test("30. abandon with UNKNOWN retains reservation", () => {
+  const d = planReleaseOnCancel({
+    provider_order_id: "ord_unk",
+    provider_state: "UNKNOWN",
+    has_capture: false,
+  });
+  assertEquals(d.action, "KEEP_RESERVED");
+});
+
+Deno.test("31. abandon after COMPLETED → SETTLE (not release)", () => {
+  const d = planReleaseOnCancel({
+    provider_order_id: "ord_done",
+    provider_state: "COMPLETED",
+    has_capture: true,
+  });
+  assertEquals(d.action, "SETTLE");
+});
+
+Deno.test("32. cancel/abandon race — repeated RELEASE decision is stable (idempotent planner)", () => {
+  const a = planReleaseOnCancel({
+    provider_order_id: null,
+    provider_state: null,
+    has_capture: false,
+  });
+  const b = planReleaseOnCancel({
+    provider_order_id: null,
+    provider_state: null,
+    has_capture: false,
+  });
+  assertEquals(a.action, b.action);
+  assertEquals(a.action, "RELEASE");
+});
+
+Deno.test("33. abandoned reservation available later only after safe release", () => {
+  // While KEEP_RESERVED, fold must not include RESERVED rows (OPEN only).
+  const foldWhileReserved = planFoldReceivablesIntoPreauth({
+    ride_fare_pence: 800,
+    buffer_pence: 0,
+    open_receivables: [
+      {
+        id: "r1",
+        customer_id: MK012.customer_id,
+        outstanding_amount_pence: 30,
+        status: "RESERVED",
+        currency: "gbp",
+        source_trip_id: MK012.trip_id,
+        idempotency_key: "k1",
+      },
+    ],
+  });
+  assertEquals(foldWhileReserved.receivables_total_pence, 0);
+  const foldAfterRelease = planFoldReceivablesIntoPreauth({
+    ride_fare_pence: 800,
+    buffer_pence: 0,
+    open_receivables: [
+      {
+        id: "r1",
+        customer_id: MK012.customer_id,
+        outstanding_amount_pence: 30,
+        status: "OPEN",
+        currency: "gbp",
+        source_trip_id: MK012.trip_id,
+        idempotency_key: "k1",
+      },
+    ],
+  });
+  assertEquals(foldAfterRelease.receivables_total_pence, 30);
+});
+
+Deno.test("34. corporate / guest never eligible to fold personal receivables", () => {
+  assertEquals(
+    isCustomerReceivablePreauthEligible({
+      customer_id: MK012.customer_id,
+      booking_source: "corporate_portal",
+      corporate_account_id: "corp-1",
+    }).eligible,
+    false,
+  );
+  assertEquals(
+    isCustomerReceivablePreauthEligible({
+      customer_id: MK012.customer_id,
+      is_guest: true,
+    }).eligible,
+    false,
+  );
+  assertEquals(
+    isCustomerReceivablePreauthEligible({
+      customer_id: MK012.customer_id,
+      booking_source: "choose_ride",
+      financial_model: "PLATFORM_COLLECTED",
+    }).eligible,
+    true,
+  );
+});
+
+Deno.test("35. abandon-payment-session source wires reconcileReceivablesOnAbandonOrCancel", async () => {
+  const src = await Deno.readTextFile(
+    new URL(
+      "../supabase/functions/abandon-payment-session/index.ts",
+      import.meta.url,
+    ),
+  );
+  assertEquals(src.includes("reconcileReceivablesOnAbandonOrCancel"), true);
+  assertEquals(src.includes("hold_safely_released"), true);
 });

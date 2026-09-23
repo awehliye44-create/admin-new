@@ -40,6 +40,7 @@ import {
 import {
   PREAUTH_RECEIVABLE_ORDERING,
   RECEIVABLE_PERSISTENCE_UNAVAILABLE,
+  isCustomerReceivablePreauthEligible,
 } from "./customerReceivableSSOT.ts";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 import { createBookingWaterfallCollector } from "./bookingWaterfallTelemetry.ts";
@@ -608,6 +609,30 @@ export async function createRevolutPreauthResponse(
       }
 
       if (customerId) {
+        const eligibility = isCustomerReceivablePreauthEligible({
+          customer_id: customerId,
+          booking_source:
+            (bookingSnapshot as { booking_source?: string } | null)?.booking_source
+            ?? metadataExtra.booking_source
+            ?? null,
+          corporate_account_id:
+            (bookingSnapshot as { corporate_account_id?: string } | null)?.corporate_account_id
+            ?? metadataExtra.corporate_account_id
+            ?? null,
+          financial_model:
+            (fareSnapshot as { financial_model?: string } | null)?.financial_model
+            ?? metadataExtra.financial_model
+            ?? null,
+          is_guest: false,
+        });
+        if (!eligibility.eligible) {
+          logStep("Customer receivable fold skipped — booking not eligible", {
+            reject_reason: eligibility.reject_reason,
+            payment_session_id: paymentSessionId,
+            booking_source: metadataExtra.booking_source ?? null,
+            corporate_account_id: metadataExtra.corporate_account_id ?? null,
+          });
+        } else {
         const reserve = await reserveReceivablesBeforeProviderCall(supabase, {
           customer_id: customerId,
           payment_session_id: paymentSessionId,
@@ -672,6 +697,7 @@ export async function createRevolutPreauthResponse(
             },
           });
         }
+        } // end eligible reserve
       }
     }
 

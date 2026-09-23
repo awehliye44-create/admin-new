@@ -481,26 +481,31 @@ export type ReleaseOnCancelDecision =
   | { action: "SETTLE"; reason: string };
 
 /**
- * Cancel/release safety:
- * - no provider order → release
- * - definitive failed/cancelled/released with no capture → release
- * - UNKNOWN/timeout → KEEP reserved (reconcile same order)
- * - captured/completed → settle (not release)
- * Never create a replacement order.
+ * Cancel / abandon / release safety (canonical planner):
+ * 1. no provider order → RELEASE to OPEN
+ * 2. definitive FAILED/CANCELLED/RELEASED + zero capture → RELEASE
+ * 3. AUTHORISED without safe hold release → KEEP until hold released/reconciled
+ * 4. AUTHORISED + hold safely released → RELEASE
+ * 5. PROCESSING / UNKNOWN / timeout → KEEP (same-order reconcile only)
+ * 6. COMPLETED / CAPTURED → SETTLE covered amount (partial = historical-first)
+ * Never create a replacement order. Repeated calls are idempotent at RPC layer.
  */
 export function planReleaseOnCancel(args: {
   provider_order_id?: string | null;
   provider_state?: string | null;
   has_capture?: boolean | null;
+  /** True after releaseHoldForPaymentSession ok+released (or equivalent). */
+  hold_safely_released?: boolean | null;
 }): ReleaseOnCancelDecision {
   const orderId = String(args.provider_order_id ?? "").trim();
   const state = String(args.provider_state ?? "").trim().toUpperCase();
   const hasCapture = args.has_capture === true;
+  const holdReleased = args.hold_safely_released === true;
 
   if (!orderId) {
     return { action: "RELEASE", reason: "no_provider_order" };
   }
-  if (state === "UNKNOWN" || state === "" || state === "TIMEOUT") {
+  if (state === "UNKNOWN" || state === "TIMEOUT") {
     return { action: "KEEP_RESERVED", reason: "provider_unknown_reconcile_only" };
   }
   if (hasCapture || state === "COMPLETED" || state === "CAPTURED") {
@@ -515,8 +520,60 @@ export function planReleaseOnCancel(args: {
   ) {
     return { action: "RELEASE", reason: "provider_definitive_failed_or_cancelled" };
   }
-  // AUTHORISED / PROCESSING / PENDING — keep reserved until release evidence.
+  if (
+    (state === "AUTHORISED" || state === "AUTHORIZED")
+    && holdReleased
+  ) {
+    return { action: "RELEASE", reason: "authorised_hold_safely_released" };
+  }
+  if (state === "AUTHORISED" || state === "AUTHORIZED") {
+    return { action: "KEEP_RESERVED", reason: "authorised_awaiting_safe_hold_release" };
+  }
+  if (state === "PROCESSING" || state === "PENDING" || state === "") {
+    return { action: "KEEP_RESERVED", reason: "non_terminal_keep_reserved" };
+  }
+  // Unknown non-empty provider label — fail closed (keep).
   return { action: "KEEP_RESERVED", reason: "non_terminal_keep_reserved" };
+}
+
+/**
+ * Only authenticated Customer PLATFORM_COLLECTED personal bookings may reserve
+ * / fold personal customer receivables into preauth.
+ * Corporate portal, guest, and driver-collected flows must preserve bare fare.
+ */
+export function isCustomerReceivablePreauthEligible(args: {
+  booking_source?: string | null;
+  corporate_account_id?: string | null;
+  financial_model?: string | null;
+  is_guest?: boolean | null;
+  customer_id?: string | null;
+}): { eligible: boolean; reject_reason: string | null } {
+  if (!String(args.customer_id ?? "").trim()) {
+    return { eligible: false, reject_reason: "missing_customer_id" };
+  }
+  if (args.is_guest === true) {
+    return { eligible: false, reject_reason: "guest_booking" };
+  }
+  if (String(args.corporate_account_id ?? "").trim()) {
+    return { eligible: false, reject_reason: "corporate_account" };
+  }
+  const source = String(args.booking_source ?? "").trim().toLowerCase();
+  if (
+    source.includes("corporate")
+    || source === "corporate_portal"
+    || source === "guest"
+    || source === "guest_web"
+  ) {
+    return { eligible: false, reject_reason: "corporate_or_guest_source" };
+  }
+  const model = String(args.financial_model ?? "").trim().toUpperCase();
+  if (model && model !== "PLATFORM_COLLECTED" && !model.includes("PLATFORM")) {
+    // DRIVER_COLLECTED / unknown non-platform — do not fold personal debt.
+    if (model.includes("DRIVER") || model.includes("COLLECTED_COMMISSION")) {
+      return { eligible: false, reject_reason: "non_platform_collected_model" };
+    }
+  }
+  return { eligible: true, reject_reason: null };
 }
 
 export function sumOpenReceivablePence(rows: OpenReceivableRow[]): number {
