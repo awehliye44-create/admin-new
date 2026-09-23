@@ -163,6 +163,7 @@ export default function ScheduledRides() {
   const [isAssignOpen, setIsAssignOpen] = useState(false);
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [isDispatchOpen, setIsDispatchOpen] = useState(false);
+  const [isJobsOpen, setIsJobsOpen] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState<ScheduledTrip | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState('');
   const [releaseAtLocal, setReleaseAtLocal] = useState('');
@@ -493,7 +494,8 @@ export default function ScheduledRides() {
     }
   };
 
-  const handleMakeAvailableScheduledJobs = async (trip: ScheduledTrip) => {
+  const handleMakeAvailableScheduledJobs = async () => {
+    if (!selectedTrip) return;
     setIsSaving(true);
     try {
       const nowIso = new Date().toISOString();
@@ -510,7 +512,7 @@ export default function ScheduledRides() {
           pending_release_at: null,
           pending_release_driver_id: null,
         })
-        .eq('id', trip.id)
+        .eq('id', selectedTrip.id)
         .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
         .is('confirmed_driver_id', null)
         .is('driver_id', null)
@@ -523,10 +525,57 @@ export default function ScheduledRides() {
       }
 
       toast.success('Available in Scheduled Jobs — drivers can pre-confirm');
+      setIsJobsOpen(false);
+      setSelectedTrip(null);
+      setReleaseAtLocal('');
       fetchData();
     } catch (err: any) {
       console.error('Error publishing to Scheduled Jobs:', err);
       toast.error(err.message || 'Failed to publish to Scheduled Jobs');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleMakeAvailableScheduledJobsAt = async () => {
+    if (!selectedTrip || !releaseAtLocal) {
+      toast.error('Choose a Scheduled Jobs At time');
+      return;
+    }
+    const timing = validateAdminScheduledActionAt({
+      actionAtIsoOrLocal: releaseAtLocal,
+      scheduledAt: selectedTrip.scheduled_at,
+    });
+    if (!timing.ok) {
+      toast.error(timing.error);
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const { data: pendingRows, error } = await supabase
+        .from('trips')
+        .update({
+          pending_release_kind: 'jobs',
+          pending_release_at: timing.actionAt.toISOString(),
+          pending_release_driver_id: null,
+        })
+        .eq('id', selectedTrip.id)
+        .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
+        .is('confirmed_driver_id', null)
+        .is('driver_id', null)
+        .select('id');
+      if (error) throw error;
+      if (!pendingRows?.length) {
+        toast.error('Trip is no longer available for Scheduled Jobs At');
+        return;
+      }
+      toast.success('Scheduled Jobs At scheduled (backend cron)');
+      setIsJobsOpen(false);
+      setReleaseAtLocal('');
+      setSelectedTrip(null);
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to schedule Scheduled Jobs At');
     } finally {
       setIsSaving(false);
     }
@@ -967,7 +1016,11 @@ export default function ScheduledRides() {
                             ) ? (
                               <DropdownMenuItem
                                 disabled={isSaving}
-                                onClick={() => void handleMakeAvailableScheduledJobs(trip)}
+                                onClick={() => {
+                                  setSelectedTrip(trip);
+                                  setReleaseAtLocal('');
+                                  setIsJobsOpen(true);
+                                }}
                               >
                                 <ListPlus className="h-4 w-4 mr-2" />
                                 Make Available in Scheduled Jobs
@@ -1372,6 +1425,53 @@ export default function ScheduledRides() {
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Broadcast Now
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Scheduled Jobs Now / At Dialog */}
+      <AlertDialog open={isJobsOpen} onOpenChange={setIsJobsOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Make Available in Scheduled Jobs</AlertDialogTitle>
+            <AlertDialogDescription>
+              Publishes for advance driver PRE-CONFIRMATION only. Does not start
+              Broadcast / New Ride Offer. Leave empty for Now, or set At
+              (NOW &lt; time &lt; scheduled pickup; backend cron).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Label>Scheduled Jobs At (optional)</Label>
+            <Input
+              type="datetime-local"
+              className="mt-2"
+              value={releaseAtLocal}
+              onChange={(e) => setReleaseAtLocal(e.target.value)}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep Held</AlertDialogCancel>
+            {releaseAtLocal ? (
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleMakeAvailableScheduledJobsAt();
+                }}
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Scheduled Jobs At
+              </AlertDialogAction>
+            ) : (
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleMakeAvailableScheduledJobs();
+                }}
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Scheduled Jobs Now
               </AlertDialogAction>
             )}
           </AlertDialogFooter>

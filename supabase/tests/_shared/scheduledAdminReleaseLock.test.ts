@@ -58,10 +58,27 @@ Deno.test("one pending action replaces prior via single column set", () => {
     kind: "broadcast",
     executeAtIso: "2026-09-21T13:30:00.000Z",
   });
+  const c = buildPendingReleasePatch({
+    kind: "jobs",
+    executeAtIso: "2026-09-21T13:45:00.000Z",
+  });
   assertEquals(a.pending_release_kind, "assign");
   assertEquals(b.pending_release_kind, "broadcast");
+  assertEquals(c.pending_release_kind, "jobs");
   assertEquals(b.pending_release_driver_id, null);
+  assertEquals(c.pending_release_driver_id, null);
   assertEquals(clearPendingReleasePatch().pending_release_kind, null);
+});
+
+Deno.test("jobs pending is due with same boundary rules", () => {
+  assertEquals(
+    isPendingReleaseDue({
+      pending_release_kind: "jobs",
+      pending_release_at: "2026-09-21T13:00:00.000Z",
+      nowMs: Date.parse("2026-09-21T13:00:00.000Z"),
+    }),
+    true,
+  );
 });
 
 Deno.test("pending due boundary", () => {
@@ -100,6 +117,9 @@ Deno.test("scheduled-dispatch Step 0 executes pending releases", async () => {
   assertStringIncludes(src, "STEP 0: ADMIN PENDING RELEASE");
   assertStringIncludes(src, "buildAssignNowPatch");
   assertStringIncludes(src, "buildBroadcastNowPatch");
+  assertStringIncludes(src, "buildMakeAvailableScheduledJobsPatch");
+  assertStringIncludes(src, 'kind === "jobs"');
+  assertStringIncludes(src, "admin_pending_jobs_executed");
   assertStringIncludes(src, '.in("scheduled_status", ["admin_held", "scheduled", "broadcasting", "pending"])');
   assertStringIncludes(src, '.in("scheduled_status", ["admin_held", "scheduled", "pending"])');
 });

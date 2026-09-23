@@ -96,6 +96,10 @@ Deno.test("Admin ScheduledRides uses presentation SSOT + excludes active driver_
   // View Details must use the same ownership SSOT (not driver_id-only).
   assertStringIncludes(src, "Pre-confirmed Driver");
   assertStringIncludes(src, "detailPresentation");
+  // Scheduled Jobs Now / At
+  assertStringIncludes(src, "handleMakeAvailableScheduledJobsAt");
+  assertStringIncludes(src, "pending_release_kind: 'jobs'");
+  assertStringIncludes(src, "Scheduled Jobs At");
 });
 
 Deno.test("HELD insert migration preserves admin_held without broadcast stamp", async () => {

@@ -7,7 +7,7 @@
  * - Broadcast → open NRO / auto-dispatch path now (or At via pending_release)
  */
 
-export const PENDING_RELEASE_KINDS = ["assign", "broadcast"] as const;
+export const PENDING_RELEASE_KINDS = ["assign", "broadcast", "jobs"] as const;
 export type PendingReleaseKind = (typeof PENDING_RELEASE_KINDS)[number];
 
 export type PendingReleaseClearPatch = {
@@ -97,7 +97,7 @@ export function isPendingReleaseDue(input: {
   nowMs: number;
 }): boolean {
   const kind = String(input.pending_release_kind ?? "").trim().toLowerCase();
-  if (kind !== "assign" && kind !== "broadcast") return false;
+  if (kind !== "assign" && kind !== "broadcast" && kind !== "jobs") return false;
   const at = input.pending_release_at
     ? Date.parse(input.pending_release_at)
     : NaN;

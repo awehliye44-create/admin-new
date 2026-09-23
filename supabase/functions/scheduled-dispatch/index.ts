@@ -24,6 +24,7 @@ import {
 import {
   buildAssignNowPatch,
   buildBroadcastNowPatch,
+  buildMakeAvailableScheduledJobsPatch,
   isPendingReleaseDue,
 } from "../_shared/scheduledAdminReleaseSSOT.ts";
 import {
@@ -528,6 +529,50 @@ Deno.serve(async (req) => {
               tripId: trip.id,
               forceRebroadcast: true,
               triggerReason: "admin_pending_broadcast_at",
+            });
+          } else if (kind === "jobs") {
+            // Make Available At — Scheduled Jobs publication only (not NRO).
+            if (trip.confirmed_driver_id || trip.driver_id) {
+              await supabase
+                .from("trips")
+                .update({
+                  pending_release_kind: null,
+                  pending_release_at: null,
+                  pending_release_driver_id: null,
+                })
+                .eq("id", trip.id);
+              continue;
+            }
+            const { data: jobsRows, error } = await supabase
+              .from("trips")
+              .update(buildMakeAvailableScheduledJobsPatch({ nowIso: now.toISOString() }))
+              .eq("id", trip.id)
+              .eq("pending_release_kind", "jobs")
+              .in("scheduled_status", ["admin_held", "scheduled", "pending"])
+              .is("driver_id", null)
+              .is("confirmed_driver_id", null)
+              .select("id");
+            if (error) {
+              console.error("[scheduled-dispatch] pending jobs publish failed:", trip.id, error);
+              continue;
+            }
+            if (!jobsRows?.length) {
+              await supabase
+                .from("trips")
+                .update({
+                  pending_release_kind: null,
+                  pending_release_at: null,
+                  pending_release_driver_id: null,
+                })
+                .eq("id", trip.id)
+                .eq("pending_release_kind", "jobs");
+              continue;
+            }
+            pendingReleasesExecuted++;
+            await logSnapshot(supabase, {
+              tripId: trip.id,
+              action: "admin_pending_jobs_executed",
+              metadata: {},
             });
           }
         }
