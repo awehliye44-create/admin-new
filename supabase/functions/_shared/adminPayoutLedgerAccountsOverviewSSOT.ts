@@ -439,6 +439,7 @@ export async function buildPayoutLedgerAccountsOverview(
           ? "HELD"
           : "ZERO",
         paused: pausedAccount,
+        payout_operational_paused: pausedAccount,
       });
     }));
   }

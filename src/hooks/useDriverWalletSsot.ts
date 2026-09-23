@@ -66,6 +66,8 @@ export type DriverWalletSsotRow = {
   verification_status?: string | null;
   bank_account_last4?: string | null;
   payouts_enabled?: boolean | null;
+  /** Canonical Admin operational hold — drives Resume/Pause label (not legacy payouts_enabled). */
+  payout_operational_paused?: boolean | null;
   driver_tier_name?: string | null;
   commission_percent?: number | null;
   service_area_id?: string | null;

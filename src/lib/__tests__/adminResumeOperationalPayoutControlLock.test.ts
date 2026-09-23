@@ -122,11 +122,25 @@ describe('admin resume operational payout control locks', () => {
   const stageC = readFileSync(STAGE_C, 'utf8');
 
   it('1. Resume UI calls operational-pause RPC', () => {
-    expect(ledgerUi).toMatch(/adminSetDriverPayoutOperationalPause/);
-    expect(ledgerUi).toMatch(/admin_set_driver_payout_operational_pause|adminSetDriverPayoutOperationalPause/);
+    expect(ledgerUi).toMatch(/DriverOperationalPauseMenuItem/);
     expect(client).toMatch(/supabase\.rpc\('admin_set_driver_payout_operational_pause'/);
     expect(operationalPauseConfirmCopy({ action: 'resume', driverName: 'Ahmed', driverCode: 'MK0007' }).body)
       .toContain('does not send money immediately');
+  });
+
+  it('1b. Driver Wallet surfaces share Resume control (parity with Payout Ledger)', () => {
+    const walletList = readFileSync(
+      resolve(ROOT, 'src/components/finance/DriverWalletDriverList.tsx'),
+      'utf8',
+    );
+    const walletHeader = readFileSync(
+      resolve(ROOT, 'src/components/finance/DriverWalletAccountHeader.tsx'),
+      'utf8',
+    );
+    expect(walletList).toMatch(/DriverOperationalPauseMenuItem/);
+    expect(walletHeader).toMatch(/DriverOperationalPauseInlineButton/);
+    expect(walletList).toMatch(/payout_operational_paused/);
+    expect(walletHeader).toMatch(/payout_operational_paused/);
   });
 
   it('2. No direct drivers.update pause/resume path remains in Admin pause surfaces', () => {

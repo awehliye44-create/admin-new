@@ -57,13 +57,10 @@ import { PayoutLedgerOverviewPanel } from '@/components/finance/PayoutLedgerOver
 import { FinancePanelErrorBoundary } from '@/components/finance/FinancePanelErrorBoundary';
 import { useAdminPayoutLedger } from '@/hooks/useAdminPayoutLedger';
 import { supabase } from '@/integrations/supabase/client';
-import {
-  adminSetDriverPayoutOperationalPause,
-  operationalPauseConfirmCopy,
-} from '@/lib/adminSetDriverPayoutOperationalPause';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
 import { downloadCsv, downloadRecordsAsExcel, printFinanceReport, printFinanceRecords } from '@/lib/financeExport';
 import { formatNullablePence } from '@/lib/formatNullablePence';
+import { DriverOperationalPauseMenuItem } from '@/components/finance/DriverOperationalPauseMenuItem';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
 import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
 import { DriverCreditExceptionsBanner } from '@/components/finance/DriverCreditExceptionsBanner';
@@ -397,38 +394,6 @@ export default function PayoutLedger() {
     params.delete('driverTab');
     params.set('tab', 'driver_payouts');
     setSearchParams(params, { replace: true });
-  };
-
-  const updatePayoutPause = async (row: DriverPayoutAccountRow) => {
-    const action = row.paused ? 'resume' : 'pause';
-    const copy = operationalPauseConfirmCopy({
-      action,
-      driverName: row.name,
-      driverCode: row.code,
-    });
-    if (!window.confirm(`${copy.title}\n\n${copy.body}`)) return;
-    const reason = window.prompt(
-      action === 'resume'
-        ? 'Admin reason for resuming payouts (3–500 characters):'
-        : 'Admin reason for pausing payouts (3–500 characters):',
-      '',
-    );
-    if (reason == null) return;
-    const result = await adminSetDriverPayoutOperationalPause({
-      driverId: row.driver_id,
-      paused: !row.paused,
-      reason,
-    });
-    if (!result.ok) {
-      window.alert(result.message);
-      return;
-    }
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] }),
-      queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot'] }),
-      queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot-detail'] }),
-      queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot-all'] }),
-    ]);
   };
 
   const exportItemsCsv = (filename = 'payout-ledger-history.csv') => {
@@ -974,9 +939,16 @@ export default function PayoutLedger() {
                               <DropdownMenuItem onClick={() => openAccount(row, 'scheduled')}>
                                 Create manual payout
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => void updatePayoutPause(row)}>
-                                {row.paused ? 'Resume payouts' : 'Pause payouts'}
-                              </DropdownMenuItem>
+                              <DriverOperationalPauseMenuItem
+                                driverId={row.driver_id}
+                                driverName={row.name}
+                                driverCode={row.code}
+                                pauseState={{
+                                  payout_operational_paused: row.payout_operational_paused,
+                                  paused: row.paused,
+                                  payouts_enabled: undefined,
+                                }}
+                              />
                               <DropdownMenuItem onClick={() => openAccount(row, 'failures')}>Retry failed payout</DropdownMenuItem>
                               <DropdownMenuItem onClick={() => openAccount(row, 'connected_account')}>
                                 View payout destination
