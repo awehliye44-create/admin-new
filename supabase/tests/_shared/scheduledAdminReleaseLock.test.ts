@@ -3,6 +3,7 @@
  * Run: deno test --allow-read supabase/tests/_shared/scheduledAdminReleaseLock.test.ts
  */
 import {
+  assert,
   assertEquals,
   assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
@@ -45,6 +46,7 @@ Deno.test("Broadcast Now starts NRO path (not Scheduled Jobs-only)", () => {
   assertEquals(patch.scheduled_status, "broadcasting");
   assertEquals(patch.status, "offered");
   assertEquals(patch.scheduled_broadcast_at, "2026-09-21T12:00:00.000Z");
+  assertEquals(patch.confirmed_driver_id, null);
   assertEquals(patch.pending_release_kind, null);
 });
 
@@ -58,10 +60,27 @@ Deno.test("one pending action replaces prior via single column set", () => {
     kind: "broadcast",
     executeAtIso: "2026-09-21T13:30:00.000Z",
   });
+  const c = buildPendingReleasePatch({
+    kind: "jobs",
+    executeAtIso: "2026-09-21T13:45:00.000Z",
+  });
   assertEquals(a.pending_release_kind, "assign");
   assertEquals(b.pending_release_kind, "broadcast");
+  assertEquals(c.pending_release_kind, "jobs");
   assertEquals(b.pending_release_driver_id, null);
+  assertEquals(c.pending_release_driver_id, null);
   assertEquals(clearPendingReleasePatch().pending_release_kind, null);
+});
+
+Deno.test("jobs pending is due with same boundary rules", () => {
+  assertEquals(
+    isPendingReleaseDue({
+      pending_release_kind: "jobs",
+      pending_release_at: "2026-09-21T13:00:00.000Z",
+      nowMs: Date.parse("2026-09-21T13:00:00.000Z"),
+    }),
+    true,
+  );
 });
 
 Deno.test("pending due boundary", () => {
@@ -100,6 +119,24 @@ Deno.test("scheduled-dispatch Step 0 executes pending releases", async () => {
   assertStringIncludes(src, "STEP 0: ADMIN PENDING RELEASE");
   assertStringIncludes(src, "buildAssignNowPatch");
   assertStringIncludes(src, "buildBroadcastNowPatch");
-  assertStringIncludes(src, '.in("scheduled_status", ["admin_held", "scheduled", "broadcasting", "pending"])');
-  assertStringIncludes(src, '.in("scheduled_status", ["admin_held", "scheduled", "pending"])');
+  assertStringIncludes(src, "buildMakeAvailableScheduledJobsPatch");
+  assertStringIncludes(src, 'kind === "jobs"');
+  assertStringIncludes(src, "admin_pending_jobs_executed");
+  // Pre-confirmed swap / Broadcast after drop-out
+  assertStringIncludes(src, '"driver_assigned"');
+  assertStringIncludes(src, "Pre-confirmed (confirmed_driver_id) MAY be swapped");
+});
+
+Deno.test("Admin ScheduledRides allows Assign/Broadcast on driver_assigned", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../../../src/pages/ScheduledRides.tsx", import.meta.url),
+  );
+  assertStringIncludes(src, "'driver_assigned'");
+  assertStringIncludes(src, "Driver reassigned (Assign Now)");
+  assertStringIncludes(src, "confirmed_driver_id: null");
+  // Must not require confirmed_driver_id null on Assign Now (blocks swap).
+  const assignIdx = src.indexOf("const handleAssignDriver");
+  const assignAtIdx = src.indexOf("const handleAssignAt");
+  const assignBlock = src.slice(assignIdx, assignAtIdx);
+  assert(!assignBlock.includes(".is('confirmed_driver_id', null)"));
 });

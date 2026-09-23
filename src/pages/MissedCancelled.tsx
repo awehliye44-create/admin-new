@@ -195,6 +195,8 @@ export default function MissedCancelled() {
 
       if (statusFilter === 'all') {
         query = query.in('status', [...MISSED_CANCELLED_STATUSES]);
+      } else if (statusFilter === 'expired') {
+        query = query.in('status', ['expired', 'expired_no_driver']);
       } else {
         query = query.eq('status', statusFilter);
       }
@@ -253,7 +255,7 @@ export default function MissedCancelled() {
       let missedQ = supabase
         .from('trips')
         .select('id', { count: 'exact', head: true })
-        .in('status', ['missed', 'expired'])
+        .in('status', ['missed', 'expired', 'expired_no_driver'])
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString());
       let fareQ = supabase
@@ -306,6 +308,7 @@ export default function MissedCancelled() {
       case 'missed':
         return { label: 'Missed', color: 'bg-yellow-100 text-yellow-700', icon: AlertTriangle };
       case 'expired':
+      case 'expired_no_driver':
         return { label: 'Expired', color: 'bg-gray-100 text-gray-700', icon: Clock };
       default:
         return { label: status || 'Unknown', color: 'bg-gray-100 text-gray-700', icon: Ban };

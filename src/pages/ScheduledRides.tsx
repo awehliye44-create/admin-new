@@ -60,7 +60,7 @@ import {
   Mail, Navigation, Timer, ArrowRightLeft, Globe, Star, ListPlus
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
-import { format, formatDistanceToNow, isPast, isToday, isTomorrow, addHours } from 'date-fns';
+import { format, isToday, isTomorrow } from 'date-fns';
 import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { toast } from 'sonner';
@@ -73,6 +73,11 @@ import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import {
   formatAdminCommittedCustomerFare,
 } from '@/lib/adminTripCommittedFareDisplay';
+import {
+  resolveAdminScheduledRidePresentation,
+  resolveAdminScheduledTimeCue,
+} from '@/lib/adminScheduledRidePresentation';
+import { validateAdminScheduledActionAt } from '@/lib/adminScheduledActionAt';
 
 interface ScheduledTrip {
   id: string;
@@ -84,6 +89,7 @@ interface ScheduledTrip {
   pending_release_at: string | null;
   pending_release_driver_id: string | null;
   confirmed_driver_id: string | null;
+  scheduled_broadcast_at?: string | null;
   passenger_name: string | null;
   passenger_phone: string | null;
   customer_id?: string | null;
@@ -120,6 +126,14 @@ interface ScheduledTrip {
     profile_photo_url: string | null;
     rating: number | null;
   } | null;
+  confirmed_driver?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    phone: string;
+    profile_photo_url: string | null;
+    rating: number | null;
+  } | null;
   service_area?: {
     id: string;
     name: string;
@@ -149,6 +163,7 @@ export default function ScheduledRides() {
   const [isAssignOpen, setIsAssignOpen] = useState(false);
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [isDispatchOpen, setIsDispatchOpen] = useState(false);
+  const [isJobsOpen, setIsJobsOpen] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState<ScheduledTrip | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState('');
   const [releaseAtLocal, setReleaseAtLocal] = useState('');
@@ -188,6 +203,7 @@ export default function ScheduledRides() {
             pending_release_at,
             pending_release_driver_id,
             confirmed_driver_id,
+            scheduled_broadcast_at,
             passenger_name,
             passenger_phone,
             pickup_address,
@@ -216,10 +232,13 @@ export default function ScheduledRides() {
             driver_id,
             service_area_id,
             driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, profile_photo_url, rating),
+            confirmed_driver:drivers!trips_confirmed_driver_id_fkey(id, first_name, last_name, phone, profile_photo_url, rating),
             service_area:service_areas!trips_service_area_id_fkey(id, name, region:regions(currency_code, distance_unit))
           `)
           .eq('is_scheduled', true)
-          // Terminal trips belong to Missed & Cancelled, never to the live scheduled board
+          // Live scheduled lifecycle only: no active accepted driver, no terminals.
+          // Accepted (driver_id set) belongs on Active Trips — not this board.
+          .is('driver_id', null)
           .not('status', 'in', '(completed,cancelled,customer_cancelled,expired,expired_no_driver,no_show,declined)')
           .or('scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)')
           .order('scheduled_at', { ascending: true })
@@ -314,8 +333,8 @@ export default function ScheduledRides() {
     });
     try {
       const nowIso = new Date().toISOString();
-      // Assign Now — pre-confirm only; clears any pending Assign At / Broadcast At.
-      // CAS: only while still held / scheduled marketplace (never overwrite live search).
+      // Assign Now — pre-confirm (or swap preconfirm). Never overwrite live driver_id.
+      // Includes driver_assigned so Admin can replace a dropped pre-confirmed driver.
       const { data: assignedRows, error } = await supabase
         .from('trips')
         .update({
@@ -329,7 +348,13 @@ export default function ScheduledRides() {
           pending_release_driver_id: null,
         })
         .eq('id', selectedTrip.id)
-        .in('scheduled_status', ['admin_held', 'scheduled', 'broadcasting', 'pending'])
+        .in('scheduled_status', [
+          'admin_held',
+          'scheduled',
+          'broadcasting',
+          'pending',
+          'driver_assigned',
+        ])
         .is('driver_id', null)
         .select('id');
 
@@ -354,7 +379,11 @@ export default function ScheduledRides() {
       }
 
       perf.complete({ success: true, metadata: { trip_id: selectedTrip.id } });
-      toast.success('Driver assigned (Assign Now)');
+      toast.success(
+        selectedTrip.confirmed_driver_id && selectedTrip.confirmed_driver_id !== selectedDriverId
+          ? 'Driver reassigned (Assign Now)'
+          : 'Driver assigned (Assign Now)',
+      );
       setIsAssignOpen(false);
       setSelectedTrip(null);
       setSelectedDriverId('');
@@ -374,15 +403,19 @@ export default function ScheduledRides() {
       toast.error('Select a driver and Assign At time');
       return;
     }
-    const at = new Date(releaseAtLocal);
-    if (!Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) {
-      toast.error('Assign At must be a future time');
+    const timing = validateAdminScheduledActionAt({
+      actionAtIsoOrLocal: releaseAtLocal,
+      scheduledAt: selectedTrip.scheduled_at,
+    });
+    if (!timing.ok) {
+      toast.error(timing.error);
       return;
     }
+    const at = timing.actionAt;
     setIsSaving(true);
     try {
       // One pending action per trip — replaces any prior pending release.
-      // CAS: only while still Admin-held / pre-broadcast (never on live search).
+      // Allows driver_assigned so Assign At can swap a pre-confirmed driver.
       const { data: pendingRows, error } = await supabase
         .from('trips')
         .update({
@@ -391,7 +424,13 @@ export default function ScheduledRides() {
           pending_release_driver_id: selectedDriverId,
         })
         .eq('id', selectedTrip.id)
-        .in('scheduled_status', ['admin_held', 'scheduled', 'pending', 'broadcasting'])
+        .in('scheduled_status', [
+          'admin_held',
+          'scheduled',
+          'pending',
+          'broadcasting',
+          'driver_assigned',
+        ])
         .is('driver_id', null)
         .select('id');
       if (error) throw error;
@@ -450,9 +489,16 @@ export default function ScheduledRides() {
       }
 
       // Keep scheduled board filters consistent (RPC cancels status/dispatch, not scheduled_status).
+      // Also neutralize ownership + pending release so cancelled rows cannot re-surface as open work.
       await supabase
         .from('trips')
-        .update({ scheduled_status: 'cancelled' })
+        .update({
+          scheduled_status: 'cancelled',
+          confirmed_driver_id: null,
+          pending_release_kind: null,
+          pending_release_at: null,
+          pending_release_driver_id: null,
+        })
         .eq('id', tripId);
 
       perf.complete({ success: true, metadata: { trip_id: tripId } });
@@ -471,7 +517,8 @@ export default function ScheduledRides() {
     }
   };
 
-  const handleMakeAvailableScheduledJobs = async (trip: ScheduledTrip) => {
+  const handleMakeAvailableScheduledJobs = async () => {
+    if (!selectedTrip) return;
     setIsSaving(true);
     try {
       const nowIso = new Date().toISOString();
@@ -488,7 +535,7 @@ export default function ScheduledRides() {
           pending_release_at: null,
           pending_release_driver_id: null,
         })
-        .eq('id', trip.id)
+        .eq('id', selectedTrip.id)
         .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
         .is('confirmed_driver_id', null)
         .is('driver_id', null)
@@ -501,10 +548,57 @@ export default function ScheduledRides() {
       }
 
       toast.success('Available in Scheduled Jobs — drivers can pre-confirm');
+      setIsJobsOpen(false);
+      setSelectedTrip(null);
+      setReleaseAtLocal('');
       fetchData();
     } catch (err: any) {
       console.error('Error publishing to Scheduled Jobs:', err);
       toast.error(err.message || 'Failed to publish to Scheduled Jobs');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleMakeAvailableScheduledJobsAt = async () => {
+    if (!selectedTrip || !releaseAtLocal) {
+      toast.error('Choose a Scheduled Jobs At time');
+      return;
+    }
+    const timing = validateAdminScheduledActionAt({
+      actionAtIsoOrLocal: releaseAtLocal,
+      scheduledAt: selectedTrip.scheduled_at,
+    });
+    if (!timing.ok) {
+      toast.error(timing.error);
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const { data: pendingRows, error } = await supabase
+        .from('trips')
+        .update({
+          pending_release_kind: 'jobs',
+          pending_release_at: timing.actionAt.toISOString(),
+          pending_release_driver_id: null,
+        })
+        .eq('id', selectedTrip.id)
+        .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
+        .is('confirmed_driver_id', null)
+        .is('driver_id', null)
+        .select('id');
+      if (error) throw error;
+      if (!pendingRows?.length) {
+        toast.error('Trip is no longer available for Scheduled Jobs At');
+        return;
+      }
+      toast.success('Scheduled Jobs At scheduled (backend cron)');
+      setIsJobsOpen(false);
+      setReleaseAtLocal('');
+      setSelectedTrip(null);
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to schedule Scheduled Jobs At');
     } finally {
       setIsSaving(false);
     }
@@ -516,7 +610,8 @@ export default function ScheduledRides() {
     setIsSaving(true);
     try {
       const nowIso = new Date().toISOString();
-      // Broadcast Now — NRO / auto-dispatch path (not Scheduled Jobs publication).
+      // Broadcast Now — NRO path. May release an existing preconfirm (drop-out recovery).
+      // Never overwrite a live accepted driver_id.
       const { data: broadcastRows, error } = await supabase
         .from('trips')
         .update({
@@ -524,19 +619,24 @@ export default function ScheduledRides() {
           status: 'offered',
           scheduled_broadcast_at: nowIso,
           dispatch_mode: 'scheduled',
+          confirmed_driver_id: null,
           pending_release_kind: null,
           pending_release_at: null,
           pending_release_driver_id: null,
         })
         .eq('id', selectedTrip.id)
-        .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
-        .is('confirmed_driver_id', null)
+        .in('scheduled_status', [
+          'admin_held',
+          'scheduled',
+          'pending',
+          'driver_assigned',
+        ])
         .is('driver_id', null)
         .select('id');
 
       if (error) throw error;
       if (!broadcastRows?.length) {
-        toast.error('Trip already has a driver or is no longer held for broadcast');
+        toast.error('Trip is already live-assigned or no longer eligible for broadcast');
         return;
       }
 
@@ -567,11 +667,15 @@ export default function ScheduledRides() {
       toast.error('Choose a Broadcast At time');
       return;
     }
-    const at = new Date(releaseAtLocal);
-    if (!Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) {
-      toast.error('Broadcast At must be a future time');
+    const timing = validateAdminScheduledActionAt({
+      actionAtIsoOrLocal: releaseAtLocal,
+      scheduledAt: selectedTrip.scheduled_at,
+    });
+    if (!timing.ok) {
+      toast.error(timing.error);
       return;
     }
+    const at = timing.actionAt;
     setIsSaving(true);
     try {
       const { data: pendingRows, error } = await supabase
@@ -582,8 +686,12 @@ export default function ScheduledRides() {
           pending_release_driver_id: null,
         })
         .eq('id', selectedTrip.id)
-        .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
-        .is('confirmed_driver_id', null)
+        .in('scheduled_status', [
+          'admin_held',
+          'scheduled',
+          'pending',
+          'driver_assigned',
+        ])
         .is('driver_id', null)
         .select('id');
       if (error) throw error;
@@ -633,21 +741,8 @@ export default function ScheduledRides() {
     trip.service_area?.region?.distance_unit || 'km';
 
 
-  const getScheduleStatus = (scheduledAt: string | null) => {
-    if (!scheduledAt) return { label: 'No Date', color: 'bg-gray-100 text-gray-700', urgent: false };
-    
-    const date = new Date(scheduledAt);
-    if (isPast(date)) {
-      return { label: 'Overdue', color: 'bg-red-100 text-red-700', urgent: true };
-    }
-    if (isToday(date)) {
-      return { label: 'Today', color: 'bg-amber-100 text-amber-700', urgent: true };
-    }
-    if (isTomorrow(date)) {
-      return { label: 'Tomorrow', color: 'bg-blue-100 text-blue-700', urgent: false };
-    }
-    return { label: 'Upcoming', color: 'bg-green-100 text-green-700', urgent: false };
-  };
+  const getTimeCue = (scheduledAt: string | null) =>
+    resolveAdminScheduledTimeCue(scheduledAt);
 
   const filteredTrips = trips.filter(trip => {
     const matchesSearch = 
@@ -660,16 +755,21 @@ export default function ScheduledRides() {
     if (timeFilter === 'all') return matchesSearch;
     if (timeFilter === 'today' && trip.scheduled_at) return matchesSearch && isToday(new Date(trip.scheduled_at));
     if (timeFilter === 'tomorrow' && trip.scheduled_at) return matchesSearch && isTomorrow(new Date(trip.scheduled_at));
-    if (timeFilter === 'overdue' && trip.scheduled_at) return matchesSearch && isPast(new Date(trip.scheduled_at));
-    if (timeFilter === 'unassigned') return matchesSearch && !trip.driver_id;
+    if (timeFilter === 'unassigned') {
+      const presentation = resolveAdminScheduledRidePresentation(trip);
+      return matchesSearch && presentation.driverKind === 'unassigned';
+    }
     
     return matchesSearch;
   });
 
   const todayCount = trips.filter(t => t.scheduled_at && isToday(new Date(t.scheduled_at))).length;
-  const tomorrowCount = trips.filter(t => t.scheduled_at && isTomorrow(new Date(t.scheduled_at))).length;
-  const overdueCount = trips.filter(t => t.scheduled_at && isPast(new Date(t.scheduled_at))).length;
-  const unassignedCount = trips.filter(t => !t.driver_id).length;
+  const heldCount = trips.filter(
+    (t) => resolveAdminScheduledRidePresentation(t).statusKey === 'held',
+  ).length;
+  const unassignedCount = trips.filter(
+    (t) => resolveAdminScheduledRidePresentation(t).driverKind === 'unassigned',
+  ).length;
 
   return (
     <AdminLayout 
@@ -700,14 +800,14 @@ export default function ScheduledRides() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-red-500/30 bg-red-500/5">
+        <Card className="border-amber-500/30 bg-amber-500/5">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Overdue</p>
-                <p className="text-2xl font-bold text-red-600">{overdueCount}</p>
+                <p className="text-sm text-muted-foreground">Held</p>
+                <p className="text-2xl font-bold text-amber-600">{heldCount}</p>
               </div>
-              <AlertTriangle className="h-8 w-8 text-red-500" />
+              <AlertTriangle className="h-8 w-8 text-amber-500" />
             </div>
           </CardContent>
         </Card>
@@ -753,7 +853,6 @@ export default function ScheduledRides() {
                 <SelectItem value="all">All Scheduled</SelectItem>
                 <SelectItem value="today">Today</SelectItem>
                 <SelectItem value="tomorrow">Tomorrow</SelectItem>
-                <SelectItem value="overdue">Overdue</SelectItem>
                 <SelectItem value="unassigned">Unassigned</SelectItem>
               </SelectContent>
             </Select>
@@ -795,9 +894,10 @@ export default function ScheduledRides() {
               </TableHeader>
               <TableBody>
                 {filteredTrips.map((trip) => {
-                  const scheduleStatus = getScheduleStatus(trip.scheduled_at);
+                  const timeCue = getTimeCue(trip.scheduled_at);
+                  const presentation = resolveAdminScheduledRidePresentation(trip);
                   return (
-                    <TableRow key={trip.id} className={scheduleStatus.urgent ? 'bg-red-50/50' : ''}>
+                    <TableRow key={trip.id} className={timeCue.urgent ? 'bg-amber-50/40' : ''}>
                       <TableCell>
                         <div>
                           <div className="font-medium">
@@ -810,8 +910,8 @@ export default function ScheduledRides() {
                               ? format(new Date(trip.scheduled_at), 'h:mm a')
                               : ''}
                           </div>
-                          <Badge variant="outline" className={`mt-1 ${scheduleStatus.color}`}>
-                            {scheduleStatus.label}
+                          <Badge variant="outline" className={`mt-1 ${timeCue.className}`}>
+                            {timeCue.label}
                           </Badge>
                         </div>
                       </TableCell>
@@ -882,56 +982,37 @@ export default function ScheduledRides() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {trip.driver ? (
-                          <div>
-                            <div className="font-medium text-sm">
-                              {trip.driver.first_name} {trip.driver.last_name}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {trip.driver.phone}
-                            </div>
-                            {trip.driver.rating && (
-                              <div className="text-xs text-muted-foreground flex items-center gap-0.5 mt-0.5">
-                                <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
-                                {trip.driver.rating.toFixed(1)}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
+                        {presentation.driverKind === 'unassigned' ? (
                           <Badge variant="outline" className="bg-yellow-100 text-yellow-700">
                             Unassigned
                           </Badge>
+                        ) : (
+                          <div>
+                            <div className="font-medium text-sm">
+                              {presentation.driverDisplayName || 'Driver'}
+                            </div>
+                            {presentation.driverBadge ? (
+                              <Badge variant="outline" className="mt-1 text-[10px] bg-emerald-50 text-emerald-800">
+                                {presentation.driverBadge}
+                              </Badge>
+                            ) : null}
+                          </div>
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={
-                          trip.scheduled_status === 'driver_assigned'
-                            ? 'bg-green-100 text-green-700'
-                            : trip.scheduled_status === 'awaiting_activation_accept'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : trip.scheduled_status === 'dispatching'
-                            ? 'bg-blue-100 text-blue-700'
-                            : trip.scheduled_status === 'admin_held'
-                            ? 'bg-amber-100 text-amber-800'
-                            : trip.scheduled_status === 'broadcasting'
-                            ? 'bg-indigo-100 text-indigo-700'
-                            : trip.status === 'accepted'
-                            ? 'bg-green-100 text-green-700' 
-                            : 'bg-gray-100 text-gray-700'
-                        }>
-                          {trip.scheduled_status === 'driver_assigned' ? 'Driver Assigned'
-                            : trip.scheduled_status === 'awaiting_activation_accept' ? 'Awaiting Accept'
-                            : trip.scheduled_status === 'dispatching' ? 'Dispatching'
-                            : trip.scheduled_status === 'admin_held' ? 'Held'
-                            : trip.scheduled_status === 'broadcasting' ? 'Broadcasting'
-                            : trip.status === 'accepted' ? 'Confirmed'
-                            : 'Pending'}
+                        <Badge variant="outline" className={presentation.statusClassName}>
+                          {presentation.statusLabel}
                         </Badge>
-                        {trip.service_area && (
+                        {trip.pending_release_kind && trip.pending_release_at ? (
+                          <div className="text-[10px] text-muted-foreground mt-1">
+                            {trip.pending_release_kind} at{' '}
+                            {format(new Date(trip.pending_release_at), 'MMM d, h:mm a')}
+                          </div>
+                        ) : trip.service_area ? (
                           <div className="text-xs text-muted-foreground mt-1">
                             {trip.service_area.name}
                           </div>
-                        )}
+                        ) : null}
                       </TableCell>
                       <TableCell className="font-medium">
                         <div>
@@ -967,7 +1048,11 @@ export default function ScheduledRides() {
                             ) ? (
                               <DropdownMenuItem
                                 disabled={isSaving}
-                                onClick={() => void handleMakeAvailableScheduledJobs(trip)}
+                                onClick={() => {
+                                  setSelectedTrip(trip);
+                                  setReleaseAtLocal('');
+                                  setIsJobsOpen(true);
+                                }}
                               >
                                 <ListPlus className="h-4 w-4 mr-2" />
                                 Make Available in Scheduled Jobs
@@ -1015,6 +1100,32 @@ export default function ScheduledRides() {
           </DialogHeader>
           {selectedTrip && (
             <div className="space-y-6">
+              {(() => {
+                const detailPresentation = resolveAdminScheduledRidePresentation(selectedTrip);
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className={detailPresentation.statusClassName}>
+                      {detailPresentation.statusLabel}
+                    </Badge>
+                    {detailPresentation.driverKind === 'unassigned' ? (
+                      <Badge variant="outline" className="bg-yellow-100 text-yellow-700">
+                        Unassigned
+                      </Badge>
+                    ) : (
+                      <>
+                        <span className="text-sm font-medium">
+                          {detailPresentation.driverDisplayName || 'Driver'}
+                        </span>
+                        {detailPresentation.driverBadge ? (
+                          <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-800">
+                            {detailPresentation.driverBadge}
+                          </Badge>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Passenger Section */}
               <div>
@@ -1115,52 +1226,62 @@ export default function ScheduledRides() {
 
               <Separator />
 
-              {/* Driver Section */}
-              {selectedTrip.driver ? (
-                <div>
-                  <Label className="text-xs text-muted-foreground mb-2">Assigned Driver</Label>
-                  <div className="flex items-center gap-3 mt-2 p-3 bg-muted/50 rounded-lg">
-                    <div className="h-10 w-10 bg-primary/10 rounded-full flex items-center justify-center">
-                      {selectedTrip.driver.profile_photo_url ? (
-                        <img 
-                          src={selectedTrip.driver.profile_photo_url} 
-                          alt="Driver" 
-                          className="h-10 w-10 rounded-full object-cover"
-                        />
-                      ) : (
-                        <Users className="h-5 w-5 text-primary" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium">
-                        {selectedTrip.driver.first_name} {selectedTrip.driver.last_name}
+              {/* Driver Section — ownership SSOT (driver_id / confirmed_driver_id only) */}
+              {(() => {
+                const detailPresentation = resolveAdminScheduledRidePresentation(selectedTrip);
+                const owned =
+                  detailPresentation.driverKind === 'assigned'
+                    ? selectedTrip.driver
+                    : detailPresentation.driverKind === 'pre_confirmed'
+                      ? selectedTrip.confirmed_driver
+                      : null;
+                if (!owned || detailPresentation.driverKind === 'unassigned') {
+                  return (
+                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-center gap-2 text-yellow-700">
+                        <UserPlus className="h-4 w-4" />
+                        <span className="font-medium">Unassigned</span>
+                      </div>
+                      <p className="text-sm text-yellow-600 mt-1">
+                        No active or pre-confirmed driver. Use Assign or Scheduled Jobs.
                       </p>
-                      <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" />
-                          {selectedTrip.driver.phone}
-                        </span>
-                        {selectedTrip.driver.rating && (
-                          <span className="flex items-center gap-0.5">
-                            <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
-                            {selectedTrip.driver.rating.toFixed(1)}
-                          </span>
+                    </div>
+                  );
+                }
+                return (
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-2">
+                      {detailPresentation.driverKind === 'pre_confirmed'
+                        ? 'Pre-confirmed Driver'
+                        : 'Assigned Driver'}
+                    </Label>
+                    <div className="flex items-center gap-3 mt-2 p-3 bg-muted/50 rounded-lg">
+                      <div className="h-10 w-10 bg-primary/10 rounded-full flex items-center justify-center">
+                        {owned.profile_photo_url ? (
+                          <img
+                            src={owned.profile_photo_url}
+                            alt="Driver"
+                            className="h-10 w-10 rounded-full object-cover"
+                          />
+                        ) : (
+                          <Users className="h-5 w-5 text-primary" />
                         )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium">
+                          {detailPresentation.driverDisplayName ||
+                            `${owned.first_name} ${owned.last_name}`}
+                        </p>
+                        {detailPresentation.driverBadge ? (
+                          <Badge variant="outline" className="mt-1 text-[10px] bg-emerald-50 text-emerald-800">
+                            {detailPresentation.driverBadge}
+                          </Badge>
+                        ) : null}
                       </div>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <div className="flex items-center gap-2 text-yellow-700">
-                    <UserPlus className="h-4 w-4" />
-                    <span className="font-medium">No driver assigned</span>
-                  </div>
-                  <p className="text-sm text-yellow-600 mt-1">
-                    Click "Assign Driver" to assign a driver to this scheduled ride.
-                  </p>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Special Instructions */}
               {selectedTrip.special_instructions && (
@@ -1195,7 +1316,7 @@ export default function ScheduledRides() {
               }}
             >
               <UserPlus className="h-4 w-4 mr-2" />
-              {selectedTrip?.driver ? 'Reassign' : 'Assign Driver'}
+              {selectedTrip && resolveAdminScheduledRidePresentation(selectedTrip).driverKind !== 'unassigned' ? 'Reassign' : 'Assign Driver'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1207,7 +1328,9 @@ export default function ScheduledRides() {
           <DialogHeader>
             <DialogTitle>Assign Driver</DialogTitle>
             <DialogDescription>
-              Assign Now pre-confirms immediately. Assign At is executed by backend cron (one pending action per trip).
+              Assign Now pre-confirms immediately (or swaps an existing pre-confirmed driver).
+              Assign At is executed by backend cron (one pending action per trip).
+              Live accepted trips (driver already driving) cannot be overwritten here.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1303,7 +1426,8 @@ export default function ScheduledRides() {
             <AlertDialogDescription>
               Starts the existing New Ride Offer / auto-dispatch path. This is not
               &quot;Make Available in Scheduled Jobs&quot; (advance pre-confirmation).
-              Leave the time empty for Broadcast Now, or set Broadcast At (backend cron).
+              If a driver is already pre-confirmed, Broadcast releases that preconfirm
+              and opens finding-driver. Leave empty for Now, or set At (backend cron).
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-2">
@@ -1336,6 +1460,53 @@ export default function ScheduledRides() {
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Broadcast Now
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Scheduled Jobs Now / At Dialog */}
+      <AlertDialog open={isJobsOpen} onOpenChange={setIsJobsOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Make Available in Scheduled Jobs</AlertDialogTitle>
+            <AlertDialogDescription>
+              Publishes for advance driver PRE-CONFIRMATION only. Does not start
+              Broadcast / New Ride Offer. Leave empty for Now, or set At
+              (NOW &lt; time &lt; scheduled pickup; backend cron).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Label>Scheduled Jobs At (optional)</Label>
+            <Input
+              type="datetime-local"
+              className="mt-2"
+              value={releaseAtLocal}
+              onChange={(e) => setReleaseAtLocal(e.target.value)}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep Held</AlertDialogCancel>
+            {releaseAtLocal ? (
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleMakeAvailableScheduledJobsAt();
+                }}
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Scheduled Jobs At
+              </AlertDialogAction>
+            ) : (
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleMakeAvailableScheduledJobs();
+                }}
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Scheduled Jobs Now
               </AlertDialogAction>
             )}
           </AlertDialogFooter>

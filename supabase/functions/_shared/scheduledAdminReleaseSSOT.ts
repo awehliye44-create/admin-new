@@ -7,7 +7,7 @@
  * - Broadcast → open NRO / auto-dispatch path now (or At via pending_release)
  */
 
-export const PENDING_RELEASE_KINDS = ["assign", "broadcast"] as const;
+export const PENDING_RELEASE_KINDS = ["assign", "broadcast", "jobs"] as const;
 export type PendingReleaseKind = (typeof PENDING_RELEASE_KINDS)[number];
 
 export type PendingReleaseClearPatch = {
@@ -78,8 +78,9 @@ export function buildMakeAvailableScheduledJobsPatch(input: {
 }
 
 /**
- * Broadcast Now — leave HELD and start the existing NRO / auto-dispatch path.
- * Distinct from Make Available (Scheduled Jobs preconfirm publication).
+ * Broadcast Now — leave HELD (or release preconfirm) and start the existing
+ * NRO / auto-dispatch path. Distinct from Make Available (Scheduled Jobs).
+ * Always clears confirmed_driver_id so Broadcast can recover after a drop-out.
  */
 export function buildBroadcastNowPatch(input: { nowIso: string }): Record<string, unknown> {
   return {
@@ -87,6 +88,7 @@ export function buildBroadcastNowPatch(input: { nowIso: string }): Record<string
     status: "offered",
     scheduled_broadcast_at: input.nowIso,
     dispatch_mode: "scheduled",
+    confirmed_driver_id: null,
     ...clearPendingReleasePatch(),
   };
 }
@@ -97,7 +99,7 @@ export function isPendingReleaseDue(input: {
   nowMs: number;
 }): boolean {
   const kind = String(input.pending_release_kind ?? "").trim().toLowerCase();
-  if (kind !== "assign" && kind !== "broadcast") return false;
+  if (kind !== "assign" && kind !== "broadcast" && kind !== "jobs") return false;
   const at = input.pending_release_at
     ? Date.parse(input.pending_release_at)
     : NaN;

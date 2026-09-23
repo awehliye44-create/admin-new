@@ -12,6 +12,7 @@ export const MISSED_CANCELLED_STATUSES = [
   "customer_cancelled",
   "missed",
   "expired",
+  "expired_no_driver",
 ] as const;
 
 export type AdminTripClassificationRow = {

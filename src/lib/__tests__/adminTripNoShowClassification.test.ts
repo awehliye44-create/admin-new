@@ -143,6 +143,7 @@ describe('admin NO_SHOW page ownership', () => {
       'customer_cancelled',
       'missed',
       'expired',
+      'expired_no_driver',
     ]);
   });
 

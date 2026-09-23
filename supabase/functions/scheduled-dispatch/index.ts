@@ -24,8 +24,13 @@ import {
 import {
   buildAssignNowPatch,
   buildBroadcastNowPatch,
+  buildMakeAvailableScheduledJobsPatch,
   isPendingReleaseDue,
 } from "../_shared/scheduledAdminReleaseSSOT.ts";
+import {
+  resolveBackfillSearchingExpiresAtIso,
+  shouldExpireConvertedScheduledNoDriver,
+} from "../_shared/scheduledNoDriverExpirySSOT.ts";
 import {
   blockedTerminalTripLogPayload,
   isTripTerminalForDispatch,
@@ -88,6 +93,7 @@ interface ScheduledTrip {
   final_fare_pence?: number | null;
   gross_fare_pence?: number | null;
   estimated_total_pence?: number | null;
+  is_scheduled?: boolean | null;
   base_fare_pence?: number | null;
   currency_code?: string | null;
   fare?: number | null;
@@ -354,7 +360,7 @@ Deno.serve(async (req) => {
     let pendingReleasesExecuted = 0;
 
     // ============================================================
-    // STEP 0: ADMIN PENDING RELEASE (Assign At / Broadcast At)
+    // STEP 0: ADMIN PENDING RELEASE (Assign At / Broadcast At / Jobs At)
     // Backend cron — not browser timers. One pending action per trip.
     // ============================================================
     {
@@ -412,8 +418,9 @@ Deno.serve(async (req) => {
               console.warn(`[scheduled-dispatch] pending assign missing driver for ${trip.id}`);
               continue;
             }
-            // Skip if already pre-confirmed or live-assigned.
-            if (trip.confirmed_driver_id || trip.driver_id) {
+            // Live accepted ownership cannot be overwritten from Scheduled board.
+            // Pre-confirmed (confirmed_driver_id) MAY be swapped via Assign At.
+            if (trip.driver_id) {
               await supabase
                 .from("trips")
                 .update({
@@ -429,9 +436,14 @@ Deno.serve(async (req) => {
               .update(buildAssignNowPatch({ driverId, nowIso: now.toISOString() }))
               .eq("id", trip.id)
               .eq("pending_release_kind", "assign")
-              .in("scheduled_status", ["admin_held", "scheduled", "broadcasting", "pending"])
+              .in("scheduled_status", [
+                "admin_held",
+                "scheduled",
+                "broadcasting",
+                "pending",
+                "driver_assigned",
+              ])
               .is("driver_id", null)
-              .is("confirmed_driver_id", null)
               .select("id");
             if (error) {
               console.error("[scheduled-dispatch] pending assign failed:", trip.id, error);
@@ -473,7 +485,9 @@ Deno.serve(async (req) => {
               );
             }
           } else if (kind === "broadcast") {
-            if (trip.confirmed_driver_id || trip.driver_id) {
+            // Live accepted ownership stays off this path.
+            // Pre-confirmed may be released by Broadcast At (patch clears confirmed_driver_id).
+            if (trip.driver_id) {
               await supabase
                 .from("trips")
                 .update({
@@ -489,9 +503,13 @@ Deno.serve(async (req) => {
               .update(buildBroadcastNowPatch({ nowIso: now.toISOString() }))
               .eq("id", trip.id)
               .eq("pending_release_kind", "broadcast")
-              .in("scheduled_status", ["admin_held", "scheduled", "pending"])
+              .in("scheduled_status", [
+                "admin_held",
+                "scheduled",
+                "pending",
+                "driver_assigned",
+              ])
               .is("driver_id", null)
-              .is("confirmed_driver_id", null)
               .select("id");
             if (error) {
               console.error("[scheduled-dispatch] pending broadcast failed:", trip.id, error);
@@ -523,6 +541,50 @@ Deno.serve(async (req) => {
               tripId: trip.id,
               forceRebroadcast: true,
               triggerReason: "admin_pending_broadcast_at",
+            });
+          } else if (kind === "jobs") {
+            // Make Available At — Scheduled Jobs publication only (not NRO).
+            if (trip.confirmed_driver_id || trip.driver_id) {
+              await supabase
+                .from("trips")
+                .update({
+                  pending_release_kind: null,
+                  pending_release_at: null,
+                  pending_release_driver_id: null,
+                })
+                .eq("id", trip.id);
+              continue;
+            }
+            const { data: jobsRows, error } = await supabase
+              .from("trips")
+              .update(buildMakeAvailableScheduledJobsPatch({ nowIso: now.toISOString() }))
+              .eq("id", trip.id)
+              .eq("pending_release_kind", "jobs")
+              .in("scheduled_status", ["admin_held", "scheduled", "pending"])
+              .is("driver_id", null)
+              .is("confirmed_driver_id", null)
+              .select("id");
+            if (error) {
+              console.error("[scheduled-dispatch] pending jobs publish failed:", trip.id, error);
+              continue;
+            }
+            if (!jobsRows?.length) {
+              await supabase
+                .from("trips")
+                .update({
+                  pending_release_kind: null,
+                  pending_release_at: null,
+                  pending_release_driver_id: null,
+                })
+                .eq("id", trip.id)
+                .eq("pending_release_kind", "jobs");
+              continue;
+            }
+            pendingReleasesExecuted++;
+            await logSnapshot(supabase, {
+              tripId: trip.id,
+              action: "admin_pending_jobs_executed",
+              metadata: {},
             });
           }
         }
@@ -1133,24 +1195,122 @@ Deno.serve(async (req) => {
 
     // ============================================================
     // STEP 4: EXPIRE — Searching too long without a driver
+    // Reuses expireTripWhenSearchExhaustedAndNotifyCustomer.
+    // Gap fixes:
+    //  - null searching_expires_at must not leave past-pickup rides open
+    //  - expire RPC invents now+findMinutes when stamp is null → stamp past first
+    //  - past-pickup HELD/Jobs/preconfirm/broadcast (never converted) must also
+    //    leave the live Scheduled board via the same expire path
     // ============================================================
 
-    const { data: expireCandidates, error: expireError } = await supabase
+    const expireSelect =
+      "id, status, scheduled_status, dispatch_status, dispatch_mode, updated_at, searching_expires_at, scheduled_at, passenger_id, confirmed_driver_id, is_scheduled";
+
+    const { data: expireConverted, error: expireConvertedError } = await supabase
       .from("trips")
-      .select("id, status, scheduled_status, dispatch_status, dispatch_mode, updated_at, searching_expires_at, passenger_id")
+      .select(expireSelect)
       .in("status", ["searching", "searching_new_driver", "offered", "broadcasting"])
       .is("driver_id", null)
       .eq("scheduled_status", "converted_to_instant");
 
-    if (expireError) {
-      console.error("[scheduled-dispatch] Error fetching rides to expire:", expireError);
-    } else if (expireCandidates && expireCandidates.length > 0) {
-      for (const trip of expireCandidates as ScheduledTrip[]) {
+    const { data: expirePastPickup, error: expirePastError } = await supabase
+      .from("trips")
+      .select(expireSelect)
+      .eq("is_scheduled", true)
+      .is("driver_id", null)
+      .lte("scheduled_at", now.toISOString())
+      .not(
+        "status",
+        "in",
+        "(completed,cancelled,customer_cancelled,expired,expired_no_driver,no_show,declined)",
+      )
+      .or(
+        "scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)",
+      )
+      .limit(50);
+
+    if (expireConvertedError) {
+      console.error("[scheduled-dispatch] Error fetching converted rides to expire:", expireConvertedError);
+    }
+    if (expirePastError) {
+      console.error("[scheduled-dispatch] Error fetching past-pickup rides to expire:", expirePastError);
+    }
+
+    const expireById = new Map<string, ScheduledTrip>();
+    for (const row of [...(expireConverted ?? []), ...(expirePastPickup ?? [])] as ScheduledTrip[]) {
+      if (row?.id) expireById.set(row.id, row);
+    }
+    const expireCandidates = [...expireById.values()];
+
+    if (expireCandidates.length > 0) {
+      for (const trip of expireCandidates) {
         if (isTripTerminalForDispatch(trip)) continue;
 
-        if (!trip.searching_expires_at) continue;
-        const searchDeadlineMs = new Date(trip.searching_expires_at).getTime();
-        if (!Number.isFinite(searchDeadlineMs) || searchDeadlineMs > nowMs) continue;
+        const schedLower = String(trip.scheduled_status ?? "").toLowerCase();
+        const isConverted = schedLower === "converted_to_instant";
+        const decision = shouldExpireConvertedScheduledNoDriver({
+          searchingExpiresAt: trip.searching_expires_at ?? null,
+          scheduledAt: trip.scheduled_at ?? null,
+          nowMs,
+        });
+
+        if (!decision.expire) {
+          // Still before pickup with no stamp — backfill canonical search window
+          // so the existing expire path can fire later (no parallel engine).
+          if (
+            isConverted &&
+            decision.reason === "awaiting_search_deadline" &&
+            !trip.searching_expires_at
+          ) {
+            const backfillIso = resolveBackfillSearchingExpiresAtIso({
+              nowMs,
+              scheduledAt: trip.scheduled_at ?? null,
+              maxFindDriverMinutes,
+            });
+            await supabase
+              .from("trips")
+              .update({
+                searching_expires_at: backfillIso,
+                updated_at: now.toISOString(),
+              })
+              .eq("id", trip.id)
+              .eq("scheduled_status", "converted_to_instant")
+              .is("driver_id", null)
+              .is("searching_expires_at", null);
+          }
+          continue;
+        }
+
+        const pastDeadlineIso = new Date(nowMs - 1000).toISOString();
+
+        // Non-converted past-pickup (HELD / Jobs / preconfirm / broadcast): flip onto
+        // the converted search path with an already-past deadline, then reuse expire RPC.
+        // Expire RPC returns false while scheduled handover is still pending.
+        if (!isConverted) {
+          await supabase
+            .from("trips")
+            .update({
+              ...buildScheduledUrgentConversionPatch({
+                nowIso: now.toISOString(),
+                searchingExpiresAtIso: pastDeadlineIso,
+              }),
+              confirmed_driver_id: null,
+            })
+            .eq("id", trip.id)
+            .is("driver_id", null);
+        } else if (!trip.searching_expires_at) {
+          // expire_trip_when_search_exhausted invents now+findMinutes when
+          // searching_expires_at is null (scheduled-origin). Stamp past first.
+          await supabase
+            .from("trips")
+            .update({
+              searching_expires_at: pastDeadlineIso,
+              updated_at: now.toISOString(),
+            })
+            .eq("id", trip.id)
+            .eq("scheduled_status", "converted_to_instant")
+            .is("driver_id", null);
+        }
 
         const { expired: didExpire, rpcError } =
           await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
@@ -1169,16 +1329,23 @@ Deno.serve(async (req) => {
             .from("trips")
             .update({
               scheduled_status: "no_driver_found",
+              confirmed_driver_id: null,
+              pending_release_kind: null,
+              pending_release_at: null,
+              pending_release_driver_id: null,
               broadcast_enabled: false,
               updated_at: now.toISOString(),
             })
             .eq("id", trip.id)
-            .in("scheduled_status", ["broadcasting", "dispatching", "converted_to_instant", "scheduled"]);
+            .in("status", ["expired", "expired_no_driver"]);
 
           await logSnapshot(supabase, {
             tripId: trip.id,
             action: "expire_no_driver",
-            metadata: { missed_reason: "search_window_exhausted" },
+            metadata: {
+              missed_reason: decision.reason,
+              was_converted: isConverted,
+            },
           });
 
           // Customer trip_cancelled WAV already sent by expireTripWhenSearchExhaustedAndNotifyCustomer.
