@@ -6,6 +6,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { resolveTripDisplayFare } from "../_shared/tripDisplayFareSSOT.ts";
 import { calculateTripSettlementFromTripRow } from "../_shared/tripSettlement.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,6 +46,8 @@ serveWithEdgeTiming("financial-ssot-monitor", async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+  const cronAuth = await assertCronOrServiceRoleAuth(req);
+  if (!cronAuth.ok) return cronAuth.response;
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

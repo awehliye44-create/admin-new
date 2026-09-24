@@ -45,6 +45,7 @@ import {
   notifyCustomerTripLifecycle,
 } from "../_shared/customerTripLifecycleNotify.ts";
 import { notifyCustomerNegotiationRematch } from "../_shared/negotiationFailureRematch.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 declare const EdgeRuntime:
   | { waitUntil?: (promise: Promise<unknown>) => void }
@@ -322,6 +323,8 @@ async function releaseAndRebroadcast(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleCORSPreflight();
+  const cronAuth = await assertCronOrServiceRoleAuth(req);
+  if (!cronAuth.ok) return cronAuth.response;
 
   const clientIP = getClientIP(req);
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
