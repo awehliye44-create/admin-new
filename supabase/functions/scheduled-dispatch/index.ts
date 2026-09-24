@@ -67,6 +67,11 @@ function queueBackground(promise: Promise<unknown>) {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+/** Fire-and-forget: never blocks the sweep, never leaves a rejection unhandled. */
+function voidBackground(task: Promise<unknown>): void {
+  task.catch((err) => console.warn("[scheduled-dispatch] background task failed:", err));
+}
+
 interface ScheduledTrip {
   id: string;
   scheduled_at: string;
@@ -91,6 +96,9 @@ interface ScheduledTrip {
   passenger_name: string;
   passenger_id?: string | null;
   trip_number?: string | null;
+  driver_net_pence?: number | null;
+  driver_net_before_tip_pence?: number | null;
+  special_instructions?: string | null;
   final_fare_pence?: number | null;
   gross_fare_pence?: number | null;
   estimated_total_pence?: number | null;
@@ -1316,7 +1324,7 @@ Deno.serve(async (req) => {
         }
 
         const { expired: didExpire, rpcError } =
-          await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
+          await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase as unknown as Parameters<typeof expireTripWhenSearchExhaustedAndNotifyCustomer>[0], {
             tripId: trip.id,
             passengerId: trip.passenger_id ?? null,
           });
