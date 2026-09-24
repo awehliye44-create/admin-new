@@ -1,3 +1,4 @@
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 
 const corsHeaders = {
@@ -27,12 +28,8 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
-    const role = bearer.split(".")[1]
-      ? JSON.parse(atob(bearer.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).role
-      : null;
-    if (role !== "service_role") {
+    const cronAuth = await assertCronOrServiceRoleAuth(req);
+    if (!cronAuth.ok) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

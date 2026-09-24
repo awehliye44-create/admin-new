@@ -3,7 +3,10 @@
 export type ExportCell = string | number | null | undefined;
 
 function escapeCsv(v: ExportCell): string {
-  return `"${String(v ?? '').replace(/"/g, '""')}"`;
+  let text = String(v ?? '');
+  // Neutralise spreadsheet formula injection (=, +, -, @, tab, CR).
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
 }
 
 export function downloadCsv(
