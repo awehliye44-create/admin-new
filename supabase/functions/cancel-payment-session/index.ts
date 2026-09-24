@@ -20,6 +20,7 @@ import {
   corsHeaders, checkRateLimit, getClientIP, rateLimitResponse,
   successResponse, errorResponse, logAuditEvent,
 } from "../_shared/security.ts";
+import { releaseReceivablesOnCancelIfAllowed } from "../_shared/customerReceivableLifecycle.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 20, windowMs: 60 * 1000 };
 
@@ -107,11 +108,9 @@ serve(async (req) => {
     }
 
     // Receivable release only when planReleaseOnCancel allows (no order /
-    // definitive failed-cancelled; KEEP if UNKNOWN).
+    // definitive failed-cancelled; KEEP if UNKNOWN). Static import so the
+    // Edge bundle includes customerReceivableSSOT (dynamic import was omitted).
     try {
-      const { releaseReceivablesOnCancelIfAllowed } = await import(
-        "../_shared/customerReceivableLifecycle.ts"
-      );
       const hasCapture = Math.round(Number(ps.captured_amount_pence) || 0) > 0;
       await releaseReceivablesOnCancelIfAllowed(supabase, {
         payment_session_id: String(ps.id),
