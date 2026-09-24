@@ -8,9 +8,12 @@
  *   1) server feature gate ON (default OFF)
  *   2) optional customer allowlist (when configured)
  *   3) customer_receivable_consent_version === 1
- *   4) displayed quote pence matches re-read OPEN outstanding
+ *   4) displayed outstanding pence matches re-read OPEN outstanding
+ *   5) quote version matches outstanding:<pence>:v1 (when provided)
+ *   6) displayed total authorisation matches server fare + buffer + outstanding
  *
- * Amount mismatch → typed refresh-required (never charge).
+ * Amount / quote / reserved-row mismatch → typed refresh-required (never charge;
+ * never silently update the provider amount after Book).
  */
 export const CUSTOMER_RECEIVABLE_CONSENT_VERSION = 1 as const;
 
@@ -25,6 +28,10 @@ export type ReceivableConsentRequest = {
   customer_receivable_displayed_outstanding_pence?: number | null;
   /** Optional quote id / fingerprint from outstanding summary fetch. */
   customer_receivable_quote_version?: string | null;
+  /** Trip fare the client displayed (must remain separate from debt). */
+  customer_receivable_displayed_trip_fare_pence?: number | null;
+  /** Total authorisation the client showed on the Book CTA. */
+  customer_receivable_displayed_total_authorisation_pence?: number | null;
 };
 
 export type ReceivableFoldConsentDecision =
@@ -42,6 +49,8 @@ export type ReceivableFoldConsentDecision =
     reason: "consent_matched";
     displayed_outstanding_pence: number;
     quote_version: string | null;
+    displayed_trip_fare_pence: number | null;
+    displayed_total_authorisation_pence: number | null;
     telemetry: Record<string, unknown>;
   }
   | {
@@ -74,6 +83,11 @@ function nonNegPence(value: unknown): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.round(n);
+}
+
+/** Expected quote fingerprint for a given OPEN outstanding total. */
+export function buildServerReceivableQuoteVersion(outstanding_pence: number): string {
+  return `outstanding:${nonNegPence(outstanding_pence)}:v${CUSTOMER_RECEIVABLE_CONSENT_VERSION}`;
 }
 
 /**
@@ -110,11 +124,16 @@ export function readCustomerReceivableFoldGate(env?: {
  * Call AFTER eligibility (platform/personal) and BEFORE reserve RPC.
  * `server_outstanding_pence` must come from a fresh OPEN-receivables read
  * under the same reservation lock path (or immediately before reserve).
+ *
+ * Optional `server_ride_fare_pence` / `server_buffer_pence` enable total
+ * authorisation matching against the CTA amount the customer saw.
  */
 export function planCustomerReceivableFoldConsent(args: {
   customer_id?: string | null;
   consent?: ReceivableConsentRequest | null;
   server_outstanding_pence: number;
+  server_ride_fare_pence?: number | null;
+  server_buffer_pence?: number | null;
   gate?: { enabled: boolean; allowlist: Set<string> };
 }): ReceivableFoldConsentDecision {
   const customerId = String(args.customer_id ?? "").trim();
@@ -127,7 +146,21 @@ export function planCustomerReceivableFoldConsent(args: {
   const quoteVersion = consent.customer_receivable_quote_version
     ? String(consent.customer_receivable_quote_version).trim() || null
     : null;
+  const displayedTripFare = consent.customer_receivable_displayed_trip_fare_pence != null
+    ? nonNegPence(consent.customer_receivable_displayed_trip_fare_pence)
+    : null;
+  const displayedTotal = consent.customer_receivable_displayed_total_authorisation_pence != null
+    ? nonNegPence(consent.customer_receivable_displayed_total_authorisation_pence)
+    : null;
   const serverOutstanding = nonNegPence(args.server_outstanding_pence);
+  const serverRide = args.server_ride_fare_pence != null
+    ? nonNegPence(args.server_ride_fare_pence)
+    : null;
+  const serverBuffer = nonNegPence(args.server_buffer_pence);
+  const expectedQuote = buildServerReceivableQuoteVersion(serverOutstanding);
+  const serverTotal = serverRide != null
+    ? serverRide + serverBuffer + serverOutstanding
+    : null;
 
   const baseTelemetry = {
     customer_id: customerId || null,
@@ -136,6 +169,12 @@ export function planCustomerReceivableFoldConsent(args: {
     displayed_outstanding_pence: displayed,
     server_outstanding_pence: serverOutstanding,
     quote_version: quoteVersion,
+    expected_quote_version: expectedQuote,
+    displayed_trip_fare_pence: displayedTripFare,
+    displayed_total_authorisation_pence: displayedTotal,
+    server_ride_fare_pence: serverRide,
+    server_buffer_pence: serverBuffer,
+    server_total_authorisation_pence: serverTotal,
   };
 
   if (!customerId) {
@@ -200,14 +239,108 @@ export function planCustomerReceivableFoldConsent(args: {
     };
   }
 
+  // Quote fingerprint must match the server re-read outstanding total.
+  if (quoteVersion && quoteVersion !== expectedQuote) {
+    return {
+      allow_fold: false,
+      fail_closed: true,
+      reason: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+      server_outstanding_pence: serverOutstanding,
+      displayed_outstanding_pence: displayed,
+      telemetry: {
+        ...baseTelemetry,
+        event: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+        note: "quote_version_mismatch",
+      },
+    };
+  }
+
+  // Compatible clients that send trip fare must match the server ride fare.
+  if (
+    displayedTripFare != null
+    && serverRide != null
+    && displayedTripFare !== serverRide
+  ) {
+    return {
+      allow_fold: false,
+      fail_closed: true,
+      reason: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+      server_outstanding_pence: serverOutstanding,
+      displayed_outstanding_pence: displayed,
+      telemetry: {
+        ...baseTelemetry,
+        event: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+        note: "displayed_trip_fare_mismatch",
+      },
+    };
+  }
+
+  // CTA total authorisation must equal server fare + buffer + outstanding.
+  // Never silently rewrite the provider amount after Book.
+  if (
+    displayedTotal != null
+    && serverTotal != null
+    && displayedTotal !== serverTotal
+  ) {
+    return {
+      allow_fold: false,
+      fail_closed: true,
+      reason: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+      server_outstanding_pence: serverOutstanding,
+      displayed_outstanding_pence: displayed,
+      telemetry: {
+        ...baseTelemetry,
+        event: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+        note: "displayed_total_authorisation_mismatch",
+      },
+    };
+  }
+
   return {
     allow_fold: true,
     reason: "consent_matched",
     displayed_outstanding_pence: displayed,
     quote_version: quoteVersion,
+    displayed_trip_fare_pence: displayedTripFare,
+    displayed_total_authorisation_pence: displayedTotal,
     telemetry: {
       ...baseTelemetry,
       event: "RECEIVABLE_FOLD_CONSENT_MATCHED",
+    },
+  };
+}
+
+/**
+ * After durable reserve: if the reserved fold total differs from the CTA
+ * amount the customer saw, fail closed — never call the provider with a
+ * silently updated amount.
+ */
+export function planReceivableReservedTotalMatchesConsent(args: {
+  reserved_authorised_amount_pence: number;
+  displayed_total_authorisation_pence?: number | null;
+}): {
+  ok: true;
+} | {
+  ok: false;
+  fail_closed: true;
+  reason: typeof RECEIVABLE_CONSENT_REFRESH_REQUIRED;
+  telemetry: Record<string, unknown>;
+} {
+  const reserved = nonNegPence(args.reserved_authorised_amount_pence);
+  if (args.displayed_total_authorisation_pence == null) {
+    return { ok: true };
+  }
+  const displayed = nonNegPence(args.displayed_total_authorisation_pence);
+  if (displayed === reserved) return { ok: true };
+  return {
+    ok: false,
+    fail_closed: true,
+    reason: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+    telemetry: {
+      event: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+      note: "reserved_total_mismatch_after_reserve",
+      displayed_total_authorisation_pence: displayed,
+      reserved_authorised_amount_pence: reserved,
     },
   };
 }
@@ -237,5 +370,11 @@ export function extractReceivableConsentFromPreauthBody(
     customer_receivable_quote_version: pick(
       "customer_receivable_quote_version",
     ) as string | null,
+    customer_receivable_displayed_trip_fare_pence: pick(
+      "customer_receivable_displayed_trip_fare_pence",
+    ) as number | null,
+    customer_receivable_displayed_total_authorisation_pence: pick(
+      "customer_receivable_displayed_total_authorisation_pence",
+    ) as number | null,
   };
 }
