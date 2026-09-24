@@ -1335,7 +1335,11 @@ Deno.serve(async (req) => {
         }
 
         if (didExpire === true) {
-          await revokePendingOffersForTerminalTrip(supabase, trip.id, "trip_expired_no_driver");
+          await revokePendingOffersForTerminalTrip(
+            supabase as unknown as Parameters<typeof revokePendingOffersForTerminalTrip>[0],
+            trip.id,
+            "trip_expired_no_driver",
+          );
           await supabase
             .from("trips")
             .update({
