@@ -30234,6 +30234,10 @@ export type Database = {
         Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
         Returns: boolean
       }
+      is_active_service_area: {
+        Args: { _service_area_id: string }
+        Returns: boolean
+      }
       is_admin: { Args: never; Returns: boolean }
       is_commission_wallet_reserve_enabled: {
         Args: { p_service_area_id: string }
@@ -30296,6 +30300,8 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_platform_member: { Args: never; Returns: boolean }
+      is_platform_staff: { Args: never; Returns: boolean }
       is_scheduled_instant_conversion_pending: {
         Args: {
           p_dispatch_mode: string
