@@ -29,10 +29,11 @@ import {
 import {
   createRevolutOrder,
   getRevolutMerchantConfig,
-  payRevolutOrderWithSavedPaymentMethod,
+  payRevolutOrderWithSavedCard,
   resolveRevolutCheckoutUrl,
   retrieveRevolutOrder,
 } from "../_shared/revolutOrders.ts";
+import type { ProviderEnvironment } from "../_shared/paymentProviders/types.ts";
 import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 import {
   computeOutstandingBalancePence,
@@ -296,7 +297,7 @@ Deno.serve(async (req) => {
             secretKey,
             existingOpen.provider_order_id,
           );
-          reusedUrl = resolveRevolutCheckoutUrl(existingOrder, environment as "live" | "sandbox");
+          reusedUrl = resolveRevolutCheckoutUrl(existingOrder, environment);
           if (reusedUrl) {
             await supabase
               .from("payment_sessions")
@@ -461,11 +462,11 @@ Deno.serve(async (req) => {
 
     // --- Create Revolut order (automatic capture — no separate capture step) ---
     let order;
-    let revolutEnv: "live" | "sandbox" = "live";
+    let revolutEnv: ProviderEnvironment = "live";
     let revolutSecret = "";
     try {
       const { secretKey, environment } = getRevolutMerchantConfig();
-      revolutEnv = environment as "live" | "sandbox";
+      revolutEnv = environment;
       revolutSecret = secretKey;
       order = await createRevolutOrder({
         environment,
@@ -532,12 +533,14 @@ Deno.serve(async (req) => {
         savedCardAttempt.attempted = true;
         savedCardAttempt.payment_method_id = savedCard.provider_payment_method_id;
         try {
-          const payment = await payRevolutOrderWithSavedPaymentMethod({
-            environment: revolutEnv,
-            secretKey: revolutSecret,
-            orderId: order.id,
-            savedPaymentMethodId: savedCard.provider_payment_method_id,
-          });
+          const payment = await payRevolutOrderWithSavedCard(
+            revolutEnv,
+            revolutSecret,
+            order.id,
+            savedCard.provider_payment_method_id,
+            null,
+            "merchant",
+          );
           const state = String(payment.state ?? "").toUpperCase();
           savedCardAttempt.state = state || null;
           savedCardAttempt.succeeded = state === "COMPLETED"

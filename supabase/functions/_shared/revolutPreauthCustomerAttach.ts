@@ -92,6 +92,10 @@ export type CreateRevolutOrderBodyInput = {
   enableIncrementalAuthorisation?: boolean;
   /** Hosted checkout return URL — mapped to Revolut's `redirect_url` field. */
   redirectUrl?: string | null;
+  /** Defaults to manual (booking holds). Recovery charges use automatic. */
+  captureMode?: "manual" | "automatic";
+  /** Defaults to tripId. */
+  merchantOrderExtRef?: string;
 };
 
 /** Merchant POST /orders body. `customer` is absent unless a customer ref was supplied. */
@@ -104,9 +108,9 @@ export function buildCreateRevolutOrderRequestBody(
   return {
     amount: p.amountMinor,
     currency: p.currency.toUpperCase(),
-    capture_mode: "manual",
+    capture_mode: p.captureMode ?? "manual",
     ...(enableIncrement ? { authorisation_type: "pre_authorisation" } : {}),
-    merchant_order_ext_ref: p.tripId,
+    merchant_order_ext_ref: p.merchantOrderExtRef ?? p.tripId,
     description: p.description ?? "ONECAB trip payment",
     metadata: p.metadata ?? {},
     ...(customer ? { customer } : {}),

@@ -134,6 +134,8 @@ export interface CreateOrderParams {
   enableIncrementalAuthorisation?: boolean;
   /** Hosted checkout return after successful authorisation. */
   redirectUrl?: string | null;
+  captureMode?: "manual" | "automatic";
+  merchantOrderExtRef?: string;
 }
 
 /**
@@ -141,6 +143,19 @@ export interface CreateOrderParams {
  * Booking holds default to authorisation_type=pre_authorisation (required for
  * later same-order increments). Response includes `token` for native checkout.
  */
+/** Hosted checkout URL for an order: provider checkout_url, else derived from token. */
+export function resolveRevolutCheckoutUrl(
+  order: Pick<RevolutOrder, "checkout_url" | "token"> | null | undefined,
+  environment: ProviderEnvironment,
+): string | null {
+  const direct = typeof order?.checkout_url === "string" ? order.checkout_url.trim() : "";
+  if (direct) return direct;
+  const token = typeof order?.token === "string" ? order.token.trim() : "";
+  if (!token) return null;
+  const host = environment === "live" ? "checkout.revolut.com" : "sandbox-checkout.revolut.com";
+  return `https://${host}/payment-link/${encodeURIComponent(token)}`;
+}
+
 export async function createRevolutOrder(p: CreateOrderParams): Promise<RevolutOrder> {
   return await revolutMerchantRequest<RevolutOrder>(
     p.environment,
@@ -157,6 +172,8 @@ export async function createRevolutOrder(p: CreateOrderParams): Promise<RevolutO
         customer: p.customer,
         enableIncrementalAuthorisation: p.enableIncrementalAuthorisation,
         redirectUrl: p.redirectUrl,
+        captureMode: p.captureMode,
+        merchantOrderExtRef: p.merchantOrderExtRef,
       })),
     },
   );
@@ -232,7 +249,7 @@ export async function payRevolutOrderWithSavedCard(
   secretKey: string,
   orderId: string,
   savedPaymentMethodId: string,
-  browserEnvironment: RevolutCitBrowserEnvironment,
+  browserEnvironment: RevolutCitBrowserEnvironment | null,
   initiator: "customer" | "merchant" = "customer",
 ): Promise<RevolutOrderPayment> {
   return await revolutMerchantRequest<RevolutOrderPayment>(
@@ -246,7 +263,7 @@ export async function payRevolutOrderWithSavedCard(
           type: "card",
           id: savedPaymentMethodId,
           initiator,
-          environment: browserEnvironment,
+          ...(browserEnvironment ? { environment: browserEnvironment } : {}),
         },
       }),
     },
