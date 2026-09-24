@@ -140,9 +140,13 @@ Deno.serve(async (req) => {
   try {
     if (p.logo_base64) {
       const bytes = b64ToBytes(p.logo_base64);
+      const detected = detectImageMime(bytes);
+      if (!detected || bytes.length > MAX_IMAGE_BYTES || (p.logo_mime && p.logo_mime !== detected)) {
+        throw new Error('invalid_logo_image');
+      }
       const path = `${merchant.id}/logo-${Date.now()}`;
       const { error } = await supabase.storage.from('merchant-logos')
-        .upload(path, bytes, { contentType: p.logo_mime ?? 'image/png', upsert: true });
+        .upload(path, bytes, { contentType: detected, upsert: true });
       if (error) console.error('[merchant-signup] logo upload error', error.message);
       else {
         const { data } = supabase.storage.from('merchant-logos').getPublicUrl(path);
@@ -151,9 +155,13 @@ Deno.serve(async (req) => {
     }
     if (p.banner_base64) {
       const bytes = b64ToBytes(p.banner_base64);
+      const detected = detectImageMime(bytes);
+      if (!detected || bytes.length > MAX_IMAGE_BYTES || (p.banner_mime && p.banner_mime !== detected)) {
+        throw new Error('invalid_banner_image');
+      }
       const path = `${merchant.id}/banner-${Date.now()}`;
       const { error } = await supabase.storage.from('merchant-banners')
-        .upload(path, bytes, { contentType: p.banner_mime ?? 'image/png', upsert: true });
+        .upload(path, bytes, { contentType: detected, upsert: true });
       if (error) console.error('[merchant-signup] banner upload error', error.message);
       else {
         const { data } = supabase.storage.from('merchant-banners').getPublicUrl(path);
