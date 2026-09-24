@@ -1052,7 +1052,7 @@ serve(async (req) => {
           .in("trip_id", todayTripIds);
         todayPayments = mergePaymentSessionsIntoCaptureRows({
           paymentSessions: sessionData.data ?? [],
-        }).rows;
+        }).rows as unknown as typeof todayPayments;
       }
       const capturedByTrip = new Map<string, number>();
       for (const p of todayPayments) {
