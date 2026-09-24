@@ -1,3 +1,4 @@
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
@@ -88,15 +89,9 @@ function sessionPayload(
   };
 }
 
-function isServiceRoleRequest(authHeader: string | null): boolean {
-  if (!authHeader?.startsWith("Bearer ")) return false;
-  const token = authHeader.slice(7);
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
-    return payload?.role === "service_role";
-  } catch {
-    return false;
-  }
+async function isServiceRoleRequest(req: Request): Promise<boolean> {
+  const result = await assertCronOrServiceRoleAuth(req);
+  return result.ok;
 }
 
 function msg91ErrorMessage(body: Record<string, unknown>): string {
@@ -702,7 +697,7 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === "force-hangup") {
-      if (!isServiceRoleRequest(authHeader)) {
+      if (!(await isServiceRoleRequest(req))) {
         return errorResponse("FORBIDDEN", "Force hangup requires service role", 403);
       }
 
@@ -788,7 +783,7 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === "probe-msg91") {
-      if (!isServiceRoleRequest(authHeader)) {
+      if (!(await isServiceRoleRequest(req))) {
         return errorResponse("FORBIDDEN", "Probe requires service role", 403);
       }
 

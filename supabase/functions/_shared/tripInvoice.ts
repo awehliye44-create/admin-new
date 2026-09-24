@@ -521,6 +521,15 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+function escapeInvoiceHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function buildEmailHtml(args: {
   companyName: string;
   invoiceNo: string;
@@ -544,8 +553,8 @@ function buildEmailHtml(args: {
     <div style="padding:24px">
       <p style="margin:0 0 16px">Thank you for travelling with us. Your invoice for trip <strong>${args.tripRef}</strong> on ${args.date} is attached.</p>
       <table style="width:100%;font-size:14px;border-collapse:collapse">
-        <tr><td style="padding:6px 0;color:#6b7280">Pickup</td><td style="padding:6px 0;text-align:right">${args.pickup}</td></tr>
-        <tr><td style="padding:6px 0;color:#6b7280">Drop-off</td><td style="padding:6px 0;text-align:right">${args.dropoff}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Pickup</td><td style="padding:6px 0;text-align:right">${escapeInvoiceHtml(args.pickup)}</td></tr>
+        <tr><td style="padding:6px 0;color:#6b7280">Drop-off</td><td style="padding:6px 0;text-align:right">${escapeInvoiceHtml(args.dropoff)}</td></tr>
         <tr><td style="padding:12px 0;font-weight:bold;border-top:1px solid #e6e8ee">${args.totalLabel}</td><td style="padding:12px 0;text-align:right;font-weight:bold;border-top:1px solid #e6e8ee">${args.totalFare}</td></tr>
         <tr><td style="padding:6px 0;color:#6b7280">${args.amountLabel}</td><td style="padding:6px 0;text-align:right">${args.paid}</td></tr>
         <tr><td style="padding:6px 0;color:#6b7280">Outstanding balance</td><td style="padding:6px 0;text-align:right">${args.outstanding}</td></tr>

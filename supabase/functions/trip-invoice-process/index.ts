@@ -1,3 +1,4 @@
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { corsHeaders, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
 import { handleTripInvoiceAction, type TripInvoiceAction } from "../_shared/tripInvoice.ts";
@@ -26,18 +27,9 @@ function serviceClient() {
   );
 }
 
-function isServiceRoleCall(req: Request): boolean {
-  const key = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
-  const auth = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!auth) return false;
-  if (key.length > 20 && auth === key) return true;
-  // JWT service_role token (pg_cron vault token may differ from the env copy).
-  try {
-    const payload = JSON.parse(atob(auth.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload?.role === "service_role";
-  } catch {
-    return false;
-  }
+async function isServiceRoleCall(req: Request): Promise<boolean> {
+  const result = await assertCronOrServiceRoleAuth(req);
+  return result.ok;
 }
 
 
@@ -54,7 +46,7 @@ Deno.serve(async (req) => {
     return json({ success: false, ok: false, error: "Invalid JSON body" }, 400);
   }
 
-  const internal = isServiceRoleCall(req);
+  const internal = await isServiceRoleCall(req);
   console.log("[TRIP_INVOICE] entry", JSON.stringify({ sweep: body.sweep === true, internal }));
 
 

@@ -37,7 +37,7 @@ export function DriverOperationalPauseInlineButton({
     });
     if (outcome.outcome === 'cancelled') return;
     if (!outcome.result.ok) {
-      window.alert(outcome.result.message);
+      window.alert(('message' in outcome.result ? outcome.result.message : 'Action failed'));
       return;
     }
     await Promise.all([

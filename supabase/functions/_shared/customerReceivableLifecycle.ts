@@ -416,7 +416,7 @@ export async function releaseReceivablesOnCancelIfAllowed(
       evidence: args.settle_evidence,
       current_trip_fare_pence: args.current_trip_fare_pence ?? 0,
     });
-    if (!settled.ok) return settled;
+    if (!settled.ok) return settled as Extract<ReceivableLifecycleResult<never>, { ok: false }>;
     return {
       ok: true,
       data: {
