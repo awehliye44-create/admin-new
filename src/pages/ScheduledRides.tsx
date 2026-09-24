@@ -409,7 +409,7 @@ export default function ScheduledRides() {
       scheduledAt: selectedTrip.scheduled_at,
     });
     if (!timing.ok) {
-      toast.error(timing.error);
+      toast.error('error' in timing ? timing.error : 'Invalid time');
       return;
     }
     const at = timing.actionAt;
@@ -571,7 +571,7 @@ export default function ScheduledRides() {
       scheduledAt: selectedTrip.scheduled_at,
     });
     if (!timing.ok) {
-      toast.error(timing.error);
+      toast.error('error' in timing ? timing.error : 'Invalid time');
       return;
     }
     setIsSaving(true);
@@ -673,7 +673,7 @@ export default function ScheduledRides() {
       scheduledAt: selectedTrip.scheduled_at,
     });
     if (!timing.ok) {
-      toast.error(timing.error);
+      toast.error('error' in timing ? timing.error : 'Invalid time');
       return;
     }
     const at = timing.actionAt;

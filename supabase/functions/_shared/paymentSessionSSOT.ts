@@ -522,7 +522,7 @@ export async function markPaymentSessionCaptured(
     if (!settle.ok) {
       console.error(
         "[paymentSessionSSOT] receivable settle after capture failed",
-        settle.error,
+        "error" in settle ? settle.error : null,
       );
     }
   }

@@ -524,7 +524,7 @@ export function PayoutLedgerSettingsPanel({
         paused: !enabled,
         reason,
       });
-      if (!result.ok) throw new Error(result.message);
+      if (!result.ok) throw new Error('message' in result ? result.message : 'Action failed');
       return result;
     },
     onSuccess: () => {
