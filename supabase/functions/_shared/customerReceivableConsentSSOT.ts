@@ -37,6 +37,11 @@ export type ReceivableConsentRequest = {
   customer_receivable_displayed_trip_fare_pence?: number | null;
   /** Total authorisation the client showed on the Book CTA. */
   customer_receivable_displayed_total_authorisation_pence?: number | null;
+  /**
+   * Opaque server-issued booking-payment quote id (UUID).
+   * Admission authority — client must forward byte-for-byte, never construct.
+   */
+  booking_payment_quote_id?: string | null;
 };
 
 export type ReceivableFoldConsentDecision =
@@ -582,5 +587,11 @@ export function extractReceivableConsentFromPreauthBody(
     customer_receivable_displayed_total_authorisation_pence: pick(
       "customer_receivable_displayed_total_authorisation_pence",
     ) as number | null,
+    booking_payment_quote_id: (() => {
+      const raw = pick("booking_payment_quote_id")
+        ?? pick("customer_booking_payment_quote_id");
+      const id = String(raw ?? "").trim();
+      return id || null;
+    })(),
   };
 }
