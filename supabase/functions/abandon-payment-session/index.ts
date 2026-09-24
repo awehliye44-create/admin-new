@@ -96,13 +96,15 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
   async function reconcileReceivables(args: {
     hold_safely_released?: boolean;
     settle?: boolean;
+    /** Override stale session.provider_state after GET→cancel (PENDING→CANCELLED). */
+    provider_state_override?: string | null;
   }): Promise<Record<string, unknown> | null> {
     if (!sessionId) return null;
     try {
       const result = await reconcileReceivablesOnAbandonOrCancel(supabase, {
         payment_session_id: sessionId,
         provider_order_id: orderId,
-        provider_state: providerState,
+        provider_state: args.provider_state_override ?? providerState,
         has_capture: capturedPence > 0,
         hold_safely_released: args.hold_safely_released === true,
         reason: `abandon:${reason}`,
@@ -221,8 +223,10 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
       }, 500);
     }
 
+    const holdSafe = release.released === true || release.ok === true;
     const recv = await reconcileReceivables({
-      hold_safely_released: release.released === true || release.ok === true,
+      hold_safely_released: holdSafe,
+      provider_state_override: holdSafe ? "CANCELLED" : providerState,
     });
 
     return json({
@@ -234,7 +238,7 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
     });
   }
 
-  // Pre-auth / pending: cancel the Revolut order if it exists.
+  // Pre-auth / pending: GET same order first (inside releaseHold), cancel when safe.
   if (orderId) {
     const release = await releaseHoldForPaymentSession(supabase, {
       providerOrderId: orderId,
@@ -251,8 +255,12 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
       release,
     });
     if (release.ok || release.released) {
+      // Same-order GET→cancel (or already CANCELLED) proven — pass CANCELLED so
+      // planReleaseOnCancel does not KEEP on stale session provider_state=null/PENDING
+      // (OR_BIBED_13 / payment-UI ghost reservation root cause).
       const recv = await reconcileReceivables({
         hold_safely_released: true,
+        provider_state_override: "CANCELLED",
       });
       return json({
         success: true,
@@ -263,6 +271,7 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
       });
     }
 
+    // UNKNOWN / cancel failed — retain RESERVED; same-order reconcile only.
     const recv = await reconcileReceivables({ hold_safely_released: false });
     return json({
       success: false,
