@@ -1324,7 +1324,7 @@ Deno.serve(async (req) => {
         }
 
         const { expired: didExpire, rpcError } =
-          await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase as unknown as Parameters<typeof expireTripWhenSearchExhaustedAndNotifyCustomer>[0], {
+          await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase as never, {
             tripId: trip.id,
             passengerId: trip.passenger_id ?? null,
           });
@@ -1336,7 +1336,7 @@ Deno.serve(async (req) => {
 
         if (didExpire === true) {
           await revokePendingOffersForTerminalTrip(
-            supabase as unknown as Parameters<typeof revokePendingOffersForTerminalTrip>[0],
+            supabase as never,
             trip.id,
             "trip_expired_no_driver",
           );
