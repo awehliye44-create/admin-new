@@ -738,6 +738,121 @@ export type Database = {
           },
         ]
       }
+      booking_payment_quotes: {
+        Row: {
+          buffer_pence: number
+          client_action_id: string
+          consent_version: number
+          consumed_payment_session_id: string | null
+          created_at: string
+          currency: string
+          customer_id: string
+          expires_at: string
+          fold_eligible: boolean
+          id: string
+          issued_at: string
+          metadata: Json
+          receivable_pence: number
+          ride_category: string
+          route_fingerprint: string
+          service_area_id: string | null
+          state: string
+          total_authorisation_pence: number
+          trip_fare_pence: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          buffer_pence?: number
+          client_action_id: string
+          consent_version?: number
+          consumed_payment_session_id?: string | null
+          created_at?: string
+          currency?: string
+          customer_id: string
+          expires_at: string
+          fold_eligible?: boolean
+          id?: string
+          issued_at?: string
+          metadata?: Json
+          receivable_pence: number
+          ride_category?: string
+          route_fingerprint: string
+          service_area_id?: string | null
+          state?: string
+          total_authorisation_pence: number
+          trip_fare_pence: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          buffer_pence?: number
+          client_action_id?: string
+          consent_version?: number
+          consumed_payment_session_id?: string | null
+          created_at?: string
+          currency?: string
+          customer_id?: string
+          expires_at?: string
+          fold_eligible?: boolean
+          id?: string
+          issued_at?: string
+          metadata?: Json
+          receivable_pence?: number
+          ride_category?: string
+          route_fingerprint?: string
+          service_area_id?: string | null
+          state?: string
+          total_authorisation_pence?: number
+          trip_fare_pence?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_payment_quotes_consumed_payment_session_id_fkey"
+            columns: ["consumed_payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_payment_quotes_consumed_payment_session_id_fkey"
+            columns: ["consumed_payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "booking_payment_quotes_consumed_payment_session_id_fkey"
+            columns: ["consumed_payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
+          {
+            foreignKeyName: "booking_payment_quotes_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_code_audit"
+            referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "booking_payment_quotes_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_riders_with_trip_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_payment_quotes_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       call_masking_call_logs: {
         Row: {
           booking_id: string
@@ -28838,6 +28953,17 @@ export type Database = {
       }
       confirm_invoice_smoke_send_slot: {
         Args: { p_smoke_run_id: string }
+        Returns: Json
+      }
+      consume_booking_payment_quote: {
+        Args: {
+          p_client_action_id: string
+          p_customer_id: string
+          p_expected_receivable_pence: number
+          p_gate_enabled?: boolean
+          p_payment_session_id: string
+          p_quote_id: string
+        }
         Returns: Json
       }
       consume_personal_voucher: {
