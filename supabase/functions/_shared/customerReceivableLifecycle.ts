@@ -170,6 +170,32 @@ export async function recordReceivableAfterDeclinedIncrement(
   }
 }
 
+/**
+ * Read-only sum of OPEN outstanding for consent quote matching.
+ * Does not reserve. Fail-open to 0 on read errors (fold still gate-blocked).
+ */
+export async function sumOpenReceivableOutstandingForCustomer(
+  supabase: SupabaseClient,
+  args: { customer_id: string; currency?: string | null },
+): Promise<number> {
+  const currency = String(args.currency ?? "gbp").trim().toLowerCase() || "gbp";
+  try {
+    const { data, error } = await supabase
+      .from("customer_receivables")
+      .select("outstanding_amount_pence")
+      .eq("customer_id", args.customer_id)
+      .eq("status", CUSTOMER_RECEIVABLE_STATUS.OPEN)
+      .eq("currency", currency);
+    if (error) return 0;
+    return (data ?? []).reduce(
+      (s, r) => s + Math.max(0, Math.round(Number(r.outstanding_amount_pence) || 0)),
+      0,
+    );
+  } catch {
+    return 0;
+  }
+}
+
 export async function reserveReceivablesBeforeProviderCall(
   supabase: SupabaseClient,
   args: {

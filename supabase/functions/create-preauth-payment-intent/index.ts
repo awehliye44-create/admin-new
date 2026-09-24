@@ -26,6 +26,7 @@ import {
   gatewayNotConfiguredResponse,
 } from "../_shared/paymentGatewayGuard.ts";
 import { createRevolutPreauthResponse } from "../_shared/revolutPreauth.ts";
+import { extractReceivableConsentFromPreauthBody } from "../_shared/customerReceivableConsentSSOT.ts";
 import { createPreauthEdgeTiming } from "../_shared/preauthEdgeTimingSSOT.ts";
 import {
   citBrowserEnvironmentErrorResponse,
@@ -580,6 +581,9 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
               buffer_pence: bufferPence,
               ...metadataExtra,
             },
+        receivableConsent: extractReceivableConsentFromPreauthBody(
+          body as Record<string, unknown>,
+        ),
         corsHeaders,
         logStep,
         edgeTiming,

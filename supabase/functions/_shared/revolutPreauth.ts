@@ -36,12 +36,20 @@ import { upsertPaymentSessionPending, markPaymentSessionAuthorised, markPaymentS
 import {
   releaseReceivablesOnCancelIfAllowed,
   reserveReceivablesBeforeProviderCall,
+  sumOpenReceivableOutstandingForCustomer,
 } from "./customerReceivableLifecycle.ts";
 import {
   PREAUTH_RECEIVABLE_ORDERING,
   RECEIVABLE_PERSISTENCE_UNAVAILABLE,
   isCustomerReceivablePreauthEligible,
 } from "./customerReceivableSSOT.ts";
+import {
+  RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+  extractReceivableConsentFromPreauthBody,
+  planCustomerReceivableFoldConsent,
+  readCustomerReceivableFoldGate,
+  type ReceivableConsentRequest,
+} from "./customerReceivableConsentSSOT.ts";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
 import { createBookingWaterfallCollector } from "./bookingWaterfallTelemetry.ts";
 import {
@@ -113,6 +121,11 @@ export type RevolutPreauthInput = {
   logStep: (step: string, details?: unknown) => void;
   /** Observability — created by create-preauth so receive→auth is measured. */
   edgeTiming?: PreauthEdgeTiming | null;
+  /**
+   * Visible consent capability from Customer Book request.
+   * Missing/old → NO fold (receivables stay OPEN; fare-only preauth).
+   */
+  receivableConsent?: ReceivableConsentRequest | null;
 };
 
 export async function createRevolutPreauthResponse(
@@ -142,9 +155,17 @@ export async function createRevolutPreauthResponse(
     corsHeaders,
     logStep,
     edgeTiming: edgeTimingInput,
+    receivableConsent: receivableConsentInput,
   } = input;
   /** May grow after durable receivable reservation (ride + buffer + debt). */
   let authorisedAmountPence = authorisedAmountPenceInput;
+  const receivableConsent: ReceivableConsentRequest =
+    receivableConsentInput
+    ?? extractReceivableConsentFromPreauthBody({
+      ...metadataExtra,
+      booking_snapshot: bookingSnapshotInput ?? undefined,
+      metadata: metadataExtra,
+    });
 
   let bookingSnapshot = bookingSnapshotInput;
   const edgeTiming = edgeTimingInput ?? createPreauthEdgeTiming();
@@ -633,6 +654,47 @@ export async function createRevolutPreauthResponse(
             corporate_account_id: metadataExtra.corporate_account_id ?? null,
           });
         } else {
+          // Fail-closed consent: NO_VISIBLE_CONSENT → NO_RECEIVABLE_FOLD.
+          // Gate default OFF; old apps missing consent version never fold.
+          const serverOutstanding = await sumOpenReceivableOutstandingForCustomer(
+            supabase,
+            { customer_id: customerId, currency: paymentCurrency },
+          );
+          const consentDecision = planCustomerReceivableFoldConsent({
+            customer_id: customerId,
+            consent: receivableConsent,
+            server_outstanding_pence: serverOutstanding,
+            gate: readCustomerReceivableFoldGate(),
+          });
+          logStep("Customer receivable fold consent decision", consentDecision.telemetry);
+
+          if (
+            "fail_closed" in consentDecision
+            && consentDecision.fail_closed
+            && consentDecision.reason === RECEIVABLE_CONSENT_REFRESH_REQUIRED
+          ) {
+            return new Response(JSON.stringify({
+              error:
+                "Your outstanding balance changed. Please refresh and try again.",
+              code: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+              error_code: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+              server_outstanding_pence: consentDecision.server_outstanding_pence,
+              displayed_outstanding_pence: consentDecision.displayed_outstanding_pence,
+              charge_state: "no_charge",
+            }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+              status: 409,
+            });
+          }
+
+          if (!consentDecision.allow_fold) {
+            logStep("Customer receivable fold skipped — consent/gate", {
+              reason: consentDecision.reason,
+              payment_session_id: paymentSessionId,
+              authorised_amount_pence: authorisedAmountPence,
+              note: "receivables_remain_OPEN_fare_only_preauth",
+            });
+          } else {
         const reserve = await reserveReceivablesBeforeProviderCall(supabase, {
           customer_id: customerId,
           payment_session_id: paymentSessionId,
@@ -697,7 +759,8 @@ export async function createRevolutPreauthResponse(
             },
           });
         }
-        } // end eligible reserve
+          } // end allow_fold reserve
+        } // end eligible
       }
     }
 
