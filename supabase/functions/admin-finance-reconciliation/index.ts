@@ -526,7 +526,7 @@ serve(async (req) => {
         serviceAreaId,
         allowedServiceAreaIds: modelScope.allowedServiceAreaIds,
       },
-    );
+    )) as unknown as typeof tripQuery;
 
     const financialPromise = resolvedRegionId
       ? supabase
@@ -901,7 +901,7 @@ serve(async (req) => {
             serviceAreaId,
             allowedServiceAreaIds: modelScope.allowedServiceAreaIds,
           },
-        );
+        )) as unknown as typeof auditSearchQuery;
 
         const term = search.trim();
         if (searchType === "id") {
