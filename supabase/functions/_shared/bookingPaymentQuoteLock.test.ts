@@ -253,6 +253,10 @@ Deno.test("migration + quote edge exist", async () => {
   );
   assertStringIncludes(mig, "booking_payment_quotes");
   assertStringIncludes(mig, "gate_off_rejects_unconsumed_fold_quote");
+  assertStringIncludes(mig, "booking_payment_quotes_immutable_financials");
+  assertStringIncludes(mig, "booking_payment_quotes_consumed_session_uidx");
+  assertStringIncludes(mig, "payment_session_customer_or_ca_mismatch");
+  assertStringIncludes(mig, "auth.role() IS DISTINCT FROM 'service_role'");
   const edge = await Deno.readTextFile(
     new URL("../customer-receivable-booking-quote/index.ts", import.meta.url),
   );

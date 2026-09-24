@@ -60,11 +60,54 @@ CREATE INDEX IF NOT EXISTS booking_payment_quotes_expires_idx
   ON public.booking_payment_quotes (expires_at)
   WHERE state = 'ISSUED';
 
+-- One payment session may consume at most one quote.
+CREATE UNIQUE INDEX IF NOT EXISTS booking_payment_quotes_consumed_session_uidx
+  ON public.booking_payment_quotes (consumed_payment_session_id)
+  WHERE consumed_payment_session_id IS NOT NULL;
+
 ALTER TABLE public.booking_payment_quotes ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON TABLE public.booking_payment_quotes FROM PUBLIC;
 REVOKE ALL ON TABLE public.booking_payment_quotes FROM anon, authenticated;
 GRANT ALL ON TABLE public.booking_payment_quotes TO service_role;
+
+-- Financial fields immutable after issuance (state/consume/expiry only).
+CREATE OR REPLACE FUNCTION public.booking_payment_quotes_immutable_financials()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO public
+AS $trg$
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.customer_id IS DISTINCT FROM OLD.customer_id
+       OR NEW.user_id IS DISTINCT FROM OLD.user_id
+       OR NEW.client_action_id IS DISTINCT FROM OLD.client_action_id
+       OR NEW.service_area_id IS DISTINCT FROM OLD.service_area_id
+       OR NEW.ride_category IS DISTINCT FROM OLD.ride_category
+       OR NEW.route_fingerprint IS DISTINCT FROM OLD.route_fingerprint
+       OR NEW.currency IS DISTINCT FROM OLD.currency
+       OR NEW.trip_fare_pence IS DISTINCT FROM OLD.trip_fare_pence
+       OR NEW.buffer_pence IS DISTINCT FROM OLD.buffer_pence
+       OR NEW.receivable_pence IS DISTINCT FROM OLD.receivable_pence
+       OR NEW.total_authorisation_pence IS DISTINCT FROM OLD.total_authorisation_pence
+       OR NEW.fold_eligible IS DISTINCT FROM OLD.fold_eligible
+       OR NEW.consent_version IS DISTINCT FROM OLD.consent_version
+       OR NEW.issued_at IS DISTINCT FROM OLD.issued_at
+    THEN
+      RAISE EXCEPTION 'booking_payment_quotes financial fields are immutable after issuance'
+        USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$trg$;
+
+DROP TRIGGER IF EXISTS booking_payment_quotes_immutable_financials_trg
+  ON public.booking_payment_quotes;
+CREATE TRIGGER booking_payment_quotes_immutable_financials_trg
+  BEFORE UPDATE ON public.booking_payment_quotes
+  FOR EACH ROW
+  EXECUTE FUNCTION public.booking_payment_quotes_immutable_financials();
 
 -- ─── RPC: consume quote (one consumer, FOR UPDATE) ────────────
 
@@ -116,6 +159,21 @@ BEGIN
       'ok', false,
       'error_code', 'BOOKING_QUOTE_INVALID',
       'note', 'customer_mismatch'
+    );
+  END IF;
+
+  -- Session must belong to the same customer + client_action (no cross-claim).
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.payment_sessions ps
+    WHERE ps.id = p_payment_session_id
+      AND ps.customer_id IS NOT DISTINCT FROM p_customer_id
+      AND ps.client_action_id IS NOT DISTINCT FROM p_client_action_id::text
+  ) THEN
+    RETURN jsonb_build_object(
+      'ok', false,
+      'error_code', 'BOOKING_QUOTE_INVALID',
+      'note', 'payment_session_customer_or_ca_mismatch'
     );
   END IF;
 
