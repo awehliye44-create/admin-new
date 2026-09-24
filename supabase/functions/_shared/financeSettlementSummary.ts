@@ -95,7 +95,7 @@ export type TripFinanceRow = {
   tip_pence: number | null;
   tip_amount_pence: number | null;
   payment_method: string | null;
-  provider_settlement_verified: boolean | null;
+  provider_settlement_verified?: boolean | null;
   driver_tier_commission_percent: number | null;
   commission_pct: number | null;
   completed_at: string | null;
