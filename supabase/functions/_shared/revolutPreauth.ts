@@ -1,3 +1,4 @@
+import type { CreateOrderParams } from "./revolutOrders.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   buildPreauthIdempotencyKey,
@@ -554,9 +555,8 @@ export async function createRevolutPreauthResponse(
     tripId: tripId ?? idempotencyKeySuffix,
     description: tripId ? `ONECAB trip ${tripId}` : "ONECAB ride pre-authorisation",
     metadata: orderMetadata,
-    customer: customer?.email
-      ? { id: customer.id, email: customer.email, full_name: customer.full_name }
-      : undefined,
+    // Cached Revolut customer refs may carry only an id; the order body builder accepts that.
+    customer: (customer ?? undefined) as CreateOrderParams["customer"],
   });
 
   try {
