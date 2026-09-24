@@ -14,8 +14,16 @@ export type CallLogContext = {
   duration_seconds?: number | null;
 };
 
+/** Mask a phone number for logs: keep only the last 3 digits. */
+export function maskPhoneForLog(value: string | null | undefined): string {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits) return "";
+  return `***${digits.slice(-3)}`;
+}
+
 export function logCallEvent(event: string, ctx: CallLogContext) {
-  console.log(`[call-masking] ${event}`, JSON.stringify(ctx));
+  const safe = { ...ctx, caller: maskPhoneForLog(ctx.caller), destination: maskPhoneForLog(ctx.destination) };
+  console.log(`[call-masking] ${event}`, JSON.stringify(safe));
 }
 
 export async function createCallLog(

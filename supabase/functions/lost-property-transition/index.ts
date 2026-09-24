@@ -131,13 +131,39 @@ serve(async (req: Request) => {
     if (action === "MARK_FOUND") {
       if (photos && Array.isArray(photos) && photos.length > 0) {
         const uploadedPaths: string[] = [];
+        if (photos.length > 6) {
+          return new Response(JSON.stringify({ error: "A maximum of 6 photos is allowed." }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+        const EXT_BY_MIME: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+        const detectMime = (b: Uint8Array): string | null => {
+          if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+          if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+          if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+              b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
+          return null;
+        };
         for (const photo of photos) {
-          const ext = photo.name?.split(".").pop() ?? "jpg";
-          const path = `lost-property/${case_id}/found/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-          const binary = Uint8Array.from(atob(photo.data), (c: string) => c.charCodeAt(0));
+          if (!photo || typeof photo.data !== "string" || photo.data.length > Math.ceil(MAX_PHOTO_BYTES * 4 / 3) + 16) {
+            continue;
+          }
+          let binary: Uint8Array;
+          try {
+            const clean = photo.data.includes(",") ? photo.data.split(",")[1] : photo.data;
+            binary = Uint8Array.from(atob(clean), (c: string) => c.charCodeAt(0));
+          } catch {
+            continue;
+          }
+          const mime = detectMime(binary);
+          if (!mime || binary.length > MAX_PHOTO_BYTES) continue;
+          // Server-generated filename; never trust caller-supplied names.
+          const path = `lost-property/${case_id}/found/${Date.now()}-${crypto.randomUUID()}.${EXT_BY_MIME[mime]}`;
           const { error: uploadErr } = await admin.storage
             .from("driver-documents")
-            .upload(path, binary, { contentType: photo.type || "image/jpeg" });
+            .upload(path, binary, { contentType: mime });
           if (uploadErr) {
             console.error("Photo upload error:", uploadErr);
             continue;
