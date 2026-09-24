@@ -6,7 +6,6 @@ import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { resolveDriverServiceAreaId } from "../_shared/resolveDriverServiceAreaId.ts";
-import { confirmCommissionWalletTopupCredit } from "../_shared/commissionWalletTopupConfirm.ts";
 import { createWaafiSandboxPayment } from "../_shared/commissionWalletProviders/waafiSandboxAdapter.ts";
 import {
   COMMISSION_TOPUP_STATUS,
@@ -212,8 +211,7 @@ Deno.serve(async (req) => {
             success: true,
             phase: 4,
             idempotent: true,
-            sandbox: true,
-            auto_confirmed: true,
+            auto_confirmed: false,
             topup: raced,
             balances,
             forbidden_actions: COMMISSION_WALLET_FORBIDDEN_ACTIONS,
@@ -254,31 +252,8 @@ Deno.serve(async (req) => {
       return json({ success: false, error: procErr.message }, 500);
     }
 
-    // Sandbox automatic confirmation (same path as webhook).
-    const confirm = await confirmCommissionWalletTopupCredit(supabase, {
-      topupId: topupId!,
-      provider: payment.provider,
-      providerTransactionId: payment.provider_transaction_id,
-      confirmedAmountMinor: plan.amount_minor,
-      confirmedCurrency: plan.currency,
-    });
-
-    if (!confirm.ok) {
-      await supabase
-        .from("driver_commission_wallet_topups")
-        .update({
-          status: COMMISSION_TOPUP_STATUS.FAILED,
-          updated_at: new Date().toISOString(),
-          metadata: { phase: 4, sandbox: true, confirm_error: confirm.error },
-        })
-        .eq("id", topupId!);
-      return json({
-        success: false,
-        error: confirm.error,
-        code: confirm.code,
-      }, confirm.status ?? 500);
-    }
-
+    // No automatic credit: the wallet is credited only by the verified provider
+    // confirmation path once the payment provider reports a completed payment.
     const { data: topupRow } = await supabase
       .from("driver_commission_wallet_topups")
       .select("id, status, amount_minor, currency, provider, provider_transaction_id, credited_ledger_entry_id, created_at")
@@ -289,17 +264,14 @@ Deno.serve(async (req) => {
 
     return json({
       success: true,
-      phase: 5,
-      idempotent: confirm.already_succeeded,
-      sandbox: true,
-      auto_confirmed: true,
+      phase: 4,
+      awaiting_provider_confirmation: true,
+      auto_confirmed: false,
       topup: topupRow,
-      ledger_entry_id: confirm.ledger_entry_id,
-      bonus: confirm.bonus ?? null,
       balances,
       topup_enabled: true,
       forbidden_actions: COMMISSION_WALLET_FORBIDDEN_ACTIONS,
-    });
+    }, 202);
   } catch (err) {
     console.error("[driver-commission-wallet-initiate-topup]", err);
     return json({
