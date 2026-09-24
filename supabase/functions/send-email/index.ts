@@ -1,6 +1,6 @@
-import { createClient } from 'npm:@supabase/supabase-js@2.57.2'
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors'
 import { z } from 'npm:zod@3.23.8'
+import { requireAdminOrService, escapeHtml } from '../_shared/callerGate.ts'
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 const FROM_ADDRESS = 'OneCab <noreply@onecab.net>'
@@ -28,27 +28,9 @@ Deno.serve(async (req) => {
     })
   }
 
-  // Require an authenticated caller
-  const authHeader = req.headers.get('Authorization')
-  if (!authHeader) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  }
-
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    { global: { headers: { Authorization: authHeader } } }
-  )
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  }
+  // Admin staff or internal service callers only.
+  const callerGate = await requireAdminOrService(req)
+  if (!callerGate.ok) return callerGate.response
 
   const parsed = BodySchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) {
@@ -57,7 +39,12 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
-  const { to, subject, html, text, replyTo } = parsed.data
+  const { to, subject, replyTo } = parsed.data
+  const text = parsed.data.text
+  // Raw HTML only from trusted internal service callers; staff-supplied HTML is escaped.
+  const html = parsed.data.html
+    ? (callerGate.isService ? parsed.data.html : `<pre style="font-family:inherit;white-space:pre-wrap">${escapeHtml(parsed.data.html)}</pre>`)
+    : undefined
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',

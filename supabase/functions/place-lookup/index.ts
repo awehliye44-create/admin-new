@@ -20,6 +20,7 @@ import {
   looksLikeStreetAddressName,
   normalizeV6StreetAddress,
 } from "../_shared/pinnedPoiSelection.ts";
+import { requireSignedInOrService } from "../_shared/callerGate.ts";
 
 /**
  * place-lookup — Mapbox-backed.
@@ -672,6 +673,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+  const callerGate = await requireSignedInOrService(req);
+  if (!callerGate.ok) return callerGate.response;
 
   try {
     const token = Deno.env.get("MAPBOX_PUBLIC_TOKEN");

@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { requireSignedInOrService } from "../_shared/callerGate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,6 +69,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+  const callerGate = await requireSignedInOrService(req);
+  if (!callerGate.ok) return callerGate.response;
 
   try {
     if (!MAPBOX_ACCESS_TOKEN) {

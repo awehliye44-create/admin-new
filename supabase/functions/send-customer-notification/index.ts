@@ -10,6 +10,7 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
+import { requireAdminOrService, escapeHtml } from "../_shared/callerGate.ts";
 
 interface NotificationPayload {
   customer_id?: string;
@@ -28,6 +29,8 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return handleCORSPreflight();
   }
+  const callerGate = await requireAdminOrService(req);
+  if (!callerGate.ok) return callerGate.response;
 
   const clientIP = getClientIP(req);
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);

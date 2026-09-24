@@ -6,6 +6,7 @@ import {
   scoreUkPostcodeSuggestion,
   ukOutwardAreasMatch,
 } from "../_shared/ukPostcodeSearch.ts";
+import { requireSignedInOrService } from "../_shared/callerGate.ts";
 
 interface LocationBias {
   lat: number;
@@ -41,6 +42,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+  const callerGate = await requireSignedInOrService(req);
+  if (!callerGate.ok) return callerGate.response;
 
   try {
     const body = (await req.json().catch(() => ({}))) as RequestBody;

@@ -1,9 +1,12 @@
 import { corsHeaders } from "../_shared/corsHeaders.ts";
+import { requireSignedInOrService } from "../_shared/callerGate.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  const callerGate = await requireSignedInOrService(req);
+  if (!callerGate.ok) return callerGate.response;
 
   try {
     const { description, category } = await req.json();
