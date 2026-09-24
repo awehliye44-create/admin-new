@@ -304,8 +304,9 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       settings,
     }, 409);
   }
+  const dueOccurrence = occurrence as ScheduleOccurrence;
 
-  const occurrenceKey = occurrence.schedule_occurrence_key;
+  const occurrenceKey = dueOccurrence.schedule_occurrence_key;
 
   const { data: claimRaw, error: claimErr } = await supabase.rpc(
     "claim_weekly_payout_occurrence",
@@ -333,9 +334,9 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
   const occurrencePeriod = freezeWeeklyOccurrencePeriod({
     frozen_period_start: claim.period_start != null ? String(claim.period_start) : null,
     frozen_period_end: claim.period_end != null ? String(claim.period_end) : null,
-    scheduled_local_at: occurrence.scheduled_local_at,
+    scheduled_local_at: dueOccurrence.scheduled_local_at,
     schedule_occurrence_key: occurrenceKey,
-    timezone: occurrence.timezone,
+    timezone: dueOccurrence.timezone,
   });
   if (claim.period_start == null || claim.period_end == null) {
     await supabase.from("weekly_payout_occurrence_runs").update({
@@ -634,7 +635,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
   requiredBatchPence = moneyAmounts.required_batch_pence;
 
   if (!batchId && !dryRun && moneyAmounts.items.length > 0) {
-    const runDate = occurrence.scheduled_utc_at.slice(0, 10);
+    const runDate = dueOccurrence.scheduled_utc_at.slice(0, 10);
     const { data: batch, error: batchError } = await supabase
       .from("payout_batches")
       .insert({
@@ -644,14 +645,14 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
         total_drivers: moneyAmounts.items.length,
         total_amount_pence: requiredBatchPence,
         eligible_driver_count: moneyAmounts.items.length,
-        service_area_id: occurrence.service_area_id ?? resolvedServiceAreaId,
-        schedule_id: occurrence.schedule_id,
+        service_area_id: dueOccurrence.service_area_id ?? resolvedServiceAreaId,
+        schedule_id: dueOccurrence.schedule_id,
         schedule_occurrence_key: occurrenceKey,
-        frequency: occurrence.frequency,
-        scheduled_local_at: occurrence.scheduled_local_at,
-        scheduled_utc_at: occurrence.scheduled_utc_at,
-        timezone: occurrence.timezone,
-        currency: occurrence.currency,
+        frequency: dueOccurrence.frequency,
+        scheduled_local_at: dueOccurrence.scheduled_local_at,
+        scheduled_utc_at: dueOccurrence.scheduled_utc_at,
+        timezone: dueOccurrence.timezone,
+        currency: dueOccurrence.currency,
         notes: scheduledRun
           ? "created_by=pg_cron_orchestrator"
           : "created_by=admin_orchestrator",
@@ -870,7 +871,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
     const resultJson = {
       dry_run: dryRun,
       schedule_occurrence_key: occurrenceKey,
-      scheduled_local_at: occurrence.scheduled_local_at,
+      scheduled_local_at: dueOccurrence.scheduled_local_at,
       period_start: occurrencePeriod.period_start,
       period_end: occurrencePeriod.period_end,
       period_timezone: occurrencePeriod.timezone,

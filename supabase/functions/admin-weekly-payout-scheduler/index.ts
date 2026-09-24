@@ -260,12 +260,13 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const dueOccurrence = occurrence as ScheduleOccurrence;
 
     // Idempotent reuse
     const { data: existingBatch } = await supabase
       .from("payout_batches")
       .select("*")
-      .eq("schedule_occurrence_key", occurrence.schedule_occurrence_key)
+      .eq("schedule_occurrence_key", dueOccurrence.schedule_occurrence_key)
       .maybeSingle();
 
     if (existingBatch?.id && !dryRun) {
@@ -485,7 +486,7 @@ serve(async (req) => {
     }
 
     const totalAmount = planned.reduce((s, p) => s + p.amount_pence, 0);
-    const runDate = occurrence.scheduled_utc_at.slice(0, 10);
+    const runDate = dueOccurrence.scheduled_utc_at.slice(0, 10);
 
     if (dryRun) {
       assertSlice5MoneySafety({
@@ -502,12 +503,12 @@ serve(async (req) => {
         batch_id: null,
         batch_status: SLICE5_BATCH_STATUS.BLOCKED_EXECUTION_DISABLED,
         batch_status_label: ADMIN_EXECUTION_DISABLED_LABEL,
-        schedule_occurrence_key: occurrence.schedule_occurrence_key,
-        schedule_id: occurrence.schedule_id,
-        scheduled_local_at: occurrence.scheduled_local_at,
-        scheduled_utc_at: occurrence.scheduled_utc_at,
-        timezone: occurrence.timezone,
-        currency: occurrence.currency,
+        schedule_occurrence_key: dueOccurrence.schedule_occurrence_key,
+        schedule_id: dueOccurrence.schedule_id,
+        scheduled_local_at: dueOccurrence.scheduled_local_at,
+        scheduled_utc_at: dueOccurrence.scheduled_utc_at,
+        timezone: dueOccurrence.timezone,
+        currency: dueOccurrence.currency,
         eligible_driver_count: planned.length,
         total_amount_pence: totalAmount,
         items: planned.map((p) => ({
@@ -538,14 +539,14 @@ serve(async (req) => {
         total_amount_pence: 0,
         eligible_driver_count: 0,
         created_by: actorUserId,
-        service_area_id: occurrence.service_area_id ?? serviceAreaId,
-        schedule_id: occurrence.schedule_id,
-        schedule_occurrence_key: occurrence.schedule_occurrence_key,
-        frequency: occurrence.frequency,
-        scheduled_local_at: occurrence.scheduled_local_at,
-        scheduled_utc_at: occurrence.scheduled_utc_at,
-        timezone: occurrence.timezone,
-        currency: occurrence.currency,
+        service_area_id: dueOccurrence.service_area_id ?? serviceAreaId,
+        schedule_id: dueOccurrence.schedule_id,
+        schedule_occurrence_key: dueOccurrence.schedule_occurrence_key,
+        frequency: dueOccurrence.frequency,
+        scheduled_local_at: dueOccurrence.scheduled_local_at,
+        scheduled_utc_at: dueOccurrence.scheduled_utc_at,
+        timezone: dueOccurrence.timezone,
+        currency: dueOccurrence.currency,
         notes: scheduledRun
           ? "created_by=pg_cron_scheduler slice5"
           : "created_by=admin slice5",
@@ -560,7 +561,7 @@ serve(async (req) => {
         const { data: raced } = await supabase
           .from("payout_batches")
           .select("*")
-          .eq("schedule_occurrence_key", occurrence.schedule_occurrence_key)
+          .eq("schedule_occurrence_key", dueOccurrence.schedule_occurrence_key)
           .maybeSingle();
         if (raced?.id) {
           return new Response(JSON.stringify({
@@ -610,7 +611,7 @@ serve(async (req) => {
       wallet_snapshot_available_pence: p.wallet_snapshot_available_pence,
       eligibility_snapshot: p.eligibility_snapshot,
       provider_request_id: itemProviderRequestId(batchId, p.driver_id),
-      idempotency_key: itemIdempotencyKey(occurrence.schedule_occurrence_key, p.driver_id),
+      idempotency_key: itemIdempotencyKey(dueOccurrence.schedule_occurrence_key, p.driver_id),
     }));
 
     if (itemRows.length > 0) {
@@ -707,12 +708,12 @@ serve(async (req) => {
       batch_id: batchId,
       batch_status: SLICE5_BATCH_STATUS.BLOCKED_EXECUTION_DISABLED,
       batch_status_label: ADMIN_EXECUTION_DISABLED_LABEL,
-      schedule_occurrence_key: occurrence.schedule_occurrence_key,
-      schedule_id: occurrence.schedule_id,
-      scheduled_local_at: occurrence.scheduled_local_at,
-      scheduled_utc_at: occurrence.scheduled_utc_at,
-      timezone: occurrence.timezone,
-      currency: occurrence.currency,
+      schedule_occurrence_key: dueOccurrence.schedule_occurrence_key,
+      schedule_id: dueOccurrence.schedule_id,
+      scheduled_local_at: dueOccurrence.scheduled_local_at,
+      scheduled_utc_at: dueOccurrence.scheduled_utc_at,
+      timezone: dueOccurrence.timezone,
+      currency: dueOccurrence.currency,
       eligible_driver_count: planned.length,
       total_amount_pence: totalAmount,
       items: savedItems ?? [],
