@@ -1401,9 +1401,11 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       provider_payment_id: providerPaymentId,
       provider_state: providerState,
       provider_request_id: validated.normalized.provider_request_id,
-      amount_pence: validated.normalized.amount_pence,
-      currency: validated.normalized.currency,
     });
+    // mapProviderSubmissionOutcome carries no provider failure detail; the RPC
+    // records null and provider truth is reconciled later.
+    const outcomeFailureCode: string | null = null;
+    const outcomeFailureReason: string | null = null;
 
     await supabase.rpc("finalize_driver_payout_submission", {
       p_payout_item_id: payoutItemId,
@@ -1411,8 +1413,8 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       p_execution_status: outcome.execution_status,
       p_provider_payment_id: providerPaymentId,
       p_provider_state: providerState,
-      p_provider_failure_code: outcome.failure_code,
-      p_provider_failure_reason_safe: outcome.failure_reason,
+      p_provider_failure_code: outcomeFailureCode,
+      p_provider_failure_reason_safe: outcomeFailureReason,
       p_evidence_redacted: evidence,
       p_release_reservation: outcome.release_reservation === true,
     });
@@ -1422,7 +1424,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
         driver_id: p.driver_id,
         payout_item_id: payoutItemId,
         status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
-        error: outcome.failure_code,
+        error: outcomeFailureCode,
       });
       continue;
     }
@@ -1434,7 +1436,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
         status: timedOut
           ? ORCHESTRATOR_ITEM_STATUS.SUBMITTING
           : ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
-        error: outcome.failure_code ?? ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
+        error: outcomeFailureCode ?? ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
         provider_payment_id: providerPaymentId,
         note: timedOut
           ? "Timeout/unknown â reservation kept; no debit until provider truth known"
