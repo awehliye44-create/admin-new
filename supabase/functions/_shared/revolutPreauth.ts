@@ -45,6 +45,23 @@ import {
   isCustomerReceivablePreauthEligible,
 } from "./customerReceivableSSOT.ts";
 import {
+  BOOKING_QUOTE_INVALID,
+  BOOKING_PAYMENT_QUOTE_ERROR_COPY,
+  FARE_QUOTE_CHANGED,
+  FARE_QUOTE_EXPIRED,
+  OUTSTANDING_BALANCE_CHANGED,
+  buildBookingPaymentRouteFingerprint,
+  consumeBookingPaymentQuoteViaRpc,
+  extractBookingPaymentQuoteIdFromBody,
+  loadBookingPaymentQuote,
+  resolvePreauthAmountsFromQuote,
+  rollbackOrphanPendingPaymentSession,
+  bookingPaymentQuoteErrorPayload,
+  validateBookingPaymentQuoteForPreauth,
+  type BookingPaymentQuoteErrorCode,
+  type BookingPaymentQuoteRow,
+} from "./bookingPaymentQuoteSSOT.ts";
+import {
   RECEIVABLE_CONSENT_REFRESH_REQUIRED,
   RECEIVABLE_FOLD_UNAVAILABLE,
   buildReceivablePreauthResponseFields,
@@ -587,6 +604,100 @@ export async function createRevolutPreauthResponse(
     }
     bookingSnapshot = snapCheck.snapshot as unknown as Record<string, unknown>;
 
+    // Opaque booking-payment quote — freeze amounts before any session insert.
+    // NO_REPRICE_AFTER_BOOK_TAP: quoted total wins over live estimate-fare.
+    let rideFarePence = estimatedTotalPence;
+    let bufferPenceForSession = bufferPence;
+    let opaqueQuote: BookingPaymentQuoteRow | null = null;
+    const opaqueQuoteId = String(
+      receivableConsent.booking_payment_quote_id ?? "",
+    ).trim() || null;
+
+    const quoteReject = async (
+      code: BookingPaymentQuoteErrorCode,
+      sessionToRollback: string | null,
+      extra?: Record<string, unknown>,
+    ) => {
+      await rollbackOrphanPendingPaymentSession(supabase, sessionToRollback);
+      return new Response(JSON.stringify(bookingPaymentQuoteErrorPayload(code, extra)), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 409,
+      });
+    };
+
+    if (opaqueQuoteId) {
+      if (!customerId || !clientActionId) {
+        return await quoteReject(BOOKING_QUOTE_INVALID, null, {
+          note: "quote_requires_customer_and_client_action",
+        });
+      }
+      opaqueQuote = await loadBookingPaymentQuote(supabase, opaqueQuoteId);
+      if (!opaqueQuote) {
+        return await quoteReject(BOOKING_QUOTE_INVALID, null, { note: "quote_not_found" });
+      }
+      const snap = bookingSnapshot ?? {};
+      const routeFp = buildBookingPaymentRouteFingerprint({
+        service_area_id:
+          metadataExtra.service_area_id
+          ?? (snap.service_area_id != null ? String(snap.service_area_id) : null),
+        ride_category: String(
+          snap.vehicle_type_id ?? snap.selected_service_id ?? "",
+        ),
+        vehicle_type_id: String(snap.vehicle_type_id ?? ""),
+        pickup: (snap.pickup ?? null) as { lat?: unknown; lng?: unknown } | null,
+        dropoff: (snap.dropoff ?? null) as { lat?: unknown; lng?: unknown } | null,
+        stops: Array.isArray(snap.stops)
+          ? snap.stops as Array<{ lat?: unknown; lng?: unknown }>
+          : [],
+        voucher_id: snap.voucher_id != null ? String(snap.voucher_id) : null,
+        currency: paymentCurrency,
+      });
+      const openRecv = await sumOpenReceivableOutstandingForCustomer(supabase, {
+        customer_id: customerId,
+        currency: paymentCurrency,
+      });
+      const frozenGateEarly = readCustomerReceivableFoldGate();
+      const validated = validateBookingPaymentQuoteForPreauth({
+        quote: opaqueQuote,
+        customer_id: customerId,
+        client_action_id: clientActionId,
+        route_fingerprint: routeFp,
+        ride_category: opaqueQuote.ride_category,
+        currency: paymentCurrency,
+        open_receivable_pence: openRecv,
+        gate_enabled: frozenGateEarly.enabled,
+      });
+      if (!validated.ok) {
+        logStep("OPAQUE_BOOKING_QUOTE_REJECTED", {
+          code: validated.code,
+          note: validated.note,
+          quote_id: opaqueQuoteId,
+        });
+        return await quoteReject(validated.code, null, { note: validated.note });
+      }
+      const amounts = resolvePreauthAmountsFromQuote(validated.quote);
+      rideFarePence = amounts.trip_fare_pence;
+      bufferPenceForSession = amounts.buffer_pence;
+      authorisedAmountPence = amounts.total_authorisation_pence;
+      opaqueQuote = validated.quote;
+      logStep("OPAQUE_BOOKING_QUOTE_FROZEN", {
+        quote_id: opaqueQuote.id,
+        trip_fare_pence: rideFarePence,
+        total_authorisation_pence: authorisedAmountPence,
+        live_server_estimate_ignored_pence: estimatedTotalPence,
+      });
+    } else if (
+      Number(receivableConsent.customer_receivable_displayed_outstanding_pence ?? 0) > 0
+      || (
+        Number(receivableConsent.customer_receivable_displayed_total_authorisation_pence ?? 0)
+        > Number(receivableConsent.customer_receivable_displayed_trip_fare_pence ?? 0)
+      )
+    ) {
+      return await quoteReject(BOOKING_QUOTE_INVALID, null, {
+        note: "receivable_expected_requires_opaque_quote",
+      });
+    }
+
     // ── Customer receivable SSOT ordering (lock): ─────────────────────────
     // CREATE_PENDING_PAYMENT_SESSION → lock → select OPEN → RESERVED allocs
     // → commit → fare+reserved → CALL_REVOLUT_PREAUTH
@@ -607,8 +718,8 @@ export async function createRevolutPreauthResponse(
         providerOrderId: null,
         idempotencyKey,
         authorisedAmountPence,
-        estimatedTotalPence,
-        bufferPence,
+        estimatedTotalPence: rideFarePence,
+        bufferPence: bufferPenceForSession,
         fareSnapshot: fareSnapshot ?? {},
         bookingSnapshot: bookingSnapshot ?? {},
         platformPaymentMethodId: resolvedPlatformPaymentMethodId ?? null,
@@ -618,6 +729,7 @@ export async function createRevolutPreauthResponse(
           idempotency_key_suffix: idempotencyKeySuffix,
           idempotency_key: idempotencyKey,
           preauth_receivable_ordering: PREAUTH_RECEIVABLE_ORDERING,
+          booking_payment_quote_id: opaqueQuote?.id ?? null,
         },
       });
       paymentSessionId = pendingSession.sessionId;
@@ -638,7 +750,71 @@ export async function createRevolutPreauthResponse(
         });
       }
 
-      if (customerId) {
+      if (opaqueQuote && customerId) {
+        const frozenGateForConsume = readCustomerReceivableFoldGate();
+        const consumed = await consumeBookingPaymentQuoteViaRpc(supabase, {
+          quote_id: opaqueQuote.id,
+          customer_id: customerId,
+          client_action_id: clientActionId,
+          payment_session_id: paymentSessionId,
+          expected_receivable_pence: opaqueQuote.receivable_pence,
+          gate_enabled: frozenGateForConsume.enabled,
+        });
+        if (!consumed.ok) {
+          logStep("OPAQUE_BOOKING_QUOTE_CONSUME_FAILED", {
+            code: consumed.code,
+            note: consumed.note,
+            quote_id: opaqueQuote.id,
+            payment_session_id: paymentSessionId,
+          });
+          return await quoteReject(consumed.code, paymentSessionId, { note: consumed.note });
+        }
+        if (consumed.idempotent) {
+          authorisedAmountPence = consumed.total_authorisation_pence;
+          paymentSessionId = consumed.payment_session_id;
+        }
+        // Opaque path: fold only when quote.fold_eligible; skip legacy consent recompute.
+        if (opaqueQuote.fold_eligible && opaqueQuote.receivable_pence > 0) {
+          receivableFoldAdmission = "admitted";
+          receivableFoldResult = "opaque_quote_consumed";
+          receivableConsentVersionOut = opaqueQuote.consent_version;
+          const reserve = await reserveReceivablesBeforeProviderCall(supabase, {
+            customer_id: customerId,
+            payment_session_id: paymentSessionId,
+            recovery_trip_id: tripId,
+            currency: paymentCurrency,
+            ride_fare_pence: rideFarePence,
+            buffer_pence: bufferPenceForSession,
+          });
+          if (!reserve.ok) {
+            await rollbackOrphanPendingPaymentSession(supabase, paymentSessionId);
+            return new Response(JSON.stringify({
+              error:
+                "We couldn't complete your booking. Outstanding balance could not be reserved.",
+              code: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
+              error_code: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
+              charge_state: "no_charge",
+            }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+              status: 503,
+            });
+          }
+          receivableReservedTotal = reserve.data.reserved_total_pence;
+          authorisedAmountPence = opaqueQuote.total_authorisation_pence;
+          if (receivableReservedTotal !== opaqueQuote.receivable_pence) {
+            await releaseReceivablesOnCancelIfAllowed(supabase, {
+              payment_session_id: paymentSessionId,
+              provider_order_id: null,
+              provider_state: null,
+              has_capture: false,
+              reason: "quoted_receivable_reserve_mismatch",
+            });
+            return await quoteReject(OUTSTANDING_BALANCE_CHANGED, paymentSessionId, {
+              note: "reserved_ne_quoted_receivable",
+            });
+          }
+        }
+      } else if (customerId) {
         const eligibility = isCustomerReceivablePreauthEligible({
           customer_id: customerId,
           booking_source:
@@ -681,29 +857,31 @@ export async function createRevolutPreauthResponse(
           logStep("Customer receivable fold consent decision", consentDecision.telemetry);
 
           if ("fail_closed" in consentDecision && consentDecision.fail_closed) {
-            const unavailable =
-              consentDecision.reason === RECEIVABLE_FOLD_UNAVAILABLE;
+            const tripFareMismatch =
+              String(consentDecision.telemetry?.note ?? "") === "displayed_trip_fare_mismatch";
+            const typedCode: BookingPaymentQuoteErrorCode = tripFareMismatch
+              ? FARE_QUOTE_CHANGED
+              : consentDecision.reason === RECEIVABLE_FOLD_UNAVAILABLE
+              ? RECEIVABLE_FOLD_UNAVAILABLE
+              : OUTSTANDING_BALANCE_CHANGED;
+            await rollbackOrphanPendingPaymentSession(supabase, paymentSessionId);
             return new Response(JSON.stringify({
-              error: unavailable
-                ? "Outstanding balance cannot be added to this booking right now. Please refresh and try again."
-                : "Your outstanding balance changed. Please refresh and try again.",
-              code: consentDecision.reason,
-              error_code: consentDecision.reason,
-              server_outstanding_pence: consentDecision.server_outstanding_pence,
-              displayed_outstanding_pence: consentDecision.displayed_outstanding_pence,
-              charge_state: "no_charge",
-              ...buildReceivablePreauthResponseFields({
-                trip_fare_pence: estimatedTotalPence,
-                receivable_reserved_pence: 0,
-                total_authorisation_pence: estimatedTotalPence + bufferPence,
-                quote_version:
-                  typeof consentDecision.telemetry.expected_quote_version === "string"
-                    ? consentDecision.telemetry.expected_quote_version
-                    : null,
-                fold_admission: "rejected",
-                fold_result: consentDecision.reason,
+              ...bookingPaymentQuoteErrorPayload(typedCode, {
+                server_outstanding_pence: consentDecision.server_outstanding_pence,
+                displayed_outstanding_pence: consentDecision.displayed_outstanding_pence,
+                ...buildReceivablePreauthResponseFields({
+                  trip_fare_pence: rideFarePence,
+                  receivable_reserved_pence: 0,
+                  total_authorisation_pence: rideFarePence + bufferPenceForSession,
+                  quote_version:
+                    typeof consentDecision.telemetry.expected_quote_version === "string"
+                      ? consentDecision.telemetry.expected_quote_version
+                      : null,
+                  fold_admission: "rejected",
+                  fold_result: consentDecision.reason,
+                }),
+                ...consentDecision.telemetry,
               }),
-              ...consentDecision.telemetry,
             }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
               status: 409,
