@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { corsHeaders } from "../_shared/corsHeaders.ts";
+import { requireSignedInOrService } from "../_shared/callerGate.ts";
 
 interface RouteRequest {
   originLat: number;
@@ -291,6 +292,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+  const callerGate = await requireSignedInOrService(req);
+  if (!callerGate.ok) return callerGate.response;
 
   const requestStart = Date.now();
 

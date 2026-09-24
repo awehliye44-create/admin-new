@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { requireAdminOrService, escapeHtml } from "../_shared/callerGate.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
@@ -22,6 +23,8 @@ const handler = async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+  const callerGate = await requireAdminOrService(req);
+  if (!callerGate.ok) return callerGate.response;
 
   try {
     const supabaseClient = createClient(
@@ -29,7 +32,11 @@ const handler = async (req: Request): Promise<Response> => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    const { driver_id, document_name, status, rejection_reason }: NotificationRequest = await req.json();
+    const raw: NotificationRequest = await req.json();
+    const driver_id = raw.driver_id;
+    const status = raw.status;
+    const document_name = escapeHtml(String(raw.document_name ?? "").slice(0, 200));
+    const rejection_reason = raw.rejection_reason ? escapeHtml(String(raw.rejection_reason).slice(0, 1000)) : "";
     
     console.log(`Processing notification for driver: ${driver_id}, document: ${document_name}, status: ${status}`);
 
@@ -67,7 +74,7 @@ const handler = async (req: Request): Promise<Response> => {
             </div>
             <div style="padding: 30px;">
               <p style="color: #374151; font-size: 16px; line-height: 1.6;">
-                Hi ${driver.first_name},
+                Hi ${escapeHtml(driver.first_name)},
               </p>
               <p style="color: #374151; font-size: 16px; line-height: 1.6;">
                 Great news! Your document <strong>"${document_name}"</strong> has been reviewed and approved by our team.
@@ -104,7 +111,7 @@ const handler = async (req: Request): Promise<Response> => {
             </div>
             <div style="padding: 30px;">
               <p style="color: #374151; font-size: 16px; line-height: 1.6;">
-                Hi ${driver.first_name},
+                Hi ${escapeHtml(driver.first_name)},
               </p>
               <p style="color: #374151; font-size: 16px; line-height: 1.6;">
                 Unfortunately, your document <strong>"${document_name}"</strong> could not be approved at this time.

@@ -24,6 +24,7 @@ import {
   readWhatsAppSendCredentials,
   sendWhatsAppTextMessage,
 } from "../_shared/whatsappOutbound.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const EXPIRY_MESSAGE =
   "*ONECAB*\nYour booking session has expired.\n\nPlease start a new booking if you still need a ride.";
@@ -48,18 +49,9 @@ Deno.serve(async (req) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceKey) return json({ error: "db_unconfigured" }, 503);
 
-  // Auth: service-role Bearer only (pg_cron caller) or any valid JWT.
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
-
-  let okAuth = bearer === serviceKey;
-  if (!okAuth && bearer.split(".").length === 3) {
-    try {
-      const payload = JSON.parse(atob(bearer.split(".")[1]!));
-      if (payload?.role === "service_role") okAuth = true;
-    } catch { /* ignore */ }
-  }
-  if (!okAuth) return json({ error: "unauthorized" }, 401);
+  // Auth: verified cron secret / service-role only — never decode unverified JWT payloads.
+  const cronAuth = await assertCronOrServiceRoleAuth(req);
+  if (!cronAuth.ok) return cronAuth.response;
 
   const svcClient = createClient(supabaseUrl, serviceKey);
   const creds = readWhatsAppSendCredentials();

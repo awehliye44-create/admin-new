@@ -89,7 +89,7 @@ function parseStopsList(body: CalculateFareRequest): LatLng[] {
 }
 
 async function timedMs<T>(
-  run: () => Promise<T>,
+  run: () => PromiseLike<T>,
 ): Promise<{ value: T; ms: number }> {
   const start = Date.now();
   const value = await run();

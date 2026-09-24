@@ -343,7 +343,11 @@ serve(async (req) => {
             driver_status: r.driver_status,
             account_id: r.account_id,
             setup_error: r.setup_error,
-          } as typeof driverBalances[number]);
+            commission_wallet_balance_minor:
+              (Number(r.purchased_balance_minor) || 0) + (Number(r.promotional_balance_minor) || 0),
+            withdrawable_balance_minor: 0 as const,
+            payout_due_minor: 0 as const,
+          } as unknown as typeof driverBalances[number]);
         }
       }
     }

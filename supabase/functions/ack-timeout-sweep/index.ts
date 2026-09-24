@@ -7,6 +7,7 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 120, windowMs: 60000, keyPrefix: "ack-timeout-sweep" };
 
@@ -61,6 +62,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return handleCORSPreflight();
   }
+  const cronAuth = await assertCronOrServiceRoleAuth(req);
+  if (!cronAuth.ok) return cronAuth.response;
 
   const clientIP = getClientIP(req);
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);

@@ -459,14 +459,14 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       await Promise.allSettled([
       supabase
         .from("trips")
-        .select("id, trip_code, status, special_instructions")
+        .select("id, trip_code, status, special_instructions, customer_id")
         .eq("client_action_id", body.client_action_id)
         .limit(1),
       skipPlatformPreauth || !body.payment_intent_id
-        ? Promise.resolve({ data: [] as { id: string; trip_code: string; status: string; special_instructions?: string | null }[] })
+        ? Promise.resolve({ data: [] as { id: string; trip_code: string; status: string; special_instructions?: string | null; customer_id?: string | null }[] })
         : supabase
           .from("trips")
-          .select("id, trip_code, status, special_instructions")
+          .select("id, trip_code, status, special_instructions, customer_id")
           .eq("provider_order_id", body.payment_intent_id)
           .limit(1),
       skipPlatformPreauth
@@ -500,7 +500,16 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       // Webhook finalize often wins Apple Pay races. If the stored trip has no
       // pickup note but CTAP body / session snapshot still has one, backfill it.
       // (create-preauth must also preserve snapshot.special_instructions.)
-      if (!String((idempotentTrip as { special_instructions?: string | null }).special_instructions ?? "").trim()) {
+      const callerCustomerId =
+        customerRowsRes.status === "fulfilled" ? (customerRowsRes.value.data?.[0]?.id ?? null) : null;
+      const tripOwnedByCaller = Boolean(
+        callerCustomerId
+        && (idempotentTrip as { customer_id?: string | null }).customer_id === callerCustomerId,
+      );
+      if (
+        tripOwnedByCaller
+        && !String((idempotentTrip as { special_instructions?: string | null }).special_instructions ?? "").trim()
+      ) {
         let note = String(body.special_instructions ?? "").trim();
         if (!note) {
           const session =

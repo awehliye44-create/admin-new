@@ -68,6 +68,11 @@ type CampaignRow = Record<string, unknown> & {
   sent_count?: number | null;
   delivered_count?: number | null;
   failed_count?: number | null;
+  target_scope: string | null;
+  target_region_id: string | null;
+  target_service_area_id: string | null;
+  target_user_ids: unknown;
+  target_user_segment?: string | null;
 };
 
 async function getAccessToken(serviceAccountJson: string): Promise<string> {

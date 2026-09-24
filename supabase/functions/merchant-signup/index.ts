@@ -24,13 +24,24 @@ const BodySchema = z.object({
   delivery_radius_km: z.number().min(0).max(100).optional(),
   prep_time_minutes: z.number().int().min(0).max(600).optional(),
   logo_base64: z.string().max(8_000_000).optional(),
-  logo_mime: z.string().max(80).optional(),
+  logo_mime: z.enum(['image/png', 'image/jpeg', 'image/webp']).optional(),
   banner_base64: z.string().max(12_000_000).optional(),
-  banner_mime: z.string().max(80).optional(),
+  banner_mime: z.enum(['image/png', 'image/jpeg', 'image/webp']).optional(),
 });
 
 const sanitize = (s: string) =>
   s.replace(/[\u0000-\u001F\u007F]/g, '').replace(/<[^>]*>/g, '').trim();
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** Verify real image magic bytes so a declared MIME cannot smuggle other content. */
+function detectImageMime(bytes: Uint8Array): 'image/png' | 'image/jpeg' | 'image/webp' | null {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp';
+  return null;
+}
 
 function b64ToBytes(b64: string): Uint8Array {
   const clean = b64.includes(',') ? b64.split(',')[1] : b64;
@@ -129,9 +140,13 @@ Deno.serve(async (req) => {
   try {
     if (p.logo_base64) {
       const bytes = b64ToBytes(p.logo_base64);
+      const detected = detectImageMime(bytes);
+      if (!detected || bytes.length > MAX_IMAGE_BYTES || (p.logo_mime && p.logo_mime !== detected)) {
+        throw new Error('invalid_logo_image');
+      }
       const path = `${merchant.id}/logo-${Date.now()}`;
       const { error } = await supabase.storage.from('merchant-logos')
-        .upload(path, bytes, { contentType: p.logo_mime ?? 'image/png', upsert: true });
+        .upload(path, bytes, { contentType: detected, upsert: true });
       if (error) console.error('[merchant-signup] logo upload error', error.message);
       else {
         const { data } = supabase.storage.from('merchant-logos').getPublicUrl(path);
@@ -140,9 +155,13 @@ Deno.serve(async (req) => {
     }
     if (p.banner_base64) {
       const bytes = b64ToBytes(p.banner_base64);
+      const detected = detectImageMime(bytes);
+      if (!detected || bytes.length > MAX_IMAGE_BYTES || (p.banner_mime && p.banner_mime !== detected)) {
+        throw new Error('invalid_banner_image');
+      }
       const path = `${merchant.id}/banner-${Date.now()}`;
       const { error } = await supabase.storage.from('merchant-banners')
-        .upload(path, bytes, { contentType: p.banner_mime ?? 'image/png', upsert: true });
+        .upload(path, bytes, { contentType: detected, upsert: true });
       if (error) console.error('[merchant-signup] banner upload error', error.message);
       else {
         const { data } = supabase.storage.from('merchant-banners').getPublicUrl(path);

@@ -6,6 +6,7 @@ import {
   errorResponse,
 } from "../_shared/security.ts";
 import { RIDE_OFFER_IOS_ALERT_SOUND } from "../_shared/rideOfferPushCopy.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 /** Android: delay between successive reminders in ms. */
 const ANDROID_REMINDER_DELAY_SECONDS = 4;
@@ -202,6 +203,8 @@ async function validateOfferActionable(
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return handleCORSPreflight();
+  const cronAuth = await assertCronOrServiceRoleAuth(req);
+  if (!cronAuth.ok) return cronAuth.response;
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

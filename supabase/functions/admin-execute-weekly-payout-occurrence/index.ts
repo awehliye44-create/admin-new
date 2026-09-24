@@ -304,8 +304,9 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       settings,
     }, 409);
   }
+  const dueOccurrence = occurrence as ScheduleOccurrence;
 
-  const occurrenceKey = occurrence.schedule_occurrence_key;
+  const occurrenceKey = dueOccurrence.schedule_occurrence_key;
 
   const { data: claimRaw, error: claimErr } = await supabase.rpc(
     "claim_weekly_payout_occurrence",
@@ -333,9 +334,9 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
   const occurrencePeriod = freezeWeeklyOccurrencePeriod({
     frozen_period_start: claim.period_start != null ? String(claim.period_start) : null,
     frozen_period_end: claim.period_end != null ? String(claim.period_end) : null,
-    scheduled_local_at: occurrence.scheduled_local_at,
+    scheduled_local_at: dueOccurrence.scheduled_local_at,
     schedule_occurrence_key: occurrenceKey,
-    timezone: occurrence.timezone,
+    timezone: dueOccurrence.timezone,
   });
   if (claim.period_start == null || claim.period_end == null) {
     await supabase.from("weekly_payout_occurrence_runs").update({
@@ -634,7 +635,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
   requiredBatchPence = moneyAmounts.required_batch_pence;
 
   if (!batchId && !dryRun && moneyAmounts.items.length > 0) {
-    const runDate = occurrence.scheduled_utc_at.slice(0, 10);
+    const runDate = dueOccurrence.scheduled_utc_at.slice(0, 10);
     const { data: batch, error: batchError } = await supabase
       .from("payout_batches")
       .insert({
@@ -644,14 +645,14 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
         total_drivers: moneyAmounts.items.length,
         total_amount_pence: requiredBatchPence,
         eligible_driver_count: moneyAmounts.items.length,
-        service_area_id: occurrence.service_area_id ?? resolvedServiceAreaId,
-        schedule_id: occurrence.schedule_id,
+        service_area_id: dueOccurrence.service_area_id ?? resolvedServiceAreaId,
+        schedule_id: dueOccurrence.schedule_id,
         schedule_occurrence_key: occurrenceKey,
-        frequency: occurrence.frequency,
-        scheduled_local_at: occurrence.scheduled_local_at,
-        scheduled_utc_at: occurrence.scheduled_utc_at,
-        timezone: occurrence.timezone,
-        currency: occurrence.currency,
+        frequency: dueOccurrence.frequency,
+        scheduled_local_at: dueOccurrence.scheduled_local_at,
+        scheduled_utc_at: dueOccurrence.scheduled_utc_at,
+        timezone: dueOccurrence.timezone,
+        currency: dueOccurrence.currency,
         notes: scheduledRun
           ? "created_by=pg_cron_orchestrator"
           : "created_by=admin_orchestrator",
@@ -870,7 +871,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
     const resultJson = {
       dry_run: dryRun,
       schedule_occurrence_key: occurrenceKey,
-      scheduled_local_at: occurrence.scheduled_local_at,
+      scheduled_local_at: dueOccurrence.scheduled_local_at,
       period_start: occurrencePeriod.period_start,
       period_end: occurrencePeriod.period_end,
       period_timezone: occurrencePeriod.timezone,
@@ -1400,9 +1401,11 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       provider_payment_id: providerPaymentId,
       provider_state: providerState,
       provider_request_id: validated.normalized.provider_request_id,
-      amount_pence: validated.normalized.amount_pence,
-      currency: validated.normalized.currency,
     });
+    // mapProviderSubmissionOutcome carries no provider failure detail; the RPC
+    // records null and provider truth is reconciled later.
+    const outcomeFailureCode: string | null = null;
+    const outcomeFailureReason: string | null = null;
 
     await supabase.rpc("finalize_driver_payout_submission", {
       p_payout_item_id: payoutItemId,
@@ -1410,8 +1413,8 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       p_execution_status: outcome.execution_status,
       p_provider_payment_id: providerPaymentId,
       p_provider_state: providerState,
-      p_provider_failure_code: outcome.failure_code,
-      p_provider_failure_reason_safe: outcome.failure_reason,
+      p_provider_failure_code: outcomeFailureCode,
+      p_provider_failure_reason_safe: outcomeFailureReason,
       p_evidence_redacted: evidence,
       p_release_reservation: outcome.release_reservation === true,
     });
@@ -1421,7 +1424,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
         driver_id: p.driver_id,
         payout_item_id: payoutItemId,
         status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
-        error: outcome.failure_code,
+        error: outcomeFailureCode,
       });
       continue;
     }
@@ -1433,7 +1436,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
         status: timedOut
           ? ORCHESTRATOR_ITEM_STATUS.SUBMITTING
           : ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
-        error: outcome.failure_code ?? ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
+        error: outcomeFailureCode ?? ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
         provider_payment_id: providerPaymentId,
         note: timedOut
           ? "Timeout/unknown â reservation kept; no debit until provider truth known"

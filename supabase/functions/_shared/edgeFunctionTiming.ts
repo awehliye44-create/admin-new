@@ -121,7 +121,7 @@ export async function finishEdgeTiming(
     message: `${timer.source} ${timer.path} completed in ${duration_ms}ms`,
     duration_ms,
     http_status: timer.httpStatus,
-    error_code: perf?.performance_status ?? null,
+    error_code: perf?.performance_status ?? undefined,
     metadata: {
       request_id: timer.requestId,
       path: timer.path,

@@ -6,6 +6,7 @@ import {
   scoreUkPostcodeSuggestion,
   ukOutwardAreasMatch,
 } from "../_shared/ukPostcodeSearch.ts";
+import { requireSignedInOrService } from "../_shared/callerGate.ts";
 
 interface LocationBias {
   lat: number;
@@ -41,6 +42,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+  const callerGate = await requireSignedInOrService(req);
+  if (!callerGate.ok) return callerGate.response;
 
   try {
     const body = (await req.json().catch(() => ({}))) as RequestBody;
@@ -158,9 +161,10 @@ serve(async (req) => {
     }
 
     const ranked = [...candidates].sort((a, b) => {
-      const sa = scoreUkPostcodeSuggestion(a.postcode, { query, proximityLat, proximityLng }, a.distanceMeters);
-      const sb = scoreUkPostcodeSuggestion(b.postcode, { query, proximityLat, proximityLng }, b.distanceMeters);
-      if (sa !== sb) return sa - sb;
+      // Higher match score first, then nearest.
+      const sa = scoreUkPostcodeSuggestion(query, a.postcode);
+      const sb = scoreUkPostcodeSuggestion(query, b.postcode);
+      if (sa !== sb) return sb - sa;
       return (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity);
     });
 

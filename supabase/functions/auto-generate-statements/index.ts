@@ -193,7 +193,7 @@ Deno.serve(async (req) => {
 
             const { data: driverRow } = await supabase
               .from("drivers")
-              .select("first_name, last_name, driver_code, user_id")
+              .select("first_name, last_name, driver_code, user_id, email")
               .eq("id", driverId)
               .maybeSingle();
             let driverDisplayName = driverRow

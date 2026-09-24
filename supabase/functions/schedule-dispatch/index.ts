@@ -17,6 +17,7 @@ import {
   buildScheduledUrgentConversionPatch,
   NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES,
 } from "../_shared/scheduledDispatchConfig.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 30,
@@ -78,6 +79,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+  const cronAuth = await assertCronOrServiceRoleAuth(req);
+  if (!cronAuth.ok) return cronAuth.response;
 
   const clientIP = getClientIP(req);
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);

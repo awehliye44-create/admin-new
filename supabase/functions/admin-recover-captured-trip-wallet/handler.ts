@@ -198,7 +198,7 @@ export async function handleAdminRecoverCapturedTripWallet(
       tripIds.push(id);
     }
 
-    const allowList = [...APPROVED_CAPTURED_TRIP_WALLET_RECOVERY_TRIP_IDS];
+    const allowList: readonly string[] = [...APPROVED_CAPTURED_TRIP_WALLET_RECOVERY_TRIP_IDS];
     const unknown = tripIds.filter((id) => !allowList.includes(id));
     if (unknown.length > 0) {
       return jsonResponse({

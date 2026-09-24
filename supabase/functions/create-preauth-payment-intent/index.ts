@@ -42,6 +42,7 @@ import {
   shouldSkipPlatformPreauthForCommissionWallet,
   type ServiceAreaCommissionWalletConfig,
 } from "../_shared/commissionWalletSSOT.ts";
+import { quoteFareServerSide } from "../_shared/serverFareQuote.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -311,15 +312,30 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       };
     } else {
       // Quote-based path: no trip yet
-      const estimatedFare = body.estimated_fare; // in £ (e.g. 12.50)
-
-      if (!estimatedFare || estimatedFare <= 0) {
-        throw new Error("estimated_fare is required and must be > 0");
-      }
-
-      const grossFarePence = Math.round(estimatedFare * 100);
-      idempotencyKeySuffix = body.client_action_id || crypto.randomUUID();
+      // Fare is recomputed server-side from the booking route; the app's
+      // estimated_fare is never used as the charge amount.
       resolvedServiceAreaId = body.service_area_id || null;
+      const serverQuote = await quoteFareServerSide({
+        serviceAreaId: resolvedServiceAreaId,
+        vehicleTypeId: typeof body.vehicle_type_id === "string" ? body.vehicle_type_id : null,
+        bookingSnapshot:
+          body.booking_snapshot && typeof body.booking_snapshot === "object"
+            ? body.booking_snapshot as Record<string, unknown>
+            : null,
+      });
+      if (!serverQuote.ok) {
+        logStep("SERVER_FARE_QUOTE_FAILED", { reason: serverQuote.reason });
+        return new Response(JSON.stringify({
+          error: "We couldn't confirm the fare for this trip. Please refresh and try again.",
+          error_code: "FARE_QUOTE_UNAVAILABLE",
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const grossFarePence = serverQuote.totalFarePence;
+      logStep("SERVER_FARE_QUOTE", {
+        server_total_pence: grossFarePence,
+        client_estimate_pence: Math.round(Number(body.estimated_fare ?? 0) * 100) || null,
+      });
+      idempotencyKeySuffix = body.client_action_id || crypto.randomUUID();
 
       // ── Server-side offer resolution (Single Source of Truth) ─────────────
       // Apply the same discount the customer was previewed in SelectVehicle so

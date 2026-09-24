@@ -224,7 +224,7 @@ export async function handleAdminRecoverMk007Mk009Wallet(
       tripIds.push(id);
     }
 
-    const allowList = [...APPROVED_MK007_MK009_TRIP_IDS];
+    const allowList: readonly string[] = [...APPROVED_MK007_MK009_TRIP_IDS];
     const unknown = tripIds.filter((id) => !allowList.includes(id));
     if (unknown.length > 0) {
       return jsonResponse({
@@ -237,7 +237,7 @@ export async function handleAdminRecoverMk007Mk009Wallet(
 
     const results: RecoveryResult[] = [];
     for (const tripId of tripIds) {
-      results.push(await recover(gate.supabase, tripId));
+      results.push(await recover(gate.supabase as never, tripId));
     }
 
     const eligible = results.filter((row) => row.status === "DRY_RUN_ELIGIBLE");

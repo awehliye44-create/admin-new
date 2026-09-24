@@ -128,7 +128,7 @@ function buildProviderOrderAuditRows(
   }> = [];
 
   for (const trip of tripRows) {
-    const orderId = String(trip.provider_order_id ?? "").trim();
+    const orderId = String((trip as { provider_order_id?: unknown }).provider_order_id ?? "").trim();
     if (!orderId || seen.has(orderId)) continue;
     seen.add(orderId);
     const driverName = trip.driver
@@ -518,7 +518,7 @@ serve(async (req) => {
       select: TRIP_AUDIT_SELECT,
     });
 
-    tripQuery = await applyFinanceReconciliationTripLocationFilter(
+    tripQuery = (await applyFinanceReconciliationTripLocationFilter(
       tripQuery,
       supabase,
       {
@@ -526,7 +526,7 @@ serve(async (req) => {
         serviceAreaId,
         allowedServiceAreaIds: modelScope.allowedServiceAreaIds,
       },
-    );
+    )) as unknown as typeof tripQuery;
 
     const financialPromise = resolvedRegionId
       ? supabase
@@ -601,7 +601,7 @@ serve(async (req) => {
       walletDownstream = "UNAVAILABLE";
     }
 
-    const tripRows = (tripResult.data || []) as TripAuditSourceRow[];
+    const tripRows = (tripResult.data || []) as unknown as TripAuditSourceRow[];
     const tripIds = tripRows.map((t) => t.id);
     let paymentRows: Array<{
       captured_amount_pence: number | null;
@@ -662,7 +662,7 @@ serve(async (req) => {
         paymentSessionRows = (paymentSessionsRes.data ?? []) as PaymentSessionMoneyRow[];
         paymentRows = mergePaymentSessionsIntoCaptureRows({
           paymentSessions: paymentSessionRows,
-        }).rows;
+        }).rows as unknown as typeof paymentRows;
       }
       // Legacy payments: PI / provider status for badges only — amounts come from paymentSessions.
       auditPaymentBadgeRows = (paymentsRes.error ? [] : (paymentsRes.data || [])).map((p) => ({
@@ -709,7 +709,7 @@ serve(async (req) => {
         paymentSessionRows = (paymentSessionsRes.data ?? []) as PaymentSessionMoneyRow[];
         paymentRows = mergePaymentSessionsIntoCaptureRows({
           paymentSessions: paymentSessionRows,
-        }).rows;
+        }).rows as unknown as typeof paymentRows;
       }
     }
 
@@ -839,7 +839,7 @@ serve(async (req) => {
       .map((d) => String(d.region_id ?? ""))
       .filter(Boolean);
     const { meta: currencyMeta, currencyGroups: baseCurrencyGroups } = await resolveFinanceCurrencyScope(
-      supabase,
+      supabase as never,
       {
         resolvedRegionId: resolvedRegionId ?? null,
         serviceAreaId: serviceAreaId ?? null,
@@ -893,7 +893,7 @@ serve(async (req) => {
           select: TRIP_AUDIT_SELECT,
         });
 
-        auditSearchQuery = await applyFinanceReconciliationTripLocationFilter(
+        auditSearchQuery = (await applyFinanceReconciliationTripLocationFilter(
           auditSearchQuery,
           supabase,
           {
@@ -901,7 +901,7 @@ serve(async (req) => {
             serviceAreaId,
             allowedServiceAreaIds: modelScope.allowedServiceAreaIds,
           },
-        );
+        )) as unknown as typeof auditSearchQuery;
 
         const term = search.trim();
         if (searchType === "id") {
@@ -917,7 +917,7 @@ serve(async (req) => {
         const { data: searchTrips, error: searchError } = await auditSearchQuery;
         if (searchError) throw searchError;
 
-        const auditSourceRows = (searchTrips || []) as TripAuditSourceRow[];
+        const auditSourceRows = (searchTrips || []) as unknown as TripAuditSourceRow[];
         const auditTripIds = auditSourceRows.map((t) => t.id);
         if (auditTripIds.length === 0) return [];
 
@@ -1052,7 +1052,7 @@ serve(async (req) => {
           .in("trip_id", todayTripIds);
         todayPayments = mergePaymentSessionsIntoCaptureRows({
           paymentSessions: sessionData.data ?? [],
-        }).rows;
+        }).rows as unknown as typeof todayPayments;
       }
       const capturedByTrip = new Map<string, number>();
       for (const p of todayPayments) {
@@ -1230,8 +1230,8 @@ serve(async (req) => {
         trip_code: row.trip_code ?? null,
         trip_id: row.trip_id ?? null,
         final_fare_pence: row.final_fare_pence ?? null,
-        capture_amount_pence: row.capture_amount_pence ?? null,
-        outstanding_balance_pence: row.outstanding_balance_pence ?? null,
+        capture_amount_pence: row.captured_pence ?? null,
+        outstanding_balance_pence: row.outstanding_pence ?? null,
         provider_state: row.provider_state ?? null,
         pickup_waiting_charge_pence: row.pickup_waiting_charge_pence ?? null,
         receivable_outstanding_pence: openReceivables

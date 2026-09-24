@@ -1,3 +1,4 @@
+import type { CreateOrderParams } from "./revolutOrders.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   buildPreauthIdempotencyKey,
@@ -554,7 +555,8 @@ export async function createRevolutPreauthResponse(
     tripId: tripId ?? idempotencyKeySuffix,
     description: tripId ? `ONECAB trip ${tripId}` : "ONECAB ride pre-authorisation",
     metadata: orderMetadata,
-    customer: customer ?? undefined,
+    // Cached Revolut customer refs may carry only an id; the order body builder accepts that.
+    customer: (customer ?? undefined) as CreateOrderParams["customer"],
   });
 
   try {
@@ -921,52 +923,6 @@ export async function createRevolutPreauthResponse(
       "revolutPreauth.ts:upsertPaymentSessionPending",
       { payment_session_id: paymentSessionId },
     );
-
-    // Scan & Go: short-lived driver hold while payment is in flight (not a trip).
-    try {
-      const { acquireScanGoDriverHoldFromSnapshot } = await import("./scanGoDriverHoldSSOT.ts");
-      const hold = await acquireScanGoDriverHoldFromSnapshot(supabase, {
-        bookingSnapshot: bookingSnapshot ?? null,
-        userId,
-        paymentSessionId,
-        clientActionId,
-      });
-      if (hold && !hold.ok) {
-        logStep("SCAN_GO_DRIVER_HOLD_REJECTED", {
-          error_code: hold.error_code,
-          message: hold.message,
-          orderId: order.id,
-          clientActionId,
-        });
-        try {
-          const { cancelRevolutOrder } = await import("./revolutOrders.ts");
-          await cancelRevolutOrder(environment, secretKey, order.id);
-        } catch (cancelErr) {
-          logStep("SCAN_GO_HOLD_CONFLICT_ORDER_CANCEL_FAILED", {
-            orderId: order.id,
-            error: String(cancelErr),
-          });
-        }
-        return new Response(JSON.stringify({
-          error: hold.message
-            ?? "This driver is temporarily reserved. Please try again shortly.",
-          error_code: hold.error_code ?? "DRIVER_HOLD_CONFLICT",
-          charge_state: "no_charge",
-        }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-          status: 409,
-        });
-      }
-      if (hold?.ok) {
-        logStep("SCAN_GO_DRIVER_HOLD_ACQUIRED", {
-          hold_id: hold.hold_id,
-          idempotent: hold.idempotent === true,
-          clientActionId,
-        });
-      }
-    } catch (holdErr) {
-      logStep("SCAN_GO_DRIVER_HOLD_ERROR", { error: String(holdErr), clientActionId });
-    }
   }
 
   if (clientActionId || tripId) {

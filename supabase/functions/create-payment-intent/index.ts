@@ -17,6 +17,7 @@ import {
   getRevolutMerchantConfig,
   retrieveRevolutOrder,
 } from "../_shared/revolutOrders.ts";
+import { resolveCustomerPreauthBasePence } from "../_shared/customerDisplayFare.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 20, windowMs: 60 * 1000 };
 
@@ -60,23 +61,12 @@ serve(async (req) => {
     const body = await req.json();
     const {
       trip_id,
-      estimated_fare_pence,
-      discount_amount_pence = 0,
       payment_method_type = "card",
     } = body ?? {};
 
-    if (!trip_id || !estimated_fare_pence) {
-      return errorResponse(
-        "Missing required fields: trip_id, estimated_fare_pence",
-        400, undefined, "VALIDATION_MISSING_FIELD",
-      );
+    if (!trip_id) {
+      return errorResponse("Missing required field: trip_id", 400, undefined, "VALIDATION_MISSING_FIELD");
     }
-    if (estimated_fare_pence < 50) {
-      return errorResponse("Minimum fare is 50 pence", 400, undefined, "VALIDATION_FAILED");
-    }
-
-    const safeDiscount = Math.max(0, Math.min(Math.round(discount_amount_pence), estimated_fare_pence));
-    const payable_pence = Math.max(0, estimated_fare_pence - safeDiscount);
 
     // === Region currency SSOT ===
     let currency_code: string;
@@ -100,7 +90,7 @@ serve(async (req) => {
 
     const { data: trip, error: tripError } = await supabase
       .from("trips")
-      .select("id, status, driver_id, service_area_id, passenger_id, payment_provider, provider_order_id")
+      .select("*")
       .eq("id", trip_id)
       .single();
     if (tripError || !trip) {
@@ -108,6 +98,17 @@ serve(async (req) => {
     }
     if (trip.passenger_id !== customer_id) {
       return errorResponse("Forbidden: trip does not belong to caller", 403, undefined, "AUTH_INVALID");
+    }
+
+    // Amounts come from the stored trip (server state) — never from the request body.
+    const payable_pence = resolveCustomerPreauthBasePence(trip as Record<string, unknown>);
+    const safeDiscount = Math.max(
+      0,
+      Math.round(Number((trip as Record<string, unknown>).discount_pence ?? (trip as Record<string, unknown>).offer_discount_pence ?? 0)) || 0,
+    );
+    const estimated_fare_pence = payable_pence + safeDiscount;
+    if (payable_pence < 50) {
+      return errorResponse("Minimum fare is 50 pence", 400, undefined, "VALIDATION_FAILED");
     }
 
     const riderStatus = (callerCustomer as { rider_status?: string }).rider_status || "active";

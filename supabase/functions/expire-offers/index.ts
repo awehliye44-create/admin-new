@@ -43,6 +43,7 @@ import {
   invokeAutoDispatchWithServiceRole,
   type DispatchTripContext,
 } from "../_shared/invokeAutoDispatchServiceRole.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 // Rate limit: 60 requests per minute (for cron jobs)
 const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60000, keyPrefix: 'expire-offers' };
@@ -212,6 +213,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return handleCORSPreflight();
   }
+  const cronAuth = await assertCronOrServiceRoleAuth(req);
+  if (!cronAuth.ok) return cronAuth.response;
 
   // Rate limiting
   const clientIP = getClientIP(req);
