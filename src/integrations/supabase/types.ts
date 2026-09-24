@@ -4113,6 +4113,257 @@ export type Database = {
         }
         Relationships: []
       }
+      customer_receivable_events: {
+        Row: {
+          actor_role: string
+          amount_pence: number
+          created_at: string
+          event_type: string
+          id: string
+          metadata: Json
+          note: string | null
+          payment_session_id: string | null
+          receivable_id: string
+          trip_id: string | null
+        }
+        Insert: {
+          actor_role?: string
+          amount_pence?: number
+          created_at?: string
+          event_type: string
+          id?: string
+          metadata?: Json
+          note?: string | null
+          payment_session_id?: string | null
+          receivable_id: string
+          trip_id?: string | null
+        }
+        Update: {
+          actor_role?: string
+          amount_pence?: number
+          created_at?: string
+          event_type?: string
+          id?: string
+          metadata?: Json
+          note?: string | null
+          payment_session_id?: string | null
+          receivable_id?: string
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_receivable_events_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_receivable_events_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "customer_receivable_events_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
+          {
+            foreignKeyName: "customer_receivable_events_receivable_id_fkey"
+            columns: ["receivable_id"]
+            isOneToOne: false
+            referencedRelation: "customer_receivables"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_receivable_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_receivable_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_receivable_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_receivable_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      customer_receivables: {
+        Row: {
+          created_at: string
+          currency: string
+          customer_id: string
+          id: string
+          idempotency_key: string
+          metadata: Json
+          original_amount_pence: number
+          outstanding_amount_pence: number
+          reason_code: string
+          reserved_payment_session_id: string | null
+          settled_at: string | null
+          source_authorisation_id: string | null
+          source_payment_session_id: string | null
+          source_trip_id: string
+          source_type: string
+          status: string
+          updated_at: string
+          waived_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          customer_id: string
+          id?: string
+          idempotency_key: string
+          metadata?: Json
+          original_amount_pence: number
+          outstanding_amount_pence: number
+          reason_code: string
+          reserved_payment_session_id?: string | null
+          settled_at?: string | null
+          source_authorisation_id?: string | null
+          source_payment_session_id?: string | null
+          source_trip_id: string
+          source_type: string
+          status: string
+          updated_at?: string
+          waived_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          customer_id?: string
+          id?: string
+          idempotency_key?: string
+          metadata?: Json
+          original_amount_pence?: number
+          outstanding_amount_pence?: number
+          reason_code?: string
+          reserved_payment_session_id?: string | null
+          settled_at?: string | null
+          source_authorisation_id?: string | null
+          source_payment_session_id?: string | null
+          source_trip_id?: string
+          source_type?: string
+          status?: string
+          updated_at?: string
+          waived_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_receivables_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_code_audit"
+            referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "customer_receivables_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_riders_with_trip_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_receivables_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_receivables_reserved_payment_session_id_fkey"
+            columns: ["reserved_payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_receivables_reserved_payment_session_id_fkey"
+            columns: ["reserved_payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "customer_receivables_reserved_payment_session_id_fkey"
+            columns: ["reserved_payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
+          {
+            foreignKeyName: "customer_receivables_source_payment_session_id_fkey"
+            columns: ["source_payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_receivables_source_payment_session_id_fkey"
+            columns: ["source_payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "customer_receivables_source_payment_session_id_fkey"
+            columns: ["source_payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
+          {
+            foreignKeyName: "customer_receivables_source_trip_id_fkey"
+            columns: ["source_trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_receivables_source_trip_id_fkey"
+            columns: ["source_trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_receivables_source_trip_id_fkey"
+            columns: ["source_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_receivables_source_trip_id_fkey"
+            columns: ["source_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       customer_saved_payment_method_tokens: {
         Row: {
           brand: string | null
@@ -16424,6 +16675,108 @@ export type Database = {
           },
         ]
       }
+      payment_session_receivable_allocations: {
+        Row: {
+          allocated_amount_pence: number
+          captured_at: string | null
+          created_at: string
+          id: string
+          metadata: Json
+          payment_session_id: string
+          receivable_id: string
+          recovery_trip_id: string | null
+          released_at: string | null
+          settled_amount_pence: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          allocated_amount_pence: number
+          captured_at?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json
+          payment_session_id: string
+          receivable_id: string
+          recovery_trip_id?: string | null
+          released_at?: string | null
+          settled_amount_pence?: number
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          allocated_amount_pence?: number
+          captured_at?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json
+          payment_session_id?: string
+          receivable_id?: string
+          recovery_trip_id?: string | null
+          released_at?: string | null
+          settled_amount_pence?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_session_receivable_allocations_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_session_receivable_allocations_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "payment_session_receivable_allocations_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
+          {
+            foreignKeyName: "payment_session_receivable_allocations_receivable_id_fkey"
+            columns: ["receivable_id"]
+            isOneToOne: false
+            referencedRelation: "customer_receivables"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_session_receivable_allocations_recovery_trip_id_fkey"
+            columns: ["recovery_trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_session_receivable_allocations_recovery_trip_id_fkey"
+            columns: ["recovery_trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_session_receivable_allocations_recovery_trip_id_fkey"
+            columns: ["recovery_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_session_receivable_allocations_recovery_trip_id_fkey"
+            columns: ["recovery_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       payment_session_refunds: {
         Row: {
           amount_pence: number
@@ -27685,6 +28038,8 @@ export type Database = {
       }
     }
     Functions: {
+      _on_active: { Args: { tid: string }; Returns: boolean }
+      _on_sched: { Args: { tid: string }; Returns: boolean }
       abort_driver_payout_submission_claim: {
         Args: {
           p_claim_token: string
@@ -27827,6 +28182,27 @@ export type Database = {
         }[]
       }
       admin_get_user_email: { Args: { _user_id: string }; Returns: string }
+      admin_list_customer_receivables: {
+        Args: { p_customer_id?: string; p_limit?: number; p_status?: string }
+        Returns: {
+          created_at: string
+          currency: string
+          customer_id: string
+          id: string
+          idempotency_key: string
+          metadata: Json
+          original_amount_pence: number
+          outstanding_amount_pence: number
+          reason_code: string
+          reserved_payment_session_id: string
+          settled_at: string
+          source_payment_session_id: string
+          source_trip_id: string
+          source_type: string
+          status: string
+          waived_at: string
+        }[]
+      }
       admin_list_drivers: {
         Args: never
         Returns: {
@@ -28509,6 +28885,61 @@ export type Database = {
           p_customer_id?: string
           p_offer_id: string
           p_selected_fare_pence: number
+        }
+        Returns: Json
+      }
+      customer_list_my_receivables: {
+        Args: never
+        Returns: {
+          created_at: string
+          currency: string
+          id: string
+          original_amount_pence: number
+          outstanding_amount_pence: number
+          reason_code: string
+          reserved_payment_session_id: string
+          settled_at: string
+          source_trip_id: string
+          source_type: string
+          status: string
+          waived_at: string
+        }[]
+      }
+      customer_receivable_record_declined_increment: {
+        Args: {
+          p_currency: string
+          p_customer_id: string
+          p_idempotency_key: string
+          p_metadata?: Json
+          p_original_amount_pence: number
+          p_reason_code: string
+          p_source_authorisation_id: string
+          p_source_payment_session_id: string
+          p_source_trip_id: string
+          p_source_type: string
+        }
+        Returns: Json
+      }
+      customer_receivable_release_reservations: {
+        Args: { p_payment_session_id: string; p_reason?: string }
+        Returns: Json
+      }
+      customer_receivable_reserve_for_preauth: {
+        Args: {
+          p_currency?: string
+          p_customer_id: string
+          p_payment_session_id: string
+          p_recovery_trip_id?: string
+        }
+        Returns: Json
+      }
+      customer_receivable_settle_from_provider_capture: {
+        Args: {
+          p_confirmed_captured_pence: number
+          p_current_trip_fare_pence?: number
+          p_payment_session_id: string
+          p_provider_order_id: string
+          p_terminal_state: string
         }
         Returns: Json
       }
