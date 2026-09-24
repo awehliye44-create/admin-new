@@ -16,7 +16,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
-import { requireSignedInOrService } from "../_shared/callerGate.ts";
 
 // ---- CORS ----
 const corsHeaders: Record<string, string> = {
@@ -74,8 +73,6 @@ const NON_RETRYABLE = new Set([
 // ---- Handler ----
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  const callerGate = await requireSignedInOrService(req);
-  if (!callerGate.ok) return callerGate.response;
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
