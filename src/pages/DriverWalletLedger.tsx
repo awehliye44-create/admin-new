@@ -43,8 +43,13 @@ import { Button } from '@/components/ui/button';
 import { DriverWalletCreditAuditPanel } from '@/components/finance/DriverWalletCreditAuditPanel';
 import { DriverWalletAdjustmentDialog } from '@/components/finance/DriverWalletAdjustmentDialog';
 import { DriverWalletPendingAdjustmentsPanel } from '@/components/finance/DriverWalletPendingAdjustmentsPanel';
+import { DriverWalletReviewRepairPanel } from '@/components/finance/DriverWalletReviewRepairPanel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { driverWalletAdminAdjustmentsDeployed } from '../../shared/driverWalletManualAdjustmentSSOT';
+import {
+  driverFinancialReviewRepairButtonLabel,
+} from '@/lib/driverWalletReviewRepairMenu';
+import { shouldShowDriverFinancialReviewRepair } from '../../shared/driverFinancialReviewRepairSSOT';
 
 /** Driver money SSOT. Customer payment → Payment Sessions; bank transfers → Payout Ledger. */
 export default function DriverWalletLedger() {
@@ -236,7 +241,15 @@ export default function DriverWalletLedger() {
     searchParams.get('driverCreditExceptions') === '1',
   );
   const [adjustmentDialogOpen, setAdjustmentDialogOpen] = useState(false);
+  const [reviewRepairOpen, setReviewRepairOpen] = useState(false);
   const adjustmentsDeployed = driverWalletAdminAdjustmentsDeployed();
+  const showReviewRepair = shouldShowDriverFinancialReviewRepair({
+    wallet_status: driver?.wallet_status,
+    driver_credit_status: driver?.driver_credit_status,
+    reconciliation_status: driver?.reconciliation_status,
+    missing_stamp_trip_count: driver?.missing_stamp_trip_count,
+    settlement_history: driver?.settlement_history,
+  });
   const creditByTripId = useMemo(() => {
     const map: Record<string, {
       driver_credit_health?: string | null;
@@ -320,12 +333,22 @@ export default function DriverWalletLedger() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <ServiceAreaFinanceFilter financialModel="PLATFORM_COLLECTED" value={serviceFilter} onChange={setServiceFilter} />
+            {driverId && showReviewRepair ? (
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="driver-wallet-review-repair-detail"
+                onClick={() => setReviewRepairOpen(true)}
+              >
+                {driverFinancialReviewRepairButtonLabel()}
+              </Button>
+            ) : null}
             {driverId && adjustmentsDeployed ? (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button variant="outline" size="sm" onClick={() => setAdjustmentDialogOpen(true)}>
-                      Add adjustment
+                      Adjustment
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs text-xs">
@@ -375,6 +398,14 @@ export default function DriverWalletLedger() {
               currencyCode={currencyCode}
               selectedDriverId={null}
               onSelectDriver={(id) => setDriver(id)}
+              onReviewRepair={(id) => {
+                setDriver(id);
+                setReviewRepairOpen(true);
+              }}
+              onAdjustment={(id) => {
+                setDriver(id);
+                setAdjustmentDialogOpen(true);
+              }}
               periodFrom={periodBounds.from || null}
               periodTo={periodBounds.to || null}
             />
@@ -392,6 +423,20 @@ export default function DriverWalletLedger() {
                 driverId={driverId}
                 driverName={driver?.driver_name}
                 currencyCode={currencyCode}
+              />
+            ) : null}
+            {driverId ? (
+              <DriverWalletReviewRepairPanel
+                open={reviewRepairOpen}
+                onOpenChange={setReviewRepairOpen}
+                driverId={driverId}
+                driverName={driver?.driver_name}
+                driverCode={driver?.driver_code}
+                currencyCode={currencyCode}
+                walletStatus={driver?.wallet_status}
+                driverCreditStatus={driver?.driver_credit_status}
+                settlementRows={driver?.settlement_history}
+                missingStampTrips={driver?.missing_stamp_trips}
               />
             ) : null}
 

@@ -20,6 +20,11 @@ import {
 import { displayDriverWalletSsotBalances } from '@/lib/driverWalletSsotBalances';
 import { resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
 import { DriverOperationalPauseMenuItem } from '@/components/finance/DriverOperationalPauseMenuItem';
+import {
+  driverFinancialReviewRepairButtonLabel,
+  resolveDriverWalletLedgerRowMenu,
+} from '@/lib/driverWalletReviewRepairMenu';
+import { driverWalletAdminAdjustmentsDeployed } from '../../../shared/driverWalletManualAdjustmentSSOT';
 
 function driverLabel(row: Pick<DriverWalletSsotRow, 'driver_code' | 'driver_name' | 'driver_id'>): string {
   if (row.driver_name?.trim()) return row.driver_name.trim();
@@ -75,6 +80,8 @@ export function DriverWalletDriverList({
   currencyCode = 'GBP',
   selectedDriverId = null,
   onSelectDriver,
+  onReviewRepair,
+  onAdjustment,
   pageSize = 25,
   periodFrom = null,
   periodTo = null,
@@ -83,6 +90,10 @@ export function DriverWalletDriverList({
   currencyCode?: string;
   selectedDriverId?: string | null;
   onSelectDriver: (driverId: string) => void;
+  /** Opens Review & repair panel — never mutates on open. */
+  onReviewRepair?: (driverId: string, row: DriverWalletSsotRow) => void;
+  /** Opens Adjustment dialog (proven amount difference only). */
+  onAdjustment?: (driverId: string, row: DriverWalletSsotRow) => void;
   pageSize?: number;
   /** London finance period — must match page filter (never silently lifetime). */
   periodFrom?: string | null;
@@ -196,9 +207,57 @@ export function DriverWalletDriverList({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-56">
-                        <DropdownMenuItem onClick={() => onSelectDriver(row.driver_id)}>
-                          Open wallet account
-                        </DropdownMenuItem>
+                        {resolveDriverWalletLedgerRowMenu({
+                          visibility: {
+                            wallet_status: row.wallet_status,
+                            driver_credit_status: row.driver_credit_status,
+                            reconciliation_status: row.reconciliation_status,
+                            missing_stamp_trip_count: row.missing_stamp_trip_count,
+                            settlement_history: row.settlement_history,
+                          },
+                          payout_operational_paused: row.payout_operational_paused,
+                          adjustmentsDeployed: driverWalletAdminAdjustmentsDeployed(),
+                        }).map((item) => {
+                          if (item === 'open_wallet_account') {
+                            return (
+                              <DropdownMenuItem
+                                key={item}
+                                onClick={() => onSelectDriver(row.driver_id)}
+                              >
+                                Open wallet account
+                              </DropdownMenuItem>
+                            );
+                          }
+                          if (item === 'review_and_repair') {
+                            return (
+                              <DropdownMenuItem
+                                key={item}
+                                data-testid="driver-wallet-review-repair"
+                                onClick={() => {
+                                  onSelectDriver(row.driver_id);
+                                  onReviewRepair?.(row.driver_id, row);
+                                }}
+                              >
+                                {driverFinancialReviewRepairButtonLabel()}
+                              </DropdownMenuItem>
+                            );
+                          }
+                          if (item === 'adjustment') {
+                            return (
+                              <DropdownMenuItem
+                                key={item}
+                                data-testid="driver-wallet-adjustment"
+                                onClick={() => {
+                                  onSelectDriver(row.driver_id);
+                                  onAdjustment?.(row.driver_id, row);
+                                }}
+                              >
+                                Adjustment
+                              </DropdownMenuItem>
+                            );
+                          }
+                          return null;
+                        })}
                         <DriverOperationalPauseMenuItem
                           driverId={row.driver_id}
                           driverName={row.driver_name}
