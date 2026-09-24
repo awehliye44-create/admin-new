@@ -32,7 +32,7 @@ serve(async (req) => {
 
     const { secretKey, environment } = getRevolutMerchantConfig();
 
-    const { data: trip, error: tripErr } = await gate.supabase
+    const { data: tripRow, error: tripErr } = await gate.supabase
       .from("trips")
       .select(
         "id, trip_number, passenger_id, driver_id, provider_order_id, outstanding_balance_pence, "
@@ -41,6 +41,8 @@ serve(async (req) => {
       )
       .eq("id", trip_id)
       .single();
+    // Concatenated select strings lose column inference; the row is untyped here.
+    const trip = tripRow as Record<string, any> | null;
     if (tripErr || !trip) return jsonResponse({ error: "Trip not found" }, 404);
 
     const { data: paymentRows, error: paymentsErr } = await gate.supabase
