@@ -241,6 +241,10 @@ verify_jwt = false
 [functions.admin-customer-receivables]
 verify_jwt = false
 
+# Choose Ride payable quote — JWT + customer ownership checked inside.
+[functions.customer-receivable-booking-quote]
+verify_jwt = false
+
 [functions.admin-commission-wallet-campaigns]
 verify_jwt = false
 

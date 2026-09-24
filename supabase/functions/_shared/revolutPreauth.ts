@@ -46,6 +46,8 @@ import {
 } from "./customerReceivableSSOT.ts";
 import {
   RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+  RECEIVABLE_FOLD_UNAVAILABLE,
+  buildReceivablePreauthResponseFields,
   extractReceivableConsentFromPreauthBody,
   planCustomerReceivableFoldConsent,
   planReceivableReservedTotalMatchesConsent,
@@ -265,6 +267,10 @@ export async function createRevolutPreauthResponse(
   let paymentSessionId: string | null = null;
   /** Reserved OPEN receivables folded into this preauth (pence). */
   let receivableReservedTotal = 0;
+  let receivableFoldAdmission: string | null = null;
+  let receivableFoldResult: string | null = null;
+  let receivableQuoteVersionOut: string | null = null;
+  let receivableConsentVersionOut: number | null = null;
   const bookingWaterfall = createBookingWaterfallCollector({
     client_action_id: clientActionId,
     trip_id: tripId,
@@ -657,35 +663,47 @@ export async function createRevolutPreauthResponse(
             corporate_account_id: metadataExtra.corporate_account_id ?? null,
           });
         } else {
-          // Fail-closed consent: NO_VISIBLE_CONSENT → NO_RECEIVABLE_FOLD.
-          // Gate default OFF; old apps missing consent version never fold.
+          // Fail-closed consent. Freeze gate once — never re-read mid-request.
+          // RECEIVABLE_EXPECTED + gate OFF → 409 (never fare-only). MK-260924-002.
           const serverOutstanding = await sumOpenReceivableOutstandingForCustomer(
             supabase,
             { customer_id: customerId, currency: paymentCurrency },
           );
+          const frozenGate = readCustomerReceivableFoldGate();
           const consentDecision = planCustomerReceivableFoldConsent({
             customer_id: customerId,
             consent: receivableConsent,
             server_outstanding_pence: serverOutstanding,
             server_ride_fare_pence: estimatedTotalPence,
             server_buffer_pence: bufferPence,
-            gate: readCustomerReceivableFoldGate(),
+            gate: frozenGate,
           });
           logStep("Customer receivable fold consent decision", consentDecision.telemetry);
 
-          if (
-            "fail_closed" in consentDecision
-            && consentDecision.fail_closed
-            && consentDecision.reason === RECEIVABLE_CONSENT_REFRESH_REQUIRED
-          ) {
+          if ("fail_closed" in consentDecision && consentDecision.fail_closed) {
+            const unavailable =
+              consentDecision.reason === RECEIVABLE_FOLD_UNAVAILABLE;
             return new Response(JSON.stringify({
-              error:
-                "Your outstanding balance changed. Please refresh and try again.",
-              code: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
-              error_code: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+              error: unavailable
+                ? "Outstanding balance cannot be added to this booking right now. Please refresh and try again."
+                : "Your outstanding balance changed. Please refresh and try again.",
+              code: consentDecision.reason,
+              error_code: consentDecision.reason,
               server_outstanding_pence: consentDecision.server_outstanding_pence,
               displayed_outstanding_pence: consentDecision.displayed_outstanding_pence,
               charge_state: "no_charge",
+              ...buildReceivablePreauthResponseFields({
+                trip_fare_pence: estimatedTotalPence,
+                receivable_reserved_pence: 0,
+                total_authorisation_pence: estimatedTotalPence + bufferPence,
+                quote_version:
+                  typeof consentDecision.telemetry.expected_quote_version === "string"
+                    ? consentDecision.telemetry.expected_quote_version
+                    : null,
+                fold_admission: "rejected",
+                fold_result: consentDecision.reason,
+              }),
+              ...consentDecision.telemetry,
             }), {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
               status: 409,
@@ -693,13 +711,22 @@ export async function createRevolutPreauthResponse(
           }
 
           if (!consentDecision.allow_fold) {
-            logStep("Customer receivable fold skipped — consent/gate", {
+            // Compat only: old clients with no RECEIVABLE_EXPECTED signal.
+            logStep("Customer receivable fold skipped — compat fare-only", {
               reason: consentDecision.reason,
+              receivable_expected: consentDecision.receivable_expected,
               payment_session_id: paymentSessionId,
               authorised_amount_pence: authorisedAmountPence,
-              note: "receivables_remain_OPEN_fare_only_preauth",
+              note: "old_client_or_no_debt_consent_fare_only",
             });
           } else {
+        receivableFoldAdmission = "admitted";
+        receivableFoldResult = consentDecision.reason;
+        receivableQuoteVersionOut = consentDecision.quote_version;
+        receivableConsentVersionOut =
+          typeof consentDecision.telemetry.consent_version === "number"
+            ? consentDecision.telemetry.consent_version
+            : null;
         const reserve = await reserveReceivablesBeforeProviderCall(supabase, {
           customer_id: customerId,
           payment_session_id: paymentSessionId,
@@ -721,6 +748,14 @@ export async function createRevolutPreauthResponse(
             error_code: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
             manual_review: true,
             charge_state: "no_charge",
+            ...buildReceivablePreauthResponseFields({
+              trip_fare_pence: estimatedTotalPence,
+              receivable_reserved_pence: 0,
+              total_authorisation_pence: estimatedTotalPence + bufferPence,
+              quote_version: consentDecision.quote_version,
+              fold_admission: "admitted",
+              fold_result: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
+            }),
           }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
             status: 503,
@@ -729,12 +764,11 @@ export async function createRevolutPreauthResponse(
         receivableReservedTotal = reserve.data.reserved_total_pence;
         authorisedAmountPence = reserve.data.fold.authorised_amount_pence;
         // Never call provider with a silently rewritten total vs CTA consent.
+        // Do not re-read global gate — admission already frozen.
         const reservedMatch = planReceivableReservedTotalMatchesConsent({
           reserved_authorised_amount_pence: authorisedAmountPence,
           displayed_total_authorisation_pence:
-            consentDecision.allow_fold
-              ? consentDecision.displayed_total_authorisation_pence
-              : null,
+            consentDecision.displayed_total_authorisation_pence,
         });
         if (!reservedMatch.ok) {
           logStep("Reserved receivable total mismatch — fail closed", reservedMatch.telemetry);
@@ -744,6 +778,14 @@ export async function createRevolutPreauthResponse(
             code: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
             error_code: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
             charge_state: "no_charge",
+            ...buildReceivablePreauthResponseFields({
+              trip_fare_pence: estimatedTotalPence,
+              receivable_reserved_pence: receivableReservedTotal,
+              total_authorisation_pence: authorisedAmountPence,
+              quote_version: consentDecision.quote_version,
+              fold_admission: "admitted",
+              fold_result: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+            }),
             ...reservedMatch.telemetry,
           }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -756,6 +798,8 @@ export async function createRevolutPreauthResponse(
             receivables_total_pence: receivableReservedTotal,
             authorised_amount_pence: authorisedAmountPence,
             ordering: PREAUTH_RECEIVABLE_ORDERING,
+            admission_frozen: consentDecision.admission_frozen === true,
+            gate_enabled_at_admission: consentDecision.gate_enabled_at_admission,
           });
           // Refresh pending session amounts / metadata after durable reserve.
           await upsertPaymentSessionPending(supabase, {
@@ -783,6 +827,8 @@ export async function createRevolutPreauthResponse(
               customer_receivables_pence: receivableReservedTotal,
               customer_receivable_ids: reserve.data.fold.receivable_ids,
               preauth_receivable_ordering: PREAUTH_RECEIVABLE_ORDERING,
+              receivable_fold_admission: "admitted",
+              gate_enabled_at_admission: consentDecision.gate_enabled_at_admission,
             },
           });
         }
@@ -1005,6 +1051,17 @@ export async function createRevolutPreauthResponse(
     holdStartedAt,
     waterfallFragment: bookingWaterfall.toResponseFragment(),
     edgeTiming,
+    receivableResponseFields: buildReceivablePreauthResponseFields({
+      trip_fare_pence: estimatedTotalPence,
+      receivable_reserved_pence: receivableReservedTotal,
+      total_authorisation_pence: authorisedAmountPence,
+      consent_version: receivableConsentVersionOut,
+      quote_version: receivableQuoteVersionOut,
+      fold_admission: receivableFoldAdmission ??
+        (receivableReservedTotal > 0 ? "admitted" : "compat_skipped"),
+      fold_result: receivableFoldResult ??
+        (receivableReservedTotal > 0 ? "consent_matched" : null),
+    }),
   });
 }
 
@@ -1450,6 +1507,7 @@ function revolutPreauthJsonResponse(args: {
   waterfallFragment?: { booking_waterfall: import("./bookingWaterfallSSOT.ts").BookingWaterfallServerStepInput[] };
   holdStartedAt?: number;
   edgeTiming?: PreauthEdgeTiming | null;
+  receivableResponseFields?: Record<string, unknown>;
 }): Response {
   const token = args.order.token ?? null;
   if (!token) {
@@ -1484,6 +1542,7 @@ function revolutPreauthJsonResponse(args: {
     provider_token_missing: savedCardVerify,
     saved_card_blocking_reason: blockingReason,
     requires_new_card_checkout: !savedCardVerify,
+    ...(args.receivableResponseFields ?? {}),
     ...(args.holdStartedAt
       ? { booking_milestones: { hold_start_ms: args.holdStartedAt, checkout_open_ms: Date.now() } }
       : {}),
