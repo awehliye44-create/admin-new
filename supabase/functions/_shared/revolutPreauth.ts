@@ -47,6 +47,7 @@ import {
   RECEIVABLE_CONSENT_REFRESH_REQUIRED,
   extractReceivableConsentFromPreauthBody,
   planCustomerReceivableFoldConsent,
+  planReceivableReservedTotalMatchesConsent,
   readCustomerReceivableFoldGate,
   type ReceivableConsentRequest,
 } from "./customerReceivableConsentSSOT.ts";
@@ -664,6 +665,8 @@ export async function createRevolutPreauthResponse(
             customer_id: customerId,
             consent: receivableConsent,
             server_outstanding_pence: serverOutstanding,
+            server_ride_fare_pence: estimatedTotalPence,
+            server_buffer_pence: bufferPence,
             gate: readCustomerReceivableFoldGate(),
           });
           logStep("Customer receivable fold consent decision", consentDecision.telemetry);
@@ -723,6 +726,28 @@ export async function createRevolutPreauthResponse(
         }
         receivableReservedTotal = reserve.data.reserved_total_pence;
         authorisedAmountPence = reserve.data.fold.authorised_amount_pence;
+        // Never call provider with a silently rewritten total vs CTA consent.
+        const reservedMatch = planReceivableReservedTotalMatchesConsent({
+          reserved_authorised_amount_pence: authorisedAmountPence,
+          displayed_total_authorisation_pence:
+            consentDecision.allow_fold
+              ? consentDecision.displayed_total_authorisation_pence
+              : null,
+        });
+        if (!reservedMatch.ok) {
+          logStep("Reserved receivable total mismatch — fail closed", reservedMatch.telemetry);
+          return new Response(JSON.stringify({
+            error:
+              "Your outstanding balance changed. Please refresh and try again.",
+            code: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+            error_code: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+            charge_state: "no_charge",
+            ...reservedMatch.telemetry,
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 409,
+          });
+        }
         if (receivableReservedTotal > 0) {
           logStep("Customer receivables reserved before Revolut preauth", {
             payment_session_id: paymentSessionId,
