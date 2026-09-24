@@ -161,9 +161,10 @@ serve(async (req) => {
     }
 
     const ranked = [...candidates].sort((a, b) => {
-      const sa = scoreUkPostcodeSuggestion(a.postcode, { query, proximityLat, proximityLng }, a.distanceMeters);
-      const sb = scoreUkPostcodeSuggestion(b.postcode, { query, proximityLat, proximityLng }, b.distanceMeters);
-      if (sa !== sb) return sa - sb;
+      // Higher match score first, then nearest.
+      const sa = scoreUkPostcodeSuggestion(query, a.postcode);
+      const sb = scoreUkPostcodeSuggestion(query, b.postcode);
+      if (sa !== sb) return sb - sa;
       return (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity);
     });
 
