@@ -486,15 +486,20 @@ export type ReleaseOnCancelDecision =
  * 2. definitive FAILED/CANCELLED/RELEASED + zero capture → RELEASE
  * 3. AUTHORISED without safe hold release → KEEP until hold released/reconciled
  * 4. AUTHORISED + hold safely released → RELEASE
- * 5. PROCESSING / UNKNOWN / timeout → KEEP (same-order reconcile only)
- * 6. COMPLETED / CAPTURED → SETTLE covered amount (partial = historical-first)
+ * 5. UNKNOWN / timeout → KEEP (same-order reconcile only) — even if a local
+ *    cancel attempt claimed success (never trust without GET classification)
+ * 6. PENDING/PROCESSING + hold_safely_released (same-order GET→cancel proven)
+ *    → RELEASE (fixes OR_BIBED_13 / payment-UI ghost: cancel ran but session
+ *    provider_state was still null/PENDING when reconcile used the planner)
+ * 7. PENDING/PROCESSING without safe cancel → KEEP
+ * 8. COMPLETED / CAPTURED → SETTLE covered amount (partial = historical-first)
  * Never create a replacement order. Repeated calls are idempotent at RPC layer.
  */
 export function planReleaseOnCancel(args: {
   provider_order_id?: string | null;
   provider_state?: string | null;
   has_capture?: boolean | null;
-  /** True after releaseHoldForPaymentSession ok+released (or equivalent). */
+  /** True after releaseHoldForPaymentSession ok (GET→cancel or already cancelled). */
   hold_safely_released?: boolean | null;
 }): ReleaseOnCancelDecision {
   const orderId = String(args.provider_order_id ?? "").trim();
@@ -528,6 +533,15 @@ export function planReleaseOnCancel(args: {
   }
   if (state === "AUTHORISED" || state === "AUTHORIZED") {
     return { action: "KEEP_RESERVED", reason: "authorised_awaiting_safe_hold_release" };
+  }
+  // Pending / processing / empty session state: RELEASE only after proven
+  // same-order cancel (hold_safely_released). Otherwise KEEP — payment UI may
+  // still complete (OR_BIBED dismiss must cancel first, then land here).
+  if (holdReleased) {
+    return {
+      action: "RELEASE",
+      reason: "pending_hold_safely_cancelled_zero_capture",
+    };
   }
   if (state === "PROCESSING" || state === "PENDING" || state === "") {
     return { action: "KEEP_RESERVED", reason: "non_terminal_keep_reserved" };
