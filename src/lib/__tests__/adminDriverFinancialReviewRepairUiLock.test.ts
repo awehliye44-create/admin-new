@@ -68,4 +68,9 @@ describe('driver financial review repair UI locks', () => {
     expect(preview.proposed_repair.proposed_stamp?.driver_net_pence).toBe(900);
     expect(preview.proposed_repair.wallet_money_changes).toBe(false);
   });
+
+  it('keeps Review & repair separate from Adjustment label', () => {
+    expect(DRIVER_FINANCIAL_REPAIR_COPY.BUTTON).toBe('Review & repair');
+    expect(DRIVER_FINANCIAL_REPAIR_COPY.BUTTON).not.toBe('Adjustment');
+  });
 });

@@ -21,6 +21,7 @@ import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPay
 import {
   assertRepairMoneyConservation,
   assertRepairPreviewStillFresh,
+  assertWalletCorrectionApplyCertified,
   buildDriverFinancialRepairIdempotencyKey,
   buildDriverFinancialRepairPreview,
   buildWalletCorrectionProviderTransferId,
@@ -602,6 +603,27 @@ async function handleApply(
       return json({
         error: "Repair preview is stale — re-run Review & repair",
         error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.REPAIR_PREVIEW_STALE,
+      }, 409);
+    }
+
+    // Hard Edge gate — never rely on UI alone for uncertified wallet corrections.
+    const walletCert = assertWalletCorrectionApplyCertified({
+      classification: livePreview.classification,
+    });
+    if (!walletCert.ok) {
+      await insertRepairAudit(gate.supabase, {
+        event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.BLOCKED,
+        repair_token: repairToken,
+        preview_hash: previewHash,
+        driver_id: driverId,
+        trip_id: tripId,
+        admin_user_id: gate.userId,
+        reason: reasonCheck.reason,
+        details: { error_code: walletCert.error_code, phase: "wallet_correction_not_certified" },
+      });
+      return json({
+        error: walletCert.reason,
+        error_code: walletCert.error_code,
       }, 409);
     }
 

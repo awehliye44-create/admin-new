@@ -1,0 +1,15 @@
+{
+  "feature": "admin-driver-financial-repair",
+  "purpose": "Next intentional Edge release provenance \u2014 DO NOT redeploy from this draft alone",
+  "branch": "feat/review-repair-ux-history-fr-deeplink",
+  "source_commit": "PENDING_COMMIT",
+  "tip_package_tree_sha256": "e2e3e4b0990d48c849d964bd260652ca9d6b8b8790b7f4e6cd248ac690dbb507",
+  "local_file_count": 34,
+  "live_version_at_draft": 8,
+  "rollback_live_version": 8,
+  "rollback_live_ezbr_sha256": "23c9328b397c002077704df43cbb21d1671e2df4e37504281eed0ea22befc727",
+  "deployed": false,
+  "pages_deploy": false,
+  "edge_deploy": false,
+  "note": "Tip tree hash is deterministic local closure (step82b31). Live ezbr is platform package hash after deploy and will differ until recorded at intentional deploy time."
+}
