@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
 
     const { data: driver } = await serviceClient
       .from("drivers")
-      .select("id, first_name, last_name, phone, approval_status, driver_status, documents_approved, is_online, deleted_at, updated_at, email_verified, phone_verified")
+      .select("id, first_name, last_name, phone, approval_status, driver_status, documents_approved, is_online, deleted_at, updated_at, email_verified, phone_verified, rating, rating_count")
       .eq("user_id", user.id)
       .is("deleted_at", null)
       .order("updated_at", { ascending: false })
@@ -133,6 +133,8 @@ Deno.serve(async (req) => {
           driver_status: driver.driver_status,
           is_online: driver.is_online,
           documents_approved: driver.documents_approved,
+          rating: driver.rating === null ? null : Number(driver.rating),
+          rating_count: Number(driver.rating_count ?? 0),
         },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
