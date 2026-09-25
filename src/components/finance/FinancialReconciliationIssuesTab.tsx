@@ -5,12 +5,18 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { FinancialReconciliationRefreshBar } from '@/components/finance/FinancialReconciliationRefreshBar';
+import { DriverWalletReviewRepairPanel } from '@/components/finance/DriverWalletReviewRepairPanel';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import { financialReconciliationTripsTabUrl } from '@/lib/financialReconciliationRoutes';
+import {
+  frIssueReviewRepairButtonLabel,
+  resolveFrIssueReviewRepairDeepLink,
+  type FrReviewRepairDeepLinkTarget,
+} from '@/lib/frIssuesReviewRepairDeepLink';
 import type { FinanceMoneyFormat } from '@/hooks/useFinanceReconciliationMoney';
 import type { TripFinancialAuditRow } from '@/hooks/useFinanceReconciliation';
 import type { FinanceDataSourceBadge } from '@/hooks/useFinancialReconciliationSSOT';
@@ -99,6 +105,9 @@ export function FinancialReconciliationIssuesTab({
 }: FinancialReconciliationIssuesTabProps) {
   const ccy = money.currencyCode ?? 'GBP';
   const [activeFilter, setActiveFilter] = useState(issueFilter);
+  const [reviewRepairTarget, setReviewRepairTarget] = useState<FrReviewRepairDeepLinkTarget | null>(
+    null,
+  );
 
   useEffect(() => {
     setActiveFilter(issueFilter);
@@ -206,11 +215,13 @@ export function FinancialReconciliationIssuesTab({
                 <TableHead className="text-right">Difference</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Investigation</TableHead>
+                <TableHead>Repair</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visible.map((issue) => {
                 const link = investigationLink(issue);
+                const repairTarget = resolveFrIssueReviewRepairDeepLink(issue);
                 return (
                   <TableRow key={`${issue.trip_id}-${issue.issue_type}`}>
                     <TableCell className="text-xs whitespace-nowrap">
@@ -254,6 +265,22 @@ export function FinancialReconciliationIssuesTab({
                         <Link to={link.href}>{link.label}</Link>
                       </Button>
                     </TableCell>
+                    <TableCell>
+                      {repairTarget && !readOnly ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          data-testid={`fr-issue-review-repair-${issue.trip_id}`}
+                          onClick={() => setReviewRepairTarget(repairTarget)}
+                        >
+                          {frIssueReviewRepairButtonLabel()}
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                   </TableRow>
                 );
               })}
@@ -265,7 +292,23 @@ export function FinancialReconciliationIssuesTab({
       <p className="text-xs text-muted-foreground">
         Showing {visible.length} issue{visible.length === 1 ? '' : 's'}
         {activeFilter !== 'all' ? ` · ${FR_ISSUE_FILTER_LABELS[activeFilter]} filter` : ''}
+        {' · '}
+        Adjustment and Resume payouts remain separate controls on Driver Wallet / Payout Ledger.
       </p>
+
+      {reviewRepairTarget ? (
+        <DriverWalletReviewRepairPanel
+          open={Boolean(reviewRepairTarget)}
+          onOpenChange={(next) => {
+            if (!next) setReviewRepairTarget(null);
+          }}
+          driverId={reviewRepairTarget.driverId}
+          driverName={reviewRepairTarget.driverName}
+          currencyCode={ccy}
+          initialTripId={reviewRepairTarget.tripId}
+          initialTripCode={reviewRepairTarget.tripCode}
+        />
+      ) : null}
     </div>
   );
 }

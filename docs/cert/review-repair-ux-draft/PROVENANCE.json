@@ -1,0 +1,17 @@
+{
+  "feature": "admin-driver-financial-repair",
+  "purpose": "Next intentional Edge release provenance \u2014 DO NOT redeploy from this draft alone",
+  "branch": "feat/review-repair-ux-history-fr-deeplink",
+  "source_commit": "aaa04c45a1c14ca9b968b0989fc66c1d3dd3364d",
+  "provenance_commit": "23efe575e6f4c5c4a5fad0dfdf287d7b110d4545",
+  "tip_package_content_tree_sha256": "257b28bab6dbc6d2734beef3e7d9eeb9118a23b6f62409d1d99b9b7f471ed271",
+  "local_file_count": 34,
+  "live_version_at_draft": 8,
+  "rollback_live_version": 8,
+  "rollback_live_ezbr_sha256": "23c9328b397c002077704df43cbb21d1671e2df4e37504281eed0ea22befc727",
+  "deployed": false,
+  "pages_deploy": false,
+  "edge_deploy": false,
+  "hash_method": "sorted relative path + raw file sha256 (mtime-independent)",
+  "note": "Use tip_package_content_tree_sha256 as frozen tip. Platform live ezbr after deploy will differ; record live version/hash at intentional deploy. Rollback target remains live v8."
+}

@@ -36,6 +36,11 @@ export const NO_PROVIDER_CALL = true;
 export const NO_PAYOUT = true;
 export const DRAFT_PR_ONLY = true;
 export const STOPPED_FOR_REPAIR_CONTROL_APPROVAL = true;
+/**
+ * APPEND_WALLET_CORRECTION Apply is not production-certified.
+ * Preview remains available; Apply must be rejected until flipped true after certification.
+ */
+export const WALLET_CORRECTION_APPEND_CERTIFIED = false;
 /** Hard invariant: unknown/null commission must never coerce to 0%. */
 export const UNKNOWN_FINANCIAL_RULE_IS_NOT_ZERO = true;
 
@@ -71,7 +76,25 @@ export const DRIVER_FINANCIAL_REPAIR_COPY = {
     "An audited £X.XX correction was added. The original wallet entry was not changed.",
   FREEZE_CLEARED_RESULT:
     "Reconciliation passed. The financial hold was removed automatically.",
+  WALLET_CORRECTION_NOT_CERTIFIED:
+    "Wallet correction requires separate financial approval.",
+  HISTORY_SECTION: "Repair history",
 } as const;
+
+/** Exact Admin UI status labels for Review & repair (do not paraphrase). */
+export const DRIVER_FINANCIAL_REPAIR_UI_STATUS = {
+  SAFE_TO_PREVIEW: "SAFE_TO_PREVIEW",
+  SAFE_TO_APPLY: "SAFE_TO_APPLY",
+  BLOCKED_WITH_EXACT_REASON: "BLOCKED_WITH_EXACT_REASON",
+  ALREADY_REPAIRED: "ALREADY_REPAIRED",
+  PREVIEW_STALE: "PREVIEW_STALE",
+  PROVIDER_UNKNOWN: "PROVIDER_UNKNOWN",
+  PAYOUT_IN_FLIGHT: "PAYOUT_IN_FLIGHT",
+  WALLET_CORRECTION_NOT_CERTIFIED: "WALLET_CORRECTION_NOT_CERTIFIED",
+} as const;
+
+export type DriverFinancialRepairUiStatus =
+  typeof DRIVER_FINANCIAL_REPAIR_UI_STATUS[keyof typeof DRIVER_FINANCIAL_REPAIR_UI_STATUS];
 
 export const DRIVER_FINANCIAL_REPAIR_REASON_MIN = 3;
 export const DRIVER_FINANCIAL_REPAIR_REASON_MAX = 500;
@@ -96,6 +119,7 @@ export const DRIVER_FINANCIAL_REPAIR_BLOCK = {
   REASON_INVALID: "REASON_INVALID",
   LOCK_UNAVAILABLE: "LOCK_UNAVAILABLE",
   MONETARY_CONSERVATION_VIOLATION: "MONETARY_CONSERVATION_VIOLATION",
+  WALLET_CORRECTION_NOT_CERTIFIED: "WALLET_CORRECTION_NOT_CERTIFIED",
 } as const;
 
 export type DriverFinancialRepairBlockCode =
@@ -992,7 +1016,7 @@ export function buildDriverFinancialRepairPreview(args: {
     append_wallet_correction_pence: plan.residual_correction_pence,
   });
 
-  return {
+  const preview: DriverFinancialRepairPreview = {
     ...base,
     classification,
     preview_hash: hashDriverFinancialRepairPreview(payload),
@@ -1007,6 +1031,8 @@ export function buildDriverFinancialRepairPreview(args: {
     block_reason: null,
     apply_allowed: true,
   };
+
+  return enforceWalletCorrectionPreviewCertification(preview);
 }
 
 /**
@@ -1110,4 +1136,102 @@ export function resumePayoutsMutatesEvidenceOrWallet(): false {
 /** Direct unfreeze mutations are forbidden. */
 export function directUnfreezeAllowed(): false {
   return false;
+}
+
+/**
+ * APPEND_WALLET_CORRECTION Apply gate — Preview stays available; Apply rejected until certified.
+ * Enforce in Edge Apply; do not rely on UI alone.
+ */
+export function assertWalletCorrectionApplyCertified(args: {
+  classification: string | null | undefined;
+}): { ok: true } | {
+  ok: false;
+  error_code: typeof DRIVER_FINANCIAL_REPAIR_BLOCK.WALLET_CORRECTION_NOT_CERTIFIED;
+  reason: string;
+} {
+  if (
+    !WALLET_CORRECTION_APPEND_CERTIFIED
+    && String(args.classification ?? "") === DRIVER_FINANCIAL_REPAIR_ACTION.APPEND_WALLET_CORRECTION
+  ) {
+    return {
+      ok: false,
+      error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.WALLET_CORRECTION_NOT_CERTIFIED,
+      reason: DRIVER_FINANCIAL_REPAIR_COPY.WALLET_CORRECTION_NOT_CERTIFIED,
+    };
+  }
+  return { ok: true };
+}
+
+/** Soften Preview apply_allowed for uncertified wallet correction (Preview still returned). */
+export function enforceWalletCorrectionPreviewCertification(
+  preview: DriverFinancialRepairPreview,
+): DriverFinancialRepairPreview {
+  const gate = assertWalletCorrectionApplyCertified({ classification: preview.classification });
+  if (gate.ok) return preview;
+  return {
+    ...preview,
+    apply_allowed: false,
+    block_code: gate.error_code,
+    block_reason: gate.reason,
+  };
+}
+
+/**
+ * Exact Admin status copy for the Review & repair panel.
+ * Opening the panel with no preview is always SAFE_TO_PREVIEW (no auto Preview).
+ */
+export function resolveDriverFinancialRepairUiStatus(args: {
+  preview: DriverFinancialRepairPreview | null | undefined;
+}): DriverFinancialRepairUiStatus {
+  const preview = args.preview ?? null;
+  if (!preview) return DRIVER_FINANCIAL_REPAIR_UI_STATUS.SAFE_TO_PREVIEW;
+
+  const code = preview.block_code;
+  if (
+    code === DRIVER_FINANCIAL_REPAIR_BLOCK.WALLET_CORRECTION_NOT_CERTIFIED
+    || (
+      preview.classification === DRIVER_FINANCIAL_REPAIR_ACTION.APPEND_WALLET_CORRECTION
+      && !WALLET_CORRECTION_APPEND_CERTIFIED
+    )
+  ) {
+    return DRIVER_FINANCIAL_REPAIR_UI_STATUS.WALLET_CORRECTION_NOT_CERTIFIED;
+  }
+  if (code === DRIVER_FINANCIAL_REPAIR_BLOCK.ALREADY_APPLIED) {
+    return DRIVER_FINANCIAL_REPAIR_UI_STATUS.ALREADY_REPAIRED;
+  }
+  if (code === DRIVER_FINANCIAL_REPAIR_BLOCK.REPAIR_PREVIEW_STALE) {
+    return DRIVER_FINANCIAL_REPAIR_UI_STATUS.PREVIEW_STALE;
+  }
+  if (code === DRIVER_FINANCIAL_REPAIR_BLOCK.PROVIDER_UNKNOWN) {
+    return DRIVER_FINANCIAL_REPAIR_UI_STATUS.PROVIDER_UNKNOWN;
+  }
+  if (
+    code === DRIVER_FINANCIAL_REPAIR_BLOCK.PAYOUT_IN_FLIGHT
+    || code === DRIVER_FINANCIAL_REPAIR_BLOCK.ACTIVE_RESERVATION
+  ) {
+    return DRIVER_FINANCIAL_REPAIR_UI_STATUS.PAYOUT_IN_FLIGHT;
+  }
+  if (preview.apply_allowed) return DRIVER_FINANCIAL_REPAIR_UI_STATUS.SAFE_TO_APPLY;
+  return DRIVER_FINANCIAL_REPAIR_UI_STATUS.BLOCKED_WITH_EXACT_REASON;
+}
+
+/** FR Issues deep-link eligibility — requires driver + trip; repair-relevant issue only. */
+export function isFrIssueEligibleForReviewRepair(issue: {
+  issue_type?: string | null;
+  driver_id?: string | null;
+  trip_id?: string | null;
+  driver_credit_health?: string | null;
+  status?: string | null;
+  expected_stamp_status?: string | null;
+}): boolean {
+  if (!issue.driver_id || !issue.trip_id) return false;
+  const type = String(issue.issue_type ?? "").toLowerCase();
+  if (type === "driver_credit" || type === "wallet_mismatch") return true;
+  return shouldShowDriverFinancialReviewRepair({
+    driver_credit_status: issue.driver_credit_health ?? issue.status,
+    expected_stamp_status: issue.expected_stamp_status,
+    issue_statuses: [issue.status, issue.driver_credit_health, issue.expected_stamp_status]
+      .filter(Boolean)
+      .map(String),
+  });
 }

@@ -16,10 +16,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { formatNullablePence } from '@/lib/formatNullablePence';
+import { useDriverFinancialRepairHistory } from '@/hooks/useDriverFinancialRepairHistory';
 import {
+  DRIVER_FINANCIAL_REPAIR_ACTION,
+  DRIVER_FINANCIAL_REPAIR_BLOCK,
   DRIVER_FINANCIAL_REPAIR_COPY,
   DRIVER_FINANCIAL_REPAIR_REASON_MIN,
+  DRIVER_FINANCIAL_REPAIR_UI_STATUS,
+  WALLET_CORRECTION_APPEND_CERTIFIED,
   formatWalletCorrectionResultCopy,
+  resolveDriverFinancialRepairUiStatus,
   type DriverFinancialRepairPreview,
 } from '../../../shared/driverFinancialReviewRepairSSOT';
 import type { DriverWalletSettlementHistoryRow } from '@/hooks/useDriverWalletSsot';
@@ -33,9 +39,22 @@ type TripOption = {
 function pickCandidateTrips(
   settlementRows: DriverWalletSettlementHistoryRow[] | null | undefined,
   missingStampTrips?: Array<{ trip_id: string | null; trip_code: string | null }> | null,
+  initialTrip?: { trip_id: string; trip_code?: string | null } | null,
 ): TripOption[] {
   const seen = new Set<string>();
   const out: TripOption[] = [];
+
+  if (initialTrip?.trip_id) {
+    const id = String(initialTrip.trip_id);
+    seen.add(id);
+    out.push({
+      trip_id: id,
+      trip_code: initialTrip.trip_code ?? null,
+      label: initialTrip.trip_code
+        ? `${initialTrip.trip_code} (from Financial Reconciliation)`
+        : `${id} (from Financial Reconciliation)`,
+    });
+  }
 
   for (const miss of missingStampTrips ?? []) {
     const id = miss.trip_id ? String(miss.trip_id) : '';
@@ -74,6 +93,13 @@ function pickCandidateTrips(
   return out;
 }
 
+function formatTs(value: string | null | undefined): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+}
+
 export function DriverWalletReviewRepairPanel({
   open,
   onOpenChange,
@@ -85,6 +111,8 @@ export function DriverWalletReviewRepairPanel({
   driverCreditStatus,
   settlementRows,
   missingStampTrips,
+  initialTripId = null,
+  initialTripCode = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -96,24 +124,40 @@ export function DriverWalletReviewRepairPanel({
   driverCreditStatus?: string | null;
   settlementRows?: DriverWalletSettlementHistoryRow[] | null;
   missingStampTrips?: Array<{ trip_id: string | null; trip_code: string | null }> | null;
+  /** Prefill from FR Issues deep-link — never auto-Preview. */
+  initialTripId?: string | null;
+  initialTripCode?: string | null;
 }) {
   const queryClient = useQueryClient();
   const candidates = useMemo(
-    () => pickCandidateTrips(settlementRows, missingStampTrips),
-    [settlementRows, missingStampTrips],
+    () =>
+      pickCandidateTrips(
+        settlementRows,
+        missingStampTrips,
+        initialTripId
+          ? { trip_id: initialTripId, trip_code: initialTripCode }
+          : null,
+      ),
+    [settlementRows, missingStampTrips, initialTripId, initialTripCode],
   );
   const [tripId, setTripId] = useState<string>('');
   const [preview, setPreview] = useState<DriverFinancialRepairPreview | null>(null);
   const [reason, setReason] = useState('');
   const [resultMessages, setResultMessages] = useState<string[]>([]);
 
+  const historyQuery = useDriverFinancialRepairHistory(driverId, open);
+
   useEffect(() => {
     if (!open) return;
+    // Opening the panel must never Preview or mutate — reset only.
     setPreview(null);
     setReason('');
     setResultMessages([]);
-    setTripId(candidates[0]?.trip_id ?? '');
-  }, [open, candidates]);
+    const preferred = initialTripId && candidates.some((c) => c.trip_id === initialTripId)
+      ? initialTripId
+      : (candidates[0]?.trip_id ?? '');
+    setTripId(preferred);
+  }, [open, candidates, initialTripId]);
 
   const previewMutation = useMutation({
     mutationFn: async () => {
@@ -151,6 +195,15 @@ export function DriverWalletReviewRepairPanel({
   const applyMutation = useMutation({
     mutationFn: async () => {
       if (!preview) throw new Error('Preview required');
+      if (
+        preview.classification === DRIVER_FINANCIAL_REPAIR_ACTION.APPEND_WALLET_CORRECTION
+        && !WALLET_CORRECTION_APPEND_CERTIFIED
+      ) {
+        const err = new Error(DRIVER_FINANCIAL_REPAIR_COPY.WALLET_CORRECTION_NOT_CERTIFIED);
+        (err as Error & { code?: string }).code =
+          DRIVER_FINANCIAL_REPAIR_BLOCK.WALLET_CORRECTION_NOT_CERTIFIED;
+        throw err;
+      }
       const { data, error } = await supabase.functions.invoke('admin-driver-financial-repair', {
         body: {
           action: 'apply',
@@ -185,14 +238,24 @@ export function DriverWalletReviewRepairPanel({
       void queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot'] });
       void queryClient.invalidateQueries({ queryKey: ['driver-wallet-ssot-detail', driverId] });
       void queryClient.invalidateQueries({ queryKey: ['finance-ledger-transactions'] });
+      void queryClient.invalidateQueries({ queryKey: ['driver-financial-repair-history', driverId] });
     },
     onError: (error: Error & { code?: string }) => {
       toast.error(error.message || 'Failed to apply repair');
     },
   });
 
+  const uiStatus = resolveDriverFinancialRepairUiStatus({ preview });
+  const walletCorrectionBlocked =
+    uiStatus === DRIVER_FINANCIAL_REPAIR_UI_STATUS.WALLET_CORRECTION_NOT_CERTIFIED
+    || (
+      preview?.classification === DRIVER_FINANCIAL_REPAIR_ACTION.APPEND_WALLET_CORRECTION
+      && !WALLET_CORRECTION_APPEND_CERTIFIED
+    );
+
   const canApply = Boolean(
     preview?.apply_allowed
+    && !walletCorrectionBlocked
     && reason.trim().length >= DRIVER_FINANCIAL_REPAIR_REASON_MIN
     && !applyMutation.isPending,
   );
@@ -201,7 +264,10 @@ export function DriverWalletReviewRepairPanel({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="sm:max-w-[720px] max-h-[90vh] overflow-y-auto"
+        data-testid="driver-wallet-review-repair-panel"
+      >
         <DialogHeader>
           <DialogTitle>{DRIVER_FINANCIAL_REPAIR_COPY.BUTTON}</DialogTitle>
         </DialogHeader>
@@ -211,6 +277,16 @@ export function DriverWalletReviewRepairPanel({
             <AlertTitle>Before you apply</AlertTitle>
             <AlertDescription>{DRIVER_FINANCIAL_REPAIR_COPY.CONFIRMATION}</AlertDescription>
           </Alert>
+
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Status:</span>
+            <Badge
+              variant={uiStatus === DRIVER_FINANCIAL_REPAIR_UI_STATUS.SAFE_TO_APPLY ? 'default' : 'outline'}
+              data-testid="review-repair-ui-status"
+            >
+              {uiStatus}
+            </Badge>
+          </div>
 
           <div className="text-sm space-y-1">
             <p>
@@ -223,7 +299,7 @@ export function DriverWalletReviewRepairPanel({
             <Label htmlFor="repair-trip">Affected trip</Label>
             {candidates.length > 0 ? (
               <Select value={tripId} onValueChange={(v) => { setTripId(v); setPreview(null); }}>
-                <SelectTrigger id="repair-trip">
+                <SelectTrigger id="repair-trip" data-testid="review-repair-trip-select">
                   <SelectValue placeholder="Select trip" />
                 </SelectTrigger>
                 <SelectContent>
@@ -249,6 +325,7 @@ export function DriverWalletReviewRepairPanel({
               variant="secondary"
               size="sm"
               disabled={!tripId || previewMutation.isPending}
+              data-testid="review-repair-preview-button"
               onClick={() => previewMutation.mutate()}
             >
               {previewMutation.isPending ? 'Loading preview…' : 'Load repair preview'}
@@ -259,7 +336,7 @@ export function DriverWalletReviewRepairPanel({
             <div className="space-y-3 rounded-md border p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline">{preview.classification}</Badge>
-                {preview.apply_allowed ? (
+                {preview.apply_allowed && !walletCorrectionBlocked ? (
                   <Badge>Apply allowed</Badge>
                 ) : (
                   <Badge variant="destructive">{preview.block_code ?? 'Blocked'}</Badge>
@@ -363,13 +440,20 @@ export function DriverWalletReviewRepairPanel({
                 ) : null}
               </div>
 
-              {preview.block_reason ? (
+              {walletCorrectionBlocked ? (
+                <Alert variant="destructive" data-testid="review-repair-wallet-correction-block">
+                  <AlertTitle>{DRIVER_FINANCIAL_REPAIR_UI_STATUS.WALLET_CORRECTION_NOT_CERTIFIED}</AlertTitle>
+                  <AlertDescription>
+                    {DRIVER_FINANCIAL_REPAIR_COPY.WALLET_CORRECTION_NOT_CERTIFIED}
+                  </AlertDescription>
+                </Alert>
+              ) : preview.block_reason ? (
                 <Alert variant="destructive">
                   <AlertDescription>{preview.block_reason}</AlertDescription>
                 </Alert>
               ) : null}
 
-              {preview.apply_allowed ? (
+              {preview.apply_allowed && !walletCorrectionBlocked ? (
                 <div className="space-y-2">
                   <Label htmlFor="repair-reason">Admin reason (3–500 characters)</Label>
                   <Textarea
@@ -397,6 +481,72 @@ export function DriverWalletReviewRepairPanel({
               </AlertDescription>
             </Alert>
           ) : null}
+
+          <section
+            className="space-y-2 rounded-md border p-3"
+            data-testid="review-repair-history"
+            aria-label={DRIVER_FINANCIAL_REPAIR_COPY.HISTORY_SECTION}
+          >
+            <h3 className="text-sm font-medium">{DRIVER_FINANCIAL_REPAIR_COPY.HISTORY_SECTION}</h3>
+            <p className="text-xs text-muted-foreground">
+              Read-only Finance audit — no mutations from this panel.
+            </p>
+            {historyQuery.isLoading ? (
+              <p className="text-xs text-muted-foreground">Loading history…</p>
+            ) : historyQuery.isError ? (
+              <p className="text-xs text-destructive">Unable to load repair history.</p>
+            ) : (historyQuery.data?.length ?? 0) === 0 ? (
+              <p className="text-xs text-muted-foreground">No repair requests for this driver yet.</p>
+            ) : (
+              <ul className="space-y-3">
+                {(historyQuery.data ?? []).map((row) => (
+                  <li key={row.id} className="rounded border bg-muted/20 p-2 text-xs space-y-1">
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <Badge variant="outline">{row.classification}</Badge>
+                      <Badge variant={row.status === 'APPLIED' ? 'default' : 'secondary'}>{row.status}</Badge>
+                    </div>
+                    <p>
+                      <span className="text-muted-foreground">Created:</span> {formatTs(row.created_at)}
+                      {row.applied_at ? (
+                        <>
+                          {' · '}
+                          <span className="text-muted-foreground">Applied:</span> {formatTs(row.applied_at)}
+                        </>
+                      ) : null}
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Trip:</span>{' '}
+                      {row.trip_code ?? row.trip_id.slice(0, 8)}
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Admin:</span> {row.admin_actor}
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Reason:</span> {row.reason ?? '—'}
+                    </p>
+                    <p className="font-mono break-all">
+                      <span className="text-muted-foreground font-sans">Preview hash:</span>{' '}
+                      {row.preview_hash}
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Wallet delta:</span>{' '}
+                      {formatNullablePence(row.wallet_delta_pence, currencyCode)}
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Audit sequence:</span>{' '}
+                      {row.audit_sequence.length ? row.audit_sequence.join(' → ') : '—'}
+                    </p>
+                    {row.failure_or_block_reason ? (
+                      <p className="text-destructive">
+                        <span className="text-muted-foreground">Block/failure:</span>{' '}
+                        {row.failure_or_block_reason}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
 
         <DialogFooter className="gap-2">
@@ -406,6 +556,7 @@ export function DriverWalletReviewRepairPanel({
           <Button
             type="button"
             disabled={!canApply}
+            data-testid="review-repair-apply-button"
             onClick={() => applyMutation.mutate()}
           >
             {applyMutation.isPending ? 'Applying…' : 'Approve repair'}
@@ -419,4 +570,9 @@ export function DriverWalletReviewRepairPanel({
 /** Helper for unit tests / copy assertions. */
 export function reviewRepairWalletCorrectionCopy(pence: number): string {
   return formatWalletCorrectionResultCopy(pence);
+}
+
+/** Opening the panel never auto-previews (lock). */
+export function reviewRepairPanelAutoPreviewOnOpen(): false {
+  return false;
 }

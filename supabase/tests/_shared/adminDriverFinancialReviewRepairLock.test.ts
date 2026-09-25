@@ -10,6 +10,7 @@ import {
   ADMIN_REVIEW_REPAIR_ACTION_PRESENT,
   assertRepairMoneyConservation,
   assertRepairPreviewStillFresh,
+  assertWalletCorrectionApplyCertified,
   buildDriverFinancialRepairPreview,
   DRIVER_FINANCIAL_REPAIR_ACTION,
   DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT,
@@ -20,6 +21,7 @@ import {
   resolveProvenCommissionPercentForRepair,
   shouldShowDriverFinancialReviewRepair,
   UNKNOWN_FINANCIAL_RULE_IS_NOT_ZERO,
+  WALLET_CORRECTION_APPEND_CERTIFIED,
   type DriverFinancialRepairEvidence,
 } from "../../functions/_shared/driverFinancialReviewRepairSSOT.ts";
 
@@ -99,7 +101,7 @@ Deno.test("P0 money: stamp missing + TEN correct → £0 money", () => {
   assertFalse(preview.proposed_repair.wallet_money_changes);
 });
 
-Deno.test("P0 money: stamp present + ledger shortage → correction only", () => {
+Deno.test("P0 money: stamp present + ledger shortage → correction only (Apply not certified)", () => {
   const preview = buildDriverFinancialRepairPreview({
     evidence: baseEvidence({
       existing_driver_net_pence: 1700,
@@ -113,6 +115,27 @@ Deno.test("P0 money: stamp present + ledger shortage → correction only", () =>
   assertEquals(preview.proposed_repair.canonical_ten_restoration_pence, 0);
   assertEquals(preview.proposed_repair.append_wallet_correction_pence, 200);
   assertEquals(preview.proposed_repair.proven_wallet_delta_pence, 200);
+  assertFalse(preview.apply_allowed);
+  assertEquals(preview.block_code, DRIVER_FINANCIAL_REPAIR_BLOCK.WALLET_CORRECTION_NOT_CERTIFIED);
+});
+
+Deno.test("wallet correction Apply hard-blocked until certified (Edge + SSOT)", async () => {
+  assertFalse(WALLET_CORRECTION_APPEND_CERTIFIED);
+  const gate = assertWalletCorrectionApplyCertified({
+    classification: DRIVER_FINANCIAL_REPAIR_ACTION.APPEND_WALLET_CORRECTION,
+  });
+  assertEquals(gate.ok, false);
+  if (!gate.ok) {
+    assertEquals(gate.error_code, DRIVER_FINANCIAL_REPAIR_BLOCK.WALLET_CORRECTION_NOT_CERTIFIED);
+    assertEquals(gate.reason, DRIVER_FINANCIAL_REPAIR_COPY.WALLET_CORRECTION_NOT_CERTIFIED);
+  }
+  const restoreOk = assertWalletCorrectionApplyCertified({
+    classification: DRIVER_FINANCIAL_REPAIR_ACTION.RESTORE_EXPECTED_STAMP,
+  });
+  assertEquals(restoreOk.ok, true);
+  const edge = await read("supabase/functions/admin-driver-financial-repair/index.ts");
+  assert(edge.includes("assertWalletCorrectionApplyCertified"));
+  assert(edge.includes("wallet_correction_not_certified"));
 });
 
 Deno.test("P0 money: conservation invariant blocks double-count plan", () => {

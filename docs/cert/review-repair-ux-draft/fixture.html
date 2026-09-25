@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Review & repair UX draft — screenshots</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif; background: #f4f4f5; color: #18181b; margin: 0; padding: 24px; }
+    h1 { font-size: 18px; margin: 0 0 16px; }
+    .grid { display: grid; gap: 20px; grid-template-columns: 1fr; max-width: 760px; }
+    .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .title { font-weight: 600; font-size: 15px; margin-bottom: 8px; }
+    .badge { display: inline-block; border: 1px solid #d4d4d8; border-radius: 999px; padding: 2px 8px; font-size: 11px; margin-right: 6px; }
+    .badge.ok { background: #18181b; color: #fff; border-color: #18181b; }
+    .badge.warn { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+    .muted { color: #71717a; font-size: 12px; }
+    .row { margin: 6px 0; font-size: 13px; }
+    .hist { border: 1px solid #e4e4e7; border-radius: 8px; padding: 10px; margin-top: 10px; background: #fafafa; }
+    .btn { display: inline-block; border: 1px solid #d4d4d8; border-radius: 6px; padding: 6px 10px; font-size: 12px; margin-right: 8px; background: #fff; }
+    .btn.primary { background: #18181b; color: #fff; border-color: #18181b; }
+    .btn.disabled { opacity: .45; }
+    .alert { border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; border-radius: 8px; padding: 10px; font-size: 12px; margin-top: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border-bottom: 1px solid #e4e4e7; padding: 8px; text-align: left; }
+  </style>
+</head>
+<body>
+  <h1>Review &amp; repair UX draft (fixture — no live Preview/Apply)</h1>
+  <div class="grid">
+    <section class="card" id="panel-safe-preview">
+      <div class="title">Driver Wallet — Review &amp; repair (open, no Preview)</div>
+      <div class="row"><span class="badge">SAFE_TO_PREVIEW</span></div>
+      <div class="row muted">Driver: Test Driver (MK-DRV) · Trip prefilled from FR Issues</div>
+      <div class="row">Affected trip: <strong>MK-260817-008 (from Financial Reconciliation)</strong></div>
+      <div class="row"><span class="btn">Load repair preview</span><span class="btn primary disabled">Approve repair</span></div>
+      <div class="hist">
+        <div class="title" style="font-size:13px">Repair history (read-only)</div>
+        <div class="row"><span class="badge ok">RESTORE_EXPECTED_STAMP</span><span class="badge ok">APPLIED</span></div>
+        <div class="row muted">Created: 2026-09-25 07:43:29 UTC · Applied: 2026-09-25 07:43:31 UTC</div>
+        <div class="row">Trip: MK-260817-008 · Admin: ONECAB Administrator</div>
+        <div class="row">Preview hash: rfh_eaccfc5c_749 · Wallet delta: £0.00</div>
+        <div class="row muted">Audit: PREVIEWED → EXPECTED_STAMP_RESTORED → RECONCILIATION_RECOMPUTED</div>
+      </div>
+    </section>
+
+    <section class="card" id="panel-wallet-block">
+      <div class="title">APPEND_WALLET_CORRECTION — Preview OK, Apply blocked</div>
+      <div class="row"><span class="badge warn">WALLET_CORRECTION_NOT_CERTIFIED</span><span class="badge">APPEND_WALLET_CORRECTION</span></div>
+      <div class="alert"><strong>WALLET_CORRECTION_NOT_CERTIFIED</strong><br/>Wallet correction requires separate financial approval.</div>
+      <div class="row"><span class="btn">Load repair preview</span><span class="btn primary disabled">Approve repair</span></div>
+    </section>
+
+    <section class="card" id="fr-issues">
+      <div class="title">Financial Reconciliation Issues — deep-link</div>
+      <table>
+        <thead><tr><th>Trip</th><th>Issue</th><th>Investigation</th><th>Repair</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>MK-TEST-001</td>
+            <td>Driver credit</td>
+            <td><span class="btn">Driver Wallet</span></td>
+            <td><span class="btn">Review &amp; repair</span></td>
+          </tr>
+          <tr>
+            <td>MK-PAYOUT-1</td>
+            <td>Payout</td>
+            <td><span class="btn">Payout Ledger</span></td>
+            <td class="muted">—</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="row muted" style="margin-top:10px">Adjustment and Resume payouts remain separate controls on Driver Wallet / Payout Ledger.</div>
+    </section>
+  </div>
+</body>
+</html>
