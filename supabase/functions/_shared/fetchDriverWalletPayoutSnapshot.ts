@@ -199,6 +199,8 @@ export async function fetchDriverWalletPayoutSnapshot(
   )];
   const walletCreditByTripId = new Map<string, number>();
   const walletCreditLedgerCreatedAtByTripId = new Map<string, string>();
+  const fareTenCountByTripId = new Map<string, number>();
+  const fareTenPenceByTripId = new Map<string, number>();
   for (const row of rawLedger) {
     const t = String(row.type ?? "").toUpperCase();
     // Trip-scoped entitlement credits — include DRIVER_TIP_CREDIT exactly once per row.
@@ -217,6 +219,13 @@ export async function fetchDriverWalletPayoutSnapshot(
       tripId,
       (walletCreditByTripId.get(tripId) ?? 0) + Math.round(Number(row.amount_pence ?? 0)),
     );
+    if (t === "TRIP_EARNING_NET") {
+      fareTenCountByTripId.set(tripId, (fareTenCountByTripId.get(tripId) ?? 0) + 1);
+      fareTenPenceByTripId.set(
+        tripId,
+        (fareTenPenceByTripId.get(tripId) ?? 0) + Math.round(Number(row.amount_pence ?? 0)),
+      );
+    }
     const createdAt = row.created_at == null ? null : String(row.created_at);
     if (createdAt) {
       const existing = walletCreditLedgerCreatedAtByTripId.get(tripId);
@@ -239,7 +248,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       supabase
         .from("trips")
         .select(
-          "id, trip_code, completed_at, passenger_name, payment_status, status, financial_outcome, final_customer_fare_pence, gross_fare_pence, locked_base_fare_pence, customer_modification_charge_pence, no_show_charge_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, other_pass_through_charges_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, tip_pence, tip_amount_pence, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
+          "id, trip_code, completed_at, passenger_name, payment_status, status, financial_outcome, final_customer_fare_pence, final_fare_pence, commissionable_fare_pence, gross_fare_pence, locked_base_fare_pence, customer_modification_charge_pence, no_show_charge_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, other_pass_through_charges_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, tip_pence, tip_amount_pence, payment_hold_status, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
         )
         .in("id", tripIdsForFr),
       supabase
@@ -488,6 +497,10 @@ export async function fetchDriverWalletPayoutSnapshot(
       settlement: settlementByTripId.get(tripId) ?? null,
       actual_wallet_trip_credit_pence: walletCreditByTripId.get(tripId) ?? null,
       ledger_created_at: walletCreditLedgerCreatedAtByTripId.get(tripId) ?? null,
+      fare_trip_earning_net_count: fareTenCountByTripId.get(tripId) ?? 0,
+      fare_trip_earning_net_pence: fareTenCountByTripId.get(tripId) === 1
+        ? (fareTenPenceByTripId.get(tripId) ?? null)
+        : null,
     });
   });
   if (settledTripsForFr.length === 0 && settlements.length > 0) {
@@ -502,6 +515,10 @@ export async function fetchDriverWalletPayoutSnapshot(
         settlement: s as Record<string, unknown>,
         actual_wallet_trip_credit_pence: walletCreditByTripId.get(tripId) ?? null,
         ledger_created_at: walletCreditLedgerCreatedAtByTripId.get(tripId) ?? null,
+        fare_trip_earning_net_count: fareTenCountByTripId.get(tripId) ?? 0,
+        fare_trip_earning_net_pence: fareTenCountByTripId.get(tripId) === 1
+          ? (fareTenPenceByTripId.get(tripId) ?? null)
+          : null,
       }));
     }
   }
@@ -518,7 +535,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     const { data: driverTripRows } = await supabase
       .from("trips")
       .select(
-        "id, trip_code, completed_at, status, financial_outcome, final_customer_fare_pence, gross_fare_pence, locked_base_fare_pence, customer_modification_charge_pence, no_show_charge_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, other_pass_through_charges_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, tip_pence, tip_amount_pence, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
+        "id, trip_code, completed_at, status, financial_outcome, final_customer_fare_pence, final_fare_pence, commissionable_fare_pence, gross_fare_pence, locked_base_fare_pence, customer_modification_charge_pence, no_show_charge_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, other_pass_through_charges_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, tip_pence, tip_amount_pence, payment_hold_status, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
       )
       .eq("driver_id", args.driverId)
       .eq("financial_model", "PLATFORM_COLLECTED");
@@ -536,6 +553,10 @@ export async function fetchDriverWalletPayoutSnapshot(
         settlement: settlementByTripId.get(tripId) ?? null,
         actual_wallet_trip_credit_pence: walletCreditByTripId.get(tripId) ?? null,
         ledger_created_at: walletCreditLedgerCreatedAtByTripId.get(tripId) ?? null,
+        fare_trip_earning_net_count: fareTenCountByTripId.get(tripId) ?? 0,
+        fare_trip_earning_net_pence: fareTenCountByTripId.get(tripId) === 1
+          ? (fareTenPenceByTripId.get(tripId) ?? null)
+          : null,
       });
       if (!isInstantInFinancePeriod(
         built.period_origin ?? built.financial_settled_at,
