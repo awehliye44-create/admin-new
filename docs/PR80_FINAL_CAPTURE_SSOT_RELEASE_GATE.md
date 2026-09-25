@@ -105,11 +105,12 @@ Built with `scripts/step82b31-closure-builder.ts` at tip `1cbd29e7` → `/tmp/pr
 | Policy A isolation | **3/3 PASS** |
 | Consent / fold gate | **11/11 PASS** (gate default OFF) |
 | Corporate/guest isolation | **5/5 PASS** |
-| Tip-window mutex RPC security | **BLOCKED locally** (npm:@supabase resolve without link) |
-| Expired tip stale GET-first reclaim | **BLOCKED locally** (same) |
-| Admin capture ownership | **BLOCKED locally** (same) |
+| Tip-window mutex RPC security | **9/9 PASS** (`--no-check`) |
+| Expired tip stale GET-first reclaim | **7/7 PASS** (`--no-check`) |
+| Admin capture ownership | **NOT RE-RUN** (npm typecheck env); ownership locks exist on branch |
 | Historical compatibility (composition) | **PARTIAL** — planner tests pass; Edge fail-closed for RESERVED∖plan **GAP** |
 | Edge import-closure | Closures built unresolved=0 for all listed slugs |
+| Combined pure matrix (composition+tip SM+early+dispose+recv lifecycle/concurrency/PolicyA/consent/corp) | **113/113 PASS** |
 
 **Explicit formula proofs (locks 1,3,4,7,8,9,12,16,17):**
 
