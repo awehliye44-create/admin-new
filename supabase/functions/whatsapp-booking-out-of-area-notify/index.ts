@@ -5,14 +5,16 @@
  * pickup is authoritatively OUTSIDE_AREA.
  *
  * - Requires a valid signed WhatsApp book continuation token (wa_id from token).
+ * - Requires pickup_lat / pickup_lng and re-resolves via resolve-service-area SSOT
+ *   (never trusts a client-only OUTSIDE_AREA claim).
  * - Does NOT change the welcome / 3-option menu.
  * - Dedupes per wa_id via whatsapp_conversations.metadata (24h window).
  * - Stamps the dedupe key only AFTER a successful Graph send (failed delivery can retry).
- * - Never invents coverage — caller must already have OUTSIDE_AREA from resolve-service-area.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { corsHeaders } from "../_shared/corsHeaders.ts";
+import { edgeFunctionInvokeHeaders } from "../_shared/edgeFunctionInvokeHeaders.ts";
 import {
   buildWhatsAppContinuationSigningMaterial,
   verifyWhatsAppContinuationToken,
@@ -27,6 +29,7 @@ import {
   WHATSAPP_OUT_OF_AREA_NOTICE_TEXT,
   withOutOfAreaNoticeSent,
 } from "../_shared/whatsappOutOfAreaNotice.ts";
+import { assertPickupCoveredByResolveServiceArea } from "../_shared/whatsappPickupCoverageSSOT.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -43,13 +46,25 @@ Deno.serve(async (req) => {
     const body = (await req.json().catch(() => ({}))) as {
       continuation_token?: unknown;
       code?: unknown;
+      pickup_lat?: unknown;
+      pickup_lng?: unknown;
     };
 
-    // Only accept positive authoritative OUTSIDE_AREA — never send on technical failure.
+    // Client must claim OUTSIDE_AREA — never send on technical-failure framing.
     if (body.code !== "OUTSIDE_AREA") {
       return respond(400, {
         success: false,
         error: "OUTSIDE_AREA_REQUIRED",
+        sent: false,
+      });
+    }
+
+    const pickupLat = typeof body.pickup_lat === "number" ? body.pickup_lat : NaN;
+    const pickupLng = typeof body.pickup_lng === "number" ? body.pickup_lng : NaN;
+    if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) {
+      return respond(400, {
+        success: false,
+        error: "PICKUP_REQUIRED",
         sent: false,
       });
     }
@@ -95,6 +110,35 @@ Deno.serve(async (req) => {
       });
     }
 
+    const invokeHeaders = edgeFunctionInvokeHeaders(req);
+    if (!invokeHeaders) {
+      return respond(503, {
+        success: false,
+        error: "COVERAGE_RESOLVE_FAILED",
+        sent: false,
+      });
+    }
+    const coverage = await assertPickupCoveredByResolveServiceArea(
+      Deno.env.get("SUPABASE_URL")!,
+      invokeHeaders,
+      { pickupLat, pickupLng },
+    );
+    // Only send when resolve-service-area positively returns OUTSIDE_AREA.
+    if (coverage.ok) {
+      return respond(400, {
+        success: false,
+        error: "COVERAGE_NOT_OUTSIDE",
+        sent: false,
+      });
+    }
+    if (coverage.code !== "OUTSIDE_AREA") {
+      return respond(coverage.status, {
+        success: false,
+        error: coverage.code,
+        sent: false,
+      });
+    }
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -126,7 +170,7 @@ Deno.serve(async (req) => {
     }
 
     // Send first. Only stamp the dedupe key after Meta accepts the message so a
-    // failed delivery can still be retried (client sessionStorage still blocks remount spam).
+    // failed delivery can still be retried.
     const result = await sendWhatsAppTextMessage(
       creds,
       waId,
