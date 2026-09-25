@@ -1,5 +1,6 @@
 # PR #80 — FINAL TRANSACTIONAL CERTIFICATION
 
+**SUPERSEDED for tip identity by** `docs/PR80_CLEAN_ALL_GREEN_RELEASE.md` (single final approved tip = PR headRefOid).
 **Frozen tip (this certification):** `a1fca8bc13b852914fa8858f27f4d5c736a53ae3` (docs stamp on branch tip; parent candidate `6bb0fed5`)  
 **PR:** https://github.com/awehliye44-create/admin-new/pull/80 (draft)  
 **Project:** `thazislrdkjpvvghtvzo`
