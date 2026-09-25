@@ -246,6 +246,10 @@ export async function executeAdminCaptureTripPayment(args: {
       provider_order_id: orderId,
       trip_fare_component_pence: Math.max(0, resolvedFare.final_fare_pence),
       tip_component_pence: tipForPlan,
+      preauth_buffer_component_pence: Math.max(
+        0,
+        Math.round(Number(args.trip.preauth_buffer_pence ?? bookingSession.buffer_pence ?? 0) || 0),
+      ),
       authorised_total_pence: Math.max(
         authorisedTotal,
         Math.round(Number(bookingSession.total_authorised_amount_pence) || 0),

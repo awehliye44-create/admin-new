@@ -256,6 +256,10 @@ export async function executeRevolutTripCompletionCapture(args: {
       provider_order_id: orderId,
       trip_fare_component_pence: tripFareOnly,
       tip_component_pence: safeTipPence,
+      preauth_buffer_component_pence: Math.max(
+        0,
+        Number(args.trip.preauth_buffer_pence ?? 0),
+      ),
       authorised_total_pence: Math.max(
         authorisedHoldPence,
         Math.round(Number(compositionSession?.total_authorised_amount_pence) || 0),

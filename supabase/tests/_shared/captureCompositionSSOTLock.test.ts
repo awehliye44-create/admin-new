@@ -9,9 +9,12 @@ import {
 import {
   buildCaptureIdempotencyKey,
   captureCompositionPersistPatch,
+  mk260925002BrokenCaptureUsesPayableOnly,
   mk260925002IncidentCaptureComposition,
   planCaptureComposition,
   planReceivableSettlementFromCaptureComposition,
+  planTypedMoneyTargets,
+  rejectAuthorisationRemainderAsBuffer,
 } from "../../functions/_shared/captureCompositionSSOT.ts";
 
 const SESSION = "71a39184-4efd-462c-8465-6b1f2e03d251";
@@ -283,4 +286,121 @@ Deno.test("15. MK-260925-002 incident planner yields 536 not payable-alone 500",
   if (!p.ok) return;
   assertEquals(p.provider_capture_target_pence, 536);
   assertEquals(p.receivable_component_pence, 36);
+});
+
+Deno.test("16. fare=500 recv=36 buffer=300 → auth 836, capture 536, release 300, settle 36", () => {
+  const typed = planTypedMoneyTargets({
+    trip_fare_component_pence: 500,
+    preauth_buffer_component_pence: 300,
+    customer_receivable_component_pence: 36,
+    tip_component_pence: 0,
+  });
+  assertEquals(typed.provider_authorisation_target_pence, 836);
+  assertEquals(typed.provider_capture_target_pence, 536);
+  assertEquals(typed.provider_release_amount_pence, 300);
+  assertEquals(typed.displayed_customer_total_pence, 536);
+
+  const p = planCaptureComposition({
+    trip_fare_component_pence: 500,
+    tip_component_pence: 0,
+    preauth_buffer_component_pence: 300,
+    payment_session_id: SESSION,
+    provider_order_id: ORDER,
+    authorised_total_pence: 836,
+    allocations: reserved36,
+  });
+  assertEquals(p.ok, true);
+  if (!p.ok) return;
+  assertEquals(p.provider_capture_target_pence, 536);
+  assertEquals(p.provider_authorisation_target_pence, 836);
+  assertEquals(p.provider_release_amount_pence, 300);
+  assertEquals(p.receivable_component_pence, 36);
+  assertEquals(p.preauth_buffer_component_pence, 300);
+
+  const settle = planReceivableSettlementFromCaptureComposition({
+    persisted_receivable_component_pence: 36,
+    provider_confirmed_captured_pence: 536,
+    reserved_allocation_total_pence: 36,
+    trip_fare_component_pence: 500,
+    amount_from_provider_get: true,
+  });
+  assertEquals(settle.settle_pence, 36);
+});
+
+Deno.test("17. fare=500 recv=36 buffer=0 → auth 536, capture 536, release 0, settle 36", () => {
+  const typed = planTypedMoneyTargets({
+    trip_fare_component_pence: 500,
+    preauth_buffer_component_pence: 0,
+    customer_receivable_component_pence: 36,
+    tip_component_pence: 0,
+  });
+  assertEquals(typed.provider_authorisation_target_pence, 536);
+  assertEquals(typed.provider_capture_target_pence, 536);
+  assertEquals(typed.provider_release_amount_pence, 0);
+
+  const p = planCaptureComposition({
+    trip_fare_component_pence: 500,
+    tip_component_pence: 0,
+    preauth_buffer_component_pence: 0,
+    payment_session_id: SESSION,
+    provider_order_id: ORDER,
+    authorised_total_pence: 536,
+    allocations: reserved36,
+  });
+  assertEquals(p.ok, true);
+  if (!p.ok) return;
+  assertEquals(p.provider_capture_target_pence, 536);
+  assertEquals(p.provider_release_amount_pence, 0);
+});
+
+Deno.test("18. never claim buffer = authorised − fare when that remainder is receivable", () => {
+  const gate = rejectAuthorisationRemainderAsBuffer({
+    authorised_total_pence: 536,
+    trip_fare_component_pence: 500,
+    customer_receivable_component_pence: 36,
+    claimed_buffer_pence: 36,
+  });
+  assertEquals(gate.ok, false);
+  if (gate.ok) return;
+  assertEquals(gate.reject_reason, "receivable_mistaken_for_preauth_buffer");
+
+  const collapsed = planCaptureComposition({
+    trip_fare_component_pence: 500,
+    tip_component_pence: 0,
+    preauth_buffer_component_pence: 36, // wrongly = auth − fare
+    payment_session_id: SESSION,
+    provider_order_id: ORDER,
+    authorised_total_pence: 536,
+    allocations: reserved36,
+  });
+  assertEquals(collapsed.ok, false);
+});
+
+Deno.test("19. proven first broken assignment: computeCaptureAmount = fare+tip only", async () => {
+  assertEquals(
+    mk260925002BrokenCaptureUsesPayableOnly({ final_fare_pence: 500, tip_pence: 0 }),
+    500,
+  );
+  const fareSsot = await Deno.readTextFile(
+    new URL("../../functions/_shared/tripFareSSOT.ts", import.meta.url),
+  );
+  assertStringIncludes(fareSsot, "capture_amount_pence: fare.final_fare_pence + fare.tips_pence");
+  const holdSsot = await Deno.readTextFile(
+    new URL("../../functions/_shared/revolutPaymentHoldSSOT.ts", import.meta.url),
+  );
+  assertStringIncludes(holdSsot, "release_remainder_pence: Math.max(0, hold - finalFare)");
+});
+
+Deno.test("20. release amount never includes receivable when buffer is explicit", () => {
+  const withBuffer = planTypedMoneyTargets({
+    trip_fare_component_pence: 500,
+    preauth_buffer_component_pence: 300,
+    customer_receivable_component_pence: 36,
+    tip_component_pence: 0,
+  });
+  assertEquals(withBuffer.provider_release_amount_pence, 300);
+  assertEquals(
+    withBuffer.provider_release_amount_pence === withBuffer.customer_receivable_component_pence,
+    false,
+  );
 });

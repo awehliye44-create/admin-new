@@ -19,6 +19,8 @@ export async function loadPlanAndPersistCaptureComposition(
     tip_authorisation_declined?: boolean;
     authorised_total_pence: number;
     customer_payable_pence?: number | null;
+    /** Explicit session/trip buffer — never authorisation remainder. */
+    preauth_buffer_component_pence?: number | null;
   },
 ): Promise<CaptureCompositionResult> {
   const sessionId = String(args.payment_session_id ?? "").trim();
@@ -39,7 +41,7 @@ export async function loadPlanAndPersistCaptureComposition(
 
   const { data: sessionRow } = await supabase
     .from("payment_sessions")
-    .select("metadata, authorised_amount_pence, total_authorised_amount_pence")
+    .select("metadata, authorised_amount_pence, total_authorised_amount_pence, buffer_pence")
     .eq("id", sessionId)
     .maybeSingle();
 
@@ -52,10 +54,15 @@ export async function loadPlanAndPersistCaptureComposition(
     ? Number(meta.customer_payable_pence)
     : null;
 
+  const explicitBuffer = args.preauth_buffer_component_pence != null
+    ? Math.max(0, Math.round(Number(args.preauth_buffer_component_pence) || 0))
+    : Math.max(0, Math.round(Number(sessionRow?.buffer_pence) || 0));
+
   const plan = planCaptureComposition({
     trip_fare_component_pence: args.trip_fare_component_pence,
     tip_component_pence: args.tip_component_pence ?? 0,
     tip_authorisation_declined: args.tip_authorisation_declined === true,
+    preauth_buffer_component_pence: explicitBuffer,
     payment_session_id: sessionId,
     provider_order_id: args.provider_order_id,
     authorised_total_pence: args.authorised_total_pence,
@@ -67,10 +74,16 @@ export async function loadPlanAndPersistCaptureComposition(
 
   const patch = captureCompositionPersistPatch(plan);
   const nextMeta = { ...meta, ...patch, capture_composition_persisted_at: new Date().toISOString() };
+  // Columns from migration 20260925120000; remaining typed fields live in metadata only.
   await supabase
     .from("payment_sessions")
     .update({
-      ...patch,
+      trip_fare_component_pence: plan.trip_fare_component_pence,
+      tip_component_pence: plan.tip_component_pence,
+      receivable_component_pence: plan.receivable_component_pence,
+      provider_capture_target_pence: plan.provider_capture_target_pence,
+      capture_composition_version: plan.composition_version,
+      capture_idempotency_key: plan.capture_idempotency_key,
       metadata: nextMeta,
       updated_at: new Date().toISOString(),
     })

@@ -6,6 +6,20 @@ DRAFT_FIX_ONLY — STOPPED_FOR_CAPTURE_SSOT_RELEASE_APPROVAL
 
 No migration, deploy, merge, live booking, or provider mutation in this package.
 
+## Root-cause classification (proven)
+
+**C. CAPTURE_USES_CUSTOMER_PAYABLE_ONLY**
+
+First broken assignment (incident path, pre-SSOT):
+
+`finalFarePence = computeCaptureAmount(...).capture_amount_pence`
+(= `final_fare_pence + tips_pence`, no receivable)
+
+Then `release_remainder_pence = authorisedHold − finalFare` treated the 36p
+RESERVED receivable as unused hold. Metadata retained `customer_receivables_pence`
+(not lost). Buffer column was not rewritten to 36 — collapse was payable-only
+capture + remainder release semantics (B co-fact).
+
 ## Migration (pending approval)
 
 - Forward: `supabase/migrations/20260925120000_capture_composition_components.sql`
