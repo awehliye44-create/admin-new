@@ -119,6 +119,12 @@ export type PaymentSessionMoneyRow = {
   /** May include capture_breakdown owned by Payment Sessions. */
   metadata?: Record<string, unknown> | null;
   purpose?: string | null;
+  /** Typed capture composition — FR must consume when present. */
+  trip_fare_component_pence?: number | null;
+  tip_component_pence?: number | null;
+  receivable_component_pence?: number | null;
+  buffer_pence?: number | null;
+  provider_capture_target_pence?: number | null;
 };
 
 export type PaymentSessionMoneyByTrip = {
@@ -135,6 +141,11 @@ export type PaymentSessionMoneyByTrip = {
   payment_method: string | null;
   status: string | null;
   metadata?: Record<string, unknown> | null;
+  trip_fare_component_pence?: number | null;
+  tip_component_pence?: number | null;
+  receivable_component_pence?: number | null;
+  buffer_pence?: number | null;
+  provider_capture_target_pence?: number | null;
 };
 
 /** Confirmed capture only — never invent £0; never treat 0 as confirmed. */
@@ -191,6 +202,11 @@ export function buildPaymentSessionMoneyByTrip(
         payment_method: paymentMethod,
         status: s.status ?? null,
         metadata,
+        trip_fare_component_pence: s.trip_fare_component_pence ?? null,
+        tip_component_pence: s.tip_component_pence ?? null,
+        receivable_component_pence: s.receivable_component_pence ?? null,
+        buffer_pence: s.buffer_pence ?? null,
+        provider_capture_target_pence: s.provider_capture_target_pence ?? null,
       });
       continue;
     }
@@ -231,6 +247,21 @@ export function buildPaymentSessionMoneyByTrip(
       payment_method: existing.payment_method ?? paymentMethod,
       status: s.status ?? existing.status,
       metadata: preferNewId ? metadata : (existing.metadata ?? metadata),
+      trip_fare_component_pence: preferNewId
+        ? (s.trip_fare_component_pence ?? null)
+        : (existing.trip_fare_component_pence ?? s.trip_fare_component_pence ?? null),
+      tip_component_pence: preferNewId
+        ? (s.tip_component_pence ?? null)
+        : (existing.tip_component_pence ?? s.tip_component_pence ?? null),
+      receivable_component_pence: preferNewId
+        ? (s.receivable_component_pence ?? null)
+        : (existing.receivable_component_pence ?? s.receivable_component_pence ?? null),
+      buffer_pence: preferNewId
+        ? (s.buffer_pence ?? null)
+        : (existing.buffer_pence ?? s.buffer_pence ?? null),
+      provider_capture_target_pence: preferNewId
+        ? (s.provider_capture_target_pence ?? null)
+        : (existing.provider_capture_target_pence ?? s.provider_capture_target_pence ?? null),
     });
   }
   return byTrip;

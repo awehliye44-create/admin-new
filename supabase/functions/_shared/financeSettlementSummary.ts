@@ -47,6 +47,9 @@ import {
   type PaymentSessionCaptureBreakdown,
 } from "./paymentSessionsCaptureBreakdownSSOT.ts";
 import {
+  evaluateFrCaptureCompositionIdentityClosed,
+} from "./frCaptureCompositionIdentitySSOT.ts";
+import {
   deriveTripFinancialAuditStatuses,
   deriveTripReconciliationBadge,
   deriveTripCaptureStatusLabel,
@@ -585,6 +588,13 @@ export type TripFinancialAuditRow = {
     capture_classification: string;
   } | null;
   settlement_identity_balanced?: boolean | null;
+  /** Settled receivable recovery — historical shortfall evidence, not open. */
+  resolved_by_receivable_recovery?: boolean | null;
+  receivable_recovery_status?: string | null;
+  settled_receivable_original_pence?: number | null;
+  recovery_payment_session_id?: string | null;
+  trip_fare_component_pence?: number | null;
+  receivable_component_pence?: number | null;
   /** Platform-funded customer promotion subsidy (marketing cost) deducted in the FR identity. */
   platform_promotion_subsidy_pence?: number | null;
   /** Authoritative consume-only trip audit status. WALLET_MISMATCH is displayed/filtered. */
@@ -1003,13 +1013,41 @@ export function mapTripToFinancialAuditRow(
     : null;
 
   // Payment Sessions owns expected capture / variance / classification.
-  // FR consume-only: read persisted metadata.capture_breakdown — never rebuild from trip fare.
+  // Prefer typed capture composition when present (fare+tip+receivable).
+  // Never compare provider capture against trip fare alone when receivable
+  // recovery is part of the planned capture target.
   const persistedBreakdown = readPersistedCaptureBreakdown(session?.metadata ?? null);
   const psCaptureBreakdown: PaymentSessionCaptureBreakdown | null = persistedBreakdown;
+  const compositionEval = evaluateFrCaptureCompositionIdentityClosed({
+    session: session
+      ? {
+        trip_fare_component_pence: (session as {
+          trip_fare_component_pence?: number | null;
+        }).trip_fare_component_pence,
+        tip_component_pence: (session as { tip_component_pence?: number | null }).tip_component_pence,
+        receivable_component_pence: (session as {
+          receivable_component_pence?: number | null;
+        }).receivable_component_pence,
+        buffer_pence: (session as { buffer_pence?: number | null }).buffer_pence,
+        provider_capture_target_pence: (session as {
+          provider_capture_target_pence?: number | null;
+        }).provider_capture_target_pence,
+        metadata: session.metadata ?? null,
+        captured_amount_pence: session.captured_amount_pence ?? null,
+        purpose: (session as { purpose?: string | null }).purpose ?? null,
+      }
+      : null,
+    actual_captured_pence: captured,
+  });
+  const compositionIdentity = compositionEval.kind === "ok"
+    ? compositionEval.identity
+    : null;
+  const compositionFailClosed = compositionEval.kind === "fail_closed";
   const tipPence = Math.max(
     0,
     Number(
-      psCaptureBreakdown?.tip_pence
+      compositionIdentity?.tip_component_pence
+        ?? psCaptureBreakdown?.tip_pence
         ?? row.tip_pence
         ?? row.tip_amount_pence
         ?? 0,
@@ -1019,10 +1057,20 @@ export function mapTripToFinancialAuditRow(
     0,
     Number(psCaptureBreakdown?.airport_charge_pence ?? row.airport_charge_pence ?? 0),
   );
-  const expectedCapturePence = psCaptureBreakdown?.expected_capture_pence ?? null;
-  const captureVariance = psCaptureBreakdown?.variance_pence ?? null;
-  const rideFareForCapture = psCaptureBreakdown?.ride_fare_pence ?? null;
-  // Customer capture variance is PS-owned only — never settlement_total − captured.
+  const expectedCapturePence = compositionFailClosed
+    ? null
+    : (compositionIdentity?.expected_provider_capture_pence
+      ?? psCaptureBreakdown?.expected_capture_pence
+      ?? null);
+  const captureVariance = compositionFailClosed
+    ? null
+    : (compositionIdentity?.capture_variance_pence
+      ?? psCaptureBreakdown?.variance_pence
+      ?? null);
+  const rideFareForCapture = compositionIdentity?.trip_fare_component_pence
+    ?? psCaptureBreakdown?.ride_fare_pence
+    ?? null;
+  // Customer capture variance is PS/composition-owned only — never settlement_total − captured.
   const variancePence = captureVariance;
 
   const provider_state = session?.provider_state ?? null;
@@ -1175,6 +1223,9 @@ export function mapTripToFinancialAuditRow(
   if (psCaptureBreakdown == null && !isCash && payment_evidence_status === "PAYMENT_SESSIONS") {
     warnings.push("PAYMENT_SESSION_CAPTURE_BREAKDOWN_PENDING");
   }
+  if (compositionFailClosed) {
+    warnings.push("COMPOSITION_EVIDENCE_MISSING");
+  }
   // Capture mismatch is PS classification only — never trip settlement vs capture.
   const captureMismatchResolved = isCash
     ? false
@@ -1202,7 +1253,16 @@ export function mapTripToFinancialAuditRow(
   });
 
   const settlementIdentity = evaluateSettlementCaptureIdentity({
-    captured_pence: captured,
+    // Composition sessions: identity is actual vs planned capture target
+    // (fare+tip+receivable). Pass fare-leg-only capture into allocation identity
+    // so receivable recovery does not look like overcapture vs fare stamps.
+    captured_pence: compositionIdentity != null
+      ? Math.max(
+        0,
+        Math.round(Number(captured ?? 0))
+          - Math.max(0, compositionIdentity.receivable_component_pence),
+      )
+      : captured,
     // Fare-only stamp — tip is a separate leg. Never pass tip-inclusive entitlement.
     driver_net_pence: row.driver_net_pence == null
       ? null
@@ -1213,15 +1273,35 @@ export function mapTripToFinancialAuditRow(
     airport_charge_pence: airportPence,
     tips_pence: tipPence,
   });
-  const settlementIdentityBalanced = settlementIdentity.balanced;
+  const settlementIdentityBalanced = compositionFailClosed
+    ? false
+    : (compositionIdentity != null
+      ? compositionIdentity.settlement_identity_balanced
+      : settlementIdentity.balanced);
   const walletMismatchDiagnostic = isDriverCreditExceptionHealth(driverCredit.health);
   // WALLET_MISMATCH is the authoritative displayed status. Do not replace it with a
   // competing SETTLEMENT_MISMATCH when the wallet diagnostic already fired.
-  if (settlementIdentity.evaluable && !settlementIdentityBalanced && !walletMismatchDiagnostic) {
+  if (
+    (compositionFailClosed
+      || (compositionIdentity != null
+        ? compositionIdentity.settlement_identity_balanced === false
+        : (settlementIdentity.evaluable && !settlementIdentity.balanced)))
+    && !walletMismatchDiagnostic
+  ) {
     reconciliation_status = {
       ...reconciliation_status,
-      label: "SETTLEMENT_MISMATCH",
+      label: compositionFailClosed ? "COMPOSITION_EVIDENCE_MISSING" : "SETTLEMENT_MISMATCH",
       tone: "red",
+    };
+  } else if (
+    compositionIdentity != null
+    && compositionIdentity.settlement_identity_balanced
+    && String(reconciliation_status.label ?? "").toUpperCase() === "SETTLEMENT_MISMATCH"
+  ) {
+    reconciliation_status = {
+      ...reconciliation_status,
+      label: "BALANCED",
+      tone: "green",
     };
   }
 
@@ -1322,6 +1402,8 @@ export function mapTripToFinancialAuditRow(
     capture_classification: psCaptureBreakdown?.capture_classification ?? null,
     ps_expected_capture_pence: expectedCapturePence,
     settlement_identity_balanced: settlementIdentityBalanced,
+    trip_fare_component_pence: compositionIdentity?.trip_fare_component_pence ?? null,
+    receivable_component_pence: compositionIdentity?.receivable_component_pence ?? null,
     fr_trip_audit_status: resolveFrTripAuditStatus({
       capture_reconciliation_status,
       release_reconciliation_status,
