@@ -66,9 +66,10 @@ export const TOPICS: Topic[] = [
     title: "Service areas",
     keywords: ["area", "areas", "cover", "coverage", "where", "milton", "keynes", "location", "distance", "uk"],
     body:
-      "ONECAB serves Milton Keynes and the surrounding areas, plus airport transfers and " +
-      "long-distance journeys anywhere in the UK. Coverage for a specific pickup point is " +
-      "confirmed by ONECAB when the address is entered on the booking page.",
+      "ONECAB operates across configured UK service areas (not a single fixed town). " +
+      "Airport transfers and long-distance journeys across the UK may also be available. " +
+      "The live service-area list is provided by ONECAB; coverage for a specific pickup point is " +
+      "confirmed when the address is entered on the booking page.",
   },
   {
     id: "airports",
@@ -96,6 +97,27 @@ export const TOPICS: Topic[] = [
       "Google Pay and card are supported, and available payment methods are configured per " +
       "service area. Fares are calculated by ONECAB on the booking page before payment; the " +
       "assistant cannot quote or guarantee a fare.",
+  },
+  {
+    id: "payment-hold",
+    title: "Temporary payment hold",
+    keywords: ["hold", "pending", "authorisation", "authorization", "preauth", "reserved", "buffer"],
+    body:
+      "Before a trip, ONECAB may ask your bank to temporarily authorise an amount slightly higher " +
+      "than the estimated fare to cover possible journey changes. This is not automatically an " +
+      "extra charge. After the trip, the final amount due is charged and any unused authorised " +
+      "amount is released. Banks may take time to update pending amounts. The assistant never " +
+      "uses internal payment jargon and never invents a charge status.",
+  },
+  {
+    id: "charged-twice",
+    title: "Possible duplicate charge",
+    keywords: ["twice", "duplicate", "double", "two charges", "two payments"],
+    body:
+      "The assistant cannot confirm from chat alone that someone was charged twice. A temporary " +
+      "bank authorisation and a later completed charge can both appear on a statement as one " +
+      "payment. If two completed charges appear for the same booking, contact ONECAB Support " +
+      "so the booking can be checked — never invent a refund status such as “refund is processing”.",
   },
   {
     id: "cancellation",
@@ -162,7 +184,9 @@ export const TOPICS: Topic[] = [
     keywords: ["lost", "left", "property", "phone", "bag", "forgot", "found"],
     body:
       `Report lost property to ONECAB Support on ${CONTACT.phoneDisplay}, WhatsApp or ${CONTACT.email} ` +
-      "with the booking reference, date and journey details so the vehicle can be checked.",
+      "with the booking reference, date, journey details and a clear description of the item so the " +
+      "vehicle can be checked. For urgent or safety-sensitive items (medicines, keys, ID), call " +
+      `${CONTACT.phoneDisplay} as soon as possible. If anyone is in immediate danger, call 999.`,
   },
   {
     id: "complaints",
@@ -233,9 +257,10 @@ export const FAQ_CACHE: { id: string; quickAction?: QuickAction; patterns: strin
     quickAction: "service_areas",
     patterns: ["service areas", "where do you cover", "do you cover", "which areas", "areas covered"],
     answer:
-      "ONECAB serves Milton Keynes and the surrounding areas, with airport transfers to Heathrow, " +
-      "Luton, Gatwick, Stansted and Birmingham, plus long-distance journeys across the UK. " +
-      "Coverage for your exact pickup point is confirmed on the booking page.",
+      "ONECAB operates across configured UK service areas — not one fixed town only. " +
+      "Airport transfers and long-distance journeys may also be available. " +
+      "Ask the assistant for the current list, or enter your pickup on the booking page so ONECAB " +
+      "can confirm coverage for that address.",
   },
   {
     id: "faq-payments",
@@ -245,6 +270,38 @@ export const FAQ_CACHE: { id: string; quickAction?: QuickAction; patterns: strin
       "ONECAB is card and digital payment only — Apple Pay, Google Pay or card, with no cash and " +
       "no paying the driver. Your fare is calculated by ONECAB on the booking page before you pay, " +
       "so I can't quote or guarantee a price here.",
+  },
+  {
+    id: "faq-payment-hold",
+    patterns: [
+      "temporary payment hold",
+      "payment hold",
+      "why is pending",
+      "hold more than my fare",
+      "card hold",
+      "authorisation hold",
+      "authorization hold",
+    ],
+    answer:
+      "Before your trip, ONECAB may ask your bank to temporarily authorise an amount slightly higher " +
+      "than the estimated fare. This is not automatically an extra charge — after the trip the final " +
+      "amount due is charged and any unused authorised amount is released. Banks may take time to " +
+      "update pending amounts.",
+  },
+  {
+    id: "faq-charged-twice",
+    patterns: ["charged twice", "double charged", "two payments", "duplicate charge", "paid twice"],
+    answer:
+      "I can't confirm from the information available that you were charged twice. A temporary bank " +
+      "authorisation and a later completed charge can both appear on your statement as one payment. " +
+      `If you believe two completed charges exist for the same booking, contact ONECAB Support on ${CONTACT.phoneDisplay} so we can check.`,
+  },
+  {
+    id: "faq-lost",
+    patterns: ["lost property", "left something", "left my phone", "forgot my bag", "lost item"],
+    answer:
+      `Report lost property to ONECAB Support on ${CONTACT.phoneDisplay}, WhatsApp or ${CONTACT.email} ` +
+      "with your booking reference, date and item details. For urgent items, call as soon as you can.",
   },
   {
     id: "faq-driver",
