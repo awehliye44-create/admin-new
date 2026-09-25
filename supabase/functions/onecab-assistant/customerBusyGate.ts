@@ -54,14 +54,10 @@ export type CustomerAssistantBusySnapshot = {
 };
 
 export function isCustomerAssistantBusy(snapshot: CustomerAssistantBusySnapshot): boolean {
-  return (
-    snapshot.searchingOrNegotiating ||
-    snapshot.assignedOrActiveTrip ||
-    snapshot.stackedTrip ||
-    snapshot.scheduledActivating ||
-    snapshot.completionUnfinished ||
-    snapshot.pendingRating
-  );
+  // Live searching / assigned / in-progress Help must remain available.
+  // Only pending mandatory rating blocks the Edge assistant (product rule:
+  // finish rating before continuing). Local Help menus still work offline.
+  return snapshot.pendingRating === true;
 }
 
 function isScheduledTrip(row: Record<string, unknown>): boolean {
