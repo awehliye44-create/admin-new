@@ -38,6 +38,12 @@ function nonNeg(n: unknown): number {
   return Number.isFinite(v) && v > 0 ? v : 0;
 }
 
+/**
+ * Expected capture = frozen provider_capture_target when set, else
+ * fare + tip + receivable. Preauth buffer is NEVER added here — buffer is
+ * releasable authorisation, not captured revenue, unless the frozen target
+ * already includes it as an explicitly planned capture component.
+ */
 export function resolveExpectedProviderCaptureFromComposition(
   composition: CaptureCompositionComponents,
 ): number {
@@ -50,9 +56,44 @@ export function resolveExpectedProviderCaptureFromComposition(
   );
 }
 
+/** True when session signals typed capture composition must be present. */
+export function sessionRequiresCaptureComposition(session: {
+  trip_fare_component_pence?: number | null;
+  tip_component_pence?: number | null;
+  receivable_component_pence?: number | null;
+  provider_capture_target_pence?: number | null;
+  metadata?: Record<string, unknown> | null;
+  purpose?: string | null;
+} | null | undefined): boolean {
+  if (!session) return false;
+  const meta = session.metadata && typeof session.metadata === "object"
+    ? session.metadata
+    : {};
+  if (nonNeg(session.receivable_component_pence ?? meta.receivable_component_pence) > 0) {
+    return true;
+  }
+  if (nonNeg(session.provider_capture_target_pence ?? meta.provider_capture_target_pence) > 0) {
+    return true;
+  }
+  const purpose = String(session.purpose ?? meta.purpose ?? "").toUpperCase();
+  if (purpose.includes("RECOVERY") || purpose.includes("RECEIVABLE")) return true;
+  return Boolean(meta.capture_composition_version || meta.capture_composition);
+}
+
+export type FrCaptureCompositionIdentityEval =
+  | { kind: "ok"; identity: FrCaptureCompositionIdentity }
+  | { kind: "absent" }
+  | {
+    kind: "fail_closed";
+    reason: "COMPOSITION_EVIDENCE_MISSING";
+    settlement_identity_balanced: false;
+    capture_variance_pence: null;
+  };
+
 /**
  * Prefer composition identity when receivable (or multi-component target)
- * is present. Returns null when composition is absent / fare-only.
+ * is present. Fail closed when composition is required but unreadable.
+ * Returns absent for fare-only / no composition (legacy allocation path).
  */
 export function evaluateFrCaptureCompositionIdentity(args: {
   session: {
@@ -63,41 +104,116 @@ export function evaluateFrCaptureCompositionIdentity(args: {
     provider_capture_target_pence?: number | null;
     metadata?: Record<string, unknown> | null;
     captured_amount_pence?: number | null;
+    purpose?: string | null;
   } | null | undefined;
   actual_captured_pence?: number | null;
 }): FrCaptureCompositionIdentity | null {
+  const result = evaluateFrCaptureCompositionIdentityClosed(args);
+  if (result.kind === "ok") return result.identity;
+  return null;
+}
+
+export function evaluateFrCaptureCompositionIdentityClosed(args: {
+  session: {
+    trip_fare_component_pence?: number | null;
+    tip_component_pence?: number | null;
+    receivable_component_pence?: number | null;
+    buffer_pence?: number | null;
+    provider_capture_target_pence?: number | null;
+    metadata?: Record<string, unknown> | null;
+    captured_amount_pence?: number | null;
+    purpose?: string | null;
+  } | null | undefined;
+  actual_captured_pence?: number | null;
+}): FrCaptureCompositionIdentityEval {
+  const required = sessionRequiresCaptureComposition(args.session);
   const composition = readCaptureCompositionComponents(args.session);
-  if (!composition) return null;
+  if (!composition) {
+    if (required) {
+      return {
+        kind: "fail_closed",
+        reason: "COMPOSITION_EVIDENCE_MISSING",
+        settlement_identity_balanced: false,
+        capture_variance_pence: null,
+      };
+    }
+    return { kind: "absent" };
+  }
 
   const receivable = nonNeg(composition.receivable_component_pence);
   const tip = nonNeg(composition.tip_component_pence);
   const fare = nonNeg(composition.trip_fare_component_pence);
+  const buffer = nonNeg(composition.preauth_buffer_component_pence);
   const expected = resolveExpectedProviderCaptureFromComposition(composition);
 
   // Composition identity applies when recovery/multi-leg capture is present.
-  if (receivable <= 0 && tip <= 0 && expected <= 0) return null;
-  if (receivable <= 0 && expected === fare) {
+  if (receivable <= 0 && tip <= 0 && expected <= 0) {
+    return required
+      ? {
+        kind: "fail_closed",
+        reason: "COMPOSITION_EVIDENCE_MISSING",
+        settlement_identity_balanced: false,
+        capture_variance_pence: null,
+      }
+      : { kind: "absent" };
+  }
+  if (receivable <= 0 && expected === fare && !required) {
     // Pure fare-only composition — leave legacy allocation identity alone.
-    return null;
+    return { kind: "absent" };
   }
 
   const actual = nonNeg(
     args.actual_captured_pence
       ?? args.session?.captured_amount_pence,
   );
-  if (actual <= 0 || expected <= 0) return null;
+  if (actual <= 0 || expected <= 0) {
+    return required
+      ? {
+        kind: "fail_closed",
+        reason: "COMPOSITION_EVIDENCE_MISSING",
+        settlement_identity_balanced: false,
+        capture_variance_pence: null,
+      }
+      : { kind: "absent" };
+  }
+
+  // Defence: expected must not silently equal fare+tip+recv+buffer when buffer
+  // was only an auth component and target excluded it.
+  const fareTipRecv = fare + tip + receivable;
+  if (buffer > 0 && expected === fareTipRecv + buffer && nonNeg(composition.provider_capture_target_pence) === 0) {
+    // No frozen target — never invent buffer into capture expected.
+    const corrected = fareTipRecv;
+    const variance = actual - corrected;
+    return {
+      kind: "ok",
+      identity: {
+        has_composition: true,
+        trip_fare_component_pence: fare,
+        tip_component_pence: tip,
+        receivable_component_pence: receivable,
+        buffer_component_pence: buffer,
+        expected_provider_capture_pence: corrected,
+        actual_provider_capture_pence: actual,
+        capture_variance_pence: variance,
+        settlement_identity_balanced: variance === 0,
+      },
+    };
+  }
 
   const variance = actual - expected;
   return {
-    has_composition: true,
-    trip_fare_component_pence: fare,
-    tip_component_pence: tip,
-    receivable_component_pence: receivable,
-    buffer_component_pence: nonNeg(composition.preauth_buffer_component_pence),
-    expected_provider_capture_pence: expected,
-    actual_provider_capture_pence: actual,
-    capture_variance_pence: variance,
-    settlement_identity_balanced: variance === 0,
+    kind: "ok",
+    identity: {
+      has_composition: true,
+      trip_fare_component_pence: fare,
+      tip_component_pence: tip,
+      receivable_component_pence: receivable,
+      buffer_component_pence: buffer,
+      expected_provider_capture_pence: expected,
+      actual_provider_capture_pence: actual,
+      capture_variance_pence: variance,
+      settlement_identity_balanced: variance === 0,
+    },
   };
 }
 

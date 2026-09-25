@@ -1,9 +1,7 @@
 /**
- * Lock: Driver Wallet Open difference = expected entitlement − actual TEN only.
- * Never feed customer capture shortfall / receivable variance into wallet open diff.
- *
- * MK-017: expected TEN 430 − actual TEN 430 = 0 (historical 6p is customer collection).
- * MK-003: expected TEN 598 − actual TEN 598 = 0.
+ * Lock: Driver Wallet Open difference = expected driver entitlement − actual TEN only.
+ * Period and lifetime scopes must agree when the same trip credits are the only inputs.
+ * Customer capture/receivable variance cannot enter this selector.
  */
 import {
   assertEquals,
@@ -12,34 +10,43 @@ import {
   periodPayableVariancePence,
 } from "./frDriverReconciliationSSOT.ts";
 
-Deno.test("5. MK-017 expected=actual 430 → wallet difference 0 despite historical 6p customer shortfall", () => {
-  const customerShortfallPence = 6; // historical evidence — must not enter wallet variance
-  const variance = periodPayableVariancePence({
-    expected_payable_pence: 430,
-    actual_ten_credits_pence: 430,
-  });
-  assertEquals(variance, 0);
-  // Defence: customer shortfall is a separate FR class.
-  assertEquals(customerShortfallPence, 6);
-  assertEquals((variance ?? 0) + 0 * customerShortfallPence, 0);
-});
-
-Deno.test("MK-003 expected=actual 598 → wallet difference 0", () => {
-  const variance = periodPayableVariancePence({
-    expected_payable_pence: 598,
-    actual_ten_credits_pence: 598,
-  });
-  assertEquals(variance, 0);
-});
-
-Deno.test("wallet open difference never equals customer shortfall when TEN matches", () => {
-  const expected = 430;
-  const actual = 430;
-  const customerCollectionVariance = 6;
-  const openDiff = periodPayableVariancePence({
+function openDiff(expected: number, actual: number): number {
+  const v = periodPayableVariancePence({
     expected_payable_pence: expected,
     actual_ten_credits_pence: actual,
   });
-  assertEquals(openDiff, 0);
-  assertEquals(openDiff === customerCollectionVariance, false);
+  if (v == null) throw new Error("open diff null");
+  return v;
+}
+
+Deno.test("5. MK-017 expected=actual 430 → wallet difference 0 despite historical 6p customer shortfall", () => {
+  const customerShortfallPence = 6;
+  assertEquals(openDiff(430, 430), 0);
+  assertEquals(customerShortfallPence, 6);
+});
+
+Deno.test("MK-003 expected=actual 598 → wallet difference 0", () => {
+  assertEquals(openDiff(598, 598), 0);
+});
+
+Deno.test("period vs lifetime: same trip set → same open diff (0)", () => {
+  const periodExpected = 598 + 430;
+  const periodActual = 598 + 430;
+  const lifetimeExpected = 598 + 430;
+  const lifetimeActual = 598 + 430;
+  assertEquals(openDiff(periodExpected, periodActual), 0);
+  assertEquals(openDiff(lifetimeExpected, lifetimeActual), 0);
+  assertEquals(
+    openDiff(periodExpected, periodActual),
+    openDiff(lifetimeExpected, lifetimeActual),
+  );
+});
+
+Deno.test("customer capture variance / receivable amounts cannot enter open diff selector", () => {
+  const customerCaptureVariance = 36;
+  const receivableOriginal = 36;
+  const walletOpen = openDiff(598, 598);
+  assertEquals(walletOpen, 0);
+  assertEquals(walletOpen === customerCaptureVariance, false);
+  assertEquals(walletOpen === receivableOriginal, false);
 });

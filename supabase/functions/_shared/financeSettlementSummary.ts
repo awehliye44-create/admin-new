@@ -47,7 +47,7 @@ import {
   type PaymentSessionCaptureBreakdown,
 } from "./paymentSessionsCaptureBreakdownSSOT.ts";
 import {
-  evaluateFrCaptureCompositionIdentity,
+  evaluateFrCaptureCompositionIdentityClosed,
 } from "./frCaptureCompositionIdentitySSOT.ts";
 import {
   deriveTripFinancialAuditStatuses,
@@ -1018,7 +1018,7 @@ export function mapTripToFinancialAuditRow(
   // recovery is part of the planned capture target.
   const persistedBreakdown = readPersistedCaptureBreakdown(session?.metadata ?? null);
   const psCaptureBreakdown: PaymentSessionCaptureBreakdown | null = persistedBreakdown;
-  const compositionIdentity = evaluateFrCaptureCompositionIdentity({
+  const compositionEval = evaluateFrCaptureCompositionIdentityClosed({
     session: session
       ? {
         trip_fare_component_pence: (session as {
@@ -1034,10 +1034,15 @@ export function mapTripToFinancialAuditRow(
         }).provider_capture_target_pence,
         metadata: session.metadata ?? null,
         captured_amount_pence: session.captured_amount_pence ?? null,
+        purpose: (session as { purpose?: string | null }).purpose ?? null,
       }
       : null,
     actual_captured_pence: captured,
   });
+  const compositionIdentity = compositionEval.kind === "ok"
+    ? compositionEval.identity
+    : null;
+  const compositionFailClosed = compositionEval.kind === "fail_closed";
   const tipPence = Math.max(
     0,
     Number(
@@ -1052,12 +1057,16 @@ export function mapTripToFinancialAuditRow(
     0,
     Number(psCaptureBreakdown?.airport_charge_pence ?? row.airport_charge_pence ?? 0),
   );
-  const expectedCapturePence = compositionIdentity?.expected_provider_capture_pence
-    ?? psCaptureBreakdown?.expected_capture_pence
-    ?? null;
-  const captureVariance = compositionIdentity?.capture_variance_pence
-    ?? psCaptureBreakdown?.variance_pence
-    ?? null;
+  const expectedCapturePence = compositionFailClosed
+    ? null
+    : (compositionIdentity?.expected_provider_capture_pence
+      ?? psCaptureBreakdown?.expected_capture_pence
+      ?? null);
+  const captureVariance = compositionFailClosed
+    ? null
+    : (compositionIdentity?.capture_variance_pence
+      ?? psCaptureBreakdown?.variance_pence
+      ?? null);
   const rideFareForCapture = compositionIdentity?.trip_fare_component_pence
     ?? psCaptureBreakdown?.ride_fare_pence
     ?? null;
@@ -1214,6 +1223,9 @@ export function mapTripToFinancialAuditRow(
   if (psCaptureBreakdown == null && !isCash && payment_evidence_status === "PAYMENT_SESSIONS") {
     warnings.push("PAYMENT_SESSION_CAPTURE_BREAKDOWN_PENDING");
   }
+  if (compositionFailClosed) {
+    warnings.push("COMPOSITION_EVIDENCE_MISSING");
+  }
   // Capture mismatch is PS classification only — never trip settlement vs capture.
   const captureMismatchResolved = isCash
     ? false
@@ -1261,21 +1273,24 @@ export function mapTripToFinancialAuditRow(
     airport_charge_pence: airportPence,
     tips_pence: tipPence,
   });
-  const settlementIdentityBalanced = compositionIdentity != null
-    ? compositionIdentity.settlement_identity_balanced
-    : settlementIdentity.balanced;
+  const settlementIdentityBalanced = compositionFailClosed
+    ? false
+    : (compositionIdentity != null
+      ? compositionIdentity.settlement_identity_balanced
+      : settlementIdentity.balanced);
   const walletMismatchDiagnostic = isDriverCreditExceptionHealth(driverCredit.health);
   // WALLET_MISMATCH is the authoritative displayed status. Do not replace it with a
   // competing SETTLEMENT_MISMATCH when the wallet diagnostic already fired.
   if (
-    (compositionIdentity != null
-      ? compositionIdentity.settlement_identity_balanced === false
-      : (settlementIdentity.evaluable && !settlementIdentity.balanced))
+    (compositionFailClosed
+      || (compositionIdentity != null
+        ? compositionIdentity.settlement_identity_balanced === false
+        : (settlementIdentity.evaluable && !settlementIdentity.balanced)))
     && !walletMismatchDiagnostic
   ) {
     reconciliation_status = {
       ...reconciliation_status,
-      label: "SETTLEMENT_MISMATCH",
+      label: compositionFailClosed ? "COMPOSITION_EVIDENCE_MISSING" : "SETTLEMENT_MISMATCH",
       tone: "red",
     };
   } else if (
