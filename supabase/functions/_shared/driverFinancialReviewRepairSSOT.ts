@@ -17,6 +17,14 @@ import {
   type TripSettlementTripRow,
 } from "./tripSettlement.ts";
 import { FR_EXPECTED_STAMP_STATUS } from "./frDriverExpectedEntitlementSSOT.ts";
+import {
+  buildCertificationEvidenceForPreview,
+  buildCertificationNonPayableProposedColumns,
+  CERTIFICATION_NON_PAYABLE_ACTION_LABEL,
+  CERTIFICATION_NON_PAYABLE_OUTCOME,
+  evaluateCertificationNonPayableGuards,
+  type CertificationTripEvidence,
+} from "./certificationNonPayableRepairSSOT.ts";
 
 /** Feature flags — locked by adminDriverFinancialReviewRepairLock.test.ts */
 export const ADMIN_REVIEW_REPAIR_ACTION_PRESENT = true;
@@ -50,6 +58,7 @@ export const DRIVER_FINANCIAL_REPAIR_ACTION = {
   RESTORE_EXPECTED_STAMP: "RESTORE_EXPECTED_STAMP",
   RECOMPUTE_RECONCILIATION: "RECOMPUTE_RECONCILIATION",
   APPEND_WALLET_CORRECTION: "APPEND_WALLET_CORRECTION",
+  CERTIFICATION_NON_PAYABLE: "CERTIFICATION_NON_PAYABLE",
   NO_REPAIR_PROVIDER_UNKNOWN: "NO_REPAIR_PROVIDER_UNKNOWN",
   NO_REPAIR_INSUFFICIENT_EVIDENCE: "NO_REPAIR_INSUFFICIENT_EVIDENCE",
   MANUAL_REVIEW_REQUIRED: "MANUAL_REVIEW_REQUIRED",
@@ -64,6 +73,8 @@ export const DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT = {
   WALLET_CORRECTION_APPENDED: "WALLET_CORRECTION_APPENDED",
   RECONCILIATION_RECOMPUTED: "RECONCILIATION_RECOMPUTED",
   FALSE_FREEZE_CLEARED: "FALSE_FREEZE_CLEARED",
+  CERTIFICATION_NON_PAYABLE_MARKED: "CERTIFICATION_NON_PAYABLE_MARKED",
+  STALE_PAYMENT_SESSION_LINK_CLEARED: "STALE_PAYMENT_SESSION_LINK_CLEARED",
   BLOCKED: "FINANCIAL_REPAIR_BLOCKED",
 } as const;
 
@@ -78,6 +89,10 @@ export const DRIVER_FINANCIAL_REPAIR_COPY = {
     "Reconciliation passed. The financial hold was removed automatically.",
   WALLET_CORRECTION_NOT_CERTIFIED:
     "Wallet correction requires separate financial approval.",
+  CERTIFICATION_NON_PAYABLE_ACTION: CERTIFICATION_NON_PAYABLE_ACTION_LABEL,
+  CERTIFICATION_NO_PROVIDER_CHANGE: "No provider payment will be changed",
+  CERTIFICATION_RESULT:
+    "Verified certification trip marked non-payable. Expected entitlement £0.00. No wallet or provider change.",
   HISTORY_SECTION: "Repair history",
 } as const;
 
@@ -108,6 +123,18 @@ export const DRIVER_FINANCIAL_REPAIR_BLOCK = {
   CONFLICTING_PAYMENT_SESSION: "CONFLICTING_PAYMENT_SESSION",
   AMBIGUOUS_ENTITLEMENT: "AMBIGUOUS_ENTITLEMENT",
   INSUFFICIENT_EVIDENCE: "INSUFFICIENT_EVIDENCE",
+  CERT_BOOKING_SOURCE: "CERT_BOOKING_SOURCE",
+  CERT_CLIENT_ACTION_ID: "CERT_CLIENT_ACTION_ID",
+  CERT_MARKERS_MISSING: "CERT_MARKERS_MISSING",
+  CERT_LIFECYCLE_INCOMPLETE: "CERT_LIFECYCLE_INCOMPLETE",
+  CERT_FARE_NONZERO: "CERT_FARE_NONZERO",
+  CERT_MONEY_FIELDS_NONZERO: "CERT_MONEY_FIELDS_NONZERO",
+  CERT_OWNED_PAYMENT_SESSION: "CERT_OWNED_PAYMENT_SESSION",
+  CERT_PROVIDER_EVIDENCE: "CERT_PROVIDER_EVIDENCE",
+  CERT_WALLET_OR_PAYOUT_EVIDENCE: "CERT_WALLET_OR_PAYOUT_EVIDENCE",
+  CERT_RIDE_OFFER_OR_ENTITLEMENT: "CERT_RIDE_OFFER_OR_ENTITLEMENT",
+  CERT_STALE_SESSION_OWNER_UNPROVEN: "CERT_STALE_SESSION_OWNER_UNPROVEN",
+  CERT_CONFLICTING_EVIDENCE: "CERT_CONFLICTING_EVIDENCE",
   CURRENCY_MISMATCH: "CURRENCY_MISMATCH",
   ALREADY_APPLIED: "ALREADY_APPLIED",
   REPAIR_PREVIEW_STALE: "REPAIR_PREVIEW_STALE",
@@ -295,6 +322,11 @@ export type DriverFinancialRepairEvidence = {
   already_applied_repair_token?: string | null;
   /** Forbidden: Admin-supplied stamp overrides. Always ignored. */
   admin_override_driver_net_pence?: number | null;
+  /**
+   * When present, Preview may classify CERTIFICATION_NON_PAYABLE and bypass
+   * PROVIDER_UNKNOWN only if every certification guard passes.
+   */
+  certification?: CertificationTripEvidence | null;
 };
 
 export type DriverFinancialRepairProposedStamp = {
@@ -303,7 +335,11 @@ export type DriverFinancialRepairProposedStamp = {
   tip_pence: number;
   airport_charge_pence: number;
   final_fare_pence: number;
-  commission_pct: number;
+  /**
+   * Proven commission % for payable repairs.
+   * null = commission does not apply (CERTIFICATION_NON_PAYABLE) — never coerce to 0%.
+   */
+  commission_pct: number | null;
   provider_fee_pence: number | null;
   settlement_formula_version: string | null;
   columns: Record<string, number | string | null>;
@@ -357,6 +393,12 @@ export type DriverFinancialRepairPreview = {
   block_code: DriverFinancialRepairBlockCode | null;
   block_reason: string | null;
   apply_allowed: boolean;
+  /** Present when classification is CERTIFICATION_NON_PAYABLE (or cert guards evaluated). */
+  certification_evidence?: Record<string, unknown> | null;
+  /** Clear trips.payment_session_id only — never mutate the session row. */
+  clear_stale_payment_session_id?: string | null;
+  clear_stale_payment_session_owner_trip_id?: string | null;
+  clear_stale_payment_session_owner_trip_code?: string | null;
 };
 
 /**
@@ -484,6 +526,7 @@ export function isTerminalTripForFinancialRepair(args: {
     || outcome === "CANCELLED_WITH_FEE"
     || outcome === "LATE_PASSENGER_CANCELLATION"
     || outcome === "COMPLETED"
+    || outcome === "CERTIFICATION_NON_PAYABLE"
   );
 }
 
@@ -725,6 +768,7 @@ function stablePreviewPayload(args: {
   variance_pence: number | null;
   canonical_ten_restoration_pence: number;
   append_wallet_correction_pence: number;
+  certification_fingerprint?: Record<string, unknown> | null;
 }): Record<string, unknown> {
   return {
     calculation_version: DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
@@ -752,6 +796,7 @@ function stablePreviewPayload(args: {
     variance_pence: args.variance_pence,
     canonical_ten_restoration_pence: args.canonical_ten_restoration_pence,
     append_wallet_correction_pence: args.append_wallet_correction_pence,
+    certification_fingerprint: args.certification_fingerprint ?? null,
   };
 }
 
@@ -868,6 +913,153 @@ export function buildDriverFinancialRepairPreview(args: {
       DRIVER_FINANCIAL_REPAIR_BLOCK.ALREADY_APPLIED,
       "Repair already applied for this token",
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // CERTIFICATION_NON_PAYABLE — evaluated before PROVIDER_UNKNOWN.
+  // Provider UNKNOWN is bypassed ONLY when every certification guard passes.
+  // -------------------------------------------------------------------------
+  if (evidence.certification) {
+    const certGuards = evaluateCertificationNonPayableGuards(evidence.certification);
+    const certUi = buildCertificationEvidenceForPreview(evidence.certification);
+    const clearSessionId = String(
+      evidence.certification.trips_payment_session_id ?? "",
+    ).trim() || null;
+
+    if (certGuards.ok) {
+      const alreadyMarked =
+        String(evidence.financial_outcome ?? "").toUpperCase() ===
+          CERTIFICATION_NON_PAYABLE_OUTCOME
+        && !clearSessionId
+        && asNullableInt(evidence.existing_driver_net_pence) === 0;
+
+      if (alreadyMarked || evidence.already_applied_repair_token) {
+        const payload = stablePreviewPayload({
+          evidence,
+          classification: DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE,
+          stamp: null,
+          variance_pence: 0,
+          canonical_ten_restoration_pence: 0,
+          append_wallet_correction_pence: 0,
+          certification_fingerprint: {
+            outcome: CERTIFICATION_NON_PAYABLE_OUTCOME,
+            already_marked: true,
+            trip_id: evidence.trip_id,
+          },
+        });
+        return {
+          ...base,
+          classification: DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE,
+          preview_hash: hashDriverFinancialRepairPreview(payload),
+          expected_driver_entitlement_pence: 0,
+          canonical_expected_credit_pence: 0,
+          variance_pence: 0,
+          missing_evidence_fields: [],
+          proposed_repair: {
+            restore_expected_stamp: false,
+            proposed_stamp: null,
+            canonical_ten_restoration_pence: 0,
+            append_wallet_correction_pence: 0,
+            proven_wallet_delta_pence: 0,
+            recompute_reconciliation: true,
+            wallet_money_changes: false,
+            freeze_should_clear_after_recompute: false,
+          },
+          block_code: DRIVER_FINANCIAL_REPAIR_BLOCK.ALREADY_APPLIED,
+          block_reason: "Certification non-payable already applied",
+          apply_allowed: false,
+          certification_evidence: certUi,
+          clear_stale_payment_session_id: null,
+          clear_stale_payment_session_owner_trip_id: null,
+          clear_stale_payment_session_owner_trip_code: null,
+        };
+      }
+
+      const stampColumns = buildCertificationNonPayableProposedColumns({
+        clear_payment_session_id: Boolean(clearSessionId),
+      });
+      const stamp: DriverFinancialRepairProposedStamp = {
+        driver_net_pence: 0,
+        commission_pence: 0,
+        tip_pence: 0,
+        airport_charge_pence: 0,
+        final_fare_pence: 0,
+        commission_pct: null,
+        provider_fee_pence: null,
+        settlement_formula_version: "certification_non_payable_v1",
+        columns: stampColumns,
+      };
+      const payload = stablePreviewPayload({
+        evidence,
+        classification: DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE,
+        stamp,
+        variance_pence: 0,
+        canonical_ten_restoration_pence: 0,
+        append_wallet_correction_pence: 0,
+        certification_fingerprint: {
+          outcome: CERTIFICATION_NON_PAYABLE_OUTCOME,
+          client_action_id: evidence.certification.client_action_id ?? null,
+          clear_session_id: clearSessionId,
+          owner_trip_id: evidence.certification.linked_session_owner_trip_id ?? null,
+          guards: certGuards.guards_passed,
+        },
+      });
+      return {
+        ...base,
+        classification: DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE,
+        preview_hash: hashDriverFinancialRepairPreview(payload),
+        expected_driver_entitlement_pence: 0,
+        canonical_expected_credit_pence: 0,
+        variance_pence: 0,
+        missing_evidence_fields: [],
+        proposed_repair: {
+          restore_expected_stamp: true,
+          proposed_stamp: stamp,
+          canonical_ten_restoration_pence: 0,
+          append_wallet_correction_pence: 0,
+          proven_wallet_delta_pence: 0,
+          recompute_reconciliation: true,
+          wallet_money_changes: false,
+          freeze_should_clear_after_recompute: Boolean(args.derived_frozen),
+        },
+        block_code: null,
+        block_reason: null,
+        apply_allowed: true,
+        certification_evidence: certUi,
+        clear_stale_payment_session_id: clearSessionId,
+        clear_stale_payment_session_owner_trip_id:
+          evidence.certification.linked_session_owner_trip_id ?? null,
+        clear_stale_payment_session_owner_trip_code:
+          evidence.certification.linked_session_owner_trip_code ?? null,
+      };
+    }
+
+    // Certification-shaped evidence that failed a guard must not fall through
+    // to a payable repair path that could invent entitlement from a stale link.
+    if (
+      String(evidence.certification.booking_source ?? "").trim().toLowerCase() === "admin"
+      && String(evidence.certification.client_action_id ?? "")
+        .toLowerCase()
+        .startsWith("cert-board-exclusivity-")
+    ) {
+      const failCode = certGuards.ok === false
+        ? (certGuards.block_code as DriverFinancialRepairBlockCode)
+        : DRIVER_FINANCIAL_REPAIR_BLOCK.INSUFFICIENT_EVIDENCE;
+      const failReason = certGuards.ok === false
+        ? certGuards.block_reason
+        : "Certification guards failed";
+      return {
+        ...blocked(
+          DRIVER_FINANCIAL_REPAIR_ACTION.MANUAL_REVIEW_REQUIRED,
+          failCode,
+          failReason,
+        ),
+        certification_evidence: certUi,
+        clear_stale_payment_session_id: null,
+        clear_stale_payment_session_owner_trip_id: null,
+        clear_stale_payment_session_owner_trip_code: null,
+      };
+    }
   }
 
   if (
