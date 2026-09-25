@@ -5,8 +5,10 @@
  * pickup is authoritatively OUTSIDE_AREA.
  *
  * - Requires a valid signed WhatsApp book continuation token (wa_id from token).
- * - Requires pickup_lat / pickup_lng and re-resolves via resolve-service-area SSOT
- *   (never trusts a client-only OUTSIDE_AREA claim).
+ * - When pickup_lat / pickup_lng are present, re-resolves via resolve-service-area SSOT
+ *   (never trusts a client-only OUTSIDE_AREA claim for those requests).
+ * - Legacy callers that omit pickup (pre-publish website bundle) still require
+ *   code=OUTSIDE_AREA + book token; coverage re-resolve is applied when coords exist.
  * - Does NOT change the welcome / 3-option menu.
  * - Dedupes per wa_id via whatsapp_conversations.metadata (24h window).
  * - Stamps the dedupe key only AFTER a successful Graph send (failed delivery can retry).
@@ -59,9 +61,20 @@ Deno.serve(async (req) => {
       });
     }
 
-    const pickupLat = typeof body.pickup_lat === "number" ? body.pickup_lat : NaN;
-    const pickupLng = typeof body.pickup_lng === "number" ? body.pickup_lng : NaN;
-    if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) {
+    const latProvided = typeof body.pickup_lat === "number";
+    const lngProvided = typeof body.pickup_lng === "number";
+    if (latProvided !== lngProvided) {
+      return respond(400, {
+        success: false,
+        error: "PICKUP_REQUIRED",
+        sent: false,
+      });
+    }
+    const pickupLat = latProvided ? (body.pickup_lat as number) : NaN;
+    const pickupLng = lngProvided ? (body.pickup_lng as number) : NaN;
+    const hasPickup = latProvided && lngProvided &&
+      Number.isFinite(pickupLat) && Number.isFinite(pickupLng);
+    if (latProvided && lngProvided && !hasPickup) {
       return respond(400, {
         success: false,
         error: "PICKUP_REQUIRED",
@@ -110,33 +123,41 @@ Deno.serve(async (req) => {
       });
     }
 
-    const invokeHeaders = edgeFunctionInvokeHeaders(req);
-    if (!invokeHeaders) {
-      return respond(503, {
-        success: false,
-        error: "COVERAGE_RESOLVE_FAILED",
-        sent: false,
-      });
-    }
-    const coverage = await assertPickupCoveredByResolveServiceArea(
-      Deno.env.get("SUPABASE_URL")!,
-      invokeHeaders,
-      { pickupLat, pickupLng },
-    );
-    // Only send when resolve-service-area positively returns OUTSIDE_AREA.
-    if (coverage.ok) {
-      return respond(400, {
-        success: false,
-        error: "COVERAGE_NOT_OUTSIDE",
-        sent: false,
-      });
-    }
-    if (coverage.code !== "OUTSIDE_AREA") {
-      return respond(coverage.status, {
-        success: false,
-        error: coverage.code,
-        sent: false,
-      });
+    // Authoritative coverage when coords are present (new website). Legacy bundle
+    // omits pickup — still gated by book token + OUTSIDE_AREA claim + dedupe.
+    if (hasPickup) {
+      const invokeHeaders = edgeFunctionInvokeHeaders(req);
+      if (!invokeHeaders) {
+        return respond(503, {
+          success: false,
+          error: "COVERAGE_RESOLVE_FAILED",
+          sent: false,
+        });
+      }
+      const coverage = await assertPickupCoveredByResolveServiceArea(
+        Deno.env.get("SUPABASE_URL")!,
+        invokeHeaders,
+        { pickupLat, pickupLng },
+      );
+      if (coverage.ok) {
+        return respond(400, {
+          success: false,
+          error: "COVERAGE_NOT_OUTSIDE",
+          sent: false,
+        });
+      }
+      if (coverage.code !== "OUTSIDE_AREA") {
+        return respond(coverage.status, {
+          success: false,
+          error: coverage.code,
+          sent: false,
+        });
+      }
+    } else {
+      console.warn(JSON.stringify({
+        event: "OUT_OF_AREA_NOTIFY_LEGACY_NO_PICKUP",
+        wa_id_suffix: waId.slice(-4),
+      }));
     }
 
     const supabase = createClient(
@@ -203,7 +224,6 @@ Deno.serve(async (req) => {
         })
         .eq("wa_id", waId);
       if (updateErr) {
-        // Message already delivered — log but still report sent to avoid client retries.
         console.error("[whatsapp-booking-out-of-area-notify] dedupe stamp failed", updateErr.message);
       }
     } else {
