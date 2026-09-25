@@ -187,3 +187,36 @@ Deno.test("config.toml: whatsapp-booking-out-of-area-notify is public (verify_jw
   const slice = cfg.slice(idx, idx + 140);
   assert(slice.includes("verify_jwt = false"));
 });
+
+// ---------------------------------------------------------------------------
+// create-guest-payment-intent — server-side coverage authority
+// ---------------------------------------------------------------------------
+
+Deno.test("create-guest-payment-intent: refuses OUTSIDE_AREA before Revolut / session", () => {
+  const src = readFunction("create-guest-payment-intent");
+  assert(src.includes("assertGuestPickupCovered"));
+  assert(src.includes("/functions/v1/resolve-service-area"));
+  assert(src.includes('code: "OUTSIDE_AREA"'));
+  assert(src.includes("GUEST_PICKUP_COVERAGE_REJECTED"));
+  const coverageIdx = src.indexOf("await assertGuestPickupCovered");
+  const revolutIdx = src.indexOf("await createRevolutOrder");
+  const sessionIdx = src.indexOf("await upsertPaymentSessionPending");
+  assert(
+    coverageIdx > 0 && revolutIdx > coverageIdx && sessionIdx > coverageIdx,
+    "pickup coverage must run before Revolut order and payment session",
+  );
+});
+
+Deno.test("create-guest-payment-intent: rejects forged service_area_id vs pickup resolve", () => {
+  const src = readFunction("create-guest-payment-intent");
+  assert(src.includes('code: "SERVICE_AREA_MISMATCH"'));
+  assert(src.includes("body.settings.service_area_id !== input.serviceAreaId"));
+});
+
+Deno.test("config.toml: create-guest-payment-intent is public (verify_jwt=false)", () => {
+  const cfg = readConfig();
+  assert(cfg.includes("[functions.create-guest-payment-intent]"));
+  const idx = cfg.indexOf("[functions.create-guest-payment-intent]");
+  const slice = cfg.slice(idx, idx + 140);
+  assert(slice.includes("verify_jwt = false"));
+});

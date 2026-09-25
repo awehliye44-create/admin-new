@@ -291,6 +291,10 @@ verify_jwt = false
 [functions.whatsapp-booking-out-of-area-notify]
 verify_jwt = false
 
+# WhatsApp guest Revolut checkout — continuation token verified inside; pickup coverage gated.
+[functions.create-guest-payment-intent]
+verify_jwt = false
+
 # WhatsApp booking fare proxy → calculate-fare SSOT (anon website callers).
 [functions.whatsapp-booking-fares]
 verify_jwt = false
