@@ -5,6 +5,8 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { planRevolutCompletionCapture } from "../../../shared/revolutPaymentHoldSSOT.ts";
 import { computeCaptureAmount, resolveTripFare } from "./tripFareSSOT.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
+import { planCaptureComposition } from "./captureCompositionSSOT.ts";
+import { loadPlanAndPersistCaptureComposition } from "./captureCompositionLoadPlan.ts";
 import {
   captureRevolutOrder,
   mapRevolutStateToPaymentStatus,
@@ -219,7 +221,8 @@ export async function executeRevolutTripCompletionCapture(args: {
   const tripForFare = { ...args.trip, tip_pence: safeTipPence, tip_amount_pence: safeTipPence };
   const resolvedFare = resolveTripFare(tripForFare, safeTipPence);
   const captureResolution = computeCaptureAmount(tripForFare, "completed", safeTipPence);
-  const finalFarePence = Math.max(0, captureResolution.capture_amount_pence);
+  // Fare+tip only — receivables are composed via planCaptureComposition (MK-260925-002).
+  const farePlusTipPence = Math.max(0, captureResolution.capture_amount_pence);
 
   const merchant = await resolveRevolutMerchantContext(args.supabase, "live");
   const orderBefore = await retrieveRevolutOrder(
@@ -233,6 +236,46 @@ export async function executeRevolutTripCompletionCapture(args: {
     revolutProviderAuthorisedTotalPence(orderBefore)
       || Number(orderBefore.amount ?? args.trip.authorised_amount_pence ?? 0),
   );
+
+  // Resolve payment session for composition (same order / trip).
+  const { data: compositionSession } = await args.supabase
+    .from("payment_sessions")
+    .select("id, metadata, authorised_amount_pence, total_authorised_amount_pence")
+    .eq("provider_order_id", orderId)
+    .eq("trip_id", tripId)
+    .neq("purpose", "PAYMENT_RECOVERY")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const compositionSessionId = String(compositionSession?.id ?? "").trim();
+  let finalFarePence = farePlusTipPence;
+  if (compositionSessionId && authorisedHoldPence > 0) {
+    const tripFareOnly = Math.max(0, resolvedFare.final_fare_pence);
+    const planned = await loadPlanAndPersistCaptureComposition(args.supabase, {
+      payment_session_id: compositionSessionId,
+      provider_order_id: orderId,
+      trip_fare_component_pence: tripFareOnly,
+      tip_component_pence: safeTipPence,
+      authorised_total_pence: Math.max(
+        authorisedHoldPence,
+        Math.round(Number(compositionSession?.total_authorised_amount_pence) || 0),
+        Math.round(Number(compositionSession?.authorised_amount_pence) || 0),
+      ),
+    });
+    // Keep planCaptureComposition referenced for deploy/source locks.
+    void planCaptureComposition;
+    if (!planned.ok) {
+      console.error("[revolutCompletionCapture] capture composition rejected", planned);
+      return {
+        success: false,
+        status: "capture_composition_rejected",
+        capture_amount_pence: 0,
+        provider_order_id: orderId,
+        error: planned.reject_reason,
+      };
+    }
+    finalFarePence = planned.provider_capture_target_pence;
+  }
   const bufferPence = Math.max(0, Number(args.trip.preauth_buffer_pence ?? 0));
 
   const storedTripCapture = Math.round(Number(args.trip.capture_amount_pence) || 0);

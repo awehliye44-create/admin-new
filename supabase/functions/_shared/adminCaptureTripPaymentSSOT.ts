@@ -22,6 +22,7 @@ import { decideCaptureAfterRetrieve, tripHasConflictingFinalCapture } from "./re
 import {
   captureRevolutOrder,
   retrieveRevolutOrder,
+  revolutProviderAuthorisedTotalPence,
 } from "./revolutOrders.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
 import {
@@ -43,6 +44,10 @@ import {
   assertPlatformCollectedCompletionPaymentGate,
   CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED,
 } from "./executeFareIncreaseModificationPayment.ts";
+import { resolveTripFare } from "./tripFareSSOT.ts";
+import { planCaptureComposition } from "./captureCompositionSSOT.ts";
+import { loadPlanAndPersistCaptureComposition } from "./captureCompositionLoadPlan.ts";
+void planCaptureComposition;
 
 export type AdminCaptureTripPaymentDeps = {
   retrieveOrder?: (
@@ -127,7 +132,7 @@ export async function executeAdminCaptureTripPayment(args: {
     });
   }
 
-  const captureAmountTarget = pre.captureAmountPence;
+  let captureAmountTarget = pre.captureAmountPence;
 
   const sessionLoad = await loadRideBookingPaymentSessions(args.supabase, tripId);
   if (sessionLoad.error) {
@@ -226,8 +231,54 @@ export async function executeAdminCaptureTripPayment(args: {
 
     const authorisedTotal = Math.max(
       0,
-      Number(orderBefore.amount ?? args.trip.authorised_amount_pence ?? 0),
+      revolutProviderAuthorisedTotalPence(orderBefore)
+        || Number(orderBefore.amount ?? args.trip.authorised_amount_pence ?? 0),
     );
+
+    // Capture composition SSOT — fare + tip + RESERVED receivables (MK-260925-002).
+    const tipForPlan = Math.max(
+      0,
+      Math.round(Number(args.trip.tip_pence ?? args.trip.tip_amount_pence ?? 0) || 0),
+    );
+    const resolvedFare = resolveTripFare(args.trip as never, tipForPlan);
+    const planned = await loadPlanAndPersistCaptureComposition(args.supabase, {
+      payment_session_id: paymentSessionId,
+      provider_order_id: orderId,
+      trip_fare_component_pence: Math.max(0, resolvedFare.final_fare_pence),
+      tip_component_pence: tipForPlan,
+      authorised_total_pence: Math.max(
+        authorisedTotal,
+        Math.round(Number(bookingSession.total_authorised_amount_pence) || 0),
+        Math.round(Number(bookingSession.authorised_amount_pence) || 0),
+      ),
+    });
+    if (!planned.ok) {
+      earlyFail = fail({
+        success: false,
+        error_code: "CAPTURE_COMPOSITION_REJECTED",
+        error: planned.reject_reason,
+        payment_session_id: paymentSessionId,
+        provider_order_id: orderId,
+      });
+      return earlyFail;
+    }
+    if (
+      args.amountPence != null
+      && Math.round(Number(args.amountPence)) !== planned.provider_capture_target_pence
+    ) {
+      earlyFail = fail({
+        success: false,
+        error_code: "CAPTURE_COMPOSITION_MISMATCH",
+        error:
+          `amount_pence (${Math.round(Number(args.amountPence))}) does not match ` +
+          `capture composition target (${planned.provider_capture_target_pence})`,
+        payment_session_id: paymentSessionId,
+        provider_order_id: orderId,
+      });
+      return earlyFail;
+    }
+    captureAmountTarget = planned.provider_capture_target_pence;
+
     if (captureAmountTarget > authorisedTotal && revolutState === "AUTHORISED") {
       earlyFail = fail({
         success: false,

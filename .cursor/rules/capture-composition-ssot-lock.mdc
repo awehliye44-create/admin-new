@@ -1,0 +1,57 @@
+# Capture composition SSOT lock (Customer / financial-main)
+
+## Canonical rule
+
+Every provider capture POST uses **one** planner:
+
+`supabase/functions/_shared/captureCompositionSSOT.ts` → `planCaptureComposition`
+
+Persist via `loadPlanAndPersistCaptureComposition` **before** capture POST.
+
+## Formula
+
+```
+provider_capture_target_pence =
+  trip_fare_component_pence
++ successful_tip_component_pence
++ reserved_receivable_component_pence
+```
+
+## Never remove or “simplify away”
+
+1. Receivable component only from **RESERVED** allocations on the **same** payment session
+2. Target must not exceed provider-confirmed authorised amount (1p fail-closed)
+3. Never POST `customer_payable_pence` alone when RESERVED allocations exist
+4. Persist composition columns / metadata before provider POST
+5. One idempotency key for the exact total
+6. AUTHORISED / UNKNOWN is never capture proof
+7. Tip authorisation decline must **not** fare-capture
+8. Settlement only when persisted `receivable_component_pence > 0` — never infer settle from `captured >= receivable`
+9. Fare-only capture (receivable component 0) **releases** RESERVED → OPEN; does not settle
+
+## Incident lock — MK-260925-002
+
+Auth 536 / capture 500 / receivable component 0 → settle 0, release 36 to OPEN.
+Future: plan 500+0+36=536 → GET 536 → settle 36 once.
+
+## Capture owners (must import planner)
+
+- `revolutCompletionCapture.ts` (Skip / Submit tip=0 / tip / finalize)
+- `capture-expired-tip-windows`
+- `tipWindowCaptureOrchestrationSSOT.ts`
+- `adminCaptureTripPaymentSSOT.ts` / `admin-capture-trip-payment`
+- `paymentSessionSSOT.ts` (settlement gate)
+- `sweep-revolut-stale-holds` (finalize path)
+
+## Lock tests
+
+`supabase/tests/_shared/captureCompositionSSOTLock.test.ts`
+
+**If they fail, fix the code — never delete or soften the lock.**
+
+## Do not
+
+- Infer receivable settlement from capture amount alone
+- Second order / second capture for the same tip-window fare
+- Put receivable into TEN / commission / tip / payout
+- Enable fold via `CUSTOMER_RECEIVABLE_FOLD_ENABLED` in this PR

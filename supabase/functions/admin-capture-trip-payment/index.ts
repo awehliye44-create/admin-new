@@ -4,6 +4,9 @@ import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
 import { executeAdminCaptureTripPayment } from "../_shared/adminCaptureTripPaymentSSOT.ts";
 import { ADMIN_CAPTURE_PRECONDITION } from "../_shared/adminCaptureTripPaymentPreconditions.ts";
+// Capture composition SSOT — admin capture funnels through finalize → revolutCompletionCapture.
+import { planCaptureComposition } from "../_shared/captureCompositionSSOT.ts";
+void planCaptureComposition;
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),

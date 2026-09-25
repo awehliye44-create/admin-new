@@ -497,33 +497,96 @@ export async function markPaymentSessionCaptured(
   }
   await markPaymentSessionStatus(supabase, "captured", args, patch);
 
-  // Settle reserved receivables ONLY when caller supplies provider GET evidence.
-  if (args.providerEvidence && session?.id) {
-    const { settleReceivablesFromProviderEvidence } = await import(
-      "./customerReceivableLifecycle.ts"
-    );
-    const settle = await settleReceivablesFromProviderEvidence(supabase, {
-      payment_session_id: String(session.id),
-      evidence: {
-        orderId: args.providerEvidence.orderId,
-        terminalState: args.providerEvidence.terminalState,
-        confirmedCapturedPence: args.providerEvidence.confirmedCapturedPence,
-        amountFromProviderGet: args.providerEvidence.amountFromProviderGet,
-      },
-      current_trip_fare_pence: Math.max(
-        0,
-        Math.round(Number(args.captureAmountPence) || 0)
-          - Math.max(
-            0,
-            Math.round(Number(metadata.customer_receivables_pence) || 0),
-          ),
+  // Settlement requires a planned receivable component (MK-260925-002).
+  // Capture of fare-only (receivable_component=0) must RELEASE reserved allocations,
+  // never infer settle from captured_amount alone. Never use abandon SETTLE planner.
+  if (
+    session?.id
+    && args.providerEvidence
+    && args.providerEvidence.amountFromProviderGet === true
+  ) {
+    const {
+      planReceivableSettlementFromCaptureComposition,
+      planCaptureComposition,
+    } = await import("./captureCompositionSSOT.ts");
+    void planCaptureComposition;
+    const plannedRecv = Math.max(
+      0,
+      Math.round(
+        Number(
+          (session as { receivable_component_pence?: number }).receivable_component_pence
+            ?? metadata.receivable_component_pence,
+        ) || 0,
       ),
+    );
+    const tripFareComponent = Math.max(
+      0,
+      Math.round(
+        Number(
+          (session as { trip_fare_component_pence?: number }).trip_fare_component_pence
+            ?? metadata.trip_fare_component_pence,
+        ) || 0,
+      ),
+    );
+    const { data: reservedAllocs } = await supabase
+      .from("payment_session_receivable_allocations")
+      .select("allocated_amount_pence")
+      .eq("payment_session_id", String(session.id))
+      .eq("status", "RESERVED");
+    const reservedTotal = (reservedAllocs ?? []).reduce(
+      (s, r) => s + Math.max(0, Math.round(Number(r.allocated_amount_pence) || 0)),
+      0,
+    );
+    const confirmed = Math.max(
+      0,
+      Math.round(Number(args.providerEvidence.confirmedCapturedPence) || 0),
+    );
+    const settlementPlan = planReceivableSettlementFromCaptureComposition({
+      persisted_receivable_component_pence: plannedRecv,
+      provider_confirmed_captured_pence: confirmed,
+      reserved_allocation_total_pence: reservedTotal,
+      trip_fare_component_pence: tripFareComponent,
+      amount_from_provider_get: true,
     });
-    if (!settle.ok) {
-      console.error(
-        "[paymentSessionSSOT] receivable settle after capture failed",
-        settle.error,
+
+    if (settlementPlan.settle_pence > 0) {
+      const { settleReceivablesFromProviderEvidence } = await import(
+        "./customerReceivableLifecycle.ts"
       );
+      const settle = await settleReceivablesFromProviderEvidence(supabase, {
+        payment_session_id: String(session.id),
+        evidence: {
+          orderId: args.providerEvidence.orderId,
+          terminalState: args.providerEvidence.terminalState,
+          // Full GET capture; RPC covers recv as captured − trip fare.
+          confirmedCapturedPence: confirmed,
+          amountFromProviderGet: true,
+        },
+        current_trip_fare_pence: tripFareComponent,
+      });
+      if (!settle.ok) {
+        console.error(
+          "[paymentSessionSSOT] receivable settle after capture failed",
+          settle.error,
+        );
+      }
+    } else if (settlementPlan.release_remainder && reservedTotal > 0) {
+      // Planned receivable component was 0 (or uncovered) — release RESERVED → OPEN.
+      // Do not call abandon SETTLE planner (has_capture:true would settle falsely).
+      const { data: releaseRpc, error: releaseErr } = await supabase.rpc(
+        "customer_receivable_release_reservations",
+        {
+          p_payment_session_id: String(session.id),
+          p_reason: settlementPlan.reason,
+        },
+      );
+      if (releaseErr) {
+        console.error(
+          "[paymentSessionSSOT] receivable release after fare-only capture failed",
+          releaseErr.message,
+          releaseRpc,
+        );
+      }
     }
   }
 }
