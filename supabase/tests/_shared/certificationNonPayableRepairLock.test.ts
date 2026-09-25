@@ -486,3 +486,52 @@ Deno.test("RPC does not accept Edge-supplied monetary stamp amounts", async () =
   // Rate columns not written
   assertFalse(/commission_pct\s*=\s*0/i.test(mig));
 });
+
+const CERT_RPC_FN = "admin_apply_certification_non_payable_repair";
+const CERT_RPC_TYPES =
+  "uuid, uuid, uuid, uuid, text, text, text, uuid, uuid, jsonb, text";
+
+function normalizeSql(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim();
+}
+
+Deno.test("Follow-up privilege migration explicitly revokes PUBLIC+anon+authenticated", async () => {
+  const mig = normalizeSql(
+    await read(
+      "supabase/migrations/20261201130000_certification_non_payable_repair_execute_lock.sql",
+    ),
+  );
+  const rb = await read(
+    "supabase/migrations/rollback/rollback_20261201130000_certification_non_payable_repair_execute_lock.sql",
+  );
+
+  // Privilege-only: no body/data mutation
+  assertFalse(/CREATE OR REPLACE FUNCTION/i.test(mig));
+  assertFalse(/ALTER TABLE/i.test(mig));
+  assertFalse(/UPDATE /i.test(mig));
+  assertFalse(/INSERT /i.test(mig));
+  assertFalse(/DELETE /i.test(mig));
+  assertFalse(/ALTER DEFAULT PRIVILEGES/i.test(mig));
+
+  const target =
+    `FUNCTION public.${CERT_RPC_FN}( ${CERT_RPC_TYPES} )`;
+  // tolerate optional space after (
+  const targetCompact =
+    `FUNCTION public.${CERT_RPC_FN}(${CERT_RPC_TYPES})`;
+  const hasTarget = mig.includes(target) || mig.includes(targetCompact);
+  assert(hasTarget);
+
+  assert(mig.includes(`REVOKE ALL ON ${targetCompact} FROM PUBLIC`) ||
+    mig.includes(`REVOKE ALL ON ${target} FROM PUBLIC`));
+  assert(mig.includes(`REVOKE ALL ON ${targetCompact} FROM anon`) ||
+    mig.includes(`REVOKE ALL ON ${target} FROM anon`));
+  assert(mig.includes(`REVOKE ALL ON ${targetCompact} FROM authenticated`) ||
+    mig.includes(`REVOKE ALL ON ${target} FROM authenticated`));
+  assert(mig.includes(`GRANT EXECUTE ON ${targetCompact} TO service_role`) ||
+    mig.includes(`GRANT EXECUTE ON ${target} TO service_role`));
+
+  // Rollback must never restore insecure grants (SQL statements only)
+  assertFalse(/^\s*GRANT\s+EXECUTE\b/im.test(rb));
+  assertFalse(/^\s*GRANT\s+ALL\b/im.test(rb));
+  assertFalse(/GRANT EXECUTE ON FUNCTION[\s\S]*TO\s+(anon|authenticated|PUBLIC)\b/i.test(rb));
+});
