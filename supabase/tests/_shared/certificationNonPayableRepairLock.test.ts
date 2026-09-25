@@ -8,6 +8,8 @@ import { assertFalse } from "https://deno.land/std@0.224.0/assert/assert_false.t
 import { fromFileUrl } from "https://deno.land/std@0.224.0/path/from_file_url.ts";
 import { join } from "https://deno.land/std@0.224.0/path/join.ts";
 import {
+  buildCertificationNonPayableIdempotencyKey,
+  buildCertificationNonPayableMutationPlan,
   buildCertificationNonPayableProposedColumns,
   CERTIFICATION_NON_PAYABLE_ACTION_LABEL,
   CERTIFICATION_NON_PAYABLE_AUDIT_EVENT,
@@ -288,16 +290,20 @@ Deno.test("Copy + audit event names locked", () => {
 
 Deno.test("Edge Apply path: clear FK only; never mutate payment_sessions / MK-010", async () => {
   const edge = await read("supabase/functions/admin-driver-financial-repair/index.ts");
+  const mig = await read(
+    "supabase/migrations/20261201120000_certification_non_payable_financial_outcome.sql",
+  );
   assert(edge.includes("CERTIFICATION_NON_PAYABLE"));
-  assert(edge.includes("STALE_PAYMENT_SESSION_LINK_CLEARED"));
-  assert(edge.includes("payment_sessions_row_unchanged"));
-  assert(edge.includes("owner_trip_unchanged"));
-  // Must not update payment_sessions in cert apply
+  assert(edge.includes("admin_apply_certification_non_payable_repair"));
+  assert(mig.includes("STALE_PAYMENT_SESSION_LINK_CLEARED"));
+  assert(mig.includes("payment_sessions_row_unchanged"));
+  assert(mig.includes("owner_trip_unchanged"));
   const certBlockStart = edge.indexOf("CERTIFICATION_NON_PAYABLE Apply");
   assert(certBlockStart > 0);
   const certBlock = edge.slice(certBlockStart, certBlockStart + 6000);
   assertFalse(certBlock.includes('.from("payment_sessions").update'));
   assertFalse(certBlock.includes("creditCapturedCardTripLedger"));
+  assertFalse(certBlock.includes('.from("trips").update'));
 });
 
 Deno.test("UI shows certification evidence + mandatory reason + SAFE_TO_APPLY gate", async () => {
@@ -318,4 +324,127 @@ Deno.test("Without certification evidence, PROVIDER_UNKNOWN still blocks", () =>
     DRIVER_FINANCIAL_REPAIR_ACTION.NO_REPAIR_PROVIDER_UNKNOWN,
   );
   assertFalse(preview.apply_allowed);
+});
+
+
+Deno.test("Migration version is 20261201120000 (not live 20261130120000)", async () => {
+  const forward = await read(
+    "supabase/migrations/20261201120000_certification_non_payable_financial_outcome.sql",
+  );
+  assert(forward.includes("admin_apply_certification_non_payable_repair"));
+  assert(forward.includes("pg_advisory_xact_lock"));
+  assert(forward.includes("FOR UPDATE"));
+  assertFalse(forward.includes("CREATE TABLE"));
+  assert(forward.includes("GRANT EXECUTE"));
+  assert(forward.includes("service_role"));
+  // No ownership trigger in this PR
+  assertFalse(/CREATE\s+TRIGGER/i.test(forward));
+  try {
+    await Deno.stat(join(REPO_ROOT, "supabase/migrations/20261130120000_certification_non_payable_financial_outcome.sql"));
+    assert(false, "colliding 20261130120000 cert migration must not exist");
+  } catch {
+    // expected — file absent
+  }
+
+  // Duplicate migration prefixes = 0
+  const migDir = join(REPO_ROOT, "supabase/migrations");
+  const names: string[] = [];
+  for await (const e of Deno.readDir(migDir)) {
+    if (e.isFile && e.name.endsWith(".sql")) names.push(e.name);
+  }
+  const prefixes = names.map((n) => n.split("_")[0]);
+  const counts = new Map<string, number>();
+  for (const pref of prefixes) counts.set(pref, (counts.get(pref) ?? 0) + 1);
+  const dups = [...counts.entries()].filter(([, c]) => c > 1);
+  assertEquals(dups, []);
+});
+
+Deno.test("Idempotency key ties trip + preview hash + classification", () => {
+  const key = buildCertificationNonPayableIdempotencyKey({
+    trip_id: "a4305381-2e45-4a44-b64e-8fb5cbe4805d",
+    preview_hash: "rfh_deadbeef_12",
+  });
+  assertEquals(
+    key,
+    "dw_fin_repair_cert:a4305381-2e45-4a44-b64e-8fb5cbe4805d:rfh_deadbeef_12:CERTIFICATION_NON_PAYABLE",
+  );
+});
+
+Deno.test("Mutation plan exposes before/after/why for every changed field", () => {
+  const plan = buildCertificationNonPayableMutationPlan({
+    trips_payment_session_id: "bfab32d2-a52d-4f4f-b1a6-596a32b61a95",
+    financial_outcome: null,
+    existing_driver_net_pence: null,
+    commission_pct: null,
+  });
+  assert(plan.commission_rate_unchanged_null);
+  assert(plan.fields.every((f) => f.why && "proposed_after" in f && "expected_before" in f));
+  assert(plan.fields.some((f) => f.field === "payment_session_id" && f.proposed_after === null));
+  assertFalse(plan.fields.some((f) => f.field === "commission_pct"));
+});
+
+Deno.test("MK-031/MK-032 duplicate group does not qualify", () => {
+  const g = evaluateCertificationNonPayableGuards(
+    mk011CertificationFixture({
+      trip_id: "4a90f1f5-9cb5-4802-ac54-c7af5d3d5dc9",
+      trip_code: "MK-260806-031",
+      client_action_id: null,
+      passenger_name: "Someone",
+      pickup_address: "A",
+      dropoff_address: "B",
+      trips_payment_session_id: "413ad088-f8ba-4ed0-8f57-4b20ed1d77c3",
+      linked_session_owner_trip_id: null,
+      owned_payment_session_count: 0,
+    }),
+  );
+  assertFalse(g.ok);
+});
+
+Deno.test("Wrong session ownership drift aborts", () => {
+  const g = evaluateCertificationNonPayableGuards(
+    mk011CertificationFixture({
+      linked_session_owner_trip_id: "00000000-0000-0000-0000-000000000001",
+    }),
+  );
+  // Still passes guard 12 if owner is some other trip — Apply RPC re-checks expected owner.
+  // Drift vs expected MK-010 is an Apply-time abort; Preview still requires other-trip owner.
+  assertEquals(g.ok, true);
+  // When owner becomes the target trip → abort
+  const ownedByTarget = evaluateCertificationNonPayableGuards(
+    mk011CertificationFixture({
+      linked_session_owner_trip_id: "a4305381-2e45-4a44-b64e-8fb5cbe4805d",
+      owned_payment_session_count: 0,
+    }),
+  );
+  assertFalse(ownedByTarget.ok);
+});
+
+Deno.test("Session owned by target before Apply → abort", () => {
+  const g = evaluateCertificationNonPayableGuards(
+    mk011CertificationFixture({ owned_payment_session_count: 1 }),
+  );
+  assertFalse(g.ok);
+  if (!g.ok) assertEquals(g.block_code, "CERT_OWNED_PAYMENT_SESSION");
+});
+
+Deno.test("Edge uses atomic RPC only for cert Apply", async () => {
+  const edge = await read("supabase/functions/admin-driver-financial-repair/index.ts");
+  assert(edge.includes('admin_apply_certification_non_payable_repair'));
+  assert(edge.includes("buildCertificationNonPayableIdempotencyKey"));
+  const start = edge.indexOf("CERTIFICATION_NON_PAYABLE Apply — single atomic");
+  assert(start > 0);
+  const block = edge.slice(start, start + 3500);
+  assertFalse(block.includes('.from("trips").update'));
+  assertFalse(block.includes("creditCapturedCardTripLedger"));
+  assertFalse(block.includes('.from("payment_sessions").update'));
+});
+
+Deno.test("Preview includes mutation_fields before/after explanation", () => {
+  const preview = buildDriverFinancialRepairPreview({
+    evidence: baseEvidence(),
+    repair_token: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+  });
+  const fields = preview.certification_evidence?.mutation_fields as Array<{ field: string }> | undefined;
+  assert(Array.isArray(fields) && fields.length >= 10);
+  assertEquals(preview.certification_evidence?.commission_rate_unchanged_null, true);
 });

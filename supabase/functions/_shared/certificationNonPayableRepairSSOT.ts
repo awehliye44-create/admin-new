@@ -396,6 +396,120 @@ export function buildCertificationNonPayableProposedColumns(args: {
   return columns;
 }
 
+/** Unique Apply idempotency key: trip + preview hash + classification. */
+export function buildCertificationNonPayableIdempotencyKey(args: {
+  trip_id: string;
+  preview_hash: string;
+}): string {
+  return `dw_fin_repair_cert:${args.trip_id}:${args.preview_hash}:${CERTIFICATION_NON_PAYABLE_OUTCOME}`;
+}
+
+export type CertificationMutationField = {
+  field: string;
+  expected_before: unknown;
+  proposed_after: unknown;
+  why: string;
+};
+
+/** Minimal mutation plan — every changed field has before/after/why for Preview + audit. */
+export function buildCertificationNonPayableMutationPlan(args: {
+  trips_payment_session_id?: string | null;
+  financial_outcome?: string | null;
+  existing_driver_net_pence?: number | null;
+  existing_commission_pence?: number | null;
+  tip_pence?: number | null;
+  tip_amount_pence?: number | null;
+  airport_charge_pence?: number | null;
+  final_fare_pence?: number | null;
+  gross_fare_pence?: number | null;
+  commissionable_fare_pence?: number | null;
+  driver_net_before_tip_pence?: number | null;
+  invoice_payment_classification?: string | null;
+  commission_pct?: number | null;
+}): {
+  fields: CertificationMutationField[];
+  commission_rate_unchanged_null: boolean;
+} {
+  const fields: CertificationMutationField[] = [
+    {
+      field: "payment_session_id",
+      expected_before: args.trips_payment_session_id ?? null,
+      proposed_after: null,
+      why: "Clear stale trip-side FK only; payment_sessions row untouched",
+    },
+    {
+      field: "financial_outcome",
+      expected_before: args.financial_outcome ?? null,
+      proposed_after: CERTIFICATION_NON_PAYABLE_OUTCOME,
+      why: "Canonical non-payable outcome",
+    },
+    {
+      field: "driver_net_pence",
+      expected_before: args.existing_driver_net_pence ?? null,
+      proposed_after: 0,
+      why: "FR explicit zero entitlement",
+    },
+    {
+      field: "commission_pence",
+      expected_before: args.existing_commission_pence ?? null,
+      proposed_after: 0,
+      why: "FR explicit zero commission amount; rate stays NULL",
+    },
+    {
+      field: "final_fare_pence",
+      expected_before: args.final_fare_pence ?? null,
+      proposed_after: 0,
+      why: "FR zero fare",
+    },
+    {
+      field: "gross_fare_pence",
+      expected_before: args.gross_fare_pence ?? null,
+      proposed_after: 0,
+      why: "FR zero gross",
+    },
+    {
+      field: "commissionable_fare_pence",
+      expected_before: args.commissionable_fare_pence ?? null,
+      proposed_after: 0,
+      why: "FR zero commissionable",
+    },
+    {
+      field: "tip_pence",
+      expected_before: args.tip_pence ?? null,
+      proposed_after: 0,
+      why: "FR zero tip",
+    },
+    {
+      field: "tip_amount_pence",
+      expected_before: args.tip_amount_pence ?? null,
+      proposed_after: 0,
+      why: "FR zero tip",
+    },
+    {
+      field: "airport_charge_pence",
+      expected_before: args.airport_charge_pence ?? null,
+      proposed_after: 0,
+      why: "FR zero airport",
+    },
+    {
+      field: "driver_net_before_tip_pence",
+      expected_before: args.driver_net_before_tip_pence ?? null,
+      proposed_after: 0,
+      why: "FR zero net-before-tip",
+    },
+    {
+      field: "invoice_payment_classification",
+      expected_before: args.invoice_payment_classification ?? null,
+      proposed_after: CERTIFICATION_NON_PAYABLE_OUTCOME,
+      why: "Canonical existing invoice classification SSOT",
+    },
+  ];
+  return {
+    fields,
+    commission_rate_unchanged_null: args.commission_pct == null,
+  };
+}
+
 /** UI / preview evidence bundle. */
 export function buildCertificationEvidenceForPreview(
   evidence: CertificationTripEvidence,

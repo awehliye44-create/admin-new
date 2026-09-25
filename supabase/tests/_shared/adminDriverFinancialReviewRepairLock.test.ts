@@ -308,7 +308,7 @@ Deno.test("1–10 source certification locks (preview zero writes, real recomput
     assert(
       migration.includes(ev)
         || (await read(
-          "supabase/migrations/20261130120000_certification_non_payable_financial_outcome.sql",
+          "supabase/migrations/20261201120000_certification_non_payable_financial_outcome.sql",
         )).includes(ev),
       `audit event ${ev} missing from repair migrations`,
     );

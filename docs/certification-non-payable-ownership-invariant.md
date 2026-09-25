@@ -1,35 +1,43 @@
-# CERTIFICATION_NON_PAYABLE — payment_session ownership invariant (proposal)
+# CERTIFICATION_NON_PAYABLE — ownership invariant + migration gate
 
-## Read-only duplicate audit (production, 2026-09-25)
+## Schema decision (A)
+Reuse `trips.financial_outcome` = `CERTIFICATION_NON_PAYABLE`. No new outcome column.
 
-Trips with `payment_session_id IS NOT NULL`: **593**
-Duplicate `payment_session_id` groups: **2**
+## Migration version
+- Forward: `20261201120000_certification_non_payable_financial_outcome.sql`
+- Rollback: `rollback/rollback_20261201120000_certification_non_payable_financial_outcome.sql`
+- Live collision avoided: `20261130120000` = `capture_composition_components`
 
-| payment_session_id | trips referencing it | session.trip_id owner | Notes |
-|---|---|---|---|
-| `bfab32d2-a52d-4f4f-b1a6-596a32b61a95` | MK-260923-010, **MK-260923-011** | MK-260923-010 | Cert trip stale FK — target of this repair |
-| `413ad088-f8ba-4ed0-8f57-4b20ed1d77c3` | MK-260806-031, MK-260806-032 | `NULL` | Cancelled pair; session unowned |
+### Exact DDL
+1. COMMENT ON `trips.financial_outcome`
+2. Expand repair audit `event_type` CHECK (+2 events)
+3. CREATE `admin_apply_certification_non_payable_repair`
+4. GRANT EXECUTE TO `service_role` only
 
-## Proposed invariant (do not enforce yet)
+Not changed: financial_outcome CHECK/enum (none), invoice CHECK (none), trips indexes/grants, ownership triggers.
 
-```
-IF trips.payment_session_id IS NOT NULL THEN
-  payment_sessions.id = trips.payment_session_id
-  AND payment_sessions.trip_id = trips.id
-```
+## Atomic Apply
+Single PG txn RPC: advisory_xact_lock → trip FOR UPDATE → 14-guard revalidation → lock stale session →
+confirm owner → minimal trip mutation → request + audits → trip-scoped recompute.
+Never modifies MK-010, payment_sessions, provider, wallet, payout.
 
-## Why not a UNIQUE constraint yet
+## Duplicate audit (read-only)
+| Session | Trips | Owner |
+|---|---|---|
+| bfab32d2-… | MK-010 + MK-011 | MK-010 |
+| 413ad088-… | MK-031 + MK-032 | NULL |
 
-`UNIQUE (trips.payment_session_id)` would block the two legacy duplicates above
-and any future race. Count + review legacy rows first; clear or re-home them;
-then consider:
+Do not enforce ownership trigger in this PR. Cert producer must insert `payment_session_id=NULL`.
 
-1. Trigger `trips_payment_session_ownership` enforcing owner match on INSERT/UPDATE
-2. Optional partial unique index on `payment_sessions(trip_id)` where trip_id not null
-   (session → trip is the canonical ownership direction)
+## SHA-256 (frozen at draft tip)
 
-## Certification producer
+- Forward `20261201120000_…sql`: `5cf7602ecd087aa685018cb1bcd3a4865102983f4bbacdbfaba21dca7ec37060`
+- Rollback `rollback_20261201120000_…sql`: `075e152a0fec54f1cb06a3a816f00c3b712b4d19e62a1f653870dce1949a0e92`
 
-No in-repo producer for `client_action_id = cert-board-exclusivity-{uuid}` was found
-(admin-new / ONECAB local trees). External board harness must set
-`payment_session_id = NULL` on certification inserts.
+## db push --dry-run note
+
+Live already applied `20261130120000` (`capture_composition_components`) and
+`20261130130000` (`payment_session_acquire_capture_composition`). Those files live
+on other branches; this draft branch correctly **does not** reuse `20261130120000`.
+`20261201120000` is absent from live `schema_migrations` and is the only new financial
+migration introduced here. Duplicate local migration prefixes = 0.
