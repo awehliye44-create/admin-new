@@ -1,9 +1,9 @@
 # PR #80 — CLEAN ALL-GREEN RELEASE CERTIFICATION
 
-**Final approved tip:** GitHub PR #80 `headRefOid` on `fix/capture-composition-ssot` (authoritative).  
-**Must equal** local `git rev-parse HEAD` at package-hash + certification time.  
+**Final approved tip:** `858a0fb8a473cc3a9ac4b1bb6bba3c483e2fe7b9` (all-green content). PR headRefOid may be this docs-stamp child tip — both include full tree.  
+**Content tip (all-green commit):** `858a0fb8a473cc3a9ac4b1bb6bba3c483e2fe7b9` — tripLess 7/7, PG17 roles, package hashes, deploy closure correction.  
+**Atomic RPC ancestor:** `a1fca8bc13b852914fa8858f27f4d5c736a53ae3` — must be ancestor of final tip (`git merge-base --is-ancestor` YES).  
 **Parent candidate replaced:** `6bb0fed5`  
-**Atomic RPC ancestor:** `a1fca8bc13b852914fa8858f27f4d5c736a53ae3` (must be ancestor of final tip)
 
 **PR:** https://github.com/awehliye44-create/admin-new/pull/80 (draft)  
 **Project:** `thazislrdkjpvvghtvzo`
