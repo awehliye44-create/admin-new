@@ -901,6 +901,18 @@ async function handleApply(
         ? String(livePreview.clear_stale_payment_session_owner_trip_id)
         : null;
 
+      const cert = loaded.evidence.certification;
+      const expectedFingerprint = {
+        preview_hash: previewHash,
+        trip_id: tripId,
+        client_action_id: cert?.client_action_id ?? null,
+        payment_session_id: clearSessionId,
+        estimated_fare: cert?.estimated_fare ?? 0,
+        fare: cert?.fare ?? 0,
+        classification: DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE,
+        // Monetary stamps are never taken from Edge — RPC hardcodes zeros.
+      };
+
       const { data: rpcData, error: rpcErr } = await gate.supabase.rpc(
         "admin_apply_certification_non_payable_repair",
         {
@@ -913,6 +925,7 @@ async function handleApply(
           p_idempotency_key: idempotencyKey,
           p_expected_owner_trip_id: expectedOwnerTripId,
           p_stale_payment_session_id: clearSessionId,
+          p_expected_fingerprint: expectedFingerprint,
           p_calculation_version: DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
         },
       );

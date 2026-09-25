@@ -47,6 +47,7 @@ CREATE OR REPLACE FUNCTION public.admin_apply_certification_non_payable_repair(
   p_idempotency_key text,
   p_expected_owner_trip_id uuid DEFAULT NULL,
   p_stale_payment_session_id uuid DEFAULT NULL,
+  p_expected_fingerprint jsonb DEFAULT NULL,
   p_calculation_version text DEFAULT 'driver_financial_repair_v1'
 )
 RETURNS jsonb
@@ -139,6 +140,35 @@ BEGIN
         'payment_session_id', null
       )
     );
+  END IF;
+
+
+  -- Preview fingerprint revalidation inside the transaction (no trust in Edge money).
+  -- Edge must supply expected before-state; drift => REPAIR_PREVIEW_STALE, zero writes after.
+  IF p_expected_fingerprint IS NULL OR jsonb_typeof(p_expected_fingerprint) IS DISTINCT FROM 'object' THEN
+    RETURN jsonb_build_object('ok', false, 'error_code', 'REPAIR_PREVIEW_STALE',
+      'error', 'expected_fingerprint_required');
+  END IF;
+  IF coalesce(p_expected_fingerprint->>'preview_hash', '') IS DISTINCT FROM p_preview_hash THEN
+    RETURN jsonb_build_object('ok', false, 'error_code', 'REPAIR_PREVIEW_STALE',
+      'error', 'preview_hash_mismatch');
+  END IF;
+  IF coalesce(p_expected_fingerprint->>'trip_id', '') IS DISTINCT FROM p_trip_id::text THEN
+    RETURN jsonb_build_object('ok', false, 'error_code', 'REPAIR_PREVIEW_STALE',
+      'error', 'trip_id_mismatch');
+  END IF;
+  IF coalesce(p_expected_fingerprint->>'client_action_id', '') IS DISTINCT FROM coalesce(v_trip.client_action_id, '') THEN
+    RETURN jsonb_build_object('ok', false, 'error_code', 'REPAIR_PREVIEW_STALE',
+      'error', 'client_action_id_drift');
+  END IF;
+  IF coalesce(p_expected_fingerprint->>'payment_session_id', '') IS DISTINCT FROM coalesce(v_trip.payment_session_id::text, '') THEN
+    RETURN jsonb_build_object('ok', false, 'error_code', 'REPAIR_PREVIEW_STALE',
+      'error', 'payment_session_id_drift');
+  END IF;
+  IF coalesce((p_expected_fingerprint->>'estimated_fare')::numeric, 0) IS DISTINCT FROM coalesce(v_trip.estimated_fare, 0)
+     OR coalesce((p_expected_fingerprint->>'fare')::numeric, 0) IS DISTINCT FROM coalesce(v_trip.fare, 0) THEN
+    RETURN jsonb_build_object('ok', false, 'error_code', 'REPAIR_PREVIEW_STALE',
+      'error', 'fare_drift');
   END IF;
 
   IF lower(coalesce(v_trip.booking_source, '')) IS DISTINCT FROM 'admin' THEN
@@ -476,11 +506,11 @@ END;
 $fn$;
 
 REVOKE ALL ON FUNCTION public.admin_apply_certification_non_payable_repair(
-  uuid, uuid, uuid, uuid, text, text, text, uuid, uuid, text
+  uuid, uuid, uuid, uuid, text, text, text, uuid, uuid, jsonb, text
 ) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION public.admin_apply_certification_non_payable_repair(
-  uuid, uuid, uuid, uuid, text, text, text, uuid, uuid, text
+  uuid, uuid, uuid, uuid, text, text, text, uuid, uuid, jsonb, text
 ) TO service_role;
 
 COMMIT;

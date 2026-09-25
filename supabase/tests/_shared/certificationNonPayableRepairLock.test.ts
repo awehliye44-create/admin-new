@@ -448,3 +448,41 @@ Deno.test("Preview includes mutation_fields before/after explanation", () => {
   assert(Array.isArray(fields) && fields.length >= 10);
   assertEquals(preview.certification_evidence?.commission_rate_unchanged_null, true);
 });
+
+
+Deno.test("RPC revalidates preview fingerprint inside transaction", async () => {
+  const mig = await read(
+    "supabase/migrations/20261201120000_certification_non_payable_financial_outcome.sql",
+  );
+  assert(mig.includes("p_expected_fingerprint"));
+  assert(mig.includes("expected_fingerprint_required"));
+  assert(mig.includes("preview_hash_mismatch"));
+  assert(mig.includes("payment_session_id_drift"));
+  assert(mig.includes("fare_drift"));
+  const edge = await read("supabase/functions/admin-driver-financial-repair/index.ts");
+  assert(edge.includes("p_expected_fingerprint"));
+  assert(edge.includes("expectedFingerprint"));
+});
+
+Deno.test("Rollback refuses once CERTIFICATION_NON_PAYABLE evidence exists", async () => {
+  const rb = await read(
+    "supabase/migrations/rollback/rollback_20261201120000_certification_non_payable_financial_outcome.sql",
+  );
+  assert(rb.includes("ROLLBACK_REFUSED_LIVE_EVIDENCE"));
+  assert(rb.includes("CERTIFICATION_NON_PAYABLE_MARKED"));
+  assertFalse(/DELETE\s+FROM\s+public\.driver_financial_repair_audit/i.test(rb));
+  assertFalse(/DELETE\s+FROM\s+public\.driver_financial_repair_requests/i.test(rb));
+  assertFalse(/DELETE\s+FROM\s+public\.trips/i.test(rb));
+});
+
+Deno.test("RPC does not accept Edge-supplied monetary stamp amounts", async () => {
+  const mig = await read(
+    "supabase/migrations/20261201120000_certification_non_payable_financial_outcome.sql",
+  );
+  assertFalse(/p_driver_net_pence/i.test(mig));
+  assertFalse(/p_commission_pence/i.test(mig));
+  assert(mig.includes("driver_net_pence = 0"));
+  assert(mig.includes("commission_pence = 0"));
+  // Rate columns not written
+  assertFalse(/commission_pct\s*=\s*0/i.test(mig));
+});

@@ -31,13 +31,16 @@ Do not enforce ownership trigger in this PR. Cert producer must insert `payment_
 
 ## SHA-256 (frozen at draft tip)
 
-- Forward `20261201120000_…sql`: `5cf7602ecd087aa685018cb1bcd3a4865102983f4bbacdbfaba21dca7ec37060`
-- Rollback `rollback_20261201120000_…sql`: `075e152a0fec54f1cb06a3a816f00c3b712b4d19e62a1f653870dce1949a0e92`
+- Forward `20261201120000_…sql`: `6f337c59dc29d5d938eb47e855f8b81843279f0ef666c1ee17ccc22bf3f2d144`
+- Rollback `rollback_20261201120000_…sql`: `36bddc517fa4017bbee374226000d51dd9167998c81557df1eeda7c1f0ba0019`
+- Live-parity `20261130120000_capture_composition_components.sql`: `323d723737c65692fb697b1e87505b19f53e71f16281fd989ad9cf607c6e28b2`
+- Live-parity `20261130130000_payment_session_acquire_capture_composition.sql`: `761c235e24fed675d994a69645bf18e7d244955ecc69b9fe6de5caca6baa6438`
 
-## db push --dry-run note
+## db push --dry-run (after source parity)
 
-Live already applied `20261130120000` (`capture_composition_components`) and
-`20261130130000` (`payment_session_acquire_capture_composition`). Those files live
-on other branches; this draft branch correctly **does not** reuse `20261130120000`.
-`20261201120000` is absent from live `schema_migrations` and is the only new financial
-migration introduced here. Duplicate local migration prefixes = 0.
+```
+Would push these migrations:
+ • 20261201120000_certification_non_payable_financial_outcome.sql
+Finished supabase db push.
+```
+Does **not** propose 20261130120000 or 20261130130000.
