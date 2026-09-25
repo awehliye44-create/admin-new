@@ -628,7 +628,18 @@ Deno.serve(async (req) => {
   const guestCustomerId = identity.customerId;
   let createdGuestUser = identity.createdGuestUser;
 
-  const resolvedCurrency = (saRow.currency_code ?? currency).toUpperCase();
+  // Prefer service-area SSOT currency — never charge in a client-supplied currency.
+  const saCurrency = typeof saRow.currency_code === "string" ? saRow.currency_code.trim() : "";
+  if (!saCurrency) {
+    return json({ error: "Service area currency is not configured", code: "CURRENCY_UNAVAILABLE" }, 503);
+  }
+  if (currency.toUpperCase() !== saCurrency.toUpperCase()) {
+    return json({
+      error: "Currency does not match the pickup service area",
+      code: "CURRENCY_MISMATCH",
+    }, 400);
+  }
+  const resolvedCurrency = saCurrency.toUpperCase();
   const discardNewGuest = async () => {
     if (!createdGuestUser) return;
     await supabase.from("customers").delete().eq("id", guestCustomerId);

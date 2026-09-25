@@ -228,6 +228,13 @@ Deno.test("config.toml: create-guest-payment-intent is public (verify_jwt=false)
   assert(slice.includes("verify_jwt = false"));
 });
 
+Deno.test("create-guest-payment-intent: refuses currency that does not match service-area SSOT", () => {
+  const src = readFunction("create-guest-payment-intent");
+  assert(src.includes('code: "CURRENCY_MISMATCH"'));
+  assert(src.includes("CURRENCY_UNAVAILABLE"));
+  assert(src.includes("saCurrency"));
+});
+
 Deno.test("whatsapp-booking-fares: gates pickup via resolve-service-area before calculate-fare", () => {
   const src = readFunction("whatsapp-booking-fares");
   assert(src.includes("assertPickupCoveredByResolveServiceArea"));
