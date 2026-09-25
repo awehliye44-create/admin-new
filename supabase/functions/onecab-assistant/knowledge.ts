@@ -48,10 +48,12 @@ export const TOPICS: Topic[] = [
     title: "How to book a ONECAB ride",
     keywords: ["book", "booking", "ride", "taxi", "cab", "reserve", "order", "instant", "now"],
     body:
-      "Rides are booked instantly on the ONECAB website booking page or by calling " +
-      `${CONTACT.phoneDisplay}, or on WhatsApp. Enter pickup, any stops along the way (up to 3) ` +
-      "and your destination; the live fare and vehicle options come from ONECAB before you pay. " +
-      "Bookings are instant only on the website — the assistant cannot create, change or confirm a booking.",
+      "Rides are booked on the ONECAB Customer App or through WhatsApp booking only. " +
+      `Use the Customer App at ${LINKS.customerApp} or WhatsApp booking at ${LINKS.book}. ` +
+      "Enter pickup, any stops along the way (up to 3) and your destination; the live fare and " +
+      "vehicle options come from ONECAB before you pay. " +
+      `Phone ${CONTACT.phoneDisplay} is ONECAB Support and contact only — it is not a booking channel. ` +
+      "The assistant cannot create, change or confirm a booking.",
   },
   {
     id: "tracking",
@@ -69,7 +71,7 @@ export const TOPICS: Topic[] = [
       "ONECAB operates across configured UK service areas (not a single fixed town). " +
       "Airport transfers and long-distance journeys across the UK may also be available. " +
       "The live service-area list is provided by ONECAB; coverage for a specific pickup point is " +
-      "confirmed when the address is entered on the booking page.",
+      "confirmed when the address is entered in the Customer App or WhatsApp booking.",
   },
   {
     id: "airports",
@@ -85,8 +87,9 @@ export const TOPICS: Topic[] = [
     title: "Scheduled bookings",
     keywords: ["schedule", "advance", "later", "tomorrow", "pre-book", "prebook", "time"],
     body:
-      "The website booking page currently handles instant bookings only. For a journey at a " +
-      `later date or time, contact ONECAB on ${CONTACT.phoneDisplay} or WhatsApp and the team will arrange it.`,
+      "Scheduled and advance journeys are arranged in the ONECAB Customer App or through WhatsApp " +
+      `booking (${LINKS.book}) — not by phone. For help with an existing booking, contact ONECAB ` +
+      `Support on ${CONTACT.phoneDisplay} or WhatsApp.`,
   },
   {
     id: "payments",
@@ -95,8 +98,8 @@ export const TOPICS: Topic[] = [
     body:
       "ONECAB is card and digital payment only — no cash and no paying the driver. Apple Pay, " +
       "Google Pay and card are supported, and available payment methods are configured per " +
-      "service area. Fares are calculated by ONECAB on the booking page before payment; the " +
-      "assistant cannot quote or guarantee a fare.",
+      "service area. Fares are calculated by ONECAB in the Customer App or WhatsApp booking before " +
+      "payment; the assistant cannot quote or guarantee a fare.",
   },
   {
     id: "payment-hold",
@@ -150,8 +153,9 @@ export const TOPICS: Topic[] = [
     title: "Customer app",
     keywords: ["app", "download", "ios", "android", "iphone", "passenger", "customer"],
     body:
-      "The ONECAB passenger app is coming soon to the App Store and Google Play. Details are on " +
-      "/customer-app; booking on the website works today.",
+      "The ONECAB Customer App is the passenger booking app — details and download guidance are at " +
+      `${LINKS.customerApp}. You can also book through WhatsApp booking at ${LINKS.book}. ` +
+      `Phone ${CONTACT.phoneDisplay} is Support and contact only, not a booking channel.`,
   },
   {
     id: "driver-app",
@@ -248,9 +252,18 @@ export const FAQ_CACHE: { id: string; quickAction?: QuickAction; patterns: strin
     quickAction: "book_ride",
     patterns: ["book a ride", "how do i book", "how to book", "book a taxi", "book a cab", "i need a taxi", "order a taxi"],
     answer:
-      "You can book instantly on the ONECAB booking page — enter your pickup, any stops and your " +
-      `destination, choose a vehicle and pay by card, Apple Pay or Google Pay. Prefer to talk? Call ${CONTACT.phoneDisplay} ` +
-      "or message ONECAB on WhatsApp. I can't create or confirm a booking myself.",
+      "You can book on the ONECAB Customer App or through WhatsApp booking — enter your pickup, " +
+      "any stops and your destination, choose a vehicle and pay by card, Apple Pay or Google Pay. " +
+      `See ${LINKS.customerApp} for the Customer App and ${LINKS.book} for WhatsApp booking. ` +
+      `Phone ${CONTACT.phoneDisplay} is Support and contact only — not a booking channel. ` +
+      "I can't create or confirm a booking myself.",
+  },
+  {
+    id: "faq-phone-booking",
+    patterns: ["book by phone", "can i book by phone", "call to book", "phone booking"],
+    answer:
+      `Phone ${CONTACT.phoneDisplay} is ONECAB Support and contact only — it is not a booking channel. ` +
+      `To book a ride, use the ONECAB Customer App (${LINKS.customerApp}) or WhatsApp booking (${LINKS.book}).`,
   },
   {
     id: "faq-areas",
@@ -259,8 +272,8 @@ export const FAQ_CACHE: { id: string; quickAction?: QuickAction; patterns: strin
     answer:
       "ONECAB operates across configured UK service areas — not one fixed town only. " +
       "Airport transfers and long-distance journeys may also be available. " +
-      "Ask the assistant for the current list, or enter your pickup on the booking page so ONECAB " +
-      "can confirm coverage for that address.",
+      "Ask the assistant for the current list, or enter your pickup in the Customer App or WhatsApp " +
+      "booking so ONECAB can confirm coverage for that address.",
   },
   {
     id: "faq-payments",
@@ -268,8 +281,8 @@ export const FAQ_CACHE: { id: string; quickAction?: QuickAction; patterns: strin
     patterns: ["prices and payments", "how much", "payment methods", "do you take cash", "can i pay cash", "how do i pay", "what are your prices"],
     answer:
       "ONECAB is card and digital payment only — Apple Pay, Google Pay or card, with no cash and " +
-      "no paying the driver. Your fare is calculated by ONECAB on the booking page before you pay, " +
-      "so I can't quote or guarantee a price here.",
+      "no paying the driver. Your fare is calculated by ONECAB in the Customer App or WhatsApp " +
+      "booking before you pay, so I can't quote or guarantee a price here.",
   },
   {
     id: "faq-payment-hold",
