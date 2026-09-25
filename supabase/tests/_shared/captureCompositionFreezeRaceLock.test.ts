@@ -299,14 +299,19 @@ Deno.test("13. migration defines freeze trigger + populated CHECK", async () => 
   assertStringIncludes(sql, "SET search_path TO 'public'");
 });
 
-Deno.test("14. acquire path imports lock before plan (source)", async () => {
+Deno.test("14. acquire path is single atomic RPC (source)", async () => {
   const src = await Deno.readTextFile(
     new URL("../../functions/_shared/captureCompositionAcquireSSOT.ts", import.meta.url),
   );
   assertStringIncludes(src, "claimPaymentSessionFinancialLock");
-  assertStringIncludes(src, "loadReservedAllocations");
-  assertStringIncludes(src, "decideCaptureCompositionAction");
+  assertStringIncludes(src, "payment_session_acquire_capture_composition");
+  assertStringIncludes(src, "supabase.rpc(ACQUIRE_CAPTURE_COMPOSITION_RPC");
+  assertStringIncludes(src, "CAPTURE_COMPOSITION_MIGRATION_REQUIRED");
   assertStringIncludes(src, "CAPTURE_COMPOSITION_REQUIRED");
+  // Edge multi-round-trip plan path must not return.
+  assertEquals(src.includes("loadReservedAllocations"), false);
+  assertEquals(src.includes("decideCaptureCompositionAction"), false);
+  assertEquals(src.includes("persistFrozenPlan"), false);
   const completion = await Deno.readTextFile(
     new URL("../../functions/_shared/revolutCompletionCapture.ts", import.meta.url),
   );

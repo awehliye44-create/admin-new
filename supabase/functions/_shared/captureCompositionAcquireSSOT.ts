@@ -1,6 +1,19 @@
 /**
- * Lock → reload → resume/create frozen capture composition (PR #80).
- * Callers must not POST to provider before this returns ok.
+ * Atomic capture-composition acquire (PR #80 transactional certification).
+ *
+ * ONE database round trip: Edge → payment_session_acquire_capture_composition RPC.
+ * Inside that single PostgreSQL transaction the RPC:
+ *   pg_advisory_xact_lock(hashtext('capture_composition:' || session_id))
+ *   → SELECT payment_sessions FOR UPDATE
+ *   → SELECT RESERVED allocations FOR UPDATE
+ *   → resume frozen plan OR create immutable plan + freeze timestamp/key
+ *   → CAPTURING state
+ *   → return frozen plan
+ *
+ * The Edge financial metadata lock is optional coordination only; plan
+ * identity is owned by the RPC transaction. Never reload/plan/persist via
+ * separate Edge queries after a lock RPC returns — advisory_xact_lock ends
+ * when that statement's transaction commits.
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
@@ -9,20 +22,17 @@ import {
   type FinancialLockClaim,
 } from "./paymentSessionFinancialLockSSOT.ts";
 import {
-  captureCompositionPersistPatch,
-  planCaptureComposition,
+  CAPTURE_COMPOSITION_VERSION,
   type CaptureCompositionPlan,
-  type CaptureCompositionResult,
-  type ReservedAllocationInput,
 } from "./captureCompositionSSOT.ts";
 import {
   CAPTURE_COMPOSITION_ERROR,
-  assertPlanCoversReceivableEvidence,
-  decideCaptureCompositionAction,
   detectReceivableCaptureEvidence,
-  frozenPlanToCaptureCompositionPlan,
   type CaptureCompositionErrorCode,
 } from "./captureCompositionFreezeSSOT.ts";
+
+export const ACQUIRE_CAPTURE_COMPOSITION_RPC =
+  "payment_session_acquire_capture_composition" as const;
 
 export type AcquireCaptureCompositionResult =
   | {
@@ -36,71 +46,84 @@ export type AcquireCaptureCompositionResult =
   }
   | {
     ok: false;
-    code: CaptureCompositionErrorCode | "CAPTURE_BUSY" | "PAYMENT_SESSION_MISSING";
+    code:
+      | CaptureCompositionErrorCode
+      | "CAPTURE_BUSY"
+      | "PAYMENT_SESSION_MISSING"
+      | "CAPTURE_COMPOSITION_MIGRATION_REQUIRED";
     error: string;
     lock_claimed_here: boolean;
     lock_owner?: string;
   };
 
-async function loadReservedAllocations(
-  supabase: SupabaseClient,
-  sessionId: string,
-): Promise<ReservedAllocationInput[]> {
-  const { data: allocRows } = await supabase
-    .from("payment_session_receivable_allocations")
-    .select("id, payment_session_id, status, allocated_amount_pence")
-    .eq("payment_session_id", sessionId)
-    .eq("status", "RESERVED");
-  return (allocRows ?? []).map((r) => ({
-    id: String((r as { id?: string }).id ?? ""),
-    payment_session_id: String(
-      (r as { payment_session_id?: string }).payment_session_id ?? sessionId,
-    ),
-    status: String((r as { status?: string }).status ?? ""),
-    allocated_amount_pence: Math.round(
-      Number((r as { allocated_amount_pence?: number }).allocated_amount_pence) || 0,
-    ),
-  }));
+type RpcAcquireRow = {
+  ok?: boolean;
+  kind?: string;
+  code?: string;
+  error?: string;
+  provider_capture_target_pence?: number | null;
+  capture_idempotency_key?: string | null;
+  trip_fare_component_pence?: number | null;
+  tip_component_pence?: number | null;
+  receivable_component_pence?: number | null;
+  preauth_buffer_component_pence?: number | null;
+  capture_composition_frozen_at?: string | null;
+  lock_owner?: string | null;
+  payment_session_id?: string | null;
+  provider_order_id?: string | null;
+  authorised_total_pence?: number | null;
+};
+
+function isMissingRpcError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("could not find the function")
+    || m.includes("pgrst202")
+    || m.includes("42883")
+    || m.includes("does not exist")
+    || m.includes(ACQUIRE_CAPTURE_COMPOSITION_RPC.toLowerCase())
+      && (m.includes("schema cache") || m.includes("not found"))
+  );
 }
 
-async function persistFrozenPlan(
-  supabase: SupabaseClient,
-  sessionId: string,
-  plan: CaptureCompositionPlan,
-  priorMeta: Record<string, unknown>,
-): Promise<void> {
-  const now = new Date().toISOString();
-  const patch = captureCompositionPersistPatch(plan);
-  const nextMeta = {
-    ...priorMeta,
-    ...patch,
-    capture_composition_persisted_at: now,
-    capture_composition_frozen_at: now,
-    capture_composition_immutable: true,
+function planFromRpc(
+  row: RpcAcquireRow,
+  authorised: number,
+): CaptureCompositionPlan | null {
+  const key = row.capture_idempotency_key != null
+    ? String(row.capture_idempotency_key)
+    : "";
+  const target = Math.round(Number(row.provider_capture_target_pence) || 0);
+  const fare = Math.round(Number(row.trip_fare_component_pence) || 0);
+  const tip = Math.round(Number(row.tip_component_pence) || 0);
+  const recv = Math.round(Number(row.receivable_component_pence) || 0);
+  const buffer = Math.round(Number(row.preauth_buffer_component_pence) || 0);
+  const sessionId = String(row.payment_session_id ?? "").trim();
+  const orderId = String(row.provider_order_id ?? "").trim();
+  if (!key || !sessionId || !orderId || target <= 0) return null;
+  if (target !== fare + tip + recv) return null;
+  const authTarget = fare + recv + buffer;
+  return {
+    ok: true,
+    trip_fare_component_pence: fare,
+    tip_component_pence: tip,
+    receivable_component_pence: recv,
+    preauth_buffer_component_pence: buffer,
+    provider_capture_target_pence: target,
+    provider_authorisation_target_pence: authTarget,
+    provider_release_amount_pence: Math.max(0, authTarget - target),
+    displayed_customer_total_pence: fare + recv,
+    authorised_total_pence: authorised,
+    payment_session_id: sessionId,
+    provider_order_id: orderId,
+    capture_idempotency_key: key,
+    composition_version: CAPTURE_COMPOSITION_VERSION,
+    reserved_allocation_ids: [],
   };
-  const { error } = await supabase
-    .from("payment_sessions")
-    .update({
-      trip_fare_component_pence: plan.trip_fare_component_pence,
-      tip_component_pence: plan.tip_component_pence,
-      receivable_component_pence: plan.receivable_component_pence,
-      provider_capture_target_pence: plan.provider_capture_target_pence,
-      capture_composition_version: plan.composition_version,
-      capture_idempotency_key: plan.capture_idempotency_key,
-      capture_composition_frozen_at: now,
-      metadata: nextMeta,
-      updated_at: now,
-    })
-    .eq("id", sessionId)
-    .is("capture_idempotency_key", null); // first writer wins
-  if (error) {
-    // Concurrent first-writer may have won — reload handled by caller resume path.
-    console.warn("[captureCompositionAcquire] persist frozen plan", error.message);
-  }
 }
 
 /**
- * Canonical acquire: lock → reload → resume or create immutable plan.
+ * Canonical acquire: single atomic RPC. No Edge multi-round-trip plan path.
  */
 export async function acquireLockAndResolveCaptureComposition(
   supabase: SupabaseClient,
@@ -124,15 +147,17 @@ export async function acquireLockAndResolveCaptureComposition(
   const owner = String(args.lock_owner ?? "").trim() || `capture:${sessionId}`;
   let lockClaimedHere = false;
 
-  if (!sessionId) {
+  if (!sessionId || !orderId) {
     return {
       ok: false,
       code: "PAYMENT_SESSION_MISSING",
-      error: "payment_session_id required",
+      error: "payment_session_id and provider_order_id required",
       lock_claimed_here: false,
     };
   }
 
+  // Best-effort metadata CAS coordination (separate from xact advisory lock).
+  // Plan identity is decided only inside the atomic RPC below.
   if (!args.lock_already_held) {
     const lock: FinancialLockClaim = await claimPaymentSessionFinancialLock(supabase, {
       paymentSessionId: sessionId,
@@ -161,228 +186,121 @@ export async function acquireLockAndResolveCaptureComposition(
     }
   };
 
+  const tip = args.tip_authorisation_declined === true
+    ? 0
+    : Math.max(0, Math.round(Number(args.tip_component_pence ?? 0) || 0));
+  const fare = Math.max(0, Math.round(Number(args.trip_fare_component_pence) || 0));
+  const buffer = args.preauth_buffer_component_pence != null
+    ? Math.max(0, Math.round(Number(args.preauth_buffer_component_pence) || 0))
+    : 0;
+  const authorised = Math.max(0, Math.round(Number(args.authorised_total_pence) || 0));
+
   try {
-    // 2. Reload session + lineage under lock
-    const { data: sessionRow, error: sessionErr } = await supabase
-      .from("payment_sessions")
-      .select(
-        "id, provider_order_id, metadata, buffer_pence, authorised_amount_pence, total_authorised_amount_pence, "
-          + "trip_fare_component_pence, tip_component_pence, receivable_component_pence, "
-          + "provider_capture_target_pence, capture_idempotency_key, capture_composition_version, "
-          + "capture_composition_frozen_at, financial_operation_state",
-      )
-      .eq("id", sessionId)
-      .maybeSingle();
-
-    if (sessionErr || !sessionRow) {
-      await releaseIfNeeded();
-      return {
-        ok: false,
-        code: "PAYMENT_SESSION_MISSING",
-        error: sessionErr?.message ?? "payment session not found",
-        lock_claimed_here: lockClaimedHere,
-        lock_owner: owner,
-      };
-    }
-
-    const sessionOrder = String(sessionRow.provider_order_id ?? "").trim();
-    if (sessionOrder && orderId && sessionOrder !== orderId) {
-      await releaseIfNeeded();
-      return {
-        ok: false,
-        code: CAPTURE_COMPOSITION_ERROR.CAPTURE_COMPOSITION_LINEAGE_MISMATCH,
-        error: "session provider_order_id mismatch",
-        lock_claimed_here: lockClaimedHere,
-        lock_owner: owner,
-      };
-    }
-
-    // 3. Reload RESERVED allocations under lock
-    const allocations = await loadReservedAllocations(supabase, sessionId);
-    const meta = sessionRow.metadata && typeof sessionRow.metadata === "object"
-      ? { ...(sessionRow.metadata as Record<string, unknown>) }
-      : {};
-    const evidence = detectReceivableCaptureEvidence({
-      metadata: meta,
-      reserved_allocations: allocations,
+    const { data, error } = await supabase.rpc(ACQUIRE_CAPTURE_COMPOSITION_RPC, {
+      p_payment_session_id: sessionId,
+      p_provider_order_id: orderId,
+      p_trip_fare_component_pence: fare,
+      p_tip_component_pence: tip,
+      p_preauth_buffer_component_pence: buffer,
+      p_authorised_total_pence: authorised,
+      p_lock_owner: owner,
+      p_operation_key: args.operation_key ?? null,
     });
 
-    const tip = args.tip_authorisation_declined === true
-      ? 0
-      : Math.max(0, Math.round(Number(args.tip_component_pence ?? 0) || 0));
-    const fare = Math.max(0, Math.round(Number(args.trip_fare_component_pence) || 0));
-    const buffer = args.preauth_buffer_component_pence != null
-      ? Math.max(0, Math.round(Number(args.preauth_buffer_component_pence) || 0))
-      : Math.max(0, Math.round(Number(sessionRow.buffer_pence) || 0));
-    const authorised = Math.max(
-      0,
-      Math.round(Number(args.authorised_total_pence) || 0),
-      Math.round(Number(sessionRow.total_authorised_amount_pence) || 0),
-      Math.round(Number(sessionRow.authorised_amount_pence) || 0),
-    );
-
-    // 4–5. Decide resume / create / legacy / fail
-    const decision = decideCaptureCompositionAction({
-      payment_session_id: sessionId,
-      provider_order_id: orderId,
-      session: sessionRow as Record<string, unknown>,
-      reserved_allocations: allocations,
-      authorised_total_pence: authorised,
-      proposed_trip_fare_pence: fare,
-      proposed_tip_pence: tip,
-      proposed_buffer_pence: buffer,
-    });
-
-    if (decision.kind === "fail") {
+    if (error) {
       await releaseIfNeeded();
+      const msg = error.message ?? String(error);
+      if (isMissingRpcError(msg)) {
+        return {
+          ok: false,
+          code: "CAPTURE_COMPOSITION_MIGRATION_REQUIRED",
+          error:
+            "payment_session_acquire_capture_composition RPC missing — apply migration before capture",
+          lock_claimed_here: lockClaimedHere,
+          lock_owner: owner,
+        };
+      }
       return {
         ok: false,
-        code: decision.code,
-        error: decision.reason,
+        code: CAPTURE_COMPOSITION_ERROR.CAPTURE_COMPOSITION_REQUIRED,
+        error: msg,
         lock_claimed_here: lockClaimedHere,
         lock_owner: owner,
       };
     }
 
-    if (decision.kind === "resume_frozen") {
+    const row = (data && typeof data === "object" ? data : {}) as RpcAcquireRow;
+    if (row.ok !== true) {
+      await releaseIfNeeded();
+      const code = String(row.code ?? CAPTURE_COMPOSITION_ERROR.CAPTURE_COMPOSITION_REQUIRED);
       return {
-        ok: true,
-        kind: "resumed",
-        plan: frozenPlanToCaptureCompositionPlan(decision.plan),
-        provider_capture_target_pence: decision.plan.provider_capture_target_pence,
-        capture_idempotency_key: decision.plan.capture_idempotency_key,
-        lock_owner: owner,
+        ok: false,
+        code: code as CaptureCompositionErrorCode | "PAYMENT_SESSION_MISSING",
+        error: String(row.error ?? code),
         lock_claimed_here: lockClaimedHere,
+        lock_owner: owner,
       };
     }
 
-    if (decision.kind === "legacy_fare_tip") {
-      // No receivable evidence — fare+tip only; do not invent composition columns.
+    const kindRaw = String(row.kind ?? "");
+    const kind: "resumed" | "created" | "legacy_fare_tip" =
+      kindRaw === "resumed" || kindRaw === "created" || kindRaw === "legacy_fare_tip"
+        ? kindRaw
+        : "created";
+
+    if (kind === "legacy_fare_tip") {
       return {
         ok: true,
         kind: "legacy_fare_tip",
         plan: null,
-        provider_capture_target_pence: decision.target_pence,
+        provider_capture_target_pence: Math.max(
+          0,
+          Math.round(Number(row.provider_capture_target_pence) || fare + tip),
+        ),
         capture_idempotency_key: null,
         lock_owner: owner,
         lock_claimed_here: lockClaimedHere,
       };
     }
 
-    // create_new — RESERVED / evidence present
-    if (evidence.reserved_total_pence <= 0 && evidence.metadata_receivables_pence > 0) {
+    const plan = planFromRpc(row, authorised);
+    if (!plan) {
       await releaseIfNeeded();
       return {
         ok: false,
-        code: CAPTURE_COMPOSITION_ERROR.RECEIVABLE_ALLOCATION_STATE_UNKNOWN,
-        error: "receivable metadata without RESERVED allocations",
+        code: CAPTURE_COMPOSITION_ERROR.CAPTURE_COMPOSITION_REQUIRED,
+        error: "atomic_rpc_returned_invalid_plan",
         lock_claimed_here: lockClaimedHere,
         lock_owner: owner,
       };
     }
 
-    const payable = args.customer_payable_pence != null
-      ? args.customer_payable_pence
-      : meta.customer_payable_pence != null
-      ? Number(meta.customer_payable_pence)
-      : null;
-
-    const planned: CaptureCompositionResult = planCaptureComposition({
-      trip_fare_component_pence: fare,
-      tip_component_pence: tip,
-      tip_authorisation_declined: args.tip_authorisation_declined === true,
-      preauth_buffer_component_pence: buffer,
-      payment_session_id: sessionId,
-      provider_order_id: orderId,
-      authorised_total_pence: authorised,
-      allocations,
-      customer_payable_pence: payable,
-    });
-
-    if (!planned.ok) {
-      await releaseIfNeeded();
-      return {
-        ok: false,
-        code: planned.reject_reason === "capture_target_exceeds_authorised"
-          ? CAPTURE_COMPOSITION_ERROR.CAPTURE_TARGET_EXCEEDS_AUTHORISED
-          : CAPTURE_COMPOSITION_ERROR.CAPTURE_COMPOSITION_REQUIRED,
-        error: planned.reject_reason,
-        lock_claimed_here: lockClaimedHere,
-        lock_owner: owner,
-      };
-    }
-
-    const cover = assertPlanCoversReceivableEvidence({
-      plan: planned,
-      reserved_total_pence: evidence.reserved_total_pence,
-      metadata_receivables_pence: evidence.metadata_receivables_pence,
-    });
-    if (!cover.ok) {
-      await releaseIfNeeded();
-      return {
-        ok: false,
-        code: cover.code,
-        error: cover.reason,
-        lock_claimed_here: lockClaimedHere,
-        lock_owner: owner,
-      };
-    }
-
-    // 6. Persist + freeze (first writer wins on idempotency key null)
-    await persistFrozenPlan(supabase, sessionId, planned, meta);
-
-    // Re-read — concurrent winner may have frozen first; adopt that plan.
-    const { data: after } = await supabase
-      .from("payment_sessions")
-      .select(
-        "id, provider_order_id, metadata, trip_fare_component_pence, tip_component_pence, "
-          + "receivable_component_pence, provider_capture_target_pence, capture_idempotency_key, "
-          + "capture_composition_version, capture_composition_frozen_at, buffer_pence",
-      )
-      .eq("id", sessionId)
-      .maybeSingle();
-
-    const adopt = decideCaptureCompositionAction({
-      payment_session_id: sessionId,
-      provider_order_id: orderId,
-      session: (after ?? sessionRow) as Record<string, unknown>,
-      reserved_allocations: allocations,
-      authorised_total_pence: authorised,
-      proposed_trip_fare_pence: fare,
-      proposed_tip_pence: tip,
-      proposed_buffer_pence: buffer,
-    });
-
-    if (adopt.kind === "resume_frozen") {
-      return {
-        ok: true,
-        kind: after && String(after.capture_idempotency_key) === planned.capture_idempotency_key
-          ? "created"
-          : "resumed",
-        plan: frozenPlanToCaptureCompositionPlan(adopt.plan),
-        provider_capture_target_pence: adopt.plan.provider_capture_target_pence,
-        capture_idempotency_key: adopt.plan.capture_idempotency_key,
-        lock_owner: owner,
-        lock_claimed_here: lockClaimedHere,
-      };
-    }
-
-    // Our persist should have frozen; if not visible, use planned in-memory.
     return {
       ok: true,
-      kind: "created",
-      plan: planned,
-      provider_capture_target_pence: planned.provider_capture_target_pence,
-      capture_idempotency_key: planned.capture_idempotency_key,
+      kind,
+      plan,
+      provider_capture_target_pence: plan.provider_capture_target_pence,
+      capture_idempotency_key: plan.capture_idempotency_key,
       lock_owner: owner,
       lock_claimed_here: lockClaimedHere,
     };
   } catch (err) {
     await releaseIfNeeded();
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isMissingRpcError(msg)) {
+      return {
+        ok: false,
+        code: "CAPTURE_COMPOSITION_MIGRATION_REQUIRED",
+        error:
+          "payment_session_acquire_capture_composition RPC missing — apply migration before capture",
+        lock_claimed_here: lockClaimedHere,
+        lock_owner: owner,
+      };
+    }
     return {
       ok: false,
       code: CAPTURE_COMPOSITION_ERROR.CAPTURE_COMPOSITION_REQUIRED,
-      error: err instanceof Error ? err.message : String(err),
+      error: msg,
       lock_claimed_here: lockClaimedHere,
       lock_owner: owner,
     };

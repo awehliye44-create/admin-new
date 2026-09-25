@@ -249,7 +249,6 @@ Deno.test("12. receivable creates no TEN/commission in planner (fare-only compon
 Deno.test("13. all capture owners import the canonical planner (source lock)", async () => {
   const owners = [
     "revolutCompletionCapture.ts",
-    "captureCompositionAcquireSSOT.ts",
     "captureCompositionFreezeSSOT.ts",
     "capture-expired-tip-windows/index.ts",
     "paymentSessionSSOT.ts",
@@ -266,6 +265,12 @@ Deno.test("13. all capture owners import the canonical planner (source lock)", a
     assertStringIncludes(src, "captureCompositionSSOT");
     assertStringIncludes(src, "planCaptureComposition");
   }
+  // Acquire owns the atomic RPC; planner lives inside the SQL transaction.
+  const acquire = await Deno.readTextFile(
+    new URL("../../functions/_shared/captureCompositionAcquireSSOT.ts", import.meta.url),
+  );
+  assertStringIncludes(acquire, "payment_session_acquire_capture_composition");
+  assertStringIncludes(acquire, "CAPTURE_COMPOSITION_VERSION");
 });
 
 Deno.test("14. target exceeding authorised fails closed", () => {
