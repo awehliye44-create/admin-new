@@ -290,6 +290,48 @@ async function loadTripEvidence(
     .filter(Boolean)
     .join(" ") || null;
 
+  // Resolve commission % with fail-closed semantics: null is unknown, never 0.
+  // Trip stamp fields first; else accepted ride_offer for THIS trip (booking-time rule).
+  let commissionRate: number | null = null;
+  let commissionRuleSource: string | null = null;
+  if (trip.accepted_commission_percent != null && Number.isFinite(Number(trip.accepted_commission_percent))) {
+    commissionRate = Number(trip.accepted_commission_percent);
+    commissionRuleSource = "trips.accepted_commission_percent";
+  } else if (trip.commission_pct != null && Number.isFinite(Number(trip.commission_pct))) {
+    commissionRate = Number(trip.commission_pct);
+    commissionRuleSource = "trips.commission_pct";
+  } else if (
+    trip.driver_tier_commission_percent != null
+    && Number.isFinite(Number(trip.driver_tier_commission_percent))
+  ) {
+    commissionRate = Number(trip.driver_tier_commission_percent);
+    commissionRuleSource = "trips.driver_tier_commission_percent";
+  } else {
+    const { data: acceptedOffer } = await supabase
+      .from("ride_offers")
+      .select(
+        "id, status, effective_commission_percent, base_commission_percent, offered_driver_net_pence, created_at",
+      )
+      .eq("trip_id", args.tripId)
+      .eq("status", "accepted")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (
+      acceptedOffer?.effective_commission_percent != null
+      && Number.isFinite(Number(acceptedOffer.effective_commission_percent))
+    ) {
+      commissionRate = Number(acceptedOffer.effective_commission_percent);
+      commissionRuleSource = "ride_offers.effective_commission_percent";
+    } else if (
+      acceptedOffer?.base_commission_percent != null
+      && Number.isFinite(Number(acceptedOffer.base_commission_percent))
+    ) {
+      commissionRate = Number(acceptedOffer.base_commission_percent);
+      commissionRuleSource = "ride_offers.base_commission_percent";
+    }
+  }
+
   const evidence: DriverFinancialRepairEvidence = {
     driver_id: args.driverId,
     driver_name: driverName,
@@ -312,10 +354,8 @@ async function loadTripEvidence(
         Math.round(Number(trip.final_fare_pence)) - Math.round(Number(trip.airport_charge_pence ?? 0)),
       )
       : null,
-    commission_rate_percent: trip.accepted_commission_percent
-      ?? trip.commission_pct
-      ?? trip.driver_tier_commission_percent
-      ?? null,
+    commission_rate_percent: commissionRate,
+    commission_rule_source: commissionRuleSource,
     commission_pence: trip.commission_pence != null ? Math.round(Number(trip.commission_pence)) : null,
     provider_fee_pence: trip.provider_fee_pence != null ? Math.round(Number(trip.provider_fee_pence)) : null,
     tip_pence: Math.round(Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0)),
@@ -333,7 +373,7 @@ async function loadTripEvidence(
       : Math.round(Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0)),
     actual_ten_credit_pence: actualTen,
     actual_tip_credit_pence: actualTip,
-    currency: trip.currency ? String(trip.currency) : (args.driver.currency ? String(args.driver.currency) : "GBP"),
+    currency: trip.currency ? String(trip.currency) : "GBP",
     expected_currency: primary?.currency ? String(primary.currency) : null,
     has_contradictory_stamps: false,
     active_payout_reservation: activeReservation,

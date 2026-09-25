@@ -36,6 +36,8 @@ export const NO_PROVIDER_CALL = true;
 export const NO_PAYOUT = true;
 export const DRAFT_PR_ONLY = true;
 export const STOPPED_FOR_REPAIR_CONTROL_APPROVAL = true;
+/** Hard invariant: unknown/null commission must never coerce to 0%. */
+export const UNKNOWN_FINANCIAL_RULE_IS_NOT_ZERO = true;
 
 export const DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION = "driver_financial_repair_v1";
 
@@ -44,6 +46,7 @@ export const DRIVER_FINANCIAL_REPAIR_ACTION = {
   RECOMPUTE_RECONCILIATION: "RECOMPUTE_RECONCILIATION",
   APPEND_WALLET_CORRECTION: "APPEND_WALLET_CORRECTION",
   NO_REPAIR_PROVIDER_UNKNOWN: "NO_REPAIR_PROVIDER_UNKNOWN",
+  NO_REPAIR_INSUFFICIENT_EVIDENCE: "NO_REPAIR_INSUFFICIENT_EVIDENCE",
   MANUAL_REVIEW_REQUIRED: "MANUAL_REVIEW_REQUIRED",
 } as const;
 
@@ -81,6 +84,7 @@ export const DRIVER_FINANCIAL_REPAIR_BLOCK = {
   PAYOUT_IN_FLIGHT: "PAYOUT_IN_FLIGHT",
   CONFLICTING_PAYMENT_SESSION: "CONFLICTING_PAYMENT_SESSION",
   AMBIGUOUS_ENTITLEMENT: "AMBIGUOUS_ENTITLEMENT",
+  INSUFFICIENT_EVIDENCE: "INSUFFICIENT_EVIDENCE",
   CURRENCY_MISMATCH: "CURRENCY_MISMATCH",
   ALREADY_APPLIED: "ALREADY_APPLIED",
   REPAIR_PREVIEW_STALE: "REPAIR_PREVIEW_STALE",
@@ -243,8 +247,14 @@ export type DriverFinancialRepairEvidence = {
   captured_amount_pence?: number | null;
   final_fare_pence?: number | null;
   commission_basis_pence?: number | null;
+  /**
+   * Proven commission % only. null/undefined = unknown (NOT zero).
+   * Explicit 0 is allowed only when positively evidenced.
+   */
   commission_rate_percent?: number | null;
   commission_pence?: number | null;
+  /** Audit label for how commission_rate_percent was established (e.g. ride_offers.effective_commission_percent). */
+  commission_rule_source?: string | null;
   provider_fee_pence?: number | null;
   tip_pence?: number | null;
   airport_charge_pence?: number | null;
@@ -514,13 +524,59 @@ export function resolvePayoutInFlightGate(args: {
 }
 
 /**
+ * Prove commission % for repair. null/undefined/NaN are UNKNOWN — never zero.
+ * Explicit numeric 0 is accepted only when positively present on evidence.
+ */
+export function resolveProvenCommissionPercentForRepair(
+  evidence: Pick<
+    DriverFinancialRepairEvidence,
+    "commission_rate_percent" | "commission_rule_source"
+  >,
+): {
+  ok: true;
+  percent: number;
+  source: string;
+} | {
+  ok: false;
+  block_code: DriverFinancialRepairBlockCode;
+  reason: string;
+} {
+  void UNKNOWN_FINANCIAL_RULE_IS_NOT_ZERO;
+  if (evidence.commission_rate_percent == null) {
+    return {
+      ok: false,
+      block_code: DRIVER_FINANCIAL_REPAIR_BLOCK.INSUFFICIENT_EVIDENCE,
+      reason:
+        "Commission rule unknown — unknown is not 0%. Cannot invent commission for repair.",
+    };
+  }
+  const percent = Number(evidence.commission_rate_percent);
+  if (!Number.isFinite(percent) || percent < 0) {
+    return {
+      ok: false,
+      block_code: DRIVER_FINANCIAL_REPAIR_BLOCK.INSUFFICIENT_EVIDENCE,
+      reason: "Commission rule not a finite non-negative percent",
+    };
+  }
+  return {
+    ok: true,
+    percent,
+    source: evidence.commission_rule_source
+      ? String(evidence.commission_rule_source)
+      : "evidence.commission_rate_percent",
+  };
+}
+
+/**
  * Server-only stamp calculation. Admin override fields are deliberately ignored.
+ * Hard rule: unknown commission is not 0% commission.
  */
 export function computeExpectedStampForRepair(evidence: DriverFinancialRepairEvidence): {
   ok: true;
   settlement: TripSettlementResult;
   stamp: DriverFinancialRepairProposedStamp;
   expected_credit_pence: number;
+  commission_rule_source: string;
 } | {
   ok: false;
   block_code: DriverFinancialRepairBlockCode;
@@ -538,15 +594,26 @@ export function computeExpectedStampForRepair(evidence: DriverFinancialRepairEvi
     };
   }
 
+  const proven = resolveProvenCommissionPercentForRepair(evidence);
+  if (!proven.ok) {
+    return {
+      ok: false,
+      block_code: proven.block_code,
+      reason: proven.reason,
+    };
+  }
+
+  // Pass proven percent into all three tier fields so tripSettlement never
+  // falls through `?? 0` on a missing rule.
   const tripRow: TripSettlementTripRow = {
     final_fare_pence: evidence.final_fare_pence ?? captured,
     capture_amount_pence: captured,
     tip_pence: evidence.tip_pence ?? 0,
     tip_amount_pence: evidence.tip_pence ?? 0,
     airport_charge_pence: evidence.airport_charge_pence ?? 0,
-    accepted_commission_percent: evidence.commission_rate_percent ?? null,
-    commission_pct: evidence.commission_rate_percent ?? null,
-    driver_tier_commission_percent: evidence.commission_rate_percent ?? null,
+    accepted_commission_percent: proven.percent,
+    commission_pct: proven.percent,
+    driver_tier_commission_percent: proven.percent,
     provider_fee_pence: evidence.provider_fee_pence ?? 0,
   };
 
@@ -574,6 +641,7 @@ export function computeExpectedStampForRepair(evidence: DriverFinancialRepairEvi
       ok: true,
       settlement: fallback,
       expected_credit_pence: fallback.driver_net_pence + fallback.airport_charge_pence,
+      commission_rule_source: proven.source,
       stamp: {
         driver_net_pence: fallback.driver_net_pence,
         commission_pence: fallback.commission_pence,
@@ -594,6 +662,7 @@ export function computeExpectedStampForRepair(evidence: DriverFinancialRepairEvi
     ok: true,
     settlement,
     expected_credit_pence: resolved.driverNetPence,
+    commission_rule_source: proven.source,
     stamp: {
       driver_net_pence: settlement.driver_net_pence,
       commission_pence: settlement.commission_pence,
@@ -617,7 +686,8 @@ export function listMissingEvidenceFields(evidence: DriverFinancialRepairEvidenc
   if (evidence.payment_session_lineage_ok === false) missing.push("payment_session_lineage");
   if (!evidence.provider_state) missing.push("provider_state");
   if (asNullableInt(evidence.captured_amount_pence) == null) missing.push("captured_amount_pence");
-  if (evidence.commission_rate_percent == null && evidence.commission_pence == null) {
+  // Rate must be positively present. commission_pence alone is not a commission rule.
+  if (evidence.commission_rate_percent == null) {
     missing.push("commission_rule");
   }
   if (evidence.existing_driver_net_pence == null) missing.push("expected_stamp.driver_net_pence");
@@ -848,8 +918,13 @@ export function buildDriverFinancialRepairPreview(args: {
   const stampMissing = evidence.existing_driver_net_pence == null;
   const stampCompute = computeExpectedStampForRepair(evidence);
   if (!stampCompute.ok) {
+    const insufficient =
+      stampCompute.block_code === DRIVER_FINANCIAL_REPAIR_BLOCK.INSUFFICIENT_EVIDENCE
+      || stampCompute.block_code === DRIVER_FINANCIAL_REPAIR_BLOCK.AMBIGUOUS_ENTITLEMENT;
     return blocked(
-      DRIVER_FINANCIAL_REPAIR_ACTION.MANUAL_REVIEW_REQUIRED,
+      insufficient
+        ? DRIVER_FINANCIAL_REPAIR_ACTION.NO_REPAIR_INSUFFICIENT_EVIDENCE
+        : DRIVER_FINANCIAL_REPAIR_ACTION.MANUAL_REVIEW_REQUIRED,
       stampCompute.block_code,
       stampCompute.reason,
     );
