@@ -7,6 +7,7 @@
  * - Requires a valid signed WhatsApp book continuation token (wa_id from token).
  * - Does NOT change the welcome / 3-option menu.
  * - Dedupes per wa_id via whatsapp_conversations.metadata (24h window).
+ * - Stamps the dedupe key only AFTER a successful Graph send (failed delivery can retry).
  * - Never invents coverage — caller must already have OUTSIDE_AREA from resolve-service-area.
  */
 
@@ -21,6 +22,7 @@ import {
   sendWhatsAppTextMessage,
 } from "../_shared/whatsappOutbound.ts";
 import {
+  OUT_OF_AREA_NOTICE_META_KEY,
   shouldSendOutOfAreaNotice,
   WHATSAPP_OUT_OF_AREA_NOTICE_TEXT,
   withOutOfAreaNoticeSent,
@@ -123,63 +125,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    const sentAtIso = new Date().toISOString();
-    const nextMetadata = withOutOfAreaNoticeSent(metadata, sentAtIso);
-
-    // Claim the dedupe slot before Graph send so concurrent retries cannot double-send.
-    if (conversation) {
-      // Only claim when the notice key is still absent (first send in the window).
-      // After a successful 24h expiry, shouldSendOutOfAreaNotice already returned true;
-      // overwrite the timestamp unconditionally in that case.
-      let claimQuery = supabase
-        .from("whatsapp_conversations")
-        .update({
-          metadata: nextMetadata,
-          last_outbound_at: sentAtIso,
-          updated_at: sentAtIso,
-        })
-        .eq("wa_id", waId);
-
-      const priorSent =
-        metadata && typeof metadata === "object" && !Array.isArray(metadata)
-          ? (metadata as Record<string, unknown>).out_of_area_notice_sent_at
-          : null;
-      if (priorSent == null || priorSent === "") {
-        claimQuery = claimQuery.is("metadata->>out_of_area_notice_sent_at", null);
-      }
-
-      const { data: claimed, error: claimErr } = await claimQuery
-        .select("wa_id")
-        .maybeSingle();
-      if (claimErr) throw new Error(claimErr.message);
-      if (!claimed && (priorSent == null || priorSent === "")) {
-        return respond(200, {
-          success: true,
-          sent: false,
-          deduped: true,
-        });
-      }
-    } else {
-      const { error: insertErr } = await supabase.from("whatsapp_conversations").insert({
-        wa_id: waId,
-        workflow_state: "book",
-        metadata: nextMetadata,
-        last_outbound_at: sentAtIso,
-        updated_at: sentAtIso,
-      });
-      if (insertErr) {
-        // Concurrent insert — treat as already claimed.
-        if (String(insertErr.code) === "23505") {
-          return respond(200, {
-            success: true,
-            sent: false,
-            deduped: true,
-          });
-        }
-        throw new Error(insertErr.message);
-      }
-    }
-
+    // Send first. Only stamp the dedupe key after Meta accepts the message so a
+    // failed delivery can still be retried (client sessionStorage still blocks remount spam).
     const result = await sendWhatsAppTextMessage(
       creds,
       waId,
@@ -191,7 +138,6 @@ Deno.serve(async (req) => {
         status: result.status,
         error: result.error,
       });
-      // Dedupe claim already stored — do not retry-spam Meta from the client.
       return respond(200, {
         success: true,
         sent: false,
@@ -200,10 +146,40 @@ Deno.serve(async (req) => {
       });
     }
 
+    const sentAtIso = new Date().toISOString();
+    const nextMetadata = withOutOfAreaNoticeSent(metadata, sentAtIso);
+
+    if (conversation) {
+      const { error: updateErr } = await supabase
+        .from("whatsapp_conversations")
+        .update({
+          metadata: nextMetadata,
+          last_outbound_at: sentAtIso,
+          updated_at: sentAtIso,
+        })
+        .eq("wa_id", waId);
+      if (updateErr) {
+        // Message already delivered — log but still report sent to avoid client retries.
+        console.error("[whatsapp-booking-out-of-area-notify] dedupe stamp failed", updateErr.message);
+      }
+    } else {
+      const { error: insertErr } = await supabase.from("whatsapp_conversations").insert({
+        wa_id: waId,
+        workflow_state: "book",
+        metadata: nextMetadata,
+        last_outbound_at: sentAtIso,
+        updated_at: sentAtIso,
+      });
+      if (insertErr && String(insertErr.code) !== "23505") {
+        console.error("[whatsapp-booking-out-of-area-notify] dedupe insert failed", insertErr.message);
+      }
+    }
+
     return respond(200, {
       success: true,
       sent: true,
       deduped: false,
+      meta_key: OUT_OF_AREA_NOTICE_META_KEY,
     });
   } catch (err) {
     console.error("[whatsapp-booking-out-of-area-notify] error:", err);

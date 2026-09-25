@@ -158,6 +158,17 @@ Deno.test("whatsapp-booking-out-of-area-notify: requires OUTSIDE_AREA + book con
   assert(src.includes("sendWhatsAppTextMessage"));
 });
 
+Deno.test("whatsapp-booking-out-of-area-notify: stamps dedupe only after successful send", () => {
+  const src = readFunction("whatsapp-booking-out-of-area-notify");
+  const sendIdx = src.indexOf("sendWhatsAppTextMessage");
+  const stampIdx = src.indexOf("withOutOfAreaNoticeSent");
+  assert(sendIdx > 0 && stampIdx > sendIdx, "dedupe stamp must follow Graph send");
+  assert(src.includes('delivery: "failed"'));
+  // Failed delivery must not stamp the notice key before returning.
+  const failBlock = src.slice(src.indexOf("if (!result.ok)"), src.indexOf("const sentAtIso"));
+  assert(!failBlock.includes("withOutOfAreaNoticeSent"));
+});
+
 Deno.test("whatsapp-booking-out-of-area-notify: does not touch welcome menu", () => {
   const src = readFunction("whatsapp-booking-out-of-area-notify");
   assert(!src.includes("sendWhatsAppWelcomeMenu"));
