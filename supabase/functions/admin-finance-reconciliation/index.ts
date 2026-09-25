@@ -1,18 +1,26 @@
 import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { computeSSOTMetrics, mergePaymentSessionsIntoCaptureRows, sumCapturedPaymentsByTripId, SSOT_VERSION, type PaymentSessionMoneyRow } from "../_shared/financialReconciliationSSOT.ts";
+import {
+  buildPaymentSessionMoneyByTrip,
+  computeSSOTMetrics,
+  mergePaymentSessionsIntoCaptureRows,
+  sumCapturedPaymentsByTripId,
+  SSOT_VERSION,
+  type PaymentSessionMoneyRow,
+  type TripSSOTRow,
+} from "../_shared/financialReconciliationSSOT.ts";
 import { fetchPerDriverFinancialReconciliation } from "../_shared/perDriverFinancialReconciliation.ts";
 import {
   buildFinanceReconciliationSummary,
   classifyOnecabSettlementStatus,
-  COUNTABLE_FINANCIAL_OUTCOMES,
   buildTripFinancialAuditContext,
   mapTripToFinancialAuditRow,
   sumCommissionableFromTrips,
   sumTripFinanceMetrics,
   type TripAuditSourceRow,
 } from "../_shared/financeSettlementSummary.ts";
+import { computeCardReconciliationIdentityAggregate } from "../_shared/frCardReconciliationIdentitySSOT.ts";
 import {
   isTripUuid,
   NO_MATCH_TRIP_ID,
@@ -54,7 +62,9 @@ import { excludeTripFromPlatformCollectedFinance } from "../_shared/commissionWa
 import {
   applyFinanceReconciliationTripLocationFilter,
   buildFinanceReconciliationTripQuery,
+  FINANCE_RECONCILIATION_TRIP_TERMINAL_OR,
   resolveFinanceReconciliationAuditLimit,
+  tripQualifiesForFinanceReconciliationAudit,
 } from "../_shared/financeReconciliationTripQuery.ts";
 
 const PAYMENT_SESSION_MONEY_SELECT =
@@ -606,8 +616,8 @@ serve(async (req) => {
       walletDownstream = "UNAVAILABLE";
     }
 
-    const tripRows = (tripResult.data || []) as TripAuditSourceRow[];
-    const tripIds = tripRows.map((t) => t.id);
+    let tripRows = (tripResult.data || []) as TripAuditSourceRow[];
+    let tripIds = tripRows.map((t) => t.id);
     let paymentRows: Array<{
       captured_amount_pence: number | null;
       status: string | null;
@@ -716,6 +726,26 @@ serve(async (req) => {
           paymentSessions: paymentSessionRows,
         }).rows;
       }
+    }
+
+    // Drop cancelled/thin lifecycle rows that lack financial evidence; never require driver_id.
+    {
+      const capturedByTrip = sumCapturedPaymentsByTripId(paymentRows);
+      const tenTripIds = new Set(
+        auditLedgerRows
+          .filter((r) => String(r.type ?? "").toUpperCase() === "TRIP_EARNING_NET")
+          .map((r) => String(r.related_trip_id ?? ""))
+          .filter(Boolean),
+      );
+      tripRows = tripRows.filter((t) =>
+        tripQualifiesForFinanceReconciliationAudit({
+          ...t,
+          has_payment_session_capture: capturedByTrip.has(t.id)
+            && (capturedByTrip.get(t.id) ?? 0) > 0,
+          has_ten_credit: tenTripIds.has(t.id),
+        })
+      );
+      tripIds = tripRows.map((t) => t.id);
     }
 
     const finance = sumTripFinanceMetrics(tripRows);
@@ -1027,7 +1057,7 @@ serve(async (req) => {
         .gte("completed_at", londonStart.toISOString())
         .lte("completed_at", londonEnd.toISOString())
         .not("completed_at", "is", null)
-        .or(`financial_outcome.in.(${COUNTABLE_FINANCIAL_OUTCOMES.join(",")}),status.in.(completed,no_show)`);
+        .or(FINANCE_RECONCILIATION_TRIP_TERMINAL_OR);
 
       if (serviceAreaId) todayTripQuery = todayTripQuery.eq("service_area_id", serviceAreaId);
       else if (modelScope.allowedServiceAreaIds.length > 0) {
@@ -1262,6 +1292,48 @@ serve(async (req) => {
           row.capture_mismatch = false;
         }
       }
+      // Cancelled fare-settlement recovered sources: present as resolved evidence even when
+      // legacy capture vs fare still shows a historical shortfall (immutable decline evidence).
+      if (
+        recovery.resolved_by_receivable_recovery
+        && String(row.reconciliation_status?.label ?? "") !== "RESOLVED_BY_RECEIVABLE_RECOVERY"
+        && (row.credit_difference_pence == null || row.credit_difference_pence === 0)
+        && (row.wallet_variance_pence == null || row.wallet_variance_pence === 0)
+      ) {
+        row.reconciliation_status = {
+          ...(row.reconciliation_status ?? { label: "BALANCED", tone: "green" }),
+          label: "RESOLVED_BY_RECEIVABLE_RECOVERY",
+          tone: "green",
+        };
+        row.capture_mismatch = false;
+      }
+    }
+
+    // Overview card identity: fare-leg + settled source allocations (not raw capture−liabilities).
+    {
+      const sessionByTrip = buildPaymentSessionMoneyByTrip(paymentSessionRows);
+      const paymentByTrip = sumCapturedPaymentsByTripId(paymentRows);
+      const identity = computeCardReconciliationIdentityAggregate({
+        trips: tripRows as unknown as TripSSOTRow[],
+        paymentByTrip,
+        sessionByTrip,
+        receivables: recoveryReceivables,
+      });
+      const check = finance_reconciliation_summary.reconciliation_check;
+      const card = check.card_reconciliation;
+      const variance = identity.fail_closed ? (identity.variance_pence ?? 0) : (identity.variance_pence ?? 0);
+      const balanced = identity.balanced && !identity.fail_closed;
+      const status = balanced ? "BALANCED" as const : "RECONCILIATION_MISMATCH" as const;
+      check.variance_pence = Math.abs(variance);
+      check.delta_pence = Math.abs(variance);
+      check.balanced = balanced;
+      check.status = status;
+      card.variance_pence = variance;
+      card.delta_pence = variance;
+      card.balanced = balanced;
+      card.status = status;
+      (card as { identity_applied?: boolean }).identity_applied = true;
+      (card as { identity_fail_closed?: boolean }).identity_fail_closed = identity.fail_closed;
     }
 
     const fr_per_trip_audit = trip_financial_audit.map((row) =>
@@ -1376,7 +1448,7 @@ serve(async (req) => {
           driver_wallet: "card: +driver_net+tips; cash: -commission (fare already with driver)",
           provider_payout_confirmation: "driver bank receipt requires a completed provider payout item + matching ledger debit",
           card_reconciliation:
-            "card_customer_revenue = card_driver_payable + onecab_card_commission",
+            "identity: recovery-session uses frozen fare/tip/receivable composition; source trips add settled receivable allocations via source_trip_id — never full capture vs own-trip liabilities alone",
           historical_legacy_cash_trips:
             "excluded from digital finance reconciliation — audit display only",
         },

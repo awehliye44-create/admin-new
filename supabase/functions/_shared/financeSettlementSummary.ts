@@ -726,6 +726,12 @@ export function buildFinanceReconciliationSummary(args: {
    * Pass 0 when airport is already folded into driver_net stamps.
    */
   airportChargesPence?: number;
+  /**
+   * Composition/recovery identity residual for Overview card recon.
+   * When provided, overrides raw capture−liabilities variance.
+   */
+  identityVariancePence?: number | null;
+  identityFailClosed?: boolean;
 }): FinanceReconciliationSummary {
   const m = args.ssot;
   const driverAvailablePayout = Math.max(0, m.driver_available_now_pence - args.inFlightCashoutPence);
@@ -736,6 +742,8 @@ export function buildFinanceReconciliationSummary(args: {
     driverTipsPence: args.driverTipsPence ?? 0,
     airportChargesPence: args.airportChargesPence ?? 0,
     tolerancePence: args.tolerancePence,
+    identityVariancePence: args.identityVariancePence,
+    identityFailClosed: args.identityFailClosed,
   });
 
   return {
