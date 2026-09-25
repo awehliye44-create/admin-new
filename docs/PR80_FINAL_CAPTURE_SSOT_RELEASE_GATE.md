@@ -1,6 +1,7 @@
 # PR #80 — Final Capture Composition SSOT Release Gate (READ-ONLY)
 
-**Frozen tip:** `1cbd29e7f0834a1af7ea5a8d8fcd18b4c7f9ff53`  
+**Frozen tip:** `160cd64aca17c30975840eb81dfdf0f77cf3b581` (includes this gate doc)  
+**Code tip (composition SSOT):** `1cbd29e7f0834a1af7ea5a8d8fcd18b4c7f9ff53`  
 **PR:** https://github.com/awehliye44-create/admin-new/pull/80 (draft)  
 **Base:** `financial-main`  
 **Gate:** `STOPPED_FOR_FINAL_CAPTURE_SSOT_RELEASE_APPROVAL`
