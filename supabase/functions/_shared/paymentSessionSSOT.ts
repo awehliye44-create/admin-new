@@ -497,28 +497,43 @@ export async function markPaymentSessionCaptured(
   }
   await markPaymentSessionStatus(supabase, "captured", args, patch);
 
-  // Settlement requires a planned receivable component (MK-260925-002).
+  // Settlement requires a planned receivable component (MK-260925-002 / MK-260925-003).
   // Capture of fare-only (receivable_component=0) must RELEASE reserved allocations,
   // never infer settle from captured_amount alone. Never use abandon SETTLE planner.
-  if (
-    session?.id
-    && args.providerEvidence
+  const plannedRecv = Math.max(
+    0,
+    Math.round(
+      Number(
+        (session as { receivable_component_pence?: number } | null)?.receivable_component_pence
+          ?? metadata.receivable_component_pence,
+      ) || 0,
+    ),
+  );
+  const hasProviderEvidence = !!(
+    args.providerEvidence
     && args.providerEvidence.amountFromProviderGet === true
-  ) {
+  );
+
+  // Hard rule: planned receivable > 0 requires terminal GET evidence + settle.
+  // Provider capture row is already durable above — fail closed for local application.
+  if (session?.id && plannedRecv > 0 && !hasProviderEvidence) {
+    console.error(
+      "[paymentSessionSSOT] capture persisted without providerEvidence while receivable_component>0",
+      { session_id: session.id, plannedRecv },
+    );
+    const err = new Error(
+      "LOCAL_APPLICATION_INCOMPLETE:missing_provider_evidence_with_receivable",
+    );
+    (err as Error & { code?: string }).code = "LOCAL_APPLICATION_INCOMPLETE";
+    throw err;
+  }
+
+  if (session?.id && hasProviderEvidence) {
     const {
       planReceivableSettlementFromCaptureComposition,
       planCaptureComposition,
     } = await import("./captureCompositionSSOT.ts");
     void planCaptureComposition;
-    const plannedRecv = Math.max(
-      0,
-      Math.round(
-        Number(
-          (session as { receivable_component_pence?: number }).receivable_component_pence
-            ?? metadata.receivable_component_pence,
-        ) || 0,
-      ),
-    );
     const tripFareComponent = Math.max(
       0,
       Math.round(
@@ -539,7 +554,7 @@ export async function markPaymentSessionCaptured(
     );
     const confirmed = Math.max(
       0,
-      Math.round(Number(args.providerEvidence.confirmedCapturedPence) || 0),
+      Math.round(Number(args.providerEvidence!.confirmedCapturedPence) || 0),
     );
     const settlementPlan = planReceivableSettlementFromCaptureComposition({
       persisted_receivable_component_pence: plannedRecv,
@@ -556,8 +571,8 @@ export async function markPaymentSessionCaptured(
       const settle = await settleReceivablesFromProviderEvidence(supabase, {
         payment_session_id: String(session.id),
         evidence: {
-          orderId: args.providerEvidence.orderId,
-          terminalState: args.providerEvidence.terminalState,
+          orderId: args.providerEvidence!.orderId,
+          terminalState: args.providerEvidence!.terminalState,
           // Full GET capture; RPC covers recv as captured − trip fare.
           confirmedCapturedPence: confirmed,
           amountFromProviderGet: true,
@@ -569,6 +584,24 @@ export async function markPaymentSessionCaptured(
           "[paymentSessionSSOT] receivable settle after capture failed",
           settle.error,
         );
+        // Provider capture already persisted — never retry capture. Surface for MANUAL_REVIEW.
+        const err = new Error(
+          `LOCAL_APPLICATION_INCOMPLETE:receivable_settle:${
+            settle.error && typeof settle.error === "object" && "code" in settle.error
+              ? String((settle.error as { code?: string }).code ?? "unknown")
+              : "unknown"
+          }`,
+        );
+        (err as Error & { code?: string }).code = "LOCAL_APPLICATION_INCOMPLETE";
+        throw err;
+      }
+      const rpc = settle.data?.rpc as { ok?: boolean; settled_pence?: number } | null;
+      if (rpc && rpc.ok === false) {
+        const err = new Error(
+          "LOCAL_APPLICATION_INCOMPLETE:receivable_settle_rpc_not_ok",
+        );
+        (err as Error & { code?: string }).code = "LOCAL_APPLICATION_INCOMPLETE";
+        throw err;
       }
     } else if (settlementPlan.release_remainder && reservedTotal > 0) {
       // Planned receivable component was 0 (or uncovered) — release RESERVED → OPEN.
