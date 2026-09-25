@@ -59,7 +59,8 @@ async function assertPlatformCollectedDriver(
   const { data: driver, error } = await supabase
     .from("drivers")
     .select(
-      "id, first_name, last_name, driver_code, service_area_id, payout_operational_paused, currency, service_areas(financial_model)",
+      // Live schema: drivers has no `currency` column (currency lives on trips / payment_sessions / service_areas.currency_code).
+      "id, first_name, last_name, driver_code, service_area_id, payout_operational_paused, service_areas(financial_model)",
     )
     .eq("id", driverId)
     .maybeSingle();
@@ -194,7 +195,8 @@ async function loadTripEvidence(
   const { data: session } = await supabase
     .from("payment_sessions")
     .select(
-      "id, trip_id, provider_order_id, provider_payment_id, provider_status, status, captured_amount_pence, currency, metadata",
+      // Live schema: payment_sessions.provider_state (not provider_status).
+      "id, trip_id, provider_order_id, provider_payment_id, provider_state, status, captured_amount_pence, currency, metadata",
     )
     .eq("trip_id", args.tripId)
     .order("created_at", { ascending: false })
@@ -274,7 +276,7 @@ async function loadTripEvidence(
     .maybeSingle();
 
   const providerState = String(
-    primary?.provider_status ?? primary?.status ?? "",
+    primary?.provider_state ?? primary?.status ?? "",
   ).toUpperCase() || null;
 
   const captured = primary?.captured_amount_pence != null
