@@ -29,11 +29,17 @@ import {
   DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT,
   DRIVER_FINANCIAL_REPAIR_BLOCK,
   DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
+  DRIVER_FINANCIAL_REPAIR_COPY,
   evaluateFalseFreezeClearedFromRecompute,
   formatWalletCorrectionResultCopy,
   validateDriverFinancialRepairReason,
   type DriverFinancialRepairEvidence,
 } from "../_shared/driverFinancialReviewRepairSSOT.ts";
+import {
+  CERTIFICATION_NON_PAYABLE_AUDIT_EVENT,
+  buildCertificationNonPayableIdempotencyKey,
+  type CertificationTripEvidence,
+} from "../_shared/certificationNonPayableRepairSSOT.ts";
 
 const PAGE_SLUG = FINANCE_EXECUTION_PAGE_SLUGS.DRIVER_WALLET_LEDGER;
 
@@ -178,7 +184,46 @@ async function loadTripEvidence(
   const { data: trip, error } = await supabase
     .from("trips")
     .select(
-      "id, trip_code, status, financial_outcome, financial_model, driver_id, driver_net_pence, commission_pence, tip_pence, tip_amount_pence, airport_charge_pence, final_fare_pence, capture_amount_pence, provider_fee_pence, commission_pct, accepted_commission_percent, driver_tier_commission_percent, fare_snapshot_json, currency",
+      [
+        "id",
+        "trip_code",
+        "status",
+        "financial_outcome",
+        "financial_model",
+        "driver_id",
+        "driver_net_pence",
+        "commission_pence",
+        "tip_pence",
+        "tip_amount_pence",
+        "airport_charge_pence",
+        "final_fare_pence",
+        "gross_fare_pence",
+        "quoted_fare_pence",
+        "commissionable_fare_pence",
+        "capture_amount_pence",
+        "provider_fee_pence",
+        "commission_pct",
+        "accepted_commission_percent",
+        "driver_tier_commission_percent",
+        "fare_snapshot_json",
+        "currency",
+        "booking_source",
+        "client_action_id",
+        "passenger_name",
+        "pickup_address",
+        "dropoff_address",
+        "completed_at",
+        "estimated_fare",
+        "fare",
+        "payment_session_id",
+        "waiting_charge_pence",
+        "total_waiting_charge_pence",
+        "pickup_waiting_charge_pence",
+        "stop_waiting_charge_pence",
+        "platform_promotion_subsidy_pence",
+        "offer_discount_pence",
+        "voucher_discount_pence",
+      ].join(", "),
     )
     .eq("id", args.tripId)
     .maybeSingle();
@@ -216,11 +261,20 @@ async function loadTripEvidence(
 
   let actualTen = 0;
   let actualTip = 0;
+  let walletOrAdminCorrectionCount = 0;
   for (const row of ledgerRows ?? []) {
     const type = String(row.type ?? "");
     const amt = Math.round(Number(row.amount_pence ?? 0));
     if (type === "TRIP_EARNING_NET") actualTen += amt;
     if (type === "DRIVER_TIP_CREDIT") actualTip += amt;
+    if (
+      type === "TRIP_EARNING_NET"
+      || type === "DRIVER_TIP_CREDIT"
+      || type === "ADMIN_WALLET_CREDIT"
+      || type === "ADMIN_WALLET_DEBIT"
+    ) {
+      walletOrAdminCorrectionCount += 1;
+    }
   }
 
   const { data: reservation } = await supabase
@@ -275,6 +329,143 @@ async function loadTripEvidence(
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  // Sessions owned by THIS trip (canonical ownership). Must be 0 for cert non-payable.
+  const ownedSessionCount = sessions.length;
+
+  // trips.payment_session_id may incorrectly point at another trip's session.
+  const tripsPaymentSessionId = trip.payment_session_id
+    ? String(trip.payment_session_id)
+    : null;
+  let linkedSessionOwnerTripId: string | null = null;
+  let linkedSessionOwnerTripCode: string | null = null;
+  let linkedSessionProviderOrderId: string | null = null;
+  let linkedSessionCapturedAmountPence: number | null = null;
+  if (tripsPaymentSessionId) {
+    const { data: linkedSession } = await supabase
+      .from("payment_sessions")
+      .select("id, trip_id, provider_order_id, captured_amount_pence")
+      .eq("id", tripsPaymentSessionId)
+      .maybeSingle();
+    if (linkedSession?.trip_id) {
+      linkedSessionOwnerTripId = String(linkedSession.trip_id);
+      linkedSessionProviderOrderId = linkedSession.provider_order_id
+        ? String(linkedSession.provider_order_id)
+        : null;
+      linkedSessionCapturedAmountPence = linkedSession.captured_amount_pence != null
+        ? Math.round(Number(linkedSession.captured_amount_pence))
+        : null;
+      if (linkedSessionOwnerTripId !== args.tripId) {
+        const { data: ownerTrip } = await supabase
+          .from("trips")
+          .select("trip_code")
+          .eq("id", linkedSessionOwnerTripId)
+          .maybeSingle();
+        linkedSessionOwnerTripCode = ownerTrip?.trip_code
+          ? String(ownerTrip.trip_code)
+          : null;
+      }
+    }
+  }
+
+  // Payout allocation evidence for this trip.
+  let payoutAllocationCount = 0;
+  const { data: payoutByTrip, error: payoutByTripErr } = await supabase
+    .from("payout_items")
+    .select("id")
+    .eq("trip_id", args.tripId)
+    .limit(5);
+  if (!payoutByTripErr) {
+    payoutAllocationCount = (payoutByTrip ?? []).length;
+  }
+
+  const { count: acceptedOfferCount } = await supabase
+    .from("ride_offers")
+    .select("id", { count: "exact", head: true })
+    .eq("trip_id", args.tripId)
+    .eq("status", "accepted");
+
+  const providerEvidenceForThisTrip = sessions.some((s) => {
+    const hasOrder = Boolean(s.provider_order_id);
+    const hasPay = Boolean(s.provider_payment_id);
+    const captured = s.captured_amount_pence != null
+      && Math.round(Number(s.captured_amount_pence)) > 0;
+    return hasOrder || hasPay || captured;
+  });
+
+  const certification: CertificationTripEvidence = {
+    trip_id: args.tripId,
+    trip_code: trip.trip_code ? String(trip.trip_code) : null,
+    booking_source: trip.booking_source != null ? String(trip.booking_source) : null,
+    client_action_id: trip.client_action_id != null ? String(trip.client_action_id) : null,
+    passenger_name: trip.passenger_name != null ? String(trip.passenger_name) : null,
+    pickup_address: trip.pickup_address != null ? String(trip.pickup_address) : null,
+    dropoff_address: trip.dropoff_address != null ? String(trip.dropoff_address) : null,
+    trip_status: trip.status ? String(trip.status) : null,
+    completed_at: trip.completed_at != null ? String(trip.completed_at) : null,
+    estimated_fare: trip.estimated_fare != null ? Number(trip.estimated_fare) : null,
+    fare: trip.fare != null ? Number(trip.fare) : null,
+    gross_fare_pence: trip.gross_fare_pence != null
+      ? Math.round(Number(trip.gross_fare_pence))
+      : null,
+    final_fare_pence: trip.final_fare_pence != null
+      ? Math.round(Number(trip.final_fare_pence))
+      : null,
+    quoted_fare_pence: trip.quoted_fare_pence != null
+      ? Math.round(Number(trip.quoted_fare_pence))
+      : null,
+    commissionable_fare_pence: trip.commissionable_fare_pence != null
+      ? Math.round(Number(trip.commissionable_fare_pence))
+      : null,
+    capture_amount_pence: trip.capture_amount_pence != null
+      ? Math.round(Number(trip.capture_amount_pence))
+      : null,
+    tip_pence: trip.tip_pence != null ? Math.round(Number(trip.tip_pence)) : null,
+    tip_amount_pence: trip.tip_amount_pence != null
+      ? Math.round(Number(trip.tip_amount_pence))
+      : null,
+    waiting_charge_pence: trip.waiting_charge_pence != null
+      ? Math.round(Number(trip.waiting_charge_pence))
+      : null,
+    total_waiting_charge_pence: trip.total_waiting_charge_pence != null
+      ? Math.round(Number(trip.total_waiting_charge_pence))
+      : null,
+    pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence != null
+      ? Math.round(Number(trip.pickup_waiting_charge_pence))
+      : null,
+    stop_waiting_charge_pence: trip.stop_waiting_charge_pence != null
+      ? Math.round(Number(trip.stop_waiting_charge_pence))
+      : null,
+    airport_charge_pence: trip.airport_charge_pence != null
+      ? Math.round(Number(trip.airport_charge_pence))
+      : null,
+    platform_promotion_subsidy_pence: trip.platform_promotion_subsidy_pence != null
+      ? Math.round(Number(trip.platform_promotion_subsidy_pence))
+      : null,
+    offer_discount_pence: trip.offer_discount_pence != null
+      ? Math.round(Number(trip.offer_discount_pence))
+      : null,
+    voucher_discount_pence: trip.voucher_discount_pence != null
+      ? Math.round(Number(trip.voucher_discount_pence))
+      : null,
+    trips_payment_session_id: tripsPaymentSessionId,
+    owned_payment_session_count: ownedSessionCount,
+    linked_session_owner_trip_id: linkedSessionOwnerTripId,
+    linked_session_owner_trip_code: linkedSessionOwnerTripCode,
+    linked_session_provider_order_id: linkedSessionProviderOrderId,
+    linked_session_captured_amount_pence: linkedSessionCapturedAmountPence,
+    provider_evidence_for_this_trip: providerEvidenceForThisTrip,
+    wallet_or_admin_correction_count: walletOrAdminCorrectionCount,
+    payout_allocation_count: payoutAllocationCount,
+    accepted_ride_offer_count: acceptedOfferCount ?? 0,
+    existing_driver_net_pence: trip.driver_net_pence == null
+      ? null
+      : Math.round(Number(trip.driver_net_pence)),
+    existing_commission_pence: trip.commission_pence == null
+      ? null
+      : Math.round(Number(trip.commission_pence)),
+    financial_outcome: trip.financial_outcome ? String(trip.financial_outcome) : null,
+  };
 
   const providerState = String(
     primary?.provider_state ?? primary?.status ?? "",
@@ -383,6 +574,7 @@ async function loadTripEvidence(
       ? String(priorRepair.repair_token)
       : null,
     admin_override_driver_net_pence: null,
+    certification,
   };
 
   return { ok: true, evidence, trip: trip as Record<string, unknown> };
@@ -627,6 +819,19 @@ async function handleApply(
       }, 409);
     }
 
+    // Certification already applied → idempotent (do not 409 on cleared payment_session_id).
+    if (
+      livePreview.classification === DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE
+      && livePreview.block_code === DRIVER_FINANCIAL_REPAIR_BLOCK.ALREADY_APPLIED
+    ) {
+      return json({
+        ok: true,
+        idempotent: true,
+        result: { already_applied: true, certification_non_payable_marked: true },
+        message: "Certification non-payable already applied (idempotent)",
+      });
+    }
+
     if (!livePreview.apply_allowed) {
       await insertRepairAudit(gate.supabase, {
         event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.BLOCKED,
@@ -658,6 +863,143 @@ async function handleApply(
         error: conservation.reason,
         error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.MONETARY_CONSERVATION_VIOLATION,
       }, 409);
+    }
+
+    // -----------------------------------------------------------------------
+    // CERTIFICATION_NON_PAYABLE Apply — single atomic service-role RPC.
+    // Never modifies payment_sessions / owner trip / wallet / payout / provider.
+    // -----------------------------------------------------------------------
+    if (
+      livePreview.classification === DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE
+    ) {
+      // Already-applied with cleared FK must not fail Preview freshness.
+      if (
+        livePreview.block_code === DRIVER_FINANCIAL_REPAIR_BLOCK.ALREADY_APPLIED
+        || (
+          String(loaded.evidence.financial_outcome ?? "").toUpperCase() === "CERTIFICATION_NON_PAYABLE"
+          && !loaded.evidence.certification?.trips_payment_session_id
+          && (loaded.evidence.existing_driver_net_pence ?? 0) === 0
+        )
+      ) {
+        return json({
+          ok: true,
+          idempotent: true,
+          result: { already_applied: true, certification_non_payable_marked: true },
+          message: "Certification non-payable already applied (idempotent)",
+        });
+      }
+
+      const idempotencyKey = buildCertificationNonPayableIdempotencyKey({
+        trip_id: tripId,
+        preview_hash: previewHash,
+      });
+
+      const clearSessionId = livePreview.clear_stale_payment_session_id
+        ? String(livePreview.clear_stale_payment_session_id)
+        : null;
+      const expectedOwnerTripId = livePreview.clear_stale_payment_session_owner_trip_id
+        ? String(livePreview.clear_stale_payment_session_owner_trip_id)
+        : null;
+
+      const cert = loaded.evidence.certification;
+      const expectedFingerprint = {
+        preview_hash: previewHash,
+        trip_id: tripId,
+        client_action_id: cert?.client_action_id ?? null,
+        payment_session_id: clearSessionId,
+        estimated_fare: cert?.estimated_fare ?? 0,
+        fare: cert?.fare ?? 0,
+        classification: DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE,
+        // Monetary stamps are never taken from Edge — RPC hardcodes zeros.
+      };
+
+      const { data: rpcData, error: rpcErr } = await gate.supabase.rpc(
+        "admin_apply_certification_non_payable_repair",
+        {
+          p_driver_id: driverId,
+          p_trip_id: tripId,
+          p_admin_user_id: gate.userId,
+          p_repair_token: repairToken,
+          p_preview_hash: previewHash,
+          p_reason: reasonCheck.reason,
+          p_idempotency_key: idempotencyKey,
+          p_expected_owner_trip_id: expectedOwnerTripId,
+          p_stale_payment_session_id: clearSessionId,
+          p_expected_fingerprint: expectedFingerprint,
+          p_calculation_version: DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
+        },
+      );
+
+      if (rpcErr) {
+        return json({
+          error: rpcErr.message,
+          error_code: "CERT_APPLY_RPC_FAILED",
+          details: rpcErr,
+        }, 500);
+      }
+
+      const rpc = (rpcData ?? {}) as Record<string, unknown>;
+      if (rpc.ok !== true) {
+        return json({
+          error: String(rpc.error_code ?? "CERT_APPLY_BLOCKED"),
+          error_code: String(rpc.error_code ?? "CERT_APPLY_BLOCKED"),
+          details: rpc,
+        }, 409);
+      }
+
+      if (rpc.idempotent === true) {
+        return json({
+          ok: true,
+          idempotent: true,
+          result: rpc.result ?? { already_applied: true },
+          message: "Certification non-payable already applied (idempotent)",
+        });
+      }
+
+      // Observational driver-level snapshot only — no wallet/provider writes.
+      const snapshot = await fetchDriverWalletPayoutSnapshot(gate.supabase, { driverId });
+      const freezeEval = evaluateFalseFreezeClearedFromRecompute({
+        wallet_status: snapshot.wallet_status,
+        driver_credit_status: snapshot.driver_credit_status,
+        reconciliation_status: snapshot.reconciliation_status,
+        payout_status: snapshot.payout_status,
+        wallet_variance_pence: snapshot.wallet_variance_pence,
+        missing_stamp_trip_count: snapshot.missing_stamp_trip_count,
+        provider_state_ok: true,
+        active_payout_reservation: loaded.evidence.active_payout_reservation === true,
+        payout_intent_in_flight: Boolean(loaded.evidence.payout_intent_status),
+      });
+
+      const applyResult = {
+        ...(typeof rpc.result === "object" && rpc.result ? rpc.result as Record<string, unknown> : {}),
+        freeze_cleared_derived: freezeEval.clear,
+        remaining_blockers: freezeEval.remaining_blockers,
+        driver_snapshot: {
+          source: "fetchDriverWalletPayoutSnapshot",
+          wallet_status: snapshot.wallet_status,
+          driver_credit_status: snapshot.driver_credit_status,
+          missing_stamp_trip_count: snapshot.missing_stamp_trip_count,
+        },
+        messages: [
+          DRIVER_FINANCIAL_REPAIR_COPY.CERTIFICATION_RESULT,
+          DRIVER_FINANCIAL_REPAIR_COPY.CERTIFICATION_NO_PROVIDER_CHANGE,
+        ],
+        classification: livePreview.classification,
+      };
+
+      return json({
+        ok: true,
+        idempotent: false,
+        result: applyResult,
+        copy: {
+          evidence_only: DRIVER_FINANCIAL_REPAIR_COPY.CERTIFICATION_RESULT,
+          wallet_correction: null,
+          freeze: freezeEval.clear
+            ? DRIVER_FINANCIAL_REPAIR_COPY.FREEZE_CLEARED_RESULT
+            : null,
+          no_provider_change: DRIVER_FINANCIAL_REPAIR_COPY.CERTIFICATION_NO_PROVIDER_CHANGE,
+        },
+      });
     }
 
     const idempotencyKey = buildDriverFinancialRepairIdempotencyKey({

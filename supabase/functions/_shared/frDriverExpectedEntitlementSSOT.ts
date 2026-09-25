@@ -243,6 +243,19 @@ export function resolveFrDriverExpectedEntitlement(
     };
   }
 
+  // Certification / non-payable — expected entitlement is explicitly £0.
+  // Distinguishes "no commission applies" from a genuine 0% commission rate.
+  const outcomeUpper = String(trip.financial_outcome ?? "").trim().toUpperCase();
+  if (outcomeUpper === "CERTIFICATION_NON_PAYABLE") {
+    return {
+      expected_entitlement_pence: 0,
+      expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
+      entitlement_source: "certification_non_payable",
+      financial_settled_at: financialSettledAt,
+      is_terminal_fee_outcome: false,
+    };
+  }
+
   const isTerminal = isTerminalFeeFinancialOutcome(trip);
   const captured = trip.captured_amount_pence == null
     ? null

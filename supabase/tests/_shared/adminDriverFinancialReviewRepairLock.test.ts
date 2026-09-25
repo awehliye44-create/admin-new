@@ -305,7 +305,13 @@ Deno.test("1–10 source certification locks (preview zero writes, real recomput
   assert(!/UPDATE\s+public\.driver_wallet_ledger/i.test(migration));
   assert(!/DELETE\s+FROM\s+public\.driver_wallet_ledger/i.test(migration));
   for (const ev of Object.values(DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT)) {
-    assert(migration.includes(ev));
+    assert(
+      migration.includes(ev)
+        || (await read(
+          "supabase/migrations/20261201120000_certification_non_payable_financial_outcome.sql",
+        )).includes(ev),
+      `audit event ${ev} missing from repair migrations`,
+    );
   }
 
   assertEquals(DRIVER_FINANCIAL_REPAIR_COPY.BUTTON, "Review & repair");

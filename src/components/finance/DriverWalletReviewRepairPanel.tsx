@@ -371,7 +371,11 @@ export function DriverWalletReviewRepairPanel({
                   <dd>
                     {formatNullablePence(preview.commission_basis_pence, currencyCode)}
                     {' · '}
-                    {preview.commission_rate_percent == null ? '—' : `${preview.commission_rate_percent}%`}
+                    {preview.commission_rate_percent == null
+                      ? (preview.classification === DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE
+                        ? 'N/A (does not apply)'
+                        : '—')
+                      : `${preview.commission_rate_percent}%`}
                   </dd>
                 </div>
                 <div>
@@ -398,7 +402,52 @@ export function DriverWalletReviewRepairPanel({
                   <dt className="text-muted-foreground">Exact variance</dt>
                   <dd>{formatNullablePence(preview.variance_pence, currencyCode)}</dd>
                 </div>
+                {preview.classification === DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE ? (
+                  <>
+                    <div>
+                      <dt className="text-muted-foreground">Wallet change</dt>
+                      <dd>£0.00</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Provider / payout</dt>
+                      <dd>none / none</dd>
+                    </div>
+                  </>
+                ) : null}
               </dl>
+
+              {preview.classification === DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE
+                && preview.certification_evidence ? (
+                <Alert data-testid="review-repair-certification-evidence">
+                  <AlertTitle>{DRIVER_FINANCIAL_REPAIR_COPY.CERTIFICATION_NON_PAYABLE_ACTION}</AlertTitle>
+                  <AlertDescription className="space-y-1 text-xs">
+                    <p>
+                      Passenger: {String(preview.certification_evidence.passenger_name ?? '—')}
+                      {' · '}
+                      {String(preview.certification_evidence.pickup_address ?? '—')}
+                      {' → '}
+                      {String(preview.certification_evidence.dropoff_address ?? '—')}
+                    </p>
+                    <p className="font-mono break-all">
+                      client_action_id: {String(preview.certification_evidence.client_action_id ?? '—')}
+                    </p>
+                    <p className="font-mono break-all">
+                      Incorrect linked session:{' '}
+                      {String(preview.certification_evidence.incorrect_linked_session_id ?? '—')}
+                      {' · real owner '}
+                      {String(
+                        preview.certification_evidence.linked_session_real_owner_trip_code
+                          ?? preview.clear_stale_payment_session_owner_trip_code
+                          ?? '—',
+                      )}
+                    </p>
+                    <p>Expected entitlement £0.00 · Wallet change £0.00</p>
+                    <p className="font-medium">
+                      {DRIVER_FINANCIAL_REPAIR_COPY.CERTIFICATION_NO_PROVIDER_CHANGE}
+                    </p>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
 
               {preview.missing_evidence_fields.length > 0 ? (
                 <p className="text-xs text-muted-foreground">
@@ -559,7 +608,11 @@ export function DriverWalletReviewRepairPanel({
             data-testid="review-repair-apply-button"
             onClick={() => applyMutation.mutate()}
           >
-            {applyMutation.isPending ? 'Applying…' : 'Approve repair'}
+            {applyMutation.isPending
+              ? 'Applying…'
+              : preview?.classification === DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE
+                ? DRIVER_FINANCIAL_REPAIR_COPY.CERTIFICATION_NON_PAYABLE_ACTION
+                : 'Approve repair'}
           </Button>
         </DialogFooter>
       </DialogContent>
