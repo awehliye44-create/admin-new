@@ -407,12 +407,28 @@ export async function executeAdminCaptureTripPayment(args: {
 
   let posting: PostCaptureSettlementResult;
   try {
+    const tripFareComponent = Math.max(
+      0,
+      Math.round(
+        Number(
+          (bookingSession as { trip_fare_component_pence?: number }).trip_fare_component_pence
+            ?? (bookingSession as { metadata?: Record<string, unknown> }).metadata
+              ?.trip_fare_component_pence,
+        ) || 0,
+      ),
+    );
     posting = await applySettlement({
       supabase: args.supabase,
       tripId,
-      trip: args.trip,
+      trip: {
+        ...args.trip,
+        ...(tripFareComponent > 0
+          ? { trip_fare_component_pence: tripFareComponent }
+          : {}),
+      },
       captureAmountPence,
       mode: settlementMode,
+      tripFareComponentPence: tripFareComponent > 0 ? tripFareComponent : undefined,
     });
   } catch (settlementErr) {
     console.error("[adminCaptureTripPayment] settlement failed", settlementErr);

@@ -90,6 +90,11 @@ export type TripSettlementResult = {
 export type TripSettlementTripRow = {
   final_fare_pence?: number | null;
   capture_amount_pence?: number | null;
+  /**
+   * Immutable capture-composition fare component (excludes receivable / tip / buffer).
+   * When set, preferred over provider capture total for trip economic stamps.
+   */
+  trip_fare_component_pence?: number | null;
   final_customer_fare_pence?: number | null;
   pickup_waiting_charge_pence?: number | null;
   stop_waiting_charge_pence?: number | null;
@@ -212,9 +217,18 @@ export function isPrePromotionFareEvidenceMissing(trip: TripSettlementTripRow): 
 
 /**
  * Resolve the fare base that must include waiting when present.
- * Prefer capture → final_fare → final_customer + waiting.
+ *
+ * Prefer immutable capture-composition trip_fare_component when present — the
+ * provider capture total may include receivable recovery and must never stamp
+ * trip/commission/TEN (MK-260925-003).
+ *
+ * Legacy (no composition): capture (minus tips) → final_fare → final_customer + waiting.
  */
 export function resolveSettlementFinalFarePence(trip: TripSettlementTripRow): number {
+  const compositionFare = nonNegInt(trip.trip_fare_component_pence);
+  if (compositionFare > 0) {
+    return compositionFare;
+  }
   const capture = nonNegInt(trip.capture_amount_pence);
   const tips = nonNegInt(trip.tip_pence ?? trip.tip_amount_pence);
   const captureFare = capture > 0 ? Math.max(0, capture - tips) : 0;
@@ -347,6 +361,8 @@ export function assertSettlementCaptureIdentity(args: {
 export function buildSettlementTripRow(args: {
   trip: TripSettlementTripRow & { provider_fee_pence?: number | null };
   captureAmountPence?: number | null;
+  /** Immutable composition fare — excludes receivable / tip / buffer. */
+  tripFareComponentPence?: number | null;
   tipPence?: number;
   finalFarePence?: number | null;
   pickupWaitingChargePence?: number | null;
@@ -358,6 +374,9 @@ export function buildSettlementTripRow(args: {
     capture_amount_pence: args.captureAmountPence == null
       ? args.trip.capture_amount_pence
       : args.captureAmountPence,
+    trip_fare_component_pence: args.tripFareComponentPence == null
+      ? args.trip.trip_fare_component_pence
+      : args.tripFareComponentPence,
     tip_pence: tip,
     tip_amount_pence: tip,
     final_fare_pence: args.finalFarePence == null
@@ -379,6 +398,8 @@ export function buildSettlementTripRow(args: {
 export function resolveCapturedTripEarningNetPence(args: {
   trip: TripSettlementTripRow & { provider_fee_pence?: number | null };
   captureAmountPence: number;
+  /** When set, trip stamps / TEN use this fare — never provider capture total. */
+  tripFareComponentPence?: number | null;
   tipPence?: number;
 }): {
   driverNetPence: number;
@@ -389,6 +410,7 @@ export function resolveCapturedTripEarningNetPence(args: {
   const row = buildSettlementTripRow({
     trip: args.trip,
     captureAmountPence: args.captureAmountPence,
+    tripFareComponentPence: args.tripFareComponentPence,
     tipPence: args.tipPence,
   });
   const settlement = calculateTripSettlementFromTripRow(
