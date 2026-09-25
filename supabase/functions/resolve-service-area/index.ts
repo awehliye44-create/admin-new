@@ -101,8 +101,11 @@ serve(async (req) => {
     if (!matchingRegion) {
       return new Response(
         JSON.stringify({
-          success: false, error: 'Pickup location is outside service coverage area',
-          settings: null, message: 'This location is not currently covered by our service.'
+          success: false,
+          code: 'OUTSIDE_AREA',
+          error: 'Pickup location is outside service coverage area',
+          settings: null,
+          message: 'This location is not currently covered by our service.',
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -132,8 +135,11 @@ serve(async (req) => {
     if (!primaryServiceArea) {
       return new Response(
         JSON.stringify({
-          success: false, error: 'Pickup location is not inside any active service area',
-          settings: null, message: 'No valid service area polygon contains this pickup location.'
+          success: false,
+          code: 'OUTSIDE_AREA',
+          error: 'Pickup location is not inside any active service area',
+          settings: null,
+          message: 'No valid service area polygon contains this pickup location.',
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );

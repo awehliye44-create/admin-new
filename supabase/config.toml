@@ -283,6 +283,18 @@ verify_jwt = false
 [functions.whatsapp-session-expire]
 verify_jwt = false
 
+# Public customer-safe list of active bookable service areas (thin read over service_areas SSOT).
+[functions.list-customer-service-areas]
+verify_jwt = false
+
+# WhatsApp out-of-area notice for verified book continuation tokens (deduped).
+[functions.whatsapp-booking-out-of-area-notify]
+verify_jwt = false
+
+# WhatsApp booking fare proxy → calculate-fare SSOT (anon website callers).
+[functions.whatsapp-booking-fares]
+verify_jwt = false
+
 # Special Offers feeds — JWT validated inside the function (driver vs customer audience).
 [functions.driver-special-offers]
 verify_jwt = false
