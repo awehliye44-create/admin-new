@@ -158,6 +158,17 @@ Deno.test("whatsapp-booking-out-of-area-notify: requires OUTSIDE_AREA + book con
   assert(src.includes("sendWhatsAppTextMessage"));
 });
 
+Deno.test("whatsapp-booking-out-of-area-notify: re-resolves pickup via resolve-service-area SSOT", () => {
+  const src = readFunction("whatsapp-booking-out-of-area-notify");
+  assert(src.includes("assertPickupCoveredByResolveServiceArea"));
+  assert(src.includes("PICKUP_REQUIRED"));
+  assert(src.includes("COVERAGE_NOT_OUTSIDE"));
+  assert(src.includes("coverage.code !== \"OUTSIDE_AREA\""));
+  const resolveIdx = src.indexOf("await assertPickupCoveredByResolveServiceArea");
+  const sendIdx = src.indexOf("await sendWhatsAppTextMessage");
+  assert(resolveIdx > 0 && sendIdx > resolveIdx, "coverage re-resolve must run before Meta send");
+});
+
 Deno.test("whatsapp-booking-out-of-area-notify: stamps dedupe only after successful send", () => {
   const src = readFunction("whatsapp-booking-out-of-area-notify");
   const sendIdx = src.indexOf("sendWhatsAppTextMessage");
