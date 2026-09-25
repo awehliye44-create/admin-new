@@ -33,6 +33,37 @@ describe("FAQ cache (avoids AI calls)", () => {
     expect(matchFaq("how much", null)!.answer).toMatch(/can't quote or guarantee a price/i);
   });
 
+  it("treats Customer App and WhatsApp as the only booking channels", () => {
+    const bookingAnswer = matchFaq("Book a ride", "book_ride")!.answer;
+    expect(bookingAnswer).toMatch(/Customer App/i);
+    expect(bookingAnswer).toMatch(/WhatsApp booking/i);
+    expect(bookingAnswer).not.toMatch(/booking page/i);
+    expect(bookingAnswer).toMatch(/not a booking channel/i);
+
+    const bookingTopic = TOPICS.find((item) => item.id === "booking");
+    expect(bookingTopic?.body).toMatch(/Customer App/i);
+    expect(bookingTopic?.body).toMatch(/WhatsApp booking/i);
+    expect(bookingTopic?.body).not.toMatch(/booking page/i);
+    expect(bookingTopic?.body).toMatch(/not a booking channel/i);
+
+    const scheduled = TOPICS.find((item) => item.id === "scheduled");
+    expect(scheduled?.body).toMatch(/Customer App/i);
+    expect(scheduled?.body).toMatch(/WhatsApp/i);
+    expect(scheduled?.body).not.toMatch(/call to book|by calling|book by phone|phone booking/i);
+    expect(scheduled?.body).toMatch(/not by phone/i);
+    expect(scheduled?.body).toMatch(/existing booking/i);
+
+    expect(matchFaq("book by phone")?.id).toBe("faq-phone-booking");
+    expect(matchFaq("can i book by phone")!.answer).toMatch(/not a booking channel/i);
+    expect(matchFaq("call to book")!.answer).toMatch(/Customer App/i);
+    expect(matchFaq("phone booking")!.answer).toMatch(/WhatsApp booking/i);
+
+    expect(matchFaq("service areas")!.answer).not.toMatch(/booking page/i);
+    expect(matchFaq("service areas")!.answer).toMatch(/Customer App|WhatsApp/i);
+    expect(matchFaq("how do i pay")!.answer).not.toMatch(/booking page/i);
+    expect(matchFaq("how do i pay")!.answer).toMatch(/Customer App|WhatsApp/i);
+  });
+
   it("keeps confirmed contact details only", () => {
     expect(matchFaq("phone number")!.answer).toContain(CONTACT.phoneDisplay);
     expect(matchFaq("email address")!.answer).toContain("info@onecab.net");
