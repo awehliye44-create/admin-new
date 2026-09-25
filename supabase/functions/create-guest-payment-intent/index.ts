@@ -62,6 +62,7 @@ import {
   whatsAppWaIdToE164,
   type ServiceAreaDigitalPaymentFlags,
 } from "../_shared/whatsappGuestBookingSSOT.ts";
+import { assertPickupCoveredByResolveServiceArea } from "../_shared/whatsappPickupCoverageSSOT.ts";
 
 interface GuestPaymentRequest {
   source?: string;
@@ -109,60 +110,6 @@ function getClientIP(req: Request): string {
     req.headers.get("x-real-ip") ??
     "unknown"
   );
-}
-
-/**
- * Authoritative pickup coverage via resolve-service-area SSOT.
- * Never open Revolut / persist a payment session for OUTSIDE_AREA or a forged SA id.
- */
-async function assertGuestPickupCovered(
-  supabaseUrl: string,
-  invokeHeaders: Record<string, string>,
-  input: { pickupLat: number; pickupLng: number; serviceAreaId: string },
-): Promise<
-  | { ok: true }
-  | { ok: false; error: string; code: string; status: number }
-> {
-  const res = await fetch(`${supabaseUrl}/functions/v1/resolve-service-area`, {
-    method: "POST",
-    headers: invokeHeaders,
-    body: JSON.stringify({
-      pickup_lat: input.pickupLat,
-      pickup_lng: input.pickupLng,
-    }),
-  });
-  const body = await res.json().catch(() => ({})) as {
-    success?: boolean;
-    code?: string;
-    error?: string;
-    settings?: { service_area_id?: string } | null;
-  };
-
-  if (body.code === "OUTSIDE_AREA") {
-    return {
-      ok: false,
-      error: "ONECAB is not currently available in this pickup area",
-      code: "OUTSIDE_AREA",
-      status: 400,
-    };
-  }
-  if (!res.ok || body.success === false || !body.settings?.service_area_id) {
-    return {
-      ok: false,
-      error: body.error || "Coverage could not be confirmed",
-      code: "COVERAGE_RESOLVE_FAILED",
-      status: 503,
-    };
-  }
-  if (body.settings.service_area_id !== input.serviceAreaId) {
-    return {
-      ok: false,
-      error: "Pickup is not in the selected service area",
-      code: "SERVICE_AREA_MISMATCH",
-      status: 400,
-    };
-  }
-  return { ok: true };
 }
 
 async function resolveAuthoritativeFare(
@@ -549,6 +496,26 @@ Deno.serve(async (req) => {
     return json({ error: "Booking return URL is not configured" }, 503);
   }
 
+  const invokeHeaders = edgeFunctionInvokeHeaders(req);
+  if (!invokeHeaders) {
+    return json({ error: "Fare service is unavailable" }, 503);
+  }
+
+  // === Pickup coverage gate — before idempotent checkout return, Revolut, or session ===
+  const coverage = await assertPickupCoveredByResolveServiceArea(supabaseUrl, invokeHeaders, {
+    pickupLat: pickup_lat,
+    pickupLng: pickup_lng,
+    serviceAreaId: service_area_id,
+  });
+  if (!coverage.ok) {
+    console.warn(JSON.stringify({
+      event: "GUEST_PICKUP_COVERAGE_REJECTED",
+      code: coverage.code,
+      service_area_id,
+    }));
+    return json({ error: coverage.error, code: coverage.code }, coverage.status);
+  }
+
   // === Idempotency: check for existing session with same client_request_id ===
   const { data: existingSession } = await supabase
     .from("payment_sessions")
@@ -571,26 +538,6 @@ Deno.serve(async (req) => {
       console.warn("[create-guest-payment-intent] idempotent retrieval failed:", e);
       // Fall through to create new order
     }
-  }
-
-  const invokeHeaders = edgeFunctionInvokeHeaders(req);
-  if (!invokeHeaders) {
-    return json({ error: "Fare service is unavailable" }, 503);
-  }
-
-  // === Pickup coverage gate — resolve-service-area SSOT (before Revolut / session) ===
-  const coverage = await assertGuestPickupCovered(supabaseUrl, invokeHeaders, {
-    pickupLat: pickup_lat,
-    pickupLng: pickup_lng,
-    serviceAreaId: service_area_id,
-  });
-  if (!coverage.ok) {
-    console.warn(JSON.stringify({
-      event: "GUEST_PICKUP_COVERAGE_REJECTED",
-      code: coverage.code,
-      service_area_id,
-    }));
-    return json({ error: coverage.error, code: coverage.code }, coverage.status);
   }
 
   // === Financial model gate — fail closed for DRIVER_COLLECTED / INVALID ===

@@ -27,6 +27,8 @@ import {
   shouldSkipPlatformPreauthForCommissionWallet,
   type ServiceAreaCommissionWalletConfig,
 } from "../_shared/commissionWalletSSOT.ts";
+import { edgeFunctionInvokeHeaders } from "../_shared/edgeFunctionInvokeHeaders.ts";
+import { assertPickupCoveredByResolveServiceArea } from "../_shared/whatsappPickupCoverageSSOT.ts";
 
 interface FareRequest {
   service_area_id: string;
@@ -54,6 +56,41 @@ Deno.serve(async (req) => {
     }
     if (typeof estimated_distance_km !== "number" || typeof estimated_duration_min !== "number") {
       return respond({ success: false, error: "estimated_distance_km and estimated_duration_min are required" });
+    }
+    if (!pickup || typeof pickup.lat !== "number" || typeof pickup.lng !== "number") {
+      return respond({
+        success: false,
+        error: "pickup coordinates are required",
+        code: "PICKUP_REQUIRED",
+        booking_workflow: "unavailable",
+      });
+    }
+
+    const invokeHeaders = edgeFunctionInvokeHeaders(req);
+    if (!invokeHeaders) {
+      return respond({
+        success: false,
+        error: "Coverage service is unavailable",
+        code: "COVERAGE_RESOLVE_FAILED",
+        booking_workflow: "unavailable",
+      });
+    }
+    const coverage = await assertPickupCoveredByResolveServiceArea(
+      Deno.env.get("SUPABASE_URL")!,
+      invokeHeaders,
+      {
+        pickupLat: pickup.lat,
+        pickupLng: pickup.lng,
+        serviceAreaId: service_area_id,
+      },
+    );
+    if (!coverage.ok) {
+      return respond({
+        success: false,
+        error: coverage.error,
+        code: coverage.code,
+        booking_workflow: "unavailable",
+      });
     }
 
     const supabase = createClient(

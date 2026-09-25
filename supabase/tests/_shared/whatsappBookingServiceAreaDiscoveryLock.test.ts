@@ -194,23 +194,30 @@ Deno.test("config.toml: whatsapp-booking-out-of-area-notify is public (verify_jw
 
 Deno.test("create-guest-payment-intent: refuses OUTSIDE_AREA before Revolut / session", () => {
   const src = readFunction("create-guest-payment-intent");
-  assert(src.includes("assertGuestPickupCovered"));
-  assert(src.includes("/functions/v1/resolve-service-area"));
-  assert(src.includes('code: "OUTSIDE_AREA"'));
+  const shared = readShared("whatsappPickupCoverageSSOT.ts");
+  assert(src.includes("assertPickupCoveredByResolveServiceArea"));
+  assert(src.includes("whatsappPickupCoverageSSOT"));
+  assert(shared.includes('code: "OUTSIDE_AREA"'));
   assert(src.includes("GUEST_PICKUP_COVERAGE_REJECTED"));
-  const coverageIdx = src.indexOf("await assertGuestPickupCovered");
+  const coverageIdx = src.indexOf("await assertPickupCoveredByResolveServiceArea");
+  const idempotentIdx = src.indexOf("idempotent return");
   const revolutIdx = src.indexOf("await createRevolutOrder");
   const sessionIdx = src.indexOf("await upsertPaymentSessionPending");
   assert(
-    coverageIdx > 0 && revolutIdx > coverageIdx && sessionIdx > coverageIdx,
-    "pickup coverage must run before Revolut order and payment session",
+    coverageIdx > 0 &&
+      idempotentIdx > coverageIdx &&
+      revolutIdx > coverageIdx &&
+      sessionIdx > coverageIdx,
+    "pickup coverage must run before idempotent checkout, Revolut, and payment session",
   );
 });
 
 Deno.test("create-guest-payment-intent: rejects forged service_area_id vs pickup resolve", () => {
   const src = readFunction("create-guest-payment-intent");
-  assert(src.includes('code: "SERVICE_AREA_MISMATCH"'));
-  assert(src.includes("body.settings.service_area_id !== input.serviceAreaId"));
+  assert(src.includes("assertPickupCoveredByResolveServiceArea"));
+  const shared = readShared("whatsappPickupCoverageSSOT.ts");
+  assert(shared.includes('code: "SERVICE_AREA_MISMATCH"'));
+  assert(shared.includes("body.settings.service_area_id !== input.serviceAreaId"));
 });
 
 Deno.test("config.toml: create-guest-payment-intent is public (verify_jwt=false)", () => {
@@ -219,4 +226,13 @@ Deno.test("config.toml: create-guest-payment-intent is public (verify_jwt=false)
   const idx = cfg.indexOf("[functions.create-guest-payment-intent]");
   const slice = cfg.slice(idx, idx + 140);
   assert(slice.includes("verify_jwt = false"));
+});
+
+Deno.test("whatsapp-booking-fares: gates pickup via resolve-service-area before calculate-fare", () => {
+  const src = readFunction("whatsapp-booking-fares");
+  assert(src.includes("assertPickupCoveredByResolveServiceArea"));
+  assert(src.includes("pickup coordinates are required"));
+  const coverageIdx = src.indexOf("await assertPickupCoveredByResolveServiceArea");
+  const fareIdx = src.indexOf("/functions/v1/calculate-fare");
+  assert(coverageIdx > 0 && fareIdx > coverageIdx, "coverage must run before calculate-fare proxy");
 });
