@@ -1,22 +1,25 @@
 # PR #80 — CLEAN ALL-GREEN RELEASE CERTIFICATION
 
-**Final approved tip:** `858a0fb8a473cc3a9ac4b1bb6bba3c483e2fe7b9` (all-green content). PR headRefOid may be this docs-stamp child tip — both include full tree.  
-**Content tip (all-green commit):** `858a0fb8a473cc3a9ac4b1bb6bba3c483e2fe7b9` — tripLess 7/7, PG17 roles, package hashes, deploy closure correction.  
-**Atomic RPC ancestor:** `a1fca8bc13b852914fa8858f27f4d5c736a53ae3` — must be ancestor of final tip (`git merge-base --is-ancestor` YES).  
-**Parent candidate replaced:** `6bb0fed5`  
+**Final approved tip:** equals GitHub PR #80 `headRefOid` on `fix/capture-composition-ssot` after this push (authoritative; do not use earlier candidate tips).
+**Atomic RPC ancestor:** `a1fca8bc13b852914fa8858f27f4d5c736a53ae3` — `git merge-base --is-ancestor` MUST be YES vs headRefOid.
+**Prior candidates superseded:** `6bb0fed5`, `f36ec6bf`, `858a0fb8` (content ancestors; not the release tip).
 
-**PR:** https://github.com/awehliye44-create/admin-new/pull/80 (draft)  
+**PR:** https://github.com/awehliye44-create/admin-new/pull/80 (draft)
 **Project:** `thazislrdkjpvvghtvzo`
+
+**Package SHA method:** `scripts/step82b31-closure-builder.ts` `sha256Dir` = deterministic sorted path+bytes (not mtime-sensitive tar).
 
 ---
 
 ## BLOCKER 1 — Cancellation/release 7/7 (resolved)
 
-`tripLessPreauthReleaseLock` test `markPaymentSessionReleased flips provider_state before status cancelled`:
+`tripLessPreauthReleaseLock` — **Choice B** (no production logic change):
 
-- **Choice B** — brittle comment-only assert (`provider_state pre-flip`) replaced with executable-order proof.
-- **No production logic change** — `paymentSessionSSOT.markPaymentSessionReleased` already flips `provider_state` via `mutatePaymentSession` (AUTHORISED→CANCELLED / COMPLETED→REFUNDED) **before** `markPaymentSessionStatus(..., "released", …)`.
-- Test now asserts: flip `verified_by` index **<** status call index; CANCELLED/REFUNDED branch present; `prevent_authorised_session_client_cancel` still documented.
+- Removed brittle assert on missing comment `provider_state pre-flip`.
+- Asserts executable order inside `markPaymentSessionReleased`:
+  - `mutatePaymentSession` flips AUTHORISED→CANCELLED / COMPLETED→REFUNDED with `provider_state_verified_by: "markPaymentSessionReleased"`
+  - **before** `markPaymentSessionStatus(..., "released", …)`
+- Still references `prevent_authorised_session_client_cancel` (why flip-first is required).
 
 **Result: 7/7 PASS**
 
@@ -24,87 +27,68 @@
 
 ## BLOCKER 2 — Unambiguous tip
 
-Proven at certification:
-
-1. `gh pr view 80 --json headRefOid` → fills **Final approved tip**
-2. `git merge-base --is-ancestor a1fca8bc… <final-tip>` → YES
-3. Final tip contains: composition SSOT + atomic RPC + both forward migrations + both rollbacks + locks/tests + release docs
+1. `gh api .../pulls/80` → `head.sha` = final tip
+2. `a1fca8bc…` is ancestor of that tip
+3. Tip tree contains composition SSOT, atomic RPC, both migrations + rollbacks, tests, release docs
 
 ---
 
-## Atomic RPC (unchanged)
+## Atomic RPC
 
-`payment_session_acquire_capture_composition` — one PG txn:  
-`advisory_xact_lock(hashtext('capture_composition:'||session_id))` → FOR UPDATE session → FOR UPDATE RESERVED → create/resume freeze → return plan.
+`payment_session_acquire_capture_composition` — one PG txn under `pg_advisory_xact_lock(hashtext('capture_composition:'||session_id))`.
 
 ---
 
-## target ≤ authorised — where enforced
+## target ≤ authorised
 
-| Layer | Enforcement |
-|-------|-------------|
-| **DB CHECK** | `payment_sessions_capture_composition_populated_chk`: `provider_capture_target_pence <= COALESCE(total_authorised_amount_pence, authorised_amount_pence)` when populated |
-| **Atomic RPC under lock** | Before persist: `IF v_auth > 0 AND v_target > v_auth THEN return CAPTURE_TARGET_EXCEEDS_AUTHORISED`; resume path same |
-
-Both layers. RPC fails closed under lock before write; CHECK is the durable invariant.
+| Layer | Where |
+|-------|--------|
+| DB CHECK | `payment_sessions_capture_composition_populated_chk` |
+| Atomic RPC under lock | `CAPTURE_TARGET_EXCEEDS_AUTHORISED` before persist + on resume |
 
 ---
 
 ## Migration-first
 
-| Scenario | Behaviour |
-|----------|-----------|
-| Old Edges + new columns | Columns nullable / ignored → **safe** |
-| New Edges + missing RPC migration | `CAPTURE_COMPOSITION_MIGRATION_REQUIRED` → **fail closed** (no fare-only capture with receivable evidence) |
+- Old Edges + new columns: safe (nullable / ignored)
+- New Edges without RPC: `CAPTURE_COMPOSITION_MIGRATION_REQUIRED` fail closed
 
 ---
 
-## PG17 — both migrations + concurrency
+## PG17
 
-- PostgreSQL **17.11** (Homebrew), ephemeral port 54317
-- Applied `20260925120000` + `20260925130000` together
-- `scripts/capture-composition-txn-concurrency-cert.sh` → **PASS** (11 races; one plan/target/key; loser adopts; no fare-only; no deadlock)
+PostgreSQL **17.11** ephemeral — both migrations applied — concurrency cert **PASS** (11 races).
 
 ---
 
-## Regression (all green)
+## Regression
 
 | Suite | Result |
 |-------|--------|
 | Composition + freeze + txn-atomic | 39/39 |
 | Complete 113 matrix | 113/113 |
 | Cancellation/release (tripLess) | **7/7** |
-| Mutex security | 9/9 |
-| Stale GET-first | 7/7 |
-| Historical compat | 6/6 |
-| Admin capture ownership | 10/10 |
+| Mutex / stale GET-first / historical / admin ownership | 9+7+6+10 PASS |
 | PG17 concurrency | PASS |
 
 ---
 
-## Deploy closure (corrected)
+## Deploy closure (8 Edges)
 
-`submit-customer-trip-tip` **removed** from deploy set:
+`submit-customer-trip-tip` **removed**: package has no composition/acquire imports; PR diff vs `a2afdea2` changes none of its runtime files (HTTP invokeFinalize only). Finalize deploy carries capture composition.
 
-- Package has **no** `captureComposition*` / acquire RPC import
-- PR diff vs base `a2afdea2` changes **none** of its 11 runtime files
-- It only HTTP-invokes finalize; finalize deploy alone carries composition
-
-### Exact eight Edges requiring deploy
+`capture-trip-payment` **DO NOT DEPLOY** (retired stub).
 
 | Slug | Live ver | Rollback = live ezbr (full) | Files | Tip package SHA-256 (full) |
 |------|----------|-----------------------------|------:|----------------------------|
-| finalize-trip-and-capture | 535 | `897b6306d718c70569f0e76de773abacdb557ad834330bb35f6c4d95c3712971` | 75 | `5d0fc85e1d7bbce8e36e25d34de65f9dd17f3922362cba40f7112db0bef80b90` |
-| admin-capture-trip-payment | 308 | `533d7fa3a2a2cdc58667612ba8f076dda784a7346e9ba29f3e14ee1241317412` | 75 | `37a3ac3d552f683b4e0c75f5c5610a60c08ec82c022605e9074b0b33184655c9` |
-| admin-remediate-trip-payment | 121 | `2cb920ad2fb919e980c75f6431c5e8a15daeac42493a57351303dc58e82beb7a` | 80 | `3c4dd8f424d93819ac51853daad93b26a9fb88eb1087a3ef3971044339db2c37` |
-| capture-expired-tip-windows | 167 | `fdd70e6e405306e5de882e3b8eae801b0b1699467c4a977a350e0bd8dc6538fe` | 40 | `7e0657cddb72ff1e42689ae7ed29d860f2ea816a89d24cf8c33c3e6eb88c7023` |
-| sweep-revolut-stale-holds | 176 | `a69bba897a18290aee242b0595adcddef38a567e3776e797677f2dc8f0b80e25` | 57 | `14010d965508d886630df5e4f62c77b3fb86d2316c02e9eb5fefde382ec32e99` |
-| stop-workflow | 651 | `1f6b1d5f8a285991e4b105609d7436c8b6a66f7217b29e9d7ae6bed7fd54e543` | 91 | `fdae53fafeb09ba1842f8ba0d4e4ecac1d34f846c1b2ab4105ba4a1be3921c3a` |
-| revolut-webhook | 297 | `b86e0d4017f48e4d1114e36eb11a5ddc0f79be36620ae13d683ecdaf3d4b01da` | 52 | `ba2dfcec116d1af23661d9cc520997f109591ee13d90d2d5337351d1713e3aef` |
-| admin-hold-action | 136 | `3e72c4678e916ec7149c0fcf1e61ff3483ae8c71f0242b096f132f9296786067` | 53 | `77720748f1724bd68d4a8b51978b58baa37da8ae21622cff4c0154d8ff0d3611` |
-
-`capture-trip-payment` — **DO NOT DEPLOY** (retired stub)  
-`submit-customer-trip-tip` — **DO NOT DEPLOY** for this PR (unchanged HTTP-only package)
+| finalize-trip-and-capture | 535 | `897b6306d718c70569f0e76de773abacdb557ad834330bb35f6c4d95c3712971` | 75 | `ff10693c33531fae8166b7ce72a8d8d96909198718dae8cbe50437056c096365` |
+| admin-capture-trip-payment | 308 | `533d7fa3a2a2cdc58667612ba8f076dda784a7346e9ba29f3e14ee1241317412` | 75 | `3b0b65ea0e63c1c66152f3bcc911b38003478270dd4bbfaec66620485abb308d` |
+| admin-remediate-trip-payment | 121 | `2cb920ad2fb919e980c75f6431c5e8a15daeac42493a57351303dc58e82beb7a` | 80 | `9ea95cd15d4123b58e558b2f3bbc5db030b2067d4c4c7bcfb67421b919c15216` |
+| capture-expired-tip-windows | 167 | `fdd70e6e405306e5de882e3b8eae801b0b1699467c4a977a350e0bd8dc6538fe` | 40 | `5ae92b411fede0dc9a42cf3755d8dc14c66bddd48974aa32166f0b9bd2051d00` |
+| sweep-revolut-stale-holds | 176 | `a69bba897a18290aee242b0595adcddef38a567e3776e797677f2dc8f0b80e25` | 57 | `717e4772c26f93dd00958c16f5d7e292a2ad63a6dd29c0352036aa1e6e7b8408` |
+| stop-workflow | 651 | `1f6b1d5f8a285991e4b105609d7436c8b6a66f7217b29e9d7ae6bed7fd54e543` | 91 | `258b44acb3e5386fffc5aada2080d707b7bb47ef52df22f93228e3fa002ed6c3` |
+| revolut-webhook | 297 | `b86e0d4017f48e4d1114e36eb11a5ddc0f79be36620ae13d683ecdaf3d4b01da` | 52 | `b6937d859ce0c19f504ee98f4fd73897731e3c320ddc6fd63002f8625ba4e74b` |
+| admin-hold-action | 136 | `3e72c4678e916ec7149c0fcf1e61ff3483ae8c71f0242b096f132f9296786067` | 53 | `1ab591b9da3f5e82f8155b7dbf52b2263a08dcf48937d43114ff338687dd2b4a` |
 
 ### Migration SHA-256
 
@@ -115,13 +99,11 @@ Both layers. RPC fails closed under lock before write; CHECK is the durable inva
 | `20260925130000_payment_session_acquire_capture_composition.sql` | `761c235e24fed675d994a69645bf18e7d244955ecc69b9fe6de5caca6baa6438` |
 | `rollback_20260925130000_…` | `0c0d74ba682a7c8e445345280088081c7cbfda13a706ce55b18fdd503be00eef` |
 
----
+### Deploy order (when approved)
 
-## Migration-first deploy order (when approved)
-
-1. Apply both forward migrations  
-2. Verify RPC + service_role EXECUTE only  
-3. Deploy the eight Edges above (independent packages)  
+1. Both forward migrations
+2. Verify RPC + service_role EXECUTE only
+3. Deploy the eight Edges above
 4. Never deploy capture-trip-payment or submit-customer-trip-tip for this PR
 
 ---
@@ -130,6 +112,6 @@ Both layers. RPC fails closed under lock before write; CHECK is the durable inva
 
 OPEN 30p+6p · RESERVED/SETTLED/WAIVED 0 · MK-002 capture 500 once · TEN 425 · commission 75
 
-FOLD_GATE_OFF · NO_MERGE · NO_MIGRATION · NO_DEPLOY · NO_LIVE_BOOK · NO_PROVIDER_MUTATION  
+FOLD_GATE_OFF · NO_MERGE · NO_MIGRATION · NO_DEPLOY · NO_LIVE_BOOK · NO_PROVIDER_MUTATION
 
 **STOPPED_FOR_CLEAN_ALL_GREEN_RELEASE_APPROVAL**
