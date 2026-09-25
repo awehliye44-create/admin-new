@@ -19,6 +19,8 @@ import {
 import { FR_EXPECTED_STAMP_STATUS } from "./frDriverExpectedEntitlementSSOT.ts";
 import {
   buildCertificationEvidenceForPreview,
+  buildCertificationNonPayableIdempotencyKey,
+  buildCertificationNonPayableMutationPlan,
   buildCertificationNonPayableProposedColumns,
   CERTIFICATION_NON_PAYABLE_ACTION_LABEL,
   CERTIFICATION_NON_PAYABLE_OUTCOME,
@@ -978,6 +980,20 @@ export function buildDriverFinancialRepairPreview(args: {
       const stampColumns = buildCertificationNonPayableProposedColumns({
         clear_payment_session_id: Boolean(clearSessionId),
       });
+      const mutationPlan = buildCertificationNonPayableMutationPlan({
+        trips_payment_session_id: evidence.certification.trips_payment_session_id,
+        financial_outcome: evidence.financial_outcome,
+        existing_driver_net_pence: evidence.existing_driver_net_pence,
+        existing_commission_pence: evidence.existing_commission_pence,
+        tip_pence: evidence.certification.tip_pence,
+        tip_amount_pence: evidence.certification.tip_amount_pence,
+        airport_charge_pence: evidence.certification.airport_charge_pence,
+        final_fare_pence: evidence.certification.final_fare_pence,
+        gross_fare_pence: evidence.certification.gross_fare_pence,
+        commissionable_fare_pence: evidence.certification.commissionable_fare_pence,
+        invoice_payment_classification: null,
+        commission_pct: evidence.commission_rate_percent,
+      });
       const stamp: DriverFinancialRepairProposedStamp = {
         driver_net_pence: 0,
         commission_pence: 0,
@@ -1002,6 +1018,7 @@ export function buildDriverFinancialRepairPreview(args: {
           clear_session_id: clearSessionId,
           owner_trip_id: evidence.certification.linked_session_owner_trip_id ?? null,
           guards: certGuards.guards_passed,
+          mutation: mutationPlan,
         },
       });
       return {
@@ -1025,7 +1042,11 @@ export function buildDriverFinancialRepairPreview(args: {
         block_code: null,
         block_reason: null,
         apply_allowed: true,
-        certification_evidence: certUi,
+        certification_evidence: {
+          ...certUi,
+          mutation_fields: mutationPlan.fields,
+          commission_rate_unchanged_null: mutationPlan.commission_rate_unchanged_null,
+        },
         clear_stale_payment_session_id: clearSessionId,
         clear_stale_payment_session_owner_trip_id:
           evidence.certification.linked_session_owner_trip_id ?? null,

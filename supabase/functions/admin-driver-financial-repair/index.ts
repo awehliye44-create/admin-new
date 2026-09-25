@@ -37,6 +37,7 @@ import {
 } from "../_shared/driverFinancialReviewRepairSSOT.ts";
 import {
   CERTIFICATION_NON_PAYABLE_AUDIT_EVENT,
+  buildCertificationNonPayableIdempotencyKey,
   type CertificationTripEvidence,
 } from "../_shared/certificationNonPayableRepairSSOT.ts";
 
@@ -818,6 +819,19 @@ async function handleApply(
       }, 409);
     }
 
+    // Certification already applied → idempotent (do not 409 on cleared payment_session_id).
+    if (
+      livePreview.classification === DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE
+      && livePreview.block_code === DRIVER_FINANCIAL_REPAIR_BLOCK.ALREADY_APPLIED
+    ) {
+      return json({
+        ok: true,
+        idempotent: true,
+        result: { already_applied: true, certification_non_payable_marked: true },
+        message: "Certification non-payable already applied (idempotent)",
+      });
+    }
+
     if (!livePreview.apply_allowed) {
       await insertRepairAudit(gate.supabase, {
         event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.BLOCKED,
@@ -852,45 +866,33 @@ async function handleApply(
     }
 
     // -----------------------------------------------------------------------
-    // CERTIFICATION_NON_PAYABLE Apply — atomic, £0 wallet, no provider calls.
+    // CERTIFICATION_NON_PAYABLE Apply — single atomic service-role RPC.
+    // Never modifies payment_sessions / owner trip / wallet / payout / provider.
     // -----------------------------------------------------------------------
     if (
       livePreview.classification === DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE
     ) {
-      const idempotencyKey = buildDriverFinancialRepairIdempotencyKey({
-        repair_token: repairToken,
-        preview_hash: previewHash,
-      });
+      // Already-applied with cleared FK must not fail Preview freshness.
+      if (
+        livePreview.block_code === DRIVER_FINANCIAL_REPAIR_BLOCK.ALREADY_APPLIED
+        || (
+          String(loaded.evidence.financial_outcome ?? "").toUpperCase() === "CERTIFICATION_NON_PAYABLE"
+          && !loaded.evidence.certification?.trips_payment_session_id
+          && (loaded.evidence.existing_driver_net_pence ?? 0) === 0
+        )
+      ) {
+        return json({
+          ok: true,
+          idempotent: true,
+          result: { already_applied: true, certification_non_payable_marked: true },
+          message: "Certification non-payable already applied (idempotent)",
+        });
+      }
 
-      const { error: persistErr } = await gate.supabase.from("driver_financial_repair_requests").insert({
-        repair_token: repairToken,
-        driver_id: driverId,
+      const idempotencyKey = buildCertificationNonPayableIdempotencyKey({
         trip_id: tripId,
         preview_hash: previewHash,
-        classification: livePreview.classification,
-        preview_payload: livePreview,
-        status: "PREVIEWED",
-        created_by_admin_id: gate.userId,
-        calculation_version: DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
-        idempotency_key: idempotencyKey,
       });
-      if (persistErr) {
-        if (persistErr.code === "23505") {
-          const { data: existing } = await gate.supabase
-            .from("driver_financial_repair_requests")
-            .select("*")
-            .eq("idempotency_key", idempotencyKey)
-            .maybeSingle();
-          if (existing && String(existing.status) === "APPLIED") {
-            return json({
-              ok: true,
-              idempotent: true,
-              result: existing.apply_result ?? { already_applied: true },
-            });
-          }
-        }
-        return json({ error: persistErr.message, error_code: "APPLY_PERSIST_FAILED" }, 500);
-      }
 
       const clearSessionId = livePreview.clear_stale_payment_session_id
         ? String(livePreview.clear_stale_payment_session_id)
@@ -899,127 +901,49 @@ async function handleApply(
         ? String(livePreview.clear_stale_payment_session_owner_trip_id)
         : null;
 
-      // Re-confirm referenced session still owned by the other trip (e.g. MK-010).
-      if (clearSessionId) {
-        if (!expectedOwnerTripId || expectedOwnerTripId === tripId) {
-          return json({
-            error: "Stale payment session owner unproven — apply aborted",
-            error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.CERT_STALE_SESSION_OWNER_UNPROVEN,
-          }, 409);
-        }
-        const { data: liveSession } = await gate.supabase
-          .from("payment_sessions")
-          .select("id, trip_id")
-          .eq("id", clearSessionId)
-          .maybeSingle();
-        if (!liveSession || String(liveSession.trip_id) !== expectedOwnerTripId) {
-          return json({
-            error:
-              "Referenced payment session is no longer owned by the proven other trip — apply aborted",
-            error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.CERT_STALE_SESSION_OWNER_UNPROVEN,
-          }, 409);
-        }
-      }
+      const { data: rpcData, error: rpcErr } = await gate.supabase.rpc(
+        "admin_apply_certification_non_payable_repair",
+        {
+          p_driver_id: driverId,
+          p_trip_id: tripId,
+          p_admin_user_id: gate.userId,
+          p_repair_token: repairToken,
+          p_preview_hash: previewHash,
+          p_reason: reasonCheck.reason,
+          p_idempotency_key: idempotencyKey,
+          p_expected_owner_trip_id: expectedOwnerTripId,
+          p_stale_payment_session_id: clearSessionId,
+          p_calculation_version: DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
+        },
+      );
 
-      // Never modify payment_sessions row or the owner trip.
-      const stamp = livePreview.proposed_repair.proposed_stamp;
-      if (!stamp) {
+      if (rpcErr) {
         return json({
-          error: "Certification zero stamp missing from preview",
-          error_code: "CERT_STAMP_MISSING",
+          error: rpcErr.message,
+          error_code: "CERT_APPLY_RPC_FAILED",
+          details: rpcErr,
         }, 500);
       }
 
-      const beforeCert = {
-        payment_session_id: loaded.evidence.certification?.trips_payment_session_id ?? null,
-        financial_outcome: loaded.evidence.financial_outcome ?? null,
-        driver_net_pence: loaded.evidence.existing_driver_net_pence,
-        commission_pence: loaded.evidence.existing_commission_pence,
-      };
-
-      const existingSnapshot =
-        (loaded.trip.fare_snapshot_json as Record<string, unknown> | null) ?? {};
-      const nextSnapshot = {
-        ...(existingSnapshot && typeof existingSnapshot === "object" ? existingSnapshot : {}),
-        ...stamp.columns,
-        commission_applies: false,
-        commission_rate_note: "Commission does not apply — rate left NULL (not 0%)",
-        repair_token: repairToken,
-        repair_calculation_version: DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
-        classification: DRIVER_FINANCIAL_REPAIR_ACTION.CERTIFICATION_NON_PAYABLE,
-      };
-
-      // Atomic trip mutation: clear only this trip's FK + stamp non-payable zeros.
-      // Does NOT write commission_pct / accepted_commission_percent / tier = 0.
-      const updatePayload: Record<string, unknown> = {
-        ...stamp.columns,
-        fare_snapshot_json: nextSnapshot,
-      };
-      let tripUpdate = gate.supabase.from("trips").update(updatePayload).eq("id", tripId);
-      if (clearSessionId) {
-        tripUpdate = tripUpdate.eq("payment_session_id", clearSessionId);
-      }
-
-      const { data: updatedRows, error: stampErr } = await tripUpdate.select("id").limit(1);
-      if (stampErr) {
-        return json({ error: stampErr.message, error_code: "CERT_APPLY_FAILED" }, 500);
-      }
-      if (!updatedRows || updatedRows.length === 0) {
+      const rpc = (rpcData ?? {}) as Record<string, unknown>;
+      if (rpc.ok !== true) {
         return json({
-          error: "Trip lock/fingerprint mismatch — re-run Preview",
-          error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.REPAIR_PREVIEW_STALE,
+          error: String(rpc.error_code ?? "CERT_APPLY_BLOCKED"),
+          error_code: String(rpc.error_code ?? "CERT_APPLY_BLOCKED"),
+          details: rpc,
         }, 409);
       }
 
-      await insertRepairAudit(gate.supabase, {
-        event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.CERTIFICATION_NON_PAYABLE_MARKED,
-        repair_token: repairToken,
-        idempotency_key: idempotencyKey,
-        preview_hash: previewHash,
-        driver_id: driverId,
-        trip_id: tripId,
-        admin_user_id: gate.userId,
-        reason: reasonCheck.reason,
-        before_state: beforeCert,
-        after_state: {
-          financial_outcome: "CERTIFICATION_NON_PAYABLE",
-          driver_net_pence: 0,
-          commission_pence: 0,
-          commission_applies: false,
-        },
-        source_evidence: loaded.evidence as unknown as Record<string, unknown>,
-        details: {
-          audit_alias: CERTIFICATION_NON_PAYABLE_AUDIT_EVENT.MARKED,
-          provider_action: "none",
-          payout_action: "none",
-          wallet_delta_pence: 0,
-        },
-      });
-
-      if (clearSessionId) {
-        await insertRepairAudit(gate.supabase, {
-          event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.STALE_PAYMENT_SESSION_LINK_CLEARED,
-          repair_token: repairToken,
-          idempotency_key: idempotencyKey,
-          preview_hash: previewHash,
-          driver_id: driverId,
-          trip_id: tripId,
-          admin_user_id: gate.userId,
-          reason: reasonCheck.reason,
-          before_state: {
-            payment_session_id: clearSessionId,
-            owner_trip_id: expectedOwnerTripId,
-            owner_trip_code: livePreview.clear_stale_payment_session_owner_trip_code ?? null,
-          },
-          after_state: { payment_session_id: null },
-          details: {
-            audit_alias: CERTIFICATION_NON_PAYABLE_AUDIT_EVENT.STALE_PAYMENT_SESSION_LINK_CLEARED,
-            payment_sessions_row_unchanged: true,
-            owner_trip_unchanged: true,
-          },
+      if (rpc.idempotent === true) {
+        return json({
+          ok: true,
+          idempotent: true,
+          result: rpc.result ?? { already_applied: true },
+          message: "Certification non-payable already applied (idempotent)",
         });
       }
 
+      // Observational driver-level snapshot only — no wallet/provider writes.
       const snapshot = await fetchDriverWalletPayoutSnapshot(gate.supabase, { driverId });
       const freezeEval = evaluateFalseFreezeClearedFromRecompute({
         wallet_status: snapshot.wallet_status,
@@ -1033,77 +957,22 @@ async function handleApply(
         payout_intent_in_flight: Boolean(loaded.evidence.payout_intent_status),
       });
 
-      const recompute = {
-        source: "fetchDriverWalletPayoutSnapshot",
-        wallet_status: snapshot.wallet_status,
-        driver_credit_status: snapshot.driver_credit_status,
-        reconciliation_status: snapshot.reconciliation_status,
-        payout_status: snapshot.payout_status,
-        wallet_variance_pence: snapshot.wallet_variance_pence,
-        missing_stamp_trip_count: snapshot.missing_stamp_trip_count,
-        remaining_blockers: freezeEval.remaining_blockers,
-      };
-
-      await insertRepairAudit(gate.supabase, {
-        event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.RECONCILIATION_RECOMPUTED,
-        repair_token: repairToken,
-        idempotency_key: idempotencyKey,
-        preview_hash: previewHash,
-        driver_id: driverId,
-        trip_id: tripId,
-        admin_user_id: gate.userId,
-        reason: reasonCheck.reason,
-        after_state: { recompute, freeze_cleared_derived: freezeEval.clear },
-        details: {
-          audit_alias: CERTIFICATION_NON_PAYABLE_AUDIT_EVENT.RECONCILIATION_RECOMPUTED,
-        },
-      });
-
-      const messages = [
-        DRIVER_FINANCIAL_REPAIR_COPY.CERTIFICATION_RESULT,
-        DRIVER_FINANCIAL_REPAIR_COPY.CERTIFICATION_NO_PROVIDER_CHANGE,
-      ];
-      if (clearSessionId) {
-        messages.push(
-          `Cleared stale trips.payment_session_id (owner ${
-            livePreview.clear_stale_payment_session_owner_trip_code ?? expectedOwnerTripId
-          } unchanged).`,
-        );
-      }
-
       const applyResult = {
-        stamp_restored: true,
-        certification_non_payable_marked: true,
-        stale_payment_session_link_cleared: Boolean(clearSessionId),
-        cleared_payment_session_id: clearSessionId,
-        owner_trip_id: expectedOwnerTripId,
-        canonical_ten_restoration_pence: 0,
-        residual_correction_pence: 0,
-        proven_wallet_delta_pence: 0,
-        actual_wallet_delta_pence: 0,
-        wallet_money_changed: false,
-        original_ledger_unchanged: true,
-        provider_action: "none",
-        payout_action: "none",
+        ...(typeof rpc.result === "object" && rpc.result ? rpc.result as Record<string, unknown> : {}),
         freeze_cleared_derived: freezeEval.clear,
         remaining_blockers: freezeEval.remaining_blockers,
-        operational_pause_unchanged: true,
-        recompute,
-        messages,
+        driver_snapshot: {
+          source: "fetchDriverWalletPayoutSnapshot",
+          wallet_status: snapshot.wallet_status,
+          driver_credit_status: snapshot.driver_credit_status,
+          missing_stamp_trip_count: snapshot.missing_stamp_trip_count,
+        },
+        messages: [
+          DRIVER_FINANCIAL_REPAIR_COPY.CERTIFICATION_RESULT,
+          DRIVER_FINANCIAL_REPAIR_COPY.CERTIFICATION_NO_PROVIDER_CHANGE,
+        ],
         classification: livePreview.classification,
       };
-
-      await gate.supabase
-        .from("driver_financial_repair_requests")
-        .update({
-          status: "APPLIED",
-          applied_at: new Date().toISOString(),
-          applied_by_admin_id: gate.userId,
-          apply_reason: reasonCheck.reason,
-          apply_result: applyResult,
-          idempotency_key: idempotencyKey,
-        })
-        .eq("repair_token", repairToken);
 
       return json({
         ok: true,
