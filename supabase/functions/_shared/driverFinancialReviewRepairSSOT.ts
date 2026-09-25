@@ -90,6 +90,8 @@ export const DRIVER_FINANCIAL_REPAIR_BLOCK = {
   ARBITRARY_STAMP_EDIT: "ARBITRARY_STAMP_EDIT",
   PERMISSION_DENIED: "PERMISSION_DENIED",
   REASON_INVALID: "REASON_INVALID",
+  LOCK_UNAVAILABLE: "LOCK_UNAVAILABLE",
+  MONETARY_CONSERVATION_VIOLATION: "MONETARY_CONSERVATION_VIOLATION",
 } as const;
 
 export type DriverFinancialRepairBlockCode =
@@ -307,15 +309,123 @@ export type DriverFinancialRepairPreview = {
   proposed_repair: {
     restore_expected_stamp: boolean;
     proposed_stamp: DriverFinancialRepairProposedStamp | null;
+    /** Canonical TRIP_EARNING_NET (+ tip when also missing) to post once. */
+    canonical_ten_restoration_pence: number;
+    /** Residual ADMIN_WALLET_* only AFTER accounting for canonical TEN restoration. */
     append_wallet_correction_pence: number;
+    /** Server-proven total wallet delta for this Apply (TEN restore + residual). */
+    proven_wallet_delta_pence: number;
     recompute_reconciliation: boolean;
     wallet_money_changes: boolean;
+    /** Hint only — Apply must confirm via real FR/wallet recompute. */
     freeze_should_clear_after_recompute: boolean;
   };
   block_code: DriverFinancialRepairBlockCode | null;
   block_reason: string | null;
   apply_allowed: boolean;
 };
+
+/**
+ * Plan monetary paths so TEN restoration and ADMIN_WALLET residual never double-count.
+ *
+ * residual = proven_target − projected_balance_after_canonical_repair
+ * Invariant: canonical_restoration + positive_residual ≤ proven_missing
+ */
+export type DriverFinancialRepairMoneyPlan = {
+  proven_target_credit_pence: number;
+  actual_ledger_credit_pence: number;
+  proven_missing_pence: number;
+  canonical_ten_restoration_pence: number;
+  residual_correction_pence: number;
+  proven_wallet_delta_pence: number;
+};
+
+export function planDriverFinancialRepairMoney(args: {
+  expected_ten_credit_pence: number;
+  expected_tip_pence: number;
+  actual_ten_credit_pence: number;
+  actual_tip_credit_pence: number;
+}): DriverFinancialRepairMoneyPlan | {
+  ok: false;
+  error_code: "MONETARY_CONSERVATION_VIOLATION";
+  reason: string;
+} {
+  const expectedTen = Math.max(0, Math.round(Number(args.expected_ten_credit_pence) || 0));
+  const expectedTip = Math.max(0, Math.round(Number(args.expected_tip_pence) || 0));
+  const actualTen = Math.max(0, Math.round(Number(args.actual_ten_credit_pence) || 0));
+  const actualTip = Math.max(0, Math.round(Number(args.actual_tip_credit_pence) || 0));
+
+  const provenTarget = expectedTen + expectedTip;
+  const actualLedger = actualTen + actualTip;
+  const provenMissing = Math.max(0, provenTarget - actualLedger);
+
+  let canonicalTen = 0;
+  if (actualTen === 0 && expectedTen > 0) {
+    canonicalTen = expectedTen;
+  }
+  let canonicalTip = 0;
+  if (canonicalTen > 0 && actualTip === 0 && expectedTip > 0) {
+    canonicalTip = expectedTip;
+  }
+
+  const canonicalRestoration = canonicalTen + canonicalTip;
+  const projectedAfterCanonical = actualLedger + canonicalRestoration;
+  const residualCorrection = provenTarget - projectedAfterCanonical;
+  const positiveResidual = residualCorrection > 0 ? residualCorrection : 0;
+
+  if (canonicalRestoration + positiveResidual > provenMissing) {
+    if (!(provenMissing === 0 && residualCorrection < 0)) {
+      return {
+        ok: false,
+        error_code: "MONETARY_CONSERVATION_VIOLATION",
+        reason:
+          `canonical_restoration_pence (${canonicalRestoration}) + residual_correction_pence (${positiveResidual}) > proven_missing_pence (${provenMissing})`,
+      };
+    }
+  }
+
+  if (provenMissing > 0) {
+    const totalPositive = canonicalRestoration + positiveResidual;
+    if (totalPositive !== provenMissing) {
+      return {
+        ok: false,
+        error_code: "MONETARY_CONSERVATION_VIOLATION",
+        reason:
+          `under-credit total ${totalPositive}p !== proven_missing ${provenMissing}p`,
+      };
+    }
+  }
+
+  return {
+    proven_target_credit_pence: provenTarget,
+    actual_ledger_credit_pence: actualLedger,
+    proven_missing_pence: provenMissing,
+    canonical_ten_restoration_pence: canonicalRestoration,
+    residual_correction_pence: residualCorrection,
+    proven_wallet_delta_pence: canonicalRestoration + residualCorrection,
+  };
+}
+
+/** Assert monetary conservation for Apply tests / Edge guard. */
+export function assertRepairMoneyConservation(args: {
+  canonical_ten_restoration_pence: number;
+  residual_correction_pence: number;
+  proven_missing_pence: number;
+}): { ok: true } | { ok: false; error_code: "MONETARY_CONSERVATION_VIOLATION"; reason: string } {
+  const canonical = Math.max(0, Math.round(Number(args.canonical_ten_restoration_pence) || 0));
+  const residual = Math.round(Number(args.residual_correction_pence) || 0);
+  const missing = Math.max(0, Math.round(Number(args.proven_missing_pence) || 0));
+  const positiveResidual = residual > 0 ? residual : 0;
+  if (canonical + positiveResidual > missing && !(missing === 0 && residual < 0)) {
+    return {
+      ok: false,
+      error_code: "MONETARY_CONSERVATION_VIOLATION",
+      reason:
+        `canonical_restoration_pence (${canonical}) + residual_correction_pence (${positiveResidual}) > proven_missing_pence (${missing})`,
+    };
+  }
+  return { ok: true };
+}
 
 function nonNegInt(v: unknown): number {
   const n = Math.round(Number(v ?? 0));
@@ -519,6 +629,7 @@ function stablePreviewPayload(args: {
   classification: DriverFinancialRepairAction;
   stamp: DriverFinancialRepairProposedStamp | null;
   variance_pence: number | null;
+  canonical_ten_restoration_pence: number;
   append_wallet_correction_pence: number;
 }): Record<string, unknown> {
   return {
@@ -545,6 +656,7 @@ function stablePreviewPayload(args: {
       }
       : null,
     variance_pence: args.variance_pence,
+    canonical_ten_restoration_pence: args.canonical_ten_restoration_pence,
     append_wallet_correction_pence: args.append_wallet_correction_pence,
   };
 }
@@ -630,6 +742,7 @@ export function buildDriverFinancialRepairPreview(args: {
       classification,
       stamp: null,
       variance_pence: null,
+      canonical_ten_restoration_pence: 0,
       append_wallet_correction_pence: 0,
     });
     return {
@@ -642,7 +755,9 @@ export function buildDriverFinancialRepairPreview(args: {
       proposed_repair: {
         restore_expected_stamp: false,
         proposed_stamp: null,
+        canonical_ten_restoration_pence: 0,
         append_wallet_correction_pence: 0,
+        proven_wallet_delta_pence: 0,
         recompute_reconciliation: false,
         wallet_money_changes: false,
         freeze_should_clear_after_recompute: false,
@@ -740,58 +855,66 @@ export function buildDriverFinancialRepairPreview(args: {
     );
   }
 
-  const expectedCredit = stampCompute.expected_credit_pence + nonNegInt(evidence.tip_pence);
+  const expectedTen = stampCompute.expected_credit_pence;
+  const expectedTip = nonNegInt(evidence.tip_pence);
+  const expectedCredit = expectedTen + expectedTip;
   const variance = expectedCredit - actualLedger;
+
+  const moneyPlan = planDriverFinancialRepairMoney({
+    expected_ten_credit_pence: expectedTen,
+    expected_tip_pence: expectedTip,
+    actual_ten_credit_pence: actualTen,
+    actual_tip_credit_pence: actualTip,
+  });
+  if ("ok" in moneyPlan && moneyPlan.ok === false) {
+    return blocked(
+      DRIVER_FINANCIAL_REPAIR_ACTION.MANUAL_REVIEW_REQUIRED,
+      DRIVER_FINANCIAL_REPAIR_BLOCK.MONETARY_CONSERVATION_VIOLATION,
+      moneyPlan.reason,
+    );
+  }
+  const plan = moneyPlan as DriverFinancialRepairMoneyPlan;
+
   const needsStampRestore = stampMissing;
-  const needsWalletCorrection = variance !== 0;
-  const walletMoneyChanges = needsWalletCorrection;
+  const needsTenRestore = plan.canonical_ten_restoration_pence > 0;
+  const needsResidualCorrection = plan.residual_correction_pence !== 0;
 
   let classification: DriverFinancialRepairAction =
     DRIVER_FINANCIAL_REPAIR_ACTION.RECOMPUTE_RECONCILIATION;
   if (needsStampRestore) {
     classification = DRIVER_FINANCIAL_REPAIR_ACTION.RESTORE_EXPECTED_STAMP;
-  } else if (needsWalletCorrection) {
+  } else if (needsResidualCorrection && !needsTenRestore) {
     classification = DRIVER_FINANCIAL_REPAIR_ACTION.APPEND_WALLET_CORRECTION;
+  } else if (needsTenRestore) {
+    classification = DRIVER_FINANCIAL_REPAIR_ACTION.RESTORE_EXPECTED_STAMP;
   }
 
-  // Evidence-only: stamp restore with already-correct wallet → no money change.
-  const appendCorrectionPence = needsWalletCorrection ? variance : 0;
-  const freezeShouldClear = !needsWalletCorrection || variance === 0
-    ? true
-    : false;
-  // After apply + recompute, freeze clears only when variance becomes zero and evidence complete.
-  const freezeAfter = needsStampRestore && !needsWalletCorrection
-    ? true
-    : (!needsWalletCorrection && args.derived_frozen === true)
-    ? true
-    : (needsWalletCorrection ? false : Boolean(args.derived_frozen));
+  const walletMoneyChanges = plan.proven_wallet_delta_pence !== 0;
+  // Hint only — Apply confirms via real FR/wallet snapshot recompute.
+  const freezeHint = plan.proven_wallet_delta_pence === variance
+    || (needsStampRestore && plan.proven_wallet_delta_pence === 0 && variance === 0)
+    || (variance === 0 && needsStampRestore);
 
   const proposed = {
     restore_expected_stamp: needsStampRestore,
-    proposed_stamp: needsStampRestore || needsWalletCorrection ? stampCompute.stamp : null,
-    append_wallet_correction_pence: appendCorrectionPence,
+    proposed_stamp: needsStampRestore || needsTenRestore || needsResidualCorrection
+      ? stampCompute.stamp
+      : null,
+    canonical_ten_restoration_pence: plan.canonical_ten_restoration_pence,
+    append_wallet_correction_pence: plan.residual_correction_pence,
+    proven_wallet_delta_pence: plan.proven_wallet_delta_pence,
     recompute_reconciliation: true,
     wallet_money_changes: walletMoneyChanges,
-    freeze_should_clear_after_recompute: freezeAfter || (needsStampRestore && appendCorrectionPence === 0),
+    freeze_should_clear_after_recompute: Boolean(freezeHint || args.derived_frozen),
   };
-
-  // Refine freeze: if we will restore evidence and/or append exact correction to zero variance.
-  if (needsStampRestore && appendCorrectionPence === 0) {
-    proposed.freeze_should_clear_after_recompute = true;
-  } else if (needsWalletCorrection) {
-    // Correction brings variance to zero by definition of append amount.
-    proposed.freeze_should_clear_after_recompute = true;
-  } else if (!needsStampRestore && !needsWalletCorrection) {
-    classification = DRIVER_FINANCIAL_REPAIR_ACTION.RECOMPUTE_RECONCILIATION;
-    proposed.freeze_should_clear_after_recompute = args.derived_frozen === true;
-  }
 
   const payload = stablePreviewPayload({
     evidence,
     classification,
     stamp: proposed.proposed_stamp,
     variance_pence: variance,
-    append_wallet_correction_pence: appendCorrectionPence,
+    canonical_ten_restoration_pence: plan.canonical_ten_restoration_pence,
+    append_wallet_correction_pence: plan.residual_correction_pence,
   });
 
   return {
@@ -825,26 +948,72 @@ export function assertRepairPreviewStillFresh(args: {
 }
 
 /**
- * After repair + recompute: freeze clears only when variance zero and evidence complete.
+ * Freeze clear only from real post-repair FR/wallet recompute — never synthetic OK.
  * Never writes wallet_status / frozen / DRIVER_CREDIT_OK directly.
  */
-export function shouldDerivedFreezeClearAfterRecompute(args: {
-  variance_pence: number | null;
-  evidence_complete: boolean;
+export function evaluateFalseFreezeClearedFromRecompute(args: {
+  wallet_status?: string | null;
   driver_credit_status?: string | null;
-}): boolean {
-  if (!args.evidence_complete) return false;
-  if (args.variance_pence == null || args.variance_pence !== 0) return false;
+  reconciliation_status?: string | null;
+  payout_status?: string | null;
+  wallet_variance_pence?: number | null;
+  missing_stamp_trip_count?: number | null;
+  provider_state_ok: boolean;
+  active_payout_reservation?: boolean | null;
+  payout_intent_in_flight?: boolean | null;
+}): { clear: boolean; remaining_blockers: string[] } {
+  const blockers: string[] = [];
   const credit = String(args.driver_credit_status ?? "").toUpperCase();
+  const wallet = String(args.wallet_status ?? "").toUpperCase();
+  const recon = String(args.reconciliation_status ?? "").toUpperCase();
+  const payout = String(args.payout_status ?? "").toUpperCase();
+  const variance = args.wallet_variance_pence == null
+    ? null
+    : Math.round(Number(args.wallet_variance_pence));
+  const missingStamps = Math.max(0, Math.round(Number(args.missing_stamp_trip_count ?? 0)));
+
+  if (!args.provider_state_ok) blockers.push("PROVIDER_AMBIGUOUS");
+  if (args.active_payout_reservation === true) blockers.push("ACTIVE_RESERVATION");
+  if (args.payout_intent_in_flight === true) blockers.push("PAYOUT_IN_FLIGHT");
+  if (missingStamps > 0) blockers.push("EXPECTED_STAMP_MISSING");
   if (
     credit === "DRIVER_UNDER_CREDITED"
     || credit === "DRIVER_OVER_CREDITED"
     || credit === "EXPECTED_STAMP_MISSING"
     || credit === "DRIVER_CREDIT_UNKNOWN"
   ) {
-    return false;
+    blockers.push(`CREDIT:${credit}`);
+  } else if (credit !== "DRIVER_CREDIT_OK" && credit !== "OK") {
+    blockers.push(credit ? `CREDIT:${credit}` : "CREDIT:UNKNOWN");
   }
-  return credit === "DRIVER_CREDIT_OK" || credit === "" || credit === "OK";
+  if (wallet === "FROZEN") blockers.push("WALLET_FROZEN");
+  if (
+    recon === "DRIVER_WALLET_MISMATCH"
+    || recon === "PAYOUT_MISMATCH"
+    || recon === "DRIVER_AND_PAYOUT_MISMATCH"
+    || recon === "MISSING_SETTLEMENT_EVIDENCE"
+    || recon === "MISSING_WALLET_EVIDENCE"
+  ) {
+    blockers.push(`RECON:${recon}`);
+  }
+  if (payout === "PAYOUT_MISMATCH") blockers.push("PAYOUT_MISMATCH");
+  if (variance != null && variance !== 0) blockers.push(`VARIANCE:${variance}`);
+
+  return { clear: blockers.length === 0, remaining_blockers: blockers };
+}
+
+/** @deprecated Prefer evaluateFalseFreezeClearedFromRecompute with live snapshot fields. */
+export function shouldDerivedFreezeClearAfterRecompute(args: {
+  variance_pence: number | null;
+  evidence_complete: boolean;
+  driver_credit_status?: string | null;
+}): boolean {
+  return evaluateFalseFreezeClearedFromRecompute({
+    driver_credit_status: args.driver_credit_status,
+    wallet_variance_pence: args.variance_pence,
+    provider_state_ok: args.evidence_complete,
+    missing_stamp_trip_count: args.evidence_complete ? 0 : 1,
+  }).clear;
 }
 
 /** Format wallet-correction result copy with exact pounds. */

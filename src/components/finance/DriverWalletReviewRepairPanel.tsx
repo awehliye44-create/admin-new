@@ -154,6 +154,8 @@ export function DriverWalletReviewRepairPanel({
       const { data, error } = await supabase.functions.invoke('admin-driver-financial-repair', {
         body: {
           action: 'apply',
+          driver_id: driverId,
+          trip_id: tripId,
           repair_token: preview.repair_token,
           preview_hash: preview.preview_hash,
           reason: reason.trim(),
@@ -333,9 +335,16 @@ export function DriverWalletReviewRepairPanel({
                   {preview.proposed_repair.restore_expected_stamp
                     ? 'Restore expected stamp (server-calculated)'
                     : 'No stamp restore'}
+                  {preview.proposed_repair.canonical_ten_restoration_pence > 0
+                    ? ` · TEN restore ${formatNullablePence(preview.proposed_repair.canonical_ten_restoration_pence, currencyCode)}`
+                    : ''}
                   {preview.proposed_repair.append_wallet_correction_pence !== 0
-                    ? ` · append ${formatNullablePence(preview.proposed_repair.append_wallet_correction_pence, currencyCode)} correction`
-                    : ' · no wallet correction'}
+                    ? ` · residual ${formatNullablePence(preview.proposed_repair.append_wallet_correction_pence, currencyCode)} correction`
+                    : ' · no residual wallet correction'}
+                </p>
+                <p>
+                  Proven wallet delta:{' '}
+                  {formatNullablePence(preview.proposed_repair.proven_wallet_delta_pence, currencyCode)}
                 </p>
                 <p>
                   Wallet money changes:{' '}

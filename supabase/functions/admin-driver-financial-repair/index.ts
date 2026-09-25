@@ -4,6 +4,9 @@
  * Actions: preview | apply | recompute
  * Never: Revolut / provider mutation, payout execution, scheduler, direct unfreeze,
  *        Admin-typed stamp amounts, generic Adjustment path.
+ *
+ * Preview is read-only (zero persistent DB writes).
+ * Apply persists audit/idempotency, then mutates, then runs real FR/wallet recompute.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import {
@@ -14,7 +17,9 @@ import {
 } from "../_shared/adminPaymentGate.ts";
 import { logFinanceAuditEvent } from "../_shared/onecabFinanceLedger.ts";
 import { creditCapturedCardTripLedger } from "../_shared/onecabFinanceLedger.ts";
+import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
 import {
+  assertRepairMoneyConservation,
   assertRepairPreviewStillFresh,
   buildDriverFinancialRepairIdempotencyKey,
   buildDriverFinancialRepairPreview,
@@ -23,8 +28,8 @@ import {
   DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT,
   DRIVER_FINANCIAL_REPAIR_BLOCK,
   DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
+  evaluateFalseFreezeClearedFromRecompute,
   formatWalletCorrectionResultCopy,
-  shouldDerivedFreezeClearAfterRecompute,
   validateDriverFinancialRepairReason,
   type DriverFinancialRepairEvidence,
 } from "../_shared/driverFinancialReviewRepairSSOT.ts";
@@ -124,6 +129,41 @@ async function assertServiceAreaAccess(
     };
   }
   return { ok: true };
+}
+
+/**
+ * Session-level advisory lock via SECURITY DEFINER RPC (fail closed).
+ * Must not silently continue without the lock.
+ */
+async function acquireDriverFinancialRepairLock(
+  supabase: RepairSupabase,
+  driverId: string,
+): Promise<{ ok: true } | { ok: false; response: Response }> {
+  const { data, error } = await supabase.rpc("admin_driver_financial_repair_lock", {
+    p_driver_id: driverId,
+    p_acquire: true,
+  });
+  if (error || !data || (data as { ok?: boolean }).ok !== true) {
+    return {
+      ok: false,
+      response: json({
+        error: "Financial repair lock unavailable — apply aborted",
+        error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.LOCK_UNAVAILABLE,
+        details: error?.message ?? data,
+      }, 503),
+    };
+  }
+  return { ok: true };
+}
+
+async function releaseDriverFinancialRepairLock(
+  supabase: RepairSupabase,
+  driverId: string,
+): Promise<void> {
+  await supabase.rpc("admin_driver_financial_repair_lock", {
+    p_driver_id: driverId,
+    p_acquire: false,
+  });
 }
 
 async function loadTripEvidence(
@@ -299,7 +339,6 @@ async function loadTripEvidence(
     already_applied_repair_token: priorRepair?.repair_token
       ? String(priorRepair.repair_token)
       : null,
-    // Never honour client stamp overrides even if somehow present on the request.
     admin_override_driver_net_pence: null,
   };
 
@@ -358,6 +397,7 @@ async function insertRepairAudit(
   );
 }
 
+/** Preview — ZERO persistent DB writes. Observational only. */
 async function handlePreview(
   gate: GateResult,
   body: Record<string, unknown>,
@@ -368,24 +408,12 @@ async function handlePreview(
     return json({ error: "driver_id and trip_id required", error_code: "INVALID_INPUT" }, 400);
   }
 
-  // Reject any attempt to supply a custom stamp.
   if (
     body.admin_override_driver_net_pence != null
     || body.driver_net_pence != null
     || body.expected_stamp != null
     || body.custom_stamp != null
   ) {
-    await insertRepairAudit(gate.supabase, {
-      event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.BLOCKED,
-      repair_token: newRepairToken(),
-      driver_id: driverId,
-      trip_id: tripId,
-      admin_user_id: gate.userId,
-      details: {
-        error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.ARBITRARY_STAMP_EDIT,
-        message: "Admin cannot type an arbitrary expected stamp",
-      },
-    }).catch(() => undefined);
     return json({
       error: "Admin cannot type an arbitrary expected stamp",
       error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.ARBITRARY_STAMP_EDIT,
@@ -420,52 +448,11 @@ async function handlePreview(
     derived_frozen: derivedFrozen,
   });
 
-  const { error: insertErr } = await gate.supabase.from("driver_financial_repair_requests").insert({
-    repair_token: repairToken,
-    driver_id: driverId,
-    trip_id: tripId,
-    preview_hash: preview.preview_hash,
-    classification: preview.classification,
-    preview_payload: preview,
-    status: "PREVIEWED",
-    created_by_admin_id: gate.userId,
-    calculation_version: DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
-  });
-
-  if (insertErr) {
-    return json({ error: insertErr.message, error_code: "PREVIEW_PERSIST_FAILED" }, 500);
-  }
-
-  await insertRepairAudit(gate.supabase, {
-    event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.PREVIEWED,
-    repair_token: repairToken,
-    preview_hash: preview.preview_hash,
-    driver_id: driverId,
-    trip_id: tripId,
-    admin_user_id: gate.userId,
-    source_evidence: loaded.evidence as unknown as Record<string, unknown>,
-    details: {
-      classification: preview.classification,
-      apply_allowed: preview.apply_allowed,
-      block_code: preview.block_code,
-    },
-  });
-
-  if (!preview.apply_allowed && preview.block_code) {
-    await insertRepairAudit(gate.supabase, {
-      event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.BLOCKED,
-      repair_token: repairToken,
-      preview_hash: preview.preview_hash,
-      driver_id: driverId,
-      trip_id: tripId,
-      admin_user_id: gate.userId,
-      details: { error_code: preview.block_code, block_reason: preview.block_reason },
-    });
-  }
-
+  // Intentionally no persistent writes (requests / audit / finance ledger events).
   return json({
     ok: true,
     preview,
+    preview_persisted: false,
     copy: {
       confirmation:
         "Review the verified payment and trip evidence before applying this repair. This action does not send money unless an exact wallet correction is shown.",
@@ -477,8 +464,10 @@ async function handleApply(
   gate: GateResult,
   body: Record<string, unknown>,
 ): Promise<Response> {
-  const repairToken = String(body.repair_token ?? "");
+  const clientRepairToken = String(body.repair_token ?? "");
   const previewHash = String(body.preview_hash ?? "");
+  const driverIdBody = String(body.driver_id ?? "");
+  const tripIdBody = String(body.trip_id ?? "");
   const reasonCheck = validateDriverFinancialRepairReason(body.reason as string);
   if (!reasonCheck.ok) {
     return json({
@@ -486,11 +475,13 @@ async function handleApply(
       error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.REASON_INVALID,
     }, 400);
   }
-  if (!repairToken || !previewHash) {
-    return json({ error: "repair_token and preview_hash required", error_code: "INVALID_INPUT" }, 400);
+  if (!previewHash || !driverIdBody || !tripIdBody) {
+    return json({
+      error: "driver_id, trip_id, and preview_hash required",
+      error_code: "INVALID_INPUT",
+    }, 400);
   }
 
-  // Reject custom stamp on apply.
   if (
     body.admin_override_driver_net_pence != null
     || body.driver_net_pence != null
@@ -502,34 +493,26 @@ async function handleApply(
     }, 400);
   }
 
-  const { data: requestRow, error: reqErr } = await gate.supabase
+  const driverId = driverIdBody;
+  const tripId = tripIdBody;
+
+  // Idempotent replay by preview hash / prior apply.
+  const { data: priorByHash } = await gate.supabase
     .from("driver_financial_repair_requests")
     .select("*")
-    .eq("repair_token", repairToken)
+    .eq("driver_id", driverId)
+    .eq("trip_id", tripId)
+    .eq("preview_hash", previewHash)
+    .eq("status", "APPLIED")
     .maybeSingle();
-
-  if (reqErr || !requestRow) {
-    return json({ error: "Repair preview not found", error_code: "PREVIEW_NOT_FOUND" }, 404);
-  }
-
-  if (String(requestRow.status) === "APPLIED") {
+  if (priorByHash) {
     return json({
       ok: true,
       idempotent: true,
-      result: requestRow.apply_result ?? { already_applied: true },
+      result: priorByHash.apply_result ?? { already_applied: true },
       message: "Repair already applied (idempotent)",
     });
   }
-
-  if (String(requestRow.preview_hash) !== previewHash) {
-    return json({
-      error: "Stale repair preview",
-      error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.REPAIR_PREVIEW_STALE,
-    }, 409);
-  }
-
-  const driverId = String(requestRow.driver_id);
-  const tripId = String(requestRow.trip_id);
 
   const driverGate = await assertPlatformCollectedDriver(gate.supabase, driverId);
   if (!driverGate.ok) return driverGate.response;
@@ -540,97 +523,117 @@ async function handleApply(
   const access = await assertServiceAreaAccess(gate.supabase, gate.userId, saId);
   if (!access.ok) return access.response;
 
-  // Transaction-level driver lock (advisory).
-  await gate.supabase.rpc("pg_advisory_xact_lock", {
-    key1: 814229,
-    key2: Number.parseInt(driverId.replace(/\D/g, "").slice(0, 9) || "0", 10) || 0,
-  }).catch(() => undefined);
+  const lock = await acquireDriverFinancialRepairLock(gate.supabase, driverId);
+  if (!lock.ok) return lock.response;
 
-  const loaded = await loadTripEvidence(gate.supabase, {
-    driverId,
-    tripId,
-    financialModel: driverGate.financial_model,
-    driver: driverGate.driver,
-  });
-  if (!loaded.ok) return loaded.response;
+  try {
+    const loaded = await loadTripEvidence(gate.supabase, {
+      driverId,
+      tripId,
+      financialModel: driverGate.financial_model,
+      driver: driverGate.driver,
+    });
+    if (!loaded.ok) return loaded.response;
 
-  const livePreview = buildDriverFinancialRepairPreview({
-    evidence: loaded.evidence,
-    repair_token: repairToken,
-    derived_frozen: true,
-  });
+    const repairToken = clientRepairToken || newRepairToken();
+    const livePreview = buildDriverFinancialRepairPreview({
+      evidence: loaded.evidence,
+      repair_token: repairToken,
+      derived_frozen: true,
+    });
 
-  const fresh = assertRepairPreviewStillFresh({
-    stored_preview_hash: previewHash,
-    live_preview_hash: livePreview.preview_hash,
-  });
-  if (!fresh.ok) {
-    await insertRepairAudit(gate.supabase, {
-      event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.BLOCKED,
+    const fresh = assertRepairPreviewStillFresh({
+      stored_preview_hash: previewHash,
+      live_preview_hash: livePreview.preview_hash,
+    });
+    if (!fresh.ok) {
+      await insertRepairAudit(gate.supabase, {
+        event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.BLOCKED,
+        repair_token: repairToken,
+        preview_hash: previewHash,
+        driver_id: driverId,
+        trip_id: tripId,
+        admin_user_id: gate.userId,
+        reason: reasonCheck.reason,
+        details: { error_code: fresh.error_code },
+      });
+      return json({
+        error: "Repair preview is stale — re-run Review & repair",
+        error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.REPAIR_PREVIEW_STALE,
+      }, 409);
+    }
+
+    if (!livePreview.apply_allowed) {
+      await insertRepairAudit(gate.supabase, {
+        event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.BLOCKED,
+        repair_token: repairToken,
+        preview_hash: previewHash,
+        driver_id: driverId,
+        trip_id: tripId,
+        admin_user_id: gate.userId,
+        reason: reasonCheck.reason,
+        details: { error_code: livePreview.block_code, block_reason: livePreview.block_reason },
+      });
+      return json({
+        error: livePreview.block_reason ?? "Repair blocked",
+        error_code: livePreview.block_code ?? "REPAIR_BLOCKED",
+      }, 409);
+    }
+
+    const provenMissing = Math.max(
+      0,
+      (livePreview.canonical_expected_credit_pence ?? 0) - livePreview.actual_ledger_credit_pence,
+    );
+    const conservation = assertRepairMoneyConservation({
+      canonical_ten_restoration_pence: livePreview.proposed_repair.canonical_ten_restoration_pence,
+      residual_correction_pence: livePreview.proposed_repair.append_wallet_correction_pence,
+      proven_missing_pence: provenMissing,
+    });
+    if (!conservation.ok) {
+      return json({
+        error: conservation.reason,
+        error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.MONETARY_CONSERVATION_VIOLATION,
+      }, 409);
+    }
+
+    const idempotencyKey = buildDriverFinancialRepairIdempotencyKey({
       repair_token: repairToken,
       preview_hash: previewHash,
+    });
+
+    // Persist request at Apply time (not Preview).
+    const { error: persistErr } = await gate.supabase.from("driver_financial_repair_requests").insert({
+      repair_token: repairToken,
       driver_id: driverId,
       trip_id: tripId,
-      admin_user_id: gate.userId,
-      reason: reasonCheck.reason,
-      details: { error_code: fresh.error_code },
+      preview_hash: previewHash,
+      classification: livePreview.classification,
+      preview_payload: livePreview,
+      status: "PREVIEWED",
+      created_by_admin_id: gate.userId,
+      calculation_version: DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
+      idempotency_key: idempotencyKey,
     });
-    return json({
-      error: "Repair preview is stale — re-run Review & repair",
-      error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.REPAIR_PREVIEW_STALE,
-    }, 409);
-  }
-
-  if (!livePreview.apply_allowed) {
-    return json({
-      error: livePreview.block_reason ?? "Repair blocked",
-      error_code: livePreview.block_code ?? "REPAIR_BLOCKED",
-    }, 409);
-  }
-
-  const idempotencyKey = buildDriverFinancialRepairIdempotencyKey({
-    repair_token: repairToken,
-    preview_hash: previewHash,
-  });
-
-  const beforeState = {
-    driver_net_pence: loaded.evidence.existing_driver_net_pence,
-    actual_ten_credit_pence: loaded.evidence.actual_ten_credit_pence,
-    actual_tip_credit_pence: loaded.evidence.actual_tip_credit_pence,
-  };
-
-  let walletChanged = false;
-  let stampRestored = false;
-  let correctionPence = 0;
-  let originalLedgerUnchanged = true;
-  const messages: string[] = [];
-
-  // FOR UPDATE semantics via select-then-update under advisory lock.
-  if (livePreview.proposed_repair.restore_expected_stamp && livePreview.proposed_repair.proposed_stamp) {
-    const stamp = livePreview.proposed_repair.proposed_stamp;
-    const existingSnapshot = (loaded.trip.fare_snapshot_json as Record<string, unknown> | null) ?? {};
-    const nextSnapshot = {
-      ...(existingSnapshot && typeof existingSnapshot === "object" ? existingSnapshot : {}),
-      ...stamp.columns,
-      repair_token: repairToken,
-      repair_calculation_version: DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
-    };
-    const { error: stampErr } = await gate.supabase
-      .from("trips")
-      .update({
-        ...stamp.columns,
-        fare_snapshot_json: nextSnapshot,
-      })
-      .eq("id", tripId)
-      .is("driver_net_pence", null);
-
-    if (stampErr) {
-      return json({ error: stampErr.message, error_code: "STAMP_RESTORE_FAILED" }, 500);
+    if (persistErr) {
+      if (persistErr.code === "23505") {
+        const { data: existing } = await gate.supabase
+          .from("driver_financial_repair_requests")
+          .select("*")
+          .eq("idempotency_key", idempotencyKey)
+          .maybeSingle();
+        if (existing && String(existing.status) === "APPLIED") {
+          return json({
+            ok: true,
+            idempotent: true,
+            result: existing.apply_result ?? { already_applied: true },
+          });
+        }
+      }
+      return json({ error: persistErr.message, error_code: "APPLY_PERSIST_FAILED" }, 500);
     }
-    stampRestored = true;
 
     await insertRepairAudit(gate.supabase, {
-      event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.EXPECTED_STAMP_RESTORED,
+      event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.PREVIEWED,
       repair_token: repairToken,
       idempotency_key: idempotencyKey,
       preview_hash: previewHash,
@@ -638,90 +641,48 @@ async function handleApply(
       trip_id: tripId,
       admin_user_id: gate.userId,
       reason: reasonCheck.reason,
-      before_state: beforeState,
-      after_state: { stamp },
       source_evidence: loaded.evidence as unknown as Record<string, unknown>,
+      details: { classification: livePreview.classification, phase: "apply_persist" },
     });
 
-    // If TEN missing and stamps restored, post canonical TEN (append-only; never edit existing).
-    if (
-      livePreview.actual_ten_credit_pence === 0
-      && stamp.driver_net_pence + stamp.airport_charge_pence > 0
-    ) {
-      try {
-        await creditCapturedCardTripLedger(gate.supabase, {
-          driverId,
-          tripId,
-          driverNetPence: stamp.driver_net_pence + stamp.airport_charge_pence,
-          tipPence: 0,
-          currency: loaded.evidence.currency ?? "GBP",
-          commissionPct: stamp.commission_pct,
-        });
-        walletChanged = true;
-      } catch (err) {
-        const code = (err as { code?: string })?.code;
-        if (code !== "23505" && code !== "WALLET_AMOUNT_MISMATCH") {
-          return json({
-            error: err instanceof Error ? err.message : "Wallet credit failed",
-            error_code: "WALLET_CREDIT_FAILED",
-          }, 500);
-        }
-        // Existing TEN left unchanged.
-        originalLedgerUnchanged = true;
+    const beforeState = {
+      driver_net_pence: loaded.evidence.existing_driver_net_pence,
+      actual_ten_credit_pence: loaded.evidence.actual_ten_credit_pence,
+      actual_tip_credit_pence: loaded.evidence.actual_tip_credit_pence,
+    };
+
+    let walletDelta = 0;
+    let stampRestored = false;
+    let tenRestoredPence = 0;
+    let correctionPence = 0;
+    const messages: string[] = [];
+    const provenDelta = livePreview.proposed_repair.proven_wallet_delta_pence;
+
+    if (livePreview.proposed_repair.restore_expected_stamp && livePreview.proposed_repair.proposed_stamp) {
+      const stamp = livePreview.proposed_repair.proposed_stamp;
+      const existingSnapshot = (loaded.trip.fare_snapshot_json as Record<string, unknown> | null) ?? {};
+      const nextSnapshot = {
+        ...(existingSnapshot && typeof existingSnapshot === "object" ? existingSnapshot : {}),
+        ...stamp.columns,
+        repair_token: repairToken,
+        repair_calculation_version: DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
+      };
+      const { error: stampErr } = await gate.supabase
+        .from("trips")
+        .update({
+          ...stamp.columns,
+          fare_snapshot_json: nextSnapshot,
+        })
+        .eq("id", tripId)
+        .is("driver_net_pence", null);
+
+      if (stampErr) {
+        return json({ error: stampErr.message, error_code: "STAMP_RESTORE_FAILED" }, 500);
       }
-    }
+      stampRestored = true;
 
-    messages.push(
-      walletChanged && livePreview.proposed_repair.append_wallet_correction_pence === 0
-        && livePreview.actual_ten_credit_pence === 0
-        ? "Financial evidence restored and missing earning posted."
-        : "Financial evidence restored. No wallet balance was changed.",
-    );
-    if (!walletChanged) {
-      messages[0] =
-        "Financial evidence restored. No wallet balance was changed.";
-    }
-  }
-
-  const appendPence = livePreview.proposed_repair.append_wallet_correction_pence;
-  if (appendPence !== 0) {
-    // Only when canonical − actual ≠ 0. Append-only; never edit original TEN/tip.
-    const providerTransferId = buildWalletCorrectionProviderTransferId(idempotencyKey);
-    const ledgerType = appendPence > 0 ? "ADMIN_WALLET_CREDIT" : "ADMIN_WALLET_DEBIT";
-    const { data: ledgerEntry, error: ledgerErr } = await gate.supabase
-      .from("driver_wallet_ledger")
-      .insert({
-        driver_id: driverId,
-        service_area_id: saId,
-        type: ledgerType,
-        amount_pence: appendPence,
-        currency: loaded.evidence.currency ?? "GBP",
-        description: "ONECAB financial repair correction",
-        related_trip_id: tripId,
-        provider_transfer_id: providerTransferId,
-        metadata: {
-          repair_token: repairToken,
-          preview_hash: previewHash,
-          reconciliation_issue: livePreview.classification,
-          calculation_version: DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
-          append_only: true,
-          original_ledger_unchanged: true,
-        },
-      })
-      .select("id")
-      .maybeSingle();
-
-    if (ledgerErr) {
-      if (ledgerErr.code === "23505") {
-        // Idempotent duplicate.
-      } else {
-        return json({ error: ledgerErr.message, error_code: "WALLET_CORRECTION_FAILED" }, 500);
-      }
-    } else {
-      correctionPence = appendPence;
-      walletChanged = true;
       await insertRepairAudit(gate.supabase, {
-        event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.WALLET_CORRECTION_APPENDED,
+        event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.EXPECTED_STAMP_RESTORED,
         repair_token: repairToken,
         idempotency_key: idempotencyKey,
         preview_hash: previewHash,
@@ -730,40 +691,137 @@ async function handleApply(
         admin_user_id: gate.userId,
         reason: reasonCheck.reason,
         before_state: beforeState,
-        after_state: {
-          ledger_entry_id: ledgerEntry?.id ?? null,
-          correction_pence: appendPence,
-        },
+        after_state: { stamp },
         source_evidence: loaded.evidence as unknown as Record<string, unknown>,
       });
-      messages.push(formatWalletCorrectionResultCopy(appendPence));
     }
-  }
 
-  // Recompute reconciliation (FR consume-only) — never write DRIVER_CREDIT_OK / wallet_status.
-  let recompute: Record<string, unknown> | null = null;
-  let freezeCleared = false;
-  try {
-    // Load lifetime inputs for this driver — edge uses existing FR SSOT when available.
-    recompute = {
-      status: "RECOMPUTED",
-      variance_pence: livePreview.variance_pence != null
-        ? livePreview.variance_pence - appendPence
-        : 0,
-    };
-    const postVariance = appendPence !== 0
-      ? 0
-      : (livePreview.variance_pence ?? 0);
-    const evidenceComplete = stampRestored
-      || livePreview.existing_trip_stamps.driver_net_pence != null
-      || livePreview.classification === DRIVER_FINANCIAL_REPAIR_ACTION.RECOMPUTE_RECONCILIATION;
-    freezeCleared = shouldDerivedFreezeClearAfterRecompute({
-      variance_pence: postVariance === 0 || appendPence !== 0 ? 0 : postVariance,
-      evidence_complete: evidenceComplete,
-      driver_credit_status: postVariance === 0 || appendPence !== 0
-        ? "DRIVER_CREDIT_OK"
-        : "DRIVER_UNDER_CREDITED",
+    // Canonical TEN restoration owns this amount — residual correction must not include it.
+    const tenRestore = livePreview.proposed_repair.canonical_ten_restoration_pence;
+    if (tenRestore > 0) {
+      const stamp = livePreview.proposed_repair.proposed_stamp;
+      const tenOnly = stamp
+        ? Math.max(0, stamp.driver_net_pence + stamp.airport_charge_pence)
+        : tenRestore;
+      const tipOnly = Math.max(0, tenRestore - tenOnly);
+      try {
+        await creditCapturedCardTripLedger(gate.supabase, {
+          driverId,
+          tripId,
+          driverNetPence: Math.min(tenOnly, tenRestore),
+          tipPence: tipOnly,
+          currency: loaded.evidence.currency ?? "GBP",
+          commissionPct: stamp?.commission_pct,
+        });
+        tenRestoredPence = tenRestore;
+        walletDelta += tenRestore;
+      } catch (err) {
+        const code = (err as { code?: string })?.code;
+        if (code === "23505") {
+          // Idempotent — TEN already present; do not also residual-correct the same amount.
+        } else {
+          return json({
+            error: err instanceof Error ? err.message : "Wallet credit failed",
+            error_code: "WALLET_CREDIT_FAILED",
+          }, 500);
+        }
+      }
+    }
+
+    const appendPence = livePreview.proposed_repair.append_wallet_correction_pence;
+    if (appendPence !== 0) {
+      const providerTransferId = buildWalletCorrectionProviderTransferId(idempotencyKey);
+      const ledgerType = appendPence > 0 ? "ADMIN_WALLET_CREDIT" : "ADMIN_WALLET_DEBIT";
+      const { data: ledgerEntry, error: ledgerErr } = await gate.supabase
+        .from("driver_wallet_ledger")
+        .insert({
+          driver_id: driverId,
+          service_area_id: saId,
+          type: ledgerType,
+          amount_pence: appendPence,
+          currency: loaded.evidence.currency ?? "GBP",
+          description: "ONECAB financial repair correction",
+          related_trip_id: tripId,
+          provider_transfer_id: providerTransferId,
+          metadata: {
+            repair_token: repairToken,
+            preview_hash: previewHash,
+            reconciliation_issue: livePreview.classification,
+            calculation_version: DRIVER_FINANCIAL_REPAIR_CALCULATION_VERSION,
+            append_only: true,
+            residual_after_canonical_ten: true,
+            canonical_ten_restoration_pence: tenRestore,
+            original_ledger_unchanged: true,
+          },
+        })
+        .select("id")
+        .maybeSingle();
+
+      if (ledgerErr) {
+        if (ledgerErr.code !== "23505") {
+          return json({ error: ledgerErr.message, error_code: "WALLET_CORRECTION_FAILED" }, 500);
+        }
+      } else {
+        correctionPence = appendPence;
+        walletDelta += appendPence;
+        await insertRepairAudit(gate.supabase, {
+          event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.WALLET_CORRECTION_APPENDED,
+          repair_token: repairToken,
+          idempotency_key: idempotencyKey,
+          preview_hash: previewHash,
+          driver_id: driverId,
+          trip_id: tripId,
+          admin_user_id: gate.userId,
+          reason: reasonCheck.reason,
+          before_state: beforeState,
+          after_state: {
+            ledger_entry_id: ledgerEntry?.id ?? null,
+            correction_pence: appendPence,
+          },
+          source_evidence: loaded.evidence as unknown as Record<string, unknown>,
+        });
+        messages.push(formatWalletCorrectionResultCopy(appendPence));
+      }
+    }
+
+    if (walletDelta !== provenDelta) {
+      return json({
+        error:
+          `Wallet delta ${walletDelta}p !== proven required delta ${provenDelta}p — aborting result`,
+        error_code: DRIVER_FINANCIAL_REPAIR_BLOCK.MONETARY_CONSERVATION_VIOLATION,
+      }, 500);
+    }
+
+    if (stampRestored && walletDelta === 0) {
+      messages.push("Financial evidence restored. No wallet balance was changed.");
+    } else if (tenRestoredPence > 0 && correctionPence === 0) {
+      messages.push("Financial evidence restored and missing earning posted.");
+    }
+
+    // REAL canonical recompute — never synthesize DRIVER_CREDIT_OK / variance 0.
+    const snapshot = await fetchDriverWalletPayoutSnapshot(gate.supabase, { driverId });
+    const freezeEval = evaluateFalseFreezeClearedFromRecompute({
+      wallet_status: snapshot.wallet_status,
+      driver_credit_status: snapshot.driver_credit_status,
+      reconciliation_status: snapshot.reconciliation_status,
+      payout_status: snapshot.payout_status,
+      wallet_variance_pence: snapshot.wallet_variance_pence,
+      missing_stamp_trip_count: snapshot.missing_stamp_trip_count,
+      provider_state_ok: resolveProviderOk(loaded.evidence.provider_state),
+      active_payout_reservation: loaded.evidence.active_payout_reservation === true,
+      payout_intent_in_flight: Boolean(loaded.evidence.payout_intent_status),
     });
+
+    const recompute = {
+      source: "fetchDriverWalletPayoutSnapshot",
+      wallet_status: snapshot.wallet_status,
+      driver_credit_status: snapshot.driver_credit_status,
+      reconciliation_status: snapshot.reconciliation_status,
+      payout_status: snapshot.payout_status,
+      wallet_variance_pence: snapshot.wallet_variance_pence,
+      missing_stamp_trip_count: snapshot.missing_stamp_trip_count,
+      remaining_blockers: freezeEval.remaining_blockers,
+    };
 
     await insertRepairAudit(gate.supabase, {
       event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.RECONCILIATION_RECOMPUTED,
@@ -774,10 +832,10 @@ async function handleApply(
       trip_id: tripId,
       admin_user_id: gate.userId,
       reason: reasonCheck.reason,
-      after_state: { recompute, freeze_cleared_derived: freezeCleared },
+      after_state: { recompute, freeze_cleared_derived: freezeEval.clear },
     });
 
-    if (freezeCleared) {
+    if (freezeEval.clear) {
       await insertRepairAudit(gate.supabase, {
         event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.FALSE_FREEZE_CLEARED,
         repair_token: repairToken,
@@ -788,65 +846,68 @@ async function handleApply(
         admin_user_id: gate.userId,
         reason: reasonCheck.reason,
         details: {
-          note: "Derived status only — no direct wallet_status/frozen write",
+          note: "Derived from live FR/wallet snapshot — no direct wallet_status/frozen write",
         },
       });
       messages.push(
         "Reconciliation passed. The financial hold was removed automatically.",
       );
     }
-  } catch (err) {
+
+    const operationalPausedBefore = driverGate.driver.payout_operational_paused === true;
+    const applyResult = {
+      stamp_restored: stampRestored,
+      canonical_ten_restoration_pence: tenRestoredPence,
+      residual_correction_pence: correctionPence,
+      proven_wallet_delta_pence: provenDelta,
+      actual_wallet_delta_pence: walletDelta,
+      wallet_money_changed: walletDelta !== 0,
+      original_ledger_unchanged: true,
+      freeze_cleared_derived: freezeEval.clear,
+      remaining_blockers: freezeEval.remaining_blockers,
+      operational_pause_unchanged: true,
+      operational_paused: operationalPausedBefore,
+      recompute,
+      messages,
+      classification: livePreview.classification,
+    };
+
+    await gate.supabase
+      .from("driver_financial_repair_requests")
+      .update({
+        status: "APPLIED",
+        applied_at: new Date().toISOString(),
+        applied_by_admin_id: gate.userId,
+        apply_reason: reasonCheck.reason,
+        apply_result: applyResult,
+        idempotency_key: idempotencyKey,
+      })
+      .eq("repair_token", repairToken);
+
     return json({
-      error: err instanceof Error ? err.message : "Recompute failed",
-      error_code: "RECOMPUTE_FAILED",
-    }, 500);
+      ok: true,
+      idempotent: false,
+      result: applyResult,
+      copy: {
+        evidence_only: walletDelta === 0 && stampRestored
+          ? "Financial evidence restored. No wallet balance was changed."
+          : null,
+        wallet_correction: correctionPence !== 0
+          ? formatWalletCorrectionResultCopy(correctionPence)
+          : null,
+        freeze: freezeEval.clear
+          ? "Reconciliation passed. The financial hold was removed automatically."
+          : null,
+      },
+    });
+  } finally {
+    await releaseDriverFinancialRepairLock(gate.supabase, driverId).catch(() => undefined);
   }
+}
 
-  // Operational pause must remain unchanged.
-  const operationalPausedBefore = driverGate.driver.payout_operational_paused === true;
-
-  const applyResult = {
-    stamp_restored: stampRestored,
-    wallet_money_changed: walletChanged,
-    correction_pence: correctionPence,
-    original_ledger_unchanged: originalLedgerUnchanged,
-    freeze_cleared_derived: freezeCleared,
-    operational_pause_unchanged: true,
-    operational_paused: operationalPausedBefore,
-    recompute,
-    messages,
-    classification: livePreview.classification,
-  };
-
-  await gate.supabase
-    .from("driver_financial_repair_requests")
-    .update({
-      status: "APPLIED",
-      applied_at: new Date().toISOString(),
-      applied_by_admin_id: gate.userId,
-      apply_reason: reasonCheck.reason,
-      apply_result: applyResult,
-      idempotency_key: idempotencyKey,
-    })
-    .eq("repair_token", repairToken)
-    .eq("status", "PREVIEWED");
-
-  return json({
-    ok: true,
-    idempotent: false,
-    result: applyResult,
-    copy: {
-      evidence_only: !walletChanged
-        ? "Financial evidence restored. No wallet balance was changed."
-        : null,
-      wallet_correction: correctionPence !== 0
-        ? formatWalletCorrectionResultCopy(correctionPence)
-        : null,
-      freeze: freezeCleared
-        ? "Reconciliation passed. The financial hold was removed automatically."
-        : null,
-    },
-  });
+function resolveProviderOk(state?: string | null): boolean {
+  const s = String(state ?? "").toUpperCase();
+  return s === "CAPTURED" || s === "COMPLETED" || s === "SUCCEEDED" || s === "SETTLED";
 }
 
 async function handleRecompute(
@@ -867,20 +928,29 @@ async function handleRecompute(
   const access = await assertServiceAreaAccess(gate.supabase, gate.userId, saId);
   if (!access.ok) return access.response;
 
-  // Recompute is read-derived; callers should refresh wallet SSOT after apply.
-  await insertRepairAudit(gate.supabase, {
-    event_type: DRIVER_FINANCIAL_REPAIR_AUDIT_EVENT.RECONCILIATION_RECOMPUTED,
-    repair_token: String(body.repair_token ?? newRepairToken()),
-    driver_id: driverId,
-    trip_id: String(body.trip_id ?? ""),
-    admin_user_id: gate.userId,
-    reason: typeof body.reason === "string" ? body.reason : null,
-    details: { action: "recompute_only" },
+  const snapshot = await fetchDriverWalletPayoutSnapshot(gate.supabase, { driverId });
+  const freezeEval = evaluateFalseFreezeClearedFromRecompute({
+    wallet_status: snapshot.wallet_status,
+    driver_credit_status: snapshot.driver_credit_status,
+    reconciliation_status: snapshot.reconciliation_status,
+    payout_status: snapshot.payout_status,
+    wallet_variance_pence: snapshot.wallet_variance_pence,
+    missing_stamp_trip_count: snapshot.missing_stamp_trip_count,
+    provider_state_ok: true,
+    active_payout_reservation: false,
+    payout_intent_in_flight: false,
   });
 
   return json({
     ok: true,
-    message: "Reconciliation recompute requested — refresh Driver Wallet SSOT",
+    recompute: {
+      source: "fetchDriverWalletPayoutSnapshot",
+      wallet_status: snapshot.wallet_status,
+      driver_credit_status: snapshot.driver_credit_status,
+      wallet_variance_pence: snapshot.wallet_variance_pence,
+      remaining_blockers: freezeEval.remaining_blockers,
+      freeze_cleared_derived: freezeEval.clear,
+    },
     operational_pause_unchanged: true,
   });
 }
@@ -918,15 +988,10 @@ export async function handleAdminDriverFinancialRepair(
   }
 
   const action = String(body.action ?? "preview").toLowerCase();
-
-  // Hard guards — no provider / payout / scheduler.
-  const forbidden = ["revolut", "execute_payout", "scheduler", "unfreeze", "wallet_status"];
+  const forbidden = ["revolut", "execute_payout", "scheduler", "unfreeze", "set_wallet_status", "frozen"];
   for (const key of Object.keys(body)) {
     if (forbidden.includes(key.toLowerCase())) {
-      return json({
-        error: "Forbidden field",
-        error_code: "FORBIDDEN_FIELD",
-      }, 400);
+      return json({ error: "Forbidden field", error_code: "FORBIDDEN_FIELD" }, 400);
     }
   }
 

@@ -178,4 +178,50 @@ CREATE TRIGGER trg_driver_financial_repair_audit_append_only
   FOR EACH ROW
   EXECUTE FUNCTION public.deny_driver_financial_repair_audit_mutation();
 
+-- Session-level advisory lock for Apply serialization (Edge fail-closed).
+-- Uses pg_advisory_lock (session), not xact — Edge HTTP calls are separate transactions.
+CREATE OR REPLACE FUNCTION public.admin_driver_financial_repair_lock(
+  p_driver_id uuid,
+  p_acquire boolean DEFAULT true
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_k1 int;
+  v_k2 int;
+BEGIN
+  IF p_driver_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'error_code', 'DRIVER_REQUIRED');
+  END IF;
+
+  -- Finance / service-role only (Edge uses service_role after requireFinanceExecutionAuth).
+  IF current_setting('role', true) IS DISTINCT FROM 'service_role'
+     AND session_user IS DISTINCT FROM 'service_role'
+     AND current_user IS DISTINCT FROM 'service_role' THEN
+    BEGIN
+      PERFORM public.assert_finance_payout_ledger_access();
+    EXCEPTION WHEN OTHERS THEN
+      RETURN jsonb_build_object('ok', false, 'error_code', 'PERMISSION_DENIED');
+    END;
+  END IF;
+
+  v_k1 := ('x' || substr(md5('driver_financial_repair:' || p_driver_id::text), 1, 8))::bit(32)::int;
+  v_k2 := ('x' || substr(md5('driver_financial_repair:' || p_driver_id::text), 9, 8))::bit(32)::int;
+
+  IF p_acquire THEN
+    PERFORM pg_advisory_lock(v_k1, v_k2);
+    RETURN jsonb_build_object('ok', true, 'acquired', true);
+  END IF;
+
+  PERFORM pg_advisory_unlock(v_k1, v_k2);
+  RETURN jsonb_build_object('ok', true, 'acquired', false);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_driver_financial_repair_lock(uuid, boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_driver_financial_repair_lock(uuid, boolean) TO service_role;
+
 COMMIT;
