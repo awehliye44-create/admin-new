@@ -26,6 +26,11 @@ export type FrIssueTripRow = {
   driver_credit_health?: string | null;
   expected_stamp_status?: string | null;
   payment_session_id?: string | null;
+  /** Settled receivable recovery — historical shortfall evidence, not open. */
+  resolved_by_receivable_recovery?: boolean | null;
+  receivable_recovery_status?: string | null;
+  settled_receivable_original_pence?: number | null;
+  recovery_payment_session_id?: string | null;
 };
 
 export type FrIssueFilter =
@@ -179,11 +184,14 @@ export function parseFrTripFilter(value: string | null | undefined): 'driver_cre
 }
 
 function isResolvedTrip(row: FrIssueTripRow): boolean {
+  if (row.resolved_by_receivable_recovery === true) return true;
   return !row.capture_mismatch
     && String(row.reconciliation_status?.label ?? '').toLowerCase().includes('balanced');
 }
 
 export function isShortfallTrip(row: FrIssueTripRow): boolean {
+  // Settled receivable recovery is historical evidence — not an open shortfall.
+  if (row.resolved_by_receivable_recovery === true) return false;
   return row.capture_reconciliation_status === 'CAPTURE_SHORTFALL'
     || (row.capture_variance_pence != null && row.capture_variance_pence < 0)
     || (row.outstanding_pence != null && row.outstanding_pence > 0);
@@ -231,6 +239,7 @@ export function isPayoutMismatchTrip(row: FrIssueTripRow): boolean {
 }
 
 export function isCaptureMismatchTrip(row: FrIssueTripRow): boolean {
+  if (row.resolved_by_receivable_recovery === true) return false;
   return !!row.capture_mismatch
     || String(row.reconciliation_status?.tone ?? '').toLowerCase() === 'error'
     || String(row.reconciliation_status?.tone ?? '').toLowerCase() === 'red'
@@ -350,6 +359,7 @@ export function buildFrUnifiedIssues(rows: FrIssueTripRow[]): FrUnifiedIssue[] {
   for (const row of rows) {
     if (isResolvedTrip(row)) {
       const { expected, actual, difference } = expectedActualForIssue('resolved', row);
+      const recoveryStatus = String(row.receivable_recovery_status ?? '').trim();
       issues.push({
         trip_id: row.trip_id,
         date: row.date ?? null,
@@ -357,14 +367,20 @@ export function buildFrUnifiedIssues(rows: FrIssueTripRow[]): FrUnifiedIssue[] {
         driver_id: row.driver_id ?? null,
         driver_name: row.driver_name ?? null,
         issue_type: 'resolved',
-        issue_label: issueLabel('resolved'),
+        issue_label: recoveryStatus === 'RESOLVED_BY_RECEIVABLE_RECOVERY'
+          ? 'Resolved by receivable recovery'
+          : issueLabel('resolved'),
         expected_pence: expected,
         actual_pence: actual,
-        difference_pence: difference,
-        status: row.reconciliation_status?.label ?? 'Balanced',
+        difference_pence: recoveryStatus === 'RESOLVED_BY_RECEIVABLE_RECOVERY'
+          ? (row.settled_receivable_original_pence ?? difference)
+          : difference,
+        status: recoveryStatus || (row.reconciliation_status?.label ?? 'Balanced'),
         is_critical: false,
         is_resolved: true,
-        payment_session_id: row.payment_session_id ?? null,
+        payment_session_id: row.recovery_payment_session_id
+          ?? row.payment_session_id
+          ?? null,
       });
       continue;
     }

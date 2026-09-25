@@ -34,6 +34,11 @@ import {
 } from "../_shared/providerPlatformBalanceSSOT.ts";
 import { computeLedgerWalletBalancePence } from "../_shared/onecabFinanceLedger.ts";
 import {
+  classifySourceTripReceivableRecovery,
+  sumOpenReservedReceivableOutstandingPence,
+  type SourceTripReceivableRecoveryRow,
+} from "../_shared/frCaptureCompositionIdentitySSOT.ts";
+import {
   aggregateFrOverviewFromPerTripRecords,
   buildFrPerTripAuditRecord,
   buildFrPeriodAuditSummary,
@@ -53,7 +58,7 @@ import {
 } from "../_shared/financeReconciliationTripQuery.ts";
 
 const PAYMENT_SESSION_MONEY_SELECT =
-  "id, trip_id, purpose, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at, release_evidence_status, release_evidence_source, release_verified_at, metadata";
+  "id, trip_id, purpose, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at, release_evidence_status, release_evidence_source, release_verified_at, metadata, trip_fare_component_pence, tip_component_pence, receivable_component_pence, buffer_pence, provider_capture_target_pence";
 
 const TRIP_AUDIT_SELECT = `
         id,
@@ -1181,6 +1186,84 @@ serve(async (req) => {
     ].some((s) => s === "UNAVAILABLE");
     const pageStatus = anyDownstreamUnavailable ? "PARTIAL" : "LIVE";
     const canonicalSessionsByTrip = resolveCanonicalPaymentSessionMoneyByTrip(paymentSessionRows);
+
+    // Customer outstanding + receivable recovery classification (before per-trip audit).
+    let openReceivables: OpenReceivableRow[] = [];
+    let recoveryReceivables: SourceTripReceivableRecoveryRow[] = [];
+    let receivablesLedgerAvailable = false;
+    try {
+      const { data: recvRows, error: recvErr } = await supabase
+        .from("customer_receivables")
+        .select(
+          "id, customer_id, outstanding_amount_pence, original_amount_pence, status, currency, source_trip_id, idempotency_key, created_at, reserved_payment_session_id, settled_at",
+        )
+        .in("status", ["OPEN", "RESERVED", "SETTLED", "WAIVED"])
+        .order("created_at", { ascending: true })
+        .limit(2000);
+      if (!recvErr && recvRows) {
+        receivablesLedgerAvailable = true;
+        recoveryReceivables = recvRows.map((r) => ({
+          source_trip_id: String(r.source_trip_id),
+          status: String(r.status),
+          outstanding_amount_pence: Math.round(Number(r.outstanding_amount_pence) || 0),
+          original_amount_pence: Math.round(Number(r.original_amount_pence) || 0),
+          reserved_payment_session_id: r.reserved_payment_session_id
+            ? String(r.reserved_payment_session_id)
+            : null,
+          settled_at: r.settled_at ? String(r.settled_at) : null,
+        }));
+        openReceivables = recvRows
+          .filter((r) => {
+            const st = String(r.status ?? "").toUpperCase();
+            return st === "OPEN" || st === "RESERVED";
+          })
+          .map((r) => ({
+            id: String(r.id),
+            customer_id: String(r.customer_id),
+            outstanding_amount_pence: Math.round(Number(r.outstanding_amount_pence) || 0),
+            status: String(r.status),
+            currency: String(r.currency ?? "gbp"),
+            source_trip_id: String(r.source_trip_id),
+            idempotency_key: String(r.idempotency_key ?? ""),
+            created_at: r.created_at ? String(r.created_at) : undefined,
+          }));
+      }
+    } catch (recvCatch) {
+      console.warn(
+        "[admin-finance-reconciliation] customer_receivables read skipped",
+        recvCatch,
+      );
+    }
+
+    for (const row of trip_financial_audit) {
+      const tripId = String(row.trip_id ?? "");
+      const recovery = classifySourceTripReceivableRecovery(recoveryReceivables, tripId);
+      const openOutstanding = sumOpenReservedReceivableOutstandingPence(
+        recoveryReceivables,
+        tripId,
+      );
+      if (receivablesLedgerAvailable) {
+        row.outstanding_pence = openOutstanding;
+      }
+      if (recovery.resolved_by_receivable_recovery) {
+        row.resolved_by_receivable_recovery = true;
+        row.receivable_recovery_status = recovery.status;
+        row.settled_receivable_original_pence = recovery.settled_original_pence;
+        row.recovery_payment_session_id = recovery.recovery_payment_session_id;
+        row.outstanding_pence = 0;
+        if (String(row.reconciliation_status?.label ?? "") === "SETTLEMENT_MISMATCH"
+          && (row.credit_difference_pence == null || row.credit_difference_pence === 0)
+          && (row.wallet_variance_pence == null || row.wallet_variance_pence === 0)) {
+          row.reconciliation_status = {
+            ...(row.reconciliation_status ?? { label: "BALANCED", tone: "green" }),
+            label: "RESOLVED_BY_RECEIVABLE_RECOVERY",
+            tone: "green",
+          };
+          row.capture_mismatch = false;
+        }
+      }
+    }
+
     const fr_per_trip_audit = trip_financial_audit.map((row) =>
       buildFrPerTripAuditRecord({
         row: row as unknown as Record<string, unknown>,
@@ -1192,38 +1275,6 @@ serve(async (req) => {
       fr_per_trip_audit,
       trip_financial_audit as unknown as Array<Record<string, unknown>>,
     );
-
-    // Customer outstanding — separate from wallet_gap / payout variance.
-    let openReceivables: OpenReceivableRow[] = [];
-    let receivablesLedgerAvailable = false;
-    try {
-      const { data: recvRows, error: recvErr } = await supabase
-        .from("customer_receivables")
-        .select(
-          "id, customer_id, outstanding_amount_pence, status, currency, source_trip_id, idempotency_key, created_at",
-        )
-        .in("status", ["OPEN", "RESERVED"])
-        .order("created_at", { ascending: true })
-        .limit(500);
-      if (!recvErr && recvRows) {
-        receivablesLedgerAvailable = true;
-        openReceivables = recvRows.map((r) => ({
-          id: String(r.id),
-          customer_id: String(r.customer_id),
-          outstanding_amount_pence: Math.round(Number(r.outstanding_amount_pence) || 0),
-          status: String(r.status),
-          currency: String(r.currency ?? "gbp"),
-          source_trip_id: String(r.source_trip_id),
-          idempotency_key: String(r.idempotency_key ?? ""),
-          created_at: r.created_at ? String(r.created_at) : undefined,
-        }));
-      }
-    } catch (recvCatch) {
-      console.warn(
-        "[admin-finance-reconciliation] customer_receivables read skipped",
-        recvCatch,
-      );
-    }
 
     const customer_outstanding_overview = buildFrCustomerOutstandingOverview({
       trips: trip_financial_audit.map((row) => ({
@@ -1271,15 +1322,24 @@ serve(async (req) => {
       trips: trip_financial_audit,
       drivers: undefined,
       mismatches: trip_financial_audit.filter((r) =>
-        r.capture_mismatch
-        || (r.driver_credit_health != null && isDriverCreditExceptionHealth(r.driver_credit_health))
-        || String(r.reconciliation_status?.tone ?? "").toLowerCase() === "error"
-        || String(r.reconciliation_status?.label ?? "").toLowerCase().includes("mismatch")
+        !r.resolved_by_receivable_recovery
+        && (
+          r.capture_mismatch
+          || (r.driver_credit_health != null && isDriverCreditExceptionHealth(r.driver_credit_health))
+          || String(r.reconciliation_status?.tone ?? "").toLowerCase() === "error"
+          || (
+            String(r.reconciliation_status?.label ?? "").toLowerCase().includes("mismatch")
+            && String(r.reconciliation_status?.label ?? "") !== "RESOLVED_BY_RECEIVABLE_RECOVERY"
+          )
+        )
       ),
       alerts: undefined,
       resolved_history: trip_financial_audit.filter((r) =>
-        !r.capture_mismatch
-        && String(r.reconciliation_status?.label ?? "").toLowerCase().includes("balanced")
+        r.resolved_by_receivable_recovery === true
+        || (
+          !r.capture_mismatch
+          && String(r.reconciliation_status?.label ?? "").toLowerCase().includes("balanced")
+        )
       ),
       downstream_status: {
         payment_sessions: paymentSessionsDownstream,
