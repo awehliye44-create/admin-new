@@ -70,8 +70,8 @@ CREATE TABLE public.payment_session_receivable_allocations (
 );
 SQL
 
-"${PSQL[@]}" -f "$ROOT/supabase/migrations/20260925120000_capture_composition_components.sql"
-"${PSQL[@]}" -f "$ROOT/supabase/migrations/20260925130000_payment_session_acquire_capture_composition.sql"
+"${PSQL[@]}" -f "$ROOT/supabase/migrations/20261130120000_capture_composition_components.sql"
+"${PSQL[@]}" -f "$ROOT/supabase/migrations/20261130130000_payment_session_acquire_capture_composition.sql"
 
 SESSION_ID=$("${PSQL[@]}" -Atc "SELECT gen_random_uuid()")
 ORDER_ID="ord-txn-cert-001"

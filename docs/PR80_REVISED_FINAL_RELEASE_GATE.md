@@ -13,7 +13,7 @@
 
 ## Migration hashes
 
-- Forward `20260925120000_capture_composition_components.sql` → see commit  
+- Forward `20261130120000_capture_composition_components.sql` → see commit  
 - Rollback documents: safe only before any `capture_idempotency_key` used in production
 
 ## Constraints / trigger

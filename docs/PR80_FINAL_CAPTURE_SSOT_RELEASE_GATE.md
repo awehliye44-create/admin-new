@@ -38,8 +38,8 @@ Classification: **C** (+ **B**). Not A / not D.
 
 | Item | Value |
 |------|--------|
-| Forward | `supabase/migrations/20260925120000_capture_composition_components.sql` |
-| Rollback | `supabase/migrations/rollback/rollback_20260925120000_capture_composition_components.sql` |
+| Forward | `supabase/migrations/20261130120000_capture_composition_components.sql` |
+| Rollback | `supabase/migrations/rollback/rollback_20261130120000_capture_composition_components.sql` |
 | Forward SHA-256 | `a405614b5ea752ce0c6291dc97826294eefa1c0b4bd011458a756cbc354c49f4` |
 | Rollback SHA-256 | `c9942206b34199618d76c9ee024be8071a23ce38f9bf13f0ef8b487294510f4a` |
 
@@ -156,8 +156,8 @@ supabase/functions/_shared/tipWindowCaptureOrchestrationSSOT.ts
 supabase/functions/admin-capture-trip-payment/index.ts
 supabase/functions/capture-expired-tip-windows/index.ts
 supabase/functions/sweep-revolut-stale-holds/index.ts
-supabase/migrations/20260925120000_capture_composition_components.sql
-supabase/migrations/rollback/rollback_20260925120000_capture_composition_components.sql
+supabase/migrations/20261130120000_capture_composition_components.sql
+supabase/migrations/rollback/rollback_20261130120000_capture_composition_components.sql
 supabase/tests/_shared/captureCompositionSSOTLock.test.ts
 ```
 
@@ -165,7 +165,7 @@ supabase/tests/_shared/captureCompositionSSOTLock.test.ts
 
 1. Do **not** deploy Edge until migration applied (or roll Edge back first).
 2. Redeploy previous Edge package SHAs from prior financial-main tip `a2afdea2`.
-3. Apply rollback SQL `rollback_20260925120000_capture_composition_components.sql`.
+3. Apply rollback SQL `rollback_20261130120000_capture_composition_components.sql`.
 4. Confirm columns dropped; receivables untouched.
 5. Fold remains OFF.
 

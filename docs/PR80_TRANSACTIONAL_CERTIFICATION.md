@@ -11,7 +11,7 @@
 
 `public.payment_session_acquire_capture_composition(uuid, text, integer, integer, integer, integer, text, text)`
 
-Migration: `supabase/migrations/20260925130000_payment_session_acquire_capture_composition.sql`
+Migration: `supabase/migrations/20261130130000_payment_session_acquire_capture_composition.sql`
 
 ### Full SQL transaction boundary
 
@@ -82,7 +82,7 @@ DB: local Homebrew PG 16 ephemeral `onecab_capture_composition_cert` (not produc
 | Subsequent component/key changes rejected | trigger (local probe PASS) |
 | authenticated/anon cannot mutate / execute | REVOKE from anon+authenticated; EXECUTE grant **service_role only** (`anon_exec=f auth_exec=f service_exec=t`) |
 | Existing table RLS covers new columns | migration comment + existing `"Service role manages payment_sessions"`; no redundant policies |
-| Rollback refuses used live evidence | `rollback_20260925120000_…` DO guard raises `ROLLBACK_REFUSED_LIVE_CAPTURE_COMPOSITION_EVIDENCE` |
+| Rollback refuses used live evidence | `rollback_20261130120000_…` DO guard raises `ROLLBACK_REFUSED_LIVE_CAPTURE_COMPOSITION_EVIDENCE` |
 | Migration-first + old Edges | columns nullable; old Edges ignore → safe |
 | New Edge + missing migration | `CAPTURE_COMPOSITION_MIGRATION_REQUIRED` → fail closed |
 
@@ -90,10 +90,10 @@ DB: local Homebrew PG 16 ephemeral `onecab_capture_composition_cert` (not produc
 
 | File | SHA-256 |
 |------|---------|
-| `20260925120000_capture_composition_components.sql` | `323d723737c65692fb697b1e87505b19f53e71f16281fd989ad9cf607c6e28b2` |
-| `rollback_20260925120000_capture_composition_components.sql` | `615ccafff4769f4318d573040ffcc5b1455c24d3617a9d624da7cd3aaec9ca37` |
-| `20260925130000_payment_session_acquire_capture_composition.sql` | `761c235e24fed675d994a69645bf18e7d244955ecc69b9fe6de5caca6baa6438` |
-| `rollback_20260925130000_payment_session_acquire_capture_composition.sql` | `0c0d74ba682a7c8e445345280088081c7cbfda13a706ce55b18fdd503be00eef` |
+| `20261130120000_capture_composition_components.sql` | `323d723737c65692fb697b1e87505b19f53e71f16281fd989ad9cf607c6e28b2` |
+| `rollback_20261130120000_capture_composition_components.sql` | `615ccafff4769f4318d573040ffcc5b1455c24d3617a9d624da7cd3aaec9ca37` |
+| `20261130130000_payment_session_acquire_capture_composition.sql` | `761c235e24fed675d994a69645bf18e7d244955ecc69b9fe6de5caca6baa6438` |
+| `rollback_20261130130000_payment_session_acquire_capture_composition.sql` | `0c0d74ba682a7c8e445345280088081c7cbfda13a706ce55b18fdd503be00eef` |
 
 ---
 
@@ -143,8 +143,8 @@ Live ezbr from prior read-only inventory (unchanged — **no deploy this session
 
 ## Exact migration-first deployment order (when approved)
 
-1. Apply `20260925120000_capture_composition_components.sql`
-2. Apply `20260925130000_payment_session_acquire_capture_composition.sql`
+1. Apply `20261130120000_capture_composition_components.sql`
+2. Apply `20261130130000_payment_session_acquire_capture_composition.sql`
 3. Verify RPC exists + service_role EXECUTE only
 4. Deploy Edges (independent packages): finalize → admin-capture → admin-remediate → capture-expired-tip-windows → submit-customer-trip-tip → sweep-revolut-stale-holds → stop-workflow → revolut-webhook → admin-hold-action
 5. **Do not** deploy `capture-trip-payment`

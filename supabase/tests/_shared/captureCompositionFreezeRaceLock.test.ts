@@ -290,7 +290,7 @@ Deno.test("12. no TEN/commission/tip/payout in composition components", () => {
 
 Deno.test("13. migration defines freeze trigger + populated CHECK", async () => {
   const sql = await Deno.readTextFile(
-    new URL("../../migrations/20260925120000_capture_composition_components.sql", import.meta.url),
+    new URL("../../migrations/20261130120000_capture_composition_components.sql", import.meta.url),
   );
   assertStringIncludes(sql, "payment_sessions_capture_composition_populated_chk");
   assertStringIncludes(sql, "trg_payment_sessions_capture_composition_immutable");
@@ -337,7 +337,7 @@ Deno.test("16. RLS proof: payment_sessions service-role policy covers new column
   );
   assertStringIncludes(sql, 'CREATE POLICY "Service role manages payment_sessions"');
   const mig = await Deno.readTextFile(
-    new URL("../../migrations/20260925120000_capture_composition_components.sql", import.meta.url),
+    new URL("../../migrations/20261130120000_capture_composition_components.sql", import.meta.url),
   );
   assertStringIncludes(mig, "No redundant policies added");
 });

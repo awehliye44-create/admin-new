@@ -94,10 +94,10 @@ PostgreSQL **17.11** ephemeral — both migrations applied — concurrency cert 
 
 | File | SHA-256 |
 |------|---------|
-| `20260925120000_capture_composition_components.sql` | `323d723737c65692fb697b1e87505b19f53e71f16281fd989ad9cf607c6e28b2` |
-| `rollback_20260925120000_…` | `615ccafff4769f4318d573040ffcc5b1455c24d3617a9d624da7cd3aaec9ca37` |
-| `20260925130000_payment_session_acquire_capture_composition.sql` | `761c235e24fed675d994a69645bf18e7d244955ecc69b9fe6de5caca6baa6438` |
-| `rollback_20260925130000_…` | `0c0d74ba682a7c8e445345280088081c7cbfda13a706ce55b18fdd503be00eef` |
+| `20261130120000_capture_composition_components.sql` | `323d723737c65692fb697b1e87505b19f53e71f16281fd989ad9cf607c6e28b2` |
+| `rollback_20261130120000_…` | `615ccafff4769f4318d573040ffcc5b1455c24d3617a9d624da7cd3aaec9ca37` |
+| `20261130130000_payment_session_acquire_capture_composition.sql` | `761c235e24fed675d994a69645bf18e7d244955ecc69b9fe6de5caca6baa6438` |
+| `rollback_20261130130000_…` | `0c0d74ba682a7c8e445345280088081c7cbfda13a706ce55b18fdd503be00eef` |
 
 ### Deploy order (when approved)
 
@@ -107,6 +107,11 @@ PostgreSQL **17.11** ephemeral — both migrations applied — concurrency cert 
 4. Never deploy capture-trip-payment or submit-customer-trip-tip for this PR
 
 ---
+
+
+## Source hygiene (post-release)
+
+Live `schema_migrations` versions are `20261130120000` / `20261130130000` (filename timestamps aligned; original tip files were `2026092512/130000` and collided with `negotiation_decision_hold_sql_timeout`). Forward SQL content hashes unchanged. Headers inside forward SQL still cite the pre-rename rollback paths to preserve content SHA-256.
 
 ## Unchanged production fingerprint
 
