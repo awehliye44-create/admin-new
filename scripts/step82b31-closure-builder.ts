@@ -63,10 +63,34 @@ async function sha256File(p: string): Promise<string> {
 }
 
 async function sha256Dir(dir: string): Promise<string> {
-  const proc = new Deno.Command("tar", { args: ["-cf", "-", "-C", dir, "."], stdout: "piped" });
-  const { stdout, code } = await proc.output();
-  if (code !== 0) throw new Error(`tar failed ${dir}`);
-  const hash = await crypto.subtle.digest("SHA-256", stdout);
+  // Deterministic content tree hash: sorted relative paths + file bytes.
+  // Do not use plain `tar -cf` — macOS/bsdtar embeds mtime/uid → non-reproducible SHAs.
+  const files: string[] = [];
+  async function walk(d: string) {
+    for await (const e of Deno.readDir(d)) {
+      const p = join(d, e.name);
+      if (e.isDirectory) await walk(p);
+      else if (e.isFile) files.push(p);
+    }
+  }
+  await walk(dir);
+  files.sort((a, b) => a.localeCompare(b));
+  const chunks: Uint8Array[] = [];
+  const enc = new TextEncoder();
+  for (const p of files) {
+    const rel = relative(dir, p).replaceAll("\\", "/");
+    chunks.push(enc.encode(rel + "\0"));
+    chunks.push(await Deno.readFile(p));
+    chunks.push(enc.encode("\0"));
+  }
+  const total = chunks.reduce((n, c) => n + c.byteLength, 0);
+  const buf = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    buf.set(c, off);
+    off += c.byteLength;
+  }
+  const hash = await crypto.subtle.digest("SHA-256", buf);
   return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
