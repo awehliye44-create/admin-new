@@ -252,9 +252,10 @@ describe("customer active-workflow gate", () => {
       { status: "completing", driver_id: "d1" },
     ];
     for (const trip of cases) {
+      // Live trips no longer block Help — only pending rating does.
       expect(
         isCustomerAssistantBusy(evaluateCustomerAssistantBusyFromRows({ trips: [trip], pendingRating: false })),
-      ).toBe(true);
+      ).toBe(false);
     }
     expect(
       isCustomerAssistantBusy(evaluateCustomerAssistantBusyFromRows({ trips: [], pendingRating: true })),
