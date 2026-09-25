@@ -22,8 +22,8 @@ capture + remainder release semantics (B co-fact).
 
 ## Migration (pending approval)
 
-- Forward: `supabase/migrations/20260925120000_capture_composition_components.sql`
-- Rollback: `supabase/migrations/rollback/rollback_20260925120000_capture_composition_components.sql`
+- Forward: `supabase/migrations/20261130120000_capture_composition_components.sql`
+- Rollback: `supabase/migrations/rollback/rollback_20261130120000_capture_composition_components.sql`
 
 Adds on `payment_sessions`:
 
@@ -64,7 +64,7 @@ sweep-revolut-stale-holds
 ```
 85adad7bb75d00f3997b1027c900696d82a4cb579f01fffd59e9cf060870689e  captureCompositionSSOT.ts
 c595cbff88cfb2fdea0e4aabe3a57c8e64337c52887babf137c79c564fe78c50  captureCompositionLoadPlan.ts
-a405614b5ea752ce0c6291dc97826294eefa1c0b4bd011458a756cbc354c49f4  20260925120000_capture_composition_components.sql
+a405614b5ea752ce0c6291dc97826294eefa1c0b4bd011458a756cbc354c49f4  20261130120000_capture_composition_components.sql
 f17df515543435ebdc5dffff25ac8e548d3bb7884b843eb62885eb5337ab799f  revolutCompletionCapture.ts
 6c488db6f146ba99e0a6cfa4a3905b49253795a1f2ff7f78f32a79abef655a58  paymentSessionSSOT.ts
 2ae9030def166625e7ebb5fe99ed2a6eca799fbd27ffb34f49876d53e7b39bf0  adminCaptureTripPaymentSSOT.ts

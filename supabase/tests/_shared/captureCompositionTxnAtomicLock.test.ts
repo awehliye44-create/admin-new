@@ -11,7 +11,7 @@ const ACQUIRE_PATH = new URL(
   import.meta.url,
 );
 const RPC_MIGRATION = new URL(
-  "../../migrations/20260925130000_payment_session_acquire_capture_composition.sql",
+  "../../migrations/20261130130000_payment_session_acquire_capture_composition.sql",
   import.meta.url,
 );
 
